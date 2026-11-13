@@ -408,7 +408,7 @@ it("shows the merge-risk recommendation on the row and its details in the popove
   expect(
     screen.getByText("Description matches").nextElementSibling?.textContent
   ).toBe("40%");
-  expect(screen.getByText(/Not merge approval/i)).toBeTruthy();
+  expect(screen.queryByText(/Not merge approval/i)).toBeNull();
 });
 
 it("keeps inconclusive assessments discoverable on the row", () => {

@@ -72,10 +72,15 @@ for (const mobile of [false, true]) {
         calls++;
         if (calls === 1) {
           await gate;
-          await route.fulfill({ json: { state: "failed" } });
+          // A missing record reads as an ordinary failure with Retry.
+          await route.fulfill({
+            json: { state: "unavailable", reason: "not_found" },
+          });
         } else if (calls === 2) {
           await retryGate;
-          await route.fulfill({ json: { state: "unavailable" } });
+          await route.fulfill({
+            json: { state: "unavailable", reason: "config_changed" },
+          });
         } else if (calls === 4)
           await route.fulfill({
             status: 500,
@@ -147,7 +152,7 @@ for (const mobile of [false, true]) {
     releaseRetry();
 
     await expect(
-      page.getByText(/Explanation unavailable for this assessment/)
+      page.getByText(/AI settings changed mid-request/)
     ).toBeVisible();
     await expect(
       page.getByRole("button", { name: "Retry explanation", exact: true })
@@ -165,7 +170,7 @@ for (const mobile of [false, true]) {
     await expect(popup).toContainText(
       "`auth/session.ts changes session handling."
     );
-    await expect(page.getByText(/Evidence-based follow-up/)).toBeVisible();
+    await expect(popup.getByText(/Evidence-based follow-up/)).toHaveCount(0);
     await page.screenshot({
       path: `/tmp/risk-${mobile ? "mobile" : "desktop"}-result.png`,
     });

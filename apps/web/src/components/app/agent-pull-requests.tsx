@@ -168,6 +168,21 @@ type ExplanationReply = {
   state: "ready" | "unavailable" | "pending" | "limited" | "failed";
   text?: string;
   reason?: string;
+  limitedEvidence?: boolean;
+};
+const EXPLANATION_UNAVAILABLE: Record<
+  string,
+  { title: string; message: string }
+> = {
+  disabled: {
+    title: "Explanations are off",
+    message:
+      "Turn on merge-risk assessments and save an API key in Settings → AI routing.",
+  },
+  config_changed: {
+    title: "Settings changed",
+    message: "AI settings changed mid-request. Retry to use the new settings.",
+  },
 };
 const EXPLANATION_FAILURES: Record<string, string> = {
   provider_rejected:
@@ -179,14 +194,22 @@ const EXPLANATION_FAILURES: Record<string, string> = {
   malformed: "OpenAI returned an unusable answer. You can retry.",
   oversized: "Saved evidence is too large to explain. No request was made.",
 };
+/** A missing record shown on the card is unexpected: treat it as a failure. */
+function explanationFailed(data: ExplanationReply | undefined) {
+  return (
+    data?.state === "failed" ||
+    (data?.state === "unavailable" && data.reason === "not_found")
+  );
+}
 /** One notice per outcome; "busy" never describes a failed request. */
 function explanationNotice(data: ExplanationReply | undefined) {
-  if (data?.state === "unavailable")
-    return {
-      title: "Explanation unavailable",
-      message:
-        "Explanation unavailable for this assessment: it is no longer current or lacks saved evidence. The assessment above still applies.",
-    };
+  if (data?.state === "unavailable" && !explanationFailed(data))
+    return (
+      EXPLANATION_UNAVAILABLE[data.reason ?? ""] ?? {
+        title: "Explanation unavailable",
+        message: "Could not explain this assessment.",
+      }
+    );
   if (data?.state === "limited")
     return {
       title: "Assessments busy",
@@ -232,7 +255,7 @@ function RiskExplanation({
     query.data?.state === "ready";
   const showNotice =
     requested && !query.isFetching && !ready && (query.isError || !!query.data);
-  const failure = query.isError || query.data?.state === "failed";
+  const failure = query.isError || explanationFailed(query.data);
   const notice = explanationNotice(query.isError ? undefined : query.data);
   const ActionIcon = query.isFetching
     ? LoaderCircle
@@ -336,10 +359,12 @@ function RiskExplanation({
               )
             )}
           </p>
-          <p className="text-[10px] leading-relaxed">
-            Evidence-based follow-up · not private scoring reasoning or merge
-            approval.
-          </p>
+          {query.data?.limitedEvidence && (
+            <p className="leading-relaxed">
+              Supporting detail for this assessment wasn't saved, so this uses
+              only its recorded scores.
+            </p>
+          )}
         </>
       )}
     </div>
@@ -361,6 +386,17 @@ function MergeRiskDetails({
   const ChecksIcon = checks.icon;
   const state = riskDisplay(risk);
   const assessment = risk.displayState ? risk.previous : risk;
+  // Any saved assessment can be explained as it was made, current or not.
+  const explanation = agentId &&
+    assessment?.status === "ok" &&
+    assessment.assessmentId && (
+      <RiskExplanation
+        key={assessment.assessmentId}
+        agentId={agentId}
+        url={url}
+        assessmentId={assessment.assessmentId}
+      />
+    );
   return (
     <section className="space-y-3 border-t border-border p-3">
       <div className="space-y-1.5">
@@ -384,17 +420,7 @@ function MergeRiskDetails({
         </div>
         <p className="text-[11px] text-muted-foreground">{state.hint}</p>
       </div>
-      {agentId &&
-        !risk.displayState &&
-        risk.status === "ok" &&
-        risk.assessmentId && (
-          <RiskExplanation
-            key={risk.assessmentId}
-            agentId={agentId}
-            url={url}
-            assessmentId={risk.assessmentId}
-          />
-        )}
+      {!risk.displayState && explanation}
       {assessment && (
         <div className="space-y-3">
           {risk.displayState && (
@@ -406,6 +432,7 @@ function MergeRiskDetails({
                 </h5>
                 <MergeRiskBadge risk={assessment} />
               </div>
+              {explanation}
             </>
           )}
           <dl className="grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-4 gap-y-2 text-[11px]">
@@ -493,7 +520,6 @@ function MergeRiskDetails({
                 timeStyle: "short",
               })}
             </time>
-            <span>· Not merge approval.</span>
           </div>
         </div>
       )}
