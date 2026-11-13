@@ -16,7 +16,8 @@ const AlertDialogContent = React.forwardRef<
     <Primitive.Content
       ref={ref}
       className={cn(
-        "fixed left-1/2 top-1/2 z-[70] w-[min(480px,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 space-y-4 rounded-xl p-5",
+        "fixed left-1/2 z-[70] w-[min(480px,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 space-y-4 overflow-y-auto rounded-xl p-5",
+        "dialog-viewport-fit",
         glassOverlay,
         className
       )}
