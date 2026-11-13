@@ -181,7 +181,7 @@ const EXPLANATION_UNAVAILABLE: Record<
   },
   not_found: {
     title: "Assessment not found",
-    message: "This saved assessment isn't available for this agent.",
+    message: "This assessment doesn't exist.",
   },
   config_changed: {
     title: "Settings changed",

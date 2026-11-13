@@ -2,7 +2,6 @@ import { retainedEvidence } from "./explanation-evidence.js";
 import { mergeRiskCapacity } from "./budget.js";
 import type { Pool } from "pg";
 import type { RoutingSettings } from "../../chat/routing-settings.js";
-import { githubPullRequestUrl } from "../pull-request-reader.js";
 import {
   requestExplanation,
   type ExplanationFailure,
@@ -11,8 +10,7 @@ import {
 type Input = { agentId: string; url: string; assessmentId: string };
 /**
  * Why no explanation could start. Safe to show and log; never private data.
- * `not_found` covers unknown, pruned and unauthorized records alike so an
- * id guess learns nothing about other agents' assessments.
+ * `not_found` means no completed assessment has that id (unknown or pruned).
  */
 export type ExplanationUnavailable =
   | "disabled"
@@ -37,18 +35,13 @@ type Assessment = {
   /** Null when the record predates evidence retention or retention failed. */
   evidence: unknown;
 };
-type Record_ = Assessment & {
-  owner_ids: string[] | null;
-  owner_projects: Record<string, string | null> | null;
-};
-type Access = { ok: true; assessment: Assessment } | { ok: false };
 
 /**
  * Human-click entry point only; no connection to polling, scoring or MCP.
  *
  * Explains one saved assessment by id, as it was made. Nothing about the
- * PR's current head, reviews, status or the in-memory inventory gates it:
- * access rests on durable ownership recorded with the assessment.
+ * PR's current head, reviews, status or the in-memory inventory gates it.
+ * Request auth and the browser-only route are the only access controls.
  */
 export class RiskExplanations {
   constructor(
@@ -59,78 +52,15 @@ export class RiskExplanations {
     }
   ) {}
 
-  /**
-   * Snapshot records: the caller must be one of the owners recorded at
-   * assessment time, in the project recorded then, and every recorded owner
-   * must share that project (evidence can hold several owners' reviews).
-   * Owners archived or purged since then do not matter; recorded projects do.
-   *
-   * Records without a snapshot carry no evidence, only scores; the caller
-   * must itself have posted this pull request.
-   */
-  private async access(input: Input): Promise<Access> {
-    const { rows } = await this.deps.pool.query<Record_>(
-      `SELECT r.head_sha,r.created_at,r.result,s.owner_ids,s.owner_projects,s.evidence
+  private async find(id: string): Promise<Assessment | undefined> {
+    const { rows } = await this.deps.pool.query<Assessment>(
+      `SELECT r.head_sha,r.created_at,r.result,s.evidence
        FROM merge_risk_decision_records r
        LEFT JOIN merge_risk_evidence_snapshots s ON s.assessment_id=r.id
-       WHERE r.id=$1 AND r.url=$2 AND r.status='ok'`,
-      [input.assessmentId, input.url]
+       WHERE r.id=$1 AND r.status='ok'`,
+      [id]
     );
-    const row = rows[0];
-    if (!row) return { ok: false };
-    const caller = (
-      await this.deps.pool.query<{ project_id: string | null }>(
-        "SELECT project_id FROM agents WHERE id=$1 AND deleted_at IS NULL",
-        [input.agentId]
-      )
-    ).rows[0];
-    if (!caller) return { ok: false };
-    const assessment = {
-      head_sha: row.head_sha,
-      created_at: row.created_at,
-      result: row.result,
-      evidence: null as unknown,
-    };
-    if (row.owner_ids) {
-      const recorded = row.owner_projects ?? {};
-      const project = recorded[input.agentId];
-      const others = row.owner_ids.filter((id) => id !== input.agentId);
-      if (
-        !row.owner_ids.includes(input.agentId) ||
-        project === undefined ||
-        project !== caller.project_id ||
-        (others.length > 0 &&
-          (project === null || others.some((id) => recorded[id] !== project)))
-      )
-        return { ok: false };
-      return {
-        ok: true,
-        assessment: { ...assessment, evidence: row.evidence },
-      };
-    }
-    return (await this.postedPullRequest(input.agentId, input.url))
-      ? { ok: true, assessment }
-      : { ok: false };
-  }
-
-  /** Same durable source the PR inventory reads, without needing it loaded. */
-  private async postedPullRequest(agentId: string, url: string) {
-    const { rows } = await this.deps.pool.query<{
-      attachments: { type?: string; url?: string }[];
-    }>(
-      `SELECT attachments FROM blocks
-       WHERE author_agent_id=$1 AND attachments @> '[{"type":"pr"}]'::jsonb
-       AND NOT (COALESCE(data, '{}'::jsonb) ? 'pullRequestTransition')`,
-      [agentId]
-    );
-    return rows.some((row) =>
-      row.attachments.some(
-        (a) =>
-          a.type === "pr" &&
-          typeof a.url === "string" &&
-          (githubPullRequestUrl(a.url) ?? a.url) === url
-      )
-    );
+    return rows[0];
   }
 
   async explain(input: Input): Promise<Reply> {
@@ -142,9 +72,8 @@ export class RiskExplanations {
     const config = await this.deps.settings.configuration();
     if (!config.mergeRiskEnabled || !config.apiKey)
       return { state: "unavailable", reason: "disabled" };
-    const granted = await this.access(input);
-    if (!granted.ok) return { state: "unavailable", reason: "not_found" };
-    const { assessment } = granted;
+    const assessment = await this.find(input.assessmentId);
+    if (!assessment) return { state: "unavailable", reason: "not_found" };
     const limitedEvidence = assessment.evidence == null;
     // Settings are re-read after every await; a change aborts before spend.
     const unchanged = async () =>

@@ -50,9 +50,6 @@ beforeAll(async () => {
   pool = await setupTestDb();
   await runTestMigrations();
   await pool.query(
-    "INSERT INTO projects(id,name,repo_root) VALUES('p1','One','/p1'),('p2','Two','/p2')"
-  );
-  await pool.query(
     "INSERT INTO agents(id,name,cwd,status) VALUES('explain-owner','Owner','/tmp','running'),('other-owner','Other','/tmp','running')"
   );
 });
@@ -62,10 +59,6 @@ beforeEach(async () => {
     "TRUNCATE merge_risk_decision_records,merge_risk_decision_daily CASCADE"
   );
   await pool.query("DELETE FROM settings");
-  await pool.query("DELETE FROM blocks WHERE author_agent_id='explain-owner'");
-  await pool.query(
-    "UPDATE agents SET project_id=NULL,deleted_at=NULL WHERE id IN ('explain-owner','other-owner')"
-  );
   await pool.query(
     "INSERT INTO settings(key,value) VALUES('routing_api_key','synthetic-key'),('merge_risk_mode','active')"
   );
@@ -133,12 +126,6 @@ const wireInput = (call = 0) =>
     JSON.parse(String(transport.mock.calls[call][1]?.body)).input[0].content[0]
       .text
   );
-const postPullRequest = (agent: string, url: string) =>
-  pool.query(
-    `INSERT INTO blocks(id,stream_id,author_kind,author_agent_id,kind,data,attachments)
-     VALUES(gen_random_uuid(),$1,'agent',$1,'text','{}',$2)`,
-    [agent, JSON.stringify([{ type: "pr", url }])]
-  );
 it("disabled settings refuse before any lookup and say so", async () => {
   await pool.query(
     "UPDATE settings SET value='off' WHERE key='merge_risk_mode'"
@@ -150,72 +137,28 @@ it("disabled settings refuse before any lookup and say so", async () => {
   });
   expect(transport).not.toHaveBeenCalled();
 });
-it.each([
-  "unknown id",
-  "malformed id",
-  "other agent",
-  "other url",
-  "archived caller",
-  "recorded project changed",
-  "co-owner in another project",
-  "co-owner project unrecorded",
-  "multi-owner without project",
-  "legacy record not posted by caller",
-  "legacy record posted by another agent",
-  "not a completed assessment",
-])("refuses %s honestly without spending", async (reason) => {
-  let request = input();
-  if (reason === "unknown id") request = { ...request, assessmentId: "999" };
-  if (reason === "malformed id")
-    request = { ...request, assessmentId: "99999999999999999999" };
-  if (reason === "other agent")
-    request = { ...request, agentId: "other-owner" };
-  if (reason === "other url")
-    request = { ...request, url: "https://github.com/example/repo/pull/2" };
-  if (reason === "archived caller")
-    await pool.query(
-      "UPDATE agents SET deleted_at=now() WHERE id='explain-owner'"
-    );
-  if (reason === "recorded project changed")
-    await pool.query(
-      "UPDATE agents SET project_id='p1' WHERE id='explain-owner'"
-    );
-  if (reason.startsWith("co-owner") || reason === "multi-owner without project")
-    await pool.query(
-      "UPDATE merge_risk_evidence_snapshots SET owner_ids=ARRAY['explain-owner','other-owner'],owner_projects=$1",
-      [
-        JSON.stringify(
-          reason === "co-owner in another project"
-            ? { "explain-owner": "p1", "other-owner": "p2" }
-            : reason === "co-owner project unrecorded"
-              ? { "explain-owner": "p1" }
-              : { "explain-owner": null, "other-owner": null }
-        ),
-      ]
-    );
-  if (reason.startsWith("co-owner"))
-    await pool.query(
-      "UPDATE agents SET project_id='p1' WHERE id='explain-owner'"
-    );
-  if (reason.startsWith("legacy")) {
-    await pool.query("DELETE FROM merge_risk_evidence_snapshots");
-    if (reason.endsWith("another agent"))
-      await postPullRequest("other-owner", pr.url);
+it.each(["unknown id", "malformed id", "not a completed assessment"])(
+  "refuses %s honestly without spending",
+  async (reason) => {
+    let request = input();
+    if (reason === "unknown id") request = { ...request, assessmentId: "999" };
+    if (reason === "malformed id")
+      request = { ...request, assessmentId: "99999999999999999999" };
+    if (reason === "not a completed assessment")
+      await pool.query(
+        "UPDATE merge_risk_decision_records SET status='error' WHERE id=$1",
+        [id]
+      );
+    expect(await service().explain(request)).toEqual({
+      state: "unavailable",
+      reason: "not_found",
+    });
+    expect(transport).not.toHaveBeenCalled();
+    expect(
+      (await pool.query("SELECT 1 FROM merge_risk_explanations")).rowCount
+    ).toBe(0);
   }
-  if (reason === "not a completed assessment")
-    await pool.query(
-      "UPDATE merge_risk_decision_records SET status='error' WHERE id=$1",
-      [id]
-    );
-  expect(await service().explain(request)).toEqual({
-    state: "unavailable",
-    reason: "not_found",
-  });
-  expect(transport).not.toHaveBeenCalled();
-  expect(
-    (await pool.query("SELECT 1 FROM merge_risk_explanations")).rowCount
-  ).toBe(0);
-});
+);
 it.each([
   "head moved on",
   "merged",
@@ -269,31 +212,8 @@ it.each([
     await pool.query("DELETE FROM blocks WHERE to_agent_id='explain-owner'");
   }
 );
-it("co-owners archived or purged since assessment do not block a same-project caller", async () => {
-  await pool.query(
-    "UPDATE agents SET project_id='p1' WHERE id='explain-owner'"
-  );
-  await pool.query(
-    "UPDATE merge_risk_evidence_snapshots SET owner_ids=ARRAY['explain-owner','purged-owner','other-owner'],owner_projects=$1",
-    [
-      JSON.stringify({
-        "explain-owner": "p1",
-        "purged-owner": "p1",
-        "other-owner": "p1",
-      }),
-    ]
-  );
-  await pool.query("UPDATE agents SET deleted_at=now() WHERE id='other-owner'");
-  expect((await service().explain(input())).state).toBe("ready");
-  expect(transport).toHaveBeenCalledTimes(1);
-});
 it("legacy records without saved detail still explain from recorded scores, marked limited", async () => {
   await pool.query("DELETE FROM merge_risk_evidence_snapshots");
-  // The caller's own PR post is the durable ownership record; URL forms normalize.
-  await postPullRequest(
-    "explain-owner",
-    "https://github.com/Example/Repo/pull/1/"
-  );
   const svc = service();
   expect(await svc.explain(input())).toEqual({
     state: "ready",
