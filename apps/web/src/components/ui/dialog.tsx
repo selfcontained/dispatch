@@ -3,7 +3,6 @@ import * as DialogPrimitive from "@radix-ui/react-dialog";
 
 import { glassOverlay } from "@/lib/glass";
 import { cn } from "@/lib/utils";
-import { useVisualViewportVars } from "@/lib/viewport-insets";
 
 const Dialog = DialogPrimitive.Root;
 // DialogClose has no importers today. It is kept on purpose: this is a
@@ -29,41 +28,26 @@ const DialogOverlay = React.forwardRef<
 ));
 DialogOverlay.displayName = DialogPrimitive.Overlay.displayName;
 
-/**
- * Centre the dialog in the part of the screen the user can actually see —
- * the visual viewport (keyboard up, zoomed) minus the device safe areas
- * (iOS status bar, home indicator) — and never let it grow past that space.
- * Content that is taller scrolls inside the dialog's own scroll region, so
- * the title and the footer actions stay on screen. `--vv-*` come from
- * useVisualViewportVars and fall back to the dynamic viewport.
- */
-const DIALOG_VIEWPORT_FIT = "dialog-viewport-fit";
-
 const DialogContent = React.forwardRef<
   React.ElementRef<typeof DialogPrimitive.Content>,
   React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content> & {
     overlayClassName?: string;
   }
->(({ className, overlayClassName, style, ...props }, ref) => {
-  const viewportVars = useVisualViewportVars();
-  return (
-    <DialogPortal>
-      <DialogOverlay className={overlayClassName} />
-      <DialogPrimitive.Content
-        ref={ref}
-        data-hotkey-disable="true"
-        className={cn(
-          "fixed left-1/2 z-[70] flex flex-col w-[min(560px,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 gap-3 overflow-hidden rounded-xl p-4",
-          DIALOG_VIEWPORT_FIT,
-          glassOverlay,
-          className
-        )}
-        style={{ ...viewportVars, ...style }}
-        {...props}
-      />
-    </DialogPortal>
-  );
-});
+>(({ className, overlayClassName, ...props }, ref) => (
+  <DialogPortal>
+    <DialogOverlay className={overlayClassName} />
+    <DialogPrimitive.Content
+      ref={ref}
+      data-hotkey-disable="true"
+      className={cn(
+        "fixed left-1/2 top-1/2 z-[70] flex flex-col w-[min(560px,calc(100vw-2rem))] max-h-[80vh] -translate-x-1/2 -translate-y-1/2 gap-3 overflow-hidden rounded-xl p-4",
+        glassOverlay,
+        className
+      )}
+      {...props}
+    />
+  </DialogPortal>
+));
 DialogContent.displayName = DialogPrimitive.Content.displayName;
 
 const DialogHeader = ({

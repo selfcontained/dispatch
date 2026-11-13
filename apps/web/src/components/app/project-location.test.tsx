@@ -51,4 +51,18 @@ describe("project location", () => {
     expect(screen.getByLabelText("Folder path")).toBe(field);
     expect((field as HTMLInputElement).value).toBe("/edited");
   });
+  it("bounds the project menu by the room Radix measures, so an upward flip stays on screen", () => {
+    render(
+      <ProjectLocation projectId="first" onChange={() => {}}>
+        <input aria-label="Folder path" />
+      </ProjectLocation>
+    );
+    const trigger = screen.getByRole("button", { name: "Choose project" });
+    fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false });
+    const menu = screen.getByRole("menu");
+    expect(menu.className).toContain(
+      "max-h-[min(18rem,var(--radix-dropdown-menu-content-available-height))]"
+    );
+    expect(menu.className).not.toMatch(/(^|\s)max-h-72(\s|$)/);
+  });
 });

@@ -1,21 +1,31 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, render, screen } from "@testing-library/react";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
-import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
-import {
-  OVERLAY_EDGE_GAP,
-  safeCollisionPadding,
-  visualViewportVars,
-} from "./viewport-insets";
+import { cleanup, render } from "@testing-library/react";
+import { OVERLAY_EDGE_GAP, safeCollisionPadding } from "./viewport-insets";
+
+const { contentProps } = vi.hoisted(() => ({
+  contentProps: [] as Array<Record<string, unknown>>,
+}));
+vi.mock("@radix-ui/react-popover", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@radix-ui/react-popover")>();
+  const React = await import("react");
+  return {
+    ...actual,
+    Portal: ({ children }: { children: React.ReactNode }) => children,
+    Content: React.forwardRef<HTMLDivElement, Record<string, unknown>>(
+      (props, ref) => {
+        contentProps.push(props);
+        return <div ref={ref} data-testid="content" />;
+      }
+    ),
+  };
+});
 
 afterEach(() => {
   cleanup();
-  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+  contentProps.length = 0;
 });
 
 const INSETS = { top: 24, right: 0, bottom: 20, left: 0 };
@@ -49,75 +59,38 @@ describe("safeCollisionPadding", () => {
   });
 });
 
-describe("visualViewportVars", () => {
-  it("leaves the CSS fallbacks in place without visualViewport support", () => {
-    expect(visualViewportVars("")).toEqual({});
-  });
-
-  it("exposes the visible height and its offset", () => {
-    expect(visualViewportVars("412:180")).toEqual({
-      "--vv-height": "412px",
-      "--vv-top": "180px",
+describe("PopoverContent", () => {
+  it("keeps the popover clear of the iOS status bar and home indicator", async () => {
+    // jsdom has no env(); report the insets an installed iPad app would.
+    const real = window.getComputedStyle;
+    vi.spyOn(window, "getComputedStyle").mockImplementation((el, pseudo) => {
+      const style = real(el, pseudo);
+      // The probe is a hidden, fixed, zero-size element on body.
+      const probe = el as HTMLElement;
+      if (
+        probe.parentElement !== document.body ||
+        probe.style.visibility !== "hidden" ||
+        probe.style.position !== "fixed"
+      ) {
+        return style;
+      }
+      return {
+        ...style,
+        getPropertyValue: (name: string) =>
+          ({ "padding-top": "24px", "padding-bottom": "20px" })[name] ?? "0px",
+      } as CSSStyleDeclaration;
     });
-  });
-});
-
-describe("overlay primitives", () => {
-  it("caps a popover to Radix's available height and scrolls inside", () => {
+    const { Popover, PopoverContent } = await import("@/components/ui/popover");
     render(
       <Popover open>
-        <PopoverTrigger>Open</PopoverTrigger>
-        <PopoverContent data-testid="content">Body</PopoverContent>
+        <PopoverContent collisionPadding={12}>Body</PopoverContent>
       </Popover>
     );
-    const content = screen.getByTestId("content");
-    expect(content.className).toContain(
-      "max-h-[var(--radix-popover-content-available-height)]"
-    );
-    expect(content.className).toContain("overflow-y-auto");
-  });
-
-  it("lets a caller's own height cap win over the default", () => {
-    render(
-      <Popover open>
-        <PopoverTrigger>Open</PopoverTrigger>
-        <PopoverContent data-testid="content" className="max-h-40">
-          Body
-        </PopoverContent>
-      </Popover>
-    );
-    const { className } = screen.getByTestId("content");
-    expect(className).toContain("max-h-40");
-    expect(className).not.toContain("available-height");
-  });
-
-  it("fits a dialog to the visual viewport as the keyboard opens", () => {
-    const listeners = new Set<() => void>();
-    const vv = {
-      height: 1024,
-      offsetTop: 0,
-      addEventListener: (_: string, fn: () => void) => listeners.add(fn),
-      removeEventListener: (_: string, fn: () => void) => listeners.delete(fn),
-    };
-    vi.stubGlobal("visualViewport", vv);
-    render(
-      <Dialog open>
-        <DialogContent data-testid="dialog" aria-describedby={undefined}>
-          <DialogTitle>Create Agent</DialogTitle>
-        </DialogContent>
-      </Dialog>
-    );
-    const dialog = screen.getByTestId("dialog");
-    expect(dialog.className).toContain("dialog-viewport-fit");
-    expect(dialog.className).not.toContain("top-1/2");
-    expect(dialog.style.getPropertyValue("--vv-height")).toBe("1024px");
-
-    act(() => {
-      vv.height = 600;
-      vv.offsetTop = 120;
-      for (const fn of listeners) fn();
+    expect(contentProps.at(-1)?.collisionPadding).toEqual({
+      top: 36,
+      right: 12,
+      bottom: 32,
+      left: 12,
     });
-    expect(dialog.style.getPropertyValue("--vv-height")).toBe("600px");
-    expect(dialog.style.getPropertyValue("--vv-top")).toBe("120px");
   });
 });

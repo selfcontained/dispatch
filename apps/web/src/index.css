@@ -1678,25 +1678,3 @@ html[data-hidden] .animate-sidebar-nav-pulse {
   mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m3 3 18 18M10.6 4.2A6 6 0 0 1 18 10c0 2 .5 3.5 1 4.5M6.3 6.3A6 6 0 0 0 6 10c0 7-3 7-3 7h14M10 21h4'/%3E%3C/svg%3E")
     center / contain no-repeat;
 }
-
-/* Centred dialogs (components/ui/dialog.tsx) sit in the part of the screen
-   the user can see: the visual viewport (--vv-* from useVisualViewportVars;
-   it shrinks for the iOS keyboard) minus the safe areas (status bar, home
-   indicator). They never grow taller than that, so a long body scrolls
-   inside the dialog and its title and actions stay reachable. Declared in
-   the components layer so a caller's top-* / max-h-* utilities still win. */
-@layer components {
-  .dialog-viewport-fit {
-    --dialog-safe-top: env(safe-area-inset-top, 0px);
-    --dialog-safe-bottom: env(safe-area-inset-bottom, 0px);
-    --dialog-visible-height: calc(
-      var(--vv-height, 100dvh) - var(--dialog-safe-top) -
-        var(--dialog-safe-bottom)
-    );
-    top: calc(
-      var(--vv-top, 0px) + var(--dialog-safe-top) +
-        var(--dialog-visible-height) / 2
-    );
-    max-height: min(85dvh, calc(var(--dialog-visible-height) - 2rem));
-  }
-}

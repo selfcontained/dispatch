@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from "react";
 
 /**
- * Viewport geometry for overlays.
+ * Safe-area insets for anchored overlays.
  *
  * Floating UI (under Radix popovers, menus and selects) already clips to the
  * visual viewport, so an open virtual keyboard or pinch zoom is handled. What
@@ -127,53 +127,4 @@ export function safeCollisionPadding(
 
 export function useSafeCollisionPadding(padding?: CollisionPadding): Insets {
   return safeCollisionPadding(useSafeAreaInsets(), padding);
-}
-
-/**
- * The visual viewport as CSS custom properties: its height and its offset
- * from the top of the layout viewport. A fixed, centered dialog uses them to
- * stay inside the part of the screen that is actually visible when the iOS
- * keyboard is up or the page is zoomed. Absent support, the properties are
- * left unset and the CSS fallbacks (100dvh / 0px) apply.
- */
-export type VisualViewportVars = {
-  "--vv-height"?: string;
-  "--vv-top"?: string;
-};
-
-function readVisualViewport(): string {
-  const vv = typeof window === "undefined" ? undefined : window.visualViewport;
-  if (!vv) return "";
-  return `${Math.round(vv.height)}:${Math.round(vv.offsetTop)}`;
-}
-
-const visualViewportStore = createWindowStore<string>(
-  readVisualViewport,
-  (a, b) => a === b,
-  (update) => {
-    const vv = window.visualViewport;
-    vv?.addEventListener("resize", update);
-    vv?.addEventListener("scroll", update);
-    window.addEventListener("resize", update);
-    return () => {
-      vv?.removeEventListener("resize", update);
-      vv?.removeEventListener("scroll", update);
-      window.removeEventListener("resize", update);
-    };
-  }
-);
-
-export function visualViewportVars(snapshot: string): VisualViewportVars {
-  if (!snapshot) return {};
-  const [height, top] = snapshot.split(":");
-  return { "--vv-height": `${height}px`, "--vv-top": `${top}px` };
-}
-
-export function useVisualViewportVars(): VisualViewportVars {
-  const snapshot = useSyncExternalStore(
-    visualViewportStore.subscribe,
-    visualViewportStore.getSnapshot,
-    () => ""
-  );
-  return visualViewportVars(snapshot);
 }
