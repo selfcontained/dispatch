@@ -179,10 +179,6 @@ const EXPLANATION_UNAVAILABLE: Record<
     message:
       "Turn on merge-risk assessments and save an API key in Settings → AI routing.",
   },
-  not_found: {
-    title: "Assessment not found",
-    message: "This assessment doesn't exist.",
-  },
   config_changed: {
     title: "Settings changed",
     message: "AI settings changed mid-request. Retry to use the new settings.",
@@ -198,9 +194,16 @@ const EXPLANATION_FAILURES: Record<string, string> = {
   malformed: "OpenAI returned an unusable answer. You can retry.",
   oversized: "Saved evidence is too large to explain. No request was made.",
 };
+/** A missing record shown on the card is unexpected: treat it as a failure. */
+function explanationFailed(data: ExplanationReply | undefined) {
+  return (
+    data?.state === "failed" ||
+    (data?.state === "unavailable" && data.reason === "not_found")
+  );
+}
 /** One notice per outcome; "busy" never describes a failed request. */
 function explanationNotice(data: ExplanationReply | undefined) {
-  if (data?.state === "unavailable")
+  if (data?.state === "unavailable" && !explanationFailed(data))
     return (
       EXPLANATION_UNAVAILABLE[data.reason ?? ""] ?? {
         title: "Explanation unavailable",
@@ -252,7 +255,7 @@ function RiskExplanation({
     query.data?.state === "ready";
   const showNotice =
     requested && !query.isFetching && !ready && (query.isError || !!query.data);
-  const failure = query.isError || query.data?.state === "failed";
+  const failure = query.isError || explanationFailed(query.data);
   const notice = explanationNotice(query.isError ? undefined : query.data);
   const ActionIcon = query.isFetching
     ? LoaderCircle
@@ -330,20 +333,12 @@ function RiskExplanation({
                   </p>
                 </div>
               )}
-              {/* Retrying can't bring back a missing or inaccessible record. */}
-              {!(
-                showNotice &&
-                !query.isError &&
-                query.data?.state === "unavailable" &&
-                query.data.reason === "not_found"
-              ) && (
-                <div className="flex flex-wrap items-center gap-2">
-                  {action}
-                  {query.isFetching && (
-                    <span role="status">Preparing explanation…</span>
-                  )}
-                </div>
-              )}
+              <div className="flex flex-wrap items-center gap-2">
+                {action}
+                {query.isFetching && (
+                  <span role="status">Preparing explanation…</span>
+                )}
+              </div>
             </div>
           </div>
         </Card>

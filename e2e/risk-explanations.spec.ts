@@ -72,7 +72,10 @@ for (const mobile of [false, true]) {
         calls++;
         if (calls === 1) {
           await gate;
-          await route.fulfill({ json: { state: "failed" } });
+          // A missing record reads as an ordinary failure with Retry.
+          await route.fulfill({
+            json: { state: "unavailable", reason: "not_found" },
+          });
         } else if (calls === 2) {
           await retryGate;
           await route.fulfill({
