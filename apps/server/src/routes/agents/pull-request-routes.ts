@@ -34,10 +34,21 @@ export async function registerAgentPullRequestRoutes(
         return reply.code(404).send({ error: "Agent not found." });
       if (!deps.riskExplanations)
         return reply.code(503).send({ error: "Explanation unavailable." });
-      return deps.riskExplanations.explain({
+      const result = await deps.riskExplanations.explain({
         agentId: request.params.id,
         ...request.body,
       });
+      // Reason codes only: never the URL, evidence or provider payload.
+      if (result.state !== "ready" && result.state !== "pending")
+        request.log.info(
+          {
+            assessmentId: request.body.assessmentId,
+            state: result.state,
+            reason: result.reason,
+          },
+          "Merge-risk explanation did not complete"
+        );
+      return result;
     }
   );
   // Explicit authored previews only; never infer a preview from a generic URL.

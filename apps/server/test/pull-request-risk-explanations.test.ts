@@ -44,14 +44,16 @@ const service = () =>
   new RiskExplanations({
     pool,
     settings,
-    inventory: { get: (agent) => (agent === "explain-owner" ? [pr] : []) },
     transport,
   });
 beforeAll(async () => {
   pool = await setupTestDb();
   await runTestMigrations();
   await pool.query(
-    "INSERT INTO agents(id,name,cwd,status) VALUES('explain-owner','Owner','/tmp','running')"
+    "INSERT INTO projects(id,name,repo_root) VALUES('p1','One','/p1'),('p2','Two','/p2')"
+  );
+  await pool.query(
+    "INSERT INTO agents(id,name,cwd,status) VALUES('explain-owner','Owner','/tmp','running'),('other-owner','Other','/tmp','running')"
   );
 });
 afterAll(teardownTestDb);
@@ -60,6 +62,10 @@ beforeEach(async () => {
     "TRUNCATE merge_risk_decision_records,merge_risk_decision_daily CASCADE"
   );
   await pool.query("DELETE FROM settings");
+  await pool.query("DELETE FROM blocks WHERE author_agent_id='explain-owner'");
+  await pool.query(
+    "UPDATE agents SET project_id=NULL,deleted_at=NULL WHERE id IN ('explain-owner','other-owner')"
+  );
   await pool.query(
     "INSERT INTO settings(key,value) VALUES('routing_api_key','synthetic-key'),('merge_risk_mode','active')"
   );
@@ -122,42 +128,191 @@ it("only explicit requests generate; concurrent requests dedupe and cached reads
   });
   expect(JSON.stringify(body)).not.toContain("private launch");
 });
-it.each([
-  "disabled",
-  "head",
-  "assessment",
-  "scope",
-  "legacy",
-  "project",
-  "review",
-])("fails closed for %s", async (reason) => {
-  if (reason === "disabled") {
-    await pool.query(
-      "UPDATE settings SET value='off' WHERE key='merge_risk_mode'"
-    );
-    settings = new RoutingSettings(pool, {});
-  }
-  if (reason === "head") pr.ci!.headSha = "new";
-  if (reason === "assessment") pr.mergeRisk!.assessmentId = "999";
-  if (reason === "legacy")
-    await pool.query("DELETE FROM merge_risk_evidence_snapshots");
-  if (reason === "project")
-    await pool.query(
-      'UPDATE merge_risk_evidence_snapshots SET owner_projects=\'{"explain-owner":"other"}\''
-    );
-  if (reason === "review")
-    await pool.query(
-      "UPDATE merge_risk_evidence_snapshots SET review_digest='changed'"
-    );
-  expect(
-    (
-      await service().explain({
-        ...input(),
-        ...(reason === "scope" ? { agentId: "other" } : {}),
-      })
-    ).state
-  ).toBe("unavailable");
+const wireInput = (call = 0) =>
+  JSON.parse(
+    JSON.parse(String(transport.mock.calls[call][1]?.body)).input[0].content[0]
+      .text
+  );
+const postPullRequest = (agent: string, url: string) =>
+  pool.query(
+    `INSERT INTO blocks(id,stream_id,author_kind,author_agent_id,kind,data,attachments)
+     VALUES(gen_random_uuid(),$1,'agent',$1,'text','{}',$2)`,
+    [agent, JSON.stringify([{ type: "pr", url }])]
+  );
+it("disabled settings refuse before any lookup and say so", async () => {
+  await pool.query(
+    "UPDATE settings SET value='off' WHERE key='merge_risk_mode'"
+  );
+  settings = new RoutingSettings(pool, {});
+  expect(await service().explain(input())).toEqual({
+    state: "unavailable",
+    reason: "disabled",
+  });
   expect(transport).not.toHaveBeenCalled();
+});
+it.each([
+  "unknown id",
+  "malformed id",
+  "other agent",
+  "other url",
+  "archived caller",
+  "recorded project changed",
+  "co-owner in another project",
+  "co-owner project unrecorded",
+  "multi-owner without project",
+  "legacy record not posted by caller",
+  "legacy record posted by another agent",
+  "not a completed assessment",
+])("refuses %s honestly without spending", async (reason) => {
+  let request = input();
+  if (reason === "unknown id") request = { ...request, assessmentId: "999" };
+  if (reason === "malformed id")
+    request = { ...request, assessmentId: "99999999999999999999" };
+  if (reason === "other agent")
+    request = { ...request, agentId: "other-owner" };
+  if (reason === "other url")
+    request = { ...request, url: "https://github.com/example/repo/pull/2" };
+  if (reason === "archived caller")
+    await pool.query(
+      "UPDATE agents SET deleted_at=now() WHERE id='explain-owner'"
+    );
+  if (reason === "recorded project changed")
+    await pool.query(
+      "UPDATE agents SET project_id='p1' WHERE id='explain-owner'"
+    );
+  if (reason.startsWith("co-owner") || reason === "multi-owner without project")
+    await pool.query(
+      "UPDATE merge_risk_evidence_snapshots SET owner_ids=ARRAY['explain-owner','other-owner'],owner_projects=$1",
+      [
+        JSON.stringify(
+          reason === "co-owner in another project"
+            ? { "explain-owner": "p1", "other-owner": "p2" }
+            : reason === "co-owner project unrecorded"
+              ? { "explain-owner": "p1" }
+              : { "explain-owner": null, "other-owner": null }
+        ),
+      ]
+    );
+  if (reason.startsWith("co-owner"))
+    await pool.query(
+      "UPDATE agents SET project_id='p1' WHERE id='explain-owner'"
+    );
+  if (reason.startsWith("legacy")) {
+    await pool.query("DELETE FROM merge_risk_evidence_snapshots");
+    if (reason.endsWith("another agent"))
+      await postPullRequest("other-owner", pr.url);
+  }
+  if (reason === "not a completed assessment")
+    await pool.query(
+      "UPDATE merge_risk_decision_records SET status='error' WHERE id=$1",
+      [id]
+    );
+  expect(await service().explain(request)).toEqual({
+    state: "unavailable",
+    reason: "not_found",
+  });
+  expect(transport).not.toHaveBeenCalled();
+  expect(
+    (await pool.query("SELECT 1 FROM merge_risk_explanations")).rowCount
+  ).toBe(0);
+});
+it.each([
+  "head moved on",
+  "merged",
+  "closed",
+  "reviews changed",
+  "open findings",
+  "inventory evicted",
+])(
+  "explains the saved assessment after the PR %s, as that assessment",
+  async (change) => {
+    // Nothing about the live PR is consulted; the service has no inventory.
+    if (change === "reviews changed" || change === "open findings")
+      await pool.query(
+        "UPDATE merge_risk_evidence_snapshots SET review_digest='changed'"
+      );
+    if (change === "open findings") {
+      const { BlockStore } = await import("../src/chat/store.js");
+      const blocks = new BlockStore(pool);
+      const review = await blocks.insert({
+        streamId: "other-owner",
+        toAgentId: "explain-owner",
+        author: { kind: "agent", agentId: "other-owner" },
+        kind: "review",
+        data: { summary: "late review" },
+      });
+      await blocks.insert({
+        streamId: "other-owner",
+        toAgentId: "explain-owner",
+        author: { kind: "agent", agentId: "other-owner" },
+        kind: "finding",
+        replyTo: review.id,
+        data: { title: "Open", severity: "major" },
+        state: { status: "open" },
+      });
+    }
+    const reply = await service().explain(input());
+    expect(reply).toEqual({ state: "ready", text: expect.any(String) });
+    expect(transport).toHaveBeenCalledTimes(1);
+    const wire = wireInput();
+    expect(wire.context).toMatchObject({
+      assessedCommit: "abc",
+      evidenceRetained: true,
+    });
+    expect(Date.parse(wire.context.assessedAt)).not.toBeNaN();
+    expect(wire.evidence.files).toEqual([{ path: "auth/session.ts" }]);
+    expect(JSON.stringify(wire)).not.toContain("late review");
+    const instructions = JSON.parse(
+      String(transport.mock.calls[0][1]?.body)
+    ).instructions;
+    expect(instructions).toContain("never say it still applies");
+    await pool.query("DELETE FROM blocks WHERE to_agent_id='explain-owner'");
+  }
+);
+it("co-owners archived or purged since assessment do not block a same-project caller", async () => {
+  await pool.query(
+    "UPDATE agents SET project_id='p1' WHERE id='explain-owner'"
+  );
+  await pool.query(
+    "UPDATE merge_risk_evidence_snapshots SET owner_ids=ARRAY['explain-owner','purged-owner','other-owner'],owner_projects=$1",
+    [
+      JSON.stringify({
+        "explain-owner": "p1",
+        "purged-owner": "p1",
+        "other-owner": "p1",
+      }),
+    ]
+  );
+  await pool.query("UPDATE agents SET deleted_at=now() WHERE id='other-owner'");
+  expect((await service().explain(input())).state).toBe("ready");
+  expect(transport).toHaveBeenCalledTimes(1);
+});
+it("legacy records without saved detail still explain from recorded scores, marked limited", async () => {
+  await pool.query("DELETE FROM merge_risk_evidence_snapshots");
+  // The caller's own PR post is the durable ownership record; URL forms normalize.
+  await postPullRequest(
+    "explain-owner",
+    "https://github.com/Example/Repo/pull/1/"
+  );
+  const svc = service();
+  expect(await svc.explain(input())).toEqual({
+    state: "ready",
+    text: expect.any(String),
+    limitedEvidence: true,
+  });
+  const wire = wireInput();
+  expect(wire.context.evidenceRetained).toBe(false);
+  expect(wire.evidence).toBeNull();
+  expect(wire.assessment).toMatchObject({
+    verdict: "human_review",
+    changeRiskLabel: "high",
+  });
+  expect(
+    JSON.parse(String(transport.mock.calls[0][1]?.body)).instructions
+  ).toContain("supporting detail for this assessment is unavailable");
+  // Reuse keeps the limited marker without another request.
+  expect(await svc.explain(input())).toMatchObject({ limitedEvidence: true });
+  expect(transport).toHaveBeenCalledTimes(1);
 });
 it("enforces no daily call limit: a full legacy counter does not block a click", async () => {
   vi.stubEnv("DISPATCH_MERGE_RISK_DAILY_CAP", "0");
@@ -210,15 +365,25 @@ it("reports network failures and timeouts by cause", async () => {
     reason: "timeout",
   });
 });
-it("makes no request when the assessment goes stale before sending", async () => {
-  await settings.configuration();
-  const svc = service();
-  let checks = 0;
-  const original = svc["eligible"].bind(svc);
-  svc["eligible"] = async (i: Parameters<typeof original>[0]) =>
-    ++checks === 2 ? null : original(i);
-  expect((await svc.explain(input())).state).toBe("unavailable");
+it("settings saved while reserving abort before the request and record why", async () => {
+  const real = settings.configuration.bind(settings);
+  let reads = 0;
+  // Read 3 is the first one after the reservation commits.
+  vi.spyOn(settings, "configuration").mockImplementation(async () =>
+    ++reads >= 3 ? { ...(await real()) } : real()
+  );
+  expect(await service().explain(input())).toEqual({
+    state: "unavailable",
+    reason: "config_changed",
+  });
   expect(transport).not.toHaveBeenCalled();
+  const row = (
+    await pool.query("SELECT status,result FROM merge_risk_explanations")
+  ).rows[0];
+  expect(row).toMatchObject({
+    status: "stale",
+    result: { reason: "config_changed" },
+  });
 });
 it("respects assessor concurrency slots", async () => {
   for (const head of ["one", "two"])
@@ -232,17 +397,23 @@ it("respects assessor concurrency slots", async () => {
   });
   expect(transport).not.toHaveBeenCalled();
 });
-it("discards in-flight stale results and retains usage", async () => {
+it("PR activity during the request does not discard the explanation", async () => {
   transport.mockImplementation(async () => {
-    pr.ci!.headSha = "new";
+    // A new push and a new review land while the provider is answering.
+    await pool.query(
+      "UPDATE merge_risk_evidence_snapshots SET review_digest='changed'"
+    );
+    await pool.query(
+      "INSERT INTO merge_risk_decision_records(url,head_sha,review_fingerprint,status,prompt_version) VALUES($1,'newer','r','ok','v')",
+      [pr.url]
+    );
     return response();
   });
-  expect((await service().explain(input())).state).toBe("unavailable");
+  expect((await service().explain(input())).state).toBe("ready");
   const row = (
     await pool.query("SELECT status,result FROM merge_risk_explanations")
   ).rows[0];
-  expect(row.status).toBe("stale");
-  expect(row.result.text).toBeUndefined();
+  expect(row.status).toBe("ok");
   expect(row.result.estimatedUsd).toBeGreaterThan(0);
 });
 it("explicit failure retry makes one more request and retains attempt accounting", async () => {
@@ -346,11 +517,17 @@ it("settings invalidation during a call suppresses the result", async () => {
     await settings.save({ mergeRiskMode: "off" });
     return response();
   });
-  expect((await service().explain(input())).state).toBe("unavailable");
-  expect(
-    (await pool.query("SELECT result FROM merge_risk_explanations")).rows[0]
-      .result.text
-  ).toBeUndefined();
+  expect(await service().explain(input())).toEqual({
+    state: "unavailable",
+    reason: "config_changed",
+  });
+  const row = (
+    await pool.query("SELECT status,result FROM merge_risk_explanations")
+  ).rows[0];
+  expect(row.status).toBe("stale");
+  expect(row.result).toMatchObject({ reason: "config_changed" });
+  expect(row.result.text).toBeUndefined();
+  expect(row.result.estimatedUsd).toBeGreaterThan(0);
 });
 it("CI-only transitions reuse the same follow-up", async () => {
   const svc = service();
@@ -400,8 +577,8 @@ it.each(["off", "removed", "replaced"])(
       const result = await original(...args);
       if (
         typeof args[0] === "string" &&
-        args[0].includes("SELECT s.*") &&
-        ++reads === 2
+        args[0].includes("FROM merge_risk_decision_records r") &&
+        ++reads === 1
       ) {
         await settings.save(
           mode === "off"
@@ -414,7 +591,10 @@ it.each(["off", "removed", "replaced"])(
       return result;
     }) as typeof pool.query);
     try {
-      expect((await service().explain(input())).state).toBe("unavailable");
+      expect(await service().explain(input())).toEqual({
+        state: "unavailable",
+        reason: "config_changed",
+      });
       expect(transport).not.toHaveBeenCalled();
     } finally {
       spy.mockRestore();
@@ -605,7 +785,8 @@ it.each(
         },
       },
     });
-    expect((await service().explain(input())).state).toBe("unavailable");
+    // Later settlement changes do not invalidate the saved explanation.
+    expect((await service().explain(input())).state).toBe("ready");
     expect(transport).toHaveBeenCalledTimes(1);
     await pool.query("DELETE FROM blocks WHERE to_agent_id='explain-owner'");
   }

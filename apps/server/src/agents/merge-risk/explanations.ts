@@ -1,14 +1,8 @@
 import { retainedEvidence } from "./explanation-evidence.js";
 import { mergeRiskCapacity } from "./budget.js";
-import { createHash } from "node:crypto";
-import type { AgentPullRequest } from "@dispatch/shared";
 import type { Pool } from "pg";
 import type { RoutingSettings } from "../../chat/routing-settings.js";
-import {
-  allFindingsResolved,
-  loadReviewEvidence,
-  reviewFingerprint,
-} from "./sources.js";
+import { githubPullRequestUrl } from "../pull-request-reader.js";
 import {
   requestExplanation,
   type ExplanationFailure,
@@ -16,115 +10,170 @@ import {
 
 type Input = { agentId: string; url: string; assessmentId: string };
 /**
+ * Why no explanation could start. Safe to show and log; never private data.
+ * `not_found` covers unknown, pruned and unauthorized records alike so an
+ * id guess learns nothing about other agents' assessments.
+ */
+export type ExplanationUnavailable =
+  | "disabled"
+  | "not_found"
+  | "config_changed";
+/**
  * `limited` only means two provider calls were already in flight; Dispatch
  * has no daily or token limit. Provider/network failures, including the
  * key's own provider rate limits, are `failed` with their reason.
  */
 export type ExplanationReply =
-  | { state: "ready"; text?: string }
-  | { state: "unavailable" | "pending" }
+  | { state: "ready"; text?: string; limitedEvidence?: true }
+  | { state: "unavailable"; reason: ExplanationUnavailable }
+  | { state: "pending" }
   | { state: "limited"; reason: "concurrency" }
   | { state: "failed"; reason: ExplanationFailure | "unknown" };
 type Reply = ExplanationReply;
-type Snapshot = {
-  owner_ids: string[];
-  owner_projects: Record<string, string | null>;
-  review_digest: string;
-  evidence: unknown;
-  review_fingerprint: string;
-  result: Record<string, unknown>;
+type Assessment = {
   head_sha: string;
+  created_at: Date;
+  result: Record<string, unknown>;
+  /** Null when the record predates evidence retention or retention failed. */
+  evidence: unknown;
 };
-/** Human-click entry point only; no connection to polling, scoring or MCP. */
+type Record_ = Assessment & {
+  owner_ids: string[] | null;
+  owner_projects: Record<string, string | null> | null;
+};
+type Access = { ok: true; assessment: Assessment } | { ok: false };
+
+/**
+ * Human-click entry point only; no connection to polling, scoring or MCP.
+ *
+ * Explains one saved assessment by id, as it was made. Nothing about the
+ * PR's current head, reviews, status or the in-memory inventory gates it:
+ * access rests on durable ownership recorded with the assessment.
+ */
 export class RiskExplanations {
   constructor(
     private readonly deps: {
       pool: Pool;
       settings: RoutingSettings;
-      inventory: { get(id: string): AgentPullRequest[] };
       transport?: typeof fetch;
     }
   ) {}
-  private async eligible(input: Input): Promise<Snapshot | null> {
-    const config = await this.deps.settings.configuration();
-    if (!config.mergeRiskEnabled || !config.apiKey) return null;
-    const pr = this.deps.inventory
-      .get(input.agentId)
-      .find((p) => p.url === input.url);
-    if (
-      !pr ||
-      !["Open", "Draft"].includes(pr.status) ||
-      pr.mergeRisk?.displayState ||
-      pr.mergeRisk?.status !== "ok" ||
-      pr.mergeRisk.assessmentId !== input.assessmentId ||
-      !pr.ci?.headSha ||
-      pr.ci.headSha !== pr.mergeRisk.headSha
-    )
-      return null;
-    const { rows } = await this.deps.pool.query<Snapshot>(
-      `SELECT s.*,r.review_fingerprint,r.result,r.head_sha FROM merge_risk_evidence_snapshots s
-       JOIN merge_risk_decision_records r ON r.id=s.assessment_id
-       WHERE r.id=$1 AND r.url=$2 AND r.status='ok' AND r.head_sha=$3`,
-      [input.assessmentId, input.url, pr.ci.headSha]
+
+  /**
+   * Snapshot records: the caller must be one of the owners recorded at
+   * assessment time, in the project recorded then, and every recorded owner
+   * must share that project (evidence can hold several owners' reviews).
+   * Owners archived or purged since then do not matter; recorded projects do.
+   *
+   * Records without a snapshot carry no evidence, only scores; the caller
+   * must itself have posted this pull request.
+   */
+  private async access(input: Input): Promise<Access> {
+    const { rows } = await this.deps.pool.query<Record_>(
+      `SELECT r.head_sha,r.created_at,r.result,s.owner_ids,s.owner_projects,s.evidence
+       FROM merge_risk_decision_records r
+       LEFT JOIN merge_risk_evidence_snapshots s ON s.assessment_id=r.id
+       WHERE r.id=$1 AND r.url=$2 AND r.status='ok'`,
+      [input.assessmentId, input.url]
     );
     const row = rows[0];
-    if (!row || !row.owner_ids.includes(input.agentId)) return null;
-    // Evidence can contain reviews from multiple owners. Never expose it across projects.
-    const owners = await this.deps.pool.query<{
-      id: string;
-      project_id: string | null;
-    }>("SELECT id,project_id FROM agents WHERE id=ANY($1::text[])", [
-      row.owner_ids,
-    ]);
-    const caller = owners.rows.find((a) => a.id === input.agentId);
-    if (
-      !caller ||
-      owners.rows.length !== row.owner_ids.length ||
-      owners.rows.some(
-        (a) =>
-          row.owner_projects[a.id] !== a.project_id ||
-          (a.id !== caller.id &&
-            (!caller.project_id || a.project_id !== caller.project_id))
+    if (!row) return { ok: false };
+    const caller = (
+      await this.deps.pool.query<{ project_id: string | null }>(
+        "SELECT project_id FROM agents WHERE id=$1 AND deleted_at IS NULL",
+        [input.agentId]
       )
-    )
-      return null;
-    const reviews = await loadReviewEvidence(this.deps.pool, row.owner_ids, {
-      settlementProvenance: true,
-    });
-    if (
-      !allFindingsResolved(reviews) ||
-      reviewFingerprint(reviews) !== row.review_fingerprint ||
-      createHash("sha256").update(JSON.stringify(reviews)).digest("hex") !==
-        row.review_digest
-    )
-      return null;
-    return config === (await this.deps.settings.configuration()) ? row : null;
+    ).rows[0];
+    if (!caller) return { ok: false };
+    const assessment = {
+      head_sha: row.head_sha,
+      created_at: row.created_at,
+      result: row.result,
+      evidence: null as unknown,
+    };
+    if (row.owner_ids) {
+      const recorded = row.owner_projects ?? {};
+      const project = recorded[input.agentId];
+      const others = row.owner_ids.filter((id) => id !== input.agentId);
+      if (
+        !row.owner_ids.includes(input.agentId) ||
+        project === undefined ||
+        project !== caller.project_id ||
+        (others.length > 0 &&
+          (project === null || others.some((id) => recorded[id] !== project)))
+      )
+        return { ok: false };
+      return {
+        ok: true,
+        assessment: { ...assessment, evidence: row.evidence },
+      };
+    }
+    return (await this.postedPullRequest(input.agentId, input.url))
+      ? { ok: true, assessment }
+      : { ok: false };
   }
+
+  /** Same durable source the PR inventory reads, without needing it loaded. */
+  private async postedPullRequest(agentId: string, url: string) {
+    const { rows } = await this.deps.pool.query<{
+      attachments: { type?: string; url?: string }[];
+    }>(
+      `SELECT attachments FROM blocks
+       WHERE author_agent_id=$1 AND attachments @> '[{"type":"pr"}]'::jsonb
+       AND NOT (COALESCE(data, '{}'::jsonb) ? 'pullRequestTransition')`,
+      [agentId]
+    );
+    return rows.some((row) =>
+      row.attachments.some(
+        (a) =>
+          a.type === "pr" &&
+          typeof a.url === "string" &&
+          (githubPullRequestUrl(a.url) ?? a.url) === url
+      )
+    );
+  }
+
   async explain(input: Input): Promise<Reply> {
     if (
       !/^\d{1,19}$/.test(input.assessmentId) ||
       BigInt(input.assessmentId) > 9223372036854775807n
     )
-      return { state: "unavailable" };
-    const snapshot = await this.eligible(input);
-    if (!snapshot) return { state: "unavailable" };
+      return { state: "unavailable", reason: "not_found" };
+    const config = await this.deps.settings.configuration();
+    if (!config.mergeRiskEnabled || !config.apiKey)
+      return { state: "unavailable", reason: "disabled" };
+    const granted = await this.access(input);
+    if (!granted.ok) return { state: "unavailable", reason: "not_found" };
+    const { assessment } = granted;
+    const limitedEvidence = assessment.evidence == null;
+    // Settings are re-read after every await; a change aborts before spend.
+    const unchanged = async () =>
+      config === (await this.deps.settings.configuration());
+    if (!(await unchanged()))
+      return { state: "unavailable", reason: "config_changed" };
     const client = await this.deps.pool.connect();
-    let run = false;
     try {
       await client.query("BEGIN");
       const capacity = await mergeRiskCapacity(client);
       const stored = (
-        await client.query<{ status: string; result: { text?: string } }>(
+        await client.query<{
+          status: string;
+          result: { text?: string; limitedEvidence?: boolean };
+        }>(
           "SELECT status,result FROM merge_risk_explanations WHERE assessment_id=$1",
           [input.assessmentId]
         )
       ).rows[0];
       if (stored?.status === "ok" || stored?.status === "pending") {
         await client.query("COMMIT");
-        if (!(await this.eligible(input))) return { state: "unavailable" };
-        return stored.status === "ok"
-          ? { state: "ready", text: stored.result.text }
-          : { state: "pending" };
+        if (stored.status === "pending") return { state: "pending" };
+        return {
+          state: "ready",
+          text: stored.result.text,
+          ...(stored.result.limitedEvidence
+            ? { limitedEvidence: true as const }
+            : {}),
+        };
       }
       if (capacity !== "pending") {
         await client.query("COMMIT");
@@ -135,49 +184,52 @@ export class RiskExplanations {
         [input.assessmentId]
       );
       await client.query("COMMIT");
-      run = true;
     } catch (error) {
       await client.query("ROLLBACK");
       throw error;
     } finally {
       client.release();
     }
-    if (!run) return { state: "failed", reason: "unknown" };
-    const config = await this.deps.settings.configuration();
-    if (
-      !(await this.eligible(input)) ||
-      config !== (await this.deps.settings.configuration()) ||
-      !config.mergeRiskEnabled ||
-      !config.apiKey
-    ) {
-      await this.finish(input.assessmentId, "stale", {});
-      return { state: "unavailable" };
+    if (!(await unchanged())) {
+      await this.finish(input.assessmentId, "stale", {
+        reason: "config_changed",
+      });
+      return { state: "unavailable", reason: "config_changed" };
     }
     const result = await requestExplanation(
       config.apiKey,
       explanationInput(
-        retainedEvidence(snapshot.evidence, config.apiKey),
-        snapshot.result
+        limitedEvidence
+          ? null
+          : retainedEvidence(assessment.evidence, config.apiKey),
+        assessment.result,
+        {
+          assessedCommit: assessment.head_sha,
+          assessedAt: new Date(assessment.created_at).toISOString(),
+        }
       ),
       this.deps.transport
     );
-    const current =
-      !!(await this.eligible(input)) &&
-      config === (await this.deps.settings.configuration());
-    // Stale work retains only accounting, never publishes generated text.
+    const current = await unchanged();
+    // Results from replaced settings retain only accounting, never text.
     const { text, ...accounting } = result;
     await this.finish(input.assessmentId, current ? result.status : "stale", {
       ...accounting,
+      ...(current ? {} : { reason: "config_changed" }),
       ...(current && text ? { text } : {}),
+      ...(limitedEvidence ? { limitedEvidence: true } : {}),
     });
-    return !current
-      ? { state: "unavailable" }
-      : result.status === "ok"
-        ? { state: "ready", text }
-        : {
-            state: "failed",
-            reason: result.status === "error" ? result.reason : "unknown",
-          };
+    if (!current) return { state: "unavailable", reason: "config_changed" };
+    return result.status === "ok"
+      ? {
+          state: "ready",
+          text,
+          ...(limitedEvidence ? { limitedEvidence } : {}),
+        }
+      : {
+          state: "failed",
+          reason: result.status === "error" ? result.reason : "unknown",
+        };
   }
   private async finish(id: string, status: string, result: unknown) {
     await this.deps.pool.query(
@@ -223,13 +275,22 @@ export function followupEvidence(raw: unknown): unknown {
   };
 }
 
-/** Shared by the click path and offline payload inspection. No diagnostics. */
+/**
+ * Shared by the click path and offline payload inspection. No diagnostics.
+ * `evidence: null` means none was retained: the model is told so rather than
+ * handed an empty object it could mistake for "no files, no reviews".
+ */
 export function explanationInput(
   evidence: unknown,
-  result: Record<string, unknown>
+  result: Record<string, unknown>,
+  assessed?: { assessedCommit: string; assessedAt: string }
 ) {
   return {
-    evidence: followupEvidence(evidence),
+    context: {
+      ...(assessed ?? {}),
+      evidenceRetained: evidence != null,
+    },
+    evidence: evidence == null ? null : followupEvidence(evidence),
     assessment: Object.fromEntries(
       [
         "verdict",

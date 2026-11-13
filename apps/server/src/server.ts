@@ -1243,7 +1243,6 @@ async function registerRoutes() {
     riskExplanations: new RiskExplanations({
       pool,
       settings: routingSettings,
-      inventory: pullRequests,
     }),
     onArchivedAgentsDeleted: (deletedIds) =>
       agentLifecycleRuntime.onArchivedAgentsDeleted(deletedIds),
