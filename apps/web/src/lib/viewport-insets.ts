@@ -19,8 +19,12 @@ export type CollisionPadding = number | Partial<Insets>;
 const SIDES: readonly Side[] = ["top", "right", "bottom", "left"];
 const ZERO: Insets = { top: 0, right: 0, bottom: 0, left: 0 };
 
-/** Breathing room between an overlay and the edge of the visible area. */
-export const OVERLAY_EDGE_GAP = 8;
+/**
+ * Gap past the safe area when a caller passes no collisionPadding. Matches
+ * Radix's own default (0), so where there are no insets (desktop browsers)
+ * placement is unchanged.
+ */
+export const OVERLAY_EDGE_GAP = 0;
 
 /**
  * A tiny external store fed by window events. Every subscriber shares one
