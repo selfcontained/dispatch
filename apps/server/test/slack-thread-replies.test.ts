@@ -377,7 +377,7 @@ describe("notify({ replyTo }): the agent answers in the Slack thread", () => {
     expect(calls.posted).toHaveLength(1);
     const posted = calls.posted[0]!;
     expect(posted.threadTs).toBe(parent);
-    const head = posted.blocks[0].elements[0];
+    const head = posted.blocks[0].text;
     expect(head.type).toBe("mrkdwn");
     expect(head.text).toBe("*builder-7* replied");
     const footer = posted.blocks.at(-1).elements[0].text;
@@ -593,7 +593,7 @@ describe("notify({ replyTo }): the agent answers in the Slack thread", () => {
     expect(calls.uploads).toEqual([{ name: "shot.png", bytes: 8 }]);
     const posted = calls.posted[0]!;
     expect(posted.blocks.map((b: any) => b.type)).toEqual([
-      "context",
+      "section",
       "markdown",
       "image",
       "context",
@@ -650,8 +650,8 @@ describe("notify({ replyTo }): the agent answers in the Slack thread", () => {
       note: expect.stringMatching(/couldn't show/),
     });
     expect(calls.posted.map((p) => p.blocks.map((b: any) => b.type))).toEqual([
-      ["context", "markdown", "context"],
-      ["context", "markdown", "context"],
+      ["section", "markdown", "context"],
+      ["section", "markdown", "context"],
     ]);
   });
 

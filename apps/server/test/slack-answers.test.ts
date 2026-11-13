@@ -818,12 +818,12 @@ describe("forms via modal", () => {
     // Same layout as the ask: header, the form's title and text, footer.
     const settled = calls.updated.at(-1)!.blocks;
     expect(settled.map((b: any) => b.type)).toEqual([
-      "context",
+      "section",
       "markdown",
       "context",
       "context",
     ]);
-    expect(settled[0].elements[0].text).toMatch(
+    expect(settled[0].text.text).toMatch(
       /^\*builder-7\* asked you to fill in a form/
     );
     expect(settled[1]).toEqual(q.message.blocks[1]);

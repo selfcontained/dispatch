@@ -107,11 +107,13 @@ const variants: Record<string, { text: string; blocks: SlackBlock[] }> = {
   closed: settledMessage(ctx, { kind: "error", message: "Closed by x." }),
 };
 
-const textOf = (b: SlackBlock) =>
-  ((b as any).elements ?? [])
+const textOf = (b: SlackBlock) => {
+  const t = (b as any).text;
+  return ((b as any).elements ?? [])
     .map((e: any) => e.text)
-    .concat((b as any).text ?? [])
+    .concat(t === undefined ? [] : typeof t === "string" ? t : t.text)
     .join(" ");
+};
 const RANK: Record<string, number> = {
   markdown: 1,
   image: 2,
@@ -122,11 +124,11 @@ describe("shared Slack layout", () => {
   for (const [name, message] of Object.entries(variants)) {
     describe(name, () => {
       const { blocks } = message;
-      it("starts with the header context: who, verb, task — no links", () => {
+      it("starts with the full-strength header: who, verb, task — no links", () => {
         const head = blocks[0] as any;
-        expect(head.type).toBe("context");
-        expect(head.elements[0].text).toMatch(/^\*builder-7\*/);
-        expect(head.elements[0].text).not.toContain("<http");
+        expect(head.type).toBe("section");
+        expect(head.text.text).toMatch(/^\*builder-7\*/);
+        expect(head.text.text).not.toContain("<http");
       });
       it("ends with the one View in Dispatch footer, the only navigation", () => {
         const footer = textOf(blocks.at(-1)!);
@@ -224,7 +226,7 @@ describe("shared Slack layout", () => {
       body: "hi",
       summary: "hi",
     });
-    expect(out.blocks.map((b) => b.type)).toEqual(["context", "markdown"]);
+    expect(out.blocks.map((b) => b.type)).toEqual(["section", "markdown"]);
     expect(out.text).toBe("builder-7: hi");
     expect(JSON.stringify(out)).not.toContain(VIEW_IN_DISPATCH);
   });
@@ -267,8 +269,8 @@ describe("shared Slack layout", () => {
       message: "m",
       openUrl: URL,
     }).blocks[0] as any;
-    expect(head.elements[0].text.length).toBeLessThanOrEqual(3000);
-    expect(head.elements[0].text).toMatch(/(&amp;)+…$/);
+    expect(head.text.text.length).toBeLessThanOrEqual(3000);
+    expect(head.text.text).toMatch(/(&amp;)+…$/);
   });
 
   it("omits the task when there is none, without moving other parts", () => {
@@ -278,7 +280,7 @@ describe("shared Slack layout", () => {
     );
     expect(textOf(out.blocks[0]!)).toBe("*builder-7* asks");
     expect(out.blocks.map((b) => b.type)).toEqual([
-      "context",
+      "section",
       "markdown",
       "actions",
       "context",

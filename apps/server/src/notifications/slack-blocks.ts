@@ -97,7 +97,7 @@ export function mrkdwnLink(url: string, label: string) {
  * built from the same parts, always in this order; optional parts are left
  * out without moving the others:
  *
- *   1. header   context  *agent* verb · headline · Task tsk_…   (no links)
+ *   1. header   section  *agent* verb · headline · Task tsk_…   (no links)
  *   2. body     markdown  agent-written title/text
  *   3. media    image blocks
  *   4. actions  genuine Slack actions only (answer, Fill in form…)
@@ -115,7 +115,10 @@ type Header = {
   parts?: Array<string | undefined>;
 };
 
-/** One small line naming who and where, e.g. "*builder-7* asks · Task …". */
+/**
+ * The line that leads the message: who and where, e.g. "*builder-7* asks ·
+ * Task …". Full-strength text (a section), not a muted context line.
+ */
 export function headerLine(input: Header): SlackBlock {
   const who = `*${mrkdwnText(input.agentName)}*${input.verb ? ` ${mrkdwnText(input.verb)}` : ""}`;
   const text = [
@@ -123,10 +126,8 @@ export function headerLine(input: Header): SlackBlock {
     ...(input.parts ?? []).filter(Boolean).map((p) => mrkdwnText(p!)),
   ].join(" · ");
   return {
-    type: "context",
-    elements: [
-      { type: "mrkdwn", text: clipEscaped(text, SLACK_LIMITS.sectionText) },
-    ],
+    type: "section",
+    text: { type: "mrkdwn", text: clipEscaped(text, SLACK_LIMITS.sectionText) },
   };
 }
 

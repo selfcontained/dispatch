@@ -613,7 +613,7 @@ describe("notify in the shared Block Kit layout", () => {
     expect(result).toEqual({ sent: true });
     const blocks = posted[0].blocks;
     expect(blocks.map((b: any) => b.type)).toEqual([
-      "context",
+      "section",
       "markdown",
       "context",
     ]);

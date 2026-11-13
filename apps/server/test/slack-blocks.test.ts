@@ -69,8 +69,8 @@ describe("questionMessage", () => {
       { options: [{ label: "ok" }] },
       { ...ctx, agentName: "<!channel> bot" }
     ).blocks[0] as any;
-    expect(head.elements[0].text).toContain("&lt;!channel&gt; bot");
-    expect(head.elements[0].text).not.toContain("<!channel>");
+    expect(head.text.text).toContain("&lt;!channel&gt; bot");
+    expect(head.text.text).not.toContain("<!channel>");
   });
 
   it("falls back to the View in Dispatch footer with explicit reasons instead of dropping", () => {
@@ -84,7 +84,7 @@ describe("questionMessage", () => {
     ]);
     // Nothing answerable here: no actions block at all, reasons, then footer.
     expect(out.blocks.map((b) => b.type)).toEqual([
-      "context",
+      "section",
       "markdown",
       "context",
       "context",
@@ -255,7 +255,7 @@ describe("settledMessage", () => {
     });
     expect(out.blocks.some((b) => b.type === "actions")).toBe(false);
     expect(out.blocks.map((b) => b.type)).toEqual([
-      "context",
+      "section",
       "markdown",
       "context",
       "context",
@@ -312,12 +312,12 @@ describe("notifyMessage", () => {
       images: [image],
     });
     expect(out.blocks.map((b) => b.type)).toEqual([
-      "context",
+      "section",
       "markdown",
       "image",
       "context",
     ]);
-    expect((out.blocks[0] as any).elements[0].text).toBe("*builder-7*");
+    expect((out.blocks[0] as any).text.text).toBe("*builder-7*");
     expect((out.blocks[1] as any).text).toBe(
       "**Build is green**\n\nAll **42** tests pass. <\u200b!here>"
     );
