@@ -10,8 +10,8 @@ import type {
  * The stored Dispatch block is the source of truth. Slack only ever sees
  * opaque identifiers (`<ref>:<index>`) for options; the write path maps them
  * back onto the stored original and re-validates there. Anything Slack can't
- * represent faithfully is listed in `unsupported` and the caller shows an
- * Open-in-Dispatch fallback instead of a partial answer UI.
+ * represent faithfully is listed in `unsupported`: the message then says
+ * why and points at its View in Dispatch footer instead of a partial answer UI.
  *
  * Limits verified against docs.slack.dev (2026-11):
  *  - section text 3000, button text 75, option text 75 / value 150,
@@ -42,6 +42,7 @@ export const ACTION = {
   option: "dispatch_option",
   freeform: "dispatch_freeform",
   form: "dispatch_form",
+  /** Legacy navigation button, still acked for messages already in Slack. */
   open: "dispatch_open",
 } as const;
 export const FREEFORM_CALLBACK = "dispatch_freeform_modal";
@@ -89,32 +90,151 @@ export function mrkdwnText(text: string) {
 export function mrkdwnLink(url: string, label: string) {
   return `<${url.replace(/[<>|\s]/g, encodeURIComponent)}|${mrkdwnText(label)}>`;
 }
-/** One small line naming who and where, e.g. "*builder-7* asks · Task …". */
-export function headerLine(input: {
+/**
+ * ── The shared message layout ───────────────────────────────
+ *
+ * Every Dispatch-generated Slack message that has a Dispatch destination is
+ * built from the same parts, always in this order; optional parts are left
+ * out without moving the others:
+ *
+ *   1. header   context  *agent* verb · headline · Task tsk_…   (no links)
+ *   2. body     markdown  agent-written title/text
+ *   3. media    image blocks
+ *   4. actions  genuine Slack actions only (answer, Fill in form…)
+ *   5. notes    context   status or why it can't be answered here
+ *   6. footer   context   <url|View in Dispatch> · Private link… · reply hint
+ *
+ * Navigation lives only in the footer, as the one "View in Dispatch" link;
+ * there is never a navigation button. No URL → no link (never invented).
+ */
+export const VIEW_IN_DISPATCH = "View in Dispatch";
+export const PRIVATE_LINK_NOTE = "Private link: opens on your LAN or VPN";
+
+type Header = {
   agentName: string;
   verb?: string;
   parts?: Array<string | undefined>;
-  openUrl?: string;
-}): SlackBlock {
+};
+
+/** One small line naming who and where, e.g. "*builder-7* asks · Task …". */
+export function headerLine(input: Header): SlackBlock {
   const who = `*${mrkdwnText(input.agentName)}*${input.verb ? ` ${mrkdwnText(input.verb)}` : ""}`;
   const text = [
     who,
     ...(input.parts ?? []).filter(Boolean).map((p) => mrkdwnText(p!)),
-    ...(input.openUrl ? [mrkdwnLink(input.openUrl, "Open in Dispatch")] : []),
   ].join(" · ");
-  return { type: "context", elements: [{ type: "mrkdwn", text }] };
+  return {
+    type: "context",
+    elements: [
+      { type: "mrkdwn", text: clipEscaped(text, SLACK_LIMITS.sectionText) },
+    ],
+  };
 }
-/** Muted footer: the link is private, and how to answer. */
-export function footerLine(agentName?: string): SlackBlock {
-  const text = [
-    "Private link: opens on your LAN or VPN",
-    agentName
-      ? `Reply in this thread to message *${mrkdwnText(agentName)}*`
-      : undefined,
-  ]
-    .filter(Boolean)
-    .join(" · ");
-  return { type: "context", elements: [{ type: "mrkdwn", text }] };
+
+/** A muted status line between the actions and the footer. */
+export function noteLine(text: string, blockId?: string): SlackBlock {
+  return {
+    type: "context",
+    ...(blockId ? { block_id: blockId } : {}),
+    elements: [
+      { type: "mrkdwn", text: clipEscaped(text, SLACK_LIMITS.sectionText) },
+    ],
+  };
+}
+
+/**
+ * The footer every Dispatch message ends with: the "View in Dispatch" link
+ * first, then that the link is private, then how to reply (when it applies).
+ * Empty when there is neither a destination nor a hint.
+ */
+export function footerLine(input: {
+  openUrl?: string;
+  hint?: string;
+}): SlackBlock[] {
+  const parts = [
+    ...(input.openUrl
+      ? [mrkdwnLink(input.openUrl, VIEW_IN_DISPATCH), PRIVATE_LINK_NOTE]
+      : []),
+    ...(input.hint ? [input.hint] : []),
+  ];
+  if (!parts.length) return [];
+  return [
+    {
+      type: "context",
+      elements: [{ type: "mrkdwn", text: parts.join(" · ") }],
+    },
+  ];
+}
+
+/** Escape for mrkdwn, then clip without leaving a broken `&amp;` entity. */
+function clipEscaped(escaped: string, max: number) {
+  if (escaped.length <= max) return escaped;
+  return `${escaped.slice(0, max - 1).replace(/&[a-z]{0,4}$/, "")}…`;
+}
+
+/**
+ * The top-level `text`: what notifications, screen readers and clients
+ * without Block Kit show. Same context as the header, a one-line summary,
+ * and the same destination as the footer. Escaped like our own mrkdwn.
+ */
+export function fallbackText(input: {
+  header: Header;
+  summary: string;
+  openUrl?: string;
+}) {
+  const { header } = input;
+  const who = [
+    `${header.agentName}${header.verb ? ` ${header.verb}` : ""}`,
+    ...(header.parts ?? []).filter(Boolean),
+  ].join(" · ");
+  const summary = input.summary.replace(/\s+/g, " ").trim();
+  const link = input.openUrl
+    ? ` · ${mrkdwnLink(input.openUrl, VIEW_IN_DISPATCH)}`
+    : "";
+  // Slack keeps 3000 characters of `text`; the link must survive the cut.
+  return `${clipEscaped(
+    mrkdwnText(summary ? `${who}: ${summary}` : who),
+    Math.max(200, SLACK_LIMITS.sectionText - 100 - link.length)
+  )}${link}`;
+}
+
+/** Assemble the shared layout. See the comment above for the order. */
+export function dispatchMessage(input: {
+  header: Header;
+  body?: string;
+  bodyMax?: number;
+  media?: SlackBlock[];
+  actions?: { blockId?: string; elements: SlackBlock[] };
+  notes?: SlackBlock[];
+  openUrl?: string;
+  hint?: string;
+  summary: string;
+}): { text: string; blocks: SlackBlock[] } {
+  return {
+    text: fallbackText({
+      header: input.header,
+      summary: input.summary,
+      openUrl: input.openUrl,
+    }),
+    blocks: [
+      headerLine(input.header),
+      ...(input.body?.trim() ? [markdownBody(input.body, input.bodyMax)] : []),
+      ...(input.media ?? []),
+      ...(input.actions?.elements.length
+        ? [
+            {
+              type: "actions",
+              ...(input.actions.blockId
+                ? { block_id: input.actions.blockId }
+                : {}),
+              elements: input.actions.elements,
+            },
+          ]
+        : []),
+      ...(input.notes ?? []),
+      ...footerLine({ openUrl: input.openUrl, hint: input.hint }),
+    ],
+  };
 }
 
 /** A Dispatch notification in the shared layout. */
@@ -128,18 +248,14 @@ export function notifyMessage(input: {
   const body = input.title
     ? `**${input.title}**\n\n${input.message}`
     : input.message;
-  return {
-    text: neutralizeMentions(
-      clip(`${input.agentName}: ${input.title ?? input.message}`, 2900)
-    ),
-    blocks: [
-      headerLine({ agentName: input.agentName }),
-      markdownBody(body),
-      ...(input.images ?? []),
-      { type: "actions", elements: [openButton(input.openUrl, true)] },
-      footerLine(input.agentName),
-    ],
-  };
+  return dispatchMessage({
+    header: { agentName: input.agentName },
+    body,
+    media: input.images,
+    openUrl: input.openUrl,
+    hint: `Reply in this thread to message *${mrkdwnText(input.agentName)}*`,
+    summary: input.title ?? input.message,
+  });
 }
 
 export function clip(text: string, max: number) {
@@ -166,39 +282,14 @@ export type Adapted = {
   unsupported: string[];
 };
 
-function header(ctx: AskContext, verb: string, openUrl?: string): SlackBlock[] {
-  const blocks: SlackBlock[] = [
-    headerLine({
-      agentName: ctx.agentName,
-      verb,
-      parts: [ctx.headline, ctx.context],
-      openUrl,
-    }),
-  ];
-  if (ctx.text.trim()) blocks.push(markdownBody(ctx.text));
-  return blocks;
+/** An ask's header: who asks, how long it waited, and which task. */
+function askHeader(ctx: AskContext, verb: string): Header {
+  return { agentName: ctx.agentName, verb, parts: [ctx.headline, ctx.context] };
 }
 
-export function openButton(url: string, primary = false): SlackBlock {
-  return {
-    type: "button",
-    action_id: ACTION.open,
-    text: plain("Open in Dispatch", SLACK_LIMITS.buttonText),
-    url,
-    ...(primary ? { style: "primary" } : {}),
-  };
-}
-
+/** Why it can't be answered here: the footer link is where to answer. */
 function fallback(reasons: string[]): SlackBlock {
-  return {
-    type: "context",
-    elements: [
-      plain(
-        `Answer in Dispatch: ${reasons.join("; ")}.`,
-        SLACK_LIMITS.sectionText
-      ),
-    ],
-  };
+  return noteLine(mrkdwnText(`Answer in Dispatch: ${reasons.join("; ")}.`));
 }
 
 function textReasons(text: string) {
@@ -223,7 +314,7 @@ export function questionMessage(
       `${tooLong} option label${tooLong === 1 ? " is" : "s are"} longer than Slack allows`
     );
   const extra = question.allowFreeform ? 1 : 0;
-  if (question.options.length + extra + 1 > SLACK_LIMITS.actionsElements)
+  if (question.options.length + extra > SLACK_LIMITS.actionsElements)
     unsupported.push(
       `${question.options.length} options exceed Slack's button limit`
     );
@@ -246,26 +337,19 @@ export function questionMessage(
         value: ctx.ref,
       });
   }
-  elements.push(openButton(ctx.openUrl));
-  const blocks = [
-    ...header(ctx, "asks"),
-    { type: "actions", block_id: `ask:${ctx.ref}`, elements },
-  ];
-  if (unsupported.length) blocks.push(fallback(unsupported));
-  else if (question.allowFreeform)
-    blocks.push({
-      type: "context",
-      elements: [
-        plain(
-          "Or reply in this thread to answer in your own words.",
-          SLACK_LIMITS.sectionText
-        ),
-      ],
-    });
-  blocks.push(footerLine());
   return {
-    text: clip(`${ctx.agentName} asks: ${ctx.text}`, SLACK_LIMITS.sectionText),
-    blocks,
+    ...dispatchMessage({
+      header: askHeader(ctx, "asks"),
+      body: ctx.text,
+      actions: { blockId: `ask:${ctx.ref}`, elements },
+      notes: unsupported.length ? [fallback(unsupported)] : [],
+      openUrl: ctx.openUrl,
+      hint:
+        !unsupported.length && question.allowFreeform
+          ? "Or reply in this thread to answer in your own words"
+          : undefined,
+      summary: ctx.text,
+    }),
     unsupported,
   };
 }
@@ -314,29 +398,22 @@ export function formMessage(form: BlockFormData, ctx: AskContext): Adapted {
       text: plain("Fill in form…", SLACK_LIMITS.buttonText),
       value: ctx.ref,
     });
-  elements.push(openButton(ctx.openUrl));
-  const blocks: SlackBlock[] = [
-    ...header(
-      {
-        ...ctx,
-        text: [title ? `**${title}**` : undefined, ctx.text]
-          .filter(Boolean)
-          .join("\n"),
-      },
-      `asks you to fill in a form (${summary})`
-    ),
-    { type: "actions", block_id: `ask:${ctx.ref}`, elements },
-  ];
-  if (unsupported.length) blocks.push(fallback(unsupported));
-  blocks.push(footerLine());
   return {
-    text: clip(
-      `${ctx.agentName} asks you to fill in ${title ? `"${title}"` : "a form"}`,
-      SLACK_LIMITS.sectionText
-    ),
-    blocks,
+    ...dispatchMessage({
+      header: askHeader(ctx, `asks you to fill in a form (${summary})`),
+      body: formBody(title, ctx.text),
+      actions: { blockId: `ask:${ctx.ref}`, elements },
+      notes: unsupported.length ? [fallback(unsupported)] : [],
+      openUrl: ctx.openUrl,
+      summary: title ? `"${title}"` : ctx.text,
+    }),
     unsupported,
   };
+}
+
+/** A form's title and text, as one markdown body (shared with settled updates). */
+export function formBody(title: string | undefined, text: string) {
+  return [title ? `**${title}**` : undefined, text].filter(Boolean).join("\n");
 }
 
 export function freeformModal(ref: string, questionText: string) {
@@ -600,8 +677,15 @@ export type Outcome =
   | { kind: "cancelled"; reason?: string }
   | { kind: "error"; message: string };
 
-/** The parent message after the ask settles: no actions remain. */
-export function settledMessage(ctx: AskContext, outcome: Outcome): Adapted {
+/**
+ * The parent message after the ask settles: the same header, body and
+ * footer as the ask, its actions replaced by one outcome line.
+ */
+export function settledMessage(
+  ctx: AskContext,
+  outcome: Outcome,
+  form?: BlockFormData
+): Adapted {
   const line =
     outcome.kind === "answered"
       ? `Answered by ${outcome.by}${outcome.via === "slack" ? " in Slack" : " in Dispatch"}: ${outcome.summary} · recorded · ${deliveryPhrase(
@@ -617,21 +701,18 @@ export function settledMessage(ctx: AskContext, outcome: Outcome): Adapted {
       : outcome.kind === "cancelled"
         ? ":heavy_minus_sign:"
         : ":warning:";
+  const title = form?.title?.trim();
   return {
-    text: clip(line, SLACK_LIMITS.sectionText),
-    blocks: [
-      ...header(ctx, "asked"),
-      {
-        type: "context",
-        block_id: `done:${ctx.ref}`,
-        elements: [
-          {
-            type: "mrkdwn",
-            text: `${mark} ${mrkdwnText(clip(line, 2900))} · ${mrkdwnLink(ctx.openUrl, "Open in Dispatch")}`,
-          },
-        ],
-      },
-    ],
+    ...dispatchMessage({
+      header: askHeader(
+        { ...ctx, headline: undefined },
+        form ? "asked you to fill in a form" : "asked"
+      ),
+      body: form ? formBody(title, ctx.text) : ctx.text,
+      notes: [noteLine(`${mark} ${mrkdwnText(line)}`, `done:${ctx.ref}`)],
+      openUrl: ctx.openUrl,
+      summary: line,
+    }),
     unsupported: [],
   };
 }

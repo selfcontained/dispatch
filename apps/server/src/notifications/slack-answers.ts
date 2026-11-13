@@ -521,6 +521,7 @@ export class SlackAnswers {
     const reply = (text: string) =>
       this.app.postEphemeral(userId, text).catch(() => {});
 
+    // Messages no longer carry an Open button; older ones still in Slack do.
     if (actionId === ACTION.open) return;
     if (actionId === LINK_ACTION)
       return this.onLinkClick(binding, payload, action.value, threadTs);
@@ -912,7 +913,11 @@ export class SlackAnswers {
             delivery: shownDelivery(delivered.rows[0]?.delivered),
           };
         }
-        const message = settledMessage(ctx, outcome);
+        const message = settledMessage(
+          ctx,
+          outcome,
+          row.ask_kind === "form" ? (row.data as BlockFormData) : undefined
+        );
         try {
           await this.app.updateMessage(
             row.message_ts,

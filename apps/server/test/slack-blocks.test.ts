@@ -21,7 +21,10 @@ const ctx = {
 };
 
 const actionsOf = (blocks: Record<string, any>[]) =>
-  blocks.find((b) => b.type === "actions")!.elements as Record<string, any>[];
+  (blocks.find((b) => b.type === "actions")?.elements ?? []) as Record<
+    string,
+    any
+  >[];
 
 describe("questionMessage", () => {
   it("renders options as buttons carrying only opaque ref:index values", () => {
@@ -37,15 +40,14 @@ describe("questionMessage", () => {
     );
     expect(out.unsupported).toEqual([]);
     const elements = actionsOf(out.blocks);
-    expect(elements.map((e) => e.value)).toEqual([
-      "n1:0",
-      "n1:1",
-      "n1",
-      undefined,
-    ]);
+    expect(elements.map((e) => e.value)).toEqual(["n1:0", "n1:1", "n1"]);
     expect(JSON.stringify(out.blocks)).not.toContain("secret-pg-value");
     expect(elements[2]!.action_id).toBe(ACTION.freeform);
-    expect(elements[3]!.url).toBe(ctx.openUrl);
+    // Navigation is the footer link, never a button.
+    expect(elements.some((e) => e.url)).toBe(false);
+    expect((out.blocks.at(-1) as any).elements[0].text).toBe(
+      `<${ctx.openUrl}|View in Dispatch> · Private link: opens on your LAN or VPN · Or reply in this thread to answer in your own words`
+    );
   });
 
   it("renders agent markdown, but Slack mentions can't ping anyone", () => {
@@ -71,7 +73,7 @@ describe("questionMessage", () => {
     expect(head.elements[0].text).not.toContain("<!channel>");
   });
 
-  it("falls back to Open in Dispatch with explicit reasons instead of dropping", () => {
+  it("falls back to the View in Dispatch footer with explicit reasons instead of dropping", () => {
     const out = questionMessage(
       { options: [{ label: "x".repeat(80) }, { label: "fine" }] },
       { ...ctx, text: "q".repeat(9000) }
@@ -80,10 +82,19 @@ describe("questionMessage", () => {
       "the question is 9000 characters (Slack shows 8000)",
       "1 option label is longer than Slack allows",
     ]);
-    const elements = actionsOf(out.blocks);
-    expect(elements).toHaveLength(1);
-    expect(elements[0]!.action_id).toBe(ACTION.open);
-    expect(JSON.stringify(out.blocks)).toContain("Answer in Dispatch:");
+    // Nothing answerable here: no actions block at all, reasons, then footer.
+    expect(out.blocks.map((b) => b.type)).toEqual([
+      "context",
+      "markdown",
+      "context",
+      "context",
+    ]);
+    expect((out.blocks[2] as any).elements[0].text).toContain(
+      "Answer in Dispatch:"
+    );
+    expect((out.blocks[3] as any).elements[0].text).toContain(
+      `<${ctx.openUrl}|View in Dispatch>`
+    );
     const body = out.blocks.find((b) => b.type === "markdown") as any;
     expect(body.text).toHaveLength(MARKDOWN_MAX);
     expect(body.text.endsWith("…")).toBe(true);
@@ -97,9 +108,7 @@ describe("questionMessage", () => {
       ),
     ]) {
       expect(out.unsupported.length).toBeGreaterThan(0);
-      expect(actionsOf(out.blocks).map((e) => e.action_id)).toEqual([
-        ACTION.open,
-      ]);
+      expect(actionsOf(out.blocks)).toEqual([]);
     }
   });
 });
@@ -225,9 +234,7 @@ describe("form adapters", () => {
     expect(formModal(big, "n3", "c")).toBeNull();
     const out = formMessage(big, ctx);
     expect(out.unsupported).toEqual(['field "Region" has 140 options']);
-    expect(actionsOf(out.blocks).map((e) => e.action_id)).toEqual([
-      ACTION.open,
-    ]);
+    expect(actionsOf(out.blocks)).toEqual([]);
     const ok = formMessage(form, ctx);
     expect(ok.unsupported).toEqual([]);
     expect(actionsOf(ok.blocks)[0]).toMatchObject({
@@ -248,10 +255,17 @@ describe("settledMessage", () => {
       delivery: "not_delivered",
     });
     expect(out.blocks.some((b) => b.type === "actions")).toBe(false);
-    const status = out.blocks.at(-1) as any;
+    expect(out.blocks.map((b) => b.type)).toEqual([
+      "context",
+      "markdown",
+      "context",
+      "context",
+    ]);
+    const status = out.blocks[2] as any;
+    expect(status.block_id).toBe("done:n1");
     expect(status.elements[0].text).toContain(":white_check_mark:");
-    expect(status.elements[0].text).toContain(
-      `<${ctx.openUrl}|Open in Dispatch>`
+    expect((out.blocks[3] as any).elements[0].text).toBe(
+      `<${ctx.openUrl}|View in Dispatch> · Private link: opens on your LAN or VPN`
     );
     expect(out.text).toContain(
       "recorded · not delivered to the agent yet — open Dispatch to retry"
@@ -261,7 +275,7 @@ describe("settledMessage", () => {
 });
 
 describe("notifyMessage", () => {
-  it("uses the shared layout: who, markdown body, images, primary Open, private-link footer", () => {
+  it("uses the shared layout: who, markdown body, images, then the View in Dispatch footer", () => {
     const image = {
       type: "image",
       slack_file: { id: "F1" },
@@ -278,19 +292,14 @@ describe("notifyMessage", () => {
       "context",
       "markdown",
       "image",
-      "actions",
       "context",
     ]);
     expect((out.blocks[0] as any).elements[0].text).toBe("*builder-7*");
     expect((out.blocks[1] as any).text).toBe(
       "**Build is green**\n\nAll **42** tests pass. <\u200b!here>"
     );
-    expect((out.blocks[3] as any).elements[0]).toMatchObject({
-      url: "http://lan:6767/agents/agt_1",
-      style: "primary",
-    });
-    expect((out.blocks[4] as any).elements[0].text).toContain(
-      "Private link: opens on your LAN or VPN"
+    expect((out.blocks[3] as any).elements[0].text).toBe(
+      "<http://lan:6767/agents/agt_1|View in Dispatch> · Private link: opens on your LAN or VPN · Reply in this thread to message *builder-7*"
     );
     expect(out.text).not.toContain("<!here>");
   });

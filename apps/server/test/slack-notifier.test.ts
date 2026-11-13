@@ -565,7 +565,7 @@ describe("notify in the shared Block Kit layout", () => {
     return { notifier, posted };
   };
 
-  it("posts markdown with a primary Open link, never the old plain-text blob", async () => {
+  it("posts markdown with the View in Dispatch footer, never a button or the old plain-text blob", async () => {
     const { notifier, posted } = bound();
     const result = await notifier.sendNotification(makeAgent(), {
       title: "Build is green",
@@ -576,14 +576,15 @@ describe("notify in the shared Block Kit layout", () => {
     expect(blocks.map((b: any) => b.type)).toEqual([
       "context",
       "markdown",
-      "actions",
       "context",
     ]);
     expect(blocks[1].text).toContain("[CI](https://ci.example/run/1)");
-    expect(blocks[2].elements[0]).toMatchObject({
-      url: "http://lan:6767/agents/agent-1",
-      style: "primary",
-    });
+    expect(blocks[2].elements[0].text).toMatch(
+      /^<http:\/\/lan:6767\/agents\/agent-1\|View in Dispatch> · /
+    );
+    expect(posted[0].text).toContain(
+      "<http://lan:6767/agents/agent-1|View in Dispatch>"
+    );
     expect(JSON.stringify(posted[0])).not.toMatch(/Delivery does not mean/);
     expect(fetchSpy).not.toHaveBeenCalled();
   });
