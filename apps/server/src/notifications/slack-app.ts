@@ -41,6 +41,10 @@ function lateReason(result: Record<string, unknown> | void) {
 export const ANSWER_SCOPES = ["channels:history", "groups:history"];
 /** Inline images in Dispatch messages are uploaded privately by the bot. */
 export const IMAGE_SCOPES = ["files:write"];
+/** Lets a message show the agent as its sender instead of "Dispatch". */
+export const IDENTITY_SCOPE = "chat:write.customize";
+/** The header block that names the agent inside the message. */
+export const WHO_BLOCK_ID = "dispatch_who";
 const FORM_METHODS = new Set([
   "conversations.list",
   "files.getUploadURLExternal",
@@ -713,8 +717,27 @@ export class SlackApp {
     }
   }
   /** Post Block Kit to the bound channel (plain-text fallback required by Slack). */
+  /**
+   * With chat:write.customize the agent is the message's sender, so the
+   * in-message name line would repeat it; without it, that line names them.
+   */
+  private sender(blocks: unknown[], username?: string) {
+    if (!username || this.hasScope(IDENTITY_SCOPE) !== true) return { blocks };
+    return {
+      username: username.slice(0, 80),
+      blocks: blocks.filter(
+        (b) => (b as { block_id?: string })?.block_id !== WHO_BLOCK_ID
+      ),
+    };
+  }
   async postBlocks(
-    input: { text: string; blocks: unknown[]; threadTs?: string },
+    input: {
+      text: string;
+      blocks: unknown[];
+      threadTs?: string;
+      /** The agent to show as the sender, when the app may customize it. */
+      username?: string;
+    },
     expectedGeneration?: string
   ) {
     const config = await this.configuration();
@@ -729,7 +752,7 @@ export class SlackApp {
     const result = await this.api(credentials.botToken, "chat.postMessage", {
       channel: binding.channelId,
       text: input.text.slice(0, 3000),
-      blocks: input.blocks,
+      ...this.sender(input.blocks, input.username),
       ...(input.threadTs ? { thread_ts: input.threadTs } : {}),
       unfurl_links: false,
       unfurl_media: false,
@@ -798,14 +821,21 @@ export class SlackApp {
     return fileId;
   }
   /** Only ever targets the bound channel; callers pass the stored ts. */
-  async updateMessage(ts: string, text: string, blocks: unknown[]) {
+  async updateMessage(
+    ts: string,
+    text: string,
+    blocks: unknown[],
+    username?: string
+  ) {
     const config = await this.configuration();
     if (!config) throw new Error("Slack app is not configured.");
+    // The sender can't change on update; only the name line follows it.
+    const { blocks: shown } = this.sender(blocks, username);
     await this.api(config.credentials.botToken, "chat.update", {
       channel: config.binding.channelId,
       ts,
       text: text.slice(0, 3000),
-      blocks,
+      blocks: shown,
     });
   }
   async postEphemeral(user: string, text: string, threadTs?: string) {

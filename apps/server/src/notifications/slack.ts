@@ -417,7 +417,11 @@ export class SlackNotifier {
         const result = await sendWithImages(
           this.app,
           pictures.blocks,
-          (images) => this.app.postBlocks(compose(images)),
+          (images) =>
+            this.app.postBlocks({
+              ...compose(images),
+              username: agent.name || agent.id,
+            }),
           {
             onRefused: (code, attempts) =>
               this.log.warn(

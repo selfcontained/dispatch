@@ -119,6 +119,7 @@ type Header = { agentName: string };
 export function headerLine(input: Header): SlackBlock {
   return {
     type: "section",
+    block_id: "dispatch_who",
     text: {
       type: "mrkdwn",
       text: clipEscaped(

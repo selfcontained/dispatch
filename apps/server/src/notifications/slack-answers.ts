@@ -240,6 +240,7 @@ export class SlackAnswers {
       {
         text: message.text,
         blocks: message.blocks,
+        username: ctx.agentName,
         ...(alert.threadTs ? { threadTs: alert.threadTs } : {}),
       },
       alert.binding_generation
@@ -925,7 +926,8 @@ export class SlackAnswers {
           await this.app.updateMessage(
             row.message_ts,
             message.text,
-            message.blocks
+            message.blocks,
+            ctx.agentName
           );
           await this.pool.query(
             `UPDATE slack_messages SET settled_at=COALESCE(settled_at, now()), shown_delivery=$2 WHERE id=$1`,

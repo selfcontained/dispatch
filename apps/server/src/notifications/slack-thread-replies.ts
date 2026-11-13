@@ -289,7 +289,7 @@ export class SlackThreadReplies {
     try {
       const result = await sendWithImages(this.app, pictures.blocks, (images) =>
         this.app.postBlocks(
-          { ...compose(images), threadTs: row.thread_ts },
+          { ...compose(images), threadTs: row.thread_ts, username: name },
           row.binding_generation
         )
       );

@@ -497,6 +497,49 @@ describe("Slack app boundary", () => {
         { type: "image", slack_file: { id: "F9" }, alt_text: "fresh-shot.png" },
       ]);
   });
+  it("shows the agent as the sender only when Slack allows it, without repeating the name", async () => {
+    const send = async (scopes: string) => {
+      const f = fixture();
+      const real = f.transport.getMockImplementation()!;
+      f.transport.mockImplementation(async (url, init) =>
+        url.endsWith("auth.test")
+          ? Response.json(
+              { ok: true, team_id: "T1", team: "Local team", user_id: "UBOT" },
+              { headers: { "x-oauth-scopes": scopes } }
+            )
+          : real(url, init)
+      );
+      await f.app.validate(credentials);
+      await f.app.enable("C1", "http://lan");
+      await f.app.postBlocks({
+        text: "t",
+        blocks: [
+          {
+            type: "section",
+            block_id: "dispatch_who",
+            text: { type: "mrkdwn", text: "*_builder-7_*" },
+          },
+          { type: "markdown", text: "hi" },
+        ],
+        username: "builder-7",
+      });
+      const body = JSON.parse(
+        String(
+          f.transport.mock.calls
+            .filter(([u]) => u.endsWith("chat.postMessage"))
+            .at(-1)![1]!.body
+        )
+      );
+      f.app.stop();
+      return body;
+    };
+    const named = await send("chat:write,chat:write.customize,files:write");
+    expect(named.username).toBe("builder-7");
+    expect(named.blocks.map((b: any) => b.type)).toEqual(["markdown"]);
+    const plain = await send("chat:write,files:write");
+    expect(plain.username).toBeUndefined();
+    expect(plain.blocks[0].block_id).toBe("dispatch_who");
+  });
   it("reports missing thread-reply scopes from Slack's granted scope header", async () => {
     const f = fixture();
     f.transport.mockResolvedValueOnce(
