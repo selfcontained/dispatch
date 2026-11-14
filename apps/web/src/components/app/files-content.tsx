@@ -41,6 +41,8 @@ export type FilesContentProps = {
   hasStream: boolean;
   streamUrl: string | null;
   onUploadFile?: (agentId: string, file: File) => Promise<void>;
+  /** Whether the tab is showing; file media loads only once it is. */
+  active: boolean;
 };
 
 function LiveStreamSection({
@@ -104,6 +106,7 @@ export function FilesContent({
   hasStream,
   streamUrl,
   onUploadFile,
+  active,
 }: FilesContentProps): JSX.Element {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
@@ -270,6 +273,7 @@ export function FilesContent({
             files={files}
             animatingFileKeys={animatingFileKeys}
             openLightbox={openLightbox}
+            active={active}
           />
         )}
       </div>

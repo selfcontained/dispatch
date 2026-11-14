@@ -286,6 +286,7 @@ export function DrawerContent({
             hasStream={hasStream}
             streamUrl={streamUrl}
             onUploadFile={onUploadFile}
+            active={visible && activeTab === "files"}
           />
         </div>
       </div>
