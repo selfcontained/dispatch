@@ -9,7 +9,10 @@ import { useCallback, useMemo, useState } from "react";
 import type { BlockOption } from "@dispatch/shared";
 
 import type { BlockStatePatch } from "@/components/app/chat/block-bodies";
-import { composerDisabledReason } from "@/components/app/chat/composer-disabled";
+import {
+  composerDisabledReason,
+  composerWaitReason,
+} from "@/components/app/chat/composer-disabled";
 import { ThreadPanel } from "@/components/app/chat/thread-panel";
 import { useChatFeedContext } from "@/components/app/chat/use-chat-feed-context";
 import { type Agent } from "@/components/app/types";
@@ -160,6 +163,9 @@ export function ThreadPage({
       findingId={findingId}
       ctx={ctx}
       disabledReason={disabledReason}
+      waitReason={
+        disabledOverride === undefined ? composerWaitReason(agent) : null
+      }
       isMobile={isMobile}
       chrome={false}
       escapeHandledByParent={escapeHandledByParent}

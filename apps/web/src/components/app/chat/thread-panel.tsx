@@ -157,6 +157,8 @@ export type ThreadPanelProps = {
   ctx: FeedContext;
   /** Why nothing can be posted right now, or null. */
   disabledReason: string | null;
+  /** Why a reply can be drafted but not yet sent, or null. */
+  waitReason?: string | null;
   isMobile: boolean;
   onClose: () => void;
   onAnswer: (
@@ -205,6 +207,7 @@ export function ThreadPanel({
   findingId = null,
   ctx: feedCtx,
   disabledReason,
+  waitReason = null,
   isMobile,
   onClose,
   onAnswer,
@@ -215,6 +218,8 @@ export function ThreadPanel({
   error = null,
   mentionables: mentionablesOverride,
 }: ThreadPanelProps): JSX.Element {
+  // A starting agent takes a draft, but answers and block toggles wait.
+  const answersDisabled = disabledReason !== null || waitReason !== null;
   // With a finding open over it, the panel is the finding's own thread:
   // the finding in full, its status controls, and its discussion.
   const threadBlockId = findingId ?? blockId;
@@ -516,7 +521,7 @@ export function ThreadPanel({
             ctx={ctx}
             answering={answeringBlockId === thread.root.id}
             submitting={submittingBlockId === thread.root.id}
-            answersDisabled={disabledReason !== null}
+            answersDisabled={answersDisabled}
             onAnswer={onAnswer}
             inThread
             threadRoot={blockId}
@@ -581,7 +586,7 @@ export function ThreadPanel({
                               ctx={ctx}
                               answering={answeringBlockId === reply.id}
                               submitting={submittingBlockId === reply.id}
-                              answersDisabled={disabledReason !== null}
+                              answersDisabled={answersDisabled}
                               onAnswer={onAnswer}
                               inThread
                             />
@@ -624,6 +629,7 @@ export function ThreadPanel({
           conversation={{ streamId: rootId, threadId: threadBlockId }}
           uploadFile={uploadFile}
           disabledReason={disabledReason}
+          waitReason={waitReason}
           sending={post.isPending}
           placeholder={
             finding ? "Comment on this finding…" : "Reply in thread…"
