@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { FileText, MonitorPlay, User } from "lucide-react";
 
 import { type FileItem } from "@/components/app/types";
@@ -10,12 +11,21 @@ export function FileItemCard({
   animating,
   cacheBustUrl,
   openLightbox,
+  active,
 }: {
   file: FileItem;
   animating: boolean;
   cacheBustUrl: string;
   openLightbox: (fileId: number) => void;
+  /** Whether the Files tab is showing; media fetches wait for it. */
+  active: boolean;
 }): JSX.Element {
+  // Hidden-but-mounted media still downloads, so hold `src` until the tab
+  // has been shown once, then keep it so switching tabs doesn't re-fetch.
+  const [shown, setShown] = useState(active);
+  if (active && !shown) setShown(true);
+  const [loaded, setLoaded] = useState(false);
+  const mediaSrc = shown ? cacheBustUrl : undefined;
   const isStream = file.source === "stream";
   const isText = file.media === "text";
   const isDocument = file.media === "pdf";
@@ -81,7 +91,7 @@ export function FileItemCard({
           )}
         >
           <video
-            src={cacheBustUrl}
+            src={mediaSrc}
             controls
             muted
             playsInline
@@ -98,9 +108,16 @@ export function FileItemCard({
           onClick={() => openLightbox(file.id)}
         >
           <img
-            src={cacheBustUrl}
+            src={mediaSrc}
             alt={file.description || ""}
-            className="max-h-[260px] w-full object-contain"
+            loading="lazy"
+            decoding="async"
+            onLoad={() => setLoaded(true)}
+            onError={() => setLoaded(true)}
+            className={cn(
+              "max-h-[260px] w-full object-contain",
+              !loaded && "h-[260px]"
+            )}
           />
         </button>
       )}
@@ -126,10 +143,12 @@ export function FileCardList({
   files,
   animatingFileKeys,
   openLightbox,
+  active,
 }: {
   files: FileItem[];
   animatingFileKeys: Set<string>;
   openLightbox: (fileId: number) => void;
+  active: boolean;
 }): JSX.Element {
   return (
     <>
@@ -145,6 +164,7 @@ export function FileCardList({
             )}
             cacheBustUrl={cacheBustUrl}
             openLightbox={openLightbox}
+            active={active}
           />
         );
       })}
