@@ -346,6 +346,27 @@ describe("POST /api/v1/focus", () => {
     });
     expect(res.statusCode).toBe(400);
   });
+
+  it("accepts presence on the same heartbeat", async () => {
+    const res = await authedInject("POST", "/api/v1/focus", {
+      agentId: null,
+      sessionId: "ses_route-test-1",
+      visible: true,
+      idleMs: 1200,
+      viewingAgentId: null,
+    });
+    expect(res.statusCode).toBe(204);
+  });
+
+  it("rejects malformed presence fields", async () => {
+    const res = await authedInject("POST", "/api/v1/focus", {
+      agentId: null,
+      sessionId: "ses_route-test-1",
+      visible: "yes",
+      idleMs: 0,
+    });
+    expect(res.statusCode).toBe(400);
+  });
 });
 
 // ---------------------------------------------------------------------------

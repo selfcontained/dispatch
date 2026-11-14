@@ -33,10 +33,10 @@ export type AgentRouteDeps = {
   ackWebNotification: (notificationId: string) => boolean;
   clearFocusedAgents: () => void;
   setFocusedAgent: (agentId: string) => void;
-  /** An app session's presence heartbeat; `null` means it closed. */
+  /** An app session's presence heartbeat, carried on the focus request. */
   reportPresence?: (
     sessionId: string,
-    beat: import("../../presence-tracker.js").PresenceHeartbeat | null
+    beat: import("../../presence-tracker.js").PresenceHeartbeat
   ) => void;
   withStreamFlag: <T extends AgentRecord>(
     agent: T

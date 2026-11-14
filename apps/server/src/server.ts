@@ -1235,9 +1235,7 @@ async function registerRoutes() {
     clearFocusedAgents: () => focusTracker.clearAll(),
     setFocusedAgent: (agentId) => focusTracker.setFocused(agentId),
     reportPresence: (sessionId, beat) =>
-      beat
-        ? presenceTracker.heartbeat(sessionId, beat)
-        : presenceTracker.remove(sessionId),
+      presenceTracker.heartbeat(sessionId, beat),
     withStreamFlag,
     handleAgentError,
     startStream: (agentId, port) => streamManager.startStream(agentId, port),

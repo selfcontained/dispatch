@@ -1,11 +1,15 @@
 import type { SharedUiEvent } from "@dispatch/shared";
 import { X } from "lucide-react";
 import { useEffect } from "react";
-import { type NavigateFunction, useNavigate } from "react-router-dom";
+import {
+  type NavigateFunction,
+  useLocation,
+  useNavigate,
+} from "react-router-dom";
 import { toast } from "sonner";
 
 import { conversationLocation } from "@/components/app/chat/conversation-location-link";
-import { useAppPresence } from "@/hooks/use-app-presence";
+import { useAgentFocus, viewingAgentIdOf } from "@/hooks/use-agent-focus";
 import { agentRoute } from "@/lib/agent-routes";
 
 export type AttentionToastEvent = Extract<
@@ -77,12 +81,13 @@ function showAttentionToast(
 }
 
 /**
- * Reports this session's presence and shows the in-app toasts the server
- * sends it while it's active. Returns no JSX — the global <Toaster />
- * renders them. Mounted once at the app root.
+ * Runs this tab's focus/presence heartbeat and shows the in-app toasts the
+ * server sends it while it's active. Returns no JSX — the global
+ * <Toaster /> renders them. Mounted once at the app root.
  */
 export function AttentionToasts(): null {
-  useAppPresence();
+  const { pathname } = useLocation();
+  useAgentFocus(viewingAgentIdOf(pathname), "authenticated");
   const navigate = useNavigate();
   useEffect(() => {
     const onToast = (event: Event) =>

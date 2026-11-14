@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from "vitest";
 
-import { viewingAgentIdOf } from "@/hooks/use-app-presence";
+import { viewingAgentIdOf } from "@/hooks/use-agent-focus";
 
 import { attentionToastLocation } from "./attention-toast";
 
@@ -35,9 +35,9 @@ describe("attentionToastLocation", () => {
 });
 
 describe("viewingAgentIdOf", () => {
-  it("reads the agent from agent and history routes", () => {
+  it("reads the agent from agent routes", () => {
     expect(viewingAgentIdOf("/agents/agt_a/changes")).toBe("agt_a");
-    expect(viewingAgentIdOf("/activity/history/agt_a")).toBe("agt_a");
+    expect(viewingAgentIdOf("/activity/history/agt_a")).toBeNull();
     expect(viewingAgentIdOf("/tasks")).toBeNull();
     expect(viewingAgentIdOf("/agents/%E0%A4%A")).toBe("%E0%A4%A");
   });

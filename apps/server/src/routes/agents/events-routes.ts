@@ -81,59 +81,55 @@ export async function registerAgentEventRoutes(
   });
 
   app.post("/api/v1/focus", async (request, reply) => {
-    const body = request.body as { agentId?: unknown };
+    const body = request.body as {
+      agentId?: unknown;
+      sessionId?: unknown;
+      visible?: unknown;
+      idleMs?: unknown;
+      viewingAgentId?: unknown;
+    } | null;
     const agentId = body?.agentId;
 
-    if (agentId === null || agentId === undefined) {
-      deps.clearFocusedAgents();
-      return reply.code(204).send();
-    }
-
-    if (typeof agentId !== "string" || !agentId.trim()) {
+    if (
+      agentId !== null &&
+      agentId !== undefined &&
+      (typeof agentId !== "string" || !agentId.trim())
+    ) {
       return reply
         .code(400)
         .send({ error: "agentId must be a non-empty string or null." });
     }
 
-    deps.setFocusedAgent(agentId.trim());
-    return reply.code(204).send();
-  });
-
-  app.post("/api/v1/presence", async (request, reply) => {
-    const body = request.body as {
-      sessionId?: unknown;
-      visible?: unknown;
-      idleMs?: unknown;
-      viewingAgentId?: unknown;
-      closed?: unknown;
-    } | null;
+    // Presence rides the same heartbeat; older clients simply omit it.
     const sessionId = sessionIdOf(body?.sessionId);
-    if (!sessionId) {
-      return reply.code(400).send({ error: "sessionId is invalid." });
-    }
-    if (body?.closed === true) {
-      deps.reportPresence?.(sessionId, null);
-      return reply.code(204).send();
-    }
-    const { visible, idleMs, viewingAgentId } = body ?? {};
-    if (
-      typeof visible !== "boolean" ||
-      typeof idleMs !== "number" ||
-      !Number.isFinite(idleMs) ||
-      (viewingAgentId !== null &&
-        (typeof viewingAgentId !== "string" || !viewingAgentId.trim()))
-    ) {
-      return reply.code(400).send({
-        error:
-          "visible must be a boolean, idleMs a number and viewingAgentId a string or null.",
+    if (sessionId) {
+      const { visible, idleMs, viewingAgentId } = body ?? {};
+      if (
+        typeof visible !== "boolean" ||
+        typeof idleMs !== "number" ||
+        !Number.isFinite(idleMs) ||
+        (viewingAgentId !== null &&
+          viewingAgentId !== undefined &&
+          (typeof viewingAgentId !== "string" || !viewingAgentId.trim()))
+      ) {
+        return reply.code(400).send({
+          error:
+            "visible must be a boolean, idleMs a number and viewingAgentId a string or null.",
+        });
+      }
+      deps.reportPresence?.(sessionId, {
+        visible,
+        idleMs,
+        viewingAgentId:
+          typeof viewingAgentId === "string" ? viewingAgentId.trim() : null,
       });
     }
-    deps.reportPresence?.(sessionId, {
-      visible,
-      idleMs,
-      viewingAgentId:
-        typeof viewingAgentId === "string" ? viewingAgentId.trim() : null,
-    });
+
+    if (agentId === null || agentId === undefined) {
+      deps.clearFocusedAgents();
+    } else {
+      deps.setFocusedAgent((agentId as string).trim());
+    }
     return reply.code(204).send();
   });
 }
