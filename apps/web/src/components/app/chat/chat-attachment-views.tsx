@@ -201,7 +201,7 @@ const FEED_IMAGE_MAX_HEIGHT_PX = 224;
 const FEED_IMAGE_MAX_WIDTH_PX = 320;
 
 /** CSS width the feed lays an image out at; see `feedImageBoxStyle`. */
-function feedImageBoxWidth(width?: number, height?: number): number {
+export function feedImageBoxWidth(width?: number, height?: number): number {
   if (!width || !height) return FEED_IMAGE_MAX_WIDTH_PX;
   return Math.ceil(
     Math.min(
@@ -217,7 +217,7 @@ function feedImageBoxWidth(width?: number, height?: number): number {
  * wider than its tile by its aspect ratio. 160px tiles from `sm` up; two
  * columns of the feed below that.
  */
-function galleryTileSizes(width?: number, height?: number): string {
+export function galleryTileSizes(width?: number, height?: number): string {
   const spread = width && height ? Math.max(1, width / height) : 1;
   return `(min-width: 640px) ${Math.ceil(160 * spread)}px, calc(50vw * ${spread.toFixed(3)})`;
 }

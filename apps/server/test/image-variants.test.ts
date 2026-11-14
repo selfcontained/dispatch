@@ -3,11 +3,13 @@ import {
   readdir,
   readFile,
   rm,
+  unlink,
   utimes,
   writeFile,
 } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { crc32, deflateSync } from "node:zlib";
 
 import jpeg from "jpeg-js";
 import { PNG } from "pngjs";
@@ -18,6 +20,8 @@ import { noisyPng } from "./helpers/noisy-png.js";
 import {
   DEFAULT_MAX_PIXELS,
   ImageVariantCache,
+  exifOrientation,
+  iccProfileOf,
   type RenderedVariant,
   VARIANT_DIR_NAME,
   parseVariantWidth,
@@ -38,6 +42,70 @@ beforeEach(async () => {
   dir = path.join(root, `case-${counter}`);
   await mkdir(dir, { recursive: true });
 });
+
+/** `png` with a chunk inserted straight after IHDR. */
+function withChunk(png: Buffer, type: string, data: Buffer): Buffer {
+  const typeAndData = Buffer.concat([Buffer.from(type, "latin1"), data]);
+  const chunk = Buffer.alloc(12 + data.length);
+  chunk.writeUInt32BE(data.length, 0);
+  typeAndData.copy(chunk, 4);
+  chunk.writeUInt32BE(crc32(typeAndData), 8 + data.length);
+  const at = 8 + 12 + png.readUInt32BE(8);
+  return Buffer.concat([png.subarray(0, at), chunk, png.subarray(at)]);
+}
+
+/** A minimal TIFF/EXIF block with one IFD0 entry: orientation, or none. */
+function tiffWithOrientation(orientation: number | null, le = true): Buffer {
+  const entries = orientation === null ? 0 : 1;
+  const b = Buffer.alloc(8 + 2 + entries * 12 + 4);
+  b.write(le ? "II" : "MM", 0, "latin1");
+  const u16 = (v: number, at: number) =>
+    le ? b.writeUInt16LE(v, at) : b.writeUInt16BE(v, at);
+  const u32 = (v: number, at: number) =>
+    le ? b.writeUInt32LE(v, at) : b.writeUInt32BE(v, at);
+  u16(42, 2);
+  u32(8, 4);
+  u16(entries, 8);
+  if (orientation !== null) {
+    u16(0x0112, 10);
+    u16(3, 12);
+    u32(1, 14);
+    u16(orientation, 18);
+  }
+  return b;
+}
+
+function fakeProfile(length: number): Buffer {
+  const bytes = Buffer.alloc(length);
+  for (let i = 0; i < length; i++) bytes[i] = (i * 31 + 7) & 0xff;
+  return bytes;
+}
+
+function iccpChunk(profile: Buffer): Buffer {
+  return Buffer.concat([
+    Buffer.from("Display P3\0\0", "latin1"),
+    deflateSync(profile),
+  ]);
+}
+
+/** A JPEG with `profile` split across APP2 segments, as cameras write it. */
+function jpegWithProfile(jpegBytes: Buffer, profile: Buffer): Buffer {
+  const marker = Buffer.from("ICC_PROFILE\0", "latin1");
+  const max = 65_519;
+  const count = Math.ceil(profile.length / max);
+  const segments: Buffer[] = [];
+  for (let i = 0; i < count; i++) {
+    const part = profile.subarray(i * max, (i + 1) * max);
+    const header = Buffer.from([0xff, 0xe2, 0, 0]);
+    header.writeUInt16BE(2 + marker.length + 2 + part.length, 2);
+    segments.push(header, marker, Buffer.from([i + 1, count]), part);
+  }
+  return Buffer.concat([
+    jpegBytes.subarray(0, 2),
+    ...segments,
+    jpegBytes.subarray(2),
+  ]);
+}
 
 async function store(name: string, bytes: Buffer): Promise<string> {
   const file = path.join(dir, name);
@@ -112,6 +180,136 @@ describe("renderImageVariant", () => {
     const out = renderImageVariant(src, 320);
     const decoded = jpeg.decode(out!.bytes, { useTArray: true });
     expect([decoded.width, decoded.height]).toEqual([320, 160]);
+  });
+
+  it("serves the original for an animated PNG", () => {
+    const actl = Buffer.alloc(8);
+    actl.writeUInt32BE(2, 0);
+    expect(
+      renderImageVariant(withChunk(noisyPng(1000, 500), "acTL", actl), 320)
+    ).toBeNull();
+  });
+
+  it("carries a PNG's ICC profile into a JPEG copy", () => {
+    const profile = fakeProfile(3144);
+    const src = withChunk(noisyPng(1000, 500), "iCCP", iccpChunk(profile));
+    expect(iccProfileOf(src)).toEqual(profile);
+    const out = renderImageVariant(src, 320);
+    expect(out?.contentType).toBe("image/jpeg");
+    expect(iccProfileOf(out!.bytes)).toEqual(profile);
+    expect(jpeg.decode(out!.bytes, { useTArray: true }).width).toBe(320);
+  });
+
+  it("carries a PNG's ICC profile into a transparent PNG copy", () => {
+    const profile = fakeProfile(3144);
+    const src = withChunk(
+      noisyPng(800, 400, (x) => (x < 400 ? 0 : 255)),
+      "iCCP",
+      iccpChunk(profile)
+    );
+    const out = renderImageVariant(src, 320);
+    expect(out?.contentType).toBe("image/png");
+    expect(iccProfileOf(out!.bytes)).toEqual(profile);
+    // pngjs verifies every chunk CRC on read.
+    expect(PNG.sync.read(out!.bytes).width).toBe(320);
+  });
+
+  it("carries a multi-segment JPEG ICC profile into the copy", () => {
+    const profile = fakeProfile(70_000);
+    const base = jpeg.encode(
+      {
+        data: PNG.sync.read(noisyPng(1000, 500)).data,
+        width: 1000,
+        height: 500,
+      },
+      95
+    ).data;
+    const src = jpegWithProfile(base, profile);
+    expect(iccProfileOf(src)).toEqual(profile);
+    const out = renderImageVariant(src, 320);
+    expect(iccProfileOf(out!.bytes)).toEqual(profile);
+    expect(jpeg.decode(out!.bytes, { useTArray: true }).width).toBe(320);
+  });
+
+  it("serves the original when the ICC chunk is unreadable", () => {
+    const bad = Buffer.concat([
+      Buffer.from("P3\0\0", "latin1"),
+      Buffer.from("not zlib"),
+    ]);
+    expect(
+      renderImageVariant(withChunk(noisyPng(1000, 500), "iCCP", bad), 320)
+    ).toBeNull();
+  });
+
+  it("resizes a macOS-style screenshot carrying upright EXIF and a P3 profile", () => {
+    const profile = fakeProfile(536);
+    const src = withChunk(
+      withChunk(noisyPng(1000, 500), "eXIf", tiffWithOrientation(1)),
+      "iCCP",
+      iccpChunk(profile)
+    );
+    const out = renderImageVariant(src, 320);
+    expect(out?.contentType).toBe("image/jpeg");
+    expect(iccProfileOf(out!.bytes)).toEqual(profile);
+  });
+
+  it("resizes a PNG whose EXIF has no orientation tag", () => {
+    expect(
+      renderImageVariant(
+        withChunk(noisyPng(1000, 500), "eXIf", tiffWithOrientation(null)),
+        320
+      )
+    ).not.toBeNull();
+  });
+
+  it.each([3, 6, 8])("serves the original for EXIF orientation %i", (o) => {
+    expect(
+      renderImageVariant(
+        withChunk(noisyPng(1000, 500), "eXIf", tiffWithOrientation(o)),
+        320
+      )
+    ).toBeNull();
+  });
+
+  it("serves the original for unreadable EXIF", () => {
+    expect(
+      renderImageVariant(
+        withChunk(noisyPng(1000, 500), "eXIf", Buffer.from("garbage!")),
+        320
+      )
+    ).toBeNull();
+  });
+
+  it("reads orientation from a JPEG's EXIF segment", () => {
+    const base = jpeg.encode(
+      {
+        data: PNG.sync.read(noisyPng(1000, 500)).data,
+        width: 1000,
+        height: 500,
+      },
+      95
+    ).data;
+    const withExif = (o: number) => {
+      const body = Buffer.concat([
+        Buffer.from("Exif\0\0", "latin1"),
+        tiffWithOrientation(o),
+      ]);
+      const header = Buffer.from([0xff, 0xe1, 0, 0]);
+      header.writeUInt16BE(body.length + 2, 2);
+      return Buffer.concat([
+        base.subarray(0, 2),
+        header,
+        body,
+        base.subarray(2),
+      ]);
+    };
+    expect(renderImageVariant(withExif(1), 320)).not.toBeNull();
+    expect(renderImageVariant(withExif(6), 320)).toBeNull();
+  });
+
+  it("parses big-endian TIFF too", () => {
+    expect(exifOrientation(tiffWithOrientation(6, false))).toBe(6);
+    expect(exifOrientation(tiffWithOrientation(1, false))).toBe(1);
   });
 
   it("declines an image already no wider than the target", () => {
@@ -283,6 +481,30 @@ describe("ImageVariantCache", () => {
     expect(second!.etag).not.toBe(first!.etag);
     expect(second!.path).not.toBe(first!.path);
     expect(await variantFiles()).toEqual([path.basename(second!.path)]);
+  });
+
+  it("leaves no copy behind when the file is deleted mid-render", async () => {
+    let file = "";
+    const cache = new ImageVariantCache({
+      render: async (input, width, maxPixels) => {
+        await unlink(file);
+        await removeImageVariants(file);
+        return renderImageVariant(input, width, maxPixels);
+      },
+    });
+    file = await store("shot.png", noisyPng(1000, 500));
+    expect(await cache.get(file, "image/png", 320)).toBeNull();
+    expect(await variantFiles()).toEqual([]);
+  });
+
+  it("reaps temp files a crash left behind", async () => {
+    const cache = new ImageVariantCache();
+    const file = await store("shot.png", noisyPng(1000, 500));
+    const first = await cache.get(file, "image/png", 320);
+    const orphan = `${first!.path}.tmp-999-deadbeef`;
+    await writeFile(orphan, "partial");
+    await removeImageVariants(file);
+    expect(await variantFiles()).toEqual([]);
   });
 
   it("removeImageVariants deletes every copy of one file and nothing else", async () => {

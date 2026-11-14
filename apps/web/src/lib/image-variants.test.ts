@@ -29,3 +29,11 @@ describe("imageVariantSrcSet", () => {
     expect(imageVariantSrcSet("/f/a.png", 320)).toBe("/f/a.png 320w");
   });
 });
+
+describe("imageVariantSrcSet with a cap", () => {
+  it("drops copies wider than the cap", () => {
+    expect(imageVariantSrcSet("/f/a.png", undefined, 640)).toBe(
+      "/f/a.png?w=320 320w, /f/a.png?w=640 640w"
+    );
+  });
+});

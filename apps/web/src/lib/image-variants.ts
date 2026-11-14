@@ -17,12 +17,18 @@ export function imageVariantUrl(url: string, width: number): string {
 /**
  * A `srcset` of the copies narrower than the image, plus the original at its
  * own width when that is known. Without a known width every copy is listed;
- * the server answers one wider than the image with the original.
+ * the server answers one wider than the image with the original. `maxWidth`
+ * drops copies wider than a small box could ever use.
  */
-export function imageVariantSrcSet(url: string, naturalWidth?: number): string {
+export function imageVariantSrcSet(
+  url: string,
+  naturalWidth?: number,
+  maxWidth?: number
+): string {
   const candidates: string[] = [];
   for (const width of IMAGE_VARIANT_WIDTHS) {
     if (naturalWidth && width >= naturalWidth) break;
+    if (maxWidth && width > maxWidth) break;
     candidates.push(`${imageVariantUrl(url, width)} ${width}w`);
   }
   if (naturalWidth) candidates.push(`${url} ${naturalWidth}w`);

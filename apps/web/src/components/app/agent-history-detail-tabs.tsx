@@ -53,8 +53,11 @@ export function DetailTabs({
                   {m.media === "image" ? (
                     <img
                       src={`/api/v1/agents/${agentId}/files/${encodeURIComponent(m.file_name)}`}
+                      // Tiles stay a few hundred device pixels wide.
                       srcSet={imageVariantSrcSet(
-                        `/api/v1/agents/${agentId}/files/${encodeURIComponent(m.file_name)}`
+                        `/api/v1/agents/${agentId}/files/${encodeURIComponent(m.file_name)}`,
+                        undefined,
+                        640
                       )}
                       sizes="(min-width: 640px) 25vw, 33vw"
                       alt={m.description ?? m.file_name}
