@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render } from "@testing-library/react";
+import { act, cleanup, render } from "@testing-library/react";
 import { OVERLAY_EDGE_GAP, safeCollisionPadding } from "./viewport-insets";
 
 const { contentProps } = vi.hoisted(() => ({
@@ -92,5 +92,85 @@ describe("PopoverContent", () => {
       bottom: 32,
       left: 12,
     });
+  });
+});
+
+describe("useSafeAreaInsets", () => {
+  // Reports `top` for the safe-area probe and counts how often it is read.
+  function mockProbe(initialTop: number) {
+    const state = { top: initialTop, measurements: 0 };
+    const real = window.getComputedStyle;
+    vi.spyOn(window, "getComputedStyle").mockImplementation((el, pseudo) => {
+      const style = real(el, pseudo);
+      const probe = el as HTMLElement;
+      if (
+        probe.parentElement !== document.body ||
+        probe.style.visibility !== "hidden" ||
+        probe.style.position !== "fixed"
+      ) {
+        return style;
+      }
+      state.measurements += 1;
+      return {
+        ...style,
+        getPropertyValue: (name: string) =>
+          name === "padding-top" ? `${state.top}px` : "0px",
+      } as CSSStyleDeclaration;
+    });
+    return state;
+  }
+
+  async function freshHook() {
+    vi.resetModules();
+    const { useSafeAreaInsets } = await import("./viewport-insets");
+    const seen: number[] = [];
+    function Consumer({ index }: { index: number }) {
+      seen[index] = useSafeAreaInsets().top;
+      return null;
+    }
+    return { Consumer, seen };
+  }
+
+  it("measures once for many subscribers and once per resize", async () => {
+    const probe = mockProbe(24);
+    const { Consumer, seen } = await freshHook();
+    const COUNT = 50;
+    render(
+      <>
+        {Array.from({ length: COUNT }, (_, index) => (
+          <Consumer key={index} index={index} />
+        ))}
+      </>
+    );
+    expect(probe.measurements).toBe(1);
+    expect(seen).toHaveLength(COUNT);
+    expect(seen.every((top) => top === 24)).toBe(true);
+
+    probe.top = 47;
+    act(() => {
+      window.dispatchEvent(new Event("resize"));
+    });
+    expect(probe.measurements).toBe(2);
+    expect(seen.every((top) => top === 47)).toBe(true);
+  });
+
+  it("re-measures for the first subscriber after all of them detached", async () => {
+    const probe = mockProbe(24);
+    const { Consumer, seen } = await freshHook();
+    const first = render(<Consumer index={0} />);
+    expect(probe.measurements).toBe(1);
+    first.unmount();
+
+    // Changed while nobody was listening for window events.
+    probe.top = 0;
+    render(
+      <>
+        <Consumer index={1} />
+        <Consumer index={2} />
+      </>
+    );
+    expect(probe.measurements).toBe(2);
+    expect(seen[1]).toBe(0);
+    expect(seen[2]).toBe(0);
   });
 });
