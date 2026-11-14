@@ -26,13 +26,17 @@ export type UiEvent =
 export type PublishUiEvent = (event: UiEvent) => void;
 
 export class UiEventBroker {
-  private clients = new Set<NodeJS.WritableStream>();
+  /** Each connected stream and the app session (tab) that opened it, if it said. */
+  private clients = new Map<NodeJS.WritableStream, string | null>();
   private nextId = 1;
   private eventsPublished = 0;
   private writeFailures = 0;
 
-  subscribe(stream: NodeJS.WritableStream): () => void {
-    this.clients.add(stream);
+  subscribe(
+    stream: NodeJS.WritableStream,
+    sessionId: string | null = null
+  ): () => void {
+    this.clients.set(stream, sessionId);
     return () => {
       this.clients.delete(stream);
     };
@@ -45,6 +49,18 @@ export class UiEventBroker {
   publish(event: UiEvent): void {
     this.eventsPublished += 1;
     this.write(event);
+  }
+
+  /** Send an event only to the streams opened by these app sessions. */
+  publishToSessions(event: UiEvent, sessionIds: Iterable<string>): void {
+    const targets = new Set(sessionIds);
+    if (targets.size === 0) return;
+    this.eventsPublished += 1;
+    this.write(
+      event,
+      undefined,
+      (sessionId) => sessionId !== null && targets.has(sessionId)
+    );
   }
 
   getMetrics(): {
@@ -66,14 +82,19 @@ export class UiEventBroker {
     this.write({ type: "snapshot", agents }, stream);
   }
 
-  private write(event: UiEvent, target?: NodeJS.WritableStream): void {
+  private write(
+    event: UiEvent,
+    target?: NodeJS.WritableStream,
+    include?: (sessionId: string | null) => boolean
+  ): void {
     const payload = `id: ${this.nextId++}\ndata: ${JSON.stringify(event)}\n\n`;
     if (target) {
       target.write(payload);
       return;
     }
 
-    for (const client of this.clients) {
+    for (const [client, sessionId] of this.clients) {
+      if (include && !include(sessionId)) continue;
       if ((client as { destroyed?: boolean }).destroyed) {
         this.clients.delete(client);
         continue;

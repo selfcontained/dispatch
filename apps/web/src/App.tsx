@@ -12,6 +12,7 @@ import { useHealth } from "@/hooks/use-health";
 import { useLayout } from "@/hooks/use-layout";
 import { useSectionNavigate } from "@/hooks/use-section-navigate";
 import { useSSE } from "@/hooks/use-sse";
+import { AttentionToasts } from "@/components/app/attention-toast";
 import { useIconColor } from "@/hooks/use-icon-color";
 import { useInstanceName } from "@/hooks/use-instance-name";
 import { useTheme } from "@/hooks/use-theme";
@@ -202,6 +203,7 @@ export function DashboardLayout(): JSX.Element {
           </div>
         </div>
       </UserAvatarProvider>
+      <AttentionToasts />
       <ReleaseAvailableToast />
       <UpdateAvailableToast />
       {/* Color tokens, close button, and action button styling live in

@@ -2,6 +2,13 @@ import type { FastifyInstance } from "fastify";
 
 import type { AgentRouteDeps } from "./shared.js";
 
+/** A client-generated app session id: one per tab or installed app window. */
+function sessionIdOf(value: unknown): string | null {
+  return typeof value === "string" && /^[A-Za-z0-9_-]{8,64}$/.test(value)
+    ? value
+    : null;
+}
+
 export async function registerAgentEventRoutes(
   app: FastifyInstance,
   deps: AgentRouteDeps
@@ -14,7 +21,10 @@ export async function registerAgentEventRoutes(
     reply.hijack();
 
     const stream = reply.raw;
-    const unsubscribe = deps.subscribeUiEvents(stream);
+    const unsubscribe = deps.subscribeUiEvents(
+      stream,
+      sessionIdOf((request.query as { session?: unknown } | undefined)?.session)
+    );
     const heartbeat = setInterval(() => {
       stream.write(": keepalive\n\n");
     }, 20_000);
@@ -86,6 +96,44 @@ export async function registerAgentEventRoutes(
     }
 
     deps.setFocusedAgent(agentId.trim());
+    return reply.code(204).send();
+  });
+
+  app.post("/api/v1/presence", async (request, reply) => {
+    const body = request.body as {
+      sessionId?: unknown;
+      visible?: unknown;
+      idleMs?: unknown;
+      viewingAgentId?: unknown;
+      closed?: unknown;
+    } | null;
+    const sessionId = sessionIdOf(body?.sessionId);
+    if (!sessionId) {
+      return reply.code(400).send({ error: "sessionId is invalid." });
+    }
+    if (body?.closed === true) {
+      deps.reportPresence?.(sessionId, null);
+      return reply.code(204).send();
+    }
+    const { visible, idleMs, viewingAgentId } = body ?? {};
+    if (
+      typeof visible !== "boolean" ||
+      typeof idleMs !== "number" ||
+      !Number.isFinite(idleMs) ||
+      (viewingAgentId !== null &&
+        (typeof viewingAgentId !== "string" || !viewingAgentId.trim()))
+    ) {
+      return reply.code(400).send({
+        error:
+          "visible must be a boolean, idleMs a number and viewingAgentId a string or null.",
+      });
+    }
+    deps.reportPresence?.(sessionId, {
+      visible,
+      idleMs,
+      viewingAgentId:
+        typeof viewingAgentId === "string" ? viewingAgentId.trim() : null,
+    });
     return reply.code(204).send();
   });
 }

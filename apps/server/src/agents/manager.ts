@@ -139,6 +139,13 @@ const CLAUDE_FULL_ACCESS_ARG = "--dangerously-skip-permissions";
 
 type WorktreeLocation = "sibling" | "nested";
 
+/** The question or form an attention event is about. */
+export type AttentionTarget = {
+  streamId: string;
+  threadId: string | null;
+  blockId: string;
+};
+
 type CreateAgentInput = {
   name?: string;
   type?: AgentType;
@@ -364,6 +371,7 @@ export class AgentManager {
       agent: AgentRecord;
       type: "waiting_user" | "blocked";
       message: string;
+      target?: AttentionTarget;
     }) => void | Promise<void>
   > = [];
   private readonly pendingPermissionIds = new Map<string, Set<string>>();
@@ -577,11 +585,15 @@ export class AgentManager {
   }
 
   /** The agent asked the user something in Chat: it is waiting on them now. */
-  async noteQuestionPosted(agentId: string, text: string): Promise<void> {
+  async noteQuestionPosted(
+    agentId: string,
+    text: string,
+    target?: AttentionTarget
+  ): Promise<void> {
     const agent = await this.getAgent(agentId);
     if (!agent || agent.status !== "running") return;
 
-    await this.emitAttention(agentId, "waiting_user", statusLine(text));
+    await this.emitAttention(agentId, "waiting_user", statusLine(text), target);
     this.eventBus.publish(await this.getRequiredAgent(agentId));
   }
 
@@ -988,6 +1000,7 @@ export class AgentManager {
       agent: AgentRecord;
       type: "waiting_user" | "blocked";
       message: string;
+      target?: AttentionTarget;
     }) => void | Promise<void>
   ): void {
     this.attentionListeners.push(listener);
@@ -1029,14 +1042,19 @@ export class AgentManager {
   private async emitAttention(
     agentId: string,
     type: "waiting_user" | "blocked",
-    message: string
+    message: string,
+    target?: AttentionTarget
   ): Promise<void> {
     const agent = await this.getAgent(agentId);
     if (!agent) return;
     for (const listener of this.attentionListeners) {
       try {
-        void Promise.resolve(listener({ agent, type, message })).catch((err) =>
-          this.logger.warn({ err, agentId }, "Agent attention listener failed")
+        void Promise.resolve(listener({ agent, type, message, target })).catch(
+          (err) =>
+            this.logger.warn(
+              { err, agentId },
+              "Agent attention listener failed"
+            )
         );
       } catch (err) {
         this.logger.warn({ err, agentId }, "Agent attention listener failed");

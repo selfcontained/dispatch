@@ -54,6 +54,8 @@ import { FILE_ITEM_QUERY_PREFIX } from "@/hooks/use-files";
 import { sortAgentsByCreatedAtDesc } from "@/lib/agent-sort";
 import { recordSSEEvent, recordSSEReconnect } from "@/lib/energy-metrics";
 import { showWebNotification } from "@/lib/web-notifications";
+import { APP_SESSION_ID } from "@/lib/app-session";
+import { announceAttentionToast } from "@/components/app/attention-toast";
 import { playCueForIntent } from "@/lib/sound-cues";
 import { soundCuesEnabledAtom } from "@/lib/store";
 import {
@@ -800,6 +802,11 @@ export function useSSE(authState: AuthState): void {
           return;
         }
 
+        if (payload.type === "attention.toast") {
+          announceAttentionToast(payload);
+          return;
+        }
+
         if (payload.type === "notification") {
           const shown = showWebNotification(payload);
           if (shown) {
@@ -859,9 +866,12 @@ export function useSSE(authState: AuthState): void {
       // only ever scheduled after the source is dropped.
       if (source) return;
       cancelReconnect();
-      const opened = new EventSource("/api/v1/events", {
-        withCredentials: true,
-      });
+      const opened = new EventSource(
+        `/api/v1/events?session=${encodeURIComponent(APP_SESSION_ID)}`,
+        {
+          withCredentials: true,
+        }
+      );
       // No `open` yet, so measure from the attempt. Generous by the
       // establishment latency, but never 0 — a zero here would make the
       // staleness check trivially true and silently clear the backoff.
