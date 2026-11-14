@@ -20,6 +20,8 @@ export type AttentionToastEvent = Extract<
 const ATTENTION_TOAST_MS = 10_000;
 /** Its own toaster, so it can sit clear of the composer on desktop. */
 const TOASTER_ID = "attention";
+/** Same lift as `--mobile-offset-bottom` in index.css: clear of the nav and home indicator. */
+const MOBILE_BOTTOM_OFFSET = "calc(env(safe-area-inset-bottom, 0px) + 5rem)";
 const EVENT_NAME = "attention-toast";
 const bus = new EventTarget();
 /** Toasts this page already showed: one per item, even if the event repeats. */
@@ -110,7 +112,13 @@ export function AttentionToasts({
     <Toaster
       id={TOASTER_ID}
       position={isMobile ? "bottom-right" : "top-right"}
-      offset={isMobile ? undefined : { top: "7rem", right: "1rem" }}
+      offset={
+        isMobile
+          ? // Sonner applies --mobile-offset-bottom only up to 600px; the
+            // mobile layout runs to 767px, so lift it above the nav here too.
+            { bottom: MOBILE_BOTTOM_OFFSET, right: "1rem" }
+          : { top: "7rem", right: "1rem" }
+      }
     />
   );
 }
