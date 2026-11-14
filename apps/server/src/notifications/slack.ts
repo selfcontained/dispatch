@@ -10,11 +10,7 @@ import type { FastifyBaseLogger } from "fastify";
 
 import type { NotifyInput, NotifyResult } from "../shared/mcp/server.js";
 import type { AgentRecord } from "../agents/manager.js";
-import { getSetting, setSetting, deleteSetting } from "../db/settings.js";
-
-type SlackBlock =
-  | { type: "section"; text: { type: "mrkdwn"; text: string } }
-  | { type: "context"; elements: Array<{ type: "mrkdwn"; text: string }> };
+import { getSetting, setSetting } from "../db/settings.js";
 
 const NOTIFY_EVENT_TYPES = ["waiting_user", "blocked"] as const;
 type NotifyEventType = (typeof NOTIFY_EVENT_TYPES)[number];
@@ -23,33 +19,8 @@ export type NotificationSignal = {
   message: string;
 };
 
-const EVENT_CONFIG: Record<
-  NotifyEventType,
-  { emoji: string; verb: string; color: string }
-> = {
-  waiting_user: {
-    emoji: "\ud83d\udfe1",
-    verb: "needs your input",
-    color: "#f59e0b",
-  },
-  blocked: { emoji: "\ud83d\udd34", verb: "is blocked", color: "#ef4444" },
-};
-
-const LEVEL_CONFIG: Record<
-  NonNullable<NotifyInput["level"]>,
-  { emoji: string; color: string }
-> = {
-  info: { emoji: "\u2139\ufe0f", color: "#3b82f6" },
-  success: { emoji: "\u2705", color: "#22c55e" },
-  warning: { emoji: "\u26a0\ufe0f", color: "#f59e0b" },
-  error: { emoji: "\ud83d\udead", color: "#ef4444" },
-};
-
 export type { NotifyInput, NotifyResult };
 
-const SLACK_WEBHOOK_PREFIX = "https://hooks.slack.com/";
-const SETTING_WEBHOOK_URL = "slack_webhook_url";
-const SETTING_NOTIFY_EVENTS = "slack_notify_events";
 const SETTING_WEB_NOTIFY_ENABLED = "web_notify_enabled";
 const SETTING_WEB_NOTIFY_EVENTS = "web_notify_events";
 
@@ -61,36 +32,10 @@ const NOTIFY_RATE_LIMIT = 5;
 const NOTIFY_RATE_WINDOW_MS = 60_000;
 
 type CachedSettings = {
-  webhookUrl: string | null;
-  notifyEvents: NotifyEventType[];
   webNotifyEnabled: boolean;
   webNotifyEvents: NotifyEventType[];
   expiresAt: number;
 };
-
-/**
- * Validate that a webhook URL points to Slack's official endpoint.
- * Prevents SSRF by rejecting internal/arbitrary URLs.
- */
-export function isValidSlackWebhookUrl(url: string): boolean {
-  try {
-    const parsed = new URL(url);
-    return (
-      parsed.protocol === "https:" &&
-      parsed.href.startsWith(SLACK_WEBHOOK_PREFIX)
-    );
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Escape Slack broadcast mention syntax (<!channel>, <!here>, <!everyone>)
- * in agent-provided content. Regular mrkdwn formatting and links are preserved.
- */
-function sanitizeSlackMrkdwn(text: string): string {
-  return text.replace(/<!([^>]*)>/g, "&lt;!$1&gt;");
-}
 
 export class SlackNotifier {
   readonly app: SlackApp;
@@ -158,51 +103,15 @@ export class SlackNotifier {
     this.isFocused = fn;
   }
 
-  async getWebhookUrl(): Promise<string | null> {
-    return getSetting(this.pool, SETTING_WEBHOOK_URL);
-  }
-
-  async setWebhookUrl(url: string): Promise<void> {
-    if (!url) {
-      await deleteSetting(this.pool, SETTING_WEBHOOK_URL);
-    } else {
-      if (!isValidSlackWebhookUrl(url)) {
-        throw new Error(
-          "Invalid webhook URL: must start with https://hooks.slack.com/"
-        );
-      }
-      await setSetting(this.pool, SETTING_WEBHOOK_URL, url);
-    }
-    this.invalidateCache();
-  }
-
-  async getNotifyEvents(): Promise<NotifyEventType[]> {
-    return this.getEventSetting(SETTING_NOTIFY_EVENTS);
-  }
-
-  async setNotifyEvents(events: string[]): Promise<void> {
-    return this.setEventSetting(SETTING_NOTIFY_EVENTS, events);
-  }
-
   async getSettings(): Promise<{
-    webhookUrl: string;
-    notifyEvents: NotifyEventType[];
     webNotifyEnabled: boolean;
     webNotifyEvents: NotifyEventType[];
   }> {
-    const [webhookUrl, notifyEvents, webNotifyEnabled, webNotifyEvents] =
-      await Promise.all([
-        this.getWebhookUrl(),
-        this.getNotifyEvents(),
-        this.getWebNotifyEnabled(),
-        this.getWebNotifyEvents(),
-      ]);
-    return {
-      webhookUrl: webhookUrl ?? "",
-      notifyEvents,
-      webNotifyEnabled,
-      webNotifyEvents,
-    };
+    const [webNotifyEnabled, webNotifyEvents] = await Promise.all([
+      this.getWebNotifyEnabled(),
+      this.getWebNotifyEvents(),
+    ]);
+    return { webNotifyEnabled, webNotifyEvents };
   }
 
   async getWebNotifyEnabled(): Promise<boolean> {
@@ -253,76 +162,6 @@ export class SlackNotifier {
       eventType: event.type,
       message: event.message,
     };
-  }
-
-  /** Send Slack for an explicit attention signal from the live turn or post. */
-  async onAttention(
-    agent: AgentRecord,
-    event: NotificationSignal
-  ): Promise<void> {
-    if (!NOTIFY_EVENT_TYPES.includes(event.type as NotifyEventType)) return;
-
-    // App mode uses the durable five-minute question scanner, not legacy immediate attention.
-    if ((await this.app.settings()).configured) return;
-    try {
-      if (this.isFocused?.(agent.id)) {
-        this.log.debug(
-          { agentId: agent.id },
-          "Skipping notification — user is focused on agent"
-        );
-        return;
-      }
-
-      const settings = await this.getCachedSettings();
-      if (!settings.webhookUrl) return;
-      if (!settings.notifyEvents.includes(event.type as NotifyEventType))
-        return;
-
-      const cfg = EVENT_CONFIG[event.type as NotifyEventType];
-      await this.sendSlackMessage(settings.webhookUrl, agent, event, cfg);
-    } catch (err) {
-      this.log.warn(
-        { err, agentId: agent.id },
-        "Failed to send Slack notification"
-      );
-    }
-  }
-
-  async sendTestMessage(
-    webhookUrl: string
-  ): Promise<{ ok: boolean; error?: string }> {
-    if (!isValidSlackWebhookUrl(webhookUrl)) {
-      return {
-        ok: false,
-        error: "Invalid webhook URL: must start with https://hooks.slack.com/",
-      };
-    }
-    try {
-      const res = await this.postToSlack(webhookUrl, {
-        username: "Dispatch",
-        text: "Dispatch test notification — your Slack webhook is working!",
-        blocks: [
-          {
-            type: "section",
-            text: {
-              type: "mrkdwn",
-              text: "\u2705 *Dispatch test notification*\nYour Slack webhook is configured and working!",
-            },
-          },
-        ],
-      });
-
-      if (!res.ok) {
-        const body = await res.text();
-        return { ok: false, error: `Slack returned ${res.status}: ${body}` };
-      }
-      return { ok: true };
-    } catch (err) {
-      return {
-        ok: false,
-        error: err instanceof Error ? err.message : "Unknown error",
-      };
-    }
   }
 
   /**
@@ -450,77 +289,11 @@ export class SlackNotifier {
         };
       }
     }
-    const settings = await this.getCachedSettings();
-    if (!settings.webhookUrl) {
-      return { sent: false, reason: "No Slack webhook configured." };
-    }
-
-    try {
-      const level = input.level ?? "info";
-      const cfg = LEVEL_CONFIG[level];
-      const agentName = sanitizeSlackMrkdwn(agent.name || agent.id.slice(0, 8));
-
-      // Sanitize agent-provided content to prevent broadcast mentions
-      // (<!channel>, <!here>, <!everyone>). Regular mrkdwn links are allowed.
-      const safeMessage = sanitizeSlackMrkdwn(input.message);
-      const safeTitle = input.title
-        ? sanitizeSlackMrkdwn(input.title)
-        : undefined;
-
-      const blocks: SlackBlock[] = [];
-
-      // Title + message
-      const titleLine = safeTitle
-        ? `*${cfg.emoji} ${safeTitle}*`
-        : `*${cfg.emoji} Notification from "${agentName}"*`;
-      blocks.push({
-        type: "section",
-        text: { type: "mrkdwn", text: `${titleLine}\n${safeMessage}` },
-      });
-
-      // Context line
-      const branch = agent.gitContext?.branch;
-      const contextParts: string[] = [];
-      contextParts.push(`Agent: ${agentName}`);
-      if (branch) contextParts.push(`Branch: \`${branch}\``);
-      blocks.push({
-        type: "context",
-        elements: [{ type: "mrkdwn", text: contextParts.join("  \u00b7  ") }],
-      });
-
-      const fallback = safeTitle
-        ? `${safeTitle}: ${safeMessage}`
-        : `Notification from "${agentName}": ${safeMessage}`;
-
-      // Record timestamp optimistically — over-counting is safer than under-counting
-      // for a rate limiter protecting a webhook.
-      this.recordNotifyTimestamp(agent.id);
-
-      const res = await this.postToSlack(settings.webhookUrl, {
-        username: "Dispatch",
-        attachments: [{ color: cfg.color, fallback, blocks }],
-      });
-
-      if (!res.ok) {
-        const body = await res.text();
-        this.log.warn(
-          { status: res.status, body },
-          "Slack webhook returned error for notify"
-        );
-        return { sent: false, reason: `Slack returned ${res.status}: ${body}` };
-      }
-
-      return { sent: true };
-    } catch (err) {
-      this.log.warn(
-        { err, agentId: agent.id },
-        "Failed to send agent-initiated notification"
-      );
-      return {
-        sent: false,
-        reason: err instanceof Error ? err.message : "Unknown error",
-      };
-    }
+    return {
+      sent: false,
+      reason:
+        "Slack notifications need the Slack app connected in Settings. Nothing was sent.",
+    };
   }
 
   private isRateLimited(agentId: string): boolean {
@@ -562,25 +335,15 @@ export class SlackNotifier {
     this.invalidateCache();
   }
 
-  private async getCachedSettings(): Promise<{
-    webhookUrl: string | null;
-    notifyEvents: NotifyEventType[];
-    webNotifyEnabled: boolean;
-    webNotifyEvents: NotifyEventType[];
-  }> {
+  private async getCachedSettings(): Promise<CachedSettings> {
     if (this.cachedSettings && Date.now() < this.cachedSettings.expiresAt) {
       return this.cachedSettings;
     }
-    const [webhookUrl, notifyEvents, webNotifyEnabled, webNotifyEvents] =
-      await Promise.all([
-        this.getWebhookUrl(),
-        this.getNotifyEvents(),
-        this.getWebNotifyEnabled(),
-        this.getWebNotifyEvents(),
-      ]);
+    const [webNotifyEnabled, webNotifyEvents] = await Promise.all([
+      this.getWebNotifyEnabled(),
+      this.getWebNotifyEvents(),
+    ]);
     this.cachedSettings = {
-      webhookUrl,
-      notifyEvents,
       webNotifyEnabled,
       webNotifyEvents,
       expiresAt: Date.now() + CACHE_TTL_MS,
@@ -590,78 +353,5 @@ export class SlackNotifier {
 
   private invalidateCache(): void {
     this.cachedSettings = null;
-  }
-
-  private async postToSlack(
-    webhookUrl: string,
-    payload: Record<string, unknown>
-  ): Promise<Response> {
-    return fetch(webhookUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-      signal: AbortSignal.timeout(10_000),
-    });
-  }
-
-  private async sendSlackMessage(
-    webhookUrl: string,
-    agent: AgentRecord,
-    event: { type: string; message: string },
-    cfg: { emoji: string; verb: string; color: string }
-  ): Promise<void> {
-    const agentName = sanitizeSlackMrkdwn(agent.name || agent.id.slice(0, 8));
-    const branch = agent.gitContext?.branch;
-    const elapsed = this.formatElapsed(agent.createdAt);
-    const agentType = agent.type
-      ? agent.type.charAt(0).toUpperCase() + agent.type.slice(1)
-      : "Agent";
-
-    const blocks: SlackBlock[] = [
-      {
-        type: "section",
-        text: {
-          type: "mrkdwn",
-          text: `*Agent "${agentName}" ${cfg.verb}*\n_${event.message}_`,
-        },
-      },
-    ];
-
-    const contextParts: string[] = [];
-    if (branch) contextParts.push(`Branch: \`${branch}\``);
-    contextParts.push(agentType);
-    contextParts.push(elapsed);
-
-    blocks.push({
-      type: "context",
-      elements: [{ type: "mrkdwn", text: contextParts.join("  \u00b7  ") }],
-    });
-
-    const fallback = `Agent "${agentName}" ${cfg.verb}: ${event.message}`;
-
-    const res = await this.postToSlack(webhookUrl, {
-      username: "Dispatch",
-      attachments: [{ color: cfg.color, fallback, blocks }],
-    });
-
-    if (!res.ok) {
-      const body = await res.text();
-      this.log.warn(
-        { status: res.status, body },
-        "Slack webhook returned error"
-      );
-    }
-  }
-
-  private formatElapsed(createdAt: string): string {
-    const ms = Date.now() - new Date(createdAt).getTime();
-    const mins = Math.floor(ms / 60_000);
-    if (mins < 1) return "just started";
-    if (mins < 60) return `running ${mins}m`;
-    const hours = Math.floor(mins / 60);
-    const remainMins = mins % 60;
-    return remainMins > 0
-      ? `running ${hours}h ${remainMins}m`
-      : `running ${hours}h`;
   }
 }

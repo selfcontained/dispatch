@@ -11,12 +11,7 @@ function makeDeps(overrides: Record<string, unknown> = {}) {
       }),
       ...((overrides.agentManager as Record<string, unknown>) ?? {}),
     },
-    jobService: {
-      getLatestRunForAgent: vi.fn().mockResolvedValue(null),
-      ...((overrides.jobService as Record<string, unknown>) ?? {}),
-    },
     slackNotifier: {
-      onAttention: vi.fn().mockResolvedValue(undefined),
       shouldWebNotify: vi.fn().mockResolvedValue(null),
       ...((overrides.slackNotifier as Record<string, unknown>) ?? {}),
     },
@@ -55,7 +50,7 @@ describe("createNotificationRuntime", () => {
   });
 
   describe("onAttention handler", () => {
-    it("sends Slack notification for non-job agent when no web client", async () => {
+    it("publishes nothing when no web client is connected", async () => {
       const deps = makeDeps();
       createNotificationRuntime(deps as never);
 
@@ -71,13 +66,10 @@ describe("createNotificationRuntime", () => {
         type: "waiting_user",
         message: "Needs input",
       });
-      expect(deps.slackNotifier.onAttention).toHaveBeenCalledWith(agent, {
-        type: "waiting_user",
-        message: "Needs input",
-      });
+      expect(deps.uiEventBroker.publish).not.toHaveBeenCalled();
     });
 
-    it("sends Slack notification when shouldWebNotify returns null", async () => {
+    it("publishes nothing when shouldWebNotify returns null", async () => {
       const deps = makeDeps({
         uiEventBroker: {
           publish: vi.fn(),
@@ -94,10 +86,6 @@ describe("createNotificationRuntime", () => {
       });
       await vi.advanceTimersByTimeAsync(0);
 
-      expect(deps.slackNotifier.onAttention).toHaveBeenCalledWith(agent, {
-        type: "waiting_user",
-        message: "Needs input",
-      });
       expect(deps.uiEventBroker.publish).not.toHaveBeenCalled();
     });
 
@@ -105,7 +93,6 @@ describe("createNotificationRuntime", () => {
       const webPayload = { title: "Test", body: "Hello" };
       const deps = makeDeps({
         slackNotifier: {
-          onAttention: vi.fn(),
           shouldWebNotify: vi.fn().mockResolvedValue(webPayload),
         },
         uiEventBroker: {
@@ -131,14 +118,12 @@ describe("createNotificationRuntime", () => {
           body: "Hello",
         })
       );
-      expect(deps.slackNotifier.onAttention).not.toHaveBeenCalled();
     });
 
-    it("falls back to Slack after timeout if web notification is not acked", async () => {
+    it("expires an unacked web notification without sending to Slack", async () => {
       const webPayload = { title: "Test", body: "Hello" };
       const deps = makeDeps({
         slackNotifier: {
-          onAttention: vi.fn(),
           shouldWebNotify: vi.fn().mockResolvedValue(webPayload),
         },
         uiEventBroker: {
@@ -156,70 +141,18 @@ describe("createNotificationRuntime", () => {
       });
       await vi.advanceTimersByTimeAsync(0);
 
-      expect(deps.slackNotifier.onAttention).not.toHaveBeenCalled();
-
       await vi.advanceTimersByTimeAsync(5000);
 
-      expect(deps.slackNotifier.onAttention).toHaveBeenCalledWith(agent, {
-        type: "waiting_user",
-        message: "Needs input",
-      });
+      expect(deps.uiEventBroker.publish).toHaveBeenCalledTimes(1);
       expect(deps.appLog.debug).toHaveBeenCalledWith(
         expect.objectContaining({ notificationId: expect.any(String) }),
         expect.stringContaining("not acked")
       );
     });
 
-    it("skips Slack for job-agent that has a run", async () => {
-      const deps = makeDeps({
-        jobService: {
-          getLatestRunForAgent: vi
-            .fn()
-            .mockResolvedValue({ id: "run_1", status: "completed" }),
-        },
-      });
-      createNotificationRuntime(deps as never);
-
-      const agent = { id: "agt_job1", name: "job-backup" };
-      deps._attentionCb!({
-        agent,
-        type: "waiting_user",
-        message: "Needs input",
-      });
-      await vi.advanceTimersByTimeAsync(0);
-
-      expect(deps.jobService.getLatestRunForAgent).toHaveBeenCalledWith(
-        "agt_job1"
-      );
-      expect(deps.slackNotifier.onAttention).not.toHaveBeenCalled();
-    });
-
-    it("sends Slack for job-agent with no run", async () => {
-      const deps = makeDeps({
-        jobService: {
-          getLatestRunForAgent: vi.fn().mockResolvedValue(null),
-        },
-      });
-      createNotificationRuntime(deps as never);
-
-      const agent = { id: "agt_job1", name: "job-backup" };
-      deps._attentionCb!({
-        agent,
-        type: "waiting_user",
-        message: "Needs input",
-      });
-      await vi.advanceTimersByTimeAsync(0);
-
-      expect(deps.slackNotifier.onAttention).toHaveBeenCalledWith(agent, {
-        type: "waiting_user",
-        message: "Needs input",
-      });
-    });
-
     it("catches and logs errors without rethrowing", async () => {
       const deps = makeDeps({
         slackNotifier: {
-          onAttention: vi.fn(),
           shouldWebNotify: vi
             .fn()
             .mockRejectedValue(new Error("network error")),
@@ -250,7 +183,6 @@ describe("createNotificationRuntime", () => {
       const webPayload = { title: "Test", body: "Hello" };
       const deps = makeDeps({
         slackNotifier: {
-          onAttention: vi.fn(),
           shouldWebNotify: vi.fn().mockResolvedValue(webPayload),
         },
         uiEventBroker: {
@@ -278,7 +210,6 @@ describe("createNotificationRuntime", () => {
 
       // After timeout, Slack should NOT be called since we acked
       await vi.advanceTimersByTimeAsync(5000);
-      expect(deps.slackNotifier.onAttention).not.toHaveBeenCalled();
     });
 
     it("returns false for unknown notification id", () => {
@@ -375,7 +306,6 @@ describe("createNotificationRuntime", () => {
       const webPayload = { title: "Test", body: "Hello" };
       const deps = makeDeps({
         slackNotifier: {
-          onAttention: vi.fn(),
           shouldWebNotify: vi.fn().mockResolvedValue(webPayload),
         },
         uiEventBroker: {
@@ -402,7 +332,6 @@ describe("createNotificationRuntime", () => {
 
       // After timeout, Slack should NOT be called since we cleared everything
       await vi.advanceTimersByTimeAsync(5000);
-      expect(deps.slackNotifier.onAttention).not.toHaveBeenCalled();
     });
   });
 });

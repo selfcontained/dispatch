@@ -1,21 +1,12 @@
-import type { Pool } from "pg";
 import type { FastifyBaseLogger } from "fastify";
 
-import { getSetting } from "../db/settings.js";
 import type { JobRunRecord, JobRunConfig } from "../jobs/store.js";
+import { SlackRetryError, type SlackApp } from "./slack-app.js";
+import { dispatchMessage, mrkdwnText, noteLine } from "./slack-blocks.js";
 
-type SlackBlock =
-  | { type: "section"; text: { type: "mrkdwn"; text: string } }
-  | { type: "context"; elements: Array<{ type: "mrkdwn"; text: string }> };
-
-const SETTING_WEBHOOK_URL = "slack_webhook_url";
-
-/** Short-lived cache to avoid DB reads on every notification attempt. */
-const CACHE_TTL_MS = 10_000;
-
-type CachedWebhook = {
-  url: string | null;
-  expiresAt: number;
+/** The slice of the Slack app job notifications use. */
+export type JobSlackApp = Pick<SlackApp, "postBlocks"> & {
+  settings(): Promise<{ binding: { baseUrl: string } | null }>;
 };
 
 type JobEvent = "on_complete" | "on_error" | "on_needs_input";
@@ -28,17 +19,17 @@ const STATUS_TO_EVENT: Record<string, JobEvent | null> = {
   needs_input: "on_needs_input",
 };
 
-const EVENT_CONFIG: Record<JobEvent, { color: string; verb: string }> = {
-  on_complete: { color: "#22c55e", verb: "completed successfully" },
-  on_error: { color: "#ef4444", verb: "failed" },
-  on_needs_input: { color: "#f59e0b", verb: "needs your input" },
+const EVENT_VERB: Record<JobEvent, string> = {
+  on_complete: "completed successfully",
+  on_error: "failed",
+  on_needs_input: "needs your input",
 };
 
-export class JobNotifier {
-  private cachedWebhook: CachedWebhook | null = null;
+const SENDER = "Dispatch Jobs";
 
+export class JobNotifier {
   constructor(
-    private pool: Pool,
+    private app: JobSlackApp,
     private log: FastifyBaseLogger
   ) {}
 
@@ -86,95 +77,54 @@ export class JobNotifier {
     run: JobRunRecord,
     event: JobEvent
   ): Promise<void> {
-    const webhookUrl = await this.getCachedWebhookUrl();
-    if (!webhookUrl) {
+    const { binding } = await this.app.settings();
+    if (!binding) {
       this.log.debug(
         { runId: run.id },
-        "No Slack webhook configured, skipping job notification"
+        "Slack app not configured, skipping job notification"
       );
       return;
     }
 
-    const cfg = EVENT_CONFIG[event];
-    const jobName = escapeSlackMrkdwn(run.config.name);
-    const directory = run.config.directory;
-    const summary = escapeSlackMrkdwn(
-      run.report?.summary ?? run.pendingQuestion ?? ""
-    );
-    const duration =
-      run.durationMs != null ? this.formatDuration(run.durationMs) : null;
-
+    const headline = `Job "${run.config.name}" ${EVENT_VERB[event]}`;
+    const summary = run.report?.summary ?? run.pendingQuestion ?? "";
     const statusLabel = run.status === "timed_out" ? "timed out" : run.status;
-
-    const blocks: SlackBlock[] = [
-      {
-        type: "section",
-        text: {
-          type: "mrkdwn",
-          text: `*Job "${jobName}" ${cfg.verb}*${summary ? `\n_${summary}_` : ""}`,
-        },
-      },
+    const details = [
+      `Status: \`${mrkdwnText(statusLabel)}\``,
+      `Dir: \`${mrkdwnText(run.config.directory)}\``,
+      ...(run.durationMs != null ? [formatDuration(run.durationMs)] : []),
     ];
 
-    const contextParts: string[] = [];
-    contextParts.push(`Status: \`${statusLabel}\``);
-    contextParts.push(`Dir: \`${directory}\``);
-    if (duration) contextParts.push(duration);
-
-    blocks.push({
-      type: "context",
-      elements: [{ type: "mrkdwn", text: contextParts.join("  ·  ") }],
+    const message = dispatchMessage({
+      header: { agentName: SENDER },
+      body: summary ? `**${headline}**\n\n${summary}` : `**${headline}**`,
+      notes: [noteLine(details.join("  ·  "))],
+      openUrl: run.agentId
+        ? `${binding.baseUrl}/agents/${encodeURIComponent(run.agentId)}`
+        : undefined,
+      summary: summary ? `${headline}: ${summary}` : headline,
     });
 
-    const fallback = `Job "${jobName}" ${cfg.verb}: ${summary}`;
-
-    const res = await fetch(webhookUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        username: "Dispatch Jobs",
-        attachments: [{ color: cfg.color, fallback, blocks }],
-      }),
-    });
-
-    if (!res.ok) {
-      const body = await res.text();
-      this.log.warn(
-        { status: res.status, body },
-        "Slack webhook returned error for job notification"
-      );
+    const send = () => this.app.postBlocks({ ...message, username: SENDER });
+    try {
+      await send();
+    } catch (err) {
+      // The app spaces sends a second apart; a burst of finished runs waits once.
+      if (!(err instanceof SlackRetryError)) throw err;
+      await new Promise((r) => setTimeout(r, err.retryAfterMs));
+      await send();
     }
-  }
-
-  private async getCachedWebhookUrl(): Promise<string | null> {
-    if (this.cachedWebhook && Date.now() < this.cachedWebhook.expiresAt) {
-      return this.cachedWebhook.url;
-    }
-    const url = await getSetting(this.pool, SETTING_WEBHOOK_URL);
-    this.cachedWebhook = {
-      url: url ?? null,
-      expiresAt: Date.now() + CACHE_TTL_MS,
-    };
-    return this.cachedWebhook.url;
-  }
-
-  private formatDuration(ms: number): string {
-    if (ms < 1000) return `${ms}ms`;
-    const secs = Math.floor(ms / 1000);
-    if (secs < 60) return `${secs}s`;
-    const mins = Math.floor(secs / 60);
-    const remSecs = secs % 60;
-    if (mins < 60) return remSecs > 0 ? `${mins}m ${remSecs}s` : `${mins}m`;
-    const hours = Math.floor(mins / 60);
-    const remMins = mins % 60;
-    return remMins > 0 ? `${hours}h ${remMins}m` : `${hours}h`;
   }
 }
 
-/** Escape characters that Slack interprets as mrkdwn or link syntax. */
-function escapeSlackMrkdwn(text: string): string {
-  return text
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
+export function formatDuration(ms: number): string {
+  if (ms < 1000) return `${ms}ms`;
+  const secs = Math.floor(ms / 1000);
+  if (secs < 60) return `${secs}s`;
+  const mins = Math.floor(secs / 60);
+  const remSecs = secs % 60;
+  if (mins < 60) return remSecs > 0 ? `${mins}m ${remSecs}s` : `${mins}m`;
+  const hours = Math.floor(mins / 60);
+  const remMins = mins % 60;
+  return remMins > 0 ? `${hours}h ${remMins}m` : `${hours}h`;
 }

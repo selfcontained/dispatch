@@ -1,23 +1,12 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
 import {
-  afterAll,
-  afterEach,
-  beforeAll,
-  beforeEach,
-  describe,
-  expect,
-  it,
-  vi,
-} from "vitest";
-import type { Pool } from "pg";
-
-import { JobNotifier } from "../../src/notifications/job-notifier.js";
+  JobNotifier,
+  formatDuration,
+  type JobSlackApp,
+} from "../../src/notifications/job-notifier.js";
+import { SlackRetryError } from "../../src/notifications/slack-app.js";
 import type { JobRunRecord } from "../../src/jobs/store.js";
-import { setupTestDb, teardownTestDb, runTestMigrations } from "../db/setup.js";
-import { setSetting } from "../../src/db/settings.js";
-
-let pool: Pool;
-let notifier: JobNotifier;
-let fetchSpy: ReturnType<typeof vi.fn>;
 
 const fakeLogger = {
   debug: vi.fn(),
@@ -30,6 +19,23 @@ const fakeLogger = {
   level: "info",
   silent: vi.fn(),
 } as unknown as import("fastify").FastifyBaseLogger;
+
+type Posted = { text: string; blocks: any[]; username?: string };
+
+function fakeApp(connected = true) {
+  const posted: Posted[] = [];
+  const postBlocks = vi.fn(async (input: Posted) => {
+    posted.push(input);
+    return { channelId: "C1", timestamp: "1.1", generation: "g" };
+  });
+  const app = {
+    settings: vi.fn(async () => ({
+      binding: connected ? { baseUrl: "http://lan:6767" } : null,
+    })),
+    postBlocks,
+  } as unknown as JobSlackApp;
+  return { app, posted, postBlocks };
+}
 
 function makeRun(overrides: Partial<JobRunRecord> = {}): JobRunRecord {
   return {
@@ -56,272 +62,66 @@ function makeRun(overrides: Partial<JobRunRecord> = {}): JobRunRecord {
   };
 }
 
-beforeAll(async () => {
-  pool = await setupTestDb();
-  await runTestMigrations();
-});
+const bodyOf = (p: Posted) =>
+  p.blocks.find((b) => b.type === "markdown")?.text as string;
+const notesOf = (p: Posted) =>
+  p.blocks
+    .filter((b) => b.type === "context")
+    .map((b) => b.elements[0].text as string);
 
-afterAll(async () => {
-  await teardownTestDb();
-});
-
-beforeEach(async () => {
-  notifier = new JobNotifier(pool, fakeLogger);
-  fetchSpy = vi.fn().mockResolvedValue({ ok: true, text: async () => "ok" });
+let fetchSpy: ReturnType<typeof vi.fn>;
+beforeEach(() => {
+  vi.clearAllMocks();
+  fetchSpy = vi.fn();
   vi.stubGlobal("fetch", fetchSpy);
 });
 
-afterEach(() => {
-  vi.restoreAllMocks();
-});
-
 describe("JobNotifier", () => {
-  it("sends Slack notification on completed run with on_complete: [slack]", async () => {
-    await setSetting(
-      pool,
-      "slack_webhook_url",
-      "https://hooks.slack.test/test"
-    );
-    await notifier.onJobRunStateChange(makeRun());
+  it("sends one Slack app message for a completed run with on_complete: [slack]", async () => {
+    const { app, posted } = fakeApp();
+    await new JobNotifier(app, fakeLogger).onJobRunStateChange(makeRun());
 
-    expect(fetchSpy).toHaveBeenCalledOnce();
-    const [url, opts] = fetchSpy.mock.calls[0];
-    expect(url).toBe("https://hooks.slack.test/test");
-    const body = JSON.parse(opts.body);
-    expect(body.username).toBe("Dispatch Jobs");
-    expect(body.attachments[0].color).toBe("#22c55e");
-    expect(body.attachments[0].fallback).toContain("test-job");
+    expect(posted).toHaveLength(1);
+    expect(posted[0].username).toBe("Dispatch Jobs");
+    expect(bodyOf(posted[0])).toBe(
+      '**Job "test-job" completed successfully**\n\nAll done'
+    );
+    expect(posted[0].text).toContain("test-job");
+    // Shared layout: View in Dispatch link to the run's agent.
+    expect(notesOf(posted[0]).at(-1)).toContain(
+      "<http://lan:6767/agents/agent-1|View in Dispatch>"
+    );
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 
-  it("sends Slack notification on failed run with on_error: [slack]", async () => {
-    await setSetting(
-      pool,
-      "slack_webhook_url",
-      "https://hooks.slack.test/test"
-    );
-    await notifier.onJobRunStateChange(
+  it("sends nothing and doesn't error when the Slack app isn't configured", async () => {
+    const { app, postBlocks } = fakeApp(false);
+    await expect(
+      new JobNotifier(app, fakeLogger).onJobRunStateChange(makeRun())
+    ).resolves.toBeUndefined();
+
+    expect(postBlocks).not.toHaveBeenCalled();
+    expect(fakeLogger.warn).not.toHaveBeenCalled();
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("sends a failed run with on_error: [slack]", async () => {
+    const { app, posted } = fakeApp();
+    await new JobNotifier(app, fakeLogger).onJobRunStateChange(
       makeRun({
         status: "failed",
         report: { status: "failed", summary: "Broke", tasks: [] },
       })
     );
 
-    expect(fetchSpy).toHaveBeenCalledOnce();
-    const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
-    expect(body.attachments[0].color).toBe("#ef4444");
+    expect(posted).toHaveLength(1);
+    expect(bodyOf(posted[0])).toBe('**Job "test-job" failed**\n\nBroke');
+    expect(notesOf(posted[0])[0]).toContain("Status: `failed`");
   });
 
-  it("sends Slack notification on needs_input with on_needs_input configured", async () => {
-    await setSetting(
-      pool,
-      "slack_webhook_url",
-      "https://hooks.slack.test/test"
-    );
-    await notifier.onJobRunStateChange(
-      makeRun({
-        status: "needs_input",
-        pendingQuestion: "Should I proceed?",
-        config: {
-          ...makeRun().config,
-          notify: { onComplete: [], onError: [], onNeedsInput: ["slack"] },
-        },
-      })
-    );
-
-    expect(fetchSpy).toHaveBeenCalledOnce();
-    const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
-    expect(body.attachments[0].color).toBe("#f59e0b");
-  });
-
-  it("does not send notification when no channels configured for event", async () => {
-    await setSetting(
-      pool,
-      "slack_webhook_url",
-      "https://hooks.slack.test/test"
-    );
-    await notifier.onJobRunStateChange(
-      makeRun({
-        config: {
-          ...makeRun().config,
-          notify: { onComplete: [], onError: [], onNeedsInput: [] },
-        },
-      })
-    );
-
-    expect(fetchSpy).not.toHaveBeenCalled();
-  });
-
-  it("does not send notification when no webhook URL configured", async () => {
-    await setSetting(pool, "slack_webhook_url", "");
-    // Force cache invalidation by creating a new notifier
-    notifier = new JobNotifier(pool, fakeLogger);
-    await notifier.onJobRunStateChange(makeRun());
-    expect(fetchSpy).not.toHaveBeenCalled();
-  });
-
-  it("does not send notification for running status", async () => {
-    await setSetting(
-      pool,
-      "slack_webhook_url",
-      "https://hooks.slack.test/test"
-    );
-    await notifier.onJobRunStateChange(makeRun({ status: "running" }));
-    expect(fetchSpy).not.toHaveBeenCalled();
-  });
-
-  it("routes timed_out to on_error channels", async () => {
-    await setSetting(
-      pool,
-      "slack_webhook_url",
-      "https://hooks.slack.test/test"
-    );
-    await notifier.onJobRunStateChange(makeRun({ status: "timed_out" }));
-
-    expect(fetchSpy).toHaveBeenCalledOnce();
-    const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
-    expect(body.attachments[0].color).toBe("#ef4444");
-  });
-
-  it("displays 'timed out' as status label for timed_out runs", async () => {
-    await setSetting(
-      pool,
-      "slack_webhook_url",
-      "https://hooks.slack.test/test"
-    );
-    await notifier.onJobRunStateChange(makeRun({ status: "timed_out" }));
-
-    const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
-    const contextText = body.attachments[0].blocks[1].elements[0].text;
-    expect(contextText).toContain("`timed out`");
-  });
-
-  it("escapes special characters in job name and summary", async () => {
-    await setSetting(
-      pool,
-      "slack_webhook_url",
-      "https://hooks.slack.test/test"
-    );
-    await notifier.onJobRunStateChange(
-      makeRun({
-        config: {
-          ...makeRun().config,
-          name: "job <with> & special chars",
-        },
-        report: {
-          status: "completed",
-          summary: "Fixed <script> & stuff",
-          tasks: [],
-        },
-      })
-    );
-
-    const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
-    const text = body.attachments[0].blocks[0].text.text;
-    expect(text).toContain("&amp;");
-    expect(text).toContain("&lt;");
-    expect(text).toContain("&gt;");
-    expect(text).not.toContain("<with>");
-    expect(text).not.toContain("<script>");
-  });
-
-  describe("duration formatting in Slack payload", () => {
-    async function getDurationFromPayload(durationMs: number): Promise<string> {
-      await setSetting(
-        pool,
-        "slack_webhook_url",
-        "https://hooks.slack.test/test"
-      );
-      notifier = new JobNotifier(pool, fakeLogger);
-      fetchSpy.mockClear();
-      await notifier.onJobRunStateChange(makeRun({ durationMs }));
-      const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
-      return body.attachments[0].blocks[1].elements[0].text;
-    }
-
-    it("formats sub-second duration as milliseconds", async () => {
-      const text = await getDurationFromPayload(500);
-      expect(text).toContain("500ms");
-    });
-
-    it("formats seconds-only duration", async () => {
-      const text = await getDurationFromPayload(45_000);
-      expect(text).toContain("45s");
-    });
-
-    it("formats minutes with remaining seconds", async () => {
-      const text = await getDurationFromPayload(125_000);
-      expect(text).toContain("2m 5s");
-    });
-
-    it("formats exact minutes without seconds", async () => {
-      const text = await getDurationFromPayload(120_000);
-      expect(text).toContain("2m");
-      expect(text).not.toContain("2m 0s");
-    });
-
-    it("formats hours with remaining minutes", async () => {
-      const text = await getDurationFromPayload(3_900_000);
-      expect(text).toContain("1h 5m");
-    });
-
-    it("formats exact hours without minutes", async () => {
-      const text = await getDurationFromPayload(3_600_000);
-      expect(text).toContain("1h");
-      expect(text).not.toContain("1h 0m");
-    });
-
-    it("omits duration when durationMs is null", async () => {
-      await setSetting(
-        pool,
-        "slack_webhook_url",
-        "https://hooks.slack.test/test"
-      );
-      notifier = new JobNotifier(pool, fakeLogger);
-      fetchSpy.mockClear();
-      await notifier.onJobRunStateChange(makeRun({ durationMs: null }));
-      const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
-      const contextText = body.attachments[0].blocks[1].elements[0].text;
-      expect(contextText).not.toMatch(/\d+[hms]/);
-    });
-  });
-
-  it("does not send notification when notify config is undefined", async () => {
-    await setSetting(
-      pool,
-      "slack_webhook_url",
-      "https://hooks.slack.test/test"
-    );
-    await notifier.onJobRunStateChange(
-      makeRun({
-        config: {
-          ...makeRun().config,
-          notify: undefined as never,
-        },
-      })
-    );
-    expect(fetchSpy).not.toHaveBeenCalled();
-  });
-
-  it("routes crashed status to on_error channels", async () => {
-    await setSetting(
-      pool,
-      "slack_webhook_url",
-      "https://hooks.slack.test/test"
-    );
-    await notifier.onJobRunStateChange(makeRun({ status: "crashed" }));
-
-    expect(fetchSpy).toHaveBeenCalledOnce();
-    const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
-    expect(body.attachments[0].color).toBe("#ef4444");
-  });
-
-  it("uses pendingQuestion as summary for needs_input when report is absent", async () => {
-    await setSetting(
-      pool,
-      "slack_webhook_url",
-      "https://hooks.slack.test/test"
-    );
-    await notifier.onJobRunStateChange(
+  it("sends needs_input with on_needs_input configured, using pendingQuestion", async () => {
+    const { app, posted } = fakeApp();
+    await new JobNotifier(app, fakeLogger).onJobRunStateChange(
       makeRun({
         status: "needs_input",
         report: null,
@@ -333,8 +133,140 @@ describe("JobNotifier", () => {
       })
     );
 
-    const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
-    const fallback = body.attachments[0].fallback;
-    expect(fallback).toContain("What should I do next?");
+    expect(posted).toHaveLength(1);
+    expect(bodyOf(posted[0])).toContain("needs your input");
+    expect(bodyOf(posted[0])).toContain("What should I do next?");
+    expect(posted[0].text).toContain("What should I do next?");
+  });
+
+  it("keeps the success/failure filter: no channels for the event, nothing sent", async () => {
+    const { app, postBlocks } = fakeApp();
+    const notifier = new JobNotifier(app, fakeLogger);
+    await notifier.onJobRunStateChange(
+      makeRun({
+        config: {
+          ...makeRun().config,
+          notify: { onComplete: [], onError: ["slack"], onNeedsInput: [] },
+        },
+      })
+    );
+    await notifier.onJobRunStateChange(
+      makeRun({
+        status: "failed",
+        config: {
+          ...makeRun().config,
+          notify: { onComplete: ["slack"], onError: [], onNeedsInput: [] },
+        },
+      })
+    );
+    expect(postBlocks).not.toHaveBeenCalled();
+  });
+
+  it("does not send when notify config is undefined", async () => {
+    const { app, postBlocks } = fakeApp();
+    await new JobNotifier(app, fakeLogger).onJobRunStateChange(
+      makeRun({ config: { ...makeRun().config, notify: undefined as never } })
+    );
+    expect(postBlocks).not.toHaveBeenCalled();
+  });
+
+  it("does not send for running status", async () => {
+    const { app, postBlocks } = fakeApp();
+    await new JobNotifier(app, fakeLogger).onJobRunStateChange(
+      makeRun({ status: "running" })
+    );
+    expect(postBlocks).not.toHaveBeenCalled();
+  });
+
+  it.each(["timed_out", "crashed"] as const)(
+    "routes %s to on_error channels",
+    async (status) => {
+      const { app, posted } = fakeApp();
+      await new JobNotifier(app, fakeLogger).onJobRunStateChange(
+        makeRun({ status })
+      );
+      expect(posted).toHaveLength(1);
+      expect(bodyOf(posted[0])).toContain("failed");
+    }
+  );
+
+  it("displays 'timed out' as status label for timed_out runs", async () => {
+    const { app, posted } = fakeApp();
+    await new JobNotifier(app, fakeLogger).onJobRunStateChange(
+      makeRun({ status: "timed_out" })
+    );
+    expect(notesOf(posted[0])[0]).toContain("`timed out`");
+  });
+
+  it("neutralizes mentions and escapes context-line text", async () => {
+    const { app, posted } = fakeApp();
+    await new JobNotifier(app, fakeLogger).onJobRunStateChange(
+      makeRun({
+        config: { ...makeRun().config, directory: "/tmp/<repo> & co" },
+        report: {
+          status: "completed",
+          summary: "Ping <!channel> and @here",
+          tasks: [],
+        },
+      })
+    );
+
+    expect(bodyOf(posted[0])).not.toContain("<!channel>");
+    expect(bodyOf(posted[0])).not.toMatch(/@here/);
+    expect(notesOf(posted[0])[0]).toContain("/tmp/&lt;repo&gt; &amp; co");
+  });
+
+  it("shows duration in the context line, and omits it when null", async () => {
+    const { app, posted } = fakeApp();
+    const notifier = new JobNotifier(app, fakeLogger);
+    await notifier.onJobRunStateChange(makeRun({ durationMs: 125_000 }));
+    expect(notesOf(posted[0])[0]).toContain("2m 5s");
+
+    // Second send waits out the app's one-second spacing in production; the
+    // fake has none.
+    await notifier.onJobRunStateChange(makeRun({ durationMs: null }));
+    expect(notesOf(posted[1])[0]).not.toMatch(/\d+[hms]/);
+  });
+
+  it("retries once when the Slack app asks to wait", async () => {
+    vi.useFakeTimers();
+    try {
+      const { app, postBlocks } = fakeApp();
+      postBlocks.mockRejectedValueOnce(new SlackRetryError(1000));
+      const sending = new JobNotifier(app, fakeLogger).onJobRunStateChange(
+        makeRun()
+      );
+      await vi.advanceTimersByTimeAsync(1000);
+      await sending;
+      expect(postBlocks).toHaveBeenCalledTimes(2);
+      expect(fakeLogger.warn).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("logs and swallows a Slack delivery failure", async () => {
+    const { app, postBlocks } = fakeApp();
+    postBlocks.mockRejectedValueOnce(new Error("channel_not_found"));
+    await expect(
+      new JobNotifier(app, fakeLogger).onJobRunStateChange(makeRun())
+    ).resolves.toBeUndefined();
+    expect(fakeLogger.warn).toHaveBeenCalledWith(
+      expect.objectContaining({ runId: "run-1" }),
+      "Failed to send job notification"
+    );
+  });
+});
+
+describe("formatDuration", () => {
+  it.each([
+    [500, "500ms"],
+    [45_000, "45s"],
+    [125_000, "2m 5s"],
+    [120_000, "2m"],
+    [3_900_000, "1h 5m"],
+    [3_600_000, "1h"],
+  ])("formats %d as %s", (ms, text) => {
+    expect(formatDuration(ms)).toBe(text);
   });
 });

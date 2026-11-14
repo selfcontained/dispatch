@@ -413,71 +413,6 @@ describe("POST /api/v1/agents/settings", () => {
 });
 
 describe("POST /api/v1/notifications/settings", () => {
-  it("rejects non-string webhookUrl", async () => {
-    const res = await ctx.app.inject({
-      method: "POST",
-      url: "/api/v1/notifications/settings",
-      headers: { cookie: sessionCookie },
-      payload: { webhookUrl: 42 },
-    });
-    expect(res.statusCode).toBe(400);
-    expect(res.json().error).toMatch(/webhookUrl/);
-  });
-
-  it("rejects invalid webhookUrl", async () => {
-    const res = await ctx.app.inject({
-      method: "POST",
-      url: "/api/v1/notifications/settings",
-      headers: { cookie: sessionCookie },
-      payload: { webhookUrl: "https://evil.com/hook" },
-    });
-    expect(res.statusCode).toBe(400);
-    expect(res.json().error).toMatch(/hooks\.slack\.com/);
-  });
-
-  it("accepts valid Slack webhookUrl", async () => {
-    const res = await ctx.app.inject({
-      method: "POST",
-      url: "/api/v1/notifications/settings",
-      headers: { cookie: sessionCookie },
-      payload: {
-        webhookUrl: "https://hooks.slack.com/services/T00/B00/xxx",
-      },
-    });
-    expect(res.statusCode).toBe(200);
-  });
-
-  it("accepts empty string to clear webhookUrl", async () => {
-    const res = await ctx.app.inject({
-      method: "POST",
-      url: "/api/v1/notifications/settings",
-      headers: { cookie: sessionCookie },
-      payload: { webhookUrl: "" },
-    });
-    expect(res.statusCode).toBe(200);
-  });
-
-  it("rejects non-array notifyEvents", async () => {
-    const res = await ctx.app.inject({
-      method: "POST",
-      url: "/api/v1/notifications/settings",
-      headers: { cookie: sessionCookie },
-      payload: { notifyEvents: "done" },
-    });
-    expect(res.statusCode).toBe(400);
-    expect(res.json().error).toMatch(/notifyEvents/);
-  });
-
-  it("accepts array notifyEvents", async () => {
-    const res = await ctx.app.inject({
-      method: "POST",
-      url: "/api/v1/notifications/settings",
-      headers: { cookie: sessionCookie },
-      payload: { notifyEvents: ["done", "blocked"] },
-    });
-    expect(res.statusCode).toBe(200);
-  });
-
   it("rejects non-boolean webNotifyEnabled", async () => {
     const res = await ctx.app.inject({
       method: "POST",
@@ -529,39 +464,22 @@ describe("GET /api/v1/notifications/settings", () => {
       headers: { cookie: sessionCookie },
     });
     expect(res.statusCode).toBe(200);
-    const body = res.json();
-    expect(body).toBeDefined();
+    expect(Object.keys(res.json()).sort()).toEqual([
+      "webNotifyEnabled",
+      "webNotifyEvents",
+    ]);
   });
 });
 
 describe("POST /api/v1/notifications/test", () => {
-  it("rejects when no webhook URL is configured or provided", async () => {
-    await ctx.app.inject({
-      method: "POST",
-      url: "/api/v1/notifications/settings",
-      headers: { cookie: sessionCookie },
-      payload: { webhookUrl: "" },
-    });
-
+  it("no longer exists", async () => {
     const res = await ctx.app.inject({
       method: "POST",
       url: "/api/v1/notifications/test",
       headers: { cookie: sessionCookie },
       payload: {},
     });
-    expect(res.statusCode).toBe(400);
-    expect(res.json().error).toMatch(/webhook/i);
-  });
-
-  it("rejects invalid webhookUrl in body", async () => {
-    const res = await ctx.app.inject({
-      method: "POST",
-      url: "/api/v1/notifications/test",
-      headers: { cookie: sessionCookie },
-      payload: { webhookUrl: "https://evil.com/hook" },
-    });
-    expect(res.statusCode).toBe(400);
-    expect(res.json().error).toMatch(/hooks\.slack\.com/);
+    expect(res.statusCode).toBe(404);
   });
 });
 

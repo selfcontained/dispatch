@@ -14,8 +14,8 @@ export function NotificationsContent() {
       <Section>
         <H3>Configurable events</H3>
         <P>
-          For browser and Slack notifications, you choose which agent actions
-          trigger a notification:
+          For browser notifications, you choose which agent actions trigger a
+          notification:
         </P>
         <ul className="grid gap-1.5 pl-4 text-sm text-muted-foreground list-disc">
           <li>
@@ -35,10 +35,8 @@ export function NotificationsContent() {
           <strong>Enable browser notifications</strong> — the toggle stays
           disabled until permission is granted. When the app is open in at least
           one tab, matching events are delivered as native desktop or mobile
-          banners instead of Slack. If no tab acknowledges the notification
-          within about three seconds, Dispatch falls back to Slack
-          automatically. <strong>Send test</strong> fires a sample banner so you
-          can confirm the setup.
+          banners. <strong>Send test</strong> fires a sample banner so you can
+          confirm the setup.
         </P>
         <P>
           On iOS and iPadOS, notifications only work after installing Dispatch
@@ -48,25 +46,6 @@ export function NotificationsContent() {
 
       <Section>
         <H3>Slack</H3>
-        <P>
-          Paste a{" "}
-          <a
-            href="https://api.slack.com/messaging/webhooks"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-blue-400 hover:underline"
-          >
-            Slack incoming webhook
-          </a>{" "}
-          URL and use <strong>Send Slack test</strong> to verify it, then click{" "}
-          <strong>Save</strong> — the webhook and the Slack event list are only
-          persisted when you save, unlike the browser toggles above, which save
-          as soon as you flip them. Configured events fire to Slack whenever a
-          browser notification isn't delivered (no tab open, permission denied,
-          or the event isn't in your browser-notification list). Agents launched
-          by a job are the exception: their attention notifications go to
-          browser notifications only, never to Slack.
-        </P>
         <P>
           With the Slack app connected, people you allow under{" "}
           <strong>Who can answer</strong> can answer a question or form from its

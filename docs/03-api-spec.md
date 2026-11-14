@@ -307,27 +307,26 @@ Query params: `search` (name substring), `project`, `type`, `sort` (`created_at`
 
 ## Notifications
 
-| Method | Path                      | Description                                                                         |
-| ------ | ------------------------- | ----------------------------------------------------------------------------------- |
-| GET    | `/notifications/settings` | Get Slack webhook URL, enabled Slack event types, and web notification config       |
-| POST   | `/notifications/settings` | Update any subset of webhook URL, event lists, or web-notify toggle                 |
-| POST   | `/notifications/test`     | Send a test message to the configured (or provided) webhook                         |
-| POST   | `/notifications/ack`      | Acknowledge a web notification by ID (suppresses the Slack fallback for that event) |
+| Method | Path                      | Description                                |
+| ------ | ------------------------- | ------------------------------------------ |
+| GET    | `/notifications/settings` | Get the browser notification config        |
+| POST   | `/notifications/settings` | Update the web-notify toggle or event list |
+| POST   | `/notifications/ack`      | Acknowledge a web notification by ID       |
+
+Slack goes through the Slack app (`/notifications/slack-app*`); there is no webhook setting.
 
 ### `POST /notifications/settings`
 
-All fields are optional — the request updates only the fields it contains.
+Both fields are optional — the request updates only the fields it contains.
 
 ```json
 {
-  "webhookUrl": "https://hooks.slack.com/services/T.../B.../xxx",
-  "notifyEvents": ["waiting_user", "blocked"],
   "webNotifyEnabled": true,
   "webNotifyEvents": ["waiting_user", "blocked"]
 }
 ```
 
-`notifyEvents` and `webNotifyEvents` are arrays of event-type strings (`waiting_user`, `blocked`). When an agent asks a question or a turn fails, Dispatch first attempts an in-app notification via the SSE event stream; if no browser client acks within ~3s it falls back to the Slack webhook (provided the event is enabled there). Agents belonging to a job run are excluded from that Slack fallback — their attention notifications reach browser notifications only.
+`webNotifyEvents` is an array of event-type strings (`waiting_user`, `blocked`). When an agent asks a question or a turn fails, Dispatch sends an in-app notification via the SSE event stream if a browser client is connected.
 
 ### `POST /notifications/ack`
 
