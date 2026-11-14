@@ -301,6 +301,7 @@
     {
       "paths": [
         "apps/web/src/**",
+        "apps/web/index.html",
         "apps/web/eslint.config.js",
         "apps/web/tailwind.config.ts",
         "apps/web/package.json",

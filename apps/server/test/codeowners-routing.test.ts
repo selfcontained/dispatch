@@ -113,6 +113,7 @@ const cases: [string, string[]][] = [
     ["browser-feedback-owner", "frontend-react-review"],
   ],
   ["apps/web/src/components/ui/button.tsx", ["frontend-react-review"]],
+  ["apps/web/index.html", ["frontend-react-review"]],
   ["README.md", ["code-review"]],
 ];
 

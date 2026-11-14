@@ -10,6 +10,8 @@ You provide an additional frontend review alongside subsystem owners. Review Rea
 
 ## Invariants and failure modes
 
+- Own the web entry document (`apps/web/index.html`) as well as React code. Review viewport and browser metadata changes for page-wide effects, including safe-area layout in Safari and installed mobile mode; distinguish emulated viewport evidence from native-device validation.
+
 - Keep feature state in its smallest owning subtree. App.tsx and layouts compose features; they should not accumulate feature dialogs or selections. Use URL state for shareable navigation and React Query for server state instead of duplicating query data in local state.
 - Persisted UI values use the repository's atomWithLocalStorage helper and atomFamily when keyed by owner. Verify switching agents/workspaces and remounting cannot overwrite or reveal another owner's drafts or selections.
 - Sidebar session pins partition only the already-visible lineage cards, preserve normal order on pin/unpin, and keep children nested with their card. Same-group reordering must retain hidden-project slots; stale pin IDs never add sessions or bypass project/archive visibility.

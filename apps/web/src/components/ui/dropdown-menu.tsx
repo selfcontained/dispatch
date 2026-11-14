@@ -20,7 +20,7 @@ const DropdownMenuContent = React.forwardRef<
         sideOffset={sideOffset}
         collisionPadding={padding}
         className={cn(
-          "z-[70] min-w-[180px] overflow-hidden rounded-md p-1.5 text-foreground",
+          "z-[70] min-w-[180px] max-h-[var(--radix-dropdown-menu-content-available-height)] overflow-x-hidden overflow-y-auto rounded-md p-1.5 text-foreground",
           glassOverlay,
           "data-[state=open]:animate-in data-[state=closed]:animate-out",
           "data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
