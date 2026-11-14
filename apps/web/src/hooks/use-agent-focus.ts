@@ -5,6 +5,8 @@ import { APP_SESSION_ID } from "@/lib/app-session";
 const HEARTBEAT_INTERVAL_MS = 15_000;
 /** Interaction listeners only refresh a local timestamp, at most this often. */
 const INTERACTION_THROTTLE_MS = 1_000;
+/** Matches the server's active window: idle longer than this is not present. */
+const IDLE_THRESHOLD_MS = 120_000;
 const INTERACTION_EVENTS = [
   "pointerdown",
   "pointermove",
@@ -13,7 +15,10 @@ const INTERACTION_EVENTS = [
   "touchstart",
 ] as const;
 
-/** The agent an `/agents/<id>…` path shows. */
+/**
+ * The agent an `/agents/<id>…` path shows. Not checked against the agent
+ * list: an unknown id only marks focus on an agent that never notifies.
+ */
 export function viewingAgentIdOf(pathname: string): string | null {
   const match = /^\/agents\/([^/]+)/.exec(pathname);
   if (!match) return null;
@@ -35,19 +40,24 @@ export function viewingAgentIdOf(pathname: string): string | null {
  *
  * Beats run while the tab is visible; a hidden tab sends one beat saying so
  * and then stays quiet. Focus/blur/visibility changes send immediately, as
- * before. Interaction is tracked locally and never sends on its own.
+ * before. Interaction is tracked locally; the only send it triggers is one
+ * beat on the first interaction after more than two minutes idle.
  */
 export function useAgentFocus(
   viewingAgentId: string | null,
   authState: AuthState
 ): void {
   const lastInteractionRef = useRef(Date.now());
+  const sendRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     const onInteraction = () => {
       const now = Date.now();
-      if (now - lastInteractionRef.current > INTERACTION_THROTTLE_MS)
-        lastInteractionRef.current = now;
+      const idleFor = now - lastInteractionRef.current;
+      if (idleFor <= INTERACTION_THROTTLE_MS) return;
+      lastInteractionRef.current = now;
+      // Back from idle: one beat now, so presence doesn't wait for the next tick.
+      if (idleFor > IDLE_THRESHOLD_MS) sendRef.current?.();
     };
     for (const type of INTERACTION_EVENTS)
       window.addEventListener(type, onInteraction, { passive: true });
@@ -78,6 +88,7 @@ export function useAgentFocus(
       }).catch(() => {});
     };
 
+    sendRef.current = send;
     send();
 
     const interval = setInterval(() => {
@@ -99,6 +110,7 @@ export function useAgentFocus(
       document.removeEventListener("visibilitychange", onVisibilityChange);
       window.removeEventListener("blur", onFocusChange);
       window.removeEventListener("focus", onFocusChange);
+      sendRef.current = null;
     };
   }, [authState, viewingAgentId]);
 }

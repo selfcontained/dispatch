@@ -128,6 +128,8 @@ export async function registerAgentEventRoutes(
     if (agentId === null || agentId === undefined) {
       deps.clearFocusedAgents();
     } else {
+      // Focus is one agent at a time: moving to another agent leaves the last.
+      deps.clearFocusedAgents();
       deps.setFocusedAgent((agentId as string).trim());
     }
     return reply.code(204).send();
