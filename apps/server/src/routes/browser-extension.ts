@@ -11,6 +11,7 @@ import type { StreamService } from "../chat/service.js";
 import { tokensEqual } from "../auth.js";
 import { detectFileType } from "../files/file-type.js";
 import { fileMetadataFromBuffer } from "../files/metadata.js";
+import { removeImageVariants } from "../files/image-variants.js";
 import { parseInput } from "../shared/lib/parse-input.js";
 import { resolveFilesDir } from "../shared/files.js";
 import type { PublishUiEvent } from "../server/ui-events.js";
@@ -334,6 +335,7 @@ async function cleanupExpiredBrowserFiles(
     await unlink(path.join(dir, row.file_name)).catch(() => {
       // File may already be gone; the row deletion below still reclaims it.
     });
+    await removeImageVariants(path.join(dir, row.file_name));
   }
   await pool.query(`DELETE FROM files WHERE id = ANY($1::int[])`, [
     expired.rows.map((row) => row.id),

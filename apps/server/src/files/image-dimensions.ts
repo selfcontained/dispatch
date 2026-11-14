@@ -315,8 +315,10 @@ function webpDimensions(buffer: Buffer): ImageDimensions | null {
 }
 
 /**
- * ignoreExifOrientation is only for callers validating square images: rotation
- * cannot change their dimensions. Ordinary attachment callers must keep the default.
+ * ignoreExifOrientation is only for callers validating square images (rotation
+ * cannot change their dimensions) and for `image-variants.ts`, which reads the
+ * orientation tag itself and resizes only upright images. Ordinary attachment
+ * callers must keep the default.
  *
  * Natural dimensions of an image already in memory, or `null` when the bytes are
  * not a format we parse, the header does not hold up, or the file carries EXIF

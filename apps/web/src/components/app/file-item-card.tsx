@@ -4,7 +4,15 @@ import { FileText, MonitorPlay, User } from "lucide-react";
 import { type FileItem } from "@/components/app/types";
 import { FileActions } from "@/components/app/file-lightbox";
 import { fileExtension, stripTimestamp } from "@/components/app/file-utils";
+import { imageVariantSrcSet, imageVariantUrl } from "@/lib/image-variants";
 import { cn } from "@/lib/utils";
+
+/**
+ * How wide the preview is laid out: the browser measures it (`auto`, with
+ * `loading="lazy"`) where supported, else the full width on a phone and the
+ * drawer's default width elsewhere.
+ */
+const FILE_PREVIEW_SIZES = "auto, (max-width: 640px) 100vw, 400px";
 
 export function FileItemCard({
   file,
@@ -108,7 +116,10 @@ export function FileItemCard({
           onClick={() => openLightbox(file.id)}
         >
           <img
-            src={mediaSrc}
+            // A display-sized copy; the lightbox and download use the original.
+            src={mediaSrc && imageVariantUrl(mediaSrc, 640)}
+            srcSet={mediaSrc && imageVariantSrcSet(mediaSrc)}
+            sizes={FILE_PREVIEW_SIZES}
             alt={file.description || ""}
             loading="lazy"
             decoding="async"

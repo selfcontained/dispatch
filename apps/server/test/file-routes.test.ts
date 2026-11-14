@@ -1,10 +1,12 @@
 import { mkdir, writeFile, rm, readdir } from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
+import jpeg from "jpeg-js";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 
 import { BINARY_BYTES, PNG_BYTES } from "./helpers/file-bytes.js";
 import { useInjectApp } from "./helpers/inject-app.js";
+import { noisyPng } from "./helpers/noisy-png.js";
 
 const filesRoot = path.join(os.tmpdir(), `file-routes-test-${process.pid}`);
 
@@ -548,6 +550,120 @@ describe("GET /api/v1/agents/:id/files/:file (serve)", () => {
     expect(res.statusCode).toBe(200);
     expect(res.headers["content-length"]).toBe("0");
     expect(res.rawPayload.length).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// GET /api/v1/agents/:id/files/:file?w= (resized copy)
+// ---------------------------------------------------------------------------
+describe("GET /api/v1/agents/:id/files/:file?w= (resized copy)", () => {
+  const big = noisyPng(1600, 900);
+
+  it("serves a JPEG copy at the requested width, keeping the aspect ratio", async () => {
+    await storeFile("shot.png", big, "image/png");
+    const res = await authedInject(
+      "GET",
+      `/api/v1/agents/${agentId}/files/shot.png?w=640`
+    );
+    expect(res.statusCode).toBe(200);
+    expect(res.headers["content-type"]).toBe("image/jpeg");
+    expect(res.headers["x-content-type-options"]).toBe("nosniff");
+    expect(res.rawPayload.length).toBeLessThan(big.length);
+    const decoded = jpeg.decode(res.rawPayload, { useTArray: true });
+    expect([decoded.width, decoded.height]).toEqual([640, 360]);
+    expect(
+      await readdir(path.join(filesRoot, agentId, ".thumbnails"))
+    ).toHaveLength(1);
+  });
+
+  it("caches for good when the URL carries the file version, and answers 304 on a matching ETag", async () => {
+    await storeFile("shot.png", big, "image/png");
+    const url = `/api/v1/agents/${agentId}/files/shot.png?w=320&t=2026-01-01T00%3A00%3A00.000Z`;
+    const first = await authedInject("GET", url);
+    expect(first.headers["cache-control"]).toBe(
+      "private, max-age=31536000, immutable"
+    );
+    const etag = first.headers.etag as string;
+    expect(etag).toMatch(/-w320"$/);
+
+    const again = await authedInject("GET", url, {
+      headers: { "if-none-match": etag },
+    });
+    expect(again.statusCode).toBe(304);
+    expect(again.rawPayload.length).toBe(0);
+
+    const unversioned = await authedInject(
+      "GET",
+      `/api/v1/agents/${agentId}/files/shot.png?w=320`
+    );
+    expect(unversioned.headers["cache-control"]).toBe("private, no-cache");
+  });
+
+  it("snaps an unlisted width to an allowed one", async () => {
+    await storeFile("shot.png", big, "image/png");
+    const res = await authedInject(
+      "GET",
+      `/api/v1/agents/${agentId}/files/shot.png?w=500`
+    );
+    expect(jpeg.decode(res.rawPayload, { useTArray: true }).width).toBe(640);
+    const huge = await authedInject(
+      "GET",
+      `/api/v1/agents/${agentId}/files/shot.png?w=5000`
+    );
+    expect(jpeg.decode(huge.rawPayload, { useTArray: true }).width).toBe(1280);
+  });
+
+  it.each(["abc", "0", "-1", "1.5"])("rejects w=%s", async (w) => {
+    await storeFile("shot.png", big, "image/png");
+    const res = await authedInject(
+      "GET",
+      `/api/v1/agents/${agentId}/files/shot.png?w=${w}`
+    );
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("serves the original for a format it does not resize", async () => {
+    const gif = Buffer.from("GIF89a\x10\x00\x10\x00", "latin1");
+    await storeFile("anim.gif", gif, "image/gif");
+    const res = await authedInject(
+      "GET",
+      `/api/v1/agents/${agentId}/files/anim.gif?w=320`
+    );
+    expect(res.statusCode).toBe(200);
+    expect(res.headers["content-type"]).toBe("image/gif");
+    expect(res.rawPayload).toEqual(gif);
+    expect(res.headers.etag).toBeUndefined();
+  });
+
+  it("serves the original when the image cannot be decoded", async () => {
+    const broken = Buffer.concat([big.subarray(0, 64), Buffer.alloc(2048, 7)]);
+    await storeFile("broken.png", broken, "image/png");
+    const res = await authedInject(
+      "GET",
+      `/api/v1/agents/${agentId}/files/broken.png?w=320`
+    );
+    expect(res.statusCode).toBe(200);
+    expect(res.headers["content-type"]).toContain("image/png");
+    expect(res.rawPayload).toEqual(broken);
+  });
+
+  it("serves the original for an image narrower than the requested width", async () => {
+    await storeFile("tiny.png", PNG_BYTES, "image/png");
+    const res = await authedInject(
+      "GET",
+      `/api/v1/agents/${agentId}/files/tiny.png?w=320`
+    );
+    expect(res.rawPayload).toEqual(PNG_BYTES);
+  });
+
+  it("requires the same auth as the original", async () => {
+    await storeFile("shot.png", big, "image/png");
+    const url = `/api/v1/agents/${agentId}/files/shot.png?w=320`;
+    expect((await ctx.app.inject({ method: "GET", url })).statusCode).toBe(401);
+    expect(
+      (await ctx.app.inject({ method: "GET", url: url.replace("?w=320", "") }))
+        .statusCode
+    ).toBe(401);
   });
 });
 

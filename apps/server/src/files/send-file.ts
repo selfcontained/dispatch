@@ -1,4 +1,4 @@
-import { open, stat } from "node:fs/promises";
+import { open, readFile, stat } from "node:fs/promises";
 import type { FastifyRequest, FastifyReply } from "fastify";
 
 type RangeResult =
@@ -48,6 +48,37 @@ function parseRange(rangeHeader: string, fileSize: number): RangeResult {
   }
 
   return { kind: "satisfiable", start, end: Math.min(end, fileSize - 1) };
+}
+
+/**
+ * Send a cached display-sized copy (see `image-variants.ts`). Returns `null`
+ * when the copy vanished before it could be read, so the caller can fall back
+ * to the original. Copies are small, so they are read whole rather than
+ * streamed, and carry no Range support.
+ */
+export async function sendImageVariant(
+  request: FastifyRequest,
+  reply: FastifyReply,
+  variant: { path: string; contentType: string; etag: string },
+  versionedUrl: boolean
+): Promise<FastifyReply | null> {
+  reply.header("X-Content-Type-Options", "nosniff");
+  reply.header("ETag", variant.etag);
+  reply.header(
+    "Cache-Control",
+    versionedUrl ? "private, max-age=31536000, immutable" : "private, no-cache"
+  );
+  if (request.headers["if-none-match"] === variant.etag) {
+    return reply.code(304).send();
+  }
+  const bytes = await readFile(variant.path).catch(() => null);
+  if (!bytes) {
+    reply.removeHeader("ETag");
+    reply.removeHeader("Cache-Control");
+    return null;
+  }
+  reply.header("Content-Length", bytes.length);
+  return reply.code(200).type(variant.contentType).send(bytes);
 }
 
 export async function sendStoredFile(

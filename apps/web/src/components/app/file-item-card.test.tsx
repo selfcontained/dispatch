@@ -37,15 +37,23 @@ describe("FileCardList", () => {
     renderList(false);
     const images = screen.getAllByRole("img");
     expect(images).toHaveLength(2);
-    for (const img of images) expect(img.getAttribute("src")).toBeNull();
+    for (const img of images) {
+      expect(img.getAttribute("src")).toBeNull();
+      expect(img.getAttribute("srcset")).toBeNull();
+    }
   });
 
   it("loads lazily once active and keeps the src after the tab hides", () => {
     const { rerender } = renderList(true);
     const img = screen.getByAltText("one.png");
-    expect(img.getAttribute("src")).toBe(
-      "/api/v1/agents/a1/files/one.png?t=2026-11-13T00%3A00%3A00.000Z"
+    const original =
+      "/api/v1/agents/a1/files/one.png?t=2026-11-13T00%3A00%3A00.000Z";
+    // Display-sized copies, never the original, for the preview.
+    expect(img.getAttribute("src")).toBe(`${original}&w=640`);
+    expect(img.getAttribute("srcset")).toBe(
+      `${original}&w=320 320w, ${original}&w=640 640w, ${original}&w=1280 1280w`
     );
+    expect(img.getAttribute("sizes")).toContain("auto");
     expect(img.getAttribute("loading")).toBe("lazy");
     expect(img.getAttribute("decoding")).toBe("async");
 

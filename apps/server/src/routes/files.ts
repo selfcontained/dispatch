@@ -1,4 +1,8 @@
-import { sendStoredFile } from "../files/send-file.js";
+import { sendImageVariant, sendStoredFile } from "../files/send-file.js";
+import {
+  ImageVariantCache,
+  parseVariantWidth,
+} from "../files/image-variants.js";
 import path from "node:path";
 import { mkdir, writeFile } from "node:fs/promises";
 
@@ -54,6 +58,8 @@ export async function registerFileRoutes(
   app: FastifyInstance,
   deps: FileRouteDeps
 ): Promise<void> {
+  const imageVariants = new ImageVariantCache();
+
   app.get("/api/v1/agents/:id/files", async (request, reply) => {
     const params = request.params as { id?: string };
     const id = params.id ?? "";
@@ -152,12 +158,37 @@ export async function registerFileRoutes(
       resolveFilesDir(id, agentRow.rows[0].files_dir, deps.filesRoot),
       file
     );
-    return sendStoredFile(
-      request,
-      reply,
-      filePath,
-      agentRow.rows[0].mime_type ?? undefined
-    );
+    const mimeType = agentRow.rows[0].mime_type ?? undefined;
+
+    // `?w=` asks for a display-sized copy; anything that can't produce one
+    // falls through to the original below.
+    const query = request.query as { w?: unknown; t?: unknown };
+    const width = parseVariantWidth(query.w);
+    if (width === null) {
+      return reply.code(400).send({ error: "Invalid width." });
+    }
+    if (width !== undefined) {
+      const variant = await imageVariants
+        .get(filePath, mimeType, width)
+        .catch((err: unknown) => {
+          request.log.warn({ err, filePath, width }, "Image variant failed");
+          return null;
+        });
+      if (variant) {
+        const sent = await sendImageVariant(
+          request,
+          reply,
+          variant,
+          // A `t` (the file's updatedAt) makes the URL change whenever the
+          // file does, so it can be cached for good; without one the browser
+          // revalidates against the ETag.
+          typeof query.t === "string" && query.t.length > 0
+        );
+        if (sent) return sent;
+      }
+    }
+
+    return sendStoredFile(request, reply, filePath, mimeType);
   });
 
   app.post("/api/v1/agents/:id/files", async (request, reply) => {

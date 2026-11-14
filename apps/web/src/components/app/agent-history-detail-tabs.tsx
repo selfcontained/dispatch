@@ -5,6 +5,7 @@ import { FileLightbox } from "@/components/app/file-lightbox";
 import { type FileItem } from "@/components/app/types";
 import { type HistoryFile } from "@/hooks/use-agent-history";
 import { fileItemQueryKey } from "@/hooks/use-files";
+import { imageVariantSrcSet } from "@/lib/image-variants";
 
 export function DetailTabs({
   files,
@@ -52,6 +53,13 @@ export function DetailTabs({
                   {m.media === "image" ? (
                     <img
                       src={`/api/v1/agents/${agentId}/files/${encodeURIComponent(m.file_name)}`}
+                      // Tiles stay a few hundred device pixels wide.
+                      srcSet={imageVariantSrcSet(
+                        `/api/v1/agents/${agentId}/files/${encodeURIComponent(m.file_name)}`,
+                        undefined,
+                        640
+                      )}
+                      sizes="(min-width: 640px) 25vw, 33vw"
                       alt={m.description ?? m.file_name}
                       className="aspect-video w-full object-cover"
                       loading="lazy"
