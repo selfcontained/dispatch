@@ -113,6 +113,7 @@ export function FileItemCard({
             loading="lazy"
             decoding="async"
             onLoad={() => setLoaded(true)}
+            onError={() => setLoaded(true)}
             className={cn(
               "max-h-[260px] w-full object-contain",
               !loaded && "h-[260px]"
