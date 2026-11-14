@@ -352,7 +352,7 @@ describe("POST /api/v1/focus", () => {
       agentId: null,
       sessionId: "ses_route-test-1",
       visible: true,
-      idleMs: 1200,
+      focused: true,
       viewingAgentId: null,
     });
     expect(res.statusCode).toBe(204);
@@ -363,7 +363,6 @@ describe("POST /api/v1/focus", () => {
       agentId: null,
       sessionId: "ses_route-test-1",
       visible: "yes",
-      idleMs: 0,
     });
     expect(res.statusCode).toBe(400);
   });

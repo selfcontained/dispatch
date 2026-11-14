@@ -1,13 +1,16 @@
 import { PassThrough } from "node:stream";
 
+import Fastify from "fastify";
 import { describe, expect, it, vi } from "vitest";
 
 import {
-  PRESENCE_ACTIVE_WINDOW_MS,
+  isActivityRequest,
+  PRESENCE_ACTIVITY_WINDOW_MS,
   PRESENCE_TTL_MS,
   PresenceTracker,
 } from "../src/presence-tracker.js";
 import { createNotificationRuntime } from "../src/server/notification-runtime.js";
+import { registerPresenceActivity } from "../src/server/presence-activity.js";
 import { UiEventBroker } from "../src/server/ui-events.js";
 
 function clock(start = 1_000_000) {
@@ -20,14 +23,20 @@ function clock(start = 1_000_000) {
   };
 }
 
-const visible = (viewingAgentId: string | null = null, idleMs = 0) => ({
+/** A visible, focused tab's routine (interval) beat. */
+const visible = (viewingAgentId: string | null = null) => ({
   visible: true,
-  idleMs,
+  focused: true,
   viewingAgentId,
+});
+/** A visible tab in an unfocused window. */
+const unfocused = (viewingAgentId: string | null = null) => ({
+  ...visible(viewingAgentId),
+  focused: false,
 });
 
 describe("PresenceTracker", () => {
-  it("turns active on a heartbeat and expires after the TTL", () => {
+  it("counts a visible, focused tab as present until its beats stop", () => {
     const time = clock();
     const presence = new PresenceTracker(time.now);
     expect(presence.isPresent()).toBe(false);
@@ -40,27 +49,49 @@ describe("PresenceTracker", () => {
 
     time.advance(PRESENCE_TTL_MS + 1);
     expect(presence.isPresent()).toBe(false);
-    expect(presence.activeSessions()).toEqual([]);
   });
 
-  it("counts only visible sessions with a recent interaction", () => {
+  it("counts a visible, unfocused tab with no action in 5 minutes as away", () => {
     const time = clock();
     const presence = new PresenceTracker(time.now);
 
-    presence.heartbeat("hidden-aaaa", { ...visible(), visible: false });
-    presence.heartbeat(
-      "idle-aaaaaa",
-      visible(null, PRESENCE_ACTIVE_WINDOW_MS + 1)
-    );
+    // The user opened the tab (an active beat), then moved to another window.
+    presence.heartbeat("tab-aaaaaaaa", { ...visible(), active: true });
+    presence.heartbeat("tab-aaaaaaaa", unfocused());
+    expect(presence.isPresent()).toBe(true);
+
+    // Routine beats keep the session alive but are not activity.
+    for (let t = 0; t < PRESENCE_ACTIVITY_WINDOW_MS; t += 15_000) {
+      time.advance(15_000);
+      presence.heartbeat("tab-aaaaaaaa", unfocused());
+    }
+    time.advance(1_000);
+    presence.heartbeat("tab-aaaaaaaa", unfocused());
     expect(presence.isPresent()).toBe(false);
 
-    // Heartbeats keep an idle session alive, but idle time keeps growing.
-    presence.heartbeat("busy-aaaaaa", visible(null, 0));
-    time.advance(PRESENCE_ACTIVE_WINDOW_MS - 1_000);
-    presence.heartbeat("busy-aaaaaa", visible(null, PRESENCE_ACTIVE_WINDOW_MS));
-    expect(presence.isPresent()).toBe(true);
-    time.advance(1_001);
+    // A hidden tab is away even if it is the focused window.
+    presence.heartbeat("tab-aaaaaaaa", { ...visible(), visible: false });
     expect(presence.isPresent()).toBe(false);
+  });
+
+  it("marks an unfocused session present when the user acts in it", () => {
+    const time = clock();
+    const presence = new PresenceTracker(time.now);
+    presence.heartbeat("tab-aaaaaaaa", unfocused());
+    expect(presence.isPresent()).toBe(false);
+
+    presence.noteActivity("tab-aaaaaaaa");
+    expect(presence.isPresent()).toBe(true);
+
+    time.advance(PRESENCE_ACTIVITY_WINDOW_MS - 1_000);
+    presence.heartbeat("tab-aaaaaaaa", unfocused());
+    expect(presence.isPresent()).toBe(true);
+    time.advance(2_000);
+    expect(presence.isPresent()).toBe(false);
+
+    // Activity for a session the server has never heard from is ignored.
+    presence.noteActivity("unknown-aaaa");
+    expect(presence.size).toBe(1);
   });
 
   it("tracks two sessions on different devices separately", () => {
@@ -79,7 +110,7 @@ describe("PresenceTracker", () => {
       ["phone-aaaaa", "agt_b"],
     ]);
 
-    // The phone hides; the laptop stays active.
+    // The phone hides; the laptop stays present.
     presence.heartbeat("phone-aaaaa", { ...visible("agt_b"), visible: false });
     expect(presence.activeSessions().map((s) => s.sessionId)).toEqual([
       "laptop-aaaa",
@@ -89,10 +120,55 @@ describe("PresenceTracker", () => {
     time.advance(PRESENCE_TTL_MS + 1);
     presence.heartbeat("phone-aaaaa", { ...visible("agt_b"), visible: false });
     expect(presence.size).toBe(1);
-    presence.heartbeat("laptop-aaaa", visible("agt_a"));
+  });
+});
 
-    presence.remove("laptop-aaaa");
+describe("presence activity requests", () => {
+  it("counts chat actions, not reads or read receipts", () => {
+    const route = "/api/v1/streams/:rootId/blocks";
+    expect(isActivityRequest("POST", route)).toBe(true);
+    expect(
+      isActivityRequest(
+        "POST",
+        "/api/v1/streams/:rootId/blocks/:blockId/answer"
+      )
+    ).toBe(true);
+    expect(
+      isActivityRequest(
+        "POST",
+        "/api/v1/streams/:rootId/blocks/:blockId/submit"
+      )
+    ).toBe(true);
+    expect(isActivityRequest("GET", route)).toBe(false);
+    expect(isActivityRequest("POST", "/api/v1/streams/:rootId/read")).toBe(
+      false
+    );
+    expect(isActivityRequest("POST", "/api/v1/focus")).toBe(false);
+  });
+
+  it("marks the session present when it posts a message", async () => {
+    const time = clock();
+    const presence = new PresenceTracker(time.now);
+    presence.heartbeat("ses_aaaaaaaa", unfocused());
+    const app = Fastify();
+    registerPresenceActivity(app, presence);
+    app.post("/api/v1/streams/:rootId/blocks", async () => ({ ok: true }));
+    app.get("/api/v1/streams/:rootId/blocks", async () => ({ ok: true }));
+
+    await app.inject({
+      method: "GET",
+      url: "/api/v1/streams/agt_a/blocks",
+      headers: { "x-dispatch-session": "ses_aaaaaaaa" },
+    });
     expect(presence.isPresent()).toBe(false);
+
+    await app.inject({
+      method: "POST",
+      url: "/api/v1/streams/agt_a/blocks",
+      headers: { "x-dispatch-session": "ses_aaaaaaaa" },
+      payload: { text: "hi" },
+    });
+    expect(presence.isPresent()).toBe(true);
   });
 });
 

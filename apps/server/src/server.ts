@@ -95,6 +95,7 @@ import { SlackNotifier } from "./notifications/slack.js";
 import { JobNotifier } from "./notifications/job-notifier.js";
 import { FocusTracker } from "./focus-tracker.js";
 import { PresenceTracker } from "./presence-tracker.js";
+import { registerPresenceActivity } from "./server/presence-activity.js";
 import { AGENT_TYPES, setEnabledAgentTypes } from "./agent-type-settings.js";
 import { JobService } from "./jobs/service.js";
 import { TemplateService } from "./templates/service.js";
@@ -824,6 +825,8 @@ async function registerRoutes() {
     }
     return payload;
   });
+
+  registerPresenceActivity(app, presenceTracker);
 
   // Update recovery gate: synchronous, ahead of auth, so nothing a fence or
   // probation excludes can reach a handler.

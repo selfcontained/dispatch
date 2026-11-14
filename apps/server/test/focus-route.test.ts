@@ -26,7 +26,7 @@ describe("POST /api/v1/focus", () => {
     const presence = {
       sessionId: "ses_route-test-1",
       visible: true,
-      idleMs: 0,
+      focused: true,
     };
     await beat({ agentId: "agt_a", viewingAgentId: "agt_a", ...presence });
     expect(focus.isFocused("agt_a")).toBe(true);
@@ -41,7 +41,7 @@ describe("POST /api/v1/focus", () => {
       agentId: null,
       sessionId: "ses_route-test-1",
       visible: false,
-      idleMs: 5,
+      focused: false,
       viewingAgentId: "agt_a",
     });
     expect(res.statusCode).toBe(204);
@@ -49,7 +49,8 @@ describe("POST /api/v1/focus", () => {
       {
         sessionId: "ses_route-test-1",
         visible: false,
-        idleMs: 5,
+        focused: false,
+        active: false,
         viewingAgentId: "agt_a",
       },
     ]);

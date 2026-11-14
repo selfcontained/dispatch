@@ -85,7 +85,8 @@ export async function registerAgentEventRoutes(
       agentId?: unknown;
       sessionId?: unknown;
       visible?: unknown;
-      idleMs?: unknown;
+      focused?: unknown;
+      active?: unknown;
       viewingAgentId?: unknown;
     } | null;
     const agentId = body?.agentId;
@@ -103,23 +104,24 @@ export async function registerAgentEventRoutes(
     // Presence rides the same heartbeat; older clients simply omit it.
     const sessionId = sessionIdOf(body?.sessionId);
     if (sessionId) {
-      const { visible, idleMs, viewingAgentId } = body ?? {};
+      const { visible, focused, active, viewingAgentId } = body ?? {};
       if (
         typeof visible !== "boolean" ||
-        typeof idleMs !== "number" ||
-        !Number.isFinite(idleMs) ||
+        typeof focused !== "boolean" ||
+        (active !== undefined && typeof active !== "boolean") ||
         (viewingAgentId !== null &&
           viewingAgentId !== undefined &&
           (typeof viewingAgentId !== "string" || !viewingAgentId.trim()))
       ) {
         return reply.code(400).send({
           error:
-            "visible must be a boolean, idleMs a number and viewingAgentId a string or null.",
+            "visible and focused must be booleans, active a boolean if given, and viewingAgentId a string or null.",
         });
       }
       deps.reportPresence?.(sessionId, {
         visible,
-        idleMs,
+        focused,
+        active: active === true,
         viewingAgentId:
           typeof viewingAgentId === "string" ? viewingAgentId.trim() : null,
       });

@@ -15,6 +15,7 @@ describe("useAgentFocus", () => {
 
   afterEach(() => {
     cleanup();
+    vi.restoreAllMocks();
     vi.useRealTimers();
     vi.unstubAllGlobals();
   });
@@ -22,34 +23,40 @@ describe("useAgentFocus", () => {
   const bodies = () =>
     fetchMock.mock.calls.map(([, init]) => JSON.parse(init.body as string));
 
-  it("beats every 15 s with presence and never sends per interaction", () => {
-    renderHook(() => useAgentFocus(null, "authenticated"));
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(bodies()[0]).toMatchObject({
-      visible: true,
-      viewingAgentId: null,
-      sessionId: expect.stringMatching(/^ses_/),
-    });
+  it("beats every 15 s; only user-driven beats are active", () => {
+    renderHook(() => useAgentFocus("agt_a", "authenticated"));
+    expect(bodies()).toEqual([
+      expect.objectContaining({
+        sessionId: expect.stringMatching(/^ses_/),
+        visible: true,
+        viewingAgentId: "agt_a",
+        active: true,
+      }),
+    ]);
 
-    for (let i = 0; i < 20; i++) {
-      vi.advanceTimersByTime(1_500);
-      window.dispatchEvent(new Event("pointermove"));
-    }
-    // 30 s of constant interaction: only the two interval beats.
-    expect(fetchMock).toHaveBeenCalledTimes(3);
+    vi.advanceTimersByTime(30_000);
+    expect(
+      bodies()
+        .slice(1)
+        .map((b) => b.active)
+    ).toEqual([false, false]);
+
+    window.dispatchEvent(new Event("focus"));
+    expect(bodies().at(-1)?.active).toBe(true);
+    window.dispatchEvent(new Event("blur"));
+    expect(bodies().at(-1)?.active).toBe(false);
   });
 
-  it("sends one beat on the first interaction after being idle", () => {
+  it("registers no input-event listeners", () => {
+    const windowAdd = vi.spyOn(window, "addEventListener");
+    const documentAdd = vi.spyOn(document, "addEventListener");
     renderHook(() => useAgentFocus("agt_a", "authenticated"));
-    vi.advanceTimersByTime(121_000);
-    const beforeReturn = fetchMock.mock.calls.length;
 
-    window.dispatchEvent(new Event("pointermove"));
-    expect(fetchMock).toHaveBeenCalledTimes(beforeReturn + 1);
-    expect(bodies().at(-1)?.idleMs).toBeLessThan(1_000);
-
-    vi.advanceTimersByTime(2_000);
-    window.dispatchEvent(new Event("pointermove"));
-    expect(fetchMock).toHaveBeenCalledTimes(beforeReturn + 1);
+    const types = [...windowAdd.mock.calls, ...documentAdd.mock.calls].map(
+      ([type]) => type
+    );
+    expect(new Set(types)).toEqual(
+      new Set(["visibilitychange", "focus", "blur"])
+    );
   });
 });
