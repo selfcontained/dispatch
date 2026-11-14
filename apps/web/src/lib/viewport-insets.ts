@@ -30,6 +30,12 @@ export const OVERLAY_EDGE_GAP = 0;
  * A tiny external store fed by window events. Every subscriber shares one
  * snapshot and one set of listeners, so an update seen by one is delivered
  * to all of them.
+ *
+ * `read` can be expensive (the safe-area probe forces a style recalc), so it
+ * runs only when the value can have changed: the first read, a window event,
+ * or the first subscriber while no listeners are attached (events may have
+ * been missed since the last read). Further subscribers reuse the shared
+ * snapshot.
  */
 function createWindowStore<T>(
   read: () => T,
@@ -37,10 +43,14 @@ function createWindowStore<T>(
   attach: (update: () => void) => () => void
 ) {
   let snapshot: T | undefined;
+  // False once listeners detach: window events are no longer tracked, so the
+  // snapshot may be stale by the time someone subscribes again.
+  let current = false;
   const listeners = new Set<() => void>();
   let detach: (() => void) | null = null;
   const update = () => {
     const next = read();
+    current = true;
     if (snapshot !== undefined && same(next, snapshot)) return;
     snapshot = next;
     for (const listener of listeners) listener();
@@ -50,17 +60,20 @@ function createWindowStore<T>(
       listeners.add(listener);
       if (!detach) {
         detach = attach(update);
+        if (!current) update();
       }
-      update();
       return () => {
         listeners.delete(listener);
         if (listeners.size === 0 && detach) {
           detach();
           detach = null;
+          current = false;
         }
       };
     },
     getSnapshot(): T {
+      // Not marked current: nothing tracks window events until the first
+      // subscriber attaches, so that subscriber re-reads once.
       if (snapshot === undefined) snapshot = read();
       return snapshot;
     },
