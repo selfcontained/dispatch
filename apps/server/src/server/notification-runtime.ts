@@ -41,15 +41,8 @@ export function createNotificationRuntime(deps: CreateNotificationRuntimeDeps) {
     if (sessions.length > 0) {
       const recipients = toastRecipients(sessions, agent.id);
       if (recipients.length === 0) return;
-      if (target) {
-        if (toastedBlocks.has(target.blockId)) return;
-        toastedBlocks.add(target.blockId);
-        if (toastedBlocks.size > 1000) {
-          const oldest = toastedBlocks.values().next().value;
-          if (oldest !== undefined) toastedBlocks.delete(oldest);
-        }
-      }
-      uiEventBroker.publishToSessions(
+      if (target && toastedBlocks.has(target.blockId)) return;
+      const delivered = uiEventBroker.publishToSessions(
         {
           type: "attention.toast",
           toastId: target ? `block:${target.blockId}` : randomUUID(),
@@ -60,7 +53,18 @@ export function createNotificationRuntime(deps: CreateNotificationRuntimeDeps) {
         },
         recipients
       );
-      return;
+      if (delivered > 0) {
+        if (target) {
+          toastedBlocks.add(target.blockId);
+          if (toastedBlocks.size > 1000) {
+            const oldest = toastedBlocks.values().next().value;
+            if (oldest !== undefined) toastedBlocks.delete(oldest);
+          }
+        }
+        return;
+      }
+      // No recipient has a live stream (reconnecting, server just restarted):
+      // nothing showed in the app, so the OS notification path still applies.
     }
     void (async () => {
       try {

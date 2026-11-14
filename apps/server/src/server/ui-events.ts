@@ -51,12 +51,12 @@ export class UiEventBroker {
     this.write(event);
   }
 
-  /** Send an event only to the streams opened by these app sessions. */
-  publishToSessions(event: UiEvent, sessionIds: Iterable<string>): void {
+  /** Send an event only to the streams opened by these app sessions; returns how many streams took it. */
+  publishToSessions(event: UiEvent, sessionIds: Iterable<string>): number {
     const targets = new Set(sessionIds);
-    if (targets.size === 0) return;
+    if (targets.size === 0) return 0;
     this.eventsPublished += 1;
-    this.write(
+    return this.write(
       event,
       undefined,
       (sessionId) => sessionId !== null && targets.has(sessionId)
@@ -86,13 +86,14 @@ export class UiEventBroker {
     event: UiEvent,
     target?: NodeJS.WritableStream,
     include?: (sessionId: string | null) => boolean
-  ): void {
+  ): number {
     const payload = `id: ${this.nextId++}\ndata: ${JSON.stringify(event)}\n\n`;
     if (target) {
       target.write(payload);
-      return;
+      return 1;
     }
 
+    let written = 0;
     for (const [client, sessionId] of this.clients) {
       if (include && !include(sessionId)) continue;
       if ((client as { destroyed?: boolean }).destroyed) {
@@ -102,10 +103,12 @@ export class UiEventBroker {
 
       try {
         client.write(payload);
+        written += 1;
       } catch {
         this.writeFailures += 1;
         this.clients.delete(client);
       }
     }
+    return written;
   }
 }

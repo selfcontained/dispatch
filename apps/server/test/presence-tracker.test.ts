@@ -85,6 +85,12 @@ describe("PresenceTracker", () => {
       "laptop-aaaa",
     ]);
 
+    // A session that stops heartbeating is forgotten on the next heartbeat.
+    time.advance(PRESENCE_TTL_MS + 1);
+    presence.heartbeat("phone-aaaaa", { ...visible("agt_b"), visible: false });
+    expect(presence.size).toBe(1);
+    presence.heartbeat("laptop-aaaa", visible("agt_a"));
+
     presence.remove("laptop-aaaa");
     expect(presence.isPresent()).toBe(false);
   });
@@ -195,6 +201,34 @@ describe("attention toasts", () => {
       message: "Turn failed",
       target: null,
     });
+  });
+
+  it("falls back to the OS notification when no recipient has a live stream", async () => {
+    const t = setup();
+    t.connect("viewer-aaaa");
+    t.presence.heartbeat("viewer-aaaa", visible("agt_a"));
+    // Active by heartbeat, but its event stream is down (reconnecting).
+    t.presence.heartbeat("gone-aaaaaa", visible(null));
+
+    t.raise();
+    await t.flush();
+    expect(t.toasts("viewer-aaaa")).toHaveLength(1);
+
+    // Only the stream-less session is active now: nothing can show a toast.
+    t.presence.remove("viewer-aaaa");
+    t.raise({
+      agent: { id: "agt_b", name: "Builder" },
+      type: "waiting_user",
+      message: "Another?",
+      target: { streamId: "agt_b", threadId: null, blockId: "blk_2" },
+    });
+    await t.flush();
+    expect(t.shouldWebNotify).toHaveBeenCalledTimes(1);
+    expect(
+      (t.received.get("viewer-aaaa") ?? []).filter(
+        (e) => e.type === "notification"
+      )
+    ).toHaveLength(1);
   });
 
   it("sends no toast when no session is active, and falls back to the OS notification", async () => {

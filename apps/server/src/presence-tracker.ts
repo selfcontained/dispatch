@@ -45,6 +45,7 @@ export class PresenceTracker {
       lastSeenAt: now,
       viewingAgentId: beat.viewingAgentId,
     });
+    this.prune(now);
   }
 
   /** The session closed (tab unloaded). */
@@ -52,15 +53,19 @@ export class PresenceTracker {
     this.sessions.delete(sessionId);
   }
 
+  /** Forget sessions that stopped heartbeating (closed without a pagehide). */
+  private prune(now: number): void {
+    for (const [id, session] of this.sessions) {
+      if (now - session.lastSeenAt > PRESENCE_TTL_MS) this.sessions.delete(id);
+    }
+  }
+
   /** Visible sessions with an interaction inside the active window. */
   activeSessions(): PresenceSession[] {
     const now = this.now();
+    this.prune(now);
     const active: PresenceSession[] = [];
-    for (const [id, session] of this.sessions) {
-      if (now - session.lastSeenAt > PRESENCE_TTL_MS) {
-        this.sessions.delete(id);
-        continue;
-      }
+    for (const session of this.sessions.values()) {
       if (
         session.visible &&
         now - session.lastInteractionAt <= PRESENCE_ACTIVE_WINDOW_MS
@@ -69,6 +74,11 @@ export class PresenceTracker {
       }
     }
     return active;
+  }
+
+  /** How many sessions are tracked, expired ones included until pruned. */
+  get size(): number {
+    return this.sessions.size;
   }
 
   /** True while any session is active. */

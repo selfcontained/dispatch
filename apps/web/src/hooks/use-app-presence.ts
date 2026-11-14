@@ -15,7 +15,12 @@ const INTERACTION_EVENTS = [
 /** The agent a path shows: `/agents/<id>…` or its history page. */
 export function viewingAgentIdOf(pathname: string): string | null {
   const match = /^\/(?:agents|activity\/history)\/([^/]+)/.exec(pathname);
-  return match ? decodeURIComponent(match[1]) : null;
+  if (!match) return null;
+  try {
+    return decodeURIComponent(match[1]);
+  } catch {
+    return match[1];
+  }
 }
 
 function postPresence(body: Record<string, unknown>): void {

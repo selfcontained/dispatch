@@ -39,5 +39,6 @@ describe("viewingAgentIdOf", () => {
     expect(viewingAgentIdOf("/agents/agt_a/changes")).toBe("agt_a");
     expect(viewingAgentIdOf("/activity/history/agt_a")).toBe("agt_a");
     expect(viewingAgentIdOf("/tasks")).toBeNull();
+    expect(viewingAgentIdOf("/agents/%E0%A4%A")).toBe("%E0%A4%A");
   });
 });
