@@ -33,8 +33,9 @@ export const OVERLAY_EDGE_GAP = 0;
  *
  * `read` can be expensive (the safe-area probe forces a style recalc), so it
  * runs only when the value can have changed: the first read, a window event,
- * or the first subscriber after all of them detached (events were missed in
- * between). Further subscribers reuse the shared snapshot.
+ * or the first subscriber while no listeners are attached (events may have
+ * been missed since the last read). Further subscribers reuse the shared
+ * snapshot.
  */
 function createWindowStore<T>(
   read: () => T,
@@ -71,10 +72,9 @@ function createWindowStore<T>(
       };
     },
     getSnapshot(): T {
-      if (snapshot === undefined) {
-        snapshot = read();
-        current = true;
-      }
+      // Not marked current: nothing tracks window events until the first
+      // subscriber attaches, so that subscriber re-reads once.
+      if (snapshot === undefined) snapshot = read();
       return snapshot;
     },
   };

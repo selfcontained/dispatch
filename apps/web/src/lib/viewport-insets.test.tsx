@@ -142,7 +142,9 @@ describe("useSafeAreaInsets", () => {
         ))}
       </>
     );
-    expect(probe.measurements).toBe(1);
+    // One read for the first render, one when the shared listeners attach;
+    // the other 49 subscribers reuse the snapshot.
+    expect(probe.measurements).toBe(2);
     expect(seen).toHaveLength(COUNT);
     expect(seen.every((top) => top === 24)).toBe(true);
 
@@ -150,7 +152,7 @@ describe("useSafeAreaInsets", () => {
     act(() => {
       window.dispatchEvent(new Event("resize"));
     });
-    expect(probe.measurements).toBe(2);
+    expect(probe.measurements).toBe(3);
     expect(seen.every((top) => top === 47)).toBe(true);
   });
 
@@ -158,7 +160,7 @@ describe("useSafeAreaInsets", () => {
     const probe = mockProbe(24);
     const { Consumer, seen } = await freshHook();
     const first = render(<Consumer index={0} />);
-    expect(probe.measurements).toBe(1);
+    const afterFirstMount = probe.measurements;
     first.unmount();
 
     // Changed while nobody was listening for window events.
@@ -169,7 +171,7 @@ describe("useSafeAreaInsets", () => {
         <Consumer index={2} />
       </>
     );
-    expect(probe.measurements).toBe(2);
+    expect(probe.measurements).toBe(afterFirstMount + 1);
     expect(seen[1]).toBe(0);
     expect(seen[2]).toBe(0);
   });
