@@ -27,6 +27,7 @@ import { FeedImage } from "@/components/app/chat/feed-image";
 import { stripTimestamp } from "@/components/app/file-utils";
 import { formatBytes } from "@/components/app/service-resources-format";
 import { Markdown } from "@/components/ui/markdown";
+import { imageVariantSrcSet } from "@/lib/image-variants";
 import { cn } from "@/lib/utils";
 
 /** What the attachment views read off the feed they are rendered in. */
@@ -195,6 +196,32 @@ function extensionOf(fileName: string): string | null {
   return match ? match[1]!.toLowerCase() : null;
 }
 
+const FEED_IMAGE_MAX_HEIGHT_PX = 224;
+/** The image button's `max-w-xs`. */
+const FEED_IMAGE_MAX_WIDTH_PX = 320;
+
+/** CSS width the feed lays an image out at; see `feedImageBoxStyle`. */
+function feedImageBoxWidth(width?: number, height?: number): number {
+  if (!width || !height) return FEED_IMAGE_MAX_WIDTH_PX;
+  return Math.ceil(
+    Math.min(
+      width,
+      FEED_IMAGE_MAX_HEIGHT_PX * (width / height),
+      FEED_IMAGE_MAX_WIDTH_PX
+    )
+  );
+}
+
+/**
+ * Gallery tiles are square and `object-cover`, so a landscape image is drawn
+ * wider than its tile by its aspect ratio. 160px tiles from `sm` up; two
+ * columns of the feed below that.
+ */
+function galleryTileSizes(width?: number, height?: number): string {
+  const spread = width && height ? Math.max(1, width / height) : 1;
+  return `(min-width: 640px) ${Math.ceil(160 * spread)}px, calc(50vw * ${spread.toFixed(3)})`;
+}
+
 export function FileAttachment({
   attachment,
   ownerAgentId,
@@ -229,10 +256,18 @@ export function FileAttachment({
           <span className="block border-b border-border/70 bg-background/60">
             <FeedImage
               src={url}
+              // Copies come from the agent files route; a caller-supplied URL
+              // (task attachments) serves originals only.
+              srcSet={
+                contentUrl
+                  ? undefined
+                  : imageVariantSrcSet(url, attachment.width)
+              }
+              sizes={`${feedImageBoxWidth(attachment.width, attachment.height)}px`}
               alt={attachment.caption || attachment.fileName}
               width={attachment.width}
               height={attachment.height}
-              maxHeightPx={224}
+              maxHeightPx={FEED_IMAGE_MAX_HEIGHT_PX}
             />
           </span>
           <span className="flex items-center gap-2 px-2.5 py-1.5 text-[11px] text-muted-foreground">
@@ -393,6 +428,10 @@ function ImageGallery({
     >
       {shown.map((attachment, index) => {
         const more = overflow > 0 && index === shown.length - 1 ? overflow : 0;
+        const tileUrl = fileUrl(
+          fileOwnerOf(attachment, block, ctx.agentId),
+          attachment.fileName
+        );
         const label =
           attachment.caption ||
           `${stripTimestamp(attachment.fileName)} (${formatBytes(attachment.sizeBytes)})`;
@@ -412,10 +451,9 @@ function ImageGallery({
               data-testid="chat-attachment-gallery-tile"
             >
               <img
-                src={fileUrl(
-                  fileOwnerOf(attachment, block, ctx.agentId),
-                  attachment.fileName
-                )}
+                src={tileUrl}
+                srcSet={imageVariantSrcSet(tileUrl, attachment.width)}
+                sizes={galleryTileSizes(attachment.width, attachment.height)}
                 // The button's label names the tile; the image adds nothing.
                 alt=""
                 // From the top: a tall screenshot keeps the header that

@@ -10,6 +10,7 @@ import { AgentError } from "../agents/errors.js";
 import { agentWorkspaceDir } from "../agents/workspace-target.js";
 import { detectFileType } from "../files/file-type.js";
 import { fileMetadataFromBuffer } from "../files/metadata.js";
+import { removeImageVariants } from "../files/image-variants.js";
 import type { WorktreeCleanupMode } from "../agents/types.js";
 import {
   CLI_AGENT_TYPES,
@@ -914,6 +915,7 @@ async function handleDeleteFile(
       throw error;
     }
   }
+  await removeImageVariants(filePath);
 
   await deps.pool.query(
     "DELETE FROM files WHERE agent_id = $1 AND file_name = $2",

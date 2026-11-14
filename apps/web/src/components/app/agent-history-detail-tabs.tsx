@@ -5,6 +5,7 @@ import { FileLightbox } from "@/components/app/file-lightbox";
 import { type FileItem } from "@/components/app/types";
 import { type HistoryFile } from "@/hooks/use-agent-history";
 import { fileItemQueryKey } from "@/hooks/use-files";
+import { imageVariantSrcSet } from "@/lib/image-variants";
 
 export function DetailTabs({
   files,
@@ -52,6 +53,10 @@ export function DetailTabs({
                   {m.media === "image" ? (
                     <img
                       src={`/api/v1/agents/${agentId}/files/${encodeURIComponent(m.file_name)}`}
+                      srcSet={imageVariantSrcSet(
+                        `/api/v1/agents/${agentId}/files/${encodeURIComponent(m.file_name)}`
+                      )}
+                      sizes="(min-width: 640px) 25vw, 33vw"
                       alt={m.description ?? m.file_name}
                       className="aspect-video w-full object-cover"
                       loading="lazy"

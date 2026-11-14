@@ -88,6 +88,8 @@ export function feedImageBoxStyle(
 
 export function FeedImage({
   src,
+  srcSet,
+  sizes,
   alt,
   width,
   height,
@@ -96,6 +98,9 @@ export function FeedImage({
   className,
 }: {
   src: string;
+  /** Display-sized copies to pick from; see `imageVariantSrcSet`. */
+  srcSet?: string;
+  sizes?: string;
   alt: string;
   /** Natural size from the file row, absent when it could not be read. */
   width?: number;
@@ -110,6 +115,8 @@ export function FeedImage({
   return (
     <img
       src={src}
+      srcSet={srcSet}
+      sizes={sizes}
       alt={alt}
       className={cn(
         // overflow-hidden matters only when the file is missing: a broken <img>
