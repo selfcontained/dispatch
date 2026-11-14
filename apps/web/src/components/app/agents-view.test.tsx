@@ -271,8 +271,6 @@ vi.mock("@/hooks/use-inbox", () => ({
   },
 }));
 
-vi.mock("@/hooks/use-agent-focus", () => ({ useAgentFocus: vi.fn() }));
-
 vi.mock("@/hooks/use-agent-diff-stats", () => ({
   useVisibleDiffStats: (
     agentId: string,

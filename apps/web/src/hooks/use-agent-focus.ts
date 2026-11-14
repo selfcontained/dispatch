@@ -1,88 +1,83 @@
-import { useEffect, useRef } from "react";
+import { useEffect } from "react";
 import type { AuthState } from "@/components/app/types";
+import { APP_SESSION_ID } from "@/lib/app-session";
 
 const HEARTBEAT_INTERVAL_MS = 15_000;
 
 /**
- * Sends periodic focus heartbeats to the server so it knows the user is
- * actively viewing a specific agent. The server uses this to suppress
- * redundant notifications when the user is already looking at the agent.
+ * The agent an `/agents/<id>…` path shows. Not checked against the agent
+ * list: an unknown id only marks focus on an agent that never notifies.
+ */
+export function viewingAgentIdOf(pathname: string): string | null {
+  const match = /^\/agents\/([^/]+)/.exec(pathname);
+  if (!match) return null;
+  try {
+    return decodeURIComponent(match[1]);
+  } catch {
+    return match[1];
+  }
+}
+
+/**
+ * One 15 s heartbeat per tab that carries both signals the server needs:
  *
- * Heartbeats are only sent when:
- * - The user is authenticated
- * - The browser tab is visible and focused
- * - An agent is selected
+ * - focus: `agentId` is the agent the user is actively viewing (tab visible
+ *   and focused), or null. Suppresses redundant notices for that agent.
+ * - presence: this tab's session id, whether it is visible and focused, the
+ *   agent it shows, and `active` when the beat comes from the user acting
+ *   (opening a route, focusing the window, showing the tab).
  *
- * When any condition becomes false, a null-focus signal is sent so the
- * server can let the TTL expire naturally.
+ * Beats run while the tab is visible; a hidden tab sends one beat saying so
+ * and then stays quiet. Only window focus/blur and visibility changes are
+ * observed — never input events.
  */
 export function useAgentFocus(
-  selectedAgentId: string | null,
+  viewingAgentId: string | null,
   authState: AuthState
 ): void {
-  const lastReportedRef = useRef<string | null>(null);
-
   useEffect(() => {
     if (authState !== "authenticated") return;
 
-    const sendFocus = (agentId: string | null) => {
-      lastReportedRef.current = agentId;
+    const send = (active: boolean) => {
+      const visible = document.visibilityState === "visible";
+      const focused = visible && document.hasFocus();
       void fetch("/api/v1/focus", {
         method: "POST",
         credentials: "include",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ agentId }),
+        body: JSON.stringify({
+          agentId: focused ? viewingAgentId : null,
+          sessionId: APP_SESSION_ID,
+          visible,
+          focused,
+          active: active && visible,
+          viewingAgentId,
+        }),
         keepalive: true,
       }).catch(() => {});
     };
 
-    const isPageActive = () => document.hasFocus() && !document.hidden;
+    // Mounting means the page opened or the route changed: the user acted.
+    send(true);
 
-    const tick = () => {
-      if (isPageActive() && selectedAgentId) {
-        sendFocus(selectedAgentId);
-      } else if (lastReportedRef.current) {
-        sendFocus(null);
-      }
-    };
+    const interval = setInterval(() => {
+      if (document.visibilityState === "visible") send(false);
+    }, HEARTBEAT_INTERVAL_MS);
 
-    // Send immediately if conditions are met
-    tick();
-
-    const interval = setInterval(tick, HEARTBEAT_INTERVAL_MS);
-
-    const onVisibilityChange = () => {
-      if (!isPageActive() && lastReportedRef.current) {
-        sendFocus(null);
-      } else if (isPageActive() && selectedAgentId) {
-        sendFocus(selectedAgentId);
-      }
-    };
-
-    const onBlur = () => {
-      if (lastReportedRef.current) {
-        sendFocus(null);
-      }
-    };
-
-    const onFocus = () => {
-      if (selectedAgentId && !document.hidden) {
-        sendFocus(selectedAgentId);
-      }
-    };
+    const onVisibilityChange = () =>
+      send(document.visibilityState === "visible");
+    const onFocus = () => send(true);
+    const onBlur = () => send(false);
 
     document.addEventListener("visibilitychange", onVisibilityChange);
-    window.addEventListener("blur", onBlur);
     window.addEventListener("focus", onFocus);
+    window.addEventListener("blur", onBlur);
 
     return () => {
       clearInterval(interval);
       document.removeEventListener("visibilitychange", onVisibilityChange);
-      window.removeEventListener("blur", onBlur);
       window.removeEventListener("focus", onFocus);
-      if (lastReportedRef.current) {
-        sendFocus(null);
-      }
+      window.removeEventListener("blur", onBlur);
     };
-  }, [authState, selectedAgentId]);
+  }, [authState, viewingAgentId]);
 }

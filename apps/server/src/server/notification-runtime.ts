@@ -4,11 +4,13 @@ import type { FastifyBaseLogger } from "fastify";
 
 import type { AgentManager } from "../agents/manager.js";
 import type { SlackNotifier } from "../notifications/slack.js";
+import { type PresenceTracker, toastRecipients } from "../presence-tracker.js";
 import type { UiEventBroker } from "./ui-events.js";
 
 type CreateNotificationRuntimeDeps = {
   agentManager: AgentManager;
-  slackNotifier: SlackNotifier;
+  slackNotifier: Pick<SlackNotifier, "shouldWebNotify">;
+  presence: Pick<PresenceTracker, "activeSessions">;
   uiEventBroker: UiEventBroker;
   appLog: FastifyBaseLogger;
   webNotifyAckTimeoutMs: number;
@@ -19,6 +21,7 @@ export function createNotificationRuntime(deps: CreateNotificationRuntimeDeps) {
   const {
     agentManager,
     slackNotifier,
+    presence,
     uiEventBroker,
     appLog,
     webNotifyAckTimeoutMs,
@@ -27,8 +30,42 @@ export function createNotificationRuntime(deps: CreateNotificationRuntimeDeps) {
 
   const pendingWebNotifications = new Map<string, NodeJS.Timeout>();
 
-  agentManager.onAttention(({ agent, type, message }) => {
+  /** Questions and forms already toasted: one toast per item, ever. */
+  const toastedBlocks = new Set<string>();
+
+  agentManager.onAttention(({ agent, type, message, target }) => {
     const event = { type, message };
+    // In the app: a toast on each active session not viewing the agent,
+    // and no OS notification on any device.
+    const sessions = presence.activeSessions();
+    if (sessions.length > 0) {
+      const recipients = toastRecipients(sessions, agent.id);
+      if (recipients.length === 0) return;
+      if (target && toastedBlocks.has(target.blockId)) return;
+      const delivered = uiEventBroker.publishToSessions(
+        {
+          type: "attention.toast",
+          toastId: target ? `block:${target.blockId}` : randomUUID(),
+          agentId: agent.id,
+          agentName: agent.name || agent.id.slice(0, 8),
+          message,
+          target: target ?? null,
+        },
+        recipients
+      );
+      if (delivered > 0) {
+        if (target) {
+          toastedBlocks.add(target.blockId);
+          if (toastedBlocks.size > 1000) {
+            const oldest = toastedBlocks.values().next().value;
+            if (oldest !== undefined) toastedBlocks.delete(oldest);
+          }
+        }
+        return;
+      }
+      // No recipient has a live stream (reconnecting, server just restarted):
+      // nothing showed in the app, so the OS notification path still applies.
+    }
     void (async () => {
       try {
         const webPayload = await slackNotifier.shouldWebNotify(agent, event);

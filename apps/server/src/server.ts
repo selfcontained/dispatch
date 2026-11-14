@@ -94,6 +94,8 @@ import { StreamManager } from "./stream-manager.js";
 import { SlackNotifier } from "./notifications/slack.js";
 import { JobNotifier } from "./notifications/job-notifier.js";
 import { FocusTracker } from "./focus-tracker.js";
+import { PresenceTracker } from "./presence-tracker.js";
+import { registerPresenceActivity } from "./server/presence-activity.js";
 import { AGENT_TYPES, setEnabledAgentTypes } from "./agent-type-settings.js";
 import { JobService } from "./jobs/service.js";
 import { TemplateService } from "./templates/service.js";
@@ -205,6 +207,7 @@ const agentManager = new AgentManager(pool, app.log, config, {
   classifySteering: steeringDecisions.classify,
 });
 const focusTracker = new FocusTracker();
+const presenceTracker = new PresenceTracker();
 const slackNotifier = new SlackNotifier(pool, app.log);
 const slackAnswers = new SlackAnswers(
   pool,
@@ -512,6 +515,7 @@ const resourceRequestStarts = new WeakMap<object, HttpRequestToken>();
 const notificationRuntime = createNotificationRuntime({
   agentManager,
   slackNotifier,
+  presence: presenceTracker,
   uiEventBroker,
   appLog: app.log,
   webNotifyAckTimeoutMs: 3_000,
@@ -571,8 +575,12 @@ const streamService = new StreamService({
   hasUiClient: () => uiEventBroker.hasConnectedClient(),
   getAgent: (agentId) => agentManager.getAgent(agentId),
   filesRoot: config.filesRoot,
-  onInputPosted: (agentId, text) =>
-    agentManager.noteQuestionPosted(agentId, text),
+  onInputPosted: (agentId, text, block) =>
+    agentManager.noteQuestionPosted(agentId, text, {
+      streamId: block.streamId,
+      threadId: block.threadId,
+      blockId: block.id,
+    }),
   onAgentAsk: (agentId, block): Promise<void> =>
     slackThreadReplies.agentAsked(agentId, block),
   // Both are created below; they are only called once requests arrive.
@@ -817,6 +825,8 @@ async function registerRoutes() {
     }
     return payload;
   });
+
+  registerPresenceActivity(app, presenceTracker);
 
   // Update recovery gate: synchronous, ahead of auth, so nothing a fence or
   // probation excludes can reach a handler.
@@ -1219,13 +1229,16 @@ async function registerRoutes() {
     appLog: app.log,
     agentManager,
     publishUiEvent: (event) => uiEventBroker.publish(event),
-    subscribeUiEvents: (stream) => uiEventBroker.subscribe(stream),
+    subscribeUiEvents: (stream, sessionId) =>
+      uiEventBroker.subscribe(stream, sessionId),
     sendUiSnapshot: (stream, agents) =>
       uiEventBroker.sendSnapshot(stream, agents),
     ackWebNotification: (notificationId) =>
       notificationRuntime.ackWebNotification(notificationId),
     clearFocusedAgents: () => focusTracker.clearAll(),
     setFocusedAgent: (agentId) => focusTracker.setFocused(agentId),
+    reportPresence: (sessionId, beat) =>
+      presenceTracker.heartbeat(sessionId, beat),
     withStreamFlag,
     handleAgentError,
     startStream: (agentId, port) => streamManager.startStream(agentId, port),

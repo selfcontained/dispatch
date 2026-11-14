@@ -1273,28 +1273,44 @@ describe("StreamService.post", () => {
   });
 
   it("marks the agent waiting when it posts a question or form for people", async () => {
-    const onInputPosted = vi.fn(async () => {});
+    const onInputPosted = vi.fn(async (..._args: unknown[]) => {});
     const { svc } = build({ access: inert, deps: { onInputPosted } });
     await svc.post(A, {
       text: "Ship it?",
       question: { options: [{ label: "Yes" }] },
     });
-    expect(onInputPosted).toHaveBeenLastCalledWith(A, "Ship it?");
+    expect(onInputPosted).toHaveBeenLastCalledWith(
+      A,
+      "Ship it?",
+      expect.objectContaining({ streamId: A })
+    );
     await svc.post(A, {
       question: { options: [{ label: "Yes" }, { label: "No" }] },
     });
-    expect(onInputPosted).toHaveBeenLastCalledWith(A, "Yes / No");
+    expect(onInputPosted).toHaveBeenLastCalledWith(
+      A,
+      "Yes / No",
+      expect.objectContaining({ streamId: A })
+    );
     await svc.post(A, {
       form: {
         title: "Deploy details",
         fields: [{ id: "n", label: "N", type: "text" }],
       },
     });
-    expect(onInputPosted).toHaveBeenLastCalledWith(A, "Deploy details");
+    expect(onInputPosted).toHaveBeenLastCalledWith(
+      A,
+      "Deploy details",
+      expect.objectContaining({ streamId: A })
+    );
     await svc.post(A, {
       form: { fields: [{ id: "n", label: "N", type: "text" }] },
     });
-    expect(onInputPosted).toHaveBeenLastCalledWith(A, "Form");
+    expect(onInputPosted).toHaveBeenLastCalledWith(
+      A,
+      "Form",
+      expect.objectContaining({ streamId: A })
+    );
     onInputPosted.mockClear();
     // Not for plain text, and not for a question addressed to an agent.
     await svc.post(A, { text: "fyi" });

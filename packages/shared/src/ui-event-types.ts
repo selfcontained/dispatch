@@ -69,6 +69,23 @@ export type SharedUiEvent =
   | { type: "agent_models.changed"; agentType: string }
   /** The macOS menu app connected, disconnected, or reported update progress. */
   | { type: "mac_app.update_changed"; update: MacAppUpdateSnapshot }
+  /**
+   * Something needs the user while they're in the app: sent only to the
+   * active sessions not already viewing the agent. Shown as a toast.
+   */
+  | {
+      type: "attention.toast";
+      toastId: string;
+      agentId: string;
+      agentName: string;
+      message: string;
+      /** The question or form to open; null opens the agent. */
+      target: {
+        streamId: string;
+        threadId: string | null;
+        blockId: string;
+      } | null;
+    }
   | {
       type: "notification";
       notificationId: string;
