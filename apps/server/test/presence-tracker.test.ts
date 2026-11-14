@@ -260,6 +260,21 @@ describe("attention toasts", () => {
     ).toBe(false);
   });
 
+  it("toasts a window showing the agent when it is not focused", async () => {
+    const t = setup();
+    t.connect("behind-aaaa");
+    // The user opened the agent's chat, then switched to another app.
+    t.presence.heartbeat("behind-aaaa", {
+      ...visible("agt_b"),
+      active: true,
+    });
+    t.presence.heartbeat("behind-aaaa", unfocused("agt_b"));
+
+    t.raise();
+    await t.flush();
+    expect(t.toasts("behind-aaaa")).toHaveLength(1);
+  });
+
   it("toasts each separate blocked event without a target", async () => {
     const t = setup();
     t.connect("other-aaaaa");

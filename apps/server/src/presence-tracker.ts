@@ -99,13 +99,24 @@ export class PresenceTracker {
   }
 }
 
-/** Present sessions that should get an in-app toast about this agent: every one not already viewing it. */
+/**
+ * Present sessions that should get an in-app toast about this agent: every
+ * one except those looking at it right now (showing it, visible and focused).
+ * A window showing the agent behind another app still gets the toast.
+ */
 export function toastRecipients(
   sessions: PresenceSession[],
   agentId: string
 ): string[] {
   return sessions
-    .filter((session) => session.viewingAgentId !== agentId)
+    .filter(
+      (session) =>
+        !(
+          session.viewingAgentId === agentId &&
+          session.visible &&
+          session.focused
+        )
+    )
     .map((session) => session.sessionId);
 }
 
