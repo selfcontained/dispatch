@@ -12,6 +12,19 @@
       name="apple-mobile-web-app-status-bar-style"
       content="black-translucent"
     />
+    <script>
+      // iPhone uses Safari's safe viewport instead of reserving device insets
+      // again in the app. Keep the existing iPad layout, including its space
+      // for the hardware-keyboard toolbar. UA detection survives rotation.
+      if (/iPhone|iPod/.test(navigator.userAgent)) {
+        document.documentElement.setAttribute("data-ios-phone", "");
+        document.querySelector('meta[name="viewport"]').content =
+          "width=device-width, initial-scale=1.0, maximum-scale=1.0";
+        document.querySelector(
+          'meta[name="apple-mobile-web-app-status-bar-style"]'
+        ).content = "black";
+      }
+    </script>
     <meta name="apple-mobile-web-app-title" content="Dispatch" />
     <link rel="icon" type="image/png" href="/icons/teal/favicon.png" />
     <link rel="apple-touch-icon" href="/icons/teal/apple-touch-icon.png" />
