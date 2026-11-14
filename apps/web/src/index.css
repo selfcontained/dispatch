@@ -759,6 +759,12 @@ html[data-theme="matrix"] body::after {
   background: transparent;
 }
 
+/* On iPhone Safari owns the safe viewport (see index.html). Reserving
+   insets here as well leaves unused space beneath the composer. */
+html[data-ios-phone] #root {
+  padding: 0;
+}
+
 /* iPad-class touch devices: lock the document to the viewport so touch-
    scroll inside a pane doesn't pull the whole page up and reveal
    browser chrome. Skips phones (min-width gate) so they keep keyboard-
