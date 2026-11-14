@@ -215,10 +215,12 @@ export function feedImageBoxWidth(width?: number, height?: number): number {
 /**
  * Gallery tiles are square and `object-cover`, so a landscape image is drawn
  * wider than its tile by its aspect ratio. 160px tiles from `sm` up; two
- * columns of the feed below that.
+ * columns of the feed below that. Files with no stored size (anything with
+ * EXIF, which includes every macOS screenshot) are assumed to be a 16:9
+ * screenshot, so the tile isn't soft; a portrait one just over-fetches a step.
  */
 export function galleryTileSizes(width?: number, height?: number): string {
-  const spread = width && height ? Math.max(1, width / height) : 1;
+  const spread = width && height ? Math.max(1, width / height) : 16 / 9;
   return `(min-width: 640px) ${Math.ceil(160 * spread)}px, calc(50vw * ${spread.toFixed(3)})`;
 }
 

@@ -291,11 +291,16 @@ async function findCached(
 
 /** Remove every cached copy of a stored file. Never throws. */
 export async function removeImageVariants(sourcePath: string): Promise<void> {
-  await removeStale(
-    path.join(path.dirname(sourcePath), VARIANT_DIR_NAME),
-    `${sourceKey(sourcePath)}.w`,
-    null
-  );
+  // Cleanup must never fail the delete that called it.
+  try {
+    await removeStale(
+      path.join(path.dirname(sourcePath), VARIANT_DIR_NAME),
+      `${sourceKey(sourcePath)}.w`,
+      null
+    );
+  } catch {
+    // Leftover copies are harmless: keyed by name and version.
+  }
 }
 
 /** Drop copies of the same file and width made from an older version. */

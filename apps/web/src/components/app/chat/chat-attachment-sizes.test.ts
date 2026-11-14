@@ -29,8 +29,11 @@ describe("galleryTileSizes", () => {
     expect(galleryTileSizes(1000, 3000)).toBe(
       "(min-width: 640px) 160px, calc(50vw * 1.000)"
     );
+  });
+
+  it("assumes a 16:9 screenshot when the size is unknown", () => {
     expect(galleryTileSizes()).toBe(
-      "(min-width: 640px) 160px, calc(50vw * 1.000)"
+      "(min-width: 640px) 285px, calc(50vw * 1.778)"
     );
   });
 
