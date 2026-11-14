@@ -1,5 +1,7 @@
 ## What's Changed
-* Explain saved risk assessments without current-state restrictions by @selfcontained in https://github.com/selfcontained/dispatch/pull/1464
+* Keep picker overlays within viewport safe areas by @selfcontained in https://github.com/selfcontained/dispatch/pull/1466
+* Measure safe-area insets once and share them across overlays by @selfcontained in https://github.com/selfcontained/dispatch/pull/1467
+* Don't load hidden Files-tab images on chat open by @selfcontained in https://github.com/selfcontained/dispatch/pull/1468
 
 
-**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v1.7.13...v1.7.14
+**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v1.7.14...v1.7.15
