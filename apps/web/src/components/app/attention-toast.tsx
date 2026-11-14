@@ -6,7 +6,7 @@ import {
   useLocation,
   useNavigate,
 } from "react-router-dom";
-import { toast } from "sonner";
+import { toast, Toaster } from "sonner";
 
 import { conversationLocation } from "@/components/app/chat/conversation-location-link";
 import { useAgentFocus, viewingAgentIdOf } from "@/hooks/use-agent-focus";
@@ -18,6 +18,8 @@ export type AttentionToastEvent = Extract<
 >;
 
 const ATTENTION_TOAST_MS = 10_000;
+/** Its own toaster, so it can sit clear of the composer on desktop. */
+const TOASTER_ID = "attention";
 const EVENT_NAME = "attention-toast";
 const bus = new EventTarget();
 /** Toasts this page already showed: one per item, even if the event repeats. */
@@ -52,7 +54,7 @@ function showAttentionToast(
   };
   toast.custom(
     () => (
-      <div className="relative flex w-[var(--width,356px)] max-w-full items-start rounded-md border bg-card text-card-foreground shadow-lg">
+      <div className="relative flex w-[var(--width,356px)] max-w-full items-start rounded-md border bg-card text-card-foreground shadow-lg [font-family:var(--font-terminal)]">
         <button
           type="button"
           onClick={open}
@@ -76,16 +78,20 @@ function showAttentionToast(
         </button>
       </div>
     ),
-    { id, duration: ATTENTION_TOAST_MS }
+    { id, duration: ATTENTION_TOAST_MS, toasterId: TOASTER_ID }
   );
 }
 
 /**
  * Runs this tab's focus/presence heartbeat and shows the in-app toasts the
- * server sends it while it's active. Returns no JSX — the global
- * <Toaster /> renders them. Mounted once at the app root.
+ * server sends it while it's active, in a toaster of their own. Mounted once
+ * at the app root.
  */
-export function AttentionToasts(): null {
+export function AttentionToasts({
+  isMobile,
+}: {
+  isMobile: boolean;
+}): JSX.Element {
   const { pathname } = useLocation();
   useAgentFocus(viewingAgentIdOf(pathname), "authenticated");
   const navigate = useNavigate();
@@ -98,5 +104,13 @@ export function AttentionToasts(): null {
     bus.addEventListener(EVENT_NAME, onToast);
     return () => bus.removeEventListener(EVENT_NAME, onToast);
   }, [navigate]);
-  return null;
+  // Desktop: top right, below the conversation header, clear of the
+  // composer. Mobile: the shared bottom placement above the nav.
+  return (
+    <Toaster
+      id={TOASTER_ID}
+      position={isMobile ? "bottom-right" : "top-right"}
+      offset={isMobile ? undefined : { top: "7rem", right: "1rem" }}
+    />
+  );
 }

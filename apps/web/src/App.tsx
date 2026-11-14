@@ -203,7 +203,7 @@ export function DashboardLayout(): JSX.Element {
           </div>
         </div>
       </UserAvatarProvider>
-      <AttentionToasts />
+      <AttentionToasts isMobile={isMobile} />
       <ReleaseAvailableToast />
       <UpdateAvailableToast />
       {/* Color tokens, close button, and action button styling live in
