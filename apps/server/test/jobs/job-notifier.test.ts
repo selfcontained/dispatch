@@ -245,6 +245,17 @@ describe("JobNotifier", () => {
     }
   });
 
+  it("doesn't wait out a long Slack rate limit: logs and moves on", async () => {
+    const { app, postBlocks } = fakeApp();
+    postBlocks.mockRejectedValueOnce(new SlackRetryError(60_000));
+    await new JobNotifier(app, fakeLogger).onJobRunStateChange(makeRun());
+    expect(postBlocks).toHaveBeenCalledTimes(1);
+    expect(fakeLogger.warn).toHaveBeenCalledWith(
+      expect.objectContaining({ runId: "run-1" }),
+      "Failed to send job notification"
+    );
+  });
+
   it("logs and swallows a Slack delivery failure", async () => {
     const { app, postBlocks } = fakeApp();
     postBlocks.mockRejectedValueOnce(new Error("channel_not_found"));

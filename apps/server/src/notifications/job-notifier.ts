@@ -26,6 +26,7 @@ const EVENT_VERB: Record<JobEvent, string> = {
 };
 
 const SENDER = "Dispatch Jobs";
+const MAX_RETRY_WAIT_MS = 2_000;
 
 export class JobNotifier {
   constructor(
@@ -109,8 +110,13 @@ export class JobNotifier {
     try {
       await send();
     } catch (err) {
-      // The app spaces sends a second apart; a burst of finished runs waits once.
-      if (!(err instanceof SlackRetryError)) throw err;
+      // The app spaces sends a second apart; a burst of finished runs waits
+      // once. A longer wait (Slack's own rate limit) isn't worth holding for.
+      if (
+        !(err instanceof SlackRetryError) ||
+        err.retryAfterMs > MAX_RETRY_WAIT_MS
+      )
+        throw err;
       await new Promise((r) => setTimeout(r, err.retryAfterMs));
       await send();
     }
