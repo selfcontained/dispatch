@@ -1,8 +1,6 @@
 export type NotifyEventType = "waiting_user" | "blocked";
 
 export type NotificationSettingsResponse = {
-  webhookUrl: string;
-  notifyEvents: NotifyEventType[];
   webNotifyEnabled: boolean;
   webNotifyEvents: NotifyEventType[];
 };

@@ -37,8 +37,6 @@ function settings(
   overrides: Partial<NotificationSettingsResponse> = {}
 ): NotificationSettingsResponse {
   return {
-    webhookUrl: "https://hooks.slack.com/services/T/B/X",
-    notifyEvents: ["waiting_user", "blocked"],
     webNotifyEnabled: false,
     webNotifyEvents: ["waiting_user"],
     ...overrides,
@@ -88,14 +86,8 @@ describe("useNotificationSettings — initial load", () => {
     const { result } = await renderLoaded();
 
     expect(apiMock).toHaveBeenCalledWith("/api/v1/notifications/settings");
-    expect(result.current.webhookUrl).toBe(
-      "https://hooks.slack.com/services/T/B/X"
-    );
-    expect(result.current.notifyEvents).toEqual(["waiting_user", "blocked"]);
     expect(result.current.webNotifyEnabled).toBe(false);
     expect(result.current.webNotifyEvents).toEqual(["waiting_user"]);
-    // Loaded values match the saved baseline, so nothing looks dirty.
-    expect(result.current.hasChanges).toBe(false);
   });
 
   it("keeps defaults and still clears loading when the load fails", async () => {
@@ -103,212 +95,9 @@ describe("useNotificationSettings — initial load", () => {
     const { result } = renderHook(() => useNotificationSettings());
 
     await waitFor(() => expect(result.current.loading).toBe(false));
-    expect(result.current.webhookUrl).toBe("");
-    expect(result.current.notifyEvents).toEqual(ALL_EVENTS);
-    expect(result.current.error).toBe("");
-    // Defaults differ from the (empty) saved baseline, so the form is dirty.
-    expect(result.current.hasChanges).toBe(true);
-  });
-});
-
-describe("useNotificationSettings — hasChanges", () => {
-  it("tracks the webhook URL against the saved value", async () => {
-    const { result } = await renderLoaded();
-
-    act(() => result.current.handleWebhookUrlChange("https://example.test/x"));
-    expect(result.current.hasChanges).toBe(true);
-
-    act(() =>
-      result.current.handleWebhookUrlChange(
-        "https://hooks.slack.com/services/T/B/X"
-      )
-    );
-    expect(result.current.hasChanges).toBe(false);
-  });
-
-  it("ignores Slack event ordering but not membership", async () => {
-    const { result } = await renderLoaded(
-      settings({ notifyEvents: ["waiting_user", "blocked"] })
-    );
-
-    // Remove then re-add: the set matches again even though the order differs.
-    act(() => result.current.toggleEvent("waiting_user"));
-    expect(result.current.notifyEvents).toEqual(["blocked"]);
-    expect(result.current.hasChanges).toBe(true);
-
-    act(() => result.current.toggleEvent("waiting_user"));
-    expect(result.current.notifyEvents).toEqual(["blocked", "waiting_user"]);
-    expect(result.current.hasChanges).toBe(false);
-
-    act(() => result.current.toggleEvent("waiting_user"));
-    expect(result.current.hasChanges).toBe(true);
-  });
-
-  it("reports the browser-notification legs as dirty while a save is in flight", async () => {
-    const { result } = await renderLoaded(
-      settings({
-        webhookUrl: "",
-        notifyEvents: [],
-        webNotifyEnabled: false,
-        webNotifyEvents: [],
-      })
-    );
-    expect(result.current.hasChanges).toBe(false);
-
-    // The optimistic update moves webNotifyEnabled ahead of savedWebEnabled.
-    const enable = deferred<NotificationSettingsResponse>();
-    apiMock.mockReturnValueOnce(enable.promise);
-    let enabling!: Promise<void>;
-    act(() => {
-      enabling = result.current.toggleWebNotifyEnabled(true);
-    });
-    expect(result.current.hasChanges).toBe(true);
-
-    await act(async () => {
-      enable.resolve(
-        settings({
-          webhookUrl: "",
-          notifyEvents: [],
-          webNotifyEnabled: true,
-          webNotifyEvents: [],
-        })
-      );
-      await enabling;
-    });
-    expect(result.current.hasChanges).toBe(false);
-
-    // Same for the events leg.
-    const addEvent = deferred<NotificationSettingsResponse>();
-    apiMock.mockReturnValueOnce(addEvent.promise);
-    let adding!: Promise<void>;
-    act(() => {
-      adding = result.current.toggleWebEvent("waiting_user");
-    });
-    expect(result.current.hasChanges).toBe(true);
-
-    await act(async () => {
-      addEvent.resolve(
-        settings({
-          webhookUrl: "",
-          notifyEvents: [],
-          webNotifyEnabled: true,
-          webNotifyEvents: ["waiting_user"],
-        })
-      );
-      await adding;
-    });
-    expect(result.current.hasChanges).toBe(false);
-  });
-});
-
-describe("useNotificationSettings — handleSave", () => {
-  it("posts the current form state and adopts the server response", async () => {
-    const { result } = await renderLoaded();
-
-    act(() => result.current.handleWebhookUrlChange("https://example.test/x"));
-    apiMock.mockResolvedValueOnce(
-      settings({
-        webhookUrl: "https://example.test/normalized",
-        notifyEvents: ALL_EVENTS,
-      })
-    );
-    await act(async () => {
-      await result.current.handleSave();
-    });
-
-    expect(postBody(1)).toEqual({
-      webhookUrl: "https://example.test/x",
-      notifyEvents: ["waiting_user", "blocked"],
-      webNotifyEnabled: false,
-      webNotifyEvents: ["waiting_user"],
-    });
-    // The server's normalized value wins over what the user typed.
-    expect(result.current.webhookUrl).toBe("https://example.test/normalized");
-    expect(result.current.notifyEvents).toEqual(ALL_EVENTS);
-    expect(result.current.message).toBe("Settings saved.");
-    expect(result.current.error).toBe("");
-    expect(result.current.saving).toBe(false);
-    expect(result.current.hasChanges).toBe(false);
-  });
-
-  it("surfaces the failure message and leaves the form dirty", async () => {
-    const { result } = await renderLoaded();
-
-    act(() => result.current.handleWebhookUrlChange("https://example.test/x"));
-    apiMock.mockRejectedValueOnce(new Error("invalid webhook"));
-    await act(async () => {
-      await result.current.handleSave();
-    });
-
-    expect(result.current.error).toBe("invalid webhook");
-    expect(result.current.message).toBe("");
-    expect(result.current.saving).toBe(false);
-    expect(result.current.webhookUrl).toBe("https://example.test/x");
-    expect(result.current.hasChanges).toBe(true);
-  });
-
-  it("falls back to a generic message for non-Error rejections", async () => {
-    const { result } = await renderLoaded();
-
-    apiMock.mockRejectedValueOnce("boom");
-    await act(async () => {
-      await result.current.handleSave();
-    });
-
-    expect(result.current.error).toBe("Failed to save.");
-  });
-});
-
-describe("useNotificationSettings — handleTest", () => {
-  it("reports success and toggles the testing flag", async () => {
-    const { result } = await renderLoaded();
-    const pending = deferred<{ ok: boolean }>();
-    apiMock.mockReturnValueOnce(pending.promise);
-
-    let call!: Promise<void>;
-    act(() => {
-      call = result.current.handleTest();
-    });
-    expect(result.current.testing).toBe(true);
-
-    await act(async () => {
-      pending.resolve({ ok: true });
-      await call;
-    });
-
-    expect(apiMock.mock.calls[1]?.[0]).toBe("/api/v1/notifications/test");
-    expect(postBody(1)).toEqual({
-      webhookUrl: "https://hooks.slack.com/services/T/B/X",
-    });
-    expect(result.current.message).toBe(
-      "Test message sent — check your Slack channel!"
-    );
-    expect(result.current.error).toBe("");
-    expect(result.current.testing).toBe(false);
-  });
-
-  it("reports the server-provided error when ok is false", async () => {
-    const { result } = await renderLoaded();
-
-    apiMock.mockResolvedValueOnce({ ok: false, error: "channel_not_found" });
-    await act(async () => {
-      await result.current.handleTest();
-    });
-
-    expect(result.current.error).toBe("channel_not_found");
-    expect(result.current.message).toBe("");
-    expect(result.current.testing).toBe(false);
-  });
-
-  it("omits the webhook URL when the field is empty", async () => {
-    const { result } = await renderLoaded(settings({ webhookUrl: "" }));
-
-    apiMock.mockResolvedValueOnce({ ok: true });
-    await act(async () => {
-      await result.current.handleTest();
-    });
-
-    expect(postBody(1)).toEqual({});
+    expect(result.current.webNotifyEnabled).toBe(false);
+    expect(result.current.webNotifyEvents).toEqual(ALL_EVENTS);
+    expect(result.current.webError).toBe("");
   });
 });
 
@@ -333,7 +122,6 @@ describe("useNotificationSettings — browser notification toggles", () => {
     );
     expect(result.current.webError).toBe("");
     expect(result.current.saving).toBe(false);
-    expect(result.current.hasChanges).toBe(false);
   });
 
   it("rolls the enable toggle back to the saved value when the save fails", async () => {
@@ -366,7 +154,6 @@ describe("useNotificationSettings — browser notification toggles", () => {
     expect(result.current.webError).toBe("disk full");
     expect(result.current.webMessage).toBe("");
     expect(result.current.saving).toBe(false);
-    expect(result.current.hasChanges).toBe(false);
   });
 
   it("persists an event toggle without changing the enabled flag", async () => {
@@ -614,7 +401,7 @@ describe("useNotificationSettings — handleTestWebNotification", () => {
     act(() => result.current.handleTestWebNotification());
 
     expect(NotificationCtor).not.toHaveBeenCalled();
-    expect(result.current.message).toBe("");
+    expect(result.current.webMessage).toBe("");
   });
 
   it("shows a tagged notification once permission is granted", async () => {
@@ -631,7 +418,7 @@ describe("useNotificationSettings — handleTestWebNotification", () => {
       "Dispatch test notification",
       expect.objectContaining({ tag: "dispatch-test" })
     );
-    expect(result.current.message).toBe(
+    expect(result.current.webMessage).toBe(
       "Test notification sent — check your browser!"
     );
   });

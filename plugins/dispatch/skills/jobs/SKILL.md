@@ -125,8 +125,8 @@ the data model, but nothing writes it — not the routes, not `create_job`, not
 
 The ordinary per-agent path covers a job run only halfway: a job agent's
 derived status (waiting, blocked, idle) raises the browser notifications the
-user has configured, but the Slack send is skipped for any agent named `job-…`
-that has a job run. Nothing your status conveys will reach Slack. Call `notify` when a run needs to say something in Slack, or anything the
+user has configured, and never goes to Slack. Nothing your status conveys will
+reach Slack. Call `notify` when a run needs to say something in Slack, or anything the
 status cannot carry.
 
 For project-associated jobs, the project repository root supplies the working directory, including updates that omit `projectId`. Switch to Folder mode (API/MCP: `projectId: null`) to save a custom `directory`. Job directory and backing template changes commit together.

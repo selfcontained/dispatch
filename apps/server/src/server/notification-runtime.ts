@@ -3,13 +3,11 @@ import { randomUUID } from "node:crypto";
 import type { FastifyBaseLogger } from "fastify";
 
 import type { AgentManager } from "../agents/manager.js";
-import type { JobService } from "../jobs/service.js";
 import type { SlackNotifier } from "../notifications/slack.js";
 import type { UiEventBroker } from "./ui-events.js";
 
 type CreateNotificationRuntimeDeps = {
   agentManager: AgentManager;
-  jobService: JobService;
   slackNotifier: SlackNotifier;
   uiEventBroker: UiEventBroker;
   appLog: FastifyBaseLogger;
@@ -20,7 +18,6 @@ type CreateNotificationRuntimeDeps = {
 export function createNotificationRuntime(deps: CreateNotificationRuntimeDeps) {
   const {
     agentManager,
-    jobService,
     slackNotifier,
     uiEventBroker,
     appLog,
@@ -32,17 +29,6 @@ export function createNotificationRuntime(deps: CreateNotificationRuntimeDeps) {
 
   agentManager.onAttention(({ agent, type, message }) => {
     const event = { type, message };
-    const sendSlackNotification = async () => {
-      if (!agent.name?.startsWith("job-")) {
-        await slackNotifier.onAttention(agent, event);
-        return;
-      }
-      const run = await jobService.getLatestRunForAgent(agent.id);
-      if (!run) {
-        await slackNotifier.onAttention(agent, event);
-      }
-    };
-
     void (async () => {
       try {
         const webPayload = await slackNotifier.shouldWebNotify(agent, event);
@@ -58,14 +44,11 @@ export function createNotificationRuntime(deps: CreateNotificationRuntimeDeps) {
             pendingWebNotifications.delete(notificationId);
             appLog.debug(
               { notificationId, agentId: agent.id },
-              "Web notification not acked — falling back to Slack"
+              "Web notification not acked"
             );
-            void sendSlackNotification();
           }, webNotifyAckTimeoutMs);
 
           pendingWebNotifications.set(notificationId, fallbackTimer);
-        } else {
-          await sendSlackNotification();
         }
       } catch (err) {
         appLog.warn({ err, agentId: agent.id }, "Agent notification failed");

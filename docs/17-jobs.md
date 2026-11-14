@@ -179,11 +179,11 @@ Between runs, the compact handoff (`action`, `phase`, `summary`, `nextIntent`, `
 
 ### Notifications
 
-`JobNotifier` is wired into the run-state-change callback and can route a run to Slack on three events — `onComplete` (`completed`), `onError` (`failed`, `timed_out`, `crashed`), and `onNeedsInput` — each with its own channel list, using the same `slack_webhook_url` setting as agent notifications.
+`JobNotifier` is wired into the run-state-change callback and can route a run to Slack on three events — `onComplete` (`completed`), `onError` (`failed`, `timed_out`, `crashed`), and `onNeedsInput` — each with its own channel list. A `slack` channel posts through the Slack app, in the same channel and message layout as agent notifications; when the Slack app isn't connected it sends nothing.
 
 **None of it fires today.** The channel lists come from `job.notify`, and no code path writes that column: it is absent from `createJob`'s insert, from `JobConfigUpdate`, from the routes' Zod schemas, and from the MCP `create_job`/`update_job` tools. `buildRunConfig` falls back to three empty arrays, so `getNotifyChannels` always returns none and the notifier returns before sending. Treat this as a data model waiting on a write path, not a shipped feature.
 
-What does notify is the ordinary per-agent path, and only half of it: a job agent's derived status changes (waiting, blocked, idle) raise browser notifications like any other agent's, but `createNotificationRuntime` skips the Slack send for any agent whose name starts with `job-` and has a job run. So a job run's status never reaches Slack through that path either. Agents can call the separate `notify` tool, which is in `JOB_TOOLS`, and that path has no job exclusion.
+What does notify is the ordinary per-agent path, and only half of it: a job agent's derived status changes (waiting, blocked, idle) raise browser notifications like any other agent's; status changes never go to Slack. Agents can call the separate `notify` tool, which is in `JOB_TOOLS`, to send a Slack message through the Slack app.
 
 ### API
 

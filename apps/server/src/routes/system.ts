@@ -22,10 +22,7 @@ import {
   setEnabledAgentTypes,
 } from "../agent-type-settings.js";
 import { IDE_TYPES, getEnabledIdes, setEnabledIdes } from "../ide-settings.js";
-import {
-  SlackNotifier,
-  isValidSlackWebhookUrl,
-} from "../notifications/slack.js";
+import { SlackNotifier } from "../notifications/slack.js";
 import { runCommand } from "../shared/lib/run-command.js";
 import { resolveTilde } from "../shared/lib/resolve-tilde.js";
 import { shouldSkipAutomaticMacPathProbe } from "../shared/mac-path-privacy.js";
@@ -477,31 +474,10 @@ export async function registerSystemRoutes(
 
   app.post("/api/v1/notifications/settings", async (request, reply) => {
     const body = request.body as {
-      webhookUrl?: unknown;
-      notifyEvents?: unknown;
       webNotifyEnabled?: unknown;
       webNotifyEvents?: unknown;
     } | null;
 
-    if (body?.webhookUrl !== undefined) {
-      if (typeof body.webhookUrl !== "string") {
-        return reply.code(400).send({ error: "webhookUrl must be a string." });
-      }
-      if (body.webhookUrl && !isValidSlackWebhookUrl(body.webhookUrl)) {
-        return reply.code(400).send({
-          error: "webhookUrl must start with https://hooks.slack.com/",
-        });
-      }
-      await deps.slackNotifier.setWebhookUrl(body.webhookUrl);
-    }
-    if (body?.notifyEvents !== undefined) {
-      if (!Array.isArray(body.notifyEvents)) {
-        return reply
-          .code(400)
-          .send({ error: "notifyEvents must be an array." });
-      }
-      await deps.slackNotifier.setNotifyEvents(body.notifyEvents as string[]);
-    }
     if (body?.webNotifyEnabled !== undefined) {
       if (typeof body.webNotifyEnabled !== "boolean") {
         return reply
@@ -522,25 +498,6 @@ export async function registerSystemRoutes(
     }
 
     return deps.slackNotifier.getSettings();
-  });
-
-  app.post("/api/v1/notifications/test", async (request, reply) => {
-    const body = request.body as { webhookUrl?: unknown } | null;
-    const url =
-      typeof body?.webhookUrl === "string"
-        ? body.webhookUrl
-        : await deps.slackNotifier.getWebhookUrl();
-    if (!url) {
-      return reply
-        .code(400)
-        .send({ error: "No webhook URL provided or configured." });
-    }
-    if (!isValidSlackWebhookUrl(url)) {
-      return reply
-        .code(400)
-        .send({ error: "webhookUrl must start with https://hooks.slack.com/" });
-    }
-    return deps.slackNotifier.sendTestMessage(url);
   });
 
   app.get("/api/v1/app/settings/agent-types", async () => {

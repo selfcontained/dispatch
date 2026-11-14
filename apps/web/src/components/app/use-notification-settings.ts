@@ -10,15 +10,6 @@ import type {
 } from "@/components/app/notification-settings-constants";
 
 export function useNotificationSettings() {
-  // Slack settings
-  const [webhookUrl, setWebhookUrl] = useState("");
-  const [savedUrl, setSavedUrl] = useState("");
-  const [notifyEvents, setNotifyEvents] = useState<NotifyEventType[]>([
-    "waiting_user",
-    "blocked",
-  ]);
-  const [savedEvents, setSavedEvents] = useState<NotifyEventType[]>([]);
-
   // Web notification settings
   const [webNotifyEnabled, setWebNotifyEnabled] = useState(false);
   const [savedWebEnabled, setSavedWebEnabled] = useState(false);
@@ -45,9 +36,6 @@ export function useNotificationSettings() {
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [testing, setTesting] = useState(false);
-  const [message, setMessage] = useState("");
-  const [error, setError] = useState("");
   const [webMessage, setWebMessage] = useState("");
   const [webError, setWebError] = useState("");
   const webNotifyEnabledRef = useRef(webNotifyEnabled);
@@ -64,10 +52,6 @@ export function useNotificationSettings() {
           "/api/v1/notifications/settings"
         );
         if (cancelled) return;
-        setWebhookUrl(data.webhookUrl);
-        setSavedUrl(data.webhookUrl);
-        setNotifyEvents(data.notifyEvents);
-        setSavedEvents(data.notifyEvents);
         setWebNotifyEnabled(data.webNotifyEnabled);
         setSavedWebEnabled(data.webNotifyEnabled);
         setWebNotifyEvents(data.webNotifyEvents);
@@ -89,47 +73,6 @@ export function useNotificationSettings() {
     savedWebEnabledRef.current = savedWebEnabled;
     savedWebEventsRef.current = savedWebEvents;
   }, [savedWebEnabled, savedWebEvents, webNotifyEnabled, webNotifyEvents]);
-
-  const hasChanges =
-    webhookUrl !== savedUrl ||
-    JSON.stringify([...notifyEvents].sort()) !==
-      JSON.stringify([...savedEvents].sort()) ||
-    webNotifyEnabled !== savedWebEnabled ||
-    JSON.stringify([...webNotifyEvents].sort()) !==
-      JSON.stringify([...savedWebEvents].sort());
-
-  const handleSave = useCallback(async () => {
-    setError("");
-    setMessage("");
-    setSaving(true);
-    try {
-      const data = await api<NotificationSettingsResponse>(
-        "/api/v1/notifications/settings",
-        {
-          method: "POST",
-          body: JSON.stringify({
-            webhookUrl,
-            notifyEvents,
-            webNotifyEnabled,
-            webNotifyEvents,
-          }),
-        }
-      );
-      setSavedUrl(data.webhookUrl);
-      setSavedEvents(data.notifyEvents);
-      setWebhookUrl(data.webhookUrl);
-      setNotifyEvents(data.notifyEvents);
-      setSavedWebEnabled(data.webNotifyEnabled);
-      setSavedWebEvents(data.webNotifyEvents);
-      setWebNotifyEnabled(data.webNotifyEnabled);
-      setWebNotifyEvents(data.webNotifyEvents);
-      setMessage("Settings saved.");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save.");
-    } finally {
-      setSaving(false);
-    }
-  }, [webhookUrl, notifyEvents, webNotifyEnabled, webNotifyEvents]);
 
   const persistWebNotificationSettings = useCallback(
     async (
@@ -179,44 +122,6 @@ export function useNotificationSettings() {
     },
     []
   );
-
-  const handleTest = useCallback(async () => {
-    setError("");
-    setMessage("");
-    setTesting(true);
-    try {
-      const result = await api<{ ok: boolean; error?: string }>(
-        "/api/v1/notifications/test",
-        {
-          method: "POST",
-          body: JSON.stringify({ webhookUrl: webhookUrl || undefined }),
-        }
-      );
-      if (result.ok) {
-        setMessage("Test message sent — check your Slack channel!");
-      } else {
-        setError(result.error ?? "Test failed.");
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to send test.");
-    } finally {
-      setTesting(false);
-    }
-  }, [webhookUrl]);
-
-  const handleWebhookUrlChange = useCallback((value: string) => {
-    setWebhookUrl(value);
-    setMessage("");
-    setError("");
-  }, []);
-
-  const toggleEvent = useCallback((eventType: NotifyEventType) => {
-    setNotifyEvents((prev) =>
-      prev.includes(eventType)
-        ? prev.filter((e) => e !== eventType)
-        : [...prev, eventType]
-    );
-  }, []);
 
   const toggleWebEvent = useCallback(
     async (eventType: NotifyEventType) => {
@@ -268,16 +173,11 @@ export function useNotificationSettings() {
       body: "Browser notifications are working!",
       tag: "dispatch-test",
     });
-    setMessage("Test notification sent — check your browser!");
+    setWebMessage("Test notification sent — check your browser!");
   }, []);
 
   return {
     loading,
-    // Slack
-    webhookUrl,
-    handleWebhookUrlChange,
-    notifyEvents,
-    toggleEvent,
     // Web/browser notifications
     webNotifyEnabled,
     webNotifyEvents,
@@ -286,15 +186,8 @@ export function useNotificationSettings() {
     toggleWebNotifyEnabled,
     handleRequestPermission,
     handleTestWebNotification,
-    // Shared status
     saving,
-    testing,
-    message,
-    error,
     webMessage,
     webError,
-    hasChanges,
-    handleSave,
-    handleTest,
   };
 }

@@ -33,23 +33,10 @@ function settings(
   overrides: Partial<NotificationSettingsResponse> = {}
 ): NotificationSettingsResponse {
   return {
-    webhookUrl: "https://hooks.slack.com/services/T/B/X",
-    notifyEvents: ["waiting_user", "blocked"],
     webNotifyEnabled: false,
     webNotifyEvents: ["waiting_user"],
     ...overrides,
   };
-}
-
-/** A promise plus its resolve/reject handles, for driving in-flight requests. */
-function deferred<T>() {
-  let resolve!: (value: T) => void;
-  let reject!: (reason: unknown) => void;
-  const promise = new Promise<T>((res, rej) => {
-    resolve = res;
-    reject = rej;
-  });
-  return { promise, resolve, reject };
 }
 
 /** The body sent with the Nth api() call. */
@@ -66,9 +53,9 @@ async function renderLoaded(
   getPermissionMock.mockReturnValue(permission);
   apiMock.mockResolvedValueOnce(initial);
   const view = render(<NotificationSettings />);
-  // The sections only mount once loading clears, so waiting for the Save button
-  // proves the initial GET was adopted.
-  await screen.findByTestId("save-notification-settings");
+  // The sections only mount once loading clears, so waiting for the Browser
+  // section proves the initial GET was adopted.
+  await screen.findByRole("heading", { name: "Browser Notifications" });
   return view;
 }
 
@@ -112,44 +99,13 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe("NotificationSettings — Slack save gating", () => {
-  it("disables Save until there are changes and reflects the saving state", async () => {
+describe("NotificationSettings — Slack webhook removed", () => {
+  it("renders no webhook URL field or Slack save/test controls", async () => {
     await renderLoaded();
 
-    const save = screen.getByTestId("save-notification-settings");
-    // Loaded values match the saved baseline, so nothing is dirty yet.
-    expect(save.hasAttribute("disabled")).toBe(true);
-
-    fireEvent.change(screen.getByTestId("slack-webhook-url"), {
-      target: { value: "https://hooks.slack.com/services/T/B/Y" },
-    });
-    expect(save.hasAttribute("disabled")).toBe(false);
-
-    // Hold the POST open so the transient saving state is observable.
-    const pending = deferred<NotificationSettingsResponse>();
-    apiMock.mockReturnValueOnce(pending.promise);
-    fireEvent.click(save);
-    expect(save.textContent).toBe("Saving...");
-    expect(save.hasAttribute("disabled")).toBe(true);
-
-    await act(async () => {
-      pending.resolve(
-        settings({ webhookUrl: "https://hooks.slack.com/services/T/B/Y" })
-      );
-      await pending.promise;
-    });
-
-    // The server response becomes the new baseline: Save settles back to idle
-    // and disabled, and the success message lands in the Slack section.
-    expect(save.textContent).toBe("Save");
-    expect(save.hasAttribute("disabled")).toBe(true);
-    expect(screen.getByText("Settings saved.")).toBeTruthy();
-    expect(postBody(1)).toEqual({
-      webhookUrl: "https://hooks.slack.com/services/T/B/Y",
-      notifyEvents: ["waiting_user", "blocked"],
-      webNotifyEnabled: false,
-      webNotifyEvents: ["waiting_user"],
-    });
+    expect(screen.queryByTestId("slack-webhook-url")).toBeNull();
+    expect(screen.queryByTestId("save-notification-settings")).toBeNull();
+    expect(screen.queryByText(/webhook/i)).toBeNull();
   });
 });
 
@@ -181,8 +137,8 @@ describe("NotificationSettings — browser toggle wiring", () => {
   });
 });
 
-describe("NotificationSettings — status slots do not cross-wire", () => {
-  it("shows a browser-save failure only in the browser section", async () => {
+describe("NotificationSettings — browser save failure", () => {
+  it("shows a browser-save failure once, in the browser section", async () => {
     await renderLoaded(
       settings({ webNotifyEnabled: false, webNotifyEvents: ["waiting_user"] }),
       "granted"
@@ -193,29 +149,10 @@ describe("NotificationSettings — status slots do not cross-wire", () => {
       fireEvent.click(screen.getByTestId("web-notify-enabled"));
     });
 
-    // webError must land in the Browser section's slot (which reads webError),
-    // never leak into the Slack section's error slot (which reads error).
     expect(screen.getAllByText("browser save boom")).toHaveLength(1);
     expect(
       within(browserSection()).getByText("browser save boom")
     ).toBeTruthy();
-  });
-
-  it("shows a Slack save failure only in the Slack section", async () => {
-    await renderLoaded(settings(), "granted");
-
-    fireEvent.change(screen.getByTestId("slack-webhook-url"), {
-      target: { value: "https://example.test/x" },
-    });
-    apiMock.mockRejectedValueOnce(new Error("slack save boom"));
-    await act(async () => {
-      fireEvent.click(screen.getByTestId("save-notification-settings"));
-    });
-
-    // error must land in the Slack section, never in the Browser section's
-    // webError slot.
-    expect(screen.getByText("slack save boom")).toBeTruthy();
-    expect(within(browserSection()).queryByText("slack save boom")).toBeNull();
   });
 });
 
@@ -267,5 +204,10 @@ describe("NotificationSettings — permission gating", () => {
       "Dispatch test notification",
       expect.objectContaining({ tag: "dispatch-test" })
     );
+    expect(
+      within(browserSection()).getByText(
+        "Test notification sent — check your browser!"
+      )
+    ).toBeTruthy();
   });
 });

@@ -91,10 +91,7 @@ import {
   unlinkCachedTarball,
 } from "./release-tarball-cache.js";
 import { StreamManager } from "./stream-manager.js";
-import {
-  SlackNotifier,
-  isValidSlackWebhookUrl,
-} from "./notifications/slack.js";
+import { SlackNotifier } from "./notifications/slack.js";
 import { JobNotifier } from "./notifications/job-notifier.js";
 import { FocusTracker } from "./focus-tracker.js";
 import { AGENT_TYPES, setEnabledAgentTypes } from "./agent-type-settings.js";
@@ -359,7 +356,7 @@ agentManager.attachDiffStatsRefresher(diffStatsRefresher);
 const loginLinkStore = new LoginLinkStore();
 const jobService = new JobService(pool, agentManager, app.log, config);
 const templateService = new TemplateService(pool, agentManager, app.log);
-const jobNotifier = new JobNotifier(pool, app.log);
+const jobNotifier = new JobNotifier(slackNotifier.app, app.log);
 const streamManager = new StreamManager(
   (agentId, event) => {
     uiEventBroker.publish(
@@ -514,7 +511,6 @@ const serviceResources = new ServiceResources({
 const resourceRequestStarts = new WeakMap<object, HttpRequestToken>();
 const notificationRuntime = createNotificationRuntime({
   agentManager,
-  jobService,
   slackNotifier,
   uiEventBroker,
   appLog: app.log,

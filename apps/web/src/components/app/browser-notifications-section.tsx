@@ -46,8 +46,6 @@ export function BrowserNotificationsSection({
       </h3>
       <p className="mb-3 text-sm text-muted-foreground">
         Get native desktop or mobile notifications when agents need attention.
-        When enabled and the app is open, browser notifications are used instead
-        of Slack.
       </p>
 
       {!notificationsSupported ? (

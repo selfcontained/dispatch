@@ -4,16 +4,11 @@ import {
   SoundCuesSection,
   TipsSection,
 } from "@/components/app/notification-device-sections";
-import { SlackNotificationsSection } from "@/components/app/slack-notifications-section";
 import { useNotificationSettings } from "@/components/app/use-notification-settings";
 
 export function NotificationSettings(): JSX.Element {
   const {
     loading,
-    webhookUrl,
-    handleWebhookUrlChange,
-    notifyEvents,
-    toggleEvent,
     webNotifyEnabled,
     webNotifyEvents,
     browserPermission,
@@ -22,14 +17,8 @@ export function NotificationSettings(): JSX.Element {
     handleRequestPermission,
     handleTestWebNotification,
     saving,
-    testing,
-    message,
-    error,
     webMessage,
     webError,
-    hasChanges,
-    handleSave,
-    handleTest,
   } = useNotificationSettings();
 
   if (loading) {
@@ -58,21 +47,6 @@ export function NotificationSettings(): JSX.Element {
       />
 
       <SlackAppSection />
-
-      <SlackNotificationsSection
-        webhookUrl={webhookUrl}
-        webNotifyEnabled={webNotifyEnabled}
-        notifyEvents={notifyEvents}
-        saving={saving}
-        testing={testing}
-        hasChanges={hasChanges}
-        message={message}
-        error={error}
-        onWebhookUrlChange={handleWebhookUrlChange}
-        onToggleEvent={toggleEvent}
-        onSave={handleSave}
-        onTest={handleTest}
-      />
     </div>
   );
 }
