@@ -7,7 +7,7 @@ import {
   ShieldAlert,
   X,
 } from "lucide-react";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import {
   type NavigateFunction,
   useLocation,
@@ -27,8 +27,6 @@ export type AttentionToastEvent = Extract<
 const ATTENTION_TOAST_MS = 10_000;
 /** Its own toaster, so it can sit clear of the composer on desktop. */
 const TOASTER_ID = "attention";
-/** Same lift as `--mobile-offset-bottom` in index.css: clear of the nav and home indicator. */
-const MOBILE_BOTTOM_OFFSET = "calc(env(safe-area-inset-bottom, 0px) + 5rem)";
 const EVENT_NAME = "attention-toast";
 
 type ToastKind = AttentionToastEvent["kind"];
@@ -43,6 +41,7 @@ const KIND_STYLE: Record<
     bar: string;
     tile: string;
     text: string;
+    /** A tint layered over the opaque card, never replacing its background. */
     hover: string;
   }
 > = {
@@ -53,7 +52,8 @@ const KIND_STYLE: Record<
     bar: "bg-status-waiting",
     tile: "bg-status-waiting",
     text: "text-status-waiting",
-    hover: "hover:bg-status-waiting/10",
+    hover:
+      "[@media(hover:hover)]:hover:[background-image:linear-gradient(hsl(var(--status-waiting)/0.12),hsl(var(--status-waiting)/0.12))] active:[background-image:linear-gradient(hsl(var(--status-waiting)/0.2),hsl(var(--status-waiting)/0.2))]",
   },
   form: {
     label: "Form",
@@ -62,7 +62,8 @@ const KIND_STYLE: Record<
     bar: "bg-status-done",
     tile: "bg-status-done",
     text: "text-status-done",
-    hover: "hover:bg-status-done/10",
+    hover:
+      "[@media(hover:hover)]:hover:[background-image:linear-gradient(hsl(var(--status-done)/0.12),hsl(var(--status-done)/0.12))] active:[background-image:linear-gradient(hsl(var(--status-done)/0.2),hsl(var(--status-done)/0.2))]",
   },
   approval: {
     label: "Approval",
@@ -71,7 +72,8 @@ const KIND_STYLE: Record<
     bar: "bg-status-merged",
     tile: "bg-status-merged",
     text: "text-status-merged",
-    hover: "hover:bg-status-merged/10",
+    hover:
+      "[@media(hover:hover)]:hover:[background-image:linear-gradient(hsl(var(--status-merged)/0.12),hsl(var(--status-merged)/0.12))] active:[background-image:linear-gradient(hsl(var(--status-merged)/0.2),hsl(var(--status-merged)/0.2))]",
   },
   blocked: {
     label: "Blocked",
@@ -80,7 +82,8 @@ const KIND_STYLE: Record<
     bar: "bg-status-blocked",
     tile: "bg-status-blocked",
     text: "text-status-blocked",
-    hover: "hover:bg-status-blocked/10",
+    hover:
+      "[@media(hover:hover)]:hover:[background-image:linear-gradient(hsl(var(--status-blocked)/0.12),hsl(var(--status-blocked)/0.12))] active:[background-image:linear-gradient(hsl(var(--status-blocked)/0.2),hsl(var(--status-blocked)/0.2))]",
   },
 };
 const bus = new EventTarget();
@@ -166,6 +169,28 @@ function showAttentionToast(
 }
 
 /**
+ * How far the visible area is scrolled down the page. On iPhone an open
+ * keyboard scrolls the page up to keep the composer in view, so anything
+ * fixed to the page's top or bottom ends up hidden or over the composer.
+ */
+function useVisualViewportTop(enabled: boolean): number {
+  const [top, setTop] = useState(0);
+  useEffect(() => {
+    const viewport = window.visualViewport;
+    if (!enabled || !viewport) return;
+    const update = () => setTop(Math.max(0, viewport.offsetTop));
+    update();
+    viewport.addEventListener("resize", update);
+    viewport.addEventListener("scroll", update);
+    return () => {
+      viewport.removeEventListener("resize", update);
+      viewport.removeEventListener("scroll", update);
+    };
+  }, [enabled]);
+  return top;
+}
+
+/**
  * Runs this tab's focus/presence heartbeat and shows the in-app toasts the
  * server sends it while it's active, in a toaster of their own. Mounted once
  * at the app root.
@@ -187,21 +212,23 @@ export function AttentionToasts({
     bus.addEventListener(EVENT_NAME, onToast);
     return () => bus.removeEventListener(EVENT_NAME, onToast);
   }, [navigate]);
-  // Desktop: top right, below the conversation header, clear of the
-  // composer. Mobile: edge to edge, above the composer and nav.
+  const viewportTop = useVisualViewportTop(isMobile);
+  // Pinned to the top edge on every screen, whatever the screen is: top
+  // right on desktop, nearly full width under the status bar on mobile. When the
+  // iPhone keyboard scrolls the page, it follows the top of what's visible,
+  // so it never covers the composer.
+  const mobileTop = `calc(env(safe-area-inset-top, 0px) + ${viewportTop}px + 0.5rem)`;
   return (
     <Toaster
       id={TOASTER_ID}
-      position={isMobile ? "bottom-center" : "top-right"}
+      position={isMobile ? "top-center" : "top-right"}
       className="attention-toaster"
       offset={
         isMobile
-          ? // Sonner applies --mobile-offset-bottom only up to 600px; the
-            // mobile layout runs to 767px, so lift it above the nav here too.
-            { bottom: MOBILE_BOTTOM_OFFSET, left: "0px", right: "0px" }
-          : { top: "7rem", right: "1rem" }
+          ? { top: mobileTop, left: "0.5rem", right: "0.5rem" }
+          : { top: "0.75rem", right: "0.75rem" }
       }
-      mobileOffset={{ bottom: MOBILE_BOTTOM_OFFSET, left: "0px", right: "0px" }}
+      mobileOffset={{ top: mobileTop, left: "0.5rem", right: "0.5rem" }}
     />
   );
 }
