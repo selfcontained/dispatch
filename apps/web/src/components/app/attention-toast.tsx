@@ -7,7 +7,7 @@ import {
   ShieldAlert,
   X,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import {
   type NavigateFunction,
   useLocation,
@@ -169,25 +169,33 @@ function showAttentionToast(
 }
 
 /**
- * How far the visible area is scrolled down the page. On iPhone an open
- * keyboard scrolls the page up to keep the composer in view, so anything
- * fixed to the page's top or bottom ends up hidden or over the composer.
+ * Mirrors how far the visible area is scrolled down the page into the
+ * `--vv-top` CSS variable. On iPhone an open keyboard scrolls the page up to
+ * keep the composer in view; the toast's top offset adds this so it stays at
+ * the top of what's visible. Written straight to the style, never React
+ * state, so scrolling doesn't re-render anything.
  */
-function useVisualViewportTop(enabled: boolean): number {
-  const [top, setTop] = useState(0);
+function useVisualViewportTopVar(enabled: boolean): void {
   useEffect(() => {
     const viewport = window.visualViewport;
     if (!enabled || !viewport) return;
-    const update = () => setTop(Math.max(0, viewport.offsetTop));
+    const root = document.documentElement;
+    let last = -1;
+    const update = () => {
+      const top = Math.max(0, Math.round(viewport.offsetTop));
+      if (top === last) return;
+      last = top;
+      root.style.setProperty("--vv-top", `${top}px`);
+    };
     update();
     viewport.addEventListener("resize", update);
     viewport.addEventListener("scroll", update);
     return () => {
       viewport.removeEventListener("resize", update);
       viewport.removeEventListener("scroll", update);
+      root.style.removeProperty("--vv-top");
     };
   }, [enabled]);
-  return top;
 }
 
 /**
@@ -212,12 +220,13 @@ export function AttentionToasts({
     bus.addEventListener(EVENT_NAME, onToast);
     return () => bus.removeEventListener(EVENT_NAME, onToast);
   }, [navigate]);
-  const viewportTop = useVisualViewportTop(isMobile);
+  useVisualViewportTopVar(isMobile);
   // Pinned to the top edge on every screen, whatever the screen is: top
   // right on desktop, nearly full width under the status bar on mobile. When the
   // iPhone keyboard scrolls the page, it follows the top of what's visible,
   // so it never covers the composer.
-  const mobileTop = `calc(env(safe-area-inset-top, 0px) + ${viewportTop}px + 0.5rem)`;
+  const mobileTop =
+    "calc(env(safe-area-inset-top, 0px) + var(--vv-top, 0px) + 0.5rem)";
   return (
     <Toaster
       id={TOASTER_ID}
