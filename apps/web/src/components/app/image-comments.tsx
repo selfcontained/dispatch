@@ -575,7 +575,9 @@ export function ImageComments({
         data-testid="file-lightbox"
         aria-label={caption}
         aria-describedby={undefined}
-        className="inset-0 z-[130] h-dvh max-h-none w-screen max-w-none translate-x-0 translate-y-0 gap-0 rounded-none bg-background p-0"
+        // Full screen, so keep the header and footer controls out from under
+        // the status bar, home indicator and landscape notch (viewport-fit=cover).
+        className="inset-0 z-[130] h-dvh max-h-none w-screen max-w-none translate-x-0 translate-y-0 gap-0 rounded-none bg-background p-0 pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)] pt-[env(safe-area-inset-top)]"
         overlayClassName="z-[125]"
         onEscapeKeyDown={(e) => {
           e.preventDefault();

@@ -570,3 +570,15 @@ it.each([false, true])(
     ).toBeTruthy();
   }
 );
+
+it("keeps the full-screen viewer inside the device safe areas", async () => {
+  mockApi.mockResolvedValue({ agents: [] });
+  await open();
+  // jsdom cannot resolve env(); the class is the contract that keeps the
+  // header (close) and footer (zoom) clear of iOS bars under viewport-fit=cover.
+  const viewer = screen.getByTestId("file-lightbox");
+  for (const side of ["top", "right", "bottom", "left"])
+    expect(viewer.className).toContain(
+      `p${side[0]}-[env(safe-area-inset-${side})]`
+    );
+});
