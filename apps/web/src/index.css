@@ -1192,6 +1192,29 @@ html[data-hidden] .animate-sidebar-nav-pulse {
   ) !important;
 }
 
+/* Attention toasts (their own toaster): one fixed width on desktop so
+   every kind lines up; edge to edge across the mobile layout (≤767px). */
+.attention-toaster[data-sonner-toaster] {
+  --width: 400px;
+}
+.attention-toaster[data-sonner-toaster] [data-sonner-toast] {
+  width: var(--width);
+}
+@media (max-width: 767px) {
+  .attention-toaster[data-sonner-toaster] {
+    --width: 100vw;
+    left: 0 !important;
+    right: 0 !important;
+    width: 100% !important;
+    transform: none !important;
+  }
+  .attention-toaster[data-sonner-toaster] [data-sonner-toast] {
+    left: 0 !important;
+    right: 0 !important;
+    width: 100% !important;
+  }
+}
+
 /* Pin the close + action buttons onto a dark contrasting surface so
    they read against the bright status-color toast bg. The border is
    intentionally NOT overridden here — sonner inherits it from the

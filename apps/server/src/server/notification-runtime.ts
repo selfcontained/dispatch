@@ -48,8 +48,16 @@ export function createNotificationRuntime(deps: CreateNotificationRuntimeDeps) {
           toastId: target ? `block:${target.blockId}` : randomUUID(),
           agentId: agent.id,
           agentName: agent.name || agent.id.slice(0, 8),
+          // Without a question/form, needing the user means an approval request.
+          kind: target?.kind ?? (type === "blocked" ? "blocked" : "approval"),
           message,
-          target: target ?? null,
+          target: target
+            ? {
+                streamId: target.streamId,
+                threadId: target.threadId,
+                blockId: target.blockId,
+              }
+            : null,
         },
         recipients
       );

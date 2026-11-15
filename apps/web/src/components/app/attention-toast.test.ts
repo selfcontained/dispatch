@@ -10,6 +10,7 @@ const base = {
   toastId: "t1",
   agentId: "agt_b",
   agentName: "Builder",
+  kind: "question" as const,
   message: "Ship it?",
 };
 

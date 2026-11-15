@@ -1,5 +1,12 @@
 import type { SharedUiEvent } from "@dispatch/shared";
-import { X } from "lucide-react";
+import {
+  ClipboardList,
+  type LucideIcon,
+  MessageCircleQuestion,
+  OctagonX,
+  ShieldAlert,
+  X,
+} from "lucide-react";
 import { useEffect } from "react";
 import {
   type NavigateFunction,
@@ -23,6 +30,59 @@ const TOASTER_ID = "attention";
 /** Same lift as `--mobile-offset-bottom` in index.css: clear of the nav and home indicator. */
 const MOBILE_BOTTOM_OFFSET = "calc(env(safe-area-inset-bottom, 0px) + 5rem)";
 const EVENT_NAME = "attention-toast";
+
+type ToastKind = AttentionToastEvent["kind"];
+
+/** Each kind's label, icon and status color (literal classes for Tailwind). */
+const KIND_STYLE: Record<
+  ToastKind,
+  {
+    label: string;
+    Icon: LucideIcon;
+    border: string;
+    bar: string;
+    tile: string;
+    text: string;
+    hover: string;
+  }
+> = {
+  question: {
+    label: "Question",
+    Icon: MessageCircleQuestion,
+    border: "border-status-waiting/60",
+    bar: "bg-status-waiting",
+    tile: "bg-status-waiting",
+    text: "text-status-waiting",
+    hover: "hover:bg-status-waiting/10",
+  },
+  form: {
+    label: "Form",
+    Icon: ClipboardList,
+    border: "border-status-done/60",
+    bar: "bg-status-done",
+    tile: "bg-status-done",
+    text: "text-status-done",
+    hover: "hover:bg-status-done/10",
+  },
+  approval: {
+    label: "Approval",
+    Icon: ShieldAlert,
+    border: "border-status-merged/60",
+    bar: "bg-status-merged",
+    tile: "bg-status-merged",
+    text: "text-status-merged",
+    hover: "hover:bg-status-merged/10",
+  },
+  blocked: {
+    label: "Blocked",
+    Icon: OctagonX,
+    border: "border-status-blocked/60",
+    bar: "bg-status-blocked",
+    tile: "bg-status-blocked",
+    text: "text-status-blocked",
+    hover: "hover:bg-status-blocked/10",
+  },
+};
 const bus = new EventTarget();
 /** Toasts this page already showed: one per item, even if the event repeats. */
 const shown = new Set<string>();
@@ -54,27 +114,48 @@ function showAttentionToast(
       state: { blockJump: `${Date.now()}-${event.toastId}` },
     });
   };
+  const style = KIND_STYLE[event.kind] ?? KIND_STYLE.question;
+  const { Icon } = style;
   toast.custom(
     () => (
-      <div className="relative flex w-[var(--width,356px)] max-w-full items-start rounded-md border bg-card text-card-foreground shadow-lg [font-family:var(--font-terminal)]">
+      <div
+        className={`flex w-full items-stretch border bg-popover text-popover-foreground shadow-[0_16px_40px_-12px_rgb(0_0_0/0.7)] transition-colors [font-family:var(--font-terminal)] ${style.border} ${style.hover}`}
+      >
+        <span aria-hidden className={`w-1 shrink-0 ${style.bar}`} />
         <button
           type="button"
           onClick={open}
-          className="min-w-0 flex-1 rounded-md px-4 py-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="flex min-w-0 flex-1 items-start gap-3 px-3 py-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
           data-testid="attention-toast"
+          data-kind={event.kind}
         >
-          <span className="block truncate text-sm font-medium">
-            {event.agentName}
+          <span
+            aria-hidden
+            className={`flex size-9 shrink-0 items-center justify-center text-background ${style.tile}`}
+          >
+            <Icon className="size-5" strokeWidth={2.25} />
           </span>
-          <span className="block truncate text-sm text-muted-foreground">
-            {event.message}
+          <span className="min-w-0 flex-1">
+            <span className="flex items-baseline justify-between gap-3">
+              <span className="truncate text-sm font-semibold">
+                {event.agentName}
+              </span>
+              <span
+                className={`shrink-0 text-[11px] font-semibold uppercase tracking-[0.14em] ${style.text}`}
+              >
+                {style.label}
+              </span>
+            </span>
+            <span className="mt-1 line-clamp-2 text-[13px] leading-snug text-muted-foreground">
+              {event.message}
+            </span>
           </span>
         </button>
         <button
           type="button"
           aria-label="Dismiss"
           onClick={() => toast.dismiss(id)}
-          className="m-2 shrink-0 rounded-sm p-1 text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="shrink-0 self-start p-3 text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
         >
           <X className="size-4" />
         </button>
@@ -107,18 +188,20 @@ export function AttentionToasts({
     return () => bus.removeEventListener(EVENT_NAME, onToast);
   }, [navigate]);
   // Desktop: top right, below the conversation header, clear of the
-  // composer. Mobile: the shared bottom placement above the nav.
+  // composer. Mobile: edge to edge, above the composer and nav.
   return (
     <Toaster
       id={TOASTER_ID}
-      position={isMobile ? "bottom-right" : "top-right"}
+      position={isMobile ? "bottom-center" : "top-right"}
+      className="attention-toaster"
       offset={
         isMobile
           ? // Sonner applies --mobile-offset-bottom only up to 600px; the
             // mobile layout runs to 767px, so lift it above the nav here too.
-            { bottom: MOBILE_BOTTOM_OFFSET, right: "1rem" }
+            { bottom: MOBILE_BOTTOM_OFFSET, left: "0px", right: "0px" }
           : { top: "7rem", right: "1rem" }
       }
+      mobileOffset={{ bottom: MOBILE_BOTTOM_OFFSET, left: "0px", right: "0px" }}
     />
   );
 }

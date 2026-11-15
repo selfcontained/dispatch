@@ -580,6 +580,7 @@ const streamService = new StreamService({
       streamId: block.streamId,
       threadId: block.threadId,
       blockId: block.id,
+      kind: block.kind === "form" ? "form" : "question",
     }),
   onAgentAsk: (agentId, block): Promise<void> =>
     slackThreadReplies.agentAsked(agentId, block),

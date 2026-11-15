@@ -213,7 +213,12 @@ describe("attention toasts", () => {
       agent: { id: "agt_b", name: "Builder" },
       type: "waiting_user",
       message: "Ship it?",
-      target: { streamId: "agt_b", threadId: null, blockId: "blk_1" },
+      target: {
+        streamId: "agt_b",
+        threadId: null,
+        blockId: "blk_1",
+        kind: "question",
+      },
     };
     const toasts = (sessionId: string) =>
       (received.get(sessionId) ?? []).filter(
@@ -249,6 +254,7 @@ describe("attention toasts", () => {
         toastId: "block:blk_1",
         agentId: "agt_b",
         agentName: "Builder",
+        kind: "question",
         message: "Ship it?",
         target: { streamId: "agt_b", threadId: null, blockId: "blk_1" },
       },
@@ -290,6 +296,7 @@ describe("attention toasts", () => {
     expect(t.toasts("other-aaaaa")).toHaveLength(1);
     expect(t.toasts("other-aaaaa")[0]).toMatchObject({
       message: "Turn failed",
+      kind: "blocked",
       target: null,
     });
   });
@@ -311,7 +318,12 @@ describe("attention toasts", () => {
       agent: { id: "agt_b", name: "Builder" },
       type: "waiting_user",
       message: "Another?",
-      target: { streamId: "agt_b", threadId: null, blockId: "blk_2" },
+      target: {
+        streamId: "agt_b",
+        threadId: null,
+        blockId: "blk_2",
+        kind: "form",
+      },
     });
     await t.flush();
     expect(t.shouldWebNotify).toHaveBeenCalledTimes(1);

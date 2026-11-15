@@ -144,6 +144,7 @@ export type AttentionTarget = {
   streamId: string;
   threadId: string | null;
   blockId: string;
+  kind: "question" | "form";
 };
 
 type CreateAgentInput = {
