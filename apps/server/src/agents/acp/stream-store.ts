@@ -7,7 +7,6 @@ export type StreamEventKind =
   | "thought"
   | "tool_call"
   | "status"
-  | "attention"
   | "turn"
   | "plan"
   | "notice"

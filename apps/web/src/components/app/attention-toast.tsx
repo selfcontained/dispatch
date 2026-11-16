@@ -159,57 +159,69 @@ export function AttentionCard({
 }): JSX.Element {
   const style = KIND_STYLE[event.kind] ?? KIND_STYLE.question;
   const { Icon } = style;
-  const Action = link ? Link : "button";
-  const actionProps = link
-    ? {
-        to: attentionToastLocation(event),
-        onClick: onOpen,
-        state: { blockJump: `${Date.now()}-${event.toastId}` },
-      }
-    : { type: "button" as const, onClick: onOpen, to: "" };
+  const actionProps = {
+    className:
+      "flex min-w-0 flex-1 items-start gap-3 px-3 py-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+    "data-testid": createdAt ? "attention-history-card" : "attention-toast",
+    "data-kind": event.kind,
+  };
+  const content = (
+    <>
+      <span
+        aria-hidden
+        className={`flex size-9 shrink-0 items-center justify-center text-background ${style.tile}`}
+      >
+        <Icon className="size-5" strokeWidth={2.25} />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="flex items-baseline justify-between gap-3">
+          <span className="truncate text-sm font-semibold">
+            {event.agentName}
+          </span>
+          <span
+            className={`shrink-0 text-[11px] font-semibold uppercase tracking-[0.14em] ${style.text}`}
+          >
+            {style.label}
+          </span>
+        </span>
+        <span
+          title={event.message}
+          className={`mt-1 text-[13px] leading-snug text-muted-foreground ${createdAt ? "block truncate" : "line-clamp-2"}`}
+        >
+          {event.message}
+        </span>
+        {settled ? <span className="sr-only">Settled</span> : null}
+        {createdAt ? (
+          <time
+            dateTime={createdAt}
+            className="mt-1 block text-[11px] text-muted-foreground"
+          >
+            {formatRelativeTime(createdAt)}
+          </time>
+        ) : null}
+      </span>
+    </>
+  );
   return (
     <div
       className={`flex w-full items-stretch border bg-popover text-popover-foreground shadow-[0_16px_40px_-12px_rgb(0_0_0/0.7)] transition-colors [font-family:var(--font-terminal)] ${style.border} ${style.hover} ${settled ? "opacity-50" : ""}`}
     >
       <span aria-hidden className={`w-1 shrink-0 ${style.bar}`} />
-      <Action
-        {...actionProps}
-        className="flex min-w-0 flex-1 items-start gap-3 px-3 py-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
-        data-testid={onDismiss ? "attention-toast" : "attention-history-card"}
-        data-kind={event.kind}
-      >
-        <span
-          aria-hidden
-          className={`flex size-9 shrink-0 items-center justify-center text-background ${style.tile}`}
+      {link ? (
+        <Link
+          to={attentionToastLocation(event)}
+          onClick={onOpen}
+          state={{ blockJump: `${Date.now()}-${event.toastId}` }}
+          {...actionProps}
         >
-          <Icon className="size-5" strokeWidth={2.25} />
-        </span>
-        <span className="min-w-0 flex-1">
-          <span className="flex items-baseline justify-between gap-3">
-            <span className="truncate text-sm font-semibold">
-              {event.agentName}
-            </span>
-            <span
-              className={`shrink-0 text-[11px] font-semibold uppercase tracking-[0.14em] ${style.text}`}
-            >
-              {style.label}
-            </span>
-          </span>
-          <span
-            className={`mt-1 text-[13px] leading-snug text-muted-foreground ${createdAt ? "block truncate" : "line-clamp-2"}`}
-          >
-            {event.message}
-          </span>
-          {createdAt ? (
-            <time
-              dateTime={createdAt}
-              className="mt-1 block text-[11px] text-muted-foreground"
-            >
-              {formatRelativeTime(createdAt)}
-            </time>
-          ) : null}
-        </span>
-      </Action>
+          {content}
+        </Link>
+      ) : (
+        <button type="button" onClick={onOpen} {...actionProps}>
+          {content}
+        </button>
+      )}
+
       {onDismiss ? (
         <button
           type="button"

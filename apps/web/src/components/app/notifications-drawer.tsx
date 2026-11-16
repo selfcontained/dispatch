@@ -43,16 +43,21 @@ export function NotificationsDrawer({
             <p role="status" className="p-2 text-sm text-muted-foreground">
               Loading…
             </p>
-          ) : history.isError ? (
-            <Button variant="default" onClick={() => void history.refetch()}>
-              Retry
-            </Button>
-          ) : history.data.length === 0 ? (
+          ) : history.isError && !history.data ? (
+            <div className="space-y-2 p-2">
+              <p role="alert" className="text-sm text-muted-foreground">
+                Couldn’t load notifications
+              </p>
+              <Button variant="default" onClick={() => void history.refetch()}>
+                Retry
+              </Button>
+            </div>
+          ) : history.data?.length === 0 ? (
             <p className="p-2 text-sm text-muted-foreground">
               No notifications
             </p>
           ) : (
-            history.data.map((item) => (
+            history.data?.map((item) => (
               <AttentionCard
                 key={item.toastId}
                 event={item}

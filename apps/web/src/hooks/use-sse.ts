@@ -686,9 +686,6 @@ export function useSSE(authState: AuthState): void {
         }
 
         if (payload.type === "stream.changed") {
-          void queryClient.invalidateQueries({
-            queryKey: ["attention-history"],
-          });
           void queryClient.invalidateQueries({ queryKey: ["agent-preview"] });
           invalidateStreamFeed(queryClient, payload.agentId);
           void queryClient.invalidateQueries({

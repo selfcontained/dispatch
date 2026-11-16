@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { api } from "@/lib/api";
 import {
   cleanup,
   fireEvent,
@@ -8,7 +9,7 @@ import {
 } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, useLocation } from "react-router-dom";
-import { afterEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { AttentionCard } from "./attention-toast";
 import { NotificationsDrawer } from "./notifications-drawer";
 import type { AttentionHistoryItem } from "@dispatch/shared";
@@ -25,7 +26,11 @@ const items: AttentionHistoryItem[] = (
   createdAt: new Date().toISOString(),
   settled: i === 1,
 }));
-vi.mock("@/lib/api", () => ({ api: () => Promise.resolve(items) }));
+vi.mock("@/lib/api", () => ({ api: vi.fn() }));
+beforeEach(() => {
+  vi.mocked(api).mockReset();
+  vi.mocked(api).mockResolvedValue(items);
+});
 afterEach(cleanup);
 it.each(items)(
   "shares toast rendering for $kind and adds time and settled styling",
@@ -80,4 +85,48 @@ it("opens a message link and closes the drawer", async () => {
   expect(screen.getByRole("status").textContent).toBe(
     "/agents/agent?block=block-0"
   );
+});
+
+it("keeps cached cards visible after a failed background refresh", async () => {
+  vi.mocked(api).mockRejectedValue(new Error("offline"));
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  client.setQueryData(["attention-history"], items);
+  render(
+    <QueryClientProvider client={client}>
+      <MemoryRouter>
+        <NotificationsDrawer />
+      </MemoryRouter>
+    </QueryClientProvider>
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Notifications" }));
+  await waitFor(() =>
+    expect(client.getQueryState(["attention-history"])?.status).toBe("error")
+  );
+  expect(screen.getAllByRole("link")).toHaveLength(4);
+  expect(screen.queryByRole("alert")).toBeNull();
+});
+it("offers retry when there are no cached notifications", async () => {
+  vi.mocked(api).mockRejectedValue(new Error("offline"));
+  render(
+    <QueryClientProvider
+      client={
+        new QueryClient({ defaultOptions: { queries: { retry: false } } })
+      }
+    >
+      <MemoryRouter>
+        <NotificationsDrawer />
+      </MemoryRouter>
+    </QueryClientProvider>
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Notifications" }));
+  expect((await screen.findByRole("alert")).textContent).toContain(
+    "Couldn’t load notifications"
+  );
+  vi.mocked(api).mockResolvedValue(items);
+  fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+  expect(
+    await screen.findByRole("link", { name: /question message/ })
+  ).toBeTruthy();
 });

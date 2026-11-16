@@ -1662,7 +1662,6 @@ describe("useSSE message handling", () => {
 
     emit({ type: "stream.changed", agentId: "agt_1" });
     expectInvalidatedSet(invalidateQueries, [
-      ["attention-history"],
       ["agent-preview"],
       ["stream", "agt_1"],
       ["stream", "agt_1", "thread"],
