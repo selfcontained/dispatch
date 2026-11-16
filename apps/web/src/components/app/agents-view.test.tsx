@@ -184,6 +184,7 @@ vi.mock("@/hooks/use-agents-view-routing", () => ({
     return {
       changesMatch: s.changesMatch,
       centerTabResolved: s.centerTabResolved ?? true,
+      viewedAgentLeft: s.viewedAgentLeft ?? false,
       onTabChange: s.onTabChange,
     };
   },
@@ -775,6 +776,32 @@ describe("AgentsView dialogs", () => {
 
     expect(props.setMobileLeftOpen).toHaveBeenCalledWith(false);
     expect(propsOf("AgentsViewDialogs").createOpen).toBe(true);
+  });
+});
+
+describe("AgentsView mobile sidebar", () => {
+  it("opens the sidebar on a phone with no agent selected", () => {
+    const { props } = mount({ path: "/agents", isMobile: true });
+    expect(props.setMobileLeftOpen).toHaveBeenCalledWith(true);
+  });
+
+  it("leaves the sidebar as it was when the agent on screen is archived", () => {
+    Object.assign(H.state, {
+      agents: [makeAgent({ id: "a1" })],
+      validatedSelectedAgentId: "a1",
+    });
+    const { props, rerender } = mount({ path: "/agents/a1", isMobile: true });
+    expect(props.setMobileLeftOpen).not.toHaveBeenCalled();
+
+    Object.assign(H.state, {
+      agents: [],
+      validatedSelectedAgentId: null,
+      viewedAgentLeft: true,
+    });
+    rerender(tree("/agents/a1", props));
+    rerender(tree("/agents", props));
+
+    expect(props.setMobileLeftOpen).not.toHaveBeenCalled();
   });
 });
 
