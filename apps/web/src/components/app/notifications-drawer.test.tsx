@@ -138,3 +138,31 @@ it("offers retry when there are no cached notifications", async () => {
     await screen.findByRole("link", { name: /question message/ })
   ).toBeTruthy();
 });
+
+it.each([
+  { ctrlKey: true },
+  { metaKey: true },
+  { shiftKey: true },
+  { button: 1 },
+])(
+  "preserves the drawer and item for modified activation %j",
+  async (modifiers) => {
+    render(
+      <QueryClientProvider
+        client={
+          new QueryClient({ defaultOptions: { queries: { retry: false } } })
+        }
+      >
+        <MemoryRouter>
+          <NotificationsDrawer />
+        </MemoryRouter>
+      </QueryClientProvider>
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Notifications" }));
+    const link = await screen.findByRole("link", { name: /question message/ });
+    fireEvent.click(link, modifiers);
+    expect(screen.getByRole("dialog", { name: "Notifications" })).toBeTruthy();
+    expect(screen.getByRole("link", { name: /question message/ })).toBeTruthy();
+    expect(getDefaultStore().get(dismissedAttentionAtom)).toEqual({});
+  }
+);

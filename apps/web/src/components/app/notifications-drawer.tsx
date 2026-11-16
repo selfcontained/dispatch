@@ -14,11 +14,7 @@ import {
 } from "@/components/ui/sheet";
 import { api } from "@/lib/api";
 
-export function NotificationsDrawer({
-  onNavigate,
-}: {
-  onNavigate?: () => void;
-}): JSX.Element {
+export function NotificationsDrawer(): JSX.Element {
   const [open, setOpen] = useState(false);
   const [dismissed, setDismissed] = useAtom(dismissedAttentionAtom);
   const history = useQuery({
@@ -78,7 +74,6 @@ export function NotificationsDrawer({
                     [item.toastId]: item.createdAt,
                   }));
                   setOpen(false);
-                  onNavigate?.();
                 }}
               />
             ))

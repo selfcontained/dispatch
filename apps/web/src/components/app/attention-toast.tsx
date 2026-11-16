@@ -210,7 +210,17 @@ export function AttentionCard({
       {link ? (
         <Link
           to={attentionToastLocation(event)}
-          onClick={onOpen}
+          onClick={(event) => {
+            if (
+              event.button !== 0 ||
+              event.metaKey ||
+              event.ctrlKey ||
+              event.shiftKey ||
+              event.altKey
+            )
+              return;
+            onOpen();
+          }}
           state={{ blockJump: `${Date.now()}-${event.toastId}` }}
           {...actionProps}
         >
