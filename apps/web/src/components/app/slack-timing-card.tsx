@@ -90,6 +90,20 @@ export function SlackTimingCard(): JSX.Element {
             {save.isPending ? "Saving…" : "Save"}
           </Button>
         </form>
+        {query.isError && (
+          <div className="mt-3 flex items-center gap-3" role="alert">
+            <p className="text-sm text-destructive">
+              Couldn't load Slack timing.
+            </p>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => void query.refetch()}
+            >
+              Retry
+            </Button>
+          </div>
+        )}
         {save.isError && (
           <p className="mt-3 text-sm text-destructive" role="alert">
             {save.error instanceof Error

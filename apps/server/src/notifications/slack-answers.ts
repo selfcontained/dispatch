@@ -63,7 +63,7 @@ export type AskAlert = {
   name: string;
   /** Post inside this Slack thread (a mid-turn or notify ask) instead of as an alert. */
   threadTs?: string | null;
-  /** The agent asked for it now (notify with a form); it didn't wait 5 minutes. */
+  /** The agent asked for it now (notify with a form); it didn't wait on presence. */
   immediate?: boolean;
 };
 
