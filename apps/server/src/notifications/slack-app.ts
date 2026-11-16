@@ -770,8 +770,15 @@ export class SlackApp {
    * same-message retry after Slack definitively rejected the first try.
    */
   async waitForSendSlot() {
-    const wait = 1000 - (Date.now() - this.lastSend);
-    if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
+    // Re-check after each wake: Node schedules timers from the event loop's
+    // cached clock, so a timer can fire a millisecond before Date.now() says
+    // the window has passed, and the guard would still refuse the post.
+    for (
+      let wait = 1000 - (Date.now() - this.lastSend);
+      wait > 0;
+      wait = 1000 - (Date.now() - this.lastSend)
+    )
+      await new Promise((resolve) => setTimeout(resolve, wait));
   }
   /** Whether Slack granted a scope on the last auth.test; null when unknown. */
   hasScope(scope: string): boolean | null {
