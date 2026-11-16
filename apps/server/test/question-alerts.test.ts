@@ -463,6 +463,25 @@ describe("presence decides when a waiting question goes to Slack", () => {
     expect(t.send).toHaveBeenCalledTimes(1);
   });
 
+  it("rows held back by presence never hide a due row behind them", async () => {
+    const t = await setup({ away: null, viewing: "agt_stopped" });
+    // 250 older questions from the viewed agent, never due while viewed.
+    await pool.query(
+      `INSERT INTO blocks(id,stream_id,author_kind,author_agent_id,kind,text,created_at)
+       SELECT gen_random_uuid(),'agt_stopped','agent','agt_stopped','question','Old?',now()-interval '20 minutes'
+       FROM generate_series(1,250)`
+    );
+    const other = randomUUID();
+    await pool.query(
+      `INSERT INTO blocks(id,stream_id,author_kind,author_agent_id,kind,text,created_at)
+       VALUES($1,'agt_other','agent','agt_other','question','Other?',now()-interval '11 minutes')`,
+      [other]
+    );
+    await t.at(1 * SEC);
+    expect(t.send).toHaveBeenCalledTimes(1);
+    expect(t.send.mock.calls[0]![0]).toMatchObject({ block_id: other });
+  });
+
   it("an explicit form (sendNow) still goes out at once while present", async () => {
     const t = await setup({ away: null });
     await pool.query("UPDATE blocks SET kind='form' WHERE id=$1", [t.id]);

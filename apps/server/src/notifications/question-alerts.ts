@@ -132,7 +132,9 @@ export class QuestionAlerts {
         .query(`UPDATE question_notifications n SET cancelled_at=now()
         FROM blocks b WHERE b.id=n.block_id AND NOT (${OPEN_INPUT_SQL} AND ${HUMAN_QUESTION_SQL})
         AND n.sent_at IS NULL AND n.cancelled_at IS NULL`);
-      // Waiting rows ready for an attempt; presence decides which are due.
+      // Every waiting row ready for an attempt (open questions are few);
+      // presence decides which are due. Unbounded so rows held back by
+      // presence never hide due ones behind them.
       const { rows: waiting } = await this.pool.query<{
         block_id: string;
         immediate: boolean;
@@ -143,7 +145,7 @@ export class QuestionAlerts {
         FROM question_notifications n JOIN blocks b ON b.id=n.block_id
         WHERE n.sent_at IS NULL AND n.cancelled_at IS NULL AND n.next_attempt_at<=now()
         AND n.binding_generation=$1 AND (n.lease_until IS NULL OR n.lease_until<now()) AND ${OPEN_INPUT_SQL} AND ${HUMAN_QUESTION_SQL}
-        ORDER BY n.next_attempt_at LIMIT 200`,
+        ORDER BY n.immediate DESC,n.next_attempt_at`,
         [binding.generation]
       );
       if (!waiting.length) return;

@@ -22,11 +22,7 @@ import {
   setEnabledAgentTypes,
 } from "../agent-type-settings.js";
 import { IDE_TYPES, getEnabledIdes, setEnabledIdes } from "../ide-settings.js";
-import {
-  SLACK_AWAY_DELAY_SECONDS,
-  SLACK_PRESENT_DELAY_MINUTES,
-  SlackNotifier,
-} from "../notifications/slack.js";
+import { SlackNotifier, slackDelayError } from "../notifications/slack.js";
 import { runCommand } from "../shared/lib/run-command.js";
 import { resolveTilde } from "../shared/lib/resolve-tilde.js";
 import { shouldSkipAutomaticMacPathProbe } from "../shared/mac-path-privacy.js";
@@ -484,27 +480,8 @@ export async function registerSystemRoutes(
       slackPresentDelayMinutes?: unknown;
     } | null;
 
-    for (const key of [
-      "slackAwayDelaySeconds",
-      "slackPresentDelayMinutes",
-    ] as const) {
-      const value = body?.[key];
-      if (value === undefined) continue;
-      const bounds =
-        key === "slackAwayDelaySeconds"
-          ? SLACK_AWAY_DELAY_SECONDS
-          : SLACK_PRESENT_DELAY_MINUTES;
-      if (
-        typeof value !== "number" ||
-        !Number.isInteger(value) ||
-        value < bounds.min ||
-        value > bounds.max
-      ) {
-        return reply.code(400).send({
-          error: `${key} must be a whole number from ${bounds.min} to ${bounds.max}.`,
-        });
-      }
-    }
+    const delayError = body ? slackDelayError(body) : null;
+    if (delayError) return reply.code(400).send({ error: delayError });
 
     if (body?.webNotifyEnabled !== undefined) {
       if (typeof body.webNotifyEnabled !== "boolean") {

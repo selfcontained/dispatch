@@ -31,6 +31,28 @@ const SETTING_SLACK_PRESENT_DELAY = "slack_present_delay_minutes";
 export const SLACK_AWAY_DELAY_SECONDS = { min: 0, max: 3600, default: 30 };
 export const SLACK_PRESENT_DELAY_MINUTES = { min: 1, max: 240, default: 10 };
 
+/** Why a Slack wait setting is invalid, or null when every given one is fine. */
+export function slackDelayError(input: {
+  slackAwayDelaySeconds?: unknown;
+  slackPresentDelayMinutes?: unknown;
+}): string | null {
+  for (const [key, bounds] of [
+    ["slackAwayDelaySeconds", SLACK_AWAY_DELAY_SECONDS],
+    ["slackPresentDelayMinutes", SLACK_PRESENT_DELAY_MINUTES],
+  ] as const) {
+    const value = input[key];
+    if (value === undefined) continue;
+    if (
+      typeof value !== "number" ||
+      !Number.isInteger(value) ||
+      value < bounds.min ||
+      value > bounds.max
+    )
+      return `${key} must be a whole number from ${bounds.min} to ${bounds.max}.`;
+  }
+  return null;
+}
+
 /** The user's presence in Dispatch, as notify sees it. */
 export type NotifyPresence = {
   isPresent: () => boolean;
@@ -170,33 +192,18 @@ export class SlackNotifier {
     };
   }
 
-  /** Validated by the route; out-of-range values throw. */
+  /** Out-of-range values throw; the route checks first with `slackDelayError`. */
   async setSlackDelays(input: {
     slackAwayDelaySeconds?: number;
     slackPresentDelayMinutes?: number;
   }): Promise<void> {
-    const write = async (
-      key: string,
-      value: number | undefined,
-      bounds: { min: number; max: number }
-    ) => {
-      if (value === undefined) return;
-      if (!Number.isInteger(value) || value < bounds.min || value > bounds.max)
-        throw new RangeError(
-          `must be a whole number from ${bounds.min} to ${bounds.max}`
-        );
-      await setSetting(this.pool, key, String(value));
+    const invalid = slackDelayError(input);
+    if (invalid) throw new RangeError(invalid);
+    const write = async (key: string, value: number | undefined) => {
+      if (value !== undefined) await setSetting(this.pool, key, String(value));
     };
-    await write(
-      SETTING_SLACK_AWAY_DELAY,
-      input.slackAwayDelaySeconds,
-      SLACK_AWAY_DELAY_SECONDS
-    );
-    await write(
-      SETTING_SLACK_PRESENT_DELAY,
-      input.slackPresentDelayMinutes,
-      SLACK_PRESENT_DELAY_MINUTES
-    );
+    await write(SETTING_SLACK_AWAY_DELAY, input.slackAwayDelaySeconds);
+    await write(SETTING_SLACK_PRESENT_DELAY, input.slackPresentDelayMinutes);
     this.timingCache = null;
   }
 
