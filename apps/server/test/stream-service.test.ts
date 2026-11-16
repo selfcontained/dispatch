@@ -29,10 +29,7 @@ import { StreamRecorder } from "../src/agents/acp/stream-recorder.js";
 import { StreamStore } from "../src/agents/acp/stream-store.js";
 import type { Block } from "@dispatch/shared";
 import { BLOCK_ATTACHMENTS_MAX, BLOCK_TEXT_MAX_CHARS } from "@dispatch/shared";
-import {
-  composeStreamFeed,
-  FAILED_PARENT_INPUT_SQL,
-} from "../src/chat/feed.js";
+import { composeStreamFeed } from "../src/chat/feed.js";
 import { runTestMigrations, setupTestDb, teardownTestDb } from "./db/setup.js";
 
 let pool: Pool;
@@ -8353,7 +8350,7 @@ describe("Parent-owned child requests", () => {
   );
 
   it.each(["stopped", "injection"] as const)(
-    "keeps failed parent answers recoverable after reload: %s",
+    "closes parent-answered asks and keeps a failed answer retryable: %s",
     async (failure) => {
       const healthy = build();
       for (const input of [
@@ -8386,22 +8383,17 @@ describe("Parent-owned child requests", () => {
             state: { submission: { values: { name: "Done" } } },
           });
         await failing.svc.waitForInFlightDeliveries(1000);
+        // The parent answered, so the ask is no longer waiting on anyone. A
+        // failed delivery shows on the ask and can be retried from there.
         const feed = await build().svc.feed(B);
-        const recoveredAsk = feed.openInputs!.find((b) => b.id === ask.id)!;
-        expect(recoveredAsk.inputReply).toMatchObject({
-          delivered: false,
-          toAgentId: B,
-        });
-        expect(
-          feed.entries.find((e) => e.id === ask.id)?.block.inputReply
-        ).toMatchObject({ delivered: false });
+        expect(feed.openInputs?.map((b) => b.id)).not.toContain(ask.id);
+        const reply = feed.entries.find((e) => e.id === ask.id)?.block
+          .inputReply;
+        expect(reply).toMatchObject({ delivered: false, toAgentId: B });
         const retry = build();
-        await retry.svc.retryDelivery(B, recoveredAsk.inputReply!.id);
-        await settled(retry.svc, recoveredAsk.inputReply!.id);
+        await retry.svc.retryDelivery(B, reply!.id);
+        await settled(retry.svc, reply!.id);
         expect(retry.injected[0]).toMatchObject({ agentId: B });
-        expect(
-          (await retry.svc.feed(B)).openInputs?.map((b) => b.id)
-        ).not.toContain(ask.id);
       }
     }
   );
@@ -8502,17 +8494,21 @@ describe("Parent-owned child requests", () => {
       text: "Need decision",
       question: { options: [{ label: "Yes" }] },
     });
-    const answer = await svc.answerQuestion(B, question.id, { value: "Yes" });
-    expect(answer.block).toMatchObject({
-      state: { answer: { by: { kind: "user" }, value: "Yes" } },
-    });
-    expect(answer.reply.delivered).toBe(false);
     const form = await svc.post(B, {
       text: "Need value",
       form: {
         fields: [{ id: "name", label: "Name", type: "text", required: true }],
       },
     });
+    // Neither ask reached the parent, so both wait on people instead.
+    expect((await svc.feed(B)).openInputs?.map((b) => b.id)).toEqual(
+      expect.arrayContaining([question.id, form.id])
+    );
+    const answer = await svc.answerQuestion(B, question.id, { value: "Yes" });
+    expect(answer.block).toMatchObject({
+      state: { answer: { by: { kind: "user" }, value: "Yes" } },
+    });
+    expect(answer.reply.delivered).toBe(false);
     const submission = await svc.submitForm(B, form.id, {
       values: { name: "User choice" },
     });
@@ -8522,96 +8518,9 @@ describe("Parent-owned child requests", () => {
       },
     });
     expect(submission.reply.delivered).toBe(false);
-    expect((await svc.feed(B)).openInputs?.map((b) => b.id)).toEqual(
-      expect.arrayContaining([question.id, form.id])
-    );
-  });
-
-  it("looks up a failed parent answer by primary key and ignores malformed ids", async () => {
-    const { svc } = build({
-      access: async () => {
-        throw new Error("Agent stopped");
-      },
-    });
-    const question = await svc.post(B, {
-      text: "Need decision",
-      question: { options: [{ label: "Yes" }] },
-    });
-    await svc.answerQuestion(B, question.id, { value: "Yes" });
-    const malformed = await svc.post(B, {
-      text: "Malformed answer",
-      question: { options: [{ label: "Yes" }] },
-    });
-    await pool.query(
-      `UPDATE blocks SET state = '{"answer":{"blockId":"not-a-uuid"}}' WHERE id = $1`,
-      [malformed.id]
-    );
-    const open = (await svc.feed(B)).openInputs?.map((b) => b.id);
-    expect(open).toContain(question.id);
-    expect(open).not.toContain(malformed.id);
-
-    // A text comparison on answer.id cannot use blocks_pkey, so the planner
-    // is left scanning every block once per parent-handled ask.
-    const client = await pool.connect();
-    try {
-      await client.query("BEGIN");
-      await client.query("SET LOCAL enable_seqscan = off");
-      type PlanNode = {
-        "Node Type": string;
-        "Relation Name"?: string;
-        Alias?: string;
-        "Index Name"?: string;
-        "Index Cond"?: string;
-        Plans?: PlanNode[];
-      };
-      const nodes = (node: PlanNode): PlanNode[] => [
-        node,
-        ...(node.Plans ?? []).flatMap(nodes),
-      ];
-      // Both direct and bitmap scans are valid primary-key access. Exercise
-      // each planner choice instead of depending on table statistics/costs.
-      for (const bitmap of [false, true]) {
-        await client.query(
-          `SET LOCAL enable_bitmapscan = ${bitmap ? "on" : "off"}`
-        );
-        await client.query(
-          `SET LOCAL enable_indexscan = ${bitmap ? "off" : "on"}`
-        );
-        await client.query(
-          `SET LOCAL enable_indexonlyscan = ${bitmap ? "off" : "on"}`
-        );
-        const plan = await client.query<{
-          "QUERY PLAN": Array<{ Plan: PlanNode }>;
-        }>(
-          `EXPLAIN (FORMAT JSON) SELECT 1 FROM blocks b WHERE ${FAILED_PARENT_INPUT_SQL}`
-        );
-        const diagnostic = `bitmap=${bitmap} plan=${JSON.stringify(plan.rows, null, 2)}`;
-        const answer = nodes(plan.rows[0]!["QUERY PLAN"][0]!.Plan).find(
-          (node) =>
-            node["Relation Name"] === "blocks" && node.Alias === "answer"
-        );
-        expect(typeof answer?.["Node Type"], diagnostic).toBe("string");
-        expect(answer?.["Node Type"], diagnostic).toMatch(
-          bitmap ? /^Bitmap Heap Scan$/ : /^Index (Only )?Scan$/
-        );
-        const primaryKey =
-          answer &&
-          nodes(answer).find((node) => node["Index Name"] === "blocks_pkey");
-        expect(typeof primaryKey?.["Node Type"], diagnostic).toBe("string");
-        expect(primaryKey?.["Node Type"], diagnostic).toMatch(
-          bitmap ? /^Bitmap Index Scan$/ : /^Index (Only )?Scan$/
-        );
-        expect(typeof primaryKey?.["Index Cond"], diagnostic).toBe("string");
-        expect(primaryKey?.["Index Cond"], diagnostic).toMatch(
-          /\bid\s*=\s*CASE WHEN/
-        );
-        expect(primaryKey?.["Index Cond"], diagnostic).toContain("b.state");
-        expect(primaryKey?.["Index Cond"], diagnostic).toContain("::uuid");
-      }
-    } finally {
-      await client.query("ROLLBACK");
-      client.release();
-    }
+    const open = (await svc.feed(B)).openInputs?.map((b) => b.id) ?? [];
+    expect(open).not.toContain(question.id);
+    expect(open).not.toContain(form.id);
   });
 
   it("routes child asks, delivers context, and records the parent's answer as an agent", async () => {
@@ -9748,20 +9657,18 @@ describe("agent-owned homes", () => {
     expect((await svc.feed(A)).openInputs).toEqual([]);
     expect((await svc.feed(B)).openInputs?.map((b) => b.id)).toContain(ask.id);
     const answer = await svc.answerQuestion(B, ask.id, { value: "Yes" });
-    expect((await svc.store.unreadSummary()).agents[B]?.pendingQuestions).toBe(
-      1
-    );
     expect(
-      (await svc.feed(B)).openInputs?.find((b) => b.id === ask.id)?.inputReply
-        ?.id
-    ).toBe(answer.reply.id);
+      (await svc.store.unreadSummary()).agents[B]?.pendingQuestions ?? 0
+    ).toBe(0);
+    const feed = await svc.feed(B);
+    expect(feed.openInputs?.map((b) => b.id)).not.toContain(ask.id);
+    expect(
+      feed.entries.find((e) => e.id === ask.id)?.block.inputReply
+    ).toMatchObject({ id: answer.reply.id, delivered: false });
     const recovered = build();
     await recovered.svc.retryDelivery(B, answer.reply.id);
     await settled(recovered.svc, answer.reply.id);
-    expect(
-      (await recovered.svc.store.unreadSummary()).agents[B]?.pendingQuestions ??
-        0
-    ).toBe(0);
+    expect(recovered.injected.at(-1)).toMatchObject({ agentId: B });
   });
 
   it("rejects incompatible destinations and unrelated homes without granting project access", async () => {

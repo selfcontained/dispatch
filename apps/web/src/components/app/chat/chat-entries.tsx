@@ -1748,20 +1748,14 @@ export const BlockView = memo(function BlockView({
   // The thread this post opens onto: its own, or the one it is drawn in.
   const threadRootId = threadRoot ?? block.id;
   const failedRequest = isFailedParentInput(block);
-  const failedRecipient =
-    block.inputReply?.delivered === false
-      ? block.inputReply.toAgentId
-      : block.toAgentId;
   const failureNotice =
-    failedRequest && failedRecipient ? (
+    failedRequest && block.toAgentId ? (
       <p
         className="mb-2 text-sm text-destructive"
         role="status"
         data-testid="parent-request-delivery-failure"
       >
-        {block.inputReply?.delivered === false
-          ? `Couldn’t deliver the answer to ${agentDisplayName(failedRecipient, ctx)}. You can retry delivery or ask the parent for help.`
-          : `Couldn’t deliver this request to ${agentDisplayName(failedRecipient, ctx)}. You can answer it here or ask the parent to handle it.`}
+        {`Couldn’t deliver this request to ${agentDisplayName(block.toAgentId, ctx)}. You can answer it here or ask the parent to handle it.`}
       </p>
     ) : null;
   const body = (

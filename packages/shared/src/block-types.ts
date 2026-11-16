@@ -720,7 +720,7 @@ export function isUserInputBlock(block: Block): boolean {
   );
 }
 
-/** Failed parent-owned asks stay visible so the user can retry their delivery. */
+/** A child's ask that never reached its parent stays open for people to answer. */
 export function isFailedParentInput(block: Block): boolean {
   return (
     block.author.kind === "agent" &&
@@ -728,10 +728,9 @@ export function isFailedParentInput(block: Block): boolean {
     (block.kind === "question" || block.kind === "form") &&
     block.data.parentHandled === true &&
     !block.state?.cancellation &&
-    (block.inputReply?.delivered === false ||
-      (block.delivered === false &&
-        (block.kind === "question"
-          ? !block.state?.answer
-          : !block.state?.submission)))
+    block.delivered === false &&
+    (block.kind === "question"
+      ? !block.state?.answer
+      : !block.state?.submission)
   );
 }
