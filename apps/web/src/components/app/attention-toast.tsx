@@ -8,7 +8,7 @@ import {
   ShieldAlert,
   X,
 } from "lucide-react";
-import { useEffect } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import {
   Link,
   type NavigateFunction,
@@ -18,6 +18,7 @@ import {
 import { toast, Toaster } from "sonner";
 
 import { conversationLocation } from "@/components/app/chat/conversation-location-link";
+import { Markdown } from "@/components/ui/markdown";
 import { useAgentFocus, viewingAgentIdOf } from "@/hooks/use-agent-focus";
 import { formatRelativeTime } from "@/lib/format";
 import { agentRoute } from "@/lib/agent-routes";
@@ -159,78 +160,109 @@ export function AttentionCard({
 }): JSX.Element {
   const style = KIND_STYLE[event.kind] ?? KIND_STYLE.question;
   const { Icon } = style;
+  const ids = useId();
+  const messageRef = useRef<HTMLSpanElement>(null);
+  // The tooltip shows the whole message as read, not its Markdown source.
+  // It sits on the action, which is what the pointer hovers.
+  const [title, setTitle] = useState("");
+  useLayoutEffect(() => {
+    setTitle(
+      messageRef.current?.textContent?.replace(/\s+/g, " ").trim() ?? ""
+    );
+  }, [event.message]);
+  // The action covers the card but holds no content, so the message's own
+  // links aren't nested inside it. It's named from the rendered text, which
+  // reads as plain words with no Markdown symbols.
   const actionProps = {
     className:
-      "flex min-w-0 flex-1 items-start gap-3 px-3 py-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
-    "data-testid": createdAt ? "attention-history-card" : "attention-toast",
-    "data-kind": event.kind,
+      "absolute inset-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+    "aria-labelledby": [
+      `${ids}-name`,
+      `${ids}-kind`,
+      `${ids}-message`,
+      settled ? `${ids}-settled` : null,
+      createdAt ? `${ids}-time` : null,
+    ]
+      .filter(Boolean)
+      .join(" "),
+    title,
   };
-  const content = (
-    <>
-      <span
-        aria-hidden
-        className={`flex size-9 shrink-0 items-center justify-center text-background ${style.tile}`}
-      >
-        <Icon className="size-5" strokeWidth={2.25} />
-      </span>
-      <span className="min-w-0 flex-1">
-        <span className="flex items-baseline justify-between gap-3">
-          <span className="truncate text-sm font-semibold">
-            {event.agentName}
-          </span>
-          <span
-            className={`shrink-0 text-[11px] font-semibold uppercase tracking-[0.14em] ${style.text}`}
-          >
-            {style.label}
-          </span>
-        </span>
-        <span
-          title={event.message}
-          className={`mt-1 text-[13px] leading-snug text-muted-foreground ${createdAt ? "block truncate" : "line-clamp-2"}`}
-        >
-          {event.message}
-        </span>
-        {settled ? <span className="sr-only">Settled</span> : null}
-        {createdAt ? (
-          <time
-            dateTime={createdAt}
-            className="mt-1 block text-[11px] text-muted-foreground"
-          >
-            {formatRelativeTime(createdAt)}
-          </time>
-        ) : null}
-      </span>
-    </>
-  );
   return (
     <div
       className={`flex w-full items-stretch border bg-popover text-popover-foreground shadow-[0_16px_40px_-12px_rgb(0_0_0/0.7)] transition-colors [font-family:var(--font-terminal)] ${style.border} ${style.hover} ${settled ? "opacity-50" : ""}`}
     >
       <span aria-hidden className={`w-1 shrink-0 ${style.bar}`} />
-      {link ? (
-        <Link
-          to={attentionToastLocation(event)}
-          onClick={(event) => {
-            if (
-              event.button !== 0 ||
-              event.metaKey ||
-              event.ctrlKey ||
-              event.shiftKey ||
-              event.altKey
-            )
-              return;
-            onOpen();
-          }}
-          state={{ blockJump: `${Date.now()}-${event.toastId}` }}
-          {...actionProps}
+      <div
+        className="relative flex min-w-0 flex-1 items-start gap-3 px-3 py-3 text-left"
+        data-testid={createdAt ? "attention-history-card" : "attention-toast"}
+        data-kind={event.kind}
+      >
+        {link ? (
+          <Link
+            to={attentionToastLocation(event)}
+            onClick={(event) => {
+              if (
+                event.button !== 0 ||
+                event.metaKey ||
+                event.ctrlKey ||
+                event.shiftKey ||
+                event.altKey
+              )
+                return;
+              onOpen();
+            }}
+            state={{ blockJump: `${Date.now()}-${event.toastId}` }}
+            {...actionProps}
+          />
+        ) : (
+          <button type="button" onClick={onOpen} {...actionProps} />
+        )}
+        <span
+          aria-hidden
+          className={`pointer-events-none flex size-9 shrink-0 items-center justify-center text-background ${style.tile}`}
         >
-          {content}
-        </Link>
-      ) : (
-        <button type="button" onClick={onOpen} {...actionProps}>
-          {content}
-        </button>
-      )}
+          <Icon className="size-5" strokeWidth={2.25} />
+        </span>
+        <span className="pointer-events-none min-w-0 flex-1">
+          <span className="flex items-baseline justify-between gap-3">
+            <span id={`${ids}-name`} className="truncate text-sm font-semibold">
+              {event.agentName}
+            </span>
+            <span
+              id={`${ids}-kind`}
+              className={`shrink-0 text-[11px] font-semibold uppercase tracking-[0.14em] ${style.text}`}
+            >
+              {style.label}
+            </span>
+          </span>
+          <span
+            id={`${ids}-message`}
+            ref={messageRef}
+            className="mt-1 block text-[13px] leading-snug text-muted-foreground"
+          >
+            <Markdown
+              variant="compact"
+              className={`[&_a]:pointer-events-auto [&_a]:relative ${createdAt ? "block truncate" : "line-clamp-2"}`}
+            >
+              {event.message}
+            </Markdown>
+          </span>
+          {settled ? (
+            <span id={`${ids}-settled`} className="sr-only">
+              Settled
+            </span>
+          ) : null}
+          {createdAt ? (
+            <time
+              id={`${ids}-time`}
+              dateTime={createdAt}
+              className="mt-1 block text-[11px] text-muted-foreground"
+            >
+              {formatRelativeTime(createdAt)}
+            </time>
+          ) : null}
+        </span>
+      </div>
 
       {onDismiss ? (
         <button
