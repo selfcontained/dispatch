@@ -225,8 +225,8 @@ function TasksContent({ projectId }: { projectId: string }) {
   return (
     <SectionShell
       activeSection="tasks"
-      sidebar={sidebar}
       headerActions={<NotificationsDrawer />}
+      sidebar={sidebar}
     >
       <div className="flex min-h-0 flex-1 flex-col">
         <header className="flex flex-col gap-2 px-3 py-2 md:flex-row md:items-center md:px-4 md:py-3">
@@ -497,6 +497,7 @@ export function TasksRoute(): JSX.Element {
   ) : (
     <SectionShell
       activeSection="tasks"
+      headerActions={<NotificationsDrawer />}
       sidebar={
         <div className="p-3">
           <ProjectSwitcher allowAll={false} />
