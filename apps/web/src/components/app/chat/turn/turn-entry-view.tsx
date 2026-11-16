@@ -274,12 +274,16 @@ export function TurnAnswer({
  * A running turn that has nothing to say yet: no words of its reply and
  * nothing it produced. It is presence, not a message, so the
  * feed shows it as a status line rather than a post with a header.
+ * With progress text off, a running turn is never pending: its post holds
+ * the response placeholder from the first tick until the answer lands.
  */
 export function isPendingTurn(
   block: Block,
   turn: ChatTurnEntry,
-  folded: readonly FoldedEntry[] | undefined
+  folded: readonly FoldedEntry[] | undefined,
+  showProgressText: boolean
 ): boolean {
+  if (!showProgressText) return false;
   if (turn.settled || turn.error) return false;
   if (turn.result?.text) return false;
   if (folded?.length || block.attachments?.length) return false;

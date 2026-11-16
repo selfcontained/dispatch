@@ -1,3 +1,5 @@
+import { useAtomValue } from "jotai";
+import { chatShowProgressTextAtom } from "@/lib/store";
 import { SystemEventEntry } from "./system-event-entry";
 import { systemEventOf } from "@dispatch/shared";
 import { MessageActions } from "./message-actions";
@@ -1691,6 +1693,7 @@ export const BlockView = memo(function BlockView({
   highlightFindingId = null,
   folded,
 }: BlockViewProps): JSX.Element {
+  const showProgressText = useAtomValue(chatShowProgressTextAtom);
   const author = blockAuthor(block, ctx);
   const systemEvent = systemEventOf(block);
   const systemResource = systemEvent
@@ -1950,7 +1953,11 @@ export const BlockView = memo(function BlockView({
 
   // A turn with nothing to say yet is a status line, not a second post:
   // it takes the full header once the reply's first words arrive.
-  if (block.turn && !inThread && isPendingTurn(block, block.turn, folded)) {
+  if (
+    block.turn &&
+    !inThread &&
+    isPendingTurn(block, block.turn, folded, showProgressText)
+  ) {
     return (
       <>
         <PendingTurnLine
