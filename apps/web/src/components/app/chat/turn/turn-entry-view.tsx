@@ -36,6 +36,25 @@ import { type FoldedEntry, TurnAttachments } from "./turn-attachments";
 /** A turn prompt is never a question, so its post never offers an answer. */
 const NO_ANSWER = (): void => undefined;
 const NO_FOLDED: readonly FoldedEntry[] = [];
+/**
+ * The placeholder's skeleton rows. Each scan is its own ping-pong with its
+ * own period and start offset, so the rows drift in and out of phase rather
+ * than waiting on one another.
+ */
+const PLACEHOLDER_ROWS = [
+  {
+    width: "w-3/4",
+    scan: "animate-[placeholder-scan_4.2s_ease-in-out_-0.4s_infinite_alternate_both]",
+  },
+  {
+    width: "w-full",
+    scan: "animate-[placeholder-scan_5s_ease-in-out_-2.3s_infinite_alternate_both]",
+  },
+  {
+    width: "w-2/5",
+    scan: "animate-[placeholder-scan_3.6s_ease-in-out_-1.5s_infinite_alternate_both]",
+  },
+] as const;
 
 /**
  * The turn's answer as the result renderer's model. The text is the
@@ -222,12 +241,27 @@ export function TurnAnswer({
             role="status"
             aria-label="Preparing response"
             data-testid="chat-response-placeholder"
-            className="mt-3 w-full max-w-md animate-pulse rounded-lg border border-dashed border-border/70 bg-muted/10 px-4 py-3.5 [animation-duration:3s] motion-reduce:animate-none"
+            className="mt-3 w-full max-w-md rounded-lg border border-dashed border-border/70 bg-muted/10 px-4 py-3.5"
           >
             <div aria-hidden="true" className="space-y-2.5">
-              <Skeleton className="h-1.5 w-3/4 animate-none rounded-full" />
-              <Skeleton className="h-1.5 w-full animate-none rounded-full" />
-              <Skeleton className="h-1.5 w-2/5 animate-none rounded-full" />
+              {PLACEHOLDER_ROWS.map((row) => (
+                <Skeleton
+                  key={row.width}
+                  className={cn(
+                    "relative h-1.5 animate-none overflow-hidden rounded-full",
+                    row.width
+                  )}
+                >
+                  <span
+                    data-testid="chat-response-placeholder-scan"
+                    className={cn(
+                      "dispatch-placeholder-scan absolute inset-y-0 left-0 w-1/3 rounded-full opacity-10 will-change-transform motion-reduce:hidden",
+                      "bg-[linear-gradient(90deg,transparent,hsl(var(--status-blocked)),hsl(var(--status-waiting)),hsl(var(--status-working)),hsl(var(--status-done)),transparent)]",
+                      row.scan
+                    )}
+                  />
+                </Skeleton>
+              ))}
             </div>
           </div>
         ) : result.content ? (
@@ -274,12 +308,16 @@ export function TurnAnswer({
  * A running turn that has nothing to say yet: no words of its reply and
  * nothing it produced. It is presence, not a message, so the
  * feed shows it as a status line rather than a post with a header.
+ * With progress text off, a running turn is never pending: its post holds
+ * the response placeholder from the first tick until the answer lands.
  */
 export function isPendingTurn(
   block: Block,
   turn: ChatTurnEntry,
-  folded: readonly FoldedEntry[] | undefined
+  folded: readonly FoldedEntry[] | undefined,
+  showProgressText: boolean
 ): boolean {
+  if (!showProgressText) return false;
   if (turn.settled || turn.error) return false;
   if (turn.result?.text) return false;
   if (folded?.length || block.attachments?.length) return false;

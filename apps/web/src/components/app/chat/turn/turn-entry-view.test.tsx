@@ -3,11 +3,13 @@ import type { ChatTurnEntry, StreamBlockEntry } from "@dispatch/shared";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { MotionConfig } from "framer-motion";
+import { createStore, Provider } from "jotai";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { FeedContext } from "@/components/app/chat/chat-entries";
 import { TurnEntryView } from "@/components/app/chat/turn/turn-entry-view";
+import { chatShowProgressTextAtom } from "@/lib/store";
 import { turnEntry } from "@/test-utils/blocks";
 
 vi.mock("@/components/ui/markdown-mermaid", () => ({
@@ -20,6 +22,7 @@ vi.mock("@/components/ui/markdown-mermaid-theme", () => ({
 afterEach(() => {
   cleanup();
   Reflect.deleteProperty(navigator, "clipboard");
+  localStorage.clear();
 });
 
 const AGENT_ID = "agt_1";
@@ -74,7 +77,11 @@ function turn(
   });
 }
 
-function renderTurn(entry: StreamBlockEntry, view: FeedContext = ctx) {
+function renderTurn(
+  entry: StreamBlockEntry,
+  view: FeedContext = ctx,
+  { progressText = true }: { progressText?: boolean } = {}
+) {
   // The agent post's author mark reads its engine colour through
   // `useIconColor`, which is a React Query read, so the provider is not
   // optional here.
@@ -89,19 +96,24 @@ function renderTurn(entry: StreamBlockEntry, view: FeedContext = ctx) {
       parentAgentId: null,
     });
 
+  const store = createStore();
+  store.set(chatShowProgressTextAtom, progressText);
+
   return render(
-    <QueryClientProvider client={client}>
-      <MemoryRouter>
-        <MotionConfig reducedMotion="always">
-          <TurnEntryView
-            block={entry.block}
-            turn={entry.block.turn!}
-            grouped={false}
-            ctx={view}
-          />
-        </MotionConfig>
-      </MemoryRouter>
-    </QueryClientProvider>
+    <Provider store={store}>
+      <QueryClientProvider client={client}>
+        <MemoryRouter>
+          <MotionConfig reducedMotion="always">
+            <TurnEntryView
+              block={entry.block}
+              turn={entry.block.turn!}
+              grouped={false}
+              ctx={view}
+            />
+          </MotionConfig>
+        </MemoryRouter>
+      </QueryClientProvider>
+    </Provider>
   );
 }
 
@@ -548,6 +560,147 @@ describe("TurnEntryView", () => {
       renderTurn(failed(undefined), { ...ctx, onRetryTurn: () => undefined });
       expect(screen.queryByTestId("harness-retry-turn")).toBeNull();
       expect(screen.queryByTestId("harness-retried")).toBeNull();
+    });
+  });
+
+  describe("the response placeholder", () => {
+    const RUN_STEP: ChatTurnEntry["trace"]["steps"][number] = {
+      id: "stream:14",
+      kind: "execute",
+      label: "pnpm test",
+      status: "running",
+      startedAt: "2026-09-08T10:00:01.000Z",
+      detail: { toolKind: "execute" },
+    };
+    const running = (
+      steps: ChatTurnEntry["trace"]["steps"],
+      result: ChatTurnEntry["result"] = null
+    ) =>
+      turn(
+        {
+          settled: false,
+          result,
+          trace: { startedAt: "2026-09-08T10:00:00.000Z", steps },
+        },
+        ""
+      );
+    const STATES: Record<string, () => StreamBlockEntry> = {
+      "just started, no steps": () => running([]),
+      "thinking or running tools, no text": () => running([RUN_STEP]),
+      "streaming lead text": () =>
+        running([RUN_STEP], {
+          text: "Looking at the tests.",
+          streaming: true,
+          lead: "Looking at the tests.",
+        }),
+    };
+    const placeholder = () => screen.queryByTestId("chat-response-placeholder");
+
+    describe("with progress text off", () => {
+      for (const [name, entry] of Object.entries(STATES)) {
+        it(`holds a running turn's place while ${name}`, () => {
+          renderTurn(entry(), ctx, { progressText: false });
+          const post = screen.getByTestId("chat-message");
+          expect(post.contains(placeholder())).toBe(true);
+          expect(screen.queryByTestId("chat-pending-turn")).toBeNull();
+          expect(screen.queryByTestId("chat-turn-live-text")).toBeNull();
+          // The activity line still says what the agent is doing.
+          expect(screen.getByTestId("harness-activity-fold")).toBeTruthy();
+          // Each skeleton row carries its own scan, pausable when hidden and
+          // dropped under reduced motion.
+          const scans = screen.getAllByTestId("chat-response-placeholder-scan");
+          expect(scans).toHaveLength(3);
+          for (const scan of scans) {
+            expect(scan.classList.contains("dispatch-placeholder-scan")).toBe(
+              true
+            );
+            expect(scan.classList.contains("motion-reduce:hidden")).toBe(true);
+          }
+        });
+      }
+
+      it("swaps the placeholder for the answer once it lands", () => {
+        renderTurn(turn(), ctx, { progressText: false });
+        expect(placeholder()).toBeNull();
+        expect(screen.getByTestId("harness-result").textContent).toContain(
+          "It documents the CLI."
+        );
+      });
+
+      it("shows no placeholder for a failed turn", () => {
+        renderTurn(
+          turn(
+            {
+              error: "no API key",
+              trace: {
+                startedAt: "2026-09-08T10:00:00.000Z",
+                endedAt: "2026-09-08T10:00:01.000Z",
+                finalResult: "error",
+                steps: [],
+              },
+              result: null,
+            },
+            ""
+          ),
+          ctx,
+          { progressText: false }
+        );
+        expect(placeholder()).toBeNull();
+        expect(screen.getByTestId("harness-result").textContent).toContain(
+          "no API key"
+        );
+      });
+
+      it("shows no placeholder for a cancelled turn", () => {
+        renderTurn(
+          turn(
+            {
+              interrupted: true,
+              trace: {
+                startedAt: "2026-09-08T10:00:00.000Z",
+                endedAt: "2026-09-08T10:00:04.000Z",
+                finalResult: "interrupted",
+                steps: [RUN_STEP],
+              },
+              result: null,
+            },
+            ""
+          ),
+          ctx,
+          { progressText: false }
+        );
+        expect(placeholder()).toBeNull();
+        expect(screen.getByTestId("harness-interrupted")).toBeTruthy();
+      });
+    });
+
+    describe("with progress text on", () => {
+      it("keeps a running turn with no words a status line, no placeholder", () => {
+        for (const entry of [
+          STATES["just started, no steps"]!,
+          STATES["thinking or running tools, no text"]!,
+        ]) {
+          renderTurn(entry());
+          expect(screen.getByTestId("chat-pending-turn")).toBeTruthy();
+          expect(screen.queryByTestId("chat-message")).toBeNull();
+          expect(placeholder()).toBeNull();
+          cleanup();
+        }
+      });
+
+      it("streams the lead text in place of a placeholder", () => {
+        renderTurn(STATES["streaming lead text"]!());
+        expect(placeholder()).toBeNull();
+        expect(screen.getByTestId("chat-turn-live-text").textContent).toBe(
+          "Looking at the tests."
+        );
+      });
+
+      it("shows the settled answer with no placeholder", () => {
+        renderTurn(turn());
+        expect(placeholder()).toBeNull();
+        expect(screen.getByTestId("harness-result")).toBeTruthy();
+      });
     });
   });
 });
