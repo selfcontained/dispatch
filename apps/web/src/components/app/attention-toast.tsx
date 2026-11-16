@@ -246,7 +246,11 @@ export function AttentionToasts({
       offset={
         isMobile
           ? { top: mobileTop, left: "0.5rem", right: "0.5rem" }
-          : { top: "0.75rem", right: "0.75rem" }
+          : // Below the top inset band (iPad), which #safe-area-top covers.
+            {
+              top: "calc(env(safe-area-inset-top, 0px) + 0.75rem)",
+              right: "0.75rem",
+            }
       }
       mobileOffset={{ top: mobileTop, left: "0.5rem", right: "0.5rem" }}
     />

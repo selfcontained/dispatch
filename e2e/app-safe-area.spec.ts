@@ -107,6 +107,32 @@ for (const device of [
           (value) => `${value}px`
         )
       );
+      // The top inset band #root pads around is covered by an opaque fixed
+      // strip in the theme background, so iPadOS extends that color there
+      // instead of drawing its soft edge blur over the headers and toasts.
+      const strip = page.locator("#safe-area-top");
+      const stripStyle = await strip.evaluate((el) => {
+        const style = getComputedStyle(el);
+        const probe = document.createElement("div");
+        probe.style.color = "hsl(var(--background))";
+        document.body.append(probe);
+        const theme = getComputedStyle(probe).color;
+        probe.remove();
+        const box = el.getBoundingClientRect();
+        return {
+          position: style.position,
+          background: style.backgroundColor,
+          theme,
+          box: [box.top, box.left, box.width, box.height],
+        };
+      });
+      expect(stripStyle.position).toBe("fixed");
+      expect(stripStyle.background).toBe(stripStyle.theme);
+      // Zero height without a top inset; hidden on iPhone, where Safari
+      // owns the safe viewport.
+      expect(stripStyle.box).toEqual(
+        phone ? [0, 0, 0, 0] : [0, 0, device.width, insets.top]
+      );
       await page.getByTitle("Close sidebar", { exact: true }).first().click();
       const open = page.getByTitle("Open sidebar", { exact: true });
       await insideFrame(open);

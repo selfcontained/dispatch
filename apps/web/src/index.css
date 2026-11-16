@@ -759,10 +759,29 @@ html[data-theme="matrix"] body::after {
   background: transparent;
 }
 
+/* An opaque fixed strip over the top inset band that #root pads around.
+   Left transparent, iPadOS draws its soft scroll-edge blur there, which
+   fades down over the headers and toasts. A fixed element at the top edge
+   makes WebKit extend its solid color instead. Zero height wherever the
+   inset is 0 (desktop, Android, iPhone without viewport-fit=cover). Sits
+   above #root (z-index 1) but below portaled overlays and toasts. */
+#safe-area-top {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: env(safe-area-inset-top, 0px);
+  z-index: 2;
+  background: hsl(var(--background));
+}
+
 /* On iPhone Safari owns the safe viewport (see index.html). Reserving
    insets here as well leaves unused space beneath the composer. */
 html[data-ios-phone] #root {
   padding: 0;
+}
+html[data-ios-phone] #safe-area-top {
+  display: none;
 }
 
 /* iPad-class touch devices: lock the document to the viewport so touch-
