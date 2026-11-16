@@ -1,3 +1,12 @@
+import { useAtomValue } from "jotai";
+import { chatShowProgressTextAtom } from "@/lib/store";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
+import { Button } from "@/components/ui/button";
+import { ChevronRight } from "lucide-react";
 // Ported from @mytraai/promptkit (MytraAI/mytra-os-uis, packages/promptkit):
 // Nii Yeboah's PromptKit design. Adapted to Dispatch's tokens and shadcn.
 import { memo, type ReactNode } from "react";
@@ -159,12 +168,31 @@ function ResultBody({
   turn: Turn;
   renderText?: (text: string) => ReactNode;
 }): JSX.Element {
+  const showProgressText = useAtomValue(chatShowProgressTextAtom);
   const final = turn.lead ? turn.content.slice(turn.lead.length).trim() : "";
   if (!turn.lead || !final)
     return <ResultText content={turn.content} renderText={renderText} />;
   return (
     <>
-      <ResultText content={turn.lead} muted renderText={renderText} />
+      {showProgressText ? (
+        <ResultText content={turn.lead} muted renderText={renderText} />
+      ) : (
+        <Collapsible className="mb-2">
+          <CollapsibleTrigger asChild>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="group h-auto gap-1 px-0 py-1 text-xs text-muted-foreground hover:bg-transparent"
+            >
+              <ChevronRight className="h-3 w-3 group-data-[state=open]:rotate-90" />
+              Show earlier updates
+            </Button>
+          </CollapsibleTrigger>
+          <CollapsibleContent className="pt-1">
+            <ResultText content={turn.lead} muted renderText={renderText} />
+          </CollapsibleContent>
+        </Collapsible>
+      )}
       <ResultText content={final} renderText={renderText} />
     </>
   );

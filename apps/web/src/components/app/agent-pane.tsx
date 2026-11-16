@@ -4,7 +4,7 @@ import { useProjects } from "@/hooks/use-projects";
 import { ProjectIcon } from "./project-location";
 import { ScheduledMessagesButton } from "./scheduled-messages-button";
 import { useAtom } from "jotai";
-import { chatShowLastMessageAtom } from "@/lib/store";
+import { chatShowLastMessageAtom, chatShowProgressTextAtom } from "@/lib/store";
 import { useEffect, useState } from "react";
 import { Hash, Settings } from "lucide-react";
 
@@ -25,6 +25,9 @@ import { cn } from "@/lib/utils";
 export function ChatFiltersButton(): JSX.Element {
   const [showLastMessage, setShowLastMessage] = useAtom(
     chatShowLastMessageAtom
+  );
+  const [showProgressText, setShowProgressText] = useAtom(
+    chatShowProgressTextAtom
   );
   const filtersLabel = "Chat options";
   return (
@@ -77,6 +80,25 @@ export function ChatFiltersButton(): JSX.Element {
             onCheckedChange={setShowLastMessage}
             aria-label="Your last message"
             data-testid="show-last-message-switch"
+          />
+        </label>
+        <label
+          htmlFor="show-progress-text"
+          className="flex cursor-pointer items-center justify-between gap-4 rounded-md px-1 py-1.5"
+        >
+          <span className="min-w-0">
+            <span className="block text-sm font-medium text-foreground">
+              Show progress text
+            </span>
+            <span className="block text-xs text-muted-foreground">
+              Read updates as the agent works.
+            </span>
+          </span>
+          <Switch
+            id="show-progress-text"
+            checked={showProgressText}
+            onCheckedChange={setShowProgressText}
+            aria-label="Show progress text"
           />
         </label>
       </PopoverContent>
