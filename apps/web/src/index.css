@@ -865,16 +865,17 @@ html[data-theme="matrix"] [role="button"] {
 }
 
 /* Response placeholder: a soft status-colour highlight sweeps each skeleton
-   bar, across and back (run with `alternate`). The highlight is a third of
-   the bar wide, so -100% → 300% of its own width spans the whole bar.
+   bar, across and back (run with `alternate`, no rests). The highlight is a
+   third of the bar wide; -70% → 270% of its own width keeps a sliver of it
+   on the bar at each turn, so it reverses in view rather than idling off it.
    `.dispatch-placeholder-scan` is a marker for the `html[data-hidden]` pause;
    gradient, opacity, timing and reduced motion are utilities on the element. */
 @keyframes placeholder-scan {
   from {
-    transform: translateX(-100%);
+    transform: translateX(-70%);
   }
   to {
-    transform: translateX(300%);
+    transform: translateX(270%);
   }
 }
 

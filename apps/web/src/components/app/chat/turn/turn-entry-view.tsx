@@ -36,11 +36,24 @@ import { type FoldedEntry, TurnAttachments } from "./turn-attachments";
 /** A turn prompt is never a question, so its post never offers an answer. */
 const NO_ANSWER = (): void => undefined;
 const NO_FOLDED: readonly FoldedEntry[] = [];
-/** The placeholder's skeleton rows, each scan offset from the last so they never move in lockstep. */
+/**
+ * The placeholder's skeleton rows. Each scan is its own ping-pong with its
+ * own period and start offset, so the rows drift in and out of phase rather
+ * than waiting on one another.
+ */
 const PLACEHOLDER_ROWS = [
-  { width: "w-3/4", delay: "[animation-delay:0ms]" },
-  { width: "w-full", delay: "[animation-delay:-400ms]" },
-  { width: "w-2/5", delay: "[animation-delay:-800ms]" },
+  {
+    width: "w-3/4",
+    scan: "animate-[placeholder-scan_4.2s_ease-in-out_-0.4s_infinite_alternate_both]",
+  },
+  {
+    width: "w-full",
+    scan: "animate-[placeholder-scan_5s_ease-in-out_-2.3s_infinite_alternate_both]",
+  },
+  {
+    width: "w-2/5",
+    scan: "animate-[placeholder-scan_3.6s_ease-in-out_-1.5s_infinite_alternate_both]",
+  },
 ] as const;
 
 /**
@@ -244,8 +257,7 @@ export function TurnAnswer({
                     className={cn(
                       "dispatch-placeholder-scan absolute inset-y-0 left-0 w-1/3 rounded-full opacity-10 will-change-transform motion-reduce:hidden",
                       "bg-[linear-gradient(90deg,transparent,hsl(var(--status-blocked)),hsl(var(--status-waiting)),hsl(var(--status-working)),hsl(var(--status-done)),transparent)]",
-                      "animate-[placeholder-scan_4.2s_ease-in-out_infinite_alternate_both]",
-                      row.delay
+                      row.scan
                     )}
                   />
                 </Skeleton>
