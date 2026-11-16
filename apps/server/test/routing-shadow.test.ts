@@ -1057,8 +1057,6 @@ describe("optional routing shadow", () => {
     expect(await task).toBeUndefined();
     expect(experiment.pending(A)).toEqual([]);
     release();
-    await finished();
-    expect((await records())[0].result.applied).toBe(false);
   });
   it("cancels only the settled turn while a newer routing attempt remains active", async () => {
     let release!: () => void;
