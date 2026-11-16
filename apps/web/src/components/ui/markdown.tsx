@@ -93,7 +93,7 @@ type MarkdownProps = {
   /** Keep unfinished Mermaid fences as source while the reply is arriving. */
   streaming?: boolean;
   className?: string;
-  variant?: "default" | "pin" | "caption" | "inline" | "snapshot";
+  variant?: "default" | "pin" | "caption" | "inline" | "compact" | "snapshot";
   /** Decorate prose text without altering Markdown syntax or code. */
   renderText?: (text: string) => ReactNode;
   // Colors h1/h2 for skimming a long document (see MarkdownDefault). Off by
@@ -152,6 +152,10 @@ export const Markdown = memo(function Markdown({
 
   if (variant === "inline") {
     return <MarkdownInline className={className}>{children}</MarkdownInline>;
+  }
+
+  if (variant === "compact") {
+    return <MarkdownCompact className={className}>{children}</MarkdownCompact>;
   }
 
   return (
@@ -246,6 +250,102 @@ function MarkdownInline({
         {children}
       </ReactMarkdown>
     </div>
+  );
+}
+
+/** Text of a fenced block, without the inline-code chip it would get. */
+function plainText(node: ReactNode): string {
+  if (typeof node === "string" || typeof node === "number") return String(node);
+  if (Array.isArray(node)) return node.map(plainText).join("");
+  if (isValidElement<{ children?: ReactNode }>(node)) {
+    return plainText(node.props.children);
+  }
+  return "";
+}
+
+/** A block element flattened to a run of text, spaced from its neighbors. */
+function FlatBlock({ children }: { children?: ReactNode }): JSX.Element {
+  return <>{children} </>;
+}
+
+/**
+ * One flowing run of text for a one- or two-line card (e.g. an attention
+ * toast): bold, italic, code and external links only. Headings, lists,
+ * quotes, tables and fences become plain text in the same run, so a card
+ * never grows into a document and the caller's clamp or truncation holds.
+ * Links stop their click from reaching the card they sit in.
+ */
+function MarkdownCompact({
+  children,
+  className,
+}: Pick<MarkdownProps, "children" | "className">): JSX.Element {
+  return (
+    <span
+      className={cn(
+        "min-w-0 [overflow-wrap:anywhere]",
+        "[&_a]:text-primary [&_a]:underline",
+        "[&_strong]:font-semibold [&_strong]:text-foreground [&_em]:italic [&_del]:line-through",
+        "[&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_code]:font-mono [&_code]:text-[0.9em]",
+        className
+      )}
+      data-testid="markdown-compact"
+    >
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        skipHtml
+        allowedElements={[
+          "p",
+          "h1",
+          "h2",
+          "h3",
+          "h4",
+          "h5",
+          "h6",
+          "li",
+          "blockquote",
+          "th",
+          "td",
+          "pre",
+          "img",
+          "a",
+          "strong",
+          "em",
+          "code",
+          "del",
+        ]}
+        unwrapDisallowed
+        components={{
+          p: FlatBlock,
+          h1: FlatBlock,
+          h2: FlatBlock,
+          h3: FlatBlock,
+          h4: FlatBlock,
+          h5: FlatBlock,
+          h6: FlatBlock,
+          li: FlatBlock,
+          blockquote: FlatBlock,
+          th: FlatBlock,
+          td: FlatBlock,
+          pre: ({ children }) => <>{plainText(children)} </>,
+          img: ({ alt }) => <>{alt}</>,
+          a: ({ href, children }) =>
+            href && /^https?:\/\//i.test(href) ? (
+              <a
+                href={href}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={(event) => event.stopPropagation()}
+              >
+                {children}
+              </a>
+            ) : (
+              <>{children}</>
+            ),
+        }}
+      >
+        {children}
+      </ReactMarkdown>
+    </span>
   );
 }
 
