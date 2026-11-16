@@ -15,6 +15,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("@/hooks/use-projects", async () => ({
   useProjectNavigate: (await import("react-router-dom")).useNavigate,
   useProjects: () => ({ data: [] }),
+  useFollowRouteAgentProject: () => {},
   useProjectScope: () => ({
     projectId: null,
     project: undefined,
