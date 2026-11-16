@@ -1,8 +1,7 @@
 ## What's Changed
-* Remove Slack webhook notifications; route job notices via the Slack app by @selfcontained in https://github.com/selfcontained/dispatch/pull/1472
-* Track app presence and show in-app attention toasts by @selfcontained in https://github.com/selfcontained/dispatch/pull/1473
-* Send Slack alerts based on presence by @selfcontained in https://github.com/selfcontained/dispatch/pull/1475
-* Add progress text toggle and animated response placeholder by @selfcontained in https://github.com/selfcontained/dispatch/pull/1476
+* Cover the iPad top inset band so iPadOS doesn't blur the headers by @selfcontained in https://github.com/selfcontained/dispatch/pull/1478
+* Show the response placeholder from turn start when progress text is off by @selfcontained in https://github.com/selfcontained/dispatch/pull/1477
+* Switch the sidebar project when opening an agent from another project by @selfcontained in https://github.com/selfcontained/dispatch/pull/1479
 
 
-**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v1.7.17...v1.7.18
+**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v1.7.18...v1.7.19
