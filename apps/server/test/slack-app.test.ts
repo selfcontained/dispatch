@@ -498,7 +498,7 @@ describe("Slack app boundary", () => {
       { message: "See chart", images: [png] }
     );
     f.app.stop();
-    expect(result).toEqual({ sent: true });
+    expect(result).toEqual({ sent: true, reason: "Sent to Slack." });
     expect(posts).toHaveLength(3);
     for (const post of posts)
       expect(post.blocks.filter((b: any) => b.type === "image")).toEqual([

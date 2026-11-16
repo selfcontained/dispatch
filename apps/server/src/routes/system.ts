@@ -22,7 +22,7 @@ import {
   setEnabledAgentTypes,
 } from "../agent-type-settings.js";
 import { IDE_TYPES, getEnabledIdes, setEnabledIdes } from "../ide-settings.js";
-import { SlackNotifier } from "../notifications/slack.js";
+import { SlackNotifier, slackDelayError } from "../notifications/slack.js";
 import { runCommand } from "../shared/lib/run-command.js";
 import { resolveTilde } from "../shared/lib/resolve-tilde.js";
 import { shouldSkipAutomaticMacPathProbe } from "../shared/mac-path-privacy.js";
@@ -476,7 +476,12 @@ export async function registerSystemRoutes(
     const body = request.body as {
       webNotifyEnabled?: unknown;
       webNotifyEvents?: unknown;
+      slackAwayDelaySeconds?: unknown;
+      slackPresentDelayMinutes?: unknown;
     } | null;
+
+    const delayError = body ? slackDelayError(body) : null;
+    if (delayError) return reply.code(400).send({ error: delayError });
 
     if (body?.webNotifyEnabled !== undefined) {
       if (typeof body.webNotifyEnabled !== "boolean") {
@@ -496,6 +501,13 @@ export async function registerSystemRoutes(
         body.webNotifyEvents as string[]
       );
     }
+
+    await deps.slackNotifier.setSlackDelays({
+      slackAwayDelaySeconds: body?.slackAwayDelaySeconds as number | undefined,
+      slackPresentDelayMinutes: body?.slackPresentDelayMinutes as
+        | number
+        | undefined,
+    });
 
     return deps.slackNotifier.getSettings();
   });

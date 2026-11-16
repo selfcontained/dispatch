@@ -152,7 +152,7 @@ export function registerAgentLifecycleTools(
       "notify",
       {
         description:
-          "Request an immediate Slack alert for the user through their configured notification channels. Use when something warrants attention now. With replyTo, answer a person in the Slack thread their message came from instead: write a self-contained reply, since they see only this text, not your stream. While your turn is answering a message from Slack, a notify without replyTo also goes into that thread. Each exact reply is sent to a thread once; a repeat is refused, so rephrase to send again. With form, create a form (as post with form does, message as its text) and send it to Slack now as an answerable form: with replyTo into that Slack thread, otherwise where post would ask it. A Slack answer or submission comes back to you as a DISPATCH POST whose id you can pass as replyTo to answer in that Slack thread; the form stays answerable in Dispatch if Slack fails. A form posted with post alerts the channel only if still unanswered after five minutes. form needs the Slack app connected and cannot combine with images. Without form, this does not post to a stream, answer a question, or prove the user read it. Rate limited; inspect the returned delivery result.",
+          "Alert the user that something warrants their attention. While they are active in Dispatch it shows there and not in Slack; when they are away it goes to Slack. Pass urgent to send to Slack regardless. With replyTo, answer a person in the Slack thread their message came from instead: write a self-contained reply, since they see only this text, not your stream. While your turn is answering a message from Slack, a notify without replyTo also goes into that thread. Each exact reply is sent to a thread once; a repeat is refused, so rephrase to send again. With form, create a form (as post with form does, message as its text) and send it to Slack now as an answerable form: with replyTo into that Slack thread, otherwise where post would ask it. A Slack answer or submission comes back to you as a DISPATCH POST whose id you can pass as replyTo to answer in that Slack thread; the form stays answerable in Dispatch if Slack fails. A form posted with post alerts Slack later, depending on whether the user is in Dispatch. form needs the Slack app connected and cannot combine with images. Without form, this does not post to a stream, answer a question, or prove the user read it. Rate limited. The result says where it went: sent means Slack accepted it; inApp means the user is in Dispatch and it showed there as a passing notice, so don't resend (use urgent if it must reach Slack).",
         inputSchema: {
           message: z
             .string()
@@ -164,6 +164,10 @@ export function registerAgentLifecycleTools(
             ),
           title: z.string().trim().min(1).max(120).optional(),
           level: z.enum(["info", "success", "warning", "error"]).optional(),
+          urgent: z
+            .boolean()
+            .optional()
+            .describe("Send to Slack even while the user is in Dispatch."),
           replyTo: z
             .string()
             .uuid()

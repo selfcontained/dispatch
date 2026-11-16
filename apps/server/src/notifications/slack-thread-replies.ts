@@ -399,7 +399,7 @@ export class SlackThreadReplies {
 
   /**
    * A question/form the agent posts while working on a Slack follow-up goes
-   * into that thread now, as interactive Block Kit, instead of the 5-minute
+   * into that thread now, as interactive Block Kit, instead of the presence-timed
    * channel alert. Correlation: the open turn's recorded prompts name the
    * post, and the ask is in the same conversation as the turn and the post.
    */
@@ -420,7 +420,7 @@ export class SlackThreadReplies {
         threadTs: target.threadTs,
       })
       .catch(() => false);
-    if (!sent || sent === true) return; // The ordinary 5-minute alert still applies.
+    if (!sent || sent === true) return; // The ordinary presence-timed alert still applies.
     // Already in front of the person: the delayed alert must not repeat it.
     await this.pool.query(
       `INSERT INTO question_notifications(block_id,binding_generation,due_at,next_attempt_at,sent_at,slack_channel_id,slack_message_ts)

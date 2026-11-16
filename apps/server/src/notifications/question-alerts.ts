@@ -39,7 +39,58 @@ type DeliverResult =
   | { sent: true }
   | { sent: false; error: unknown; stale: boolean };
 
-/** One successful alert per human-directed question. Read receipts/focus are deliberately absent. */
+/** How long an open question waits before Slack, by whether the user is around. */
+export type AlertTiming = { awayDelayMs: number; presentDelayMs: number };
+export const DEFAULT_ALERT_TIMING: AlertTiming = {
+  awayDelayMs: 30_000,
+  presentDelayMs: 10 * 60_000,
+};
+
+/** What the scheduler needs to know about the user and the time. */
+export type AlertSchedule = {
+  now: () => number;
+  /** When the user stopped being present in Dispatch, or null while they are. */
+  awaySince: () => number | null;
+  /** Whether the user is looking at this agent right now. */
+  isViewing: (agentId: string) => boolean;
+  timing: () => Promise<AlertTiming>;
+};
+
+/** No presence source: the user is always away. */
+const ALWAYS_AWAY: AlertSchedule = {
+  now: Date.now,
+  awaySince: () => Number.NEGATIVE_INFINITY,
+  isViewing: () => false,
+  timing: async () => DEFAULT_ALERT_TIMING,
+};
+
+/**
+ * Whether a waiting (not explicitly sent) alert is due. Away: the away delay
+ * after it was posted or after the user left, whichever is later. Present:
+ * the longer present delay after it was posted. Viewing its agent: never,
+ * while they stay.
+ */
+export function alertIsDue(
+  question: { createdAt: number; agentId: string },
+  schedule: Omit<AlertSchedule, "timing">,
+  timing: AlertTiming
+): boolean {
+  if (schedule.isViewing(question.agentId)) return false;
+  const now = schedule.now();
+  const awaySince = schedule.awaySince();
+  if (awaySince === null)
+    return now >= question.createdAt + timing.presentDelayMs;
+  return now >= Math.max(question.createdAt, awaySince) + timing.awayDelayMs;
+}
+
+/** Most alerts one tick sends, so a backlog can't hold the worker for long. */
+const MAX_ALERTS_PER_TICK = 10;
+
+/**
+ * One successful alert per human-directed question. When it goes out
+ * depends on presence (see `alertIsDue`); read receipts are deliberately
+ * ignored.
+ */
 export class QuestionAlerts {
   private timer?: ReturnType<typeof setInterval>;
   private running = false;
@@ -51,12 +102,13 @@ export class QuestionAlerts {
     private getBinding: () => Promise<{
       generation: string;
       enabledAt: string;
-    } | null>
+    } | null>,
+    private schedule: AlertSchedule = ALWAYS_AWAY
   ) {}
   start() {
     this.timer = setInterval(() => {
       void this.tick().catch(() => {});
-    }, 15000);
+    }, 10000);
     this.timer.unref();
     void this.tick().catch(() => {});
   }
@@ -71,7 +123,7 @@ export class QuestionAlerts {
       if (!binding) return;
       await this.pool.query(
         `INSERT INTO question_notifications(block_id,binding_generation,due_at,next_attempt_at)
-        SELECT b.id,$1,b.created_at + interval '5 minutes',b.created_at + interval '5 minutes'
+        SELECT b.id,$1,b.created_at,b.created_at
         FROM blocks b WHERE b.created_at >= $2::timestamptz AND b.kind IN ('question','form') AND b.author_kind='agent' AND ${HUMAN_QUESTION_SQL}
         AND ${OPEN_INPUT_SQL} ON CONFLICT DO NOTHING`,
         [binding.generation, binding.enabledAt]
@@ -80,22 +132,51 @@ export class QuestionAlerts {
         .query(`UPDATE question_notifications n SET cancelled_at=now()
         FROM blocks b WHERE b.id=n.block_id AND NOT (${OPEN_INPUT_SQL} AND ${HUMAN_QUESTION_SQL})
         AND n.sent_at IS NULL AND n.cancelled_at IS NULL`);
-      const claimed = await this.pool.query<Alert>(
-        `WITH candidate AS (
-        SELECT n.block_id FROM question_notifications n JOIN blocks b ON b.id=n.block_id
+      // Every waiting row ready for an attempt (open questions are few);
+      // presence decides which are due. Unbounded so rows held back by
+      // presence never hide due ones behind them.
+      const { rows: waiting } = await this.pool.query<{
+        block_id: string;
+        immediate: boolean;
+        created_at: Date;
+        agent_id: string | null;
+      }>(
+        `SELECT n.block_id,n.immediate,b.created_at,b.author_agent_id AS agent_id
+        FROM question_notifications n JOIN blocks b ON b.id=n.block_id
         WHERE n.sent_at IS NULL AND n.cancelled_at IS NULL AND n.next_attempt_at<=now()
         AND n.binding_generation=$1 AND (n.lease_until IS NULL OR n.lease_until<now()) AND ${OPEN_INPUT_SQL} AND ${HUMAN_QUESTION_SQL}
-        ORDER BY n.next_attempt_at LIMIT 1 FOR UPDATE OF n SKIP LOCKED
-      ), claimed AS (
-        UPDATE question_notifications n SET lease_until=now()+interval '60 seconds',attempts=attempts+1
-        FROM candidate c WHERE c.block_id=n.block_id RETURNING n.*
-      ) SELECT ${ALERT_SELECT}
-        FROM claimed n JOIN blocks b ON b.id=n.block_id LEFT JOIN agents a ON a.id=b.author_agent_id`,
+        ORDER BY n.immediate DESC,n.next_attempt_at`,
         [binding.generation]
       );
-      const alert = claimed.rows[0];
-      if (!alert) return;
-      await this.deliver(alert);
+      if (!waiting.length) return;
+      const timing = await this.schedule.timing();
+      const due = waiting
+        .filter(
+          (row) =>
+            row.immediate ||
+            alertIsDue(
+              {
+                createdAt: row.created_at.getTime(),
+                agentId: row.agent_id ?? "",
+              },
+              this.schedule,
+              timing
+            )
+        )
+        .slice(0, MAX_ALERTS_PER_TICK);
+      for (const row of due) {
+        const claimed = await this.pool.query<Alert>(
+          `WITH claimed AS (
+          UPDATE question_notifications n SET lease_until=now()+interval '60 seconds',attempts=attempts+1
+          WHERE n.block_id=$2 AND n.sent_at IS NULL AND n.cancelled_at IS NULL AND n.binding_generation=$1
+          AND (n.lease_until IS NULL OR n.lease_until<now()) RETURNING n.*
+        ) SELECT ${ALERT_SELECT}
+          FROM claimed n JOIN blocks b ON b.id=n.block_id LEFT JOIN agents a ON a.id=b.author_agent_id`,
+          [binding.generation, row.block_id]
+        );
+        const alert = claimed.rows[0];
+        if (alert) await this.deliver(alert);
+      }
     } finally {
       this.running = false;
     }

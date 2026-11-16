@@ -11,6 +11,7 @@ import type { FastifyBaseLogger } from "fastify";
 import type { NotifyInput, NotifyResult } from "../shared/mcp/server.js";
 import type { AgentRecord } from "../agents/manager.js";
 import { getSetting, setSetting } from "../db/settings.js";
+import { type AlertTiming, DEFAULT_ALERT_TIMING } from "./question-alerts.js";
 
 const NOTIFY_EVENT_TYPES = ["waiting_user", "blocked"] as const;
 type NotifyEventType = (typeof NOTIFY_EVENT_TYPES)[number];
@@ -23,6 +24,45 @@ export type { NotifyInput, NotifyResult };
 
 const SETTING_WEB_NOTIFY_ENABLED = "web_notify_enabled";
 const SETTING_WEB_NOTIFY_EVENTS = "web_notify_events";
+const SETTING_SLACK_AWAY_DELAY = "slack_away_delay_seconds";
+const SETTING_SLACK_PRESENT_DELAY = "slack_present_delay_minutes";
+
+/** Bounds for the Slack wait settings: away in seconds, present in minutes. */
+export const SLACK_AWAY_DELAY_SECONDS = { min: 0, max: 3600, default: 30 };
+export const SLACK_PRESENT_DELAY_MINUTES = { min: 1, max: 240, default: 10 };
+
+/** Why a Slack wait setting is invalid, or null when every given one is fine. */
+export function slackDelayError(input: {
+  slackAwayDelaySeconds?: unknown;
+  slackPresentDelayMinutes?: unknown;
+}): string | null {
+  for (const [key, bounds] of [
+    ["slackAwayDelaySeconds", SLACK_AWAY_DELAY_SECONDS],
+    ["slackPresentDelayMinutes", SLACK_PRESENT_DELAY_MINUTES],
+  ] as const) {
+    const value = input[key];
+    if (value === undefined) continue;
+    if (
+      typeof value !== "number" ||
+      !Number.isInteger(value) ||
+      value < bounds.min ||
+      value > bounds.max
+    )
+      return `${key} must be a whole number from ${bounds.min} to ${bounds.max}.`;
+  }
+  return null;
+}
+
+/** The user's presence in Dispatch, as notify sees it. */
+export type NotifyPresence = {
+  isPresent: () => boolean;
+  isViewing: (agentId: string) => boolean;
+  /** Toast the notice on present sessions; how many streams took it. */
+  showInApp: (
+    agent: AgentRecord,
+    notice: { title?: string; message: string }
+  ) => number;
+};
 
 /** Short-lived cache to avoid DB reads on every agent event. */
 const CACHE_TTL_MS = 10_000;
@@ -36,6 +76,23 @@ type CachedSettings = {
   webNotifyEvents: NotifyEventType[];
   expiresAt: number;
 };
+
+export type NotificationSettings = {
+  webNotifyEnabled: boolean;
+  webNotifyEvents: NotifyEventType[];
+  slackAwayDelaySeconds: number;
+  slackPresentDelayMinutes: number;
+};
+
+function parseDelay(
+  raw: string | null,
+  bounds: { min: number; max: number; default: number }
+): number {
+  const value = raw === null ? NaN : Number(raw);
+  return Number.isInteger(value) && value >= bounds.min && value <= bounds.max
+    ? value
+    : bounds.default;
+}
 
 export class SlackNotifier {
   readonly app: SlackApp;
@@ -103,15 +160,67 @@ export class SlackNotifier {
     this.isFocused = fn;
   }
 
-  async getSettings(): Promise<{
-    webNotifyEnabled: boolean;
-    webNotifyEvents: NotifyEventType[];
-  }> {
-    const [webNotifyEnabled, webNotifyEvents] = await Promise.all([
+  private presence?: NotifyPresence;
+  /** Where notify learns whether the user is in Dispatch, and toasts them there. */
+  setPresence(presence: NotifyPresence): void {
+    this.presence = presence;
+  }
+
+  async getSettings(): Promise<NotificationSettings> {
+    const [webNotifyEnabled, webNotifyEvents, timing] = await Promise.all([
       this.getWebNotifyEnabled(),
       this.getWebNotifyEvents(),
+      this.getSlackDelays(),
     ]);
-    return { webNotifyEnabled, webNotifyEvents };
+    return { webNotifyEnabled, webNotifyEvents, ...timing };
+  }
+
+  async getSlackDelays(): Promise<{
+    slackAwayDelaySeconds: number;
+    slackPresentDelayMinutes: number;
+  }> {
+    const [away, present] = await Promise.all([
+      getSetting(this.pool, SETTING_SLACK_AWAY_DELAY),
+      getSetting(this.pool, SETTING_SLACK_PRESENT_DELAY),
+    ]);
+    return {
+      slackAwayDelaySeconds: parseDelay(away, SLACK_AWAY_DELAY_SECONDS),
+      slackPresentDelayMinutes: parseDelay(
+        present,
+        SLACK_PRESENT_DELAY_MINUTES
+      ),
+    };
+  }
+
+  /** Out-of-range values throw; the route checks first with `slackDelayError`. */
+  async setSlackDelays(input: {
+    slackAwayDelaySeconds?: number;
+    slackPresentDelayMinutes?: number;
+  }): Promise<void> {
+    const invalid = slackDelayError(input);
+    if (invalid) throw new RangeError(invalid);
+    const write = async (key: string, value: number | undefined) => {
+      if (value !== undefined) await setSetting(this.pool, key, String(value));
+    };
+    await write(SETTING_SLACK_AWAY_DELAY, input.slackAwayDelaySeconds);
+    await write(SETTING_SLACK_PRESENT_DELAY, input.slackPresentDelayMinutes);
+    this.timingCache = null;
+  }
+
+  private timingCache: { timing: AlertTiming; expiresAt: number } | null = null;
+  /** The question-alert waits, cached briefly (read every alert tick). */
+  async alertTiming(): Promise<AlertTiming> {
+    if (this.timingCache && Date.now() < this.timingCache.expiresAt)
+      return this.timingCache.timing;
+    const delays = await this.getSlackDelays().catch(() => null);
+    const timing = delays
+      ? {
+          awayDelayMs: delays.slackAwayDelaySeconds * 1000,
+          presentDelayMs: delays.slackPresentDelayMinutes * 60_000,
+        }
+      : DEFAULT_ALERT_TIMING;
+    this.timingCache = { timing, expiresAt: Date.now() + CACHE_TTL_MS };
+    return timing;
   }
 
   async getWebNotifyEnabled(): Promise<boolean> {
@@ -165,8 +274,9 @@ export class SlackNotifier {
   }
 
   /**
-   * Agent-initiated notification via the notify MCP tool.
-   * Bypasses focus filtering by default (agents explicitly chose to notify).
+   * Agent-initiated notification via the notify MCP tool. Forms and thread
+   * replies go to Slack now. Otherwise, while the user is in Dispatch it shows
+   * there instead (unless urgent), and goes to Slack when they're away.
    */
   async sendNotification(
     agent: AgentRecord,
@@ -238,6 +348,31 @@ export class SlackNotifier {
       : null;
     if (turnPost) return toThread(turnPost);
 
+    // The user is in Dispatch: show it there instead of Slack.
+    if (!input.urgent && this.presence?.isPresent()) {
+      if (this.presence.isViewing(agent.id)) {
+        this.recordNotifyTimestamp(agent.id);
+        return {
+          sent: false,
+          inApp: true,
+          reason: "User is viewing this agent in Dispatch; not sent to Slack.",
+        };
+      }
+      const shown = this.presence.showInApp(agent, {
+        title: input.title,
+        message: input.message,
+      });
+      if (shown > 0) {
+        this.recordNotifyTimestamp(agent.id);
+        return {
+          sent: false,
+          inApp: true,
+          reason: "User active in Dispatch; shown in-app, not sent to Slack.",
+        };
+      }
+      // No present session could show it: Slack is the only way to reach them.
+    }
+
     const appSettings = await this.app.settings();
     if (appSettings.binding) {
       const loaded = await loadImages(input.images);
@@ -273,7 +408,9 @@ export class SlackNotifier {
         const note = result.note ?? pictures.skipped;
         await this.notifySent?.(sent, agent.id).catch(() => {});
         this.recordNotifyTimestamp(agent.id);
-        return note ? { sent: true, note } : { sent: true };
+        return note
+          ? { sent: true, reason: "Sent to Slack.", note }
+          : { sent: true, reason: "Sent to Slack." };
       } catch (error) {
         if (error instanceof SlackRetryError)
           return { sent: false, reason: "Slack rate limited. Retry shortly." };

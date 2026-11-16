@@ -3,6 +3,8 @@ export type NotifyEventType = "waiting_user" | "blocked";
 export type NotificationSettingsResponse = {
   webNotifyEnabled: boolean;
   webNotifyEvents: NotifyEventType[];
+  slackAwayDelaySeconds: number;
+  slackPresentDelayMinutes: number;
 };
 
 export const EVENT_OPTIONS: Array<{

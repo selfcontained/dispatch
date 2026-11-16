@@ -237,13 +237,15 @@ export type NotifyInput = {
   title?: string;
   level?: "info" | "success" | "warning" | "error";
   respectFocus?: boolean;
+  /** Send to Slack even while the user is in Dispatch. */
+  urgent?: boolean;
   /** Answer in the Slack thread this message (a Slack-origin post) came from. */
   replyTo?: string;
   /** Absolute paths of png/jpg/gif files to show inline in Slack. */
   images?: string[];
   /**
    * Create a Dispatch form (as post({ form }) would) and send its interactive
-   * Slack alert now instead of after the five-minute reminder wait.
+   * Slack alert now instead of waiting on presence.
    */
   form?: Omit<BlockFormData, "parentHandled" | "parentRequestConversation">;
 };
@@ -251,6 +253,8 @@ export type NotifyInput = {
 export type NotifyResult = {
   /** True only when Slack accepted the message. */
   sent: boolean;
+  /** Not sent to Slack because the user is in Dispatch (shown there, or already viewing). */
+  inApp?: boolean;
   reason?: string;
   /** Something about a sent message the agent should know (e.g. images skipped). */
   note?: string;
