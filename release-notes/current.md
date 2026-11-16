@@ -1,9 +1,7 @@
 ## What's Changed
-* Stay in Agents when the open agent is archived by @selfcontained in https://github.com/selfcontained/dispatch/pull/1481
-* Stop resurfacing parent-answered asks whose answer failed to deliver by @selfcontained in https://github.com/selfcontained/dispatch/pull/1482
-* Add recent attention notifications drawer by @selfcontained in https://github.com/selfcontained/dispatch/pull/1480
-* Render markdown in attention toasts and drawer cards by @selfcontained in https://github.com/selfcontained/dispatch/pull/1483
-* Make risk explanations structured and more useful on gpt-6.1-terra by @selfcontained in https://github.com/selfcontained/dispatch/pull/1484
+* Drop racy late applied check from routing cancel test by @selfcontained in https://github.com/selfcontained/dispatch/pull/1485
+* Fix Slack send-slot wait returning before the 1 msg/s guard opens by @selfcontained in https://github.com/selfcontained/dispatch/pull/1486
+* Hide archived agents from notification history by @selfcontained in https://github.com/selfcontained/dispatch/pull/1487
 
 
-**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v1.7.19...v1.7.20
+**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v1.7.20...v1.7.21
