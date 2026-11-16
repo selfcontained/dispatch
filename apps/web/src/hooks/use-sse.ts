@@ -717,6 +717,9 @@ export function useSSE(authState: AuthState): void {
         }
 
         if (payload.type === "agent.deleted") {
+          void queryClient.invalidateQueries({
+            queryKey: ["attention-history"],
+          });
           queryClient.setQueryData<Agent[]>(["agents"], (old) =>
             old?.filter((a) => a.id !== payload.agentId)
           );

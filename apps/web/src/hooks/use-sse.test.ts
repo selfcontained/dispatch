@@ -1688,6 +1688,14 @@ describe("useSSE message handling", () => {
     }
   });
 
+  it("invalidates attention history when an agent is archived", () => {
+    const { emit, invalidateQueries } = renderMessages();
+    emit({ type: "agent.deleted", agentId: "agt_1" });
+    expect(invalidatedKeys(invalidateQueries)).toContainEqual([
+      "attention-history",
+    ]);
+  });
+
   it("refreshes attention history without churning the agent feed", () => {
     const { emit, invalidateQueries } = renderMessages();
     emit({ type: "attention.history_changed" });
