@@ -242,9 +242,9 @@ export function TurnAnswer({
                   <span
                     data-testid="chat-response-placeholder-scan"
                     className={cn(
-                      "dispatch-placeholder-scan absolute inset-y-0 left-0 w-1/3 rounded-full opacity-20 will-change-transform motion-reduce:hidden",
+                      "dispatch-placeholder-scan absolute inset-y-0 left-0 w-1/3 rounded-full opacity-10 will-change-transform motion-reduce:hidden",
                       "bg-[linear-gradient(90deg,transparent,hsl(var(--status-blocked)),hsl(var(--status-waiting)),hsl(var(--status-working)),hsl(var(--status-done)),transparent)]",
-                      "animate-[placeholder-scan_2.8s_ease-in-out_infinite_alternate_both]",
+                      "animate-[placeholder-scan_4.2s_ease-in-out_infinite_alternate_both]",
                       row.delay
                     )}
                   />
