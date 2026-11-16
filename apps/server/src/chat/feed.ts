@@ -90,8 +90,6 @@ const PAGE_COLUMNS_SQL = BLOCK_COLUMNS.map((c) => `p.${c}`).join(", ");
  * re-aggregated — one function scan and a hash join for the planner to price
  * instead of a per-row lookup it would estimate at a hundred index scans.
  */
-export { FAILED_PARENT_INPUT_SQL } from "./store.js";
-
 async function listBlockEntries(
   db: Queryable,
   streamId: string,

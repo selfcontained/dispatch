@@ -1246,18 +1246,11 @@ export const OPEN_INPUT_SQL = `(b.kind IN ('question', 'form')
             AND b.state->'cancellation' IS NULL
           )))`;
 
-const ANSWER_BLOCK_ID_SQL = `COALESCE(b.state->'answer'->>'blockId', b.state->'submission'->>'blockId')`;
-// Compare as uuid so the lookup uses blocks_pkey; casting `answer.id::text`
-// instead scans every block once per outer row. Only canonical lowercase ids
-// are cast — the ones a text comparison could match — so a malformed value
-// matches nothing rather than failing the query.
+/**
+ * A child's question or form that never reached its parent, still open, so
+ * people can answer it instead (alias `b`).
+ */
 export const FAILED_PARENT_INPUT_SQL = `(b.to_agent_id IS NOT NULL
   AND b.data->>'parentHandled' = 'true'
-  AND ((b.delivered = false AND ${OPEN_INPUT_SQL}) OR EXISTS (
-    SELECT 1 FROM blocks answer
-    WHERE answer.id = CASE
-        WHEN ${ANSWER_BLOCK_ID_SQL} ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
-        THEN (${ANSWER_BLOCK_ID_SQL})::uuid
-      END
-      AND answer.delivered = false
-  )))`;
+  AND b.delivered = false
+  AND ${OPEN_INPUT_SQL})`;

@@ -878,6 +878,8 @@ describe("ChatFeed", () => {
       { onRetryDelivery: retry, peers: REVIEWER_PEER }
     );
     expect(screen.getAllByTestId("chat-delivery-retry")).toHaveLength(1);
+    // The parent answered it, so it is not presented as waiting on the user.
+    expect(screen.queryByTestId("parent-request-delivery-failure")).toBeNull();
     fireEvent.click(screen.getByTestId("chat-delivery-retry"));
     expect(retry).toHaveBeenCalledWith(reply.id);
   });
