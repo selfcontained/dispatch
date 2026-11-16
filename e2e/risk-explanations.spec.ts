@@ -90,7 +90,7 @@ for (const mobile of [false, true]) {
           await route.fulfill({
             json: {
               state: "ready",
-              text: "``auth/session.ts` changes session handling. Resolved reviews mitigate correctness risk, while the new settings surface needs product judgment. Literal `<b>x</b>` stays text. This is not merge approval.",
+              text: "### Why this verdict\n- `auth/session.ts` changes session handling.\n\n### What to check\n- The new settings surface needs product judgment. Literal `<b>x</b>` stays text.\n\n### What lowers the risk\n- Resolved reviews mitigate correctness risk. <b>raw</b>",
             },
           });
       }
@@ -167,9 +167,10 @@ for (const mobile of [false, true]) {
     await expect(popup.locator("code")).toHaveCount(2);
     await expect(popup.getByText("<b>x</b>", { exact: true })).toBeVisible();
     await expect(popup.locator("b")).toHaveCount(0);
-    await expect(popup).toContainText(
-      "`auth/session.ts changes session handling."
-    );
+    await expect(
+      popup.getByRole("heading", { name: "What to check", exact: true })
+    ).toBeVisible();
+    await expect(popup.locator("li")).toHaveCount(3);
     await expect(popup.getByText(/Evidence-based follow-up/)).toHaveCount(0);
     await page.screenshot({
       path: `/tmp/risk-${mobile ? "mobile" : "desktop"}-result.png`,
