@@ -11,11 +11,11 @@ const SheetContent = React.forwardRef<
   React.ComponentPropsWithoutRef<typeof SheetPrimitive.Content>
 >(({ className, children, ...props }, ref) => (
   <SheetPrimitive.Portal>
-    <SheetPrimitive.Overlay className="fixed inset-0 z-[80] bg-black/50 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=open]:fade-in-0 data-[state=closed]:fade-out-0" />
+    <SheetPrimitive.Overlay className="notifications-sheet-overlay fixed inset-0 z-[80] bg-black/50" />
     <SheetPrimitive.Content
       ref={ref}
       className={cn(
-        "fixed inset-y-0 right-0 z-[81] flex h-full w-full flex-col border-l bg-background shadow-lg duration-300 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:slide-out-to-right data-[state=open]:slide-in-from-right sm:max-w-md",
+        "notifications-sheet fixed inset-y-0 right-0 z-[81] flex h-full w-full flex-col border-l bg-background shadow-lg sm:max-w-md",
         className
       )}
       {...props}

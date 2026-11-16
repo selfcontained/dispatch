@@ -677,3 +677,20 @@ export const hiddenAgentPreviewsAtomFamily = atomFamily((agentId: string) =>
     []
   )
 );
+
+/** Device-local notification dismissals, bounded by the history window. */
+export const dismissedAttentionAtom = atomWithLocalStorage<
+  Record<string, string>
+>(
+  "dispatch:dismissedAttention",
+  {},
+  {
+    validate: (value): value is Record<string, string> =>
+      value !== null &&
+      typeof value === "object" &&
+      !Array.isArray(value) &&
+      Object.values(value).every(
+        (at) => typeof at === "string" && Number.isFinite(Date.parse(at))
+      ),
+  }
+);

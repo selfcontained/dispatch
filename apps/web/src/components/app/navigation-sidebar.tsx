@@ -54,9 +54,6 @@ export function NavigationSidebar({
       label="Navigation sidebar"
     >
       <SidebarShell
-        onNotificationNavigate={
-          isMobile ? () => setMobileLeftOpen(false) : undefined
-        }
         activeSection={activeSection}
         onNavigate={onNavigate}
         onRequestClose={

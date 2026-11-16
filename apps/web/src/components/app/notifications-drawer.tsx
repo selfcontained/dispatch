@@ -1,3 +1,5 @@
+import { useAtom } from "jotai";
+import { dismissedAttentionAtom } from "@/lib/store";
 import type { AttentionHistoryItem } from "@dispatch/shared";
 import { useQuery } from "@tanstack/react-query";
 import { Bell } from "lucide-react";
@@ -18,6 +20,7 @@ export function NotificationsDrawer({
   onNavigate?: () => void;
 }): JSX.Element {
   const [open, setOpen] = useState(false);
+  const [dismissed, setDismissed] = useAtom(dismissedAttentionAtom);
   const history = useQuery({
     queryKey: ["attention-history"],
     queryFn: () => api<AttentionHistoryItem[]>("/api/v1/notifications/recent"),
@@ -25,6 +28,7 @@ export function NotificationsDrawer({
     // Also refresh persisted settlements if the tab reconnects between events.
     refetchInterval: open ? 5000 : false,
   });
+  const items = history.data?.filter((item) => !dismissed[item.toastId]);
   return (
     <Sheet open={open} onOpenChange={setOpen}>
       <SheetTrigger asChild>
@@ -52,12 +56,12 @@ export function NotificationsDrawer({
                 Retry
               </Button>
             </div>
-          ) : history.data?.length === 0 ? (
+          ) : items?.length === 0 ? (
             <p className="p-2 text-sm text-muted-foreground">
               No notifications
             </p>
           ) : (
-            history.data?.map((item) => (
+            items?.map((item) => (
               <AttentionCard
                 key={item.toastId}
                 event={item}
@@ -65,6 +69,14 @@ export function NotificationsDrawer({
                 settled={item.settled}
                 link
                 onOpen={() => {
+                  setDismissed((previous) => ({
+                    ...Object.fromEntries(
+                      Object.entries(previous).filter(
+                        ([, at]) => Date.parse(at) >= Date.now() - 7 * 86400000
+                      )
+                    ),
+                    [item.toastId]: item.createdAt,
+                  }));
                   setOpen(false);
                   onNavigate?.();
                 }}

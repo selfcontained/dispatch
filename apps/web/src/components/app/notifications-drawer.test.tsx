@@ -1,4 +1,6 @@
 // @vitest-environment jsdom
+import { getDefaultStore } from "jotai";
+import { dismissedAttentionAtom } from "@/lib/store";
 import { api } from "@/lib/api";
 import {
   cleanup,
@@ -28,6 +30,8 @@ const items: AttentionHistoryItem[] = (
 }));
 vi.mock("@/lib/api", () => ({ api: vi.fn() }));
 beforeEach(() => {
+  getDefaultStore().set(dismissedAttentionAtom, {});
+  window.localStorage.clear();
   vi.mocked(api).mockReset();
   vi.mocked(api).mockResolvedValue(items);
 });
@@ -85,6 +89,10 @@ it("opens a message link and closes the drawer", async () => {
   expect(screen.getByRole("status").textContent).toBe(
     "/agents/agent?block=block-0"
   );
+  fireEvent.click(screen.getByRole("button", { name: "Notifications" }));
+  expect(screen.queryByRole("link", { name: /question message/ })).toBeNull();
+  expect(screen.getAllByRole("link")).toHaveLength(3);
+  expect(getDefaultStore().get(dismissedAttentionAtom)).toHaveProperty("0");
 });
 
 it("keeps cached cards visible after a failed background refresh", async () => {

@@ -8,10 +8,12 @@ import { useDashboardContext } from "@/components/app/dashboard-context";
 export function SectionShell({
   activeSection,
   sidebar,
+  headerActions,
   children,
 }: {
   activeSection?: NavSection;
   sidebar?: React.ReactNode;
+  headerActions?: React.ReactNode;
   children: React.ReactNode;
 }): JSX.Element {
   const {
@@ -46,8 +48,25 @@ export function SectionShell({
           {sidebar}
         </NavigationSidebar>
 
-        <main className="relative min-h-0 min-w-0 flex-1 overflow-hidden">
-          {!leftPanelOpen ? (
+        <main className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+          {headerActions ? (
+            <div className="flex min-h-14 shrink-0 items-center justify-between px-3">
+              <div>
+                {!leftPanelOpen ? (
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    onClick={() => handleSetLeftPanelOpen(true)}
+                    title="Open sidebar"
+                  >
+                    <PanelRightOpen className="h-4 w-4" />
+                  </Button>
+                ) : null}
+              </div>
+              <div className="flex items-center gap-1">{headerActions}</div>
+            </div>
+          ) : null}
+          {!leftPanelOpen && !headerActions ? (
             <div className="pointer-events-none absolute left-3 top-3 z-10">
               <Button
                 size="icon"
@@ -62,8 +81,8 @@ export function SectionShell({
           ) : null}
           <div
             className={cn(
-              "flex h-full min-h-0 min-w-0 flex-col overflow-hidden",
-              !leftPanelOpen && "pt-14"
+              "flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden",
+              !leftPanelOpen && !headerActions && "pt-14"
             )}
           >
             {children}
