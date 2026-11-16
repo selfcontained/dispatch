@@ -1,5 +1,8 @@
 import { recordHTTPRequest } from "@/lib/energy-metrics";
 import { noteServerVersion } from "@/lib/version";
+import { APP_SESSION_ID } from "@/lib/app-session";
+
+const PRESENCE_SESSION_HEADER = "x-dispatch-session";
 
 /**
  * Lightweight event target for auth failures.  Components (or hooks) can
@@ -39,13 +42,17 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const hasBody = init?.body !== undefined && init?.body !== null;
   const isFormData =
     typeof FormData !== "undefined" && init?.body instanceof FormData;
+  // Same precedence as before: caller headers replace the default ones.
+  const headers = new Headers(
+    init?.headers ??
+      (hasBody && !isFormData ? { "content-type": "application/json" } : {})
+  );
+  // Names this tab, so the server can count what the user does as presence.
+  headers.set(PRESENCE_SESSION_HEADER, APP_SESSION_ID);
   const res = await fetch(path, {
     credentials: "include",
-    headers: {
-      ...(hasBody && !isFormData ? { "content-type": "application/json" } : {}),
-      ...(init?.headers ?? {}),
-    },
     ...init,
+    headers,
   });
 
   noteServerVersion(res.headers.get("X-Dispatch-Version"));

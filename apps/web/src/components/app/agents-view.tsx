@@ -55,7 +55,6 @@ import { useFiles } from "@/hooks/use-files";
 import { useInbox } from "@/hooks/use-inbox";
 import { useDrawerRoute } from "@/hooks/use-drawer-route";
 import { useDrawerState } from "@/hooks/use-drawer-state";
-import { useAgentFocus } from "@/hooks/use-agent-focus";
 import { useAgentsViewRouting } from "@/hooks/use-agents-view-routing";
 import { useAgentHotkeys } from "@/hooks/use-agent-hotkeys";
 import {
@@ -262,8 +261,6 @@ export function AgentsView({
     if (!streamStarted || threadDrawerOpen) return;
     setDrawerOpenState(true);
   }, [focusedAgentHasStream, setDrawerOpenState, threadDrawerOpen]);
-
-  useAgentFocus(focusedAgentId, "authenticated");
 
   const changesVisible =
     (isSplit &&

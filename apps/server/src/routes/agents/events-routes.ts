@@ -2,6 +2,13 @@ import type { FastifyInstance } from "fastify";
 
 import type { AgentRouteDeps } from "./shared.js";
 
+/** A client-generated app session id: one per tab or installed app window. */
+function sessionIdOf(value: unknown): string | null {
+  return typeof value === "string" && /^[A-Za-z0-9_-]{8,64}$/.test(value)
+    ? value
+    : null;
+}
+
 export async function registerAgentEventRoutes(
   app: FastifyInstance,
   deps: AgentRouteDeps
@@ -14,7 +21,10 @@ export async function registerAgentEventRoutes(
     reply.hijack();
 
     const stream = reply.raw;
-    const unsubscribe = deps.subscribeUiEvents(stream);
+    const unsubscribe = deps.subscribeUiEvents(
+      stream,
+      sessionIdOf((request.query as { session?: unknown } | undefined)?.session)
+    );
     const heartbeat = setInterval(() => {
       stream.write(": keepalive\n\n");
     }, 20_000);
@@ -71,21 +81,59 @@ export async function registerAgentEventRoutes(
   });
 
   app.post("/api/v1/focus", async (request, reply) => {
-    const body = request.body as { agentId?: unknown };
+    const body = request.body as {
+      agentId?: unknown;
+      sessionId?: unknown;
+      visible?: unknown;
+      focused?: unknown;
+      active?: unknown;
+      viewingAgentId?: unknown;
+    } | null;
     const agentId = body?.agentId;
 
-    if (agentId === null || agentId === undefined) {
-      deps.clearFocusedAgents();
-      return reply.code(204).send();
-    }
-
-    if (typeof agentId !== "string" || !agentId.trim()) {
+    if (
+      agentId !== null &&
+      agentId !== undefined &&
+      (typeof agentId !== "string" || !agentId.trim())
+    ) {
       return reply
         .code(400)
         .send({ error: "agentId must be a non-empty string or null." });
     }
 
-    deps.setFocusedAgent(agentId.trim());
+    // Presence rides the same heartbeat; older clients simply omit it.
+    const sessionId = sessionIdOf(body?.sessionId);
+    if (sessionId) {
+      const { visible, focused, active, viewingAgentId } = body ?? {};
+      if (
+        typeof visible !== "boolean" ||
+        typeof focused !== "boolean" ||
+        (active !== undefined && typeof active !== "boolean") ||
+        (viewingAgentId !== null &&
+          viewingAgentId !== undefined &&
+          (typeof viewingAgentId !== "string" || !viewingAgentId.trim()))
+      ) {
+        return reply.code(400).send({
+          error:
+            "visible and focused must be booleans, active a boolean if given, and viewingAgentId a string or null.",
+        });
+      }
+      deps.reportPresence?.(sessionId, {
+        visible,
+        focused,
+        active: active === true,
+        viewingAgentId:
+          typeof viewingAgentId === "string" ? viewingAgentId.trim() : null,
+      });
+    }
+
+    if (agentId === null || agentId === undefined) {
+      deps.clearFocusedAgents();
+    } else {
+      // Focus is one agent at a time: moving to another agent leaves the last.
+      deps.clearFocusedAgents();
+      deps.setFocusedAgent((agentId as string).trim());
+    }
     return reply.code(204).send();
   });
 }

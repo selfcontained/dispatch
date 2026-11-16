@@ -22,7 +22,10 @@ export type AgentRouteDeps = {
   appLog: FastifyBaseLogger;
   agentManager: AgentManager;
   publishUiEvent: PublishUiEvent;
-  subscribeUiEvents: (stream: NodeJS.WritableStream) => () => void;
+  subscribeUiEvents: (
+    stream: NodeJS.WritableStream,
+    sessionId?: string | null
+  ) => () => void;
   sendUiSnapshot: (
     stream: NodeJS.WritableStream,
     agents: Array<AgentRecord & { hasStream: boolean }>
@@ -30,6 +33,11 @@ export type AgentRouteDeps = {
   ackWebNotification: (notificationId: string) => boolean;
   clearFocusedAgents: () => void;
   setFocusedAgent: (agentId: string) => void;
+  /** An app session's presence heartbeat, carried on the focus request. */
+  reportPresence?: (
+    sessionId: string,
+    beat: import("../../presence-tracker.js").PresenceHeartbeat
+  ) => void;
   withStreamFlag: <T extends AgentRecord>(
     agent: T
   ) => T & { hasStream: boolean };

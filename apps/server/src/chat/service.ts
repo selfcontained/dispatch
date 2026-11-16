@@ -270,7 +270,11 @@ export type StreamServiceDeps = {
    */
   hasUiClient?: () => boolean;
   /** An agent posted a question or form for people: it is waiting now. */
-  onInputPosted?: (agentId: string, text: string) => Promise<void>;
+  onInputPosted?: (
+    agentId: string,
+    text: string,
+    block: Block
+  ) => Promise<void>;
   /** The same question/form as a block, for channels that render it (Slack threads). */
   onAgentAsk?: (agentId: string, block: Block) => Promise<void>;
   /** Copy a file from the agent's disk into its files; for `path` attachments. */
@@ -3329,7 +3333,7 @@ export class StreamService {
       this.deps.onInputPosted
     ) {
       await this.deps
-        .onInputPosted(agentId, text || describeInput(block))
+        .onInputPosted(agentId, text || describeInput(block), block)
         .catch((error: unknown) => {
           this.log.warn(
             { err: error, agentId },

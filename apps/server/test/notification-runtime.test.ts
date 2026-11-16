@@ -15,8 +15,13 @@ function makeDeps(overrides: Record<string, unknown> = {}) {
       shouldWebNotify: vi.fn().mockResolvedValue(null),
       ...((overrides.slackNotifier as Record<string, unknown>) ?? {}),
     },
+    presence: {
+      activeSessions: vi.fn().mockReturnValue([]),
+      ...((overrides.presence as Record<string, unknown>) ?? {}),
+    },
     uiEventBroker: {
       publish: vi.fn(),
+      publishToSessions: vi.fn(),
       hasConnectedClient: vi.fn().mockReturnValue(false),
       ...((overrides.uiEventBroker as Record<string, unknown>) ?? {}),
     },
