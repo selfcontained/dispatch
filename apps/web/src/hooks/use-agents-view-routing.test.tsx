@@ -50,6 +50,10 @@ function renderRouting(initialPath: string, initialProps: RoutingProps) {
       if (!location) throw new Error("location probe never rendered");
       return location.search;
     },
+    state: () => locationRef.current?.state as unknown,
+    navigateTo: (path: string) => {
+      act(() => navigateRef.current?.(path));
+    },
     goBack: () => {
       act(() => navigateRef.current?.(-1));
     },
@@ -110,6 +114,105 @@ describe("useAgentsViewRouting", () => {
       expect(search()).toBe(
         "?thread=discussion&finding=finding&block=reply&returnAgent=worker"
       );
+    });
+
+    it("stays in Agents when the agent on screen is archived", () => {
+      const { pathname, result, rerender, state } = renderRouting(
+        "/agents/agt_live?thread=t1",
+        {
+          routeAgentId: "agt_live",
+          agentsLoaded: true,
+          validatedSelectedAgentId: "agt_live",
+        }
+      );
+      expect(pathname()).toBe("/agents/agt_live");
+      expect(result.current.viewedAgentLeft).toBe(false);
+
+      // A live archive event drops the agent from the list while its page is
+      // open.
+      rerender({
+        routeAgentId: "agt_live",
+        agentsLoaded: true,
+        validatedSelectedAgentId: null,
+      });
+      expect(pathname()).toBe("/agents");
+      expect(state()).toEqual({ dispatchViewedAgentLeft: true });
+
+      rerender({
+        routeAgentId: undefined,
+        agentsLoaded: true,
+        validatedSelectedAgentId: null,
+      });
+      expect(pathname()).toBe("/agents");
+      expect(result.current.viewedAgentLeft).toBe(true);
+    });
+
+    it("forgets the archive on a later return to the same entry", () => {
+      const { result, rerender, navigateTo, goBack, pathname } = renderRouting(
+        "/agents/agt_live",
+        {
+          routeAgentId: "agt_live",
+          agentsLoaded: true,
+          validatedSelectedAgentId: "agt_live",
+        }
+      );
+      const empty = {
+        routeAgentId: undefined,
+        agentsLoaded: true,
+        validatedSelectedAgentId: null,
+      };
+      rerender({ ...empty, routeAgentId: "agt_live" });
+      rerender(empty);
+      expect(result.current.viewedAgentLeft).toBe(true);
+
+      navigateTo("/activity/history");
+      goBack();
+      rerender(empty);
+      expect(pathname()).toBe("/agents");
+      expect(result.current.viewedAgentLeft).toBe(false);
+    });
+
+    it("opens history for an archived agent reached after leaving its page", () => {
+      const { pathname, rerender, navigateTo } = renderRouting(
+        "/agents/agt_a",
+        {
+          routeAgentId: "agt_a",
+          agentsLoaded: true,
+          validatedSelectedAgentId: "agt_a",
+        }
+      );
+      // Close the agent, then follow an old link to it once it is archived.
+      navigateTo("/agents");
+      rerender({
+        routeAgentId: undefined,
+        agentsLoaded: true,
+        validatedSelectedAgentId: null,
+      });
+      navigateTo("/agents/agt_a");
+      rerender({
+        routeAgentId: "agt_a",
+        agentsLoaded: true,
+        validatedSelectedAgentId: null,
+      });
+      expect(pathname()).toBe("/activity/history/agt_a");
+    });
+
+    it("opens history for an archived agent linked from another agent", () => {
+      const { pathname, rerender, navigateTo } = renderRouting(
+        "/agents/agt_b",
+        {
+          routeAgentId: "agt_b",
+          agentsLoaded: true,
+          validatedSelectedAgentId: "agt_b",
+        }
+      );
+      navigateTo("/agents/agt_gone");
+      rerender({
+        routeAgentId: "agt_gone",
+        agentsLoaded: true,
+        validatedSelectedAgentId: null,
+      });
+      expect(pathname()).toBe("/activity/history/agt_gone");
     });
 
     it("leaves a validated agent alone", () => {

@@ -122,12 +122,17 @@ export function AgentsView({
     selectedAgentId: validatedSelectedAgentId,
   });
 
-  const { changesMatch, filesMatch, centerTabResolved, onTabChange } =
-    useAgentsViewRouting({
-      routeAgentId,
-      agentsLoaded,
-      validatedSelectedAgentId,
-    });
+  const {
+    changesMatch,
+    filesMatch,
+    centerTabResolved,
+    viewedAgentLeft,
+    onTabChange,
+  } = useAgentsViewRouting({
+    routeAgentId,
+    agentsLoaded,
+    validatedSelectedAgentId,
+  });
   const [createOpen, setCreateOpen] = useState(false);
   const [requestedCreateType, setRequestedCreateType] =
     useState<AgentType | null>(null);
@@ -313,18 +318,20 @@ export function AgentsView({
   // On a phone with no agent selected the center pane is an empty prompt,
   // so the sidebar opens in its place. Only on entering that state, so
   // closing the sidebar by hand still sticks; and a sheet opened this way
-  // closes again once a route (Forward, a link) selects an agent.
+  // closes again once a route (Forward, a link) selects an agent. Archiving
+  // the agent on screen is not that entry: the menus stay as they were.
   const noAgentOnMobile = isMobile && agentsLoaded && !hasActiveAgent;
+  const autoOpenSidebar = noAgentOnMobile && !viewedAgentLeft;
   const sidebarAutoOpenedRef = useRef(false);
   useEffect(() => {
-    if (noAgentOnMobile) {
+    if (autoOpenSidebar) {
       sidebarAutoOpenedRef.current = true;
       setMobileLeftOpen(true);
     } else if (sidebarAutoOpenedRef.current) {
       sidebarAutoOpenedRef.current = false;
       setMobileLeftOpen(false);
     }
-  }, [noAgentOnMobile, setMobileLeftOpen]);
+  }, [autoOpenSidebar, setMobileLeftOpen]);
   const closeDrawer = useCallback(() => {
     setDrawerOpenState(false);
   }, [setDrawerOpenState]);

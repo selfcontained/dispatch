@@ -5,7 +5,7 @@ import { useCallback } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { type Agent } from "@/components/app/types";
 import { type AgentType } from "@/lib/agent-types";
-import { agentRoute } from "@/lib/agent-routes";
+import { AGENT_LEFT_STATE, agentRoute } from "@/lib/agent-routes";
 import { api } from "@/lib/api";
 import { sortAgentsByCreatedAtDesc } from "@/lib/agent-sort";
 
@@ -78,7 +78,10 @@ export function useAgentActions({
     async (agent: Agent, cleanupWorktree?: string) => {
       setExpandedAgentId((current) => (current === agent.id ? null : current));
       if (routeAgentId === agent.id) {
-        navigate("/agents", { replace: true });
+        navigate("/agents", {
+          replace: true,
+          state: { [AGENT_LEFT_STATE]: true },
+        });
       }
       const searchParams = new URLSearchParams();
       if (cleanupWorktree) {

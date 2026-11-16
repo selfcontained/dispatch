@@ -7,6 +7,12 @@ export function agentHistoryRoute(agentId: string): string {
   return `/activity/history/${agentId}`;
 }
 
+/**
+ * Navigation state on `/agents` when the agent on screen was archived: the
+ * user stays in Agents and no menu or sheet opens as a side effect.
+ */
+export const AGENT_LEFT_STATE = "dispatchViewedAgentLeft";
+
 export function agentChangesRoute(agentId: string): string {
   return `/agents/${agentId}/changes`;
 }
