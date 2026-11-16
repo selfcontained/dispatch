@@ -147,3 +147,27 @@ it("uses the toast fallback for blank form and question text", async () => {
     "First / Second",
   ]);
 });
+
+it("hides all archived agent kinds without deleting history", async () => {
+  const history = new AttentionHistory(pool, logger);
+  for (const agent of ["one", "two"]) {
+    await block("question", agent, 0);
+    await block("form", agent, 0);
+    history.permissions(agent, [{ id: "approval", title: "Run command" }]);
+    history.blocked(agent, "Needs help");
+  }
+  await history.idle();
+  await pool.query("UPDATE agents SET deleted_at=now() WHERE id='two'");
+  try {
+    const items = await listAttentionHistory(pool);
+    expect(items).toHaveLength(4);
+    expect(items.every((item) => item.agentId === "one")).toBe(true);
+    expect(items.map((item) => item.kind).sort()).toEqual(
+      ["question", "form", "approval", "blocked"].sort()
+    );
+    await pool.query("UPDATE agents SET deleted_at=NULL WHERE id='two'");
+    expect(await listAttentionHistory(pool)).toHaveLength(8);
+  } finally {
+    await pool.query("UPDATE agents SET deleted_at=NULL WHERE id='two'");
+  }
+});

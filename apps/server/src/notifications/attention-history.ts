@@ -107,12 +107,12 @@ export async function listAttentionHistory(
        ELSE (SELECT string_agg(option->>'label',' / ' ORDER BY ordinal) FROM jsonb_array_elements(COALESCE(b.data->'options','[]'::jsonb)) WITH ORDINALITY AS options(option,ordinal)) END) AS message,b.created_at,b.stream_id,b.thread_id,b.id::text AS block_id,
      (b.state ? 'cancellation' OR CASE WHEN b.kind='question' THEN b.state ? 'answer' ELSE b.state ? 'submission' END) AS settled
    FROM blocks b JOIN agents a ON a.id=b.author_agent_id
-   WHERE b.author_kind='agent' AND b.to_agent_id IS NULL AND b.kind IN ('question','form') AND b.created_at>=now()-interval '7 days'
+   WHERE a.deleted_at IS NULL AND b.author_kind='agent' AND b.to_agent_id IS NULL AND b.kind IN ('question','form') AND b.created_at>=now()-interval '7 days'
    UNION ALL
    SELECT 'event:'||e.id,e.agent_id,COALESCE(a.name,e.agent_id),e.payload->>'attentionKind',e.payload->>'message',e.created_at,
      NULL::text,NULL::uuid,NULL::text,COALESCE((e.payload->>'settled')::boolean,false)
    FROM agent_stream_events e JOIN agents a ON a.id=e.agent_id
-   WHERE e.kind='attention' AND e.payload->>'attentionKind' IN ('approval','blocked') AND e.created_at>=now()-interval '7 days'
+   WHERE a.deleted_at IS NULL AND e.kind='attention' AND e.payload->>'attentionKind' IN ('approval','blocked') AND e.created_at>=now()-interval '7 days'
  ) items ORDER BY created_at DESC,id DESC LIMIT 50`);
   return rows.map((row) => ({
     type: "attention.toast",
