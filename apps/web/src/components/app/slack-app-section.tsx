@@ -37,6 +37,7 @@ import {
 } from "@/components/ui/select";
 import { api } from "@/lib/api";
 import { SlackAnswerersCard, type SlackAnswerer } from "./slack-answerers-card";
+import { SlackTimingCard } from "./slack-timing-card";
 
 type Channel = { id: string; name: string; private: boolean };
 type State = {
@@ -313,6 +314,8 @@ export function SlackAppSection() {
           </CardContent>
         </Card>
       )}
+
+      {configured && !editing && query.data?.binding && <SlackTimingCard />}
 
       {configured && !editing && query.data?.binding && (
         <SlackAnswerersCard

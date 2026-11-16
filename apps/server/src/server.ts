@@ -92,9 +92,10 @@ import {
 } from "./release-tarball-cache.js";
 import { StreamManager } from "./stream-manager.js";
 import { SlackNotifier } from "./notifications/slack.js";
+import { randomUUID } from "node:crypto";
 import { JobNotifier } from "./notifications/job-notifier.js";
 import { FocusTracker } from "./focus-tracker.js";
-import { PresenceTracker } from "./presence-tracker.js";
+import { PresenceTracker, toastRecipients } from "./presence-tracker.js";
 import { registerPresenceActivity } from "./server/presence-activity.js";
 import { AGENT_TYPES, setEnabledAgentTypes } from "./agent-type-settings.js";
 import { JobService } from "./jobs/service.js";
@@ -277,7 +278,13 @@ slackNotifier.setTurnPost(
 const questionAlerts = new QuestionAlerts(
   pool,
   (alert) => slackAnswers.postAsk(alert),
-  async () => (await slackNotifier.app.settings()).binding
+  async () => (await slackNotifier.app.settings()).binding,
+  {
+    now: Date.now,
+    awaySince: () => presenceTracker.awaySince(),
+    isViewing: (agentId) => presenceTracker.isViewing(agentId),
+    timing: () => slackNotifier.alertTiming(),
+  }
 );
 slackNotifier.setFormNotify((agent, input) =>
   notifyForm(
@@ -293,6 +300,25 @@ slackNotifier.setFormNotify((agent, input) =>
 );
 slackNotifier.setFocusCheck((agentId) => focusTracker.isFocused(agentId));
 const uiEventBroker = new UiEventBroker();
+slackNotifier.setPresence({
+  isPresent: () => presenceTracker.isPresent(),
+  isViewing: (agentId) => presenceTracker.isViewing(agentId),
+  showInApp: (agent, notice) =>
+    uiEventBroker.publishToSessions(
+      {
+        type: "attention.toast",
+        toastId: randomUUID(),
+        agentId: agent.id,
+        agentName: agent.name || agent.id.slice(0, 8),
+        kind: "notice",
+        message: notice.title
+          ? `${notice.title}: ${notice.message}`
+          : notice.message,
+        target: null,
+      },
+      toastRecipients(presenceTracker.activeSessions(), agent.id)
+    ),
+});
 const reconciliationTracker = new SubsystemTracker({
   id: "agent-reconciliation",
   label: "Agent reconciliation",

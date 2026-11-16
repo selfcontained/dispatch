@@ -83,7 +83,7 @@ describe("SlackNotifier.sendNotification (notify)", () => {
       message: "Hello from agent",
     });
 
-    expect(result).toEqual({ sent: true });
+    expect(result).toEqual({ sent: true, reason: "Sent to Slack." });
     expect(posted).toHaveLength(1);
     expect(posted[0].username).toBe("test-agent");
     expect(JSON.stringify(posted[0].blocks)).toContain("Hello from agent");
@@ -110,7 +110,7 @@ describe("SlackNotifier.sendNotification (notify)", () => {
       message: "Important update",
     });
 
-    expect(result).toEqual({ sent: true });
+    expect(result).toEqual({ sent: true, reason: "Sent to Slack." });
     expect(posted).toHaveLength(1);
   });
 
@@ -393,7 +393,7 @@ describe("notify in the shared Block Kit layout", () => {
       title: "Build is green",
       message: "All **42** tests pass. See [CI](https://ci.example/run/1).",
     });
-    expect(result).toEqual({ sent: true });
+    expect(result).toEqual({ sent: true, reason: "Sent to Slack." });
     const blocks = posted[0].blocks;
     expect(blocks.map((b: any) => b.type)).toEqual([
       "section",
@@ -420,5 +420,159 @@ describe("notify in the shared Block Kit layout", () => {
     expect(result.sent).toBe(false);
     expect(result.reason).toMatch(/Can't read image/);
     expect(posted).toHaveLength(0);
+  });
+});
+
+describe("notify follows presence", () => {
+  beforeEach(() => fetchSpy.mockClear());
+  /** A connected notifier with fake presence; records Slack posts and toasts. */
+  function withPresence(state: {
+    present: boolean;
+    viewing?: string | null;
+    streams?: number;
+  }) {
+    const { notifier, posted } = withSlackApp(true);
+    const shown: { title?: string; message: string }[] = [];
+    notifier.setPresence({
+      isPresent: () => state.present,
+      isViewing: (agentId) => state.viewing === agentId,
+      showInApp: (_agent, notice) => {
+        shown.push(notice);
+        return state.streams ?? 1;
+      },
+    });
+    return { notifier, posted, shown };
+  }
+
+  it("present: shows in-app only and says so", async () => {
+    const { notifier, posted, shown } = withPresence({ present: true });
+    const result = await notifier.sendNotification(makeAgent(), {
+      title: "Build",
+      message: "Done",
+    });
+    expect(result).toEqual({
+      sent: false,
+      inApp: true,
+      reason: "User active in Dispatch; shown in-app, not sent to Slack.",
+    });
+    expect(shown).toEqual([{ title: "Build", message: "Done" }]);
+    expect(posted).toHaveLength(0);
+  });
+
+  it("present and viewing the agent: neither toast nor Slack", async () => {
+    const { notifier, posted, shown } = withPresence({
+      present: true,
+      viewing: "agent-1",
+    });
+    const result = await notifier.sendNotification(makeAgent(), {
+      message: "Done",
+    });
+    expect(result).toMatchObject({ sent: false, inApp: true });
+    expect(result.reason).toMatch(/viewing this agent/);
+    expect(shown).toHaveLength(0);
+    expect(posted).toHaveLength(0);
+  });
+
+  it("present but no stream took the toast: falls back to Slack", async () => {
+    const { notifier, posted } = withPresence({ present: true, streams: 0 });
+    const result = await notifier.sendNotification(makeAgent(), {
+      message: "Done",
+    });
+    expect(result).toEqual({ sent: true, reason: "Sent to Slack." });
+    expect(posted).toHaveLength(1);
+  });
+
+  it("away: goes to Slack", async () => {
+    const { notifier, posted, shown } = withPresence({ present: false });
+    const result = await notifier.sendNotification(makeAgent(), {
+      message: "Done",
+    });
+    expect(result).toEqual({ sent: true, reason: "Sent to Slack." });
+    expect(posted).toHaveLength(1);
+    expect(shown).toHaveLength(0);
+  });
+
+  it("urgent: goes to Slack even while present and viewing", async () => {
+    const { notifier, posted, shown } = withPresence({
+      present: true,
+      viewing: "agent-1",
+    });
+    const result = await notifier.sendNotification(makeAgent(), {
+      message: "Prod is down",
+      urgent: true,
+    });
+    expect(result).toEqual({ sent: true, reason: "Sent to Slack." });
+    expect(posted).toHaveLength(1);
+    expect(shown).toHaveLength(0);
+  });
+
+  it("respectFocus still suppresses for the focused agent", async () => {
+    const { notifier, posted } = withPresence({ present: false });
+    notifier.setFocusCheck(() => true);
+    const result = await notifier.sendNotification(makeAgent(), {
+      message: "Done",
+      respectFocus: true,
+      urgent: true,
+    });
+    expect(result.sent).toBe(false);
+    expect(result.reason).toMatch(/focused/);
+    expect(posted).toHaveLength(0);
+  });
+
+  it("replyTo and form keep going to Slack at once while present", async () => {
+    const { notifier, posted, shown } = withPresence({ present: true });
+    const threadReply = vi.fn(async () => ({ sent: true }));
+    const formNotify = vi.fn(async () => ({
+      sent: true,
+      delivery: "sent" as const,
+    }));
+    notifier.setThreadReply(threadReply);
+    notifier.setFormNotify(formNotify);
+    await notifier.sendNotification(makeAgent(), {
+      message: "Done.",
+      replyTo: "11111111-1111-4111-8111-111111111111",
+    });
+    await notifier.sendNotification(makeAgent(), {
+      message: "Which version?",
+      form: { fields: [{ id: "v", label: "Version", type: "text" }] },
+    });
+    expect(threadReply).toHaveBeenCalledTimes(1);
+    expect(formNotify).toHaveBeenCalledTimes(1);
+    expect(shown).toHaveLength(0);
+    expect(posted).toHaveLength(0);
+  });
+
+  it("a turn answering a Slack thread still replies there while present", async () => {
+    const { notifier, shown } = withPresence({ present: true });
+    const threadReply = vi.fn(async () => ({ sent: true }));
+    notifier.setThreadReply(threadReply);
+    notifier.setTurnPost(async () => "22222222-2222-4222-8222-222222222222");
+    await notifier.sendNotification(makeAgent(), { message: "Done." });
+    expect(threadReply).toHaveBeenCalledTimes(1);
+    expect(shown).toHaveLength(0);
+  });
+});
+
+describe("Slack wait settings", () => {
+  it("defaults to 30 s away and 10 min present", async () => {
+    const { notifier } = withSlackApp(true);
+    expect(await notifier.getSlackDelays()).toEqual({
+      slackAwayDelaySeconds: 30,
+      slackPresentDelayMinutes: 10,
+    });
+    expect(await notifier.alertTiming()).toEqual({
+      awayDelayMs: 30_000,
+      presentDelayMs: 600_000,
+    });
+  });
+
+  it("rejects out-of-range values", async () => {
+    const { notifier } = withSlackApp(true);
+    await expect(
+      notifier.setSlackDelays({ slackPresentDelayMinutes: 0 })
+    ).rejects.toThrow(RangeError);
+    await expect(
+      notifier.setSlackDelays({ slackAwayDelaySeconds: 1.5 })
+    ).rejects.toThrow(RangeError);
   });
 });

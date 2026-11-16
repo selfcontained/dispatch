@@ -35,6 +35,8 @@ function settings(
   return {
     webNotifyEnabled: false,
     webNotifyEvents: ["waiting_user"],
+    slackAwayDelaySeconds: 30,
+    slackPresentDelayMinutes: 10,
     ...overrides,
   };
 }

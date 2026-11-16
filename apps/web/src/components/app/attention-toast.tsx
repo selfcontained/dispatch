@@ -1,5 +1,6 @@
 import type { SharedUiEvent } from "@dispatch/shared";
 import {
+  Bell,
   ClipboardList,
   type LucideIcon,
   MessageCircleQuestion,
@@ -74,6 +75,16 @@ const KIND_STYLE: Record<
     text: "text-status-merged",
     hover:
       "[@media(hover:hover)]:hover:[background-image:linear-gradient(hsl(var(--status-merged)/0.12),hsl(var(--status-merged)/0.12))] active:[background-image:linear-gradient(hsl(var(--status-merged)/0.2),hsl(var(--status-merged)/0.2))]",
+  },
+  notice: {
+    label: "Notice",
+    Icon: Bell,
+    border: "border-status-reviewing/60",
+    bar: "bg-status-reviewing",
+    tile: "bg-status-reviewing",
+    text: "text-status-reviewing",
+    hover:
+      "[@media(hover:hover)]:hover:[background-image:linear-gradient(hsl(var(--status-reviewing)/0.12),hsl(var(--status-reviewing)/0.12))] active:[background-image:linear-gradient(hsl(var(--status-reviewing)/0.2),hsl(var(--status-reviewing)/0.2))]",
   },
   blocked: {
     label: "Blocked",

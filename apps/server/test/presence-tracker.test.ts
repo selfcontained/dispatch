@@ -123,6 +123,63 @@ describe("PresenceTracker", () => {
   });
 });
 
+describe("PresenceTracker.awaySince", () => {
+  it("counts the user away from construction until a beat", () => {
+    const time = clock();
+    const tracker = new PresenceTracker(time.now);
+    time.advance(10_000);
+    expect(tracker.awaySince()).toBe(1_000_000);
+    tracker.heartbeat("a", visible());
+    expect(tracker.awaySince()).toBeNull();
+  });
+
+  it("is the moment a hidden beat ended presence, not when it was noticed", () => {
+    const time = clock();
+    const tracker = new PresenceTracker(time.now);
+    tracker.heartbeat("a", visible());
+    time.advance(10_000);
+    tracker.heartbeat("a", {
+      visible: false,
+      focused: false,
+      viewingAgentId: null,
+    });
+    const hiddenAt = time.now();
+    time.advance(30_000);
+    expect(tracker.awaySince()).toBe(hiddenAt);
+  });
+
+  it("is when beats would have expired for a session that stopped beating", () => {
+    const time = clock();
+    const tracker = new PresenceTracker(time.now);
+    tracker.heartbeat("a", visible());
+    const lastBeat = time.now();
+    time.advance(PRESENCE_TTL_MS + 60_000);
+    expect(tracker.awaySince()).toBe(lastBeat + PRESENCE_TTL_MS);
+  });
+
+  it("is when the activity window ran out for an unfocused session", () => {
+    const time = clock();
+    const tracker = new PresenceTracker(time.now);
+    tracker.heartbeat("a", { ...unfocused(), active: true });
+    const actedAt = time.now();
+    for (let i = 0; i < 25; i++) {
+      time.advance(15_000);
+      tracker.heartbeat("a", unfocused());
+    }
+    expect(tracker.awaySince()).toBe(actedAt + PRESENCE_ACTIVITY_WINDOW_MS);
+  });
+
+  it("isViewing only for a visible, focused session showing the agent", () => {
+    const time = clock();
+    const tracker = new PresenceTracker(time.now);
+    tracker.heartbeat("a", visible("agt_1"));
+    expect(tracker.isViewing("agt_1")).toBe(true);
+    expect(tracker.isViewing("agt_2")).toBe(false);
+    tracker.heartbeat("a", { ...unfocused("agt_1"), active: true });
+    expect(tracker.isViewing("agt_1")).toBe(false);
+  });
+});
+
 describe("presence activity requests", () => {
   it("counts chat actions, not reads or read receipts", () => {
     const route = "/api/v1/streams/:rootId/blocks";

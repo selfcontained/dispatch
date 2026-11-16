@@ -445,6 +445,33 @@ describe("POST /api/v1/notifications/settings", () => {
     expect(res.json().error).toMatch(/webNotifyEvents/);
   });
 
+  it("saves the Slack waits and rejects out-of-range ones", async () => {
+    const ok = await ctx.app.inject({
+      method: "POST",
+      url: "/api/v1/notifications/settings",
+      headers: { cookie: sessionCookie },
+      payload: { slackAwayDelaySeconds: 45, slackPresentDelayMinutes: 15 },
+    });
+    expect(ok.statusCode).toBe(200);
+    expect(ok.json()).toMatchObject({
+      slackAwayDelaySeconds: 45,
+      slackPresentDelayMinutes: 15,
+    });
+    for (const payload of [
+      { slackAwayDelaySeconds: -1 },
+      { slackPresentDelayMinutes: 0 },
+      { slackPresentDelayMinutes: "10" },
+    ]) {
+      const bad = await ctx.app.inject({
+        method: "POST",
+        url: "/api/v1/notifications/settings",
+        headers: { cookie: sessionCookie },
+        payload,
+      });
+      expect(bad.statusCode).toBe(400);
+    }
+  });
+
   it("accepts array webNotifyEvents", async () => {
     const res = await ctx.app.inject({
       method: "POST",
@@ -465,6 +492,8 @@ describe("GET /api/v1/notifications/settings", () => {
     });
     expect(res.statusCode).toBe(200);
     expect(Object.keys(res.json()).sort()).toEqual([
+      "slackAwayDelaySeconds",
+      "slackPresentDelayMinutes",
       "webNotifyEnabled",
       "webNotifyEvents",
     ]);

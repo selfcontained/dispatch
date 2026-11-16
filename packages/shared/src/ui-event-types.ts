@@ -79,7 +79,7 @@ export type SharedUiEvent =
       agentId: string;
       agentName: string;
       /** What needs the user, which sets how the toast looks. */
-      kind: "question" | "form" | "approval" | "blocked";
+      kind: "question" | "form" | "approval" | "blocked" | "notice";
       message: string;
       /** The question or form to open; null opens the agent. */
       target: {

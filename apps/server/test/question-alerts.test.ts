@@ -38,30 +38,16 @@ async function question(
   );
   return id;
 }
-it("waits five minutes, ignores passive read state, and survives scanner restart without duplicate delivery", async () => {
-  const id = await question(4);
+it("ignores passive read state and survives scanner restart without duplicate delivery", async () => {
+  const id = await question(6);
+  await pool.query("UPDATE blocks SET read_at=now() WHERE id=$1", [id]);
   const send = vi.fn(async () => true);
-  await new QuestionAlerts(pool, send, async () => ({
+  const binding = async () => ({
     generation: "test",
     enabledAt: "2000-01-01T00:00:00Z",
-  })).tick();
-  expect(send).not.toHaveBeenCalled();
-  await pool.query(
-    "UPDATE blocks SET created_at=now()-interval '6 minutes',read_at=now() WHERE id=$1",
-    [id]
-  );
-  await pool.query(
-    "UPDATE question_notifications SET next_attempt_at=now(),due_at=now() WHERE block_id=$1",
-    [id]
-  );
-  await new QuestionAlerts(pool, send, async () => ({
-    generation: "test",
-    enabledAt: "2000-01-01T00:00:00Z",
-  })).tick();
-  await new QuestionAlerts(pool, send, async () => ({
-    generation: "test",
-    enabledAt: "2000-01-01T00:00:00Z",
-  })).tick();
+  });
+  await new QuestionAlerts(pool, send, binding).tick();
+  await new QuestionAlerts(pool, send, binding).tick();
   expect(send).toHaveBeenCalledTimes(1);
   expect(send.mock.calls[0]![0]).toMatchObject({
     agent_id: "agt_stopped",
@@ -197,11 +183,13 @@ describe("sendNow (notify with a form)", () => {
       slack_message_ts: "1.0",
     });
     expect((await row(explicit)).sent_at).toBeTruthy();
-    // The ordinary reminder for the passive form still waits five minutes.
+    // The ordinary reminder for the passive form still waits its turn.
     await alerts.tick();
     expect(send).toHaveBeenCalledTimes(1);
-    expect(await row(passive)).toMatchObject({ immediate: false });
-    expect((await row(passive)).later).toBe(true);
+    expect(await row(passive)).toMatchObject({
+      immediate: false,
+      sent_at: null,
+    });
     // A repeat request reports the recorded success instead of resending.
     expect(await alerts.sendNow(explicit)).toEqual({ delivery: "sent" });
     expect(send).toHaveBeenCalledTimes(1);
@@ -211,7 +199,7 @@ describe("sendNow (notify with a form)", () => {
     const id = await form();
     const send = vi.fn(async () => true);
     const alerts = new QuestionAlerts(pool, send, live);
-    await alerts.tick(); // enrolls the 5-minute reminder
+    await alerts.tick(); // enrolls the waiting reminder
     expect(send).not.toHaveBeenCalled();
     expect(await alerts.sendNow(id)).toEqual({ delivery: "sent" });
     expect(send).toHaveBeenCalledTimes(1);
@@ -374,5 +362,118 @@ describe("sendNow (notify with a form)", () => {
     expect(outcome.delivery).toBe("not_sent");
     expect(send).not.toHaveBeenCalled();
     expect(await row(id)).toBeUndefined();
+  });
+});
+
+describe("presence decides when a waiting question goes to Slack", () => {
+  const binding = async () => ({
+    generation: "test",
+    enabledAt: "2000-01-01T00:00:00Z",
+  });
+  const SEC = 1000;
+  const MIN = 60 * SEC;
+  /** A fake clock and presence, starting at the question's creation. */
+  async function setup(state: {
+    away: number | null;
+    viewing?: string | null;
+  }) {
+    const id = await question(0);
+    const createdAt = (
+      await pool.query("SELECT created_at FROM blocks WHERE id=$1", [id])
+    ).rows[0].created_at.getTime() as number;
+    let now = createdAt;
+    const presence = { ...state };
+    const send = vi.fn(async () => true);
+    const alerts = new QuestionAlerts(pool, send, binding, {
+      now: () => now,
+      awaySince: () => presence.away,
+      isViewing: (agentId) => presence.viewing === agentId,
+      timing: async () => ({ awayDelayMs: 30 * SEC, presentDelayMs: 10 * MIN }),
+    });
+    return {
+      id,
+      createdAt,
+      send,
+      presence,
+      at: async (ms: number) => {
+        now = createdAt + ms;
+        await alerts.tick();
+      },
+    };
+  }
+
+  it("away: sends about 30 s after posting", async () => {
+    const t = await setup({ away: Number.NEGATIVE_INFINITY });
+    await t.at(29 * SEC);
+    expect(t.send).not.toHaveBeenCalled();
+    await t.at(30 * SEC);
+    expect(t.send).toHaveBeenCalledTimes(1);
+    await t.at(60 * SEC);
+    expect(t.send).toHaveBeenCalledTimes(1);
+  });
+
+  it("present: nothing before 10 minutes, then sends if still open", async () => {
+    const t = await setup({ away: null });
+    await t.at(30 * SEC);
+    await t.at(9 * MIN + 59 * SEC);
+    expect(t.send).not.toHaveBeenCalled();
+    await t.at(10 * MIN);
+    expect(t.send).toHaveBeenCalledTimes(1);
+  });
+
+  it("present then away: sends about 30 s after the user left", async () => {
+    const t = await setup({ away: null });
+    await t.at(2 * MIN);
+    expect(t.send).not.toHaveBeenCalled();
+    t.presence.away = t.createdAt + 3 * MIN;
+    await t.at(3 * MIN + 29 * SEC);
+    expect(t.send).not.toHaveBeenCalled();
+    await t.at(3 * MIN + 30 * SEC);
+    expect(t.send).toHaveBeenCalledTimes(1);
+  });
+
+  it("answered before it was due: nothing is sent", async () => {
+    const t = await setup({ away: Number.NEGATIVE_INFINITY });
+    await t.at(10 * SEC);
+    await pool.query(
+      `UPDATE blocks SET state='{"answer":{"value":"yes"}}' WHERE id=$1`,
+      [t.id]
+    );
+    await t.at(31 * SEC);
+    await t.at(11 * MIN);
+    expect(t.send).not.toHaveBeenCalled();
+    expect(
+      (
+        await pool.query(
+          "SELECT cancelled_at FROM question_notifications WHERE block_id=$1",
+          [t.id]
+        )
+      ).rows[0].cancelled_at
+    ).toBeTruthy();
+  });
+
+  it("viewing the agent: nothing is sent while they stay", async () => {
+    const t = await setup({ away: null, viewing: "agt_stopped" });
+    await t.at(31 * SEC);
+    await t.at(30 * MIN);
+    expect(t.send).not.toHaveBeenCalled();
+    // Viewing some other agent no longer holds it back.
+    t.presence.viewing = "agt_other";
+    await t.at(30 * MIN + 1);
+    expect(t.send).toHaveBeenCalledTimes(1);
+  });
+
+  it("an explicit form (sendNow) still goes out at once while present", async () => {
+    const t = await setup({ away: null });
+    await pool.query("UPDATE blocks SET kind='form' WHERE id=$1", [t.id]);
+    // (sendNow is presence-blind; covered above.) A failed explicit send's
+    // retry is not held back by presence either.
+    await pool.query(
+      `INSERT INTO question_notifications(block_id,binding_generation,due_at,next_attempt_at,attempts,immediate)
+       VALUES($1,'test',now(),now(),1,true)`,
+      [t.id]
+    );
+    await t.at(1 * SEC);
+    expect(t.send).toHaveBeenCalledTimes(1);
   });
 });
