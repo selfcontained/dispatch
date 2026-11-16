@@ -515,6 +515,12 @@ export const chatShowLastMessageAtom = atomWithLocalStorage<boolean>(
   { validate: (value): value is boolean => typeof value === "boolean" }
 );
 
+export const chatShowProgressTextAtom = atomWithLocalStorage<boolean>(
+  "dispatch:chatShowProgressText",
+  true,
+  { validate: (value): value is boolean => typeof value === "boolean" }
+);
+
 // ---------------------------------------------------------------------------
 // Chat composer drafts — what was typed and attached but not yet sent, per
 // agent. The atom holds the full draft; storage gets `fitChatDraft`'s

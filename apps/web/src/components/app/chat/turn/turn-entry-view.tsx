@@ -1,3 +1,6 @@
+import { Skeleton } from "@/components/ui/skeleton";
+import { useAtomValue } from "jotai";
+import { chatShowProgressTextAtom } from "@/lib/store";
 import { memo, type ReactNode, useMemo } from "react";
 import {
   AUTHENTICATION_REQUIRED,
@@ -117,6 +120,7 @@ export function TurnAnswer({
   ctx: FeedContext;
   folded?: readonly FoldedEntry[];
 }): JSX.Element {
+  const showProgressText = useAtomValue(chatShowProgressTextAtom);
   const trace = useMemo(() => turnTrace(turn), [turn]);
   const result = useMemo(
     () => resultTurnModel(block, turn, trace),
@@ -213,6 +217,19 @@ export function TurnAnswer({
               />
             )}
           />
+        ) : !showProgressText ? (
+          <div
+            role="status"
+            aria-label="Preparing response"
+            data-testid="chat-response-placeholder"
+            className="mt-3 w-full max-w-md animate-pulse rounded-lg border border-dashed border-border/70 bg-muted/10 px-4 py-3.5 [animation-duration:3s] motion-reduce:animate-none"
+          >
+            <div aria-hidden="true" className="space-y-2.5">
+              <Skeleton className="h-1.5 w-3/4 animate-none rounded-full" />
+              <Skeleton className="h-1.5 w-full animate-none rounded-full" />
+              <Skeleton className="h-1.5 w-2/5 animate-none rounded-full" />
+            </div>
+          </div>
         ) : result.content ? (
           // The reply as it is being written: the agent's own words, in the
           // quiet tone of something still in progress, so a long turn reads
