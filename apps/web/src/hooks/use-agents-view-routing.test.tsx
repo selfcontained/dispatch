@@ -147,6 +147,31 @@ describe("useAgentsViewRouting", () => {
       expect(result.current.viewedAgentLeft).toBe(true);
     });
 
+    it("forgets the archive on a later return to the same entry", () => {
+      const { result, rerender, navigateTo, goBack, pathname } = renderRouting(
+        "/agents/agt_live",
+        {
+          routeAgentId: "agt_live",
+          agentsLoaded: true,
+          validatedSelectedAgentId: "agt_live",
+        }
+      );
+      const empty = {
+        routeAgentId: undefined,
+        agentsLoaded: true,
+        validatedSelectedAgentId: null,
+      };
+      rerender({ ...empty, routeAgentId: "agt_live" });
+      rerender(empty);
+      expect(result.current.viewedAgentLeft).toBe(true);
+
+      navigateTo("/activity/history");
+      goBack();
+      rerender(empty);
+      expect(pathname()).toBe("/agents");
+      expect(result.current.viewedAgentLeft).toBe(false);
+    });
+
     it("opens history for an archived agent reached after leaving its page", () => {
       const { pathname, rerender, navigateTo } = renderRouting(
         "/agents/agt_a",

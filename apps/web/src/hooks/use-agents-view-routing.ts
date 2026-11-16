@@ -1,6 +1,6 @@
 import { useProjectNavigate } from "@/hooks/use-projects";
 import { useCallback, useEffect, useState } from "react";
-import { useLocation, useMatch } from "react-router-dom";
+import { useLocation, useMatch, useNavigationType } from "react-router-dom";
 
 import {
   AGENT_LEFT_STATE,
@@ -22,6 +22,7 @@ export function useAgentsViewRouting({
 }: UseAgentsViewRoutingOptions) {
   const navigate = useProjectNavigate();
   const location = useLocation();
+  const navigationType = useNavigationType();
   const feedbackMatch = useMatch("/agents/:agentId/feedback/:itemId");
   const reviewMatch = useMatch("/agents/:agentId/review/:summaryAgentId");
   const changesMatch = useMatch("/agents/:agentId/changes");
@@ -119,7 +120,11 @@ export function useAgentsViewRouting({
      * The agent on screen just left the live list (archived). The view keeps
      * its menus as they are while the route moves to `/agents`.
      */
-    viewedAgentLeft: viewedAgentLeft || !!location.state?.[AGENT_LEFT_STATE],
+    // The flag rides on the history entry; honor it only on the navigation
+    // that delivered it, not when Back, Forward or a reload returns there.
+    viewedAgentLeft:
+      viewedAgentLeft ||
+      (navigationType !== "POP" && !!location.state?.[AGENT_LEFT_STATE]),
     onTabChange,
   };
 }
