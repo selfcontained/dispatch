@@ -1,6 +1,10 @@
 import { BackgroundWorkButton } from "./background-work-button";
 import { TaskModal } from "./tasks/task-modal";
-import { useProjectNavigate, useProjectScope } from "@/hooks/use-projects";
+import {
+  useFollowRouteAgentProject,
+  useProjectNavigate,
+  useProjectScope,
+} from "@/hooks/use-projects";
 import { ScheduledMessagesButton } from "./scheduled-messages-button";
 import { PendingInputsButton } from "./chat/pending-inputs-button";
 import {
@@ -108,6 +112,8 @@ export function AgentsView({
     setOverflowAgentId,
     agentVisualState,
   } = useAgents(true, routeAgentId ?? null, selectionProjectId);
+
+  useFollowRouteAgentProject(routeAgentId ?? null, agents, agentsLoaded);
 
   useAgentSelectionMemory({
     projectId: selectionProjectId,

@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { useAtomValue, useSetAtom } from "jotai";
 import {
   useLocation,
@@ -11,6 +11,7 @@ import {
 } from "react-router-dom";
 import { api } from "@/lib/api";
 import { selectedProjectIdAtom } from "@/lib/store";
+import type { Agent } from "@/components/app/types";
 import type { ProjectRecord } from "../../../server/src/projects/store";
 export type Project = ProjectRecord;
 export function useProjects() {
@@ -96,6 +97,53 @@ export function useProjectSelection() {
   }, [projectId, location, navigate, saveId]);
 
   return scope;
+}
+/**
+ * Once per navigation to an agent, follow it into the sidebar: an unscoped
+ * link (toast, notification, Slack, `?block=`) to an agent the current
+ * project hides switches the sidebar to that agent's project, or to All
+ * projects when it has none or its project is gone. A later manual choice
+ * sticks because the same agent is never followed twice in a row.
+ */
+export function useFollowRouteAgentProject(
+  routeAgentId: string | null,
+  agents: Agent[],
+  agentsLoaded: boolean
+) {
+  const location = useLocation();
+  const { projectId, projects } = useProjectScope();
+  const { isSuccess, isFetching } = useProjects();
+  const saveId = useSetAtom(selectedProjectIdAtom);
+  const followed = useRef<string | null>(null);
+  const explicit = new URLSearchParams(location.search).has("project");
+  const agent = agents.find((a) => a.id === routeAgentId);
+
+  useEffect(() => {
+    if (!routeAgentId) {
+      followed.current = null;
+      return;
+    }
+    // An explicit project query is its own scope choice; leave it alone.
+    if (followed.current === routeAgentId || explicit) return;
+    if (!agentsLoaded || !agent || !isSuccess || isFetching) return;
+    followed.current = routeAgentId;
+    if (!projectId || agent.projectId === projectId) return;
+    saveId(
+      agent.projectId && projects.some((p) => p.id === agent.projectId)
+        ? agent.projectId
+        : null
+    );
+  }, [
+    routeAgentId,
+    agent,
+    agentsLoaded,
+    explicit,
+    isSuccess,
+    isFetching,
+    projectId,
+    projects,
+    saveId,
+  ]);
 }
 /** Preserve the project scope across navigation within the dashboard. */
 export function useProjectNavigate() {

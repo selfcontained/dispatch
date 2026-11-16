@@ -2,12 +2,23 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import { createStore, Provider } from "jotai";
-import { MemoryRouter, useLocation, useNavigate } from "react-router-dom";
+import {
+  matchPath,
+  MemoryRouter,
+  useLocation,
+  useNavigate,
+} from "react-router-dom";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
 import { api } from "@/lib/api";
 import { selectedProjectIdAtom } from "@/lib/store";
+import type { Agent } from "@/components/app/types";
 import {
+  attentionToastLocation,
+  type AttentionToastEvent,
+} from "@/components/app/attention-toast";
+import {
+  useFollowRouteAgentProject,
   useProjectNavigate,
   useProjectScope,
   useProjectSelection,
@@ -20,6 +31,13 @@ const projects = [
   { id: "two", name: "Two" },
 ] as Project[];
 const clients: QueryClient[] = [];
+
+const agents = [
+  { id: "a-one", projectId: "one", status: "running" },
+  { id: "a-two", projectId: "two", status: "running" },
+  { id: "a-none", projectId: null, status: "running" },
+  { id: "a-gone", projectId: "deleted", status: "running" },
+] as Agent[];
 
 function renderProject(
   path = "/agents",
@@ -48,6 +66,13 @@ function renderProject(
       </>
     );
   }
+  // Stands in for AgentsView, which resolves the route's agent.
+  function AgentRoute() {
+    const { pathname } = useLocation();
+    const agentId = matchPath("/agents/:agentId/*", pathname)?.params.agentId;
+    useFollowRouteAgentProject(agentId ?? null, agents, true);
+    return null;
+  }
   const view = renderHook(
     () => ({
       ...useProjectScope(),
@@ -60,7 +85,10 @@ function renderProject(
         <Provider store={store}>
           <QueryClientProvider client={client}>
             <MemoryRouter initialEntries={[path]}>
-              <Layout>{children}</Layout>
+              <Layout>
+                <AgentRoute />
+                {children}
+              </Layout>
             </MemoryRouter>
           </QueryClientProvider>
         </Provider>
@@ -238,4 +266,78 @@ it("retains the filter through repeated board and raw task-session links", () =>
     act(() => result.current.rawNavigate(1));
     expect(result.current.projectId).toBe("one");
   }
+});
+
+function toast(agentId: string, blockId?: string) {
+  return {
+    agentId,
+    target: blockId ? { streamId: agentId, blockId } : undefined,
+  } as AttentionToastEvent;
+}
+
+it("a toast to an agent in another project switches the sidebar there", () => {
+  const { result, store } = renderProject("/agents?project=one", "one");
+  act(() =>
+    result.current.rawNavigate(attentionToastLocation(toast("a-two")), {
+      state: { blockJump: "1" },
+    })
+  );
+  expect(result.current.location.pathname).toBe("/agents/a-two");
+  expect(result.current.projectId).toBe("two");
+  expect(store.get(selectedProjectIdAtom)).toBe("two");
+});
+
+it.each(["a-none", "a-gone"])(
+  "a toast to %s (no live project) switches to All projects",
+  (agentId) => {
+    const { result, store } = renderProject("/agents?project=one", "one");
+    act(() =>
+      result.current.rawNavigate(attentionToastLocation(toast(agentId)))
+    );
+    expect(result.current.projectId).toBeNull();
+    expect(store.get(selectedProjectIdAtom)).toBeNull();
+  }
+);
+
+it.each([
+  ["one", "a-one"],
+  [null, "a-two"],
+])("leaves the sidebar alone when %s already shows %s", (savedId, agentId) => {
+  const { result, store } = renderProject(
+    `/agents?project=${savedId ?? ""}`,
+    savedId
+  );
+  act(() => result.current.rawNavigate(attentionToastLocation(toast(agentId))));
+  expect(result.current.projectId).toBe(savedId);
+  expect(store.get(selectedProjectIdAtom)).toBe(savedId);
+});
+
+it("a ?block= deep link to a foreign agent switches like a toast", () => {
+  const { result, store } = renderProject("/agents/a-two?block=b1", "one");
+  expect(result.current.location.search).toBe("?block=b1");
+  expect(result.current.projectId).toBe("two");
+  expect(store.get(selectedProjectIdAtom)).toBe("two");
+  expect(attentionToastLocation(toast("a-none", "b2")).search).toBe(
+    "?block=b2"
+  );
+  act(() =>
+    result.current.rawNavigate(attentionToastLocation(toast("a-none", "b2")))
+  );
+  expect(result.current.projectId).toBeNull();
+});
+
+it("a manual project change after following an agent sticks", () => {
+  const { result, store } = renderProject("/agents/a-two", "one");
+  expect(store.get(selectedProjectIdAtom)).toBe("two");
+  // The sidebar's own setter, while the same agent stays open.
+  act(() => store.set(selectedProjectIdAtom, "one"));
+  expect(result.current.projectId).toBe("one");
+  act(() => result.current.rawNavigate("/agents/a-two?thread=t1"));
+  expect(store.get(selectedProjectIdAtom)).toBe("one");
+  // The switcher's real path: an explicit scope that deselects the agent.
+  act(() => result.current.rawNavigate("/agents?project=one"));
+  expect(store.get(selectedProjectIdAtom)).toBe("one");
+  // A fresh navigation to a hidden agent follows again.
+  act(() => result.current.rawNavigate("/agents/a-two"));
+  expect(store.get(selectedProjectIdAtom)).toBe("two");
 });
