@@ -1,3 +1,4 @@
+import { AttentionHistory } from "../notifications/attention-history.js";
 import { matchingProjects } from "../projects/matching.js";
 import type { Effort } from "@dispatch/shared";
 import { validateAgentEffort } from "../shared/agent-effort.js";
@@ -339,6 +340,11 @@ export class AgentManager {
   }
 
   private readonly pool: Pool;
+  private readonly attentionHistory: AttentionHistory;
+  private readonly attentionHistoryListeners = new Set<() => void>();
+  onAttentionHistoryChanged(listener: () => void): void {
+    this.attentionHistoryListeners.add(listener);
+  }
   private readonly logger: FastifyBaseLogger;
   private readonly config: AppConfig;
   private readonly diagnostics: DiagnosticsRecorder;
@@ -391,6 +397,9 @@ export class AgentManager {
     } = {}
   ) {
     this.pool = pool;
+    this.attentionHistory = new AttentionHistory(pool, logger, () => {
+      for (const listener of this.attentionHistoryListeners) listener();
+    });
     this.logger = logger;
     this.config = config;
     this.diagnostics = createDiagnosticsRecorder(logger);
@@ -461,6 +470,7 @@ export class AgentManager {
     seq: number
   ): Promise<void> {
     if (event.type === "permissions") {
+      this.attentionHistory.permissions(agentId, event.requests);
       const previous = this.pendingPermissionIds.get(agentId);
       const added = event.requests.filter(
         (request) => !previous?.has(request.id)
@@ -485,6 +495,8 @@ export class AgentManager {
       if (agent) this.eventBus.publish(agent);
       return;
     }
+    if (event.type === "turn" && event.state !== "settled")
+      this.attentionHistory.settleBlocked(agentId);
     await this.streamRecorder.handle(event);
     if (event.type === "turn" && event.state === "settled" && event.usage) {
       await this.recordUsage(agentId);
@@ -1046,6 +1058,7 @@ export class AgentManager {
     message: string,
     target?: AttentionTarget
   ): Promise<void> {
+    if (type === "blocked") this.attentionHistory.blocked(agentId, message);
     const agent = await this.getAgent(agentId);
     if (!agent) return;
     for (const listener of this.attentionListeners) {
@@ -2369,6 +2382,9 @@ export class AgentManager {
     lastError: string | null,
     onUpdated?: (updatedAt: string) => void
   ): Promise<void> {
+    if (status !== "error") this.attentionHistory.settleBlocked(id);
+    if (status === "stopped" || status === "archiving")
+      this.attentionHistory.permissions(id, []);
     const result = await this.pool.query<{ updated_at: string }>(
       `
       UPDATE agents

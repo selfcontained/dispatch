@@ -1662,6 +1662,7 @@ describe("useSSE message handling", () => {
 
     emit({ type: "stream.changed", agentId: "agt_1" });
     expectInvalidatedSet(invalidateQueries, [
+      ["attention-history"],
       ["agent-preview"],
       ["stream", "agt_1"],
       ["stream", "agt_1", "thread"],
@@ -1686,6 +1687,12 @@ describe("useSSE message handling", () => {
         "child",
       ]);
     }
+  });
+
+  it("refreshes attention history without churning the agent feed", () => {
+    const { emit, invalidateQueries } = renderMessages();
+    emit({ type: "attention.history_changed" });
+    expect(invalidatedKeys(invalidateQueries)).toEqual([["attention-history"]]);
   });
 
   it("invalidates the collection each bare change event names", () => {

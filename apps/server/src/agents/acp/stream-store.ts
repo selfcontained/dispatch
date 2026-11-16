@@ -2,10 +2,12 @@ import type { Queryable } from "../../chat/store.js";
 import type { PromptSource } from "./prompt-source.js";
 
 export type StreamEventKind =
+  | "attention"
   | "assistant"
   | "thought"
   | "tool_call"
   | "status"
+  | "attention"
   | "turn"
   | "plan"
   | "notice"
@@ -136,7 +138,7 @@ function toRow(r: Row): StreamEventRow {
 
 const INSERT_SQL = `
   INSERT INTO agent_stream_events (agent_id, seq, kind, key, payload)
-  SELECT $1, COALESCE(MAX(seq), 0) + 1, $2, $3, $4::jsonb
+  SELECT $1, GREATEST(COALESCE(MAX(seq), 0), 0) + 1, $2, $3, $4::jsonb
     FROM agent_stream_events
    WHERE agent_id = $1
   RETURNING *`;
@@ -152,7 +154,7 @@ export class StreamStore {
   /** Recorder events are serialized per agent; reserve no row for a reply boundary. */
   async nextSeq(agentId: string): Promise<number> {
     const result = await this.db.query<{ seq: number }>(
-      `SELECT COALESCE(MAX(seq), 0) + 1 AS seq FROM agent_stream_events WHERE agent_id = $1`,
+      `SELECT GREATEST(COALESCE(MAX(seq), 0), 0) + 1 AS seq FROM agent_stream_events WHERE agent_id = $1`,
       [agentId]
     );
     return Number(result.rows[0]!.seq);

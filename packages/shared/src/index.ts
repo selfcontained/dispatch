@@ -247,3 +247,5 @@ export type {
 } from "./decision-types.js";
 export * from "./visualization-types.js";
 export * from "./system-events.js";
+
+export type { AttentionHistoryItem } from "./ui-event-types.js";

@@ -30,6 +30,7 @@ import type { MacAppUpdateSnapshot } from "./mac-app-update-types.js";
  *     it across the boundary instead.
  */
 export type SharedUiEvent =
+  | { type: "attention.history_changed" }
   | {
       type: "routing.pending";
       streamId: string;
@@ -96,3 +97,13 @@ export type SharedUiEvent =
       eventType: string;
       message: string;
     };
+
+/** Recent human-directed attention, independent of notification delivery. */
+export type AttentionHistoryItem = Omit<
+  Extract<SharedUiEvent, { type: "attention.toast" }>,
+  "kind"
+> & {
+  kind: "question" | "form" | "approval" | "blocked";
+  createdAt: string;
+  settled: boolean;
+};

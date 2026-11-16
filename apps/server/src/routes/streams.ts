@@ -1,3 +1,4 @@
+import { listAttentionHistory } from "../notifications/attention-history.js";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import type { Pool } from "pg";
 import * as z from "zod/v4";
@@ -142,6 +143,9 @@ export async function registerStreamRoutes(
 ): Promise<void> {
   const { streams } = deps;
   const store = streams.store;
+  app.get("/api/v1/notifications/recent", () =>
+    listAttentionHistory(deps.pool)
+  );
 
   async function agentExists(id: string): Promise<boolean> {
     const result = await deps.pool.query("SELECT 1 FROM agents WHERE id = $1", [

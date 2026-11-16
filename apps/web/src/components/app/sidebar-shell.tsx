@@ -1,3 +1,4 @@
+import { NotificationsDrawer } from "./notifications-drawer";
 import {
   Activity,
   Zap,
@@ -97,6 +98,7 @@ type SidebarShellProps = {
   activeSection?: NavSection;
   onNavigate: (section: NavSection) => void;
   onRequestClose?: () => void;
+  onNotificationNavigate?: () => void;
   closeButtonIcon?: "chevron" | "x";
   pulsingNavItem?: string | null;
   triggerNavAnimation?: (navItem: string) => void;
@@ -107,6 +109,7 @@ export function SidebarShell({
   activeSection,
   onNavigate,
   onRequestClose,
+  onNotificationNavigate,
   closeButtonIcon = "x",
   pulsingNavItem,
   triggerNavAnimation,
@@ -141,8 +144,11 @@ export function SidebarShell({
             ) : null}
           </div>
         </div>
+        <div className="ml-auto">
+          <NotificationsDrawer onNavigate={onNotificationNavigate} />
+        </div>
         {onRequestClose ? (
-          <div className="ml-auto">
+          <div>
             <Button
               size="icon"
               variant="ghost"
