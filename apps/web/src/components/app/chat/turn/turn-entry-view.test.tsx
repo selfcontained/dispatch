@@ -606,6 +606,16 @@ describe("TurnEntryView", () => {
           expect(screen.queryByTestId("chat-turn-live-text")).toBeNull();
           // The activity line still says what the agent is doing.
           expect(screen.getByTestId("harness-activity-fold")).toBeTruthy();
+          // Each skeleton row carries its own scan, pausable when hidden and
+          // dropped under reduced motion.
+          const scans = screen.getAllByTestId("chat-response-placeholder-scan");
+          expect(scans).toHaveLength(3);
+          for (const scan of scans) {
+            expect(scan.classList.contains("dispatch-placeholder-scan")).toBe(
+              true
+            );
+            expect(scan.classList.contains("motion-reduce:hidden")).toBe(true);
+          }
         });
       }
 

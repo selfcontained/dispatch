@@ -864,6 +864,20 @@ html[data-theme="matrix"] [role="button"] {
   }
 }
 
+/* Response placeholder: a soft status-colour highlight sweeps each skeleton
+   bar, across and back (run with `alternate`). The highlight is a third of
+   the bar wide, so -100% → 300% of its own width spans the whole bar.
+   `.dispatch-placeholder-scan` is a marker for the `html[data-hidden]` pause;
+   gradient, opacity, timing and reduced motion are utilities on the element. */
+@keyframes placeholder-scan {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(300%);
+  }
+}
+
 /* `.dispatch-reconnect-scan` is a marker class — the animation, gradient,
    and reduced-motion behavior are Tailwind utilities on the element. This
    class only exists so the `html[data-hidden]` rule below can pause it. */
@@ -1132,6 +1146,9 @@ html[data-theme="matrix"] [role="button"] {
 html[data-hidden] .dispatch-reconnect-scan {
   animation-play-state: paused;
   will-change: auto;
+}
+html[data-hidden] .dispatch-placeholder-scan {
+  animation-play-state: paused;
 }
 html[data-hidden] .dispatch-activity-bar {
   animation-play-state: paused;
