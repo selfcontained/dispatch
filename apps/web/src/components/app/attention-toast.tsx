@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { useEffect } from "react";
 import {
+  Link,
   type NavigateFunction,
   useLocation,
   useNavigate,
@@ -18,6 +19,7 @@ import { toast, Toaster } from "sonner";
 
 import { conversationLocation } from "@/components/app/chat/conversation-location-link";
 import { useAgentFocus, viewingAgentIdOf } from "@/hooks/use-agent-focus";
+import { formatRelativeTime } from "@/lib/format";
 import { agentRoute } from "@/lib/agent-routes";
 
 export type AttentionToastEvent = Extract<
@@ -128,54 +130,119 @@ function showAttentionToast(
       state: { blockJump: `${Date.now()}-${event.toastId}` },
     });
   };
-  const style = KIND_STYLE[event.kind] ?? KIND_STYLE.question;
-  const { Icon } = style;
   toast.custom(
     () => (
-      <div
-        className={`flex w-full items-stretch border bg-popover text-popover-foreground shadow-[0_16px_40px_-12px_rgb(0_0_0/0.7)] transition-colors [font-family:var(--font-terminal)] ${style.border} ${style.hover}`}
+      <AttentionCard
+        event={event}
+        onOpen={open}
+        onDismiss={() => toast.dismiss(id)}
+      />
+    ),
+    { id, duration: ATTENTION_TOAST_MS, toasterId: TOASTER_ID }
+  );
+}
+
+export function AttentionCard({
+  event,
+  onOpen,
+  onDismiss,
+  createdAt,
+  settled = false,
+  link = false,
+}: {
+  event: AttentionToastEvent;
+  onOpen: () => void;
+  onDismiss?: () => void;
+  createdAt?: string;
+  settled?: boolean;
+  link?: boolean;
+}): JSX.Element {
+  const style = KIND_STYLE[event.kind] ?? KIND_STYLE.question;
+  const { Icon } = style;
+  const actionProps = {
+    className:
+      "flex min-w-0 flex-1 items-start gap-3 px-3 py-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+    "data-testid": createdAt ? "attention-history-card" : "attention-toast",
+    "data-kind": event.kind,
+  };
+  const content = (
+    <>
+      <span
+        aria-hidden
+        className={`flex size-9 shrink-0 items-center justify-center text-background ${style.tile}`}
       >
-        <span aria-hidden className={`w-1 shrink-0 ${style.bar}`} />
-        <button
-          type="button"
-          onClick={open}
-          className="flex min-w-0 flex-1 items-start gap-3 px-3 py-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
-          data-testid="attention-toast"
-          data-kind={event.kind}
-        >
+        <Icon className="size-5" strokeWidth={2.25} />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="flex items-baseline justify-between gap-3">
+          <span className="truncate text-sm font-semibold">
+            {event.agentName}
+          </span>
           <span
-            aria-hidden
-            className={`flex size-9 shrink-0 items-center justify-center text-background ${style.tile}`}
+            className={`shrink-0 text-[11px] font-semibold uppercase tracking-[0.14em] ${style.text}`}
           >
-            <Icon className="size-5" strokeWidth={2.25} />
+            {style.label}
           </span>
-          <span className="min-w-0 flex-1">
-            <span className="flex items-baseline justify-between gap-3">
-              <span className="truncate text-sm font-semibold">
-                {event.agentName}
-              </span>
-              <span
-                className={`shrink-0 text-[11px] font-semibold uppercase tracking-[0.14em] ${style.text}`}
-              >
-                {style.label}
-              </span>
-            </span>
-            <span className="mt-1 line-clamp-2 text-[13px] leading-snug text-muted-foreground">
-              {event.message}
-            </span>
-          </span>
+        </span>
+        <span
+          title={event.message}
+          className={`mt-1 text-[13px] leading-snug text-muted-foreground ${createdAt ? "block truncate" : "line-clamp-2"}`}
+        >
+          {event.message}
+        </span>
+        {settled ? <span className="sr-only">Settled</span> : null}
+        {createdAt ? (
+          <time
+            dateTime={createdAt}
+            className="mt-1 block text-[11px] text-muted-foreground"
+          >
+            {formatRelativeTime(createdAt)}
+          </time>
+        ) : null}
+      </span>
+    </>
+  );
+  return (
+    <div
+      className={`flex w-full items-stretch border bg-popover text-popover-foreground shadow-[0_16px_40px_-12px_rgb(0_0_0/0.7)] transition-colors [font-family:var(--font-terminal)] ${style.border} ${style.hover} ${settled ? "opacity-50" : ""}`}
+    >
+      <span aria-hidden className={`w-1 shrink-0 ${style.bar}`} />
+      {link ? (
+        <Link
+          to={attentionToastLocation(event)}
+          onClick={(event) => {
+            if (
+              event.button !== 0 ||
+              event.metaKey ||
+              event.ctrlKey ||
+              event.shiftKey ||
+              event.altKey
+            )
+              return;
+            onOpen();
+          }}
+          state={{ blockJump: `${Date.now()}-${event.toastId}` }}
+          {...actionProps}
+        >
+          {content}
+        </Link>
+      ) : (
+        <button type="button" onClick={onOpen} {...actionProps}>
+          {content}
         </button>
+      )}
+
+      {onDismiss ? (
         <button
           type="button"
           aria-label="Dismiss"
-          onClick={() => toast.dismiss(id)}
+          onClick={onDismiss}
           className="shrink-0 self-start p-3 text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
         >
           <X className="size-4" />
         </button>
-      </div>
-    ),
-    { id, duration: ATTENTION_TOAST_MS, toasterId: TOASTER_ID }
+      ) : null}
+    </div>
   );
 }
 

@@ -325,6 +325,8 @@ export function groupTurnRows(rows: TurnSourceRow[]): TurnGroup[] {
   const groups: TurnGroup[] = [];
   let current: TurnGroup | null = null;
   for (const row of rows) {
+    // Attention is source metadata, never engine output or an orphan turn.
+    if (row.kind === "attention") continue;
     if (row.kind === "turn") {
       current = { turn: row, rows: [] };
       groups.push(current);

@@ -300,6 +300,9 @@ slackNotifier.setFormNotify((agent, input) =>
 );
 slackNotifier.setFocusCheck((agentId) => focusTracker.isFocused(agentId));
 const uiEventBroker = new UiEventBroker();
+agentManager.onAttentionHistoryChanged(() =>
+  uiEventBroker.publish({ type: "attention.history_changed" })
+);
 slackNotifier.setPresence({
   isPresent: () => presenceTracker.isPresent(),
   isViewing: (agentId) => presenceTracker.isViewing(agentId),

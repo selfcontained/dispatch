@@ -122,17 +122,12 @@ export function AgentsView({
     selectedAgentId: validatedSelectedAgentId,
   });
 
-  const {
-    changesMatch,
-    filesMatch,
-    centerTabResolved,
-    viewedAgentLeft,
-    onTabChange,
-  } = useAgentsViewRouting({
-    routeAgentId,
-    agentsLoaded,
-    validatedSelectedAgentId,
-  });
+  const { changesMatch, filesMatch, centerTabResolved, onTabChange } =
+    useAgentsViewRouting({
+      routeAgentId,
+      agentsLoaded,
+      validatedSelectedAgentId,
+    });
   const [createOpen, setCreateOpen] = useState(false);
   const [requestedCreateType, setRequestedCreateType] =
     useState<AgentType | null>(null);
@@ -315,23 +310,8 @@ export function AgentsView({
     }
   }, [isMobile, taskPaneOpen, setMobileLeftOpen, setMobileDrawerOpen]);
   const pinnedReserve = drawerPinnedReserve(leftOpen);
-  // On a phone with no agent selected the center pane is an empty prompt,
-  // so the sidebar opens in its place. Only on entering that state, so
-  // closing the sidebar by hand still sticks; and a sheet opened this way
-  // closes again once a route (Forward, a link) selects an agent. Archiving
-  // the agent on screen is not that entry: the menus stay as they were.
-  const noAgentOnMobile = isMobile && agentsLoaded && !hasActiveAgent;
-  const autoOpenSidebar = noAgentOnMobile && !viewedAgentLeft;
-  const sidebarAutoOpenedRef = useRef(false);
-  useEffect(() => {
-    if (autoOpenSidebar) {
-      sidebarAutoOpenedRef.current = true;
-      setMobileLeftOpen(true);
-    } else if (sidebarAutoOpenedRef.current) {
-      sidebarAutoOpenedRef.current = false;
-      setMobileLeftOpen(false);
-    }
-  }, [autoOpenSidebar, setMobileLeftOpen]);
+  // Keep the global header visible in empty and newly archived agent states.
+  // Navigation opens only through its explicit control.
   const closeDrawer = useCallback(() => {
     setDrawerOpenState(false);
   }, [setDrawerOpenState]);
@@ -435,22 +415,12 @@ export function AgentsView({
     [isMobile, setMobileLeftOpen]
   );
 
-  const handleCreateOpenChange = useCallback(
-    (open: boolean) => {
-      if (!open) {
-        setRequestedCreateType(null);
-        // Create closes the mobile sheet on the way in; cancelling it with
-        // no agent selected would leave the empty pane, so the sheet
-        // comes back.
-        if (noAgentOnMobile) {
-          sidebarAutoOpenedRef.current = true;
-          setMobileLeftOpen(true);
-        }
-      }
-      setCreateOpen(open);
-    },
-    [noAgentOnMobile, setMobileLeftOpen]
-  );
+  const handleCreateOpenChange = useCallback((open: boolean) => {
+    if (!open) {
+      setRequestedCreateType(null);
+    }
+    setCreateOpen(open);
+  }, []);
 
   const filesVisible = isSplit
     ? splitState.left === "files" || splitState.right === "files"

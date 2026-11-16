@@ -802,7 +802,16 @@ export function useSSE(authState: AuthState): void {
           return;
         }
 
+        if (payload.type === "attention.history_changed") {
+          void queryClient.invalidateQueries({
+            queryKey: ["attention-history"],
+          });
+          return;
+        }
         if (payload.type === "attention.toast") {
+          void queryClient.invalidateQueries({
+            queryKey: ["attention-history"],
+          });
           announceAttentionToast(payload);
           return;
         }

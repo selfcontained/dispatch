@@ -780,9 +780,10 @@ describe("AgentsView dialogs", () => {
 });
 
 describe("AgentsView mobile sidebar", () => {
-  it("opens the sidebar on a phone with no agent selected", () => {
+  it("keeps the global header accessible on a phone with no agent selected", () => {
     const { props } = mount({ path: "/agents", isMobile: true });
-    expect(props.setMobileLeftOpen).toHaveBeenCalledWith(true);
+    expect(props.setMobileLeftOpen).not.toHaveBeenCalledWith(true);
+    expect(propsOf("AgentsViewHeader").hasActiveAgent).toBe(false);
   });
 
   it("leaves the sidebar as it was when the agent on screen is archived", () => {

@@ -1688,6 +1688,12 @@ describe("useSSE message handling", () => {
     }
   });
 
+  it("refreshes attention history without churning the agent feed", () => {
+    const { emit, invalidateQueries } = renderMessages();
+    emit({ type: "attention.history_changed" });
+    expect(invalidatedKeys(invalidateQueries)).toEqual([["attention-history"]]);
+  });
+
   it("invalidates the collection each bare change event names", () => {
     const { emit, invalidateQueries } = renderMessages();
 

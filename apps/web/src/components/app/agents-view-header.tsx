@@ -1,3 +1,4 @@
+import { NotificationsDrawer } from "./notifications-drawer";
 import { PanelLeftOpen, PanelRightOpen } from "lucide-react";
 
 import {
@@ -130,6 +131,7 @@ export function AgentsViewHeader({
         {activeTab === "changes" && !isSplit ? (
           <ChangesSettingsPopover isMobile={isMobile} />
         ) : null}
+        <NotificationsDrawer />
         {hasActiveAgent && (!drawerPanelOpen || isMobile) ? (
           <Button
             size="icon"

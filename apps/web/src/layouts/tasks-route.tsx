@@ -1,3 +1,4 @@
+import { NotificationsDrawer } from "@/components/app/notifications-drawer";
 import { TaskLabelFilter } from "@/components/app/tasks/task-label-filter";
 import { BLOCK_PARAM, THREAD_PARAM } from "@/lib/agent-routes";
 import { useEffect, useMemo, useState } from "react";
@@ -222,7 +223,11 @@ function TasksContent({ projectId }: { projectId: string }) {
     </div>
   );
   return (
-    <SectionShell activeSection="tasks" sidebar={sidebar}>
+    <SectionShell
+      activeSection="tasks"
+      headerActions={<NotificationsDrawer />}
+      sidebar={sidebar}
+    >
       <div className="flex min-h-0 flex-1 flex-col">
         <header className="flex flex-col gap-2 px-3 py-2 md:flex-row md:items-center md:px-4 md:py-3">
           <div className="flex min-w-0 items-center gap-2 md:mr-auto">
@@ -492,6 +497,7 @@ export function TasksRoute(): JSX.Element {
   ) : (
     <SectionShell
       activeSection="tasks"
+      headerActions={<NotificationsDrawer />}
       sidebar={
         <div className="p-3">
           <ProjectSwitcher allowAll={false} />

@@ -70,11 +70,14 @@ vi.mock("./section-shell", () => ({
   SectionShell: ({
     sidebar,
     children,
+    headerActions,
   }: {
+    headerActions?: React.ReactNode;
     sidebar: React.ReactNode;
     children: React.ReactNode;
   }) => (
     <div>
+      {headerActions}
       {sidebar}
       {children}
     </div>
@@ -373,4 +376,15 @@ it("clears pane and conversation targets on ordinary opens, paging and close whi
   expect(screen.getByTestId("location").textContent).toBe(
     "?project=p1&view=archived"
   );
+});
+
+it("offers global notifications without a selected task project", () => {
+  render(
+    <QueryWrapper>
+      <MemoryRouter initialEntries={["/tasks"]}>
+        <TasksRoute />
+      </MemoryRouter>
+    </QueryWrapper>
+  );
+  expect(screen.getByRole("button", { name: "Notifications" })).toBeTruthy();
 });
