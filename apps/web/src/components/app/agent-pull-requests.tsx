@@ -228,6 +228,22 @@ function explanationNotice(data: ExplanationReply | undefined) {
       "Could not explain this assessment. You can retry.",
   };
 }
+/** Model-authored text: structure only, never images or live links. */
+const EXPLANATION_ELEMENTS = [
+  "h1",
+  "h2",
+  "h3",
+  "h4",
+  "p",
+  "ul",
+  "ol",
+  "li",
+  "strong",
+  "em",
+  "code",
+  "pre",
+  "blockquote",
+];
 function RiskExplanation({
   agentId,
   url,
@@ -346,7 +362,10 @@ function RiskExplanation({
       )}
       {!query.isFetching && ready && (
         <>
-          <Markdown className="text-[11px] leading-relaxed prose-headings:mb-0.5 prose-headings:mt-2.5 prose-headings:text-[11px] prose-headings:font-semibold first:prose-headings:mt-0 prose-ul:pl-4 prose-li:my-0 prose-li:pl-0 prose-code:text-[10px] [&>*:first-child]:mt-0">
+          <Markdown
+            allowedElements={EXPLANATION_ELEMENTS}
+            className="text-[11px] leading-relaxed prose-headings:mb-0.5 prose-headings:mt-2.5 prose-headings:text-[11px] prose-headings:font-semibold first:prose-headings:mt-0 prose-ul:pl-4 prose-li:my-0 prose-li:pl-0 prose-code:text-[10px] [&>*:first-child]:mt-0"
+          >
             {query.data?.text ?? ""}
           </Markdown>
           {query.data?.limitedEvidence && (

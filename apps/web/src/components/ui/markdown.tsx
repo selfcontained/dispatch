@@ -102,6 +102,12 @@ type MarkdownProps = {
   // and a full-opacity accent heading would fight that. Opt in for a
   // dedicated document-reading surface like the lightbox.
   headingAccents?: boolean;
+  /**
+   * Default variant only: render just these elements; others are unwrapped
+   * to their text (images vanish). For untrusted model output that must not
+   * fetch remote images or render live links.
+   */
+  allowedElements?: string[];
 };
 
 export const Markdown = memo(function Markdown({
@@ -111,6 +117,7 @@ export const Markdown = memo(function Markdown({
   renderText,
   headingAccents = false,
   streaming = false,
+  allowedElements,
 }: MarkdownProps): JSX.Element {
   if (variant === "snapshot") {
     return (
@@ -160,6 +167,7 @@ export const Markdown = memo(function Markdown({
       headingAccents={headingAccents}
       renderText={renderText}
       streaming={streaming}
+      allowedElements={allowedElements}
     >
       {children}
     </MarkdownDefault>
@@ -344,9 +352,15 @@ function MarkdownDefault({
   headingAccents = false,
   renderText,
   streaming = false,
+  allowedElements,
 }: Pick<
   MarkdownProps,
-  "children" | "className" | "headingAccents" | "renderText" | "streaming"
+  | "children"
+  | "className"
+  | "headingAccents"
+  | "renderText"
+  | "streaming"
+  | "allowedElements"
 >): JSX.Element {
   const mermaidTheme = useMermaidTheme();
   const source = children;
@@ -395,6 +409,8 @@ function MarkdownDefault({
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         rehypePlugins={renderText ? [wrapProseText] : []}
+        allowedElements={allowedElements}
+        unwrapDisallowed={!!allowedElements}
         components={{
           li({ children, node, ...props }) {
             // Loose lists contain parser-generated newlines around block

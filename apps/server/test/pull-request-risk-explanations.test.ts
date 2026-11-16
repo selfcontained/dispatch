@@ -862,6 +862,26 @@ it("prioritises source and migrations over tests, docs and lockfiles within the 
     24 * 1024
   );
 });
+it("never sends hunks from secret-bearing files", () => {
+  const patch = "@@ -0,0 +1 @@\n+DB_PASSWORD=hunter2";
+  const files = [
+    ".env",
+    "apps/api/.env.production",
+    "deploy/server.pem",
+    "certs/tls.key",
+    "config/credentials.json",
+    "k8s/secrets.yaml",
+    "home/.ssh/id_ed25519",
+    "infra/prod.tfvars",
+    ".npmrc",
+  ].map((path) => ({ path, additions: 1, deletions: 0, patch }));
+  const picked = selectHunks(
+    [...files, { path: "src/env.ts", additions: 1, deletions: 0, patch }],
+    ""
+  );
+  expect(picked.files.map((f) => f.path)).toEqual(["src/env.ts"]);
+  expect(picked.omitted_files).toBe(files.length);
+});
 it("reads hunks pinned to the PR base sha and assessed head, and degrades to none on gh failure", async () => {
   const base = "c".repeat(40);
   const run = vi.fn(async (_cmd: string, args: string[]) =>

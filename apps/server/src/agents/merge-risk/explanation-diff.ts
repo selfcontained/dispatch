@@ -32,11 +32,15 @@ export type ExplanationDiff = {
 const GENERATED =
   /(^|\/)(dist|build|vendor|node_modules|__snapshots__)\/|\.(min\.(js|css)|map|snap|lock|svg|png|jpe?g|gif|ico|woff2?)$/i;
 const MIGRATION = /(^|\/)migrations?\//;
+/** Files whose contents are likely credentials: never sent, only listed. */
+const SECRET =
+  /(^|\/)(\.env(\.[^/]*)?|\.npmrc|\.netrc|\.pgpass|id_(rsa|dsa|ecdsa|ed25519)[^/]*|[^/]*(credential|secret)s?[^/]*)$|\.(pem|key|p12|pfx|jks|keystore|crt|cer|der|kdbx|tfvars|tfstate)$/i;
 const DOCS = /\.(md|mdx|rst|txt)$/i;
 
 /** Lower is more relevant. Null means never worth budget. */
 function tier(path: string): number | null {
-  if (shouldExcludePath(path) || GENERATED.test(path)) return null;
+  if (shouldExcludePath(path) || GENERATED.test(path) || SECRET.test(path))
+    return null;
   if (MIGRATION.test(path)) return 0;
   if (isTestFile(path)) return 2;
   if (DOCS.test(path)) return 3;

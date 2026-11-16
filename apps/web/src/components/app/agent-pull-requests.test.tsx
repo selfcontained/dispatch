@@ -569,7 +569,7 @@ it("renders a ready explanation as markdown sections without raw HTML", async ()
   );
   vi.mocked(api).mockResolvedValue({
     state: "ready",
-    text: "### Why this verdict\n- `web/settings.tsx` adds a new top-level surface.\n\n### What to check\n- Saving settings while a call is in flight. <b>raw</b>\n\n### What lowers the risk\n- One reviewer-verified finding.",
+    text: "### Why this verdict\n- `web/settings.tsx` adds a new top-level surface.\n\n### What to check\n- Saving settings while a call is in flight. <b>raw</b>\n\n### What lowers the risk\n- One reviewer-verified finding. ![x](https://e.com/a.png) [docs](https://e.com/d)",
   } as never);
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -626,4 +626,7 @@ it("renders a ready explanation as markdown sections without raw HTML", async ()
   expect(within(body).getByText("web/settings.tsx").tagName).toBe("CODE");
   expect(body.querySelector("b")).toBeNull();
   expect(body.textContent).toContain("<b>raw</b>");
+  expect(body.querySelector("img")).toBeNull();
+  expect(body.querySelector("a")).toBeNull();
+  expect(body.textContent).toContain("docs");
 });
