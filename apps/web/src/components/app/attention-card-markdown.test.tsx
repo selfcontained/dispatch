@@ -119,7 +119,14 @@ describe("AttentionCard markdown", () => {
       "Builder Question Ready Ship the fix with pnpm check? See PR 12. Settled"
     );
     expect(name).not.toMatch(/[*`#[\]]/);
-    const title = screen.getByTestId("markdown-compact").parentElement!.title;
-    expect(title).toBe("Ready Ship the fix with pnpm check? See PR 12.");
+    // On the overlay, which is what the pointer hovers.
+    expect(action.title).toBe("Ready Ship the fix with pnpm check? See PR 12.");
+  });
+
+  it("puts the tooltip on the drawer card's link", () => {
+    renderCard(MARKDOWN, { createdAt: new Date().toISOString(), link: true });
+    expect(screen.getByRole("link", { name: /Builder Question/ }).title).toBe(
+      "Ship the fix with pnpm check? See PR 12."
+    );
   });
 });

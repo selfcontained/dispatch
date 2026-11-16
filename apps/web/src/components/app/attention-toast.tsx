@@ -8,7 +8,7 @@ import {
   ShieldAlert,
   X,
 } from "lucide-react";
-import { useEffect, useId, useLayoutEffect, useRef } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import {
   Link,
   type NavigateFunction,
@@ -163,9 +163,12 @@ export function AttentionCard({
   const ids = useId();
   const messageRef = useRef<HTMLSpanElement>(null);
   // The tooltip shows the whole message as read, not its Markdown source.
+  // It sits on the action, which is what the pointer hovers.
+  const [title, setTitle] = useState("");
   useLayoutEffect(() => {
-    const el = messageRef.current;
-    if (el) el.title = el.textContent?.replace(/\s+/g, " ").trim() ?? "";
+    setTitle(
+      messageRef.current?.textContent?.replace(/\s+/g, " ").trim() ?? ""
+    );
   }, [event.message]);
   // The action covers the card but holds no content, so the message's own
   // links aren't nested inside it. It's named from the rendered text, which
@@ -182,6 +185,7 @@ export function AttentionCard({
     ]
       .filter(Boolean)
       .join(" "),
+    title,
   };
   return (
     <div
