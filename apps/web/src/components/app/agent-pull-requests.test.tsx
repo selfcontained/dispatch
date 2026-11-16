@@ -6,6 +6,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
@@ -555,4 +556,77 @@ it("shows current CI independently beside the same risk assessment as checks cha
   );
   expect(screen.getByLabelText("Current CI: 1 pending")).toBeTruthy();
   expect(screen.getByTestId("merge-risk-badge").textContent).toBe("Routine");
+});
+
+it("renders a ready explanation as markdown sections without raw HTML", async () => {
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    }
+  );
+  vi.mocked(api).mockResolvedValue({
+    state: "ready",
+    text: "### Why this verdict\n- `web/settings.tsx` adds a new top-level surface.\n\n### What to check\n- Saving settings while a call is in flight. <b>raw</b>\n\n### What lowers the risk\n- One reviewer-verified finding. ![x](https://e.com/a.png) [docs](https://e.com/d)",
+  } as never);
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  render(
+    <QueryClientProvider client={client}>
+      <PullRequestRow
+        isError={false}
+        onDismiss={() => {}}
+        agentId="a"
+        pr={{
+          url: "https://github.com/a/b/pull/1",
+          title: "Change",
+          status: "Open",
+          mergeRisk: {
+            assessmentId: "7",
+            verdict: "human_review",
+            changeRisk: 2.3,
+            changeRiskLabel: "high",
+            reviewAdequate: 0.91,
+            descriptionMatches: 0.4,
+            newSurface: 0.9,
+            routineProbability: 0.1,
+            humanReviewProbability: 0.9,
+            confidence: 0.95,
+            promptVersion: "merge-risk-v2",
+            status: "ok",
+            headSha: "abcdef1234",
+            assessedAt: "2026-11-09T12:00:00Z",
+          },
+        }}
+      />
+    </QueryClientProvider>
+  );
+  fireEvent.click(
+    screen.getByRole("button", {
+      name: "Merge risk for pull request #1: Read before merge",
+    })
+  );
+  fireEvent.click(
+    await screen.findByRole("button", { name: "Explain assessment" })
+  );
+  const first = await screen.findByRole("heading", {
+    name: "Why this verdict",
+  });
+  const body = first.parentElement!;
+  const headings = within(body).getAllByRole("heading", { level: 3 });
+  expect(headings.map((h) => h.textContent)).toEqual([
+    "Why this verdict",
+    "What to check",
+    "What lowers the risk",
+  ]);
+  expect(within(body).getAllByRole("listitem")).toHaveLength(3);
+  expect(within(body).getByText("web/settings.tsx").tagName).toBe("CODE");
+  expect(body.querySelector("b")).toBeNull();
+  expect(body.textContent).toContain("<b>raw</b>");
+  expect(body.querySelector("img")).toBeNull();
+  expect(body.querySelector("a")).toBeNull();
+  expect(body.textContent).toContain("docs");
 });

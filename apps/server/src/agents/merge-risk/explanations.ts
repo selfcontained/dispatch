@@ -1,8 +1,10 @@
 import { retainedEvidence } from "./explanation-evidence.js";
 import { mergeRiskCapacity } from "./budget.js";
+import { readAssessedDiff } from "./explanation-diff.js";
 import type { Pool } from "pg";
 import type { RoutingSettings } from "../../chat/routing-settings.js";
 import {
+  EXPLANATION_VERSION,
   requestExplanation,
   type ExplanationFailure,
 } from "./explanation-client.js";
@@ -29,6 +31,7 @@ export type ExplanationReply =
   | { state: "failed"; reason: ExplanationFailure | "unknown" };
 type Reply = ExplanationReply;
 type Assessment = {
+  url: string;
   head_sha: string;
   created_at: Date;
   result: Record<string, unknown>;
@@ -49,12 +52,14 @@ export class RiskExplanations {
       pool: Pool;
       settings: RoutingSettings;
       transport?: typeof fetch;
+      /** Hunks for the assessed commit; injectable so tests never call gh. */
+      readDiff?: typeof readAssessedDiff;
     }
   ) {}
 
   private async find(id: string): Promise<Assessment | undefined> {
     const { rows } = await this.deps.pool.query<Assessment>(
-      `SELECT r.head_sha,r.created_at,r.result,s.evidence
+      `SELECT r.url,r.head_sha,r.created_at,r.result,s.evidence
        FROM merge_risk_decision_records r
        LEFT JOIN merge_risk_evidence_snapshots s ON s.assessment_id=r.id
        WHERE r.id=$1 AND r.status='ok'`,
@@ -87,15 +92,26 @@ export class RiskExplanations {
       const stored = (
         await client.query<{
           status: string;
-          result: { text?: string; limitedEvidence?: boolean };
+          result: {
+            text?: string;
+            limitedEvidence?: boolean;
+            version?: string;
+          };
         }>(
           "SELECT status,result FROM merge_risk_explanations WHERE assessment_id=$1",
           [input.assessmentId]
         )
       ).rows[0];
-      if (stored?.status === "ok" || stored?.status === "pending") {
+      // An explanation from an older prompt/model is not reused: it regenerates.
+      if (stored?.status === "pending") {
         await client.query("COMMIT");
-        if (stored.status === "pending") return { state: "pending" };
+        return { state: "pending" };
+      }
+      if (
+        stored?.status === "ok" &&
+        stored.result.version === EXPLANATION_VERSION
+      ) {
+        await client.query("COMMIT");
         return {
           state: "ready",
           text: stored.result.text,
@@ -119,6 +135,14 @@ export class RiskExplanations {
     } finally {
       client.release();
     }
+    // Without saved evidence the model may not name files, so no hunks.
+    const diff = limitedEvidence
+      ? null
+      : await (this.deps.readDiff ?? readAssessedDiff)(
+          assessment.url,
+          assessment.head_sha,
+          assessment.evidence
+        ).catch(() => null);
     if (!(await unchanged())) {
       await this.finish(input.assessmentId, "stale", {
         reason: "config_changed",
@@ -135,7 +159,8 @@ export class RiskExplanations {
         {
           assessedCommit: assessment.head_sha,
           assessedAt: new Date(assessment.created_at).toISOString(),
-        }
+        },
+        diff ? retainedEvidence(diff, config.apiKey) : undefined
       ),
       this.deps.transport
     );
@@ -212,7 +237,8 @@ export function followupEvidence(raw: unknown): unknown {
 export function explanationInput(
   evidence: unknown,
   result: Record<string, unknown>,
-  assessed?: { assessedCommit: string; assessedAt: string }
+  assessed?: { assessedCommit: string; assessedAt: string },
+  diff?: unknown
 ) {
   return {
     context: {
@@ -220,6 +246,7 @@ export function explanationInput(
       evidenceRetained: evidence != null,
     },
     evidence: evidence == null ? null : followupEvidence(evidence),
+    ...(diff ? { diff } : {}),
     assessment: Object.fromEntries(
       [
         "verdict",

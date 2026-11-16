@@ -24,6 +24,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Markdown } from "@/components/ui/markdown";
 import {
   Popover,
   PopoverArrow,
@@ -227,6 +228,22 @@ function explanationNotice(data: ExplanationReply | undefined) {
       "Could not explain this assessment. You can retry.",
   };
 }
+/** Model-authored text: structure only, never images or live links. */
+const EXPLANATION_ELEMENTS = [
+  "h1",
+  "h2",
+  "h3",
+  "h4",
+  "p",
+  "ul",
+  "ol",
+  "li",
+  "strong",
+  "em",
+  "code",
+  "pre",
+  "blockquote",
+];
 function RiskExplanation({
   agentId,
   url,
@@ -345,20 +362,12 @@ function RiskExplanation({
       )}
       {!query.isFetching && ready && (
         <>
-          <p className="whitespace-pre-wrap break-words leading-relaxed text-foreground">
-            {query.data?.text?.split(/(`[^`\n]+`)/g).map((part, index) =>
-              index % 2 === 1 ? (
-                <code
-                  key={index}
-                  className="rounded bg-muted px-1 py-0.5 font-mono text-[10px] [overflow-wrap:anywhere]"
-                >
-                  {part.slice(1, -1)}
-                </code>
-              ) : (
-                part
-              )
-            )}
-          </p>
+          <Markdown
+            allowedElements={EXPLANATION_ELEMENTS}
+            className="text-[11px] leading-relaxed prose-headings:mb-0.5 prose-headings:mt-2.5 prose-headings:text-[11px] prose-headings:font-semibold first:prose-headings:mt-0 prose-ul:pl-4 prose-li:my-0 prose-li:pl-0 prose-code:text-[10px] [&>*:first-child]:mt-0"
+          >
+            {query.data?.text ?? ""}
+          </Markdown>
           {query.data?.limitedEvidence && (
             <p className="leading-relaxed">
               Supporting detail for this assessment wasn't saved, so this uses
