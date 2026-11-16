@@ -133,7 +133,12 @@ for (const device of [
       expect(stripStyle.box).toEqual(
         phone ? [0, 0, 0, 0] : [0, 0, device.width, insets.top]
       );
-      await page.getByTitle("Close sidebar", { exact: true }).first().click();
+      // Empty mobile views keep the global header available, with navigation closed.
+      if (device.width >= 768)
+        await page.getByTitle("Close sidebar", { exact: true }).first().click();
+      await insideFrame(
+        page.getByRole("button", { name: "Notifications", exact: true })
+      );
       const open = page.getByTitle("Open sidebar", { exact: true });
       await insideFrame(open);
       await insideFrame(page.getByTitle("Chat options", { exact: true }));

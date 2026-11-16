@@ -49,6 +49,14 @@ for (const viewport of [
       })
     );
     await loadApp(page);
+    if (viewport.width < 768) {
+      await expect(
+        page.getByRole("button", { name: "Notifications", exact: true })
+      ).toBeVisible();
+      await page
+        .getByRole("button", { name: "Open sidebar", exact: true })
+        .click();
+    }
     await page.getByRole("button", { name: "Filter by project" }).click();
     await expectInsideViewport(page.getByRole("menu"), viewport.height);
     await page
@@ -163,6 +171,9 @@ test("phone overlays respect nonzero safe areas, including an upward PR popover"
       return result;
     });
     expect(measured).toEqual([top, bottom]);
+    await page
+      .getByRole("button", { name: "Open sidebar", exact: true })
+      .click();
     await page.getByRole("button", { name: "Filter by project" }).click();
     await expectInsideViewport(page.getByRole("menu"), height, top, bottom);
     await page
@@ -181,6 +192,9 @@ test("phone overlays respect nonzero safe areas, including an upward PR popover"
     await page.getByRole("option", { name: "Model 39", exact: true }).click();
     await expect(page.getByTestId("create-agent-model")).toHaveText("Model 39");
     await page.getByRole("button", { name: "Cancel", exact: true }).click();
+    await page
+      .getByRole("button", { name: "Open sidebar", exact: true })
+      .click();
     await page.getByTestId(`agent-expand-toggle-${agent.id}`).click();
     const trigger = page.getByRole("button", {
       name: "Details for pull request #42: Draft",
