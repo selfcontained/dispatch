@@ -4,7 +4,10 @@ import {
   ResponsePlaceholder,
   defragCells,
 } from "./chat/turn/response-placeholder";
-import { ACTIVITY_COLORS } from "./chat/turn/activity-category";
+import {
+  ACTIVITY_COLORS,
+  type ActivityCategory,
+} from "./chat/turn/activity-category";
 import "./compaction-comparison.css";
 
 const cells = defragCells("compaction-study", []).sort(
@@ -14,7 +17,7 @@ const variants = [
   ["Pack left", "Close the gaps; keep each piece.", false, false],
   ["Merge", "Many pieces become a few longer bars.", true, false],
   ["Unify colour", "Consolidate into a calm green tone.", false, true],
-  ["Combined", "Coloured fragments feed a lasting green summary.", true, true],
+  ["Combined", "Defrag, one piece at a time, into green.", true, true],
 ] as const;
 
 function Grid({
@@ -51,18 +54,7 @@ function Grid({
         const pass = (phase + row * 3) % 12;
         const packedCount = Math.min(22, pass * 3);
         const packed = col < packedCount;
-        let position = packed ? col : col + Math.floor((col * 10) / 21);
-        const combined = merge && unify;
-        const summary = col < 8;
-        const intake =
-          (phase + Math.floor((col - 8) / 3) * 2 + row * 3 + 48) % 12;
-        if (combined) {
-          // The summary never disperses. Intake batches disappear into it,
-          // then replenish at the right while invisible.
-          const travel = Math.min(1, Math.max(0, (intake - 1) / 5));
-          position = summary ? col : 28 - 23 * travel + ((col - 8) % 3);
-        }
-        const absorbed = combined && !summary && (intake === 0 || intake >= 7);
+        const position = packed ? col : col + Math.floor((col * 10) / 21);
         const finalColor = unify
           ? "hsl(var(--status-working))"
           : ACTIVITY_COLORS[
@@ -84,15 +76,14 @@ function Grid({
                 "--piece-color": ACTIVITY_COLORS[cell.rest],
                 "--packed-color": finalColor,
                 "--packed-width": finalWidth,
-                "--current-opacity": absorbed ? 0 : 0.55,
-                "--current-color": (combined ? summary || intake >= 5 : packed)
+                "--current-opacity": 0.55,
+                "--current-color": packed
                   ? finalColor
                   : ACTIVITY_COLORS[cell.rest],
-                "--current-width": (
-                  combined ? summary : packed && col + 1 < packedCount
-                )
-                  ? finalWidth
-                  : "calc(100% - 2px)",
+                "--current-width":
+                  packed && col + 1 < packedCount
+                    ? finalWidth
+                    : "calc(100% - 2px)",
                 "--normal-dx": `${(((start + 9) % 32) - start) * 100}%`,
               } as CSSProperties
             }
@@ -101,6 +92,74 @@ function Grid({
           </span>
         );
       })}
+    </div>
+  );
+}
+
+/** Same cell identities and collision-free placement as the live defrag. */
+function GreenDefrag({ compacting }: { compacting: boolean }) {
+  const [categories, setCategories] = useState<ActivityCategory[]>([]);
+  useEffect(() => {
+    const timer = window.setTimeout(
+      () => {
+        setCategories((previous) => [
+          ...previous,
+          compacting
+            ? "checks"
+            : (["read", "think", "dispatch", "edit", "write"] as const)[
+                previous.length % 5
+              ]!,
+        ]);
+      },
+      compacting ? 650 + Math.random() * 900 : 1500
+    );
+    return () => window.clearTimeout(timer);
+  }, [compacting, categories]);
+  const live = defragCells("compaction-study", categories);
+  const endpoint = defragCells(
+    "compaction-study",
+    Array.from({ length: cells.length }, () => "checks")
+  );
+  return (
+    <div
+      className={`compaction-frame green-defrag mt-4 ${compacting ? "compaction-active" : ""}`}
+    >
+      <div className="compaction-grid" aria-hidden="true">
+        {Array.from({ length: 128 }, (_, slot) => (
+          <span
+            key={slot}
+            className="compaction-slot"
+            style={{
+              left: `${(slot % 32) * 3.125}%`,
+              top: Math.floor(slot / 32) * 8,
+            }}
+          />
+        ))}
+        {live.map((cell) => (
+          <span
+            key={cell.id}
+            className="compaction-piece"
+            style={
+              {
+                left: 0,
+                top: 0,
+                "--live-x": `${(cell.slot % 32) * 100}%`,
+                "--live-y": `${Math.floor(cell.slot / 32) * 8}px`,
+                "--dx": `${(endpoint[cell.id]!.slot % 32) * 100}%`,
+                "--dy": `${Math.floor(endpoint[cell.id]!.slot / 32) * 8}px`,
+                "--piece-color": ACTIVITY_COLORS[cell.category ?? cell.rest],
+                "--packed-color": ACTIVITY_COLORS.checks,
+                "--packed-width": "calc(100% - 2px)",
+              } as CSSProperties
+            }
+          >
+            <span />
+          </span>
+        ))}
+      </div>
+      <div className="mt-3 text-xs text-muted-foreground">
+        {compacting ? "Compacting context" : "Working"}
+      </div>
     </div>
   );
 }
@@ -152,14 +211,18 @@ export function CompactionComparison() {
               )}
             </div>
             <p className="mt-1 text-sm text-muted-foreground">{description}</p>
-            <div
-              className={`compaction-frame mt-4 ${compacting ? "compaction-active" : "compaction-normal"}`}
-            >
-              <Grid merge={merge} unify={unify} />
-              <div className="mt-3 text-xs text-muted-foreground">
-                {compacting ? "Compacting context" : "Working"}
+            {label === "Combined" ? (
+              <GreenDefrag compacting={compacting} />
+            ) : (
+              <div
+                className={`compaction-frame mt-4 ${compacting ? "compaction-active" : "compaction-normal"}`}
+              >
+                <Grid merge={merge} unify={unify} />
+                <div className="mt-3 text-xs text-muted-foreground">
+                  {compacting ? "Compacting context" : "Working"}
+                </div>
               </div>
-            </div>
+            )}
           </article>
         ))}
       </div>

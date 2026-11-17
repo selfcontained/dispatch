@@ -65,3 +65,7 @@
     opacity: 0.55 !important;
   }
 }
+
+.green-defrag .compaction-piece {
+  transform: translate(var(--live-x), var(--live-y));
+}
