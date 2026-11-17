@@ -5,17 +5,20 @@ import { turnStep } from "./trace";
 import type { ChatTurnStep } from "@dispatch/shared";
 import { ChatRowStateContext } from "../chat-row-state";
 import { afterEach, expect, it, vi } from "vitest";
-import { act, cleanup, render } from "@testing-library/react";
+import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import {
+  ACTIVITY_LABELS,
   ResponsePlaceholder,
   ResponsePlaceholderVisual,
   defragCells,
 } from "./response-placeholder";
+import { ACTIVITY_COLORS } from "./activity-category";
 import type { Step } from "./contracts";
 afterEach(() => {
   cleanup();
   vi.useRealTimers();
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
 });
 it("acknowledges nested calls without replaying the piece on status changes", () => {
   const parent: Step = {
@@ -47,7 +50,7 @@ it("acknowledges nested calls without replaying the piece on status changes", ()
   expect(view.getAllByTestId("chat-response-placeholder-block")).toHaveLength(
     2
   );
-  const block = view.getByTitle("nested read");
+  const block = view.container.querySelector('[data-category="read"]')!;
   const acknowledgement = block.firstElementChild;
   expect(acknowledgement?.classList.contains("dispatch-defrag-ack")).toBe(true);
   view.rerender(
@@ -61,9 +64,9 @@ it("acknowledges nested calls without replaying the piece on status changes", ()
   expect(view.getAllByTestId("chat-response-placeholder-block")).toHaveLength(
     2
   );
-  expect(view.getByTitle("nested read").firstElementChild).toBe(
-    acknowledgement
-  );
+  expect(
+    view.container.querySelector('[data-category="read"]')!.firstElementChild
+  ).toBe(acknowledgement);
 });
 
 it("does not replay acknowledgements when cached work remounts", () => {
@@ -90,8 +93,8 @@ it("does not replay acknowledgements when cached work remounts", () => {
   const first = render(show([parent]));
   first.rerender(show([{ ...parent, children: [child] }]));
   expect(
-    first
-      .getByTitle("read")
+    first.container
+      .querySelector('[data-category="read"]')!
       .firstElementChild?.classList.contains("dispatch-defrag-ack")
   ).toBe(true);
   first.unmount();
@@ -208,8 +211,8 @@ it("counts entering fallback thinking once, including return from nested work", 
     2
   );
   expect(
-    view
-      .getByTitle("Thinking")
+    view.container
+      .querySelector('[data-category="think"]')!
       .firstElementChild?.classList.contains("dispatch-defrag-ack")
   ).toBe(true);
   view.rerender(
@@ -543,4 +546,93 @@ it("removes the comparison's reduced-motion packed override when normal work res
       .classList.contains("dispatch-defrag-reduced")
   ).toBe(false);
   expect(view.container.querySelector('[data-category="read"]')).not.toBeNull();
+});
+
+it("has a human label for every activity colour", () => {
+  expect(Object.keys(ACTIVITY_LABELS).sort()).toEqual(
+    Object.keys(ACTIVITY_COLORS).sort()
+  );
+  expect(Object.values(ACTIVITY_LABELS).every(Boolean)).toBe(true);
+});
+
+function tooltipFixture(compaction = false, reduced = false) {
+  // jsdom has no layout; give the real event hit testing known cell rectangles.
+  vi.stubGlobal("PointerEvent", MouseEvent);
+  const view = render(
+    <ResponsePlaceholderVisual
+      cells={[
+        { id: 0, slot: 0, rest: "read", category: "read", step: 0 },
+        { id: 1, slot: 1, rest: "read", category: "read", step: 0 },
+        { id: 2, slot: 2, rest: "read" },
+      ]}
+      pieces={[
+        { key: "read", category: "read", label: "secret command", compaction },
+      ]}
+      reducedCells={reduced ? defragCells("reduced", ["checks"]) : undefined}
+      textLength={500}
+      onShowProgress={vi.fn()}
+    />
+  );
+  const grid = view.getByRole("status");
+  const rect = (left: number, width: number) => ({
+    left,
+    right: left + width,
+    top: 10,
+    bottom: 15,
+    width,
+    height: 5,
+    x: left,
+    y: 10,
+    toJSON() {},
+  });
+  vi.spyOn(grid, "getBoundingClientRect").mockReturnValue(rect(0, 320));
+  view.container
+    .querySelectorAll<HTMLElement>("[data-defrag-cell]")
+    .forEach((cell, i) => {
+      vi.spyOn(cell, "getBoundingClientRect").mockReturnValue(rect(i * 10, 10));
+    });
+  return { ...view, grid };
+}
+
+it("hovers the whole colour run including gaps, centers its category and hides on muted cells", async () => {
+  const view = tooltipFixture();
+  fireEvent.pointerMove(view.grid, { clientX: 19.5, clientY: 16 });
+  expect((await view.findByRole("tooltip")).textContent).toBe("Reading files");
+  expect(
+    view.container
+      .querySelector("[aria-hidden=true][data-state]")
+      ?.getAttribute("style")
+  ).toContain("width: 20px");
+  expect(view.container.querySelector("[title]")).toBeNull();
+  fireEvent.pointerMove(view.grid, { clientX: 25, clientY: 12 });
+  expect(view.queryByRole("tooltip")).toBeNull();
+});
+
+it("shows on touch and dismisses with an outside tap without blocking progress", async () => {
+  const view = tooltipFixture();
+  const touch = new MouseEvent("pointerup", {
+    bubbles: true,
+    clientX: 5,
+    clientY: 12,
+  });
+  Object.defineProperty(touch, "pointerType", { value: "touch" });
+  fireEvent(view.grid, touch);
+  expect((await view.findByRole("tooltip")).textContent).toBe("Reading files");
+  fireEvent.pointerDown(
+    view.getByRole("button", { name: "Show progress text" })
+  );
+  expect(view.queryByRole("tooltip")).toBeNull();
+});
+
+it("names compaction rather than the shared checks category", async () => {
+  const view = tooltipFixture(true);
+  fireEvent.pointerMove(view.grid, { clientX: 5, clientY: 12 });
+  expect((await view.findByRole("tooltip")).textContent).toBe("Compaction");
+});
+
+it("labels the reduced-motion compaction override even on previously muted pieces", async () => {
+  vi.stubGlobal("matchMedia", () => ({ matches: true }));
+  const view = tooltipFixture(false, true);
+  fireEvent.pointerMove(view.grid, { clientX: 25, clientY: 12 });
+  expect((await view.findByRole("tooltip")).textContent).toBe("Compaction");
 });
