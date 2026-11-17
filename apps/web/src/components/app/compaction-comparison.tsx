@@ -36,6 +36,16 @@ function GreenDefrag({
     );
     return () => window.clearTimeout(timer);
   }, [compacting, categories]);
+  return <DefragPreviewGrid categories={categories} compacting={compacting} />;
+}
+
+export function DefragPreviewGrid({
+  categories,
+  compacting,
+}: {
+  categories: ActivityCategory[];
+  compacting: boolean;
+}) {
   const live = defragCells("compaction-study", categories);
   const endpoint = defragCells(
     "compaction-study",

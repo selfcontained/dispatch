@@ -1,3 +1,4 @@
+import { SimulatedDefragTurn } from "./simulated-defrag-turn";
 import { useSearchParams } from "react-router-dom";
 import { CompactionComparison } from "./compaction-comparison";
 import { DefragActivityCheckpoint } from "./defrag-activity-checkpoint";
@@ -47,7 +48,11 @@ export function DesignLab(): JSX.Element {
   const { theme, setTheme } = useTheme();
   const [params, setParams] = useSearchParams();
   const scene =
-    params.get("activity-defrag") === "1" ? "activity" : "compaction";
+    params.get("turn-demo") === "1"
+      ? "turn"
+      : params.get("activity-defrag") === "1"
+        ? "activity"
+        : "compaction";
   return (
     <div className="bg-background min-h-full p-4 md:p-8">
       <div className="mx-auto max-w-4xl space-y-6">
@@ -59,6 +64,8 @@ export function DesignLab(): JSX.Element {
           onValueChange={(value) =>
             setParams((previous) => {
               const next = new URLSearchParams(previous);
+              next.delete("turn-demo");
+              if (value === "turn") next.set("turn-demo", "1");
               if (value === "activity") next.set("activity-defrag", "1");
               else next.delete("activity-defrag");
               return next;
@@ -66,9 +73,13 @@ export function DesignLab(): JSX.Element {
           }
         >
           <TabsList aria-label="Defrag studies">
+            <TabsTrigger value="turn">Simulated turn</TabsTrigger>
             <TabsTrigger value="compaction">Compaction</TabsTrigger>
             <TabsTrigger value="activity">Activity</TabsTrigger>
           </TabsList>
+          <TabsContent value="turn" className="mt-6">
+            <SimulatedDefragTurn />
+          </TabsContent>
           <TabsContent value="compaction" className="mt-6">
             <CompactionComparison />
           </TabsContent>
