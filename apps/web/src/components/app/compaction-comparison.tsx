@@ -1,104 +1,25 @@
 import { useEffect, useState, type CSSProperties } from "react";
 import { Button } from "@/components/ui/button";
-import {
-  ResponsePlaceholder,
-  defragCells,
-} from "./chat/turn/response-placeholder";
+import { defragCells } from "./chat/turn/response-placeholder";
 import {
   ACTIVITY_COLORS,
   type ActivityCategory,
 } from "./chat/turn/activity-category";
 import "./compaction-comparison.css";
 
-const cells = defragCells("compaction-study", []).sort(
-  (a, b) => a.slot - b.slot
-);
-const variants = [
-  ["Pack left", "Close the gaps; keep each piece.", false, false],
-  ["Merge", "Many pieces become a few longer bars.", true, false],
-  ["Unify colour", "Consolidate into a calm green tone.", false, true],
-  ["Combined", "Defrag, one piece at a time, into green.", true, true],
-] as const;
-
-function Grid({
-  merge = false,
-  unify = false,
-}: {
-  merge?: boolean;
-  unify?: boolean;
-}) {
-  const [phase, setPhase] = useState(0);
-  useEffect(() => {
-    const timer = window.setInterval(() => setPhase((value) => value + 1), 750);
-    return () => window.clearInterval(timer);
-  }, []);
-  return (
-    <div
-      data-packed="true"
-      data-working-shift={phase % 2 === 1}
-      className="compaction-grid"
-      aria-hidden="true"
-    >
-      {Array.from({ length: 128 }, (_, i) => (
-        <span
-          key={i}
-          className="compaction-slot"
-          style={{ left: `${(i % 32) * 3.125}%`, top: Math.floor(i / 32) * 8 }}
-        />
-      ))}
-      {cells.map((cell, i) => {
-        const row = Math.floor(i / 22);
-        const col = i % 22;
-        const start = cell.slot % 32;
-        // Stagger independent row passes so batches keep moving indefinitely.
-        const pass = (phase + row * 3) % 12;
-        const packedCount = Math.min(22, pass * 3);
-        const packed = col < packedCount;
-        const position = packed ? col : col + Math.floor((col * 10) / 21);
-        const finalColor = unify
-          ? "hsl(var(--status-working))"
-          : ACTIVITY_COLORS[
-              merge ? cells[Math.floor(i / 4) * 4]!.rest : cell.rest
-            ];
-        const finalWidth =
-          merge && col % 4 !== 3 && col !== 21 ? "101%" : "calc(100% - 2px)";
-        return (
-          <span
-            key={cell.id}
-            className="compaction-piece"
-            style={
-              {
-                left: `${start * 3.125}%`,
-                top: Math.floor(cell.slot / 32) * 8,
-                "--current-dx": `${(position - start) * 100}%`,
-                "--dx": `${(col - start) * 100}%`,
-                "--dy": `${(row - Math.floor(cell.slot / 32)) * 8}px`,
-                "--piece-color": ACTIVITY_COLORS[cell.rest],
-                "--packed-color": finalColor,
-                "--packed-width": finalWidth,
-                "--current-opacity": 0.55,
-                "--current-color": packed
-                  ? finalColor
-                  : ACTIVITY_COLORS[cell.rest],
-                "--current-width":
-                  packed && col + 1 < packedCount
-                    ? finalWidth
-                    : "calc(100% - 2px)",
-                "--normal-dx": `${(((start + 9) % 32) - start) * 100}%`,
-              } as CSSProperties
-            }
-          >
-            <span />
-          </span>
-        );
-      })}
-    </div>
-  );
-}
+const cellCount = defragCells("compaction-study", []).length;
 
 /** Same cell identities and collision-free placement as the live defrag. */
-function GreenDefrag({ compacting }: { compacting: boolean }) {
-  const [categories, setCategories] = useState<ActivityCategory[]>([]);
+function GreenDefrag({
+  compacting,
+  nearlyFull,
+}: {
+  compacting: boolean;
+  nearlyFull: boolean;
+}) {
+  const [categories, setCategories] = useState<ActivityCategory[]>(() =>
+    nearlyFull ? Array.from({ length: cellCount - 3 }, () => "checks") : []
+  );
   useEffect(() => {
     const timer = window.setTimeout(
       () => {
@@ -118,7 +39,7 @@ function GreenDefrag({ compacting }: { compacting: boolean }) {
   const live = defragCells("compaction-study", categories);
   const endpoint = defragCells(
     "compaction-study",
-    Array.from({ length: cells.length }, () => "checks")
+    Array.from({ length: cellCount }, () => "checks")
   );
   return (
     <div
@@ -166,14 +87,7 @@ function GreenDefrag({ compacting }: { compacting: boolean }) {
 
 export function CompactionComparison() {
   const [compacting, setCompacting] = useState(true);
-  const [writes, setWrites] = useState(0);
-  useEffect(() => {
-    const timer = window.setInterval(
-      () => setWrites((value) => value + 1),
-      1500
-    );
-    return () => window.clearInterval(timer);
-  }, []);
+  const [preset, setPreset] = useState({ id: 0, nearlyFull: false });
   return (
     <section aria-labelledby="compaction-heading" className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-4">
@@ -182,49 +96,35 @@ export function CompactionComparison() {
             Compacting context
           </h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            Small batches keep packing while context compacts.
+            One block at a time turns green. Finish compaction to resume normal
+            activity.
           </p>
         </div>
-        <Button
-          variant="default"
-          aria-pressed={compacting}
-          onClick={() => setCompacting(!compacting)}
-        >
-          {compacting ? "Return to normal turn" : "Start compacting"}
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button
+            variant="ghost"
+            onClick={() => {
+              setPreset((value) => ({ id: value.id + 1, nearlyFull: true }));
+              setCompacting(true);
+            }}
+          >
+            Load nearly green
+          </Button>
+          <Button
+            variant="default"
+            aria-pressed={compacting}
+            onClick={() => setCompacting(!compacting)}
+          >
+            {compacting ? "Finish compaction" : "Start compacting"}
+          </Button>
+        </div>
       </div>
-      <article className="max-w-md">
-        <h3 className="text-sm font-medium">Normal defrag · reference</h3>
-        <ResponsePlaceholder
-          seed="compaction-study"
-          steps={[]}
-          textLength={writes * 250}
+      <div className="max-w-md">
+        <GreenDefrag
+          key={preset.id}
+          compacting={compacting}
+          nearlyFull={preset.nearlyFull}
         />
-      </article>
-      <div className="grid gap-6 md:grid-cols-2">
-        {variants.map(([label, description, merge, unify]) => (
-          <article key={label}>
-            <div className="flex items-center gap-2">
-              <h3 className="font-medium">{label}</h3>
-              {label === "Combined" && (
-                <span className="text-xs text-status-working">Suggested</span>
-              )}
-            </div>
-            <p className="mt-1 text-sm text-muted-foreground">{description}</p>
-            {label === "Combined" ? (
-              <GreenDefrag compacting={compacting} />
-            ) : (
-              <div
-                className={`compaction-frame mt-4 ${compacting ? "compaction-active" : "compaction-normal"}`}
-              >
-                <Grid merge={merge} unify={unify} />
-                <div className="mt-3 text-xs text-muted-foreground">
-                  {compacting ? "Compacting context" : "Working"}
-                </div>
-              </div>
-            )}
-          </article>
-        ))}
       </div>
     </section>
   );

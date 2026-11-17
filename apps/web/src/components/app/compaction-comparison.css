@@ -35,23 +35,6 @@
     width 600ms,
     opacity 600ms;
 }
-/* Shared transform and colour transitions preserve block identity at each handoff. */
-.compaction-active .compaction-grid[data-packed="true"] .compaction-piece {
-  transform: translate(var(--current-dx), var(--dy));
-}
-.compaction-active
-  .compaction-grid[data-packed="true"]
-  .compaction-piece
-  > span {
-  background: var(--current-color);
-  width: var(--current-width);
-  opacity: var(--current-opacity);
-}
-.compaction-normal
-  .compaction-grid[data-working-shift="true"]
-  .compaction-piece {
-  transform: translateX(var(--normal-dx));
-}
 @media (prefers-reduced-motion: reduce) {
   .compaction-frame * {
     transition: none !important;
