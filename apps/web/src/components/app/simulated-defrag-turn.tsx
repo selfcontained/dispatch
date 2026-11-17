@@ -1,11 +1,8 @@
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { DefragPreviewGrid } from "./compaction-comparison";
+import { ResponsePlaceholder } from "./chat/turn/response-placeholder";
+import { ChatRowStateContext } from "./chat/chat-row-state";
 import { ActivityBlock } from "./chat/turn/activity-block";
-import {
-  activityCategory,
-  type ActivityCategory,
-} from "./chat/turn/activity-category";
 import type { Step } from "./chat/turn/contracts";
 
 const SCRIPT = [
@@ -77,7 +74,7 @@ export function SimulatedDefragTurn() {
   const startedAt = times[0]!;
   const [index, setIndex] = useState(0);
   const [playing, setPlaying] = useState(true);
-  const [categories, setCategories] = useState<ActivityCategory[]>(["think"]);
+  const [rowCache, setRowCache] = useState(() => new Map<string, unknown>());
   const compacting = index === COMPACTION;
   const done = index >= SCRIPT.length;
   const steps = traceAt(index, times);
@@ -85,32 +82,12 @@ export function SimulatedDefragTurn() {
     const next = index + 1;
     setIndex(next);
     setTimes((previous) => [...previous, Date.now()]);
-    if (next < SCRIPT.length && next !== COMPACTION) {
-      const event = SCRIPT[next]!;
-      const step: Step = {
-        id: `demo-${next}`,
-        kind: event.kind,
-        label: event.label,
-        status: "running",
-        startedAt: 0,
-        detail: { input: { command: event.label } },
-      };
-      setCategories((previous) => [
-        ...previous,
-        activityCategory(step),
-        ...("text" in event ? ["write" as const] : []),
-      ]);
-    }
   };
   useEffect(() => {
-    if (!playing || done) return;
-    const timer = window.setTimeout(
-      () => {
-        if (compacting) setCategories((previous) => [...previous, "checks"]);
-        else advance();
-      },
-      compacting ? 650 + Math.random() * 900 : SCRIPT[index]!.delay
-    );
+    if (!playing || done || compacting) return;
+    const timer = window.setTimeout(() => {
+      advance();
+    }, SCRIPT[index]!.delay);
     return () => window.clearTimeout(timer);
   });
   const notes = SCRIPT.slice(0, index + 1).filter((event) => "text" in event);
@@ -131,7 +108,7 @@ export function SimulatedDefragTurn() {
             variant="ghost"
             onClick={() => {
               setIndex(0);
-              setCategories(["think"]);
+              setRowCache(new Map());
               setTimes([Date.now()]);
               setPlaying(true);
             }}
@@ -157,7 +134,18 @@ export function SimulatedDefragTurn() {
           </p>
         ))}
         {!done && (
-          <DefragPreviewGrid categories={categories} compacting={compacting} />
+          <ChatRowStateContext.Provider key={startedAt} value={rowCache}>
+            <ResponsePlaceholder
+              seed="compaction-study"
+              steps={steps}
+              textLength={notes.reduce(
+                (total, event) =>
+                  total + ("text" in event ? (event.text?.length ?? 0) : 0),
+                0
+              )}
+              animationPaused={!playing}
+            />
+          </ChatRowStateContext.Provider>
         )}
         <ActivityBlock
           trace={{

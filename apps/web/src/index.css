@@ -1857,10 +1857,10 @@ html[data-hidden] .animate-sidebar-nav-pulse {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .dispatch-defrag-preview [data-defrag-cell] {
+  .dispatch-defrag-reduced [data-defrag-cell] {
     transform: var(--defrag-packed-transform) !important;
   }
-  .dispatch-defrag-preview [data-defrag-cell] > span {
+  .dispatch-defrag-reduced [data-defrag-cell] > span {
     background: var(--defrag-packed-color) !important;
   }
 }

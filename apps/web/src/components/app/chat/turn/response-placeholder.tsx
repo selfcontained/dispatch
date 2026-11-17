@@ -1,8 +1,9 @@
-import { memo, useMemo, useState, type CSSProperties } from "react";
+import { memo, useEffect, useMemo, useState, type CSSProperties } from "react";
 
 import { useChatRowState } from "../chat-row-state";
 
 import type { Step } from "./contracts";
+import { activitySteps } from "./activity-steps";
 import { activeStepLabel, runningTurnVerb } from "./registry";
 import { responsePieces, type ResponsePiece } from "./response-pieces";
 import { ACTIVITY_COLORS, type ActivityCategory } from "./activity-category";
@@ -90,7 +91,8 @@ function weighted(r: () => number): ActivityCategory {
  */
 export function defragCells(
   seed: string,
-  categories: ActivityCategory[]
+  categories: ActivityCategory[],
+  repackAt: ReadonlySet<number> = new Set()
 ): DefragCell[] {
   const r = rng(seedOf(seed));
   const count = Math.round(SLOTS * (0.62 + r() * 0.14));
@@ -99,58 +101,61 @@ export function defragCells(
     slot: 0,
     rest: weighted(r),
   }));
-  const passes = Math.floor(Math.max(0, categories.length - 1) / count);
-  for (let pass = 0; pass <= passes; pass++) {
-    const pr = rng(seedOf(`${seed}:${pass}`));
+  let pass = -1;
+  let pr = rng(0);
+  let unsorted = new Set<number>();
+  let bySlot = new Map<number, DefragCell>();
+  let run: DefragCell[] = [];
+  const beginPass = (scatter: boolean) => {
+    pr = rng(seedOf(`${seed}:${++pass}`));
     const slots = shuffle([...Array(SLOTS).keys()], pr);
     for (const cell of cells) {
-      cell.slot = slots[cell.id]!;
-      // A piece placed last pass is now made of what it was placed as.
+      if (scatter) cell.slot = slots[cell.id]!;
       if (cell.category) cell.rest = cell.category;
       cell.step = undefined;
       cell.category = undefined;
     }
-    const unsorted = new Set(cells.map((c) => c.id));
-    const bySlot = new Map(cells.map((c) => [c.slot, c]));
-    // The packed run from slot 0, kept grouped by kind, groups in the order
-    // the pass first met them.
-    const run: DefragCell[] = [];
-    const first = pass * count;
-    const last = Math.min(categories.length, first + count);
-    for (let k = first; k < last; k++) {
-      const want = categories[k]!;
-      const ids = [...unsorted];
-      const matching = ids.filter((id) => cells[id]!.rest === want);
-      const pool = matching.length ? matching : ids;
-      const cell = cells[pool[Math.floor(pr() * pool.length)]!]!;
-      unsorted.delete(cell.id);
-      cell.rest = want;
-      cell.step = k;
-      cell.category = want;
-      // The run grows by one slot; the scattered piece sitting there moves
-      // out to the slot the placed piece left.
-      const end = run.length;
-      const occupant = bySlot.get(end);
-      if (occupant && occupant !== cell) {
-        occupant.slot = cell.slot;
-        bySlot.set(cell.slot, occupant);
-      } else if (!occupant) {
-        bySlot.delete(cell.slot);
-      }
-      // Join the end of its own group; everything after shifts along one.
-      let at = run.length;
-      for (let i = run.length - 1; i >= 0; i--) {
-        if (run[i]!.category === want) {
-          at = i + 1;
-          break;
-        }
-      }
-      run.splice(at, 0, cell);
-      run.forEach((c, i) => {
-        c.slot = i;
-        bySlot.set(i, c);
-      });
+    unsorted = new Set(cells.map((c) => c.id));
+    bySlot = new Map(cells.map((c) => [c.slot, c]));
+    run = [];
+  };
+  beginPass(true);
+  for (let k = 0; k < categories.length; k++) {
+    // Compaction starts sorting from the front without teleporting the grid.
+    if (repackAt.has(k)) beginPass(false);
+    else if (run.length === count) beginPass(true);
+    const want = categories[k]!;
+    const ids = [...unsorted];
+    const matching = ids.filter((id) => cells[id]!.rest === want);
+    const pool = matching.length ? matching : ids;
+    const cell = cells[pool[Math.floor(pr() * pool.length)]!]!;
+    unsorted.delete(cell.id);
+    cell.rest = want;
+    cell.step = k;
+    cell.category = want;
+    // The run grows by one slot; the scattered piece sitting there moves
+    // out to the slot the placed piece left.
+    const end = run.length;
+    const occupant = bySlot.get(end);
+    if (occupant && occupant !== cell) {
+      occupant.slot = cell.slot;
+      bySlot.set(cell.slot, occupant);
+    } else if (!occupant) {
+      bySlot.delete(cell.slot);
     }
+    // Join the end of its own group; everything after shifts along one.
+    let at = run.length;
+    for (let i = run.length - 1; i >= 0; i--) {
+      if (run[i]!.category === want) {
+        at = i + 1;
+        break;
+      }
+    }
+    run.splice(at, 0, cell);
+    run.forEach((c, i) => {
+      c.slot = i;
+      bySlot.set(i, c);
+    });
   }
   return cells;
 }
@@ -225,21 +230,46 @@ export function ResponsePlaceholder({
   textLength = 0,
   onShowProgress,
   lastProgressAt,
+  animationPaused = false,
 }: {
   /** Anything stable per turn: the turn's block id. */
   seed: string;
   steps: Step[];
   lastProgressAt?: number;
+  /** Design Lab playback control; real turns follow the engine's steps. */
+  animationPaused?: boolean;
   /** Characters of progress text the turn has written; every 250 is a piece. */
   textLength?: number;
   /** Shows this turn's progress text in place of the card. */
   onShowProgress?: () => void;
 }): JSX.Element {
+  const compactionId = activitySteps(steps).find(
+    (step) => step.kind === "compaction" && step.status === "running"
+  )?.id;
   const writes = Math.floor(textLength / CHARS_PER_PIECE);
   const [history, setHistory] = useChatRowState<ResponsePiece[] | null>(
     "defrag-pieces",
     null
   );
+  const [pulseCount, setPulseCount] = useChatRowState(
+    "defrag-compaction-pulses",
+    0
+  );
+  useEffect(() => {
+    if (!compactionId || animationPaused) return;
+    let timer: ReturnType<typeof setTimeout>;
+    const schedule = () => {
+      timer = setTimeout(
+        () => {
+          setPulseCount((previous) => previous + 1);
+          schedule();
+        },
+        650 + Math.random() * 900
+      );
+    };
+    schedule();
+    return () => clearTimeout(timer);
+  }, [compactionId, animationPaused, setPulseCount]);
   const thinking =
     runningTurnVerb(steps, undefined, lastProgressAt) === "thinking";
   const implicitThinking = thinking && !activeStepLabel(steps);
@@ -256,8 +286,24 @@ export function ResponsePlaceholder({
           synthetic: implicitThinking,
         };
   if (nextPhase !== thinkingPhase) setThinkingPhase(nextPhase);
+  const recordedPulses =
+    history?.filter((piece) => piece.key.startsWith("compaction-pulse:"))
+      .length ?? 0;
+  const pendingPulses: ResponsePiece[] = Array.from(
+    { length: Math.max(0, pulseCount - recordedPulses) },
+    (_, i) => ({
+      key: `compaction-pulse:${recordedPulses + i + 1}`,
+      category: "checks",
+      label: "Compacting context",
+      compaction: true,
+    })
+  );
+  // Apply timer events before new engine events, including a compaction's end.
+  const withPulses = pendingPulses.length
+    ? [...(history ?? []), ...pendingPulses]
+    : history;
   const pieces = responsePieces(
-    history,
+    withPulses,
     steps,
     writes,
     implicitThinking && nextPhase.synthetic
@@ -281,14 +327,33 @@ export function ResponsePlaceholder({
     setHistory(pieces);
   }
   // Labels/status can change without rebuilding or advancing the grid.
-  const categoryKey = pieces.map((piece) => piece.category).join(",");
-  const cells = useMemo(
+  const categoryKey = pieces
+    .map((piece) => `${piece.compaction ? "compact:" : ""}${piece.category}`)
+    .join(",");
+  const cells = useMemo(() => {
+    const modes = categoryKey ? categoryKey.split(",") : [];
+    const starts = new Set(
+      modes.flatMap((mode, i) =>
+        mode.startsWith("compact:") && !modes[i - 1]?.startsWith("compact:")
+          ? [i]
+          : []
+      )
+    );
+    return defragCells(
+      seed,
+      modes.map((mode) => mode.replace("compact:", "") as ActivityCategory),
+      starts
+    );
+  }, [seed, categoryKey]);
+  const reducedCells = useMemo(
     () =>
-      defragCells(
-        seed,
-        categoryKey ? (categoryKey.split(",") as ActivityCategory[]) : []
-      ),
-    [seed, categoryKey]
+      compactionId
+        ? defragCells(
+            seed,
+            Array.from({ length: defragCells(seed, []).length }, () => "checks")
+          )
+        : undefined,
+    [seed, compactionId]
   );
   return (
     <ResponsePlaceholderVisual
@@ -297,6 +362,8 @@ export function ResponsePlaceholder({
       arrivalKeys={arrivalKeys}
       textLength={textLength}
       onShowProgress={onShowProgress}
+      reducedCells={reducedCells}
+      statusLabel={compactionId ? "Compacting context" : "Preparing response"}
     />
   );
 }
@@ -324,7 +391,7 @@ export function ResponsePlaceholderVisual({
   return (
     <div
       data-testid="chat-response-placeholder"
-      className={`dispatch-placeholder-chase relative mt-3 w-full max-w-md rounded-lg border border-border/60 bg-muted/10 px-4 py-3.5 ${reducedCells ? "dispatch-defrag-preview" : ""}`}
+      className={`dispatch-placeholder-chase relative mt-3 w-full max-w-md rounded-lg border border-border/60 bg-muted/10 px-4 py-3.5 ${reducedCells ? "dispatch-defrag-reduced" : ""}`}
     >
       {/* The status region holds only the picture; the peek control sits
           beside it, so its changing count is never announced. */}

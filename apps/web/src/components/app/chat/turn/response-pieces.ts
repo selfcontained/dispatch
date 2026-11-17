@@ -6,6 +6,7 @@ export type ResponsePiece = {
   key: string;
   category: ActivityCategory;
   label: string;
+  compaction?: boolean;
 };
 
 /** First-seen identities prevent late children from reordering existing work. */
@@ -19,7 +20,8 @@ export function responsePieces(
   for (const step of activitySteps(steps)) {
     current.set(`step:${step.id}`, {
       key: `step:${step.id}`,
-      category: activityCategory(step),
+      category: step.kind === "compaction" ? "checks" : activityCategory(step),
+      ...(step.kind === "compaction" ? { compaction: true } : {}),
       label: step.label || step.kind,
     });
   }
@@ -52,7 +54,9 @@ export function responsePieces(
     const updated = current.get(piece.key);
     if (
       updated &&
-      (updated.category !== piece.category || updated.label !== piece.label)
+      (updated.category !== piece.category ||
+        updated.label !== piece.label ||
+        updated.compaction !== piece.compaction)
     ) {
       changed = true;
       return updated;

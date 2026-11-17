@@ -1,14 +1,18 @@
 // @vitest-environment jsdom
 import { ChatRowStateContext } from "../chat-row-state";
-import { afterEach, expect, it } from "vitest";
-import { cleanup, render } from "@testing-library/react";
+import { afterEach, expect, it, vi } from "vitest";
+import { act, cleanup, render } from "@testing-library/react";
 import {
   ResponsePlaceholder,
   ResponsePlaceholderVisual,
   defragCells,
 } from "./response-placeholder";
 import type { Step } from "./contracts";
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.useRealTimers();
+  vi.restoreAllMocks();
+});
 it("acknowledges nested calls without replaying the piece on status changes", () => {
   const parent: Step = {
     id: "parent",
@@ -161,7 +165,7 @@ it("keeps the preview frame and muted palette identical to the production placeh
   const previewFrame = preview.getByTestId("chat-response-placeholder");
   expect(
     [...previewFrame.classList]
-      .filter((value) => value !== "dispatch-defrag-preview")
+      .filter((value) => value !== "dispatch-defrag-reduced")
       .sort()
   ).toEqual(classes);
   expect(
@@ -313,4 +317,107 @@ it("matches the activity line when newer progress changes preparing to thinking"
   expect(view.getAllByTestId("chat-response-placeholder-block")).toHaveLength(
     2
   );
+});
+
+it("packs real compaction from the front, keeps running, then resumes on the same grid", () => {
+  vi.useFakeTimers();
+  vi.spyOn(Math, "random").mockReturnValue(0.5);
+  const tool: Step = {
+    id: "tool",
+    kind: "read",
+    label: "read",
+    status: "running",
+    startedAt: 0,
+  };
+  const compact: Step = {
+    id: "compact",
+    kind: "compaction",
+    label: "compacting context",
+    status: "running",
+    startedAt: 2,
+  };
+  const normal: Step = {
+    id: "normal",
+    kind: "execute",
+    label: "git status",
+    status: "running",
+    startedAt: 4,
+  };
+  const cache = new Map<string, unknown>();
+  const show = (steps: Step[]) => (
+    <ChatRowStateContext.Provider value={cache}>
+      <ResponsePlaceholder seed="real-compaction" steps={steps} />
+    </ChatRowStateContext.Provider>
+  );
+  const view = render(show([tool]));
+  const frame = view.getByTestId("chat-response-placeholder");
+  view.rerender(show([{ ...tool, status: "ok" }, compact]));
+  expect(view.getByRole("status").getAttribute("aria-label")).toBe(
+    "Compacting context"
+  );
+  expect(view.getAllByTestId("chat-response-placeholder-block")).toHaveLength(
+    1
+  );
+  act(() => vi.advanceTimersByTime(3300));
+  expect(view.getAllByTestId("chat-response-placeholder-block")).toHaveLength(
+    4
+  );
+  const beforeResume = cache.get("defrag-pieces") as { key: string }[];
+  view.rerender(
+    show([{ ...tool, status: "ok" }, { ...compact, status: "ok" }, normal])
+  );
+  expect(view.getByTestId("chat-response-placeholder")).toBe(frame);
+  expect(view.getAllByTestId("chat-response-placeholder-block")).toHaveLength(
+    5
+  );
+  expect(
+    (cache.get("defrag-pieces") as { key: string }[]).slice(
+      0,
+      beforeResume.length
+    )
+  ).toEqual(beforeResume);
+  act(() => vi.advanceTimersByTime(5000));
+  expect(view.getAllByTestId("chat-response-placeholder-block")).toHaveLength(
+    5
+  );
+  expect(vi.getTimerCount()).toBe(0);
+});
+
+it("resumes compaction after cached remount, stays green for minutes, and cancels on failure", () => {
+  vi.useFakeTimers();
+  vi.spyOn(Math, "random").mockReturnValue(0.5);
+  const compact: Step = {
+    id: "compact",
+    kind: "compaction",
+    label: "compacting context",
+    status: "running",
+    startedAt: 0,
+  };
+  const cache = new Map<string, unknown>();
+  const show = (step: Step) => (
+    <ChatRowStateContext.Provider value={cache}>
+      <ResponsePlaceholder seed="long-compaction" steps={[step]} />
+    </ChatRowStateContext.Provider>
+  );
+  const first = render(show(compact));
+  act(() => vi.advanceTimersByTime(2200));
+  first.unmount();
+  expect(vi.getTimerCount()).toBe(0);
+  const restored = render(show(compact));
+  expect(
+    restored.getAllByTestId("chat-response-placeholder-block")
+  ).toHaveLength(3);
+  act(() => vi.advanceTimersByTime(240000));
+  const history = cache.get("defrag-pieces") as { key: string }[];
+  expect(new Set(history.map((piece) => piece.key)).size).toBe(history.length);
+  expect(history.length).toBeGreaterThan(200);
+  const expected = defragCells(
+    "long-compaction",
+    Array(history.length).fill("checks")
+  );
+  expect(
+    expected.every((cell) => (cell.category ?? cell.rest) === "checks")
+  ).toBe(true);
+  restored.rerender(show({ ...compact, status: "error", endedAt: 240000 }));
+  expect(vi.getTimerCount()).toBe(0);
 });
