@@ -9,6 +9,7 @@
 import { diffLines } from "./diff-block";
 
 import type { Step } from "./contracts";
+import { activitySteps } from "./activity-steps";
 
 /** What the server puts on a step's `detail` (see harness-types.ts). */
 export type StepDetailData = {
@@ -88,11 +89,6 @@ export function stepLabel(step: Step): string {
   const title = step.label?.trim();
   if (!title) return kindLabel(step.kind);
   return toolName(title).name.toLowerCase();
-}
-
-/** Flatten nested work so an active child cannot be hidden by its parent. */
-function activitySteps(steps: Step[]): Step[] {
-  return steps.flatMap((step) => [step, ...activitySteps(step.children ?? [])]);
 }
 
 function latestStep(steps: Step[]): Step | undefined {

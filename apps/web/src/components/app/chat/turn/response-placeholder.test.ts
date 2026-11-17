@@ -166,3 +166,36 @@ describe("blendWrites", () => {
     ]);
   });
 });
+
+it("restarts packing for compaction without scattering or overlapping existing blocks", () => {
+  const categories: ActivityCategory[] = Array.from({ length: 20 }, (_, i) =>
+    i % 2 ? "read" : "think"
+  );
+  const before = defragCells("repack", categories);
+  const packed = defragCells(
+    "repack",
+    [...categories, "checks"],
+    new Set([20])
+  );
+  expect(packed.map((cell) => cell.id)).toEqual(before.map((cell) => cell.id));
+  expect(new Set(packed.map((cell) => cell.slot)).size).toBe(packed.length);
+  expect(
+    packed
+      .filter((cell) => cell.step !== undefined)
+      .map((cell) => [cell.slot, cell.category])
+  ).toEqual([[0, "checks"]]);
+  expect(
+    packed.filter((cell) => cell.slot !== before[cell.id]!.slot).length
+  ).toBeLessThanOrEqual(2);
+  const resumed = defragCells(
+    "repack",
+    [...categories, "checks", "read"],
+    new Set([20])
+  );
+  expect(
+    resumed
+      .filter((cell) => cell.step !== undefined)
+      .sort((a, b) => a.slot - b.slot)
+      .map((cell) => cell.category)
+  ).toEqual(["checks", "read"]);
+});
