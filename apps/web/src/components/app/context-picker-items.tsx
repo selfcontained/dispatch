@@ -5,6 +5,7 @@ import {
   Link2,
   Loader2,
   MessageCircle,
+  Pencil,
   X,
 } from "lucide-react";
 
@@ -84,15 +85,22 @@ export function ContextFileItem({
         {preview && onOpen ? (
           <button
             type="button"
-            className="block h-full w-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+            className="group/markup relative block h-full w-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
             aria-label={
               noteCount
                 ? `Mark up ${file.name}, ${noteCount} ${noteCount === 1 ? "note" : "notes"}`
                 : `Mark up ${file.name}`
             }
+            title="Mark up"
             onClick={onOpen}
           >
             <img src={preview} alt="" className="h-full w-full object-cover" />
+            <span
+              className="absolute inset-0 flex items-center justify-center bg-black/50 text-white opacity-0 transition-opacity group-hover/markup:opacity-100 group-focus-visible/markup:opacity-100"
+              aria-hidden="true"
+            >
+              <Pencil className="h-4 w-4" />
+            </span>
           </button>
         ) : preview ? (
           <img src={preview} alt="" className="h-full w-full object-cover" />
@@ -126,6 +134,14 @@ export function ContextFileItem({
           >
             <MessageCircle className="h-2.5 w-2.5" aria-hidden="true" />
             {noteCount}
+          </span>
+        ) : onOpen && preview ? (
+          <span
+            className="pointer-events-none absolute bottom-0.5 left-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-primary-foreground shadow"
+            data-testid="context-file-markup-hint"
+            aria-hidden="true"
+          >
+            <Pencil className="h-2.5 w-2.5" />
           </span>
         ) : null}
         <ChipRemoveButton

@@ -137,6 +137,7 @@ describe("ChatComposer image markup", () => {
   it("saves callouts onto the attachment with Done, sending nothing", async () => {
     const { input, onSend, uploadFile } = renderComposer();
     pasteFiles(input, [shot()]);
+    within(chip("shot.png")).getByTestId("context-file-markup-hint");
     await markUp("shot.png", ["Too much padding", "Wrong color"]);
     expect(screen.queryByRole("combobox", { name: "Agent" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Done" }));
@@ -148,6 +149,9 @@ describe("ChatComposer image markup", () => {
       within(chip("shot.png")).getByTestId("context-file-note-count")
         .textContent
     ).toBe("2");
+    expect(
+      within(chip("shot.png")).queryByTestId("context-file-markup-hint")
+    ).toBeNull();
     screen.getByRole("button", { name: "Mark up shot.png, 2 notes" });
     expect(onSend).not.toHaveBeenCalled();
     expect(uploadFile).not.toHaveBeenCalled();
