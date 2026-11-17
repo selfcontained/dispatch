@@ -12,7 +12,8 @@ export type ResponsePiece = {
 export function responsePieces(
   previous: ResponsePiece[] | null,
   steps: Step[],
-  writes: number
+  writes: number,
+  thinkingKey?: string
 ): ResponsePiece[] {
   const current = new Map<string, ResponsePiece>();
   for (const step of activitySteps(steps)) {
@@ -22,6 +23,12 @@ export function responsePieces(
       label: step.label || step.kind,
     });
   }
+  if (thinkingKey)
+    current.set(thinkingKey, {
+      key: thinkingKey,
+      category: "think",
+      label: "Thinking",
+    });
   const pieces = [...current.values()];
   const writing = (i: number): ResponsePiece => ({
     key: `write:${i}`,

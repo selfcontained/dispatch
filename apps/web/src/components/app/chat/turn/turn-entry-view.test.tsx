@@ -615,9 +615,10 @@ describe("TurnEntryView", () => {
           const blocks = screen.queryAllByTestId(
             "chat-response-placeholder-block"
           );
-          expect(blocks).toHaveLength(steps);
+          // Entering the initial fallback thinking phase is work too.
+          expect(blocks).toHaveLength(steps || 1);
           for (const block of blocks) {
-            expect(block.dataset.category).toBe("checks");
+            expect(block.dataset.category).toBe(steps ? "checks" : "think");
             expect(block.className).toContain("motion-reduce:transition-none");
           }
         });

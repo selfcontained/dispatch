@@ -224,6 +224,7 @@ export function TurnAnswer({
           <ResponsePlaceholder
             seed={block.id}
             steps={trace.steps}
+            lastProgressAt={trace.lastProgressAt}
             textLength={result.content?.length ?? 0}
             onShowProgress={() => setPeek(true)}
           />

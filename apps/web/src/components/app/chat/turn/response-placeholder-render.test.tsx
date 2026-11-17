@@ -153,8 +153,8 @@ it("keeps the preview frame and muted palette identical to the production placeh
   production.unmount();
   const preview = render(
     <ResponsePlaceholderVisual
-      cells={defragCells("palette-test", [])}
-      pieces={[]}
+      cells={defragCells("palette-test", ["think"])}
+      pieces={[{ key: "thinking:1", category: "think", label: "Thinking" }]}
       reducedCells={defragCells("palette-test", Array(90).fill("checks"))}
     />
   );
@@ -169,4 +169,148 @@ it("keeps the preview frame and muted palette identical to the production placeh
       (el) => (el as HTMLElement).style.background
     )
   ).toEqual(backgrounds);
+});
+
+it("counts entering fallback thinking once, including return from nested work", () => {
+  const active: Step = {
+    id: "parent",
+    kind: "execute",
+    label: "command",
+    status: "running",
+    startedAt: 0,
+  };
+  const child: Step = {
+    id: "child",
+    kind: "read",
+    label: "nested read",
+    status: "running",
+    startedAt: 1,
+  };
+  const view = render(
+    <ResponsePlaceholder seed="thinking-phase" steps={[active]} />
+  );
+  expect(view.getAllByTestId("chat-response-placeholder-block")).toHaveLength(
+    1
+  );
+  const completed = { ...active, status: "ok" as const, endedAt: 2 };
+  view.rerender(
+    <ResponsePlaceholder seed="thinking-phase" steps={[completed]} />
+  );
+  expect(view.getAllByTestId("chat-response-placeholder-block")).toHaveLength(
+    2
+  );
+  expect(
+    view
+      .getByTitle("Thinking")
+      .firstElementChild?.classList.contains("dispatch-defrag-ack")
+  ).toBe(true);
+  view.rerender(
+    <ResponsePlaceholder
+      seed="thinking-phase"
+      steps={[{ ...completed, updatedAt: 3 }]}
+      lastProgressAt={4}
+    />
+  );
+  expect(view.getAllByTestId("chat-response-placeholder-block")).toHaveLength(
+    2
+  );
+  view.rerender(
+    <ResponsePlaceholder
+      seed="thinking-phase"
+      steps={[{ ...completed, children: [child] }]}
+    />
+  );
+  expect(view.getAllByTestId("chat-response-placeholder-block")).toHaveLength(
+    3
+  );
+  view.rerender(
+    <ResponsePlaceholder
+      seed="thinking-phase"
+      steps={[
+        { ...completed, children: [{ ...child, status: "ok", endedAt: 5 }] },
+      ]}
+    />
+  );
+  expect(view.getAllByTestId("chat-response-placeholder-block")).toHaveLength(
+    4
+  );
+});
+
+it("does not duplicate explicit thinking or cached fallback thinking", () => {
+  const cache = new Map<string, unknown>();
+  const show = (steps: Step[]) => (
+    <ChatRowStateContext.Provider value={cache}>
+      <ResponsePlaceholder seed="thinking-cache" steps={steps} />
+    </ChatRowStateContext.Provider>
+  );
+  const thinking: Step = {
+    id: "thought",
+    kind: "think",
+    label: "thinking",
+    status: "running",
+    startedAt: 0,
+  };
+  const explicit = render(show([thinking]));
+  expect(
+    explicit.getAllByTestId("chat-response-placeholder-block")
+  ).toHaveLength(1);
+  explicit.rerender(show([{ ...thinking, status: "ok", endedAt: 2 }]));
+  expect(
+    explicit.getAllByTestId("chat-response-placeholder-block")
+  ).toHaveLength(1);
+  explicit.unmount();
+  cache.clear();
+  const idle = render(show([]));
+  expect(idle.getAllByTestId("chat-response-placeholder-block")).toHaveLength(
+    1
+  );
+  idle.unmount();
+  const restored = render(show([]));
+  expect(
+    restored.getAllByTestId("chat-response-placeholder-block")
+  ).toHaveLength(1);
+  expect(
+    restored.container.querySelectorAll(".dispatch-defrag-ack")
+  ).toHaveLength(0);
+});
+
+it("matches the activity line when newer progress changes preparing to thinking", () => {
+  const pending: Step = {
+    id: "pending",
+    kind: "execute",
+    label: "command",
+    status: "pending",
+    startedAt: 0,
+    updatedAt: 1,
+  };
+  const view = render(
+    <ResponsePlaceholder
+      seed="preparing"
+      steps={[pending]}
+      lastProgressAt={0}
+    />
+  );
+  expect(view.getAllByTestId("chat-response-placeholder-block")).toHaveLength(
+    1
+  );
+  view.rerender(
+    <ResponsePlaceholder
+      seed="preparing"
+      steps={[pending]}
+      lastProgressAt={2}
+    />
+  );
+  expect(view.getAllByTestId("chat-response-placeholder-block")).toHaveLength(
+    2
+  );
+  view.rerender(
+    <ResponsePlaceholder
+      seed="preparing"
+      steps={[pending]}
+      lastProgressAt={3}
+    />
+  );
+  expect(view.getAllByTestId("chat-response-placeholder-block")).toHaveLength(
+    2
+  );
 });

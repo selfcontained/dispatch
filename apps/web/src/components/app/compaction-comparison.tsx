@@ -45,6 +45,21 @@ export function DefragPreviewGrid({
   categories: ActivityCategory[];
   compacting: boolean;
 }) {
+  const [seenCount, setSeenCount] = useState(categories.length);
+  const [arrivalKeys, setArrivalKeys] = useState<ReadonlySet<string>>(
+    () => new Set()
+  );
+  if (seenCount !== categories.length) {
+    setArrivalKeys(
+      new Set(
+        Array.from(
+          { length: Math.max(0, categories.length - seenCount) },
+          (_, i) => `preview-${seenCount + i}`
+        )
+      )
+    );
+    setSeenCount(categories.length);
+  }
   const live = defragCells("compaction-study", categories);
   const endpoint = defragCells(
     "compaction-study",
@@ -53,6 +68,7 @@ export function DefragPreviewGrid({
   return (
     <ResponsePlaceholderVisual
       cells={live}
+      arrivalKeys={arrivalKeys}
       pieces={categories.map((category, i) => ({
         key: `preview-${i}`,
         category,

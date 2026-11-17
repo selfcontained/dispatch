@@ -3,6 +3,7 @@ import { memo, useMemo, useState, type CSSProperties } from "react";
 import { useChatRowState } from "../chat-row-state";
 
 import type { Step } from "./contracts";
+import { activeStepLabel, runningTurnVerb } from "./registry";
 import { responsePieces, type ResponsePiece } from "./response-pieces";
 import { ACTIVITY_COLORS, type ActivityCategory } from "./activity-category";
 
@@ -223,10 +224,12 @@ export function ResponsePlaceholder({
   steps,
   textLength = 0,
   onShowProgress,
+  lastProgressAt,
 }: {
   /** Anything stable per turn: the turn's block id. */
   seed: string;
   steps: Step[];
+  lastProgressAt?: number;
   /** Characters of progress text the turn has written; every 250 is a piece. */
   textLength?: number;
   /** Shows this turn's progress text in place of the card. */
@@ -237,7 +240,30 @@ export function ResponsePlaceholder({
     "defrag-pieces",
     null
   );
-  const pieces = responsePieces(history, steps, writes);
+  const thinking =
+    runningTurnVerb(steps, undefined, lastProgressAt) === "thinking";
+  const implicitThinking = thinking && !activeStepLabel(steps);
+  const [thinkingPhase, setThinkingPhase] = useChatRowState(
+    "defrag-thinking-phase",
+    { active: false, sequence: 0, synthetic: false }
+  );
+  const nextPhase =
+    thinking === thinkingPhase.active
+      ? thinkingPhase
+      : {
+          active: thinking,
+          sequence: thinkingPhase.sequence + (thinking ? 1 : 0),
+          synthetic: implicitThinking,
+        };
+  if (nextPhase !== thinkingPhase) setThinkingPhase(nextPhase);
+  const pieces = responsePieces(
+    history,
+    steps,
+    writes,
+    implicitThinking && nextPhase.synthetic
+      ? `thinking:${nextPhase.sequence}`
+      : undefined
+  );
   const [arrivalKeys, setArrivalKeys] = useState<ReadonlySet<string>>(
     () => new Set()
   );
