@@ -1,5 +1,10 @@
 import { expect, test, type Locator } from "@playwright/test";
-import { loadApp } from "./helpers";
+import {
+  cleanupE2EAgents,
+  createAgentViaAPI,
+  loadApp,
+  seedBlockViaDB,
+} from "./helpers";
 
 // The browser owns the safe viewport. Nonzero env() values must not cause
 // another inset around normal app flow. Chromium cannot prove native iOS
@@ -173,6 +178,85 @@ for (const device of [
     } finally {
       await cdp.detach();
       await context.close();
+    }
+  });
+}
+
+// Viewport-fixed drawers sit outside #root's padding, so each reserves the
+// top inset itself. An installed iPad app can also draw its status bar over
+// the page while reporting a 0px env() inset; there the app falls back to
+// the 24px status bar (--safe-area-top in index.css).
+for (const scenario of [
+  { name: "reported 24px inset", reported: 24, installed: false },
+  { name: "installed app reporting 0px", reported: 0, installed: true },
+]) {
+  test(`iPad drawers start below the status bar: ${scenario.name}`, async ({
+    browser,
+    request,
+  }) => {
+    const inset = 24;
+    const width = 1180;
+    const height = 820;
+    const context = await browser.newContext({
+      viewport: { width, height },
+      ...(scenario.installed
+        ? {
+            userAgent:
+              "Mozilla/5.0 (iPad; CPU OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148",
+          }
+        : {}),
+    });
+    if (scenario.installed)
+      await context.addInitScript(() =>
+        Object.defineProperty(Navigator.prototype, "standalone", {
+          configurable: true,
+          get: () => true,
+        })
+      );
+    const page = await context.newPage();
+    const cdp = await page.context().newCDPSession(page);
+    await cdp.send("Emulation.setSafeAreaInsetsOverride", {
+      insets: { top: scenario.reported, bottom: 0, left: 0, right: 0 },
+    });
+    const belowInset = async (control: Locator) => {
+      await expect(control).toBeVisible();
+      const box = await control.boundingBox();
+      expect(box).not.toBeNull();
+      expect(box!.y).toBeGreaterThanOrEqual(inset);
+    };
+    try {
+      const agent = await createAgentViaAPI(request);
+      const root = await seedBlockViaDB({
+        streamId: agent.id,
+        authorKind: "user",
+        text: "Safe-area thread",
+      });
+      await page.goto(`/agents/${agent.id}?thread=${root}`, {
+        waitUntil: "domcontentloaded",
+      });
+      expect(
+        await page
+          .locator("#safe-area-top")
+          .evaluate((el) => el.getBoundingClientRect().height)
+      ).toBe(inset);
+      const drawer = page.getByTestId("thread-drawer");
+      await expect(drawer).toBeVisible();
+      await belowInset(drawer.getByTestId("drawer-title"));
+      await belowInset(drawer.getByTestId("drawer-close"));
+      await drawer.getByTestId("drawer-close").click();
+      await expect(drawer).toHaveCount(0);
+
+      await page
+        .getByRole("button", { name: "Notifications", exact: true })
+        .click();
+      const sheet = page.getByRole("dialog");
+      await expect(sheet).toBeVisible();
+      await belowInset(sheet.getByRole("heading").first());
+      await belowInset(sheet.getByRole("button", { name: "Close" }));
+    } finally {
+      await cdp.detach();
+      await context.close();
+      await cleanupE2EAgents(request);
     }
   });
 }

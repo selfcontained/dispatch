@@ -33,7 +33,7 @@ export function NotificationsDrawer(): JSX.Element {
         </Button>
       </SheetTrigger>
       <SheetContent aria-describedby={undefined}>
-        <div className="border-b px-4 pb-4 pt-[max(1rem,env(safe-area-inset-top))]">
+        <div className="border-b px-4 pb-4 pt-[max(1rem,var(--safe-area-top))]">
           <SheetTitle className="text-base font-semibold">
             Notifications
           </SheetTitle>

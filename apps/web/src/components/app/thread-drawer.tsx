@@ -219,7 +219,7 @@ export function ThreadDrawer({
         )}
         aria-label={heading.title}
       >
-        <div className="flex min-h-14 items-center gap-1 pl-1.5 pr-2 pt-[env(safe-area-inset-top)]">
+        <div className="flex min-h-14 items-center gap-1 pl-1.5 pr-2 pt-[var(--safe-area-top)]">
           {depth > 1 ? (
             <Button
               type="button"

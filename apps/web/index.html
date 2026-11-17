@@ -23,6 +23,16 @@
         document.querySelector(
           'meta[name="apple-mobile-web-app-status-bar-style"]'
         ).content = "black";
+      } else if (
+        navigator.standalone === true &&
+        (/iPad/.test(navigator.userAgent) ||
+          (/Macintosh/.test(navigator.userAgent) &&
+            navigator.maxTouchPoints > 1))
+      ) {
+        // Installed iPad app: the translucent status bar can overlay the
+        // page while env(safe-area-inset-top) reports 0 (see index.css
+        // --safe-area-top).
+        document.documentElement.setAttribute("data-ipad-standalone", "");
       }
     </script>
     <meta name="apple-mobile-web-app-title" content="Dispatch" />

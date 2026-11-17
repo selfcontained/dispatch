@@ -354,8 +354,7 @@ export function AttentionToasts({
   // right on desktop, nearly full width under the status bar on mobile. When the
   // iPhone keyboard scrolls the page, it follows the top of what's visible,
   // so it never covers the composer.
-  const mobileTop =
-    "calc(env(safe-area-inset-top, 0px) + var(--vv-top, 0px) + 0.5rem)";
+  const mobileTop = "calc(var(--safe-area-top) + var(--vv-top, 0px) + 0.5rem)";
   return (
     <Toaster
       id={TOASTER_ID}
@@ -366,7 +365,7 @@ export function AttentionToasts({
           ? { top: mobileTop, left: "0.5rem", right: "0.5rem" }
           : // Below the top inset band (iPad), which #safe-area-top covers.
             {
-              top: "calc(env(safe-area-inset-top, 0px) + 0.75rem)",
+              top: "calc(var(--safe-area-top) + 0.75rem)",
               right: "0.75rem",
             }
       }

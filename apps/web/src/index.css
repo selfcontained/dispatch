@@ -745,13 +745,26 @@ html[data-theme="matrix"] body::after {
     );
 }
 
+/* The top inset every layer reserves: #root, the strip below, and the
+   viewport-fixed drawers, sheets and toasts. An installed iPad web app can
+   draw its status bar over the page while reporting a 0px
+   env(safe-area-inset-top), so there (data-ipad-standalone, set in
+   index.html) it never drops below the 24px status bar. Everywhere else it
+   is exactly the env() inset. */
+:root {
+  --safe-area-top: env(safe-area-inset-top, 0px);
+}
+html[data-ipad-standalone] {
+  --safe-area-top: max(env(safe-area-inset-top, 0px), 24px);
+}
+
 #root {
   @apply h-dvh;
   /* viewport-fit=cover exposes the area beneath iOS status bars and the
      home indicator. Keep the app's normal flow inside that safe frame;
      viewport-fixed overlays continue to handle their own insets. */
   box-sizing: border-box;
-  padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px)
+  padding: var(--safe-area-top) env(safe-area-inset-right, 0px)
     env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);
   overflow: hidden;
   position: relative;
@@ -770,7 +783,7 @@ html[data-theme="matrix"] body::after {
   top: 0;
   left: 0;
   right: 0;
-  height: env(safe-area-inset-top, 0px);
+  height: var(--safe-area-top);
   z-index: 2;
   background: hsl(var(--background));
 }

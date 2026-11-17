@@ -631,7 +631,7 @@ export function ImageComments({
             only the visible area. */}
         <header
           data-testid="image-viewer-header"
-          className="flex min-h-[calc(3.5rem+env(safe-area-inset-top,0px))] shrink-0 items-center gap-2 border-b pl-[max(0.75rem,env(safe-area-inset-left,0px))] pr-[max(0.75rem,env(safe-area-inset-right,0px))] pt-[env(safe-area-inset-top,0px)]"
+          className="flex min-h-[calc(3.5rem+var(--safe-area-top))] shrink-0 items-center gap-2 border-b pl-[max(0.75rem,env(safe-area-inset-left,0px))] pr-[max(0.75rem,env(safe-area-inset-right,0px))] pt-[var(--safe-area-top)]"
         >
           <span className="min-w-0 flex-1 truncate text-sm">{caption}</span>
           {!markup && (
