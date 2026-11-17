@@ -100,6 +100,8 @@ export function ProjectSwitcher({ allowAll = true }: { allowAll?: boolean }) {
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent
+          side="bottom"
+          avoidCollisions={false}
           align="start"
           className="project-filter-menu w-[var(--radix-dropdown-menu-trigger-width)] min-w-0"
         >
