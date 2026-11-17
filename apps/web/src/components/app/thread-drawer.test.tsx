@@ -1,4 +1,6 @@
 // @vitest-environment jsdom
+import { getDefaultStore } from "jotai";
+import { chatShowProgressTextAtom } from "@/lib/store";
 import type { StreamThreadResponse } from "@dispatch/shared";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
@@ -8,12 +10,18 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import { MemoryRouter, useLocation, useNavigate } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { threadQueryKey } from "@/hooks/use-stream";
-import { block, findingBlock, reviewBlock } from "@/test-utils/blocks";
+import {
+  block,
+  findingBlock,
+  reviewBlock,
+  turnBlock,
+} from "@/test-utils/blocks";
 
 import { DrawerFrame } from "./drawer";
 import { ThreadDrawer } from "./thread-drawer";
@@ -138,7 +146,7 @@ const agentProp = {
 } as never;
 
 /** The drawer as agents-view mounts it: in a frame open while the URL names a thread. */
-function FramedThreadDrawer() {
+function FramedThreadDrawer({ mobile = false }: { mobile?: boolean }) {
   const search = useLocation().search;
   const navigate = useNavigate();
   return (
@@ -157,6 +165,18 @@ function FramedThreadDrawer() {
           agent={agentProp}
         />
       </DrawerFrame>
+      {mobile ? (
+        <div role="dialog" data-testid="mobile-thread">
+          <ThreadDrawer
+            selectedAgentId="agt_1"
+            selectedAgentName="builder"
+            rootId="agt_1"
+            openLightbox={() => {}}
+            agent={agentProp}
+            isMobile
+          />
+        </div>
+      ) : null}
       <div role="dialog" data-testid="shared-lightbox">
         Lightbox
       </div>
@@ -166,11 +186,11 @@ function FramedThreadDrawer() {
   );
 }
 
-function renderFramed(search: string) {
+function renderFramed(search: string, mobile = false) {
   render(
     <QueryClientProvider client={client}>
       <MemoryRouter initialEntries={[`/agents/agt_1${search}`]}>
-        <FramedThreadDrawer />
+        <FramedThreadDrawer mobile={mobile} />
         <LocationProbe />
       </MemoryRouter>
     </QueryClientProvider>
@@ -207,9 +227,66 @@ beforeEach(() => {
   Element.prototype.scrollTo = vi.fn();
 });
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  getDefaultStore().set(chatShowProgressTextAtom, true);
+});
 
 describe("ThreadDrawer", () => {
+  it.each(["root", "reply"])(
+    "keeps the thread open when showing a running %s's progress",
+    async (placement) => {
+      getDefaultStore().set(chatShowProgressTextAtom, false);
+      const reply = turnBlock({
+        id: "turn:progress",
+        threadId: "rv",
+        replyTo: "rv",
+        text: "",
+        turn: {
+          settled: false,
+          result: { text: "Looking at the tests.", streaming: true },
+          trace: { startedAt: new Date().toISOString(), steps: [] },
+        },
+      });
+      const data = {
+        root:
+          placement === "root"
+            ? { ...reply, id: "rv", threadId: null, replyTo: null }
+            : review,
+        replies: placement === "reply" ? [reply] : [],
+      };
+      client.setQueryData(threadQueryKey("agt_1", "rv"), data);
+      apiMock.mockImplementation(async (url: string) =>
+        url.endsWith("/thread") ? data : { ids: [], readAt: null }
+      );
+      renderFramed("?thread=rv", true);
+      const mobile = within(screen.getByTestId("mobile-thread"));
+      const show = await mobile.findByTestId("chat-response-show-progress");
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      const down = createEvent.pointerDown(show);
+      Object.defineProperty(down, "pointerType", { value: "touch" });
+      fireEvent(show, down);
+      fireEvent.pointerUp(show);
+      // WebKit flushes the button's React update before Radix's deferred
+      // document click listener. Deliver that listener after the detached
+      // button has been replaced, rather than jsdom's single act batch.
+      const root = show.closest(
+        '[data-testid="mobile-thread"]'
+      )!.parentElement!;
+      const stop = (event: Event) => event.stopPropagation();
+      root.addEventListener("click", stop);
+      fireEvent.click(show);
+      root.removeEventListener("click", stop);
+      fireEvent.click(document);
+      expect(screen.getByTestId("location-search").textContent).toBe(
+        "?thread=rv"
+      );
+      expect(mobile.getByTestId("chat-turn-live-text").textContent).toContain(
+        "Looking at the tests."
+      );
+    }
+  );
+
   it("retries an undelivered thread reply and surfaces a refused retry", async () => {
     const failed = block({
       id: "feedback",

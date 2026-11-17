@@ -201,6 +201,11 @@ export function ThreadDrawer({
         if (
           isMobile ||
           !current ||
+          // Radix delays touch dismissal until click. A control can replace
+          // itself during that click (Show progress), detaching the original
+          // target from its dialog before this handler runs. That stale target
+          // is no longer evidence of a click outside the drawer.
+          (target instanceof Node && !target.isConnected) ||
           (target instanceof Element &&
             target.closest(
               '[role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"], [data-testid="drawer-resize-handle"], [data-background-work-trigger], [data-testid="toggle-drawer"]'
