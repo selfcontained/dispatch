@@ -538,6 +538,13 @@
         "docs/17-jobs.md"
       ],
       "personas": ["code-review"]
+    },
+    {
+      "paths": [
+        "apps/server/test/provider-compaction-contract.test.ts",
+        "test-fixtures/provider-compactions.json"
+      ],
+      "personas": ["agent-runtime-owner"]
     }
   ],
   "fallback": ["code-review"]
