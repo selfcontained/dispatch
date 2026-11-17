@@ -260,3 +260,69 @@ for (const scenario of [
     }
   });
 }
+
+// The 24px status-bar fallback applies only to an installed iPad app; every
+// other browser keeps exactly the reported env() inset (0 here).
+for (const client of [
+  { name: "desktop", ua: undefined, standalone: false, expected: 0 },
+  {
+    name: "installed iPhone",
+    ua: "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148",
+    standalone: true,
+    expected: 0,
+  },
+  {
+    name: "Android",
+    ua: "Mozilla/5.0 (Linux; Android 15; Pixel 9) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36",
+    standalone: false,
+    expected: 0,
+  },
+  {
+    name: "iPad Safari tab",
+    ua: "Mozilla/5.0 (iPad; CPU OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1",
+    standalone: false,
+    expected: 0,
+  },
+  {
+    name: "installed iPad",
+    ua: "Mozilla/5.0 (iPad; CPU OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148",
+    standalone: true,
+    expected: 24,
+  },
+]) {
+  test(`status-bar fallback on ${client.name} is ${client.expected}px`, async ({
+    browser,
+  }) => {
+    const context = await browser.newContext({
+      viewport: { width: 1024, height: 768 },
+      ...(client.ua ? { userAgent: client.ua } : {}),
+    });
+    if (client.standalone)
+      await context.addInitScript(() =>
+        Object.defineProperty(Navigator.prototype, "standalone", {
+          configurable: true,
+          get: () => true,
+        })
+      );
+    const page = await context.newPage();
+    try {
+      await loadApp(page);
+      const probe = () =>
+        page.evaluate(() => {
+          const el = document.createElement("div");
+          el.style.cssText =
+            "position:fixed;top:0;padding-top:var(--safe-area-top)";
+          document.body.append(el);
+          const top = parseFloat(getComputedStyle(el).paddingTop);
+          el.remove();
+          return top;
+        });
+      expect(await probe()).toBe(client.expected);
+      // Same in either orientation.
+      await page.setViewportSize({ width: 768, height: 1024 });
+      expect(await probe()).toBe(client.expected);
+    } finally {
+      await context.close();
+    }
+  });
+}
