@@ -3,11 +3,8 @@ import { memo, useMemo } from "react";
 import { useChatRowState } from "../chat-row-state";
 
 import type { Step } from "./contracts";
-import {
-  ACTIVITY_COLORS,
-  activityCategory,
-  type ActivityCategory,
-} from "./activity-category";
+import { responsePieces, type ResponsePiece } from "./response-pieces";
+import { ACTIVITY_COLORS, type ActivityCategory } from "./activity-category";
 
 /** Characters of progress text per "writing" piece. */
 export const CHARS_PER_PIECE = 250;
@@ -236,43 +233,23 @@ export function ResponsePlaceholder({
   onShowProgress?: () => void;
 }): JSX.Element {
   const writes = Math.floor(textLength / CHARS_PER_PIECE);
-  // The arrival order, kept with the row so a remount does not reshuffle it:
-  // the first render spreads earlier writing between the steps, and after
-  // that each new step or piece of text joins the end as it arrives.
-  const [order, setOrder] = useChatRowState<string | null>(
-    "defrag-order",
+  const [history, setHistory] = useChatRowState<ResponsePiece[] | null>(
+    "defrag-pieces",
     null
   );
-  const known = order ?? blendWrites(steps.length, writes);
-  const knownSteps = known.replace(/w/g, "").length;
-  const knownWrites = known.length - knownSteps;
-  const next =
-    known +
-    "s".repeat(Math.max(0, steps.length - knownSteps)) +
-    "w".repeat(Math.max(0, writes - knownWrites));
-  if (next !== order) setOrder(next);
-  // The trace's steps array is rebuilt on every turn update, text deltas
-  // included; key the grid on what the steps are, so it is only worked out
-  // again when a step or a piece of text actually arrives.
-  const stepKey = steps.map(activityCategory).join(",");
-  const categories = useMemo(
-    () =>
-      sequenceCategories(
-        next,
-        stepKey ? (stepKey.split(",") as ActivityCategory[]) : []
-      ),
-    [next, stepKey]
-  );
+  const pieces = responsePieces(history, steps, writes);
+  if (pieces !== history) setHistory(pieces);
+  // Labels/status can change without rebuilding or advancing the grid.
+  const categoryKey = pieces.map((piece) => piece.category).join(",");
   const cells = useMemo(
-    () => defragCells(seed, categories),
-    [seed, categories]
+    () =>
+      defragCells(
+        seed,
+        categoryKey ? (categoryKey.split(",") as ActivityCategory[]) : []
+      ),
+    [seed, categoryKey]
   );
-  const newest = categories.length - 1;
-  // Which step each position in the order is (writing positions have none).
-  const stepAt = useMemo(() => {
-    let s = -1;
-    return [...next].map((kind) => (kind === "s" ? steps[++s] : undefined));
-  }, [next, steps]);
+  const newest = pieces.length - 1;
 
   return (
     <div
@@ -291,7 +268,7 @@ export function ResponsePlaceholder({
           <Slots />
           {cells.map((c) => {
             const latest = c.step === newest;
-            const step = c.step === undefined ? undefined : stepAt[c.step];
+            const piece = c.step === undefined ? undefined : pieces[c.step];
             return (
               <span
                 key={c.id}
@@ -299,13 +276,7 @@ export function ResponsePlaceholder({
                   c.category ? "chat-response-placeholder-block" : undefined
                 }
                 data-category={c.category}
-                title={
-                  c.category === "write"
-                    ? "Progress text"
-                    : step
-                      ? step.label || step.kind
-                      : undefined
-                }
+                title={piece?.label}
                 className="absolute left-0 top-0 pr-[2px] transition-transform duration-[900ms] ease-in-out motion-reduce:transition-none"
                 style={{
                   width: `${100 / COLS}%`,
@@ -317,7 +288,8 @@ export function ResponsePlaceholder({
                 }}
               >
                 <span
-                  className="block h-full rounded-[1.5px] transition-[background-color] duration-500 motion-reduce:transition-none"
+                  key={c.step ?? "rest"}
+                  className={`block h-full rounded-[1.5px] transition-[background-color] duration-500 motion-reduce:transition-none ${piece ? "dispatch-defrag-ack" : ""}`}
                   style={{
                     background: c.category
                       ? tint(ACTIVITY_COLORS[c.category], latest ? 100 : 75)

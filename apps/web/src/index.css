@@ -1837,3 +1837,21 @@ html[data-hidden] .animate-sidebar-nav-pulse {
     animation-duration: 1ms !important;
   }
 }
+
+/* A small read/write gesture acknowledges even a piece already in its slot. */
+@keyframes dispatch-defrag-ack {
+  35% {
+    transform: translateY(-2px);
+  }
+  100% {
+    transform: translateY(0);
+  }
+}
+.dispatch-defrag-ack {
+  animation: dispatch-defrag-ack 900ms ease-in-out;
+}
+@media (prefers-reduced-motion: reduce) {
+  .dispatch-defrag-ack {
+    animation: none;
+  }
+}
