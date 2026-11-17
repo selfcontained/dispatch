@@ -1,0 +1,141 @@
+{
+  "provenance": {
+    "source": "Read-only production agent_stream_events samples supplied by Dispatch Conductor",
+    "sourcePost": "54c5ddd4-e024-4f96-a334-6d3ac611e970",
+    "sanitization": "Only summary content is redacted; provider/model, keys, seq, timestamps and terminal statuses are recorded values.",
+    "reconstruction": "Rows are upserted, not event logs. in_progress ACP starts and live wire steps are reconstructed from the installed adapter and server mapping; they are not claimed as captured transient frames.",
+    "claudeSource": "claude-agent-acp@0.100.0: acp-agent.js system/status compacting -> ContextCompactionLifecycle.start; compact_result success -> finish(completed). PostCompact supplies the summary.",
+    "codexSource": "codex-acp@2.5.0: item/started contextCompaction -> CodexSessionCompactions.start; item/completed -> complete; interrupted turn -> finishTurn(cancelled).",
+    "capability": "Dispatch advertises session.compaction via unstableSessionCapabilities; absent capability/signal must leave the normal grid running."
+  },
+  "samples": [
+    {
+      "runtime": "claude",
+      "model": "opus",
+      "seq": 1738,
+      "key": "28f7a3be-6eb2-43a3-a5fa-936be612d4a1",
+      "createdAt": "2026-11-17T15:45:12.174Z",
+      "updatedAt": "2026-11-17T15:46:08.544Z",
+      "payload": {
+        "status": "completed",
+        "summary": "[redacted]"
+      },
+      "originalSummaryLength": 13553,
+      "acpStart": {
+        "sessionUpdate": "compaction_update",
+        "compactionId": "28f7a3be-6eb2-43a3-a5fa-936be612d4a1",
+        "status": "in_progress"
+      },
+      "acpEnd": {
+        "sessionUpdate": "compaction_update",
+        "compactionId": "28f7a3be-6eb2-43a3-a5fa-936be612d4a1",
+        "status": "completed"
+      },
+      "liveStep": {
+        "id": "stream:1738",
+        "kind": "compaction",
+        "label": "compacting context",
+        "status": "running",
+        "startedAt": "2026-11-17T15:45:12.174Z",
+        "updatedAt": "2026-11-17T15:45:12.174Z",
+        "detail": {}
+      },
+      "terminalStep": {
+        "id": "stream:1738",
+        "kind": "compaction",
+        "label": "compacted context",
+        "status": "ok",
+        "startedAt": "2026-11-17T15:45:12.174Z",
+        "updatedAt": "2026-11-17T15:46:08.544Z",
+        "endedAt": "2026-11-17T15:46:08.544Z",
+        "detail": {
+          "text": "[redacted]"
+        }
+      }
+    },
+    {
+      "runtime": "codex",
+      "model": "gpt-6-astra",
+      "seq": 255,
+      "key": "01a1ea39-6350-7883-9498-994dfd6890ea",
+      "createdAt": "2026-11-17T15:56:32.900Z",
+      "updatedAt": "2026-11-17T15:56:35.300Z",
+      "payload": {
+        "status": "cancelled",
+        "summary": ""
+      },
+      "originalSummaryLength": 0,
+      "acpStart": {
+        "sessionUpdate": "compaction_update",
+        "compactionId": "01a1ea39-6350-7883-9498-994dfd6890ea",
+        "status": "in_progress"
+      },
+      "acpEnd": {
+        "sessionUpdate": "compaction_update",
+        "compactionId": "01a1ea39-6350-7883-9498-994dfd6890ea",
+        "status": "cancelled"
+      },
+      "liveStep": {
+        "id": "stream:255",
+        "kind": "compaction",
+        "label": "compacting context",
+        "status": "running",
+        "startedAt": "2026-11-17T15:56:32.900Z",
+        "updatedAt": "2026-11-17T15:56:32.900Z",
+        "detail": {}
+      },
+      "terminalStep": {
+        "id": "stream:255",
+        "kind": "compaction",
+        "label": "context compaction cancelled",
+        "status": "ok",
+        "startedAt": "2026-11-17T15:56:32.900Z",
+        "updatedAt": "2026-11-17T15:56:35.300Z",
+        "endedAt": "2026-11-17T15:56:35.300Z",
+        "detail": {}
+      }
+    },
+    {
+      "runtime": "codex",
+      "model": "gpt-6-astra",
+      "seq": 257,
+      "key": "01a1ea39-708b-7013-886f-edf5ecbf174c",
+      "createdAt": "2026-11-17T15:56:35.600Z",
+      "updatedAt": "2026-11-17T15:58:58.200Z",
+      "payload": {
+        "status": "completed",
+        "summary": ""
+      },
+      "originalSummaryLength": 0,
+      "acpStart": {
+        "sessionUpdate": "compaction_update",
+        "compactionId": "01a1ea39-708b-7013-886f-edf5ecbf174c",
+        "status": "in_progress"
+      },
+      "acpEnd": {
+        "sessionUpdate": "compaction_update",
+        "compactionId": "01a1ea39-708b-7013-886f-edf5ecbf174c",
+        "status": "completed"
+      },
+      "liveStep": {
+        "id": "stream:257",
+        "kind": "compaction",
+        "label": "compacting context",
+        "status": "running",
+        "startedAt": "2026-11-17T15:56:35.600Z",
+        "updatedAt": "2026-11-17T15:56:35.600Z",
+        "detail": {}
+      },
+      "terminalStep": {
+        "id": "stream:257",
+        "kind": "compaction",
+        "label": "compacted context",
+        "status": "ok",
+        "startedAt": "2026-11-17T15:56:35.600Z",
+        "updatedAt": "2026-11-17T15:58:58.200Z",
+        "endedAt": "2026-11-17T15:58:58.200Z",
+        "detail": {}
+      }
+    }
+  ]
+}

@@ -584,6 +584,26 @@ describe("TurnEntryView", () => {
         },
         ""
       );
+    it("automatically uses green compaction for the real turn's running compaction step", () => {
+      renderTurn(
+        running([
+          {
+            ...RUN_STEP,
+            id: "compaction:1",
+            kind: "compaction",
+            label: "compacting context",
+          },
+        ]),
+        ctx,
+        { progressText: false }
+      );
+      const frame = screen.getByTestId("chat-response-placeholder");
+      expect(
+        frame.querySelector('[role="status"]')?.getAttribute("aria-label")
+      ).toBe("Compacting context");
+      expect(frame.querySelector('[data-category="checks"]')).not.toBeNull();
+      expect(frame.classList.contains("dispatch-placeholder-chase")).toBe(true);
+    });
     const STATES: Record<string, () => StreamBlockEntry> = {
       "just started, no steps": () => running([]),
       "thinking or running tools, no text": () => running([RUN_STEP]),
@@ -615,9 +635,10 @@ describe("TurnEntryView", () => {
           const blocks = screen.queryAllByTestId(
             "chat-response-placeholder-block"
           );
-          expect(blocks).toHaveLength(steps);
+          // Entering the initial fallback thinking phase is work too.
+          expect(blocks).toHaveLength(steps || 1);
           for (const block of blocks) {
-            expect(block.dataset.category).toBe("checks");
+            expect(block.dataset.category).toBe(steps ? "checks" : "think");
             expect(block.className).toContain("motion-reduce:transition-none");
           }
         });
