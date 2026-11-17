@@ -1,7 +1,6 @@
 ## What's Changed
-* Drop racy late applied check from routing cancel test by @selfcontained in https://github.com/selfcontained/dispatch/pull/1485
-* Fix Slack send-slot wait returning before the 1 msg/s guard opens by @selfcontained in https://github.com/selfcontained/dispatch/pull/1486
-* Hide archived agents from notification history by @selfcontained in https://github.com/selfcontained/dispatch/pull/1487
+* Don't toast items for the agent this tab has open by @selfcontained in https://github.com/selfcontained/dispatch/pull/1488
+* Mark up pasted images in the composer before sending by @selfcontained in https://github.com/selfcontained/dispatch/pull/1489
 
 
-**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v1.7.20...v1.7.21
+**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v1.7.21...v1.7.22
