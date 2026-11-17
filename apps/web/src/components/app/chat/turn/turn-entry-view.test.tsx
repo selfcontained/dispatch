@@ -606,33 +606,44 @@ describe("TurnEntryView", () => {
           expect(screen.queryByTestId("chat-turn-live-text")).toBeNull();
           // The activity line still says what the agent is doing.
           expect(screen.getByTestId("harness-activity-fold")).toBeTruthy();
-          // Each skeleton row carries its own scan, pausable when hidden and
-          // dropped under reduced motion.
-          const scans = screen.getAllByTestId("chat-response-placeholder-scan");
-          expect(scans).toHaveLength(3);
-          for (const scan of scans) {
-            expect(scan.classList.contains("dispatch-placeholder-scan")).toBe(
-              true
-            );
-            expect(scan.classList.contains("motion-reduce:hidden")).toBe(true);
-          }
-          // Each row also carries a sheen beside its scan, with the same
-          // pause and reduced-motion handling.
-          const shimmers = screen.getAllByTestId(
-            "chat-response-placeholder-shimmer"
+          // The quiet chase marks it (paused when hidden, dropped under
+          // reduced motion in CSS), and every step so far lights one block.
+          expect(
+            placeholder()?.classList.contains("dispatch-placeholder-chase")
+          ).toBe(true);
+          const steps = (entry().block.turn?.trace.steps ?? []).length;
+          const blocks = screen.queryAllByTestId(
+            "chat-response-placeholder-block"
           );
-          expect(shimmers).toHaveLength(3);
-          shimmers.forEach((shimmer, i) => {
-            expect(shimmer.parentElement).toBe(scans[i]!.parentElement);
-            expect(
-              shimmer.classList.contains("dispatch-placeholder-shimmer")
-            ).toBe(true);
-            expect(shimmer.classList.contains("motion-reduce:hidden")).toBe(
-              true
-            );
-          });
+          expect(blocks).toHaveLength(steps);
+          for (const block of blocks) {
+            expect(block.dataset.category).toBe("checks");
+            expect(block.className).toContain("motion-reduce:transition-none");
+          }
         });
       }
+
+      it("shows one turn's progress text on request, and hides it again", () => {
+        renderTurn(STATES["streaming lead text"]!(), ctx, {
+          progressText: false,
+        });
+        expect(screen.queryByTestId("chat-turn-live-text")).toBeNull();
+        fireEvent.click(screen.getByTestId("chat-response-show-progress"));
+        expect(placeholder()).toBeNull();
+        expect(screen.getByTestId("chat-turn-live-text").textContent).toContain(
+          "Looking at the tests."
+        );
+        fireEvent.click(screen.getByTestId("chat-response-hide-progress"));
+        expect(placeholder()).toBeTruthy();
+        expect(screen.queryByTestId("chat-turn-live-text")).toBeNull();
+      });
+
+      it("offers no peek before the turn has written anything", () => {
+        renderTurn(STATES["thinking or running tools, no text"]!(), ctx, {
+          progressText: false,
+        });
+        expect(screen.queryByTestId("chat-response-show-progress")).toBeNull();
+      });
 
       it("swaps the placeholder for the answer once it lands", () => {
         renderTurn(turn(), ctx, { progressText: false });

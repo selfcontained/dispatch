@@ -883,34 +883,37 @@ html[data-theme="matrix"] [role="button"] {
   }
 }
 
-/* Response placeholder: a soft status-colour highlight sweeps each skeleton
-   bar, across and back (run with `alternate`, no rests). The highlight is a
-   third of the bar wide; -70% → 270% of its own width keeps a sliver of it
-   on the bar at each turn, so it reverses in view rather than idling off it.
-   `.dispatch-placeholder-scan` is a marker for the `html[data-hidden]` pause;
-   gradient, opacity, timing and reduced motion are utilities on the element. */
-@keyframes placeholder-scan {
-  from {
-    transform: translateX(-70%);
-  }
-  to {
-    transform: translateX(270%);
-  }
+/* Response placeholder: a quieter take on the review agents' chasing border
+   (thinner, slower, dimmer), sharing their angle property and spin. The
+   defrag grid inside is utilities on its elements. */
+.dispatch-placeholder-chase::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  pointer-events: none;
+  opacity: 0.45;
+  background: conic-gradient(
+    from var(--child-agent-chase-angle, 0deg),
+    transparent 0deg,
+    hsl(var(--status-blocked)) 40deg,
+    hsl(var(--status-waiting)) 70deg,
+    hsl(var(--status-working)) 100deg,
+    hsl(var(--status-done)) 130deg,
+    transparent 180deg,
+    transparent 360deg
+  );
+  -webkit-mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  animation: child-agent-review-chase-spin 7s linear infinite;
 }
-
-/* Response placeholder sheen: a pale 6rem band inside each skeleton bar
-   crosses it left to right over the first three-quarters of each period,
-   then rests off the bar. -100% → 450% of its own width clears the widest
-   bar (max-w-md less padding), so every row's band shares one path and the
-   rows read as a single sweep. `.dispatch-placeholder-shimmer` is a marker
-   for the `html[data-hidden]` pause; the rest is utilities on the element. */
-@keyframes placeholder-shimmer {
-  0% {
-    transform: translateX(-100%);
-  }
-  75%,
-  100% {
-    transform: translateX(450%);
+@media (prefers-reduced-motion: reduce) {
+  .dispatch-placeholder-chase::before {
+    display: none;
   }
 }
 
@@ -1183,8 +1186,7 @@ html[data-hidden] .dispatch-reconnect-scan {
   animation-play-state: paused;
   will-change: auto;
 }
-html[data-hidden] .dispatch-placeholder-scan,
-html[data-hidden] .dispatch-placeholder-shimmer {
+html[data-hidden] .dispatch-placeholder-chase::before {
   animation-play-state: paused;
 }
 html[data-hidden] .dispatch-activity-bar {
