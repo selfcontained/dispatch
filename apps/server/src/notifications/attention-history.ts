@@ -1,15 +1,5 @@
-import type { AttentionHistoryItem } from "@dispatch/shared";
+import { type AttentionHistoryItem, attentionPreview } from "@dispatch/shared";
 import type { Pool } from "pg";
-
-/** Match the attention text emitted by AgentManager, including blank-input fallbacks. */
-function summary(text: string): string {
-  const line =
-    text
-      .split("\n")
-      .find((line) => line.trim().length > 0)
-      ?.trim() ?? "";
-  return line.length > 80 ? `${line.slice(0, 79)}…` : line;
-}
 
 /** Source records only, independent of delivery. Negative seq keeps these out
  * of engine turn ranges and avoids contending with the recorder's positive seq. */
@@ -59,7 +49,7 @@ export class AttentionHistory {
             JSON.stringify({
               attentionKind: "approval",
               requestId: request.id,
-              message: `Approval needed: ${summary(request.title)}`,
+              message: `Approval needed: ${attentionPreview(request.title)}`,
               settled: false,
             }),
           ]
@@ -122,7 +112,7 @@ export async function listAttentionHistory(
     kind: row.kind,
     message:
       row.kind === "question" || row.kind === "form"
-        ? summary(row.message ?? "")
+        ? attentionPreview(row.message ?? "")
         : row.message,
     createdAt: new Date(row.created_at).toISOString(),
     settled: row.settled ?? false,

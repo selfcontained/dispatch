@@ -249,3 +249,7 @@ export * from "./visualization-types.js";
 export * from "./system-events.js";
 
 export type { AttentionHistoryItem } from "./ui-event-types.js";
+export {
+  ATTENTION_PREVIEW_MAX,
+  attentionPreview,
+} from "./attention-preview.js";

@@ -3,6 +3,8 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter, useLocation } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { attentionPreview } from "@dispatch/shared";
+
 import { AttentionCard, type AttentionToastEvent } from "./attention-toast";
 
 afterEach(cleanup);
@@ -128,5 +130,48 @@ describe("AttentionCard markdown", () => {
     expect(screen.getByRole("link", { name: /Builder Question/ }).title).toBe(
       "Ship the fix with pnpm check? See PR 12."
     );
+  });
+});
+
+// What the server sends: the preview of the message, not the message itself.
+describe("AttentionCard with a server preview", () => {
+  const visible = () =>
+    screen.getByTestId("markdown-compact").textContent!.replace(/\s+/g, " ");
+
+  it("renders bold and code that span the old 80-character cut", () => {
+    const message =
+      "**PR #1491 (head `1f860c9c`): the lightbox closes when you tap outside the image, and its bars clear the insets.** Ready for your OK.";
+    renderCard(attentionPreview(message));
+    const strong = screen
+      .getByTestId("markdown-compact")
+      .querySelector("strong");
+    expect(strong?.textContent).toContain("the lightbox closes when you tap");
+    expect(strong?.querySelector("code")?.textContent).toBe("1f860c9c");
+    expect(visible()).not.toMatch(/\*\*|`/);
+  });
+
+  it("keeps a long message inside the two-line clamp", () => {
+    const message = Array.from(
+      { length: 40 },
+      (_, i) => `step ${i} runs **pnpm check** then \`vitest\``
+    ).join(" and ");
+    const preview = attentionPreview(message);
+    expect(preview.length).toBeLessThanOrEqual(500);
+    expect(preview.endsWith("…")).toBe(true);
+    renderCard(preview);
+    expect(screen.getByTestId("markdown-compact").className).toContain(
+      "line-clamp-2"
+    );
+    expect(visible()).not.toMatch(/\*\*|`/);
+  });
+
+  it("never shows raw markup for balanced source of any length", () => {
+    const chunk =
+      "Merge **PR #12** after `pnpm check` and [the review](https://x.test/r) pass; ";
+    for (let n = 1; n <= 16; n++) {
+      cleanup();
+      renderCard(attentionPreview(chunk.repeat(n)));
+      expect(visible()).not.toMatch(/\*\*|`|\]\(/);
+    }
   });
 });
