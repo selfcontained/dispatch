@@ -210,7 +210,7 @@ it("hands saved notes back when the compose-mode viewer closes from the backdrop
 it("pads its toolbars by the safe-area insets so the image stage is the free area", () => {
   renderViewer();
   expect(screen.getByTestId("image-viewer-header").className).toContain(
-    "pt-[env(safe-area-inset-top,0px)]"
+    "pt-[var(--safe-area-top)]"
   );
   expect(screen.getByTestId("image-viewer-footer").className).toContain(
     "pb-[max(0.5rem,env(safe-area-inset-bottom,0px))]"
