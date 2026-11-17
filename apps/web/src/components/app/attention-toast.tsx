@@ -118,6 +118,22 @@ export function attentionToastLocation(event: AttentionToastEvent): {
   return conversationLocation(event.target, false);
 }
 
+/**
+ * Whether the item belongs to the agent this tab has open: it's that agent's
+ * own, or it sits in that agent's stream (an agent's home stream id is its
+ * agent id), such as a child's question shown in its parent's chat.
+ */
+export function isForOpenAgent(
+  event: AttentionToastEvent,
+  viewingAgentId: string | null
+): boolean {
+  if (!viewingAgentId) return false;
+  return (
+    event.agentId === viewingAgentId ||
+    event.target?.streamId === viewingAgentId
+  );
+}
+
 function showAttentionToast(
   event: AttentionToastEvent,
   navigate: NavigateFunction
@@ -319,17 +335,20 @@ export function AttentionToasts({
   isMobile: boolean;
 }): JSX.Element {
   const { pathname } = useLocation();
-  useAgentFocus(viewingAgentIdOf(pathname), "authenticated");
+  const viewingAgentId = viewingAgentIdOf(pathname);
+  useAgentFocus(viewingAgentId, "authenticated");
   const navigate = useNavigate();
   useEffect(() => {
-    const onToast = (event: Event) =>
-      showAttentionToast(
-        (event as CustomEvent<AttentionToastEvent>).detail,
-        navigate
-      );
+    const onToast = (event: Event) => {
+      const detail = (event as CustomEvent<AttentionToastEvent>).detail;
+      // The server skips focused viewers; this also covers an unfocused
+      // window and heartbeat lag. The drawer still lists the item.
+      if (isForOpenAgent(detail, viewingAgentId)) return;
+      showAttentionToast(detail, navigate);
+    };
     bus.addEventListener(EVENT_NAME, onToast);
     return () => bus.removeEventListener(EVENT_NAME, onToast);
-  }, [navigate]);
+  }, [navigate, viewingAgentId]);
   useVisualViewportTopVar(isMobile);
   // Pinned to the top edge on every screen, whatever the screen is: top
   // right on desktop, nearly full width under the status bar on mobile. When the
