@@ -21,7 +21,7 @@
   background: hsl(var(--muted) / 0.4);
 }
 .compaction-piece {
-  transition: transform 3.8s ease-in-out;
+  transition: transform 600ms ease-in-out;
 }
 .compaction-piece > span {
   display: block;
@@ -31,8 +31,8 @@
   background: var(--piece-color);
   opacity: 0.55;
   transition:
-    background-color 3.8s,
-    width 3.8s;
+    background-color 600ms,
+    width 600ms;
 }
 /* Shared transform and colour transitions preserve block identity at each handoff. */
 .compaction-active .compaction-grid[data-packed="true"] .compaction-piece {
@@ -42,8 +42,8 @@
   .compaction-grid[data-packed="true"]
   .compaction-piece
   > span {
-  background: var(--packed-color);
-  width: var(--packed-width);
+  background: var(--current-color);
+  width: var(--current-width);
 }
 .compaction-normal
   .compaction-grid[data-working-shift="true"]

@@ -26,15 +26,12 @@ function Grid({
 }) {
   const [phase, setPhase] = useState(0);
   useEffect(() => {
-    const timer = window.setInterval(
-      () => setPhase((value) => value + 1),
-      2400
-    );
+    const timer = window.setInterval(() => setPhase((value) => value + 1), 750);
     return () => window.clearInterval(timer);
   }, []);
   return (
     <div
-      data-packed={phase > 0}
+      data-packed="true"
       data-working-shift={phase % 2 === 1}
       className="compaction-grid"
       aria-hidden="true"
@@ -50,12 +47,18 @@ function Grid({
         const row = Math.floor(i / 22);
         const col = i % 22;
         const start = cell.slot % 32;
-        // One small pocket opens at a time, then eases back into the run.
-        // Other rows keep their packed shape: this is ongoing work, not progress.
-        const wave = Math.max(0, phase - 4);
-        const activeRow = Math.floor(wave / 6) % 4;
-        const spread = [0, 1, 2, 2, 1, 0][wave % 6]!;
-        const loosen = phase >= 4 && row === activeRow && col >= 8 ? spread : 0;
+        // Stagger independent row passes so batches keep moving indefinitely.
+        const pass = (phase + row * 3) % 12;
+        const packedCount = Math.min(22, pass * 3);
+        const packed = col < packedCount;
+        const position = packed ? col : col + Math.floor((col * 10) / 21);
+        const finalColor = unify
+          ? "hsl(var(--status-working))"
+          : ACTIVITY_COLORS[
+              merge ? cells[Math.floor(i / 4) * 4]!.rest : cell.rest
+            ];
+        const finalWidth =
+          merge && col % 4 !== 3 && col !== 21 ? "101%" : "calc(100% - 2px)";
         return (
           <span
             key={cell.id}
@@ -64,21 +67,18 @@ function Grid({
               {
                 left: `${start * 3.125}%`,
                 top: Math.floor(cell.slot / 32) * 8,
-                "--current-dx": `${(col - start + loosen) * 100}%`,
+                "--current-dx": `${(position - start) * 100}%`,
                 "--dx": `${(col - start) * 100}%`,
                 "--dy": `${(row - Math.floor(cell.slot / 32)) * 8}px`,
                 "--piece-color": ACTIVITY_COLORS[cell.rest],
-                "--packed-color": unify
-                  ? "hsl(var(--status-working))"
-                  : ACTIVITY_COLORS[
-                      merge ? cells[Math.floor(i / 4) * 4]!.rest : cell.rest
-                    ],
-                "--packed-width":
-                  merge &&
-                  !(loosen && col >= 8 && col < 12) &&
-                  col % 4 !== 3 &&
-                  col !== 21
-                    ? "101%"
+                "--packed-color": finalColor,
+                "--packed-width": finalWidth,
+                "--current-color": packed
+                  ? finalColor
+                  : ACTIVITY_COLORS[cell.rest],
+                "--current-width":
+                  packed && col + 1 < packedCount
+                    ? finalWidth
                     : "calc(100% - 2px)",
                 "--normal-dx": `${(((start + 9) % 32) - start) * 100}%`,
               } as CSSProperties
@@ -110,7 +110,7 @@ export function CompactionComparison() {
             Compacting context
           </h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            A slow, continuous packing cycle while context compacts.
+            Small batches keep packing while context compacts.
           </p>
         </div>
         <Button
