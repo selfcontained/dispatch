@@ -161,6 +161,8 @@
         "packages/shared/src/inbox-checklists.ts",
         "apps/server/src/notifications/**",
         "apps/server/test/attention-history.test.ts",
+        "packages/shared/src/attention-preview.ts",
+        "apps/server/test/attention-preview.test.ts",
         "apps/server/src/server/notification-runtime.ts",
         "apps/server/src/presence-tracker.ts",
         "apps/server/src/server/presence-activity.ts",
