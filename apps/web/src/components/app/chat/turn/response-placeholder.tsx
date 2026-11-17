@@ -251,10 +251,17 @@ export function ResponsePlaceholder({
     "s".repeat(Math.max(0, steps.length - knownSteps)) +
     "w".repeat(Math.max(0, writes - knownWrites));
   if (next !== order) setOrder(next);
-  const stepCategories = useMemo(() => steps.map(activityCategory), [steps]);
+  // The trace's steps array is rebuilt on every turn update, text deltas
+  // included; key the grid on what the steps are, so it is only worked out
+  // again when a step or a piece of text actually arrives.
+  const stepKey = steps.map(activityCategory).join(",");
   const categories = useMemo(
-    () => sequenceCategories(next, stepCategories),
-    [next, stepCategories]
+    () =>
+      sequenceCategories(
+        next,
+        stepKey ? (stepKey.split(",") as ActivityCategory[]) : []
+      ),
+    [next, stepKey]
   );
   const cells = useMemo(
     () => defragCells(seed, categories),
@@ -269,61 +276,65 @@ export function ResponsePlaceholder({
 
   return (
     <div
-      role="status"
-      aria-label="Preparing response"
       data-testid="chat-response-placeholder"
       className="dispatch-placeholder-chase relative mt-3 w-full max-w-md rounded-lg border border-border/60 bg-muted/10 px-4 py-3.5"
     >
+      {/* The status region holds only the picture; the peek control sits
+          beside it, so its changing count is never announced. */}
       <div
-        aria-hidden="true"
+        role="status"
+        aria-label="Preparing response"
         className="relative w-full"
         style={{ height: HEIGHT }}
       >
-        <Slots />
-        {cells.map((c) => {
-          const latest = c.step === newest;
-          const step = c.step === undefined ? undefined : stepAt[c.step];
-          return (
-            <span
-              key={c.id}
-              data-testid={
-                c.category ? "chat-response-placeholder-block" : undefined
-              }
-              data-category={c.category}
-              title={
-                c.category === "write"
-                  ? "Progress text"
-                  : step
-                    ? step.label || step.kind
-                    : undefined
-              }
-              className="absolute left-0 top-0 pr-[2px] transition-transform duration-[900ms] ease-in-out motion-reduce:transition-none"
-              style={{
-                width: `${100 / COLS}%`,
-                height: CELL_H,
-                transform: place(c.slot),
-                // The newest block lights where it is first, then travels.
-                transitionDelay: latest ? "450ms" : "0ms",
-                zIndex: latest ? 2 : 1,
-              }}
-            >
+        <div aria-hidden="true" className="absolute inset-0">
+          <Slots />
+          {cells.map((c) => {
+            const latest = c.step === newest;
+            const step = c.step === undefined ? undefined : stepAt[c.step];
+            return (
               <span
-                className="block h-full rounded-[1.5px] transition-[background-color] duration-500 motion-reduce:transition-none"
+                key={c.id}
+                data-testid={
+                  c.category ? "chat-response-placeholder-block" : undefined
+                }
+                data-category={c.category}
+                title={
+                  c.category === "write"
+                    ? "Progress text"
+                    : step
+                      ? step.label || step.kind
+                      : undefined
+                }
+                className="absolute left-0 top-0 pr-[2px] transition-transform duration-[900ms] ease-in-out motion-reduce:transition-none"
                 style={{
-                  background: c.category
-                    ? tint(ACTIVITY_COLORS[c.category], latest ? 100 : 75)
-                    : `color-mix(in hsl, ${ACTIVITY_COLORS[c.rest]} 22%, hsl(var(--muted)))`,
+                  width: `${100 / COLS}%`,
+                  height: CELL_H,
+                  transform: place(c.slot),
+                  // The newest block lights where it is first, then travels.
+                  transitionDelay: latest ? "450ms" : "0ms",
+                  zIndex: latest ? 2 : 1,
                 }}
-              />
-            </span>
-          );
-        })}
+              >
+                <span
+                  className="block h-full rounded-[1.5px] transition-[background-color] duration-500 motion-reduce:transition-none"
+                  style={{
+                    background: c.category
+                      ? tint(ACTIVITY_COLORS[c.category], latest ? 100 : 75)
+                      : `color-mix(in hsl, ${ACTIVITY_COLORS[c.rest]} 22%, hsl(var(--muted)))`,
+                  }}
+                />
+              </span>
+            );
+          })}
+        </div>
       </div>
       {onShowProgress && textLength > 0 ? (
         <div className="relative mt-2.5 flex justify-end">
           <button
             type="button"
             onClick={onShowProgress}
+            aria-label="Show progress text"
             data-testid="chat-response-show-progress"
             className="rounded-sm text-[11px] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
           >

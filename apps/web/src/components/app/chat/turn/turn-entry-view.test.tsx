@@ -628,7 +628,11 @@ describe("TurnEntryView", () => {
           progressText: false,
         });
         expect(screen.queryByTestId("chat-turn-live-text")).toBeNull();
-        fireEvent.click(screen.getByTestId("chat-response-show-progress"));
+        // The control sits outside the status region, with a stable name.
+        const show = screen.getByTestId("chat-response-show-progress");
+        expect(screen.getByRole("status").contains(show)).toBe(false);
+        expect(show.getAttribute("aria-label")).toBe("Show progress text");
+        fireEvent.click(show);
         expect(placeholder()).toBeNull();
         expect(screen.getByTestId("chat-turn-live-text").textContent).toContain(
           "Looking at the tests."
