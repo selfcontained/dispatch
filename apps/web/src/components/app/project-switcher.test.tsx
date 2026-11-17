@@ -6,6 +6,7 @@ import {
   fireEvent,
   render,
   screen,
+  waitFor,
 } from "@testing-library/react";
 import {
   MemoryRouter,
@@ -108,4 +109,41 @@ describe("project switcher", () => {
     choose("Beta");
     expect(href()).toBe("/automations?project=pb");
   });
+});
+
+describe("dropdown keyboard navigation", () => {
+  it.each(["pointer", "Enter", " ", "ArrowDown"])(
+    "wraps and selects after opening with %s",
+    async (opening) => {
+      mount("/tasks?project=pa");
+      const trigger = screen.getByRole("button", { name: "Filter by project" });
+      trigger.focus();
+      if (opening === "pointer")
+        fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false });
+      else fireEvent.keyDown(trigger, { key: opening });
+      const items = await screen.findAllByRole("menuitem");
+      const press = async (key: string) => {
+        fireEvent.keyDown(document.activeElement!, { key });
+        await act(async () => {
+          await new Promise((resolve) => setTimeout(resolve, 5));
+        });
+      };
+      if (document.activeElement === screen.getByRole("menu"))
+        await press("ArrowDown");
+      await waitFor(() => expect(document.activeElement).toBe(items[0]));
+      for (const item of items.slice(1)) {
+        await press("ArrowDown");
+        expect(document.activeElement).toBe(item);
+      }
+      await press("ArrowDown");
+      expect(document.activeElement).toBe(items[0]);
+      await press("ArrowUp");
+      expect(document.activeElement).toBe(items.at(-1));
+      await press("ArrowDown");
+      await press("Enter");
+      expect(href()).toBe("/tasks?project=");
+      await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
+      await waitFor(() => expect(document.activeElement).toBe(trigger));
+    }
+  );
 });

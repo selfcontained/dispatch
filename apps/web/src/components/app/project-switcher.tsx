@@ -100,6 +100,7 @@ export function ProjectSwitcher({ allowAll = true }: { allowAll?: boolean }) {
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent
+          loop
           side="bottom"
           avoidCollisions={false}
           align="start"

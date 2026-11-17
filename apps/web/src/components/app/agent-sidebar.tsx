@@ -418,6 +418,7 @@ export function AgentListContent({
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent
+                loop
                 side="bottom"
                 avoidCollisions={false}
                 align="end"

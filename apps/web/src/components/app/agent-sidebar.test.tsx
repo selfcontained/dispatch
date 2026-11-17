@@ -1,7 +1,14 @@
 // @vitest-environment jsdom
 import React from "react";
 import { Provider, createStore } from "jotai";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Agent } from "./types";
 import type { AgentCardProps } from "./agent-card";
@@ -188,4 +195,47 @@ describe("sidebar pin integration", () => {
     expect(order()).toEqual(["d", "b", "a", "c"]);
     expect(store.get(agentSidebarOrderAtom)).toEqual(["a", "d", "c", "b"]);
   });
+});
+
+describe("dropdown keyboard navigation", () => {
+  it.each(["pointer", "Enter", " ", "ArrowDown"])(
+    "wraps and selects after opening with %s",
+    async (opening) => {
+      const props = propsFor([]);
+      props.enabledAgentTypes = ["codex", "claude"];
+      render(
+        <Provider>
+          <AgentListContent {...props} />
+        </Provider>
+      );
+      const trigger = screen.getByTestId("create-agent-type-dropdown");
+      trigger.focus();
+      if (opening === "pointer")
+        fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false });
+      else fireEvent.keyDown(trigger, { key: opening });
+      const items = await screen.findAllByRole("menuitem");
+      const press = async (key: string) => {
+        fireEvent.keyDown(document.activeElement!, { key });
+        await act(async () => {
+          await new Promise((resolve) => setTimeout(resolve, 5));
+        });
+      };
+      if (document.activeElement === screen.getByRole("menu"))
+        await press("ArrowDown");
+      await waitFor(() => expect(document.activeElement).toBe(items[0]));
+      for (const item of items.slice(1)) {
+        await press("ArrowDown");
+        expect(document.activeElement).toBe(item);
+      }
+      await press("ArrowDown");
+      expect(document.activeElement).toBe(items[0]);
+      await press("ArrowUp");
+      expect(document.activeElement).toBe(items.at(-1));
+      await press("ArrowDown");
+      await press("Enter");
+      expect(props.onOpenCreateDialog).toHaveBeenCalledTimes(1);
+      await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
+      await waitFor(() => expect(document.activeElement).toBe(trigger));
+    }
+  );
 });
