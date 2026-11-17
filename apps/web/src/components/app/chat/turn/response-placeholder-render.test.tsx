@@ -1,4 +1,8 @@
 // @vitest-environment jsdom
+import { DefragPreviewGrid } from "../../compaction-comparison";
+import providerFixtures from "../../../../../../../test-fixtures/provider-compactions.json";
+import { turnStep } from "./trace";
+import type { ChatTurnStep } from "@dispatch/shared";
 import { ChatRowStateContext } from "../chat-row-state";
 import { afterEach, expect, it, vi } from "vitest";
 import { act, cleanup, render } from "@testing-library/react";
@@ -420,4 +424,123 @@ it("resumes compaction after cached remount, stays green for minutes, and cancel
   ).toBe(true);
   restored.rerender(show({ ...compact, status: "error", endedAt: 240000 }));
   expect(vi.getTimerCount()).toBe(0);
+});
+
+it.each(providerFixtures.samples)(
+  "detects $runtime/$model recorded compaction seq$seq, not a tool label",
+  (sample) => {
+    vi.useFakeTimers();
+    vi.spyOn(Math, "random").mockReturnValue(0.5);
+    const live = turnStep(sample.liveStep as ChatTurnStep);
+    const view = render(
+      <ResponsePlaceholder seed={sample.key} steps={[live]} />
+    );
+    expect(view.getByRole("status").getAttribute("aria-label")).toBe(
+      "Compacting context"
+    );
+    act(() => vi.advanceTimersByTime(2200));
+    expect(view.getAllByTestId("chat-response-placeholder-block")).toHaveLength(
+      3
+    );
+    view.rerender(
+      <ResponsePlaceholder
+        seed={sample.key}
+        steps={[turnStep(sample.terminalStep as ChatTurnStep)]}
+      />
+    );
+    expect(view.getByRole("status").getAttribute("aria-label")).toBe(
+      "Preparing response"
+    );
+    expect(vi.getTimerCount()).toBe(0);
+  }
+);
+
+it("handles recorded Codex cancellation/restart and its multi-minute replacement", () => {
+  vi.useFakeTimers();
+  vi.spyOn(Math, "random").mockReturnValue(0.5);
+  const [cancelled, restarted] = providerFixtures.samples.filter(
+    (sample) => sample.runtime === "codex"
+  );
+  const view = render(
+    <ResponsePlaceholder
+      seed="restart"
+      steps={[turnStep(cancelled.liveStep as ChatTurnStep)]}
+    />
+  );
+  act(() => vi.advanceTimersByTime(1100));
+  view.rerender(
+    <ResponsePlaceholder
+      seed="restart"
+      steps={[turnStep(cancelled.terminalStep as ChatTurnStep)]}
+    />
+  );
+  expect(vi.getTimerCount()).toBe(0);
+  view.rerender(
+    <ResponsePlaceholder
+      seed="restart"
+      steps={[
+        turnStep(cancelled.terminalStep as ChatTurnStep),
+        turnStep(restarted.liveStep as ChatTurnStep),
+      ]}
+    />
+  );
+  expect(view.getByRole("status").getAttribute("aria-label")).toBe(
+    "Compacting context"
+  );
+  act(() =>
+    vi.advanceTimersByTime(
+      Date.parse(restarted.updatedAt) - Date.parse(restarted.createdAt)
+    )
+  );
+  expect(
+    view.container.querySelectorAll("[data-defrag-cell]").length
+  ).toBeGreaterThan(60);
+  view.rerender(
+    <ResponsePlaceholder
+      seed="restart"
+      steps={[
+        turnStep(cancelled.terminalStep as ChatTurnStep),
+        turnStep(restarted.terminalStep as ChatTurnStep),
+      ]}
+    />
+  );
+  expect(vi.getTimerCount()).toBe(0);
+});
+
+it("keeps the normal grid when a runtime has no explicit compaction entry", () => {
+  vi.useFakeTimers();
+  const tool: Step = {
+    id: "legacy",
+    kind: "think",
+    label: "compacting context",
+    status: "running",
+    startedAt: 0,
+  };
+  const view = render(<ResponsePlaceholder seed="no-signal" steps={[tool]} />);
+  expect(view.getByRole("status").getAttribute("aria-label")).toBe(
+    "Preparing response"
+  );
+  act(() => vi.advanceTimersByTime(180000));
+  expect(view.getAllByTestId("chat-response-placeholder-block")).toHaveLength(
+    1
+  );
+  expect(vi.getTimerCount()).toBe(0);
+});
+
+it("removes the comparison's reduced-motion packed override when normal work resumes", () => {
+  const view = render(<DefragPreviewGrid categories={["checks"]} compacting />);
+  expect(
+    view
+      .getByTestId("chat-response-placeholder")
+      .classList.contains("dispatch-defrag-reduced")
+  ).toBe(true);
+  view.rerender(
+    <DefragPreviewGrid categories={["checks", "read"]} compacting={false} />
+  );
+  expect(
+    view
+      .getByTestId("chat-response-placeholder")
+      .classList.contains("dispatch-defrag-reduced")
+  ).toBe(false);
+  expect(view.container.querySelector('[data-category="read"]')).not.toBeNull();
 });

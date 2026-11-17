@@ -1,3 +1,4 @@
+import compactionFixtures from "../../../test-fixtures/provider-compactions.json";
 import { createRequire } from "node:module";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
@@ -13,6 +14,7 @@ let adapter: {
   CodexEventHandler: { prototype: any };
   CodexAcpClient: { prototype: any };
   CodexAcpServer: { prototype: any };
+  CodexSessionCompactions: new () => any;
   dispatchReceiptId: (params: unknown) => string | undefined;
 };
 beforeAll(async () => {
@@ -32,7 +34,7 @@ beforeAll(async () => {
         "import.meta.url",
         JSON.stringify(pathToFileURL(sourcePath).href)
       ) +
-      "\nexport { CodexEventHandler, CodexAcpClient, CodexAcpServer, dispatchReceiptId };\n"
+      "\nexport { CodexEventHandler, CodexAcpClient, CodexAcpServer, CodexSessionCompactions, dispatchReceiptId };\n"
   );
   adapter = await import(/* @vite-ignore */ pathToFileURL(modulePath).href);
 });
@@ -344,5 +346,54 @@ describe("installed Codex inventory extension", () => {
         sessionId: "s",
       })
     ).rejects.toThrow();
+  });
+});
+
+describe("installed Codex compaction emission matches recorded production entries", () => {
+  it("maps native contextCompaction item start and completion to the recorded ACP shape", async () => {
+    const sample = compactionFixtures.samples.find(
+      (sample) =>
+        sample.runtime === "codex" && sample.payload.status === "completed"
+    )!;
+    const handler = {
+      supportsCompaction: true,
+      sessionState: { compactions: new adapter.CodexSessionCompactions() },
+      subagents: { notificationSessionId: () => "fixture" },
+    };
+    const native = {
+      threadId: "fixture",
+      turnId: "fixture-turn",
+      item: { type: "contextCompaction", id: sample.key },
+    };
+    expect(
+      await adapter.CodexEventHandler.prototype.createItemEvent.call(
+        handler,
+        native
+      )
+    ).toEqual(sample.acpStart);
+    expect(
+      await adapter.CodexEventHandler.prototype.completeItemEvent.call(
+        handler,
+        native
+      )
+    ).toEqual(sample.acpEnd);
+  });
+  it("emits cancelled and accepts a new compactionId immediately afterward", () => {
+    const samples = compactionFixtures.samples.filter(
+      (sample) => sample.runtime === "codex"
+    );
+    const lifecycle = new adapter.CodexSessionCompactions();
+    expect(lifecycle.start("fixture", "turn", samples[0].key)).toEqual(
+      samples[0].acpStart
+    );
+    expect(lifecycle.finishTurn("fixture", "turn", "cancelled")).toEqual([
+      samples[0].acpEnd,
+    ]);
+    expect(lifecycle.start("fixture", "turn", samples[1].key)).toEqual(
+      samples[1].acpStart
+    );
+    expect(lifecycle.complete("fixture", "turn", samples[1].key)).toEqual(
+      samples[1].acpEnd
+    );
   });
 });

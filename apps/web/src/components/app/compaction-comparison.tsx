@@ -74,7 +74,7 @@ export function DefragPreviewGrid({
         category,
         label: category,
       }))}
-      reducedCells={endpoint}
+      reducedCells={compacting ? endpoint : undefined}
       statusLabel={compacting ? "Compacting context" : "Preparing response"}
     />
   );
