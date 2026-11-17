@@ -139,6 +139,8 @@ function showAttentionToast(
   navigate: NavigateFunction
 ): void {
   if (shown.has(event.toastId)) return;
+  // A card with nothing to say is an empty box; the drawer still lists it.
+  if (!event.message?.trim()) return;
   shown.add(event.toastId);
   const id = `attention-${event.toastId}`;
   const open = () => {

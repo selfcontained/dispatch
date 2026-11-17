@@ -1,6 +1,6 @@
 import { AttentionHistory } from "../notifications/attention-history.js";
 import { matchingProjects } from "../projects/matching.js";
-import type { Effort } from "@dispatch/shared";
+import { attentionPreview, type Effort } from "@dispatch/shared";
 import { validateAgentEffort } from "../shared/agent-effort.js";
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rm, stat, unlink } from "node:fs/promises";
@@ -120,16 +120,6 @@ export type {
 } from "./types.js";
 
 const CODEX_FULL_ACCESS_ARG = "--dangerously-bypass-approvals-and-sandbox";
-
-/** The first line of a prompt or answer, short enough for the sidebar. */
-function statusLine(text: string): string {
-  const line =
-    text
-      .split("\n")
-      .find((l) => l.trim().length > 0)
-      ?.trim() ?? "";
-  return line.length > 80 ? `${line.slice(0, 79)}…` : line;
-}
 
 const ENGINE_LABELS: Record<AgentType, string> = {
   claude: "Claude Code",
@@ -488,7 +478,7 @@ export class AgentManager {
         await this.emitAttention(
           agentId,
           "waiting_user",
-          "Approval needed: " + statusLine(request.title)
+          "Approval needed: " + attentionPreview(request.title)
         );
       }
       const agent = await this.getAgent(agentId);
@@ -592,7 +582,11 @@ export class AgentManager {
     const agent = await this.getAgent(agentId);
     if (!agent || agent.status !== "running") return;
     if (event.state === "settled" && event.error) {
-      await this.emitAttention(agentId, "blocked", statusLine(event.error));
+      await this.emitAttention(
+        agentId,
+        "blocked",
+        attentionPreview(event.error)
+      );
     }
     this.eventBus.publish(await this.getRequiredAgent(agentId));
   }
@@ -606,7 +600,12 @@ export class AgentManager {
     const agent = await this.getAgent(agentId);
     if (!agent || agent.status !== "running") return;
 
-    await this.emitAttention(agentId, "waiting_user", statusLine(text), target);
+    await this.emitAttention(
+      agentId,
+      "waiting_user",
+      attentionPreview(text),
+      target
+    );
     this.eventBus.publish(await this.getRequiredAgent(agentId));
   }
 

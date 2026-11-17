@@ -97,4 +97,10 @@ describe("AttentionToasts", () => {
     await announce(event("agt_open", "agt_open"));
     expect(await screen.findAllByTestId("attention-toast")).toHaveLength(1);
   });
+
+  it("doesn't toast an item with no text", async () => {
+    renderAt("/tasks");
+    await announce({ ...event("agt_other", "agt_other"), message: "  " });
+    expect(screen.queryAllByTestId("attention-toast")).toHaveLength(0);
+  });
 });
