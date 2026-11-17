@@ -1,3 +1,4 @@
+import { CompactionComparison } from "./compaction-comparison";
 import { SystemEventsCheckpoint } from "./system-events-checkpoint";
 import { PullRequestChecksComparison } from "./pull-request-checks-comparison";
 import { useState, type ReactNode } from "react";
@@ -1051,6 +1052,7 @@ function ThemePicker({
 }
 
 const SCENES = [
+  { id: "compaction", label: "Compaction", render: CompactionComparison },
   { id: "run", label: "Autonomous run", render: RunScene },
   { id: "chat", label: "Chatty session", render: ChatScene },
   { id: "preview", label: "Preview server", render: PreviewScene },
