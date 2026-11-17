@@ -2231,10 +2231,9 @@ describe("ChatFeed", () => {
       first.querySelector("[data-testid='agent-relation-badge']")
     ).toBeNull();
     expect(
-      third
-        .querySelector("[data-testid='chat-side-header']")
-        ?.getAttribute("aria-label")
-    ).toBeUndefined();
+      third.querySelector("[data-testid='chat-side-recipient']")
+    ).toBeNull();
+    expect(third.querySelector("[data-testid='chat-side-header']")).toBeNull();
     // The reviewer is this agent's child, and says so under its name.
     expect(
       third.querySelector("[data-testid='agent-relation-badge']")?.textContent
