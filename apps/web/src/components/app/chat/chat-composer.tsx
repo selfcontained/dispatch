@@ -141,6 +141,8 @@ export type ChatComposerProps = {
   ) => Promise<{ id: number; url?: string; createdAt?: string }>;
   /** When set, the composer is disabled and this explains why. */
   disabledReason: string | null;
+  /** Draft stays editable while startup blocks sending. */
+  waitReason?: string | null;
   /** An external send is in flight; the input stays usable, the button waits. */
   sending?: boolean;
   placeholder?: string;
@@ -295,6 +297,7 @@ export function ChatComposer({
   onSend,
   uploadFile,
   disabledReason,
+  waitReason = null,
   sending = false,
   placeholder = "Message the agent…",
   autoFocus = false,
@@ -954,6 +957,7 @@ export function ChatComposer({
     : (error ?? recoveredNotice);
   const sendReady =
     !disabled &&
+    !waitReason &&
     !slashBlockedReason &&
     !draftLimitError &&
     !sending &&
@@ -962,6 +966,15 @@ export function ChatComposer({
     (trimmed.length > 0 || attachmentCount > 0);
 
   const canSend = sendReady && !deliveryBlockedReason;
+  /** The Send button's hover text: why it is off, when a reason is known. */
+  const sendTooltip =
+    (canSend
+      ? null
+      : (disabledReason ??
+        waitReason ??
+        slashBlockedReason ??
+        deliveryBlockedReason ??
+        draftLimitError)) ?? "Send (Enter)";
 
   useEffect(() => {
     if (autoFocus) textareaRef.current?.focus();
@@ -1538,6 +1551,7 @@ export function ChatComposer({
                   <ShareTaskPicker
                     disabled={
                       disabled ||
+                      Boolean(waitReason) ||
                       Boolean(sending) ||
                       inFlight ||
                       Boolean(deliveryBlockedReason)
@@ -1610,20 +1624,41 @@ export function ChatComposer({
                     role="group"
                     aria-label="Send message actions"
                   >
-                    <Button
-                      type="submit"
-                      size="icon"
-                      variant={canSend ? "success" : "ghost"}
-                      disabled={!canSend}
-                      title="Send (Enter)"
-                      aria-label="Send message"
-                      data-testid="chat-composer-send"
-                      className={cn(
-                        "h-9 w-9 pointer-coarse:min-h-11 pointer-coarse:min-w-11"
-                      )}
-                    >
-                      <SendHorizontal className="h-4 w-4" aria-hidden="true" />
-                    </Button>
+                    <TooltipProvider delayDuration={150}>
+                      <Tooltip>
+                        {/* A disabled button gets no pointer events, so the
+                          wrapper is what hovers. */}
+                        <TooltipTrigger asChild>
+                          <span
+                            className="inline-flex"
+                            data-testid="chat-composer-send-trigger"
+                          >
+                            <Button
+                              type="submit"
+                              size="icon"
+                              variant={canSend ? "success" : "ghost"}
+                              disabled={!canSend}
+                              aria-label="Send message"
+                              data-testid="chat-composer-send"
+                              className={cn(
+                                "h-9 w-9 pointer-coarse:min-h-11 pointer-coarse:min-w-11"
+                              )}
+                            >
+                              <SendHorizontal
+                                className="h-4 w-4"
+                                aria-hidden="true"
+                              />
+                            </Button>
+                          </span>
+                        </TooltipTrigger>
+                        <TooltipContent
+                          side="top"
+                          data-testid="chat-composer-send-tooltip"
+                        >
+                          {sendTooltip}
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
                   </div>
                 </div>
               </div>
@@ -1636,6 +1671,8 @@ export function ChatComposer({
               <span data-testid="chat-composer-disabled-reason">
                 {disabledReason}
               </span>
+            ) : waitReason ? (
+              <span data-testid="chat-composer-wait-reason">{waitReason}</span>
             ) : slashBlockedReason ? (
               <span role="alert" data-testid="chat-composer-slash-hint">
                 {slashBlockedReason}

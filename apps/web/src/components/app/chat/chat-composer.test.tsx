@@ -289,7 +289,7 @@ describe("ChatComposer", () => {
     await waitFor(() => expect(input.value).toBe(""));
   });
 
-  it.each(["The agent is not running.", "The agent is starting up."])(
+  it.each(["The agent is not running.", "Loading the chat…"])(
     "uses the disabled reason as the placeholder: %s",
     (disabledReason) => {
       const { onSend, input } = renderComposer({
@@ -316,14 +316,14 @@ describe("ChatComposer", () => {
       <ChatComposer
         agentId={null}
         onSend={onSend}
-        disabledReason="The agent is starting up."
+        disabledReason="The agent is not running."
       />
     );
     expect(input.disabled).toBe(true);
     expect(input.value).toBe("Keep this draft");
     expect(
       screen.getByTestId("chat-composer-disabled-reason").textContent
-    ).toBe("The agent is starting up.");
+    ).toBe("The agent is not running.");
     view.rerender(
       <ChatComposer agentId={null} onSend={onSend} disabledReason={null} />
     );
@@ -331,6 +331,43 @@ describe("ChatComposer", () => {
     expect(input.value).toBe("Keep this draft");
     expect(input.placeholder).toBe("Message the agent…");
     expect(screen.queryByTestId("chat-composer-disabled-reason")).toBeNull();
+  });
+
+  it("lets a draft be written while waiting, and sends once the wait clears", async () => {
+    const onSend = vi.fn(
+      async (_text: string, _attachments: unknown[]) => undefined
+    );
+    const waitReason = "The agent is starting up.";
+    const view = render(
+      <ChatComposer
+        agentId={null}
+        onSend={onSend}
+        disabledReason={null}
+        waitReason={waitReason}
+      />
+    );
+    const input = screen.getByTestId(
+      "chat-composer-input"
+    ) as HTMLTextAreaElement;
+    const send = screen.getByTestId("chat-composer-send") as HTMLButtonElement;
+    expect(input.disabled).toBe(false);
+    fireEvent.change(input, { target: { value: "early thought" } });
+    expect(send.disabled).toBe(true);
+    expect(screen.getByTestId("chat-composer-wait-reason").textContent).toBe(
+      waitReason
+    );
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(onSend).not.toHaveBeenCalled();
+    expect(input.value).toBe("early thought");
+
+    view.rerender(
+      <ChatComposer agentId={null} onSend={onSend} disabledReason={null} />
+    );
+    expect(screen.queryByTestId("chat-composer-wait-reason")).toBeNull();
+    expect(send.disabled).toBe(false);
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(onSend).toHaveBeenCalledWith("early thought", []);
+    await waitFor(() => expect(input.value).toBe(""));
   });
 
   it("keeps the input usable but holds the button while a send is in flight", () => {

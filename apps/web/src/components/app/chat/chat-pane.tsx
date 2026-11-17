@@ -32,7 +32,10 @@ import {
   latestAgentBlockId,
   entryGrowthKey,
 } from "@/components/app/chat/chat-feed";
-import { composerDisabledReason } from "@/components/app/chat/composer-disabled";
+import {
+  composerDisabledReason,
+  composerWaitReason,
+} from "@/components/app/chat/composer-disabled";
 import { turnAnswerText } from "@/components/app/chat/turn/answer-text";
 import { visibleFeedEntries } from "@/components/app/chat/turn/visible-feed";
 import { TasksStrip } from "@/components/app/chat/turn/tasks-strip";
@@ -1266,6 +1269,8 @@ export function ChatPane({
     isLoading: feed.isLoading,
     error: feed.error,
   });
+  // A starting agent takes a draft, but answers and block toggles wait.
+  const waitReason = composerWaitReason(agent);
   const answeringBlockId = answer.isPending
     ? (answer.variables?.blockId ?? null)
     : null;
@@ -1383,7 +1388,9 @@ export function ChatPane({
                     ctx={ctx}
                     answeringBlockId={answeringBlockId}
                     submittingBlockId={submittingBlockId}
-                    answersDisabled={disabledReason !== null}
+                    answersDisabled={
+                      disabledReason !== null || waitReason !== null
+                    }
                     onAnswer={onAnswer}
                     scrollRef={scrollRef}
                     pinnedIds={pinnedIds}
@@ -1464,6 +1471,7 @@ export function ChatPane({
               onSend={onSend}
               uploadFile={uploadFile}
               disabledReason={disabledReason}
+              waitReason={waitReason}
               sending={send.isPending}
               autoFocus={active && !isMobile && !openThreadId}
               mentionables={mentionables}
