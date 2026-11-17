@@ -1,9 +1,8 @@
 ## What's Changed
-* fix(chat): hide redundant own-stream recipient labels by @selfcontained in https://github.com/selfcontained/dispatch/pull/1494
-* fix(web): keep top sidebar dropdowns opening downward by @selfcontained in https://github.com/selfcontained/dispatch/pull/1496
-* fix(chat): keep threads open when showing progress on touch by @selfcontained in https://github.com/selfcontained/dispatch/pull/1497
-* fix(web): wrap arrow navigation in top dropdowns by @selfcontained in https://github.com/selfcontained/dispatch/pull/1498
-* Animate real compaction and sync defrag with agent activity by @selfcontained in https://github.com/selfcontained/dispatch/pull/1495
+* Let users draft in the composer while an agent starts up by @shapirone in https://github.com/selfcontained/dispatch/pull/1417
+* Show activity category tooltips on defrag colour groups by @selfcontained in https://github.com/selfcontained/dispatch/pull/1499
 
+## New Contributors
+* @shapirone made their first contribution in https://github.com/selfcontained/dispatch/pull/1417
 
-**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v1.7.23...v1.7.24
+**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v1.7.24...v1.7.25
