@@ -96,11 +96,9 @@ export function ContextFileItem({
           >
             <img src={preview} alt="" className="h-full w-full object-cover" />
             <span
-              className="absolute inset-0 flex items-center justify-center bg-black/50 text-white opacity-0 transition-opacity group-hover/markup:opacity-100 group-focus-visible/markup:opacity-100"
+              className="absolute inset-0 bg-black/25 opacity-0 transition-opacity group-hover/markup:opacity-100 group-focus-visible/markup:opacity-100"
               aria-hidden="true"
-            >
-              <Pencil className="h-4 w-4" />
-            </span>
+            />
           </button>
         ) : preview ? (
           <img src={preview} alt="" className="h-full w-full object-cover" />
