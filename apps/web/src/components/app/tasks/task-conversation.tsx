@@ -19,7 +19,10 @@ import {
 import { newestTurnEntry } from "@/components/app/chat/turn/turn-feed";
 import { isMainColumnEntry } from "@/components/app/chat/chat-pane";
 import { agentDisplayName } from "@/components/app/chat/chat-entries";
-import { composerDisabledReason } from "@/components/app/chat/composer-disabled";
+import {
+  composerDisabledReason,
+  composerWaitReason,
+} from "@/components/app/chat/composer-disabled";
 import { useChatFeedContext } from "@/components/app/chat/use-chat-feed-context";
 import { ThreadPage } from "@/components/app/drawer/thread-page";
 import { FileLightbox } from "@/components/app/file-lightbox";
@@ -381,6 +384,7 @@ export function TaskConversation({
               onSend={onSend}
               uploadFile={uploadFile}
               disabledReason={disabledReason}
+              waitReason={composerWaitReason(assignee ?? null)}
               sending={send.isPending}
               placeholder="Message the task…"
               autoFocus={false}
