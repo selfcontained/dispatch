@@ -241,22 +241,8 @@ export function TurnAnswer({
             role="status"
             aria-label="Preparing response"
             data-testid="chat-response-placeholder"
-            className="relative mt-3 w-full max-w-md overflow-hidden rounded-lg border border-dashed border-border/70 bg-muted/10 px-4 py-3.5"
+            className="mt-3 w-full max-w-md rounded-lg border border-dashed border-border/70 bg-muted/10 px-4 py-3.5"
           >
-            {/* A pale diagonal sheen across the whole card, over the rows'
-                colour scans; its 3.4s period stays out of step with theirs. */}
-            <span
-              aria-hidden="true"
-              data-testid="chat-response-placeholder-shimmer"
-              className={cn(
-                "dispatch-placeholder-shimmer pointer-events-none absolute inset-y-0 left-0 z-10 w-2/5 will-change-transform motion-reduce:hidden",
-                // Dark themes lift with their own pale foreground; on light
-                // ones that would read as a smudge, so the sheen is white
-                // and shows mostly where it crosses the grey bars.
-                "bg-[linear-gradient(105deg,transparent_20%,hsl(var(--foreground)/0.05)_50%,transparent_80%)] [[data-theme-mode=light]_&]:bg-[linear-gradient(105deg,transparent_20%,rgb(255_255_255/0.35)_50%,transparent_80%)]",
-                "animate-[placeholder-shimmer_3.4s_ease-in-out_-1.1s_infinite_both]"
-              )}
-            />
             <div aria-hidden="true" className="space-y-2.5">
               {PLACEHOLDER_ROWS.map((row) => (
                 <Skeleton
@@ -272,6 +258,19 @@ export function TurnAnswer({
                       "dispatch-placeholder-scan absolute inset-y-0 left-0 w-1/3 rounded-full opacity-10 will-change-transform motion-reduce:hidden",
                       "bg-[linear-gradient(90deg,transparent,hsl(var(--status-blocked)),hsl(var(--status-waiting)),hsl(var(--status-working)),hsl(var(--status-done)),transparent)]",
                       row.scan
+                    )}
+                  />
+                  {/* A pale sheen over the colour scan. Every row's band is the
+                      same width on the same path and clock, so the three read
+                      as one sweep down the card; 3.4s stays out of step with
+                      the scans. Dark themes lift with their own foreground;
+                      on light ones that would darken, so the sheen is white. */}
+                  <span
+                    data-testid="chat-response-placeholder-shimmer"
+                    className={cn(
+                      "dispatch-placeholder-shimmer absolute inset-y-0 left-0 w-24 will-change-transform motion-reduce:hidden",
+                      "bg-[linear-gradient(105deg,transparent_15%,hsl(var(--foreground)/0.14)_50%,transparent_85%)] [[data-theme-mode=light]_&]:bg-[linear-gradient(105deg,transparent_15%,rgb(255_255_255/0.5)_50%,transparent_85%)]",
+                      "animate-[placeholder-shimmer_3.4s_ease-in-out_-1.1s_infinite_both]"
                     )}
                   />
                 </Skeleton>

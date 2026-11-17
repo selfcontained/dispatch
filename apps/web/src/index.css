@@ -898,18 +898,19 @@ html[data-theme="matrix"] [role="button"] {
   }
 }
 
-/* Response placeholder sheen: a pale diagonal band, two-fifths of the card
-   wide, crosses the card left to right (-100% → 250% of its own width clears
-   both edges) over the first three-quarters of each period, then rests off
-   the card. `.dispatch-placeholder-shimmer` is a marker for the
-   `html[data-hidden]` pause; the rest is utilities on the element. */
+/* Response placeholder sheen: a pale 6rem band inside each skeleton bar
+   crosses it left to right over the first three-quarters of each period,
+   then rests off the bar. -100% → 450% of its own width clears the widest
+   bar (max-w-md less padding), so every row's band shares one path and the
+   rows read as a single sweep. `.dispatch-placeholder-shimmer` is a marker
+   for the `html[data-hidden]` pause; the rest is utilities on the element. */
 @keyframes placeholder-shimmer {
   0% {
     transform: translateX(-100%);
   }
   75%,
   100% {
-    transform: translateX(250%);
+    transform: translateX(450%);
   }
 }
 
