@@ -225,13 +225,24 @@ async function loadImage(src: string): Promise<HTMLImageElement> {
   return image;
 }
 
-/** One draft file as rendered: its entry, its key, and its live `File` if any. */
+/**
+ * A marked-up image's uploads, step by step, so a retry redoes only the
+ * step that failed.
+ */
 type MarkupUpload = {
   /** The original's file id and the callouts the uploads were made from. */
   source: string;
+  shareId: string;
+  size: { width: number; height: number };
   copyId: number;
-  metadataId: number;
+  copySize: { width: number; height: number };
+  metadataId?: number;
 };
+
+/** Where an uploaded original lives, for its markup's callout record. */
+type UploadedOriginal = { url?: string; updatedAt?: string };
+
+/** One draft file as rendered: its entry, its key, and its live `File` if any. */
 
 type DraftFileView = {
   entry: ChatDraftFile;
@@ -561,6 +572,7 @@ export function ChatComposer({
   // A marked-up image's annotated copy and callout record, once uploaded,
   // for the exact markup they were made from.
   const markupIdsRef = useRef<Map<string, MarkupUpload>>(new Map());
+  const originalsRef = useRef<Map<string, UploadedOriginal>>(new Map());
   // A post owns its files separately from the next draft, even when a new
   // attachment has the same descriptor key.
   const postingFilesRef = useRef(
@@ -570,6 +582,7 @@ export function ChatComposer({
         file: File;
         fileId?: number;
         markup?: MarkupUpload;
+        original?: UploadedOriginal;
         preview?: string;
       }
     >()
@@ -608,6 +621,7 @@ export function ChatComposer({
     filesRef.current.delete(key);
     fileIdsRef.current.delete(key);
     markupIdsRef.current.delete(key);
+    originalsRef.current.delete(key);
     const preview = previewsRef.current.get(key);
     if (preview) {
       URL.revokeObjectURL(preview);
@@ -645,6 +659,11 @@ export function ChatComposer({
   const markupView = markupKey
     ? fileViews.find((view) => view.key === markupKey)
     : undefined;
+  // The open image left the draft (sent, removed elsewhere): close for good,
+  // so the same attachment coming back does not reopen the editor.
+  useEffect(() => {
+    if (markupKey && !markupView?.file) setMarkupKey(null);
+  }, [markupKey, markupView]);
 
   // Bytes for entries the draft no longer lists (removed here, sent, or
   // taken out by another tab) are let go. Reads the draft, never writes it.
@@ -987,14 +1006,16 @@ export function ChatComposer({
           // type system's sake.
           if (!file) throw new Error(`Re-attach ${entry.name} to send.`);
           let fileId = fileIdsRef.current.get(key);
-          let uploaded: { url?: string; createdAt?: string } | undefined;
           if (fileId === undefined) {
             if (!uploadFile) throw new Error("File uploads are not available.");
             setFileStatus((current) => ({ ...current, [key]: "uploading" }));
             try {
               const result = await uploadFile(file);
-              uploaded = result;
               fileId = result.id;
+              originalsRef.current.set(key, {
+                ...(result.url ? { url: result.url } : {}),
+                ...(result.createdAt ? { updatedAt: result.createdAt } : {}),
+              });
               fileIdsRef.current.set(key, fileId);
               setFileStatus((current) => {
                 const next = { ...current };
@@ -1026,50 +1047,59 @@ export function ChatComposer({
           }
           const source = JSON.stringify([fileId, callouts]);
           let markup = markupIdsRef.current.get(key);
-          if (markup?.source !== source) {
+          if (markup?.source !== source) markup = undefined;
+          let metadataId = markup?.metadataId;
+          if (!markup || metadataId === undefined) {
             if (!uploadFile) throw new Error("File uploads are not available.");
             const upload = uploadFile;
             setFileStatus((current) => ({ ...current, [key]: "uploading" }));
             try {
-              const image = await loadImage(preview);
-              const size = {
-                width: image.naturalWidth,
-                height: image.naturalHeight,
-              };
-              const shareId = createClientId();
-              const copy = await renderAnnotatedImage(image, size, callouts);
-              const copyId = (
-                await upload(
-                  new File([copy.blob], `feedback-${shareId}.png`, {
-                    type: "image/png",
-                  })
-                )
-              ).id;
+              if (!markup) {
+                const image = await loadImage(preview);
+                const size = {
+                  width: image.naturalWidth,
+                  height: image.naturalHeight,
+                };
+                const shareId = createClientId();
+                const copy = await renderAnnotatedImage(image, size, callouts);
+                const copyId = (
+                  await upload(
+                    new File([copy.blob], `feedback-${shareId}.png`, {
+                      type: "image/png",
+                    })
+                  )
+                ).id;
+                markup = {
+                  source,
+                  shareId,
+                  size,
+                  copyId,
+                  copySize: { width: copy.width, height: copy.height },
+                };
+                markupIdsRef.current.set(key, markup);
+              }
               const metadata = imageFeedbackMetadata({
-                shareId,
+                shareId: markup.shareId,
                 original: {
                   fileId,
                   name: entry.name,
-                  ...(uploaded?.url ? { url: uploaded.url } : {}),
-                  ...(uploaded?.createdAt
-                    ? { updatedAt: uploaded.createdAt }
-                    : {}),
-                  ...size,
+                  ...originalsRef.current.get(key),
+                  ...markup.size,
                 },
-                derivedFileId: copyId,
-                derivedSize: { width: copy.width, height: copy.height },
+                derivedFileId: markup.copyId,
+                derivedSize: markup.copySize,
                 items: callouts,
               });
-              const metadataId = (
+              metadataId = (
                 await upload(
                   new File(
                     [JSON.stringify(metadata, null, 2)],
-                    `feedback-${shareId}.json`,
+                    `feedback-${markup.shareId}.json`,
                     { type: "application/json" }
                   )
                 )
               ).id;
-              markup = { source, copyId, metadataId };
+              markup = { ...markup, metadataId };
               markupIdsRef.current.set(key, markup);
               setFileStatus((current) => {
                 const next = { ...current };
@@ -1092,7 +1122,7 @@ export function ChatComposer({
             },
             {
               type: "file",
-              fileId: markup.metadataId,
+              fileId: metadataId,
               caption: imageFeedbackCaptions.metadata,
             }
           );
@@ -1110,11 +1140,13 @@ export function ChatComposer({
             file,
             fileId: fileIdsRef.current.get(key),
             markup: markupIdsRef.current.get(key),
+            original: originalsRef.current.get(key),
             preview: previewsRef.current.get(key),
           });
           filesRef.current.delete(key);
           fileIdsRef.current.delete(key);
           markupIdsRef.current.delete(key);
+          originalsRef.current.delete(key);
           previewsRef.current.delete(key);
         }
         // Persist before clearing the visible draft. An interrupted document
@@ -1191,6 +1223,8 @@ export function ChatComposer({
                   if (saved.fileId !== undefined)
                     fileIdsRef.current.set(key, saved.fileId);
                   if (saved.markup) markupIdsRef.current.set(key, saved.markup);
+                  if (saved.original)
+                    originalsRef.current.set(key, saved.original);
                   if (saved.preview)
                     previewsRef.current.set(key, saved.preview);
                   postingFilesRef.current.delete(key);

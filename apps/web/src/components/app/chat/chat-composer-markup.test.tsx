@@ -109,7 +109,9 @@ function chip(name: string): HTMLElement {
 
 /** Opens the image's editor and adds one centered note per entry. */
 async function markUp(name: string, notes: string[]) {
-  fireEvent.click(screen.getByRole("button", { name: `Mark up ${name}` }));
+  fireEvent.click(
+    screen.getByRole("button", { name: new RegExp(`^Mark up ${name}`) })
+  );
   const lightbox = await screen.findByTestId("file-lightbox");
   fireEvent.load(lightbox.querySelector("img")!);
   const surface = screen.getByLabelText(
@@ -143,10 +145,10 @@ describe("ChatComposer image markup", () => {
       expect(screen.queryByTestId("file-lightbox")).toBeNull()
     );
     expect(
-      within(chip("shot.png"))
-        .getByTestId("context-file-note-count")
-        .getAttribute("aria-label")
-    ).toBe("2 notes");
+      within(chip("shot.png")).getByTestId("context-file-note-count")
+        .textContent
+    ).toBe("2");
+    screen.getByRole("button", { name: "Mark up shot.png, 2 notes" });
     expect(onSend).not.toHaveBeenCalled();
     expect(uploadFile).not.toHaveBeenCalled();
     expect(mockApi).not.toHaveBeenCalled();
@@ -183,10 +185,10 @@ describe("ChatComposer image markup", () => {
       expect(screen.queryByTestId("file-lightbox")).toBeNull()
     );
     expect(
-      within(chip("shot.png"))
-        .getByTestId("context-file-note-count")
-        .getAttribute("aria-label")
-    ).toBe("1 note");
+      within(chip("shot.png")).getByTestId("context-file-note-count")
+        .textContent
+    ).toBe("1");
+    screen.getByRole("button", { name: "Mark up shot.png, 1 note" });
   });
 
   it("drops the markup when its attachment is removed", async () => {
@@ -263,6 +265,45 @@ describe("ChatComposer image markup", () => {
     expect(metadata.shareId).toBe(
       uploads[1]!.name.replace(/^feedback-|\.png$/g, "")
     );
+  });
+
+  it("retries only the failed markup step, keeping the original's details", async () => {
+    const { input, onSend, uploads, uploadFile } = renderComposer();
+    const succeed = uploadFile.getMockImplementation()!;
+    let failedOnce = false;
+    uploadFile.mockImplementation(async (file: File) => {
+      if (file.name.endsWith(".json") && !failedOnce) {
+        failedOnce = true;
+        throw new Error("network");
+      }
+      return succeed(file);
+    });
+    pasteFiles(input, [shot()]);
+    await markUp("shot.png", ["Too much padding"]);
+    fireEvent.click(screen.getByRole("button", { name: "Done" }));
+    await waitFor(() =>
+      expect(screen.queryByTestId("file-lightbox")).toBeNull()
+    );
+    fireEvent.keyDown(input, { key: "Enter" });
+    await screen.findByText(/Couldn't upload markup for shot.png/);
+    expect(onSend).not.toHaveBeenCalled();
+
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() => expect(onSend).toHaveBeenCalledTimes(1));
+    // Original and copy uploaded once; only the record is uploaded again.
+    expect(uploads.map((file) => file.name.split(/-[0-9a-f-]{36}/)[0])).toEqual(
+      ["shot.png", "feedback", "feedback"]
+    );
+    const metadata = JSON.parse(await uploads[2]!.text());
+    expect(metadata.original).toMatchObject({
+      fileId: 100,
+      url: "/files/shot.png",
+    });
+    expect(metadata.derivedFileId).toBe(101);
+    expect(onSend.mock.calls[0]![1]).toEqual([
+      { type: "file", fileId: 101, caption: "Feedback on shot.png" },
+      { type: "file", fileId: 102, caption: "Image and callout details" },
+    ]);
   });
 
   it("counts a marked-up image's extra attachment against the cap", async () => {

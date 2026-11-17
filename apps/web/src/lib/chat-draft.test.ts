@@ -185,6 +185,41 @@ describe("chat draft", () => {
     expect(draft.links).toHaveLength(20);
   });
 
+  it("drops image markup, largest first, before cutting the text", () => {
+    const callouts = (count: number) =>
+      Array.from({ length: count }, (_, i) => ({
+        id: `c${i}`,
+        number: i + 1,
+        x: 0.1,
+        y: 0.1,
+        width: 0,
+        height: 0,
+        note: "n".repeat(4_000),
+      }));
+    const text = "keep me";
+    const draft: ChatComposerDraft = {
+      text,
+      links: [],
+      files: [
+        {
+          name: "small.png",
+          size: 1,
+          mime: "image/png",
+          callouts: callouts(4),
+        },
+        { name: "big.png", size: 2, mime: "image/png", callouts: callouts(14) },
+      ],
+    };
+    expect(chatDraftBytes(draft)).toBeGreaterThan(CHAT_DRAFT_MAX_BYTES);
+    const fitted = fitChatDraft(draft);
+    expect(chatDraftBytes(fitted)).toBeLessThanOrEqual(CHAT_DRAFT_MAX_BYTES);
+    expect(fitted.text).toBe(text);
+    expect(fitted.files.map((f) => f.name)).toEqual(["small.png", "big.png"]);
+    expect(fitted.files[0]!.callouts).toHaveLength(4);
+    expect(fitted.files[1]!.callouts).toBeUndefined();
+    expect(draft.files[1]!.callouts).toHaveLength(14);
+  });
+
   it("cuts the text last, at a code-point boundary, and marks the cut", () => {
     // 20 000 code points of 4-byte text: 80 KB on its own. (Beyond what
     // the field lets through; the bound has to hold regardless.)

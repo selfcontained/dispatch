@@ -85,7 +85,11 @@ export function ContextFileItem({
           <button
             type="button"
             className="block h-full w-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
-            aria-label={`Mark up ${file.name}`}
+            aria-label={
+              noteCount
+                ? `Mark up ${file.name}, ${noteCount} ${noteCount === 1 ? "note" : "notes"}`
+                : `Mark up ${file.name}`
+            }
             onClick={onOpen}
           >
             <img src={preview} alt="" className="h-full w-full object-cover" />
@@ -118,7 +122,7 @@ export function ContextFileItem({
           <span
             className="pointer-events-none absolute bottom-0.5 left-0.5 flex h-4 min-w-4 items-center justify-center gap-0.5 rounded-full bg-primary px-1 text-[9px] font-semibold leading-none text-primary-foreground shadow"
             data-testid="context-file-note-count"
-            aria-label={`${noteCount} ${noteCount === 1 ? "note" : "notes"}`}
+            aria-hidden="true"
           >
             <MessageCircle className="h-2.5 w-2.5" aria-hidden="true" />
             {noteCount}
