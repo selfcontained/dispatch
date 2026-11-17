@@ -636,3 +636,16 @@ it("labels the reduced-motion compaction override even on previously muted piece
   fireEvent.pointerMove(view.grid, { clientX: 25, clientY: 12 });
   expect((await view.findByRole("tooltip")).textContent).toBe("Compaction");
 });
+
+it("dismisses a stationary tooltip when a new grid pass moves its group", async () => {
+  const view = tooltipFixture();
+  fireEvent.pointerMove(view.grid, { clientX: 5, clientY: 12 });
+  await view.findByRole("tooltip");
+  view.rerender(
+    <ResponsePlaceholderVisual
+      cells={defragCells("next-pass", [])}
+      pieces={[]}
+    />
+  );
+  expect(view.queryByRole("tooltip")).toBeNull();
+});

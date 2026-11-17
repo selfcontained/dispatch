@@ -416,6 +416,9 @@ export function ResponsePlaceholderVisual({
   const newest = pieces.length - 1;
   const gridRef = useRef<HTMLDivElement>(null);
   const [label, setLabel] = useState<string | null>(null);
+  // A pass can move the group away from a stationary mouse or touch point.
+  // Dismiss before the new layout travels rather than keeping a stale anchor.
+  useEffect(() => setLabel(null), [cells, reducedCells]);
   useEffect(() => {
     if (!label) return;
     const dismiss = (event: PointerEvent) => {
