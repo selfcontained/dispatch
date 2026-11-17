@@ -241,8 +241,22 @@ export function TurnAnswer({
             role="status"
             aria-label="Preparing response"
             data-testid="chat-response-placeholder"
-            className="mt-3 w-full max-w-md rounded-lg border border-dashed border-border/70 bg-muted/10 px-4 py-3.5"
+            className="relative mt-3 w-full max-w-md overflow-hidden rounded-lg border border-dashed border-border/70 bg-muted/10 px-4 py-3.5"
           >
+            {/* A pale diagonal sheen across the whole card, over the rows'
+                colour scans; its 3.4s period stays out of step with theirs. */}
+            <span
+              aria-hidden="true"
+              data-testid="chat-response-placeholder-shimmer"
+              className={cn(
+                "dispatch-placeholder-shimmer pointer-events-none absolute inset-y-0 left-0 z-10 w-2/5 will-change-transform motion-reduce:hidden",
+                // Dark themes lift with their own pale foreground; on light
+                // ones that would read as a smudge, so the sheen is white
+                // and shows mostly where it crosses the grey bars.
+                "bg-[linear-gradient(105deg,transparent_20%,hsl(var(--foreground)/0.05)_50%,transparent_80%)] [[data-theme-mode=light]_&]:bg-[linear-gradient(105deg,transparent_20%,rgb(255_255_255/0.35)_50%,transparent_80%)]",
+                "animate-[placeholder-shimmer_3.4s_ease-in-out_-1.1s_infinite_both]"
+              )}
+            />
             <div aria-hidden="true" className="space-y-2.5">
               {PLACEHOLDER_ROWS.map((row) => (
                 <Skeleton

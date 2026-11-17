@@ -898,6 +898,21 @@ html[data-theme="matrix"] [role="button"] {
   }
 }
 
+/* Response placeholder sheen: a pale diagonal band, two-fifths of the card
+   wide, crosses the card left to right (-100% → 250% of its own width clears
+   both edges) over the first three-quarters of each period, then rests off
+   the card. `.dispatch-placeholder-shimmer` is a marker for the
+   `html[data-hidden]` pause; the rest is utilities on the element. */
+@keyframes placeholder-shimmer {
+  0% {
+    transform: translateX(-100%);
+  }
+  75%,
+  100% {
+    transform: translateX(250%);
+  }
+}
+
 /* `.dispatch-reconnect-scan` is a marker class — the animation, gradient,
    and reduced-motion behavior are Tailwind utilities on the element. This
    class only exists so the `html[data-hidden]` rule below can pause it. */
@@ -1167,7 +1182,8 @@ html[data-hidden] .dispatch-reconnect-scan {
   animation-play-state: paused;
   will-change: auto;
 }
-html[data-hidden] .dispatch-placeholder-scan {
+html[data-hidden] .dispatch-placeholder-scan,
+html[data-hidden] .dispatch-placeholder-shimmer {
   animation-play-state: paused;
 }
 html[data-hidden] .dispatch-activity-bar {

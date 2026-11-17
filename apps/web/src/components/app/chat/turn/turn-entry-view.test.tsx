@@ -616,6 +616,16 @@ describe("TurnEntryView", () => {
             );
             expect(scan.classList.contains("motion-reduce:hidden")).toBe(true);
           }
+          // One sheen crosses the whole card, with the same pause and
+          // reduced-motion handling.
+          const shimmer = screen.getByTestId(
+            "chat-response-placeholder-shimmer"
+          );
+          expect(placeholder()?.contains(shimmer)).toBe(true);
+          expect(
+            shimmer.classList.contains("dispatch-placeholder-shimmer")
+          ).toBe(true);
+          expect(shimmer.classList.contains("motion-reduce:hidden")).toBe(true);
         });
       }
 
