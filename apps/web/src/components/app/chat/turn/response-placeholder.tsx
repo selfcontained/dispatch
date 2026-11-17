@@ -1,4 +1,4 @@
-import { memo, useMemo } from "react";
+import { memo, useMemo, useState } from "react";
 
 import { useChatRowState } from "../chat-row-state";
 
@@ -238,7 +238,22 @@ export function ResponsePlaceholder({
     null
   );
   const pieces = responsePieces(history, steps, writes);
-  if (pieces !== history) setHistory(pieces);
+  const [arrivalKeys, setArrivalKeys] = useState<ReadonlySet<string>>(
+    () => new Set()
+  );
+  if (pieces !== history) {
+    const known = new Set(history?.map((piece) => piece.key));
+    setArrivalKeys(
+      new Set(
+        history === null
+          ? []
+          : pieces
+              .filter((piece) => !known.has(piece.key))
+              .map((piece) => piece.key)
+      )
+    );
+    setHistory(pieces);
+  }
   // Labels/status can change without rebuilding or advancing the grid.
   const categoryKey = pieces.map((piece) => piece.category).join(",");
   const cells = useMemo(
@@ -289,7 +304,7 @@ export function ResponsePlaceholder({
               >
                 <span
                   key={c.step ?? "rest"}
-                  className={`block h-full rounded-[1.5px] transition-[background-color] duration-500 motion-reduce:transition-none ${piece ? "dispatch-defrag-ack" : ""}`}
+                  className={`block h-full rounded-[1.5px] transition-[background-color] duration-500 motion-reduce:transition-none ${piece && arrivalKeys.has(piece.key) ? "dispatch-defrag-ack" : ""}`}
                   style={{
                     background: c.category
                       ? tint(ACTIVITY_COLORS[c.category], latest ? 100 : 75)

@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { ChatRowStateContext } from "../chat-row-state";
 import { afterEach, expect, it } from "vitest";
 import { cleanup, render } from "@testing-library/react";
 import { ResponsePlaceholder } from "./response-placeholder";
@@ -50,5 +51,88 @@ it("acknowledges nested calls without replaying the piece on status changes", ()
   );
   expect(view.getByTitle("nested read").firstElementChild).toBe(
     acknowledgement
+  );
+});
+
+it("does not replay acknowledgements when cached work remounts", () => {
+  const cache = new Map<string, unknown>();
+  const parent: Step = {
+    id: "parent",
+    kind: "execute",
+    label: "outer",
+    status: "running",
+    startedAt: 0,
+  };
+  const child: Step = {
+    id: "child",
+    kind: "read",
+    label: "read",
+    status: "running",
+    startedAt: 1,
+  };
+  const show = (steps: Step[]) => (
+    <ChatRowStateContext.Provider value={cache}>
+      <ResponsePlaceholder seed="nested-test" steps={steps} />
+    </ChatRowStateContext.Provider>
+  );
+  const first = render(show([parent]));
+  first.rerender(show([{ ...parent, children: [child] }]));
+  expect(
+    first
+      .getByTitle("read")
+      .firstElementChild?.classList.contains("dispatch-defrag-ack")
+  ).toBe(true);
+  first.unmount();
+  const restored = render(show([{ ...parent, children: [child] }]));
+  expect(
+    restored.container.querySelectorAll(".dispatch-defrag-ack")
+  ).toHaveLength(0);
+});
+
+it("does not replay existing arrivals when metadata changes their cell assignment", () => {
+  const steps: Step[] = [
+    {
+      id: "first",
+      kind: "other",
+      label: "unknown",
+      status: "running",
+      startedAt: 0,
+    },
+    {
+      id: "read",
+      kind: "read",
+      label: "read",
+      status: "running",
+      startedAt: 1,
+    },
+    {
+      id: "git",
+      kind: "execute",
+      label: "git status",
+      status: "running",
+      startedAt: 2,
+    },
+  ];
+  const view = render(
+    <ResponsePlaceholder seed="nested-test" steps={steps.slice(0, 2)} />
+  );
+  view.rerender(<ResponsePlaceholder seed="nested-test" steps={steps} />);
+  expect(view.container.querySelectorAll(".dispatch-defrag-ack")).toHaveLength(
+    1
+  );
+  view.rerender(
+    <ResponsePlaceholder
+      seed="nested-test"
+      steps={[
+        { ...steps[0]!, label: "mcp__dispatch__post" },
+        ...steps.slice(1),
+      ]}
+    />
+  );
+  expect(view.getAllByTestId("chat-response-placeholder-block")).toHaveLength(
+    3
+  );
+  expect(view.container.querySelectorAll(".dispatch-defrag-ack")).toHaveLength(
+    0
   );
 });
