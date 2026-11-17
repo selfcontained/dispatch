@@ -20,22 +20,25 @@ const variants = [
 function Grid({
   merge = false,
   unify = false,
-  normal = false,
 }: {
   merge?: boolean;
   unify?: boolean;
-  normal?: boolean;
 }) {
-  const [packed, setPacked] = useState(false);
+  const [phase, setPhase] = useState(0);
   useEffect(() => {
     const timer = window.setInterval(
-      () => setPacked((value) => !value),
-      normal ? 1500 : 5000
+      () => setPhase((value) => value + 1),
+      2400
     );
     return () => window.clearInterval(timer);
-  }, [normal]);
+  }, []);
   return (
-    <div data-packed={packed} className="compaction-grid" aria-hidden="true">
+    <div
+      data-packed={phase > 0}
+      data-working-shift={phase % 2 === 1}
+      className="compaction-grid"
+      aria-hidden="true"
+    >
       {Array.from({ length: 128 }, (_, i) => (
         <span
           key={i}
@@ -47,6 +50,12 @@ function Grid({
         const row = Math.floor(i / 22);
         const col = i % 22;
         const start = cell.slot % 32;
+        // One small pocket opens at a time, then eases back into the run.
+        // Other rows keep their packed shape: this is ongoing work, not progress.
+        const wave = Math.max(0, phase - 4);
+        const activeRow = Math.floor(wave / 6) % 4;
+        const spread = [0, 1, 2, 2, 1, 0][wave % 6]!;
+        const loosen = phase >= 4 && row === activeRow && col >= 8 ? spread : 0;
         return (
           <span
             key={cell.id}
@@ -55,6 +64,7 @@ function Grid({
               {
                 left: `${start * 3.125}%`,
                 top: Math.floor(cell.slot / 32) * 8,
+                "--current-dx": `${(col - start + loosen) * 100}%`,
                 "--dx": `${(col - start) * 100}%`,
                 "--dy": `${(row - Math.floor(cell.slot / 32)) * 8}px`,
                 "--piece-color": ACTIVITY_COLORS[cell.rest],
@@ -64,7 +74,10 @@ function Grid({
                       merge ? cells[Math.floor(i / 4) * 4]!.rest : cell.rest
                     ],
                 "--packed-width":
-                  merge && col % 4 !== 3 && col !== 21
+                  merge &&
+                  !(loosen && col >= 8 && col < 12) &&
+                  col % 4 !== 3 &&
+                  col !== 21
                     ? "101%"
                     : "calc(100% - 2px)",
                 "--normal-dx": `${(((start + 9) % 32) - start) * 100}%`,
@@ -97,7 +110,7 @@ export function CompactionComparison() {
             Compacting context
           </h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            Watch context pack down, then return to the turn.
+            A slow, continuous packing cycle while context compacts.
           </p>
         </div>
         <Button
