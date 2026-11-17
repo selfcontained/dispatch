@@ -32,7 +32,8 @@
   opacity: 0.55;
   transition:
     background-color 600ms,
-    width 600ms;
+    width 600ms,
+    opacity 600ms;
 }
 /* Shared transform and colour transitions preserve block identity at each handoff. */
 .compaction-active .compaction-grid[data-packed="true"] .compaction-piece {
@@ -44,6 +45,7 @@
   > span {
   background: var(--current-color);
   width: var(--current-width);
+  opacity: var(--current-opacity);
 }
 .compaction-normal
   .compaction-grid[data-working-shift="true"]
@@ -55,10 +57,11 @@
     transition: none !important;
   }
   .compaction-frame .compaction-grid .compaction-piece {
-    transform: translate(var(--dx), var(--dy));
+    transform: translate(var(--dx), var(--dy)) !important;
   }
   .compaction-active .compaction-grid .compaction-piece > span {
-    background: var(--packed-color);
-    width: var(--packed-width);
+    background: var(--packed-color) !important;
+    width: var(--packed-width) !important;
+    opacity: 0.55 !important;
   }
 }

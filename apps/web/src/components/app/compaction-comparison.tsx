@@ -14,7 +14,7 @@ const variants = [
   ["Pack left", "Close the gaps; keep each piece.", false, false],
   ["Merge", "Many pieces become a few longer bars.", true, false],
   ["Unify colour", "Consolidate into a calm green tone.", false, true],
-  ["Combined", "Pack, merge, and gently unify.", true, true],
+  ["Combined", "Coloured fragments feed a lasting green summary.", true, true],
 ] as const;
 
 function Grid({
@@ -51,7 +51,18 @@ function Grid({
         const pass = (phase + row * 3) % 12;
         const packedCount = Math.min(22, pass * 3);
         const packed = col < packedCount;
-        const position = packed ? col : col + Math.floor((col * 10) / 21);
+        let position = packed ? col : col + Math.floor((col * 10) / 21);
+        const combined = merge && unify;
+        const summary = col < 8;
+        const intake =
+          (phase + Math.floor((col - 8) / 3) * 2 + row * 3 + 48) % 12;
+        if (combined) {
+          // The summary never disperses. Intake batches disappear into it,
+          // then replenish at the right while invisible.
+          const travel = Math.min(1, Math.max(0, (intake - 1) / 5));
+          position = summary ? col : 28 - 23 * travel + ((col - 8) % 3);
+        }
+        const absorbed = combined && !summary && (intake === 0 || intake >= 7);
         const finalColor = unify
           ? "hsl(var(--status-working))"
           : ACTIVITY_COLORS[
@@ -73,13 +84,15 @@ function Grid({
                 "--piece-color": ACTIVITY_COLORS[cell.rest],
                 "--packed-color": finalColor,
                 "--packed-width": finalWidth,
-                "--current-color": packed
+                "--current-opacity": absorbed ? 0 : 0.55,
+                "--current-color": (combined ? summary || intake >= 5 : packed)
                   ? finalColor
                   : ACTIVITY_COLORS[cell.rest],
-                "--current-width":
-                  packed && col + 1 < packedCount
-                    ? finalWidth
-                    : "calc(100% - 2px)",
+                "--current-width": (
+                  combined ? summary : packed && col + 1 < packedCount
+                )
+                  ? finalWidth
+                  : "calc(100% - 2px)",
                 "--normal-dx": `${(((start + 9) % 32) - start) * 100}%`,
               } as CSSProperties
             }
