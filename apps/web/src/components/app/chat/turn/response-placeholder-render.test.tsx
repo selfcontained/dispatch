@@ -2,7 +2,11 @@
 import { ChatRowStateContext } from "../chat-row-state";
 import { afterEach, expect, it } from "vitest";
 import { cleanup, render } from "@testing-library/react";
-import { ResponsePlaceholder } from "./response-placeholder";
+import {
+  ResponsePlaceholder,
+  ResponsePlaceholderVisual,
+  defragCells,
+} from "./response-placeholder";
 import type { Step } from "./contracts";
 afterEach(cleanup);
 it("acknowledges nested calls without replaying the piece on status changes", () => {
@@ -135,4 +139,34 @@ it("does not replay existing arrivals when metadata changes their cell assignmen
   expect(view.container.querySelectorAll(".dispatch-defrag-ack")).toHaveLength(
     0
   );
+});
+
+it("keeps the preview frame and muted palette identical to the production placeholder", () => {
+  const production = render(
+    <ResponsePlaceholder seed="palette-test" steps={[]} />
+  );
+  const frame = production.getByTestId("chat-response-placeholder");
+  const classes = [...frame.classList].sort();
+  const backgrounds = [
+    ...frame.querySelectorAll("[data-defrag-cell] > span"),
+  ].map((el) => (el as HTMLElement).style.background);
+  production.unmount();
+  const preview = render(
+    <ResponsePlaceholderVisual
+      cells={defragCells("palette-test", [])}
+      pieces={[]}
+      reducedCells={defragCells("palette-test", Array(90).fill("checks"))}
+    />
+  );
+  const previewFrame = preview.getByTestId("chat-response-placeholder");
+  expect(
+    [...previewFrame.classList]
+      .filter((value) => value !== "dispatch-defrag-preview")
+      .sort()
+  ).toEqual(classes);
+  expect(
+    [...previewFrame.querySelectorAll("[data-defrag-cell] > span")].map(
+      (el) => (el as HTMLElement).style.background
+    )
+  ).toEqual(backgrounds);
 });

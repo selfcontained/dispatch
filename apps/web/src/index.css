@@ -1855,3 +1855,12 @@ html[data-hidden] .animate-sidebar-nav-pulse {
     animation: none;
   }
 }
+
+@media (prefers-reduced-motion: reduce) {
+  .dispatch-defrag-preview [data-defrag-cell] {
+    transform: var(--defrag-packed-transform) !important;
+  }
+  .dispatch-defrag-preview [data-defrag-cell] > span {
+    background: var(--defrag-packed-color) !important;
+  }
+}

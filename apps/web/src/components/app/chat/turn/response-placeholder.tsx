@@ -1,4 +1,4 @@
-import { memo, useMemo, useState } from "react";
+import { memo, useMemo, useState, type CSSProperties } from "react";
 
 import { useChatRowState } from "../chat-row-state";
 
@@ -264,18 +264,47 @@ export function ResponsePlaceholder({
       ),
     [seed, categoryKey]
   );
+  return (
+    <ResponsePlaceholderVisual
+      cells={cells}
+      pieces={pieces}
+      arrivalKeys={arrivalKeys}
+      textLength={textLength}
+      onShowProgress={onShowProgress}
+    />
+  );
+}
+
+/** Shared presentation: the lab varies events, never the chat's frame or palette. */
+export function ResponsePlaceholderVisual({
+  cells,
+  pieces,
+  arrivalKeys,
+  textLength = 0,
+  onShowProgress,
+  reducedCells,
+  statusLabel = "Preparing response",
+}: {
+  cells: DefragCell[];
+  pieces: ResponsePiece[];
+  arrivalKeys?: ReadonlySet<string>;
+  textLength?: number;
+  onShowProgress?: () => void;
+  reducedCells?: DefragCell[];
+  statusLabel?: string;
+}): JSX.Element {
   const newest = pieces.length - 1;
 
   return (
     <div
       data-testid="chat-response-placeholder"
-      className="dispatch-placeholder-chase relative mt-3 w-full max-w-md rounded-lg border border-border/60 bg-muted/10 px-4 py-3.5"
+      className={`dispatch-placeholder-chase relative mt-3 w-full max-w-md rounded-lg border border-border/60 bg-muted/10 px-4 py-3.5 ${reducedCells ? "dispatch-defrag-preview" : ""}`}
     >
       {/* The status region holds only the picture; the peek control sits
           beside it, so its changing count is never announced. */}
       <div
         role="status"
-        aria-label="Preparing response"
+        aria-label={statusLabel}
         className="relative w-full"
         style={{ height: HEIGHT }}
       >
@@ -287,24 +316,39 @@ export function ResponsePlaceholder({
             return (
               <span
                 key={c.id}
+                data-defrag-cell=""
                 data-testid={
                   c.category ? "chat-response-placeholder-block" : undefined
                 }
                 data-category={c.category}
                 title={piece?.label}
                 className="absolute left-0 top-0 pr-[2px] transition-transform duration-[900ms] ease-in-out motion-reduce:transition-none"
-                style={{
-                  width: `${100 / COLS}%`,
-                  height: CELL_H,
-                  transform: place(c.slot),
-                  // The newest block lights where it is first, then travels.
-                  transitionDelay: latest ? "450ms" : "0ms",
-                  zIndex: latest ? 2 : 1,
-                }}
+                style={
+                  {
+                    width: `${100 / COLS}%`,
+                    height: CELL_H,
+                    transform: place(c.slot),
+                    // The newest block lights where it is first, then travels.
+                    transitionDelay: latest ? "450ms" : "0ms",
+                    zIndex: latest ? 2 : 1,
+                    "--defrag-packed-transform": reducedCells
+                      ? place(reducedCells[c.id]!.slot)
+                      : undefined,
+                    "--defrag-packed-color": reducedCells
+                      ? tint(
+                          ACTIVITY_COLORS[
+                            reducedCells[c.id]!.category ??
+                              reducedCells[c.id]!.rest
+                          ],
+                          75
+                        )
+                      : undefined,
+                  } as CSSProperties
+                }
               >
                 <span
                   key={c.step ?? "rest"}
-                  className={`block h-full rounded-[1.5px] transition-[background-color] duration-500 motion-reduce:transition-none ${piece && arrivalKeys.has(piece.key) ? "dispatch-defrag-ack" : ""}`}
+                  className={`block h-full rounded-[1.5px] transition-[background-color] duration-500 motion-reduce:transition-none ${piece && arrivalKeys?.has(piece.key) ? "dispatch-defrag-ack" : ""}`}
                   style={{
                     background: c.category
                       ? tint(ACTIVITY_COLORS[c.category], latest ? 100 : 75)
