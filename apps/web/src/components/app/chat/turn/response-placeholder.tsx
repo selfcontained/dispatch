@@ -1,4 +1,18 @@
-import { memo, useEffect, useMemo, useState, type CSSProperties } from "react";
+import {
+  memo,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+} from "react";
+
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 import { useChatRowState } from "../chat-row-state";
 
@@ -7,6 +21,19 @@ import { activitySteps } from "./activity-steps";
 import { activeStepLabel, runningTurnVerb } from "./registry";
 import { responsePieces, type ResponsePiece } from "./response-pieces";
 import { ACTIVITY_COLORS, type ActivityCategory } from "./activity-category";
+
+export const ACTIVITY_LABELS: Record<ActivityCategory, string> = {
+  dispatch: "Coordinating agents",
+  read: "Reading files",
+  think: "Thinking",
+  git: "Git",
+  browser: "Browsing",
+  edit: "Editing",
+  checks: "Checks and tests",
+  dev: "System tools",
+  write: "Writing response",
+  other: "Other activity",
+};
 
 /** Characters of progress text per "writing" piece. */
 export const CHARS_PER_PIECE = 250;
@@ -222,7 +249,7 @@ const Slots = memo(function Slots(): JSX.Element {
  * quiet chasing border round a small "defrag" of the turn. Each step lights
  * a block in the colour of what it did, where the block sits (the read), then
  * moves it to the packed run at the front (the write), so the card fills
- * with the turn's history as it goes. Hovering a block names its step.
+ * with the turn's history as it goes. Hovering a coloured block names its activity category.
  */
 export function ResponsePlaceholder({
   seed,
@@ -387,6 +414,65 @@ export function ResponsePlaceholderVisual({
   statusLabel?: string;
 }): JSX.Element {
   const newest = pieces.length - 1;
+  const gridRef = useRef<HTMLDivElement>(null);
+  const [label, setLabel] = useState<string | null>(null);
+  // A pass can move the group away from a stationary mouse or touch point.
+  // Dismiss before the new layout travels rather than keeping a stale anchor.
+  useEffect(() => setLabel(null), [cells, reducedCells]);
+  useEffect(() => {
+    if (!label) return;
+    const dismiss = (event: PointerEvent) => {
+      if (!gridRef.current?.contains(event.target as Node)) setLabel(null);
+    };
+    document.addEventListener("pointerdown", dismiss);
+    return () => document.removeEventListener("pointerdown", dismiss);
+  }, [label]);
+  const [anchor, setAnchor] = useState({
+    left: 0,
+    top: 0,
+    width: 0,
+    color: "",
+  });
+  const labelAt = (event: { clientX: number; clientY: number }) => {
+    const grid = gridRef.current;
+    if (!grid) return null;
+    const reduced =
+      reducedCells &&
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const candidates = Array.from(
+      grid.querySelectorAll<HTMLElement>("[data-defrag-cell]")
+    )
+      .filter((cell) => reduced || cell.dataset.category)
+      .map((cell) => ({ cell, rect: cell.getBoundingClientRect() }));
+    const hit = candidates.find(
+      ({ rect }) =>
+        event.clientX >= rect.left &&
+        event.clientX < rect.right &&
+        event.clientY >= rect.top - ROW_GAP / 2 &&
+        event.clientY < rect.bottom + ROW_GAP / 2
+    );
+    if (!hit) return null;
+    const category = reduced
+      ? "checks"
+      : (hit.cell.dataset.category as ActivityCategory);
+    const compaction = reduced || !!hit.cell.dataset.compaction;
+    const group = candidates.filter(
+      ({ cell, rect }) =>
+        Math.abs(rect.top - hit.rect.top) < 1 &&
+        (reduced || cell.dataset.category === category) &&
+        (reduced || !!cell.dataset.compaction === compaction)
+    );
+    const left = Math.min(...group.map(({ rect }) => rect.left));
+    const right = Math.max(...group.map(({ rect }) => rect.right));
+    const bounds = grid.getBoundingClientRect();
+    setAnchor({
+      left: left - bounds.left,
+      top: hit.rect.top - bounds.top,
+      width: right - left,
+      color: ACTIVITY_COLORS[category],
+    });
+    return compaction ? "Compaction" : ACTIVITY_LABELS[category];
+  };
 
   return (
     <div
@@ -395,64 +481,108 @@ export function ResponsePlaceholderVisual({
     >
       {/* The status region holds only the picture; the peek control sits
           beside it, so its changing count is never announced. */}
-      <div
-        role="status"
-        aria-label={statusLabel}
-        className="relative w-full"
-        style={{ height: HEIGHT }}
-      >
-        <div aria-hidden="true" className="absolute inset-0">
-          <Slots />
-          {cells.map((c) => {
-            const latest = c.step === newest;
-            const piece = c.step === undefined ? undefined : pieces[c.step];
-            return (
+      <TooltipProvider>
+        <Tooltip
+          open={label !== null}
+          onOpenChange={(open) => {
+            if (!open) setLabel(null);
+          }}
+        >
+          <div
+            ref={gridRef}
+            onClick={(event) => event.preventDefault()}
+            onPointerMove={(event) => {
+              if (event.pointerType !== "touch") setLabel(labelAt(event));
+            }}
+            onPointerLeave={(event) => {
+              if (event.pointerType !== "touch") setLabel(null);
+            }}
+            onPointerUp={(event) => {
+              if (event.pointerType === "touch") setLabel(labelAt(event));
+            }}
+            role="status"
+            aria-label={statusLabel}
+            className="relative w-full"
+            style={{ height: HEIGHT }}
+          >
+            <TooltipTrigger asChild>
               <span
-                key={c.id}
-                data-defrag-cell=""
-                data-testid={
-                  c.category ? "chat-response-placeholder-block" : undefined
-                }
-                data-category={c.category}
-                title={piece?.label}
-                className="absolute left-0 top-0 pr-[2px] transition-transform duration-[900ms] ease-in-out motion-reduce:transition-none"
-                style={
-                  {
-                    width: `${100 / COLS}%`,
-                    height: CELL_H,
-                    transform: place(c.slot),
-                    // The newest block lights where it is first, then travels.
-                    transitionDelay: latest ? "450ms" : "0ms",
-                    zIndex: latest ? 2 : 1,
-                    "--defrag-packed-transform": reducedCells
-                      ? place(reducedCells[c.id]!.slot)
-                      : undefined,
-                    "--defrag-packed-color": reducedCells
-                      ? tint(
-                          ACTIVITY_COLORS[
-                            reducedCells[c.id]!.category ??
-                              reducedCells[c.id]!.rest
-                          ],
-                          75
-                        )
-                      : undefined,
-                  } as CSSProperties
-                }
-              >
-                <span
-                  key={c.step ?? "rest"}
-                  className={`block h-full rounded-[1.5px] transition-[background-color] duration-500 motion-reduce:transition-none ${piece && arrivalKeys?.has(piece.key) ? "dispatch-defrag-ack" : ""}`}
-                  style={{
-                    background: c.category
-                      ? tint(ACTIVITY_COLORS[c.category], latest ? 100 : 75)
-                      : `color-mix(in hsl, ${ACTIVITY_COLORS[c.rest]} 22%, hsl(var(--muted)))`,
-                  }}
-                />
-              </span>
-            );
-          })}
-        </div>
-      </div>
+                aria-hidden="true"
+                className="pointer-events-none absolute"
+                style={{
+                  left: anchor.left,
+                  top: anchor.top,
+                  width: anchor.width,
+                  height: CELL_H,
+                }}
+              />
+            </TooltipTrigger>
+            <div aria-hidden="true" className="absolute inset-0">
+              <Slots />
+              {cells.map((c) => {
+                const latest = c.step === newest;
+                const piece = c.step === undefined ? undefined : pieces[c.step];
+                return (
+                  <span
+                    key={c.id}
+                    data-defrag-cell=""
+                    data-testid={
+                      c.category ? "chat-response-placeholder-block" : undefined
+                    }
+                    data-category={c.category}
+                    data-compaction={piece?.compaction || undefined}
+                    className="absolute left-0 top-0 pr-[2px] transition-transform duration-[900ms] ease-in-out motion-reduce:transition-none"
+                    style={
+                      {
+                        width: `${100 / COLS}%`,
+                        height: CELL_H,
+                        transform: place(c.slot),
+                        // The newest block lights where it is first, then travels.
+                        transitionDelay: latest ? "450ms" : "0ms",
+                        zIndex: latest ? 2 : 1,
+                        "--defrag-packed-transform": reducedCells
+                          ? place(reducedCells[c.id]!.slot)
+                          : undefined,
+                        "--defrag-packed-color": reducedCells
+                          ? tint(
+                              ACTIVITY_COLORS[
+                                reducedCells[c.id]!.category ??
+                                  reducedCells[c.id]!.rest
+                              ],
+                              75
+                            )
+                          : undefined,
+                      } as CSSProperties
+                    }
+                  >
+                    <span
+                      key={c.step ?? "rest"}
+                      className={`block h-full rounded-[1.5px] transition-[background-color] duration-500 motion-reduce:transition-none ${piece && arrivalKeys?.has(piece.key) ? "dispatch-defrag-ack" : ""}`}
+                      style={{
+                        background: c.category
+                          ? tint(ACTIVITY_COLORS[c.category], latest ? 100 : 75)
+                          : `color-mix(in hsl, ${ACTIVITY_COLORS[c.rest]} 22%, hsl(var(--muted)))`,
+                      }}
+                    />
+                  </span>
+                );
+              })}
+            </div>
+          </div>
+          {label && (
+            <TooltipContent
+              side="top"
+              style={{
+                color: anchor.color,
+                borderColor: tint(anchor.color, 45),
+                background: `color-mix(in srgb, ${anchor.color} 12%, hsl(var(--card)))`,
+              }}
+            >
+              {label}
+            </TooltipContent>
+          )}
+        </Tooltip>
+      </TooltipProvider>
       {onShowProgress && textLength > 0 ? (
         <div className="relative mt-2.5 flex justify-end">
           <button
