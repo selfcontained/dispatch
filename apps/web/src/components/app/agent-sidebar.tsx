@@ -417,7 +417,11 @@ export function AgentListContent({
                   <ChevronDown className="h-3.5 w-3.5" />
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
+              <DropdownMenuContent
+                side="bottom"
+                avoidCollisions={false}
+                align="end"
+              >
                 {sortedAgentTypes.map((agentType) => (
                   <DropdownMenuItem
                     key={agentType}
