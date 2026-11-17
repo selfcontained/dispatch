@@ -86,8 +86,10 @@ function measureSafeArea(): Insets {
   probe.setAttribute("aria-hidden", "true");
   probe.style.cssText =
     "position:fixed;top:0;left:0;width:0;height:0;visibility:hidden;pointer-events:none;" +
-    SIDES.map(
-      (side) => `padding-${side}:env(safe-area-inset-${side},0px)`
+    SIDES.map((side) =>
+      side === "top"
+        ? "padding-top:var(--safe-area-top)"
+        : `padding-${side}:env(safe-area-inset-${side},0px)`
     ).join(";");
   document.body.appendChild(probe);
   const style = getComputedStyle(probe);

@@ -126,7 +126,7 @@ export function TaskModal({
               <>
                 {/* The panel's header waits on both queries; until then this
                   one keeps a way out, which a phone has no overlay for. */}
-                <header className="flex shrink-0 items-center gap-1 border-b border-border/40 bg-card/60 px-2 py-1.5 pt-[max(0.375rem,env(safe-area-inset-top))] text-xs text-muted-foreground">
+                <header className="flex shrink-0 items-center gap-1 border-b border-border/40 bg-card/60 px-2 py-1.5 pt-[max(0.375rem,var(--safe-area-top))] text-xs text-muted-foreground">
                   <Button
                     size="icon"
                     variant="ghost"

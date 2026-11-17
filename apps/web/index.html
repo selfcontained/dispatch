@@ -23,6 +23,19 @@
         document.querySelector(
           'meta[name="apple-mobile-web-app-status-bar-style"]'
         ).content = "black";
+      } else if (
+        navigator.standalone === true &&
+        (/iPad/.test(navigator.userAgent) ||
+          (/Macintosh/.test(navigator.userAgent) &&
+            navigator.maxTouchPoints > 1))
+      ) {
+        // Installed iPad app: the translucent status bar can overlay the
+        // page while env(safe-area-inset-top) reports 0, so --safe-area-top
+        // keeps a 24px floor here (see index.css). Standalone mode and the
+        // device can't change at runtime, and the bar's height doesn't
+        // change with orientation, so this is set once. This is the only
+        // place that checks the user agent for the fallback.
+        document.documentElement.setAttribute("data-ipad-standalone", "");
       }
     </script>
     <meta name="apple-mobile-web-app-title" content="Dispatch" />

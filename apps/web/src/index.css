@@ -745,13 +745,32 @@ html[data-theme="matrix"] body::after {
     );
 }
 
+/* The top inset every layer reserves: #root, the strip below, and the
+   viewport-fixed drawers, sheets and toasts. Everywhere but the installed
+   iPad app it is exactly env(safe-area-inset-top).
+
+   Why the fallback: an installed iPad web app (black-translucent status
+   bar) was seen reporting a 0px env(safe-area-inset-top) while iPadOS drew
+   its 24pt status bar over the page. In a device screenshot (v1.7.22,
+   tsk_318a4c927a7a) the sidebar, pane header and drawers all sat where a 0
+   inset puts them, leaving the viewport-fixed drawer headers under the bar.
+   So there (data-ipad-standalone, set once in index.html) the inset never
+   drops below 24px; max() lets a real, larger inset win. The status bar is
+   the same height in both orientations, so nothing updates on rotation. */
+:root {
+  --safe-area-top: env(safe-area-inset-top, 0px);
+}
+html[data-ipad-standalone] {
+  --safe-area-top: max(env(safe-area-inset-top, 0px), 24px);
+}
+
 #root {
   @apply h-dvh;
   /* viewport-fit=cover exposes the area beneath iOS status bars and the
      home indicator. Keep the app's normal flow inside that safe frame;
      viewport-fixed overlays continue to handle their own insets. */
   box-sizing: border-box;
-  padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px)
+  padding: var(--safe-area-top) env(safe-area-inset-right, 0px)
     env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);
   overflow: hidden;
   position: relative;
@@ -770,7 +789,7 @@ html[data-theme="matrix"] body::after {
   top: 0;
   left: 0;
   right: 0;
-  height: env(safe-area-inset-top, 0px);
+  height: var(--safe-area-top);
   z-index: 2;
   background: hsl(var(--background));
 }

@@ -120,7 +120,7 @@ export function SidebarShell({
       data-testid="sidebar-shell"
       className="flex h-full min-h-0 w-full flex-col text-foreground"
     >
-      <div className="flex min-h-14 items-center px-3 pt-[env(safe-area-inset-top)]">
+      <div className="flex min-h-14 items-center px-3 pt-[var(--safe-area-top)]">
         <div className="flex items-center gap-2.5">
           <img
             src={`/icons/${iconColor}/brand-icon.svg`}

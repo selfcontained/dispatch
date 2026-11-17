@@ -260,7 +260,7 @@ export function TaskDetailPanel({
       : task?.createdBy.kind;
   return (
     <>
-      <header className="flex min-h-14 shrink-0 items-center gap-1 border-b border-border/40 pl-1.5 pr-2 pt-[env(safe-area-inset-top)] text-xs text-muted-foreground">
+      <header className="flex min-h-14 shrink-0 items-center gap-1 border-b border-border/40 pl-1.5 pr-2 pt-[var(--safe-area-top)] text-xs text-muted-foreground">
         <Button
           size="icon"
           variant="ghost"

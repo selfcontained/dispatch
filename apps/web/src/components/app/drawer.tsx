@@ -171,7 +171,7 @@ export function DrawerContent({
       )}
     >
       {/* Chrome: the home tabs. A thread opens in a drawer of its own. */}
-      <div className="flex min-h-14 items-center pt-[env(safe-area-inset-top)]">
+      <div className="flex min-h-14 items-center pt-[var(--safe-area-top)]">
         {
           <div className="flex min-w-0 flex-1">
             <SidebarTab

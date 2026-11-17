@@ -156,7 +156,7 @@ export function TaskCreateDialog({
         }}
         onDrop={context.handleStartupDrop}
         data-testid="task-create-dialog"
-        className={`md:w-[min(600px,calc(100vw-2rem))] ${TASK_DIALOG_MOBILE_SHEET} max-md:pt-[max(1rem,env(safe-area-inset-top))]`}
+        className={`md:w-[min(600px,calc(100vw-2rem))] ${TASK_DIALOG_MOBILE_SHEET} max-md:pt-[max(1rem,var(--safe-area-top))]`}
       >
         <DialogHeader>
           <DialogTitle>New task</DialogTitle>
