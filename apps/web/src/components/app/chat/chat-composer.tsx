@@ -90,6 +90,16 @@ import {
   withChatPostLock,
 } from "./chat-post-recovery";
 import { cn } from "@/lib/utils";
+import { ImageComments } from "@/components/app/image-comments";
+import { stripTimestamp } from "@/components/app/file-utils";
+import { imageFeedbackMessage } from "@/lib/image-feedback-message";
+import {
+  type ImageCalloutRegion,
+  imageFeedbackCaptions,
+  imageFeedbackMetadata,
+  imageFeedbackNotes,
+  renderAnnotatedImage,
+} from "@/lib/image-feedback";
 
 import { ShareTaskPicker } from "./share-task-picker";
 
@@ -126,7 +136,9 @@ export type ChatComposerProps = {
    * Uploads one attached file and resolves to its file id. Called at send
    * time, once per file; a rejection keeps the draft and marks the chip.
    */
-  uploadFile?: (file: File) => Promise<{ id: number }>;
+  uploadFile?: (
+    file: File
+  ) => Promise<{ id: number; url?: string; createdAt?: string }>;
   /** When set, the composer is disabled and this explains why. */
   disabledReason: string | null;
   /** An external send is in flight; the input stays usable, the button waits. */
@@ -190,7 +202,37 @@ function describesFile(entry: ChatDraftFile, file: File): boolean {
   );
 }
 
+/**
+ * The notes a marked-up image adds to the message text, in the share flow's
+ * wording, so a reader without image coordinates still gets them.
+ */
+function markupMessage(entry: ChatDraftFile): string | null {
+  if (!entry.callouts?.length) return null;
+  return imageFeedbackMessage(imageFeedbackNotes(entry.callouts), entry.name);
+}
+
+/** The message text as posted: what was typed, then each image's notes. */
+function composeMessageText(text: string, files: ChatDraftFile[]): string {
+  return [text.trim(), ...files.map(markupMessage)]
+    .filter((part): part is string => !!part)
+    .join("\n\n");
+}
+
+async function loadImage(src: string): Promise<HTMLImageElement> {
+  const image = new Image();
+  image.src = src;
+  await image.decode();
+  return image;
+}
+
 /** One draft file as rendered: its entry, its key, and its live `File` if any. */
+type MarkupUpload = {
+  /** The original's file id and the callouts the uploads were made from. */
+  source: string;
+  copyId: number;
+  metadataId: number;
+};
+
 type DraftFileView = {
   entry: ChatDraftFile;
   key: string;
@@ -516,6 +558,9 @@ export function ChatComposer({
   // after a later failure does not upload it twice), image previews, and
   // the upload state.
   const fileIdsRef = useRef<Map<string, number>>(new Map());
+  // A marked-up image's annotated copy and callout record, once uploaded,
+  // for the exact markup they were made from.
+  const markupIdsRef = useRef<Map<string, MarkupUpload>>(new Map());
   // A post owns its files separately from the next draft, even when a new
   // attachment has the same descriptor key.
   const postingFilesRef = useRef(
@@ -524,6 +569,7 @@ export function ChatComposer({
       {
         file: File;
         fileId?: number;
+        markup?: MarkupUpload;
         preview?: string;
       }
     >()
@@ -533,6 +579,8 @@ export function ChatComposer({
     Record<string, "uploading" | "failed">
   >({});
   const [draggingFiles, setDraggingFiles] = useState(false);
+  // The attachment whose image is open for markup.
+  const [markupKey, setMarkupKey] = useState<string | null>(null);
 
   useEffect(() => {
     const previews = previewsRef.current;
@@ -559,6 +607,7 @@ export function ChatComposer({
   const forgetFile = useCallback((key: string) => {
     filesRef.current.delete(key);
     fileIdsRef.current.delete(key);
+    markupIdsRef.current.delete(key);
     const preview = previewsRef.current.get(key);
     if (preview) {
       URL.revokeObjectURL(preview);
@@ -593,6 +642,9 @@ export function ChatComposer({
     [draft.files, fileFor]
   );
   const placeholders = fileViews.filter((view) => view.file === undefined);
+  const markupView = markupKey
+    ? fileViews.find((view) => view.key === markupKey)
+    : undefined;
 
   // Bytes for entries the draft no longer lists (removed here, sent, or
   // taken out by another tab) are let go. Reads the draft, never writes it.
@@ -651,7 +703,8 @@ export function ChatComposer({
               describesFile(candidate, file)
           );
           if (slot !== -1) {
-            files[slot] = entry;
+            const { callouts } = files[slot];
+            files[slot] = callouts ? { ...entry, callouts } : entry;
             held.push([key, file]);
             continue;
           }
@@ -669,6 +722,23 @@ export function ChatComposer({
       if (overflowed) noteAttachmentLimit();
     },
     [holdFile, noteAttachmentLimit, editDraft]
+  );
+
+  /** Saves an image's markup onto its attachment; none clears it. */
+  const setCallouts = useCallback(
+    (key: string, callouts: ImageCalloutRegion[]) => {
+      editDraft((current) => ({
+        ...current,
+        files: current.files.map((entry) => {
+          if (draftFileKey(entry) !== key) return entry;
+          const next = { ...entry };
+          if (callouts.length) next.callouts = callouts;
+          else delete next.callouts;
+          return next;
+        }),
+      }));
+    },
+    [editDraft]
   );
 
   const addLink = useCallback(
@@ -837,11 +907,20 @@ export function ChatComposer({
         : null;
   const deliveryBlockedReason =
     deliveryMode === "interrupt" ? interruptUnavailableReason : null;
+  // A marked-up image posts as its annotated copy plus its callout record,
+  // and its notes join the text.
+  const markedCount = draft.files.filter(
+    (entry) => entry.callouts?.length
+  ).length;
+  const postedAttachmentCount = attachmentCount + markedCount;
+  const postedTextLength = markedCount
+    ? composeMessageText(text, draft.files).length
+    : text.length;
   const draftLimitError =
-    attachmentCount > CHAT_ATTACHMENTS_MAX
-      ? `Remove ${attachmentCount - CHAT_ATTACHMENTS_MAX} attachment${attachmentCount - CHAT_ATTACHMENTS_MAX === 1 ? "" : "s"} to send (up to ${CHAT_ATTACHMENTS_MAX} per message).`
-      : text.length > CHAT_MESSAGE_MAX_CHARS
-        ? `Shorten the message by ${text.length - CHAT_MESSAGE_MAX_CHARS} characters to send.`
+    postedAttachmentCount > CHAT_ATTACHMENTS_MAX
+      ? `Remove ${postedAttachmentCount - CHAT_ATTACHMENTS_MAX} attachment${postedAttachmentCount - CHAT_ATTACHMENTS_MAX === 1 ? "" : "s"} to send (up to ${CHAT_ATTACHMENTS_MAX} per message).`
+      : postedTextLength > CHAT_MESSAGE_MAX_CHARS
+        ? `Shorten the message by ${postedTextLength - CHAT_MESSAGE_MAX_CHARS} characters to send.`
         : null;
   const recoveredNotice: ComposerError | null = Object.values(
     pendingDrafts
@@ -908,12 +987,14 @@ export function ChatComposer({
           // type system's sake.
           if (!file) throw new Error(`Re-attach ${entry.name} to send.`);
           let fileId = fileIdsRef.current.get(key);
+          let uploaded: { url?: string; createdAt?: string } | undefined;
           if (fileId === undefined) {
             if (!uploadFile) throw new Error("File uploads are not available.");
             setFileStatus((current) => ({ ...current, [key]: "uploading" }));
             try {
-              const uploaded = await uploadFile(file);
-              fileId = uploaded.id;
+              const result = await uploadFile(file);
+              uploaded = result;
+              fileId = result.id;
               fileIdsRef.current.set(key, fileId);
               setFileStatus((current) => {
                 const next = { ...current };
@@ -937,7 +1018,84 @@ export function ChatComposer({
               );
             }
           }
-          attachments.push({ type: "file", fileId });
+          const callouts = entry.callouts;
+          const preview = previewsRef.current.get(key);
+          if (!callouts?.length || !preview || !isImageAttachment(file)) {
+            attachments.push({ type: "file", fileId });
+            continue;
+          }
+          const source = JSON.stringify([fileId, callouts]);
+          let markup = markupIdsRef.current.get(key);
+          if (markup?.source !== source) {
+            if (!uploadFile) throw new Error("File uploads are not available.");
+            const upload = uploadFile;
+            setFileStatus((current) => ({ ...current, [key]: "uploading" }));
+            try {
+              const image = await loadImage(preview);
+              const size = {
+                width: image.naturalWidth,
+                height: image.naturalHeight,
+              };
+              const shareId = createClientId();
+              const copy = await renderAnnotatedImage(image, size, callouts);
+              const copyId = (
+                await upload(
+                  new File([copy.blob], `feedback-${shareId}.png`, {
+                    type: "image/png",
+                  })
+                )
+              ).id;
+              const metadata = imageFeedbackMetadata({
+                shareId,
+                original: {
+                  fileId,
+                  name: entry.name,
+                  ...(uploaded?.url ? { url: uploaded.url } : {}),
+                  ...(uploaded?.createdAt
+                    ? { updatedAt: uploaded.createdAt }
+                    : {}),
+                  ...size,
+                },
+                derivedFileId: copyId,
+                derivedSize: { width: copy.width, height: copy.height },
+                items: callouts,
+              });
+              const metadataId = (
+                await upload(
+                  new File(
+                    [JSON.stringify(metadata, null, 2)],
+                    `feedback-${shareId}.json`,
+                    { type: "application/json" }
+                  )
+                )
+              ).id;
+              markup = { source, copyId, metadataId };
+              markupIdsRef.current.set(key, markup);
+              setFileStatus((current) => {
+                const next = { ...current };
+                delete next[key];
+                return next;
+              });
+            } catch (err) {
+              setFileStatus((current) => ({ ...current, [key]: "failed" }));
+              const reason = err instanceof Error ? err.message : "";
+              throw new Error(
+                `Couldn't upload markup for ${file.name}${reason ? `: ${reason}` : ""}`
+              );
+            }
+          }
+          attachments.push(
+            {
+              type: "file",
+              fileId: markup.copyId,
+              caption: imageFeedbackCaptions.copy(entry.name),
+            },
+            {
+              type: "file",
+              fileId: markup.metadataId,
+              caption: imageFeedbackCaptions.metadata,
+            }
+          );
         }
         for (const url of submittedLinks)
           attachments.push({ type: "link", url });
@@ -951,10 +1109,12 @@ export function ChatComposer({
           postingFiles.set(key, {
             file,
             fileId: fileIdsRef.current.get(key),
+            markup: markupIdsRef.current.get(key),
             preview: previewsRef.current.get(key),
           });
           filesRef.current.delete(key);
           fileIdsRef.current.delete(key);
+          markupIdsRef.current.delete(key);
           previewsRef.current.delete(key);
         }
         // Persist before clearing the visible draft. An interrupted document
@@ -986,9 +1146,13 @@ export function ChatComposer({
             ),
           };
         });
+        const postedText = composeMessageText(
+          submittedText,
+          submittedFiles.map(({ entry }) => entry)
+        );
         await (options
-          ? onSend(submittedText.trim(), attachments, options)
-          : onSend(submittedText.trim(), attachments));
+          ? onSend(postedText, attachments, options)
+          : onSend(postedText, attachments));
       };
 
       void withChatPostLock(postId, () =>
@@ -1026,6 +1190,7 @@ export function ChatComposer({
                   filesRef.current.set(key, saved.file);
                   if (saved.fileId !== undefined)
                     fileIdsRef.current.set(key, saved.fileId);
+                  if (saved.markup) markupIdsRef.current.set(key, saved.markup);
                   if (saved.preview)
                     previewsRef.current.set(key, saved.preview);
                   postingFilesRef.current.delete(key);
@@ -1155,361 +1320,388 @@ export function ChatComposer({
   const hasAttachments = attachmentCount > 0;
 
   return (
-    <form
-      className="chat-composer flex flex-col gap-1"
-      onSubmit={(event) => {
-        event.preventDefault();
-        submit();
-      }}
-      onDragOver={onDragOver}
-      onDragLeave={onDragLeave}
-      onDrop={onDrop}
-      data-testid="chat-composer"
-      // A disabled composer rests as one line too: its reason is the
-      // placeholder, and none of the controls can act anyway.
-      data-mobile-idle={
-        !text && !hasAttachments && !error && !draggingFiles && !inFlight
-          ? "true"
-          : undefined
-      }
-      data-dragging={draggingFiles ? "true" : undefined}
-    >
-      <div
-        className={cn(
-          "rounded-2xl border bg-card/70 transition-colors",
-          disabled
-            ? "border-border opacity-70"
-            : draggingFiles
-              ? "border-status-done bg-status-done/10 ring-1 ring-inset ring-status-done/30"
-              : "border-border focus-within:border-foreground/30 hover:border-foreground/20"
-        )}
+    <>
+      {markupView?.file && previewsRef.current.has(markupView.key) ? (
+        <ImageComments
+          key={markupView.key}
+          compose={{
+            fileName: markupView.entry.name,
+            callouts: markupView.entry.callouts ?? [],
+            onDone: (callouts) => setCallouts(markupView.key, callouts),
+          }}
+          src={previewsRef.current.get(markupView.key)!}
+          caption={stripTimestamp(markupView.entry.name)}
+          positionLabel=""
+          onClose={() => {
+            setMarkupKey(null);
+            requestAnimationFrame(() => textareaRef.current?.focus());
+          }}
+        />
+      ) : null}
+      <form
+        className="chat-composer flex flex-col gap-1"
+        onSubmit={(event) => {
+          event.preventDefault();
+          submit();
+        }}
+        onDragOver={onDragOver}
+        onDragLeave={onDragLeave}
+        onDrop={onDrop}
+        data-testid="chat-composer"
+        // A disabled composer rests as one line too: its reason is the
+        // placeholder, and none of the controls can act anyway.
+        data-mobile-idle={
+          !text && !hasAttachments && !error && !draggingFiles && !inFlight
+            ? "true"
+            : undefined
+        }
+        data-dragging={draggingFiles ? "true" : undefined}
       >
-        {hasAttachments ? (
-          <div
-            // Bounded: at the 20-attachment cap the chips scroll inside
-            // this strip instead of pushing the field and Send off-screen.
-            className="flex max-h-40 flex-wrap items-start gap-3 overflow-y-auto px-3 pb-1 pt-3"
-            data-testid="chat-composer-attachments"
-          >
-            {fileViews.map((view) =>
-              view.file === undefined ? (
-                <DraftPlaceholderChip
-                  key={view.key}
-                  entry={view.entry}
-                  onRemove={() => removeEntry(view.key)}
-                />
-              ) : typeof view.entry.pasted === "string" ? (
-                <PastedTextChip
-                  key={view.key}
-                  file={view.file}
-                  lines={countLines(view.entry.pasted)}
-                  status={fileStatus[view.key]}
-                  onKeepInline={() => keepInline(view)}
-                  onRemove={() => removeEntry(view.key)}
-                />
-              ) : (
-                <ContextFileItem
-                  key={view.key}
-                  file={view.file}
-                  preview={previewsRef.current.get(view.key)}
-                  status={fileStatus[view.key]}
-                  onRemove={() => removeEntry(view.key)}
-                />
-              )
-            )}
-            {links.map((link) => (
-              <ContextLinkItem
-                key={link}
-                link={link}
-                onRemove={() => removeLink(link)}
-              />
-            ))}
-          </div>
-        ) : null}
-        <div className="relative">
-          {mentionOpen ? (
-            <MentionPicker
-              silent={mentionQuery?.silent}
-              onSilentChange={(silent) => {
-                if (!mentionQuery || silent === !!mentionQuery.silent) return;
-                const start = mentionQuery.start;
-                const next =
-                  text.slice(0, start) +
-                  (silent ? "!" : "") +
-                  text.slice(start + (mentionQuery.silent ? 1 : 0));
-                const nextCaret = caret + (silent ? 1 : -1);
-                setText(next);
-                setCaret(nextCaret);
-                textareaRef.current?.setValue(next, nextCaret);
-                textareaRef.current?.focus();
-              }}
-              candidates={mentionCandidates}
-              activeIndex={activeMention}
-              onPick={pickMention}
-              onHover={setMentionIndex}
-              anchor={textareaRef.current?.element ?? null}
-            />
-          ) : null}
-          {slashOpen ? (
-            <SlashPicker
-              candidates={slashCandidates}
-              activeIndex={activeSlash}
-              listId={slashListId}
-              onPick={pickSlash}
-              onHover={setSlashIndex}
-              anchor={textareaRef.current?.element ?? null}
-            />
-          ) : null}
-          <ComposerInput
-            ref={textareaRef}
-            value={text}
-            mentionables={mentionables ?? []}
-            disabled={disabled}
-            maxLength={CHAT_MESSAGE_MAX_CHARS}
-            onChange={(value, position) => {
-              if (value !== text) setSlashDismissedFor(null);
-              setText(value);
-              setCaret(position);
-              setMentionIndex(0);
-              setSlashIndex(0);
-            }}
-            onSelect={setCaret}
-            onKeyDown={onKeyDown}
-            onPaste={onPaste}
-            placeholder={disabledReason ?? placeholder}
-            slashOpen={slashOpen}
-            slashListId={slashListId}
-            activeSlash={activeSlash}
-          />
-
-          <div className="chat-composer-details">
+        <div
+          className={cn(
+            "rounded-2xl border bg-card/70 transition-colors",
+            disabled
+              ? "border-border opacity-70"
+              : draggingFiles
+                ? "border-status-done bg-status-done/10 ring-1 ring-inset ring-status-done/30"
+                : "border-border focus-within:border-foreground/30 hover:border-foreground/20"
+          )}
+        >
+          {hasAttachments ? (
             <div
-              className="min-h-0 overflow-hidden flex items-center justify-between gap-2 px-2 pb-2 pointer-coarse:gap-0 pointer-coarse:px-1"
-              data-testid="chat-composer-controls"
+              // Bounded: at the 20-attachment cap the chips scroll inside
+              // this strip instead of pushing the field and Send off-screen.
+              className="flex max-h-40 flex-wrap items-start gap-3 overflow-y-auto px-3 pb-1 pt-3"
+              data-testid="chat-composer-attachments"
             >
-              <div className="flex shrink-0 items-center gap-0.5 pointer-coarse:gap-0">
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  multiple
-                  accept={STARTUP_FILE_ACCEPT}
-                  className="hidden"
-                  onChange={onFileChange}
-                  data-testid="chat-composer-file-input"
+              {fileViews.map((view) =>
+                view.file === undefined ? (
+                  <DraftPlaceholderChip
+                    key={view.key}
+                    entry={view.entry}
+                    onRemove={() => removeEntry(view.key)}
+                  />
+                ) : typeof view.entry.pasted === "string" ? (
+                  <PastedTextChip
+                    key={view.key}
+                    file={view.file}
+                    lines={countLines(view.entry.pasted)}
+                    status={fileStatus[view.key]}
+                    onKeepInline={() => keepInline(view)}
+                    onRemove={() => removeEntry(view.key)}
+                  />
+                ) : (
+                  <ContextFileItem
+                    key={view.key}
+                    file={view.file}
+                    preview={previewsRef.current.get(view.key)}
+                    status={fileStatus[view.key]}
+                    onRemove={() => removeEntry(view.key)}
+                    noteCount={view.entry.callouts?.length}
+                    onOpen={
+                      isImageAttachment(view.file) &&
+                      previewsRef.current.has(view.key) &&
+                      !inFlight
+                        ? () => setMarkupKey(view.key)
+                        : undefined
+                    }
+                  />
+                )
+              )}
+              {links.map((link) => (
+                <ContextLinkItem
+                  key={link}
+                  link={link}
+                  onRemove={() => removeLink(link)}
                 />
-                <Button
-                  type="button"
-                  size="icon"
-                  variant="ghost"
-                  disabled={disabled || attachmentsFull}
-                  onClick={() => fileInputRef.current?.click()}
-                  title="Attach a file"
-                  aria-label="Attach a file"
-                  data-testid="chat-composer-attach-button"
-                  className="h-9 w-9 shrink-0 rounded-full bg-muted/60 text-muted-foreground pointer-coarse:min-h-11 pointer-coarse:min-w-11"
-                >
-                  <Plus className="h-5 w-5" />
-                </Button>
-                <ShareTaskPicker
-                  disabled={
-                    disabled ||
-                    Boolean(sending) ||
-                    inFlight ||
-                    Boolean(deliveryBlockedReason)
-                  }
-                  onShare={async (id) => {
-                    if (
-                      deliveryMode === "interrupt" &&
-                      interruptUnavailableReason
-                    )
-                      return;
-                    await onSend("", [], {
-                      task: { id },
-                      ...(canQueue && deliveryMode !== "auto"
-                        ? { delivery: deliveryMode }
-                        : {}),
-                    });
-                  }}
-                />
-                <Button
-                  type="button"
-                  size="icon"
-                  variant="ghost"
-                  disabled={disabled || !mentionables?.length}
-                  onMouseDown={(event) => event.preventDefault()}
-                  onClick={openMentions}
-                  title={
-                    mentionables?.length
-                      ? "Mention an agent (@)"
-                      : "No agents available to mention"
-                  }
-                  aria-label="Mention an agent"
-                  aria-haspopup="listbox"
-                  aria-expanded={mentionOpen}
-                  data-testid="chat-composer-mention-button"
-                  className="h-9 w-9 text-muted-foreground pointer-coarse:min-h-11 pointer-coarse:min-w-11"
-                >
-                  <AtSign className="h-[18px] w-[18px]" />
-                </Button>
-                <Button
-                  type="button"
-                  size="icon"
-                  variant="ghost"
-                  disabled={Boolean(slashUnavailableReason)}
-                  onMouseDown={(event) => event.preventDefault()}
-                  onClick={openCommands}
-                  title={slashUnavailableReason ?? "Slash commands (/)"}
-                  aria-label="Slash commands"
-                  aria-haspopup="listbox"
-                  aria-expanded={slashOpen}
-                  aria-controls={slashOpen ? slashListId : undefined}
-                  data-testid="chat-composer-command-button"
-                  className="h-9 w-9 text-muted-foreground pointer-coarse:min-h-11 pointer-coarse:min-w-11"
-                >
-                  <SquareSlash className="h-[18px] w-[18px]" />
-                </Button>
-              </div>
+              ))}
+            </div>
+          ) : null}
+          <div className="relative">
+            {mentionOpen ? (
+              <MentionPicker
+                silent={mentionQuery?.silent}
+                onSilentChange={(silent) => {
+                  if (!mentionQuery || silent === !!mentionQuery.silent) return;
+                  const start = mentionQuery.start;
+                  const next =
+                    text.slice(0, start) +
+                    (silent ? "!" : "") +
+                    text.slice(start + (mentionQuery.silent ? 1 : 0));
+                  const nextCaret = caret + (silent ? 1 : -1);
+                  setText(next);
+                  setCaret(nextCaret);
+                  textareaRef.current?.setValue(next, nextCaret);
+                  textareaRef.current?.focus();
+                }}
+                candidates={mentionCandidates}
+                activeIndex={activeMention}
+                onPick={pickMention}
+                onHover={setMentionIndex}
+                anchor={textareaRef.current?.element ?? null}
+              />
+            ) : null}
+            {slashOpen ? (
+              <SlashPicker
+                candidates={slashCandidates}
+                activeIndex={activeSlash}
+                listId={slashListId}
+                onPick={pickSlash}
+                onHover={setSlashIndex}
+                anchor={textareaRef.current?.element ?? null}
+              />
+            ) : null}
+            <ComposerInput
+              ref={textareaRef}
+              value={text}
+              mentionables={mentionables ?? []}
+              disabled={disabled}
+              maxLength={CHAT_MESSAGE_MAX_CHARS}
+              onChange={(value, position) => {
+                if (value !== text) setSlashDismissedFor(null);
+                setText(value);
+                setCaret(position);
+                setMentionIndex(0);
+                setSlashIndex(0);
+              }}
+              onSelect={setCaret}
+              onKeyDown={onKeyDown}
+              onPaste={onPaste}
+              placeholder={disabledReason ?? placeholder}
+              slashOpen={slashOpen}
+              slashListId={slashListId}
+              activeSlash={activeSlash}
+            />
 
-              <div className="flex items-center gap-1 pointer-coarse:gap-0">
-                {action ? (
-                  <>
-                    {action}
-                    <span
-                      className="mx-1 h-5 w-px bg-border pointer-coarse:mx-0.5"
-                      aria-hidden="true"
-                    />
-                  </>
-                ) : null}
-                <div
-                  className="inline-flex items-center"
-                  role="group"
-                  aria-label="Send message actions"
-                >
+            <div className="chat-composer-details">
+              <div
+                className="min-h-0 overflow-hidden flex items-center justify-between gap-2 px-2 pb-2 pointer-coarse:gap-0 pointer-coarse:px-1"
+                data-testid="chat-composer-controls"
+              >
+                <div className="flex shrink-0 items-center gap-0.5 pointer-coarse:gap-0">
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    multiple
+                    accept={STARTUP_FILE_ACCEPT}
+                    className="hidden"
+                    onChange={onFileChange}
+                    data-testid="chat-composer-file-input"
+                  />
                   <Button
-                    type="submit"
+                    type="button"
                     size="icon"
-                    variant={canSend ? "success" : "ghost"}
-                    disabled={!canSend}
-                    title="Send (Enter)"
-                    aria-label="Send message"
-                    data-testid="chat-composer-send"
-                    className={cn(
-                      "h-9 w-9 pointer-coarse:min-h-11 pointer-coarse:min-w-11"
-                    )}
+                    variant="ghost"
+                    disabled={disabled || attachmentsFull}
+                    onClick={() => fileInputRef.current?.click()}
+                    title="Attach a file"
+                    aria-label="Attach a file"
+                    data-testid="chat-composer-attach-button"
+                    className="h-9 w-9 shrink-0 rounded-full bg-muted/60 text-muted-foreground pointer-coarse:min-h-11 pointer-coarse:min-w-11"
                   >
-                    <SendHorizontal className="h-4 w-4" aria-hidden="true" />
+                    <Plus className="h-5 w-5" />
                   </Button>
+                  <ShareTaskPicker
+                    disabled={
+                      disabled ||
+                      Boolean(sending) ||
+                      inFlight ||
+                      Boolean(deliveryBlockedReason)
+                    }
+                    onShare={async (id) => {
+                      if (
+                        deliveryMode === "interrupt" &&
+                        interruptUnavailableReason
+                      )
+                        return;
+                      await onSend("", [], {
+                        task: { id },
+                        ...(canQueue && deliveryMode !== "auto"
+                          ? { delivery: deliveryMode }
+                          : {}),
+                      });
+                    }}
+                  />
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="ghost"
+                    disabled={disabled || !mentionables?.length}
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={openMentions}
+                    title={
+                      mentionables?.length
+                        ? "Mention an agent (@)"
+                        : "No agents available to mention"
+                    }
+                    aria-label="Mention an agent"
+                    aria-haspopup="listbox"
+                    aria-expanded={mentionOpen}
+                    data-testid="chat-composer-mention-button"
+                    className="h-9 w-9 text-muted-foreground pointer-coarse:min-h-11 pointer-coarse:min-w-11"
+                  >
+                    <AtSign className="h-[18px] w-[18px]" />
+                  </Button>
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="ghost"
+                    disabled={Boolean(slashUnavailableReason)}
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={openCommands}
+                    title={slashUnavailableReason ?? "Slash commands (/)"}
+                    aria-label="Slash commands"
+                    aria-haspopup="listbox"
+                    aria-expanded={slashOpen}
+                    aria-controls={slashOpen ? slashListId : undefined}
+                    data-testid="chat-composer-command-button"
+                    className="h-9 w-9 text-muted-foreground pointer-coarse:min-h-11 pointer-coarse:min-w-11"
+                  >
+                    <SquareSlash className="h-[18px] w-[18px]" />
+                  </Button>
+                </div>
+
+                <div className="flex items-center gap-1 pointer-coarse:gap-0">
+                  {action ? (
+                    <>
+                      {action}
+                      <span
+                        className="mx-1 h-5 w-px bg-border pointer-coarse:mx-0.5"
+                        aria-hidden="true"
+                      />
+                    </>
+                  ) : null}
+                  <div
+                    className="inline-flex items-center"
+                    role="group"
+                    aria-label="Send message actions"
+                  >
+                    <Button
+                      type="submit"
+                      size="icon"
+                      variant={canSend ? "success" : "ghost"}
+                      disabled={!canSend}
+                      title="Send (Enter)"
+                      aria-label="Send message"
+                      data-testid="chat-composer-send"
+                      className={cn(
+                        "h-9 w-9 pointer-coarse:min-h-11 pointer-coarse:min-w-11"
+                      )}
+                    >
+                      <SendHorizontal className="h-4 w-4" aria-hidden="true" />
+                    </Button>
+                  </div>
                 </div>
               </div>
             </div>
           </div>
         </div>
-      </div>
-      {(!disabled || text.length > 0) && (
-        <div className="chat-composer-hint px-1 text-[10px] text-muted-foreground">
-          {disabledReason ? (
-            <span data-testid="chat-composer-disabled-reason">
-              {disabledReason}
-            </span>
-          ) : slashBlockedReason ? (
-            <span role="alert" data-testid="chat-composer-slash-hint">
-              {slashBlockedReason}
-            </span>
-          ) : deliveryBlockedReason ? (
-            <span role="alert" data-testid="chat-composer-delivery-blocked">
-              {deliveryBlockedReason}
-            </span>
-          ) : visibleError ? (
-            <span
-              role="alert"
-              className="text-destructive"
-              data-testid="chat-composer-error"
-              data-retryable={visibleError.retryable ? "true" : undefined}
-            >
-              {visibleError.retryable
-                ? `${visibleError.text} — your message is still here; press Enter to ${deliveryMode === "queue" ? "queue again" : deliveryMode === "interrupt" ? "interrupt and retry" : "try again"}.`
-                : visibleError.text}
-            </span>
-          ) : placeholders.length > 0 ? (
-            <span data-testid="chat-composer-reattach-hint">
-              {placeholders.length === 1
-                ? `Re-attach or remove ${placeholders[0]!.entry.name} to send.`
-                : `Re-attach or remove ${placeholders.length} files to send.`}
-            </span>
-          ) : uploadingName ? (
-            <span data-testid="chat-composer-uploading">
-              Uploading {uploadingName}…
-            </span>
-          ) : draggingFiles ? (
-            <span>Drop files to attach them</span>
-          ) : (
-            <span className="hidden md:inline">
-              Enter to send · Shift+Enter for new line
-            </span>
-          )}
-        </div>
-      )}
-      {defaultRecipients || footer ? (
-        <div className="chat-composer-details chat-composer-footer">
-          <div className="chat-composer-footer-layout min-h-0 min-w-0 px-1">
-            {defaultRecipients ? (
-              <TooltipProvider delayDuration={150}>
-                <div
-                  className="flex min-w-0 items-center gap-2 text-[11px] text-muted-foreground"
-                  data-testid="chat-composer-routing"
-                  role="group"
-                  aria-label="Message recipients"
-                  aria-live="polite"
-                  aria-atomic="true"
-                >
-                  <span className="shrink-0">To:</span>
-                  <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2 py-1">
-                    {recipients.map((agent) => (
-                      <Tooltip key={agent.id}>
-                        <TooltipTrigger asChild>
-                          <span
-                            tabIndex={0}
-                            className="inline-flex min-w-0 max-w-full items-center gap-2 rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                            data-testid="chat-composer-recipient"
-                            data-agent-id={agent.id}
-                          >
-                            <AgentSeatBadge
-                              seat={agent.seat ?? null}
-                              name={agent.name}
-                              size="sm"
-                            />
-                            {agent.seat === undefined ? (
-                              <span className="truncate">{agent.name}</span>
-                            ) : null}
-                          </span>
-                        </TooltipTrigger>
-                        <TooltipContent side="top">
-                          {agent.seat === undefined
-                            ? agent.name
-                            : `@${agent.seat} · ${agent.name}`}
-                        </TooltipContent>
-                      </Tooltip>
-                    ))}
-                  </div>
-                  {(canQueue && conversation) ||
-                  deliveryMode === "interrupt" ? (
-                    <ComposerDelivery
-                      timings={deliveryTimings}
-                      mode={deliveryMode}
-                      onMode={setDeliveryMode}
-                      unavailableReason={deliveryBlockedReason}
-                    />
-                  ) : null}
-                  {recipients.length === 0 ? (
-                    <span>Loading recipients…</span>
-                  ) : null}
-                </div>
-              </TooltipProvider>
-            ) : null}
-            {footer}
+        {(!disabled || text.length > 0) && (
+          <div className="chat-composer-hint px-1 text-[10px] text-muted-foreground">
+            {disabledReason ? (
+              <span data-testid="chat-composer-disabled-reason">
+                {disabledReason}
+              </span>
+            ) : slashBlockedReason ? (
+              <span role="alert" data-testid="chat-composer-slash-hint">
+                {slashBlockedReason}
+              </span>
+            ) : deliveryBlockedReason ? (
+              <span role="alert" data-testid="chat-composer-delivery-blocked">
+                {deliveryBlockedReason}
+              </span>
+            ) : visibleError ? (
+              <span
+                role="alert"
+                className="text-destructive"
+                data-testid="chat-composer-error"
+                data-retryable={visibleError.retryable ? "true" : undefined}
+              >
+                {visibleError.retryable
+                  ? `${visibleError.text} — your message is still here; press Enter to ${deliveryMode === "queue" ? "queue again" : deliveryMode === "interrupt" ? "interrupt and retry" : "try again"}.`
+                  : visibleError.text}
+              </span>
+            ) : placeholders.length > 0 ? (
+              <span data-testid="chat-composer-reattach-hint">
+                {placeholders.length === 1
+                  ? `Re-attach or remove ${placeholders[0]!.entry.name} to send.`
+                  : `Re-attach or remove ${placeholders.length} files to send.`}
+              </span>
+            ) : uploadingName ? (
+              <span data-testid="chat-composer-uploading">
+                Uploading {uploadingName}…
+              </span>
+            ) : draggingFiles ? (
+              <span>Drop files to attach them</span>
+            ) : (
+              <span className="hidden md:inline">
+                Enter to send · Shift+Enter for new line
+              </span>
+            )}
           </div>
-        </div>
-      ) : null}
-    </form>
+        )}
+        {defaultRecipients || footer ? (
+          <div className="chat-composer-details chat-composer-footer">
+            <div className="chat-composer-footer-layout min-h-0 min-w-0 px-1">
+              {defaultRecipients ? (
+                <TooltipProvider delayDuration={150}>
+                  <div
+                    className="flex min-w-0 items-center gap-2 text-[11px] text-muted-foreground"
+                    data-testid="chat-composer-routing"
+                    role="group"
+                    aria-label="Message recipients"
+                    aria-live="polite"
+                    aria-atomic="true"
+                  >
+                    <span className="shrink-0">To:</span>
+                    <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2 py-1">
+                      {recipients.map((agent) => (
+                        <Tooltip key={agent.id}>
+                          <TooltipTrigger asChild>
+                            <span
+                              tabIndex={0}
+                              className="inline-flex min-w-0 max-w-full items-center gap-2 rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                              data-testid="chat-composer-recipient"
+                              data-agent-id={agent.id}
+                            >
+                              <AgentSeatBadge
+                                seat={agent.seat ?? null}
+                                name={agent.name}
+                                size="sm"
+                              />
+                              {agent.seat === undefined ? (
+                                <span className="truncate">{agent.name}</span>
+                              ) : null}
+                            </span>
+                          </TooltipTrigger>
+                          <TooltipContent side="top">
+                            {agent.seat === undefined
+                              ? agent.name
+                              : `@${agent.seat} · ${agent.name}`}
+                          </TooltipContent>
+                        </Tooltip>
+                      ))}
+                    </div>
+                    {(canQueue && conversation) ||
+                    deliveryMode === "interrupt" ? (
+                      <ComposerDelivery
+                        timings={deliveryTimings}
+                        mode={deliveryMode}
+                        onMode={setDeliveryMode}
+                        unavailableReason={deliveryBlockedReason}
+                      />
+                    ) : null}
+                    {recipients.length === 0 ? (
+                      <span>Loading recipients…</span>
+                    ) : null}
+                  </div>
+                </TooltipProvider>
+              ) : null}
+              {footer}
+            </div>
+          </div>
+        ) : null}
+      </form>
+    </>
   );
 }

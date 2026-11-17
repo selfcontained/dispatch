@@ -1,3 +1,8 @@
+import {
+  type ImageCalloutRegion,
+  isImageCalloutRegion,
+} from "@/lib/image-feedback";
+
 /**
  * The persisted shape of an unsent chat composer draft. One per agent, in
  * localStorage (see `chatDraftAtomFamily`); the composer restores it on
@@ -20,6 +25,11 @@ export type ChatDraftFile = {
    * dropped to fit the size cap. Absent for a picked/dropped file.
    */
   pasted?: string | null;
+  /**
+   * Image markup made in the composer before sending: numbered callouts in
+   * normalized image coordinates. Absent when the image has none.
+   */
+  callouts?: ImageCalloutRegion[];
 };
 
 export type ChatComposerDraft = {
@@ -96,7 +106,10 @@ function isDraftFile(value: unknown): value is ChatDraftFile {
     typeof file.mime === "string" &&
     (file.pasted === undefined ||
       file.pasted === null ||
-      typeof file.pasted === "string")
+      typeof file.pasted === "string") &&
+    (file.callouts === undefined ||
+      (Array.isArray(file.callouts) &&
+        file.callouts.every(isImageCalloutRegion)))
   );
 }
 
