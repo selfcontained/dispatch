@@ -1,4 +1,3 @@
-import { Skeleton } from "@/components/ui/skeleton";
 import { useAtomValue } from "jotai";
 import { chatShowProgressTextAtom } from "@/lib/store";
 import { memo, type ReactNode, useMemo } from "react";
@@ -31,30 +30,13 @@ import {
   ResultText,
   ResultTurn,
 } from "./result-turn";
+import { useChatRowState } from "../chat-row-state";
+import { ResponsePlaceholder } from "./response-placeholder";
 import { type FoldedEntry, TurnAttachments } from "./turn-attachments";
 
 /** A turn prompt is never a question, so its post never offers an answer. */
 const NO_ANSWER = (): void => undefined;
 const NO_FOLDED: readonly FoldedEntry[] = [];
-/**
- * The placeholder's skeleton rows. Each scan is its own ping-pong with its
- * own period and start offset, so the rows drift in and out of phase rather
- * than waiting on one another.
- */
-const PLACEHOLDER_ROWS = [
-  {
-    width: "w-3/4",
-    scan: "animate-[placeholder-scan_4.2s_ease-in-out_-0.4s_infinite_alternate_both]",
-  },
-  {
-    width: "w-full",
-    scan: "animate-[placeholder-scan_5s_ease-in-out_-2.3s_infinite_alternate_both]",
-  },
-  {
-    width: "w-2/5",
-    scan: "animate-[placeholder-scan_3.6s_ease-in-out_-1.5s_infinite_alternate_both]",
-  },
-] as const;
 
 /**
  * The turn's answer as the result renderer's model. The text is the
@@ -151,6 +133,8 @@ export function TurnAnswer({
     () => turnLabelFromSteps(trace.steps),
     [trace.steps]
   );
+  // One turn's progress text, shown on request while the setting hides it.
+  const [peek, setPeek] = useChatRowState<boolean>("progress-peek", false);
   const onRetryTurn = ctx.onRetryTurn;
   const retryPending = ctx.retrying?.has(block.id) ?? false;
   const retry = useMemo<ResultRetry | undefined>(
@@ -236,40 +220,31 @@ export function TurnAnswer({
               />
             )}
           />
-        ) : !showProgressText ? (
-          <div
-            role="status"
-            aria-label="Preparing response"
-            data-testid="chat-response-placeholder"
-            className="mt-3 w-full max-w-md rounded-lg border border-dashed border-border/70 bg-muted/10 px-4 py-3.5"
-          >
-            <div aria-hidden="true" className="space-y-2.5">
-              {PLACEHOLDER_ROWS.map((row) => (
-                <Skeleton
-                  key={row.width}
-                  className={cn(
-                    "relative h-1.5 animate-none overflow-hidden rounded-full",
-                    row.width
-                  )}
-                >
-                  <span
-                    data-testid="chat-response-placeholder-scan"
-                    className={cn(
-                      "dispatch-placeholder-scan absolute inset-y-0 left-0 w-1/3 rounded-full opacity-10 will-change-transform motion-reduce:hidden",
-                      "bg-[linear-gradient(90deg,transparent,hsl(var(--status-blocked)),hsl(var(--status-waiting)),hsl(var(--status-working)),hsl(var(--status-done)),transparent)]",
-                      row.scan
-                    )}
-                  />
-                </Skeleton>
-              ))}
-            </div>
-          </div>
+        ) : !showProgressText && !peek ? (
+          <ResponsePlaceholder
+            seed={block.id}
+            steps={trace.steps}
+            textLength={result.content?.length ?? 0}
+            onShowProgress={() => setPeek(true)}
+          />
         ) : result.content ? (
           // The reply as it is being written: the agent's own words, in the
           // quiet tone of something still in progress, so a long turn reads
           // as it happens rather than landing whole at the end. It takes its
           // final styling when the turn settles and this becomes the answer.
           <div data-testid="chat-turn-live-text">
+            {peek && !showProgressText ? (
+              <div className="mb-1 flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => setPeek(false)}
+                  data-testid="chat-response-hide-progress"
+                  className="rounded-sm text-[11px] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                >
+                  Hide progress
+                </button>
+              </div>
+            ) : null}
             <ResultText
               content={result.content}
               muted
