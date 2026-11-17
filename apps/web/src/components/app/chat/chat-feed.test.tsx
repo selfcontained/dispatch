@@ -2234,7 +2234,7 @@ describe("ChatFeed", () => {
       third
         .querySelector("[data-testid='chat-side-header']")
         ?.getAttribute("aria-label")
-    ).toBe("Reviewer → builder");
+    ).toBeUndefined();
     // The reviewer is this agent's child, and says so under its name.
     expect(
       third.querySelector("[data-testid='agent-relation-badge']")?.textContent
@@ -3485,5 +3485,70 @@ describe("empty settled turn visibility", () => {
     expect(
       document.querySelector('[data-chat-entry-id="late-file"]')
     ).toBeNull();
+  });
+});
+
+describe("recipient labels in agent streams", () => {
+  function observation(recipients = [AGENT_ID]) {
+    return blockEntry(
+      block({
+        author: { kind: "system" },
+        toAgentId: recipients[0],
+        delivery: [],
+        body: {
+          kind: "text",
+          data: {
+            recipients,
+            systemEvent: {
+              version: 1,
+              category: "risk",
+              summary: "Merge-risk assessment",
+              risk: "routine",
+            },
+          },
+          state: null,
+        },
+      })
+    );
+  }
+
+  it("hides a system card's own-stream recipient and empty receipt row", () => {
+    renderFeed([observation()]);
+    expect(screen.queryByTestId("chat-side-recipient")).toBeNull();
+    expect(screen.queryByTestId("system-observation-receipt")).toBeNull();
+    expect(screen.getByText("Merge-risk assessment")).toBeTruthy();
+  });
+
+  it("keeps the recipient in another stream", () => {
+    renderFeed(
+      [observation()],
+      {},
+      { agentId: "agt_other", names: { [AGENT_ID]: "builder" } }
+    );
+    expect(screen.getByTestId("chat-side-recipient").textContent).toContain(
+      "builder"
+    );
+    expect(screen.getByTestId("system-observation-receipt")).toBeTruthy();
+  });
+
+  it("keeps all recipients for multi-recipient cards", () => {
+    renderFeed(
+      [observation([AGENT_ID, "agt_other"])],
+      {},
+      { names: { agt_other: "helper" } }
+    );
+    const label = screen.getByTestId("chat-side-recipient");
+    expect(label.textContent).toContain("builder");
+    expect(label.textContent).toContain("helper");
+  });
+
+  it("hides the redundant normal-post recipient including its aria label", () => {
+    renderFeed([
+      blockEntry(
+        block({ toAgentId: AGENT_ID, delivery: [], text: "An update" })
+      ),
+    ]);
+    expect(screen.queryByTestId("chat-side-recipient")).toBeNull();
+    expect(screen.queryByLabelText(/→/)).toBeNull();
   });
 });

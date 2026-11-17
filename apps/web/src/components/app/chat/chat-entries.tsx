@@ -700,6 +700,7 @@ export function Post({
   contextLink,
   flush = false,
   hideHeader = false,
+  streamAgentId,
   children,
   ...rest
 }: {
@@ -726,9 +727,19 @@ export function Post({
   flush?: boolean;
   /** System observations own their compact heading and timestamp. */
   hideHeader?: boolean;
+  /** Agent whose stream is being read; absent for non-agent streams. */
+  streamAgentId?: string;
   children: ReactNode;
   [dataAttr: `data-${string}`]: string | undefined;
 }): JSX.Element {
+  const showRecipient = Boolean(
+    side &&
+    !(
+      streamAgentId &&
+      side.recipients?.length &&
+      side.recipients.every((recipient) => recipient.agentId === streamAgentId)
+    )
+  );
   const timestamp = (
     <span className="inline-flex shrink-0 items-center gap-1">
       <span
@@ -800,12 +811,12 @@ export function Post({
           </div>
         ) : null}
         {hideHeader ? (
-          side || deliveryIndicator || contextLink ? (
+          showRecipient || deliveryIndicator || contextLink ? (
             <div
               className="mb-1 flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground"
               data-testid="system-observation-receipt"
             >
-              {side ? (
+              {showRecipient && side ? (
                 <span data-testid="chat-side-recipient">
                   →{" "}
                   {side.recipients
@@ -856,7 +867,7 @@ export function Post({
               "flex flex-wrap items-baseline gap-x-2 gap-y-0.5 leading-tight",
               !flush && "max-sm:min-h-10"
             )}
-            {...(side
+            {...(showRecipient && side
               ? {
                   "aria-label": `${author.name} → ${side.recipientName}`,
                   "data-testid": "chat-side-header",
@@ -883,7 +894,7 @@ export function Post({
                 author.name
               )}
             </span>
-            {side ? (
+            {showRecipient && side ? (
               <span
                 className="min-w-[8rem] max-w-full truncate text-sm text-muted-foreground"
                 data-testid="chat-side-recipient"
@@ -1848,6 +1859,7 @@ export const BlockView = memo(function BlockView({
         grouped={grouped}
         rule={rule}
         side={side}
+        streamAgentId={ctx.agentId}
         data-testid="chat-message"
         data-author="user"
         data-kind={block.kind}
@@ -1998,6 +2010,7 @@ export const BlockView = memo(function BlockView({
       grouped={grouped}
       rule={rule}
       side={side}
+      streamAgentId={ctx.agentId}
       data-testid="chat-message"
       data-author={author.kind}
       data-kind={block.kind}
