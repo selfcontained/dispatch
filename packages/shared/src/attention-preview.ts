@@ -40,11 +40,20 @@ export function attentionPreview(
       continue;
     }
     if (c === "`") code = true;
-    else if (c === "*" && line[i + 1] === "*") {
-      bold = !bold;
-      i++;
-    } else if (c === "*") italic = !italic;
-    else if (c === "[") linkDepth++;
+    else if (c === "*") {
+      // A marker opens only before a word and closes only after one, so a
+      // lone `*` (as in `2 * 3`) stays literal and doesn't open a span.
+      const double = line[i + 1] === "*";
+      const open = double ? bold : italic;
+      const touches = open
+        ? !/\s/.test(line[i - 1] ?? " ")
+        : !/\s/.test(line[i + (double ? 2 : 1)] ?? " ");
+      if (touches) {
+        if (double) bold = !bold;
+        else italic = !italic;
+      }
+      if (double) i++;
+    } else if (c === "[") linkDepth++;
     else if (c === "]") {
       if (linkDepth > 0) linkDepth--;
       if (line[i + 1] === "(") {
@@ -55,8 +64,15 @@ export function attentionPreview(
       safe = i;
     }
   }
-  if (safe > 0) return `${line.slice(0, safe).trimEnd()}…`;
-  // No safe boundary (one long token or a span open from the start): drop the
-  // markup characters so nothing renders as a stray symbol.
-  return `${line.slice(0, max - 1).replace(/[`*[\]]/g, "")}…`;
+  if (safe >= max / 4) return `${line.slice(0, safe).trimEnd()}…`;
+  // No useful safe boundary (a span opened early and runs past the limit, or
+  // one long token): drop the markup so nothing renders as a stray symbol.
+  let cut = line.slice(0, max - 1);
+  // Don't split a surrogate pair.
+  if (/[\uD800-\uDBFF]$/.test(cut)) cut = cut.slice(0, -1);
+  // A link cut inside its URL: keep the label, drop the half URL.
+  cut = cut.replace(/\]\([^)]*$/, "");
+  const space = cut.search(/\s\S*$/);
+  if (space >= max / 4) cut = cut.slice(0, space);
+  return `${cut.replace(/[`*[\]]/g, "").trimEnd()}…`;
 }
