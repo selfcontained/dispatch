@@ -1,3 +1,8 @@
+import {
+  type ImageCalloutRegion,
+  isImageCalloutRegion,
+} from "@/lib/image-feedback";
+
 /**
  * The persisted shape of an unsent chat composer draft. One per agent, in
  * localStorage (see `chatDraftAtomFamily`); the composer restores it on
@@ -20,6 +25,11 @@ export type ChatDraftFile = {
    * dropped to fit the size cap. Absent for a picked/dropped file.
    */
   pasted?: string | null;
+  /**
+   * Image markup made in the composer before sending: numbered callouts in
+   * normalized image coordinates. Absent when the image has none.
+   */
+  callouts?: ImageCalloutRegion[];
 };
 
 export type ChatComposerDraft = {
@@ -96,7 +106,10 @@ function isDraftFile(value: unknown): value is ChatDraftFile {
     typeof file.mime === "string" &&
     (file.pasted === undefined ||
       file.pasted === null ||
-      typeof file.pasted === "string")
+      typeof file.pasted === "string") &&
+    (file.callouts === undefined ||
+      (Array.isArray(file.callouts) &&
+        file.callouts.every(isImageCalloutRegion)))
   );
 }
 
@@ -117,9 +130,10 @@ const fits = (draft: ChatComposerDraft): boolean =>
  * 1. pasted-text bodies, largest first (the chip comes back as a "paste
  *    again" placeholder);
  * 2. links, longest first;
- * 3. the text, cut at a code-point boundary with
+ * 3. image markup, the largest image's first (the image stays attached);
+ * 4. the text, cut at a code-point boundary with
  *    `CHAT_DRAFT_TRUNCATED_MARKER` on the end;
- * 4. file chips — only reachable with names far beyond anything the UI
+ * 5. file chips — only reachable with names far beyond anything the UI
  *    produces, kept so the bound holds for any input rather than any
  *    *likely* input.
  *
@@ -130,6 +144,8 @@ export function fitChatDraft(draft: ChatComposerDraft): ChatComposerDraft {
   let next = dropPastedBodies(draft);
   if (fits(next)) return next;
   next = dropLinks(next);
+  if (fits(next)) return next;
+  next = dropCallouts(next);
   if (fits(next)) return next;
   next = truncateText(next);
   if (fits(next)) return next;
@@ -144,6 +160,22 @@ function dropPastedBodies(draft: ChatComposerDraft): ChatComposerDraft {
   const next = { ...draft, files };
   for (const file of candidates) {
     file.pasted = null;
+    if (fits(next)) break;
+  }
+  return next;
+}
+
+function dropCallouts(draft: ChatComposerDraft): ChatComposerDraft {
+  const files = draft.files.map((file) => ({ ...file }));
+  const candidates = files
+    .filter((file) => file.callouts?.length)
+    .sort(
+      (a, b) =>
+        JSON.stringify(b.callouts).length - JSON.stringify(a.callouts).length
+    );
+  const next = { ...draft, files };
+  for (const file of candidates) {
+    delete file.callouts;
     if (fits(next)) break;
   }
   return next;

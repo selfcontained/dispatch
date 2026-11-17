@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { BLOCK_TEXT_MAX_CHARS } from "@dispatch/shared";
-import { useAtom, useStore } from "jotai";
+import { atom, useAtom, useStore } from "jotai";
 import { atomFamily } from "jotai/utils";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -24,6 +24,13 @@ import { Textarea } from "@/components/ui/textarea";
 import { agentListQuery } from "@/hooks/use-agents";
 import { streamFeedFilters, threadQueryKey } from "@/hooks/use-stream";
 import { imageFeedbackMessage } from "@/lib/image-feedback-message";
+import {
+  type ImageCalloutRegion,
+  imageFeedbackCaptions,
+  imageFeedbackMetadata,
+  imageFeedbackNotes,
+  renderAnnotatedImage,
+} from "@/lib/image-feedback";
 import { createClientId } from "@/lib/client-id";
 import { api, ApiError } from "@/lib/api";
 import { atomWithLocalStorage } from "@/lib/store";
@@ -147,9 +154,32 @@ function storedPost(imageKey: string): ShareAttempt | null {
   return null;
 }
 
+/**
+ * Marks up an image that is not uploaded yet (a composer attachment): the
+ * callouts stay with the caller, and "Done" hands them back without sending.
+ */
+export type ImageComposeMarkup = {
+  fileName: string;
+  callouts: readonly ImageCalloutRegion[];
+  onDone: (callouts: ImageCalloutRegion[]) => void;
+};
+
+const toCallout = (c: ImageCalloutRegion): Callout => ({
+  id: c.id,
+  number: c.number,
+  x: c.x,
+  y: c.y,
+  width: c.width,
+  height: c.height,
+  note: c.note,
+  recipient: "",
+  sent: false,
+});
+
 /** Image callouts use normalized, oriented image coordinates; sent notes are also in the stream. */
 export function ImageComments({
   file,
+  compose,
   src,
   caption,
   positionLabel,
@@ -157,8 +187,10 @@ export function ImageComments({
   onPrevious,
   onNext,
   onShared,
-}: {
-  file: FileItem;
+}: (
+  | { file: FileItem; compose?: undefined }
+  | { file?: undefined; compose: ImageComposeMarkup }
+) & {
   src: string;
   caption: string;
   positionLabel: string;
@@ -168,9 +200,16 @@ export function ImageComments({
   onShared?: (location: ImageShareLocation) => void;
 }): JSX.Element {
   const store = useStore();
-  const imageKey = `${file.url}:${file.updatedAt}`;
+  const fileName = file?.name ?? compose?.fileName ?? "";
+  const imageKey = file ? `${file.url}:${file.updatedAt}` : "";
   const postedRef = useRef<ShareAttempt | null>(null);
-  const pendingPost = storedPost(imageKey) ?? postedRef.current;
+  const pendingPost = file ? (storedPost(imageKey) ?? postedRef.current) : null;
+  // Compose mode keeps its working copy in memory only: no share batches,
+  // no recipients, nothing in localStorage.
+  const [composeAtoms] = useState(() => ({
+    comments: atom<Callout[]>((compose?.callouts ?? []).map(toCallout)),
+    share: atom<ShareAttempt | null>(null),
+  }));
   const clearPosted = (batch: ShareAttempt) => {
     const record = postedFamily(`${imageKey}:${batch.id}`);
     // This atom may be new to this tab's store after reload. Prime it before
@@ -180,10 +219,10 @@ export function ImageComments({
     postedRef.current = null;
   };
   const [comments, setComments] = useAtom(
-    commentsFamily(`${file.url}:${file.updatedAt}`)
+    file ? commentsFamily(imageKey) : composeAtoms.comments
   );
   const [shareAttempt, setShareAttempt] = useAtom(
-    sharesFamily(`${file.url}:${file.updatedAt}`)
+    file ? sharesFamily(imageKey) : composeAtoms.share
   );
   const [selected, setSelected] = useState<string | null>(null);
   const selectedRef = useRef(selected);
@@ -193,11 +232,13 @@ export function ImageComments({
   const noteEditor = useRef<HTMLTextAreaElement>(null);
   const notePopover = useRef<HTMLDivElement>(null);
   const markupButton = useRef<HTMLButtonElement>(null);
-  const [markup, setMarkup] = useState(false);
+  const [markup, setMarkup] = useState(!!compose);
   const [hintDismissed, setHintDismissed] = useAtom(markupHintDismissedAtom);
   const [editorNote, setEditorNote] = useState("");
   const newComment = useRef<string | null>(null);
-  const [mode, setMode] = useState<"comment" | "pan">("pan");
+  const [mode, setMode] = useState<"comment" | "pan">(
+    compose ? "comment" : "pan"
+  );
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [imageSize, setImageSize] = useState({ width: 1, height: 1 });
@@ -235,12 +276,15 @@ export function ImageComments({
   const { data: agents = [] } = useQuery({
     ...agentListQuery,
     enabled:
-      selected !== null ||
-      comments.some((c) => !c.sent && !!c.note.trim()) ||
-      !!shareAttempt,
+      !compose &&
+      (selected !== null ||
+        comments.some((c) => !c.sent && !!c.note.trim()) ||
+        !!shareAttempt),
   });
   const pathAgent = window.location.pathname.match(/\/agents\/([^/]+)/)?.[1];
-  const defaultRecipient = pathAgent ?? file.ownerAgentId ?? "";
+  const defaultRecipient = compose
+    ? ""
+    : (pathAgent ?? file?.ownerAgentId ?? "");
   const [recipient, setRecipient] = useState(defaultRecipient);
   const shareRecipient =
     pendingPost?.recipient ?? shareAttempt?.recipient ?? recipient;
@@ -286,6 +330,10 @@ export function ImageComments({
   const leaveMarkup = () => {
     if (send.isPending) return;
     dismissEditor();
+    if (compose) {
+      onClose();
+      return;
+    }
     setMarkup(false);
     setMode("pan");
     requestAnimationFrame(() => markupButton.current?.focus());
@@ -313,16 +361,9 @@ export function ImageComments({
     mutationFn: async (batch: ShareAttempt) => {
       if (!image.current || !loaded || !batch.recipient || !batch.items.length)
         throw new Error("Add notes and choose an agent.");
+      if (!file) throw new Error("Nothing to share.");
       const text = imageFeedbackMessage(
-        batch.items
-          .map((c) => {
-            const marker = `${c.number}. `;
-            return (
-              marker +
-              c.note.trim().replace(/\n/g, `\n${" ".repeat(marker.length)}`)
-            );
-          })
-          .join("\n\n"),
+        imageFeedbackNotes(batch.items),
         file.name
       );
       if (text.length > BLOCK_TEXT_MAX_CHARS)
@@ -347,43 +388,10 @@ export function ImageComments({
         2560 / Math.max(imageSize.width, imageSize.height)
       );
       if (!copyId) {
-        const canvas = document.createElement("canvas");
-        canvas.width = Math.round(imageSize.width * scale);
-        canvas.height = Math.round(imageSize.height * scale);
-        const ctx = canvas.getContext("2d");
-        if (!ctx) throw new Error("Unable to create annotated copy.");
-        ctx.drawImage(image.current, 0, 0, canvas.width, canvas.height);
-        for (const c of batch.items) {
-          const x = c.x * canvas.width,
-            y = c.y * canvas.height;
-          ctx.strokeStyle = seatClasses(c.number).color;
-          ctx.lineWidth = Math.max(3, canvas.width / 400);
-          if (c.width || c.height)
-            ctx.strokeRect(
-              x,
-              y,
-              c.width * canvas.width,
-              c.height * canvas.height
-            );
-          const r = Math.max(14, canvas.width / 80),
-            bx = Math.max(r, Math.min(canvas.width - r, x)),
-            by = Math.max(r, Math.min(canvas.height - r, y));
-          ctx.fillStyle = seatClasses(c.number).ink;
-          ctx.beginPath();
-          ctx.arc(bx, by, r, 0, 2 * Math.PI);
-          ctx.fill();
-          ctx.fillStyle = "white";
-          ctx.textAlign = "center";
-          ctx.textBaseline = "middle";
-          ctx.font = `bold ${r}px sans-serif`;
-          ctx.fillText(String(c.number), bx, by);
-        }
-        const blob = await new Promise<Blob>((resolve, reject) =>
-          canvas.toBlob(
-            (b) =>
-              b ? resolve(b) : reject(new Error("Unable to export image.")),
-            "image/png"
-          )
+        const { blob } = await renderAnnotatedImage(
+          image.current,
+          imageSize,
+          batch.items
         );
         const body = new FormData();
         body.append("file", blob, `feedback-${batch.id}.png`);
@@ -394,8 +402,7 @@ export function ImageComments({
         copyId = uploaded.file.id;
         cache({ copyId });
       }
-      const metadata = {
-        schema: "dispatch.image-feedback.v2",
+      const metadata = imageFeedbackMetadata({
         shareId: batch.id,
         original: {
           fileId: file.id,
@@ -410,22 +417,8 @@ export function ImageComments({
           width: Math.round(imageSize.width * scale),
           height: Math.round(imageSize.height * scale),
         },
-        sourceLocation: window.location.pathname + window.location.search,
-        annotations: batch.items.map((c) => ({
-          id: c.id,
-          number: c.number,
-          color: seatClasses(c.number).color,
-          region: {
-            x: c.x,
-            y: c.y,
-            width: c.width,
-            height: c.height,
-            units: "normalized",
-            origin: "top-left",
-          },
-          note: c.note.trim(),
-        })),
-      };
+        items: batch.items,
+      });
       let metadataId = batch.metadataId;
       if (!metadataId) {
         const body = new FormData();
@@ -467,12 +460,12 @@ export function ImageComments({
               {
                 type: "file",
                 fileId: copyId,
-                caption: `Feedback on ${file.name}`,
+                caption: imageFeedbackCaptions.copy(file.name),
               },
               {
                 type: "file",
                 fileId: metadataId,
-                caption: "Image and callout details",
+                caption: imageFeedbackCaptions.metadata,
               },
             ],
           }),
@@ -604,30 +597,34 @@ export function ImageComments({
               Markup
             </Button>
           )}
-          <FileActions src={src} fileName={file.name} />
-          <Button
-            size="icon"
-            variant="ghost"
-            aria-label="Previous image"
-            data-testid="file-lightbox-prev"
-            disabled={!onPrevious || busy || !!selected}
-            onClick={onPrevious}
-          >
-            <ChevronLeft className="h-4 w-4" />
-          </Button>
-          <span className="hidden text-xs text-muted-foreground sm:inline">
-            {positionLabel}
-          </span>
-          <Button
-            size="icon"
-            variant="ghost"
-            aria-label="Next image"
-            data-testid="file-lightbox-next"
-            disabled={!onNext || busy || !!selected}
-            onClick={onNext}
-          >
-            <ChevronRight className="h-4 w-4" />
-          </Button>
+          {!compose && (
+            <>
+              <FileActions src={src} fileName={fileName} />
+              <Button
+                size="icon"
+                variant="ghost"
+                aria-label="Previous image"
+                data-testid="file-lightbox-prev"
+                disabled={!onPrevious || busy || !!selected}
+                onClick={onPrevious}
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </Button>
+              <span className="hidden text-xs text-muted-foreground sm:inline">
+                {positionLabel}
+              </span>
+              <Button
+                size="icon"
+                variant="ghost"
+                aria-label="Next image"
+                data-testid="file-lightbox-next"
+                disabled={!onNext || busy || !!selected}
+                onClick={onNext}
+              >
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+            </>
+          )}
           <Button
             size="icon"
             variant="ghost"
@@ -1077,7 +1074,48 @@ export function ImageComments({
               </Button>
             </div>
           </div>
-          {markup && (
+          {compose && (
+            <>
+              <Button size="sm" variant="ghost" onClick={close}>
+                Cancel
+              </Button>
+              <span
+                data-image-share
+                className="inline-flex"
+                onPointerDown={(e) => {
+                  if (selected) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                  }
+                }}
+              >
+                <Button
+                  size="sm"
+                  variant="primary"
+                  disabled={!!selected || !loaded}
+                  onClick={() => {
+                    compose.onDone(
+                      comments
+                        .filter((c) => c.note.trim())
+                        .map((c) => ({
+                          id: c.id,
+                          number: c.number,
+                          x: c.x,
+                          y: c.y,
+                          width: c.width,
+                          height: c.height,
+                          note: c.note.trim(),
+                        }))
+                    );
+                    onClose();
+                  }}
+                >
+                  Done
+                </Button>
+              </span>
+            </>
+          )}
+          {markup && !compose && (
             <>
               <Button
                 size="sm"

@@ -1,5 +1,13 @@
 import type { ReactNode } from "react";
-import { AlertTriangle, FileText, Link2, Loader2, X } from "lucide-react";
+import {
+  AlertTriangle,
+  FileText,
+  Link2,
+  Loader2,
+  MessageCircle,
+  Pencil,
+  X,
+} from "lucide-react";
 
 import {
   startupFileExt,
@@ -12,15 +20,23 @@ export function ChipRemoveButton({
   label,
   onRemove,
   testId,
+  compact = false,
 }: {
   label: string;
   onRemove: () => void;
   testId?: string;
+  /** A smaller hit area, for a chip whose body is itself clickable. */
+  compact?: boolean;
 }): JSX.Element {
   return (
     <button
       type="button"
-      className="absolute -right-2 -top-2 flex h-10 w-10 items-start justify-end rounded-full p-2 text-muted-foreground transition-opacity hover:text-foreground focus:opacity-100 group-hover:opacity-100"
+      className={cn(
+        "absolute flex items-start justify-end rounded-full text-muted-foreground transition-opacity hover:text-foreground focus:opacity-100 group-hover:opacity-100",
+        compact
+          ? "-right-0.5 -top-0.5 z-10 h-6 w-6 p-0.5"
+          : "-right-2 -top-2 h-10 w-10 p-2"
+      )}
       onClick={onRemove}
       aria-label={label}
       {...(testId ? { "data-testid": testId } : {})}
@@ -39,12 +55,18 @@ export function ContextFileItem({
   preview,
   onRemove,
   status,
+  onOpen,
+  noteCount,
 }: {
   file: File;
   preview: string | undefined;
   onRemove: () => void;
   /** Upload state, for composers that upload on send. */
   status?: ContextFileStatus;
+  /** Opens the image for markup. */
+  onOpen?: () => void;
+  /** Markup notes saved on this image. */
+  noteCount?: number;
 }) {
   return (
     <div
@@ -60,7 +82,25 @@ export function ContextFileItem({
         )}
         title={status === "failed" ? `Upload failed: ${file.name}` : file.name}
       >
-        {preview ? (
+        {preview && onOpen ? (
+          <button
+            type="button"
+            className="group/markup relative block h-full w-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+            aria-label={
+              noteCount
+                ? `Mark up ${file.name}, ${noteCount} ${noteCount === 1 ? "note" : "notes"}`
+                : `Mark up ${file.name}`
+            }
+            title="Mark up"
+            onClick={onOpen}
+          >
+            <img src={preview} alt="" className="h-full w-full object-cover" />
+            <span
+              className="absolute inset-0 bg-black/25 opacity-0 transition-opacity group-hover/markup:opacity-100 group-focus-visible/markup:opacity-100"
+              aria-hidden="true"
+            />
+          </button>
+        ) : preview ? (
           <img src={preview} alt="" className="h-full w-full object-cover" />
         ) : (
           <div className="flex h-full w-full flex-col items-center justify-center text-muted-foreground">
@@ -84,7 +124,29 @@ export function ContextFileItem({
             )}
           </div>
         ) : null}
-        <ChipRemoveButton label={`Remove ${file.name}`} onRemove={onRemove} />
+        {noteCount ? (
+          <span
+            className="pointer-events-none absolute bottom-0.5 left-0.5 flex h-4 min-w-4 items-center justify-center gap-0.5 rounded-full bg-primary px-1 text-[9px] font-semibold leading-none text-primary-foreground shadow"
+            data-testid="context-file-note-count"
+            aria-hidden="true"
+          >
+            <MessageCircle className="h-2.5 w-2.5" aria-hidden="true" />
+            {noteCount}
+          </span>
+        ) : onOpen && preview ? (
+          <span
+            className="pointer-events-none absolute bottom-0.5 left-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-primary-foreground shadow"
+            data-testid="context-file-markup-hint"
+            aria-hidden="true"
+          >
+            <Pencil className="h-2.5 w-2.5" />
+          </span>
+        ) : null}
+        <ChipRemoveButton
+          label={`Remove ${file.name}`}
+          onRemove={onRemove}
+          compact={!!onOpen}
+        />
       </div>
       <span
         className="w-full truncate text-[8px] leading-tight text-muted-foreground"
