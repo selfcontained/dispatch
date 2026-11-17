@@ -272,6 +272,15 @@ export function ImageComments({
     clientY: number;
     pan: typeof pan;
   } | null>(null);
+  // A press that starts on the backdrop around the image. It closes the viewer
+  // only if it also ends there, so a pan or drag released outside never does.
+  const backdropPress = useRef<{
+    pointerId: number;
+    clientX: number;
+    clientY: number;
+    editing: boolean;
+  } | null>(null);
+  const backdropClose = useRef(false);
   const [preview, setPreview] = useState<Callout | null>(null);
   const { data: agents = [] } = useQuery({
     ...agentListQuery,
@@ -315,6 +324,19 @@ export function ImageComments({
     p.y = event.clientY;
     const q = p.matrixTransform(world.current!.getScreenCTM()!.inverse());
     return { x: q.x / imageSize.width, y: q.y / imageSize.height };
+  };
+  const onBackdrop = (event: React.PointerEvent<SVGSVGElement>) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    if (
+      event.clientX < rect.left ||
+      event.clientX > rect.right ||
+      event.clientY < rect.top ||
+      event.clientY > rect.bottom
+    )
+      return false;
+    if (!loaded) return true;
+    const p = point(event);
+    return p.x < 0 || p.x > 1 || p.y < 0 || p.y > 1;
   };
   const update = (id: string, patch: Partial<Callout>) => {
     if (pendingPost || shareAttempt?.attempted || send.isPending) return;
@@ -557,6 +579,29 @@ export function ImageComments({
       onClose();
     }
   };
+  // Compose mode keeps its notes only in the composer, so finishing hands
+  // the saved ones back rather than discarding them.
+  const finishCompose = () => {
+    if (!compose) return;
+    compose.onDone(
+      comments
+        .filter((c) => c.note.trim())
+        .map((c) => ({
+          id: c.id,
+          number: c.number,
+          x: c.x,
+          y: c.y,
+          width: c.width,
+          height: c.height,
+          note: c.note.trim(),
+        }))
+    );
+    onClose();
+  };
+  const closeFromBackdrop = () => {
+    if (compose && loaded) finishCompose();
+    else close();
+  };
   return (
     <Dialog
       open
@@ -580,7 +625,14 @@ export function ImageComments({
         onPointerDownOutside={(e) => e.preventDefault()}
       >
         <DialogTitle className="sr-only">{caption}</DialogTitle>
-        <header className="flex min-h-14 items-center gap-2 border-b px-3">
+        {/* The viewer covers the whole screen, including iPad's status bar
+            and home indicator bands (viewport-fit=cover), so its bars pad
+            themselves by the insets and the image stage between them is
+            only the visible area. */}
+        <header
+          data-testid="image-viewer-header"
+          className="flex min-h-[calc(3.5rem+env(safe-area-inset-top,0px))] shrink-0 items-center gap-2 border-b pl-[max(0.75rem,env(safe-area-inset-left,0px))] pr-[max(0.75rem,env(safe-area-inset-right,0px))] pt-[env(safe-area-inset-top,0px)]"
+        >
           <span className="min-w-0 flex-1 truncate text-sm">{caption}</span>
           {!markup && (
             <Button
@@ -637,6 +689,7 @@ export function ImageComments({
         </header>
         <div
           ref={setStageElement}
+          data-testid="image-viewer-stage"
           className="relative min-h-0 flex-1 overflow-hidden bg-black/90"
         >
           <img
@@ -704,11 +757,18 @@ export function ImageComments({
                 create({ x: 0.5, y: 0.5, width: 0, height: 0 });
               }
             }}
+            onClick={() => {
+              if (!backdropClose.current) return;
+              backdropClose.current = false;
+              closeFromBackdrop();
+            }}
             onPointerDown={(e) => {
+              backdropClose.current = false;
               pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
               e.currentTarget.setPointerCapture(e.pointerId);
               if (pointers.current.size > 1) {
                 gesture.current = null;
+                backdropPress.current = null;
                 setPreview(null);
                 const p = pinchPoints();
                 if (p && !busy)
@@ -722,9 +782,19 @@ export function ImageComments({
                   };
                 return;
               }
-              if (!loaded || frozen || e.button !== 0) return;
-              const p = point(e);
-              if (p.x < 0 || p.x > 1 || p.y < 0 || p.y > 1) return;
+              if (e.button !== 0) return;
+              if (onBackdrop(e)) {
+                // An open note is dismissed by this press (the popover's own
+                // outside-press handling); only the next one closes.
+                backdropPress.current = {
+                  pointerId: e.pointerId,
+                  clientX: e.clientX,
+                  clientY: e.clientY,
+                  editing: selected !== null,
+                };
+                return;
+              }
+              if (!loaded || frozen) return;
               dismissEditor();
               gesture.current = {
                 ...point(e),
@@ -784,6 +854,22 @@ export function ImageComments({
             onPointerUp={(e) => {
               pointers.current.delete(e.pointerId);
               pinch.current = null;
+              const press = backdropPress.current;
+              backdropPress.current = null;
+              if (
+                press?.pointerId === e.pointerId &&
+                Math.hypot(
+                  e.clientX - press.clientX,
+                  e.clientY - press.clientY
+                ) < 8 &&
+                onBackdrop(e)
+              ) {
+                if (press.editing) dismissEditor();
+                // Close on the click that follows, so that click lands on
+                // this viewer and can't tap through to the page beneath.
+                else backdropClose.current = true;
+                return;
+              }
               const s = gesture.current;
               gesture.current = null;
               setPreview(null);
@@ -805,6 +891,7 @@ export function ImageComments({
             onPointerCancel={(e) => {
               pointers.current.delete(e.pointerId);
               pinch.current = null;
+              backdropPress.current = null;
               gesture.current = null;
               setPreview(null);
             }}
@@ -1018,7 +1105,10 @@ export function ImageComments({
               );
             })}
         </div>
-        <footer className="flex flex-wrap items-center justify-center gap-2 border-t bg-background p-2">
+        <footer
+          data-testid="image-viewer-footer"
+          className="flex shrink-0 flex-wrap items-center justify-center gap-2 border-t bg-background pb-[max(0.5rem,env(safe-area-inset-bottom,0px))] pl-[max(0.5rem,env(safe-area-inset-left,0px))] pr-[max(0.5rem,env(safe-area-inset-right,0px))] pt-2"
+        >
           <div className="mr-auto flex justify-center">
             <div className="flex items-center gap-1 rounded-full border border-white/20 bg-black/80 p-1 text-white">
               {markup && (
@@ -1093,22 +1183,7 @@ export function ImageComments({
                   size="sm"
                   variant="primary"
                   disabled={!!selected || !loaded}
-                  onClick={() => {
-                    compose.onDone(
-                      comments
-                        .filter((c) => c.note.trim())
-                        .map((c) => ({
-                          id: c.id,
-                          number: c.number,
-                          x: c.x,
-                          y: c.y,
-                          width: c.width,
-                          height: c.height,
-                          note: c.note.trim(),
-                        }))
-                    );
-                    onClose();
-                  }}
+                  onClick={finishCompose}
                 >
                   Done
                 </Button>
