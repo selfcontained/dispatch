@@ -44,6 +44,56 @@ export function imageFeedbackNotes(
 /** The longest side an annotated copy is exported at. */
 const ANNOTATED_MAX_SIDE = 2560;
 
+/** Resolve SVGs without intrinsic dimensions without inserting their markup into the DOM.
+ * Explicit element dimensions also give WebKit a viewport for canvas drawing.
+ */
+export async function imageRasterSize(image: HTMLImageElement) {
+  if (image.naturalWidth > 0 && image.naturalHeight > 0) {
+    return { width: image.naturalWidth, height: image.naturalHeight };
+  }
+  let width = 300,
+    height = 150;
+  const response = await fetch(image.src);
+  if (!response.ok) throw new Error("Unable to load image dimensions.");
+  const root = new DOMParser().parseFromString(
+    await response.text(),
+    "image/svg+xml"
+  ).documentElement;
+  if (root.localName !== "svg")
+    throw new Error("Unable to read image dimensions.");
+  const viewBox = root
+    .getAttribute("viewBox")
+    ?.trim()
+    .split(/[\s,]+/)
+    .map(Number);
+  const dimension = (name: string) => {
+    const value = root.getAttribute(name)?.trim() ?? "";
+    return /^(?:\d+(?:\.\d*)?|\.\d+)(?:px)?$/.test(value)
+      ? Number.isFinite(parseFloat(value))
+        ? parseFloat(value)
+        : 0
+      : 0;
+  };
+  const w = dimension("width"),
+    h = dimension("height");
+  const validViewBox =
+    viewBox?.length === 4 &&
+    viewBox.every(Number.isFinite) &&
+    viewBox[2] > 0 &&
+    viewBox[3] > 0
+      ? viewBox
+      : undefined;
+  const ratio = validViewBox ? validViewBox[2] / validViewBox[3] : 2;
+  width = w || (h ? h * ratio : validViewBox?.[2] || width);
+  height = h || width / ratio;
+  const scale = Math.min(1, ANNOTATED_MAX_SIDE / Math.max(width, height));
+  width = Math.max(1, Math.round(width * scale));
+  height = Math.max(1, Math.round(height * scale));
+  image.width = width;
+  image.height = height;
+  return { width, height };
+}
+
 /** Draws the callouts onto a copy of the image and exports it as PNG. */
 export async function renderAnnotatedImage(
   image: CanvasImageSource,
@@ -55,8 +105,8 @@ export async function renderAnnotatedImage(
     ANNOTATED_MAX_SIDE / Math.max(size.width, size.height)
   );
   const canvas = document.createElement("canvas");
-  canvas.width = Math.round(size.width * scale);
-  canvas.height = Math.round(size.height * scale);
+  canvas.width = Math.max(1, Math.round(size.width * scale));
+  canvas.height = Math.max(1, Math.round(size.height * scale));
   const ctx = canvas.getContext("2d");
   if (!ctx) throw new Error("Unable to create annotated copy.");
   ctx.drawImage(image, 0, 0, canvas.width, canvas.height);

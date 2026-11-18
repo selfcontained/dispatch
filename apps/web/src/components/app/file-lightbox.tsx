@@ -183,7 +183,7 @@ export function FileLightbox({
     : "";
   const showLoadError = files === undefined && !file && !!error && !isFetching;
 
-  if (file && isImage && file.mimeType !== "image/svg+xml") {
+  if (file && isImage) {
     const ImageViewer = inRouter ? RoutedImageComments : ImageComments;
     return (
       <ImageViewer

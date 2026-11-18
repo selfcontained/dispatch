@@ -30,6 +30,7 @@ import {
   imageFeedbackMetadata,
   imageFeedbackNotes,
   renderAnnotatedImage,
+  imageRasterSize,
 } from "@/lib/image-feedback";
 import { createClientId } from "@/lib/client-id";
 import { api, ApiError } from "@/lib/api";
@@ -698,11 +699,21 @@ export function ImageComments({
             alt={caption}
             className="hidden"
             onLoad={(e) => {
-              setImageSize({
-                width: e.currentTarget.naturalWidth,
-                height: e.currentTarget.naturalHeight,
-              });
-              setLoaded(true);
+              const target = e.currentTarget;
+              if (target.naturalWidth > 0 && target.naturalHeight > 0) {
+                setImageSize({
+                  width: target.naturalWidth,
+                  height: target.naturalHeight,
+                });
+                setLoaded(true);
+              } else {
+                void imageRasterSize(target)
+                  .then((size) => {
+                    setImageSize(size);
+                    setLoaded(true);
+                  })
+                  .catch(() => setLoadError(true));
+              }
             }}
             onError={() => setLoadError(true)}
           />

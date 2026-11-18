@@ -99,6 +99,7 @@ import {
   imageFeedbackMetadata,
   imageFeedbackNotes,
   renderAnnotatedImage,
+  imageRasterSize,
 } from "@/lib/image-feedback";
 
 import { ShareTaskPicker } from "./share-task-picker";
@@ -1069,10 +1070,7 @@ export function ChatComposer({
             try {
               if (!markup) {
                 const image = await loadImage(preview);
-                const size = {
-                  width: image.naturalWidth,
-                  height: image.naturalHeight,
-                };
+                const size = await imageRasterSize(image);
                 const shareId = createClientId();
                 const copy = await renderAnnotatedImage(image, size, callouts);
                 const copyId = (
@@ -1447,8 +1445,6 @@ export function ChatComposer({
                     noteCount={view.entry.callouts?.length}
                     onOpen={
                       isImageAttachment(view.file) &&
-                      view.file.type !== "image/svg+xml" &&
-                      !/\.svg$/i.test(view.file.name) &&
                       previewsRef.current.has(view.key) &&
                       !inFlight
                         ? () => setMarkupKey(view.key)
