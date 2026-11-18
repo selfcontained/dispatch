@@ -20,7 +20,7 @@ import { fileURLToPath } from "node:url";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, "../..");
-const RUNNERS = ["alpha", "beta"];
+const RUNNERS = ["alpha", "beta", "scratch"];
 const WORKSPACE = "proof"; // identical handle on every runner, on purpose
 // Colima/Docker Desktop share $HOME, not /tmp, with the VM; bind mounts must live here.
 export const base =
@@ -43,21 +43,16 @@ const freePort = () =>
   });
 
 function artifacts(arch) {
+  const inputs = [
+    "apps/server/src",
+    "apps/server/test/helpers",
+    "packages/runner-protocol",
+    "pnpm-lock.yaml",
+  ];
   const hash = createHash("sha256")
-    .update(
-      sh(
-        "git",
-        ["ls-files", "-s", "apps/server/src", "apps/server/test/helpers"],
-        { cwd: root }
-      )
-    )
-    .update(
-      sh(
-        "git",
-        ["diff", "HEAD", "--", "apps/server/src", "apps/server/test/helpers"],
-        { cwd: root }
-      )
-    )
+    .update(sh("bun", ["--version"]))
+    .update(sh("git", ["ls-files", "-s", "--", ...inputs], { cwd: root }))
+    .update(sh("git", ["diff", "HEAD", "--", ...inputs], { cwd: root }))
     .digest("hex")
     .slice(0, 16);
   const dir = path.join(base, `bin-${arch}-${hash}`);
@@ -132,12 +127,15 @@ async function up(run) {
         path: "/usr/local/bin:/usr/bin:/bin",
         bins: { claudeBin: "/bin/false", codexBin: null },
         adapter: ["/opt/bin/remote-acp-fixture"],
-        workspaces: {
-          [WORKSPACE]: {
-            cwd: `/opt/dispatch-guest-${name}-proof`,
-            repoTool: ["/bin/sh", "-c", "echo ran > repo-op"],
-          },
-        },
+        workspaces:
+          name === "scratch"
+            ? {}
+            : {
+                [WORKSPACE]: {
+                  cwd: `/opt/dispatch-guest-${name}-proof`,
+                  repoTool: ["/bin/sh", "-c", "echo ran > repo-op"],
+                },
+              },
       })
     );
     copyFileSync(

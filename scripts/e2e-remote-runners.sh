@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Integrated remote-runner acceptance: local agent + two Docker-hosted runners
-# with the same workspace name. Requires docker and bun. No VMs, no prod data.
+# with the same workspace name, plus an independently enrolled scratch runner.
+# Requires Docker and Bun.
 #   pnpm run test:e2e:remote-runners [extra playwright args]
 set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

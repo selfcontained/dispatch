@@ -3,9 +3,9 @@ import { authHeaders, cleanupE2EAgents } from "../helpers";
 import {
   agentInfo,
   chat,
-  createPairing,
   enrollViaUi,
   revokeViaUi,
+  guest,
   guestOk,
   invocations,
   lane,
@@ -14,10 +14,11 @@ import {
   marker,
   newSettledTurn,
   runnerOptionEnabled,
-  pairInContainer,
+  requestConnection,
   runnerRow,
   runnerRows,
   state,
+  settledTurns,
   type RunnerName,
 } from "./harness";
 
@@ -41,6 +42,9 @@ test.beforeAll(() => {
 });
 test.afterAll(async ({ request }) => {
   await cleanupE2EAgents(request);
+  await Promise.all(
+    Object.values(pages).map((page) => page?.context().close())
+  );
 });
 
 const text = (p: Page) => p.locator("body");
@@ -62,6 +66,7 @@ test("enroll two runners with identical workspace names", async ({
 });
 
 test("UI launches local, alpha and beta; each answer comes from its own side", async ({
+  baseURL,
   browser,
 }, testInfo) => {
   for (const [key, prompt] of [
@@ -69,7 +74,7 @@ test("UI launches local, alpha and beta; each answer comes from its own side", a
     ["alpha", "prove-marker proof-count"],
     ["beta", "prove-marker proof-count"],
   ] as const) {
-    const page = await (await browser.newContext()).newPage();
+    const page = await (await browser.newContext({ baseURL })).newPage();
     pages[key] = page;
     const { status, id } = await launchViaUi(
       page,
@@ -247,20 +252,40 @@ test("revoke alpha: it cannot return, beta and local are unaffected", async ({
 
 // ---------------------------------------------------------------- failures
 test.describe("failure suite", () => {
-  test("pairing codes are single-use and wrong codes are refused", async ({
+  test("approval codes are single-use and wrong codes are refused", async ({
+    page,
     request,
   }) => {
-    const { body } = await createPairing(request, "gamma");
-    expect(body).not.toBeNull();
-    const bad = body!.command.replace(/--code\s+\S+/, "--code WRONGCODE");
-    expect(() => pairInContainer("beta", bad)).toThrow();
-    // Pair the unused code into a throwaway dir so beta's live credentials stay intact.
-    pairInContainer("beta", body!.command, "/tmp/gamma-creds");
-    expect(() =>
-      pairInContainer("beta", body!.command, "/tmp/gamma-creds-2")
-    ).toThrow(); // replay
-    const row = await runnerRow(request, "gamma");
-    expect(["pending", "online", "offline"]).toContain(row?.status);
+    const { form, code, finished } = await requestConnection(
+      page,
+      "beta",
+      "/tmp/gamma-creds"
+    );
+    await form.getByLabel("Runner name").fill("gamma");
+    const approve = async (value: string) => {
+      await form.getByLabel("Pairing code").fill(value);
+      const response = page.waitForResponse(
+        (r) =>
+          r.request().method() === "POST" &&
+          new URL(r.url()).pathname.endsWith("/approve")
+      );
+      await form.getByRole("button", { name: "Approve runner" }).click();
+      return response;
+    };
+    expect((await approve("WRONGCODE")).status()).toBeGreaterThanOrEqual(400);
+    await expect(form.getByRole("alert")).toBeVisible();
+    const approved = await approve(code);
+    expect(approved.ok(), await approved.text()).toBe(true);
+    expect(await finished).toBe(true);
+    await expect(form).toHaveCount(0);
+    const replay = await request.post(approved.url(), {
+      headers: authHeaders(),
+      data: { name: "gamma", code },
+    });
+    expect(replay.status()).toBeGreaterThanOrEqual(400);
+    expect(
+      (await runnerRows(request)).filter((row) => row.name === "gamma")
+    ).toHaveLength(1);
   });
 
   test("unknown runner and workspace are refused; revoked runner is not selectable", async ({
@@ -325,4 +350,68 @@ test.describe("failure suite", () => {
       })
       .toBe("online");
   });
+});
+
+test("managed scratch launch reports health and archive removes the guest session folder", async ({
+  page,
+  request,
+}, testInfo) => {
+  const runnerId = await enrollViaUi(page, request, "scratch");
+  expect((await runnerRow(request, "scratch"))?.workspaces).toEqual([
+    "@session",
+  ]);
+  const { status, id } = await launchViaUi(page, {
+    name: "e2e-rr-managed-scratch",
+    runnerId,
+    managedScratch: true,
+    prompt: "proof-count scratch-start",
+  });
+  expect(status).toBe(201);
+  expect(id).toMatch(/^agt_[a-z0-9]+$/);
+  expect((await agentInfo(request, id!)).cwd).toBe(
+    `runner://${runnerId}/@session`
+  );
+  await expect(settledTurns(page)).toHaveCount(1, { timeout: 45_000 });
+  await expect(
+    settledTurns(page).last().getByTestId("harness-result")
+  ).toContainText("Local or guest fixture turn completed.");
+  const directory = `/var/lib/runner/sessions/${id}`;
+  expect(guest("scratch", `stat -c '%u:%g %a' ${directory}`).trim()).toBe(
+    "1500:1500 700"
+  );
+  expect(guest("scratch", `cat ${directory}/provider-invocations`).trim()).toBe(
+    "called"
+  );
+
+  await page.goto("/settings/connections", { waitUntil: "domcontentloaded" });
+  const health = page
+    .getByTestId(`runner-${runnerId}`)
+    .getByTestId("runner-health");
+  const summary = health.locator("summary");
+  await expect(summary).toContainText("1 session", { timeout: 45_000 });
+  await summary.click();
+  await expect(health.getByText("Memory", { exact: true })).toBeVisible();
+  await expect(
+    health.getByText("Runner version", { exact: true })
+  ).toBeVisible();
+  await testInfo.attach("managed scratch health", {
+    body: await page.getByTestId(`runner-${runnerId}`).screenshot(),
+    contentType: "image/png",
+  });
+
+  await page.goto("/", { waitUntil: "domcontentloaded" });
+  const archive = page.getByTestId(`agent-archive-${id}`);
+  if (!(await archive.isVisible()))
+    await page.getByTestId(`agent-expand-toggle-${id}`).click();
+  await archive.click();
+  await expect(
+    page.getByRole("dialog", { name: "Archive Agent" })
+  ).toContainText("The runner will delete its session folder");
+  await page.getByTestId("delete-agent-confirm").click();
+  await expect(page.getByTestId(`agent-card-${id}`)).toHaveCount(0);
+  await expect
+    .poll(() => guestOk("scratch", `test ! -e ${directory}`), {
+      timeout: 30_000,
+    })
+    .toBe(true);
 });

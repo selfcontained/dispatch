@@ -1,16 +1,17 @@
-import { execFileSync } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { expect, type APIRequestContext, type Page } from "@playwright/test";
 import { authHeaders, trackAgent } from "../helpers";
 
 export type RunnerName = "alpha" | "beta";
+type GuestName = RunnerName | "scratch";
 type State = {
   controlPort: number;
   runnerPort: number;
   endpointHost: string;
   workspace: string;
   runners: Record<
-    RunnerName,
+    GuestName,
     { container: string; proxyPort: number; workspaceDir: string }
   >;
 };
@@ -26,10 +27,10 @@ const docker = (...args: string[]) =>
   execFileSync("docker", args, { encoding: "utf8" });
 
 /** Run a shell command inside a runner container as root. */
-export function guest(name: RunnerName, script: string) {
+export function guest(name: GuestName, script: string) {
   return docker("exec", state.runners[name].container, "sh", "-c", script);
 }
-export function guestOk(name: RunnerName, script: string) {
+export function guestOk(name: GuestName, script: string) {
   try {
     guest(name, script);
     return true;
@@ -77,44 +78,84 @@ export async function runnerRows(request: APIRequestContext) {
 export const runnerRow = async (request: APIRequestContext, name: string) =>
   (await runnerRows(request)).find((r) => r.name === name);
 
-/** Route the runner's whole path (pairing and mTLS) through its chaos lane. */
-const viaLane = (name: RunnerName, command: string) =>
-  command.replace(
-    /--endpoint\s+https:\/\/\S+/,
-    `--endpoint https://${state.endpointHost}:${state.runners[name].proxyPort}`
-  );
-
-export async function createPairing(request: APIRequestContext, name: string) {
-  const res = await request.post(RUNNERS_API, {
-    headers: authHeaders(),
-    data: { name },
-  });
-  return { res, body: res.ok() ? await res.json() : null } as {
-    res: typeof res;
-    body: { id: string; command: string; expiresAt: string } | null;
-  };
+async function connectCommand(page: Page) {
+  await page.goto("/settings/connections", { waitUntil: "domcontentloaded" });
+  await page.getByRole("button", { name: "Add runner", exact: true }).click();
+  const command = page.getByTestId("runner-connect-command");
+  await expect(command).toContainText("dispatch-runner connect");
+  return (await command.innerText()).trim();
 }
 
-/** Pair inside the container (key generated there), then start the runner. */
-export function pairInContainer(
-  name: RunnerName,
-  command: string,
+function commandOption(command: string, flag: string) {
+  const match = new RegExp(flag + " +(?:'([^']+)'|([^\\s]+))").exec(command);
+  return match?.[1] ?? match?.[2];
+}
+
+export async function requestConnection(
+  page: Page,
+  name: GuestName,
   dir = "/etc/dispatch-runner"
 ) {
-  const c = state.runners[name].container;
-  const pair = viaLane(name, command).replace(
-    /^dispatch-runner/,
-    "/opt/bin/dispatch-runner"
-  );
-  return docker(
+  const command = await connectCommand(page);
+  const service = new URL(commandOption(command, "--service")!);
+  const pin = commandOption(command, "--ca-sha256");
+  if (Number(service.port) === state.runnerPort)
+    service.port = String(state.runners[name].proxyPort);
+  const args = [
     "exec",
-    c,
-    "sh",
-    "-c",
-    `${pair} --dir ${dir} ${dir === "/etc/dispatch-runner" ? "--config /run/cfg/runner.json" : ""} 2>&1`
-  );
+    state.runners[name].container,
+    "/opt/bin/dispatch-runner",
+    "connect",
+    "--service",
+    service.href,
+    "--dir",
+    dir,
+    ...(pin ? ["--ca-sha256", pin] : []),
+    ...(dir === "/etc/dispatch-runner"
+      ? ["--config", "/run/cfg/runner.json"]
+      : []),
+  ];
+  let output = "";
+  let failure: Error | null = null;
+  const finished = new Promise<boolean>((resolve) => {
+    const child = execFile(
+      "docker",
+      args,
+      { timeout: 75_000 },
+      (error, _stdout, stderr) => {
+        failure = error
+          ? new Error(`Runner connect failed: ${stderr.trim() || error.code}`)
+          : null;
+        resolve(error === null);
+      }
+    );
+    child.stdout?.on("data", (chunk: string) => {
+      output += chunk;
+    });
+  });
+  const pairingCode = () => /^Code: ([A-Z0-9_-]+)\r?$/im.exec(output)?.[1];
+  await expect
+    .poll(
+      () => {
+        if (failure) throw failure;
+        return pairingCode();
+      },
+      { timeout: 20_000 }
+    )
+    .toBeTruthy();
+  const form = page.getByTestId("runner-approval");
+  await expect(form).toHaveCount(1, { timeout: 15_000 });
+  return { form, code: pairingCode()!, finished };
 }
-export function startRunner(name: RunnerName) {
+
+export function startRunner(name: GuestName) {
+  const proxyPort = state.runners[name].proxyPort;
+  // The approved config records the advertised service port. Redirect only
+  // that endpoint so chaos injection still covers the mTLS supervisor.
+  guest(
+    name,
+    `sed -i -E '/"endpoint":/s/:${state.runnerPort}"/:${proxyPort}"/' /run/cfg/runner.json && grep -q ':${proxyPort}"' /run/cfg/runner.json`
+  );
   docker(
     "exec",
     "-d",
@@ -124,20 +165,17 @@ export function startRunner(name: RunnerName) {
     "/opt/bin/dispatch-runner remote-runner /run/cfg/runner.json >/var/log/runner.log 2>&1"
   );
 }
-export const runnerLog = (name: RunnerName) =>
-  guest(name, "cat /var/log/runner.log 2>/dev/null || true");
 
-/** Pair through Settings → Connections → Remote runners (the normal UI). */
 export async function enrollViaUi(
   page: Page,
   request: APIRequestContext,
-  name: RunnerName
+  name: GuestName
 ) {
-  await page.goto("/settings/connections", { waitUntil: "domcontentloaded" });
-  await page.getByTestId("runner-name-input").fill(name);
-  await page.getByTestId("runner-pair-submit").click();
-  const command = (await page.getByTestId("runner-command").innerText()).trim();
-  pairInContainer(name, command);
+  const { form, code, finished } = await requestConnection(page, name);
+  await form.getByLabel("Runner name").fill(name);
+  await form.getByLabel("Pairing code").fill(code);
+  await form.getByRole("button", { name: "Approve runner" }).click();
+  expect(await finished).toBe(true);
   startRunner(name);
   await expect
     .poll(async () => (await runnerRow(request, name))?.status, {
@@ -160,19 +198,6 @@ export async function revokeViaUi(page: Page, id: string) {
   });
 }
 
-export async function enroll(request: APIRequestContext, name: RunnerName) {
-  const { res, body } = await createPairing(request, name);
-  expect(res.ok(), await res.text()).toBe(true);
-  pairInContainer(name, body!.command);
-  startRunner(name);
-  await expect
-    .poll(async () => (await runnerRow(request, name))?.status, {
-      timeout: 30_000,
-    })
-    .toBe("online");
-  return body!.id;
-}
-
 /** Launch through the normal Create Agent dialog (Folder = runner locator). */
 export async function launchViaUi(
   page: Page,
@@ -180,6 +205,7 @@ export async function launchViaUi(
     name: string;
     cwd?: string;
     runnerId?: string;
+    managedScratch?: boolean;
     prompt: string;
     restricted?: boolean;
   }
@@ -198,10 +224,17 @@ export async function launchViaUi(
     await page
       .getByTestId(`create-agent-runner-option-${opts.runnerId}`)
       .click();
-    await page.getByTestId("create-agent-runner-workspace").click();
-    await page
-      .getByRole("option", { name: state.workspace, exact: true })
-      .click();
+    if (opts.managedScratch) {
+      await expect(
+        page.getByTestId("create-agent-runner-workspace")
+      ).toHaveCount(0);
+      await expect(page.getByTestId("runner-repository")).toHaveValue("");
+    } else {
+      await page.getByTestId("create-agent-runner-workspace").click();
+      await page
+        .getByRole("option", { name: state.workspace, exact: true })
+        .click();
+    }
   } else await page.getByTestId("create-agent-cwd").fill(opts.cwd ?? "/tmp");
   if (opts.restricted) {
     // "Start in full access mode" is on by default; permission prompts need it off.
