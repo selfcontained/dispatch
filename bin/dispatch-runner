@@ -17,3 +17,4 @@ exec 9>"$runtime/install.lock"
 flock -n 9 || { printf 'Another runner install, update, or connection is running.\n' >&2; exit 1; }
 "$runtime/dispatch" "$@"
 systemctl enable --now dispatch-runner.service
+printf 'Runner service started.\n'

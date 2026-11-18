@@ -138,7 +138,7 @@ export function pinnedAuthority(pem: unknown, pin: string): X509Certificate {
     now > new Date(ca.validTo).getTime()
   ) {
     throw new Error(
-      "The service certificate does not match the pinned Dispatch runner CA."
+      "The service certificate does not match the pinned runner CA."
     );
   }
   return ca;
@@ -165,7 +165,7 @@ export function verifyServiceLeaf(
     !names
   ) {
     throw new Error(
-      "The service certificate does not match the pinned Dispatch runner CA."
+      "The service certificate does not match the pinned runner CA."
     );
   }
 }
@@ -646,9 +646,7 @@ function verifyIssuedConnectCredentials(
     pin !== undefined &&
     issuedCa.fingerprint256 !== normalizeFingerprint(pin)
   )
-    throw new Error(
-      "The issued CA does not match the pinned Dispatch runner CA."
-    );
+    throw new Error("The issued CA does not match the pinned runner CA.");
 }
 
 /** `dispatch-runner connect …`: ask an operator to approve this runner. */
@@ -721,10 +719,6 @@ export async function runRunnerConnect(argv: string[]) {
                 cert: path.join(options.dir, "cert.pem"),
                 key: path.join(options.dir, "key.pem"),
               })}`,
-          // This CLI never touches systemd itself (see persistRunnerCredentials);
-          // the installer only installs and daemon-reloads, so enrollment is
-          // the last step that needs telling the operator what to do next.
-          "Start it: sudo systemctl enable --now dispatch-runner.service",
           "",
         ].join("\n")
       );
