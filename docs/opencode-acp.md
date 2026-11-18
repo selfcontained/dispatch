@@ -23,7 +23,7 @@ HTTP MCP connects the session to Dispatch. Native ACP
 provides streamed text, tool calls, model/mode selection, cancellation, and resume.
 OpenCode V2 always uses full access. Dispatch normalizes OpenCode agents, templates,
 jobs and task launches to full access, including existing saved restricted settings.
-The UI shows full access and offers no restricted option. ACP permission requests
+The UI offers no access toggle for OpenCode. ACP permission requests
 are automatically approved using a one-time option; native effective deny rules
 still block operations. The old `OPENCODE_PERMISSION` wildcard is retired. OpenCode's own agent configuration
 still applies; build/plan modes are not filesystem sandboxes.

@@ -337,11 +337,7 @@ export function SettingsTab({
             onBranchNameChange={setBranchName}
             testIdPrefix={`job-settings-${job.id}`}
           />
-          {agentType === "opencode" ? (
-            <p className="text-sm text-muted-foreground">
-              OpenCode uses full access.
-            </p>
-          ) : (
+          {agentType !== "opencode" && (
             <JobFullAccessOption
               checked={fullAccess}
               onCheckedChange={setFullAccess}

@@ -192,11 +192,7 @@ function CreateAgentDialogContent({
                   onCreateNewBranchChange={form.setCreateNewBranch}
                 />
 
-                {form.createType === "opencode" ? (
-                  <p className="text-sm text-muted-foreground">
-                    OpenCode uses full access.
-                  </p>
-                ) : (
+                {form.createType !== "opencode" && (
                   <label className="flex cursor-pointer items-start gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3">
                     <Checkbox
                       checked={form.createFullAccess}

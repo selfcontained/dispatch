@@ -294,11 +294,7 @@ export function TemplateConfigFields({
           onBranchNameChange={onBranchNameChange}
         />
 
-        {agentType === "opencode" ? (
-          <p className="text-sm text-muted-foreground">
-            OpenCode uses full access.
-          </p>
-        ) : (
+        {agentType !== "opencode" && (
           <TemplateFullAccessOption
             checked={fullAccess}
             onCheckedChange={onFullAccessChange}

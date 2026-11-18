@@ -402,11 +402,7 @@ export function AddJobFlow({
                     onBranchNameChange={setBranchName}
                     testIdPrefix="job-create"
                   />
-                  {agentType === "opencode" ? (
-                    <p className="text-sm text-muted-foreground">
-                      OpenCode uses full access.
-                    </p>
-                  ) : (
+                  {agentType !== "opencode" && (
                     <JobFullAccessOption
                       checked={fullAccess}
                       onCheckedChange={setFullAccess}
