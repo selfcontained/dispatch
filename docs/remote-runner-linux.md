@@ -30,9 +30,10 @@ The runner must be able to reach the HTTPS address in the pairing command.
    `/var/lib/dispatch-runner/home/.local/bin`. Install Node.js and npm on
    the Linux host to enable managed engine installs and updates. Credentials
    belong to that runner's workload account.
-4. Choose the runner when launching a session in Dispatch. The runner allocates
-   the managed session directory. The reserved `@session` placement is supplied
-   by the runner. Installation requires no checkout or workspace path.
+4. In **Create Agent**, choose the runner. A Dispatch project can supply the
+   repository. Select a base branch for a new worktree, use an existing branch,
+   or clear the repository for a scratch session. The runner creates the
+   session directory and removes it when the agent is archived.
 
 The command downloads the bootstrap from the selected GitHub release and
 verifies its signed build provenance against
@@ -78,6 +79,21 @@ The service is enabled at boot and the supervisor reconnects to Dispatch.
 Inspect startup logs with `sudo journalctl -u dispatch-runner.service`.
 For custom engine install paths, edit the `bins` object in
 `/etc/dispatch-runner/runner.json` as root and restart the service while idle.
+
+## Private GitHub repositories
+
+For private checkouts, install GitHub CLI at `/usr/bin/gh` on the runner and
+sign in once as its workload account. Configure the Git credential helper so
+agents can also push over HTTPS from inside their worktrees.
+
+```sh
+sudo -u dispatch-runner -H /usr/bin/gh auth login --hostname github.com --git-protocol https --web
+sudo -u dispatch-runner -H /usr/bin/gh auth setup-git --hostname github.com
+```
+
+Sessions on this runner share that account’s repository access. Choose a
+repository in Create Agent as needed. Public HTTPS checkouts and scratch
+sessions work without a GitHub login.
 
 ## Update or recover
 
