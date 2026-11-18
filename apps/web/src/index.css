@@ -1856,21 +1856,6 @@ html[data-hidden] .animate-sidebar-nav-pulse {
   }
 }
 
-/* Design Lab fill-count study: the full grid fades back behind the new pass. */
-@keyframes dispatch-defrag-ghost {
-  from {
-    opacity: 1;
-  }
-}
-.dispatch-defrag-ghost {
-  animation: dispatch-defrag-ghost 1400ms ease-out;
-}
-@media (prefers-reduced-motion: reduce) {
-  .dispatch-defrag-ghost {
-    animation: none;
-  }
-}
-
 @media (prefers-reduced-motion: reduce) {
   .dispatch-defrag-reduced [data-defrag-cell] {
     transform: var(--defrag-packed-transform) !important;

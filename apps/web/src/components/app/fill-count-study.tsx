@@ -4,8 +4,8 @@ import {
   defragCells,
   defragHistory,
   ResponsePlaceholderVisual,
-  type FillStyle,
 } from "./chat/turn/response-placeholder";
+import { LapIndicator, type LapStyle } from "./fill-lap-indicators";
 import { type ActivityCategory } from "./chat/turn/activity-category";
 
 const SEED = "fill-count-study";
@@ -35,9 +35,19 @@ const MIX: ActivityCategory[] = [
   "dev",
 ];
 
-/** Activity for the nth step: a fixed walk through the mix, offset per lap. */
+/** What each lap leans on, so laps differ like a real long turn's phases. */
+const FOCUS: ActivityCategory[] = [
+  "read",
+  "edit",
+  "checks",
+  "dispatch",
+  "browser",
+];
+
+/** Activity for the nth step: a fixed walk through the mix, leaning per lap. */
 function stepAt(i: number): ActivityCategory {
   const lap = Math.floor(i / cellCount);
+  if ((i * 2654435761) % 100 < 40) return FOCUS[lap % FOCUS.length]!;
   return MIX[(i * 7 + lap * 3) % MIX.length]!;
 }
 function stepsUpTo(length: number): ActivityCategory[] {
@@ -47,26 +57,26 @@ function stepsUpTo(length: number): ActivityCategory[] {
 const lengthFor = (fills: number) =>
   fills * cellCount + Math.round(cellCount * 0.45);
 
-const VARIANTS: { style: FillStyle; title: string; note: string }[] = [
+const VARIANTS: { style: LapStyle; title: string; note: string }[] = [
   {
-    style: "lap",
-    title: "1 · Lap counter",
-    note: "A small ×n chip beside Show progress.",
+    style: "underline",
+    title: "A · Underlined count",
+    note: "The ×n chip, underlined with the mix of every lap so far.",
   },
   {
-    style: "stack",
-    title: "2 · Stacked layers",
-    note: "One card edge per fill below the card, three then +n.",
+    style: "bar",
+    title: "B · Count + block row",
+    note: "A row of blocks beside the count, grouped by what filled the laps.",
   },
   {
-    style: "ticks",
-    title: "3 · Tick strip",
-    note: "One mark per fill along the bottom, in the colours that filled it.",
+    style: "laps",
+    title: "C · One bar per lap",
+    note: "Each finished lap gets its own mini bar, last five shown.",
   },
   {
-    style: "ghost",
-    title: "4 · Ghost history",
-    note: "The last full grid fades behind the new pass. Hover a gap for the count.",
+    style: "grid",
+    title: "D · Mini defrag",
+    note: "A tiny packed grid of everything the laps did, in block groups.",
   },
 ];
 
@@ -84,8 +94,9 @@ export function FillCountStudy(): JSX.Element {
   useEffect(() => {
     if (!playing) return;
     const timer = window.setTimeout(
-      () => setLength((n) => n + (fast ? 4 : 1)),
-      fast ? 60 : 900
+      () => setLength((n) => n + (fast ? 12 : 1)),
+      // One move at a time: each step finishes its slide before the next.
+      fast ? 1500 : 1800
     );
     return () => window.clearTimeout(timer);
   }, [playing, fast, length]);
@@ -181,8 +192,9 @@ export function FillCountStudy(): JSX.Element {
               arrivalKeys={arrivalKeys}
               textLength={categories.filter((c) => c === "write").length * 250}
               onShowProgress={() => undefined}
-              fills={fills}
-              fillStyle={variant.style}
+              fillIndicator={
+                <LapIndicator fills={fills} variant={variant.style} />
+              }
             />
           </figure>
         ))}
