@@ -276,6 +276,7 @@ export type McpRequestContext = UsageCallbacks & {
   scheduledMessages?: ScheduledMessageService;
   agent: McpAgent | null;
   repoRoot: string | null;
+  remoteRepoOperation?: () => Promise<string>;
   worktreeRoot: string | null;
   /**
    * Publishes `agent.tool_invoked` for every tool call on this server
@@ -624,6 +625,23 @@ export async function createDispatchMcpServer(
     registerJobTools(server, context.agent.id, context.jobTools);
   }
 
+  if (context.remoteRepoOperation) {
+    const run = context.remoteRepoOperation;
+    server.registerTool(
+      "repo_runner_workspace",
+      {
+        description:
+          "Run the enrolled workspace's approved repository operation.",
+      },
+      async () => {
+        try {
+          return { content: [{ type: "text", text: await run() }] };
+        } catch (error) {
+          return toToolError(error);
+        }
+      }
+    );
+  }
   const toolsRoot = context.worktreeRoot ?? context.repoRoot;
   if (context.agent && toolsRoot) {
     const allRepoTools = await loadRepoTools(toolsRoot);

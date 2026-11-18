@@ -121,6 +121,7 @@ import { registerTemplateRoutes } from "./routes/templates.js";
 import { registerFileRoutes } from "./routes/files.js";
 import { registerStreamRoutes } from "./routes/streams.js";
 import { StreamService, type TaskStreamRoot } from "./chat/service.js";
+import { configuredRunner } from "./agents/remote/service.js";
 import { registerMcpRoutes } from "./routes/mcp.js";
 import { registerPersonaRoutes } from "./routes/personas.js";
 import { registerPersonalityRoutes } from "./routes/personalities.js";
@@ -204,7 +205,9 @@ const pool = createPool(config);
 const serviceResourcesProbePool = createServiceResourcesProbePool(config);
 const routingSettings = new RoutingSettings(pool);
 const steeringDecisions = new SteeringDecisions(pool, routingSettings);
+const remoteRunner = configuredRunner();
 const agentManager = new AgentManager(pool, app.log, config, {
+  remote: remoteRunner,
   classifySteering: steeringDecisions.classify,
 });
 const focusTracker = new FocusTracker();
@@ -1080,6 +1083,8 @@ async function registerRoutes() {
 
   await registerScheduledMessageRoutes(app, scheduledMessages);
   await registerSystemRoutes(app, {
+    runnerWorkspaceAvailable: (placement) =>
+      remoteRunner?.available(placement) ?? false,
     slackAnswers,
     notificationLinkOrigins: () => {
       const primary = app.server.address();
@@ -1409,6 +1414,7 @@ let closeAdditionalListeners: (() => Promise<void>) | undefined;
 let stopLocalTlsWatch: (() => void) | undefined;
 
 export async function start() {
+  await remoteRunner?.start();
   await initializeApp();
 
   const protocol = config.tls ? "https" : "http";
@@ -1480,6 +1486,7 @@ async function cleanupAppResources(): Promise<void> {
     return;
   }
   shuttingDown = true;
+  remoteRunner?.close();
   const stage = async (name: string, close: () => Promise<unknown>) => {
     app.log.info({ stage: name }, "Shutdown stage started");
     await close();

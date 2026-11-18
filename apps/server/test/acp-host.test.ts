@@ -13,6 +13,8 @@ import {
   writeFileSync,
 } from "node:fs";
 import os from "node:os";
+import net from "node:net";
+import { once } from "node:events";
 import { spawn, execFileSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 import path from "node:path";
@@ -20,6 +22,11 @@ import { fileURLToPath } from "node:url";
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
+import {
+  encodeMessage,
+  ndjsonDecoder,
+  type HostMessage,
+} from "../src/agents/acp/host-protocol.js";
 import type { DriverEvent } from "../src/agents/acp/driver.js";
 import { createAcpRuntime } from "../src/agents/acp/runtime.js";
 import { buildSystemPrompt } from "../src/agents/acp/system-prompt.js";
@@ -590,6 +597,75 @@ await import(${JSON.stringify(pathToFileURL(fakeAgent).href)});
     expect(await replacement.runtime.isAlive(agentId)).toBe(false);
     expect(await replacement.runtime.listHosted()).toEqual([]);
   }, 60_000);
+
+  it("replays a remote prompt receipt after a lost acknowledgement without invoking the provider again", async () => {
+    const id = "agt_host_receipt";
+    const { runtime } = runtimeWith(stateRoot, () => 0);
+    const launch = launchFor(id, cwd);
+    launch.bins.adapter = {
+      bin: "bun",
+      args: [path.join(here, "helpers/remote-acp-fixture.ts")],
+    };
+    await runtime.launch(launch);
+    const dir = path.join(stateRoot, id);
+    async function attach() {
+      const messages: HostMessage[] = [];
+      const socket = net.createConnection(path.join(dir, "host.sock"));
+      const decode = ndjsonDecoder<HostMessage>();
+      socket.on("data", (chunk) => messages.push(...decode(chunk)));
+      await once(socket, "connect");
+      socket.write(
+        encodeMessage({ type: "hello", fromSeq: 0, replayComplete: true })
+      );
+      await until(() =>
+        messages.some((message) => message.type === "replay_complete")
+      );
+      return { socket, messages };
+    }
+    const first = await attach();
+    const welcome = first.messages.find(
+      (message) => message.type === "welcome"
+    )!;
+    const command = {
+      type: "prompt",
+      id: "first-operation",
+      text: "proof-count proof-delay:150",
+      journalId: welcome.journalId,
+    };
+    // Keep the write but discard the response, as a transport that loses the ack.
+    first.socket.removeAllListeners("data");
+    first.socket.write(encodeMessage(command));
+    await until(() => {
+      try {
+        return readFileSync(path.join(dir, "journal.jsonl"), "utf8").includes(
+          '"state":"settled"'
+        );
+      } catch {
+        return false;
+      }
+    });
+    first.socket.destroy();
+
+    const second = await attach();
+    try {
+      second.socket.write(encodeMessage(command));
+      await until(() =>
+        second.messages.some((message) => message.type === "prompt_accepted")
+      );
+      expect(readFileSync(path.join(cwd, "provider-invocations"), "utf8")).toBe(
+        "called\n"
+      );
+      const turns = second.messages.flatMap((message) =>
+        message.type === "event" && message.event.type === "turn"
+          ? [message.event.state]
+          : []
+      );
+      expect(turns).toEqual(["started", "settled"]);
+    } finally {
+      second.socket.destroy();
+      await runtime.stop(id, true);
+    }
+  }, 15_000);
 
   it("reads structured inventory through the host and runtime without journalling a turn", async () => {
     const id = "agt_host_inventory";

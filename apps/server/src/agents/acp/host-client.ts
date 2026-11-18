@@ -6,6 +6,7 @@ import type {
 } from "@dispatch/shared";
 import type { PromptImage, PromptSource } from "./prompt-source.js";
 import net from "node:net";
+import type { Duplex } from "node:stream";
 
 import type { SessionConfigOption } from "@agentclientprotocol/sdk";
 
@@ -27,6 +28,9 @@ export type HostWelcome = Extract<HostMessage, { type: "welcome" }>;
 export type HostClientDeps = {
   agentId: string;
   socketPath: string;
+  openSocket?: () => Promise<Duplex>;
+  reconnectError?: (error: unknown) => "retry" | "gone" | undefined;
+  onReady?: () => void;
   logger: DriverLogger;
   /** The newest journal seq already applied; the host replays after it. */
   fromSeq: () => number;
@@ -76,7 +80,7 @@ export class HostClient {
     string,
     { resolve: () => void; reject: (err: Error) => void }
   >();
-  private socket: net.Socket | null = null;
+  private socket: Duplex | null = null;
   private closed = false;
   private reconnectTimer: NodeJS.Timeout | null = null;
   private attempts = 0;
@@ -100,6 +104,7 @@ export class HostClient {
   }> = [];
   private lastWelcome: HostWelcome | null = null;
   private sentFromSeq = 0;
+  private replayReady = false;
   private reconnectingForLegacyReplay = false;
 
   constructor(private readonly deps: HostClientDeps) {}
@@ -174,7 +179,16 @@ export class HostClient {
     });
   }
 
-  private dial(): Promise<void> {
+  private async dial(): Promise<void> {
+    if (this.deps.openSocket) {
+      const socket = await this.deps.openSocket();
+      if (this.closed) {
+        socket.destroy();
+        throw new Error("the agent host client was closed");
+      }
+      this.connected(socket);
+      return;
+    }
     return new Promise<void>((resolve, reject) => {
       const socket = net.createConnection(this.deps.socketPath);
       const timer = setTimeout(() => {
@@ -182,17 +196,7 @@ export class HostClient {
       }, CONNECT_TIMEOUT_MS);
       socket.once("connect", () => {
         clearTimeout(timer);
-        this.attempts = 0;
-        this.socket = socket;
-        this.wire(socket);
-        this.sentFromSeq = this.deps.fromSeq();
-        socket.write(
-          encodeMessage({
-            type: "hello",
-            fromSeq: this.sentFromSeq,
-            journalId: this.deps.journalId(),
-          } satisfies ClientMessage)
-        );
+        this.connected(socket);
         resolve();
       });
       socket.once("error", (err) => {
@@ -202,7 +206,22 @@ export class HostClient {
     });
   }
 
-  private wire(socket: net.Socket): void {
+  private connected(socket: Duplex): void {
+    this.attempts = 0;
+    this.lastWelcome = null;
+    this.replayReady = !this.deps.openSocket;
+    this.socket = socket;
+    this.wire(socket);
+    this.sentFromSeq = this.deps.fromSeq();
+    this.send({
+      type: "hello",
+      fromSeq: this.sentFromSeq,
+      journalId: this.deps.journalId(),
+      ...(this.deps.openSocket ? { replayComplete: true } : {}),
+    });
+  }
+
+  private wire(socket: Duplex): void {
     const decode = ndjsonDecoder<HostMessage>();
     socket.on("data", (chunk) => {
       for (const message of decode(chunk)) this.handle(message);
@@ -216,7 +235,13 @@ export class HostClient {
     socket.on("close", () => {
       if (this.socket !== socket) return;
       this.socket = null;
-      this.failPending(new Error("the agent host connection closed"));
+      this.failPending(
+        new Error(
+          this.deps.openSocket
+            ? "Runner connection dropped before acknowledgement; execution is unknown."
+            : "the agent host connection closed"
+        )
+      );
       if (this.closed) return;
       this.scheduleReconnect();
     });
@@ -248,8 +273,13 @@ export class HostClient {
           for (const w of waiters) w.resolve(message);
         }
         this.deps.onWelcome(message);
+
         if (this.permissions.length || previousPermissions.length)
           this.deps.onPermissions?.(this.permissions);
+        return;
+      case "replay_complete":
+        this.replayReady = true;
+        this.deps.onReady?.();
         return;
       case "event":
         if (this.reconnectingForLegacyReplay) return;
@@ -358,7 +388,11 @@ export class HostClient {
       this.reconnectTimer = null;
       if (this.closed) return;
       this.dial().catch((err) => {
-        if (this.attempts >= 6) {
+        const disposition = this.deps.reconnectError?.(err);
+        if (
+          disposition === "gone" ||
+          (this.attempts >= 6 && disposition !== "retry")
+        ) {
           this.deps.onGone(err instanceof Error ? err.message : String(err));
           return;
         }
@@ -498,6 +532,9 @@ export class HostClient {
           type: "prompt",
           id,
           text,
+          ...(this.deps.openSocket
+            ? { journalId: this.lastWelcome?.journalId }
+            : {}),
           ...(source ? { source } : {}),
           ...(images?.length ? { images } : {}),
         });
@@ -586,6 +623,12 @@ export class HostClient {
 
   shutdown(force: boolean): void {
     this.send({ type: "shutdown", force });
+  }
+
+  isReady(): boolean {
+    return (
+      this.replayReady && this.isConnected() && !!this.lastWelcome?.running
+    );
   }
 
   isConnected(): boolean {

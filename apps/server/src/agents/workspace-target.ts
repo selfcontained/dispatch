@@ -1,3 +1,4 @@
+import { remotePlacement } from "./remote/protocol.js";
 import { realpath, stat } from "node:fs/promises";
 import path from "node:path";
 
@@ -35,6 +36,7 @@ export type WorkspaceTargetAgent = {
 const DEFAULT_WORKTREE_BASE_BRANCH = "main";
 
 export function agentWorkspaceDir(agent: WorkspaceTargetAgent): string | null {
+  if (agent.cwd && remotePlacement(agent.cwd)) return null;
   return agent.workspacePath ?? agent.worktreePath ?? agent.cwd ?? null;
 }
 
@@ -47,6 +49,7 @@ export function agentWorkspaceDir(agent: WorkspaceTargetAgent): string | null {
 export function agentDiffTarget(
   agent: WorkspaceTargetAgent
 ): { path: string; baseRef: string | null } | null {
+  if (agent.cwd && remotePlacement(agent.cwd)) return null;
   if (agent.workspacePath) {
     return {
       path: agent.workspacePath,

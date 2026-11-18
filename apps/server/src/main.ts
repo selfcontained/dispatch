@@ -37,6 +37,9 @@ if (process.argv[2]?.startsWith("recovery-")) {
       process.env.DISPATCH_HOST ?? "127.0.0.1",
     ]
   );
+} else if (process.argv[2] === "remote-runner") {
+  const { runRemoteRunner } = await import("./agents/remote/runner.js");
+  await runRemoteRunner(process.argv[3]!);
 } else if (process.argv[2] === "agent-host") {
   await import("./agents/acp/host/main.js");
 } else if (process.argv[2] === "claude-acp") {

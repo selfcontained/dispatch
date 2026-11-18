@@ -168,6 +168,29 @@ async function main(): Promise<void> {
     hostFile(stateDir, "journalId")
   );
 
+  // These receipts belong to this journal. A claimed operation may have
+  // reached the provider even if the adapter never acknowledged pickup.
+  const receipts = new Map<string, "claimed" | "accepted">();
+  const receiptFile = path.join(stateDir, "prompt-receipts.jsonl");
+  function recordReceipt(id: string, state: "claimed" | "accepted") {
+    appendFileSync(
+      receiptFile,
+      JSON.stringify({ journalId: journal.id, id, state }) + "\n",
+      { mode: 0o600, flush: true }
+    );
+    receipts.set(id, state);
+  }
+  try {
+    for (const line of readFileSync(receiptFile, "utf8").trim().split("\n")) {
+      if (!line) continue;
+      const receipt = JSON.parse(line);
+      if (receipt.journalId === journal.id)
+        receipts.set(receipt.id, receipt.state);
+    }
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
+
   // The engine child's environment: the host's own (a login shell's), the
   // launch's additions, and Dispatch's bin directories ahead on PATH.
   const childEnv = buildHostEnv(launch, stateDir);
@@ -302,6 +325,7 @@ async function main(): Promise<void> {
         for (const entry of journal.after(fromSeq)) {
           send(socket, { type: "event", ...entry });
         }
+        if (message.replayComplete) send(socket, { type: "replay_complete" });
         if (startupError)
           send(socket, { type: "error", message: startupError });
         return;
@@ -330,6 +354,21 @@ async function main(): Promise<void> {
         send(socket, { type: "pong" });
         return;
       case "prompt": {
+        if (message.journalId) {
+          const previous = receipts.get(message.id);
+          if (message.journalId !== journal.id || previous === "claimed") {
+            send(socket, {
+              type: "error",
+              id: message.id,
+              message: "Prompt execution is unknown; do not resubmit.",
+            });
+            return;
+          }
+          if (previous === "accepted") {
+            send(socket, { type: "prompt_accepted", id: message.id });
+            return;
+          }
+        }
         if (!running) {
           send(socket, {
             type: "error",
@@ -350,11 +389,15 @@ async function main(): Promise<void> {
         }
         // The driver emits the turn's start, settle and error events; the
         // ack only says the adapter has the request.
+        if (message.journalId) recordReceipt(message.id, "claimed");
         driver
           .prompt(
             agentId,
             message.text,
-            () => send(client, { type: "prompt_accepted", id: message.id }),
+            () => {
+              if (message.journalId) recordReceipt(message.id, "accepted");
+              send(socket, { type: "prompt_accepted", id: message.id });
+            },
             message.source,
             message.images
           )

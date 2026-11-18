@@ -4,6 +4,7 @@ import type { AgentMcpInventoryResponse } from "@dispatch/shared";
 import type { AgentPermissionRequest } from "@dispatch/shared";
 import type { PromptImage, PromptSource } from "./prompt-source.js";
 import path from "node:path";
+import { StringDecoder } from "node:string_decoder";
 
 import type { DriverEvent } from "./driver.js";
 import type {
@@ -70,11 +71,17 @@ export type JournalEntry = {
 };
 
 export type ClientMessage =
-  | { type: "hello"; fromSeq: number; journalId?: string | null }
+  | {
+      type: "hello";
+      fromSeq: number;
+      journalId?: string | null;
+      replayComplete?: boolean;
+    }
   | {
       type: "prompt";
       id: string;
       text: string;
+      journalId?: string;
       source?: PromptSource;
       images?: PromptImage[];
     }
@@ -124,6 +131,7 @@ export type HostMessage =
       permissions?: AgentPermissionRequest[];
     }
   | ({ type: "event" } & JournalEntry)
+  | { type: "replay_complete" }
   | { type: "prompt_accepted"; id: string }
   /** Not submitted: the engine's own turn is open. Send it again after it settles. */
   | { type: "prompt_deferred"; id: string }
@@ -149,8 +157,9 @@ export type HostMessage =
  */
 export function ndjsonDecoder<T>(): (chunk: Buffer | string) => T[] {
   let buffer = "";
+  const decoder = new StringDecoder("utf8");
   return (chunk) => {
-    buffer += chunk.toString();
+    buffer += typeof chunk === "string" ? chunk : decoder.write(chunk);
     const out: T[] = [];
     let index: number;
     while ((index = buffer.indexOf("\n")) !== -1) {

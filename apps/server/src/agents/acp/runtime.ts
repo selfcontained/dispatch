@@ -7,6 +7,7 @@ import { sameConversation, type PromptConversation } from "@dispatch/shared";
 import { spawn } from "node:child_process";
 import { existsSync, openSync } from "node:fs";
 import {
+  appendFile,
   mkdir,
   readdir,
   readFile,
@@ -35,6 +36,12 @@ import type {
   SteeringDecision,
   SteeringOutcome,
 } from "../steering.js";
+import {
+  RunnerUnavailable,
+  RunnerHostGone,
+  type RemoteRunnerService,
+} from "../remote/service.js";
+import type { Placement } from "../remote/protocol.js";
 import { HostClient } from "./host-client.js";
 import {
   type HostLaunch,
@@ -227,6 +234,7 @@ type Waiting = {
 };
 
 type Live = {
+  remote?: boolean;
   client: HostClient;
   commands: AvailableCommand[];
   configOptions: SessionConfigOption[];
@@ -358,6 +366,8 @@ function sourceBlockIds(source?: PromptSource): string[] {
 }
 
 export type AcpRuntimeDeps = {
+  remote?: RemoteRunnerService;
+  placement?: (agentId: string) => Promise<Placement | null>;
   classifySteering?: ClassifySteering;
   config: Pick<AppConfig, "agentStateRoot" | "agentRuntime" | "dispatchBinDir">;
   logger: FastifyBaseLogger;
@@ -383,7 +393,15 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
   // Assigned below; launch() refers back to it to tear down a failed host.
   let runtime: AgentRuntime;
   const live = new Map<string, Live>();
+  const connecting = new Map<string, Promise<Live>>();
   const listeners = new Set<RuntimeEventListener>();
+
+  const placementOf = async (agentId: string) =>
+    deps.placement?.(agentId) ?? null;
+  const remoteService = () => {
+    if (!deps.remote) throw new RunnerUnavailable("Remote runner is disabled.");
+    return deps.remote;
+  };
 
   const stateDir = (agentId: string) =>
     path.join(config.agentStateRoot, agentId);
@@ -441,6 +459,7 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
     try {
       while (
         entry.waiting.length &&
+        (!entry.remote || entry.client.isReady()) &&
         !entry.deliveryInterrupts.size &&
         live.get(agentId) === entry
       ) {
@@ -612,6 +631,19 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
                   : "default"
               );
           } else {
+            if (entry.remote) {
+              const dir = stateDir(agentId);
+              await mkdir(dir, { recursive: true, mode: 0o700 });
+              await appendFile(
+                path.join(dir, "remote-prompts.jsonl"),
+                JSON.stringify({
+                  id,
+                  journalId: entry.journalId,
+                  blocks: sourceBlockIds(source),
+                }) + "\n",
+                { mode: 0o600, flush: true }
+              );
+            }
             // Set this before submitting: ack and settle can arrive together.
             entry.turnOpen = true;
             entry.turnBlockIds = new Set(sourceBlockIds(source));
@@ -711,7 +743,21 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
       });
   }
 
-  async function connect(
+  function connect(
+    agentId: string,
+    timeoutMs: number,
+    abandoned?: () => boolean
+  ): Promise<Live> {
+    const pending = connecting.get(agentId);
+    if (pending) return pending;
+    const request = openHost(agentId, timeoutMs, abandoned).finally(() =>
+      connecting.delete(agentId)
+    );
+    connecting.set(agentId, request);
+    return request;
+  }
+
+  async function openHost(
     agentId: string,
     timeoutMs: number,
     abandoned: () => boolean = () => false
@@ -719,7 +765,9 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
     const existing = live.get(agentId);
     if (existing) return existing;
     const cursor = await deps.hostSeq(agentId);
+    const placement = await placementOf(agentId);
     const entry: Live = {
+      remote: Boolean(placement),
       client: null as unknown as HostClient,
       commands: [],
       configOptions: [],
@@ -741,6 +789,29 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
     entry.client = new HostClient({
       agentId,
       socketPath: hostFile(stateDir(agentId), "socket"),
+      ...(placement
+        ? {
+            openSocket: async () =>
+              (
+                await remoteService().request(
+                  placement,
+                  {
+                    kind: "attach",
+                    agentId,
+                    workspace: placement.workspace,
+                  },
+                  true
+                )
+              ).channel!,
+            reconnectError: (error: unknown) =>
+              error instanceof RunnerUnavailable
+                ? "retry"
+                : error instanceof RunnerHostGone
+                  ? "gone"
+                  : undefined,
+            onReady: () => void pump(agentId, entry),
+          }
+        : {}),
       logger,
       fromSeq: () => entry.lastSeq,
       journalId: () => entry.journalId,
@@ -824,6 +895,17 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
   }
 
   async function readLogTail(agentId: string): Promise<string> {
+    const placement = await placementOf(agentId);
+    if (placement) {
+      const response = await remoteService()
+        .request(placement, {
+          kind: "log",
+          agentId,
+          workspace: placement.workspace,
+        })
+        .catch(() => null);
+      return String(response?.value ?? "");
+    }
     try {
       const log = await readFile(hostFile(stateDir(agentId), "log"), "utf8");
       const tail = log.trim().split("\n").slice(-LOG_TAIL_LINES).join("\n");
@@ -887,6 +969,26 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
     },
 
     async launch(input) {
+      const placement = input.placement;
+      if (placement) {
+        const {
+          cwd,
+          bins,
+          env,
+          pathPrefix,
+          placement: _placement,
+          ...launch
+        } = input;
+        await remoteService().request(placement, {
+          kind: "launch",
+          agentId: input.agentId,
+          workspace: placement.workspace,
+          launch,
+        });
+        const entry = await connect(input.agentId, LAUNCH_TIMEOUT_MS);
+        const welcome = entry.client.welcome!;
+        return { sessionId: welcome.sessionId, resumed: welcome.resumed };
+      }
       const dir = stateDir(input.agentId);
       await mkdir(dir, { recursive: true, mode: 0o700 });
       const launch: HostLaunch = {
@@ -976,7 +1078,29 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
     },
 
     async attach(agentId) {
+      if (connecting.has(agentId)) {
+        try {
+          await connecting.get(agentId);
+          return true;
+        } catch {
+          return false;
+        }
+      }
       if (live.has(agentId)) return true;
+      const placement = await placementOf(agentId);
+      if (placement) {
+        if (
+          !deps.remote?.available(placement) ||
+          !(await runtime.isAlive(agentId))
+        )
+          return false;
+        try {
+          await connect(agentId, ATTACH_TIMEOUT_MS);
+          return true;
+        } catch {
+          return false;
+        }
+      }
       const dir = stateDir(agentId);
       const pid = await readPid(dir);
       if (!pid || !pidAlive(pid)) return false;
@@ -992,6 +1116,20 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
     async isAlive(agentId) {
       const entry = live.get(agentId);
       if (entry?.client.isConnected()) return true;
+      const placement = await placementOf(agentId);
+      if (placement) {
+        try {
+          const { value } = await remoteService().request(placement, {
+            kind: "alive",
+            agentId,
+            workspace: placement.workspace,
+          });
+          return value === true;
+        } catch (error) {
+          if (error instanceof RunnerUnavailable) return true; // Disconnected is not host death.
+          throw error;
+        }
+      }
       const pid = await readPid(stateDir(agentId));
       return pid !== null && pidAlive(pid);
     },
@@ -1317,6 +1455,22 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
     },
 
     async stop(agentId, force) {
+      const placement = await placementOf(agentId);
+      if (placement) {
+        await remoteService().request(placement, {
+          kind: "stop",
+          agentId,
+          workspace: placement.workspace,
+          force,
+        });
+        const entry = live.get(agentId);
+        live.delete(agentId);
+        if (entry) {
+          failWaiting(entry, new Error("The agent stopped before delivery."));
+          entry.client.close();
+        }
+        return;
+      }
       const dir = stateDir(agentId);
       const entry = live.get(agentId);
       const pid = await readPid(dir);
@@ -1386,6 +1540,14 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
     readLogTail,
 
     async discard(agentId) {
+      const placement = await placementOf(agentId);
+      if (placement) {
+        await remoteService().request(placement, {
+          kind: "discard",
+          agentId,
+          workspace: placement.workspace,
+        });
+      }
       const entry = live.get(agentId);
       if (entry) {
         live.delete(agentId);

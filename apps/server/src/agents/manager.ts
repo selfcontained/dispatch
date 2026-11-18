@@ -72,6 +72,8 @@ import type {
   PromptImage,
 } from "./acp/prompt-source.js";
 import { type EngineBins, isAcpEngine } from "./acp/engine-spec.js";
+import { remotePlacement } from "./remote/protocol.js";
+import type { RemoteRunnerService } from "./remote/service.js";
 import { buildLaunchEnv } from "./acp/launch-env.js";
 import { dispatchMcpUrl } from "./acp/mcp-url.js";
 import {
@@ -337,6 +339,7 @@ export class AgentManager {
   }
   private readonly logger: FastifyBaseLogger;
   private readonly config: AppConfig;
+  private readonly remote?: RemoteRunnerService;
   private readonly diagnostics: DiagnosticsRecorder;
   private readonly eventBus: AgentEventBus;
   private readonly runtime: AgentRuntime;
@@ -383,6 +386,7 @@ export class AgentManager {
     /** Tests inject a fake runtime; the server takes the configured one. */
     options: {
       runtime?: AgentRuntime;
+      remote?: RemoteRunnerService;
       classifySteering?: import("./steering.js").ClassifySteering;
     } = {}
   ) {
@@ -392,6 +396,7 @@ export class AgentManager {
     });
     this.logger = logger;
     this.config = config;
+    this.remote = options.remote;
     this.diagnostics = createDiagnosticsRecorder(logger);
     this.eventBus = createAgentEventBus(logger);
     this.streamStore = new StreamStore(pool);
@@ -400,6 +405,16 @@ export class AgentManager {
       options.runtime ??
       createAgentRuntime(config, logger, {
         classifySteering: options.classifySteering,
+        remote: this.remote,
+        placement: async (id) => {
+          const row = (
+            await pool.query<{ cwd: string }>(
+              "SELECT cwd FROM agents WHERE id = $1",
+              [id]
+            )
+          ).rows[0];
+          return row ? remotePlacement(row.cwd) : null;
+        },
         hostSeq: async (agentId) => {
           const result = await pool.query<{
             host_seq: number;
@@ -1213,6 +1228,7 @@ export class AgentManager {
     const agent = await this.getAgent(id);
     if (!agent) return;
 
+    if (remotePlacement(agent.cwd)) return;
     const result = agent.workspacePath
       ? await probeGitContext(agent.workspacePath)
       : agent.worktreePath && agent.worktreeBranch
@@ -1295,6 +1311,8 @@ export class AgentManager {
     input: { path: string | null; baseBranch?: string | null }
   ): Promise<AgentRecord> {
     const agent = await this.getRequiredAgent(id);
+    if (remotePlacement(agent.cwd))
+      throw new AgentError("Runner workspace is fixed for this agent.", 409);
     const resolved = await resolveWorkspace(agent, input);
 
     await this.pool.query(
@@ -1332,6 +1350,33 @@ export class AgentManager {
     } = {}
   ): Promise<AgentRecord> {
     input = { ...input };
+    const placement = remotePlacement(input.cwd);
+    if (placement) {
+      if (
+        !this.remote?.available(placement) ||
+        this.config.agentRuntime !== "acp"
+      ) {
+        throw new AgentError(
+          "The enrolled runner workspace is unavailable.",
+          409
+        );
+      }
+      if (
+        input.projectId ||
+        input.parentAgentId ||
+        input.templateId ||
+        input.persona ||
+        input.jobRunId ||
+        input.initialFiles?.length ||
+        input.useWorktree
+      ) {
+        throw new AgentError(
+          "Runner launches currently require a standalone agent in a pre-provisioned workspace.",
+          400
+        );
+      }
+      input.useWorktree = false;
+    }
     if (input.templateId) {
       const template = (
         await this.pool.query("SELECT project_id FROM templates WHERE id=$1", [
@@ -1376,7 +1421,7 @@ export class AgentManager {
     }
     // Resolve only new, unscoped launches. Membership inherited from a parent
     // (including no project) and explicit/template selections remain authoritative.
-    if (!input.projectId && !input.parentAgentId) {
+    if (!placement && !input.projectId && !input.parentAgentId) {
       const projects = (
         await this.pool.query(
           'SELECT id, name, repo_root AS "repoRoot" FROM projects'
@@ -1657,10 +1702,13 @@ export class AgentManager {
   private async prepareCreateInputs(
     input: CreateAgentInput
   ): Promise<PreparedCreateInputs> {
-    const originalCwd = await this.validateWorkingDirectory(input.cwd);
+    const placement = remotePlacement(input.cwd);
+    const originalCwd = placement
+      ? input.cwd
+      : await this.validateWorkingDirectory(input.cwd);
     // Remember the icon of the directory the user chose, before a managed
     // worktree can change the agent's effective cwd.
-    await getDirectoryIconPath(this.pool, originalCwd);
+    if (!placement) await getDirectoryIconPath(this.pool, originalCwd);
     const id = this.newAgentId();
     const type: AgentType = input.type ?? "claude";
     const effort = validateAgentEffort(type, input.effort, input.model);
@@ -1821,31 +1869,37 @@ export class AgentManager {
     const { id } = opts;
     try {
       await opts.preparePersona?.();
-      const workspace = await prepareWorkspace(
-        {
-          agentName: opts.name,
-          originalCwd: opts.originalCwd,
-          useWorktree: opts.useWorktree,
-          createNewBranch: opts.createNewBranch,
-          worktreeBranchName: opts.worktreeBranchName,
-          baseBranch: opts.normalizedBaseBranch,
-          worktreePathOverride: opts.worktreePathOverride,
-          onStepResult: async (progress) => {
-            await this.recordStartup(() =>
-              this.launchContextRecorder?.recordStartupStep?.({
-                agentId: id,
-                label: "Installing dependencies",
-                ...progress,
-              })
-            );
-          },
-          onPhase: async (phase) => {
-            await this.setSetupPhase(id, phase);
-            await this.reportStartupPhase(id, phase, opts.type);
-          },
-        },
-        this.logger
-      );
+      const workspace = remotePlacement(opts.originalCwd)
+        ? {
+            effectiveCwd: opts.originalCwd,
+            worktreePath: null,
+            worktreeBranch: null,
+          }
+        : await prepareWorkspace(
+            {
+              agentName: opts.name,
+              originalCwd: opts.originalCwd,
+              useWorktree: opts.useWorktree,
+              createNewBranch: opts.createNewBranch,
+              worktreeBranchName: opts.worktreeBranchName,
+              baseBranch: opts.normalizedBaseBranch,
+              worktreePathOverride: opts.worktreePathOverride,
+              onStepResult: async (progress) => {
+                await this.recordStartup(() =>
+                  this.launchContextRecorder?.recordStartupStep?.({
+                    agentId: id,
+                    label: "Installing dependencies",
+                    ...progress,
+                  })
+                );
+              },
+              onPhase: async (phase) => {
+                await this.setSetupPhase(id, phase);
+                await this.reportStartupPhase(id, phase, opts.type);
+              },
+            },
+            this.logger
+          );
       await this.pool.query(
         `UPDATE agents SET cwd = $2, worktree_path = $3, worktree_branch = $4, updated_at = NOW() WHERE id = $1`,
         [
@@ -2020,15 +2074,17 @@ export class AgentManager {
     // person's: say so plainly here rather than letting the spawn fail with
     // ENOENT once the host is already up. The inert runtime spawns nothing,
     // so it needs no engine.
-    const engine = this.runtime.tracksProcesses()
-      ? (
-          await engineStatuses({
-            claude: this.config.claudeBin,
-            codex: this.config.codexBin ?? undefined,
-            opencode: this.config.opencodeBin,
-          })
-        ).find((status) => status.id === agent.type)
-      : undefined;
+    const placement = remotePlacement(agent.cwd) ?? undefined;
+    const engine =
+      !placement && this.runtime.tracksProcesses()
+        ? (
+            await engineStatuses({
+              claude: this.config.claudeBin,
+              codex: this.config.codexBin ?? undefined,
+              opencode: this.config.opencodeBin,
+            })
+          ).find((status) => status.id === agent.type)
+        : undefined;
     if (engine && !engine.installed) {
       throw new AgentError(missingEngineMessage(engine), 422);
     }
@@ -2067,6 +2123,7 @@ export class AgentManager {
     return this.runtime.launch({
       agentId: agent.id,
       cwd: agent.cwd,
+      placement,
       engine: agent.type,
       fullAccess: agent.fullAccess,
       bins,
@@ -2075,7 +2132,9 @@ export class AgentManager {
       systemPrompt,
       personaContext: extractPersonaContext(agent.agentArgs ?? []),
       mcp: {
-        url: dispatchMcpUrl(this.config, agent.id, opts.jobRunId),
+        url: placement
+          ? `${this.remote!.origin}/api/mcp/${agent.id}`
+          : dispatchMcpUrl(this.config, agent.id, opts.jobRunId),
         token,
       },
       env,
@@ -2337,6 +2396,21 @@ export class AgentManager {
    */
   async reconcileAgentStatuses(): Promise<AgentRecord[]> {
     return this.reconciler.reconcileAgentStatuses();
+  }
+
+  remoteRepoOperation(agent: AgentRecord): (() => Promise<string>) | undefined {
+    const placement = remotePlacement(agent.cwd);
+    if (!placement || !this.remote?.repoTool) return undefined;
+    return async () =>
+      String(
+        (
+          await this.remote!.request(placement, {
+            kind: "repo",
+            agentId: agent.id,
+            workspace: placement.workspace,
+          })
+        ).value ?? ""
+      );
   }
 
   /** The agent's working directory: the worktree when it has one. */

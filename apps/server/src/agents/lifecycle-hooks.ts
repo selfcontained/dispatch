@@ -1,3 +1,4 @@
+import { remotePlacement } from "./remote/protocol.js";
 import type { FastifyBaseLogger } from "fastify";
 
 import { repoCommandEnvironment } from "../shared/lib/tool-environment.js";
@@ -36,6 +37,7 @@ export async function runLifecycleHook(
   agent: AgentRecord,
   logger: FastifyBaseLogger
 ): Promise<void> {
+  if (remotePlacement(agent.cwd)) return;
   // An agent that moved runs the hook in both places: what it started in
   // the launch checkout and what it started in its workspace (a dev stack,
   // say) each belong to that checkout's own hook.

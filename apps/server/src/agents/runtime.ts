@@ -6,6 +6,7 @@ import type { AgentPermissionsResponse } from "@dispatch/shared";
 import type { PromptSource, PromptOptions } from "./acp/prompt-source.js";
 import type { FastifyBaseLogger } from "fastify";
 
+import type { Placement } from "./remote/protocol.js";
 import type { AppConfig } from "../config.js";
 import type { DriverEvent } from "./acp/driver.js";
 import type {
@@ -23,6 +24,7 @@ import { createAcpRuntime, type AcpRuntimeDeps } from "./acp/runtime.js";
 export type RuntimeLaunch = {
   agentId: string;
   cwd: string;
+  placement?: Placement;
   engine: AcpEngineId;
   /** Missing only in launch files written before permission support (full access). */
   fullAccess?: boolean;
@@ -144,7 +146,10 @@ export type AgentRuntime = {
 export function createAgentRuntime(
   config: AppConfig,
   logger: FastifyBaseLogger,
-  deps: Pick<AcpRuntimeDeps, "hostSeq" | "syncJournal" | "classifySteering">
+  deps: Pick<
+    AcpRuntimeDeps,
+    "hostSeq" | "syncJournal" | "classifySteering" | "remote" | "placement"
+  >
 ): AgentRuntime {
   if (config.agentRuntime === "inert") {
     return createInertRuntime();

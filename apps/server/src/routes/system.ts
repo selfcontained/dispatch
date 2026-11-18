@@ -1,3 +1,4 @@
+import { remotePlacement, type Placement } from "../agents/remote/protocol.js";
 import {
   isAllowedSlackLinkOrigin,
   type SlackLinkOrigins,
@@ -56,6 +57,7 @@ import { ACP_ENGINE_IDS, type AcpEngineId } from "../agents/acp/engine-spec.js";
 const INSTANCE_NAME_KEY = "instance_name";
 
 type SystemRouteDeps = {
+  runnerWorkspaceAvailable?: (placement: Placement) => boolean;
   notificationLinkOrigins?: () => Promise<SlackLinkOrigins>;
   slackAnswers?: Pick<
     SlackAnswers,
@@ -196,6 +198,16 @@ export async function registerSystemRoutes(
         .send({ error: "path query parameter is required." });
     }
     const resolved = resolveTilde(query.path.trim());
+    const placement = remotePlacement(resolved);
+    if (placement) {
+      const available = deps.runnerWorkspaceAvailable?.(placement) ?? false;
+      return {
+        exists: available,
+        isDirectory: available,
+        isGitRepo: false,
+        resolvedPath: resolved,
+      };
+    }
     if (!path.isAbsolute(resolved)) {
       return {
         exists: false,
