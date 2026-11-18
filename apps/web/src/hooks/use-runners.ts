@@ -25,9 +25,12 @@ export function runnerLocator(runnerId: string, workspace: string): string {
   return workspaceLocator({ runner: runnerId, workspace });
 }
 
-export function useRunners(options: { poll?: boolean } = {}) {
+export function useRunners(
+  options: { poll?: boolean; enabled?: boolean } = {}
+) {
   return useQuery({
     queryKey: runnersQueryKey,
+    enabled: options.enabled,
     queryFn: async () =>
       (await api<{ runners: Runner[] }>("/api/runners")).runners,
     refetchInterval: options.poll ? 5000 : false,

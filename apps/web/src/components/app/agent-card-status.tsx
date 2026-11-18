@@ -72,11 +72,13 @@ export { hasPhaseStatus };
  * the card does not grow and shrink as turns start and end.
  */
 export function AgentCardActivity({
+  remoteLocation,
   agent,
   childAgents = [],
   onNavigate,
 }: {
   agent: Agent;
+  remoteLocation?: string;
   /**
    * Sub agents whose activity stands in when the agent itself has none: the
    * first one with a step to show.
@@ -107,7 +109,11 @@ export function AgentCardActivity({
           />
         )}
       </div>
-      {!projectId && repoName && !agent.reconnect ? (
+      {remoteLocation ? (
+        <span className="ml-auto max-w-full truncate text-[10px] text-muted-foreground">
+          {remoteLocation}
+        </span>
+      ) : !projectId && repoName && !agent.reconnect ? (
         <RepoLabel agentId={agent.id} name={repoName} />
       ) : null}
     </div>
