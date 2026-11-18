@@ -52,6 +52,7 @@ function dialRunner(input: {
   workspaces: string[];
   answer?: boolean;
   health?: Extract<Frame, { type: "health" }>["sample"];
+  managedWorkspace?: true;
 }): Promise<FakeRunner> {
   const url = new URL(input.endpoint);
   return new Promise((resolve, reject) => {
@@ -79,6 +80,7 @@ function dialRunner(input: {
         version: 1,
         workspaces: input.workspaces,
         ...(input.health ? { health: true as const } : {}),
+        managedWorkspace: input.managedWorkspace,
       });
       resolve({ socket, closed, requests });
     });
@@ -521,6 +523,52 @@ describe("runner enrollment service", () => {
     expect(scoped.repoToolFor({ runner: b.id, workspace: "anything" })).toBe(
       false
     );
+  });
+
+  it("distinguishes a configured @session handle from managed mode and retains the mode offline", async () => {
+    const service = makeService();
+    const a = await enroll(service, "alpha");
+    const placement = { runner: a.id, workspace: "@session" };
+    const connectSession = async (managedWorkspace?: true) => {
+      const session = await dialRunner({
+        endpoint: a.endpoint,
+        ca: a.ca,
+        cert: a.cert,
+        key: a.key,
+        label: "alpha",
+        workspaces: ["@session"],
+        managedWorkspace,
+      });
+      runners.push(session);
+      return session;
+    };
+    await connectSession();
+    await waitFor(() => service.available(placement));
+    expect(service.isManagedWorkspace(placement)).toBe(false);
+    expect((await service.list())[0]).not.toHaveProperty("managedWorkspace");
+
+    const managed = await connectSession(true);
+    await waitFor(() => service.isManagedWorkspace(placement));
+    expect((await service.list())[0]).toMatchObject({
+      workspaces: ["@session"],
+      managedWorkspace: true,
+    });
+    await waitFor(
+      async () =>
+        (
+          await pool.query(
+            "SELECT managed_workspace FROM runner_registrations WHERE id = $1",
+            [a.id]
+          )
+        ).rows[0]?.managed_workspace === true
+    );
+    managed.socket.destroy();
+    await waitFor(() => !service.available(placement));
+    expect((await service.list())[0]).toMatchObject({
+      status: "offline",
+      workspaces: ["@session"],
+      managedWorkspace: true,
+    });
   });
 
   it("persists the CA, port and registrations across a service restart", async () => {

@@ -220,6 +220,9 @@ export async function registerAgentCrudRoutes(
       (typeof body.projectId !== "string" || !body.projectId)
     )
       return reply.code(400).send({ error: "Invalid project." });
+    const managed =
+      typeof body.cwd === "string" &&
+      remotePlacement(body.cwd)?.workspace === MANAGED_WORKSPACE;
     // Created for a task: briefed on it in its prompt, placed in its
     // project unless a location was chosen, and assigned once it exists.
     let taskBriefing: { projectId: string; text: string; name: string } | null =
@@ -234,11 +237,17 @@ export async function registerAgentCrudRoutes(
       } catch (error) {
         return reply.code(400).send({ error: errorMessage(error) });
       }
-      if (!body.projectId && !body.cwd) body.projectId = taskBriefing.projectId;
+      if (
+        managed &&
+        body.projectId &&
+        body.projectId !== taskBriefing.projectId
+      )
+        return reply
+          .code(400)
+          .send({ error: "Choose the task’s project for its runner session." });
+      if (!body.projectId && (managed || !body.cwd))
+        body.projectId = taskBriefing.projectId;
     }
-    const managed =
-      typeof body.cwd === "string" &&
-      remotePlacement(body.cwd)?.workspace === MANAGED_WORKSPACE;
     if (body.projectId && body.cwd && !managed)
       return reply
         .code(400)

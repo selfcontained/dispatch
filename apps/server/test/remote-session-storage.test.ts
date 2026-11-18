@@ -1,3 +1,5 @@
+import { spawn } from "node:child_process";
+import { runnerGitArgs } from "../src/agents/remote/runner.js";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import {
@@ -208,6 +210,43 @@ it("uses isolated worktrees, protects occupied and default branches, and keeps e
       ).trim()
     ).toBe(topic);
     await repositories.remove(c, pr);
+    await git("-C", origin, "switch", "topic");
+    const updatedTopic = await commit("updated PR head");
+    await git("-C", origin, "update-ref", "refs/pull/1/head", updatedTopic);
+    await git("-C", origin, "switch", "main");
+    const updated = await repositories.prepare(c, pr);
+    expect((await git("-C", updated, "rev-parse", "HEAD")).trim()).toBe(
+      updatedTopic
+    );
+    expect(
+      (
+        await git("-C", updated, "rev-parse", "--abbrev-ref", "@{upstream}")
+      ).trim()
+    ).toBe("origin/topic");
+    await git(
+      "-C",
+      updated,
+      "-c",
+      "user.name=Fixture",
+      "-c",
+      "user.email=fixture@example.test",
+      "commit",
+      "--allow-empty",
+      "-m",
+      "local-only work"
+    );
+    const localHead = (await git("-C", updated, "rev-parse", "HEAD")).trim();
+    await repositories.remove(c, pr);
+    await git("-C", origin, "switch", "topic");
+    const divergent = await commit("different remote work");
+    await git("-C", origin, "switch", "main");
+    await expect(repositories.prepare(c, existing)).rejects.toThrow(
+      "has local work"
+    );
+    expect(
+      (await git("-C", first, "rev-parse", "refs/heads/topic")).trim()
+    ).toBe(localHead);
+
     await expect(
       repositories.prepare(c, spec({ kind: "pr", branch: "topic", number: 2 }))
     ).rejects.toThrow("does not match");
@@ -225,8 +264,80 @@ it("uses isolated worktrees, protects occupied and default branches, and keeps e
           "HEAD"
         )
       ).trim()
-    ).toBe(topic);
+    ).toBe(divergent);
   } finally {
     await rm(root, { force: true, recursive: true });
+  }
+});
+
+it("uses only the runner GitHub helper for a private repository credential request", async () => {
+  const root = await mkdtemp(
+    path.join(os.tmpdir(), "dispatch-runner-credential-")
+  );
+  try {
+    const gh = path.join(root, "gh");
+    const calls = path.join(root, "calls");
+    const global = path.join(root, "gitconfig");
+    await writeFile(
+      gh,
+      '#!/bin/sh\nprintf \'%s\\n\' "$*" > "$FIXTURE_CALLS"\ncat >> "$FIXTURE_CALLS"\nprintf \'username=fixture\\npassword=synthetic-token\\n\'\n',
+      { mode: 0o700 }
+    );
+    await writeFile(
+      global,
+      "[credential]\n  helper = !echo unsafe-helper >&2\n"
+    );
+    const args = runnerGitArgs.map((arg) => arg.replace("/usr/bin/gh", gh));
+    const credential = (host: string) =>
+      new Promise<{ status: number | null; out: string; err: string }>(
+        (resolve, reject) => {
+          const child = spawn(
+            "git",
+            [
+              "-C",
+              root,
+              ...args,
+              "-c",
+              "credential.useHttpPath=true",
+              "credential",
+              "fill",
+            ],
+            {
+              env: {
+                PATH: process.env.PATH,
+                HOME: root,
+                GIT_CONFIG_GLOBAL: global,
+                GIT_CONFIG_NOSYSTEM: "1",
+                GIT_TERMINAL_PROMPT: "0",
+                FIXTURE_CALLS: calls,
+              },
+            }
+          );
+          let out = "",
+            err = "";
+          child.stdout.on("data", (chunk) => (out += chunk));
+          child.stderr.on("data", (chunk) => (err += chunk));
+          child.once("error", reject);
+          child.once("close", (status) => resolve({ status, out, err }));
+          child.stdin.end(
+            `protocol=https\nhost=${host}\npath=fixture/managed-private.git\n\n`
+          );
+        }
+      );
+    expect(await credential("github.com")).toMatchObject({
+      status: 0,
+      out: expect.stringContaining("password=synthetic-token"),
+      err: "",
+    });
+    expect(await readFile(calls, "utf8")).toContain(
+      "path=fixture/managed-private.git"
+    );
+    await rm(calls);
+    const rejected = await credential("example.test");
+    expect(rejected.status).not.toBe(0);
+    expect(rejected.err).not.toContain("unsafe-helper");
+    await expect(readFile(calls)).rejects.toMatchObject({ code: "ENOENT" });
+  } finally {
+    await rm(root, { recursive: true, force: true });
   }
 });

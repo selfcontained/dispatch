@@ -23,6 +23,7 @@ export type Registration = {
   endpointHost: string;
   fingerprint: string | null;
   workspaces: string[];
+  managedWorkspace: boolean;
   enrolled: boolean;
   revoked: boolean;
   codeExpiresAt: Date | null;
@@ -36,6 +37,7 @@ type Row = {
   endpoint_host: string;
   cert_fingerprint: string | null;
   workspaces: string[];
+  managed_workspace: boolean;
   enrolled_at: Date | null;
   revoked_at: Date | null;
   code_expires_at: Date | null;
@@ -59,6 +61,7 @@ function registration(row: Row): Registration {
     endpointHost: row.endpoint_host,
     fingerprint: row.cert_fingerprint,
     workspaces: row.workspaces,
+    managedWorkspace: row.managed_workspace,
     enrolled: Boolean(row.enrolled_at),
     revoked: Boolean(row.revoked_at),
     codeExpiresAt: row.code_expires_at,
@@ -286,12 +289,12 @@ export class RunnerRegistry {
     return rowCount ? { id, code, expiresAt } : undefined;
   }
 
-  async connected(id: string, workspaces: string[]) {
+  async connected(id: string, workspaces: string[], managedWorkspace = false) {
     await this.pool.query(
       `UPDATE runner_registrations
-          SET workspaces = $2::jsonb, last_seen_at = now()
+          SET workspaces = $2::jsonb, managed_workspace = $3, last_seen_at = now()
         WHERE id = $1 AND revoked_at IS NULL`,
-      [id, JSON.stringify(workspaces)]
+      [id, JSON.stringify(workspaces), managedWorkspace]
     );
   }
 

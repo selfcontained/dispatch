@@ -1,4 +1,12 @@
-import { mkdir, mkdtemp, rm, stat, writeFile } from "node:fs/promises";
+import { EventEmitter } from "node:events";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -137,6 +145,77 @@ describe("remote runner startup", () => {
     expect(dial).not.toHaveBeenCalled();
     await expect(stat(state)).rejects.toMatchObject({ code: "ENOENT" });
   });
+
+  it.each([
+    { workspaces: undefined, handles: ["@session"], managed: true },
+    { workspaces: {}, handles: ["@session"], managed: true },
+    {
+      workspaces: { proof: { cwd: "/fixture" } },
+      handles: ["proof"],
+      managed: false,
+    },
+    {
+      workspaces: { "@session": { cwd: "/fixture" } },
+      handles: ["@session"],
+      managed: false,
+    },
+  ])(
+    "advertises only the configured workspace mode: $workspaces",
+    async ({ workspaces, handles, managed }) => {
+      const input = JSON.parse(await readFile(config, "utf8"));
+      await writeFile(config, JSON.stringify({ ...input, workspaces }));
+      reportIdentity.mockImplementation((_command, _args, _options, callback) =>
+        callback(null, unprivilegedStatus, "")
+      );
+      const socket = Object.assign(new EventEmitter(), {
+        write: vi.fn(),
+        destroy: vi.fn(),
+        writableLength: 0,
+        destroyed: false,
+      });
+      const end = new Error("end simulated runner after reconnect");
+      dial.mockReturnValueOnce(socket).mockImplementation(() => {
+        throw end;
+      });
+      vi.useFakeTimers();
+      const running = runRemoteRunner(config).catch((error) => error);
+      try {
+        await vi.waitFor(() => expect(dial).toHaveBeenCalledTimes(1));
+        socket.emit("secureConnect");
+        expect(JSON.parse(socket.write.mock.calls[0]![0])).toEqual({
+          type: "ready",
+          version: 1,
+          workspaces: handles,
+          ...(managed ? { managedWorkspace: true } : {}),
+        });
+        socket.emit(
+          "data",
+          Buffer.from(
+            JSON.stringify({
+              type: "request",
+              id: "discard-test",
+              command: {
+                kind: "discard",
+                agentId: "fixture",
+                workspace: "@session",
+              },
+            }) + "\n"
+          )
+        );
+        await vi.waitFor(() => expect(socket.write).toHaveBeenCalledTimes(2));
+        expect(JSON.parse(socket.write.mock.calls[1]![0])).toMatchObject({
+          type: "result",
+          id: "discard-test",
+          ...(managed ? { value: true } : { error: expect.any(String) }),
+        });
+      } finally {
+        socket.emit("close");
+        await vi.advanceTimersByTimeAsync(1000);
+        await expect(running).resolves.toBe(end);
+        vi.useRealTimers();
+      }
+    }
+  );
 
   it("leaves the host parent traversable and keeps enrollment state private", async () => {
     // A retained host directory created with umask 0077 has mode 0700.

@@ -88,6 +88,7 @@ export type Frame =
       version: typeof RUNNER_WIRE_VERSION;
       workspaces: string[];
       health?: true;
+      managedWorkspace?: true;
     }
   | { type: "accept_health" }
   | { type: "health"; sample: RunnerHealth }

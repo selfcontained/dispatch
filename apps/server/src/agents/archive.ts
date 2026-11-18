@@ -11,7 +11,6 @@ import {
   getUnmergedChanges,
 } from "../shared/git/worktree-status.js";
 import { runLifecycleHook } from "./lifecycle-hooks.js";
-import { MANAGED_WORKSPACE, remotePlacement } from "./remote/protocol.js";
 import { AgentError } from "./errors.js";
 import type { AgentRuntime } from "./runtime.js";
 import type {
@@ -265,8 +264,7 @@ export async function executeArchive(
   try {
     const agent = await deps.getRequiredAgent(id);
     const cleanupWorktree = agent.archiveCleanupMode ?? "auto";
-    let runnerCleanupPending =
-      remotePlacement(agent.cwd)?.workspace === MANAGED_WORKSPACE;
+    let runnerCleanupPending = Boolean(agent.runnerManaged);
 
     // Phase: stopping — tear down session without changing agent status
     const t = Date.now();
@@ -403,8 +401,7 @@ export async function deleteAgentDirect(
     return [];
   }
 
-  let runnerCleanupPending =
-    remotePlacement(agent.cwd)?.workspace === MANAGED_WORKSPACE;
+  let runnerCleanupPending = Boolean(agent.runnerManaged);
   if (agent.status !== "stopped" || runnerCleanupPending) {
     const t = Date.now();
     // Not stopAgent: it writes `stopping`/`stopped`, releasing the claim above

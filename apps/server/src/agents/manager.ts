@@ -1371,7 +1371,9 @@ export class AgentManager {
   ): Promise<AgentRecord> {
     input = { ...input };
     const placement = remotePlacement(input.cwd);
-    const managed = placement?.workspace === MANAGED_WORKSPACE;
+    const managed = placement
+      ? (this.remote?.isManagedWorkspace(placement) ?? false)
+      : false;
     const repository = (() => {
       if (input.repository === undefined) return undefined;
       if (!managed)
@@ -1506,7 +1508,7 @@ export class AgentManager {
         400
       );
     const p = await this.prepareCreateInputs(input);
-    await this.insertAgentRecord(p, input, runnerRepository);
+    await this.insertAgentRecord(p, input, runnerRepository, managed);
 
     const createdAgent = await this.getAgent(p.id);
     if (createdAgent) {
@@ -1861,12 +1863,13 @@ export class AgentManager {
   private async insertAgentRecord(
     p: PreparedCreateInputs,
     input: CreateAgentInput,
-    repository: RunnerRepository | null
+    repository: RunnerRepository | null,
+    runnerManaged: boolean
   ): Promise<void> {
     await this.pool.query(
       `
-      INSERT INTO agents (id, name, type, role, status, cwd, launch_cwd, files_dir, agent_args, model, full_access, setup_phase, persona, parent_agent_id, launched_by_agent_id, persona_context, review_agent_type, cli_session_id, base_branch, template_id, project_id, effort, runner_repository, updated_at)
-      VALUES ($1, $2, $3, $4, 'creating', $5, $6, $7, $8::jsonb, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22::jsonb, NOW())
+      INSERT INTO agents (id, name, type, role, status, cwd, launch_cwd, files_dir, agent_args, model, full_access, setup_phase, persona, parent_agent_id, launched_by_agent_id, persona_context, review_agent_type, cli_session_id, base_branch, template_id, project_id, effort, runner_repository, runner_managed, updated_at)
+      VALUES ($1, $2, $3, $4, 'creating', $5, $6, $7, $8::jsonb, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22::jsonb, $23, NOW())
       `,
       [
         p.id,
@@ -1891,6 +1894,7 @@ export class AgentManager {
         input.projectId ?? null,
         p.effort,
         repository ? JSON.stringify(repository) : null,
+        runnerManaged,
       ]
     );
   }
@@ -2175,14 +2179,22 @@ export class AgentManager {
     const mcpUrl = placement
       ? remoteMcpOrigin && `${remoteMcpOrigin}/api/mcp/${agent.id}`
       : dispatchMcpUrl(this.config, agent.id, opts.jobRunId);
-    const repository =
-      placement?.workspace === MANAGED_WORKSPACE
-        ? ((
-            await this.pool.query<{
-              runner_repository: RunnerRepository | null;
-            }>("SELECT runner_repository FROM agents WHERE id = $1", [agent.id])
-          ).rows[0]?.runner_repository ?? undefined)
-        : undefined;
+    if (
+      placement?.workspace === MANAGED_WORKSPACE &&
+      this.remote?.available(placement) &&
+      this.remote.isManagedWorkspace(placement) !== Boolean(agent.runnerManaged)
+    )
+      throw new AgentError(
+        "The runner workspace mode changed since this agent was created.",
+        409
+      );
+    const repository = agent.runnerManaged
+      ? ((
+          await this.pool.query<{
+            runner_repository: RunnerRepository | null;
+          }>("SELECT runner_repository FROM agents WHERE id = $1", [agent.id])
+        ).rows[0]?.runner_repository ?? undefined)
+      : undefined;
     return this.runtime.launch({
       agentId: agent.id,
       repository,
@@ -2484,7 +2496,7 @@ export class AgentManager {
       );
       for (const { id, cwd } of rows) {
         const placement = remotePlacement(cwd);
-        if (!placement || !this.remote.available(placement)) continue;
+        if (!placement || !this.remote.isManagedWorkspace(placement)) continue;
         try {
           await this.runtime.stop(id, true);
           await this.streamRecorder.settleStopped(id);
@@ -2634,6 +2646,7 @@ export class AgentManager {
         setup_phase AS "setupPhase",
         archive_phase AS "archivePhase",
         archive_cleanup_mode AS "archiveCleanupMode",
+        runner_managed AS "runnerManaged",
         last_error AS "lastError",
         ${ACTIVITY_SQL} AS activity,
         ${CURRENT_TURN_SQL} AS "currentTurn",

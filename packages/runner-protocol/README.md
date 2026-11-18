@@ -32,10 +32,12 @@ existing host. Use unique request IDs within each connection. These IDs
 provide correlation only.
 
 The guest resolves the working directory, executable and environment.
-A runner that advertises the reserved workspace `@session` provides private
+A runner that advertises `managedWorkspace: true` with the reserved workspace
+`@session` provides private
 storage for each agent ID. Launch uses an empty scratch directory by default.
 The optional `repository` launch field selects a credential-free HTTPS Git URL
-and a checkout instead:
+and a checkout instead. A runner with `/usr/bin/gh` can use credentials from the
+workload account’s GitHub login for `https://github.com`:
 
 - `{ kind: "new", branch, base? }` creates a branch from the named or default
   remote branch.

@@ -181,13 +181,17 @@ export class RunnerRepositories {
       }
       if (!commit)
         throw new Error("The requested checkout branch was not found.");
-      if (local && local !== commit)
-        throw new Error(
-          "The runner branch has a different head; choose another branch."
-        );
+      const needsFastForward = Boolean(local && local !== commit);
+      if (needsFastForward) {
+        await git("merge-base", "--is-ancestor", local!, commit).catch(() => {
+          throw new Error(
+            "The runner branch has local work; choose another branch."
+          );
+        });
+      }
 
-      // Git rejects a branch already held by another worktree. Never force
-      // this operation or reset a cached branch to a different commit.
+      // Git rejects a branch already held by another worktree. Only update
+      // the branch after Git has reserved it for this checkout.
       const args = local
         ? ["--", cwd, branch]
         : ["--no-track", "-b", branch, "--", cwd, commit];
@@ -196,6 +200,22 @@ export class RunnerRepositories {
           "Could not create the session checkout. The branch may already be occupied."
         );
       });
+      try {
+        if (needsFastForward)
+          await this.git("-C", cwd, "merge", "--ff-only", "--", commit);
+        if (checkout.kind !== "new" && remote)
+          await git(
+            "branch",
+            `--set-upstream-to=refs/remotes/origin/${branch}`,
+            "--",
+            branch
+          );
+      } catch (error) {
+        await git("worktree", "remove", "--force", "--", cwd);
+        throw new Error("Could not update the runner session branch.", {
+          cause: error,
+        });
+      }
       return cwd;
     });
   }

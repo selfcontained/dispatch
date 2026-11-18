@@ -71,6 +71,8 @@ export type AgentRecord = {
   cwd: string;
   /** Directory requested at creation, before any managed worktree changed cwd. */
   launchCwd?: string | null;
+  /** Whether the runner owns an isolated session for this agent. */
+  runnerManaged?: boolean;
   worktreePath: string | null;
   worktreeBranch: string | null;
   /**

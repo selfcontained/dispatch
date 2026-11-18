@@ -246,6 +246,7 @@ describe("AgentManager", () => {
       const available = vi.fn(() => true);
       const remote = {
         available,
+        isManagedWorkspace: available,
         originFor: () => "https://example.test",
       } as unknown as RemoteRunnerService;
       const first = new AgentManager(pool, noopLogger, testConfig, {

@@ -5,6 +5,7 @@ import path from "node:path";
 import type { FastifyInstance } from "fastify";
 import type { Pool } from "pg";
 import * as z from "zod/v4";
+import { inferRepositoryUrl } from "../agents/remote/repository.js";
 import { ProjectStore } from "../projects/store.js";
 import { parseInput } from "../shared/lib/parse-input.js";
 import { resolveTilde } from "../shared/lib/resolve-tilde.js";
@@ -78,6 +79,17 @@ export async function registerProjectRoutes(
       );
   };
   app.get("/api/v1/projects", () => store.list());
+  app.get<{ Params: { id: string } }>(
+    "/api/v1/projects/:id/repository",
+    async (request, reply) => {
+      const project = await store.get(request.params.id);
+      if (!project)
+        return reply.code(404).send({ error: "Project not found." });
+      return {
+        url: await inferRepositoryUrl(project.repoRoot).catch(() => null),
+      };
+    }
+  );
   app.get<{ Querystring: { repoRoot?: string; projectId?: string } }>(
     "/api/v1/projects/icon-preview",
     async (request, reply) => {

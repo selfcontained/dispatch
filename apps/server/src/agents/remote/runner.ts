@@ -56,8 +56,23 @@ type RunnerConfig = {
   path: string;
   bins: HostLaunch["bins"];
   adapter?: string[];
-  workspaces: Record<string, { cwd: string; repoTool?: string[] }>;
+  workspaces?: Record<string, { cwd: string; repoTool?: string[] }>;
 };
+
+export const runnerGitArgs = [
+  "-c",
+  "protocol.allow=never",
+  "-c",
+  "protocol.https.allow=always",
+  "-c",
+  "http.followRedirects=false",
+  "-c",
+  "credential.helper=",
+  "-c",
+  "credential.https://github.com.helper=!/usr/bin/gh auth git-credential",
+  "-c",
+  "core.hooksPath=/dev/null",
+];
 
 const execute = promisify(execFile);
 const setpriv = "/usr/bin/setpriv";
@@ -148,12 +163,12 @@ export async function runRemoteRunner(filename: string) {
       "Runner requires an HTTPS endpoint and a separate, non-root execution account."
     );
   }
-  if (
-    Object.hasOwn(config.workspaces, MANAGED_WORKSPACE) ||
-    !Object.keys(config.workspaces).every(isOpaqueId)
-  ) {
+  const workspaces = config.workspaces ?? {};
+  const configuredHandles = Object.keys(workspaces);
+  if (!configuredHandles.every(isOpaqueId))
     throw new Error("Runner workspace IDs must be valid opaque identifiers.");
-  }
+  const managedWorkspace = configuredHandles.length === 0;
+  const managedBinding = "\0managed";
   const env = {
     HOME: config.home,
     PATH: config.path,
@@ -189,27 +204,16 @@ export async function runRemoteRunner(filename: string) {
     await chmod(root, 0o711);
   }
   const asWorkload: WorkloadCommand = async (bin, args, opts) => {
-    const gitArgs = [
-      "-c",
-      "protocol.allow=never",
-      "-c",
-      "protocol.https.allow=always",
-      "-c",
-      "http.followRedirects=false",
-      "-c",
-      "credential.helper=",
-      "-c",
-      "core.hooksPath=/dev/null",
-    ];
     const { stdout } = await execute(
       setpriv,
-      [...childArgs, bin, ...(opts?.git ? gitArgs : []), ...args],
+      [...childArgs, bin, ...(opts?.git ? runnerGitArgs : []), ...args],
       {
         env: {
           ...env,
           GIT_CONFIG_NOSYSTEM: "1",
           GIT_CONFIG_GLOBAL: "/dev/null",
           GIT_TERMINAL_PROMPT: "0",
+          GH_PROMPT_DISABLED: "1",
           ...(config.trustBundle ? { GIT_SSL_CAINFO: config.trustBundle } : {}),
         },
         timeout: opts?.git ? 90_000 : 20_000,
@@ -295,7 +299,7 @@ export async function runRemoteRunner(filename: string) {
           "Remote service MCP requires HTTPS and a scoped token."
         );
       }
-      const managed = workspace === MANAGED_WORKSPACE;
+      const managed = managedWorkspace && workspace === MANAGED_WORKSPACE;
       if (!managed && command.launch.repository !== undefined)
         throw new Error(
           "Repository checkout requires a managed runner session."
@@ -304,9 +308,13 @@ export async function runRemoteRunner(filename: string) {
         throw new Error("This runner session has been archived.");
 
       const binding = path.join(bindings, key);
-      await writeFile(binding, workspace, { flag: "wx", mode: 0o600 }).catch(
+      const bindingValue = managed ? managedBinding : workspace;
+      await writeFile(binding, bindingValue, { flag: "wx", mode: 0o600 }).catch(
         async (error) => {
-          if (error.code !== "EEXIST" || (await readBinding(key)) !== workspace)
+          if (
+            error.code !== "EEXIST" ||
+            (await readBinding(key)) !== bindingValue
+          )
             throw error;
         }
       );
@@ -469,10 +477,10 @@ export async function runRemoteRunner(filename: string) {
         if (socket.destroyed) return;
         const { agentId, workspace } = command;
         const target =
-          isOpaqueId(workspace) && Object.hasOwn(config.workspaces, workspace)
-            ? config.workspaces[workspace]
+          isOpaqueId(workspace) && Object.hasOwn(workspaces, workspace)
+            ? workspaces[workspace]
             : undefined;
-        const managed = workspace === MANAGED_WORKSPACE;
+        const managed = managedWorkspace && workspace === MANAGED_WORKSPACE;
         if (!isOpaqueId(agentId) || (!target && !managed))
           throw new Error("Unknown runner workspace or agent");
         const key = runnerStorageKey(agentId);
@@ -484,7 +492,7 @@ export async function runRemoteRunner(filename: string) {
           return;
         }
         const binding = await readBinding(key);
-        if (binding !== workspace) {
+        if (binding !== (managed ? managedBinding : workspace)) {
           if (command.kind === "alive") return result(false);
           if (managed && binding === null && !active.has(agentId)) {
             if (command.kind === "stop") return result(true);
@@ -634,7 +642,10 @@ export async function runRemoteRunner(filename: string) {
           type: "ready",
           version: RUNNER_WIRE_VERSION,
           health: true,
-          workspaces: [...Object.keys(config.workspaces), MANAGED_WORKSPACE],
+          workspaces: managedWorkspace
+            ? [MANAGED_WORKSPACE]
+            : configuredHandles,
+          ...(managedWorkspace ? { managedWorkspace: true } : {}),
         });
       });
     });

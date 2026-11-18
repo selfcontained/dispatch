@@ -74,6 +74,7 @@ export type RunnerSummary = {
   health?: RunnerHealth;
   healthReceivedAt?: string;
   workspaces: string[];
+  managedWorkspace?: true;
 };
 
 export class RunnerUnavailable extends Error {}
@@ -100,7 +101,7 @@ type Gate = {
   registrationId?: string;
   approved(): boolean;
   allows(workspace: string): boolean;
-  ready?(workspaces: string[]): void;
+  ready?(workspaces: string[], managedWorkspace: boolean): void;
 };
 
 type Settle = (frame?: Extract<Frame, { type: "result" }>) => void;
@@ -109,6 +110,7 @@ type Peer = {
   socket: TLSSocket;
   send: (frame: Frame) => void;
   workspaces: Set<string>;
+  managedWorkspace: boolean;
   gate: Gate;
   health?: { sample: RunnerHealth; receivedAt: Date };
   reportsHealth?: boolean;
@@ -319,10 +321,7 @@ export class RemoteRunnerService {
    * requires its own per-workspace `repoTool`.
    */
   repoToolFor(placement: Placement) {
-    if (
-      placement.workspace === MANAGED_WORKSPACE ||
-      !this.permitsAgentMcp(placement)
-    )
+    if (this.isManagedWorkspace(placement) || !this.permitsAgentMcp(placement))
       return false;
     if (this.legacy && placement.runner === this.legacy.id)
       return this.legacy.repoTool === true;
@@ -568,9 +567,12 @@ export class RemoteRunnerService {
       registrationId: registration.id,
       approved: () => this.enrolled.get(fingerprint)?.id === registration.id,
       allows: () => true,
-      ready: (workspaces) => {
+      ready: (workspaces, managedWorkspace) => {
         registration.workspaces = workspaces;
-        void registry.connected(registration.id, workspaces).catch(() => {});
+        registration.managedWorkspace = managedWorkspace;
+        void registry
+          .connected(registration.id, workspaces, managedWorkspace)
+          .catch(() => {});
       },
     };
   }
@@ -596,8 +598,11 @@ export class RemoteRunnerService {
           frame.type !== "ready" ||
           frame.version !== 1 ||
           !Array.isArray(frame.workspaces) ||
-          frame.workspaces.length >
-            (frame.workspaces.includes(MANAGED_WORKSPACE) ? 257 : 256) ||
+          frame.workspaces.length > 256 ||
+          (frame.managedWorkspace !== undefined &&
+            (frame.managedWorkspace !== true ||
+              frame.workspaces.length !== 1 ||
+              frame.workspaces[0] !== MANAGED_WORKSPACE)) ||
           !frame.workspaces.every((workspace) => validWorkspaceId(workspace))
         )
           return socket.destroy();
@@ -607,6 +612,7 @@ export class RemoteRunnerService {
           reportsHealth: frame.health === true,
           send,
           workspaces: new Set(frame.workspaces),
+          managedWorkspace: frame.managedWorkspace === true,
           gate,
           pending: new Map(),
           channels: new Map(),
@@ -615,7 +621,7 @@ export class RemoteRunnerService {
         const previous = this.peers.get(gate.key);
         this.peers.set(gate.key, peer);
         previous?.socket.destroy();
-        gate.ready?.(frame.workspaces);
+        gate.ready?.(frame.workspaces, peer.managedWorkspace);
         if (peer.reportsHealth) send({ type: "accept_health" });
         return;
       }
@@ -805,6 +811,9 @@ export class RemoteRunnerService {
               this.legacy!.workspaces.includes(w)
             )
           : [...this.legacy.workspaces],
+        ...(peer?.managedWorkspace && peer.gate.allows(MANAGED_WORKSPACE)
+          ? { managedWorkspace: true }
+          : {}),
       });
     }
     if (!this.enrollment) return runners;
@@ -836,6 +845,9 @@ export class RemoteRunnerService {
               }
             : {}),
         workspaces: online ? [...peer!.workspaces] : registration.workspaces,
+        ...((online ? peer!.managedWorkspace : registration.managedWorkspace)
+          ? { managedWorkspace: true }
+          : {}),
       });
     }
     return runners;
@@ -923,6 +935,14 @@ export class RemoteRunnerService {
   // ---------------------------------------------------------------------------
   // Agent operations
   // ---------------------------------------------------------------------------
+
+  isManagedWorkspace(placement: Placement) {
+    return (
+      placement.workspace === MANAGED_WORKSPACE &&
+      this.peers.get(placement.runner)?.managedWorkspace === true &&
+      this.available(placement)
+    );
+  }
 
   available(placement: Placement) {
     const peer = this.peers.get(placement.runner);

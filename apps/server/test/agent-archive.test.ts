@@ -1294,6 +1294,7 @@ it("archives an offline managed session with pending cleanup recorded in the sam
     getRequiredAgent: vi.fn().mockResolvedValue(
       makeAgent("remote", {
         cwd: "runner://runner/@session",
+        runnerManaged: true,
         status: "archiving",
       })
     ),
