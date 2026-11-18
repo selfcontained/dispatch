@@ -1,3 +1,5 @@
+import { useRef, useState } from "react";
+
 import {
   Tooltip,
   TooltipContent,
@@ -59,10 +61,12 @@ const color = (category: ActivityCategory) =>
 
 /**
  * How many times a long turn's grid filled and scattered, with a row of
- * blocks grouped by what those laps were made of. Hover or focus for the
+ * blocks grouped by what those laps were made of. Hover, focus or tap for the
  * breakdown.
  */
 export function FillCount({ fills }: { fills: DefragFill[] }): JSX.Element {
+  const [open, setOpen] = useState(false);
+  const openAtPress = useRef(false);
   const mix = fillMix(fills);
   const total = mix.reduce((n, share) => n + share.count, 0);
   const times = `Filled ${fills.length} ${fills.length === 1 ? "time" : "times"}`;
@@ -71,15 +75,27 @@ export function FillCount({ fills }: { fills: DefragFill[] }): JSX.Element {
     .map((share) => ACTIVITY_LABELS[share.category].toLowerCase())
     .join(" and ")}`;
   return (
-    <TooltipProvider>
-      <Tooltip>
-        <TooltipTrigger asChild>
+    <TooltipProvider delayDuration={150}>
+      <Tooltip open={open} onOpenChange={setOpen}>
+        <TooltipTrigger
+          asChild
+          // Touch never hovers: a tap on any part of the chip toggles it.
+          // The tap also focuses (which opens), so toggle from the state the
+          // press started in.
+          onPointerDown={() => {
+            openAtPress.current = open;
+          }}
+          onClick={(event) => {
+            event.preventDefault();
+            setOpen(!openAtPress.current);
+          }}
+        >
           <span
             role="img"
             tabIndex={0}
             aria-label={label}
             data-testid="chat-response-fill-count"
-            className="inline-flex items-center gap-1.5 rounded-sm border border-border/60 px-1 py-px text-[10px] leading-4 text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            className="inline-flex items-center gap-1.5 rounded-sm border border-border/60 px-1 py-px text-[10px] leading-4 text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring cursor-default select-none"
           >
             <span className="tabular-nums">×{fills.length}</span>
             <span aria-hidden="true" className="flex shrink-0 gap-px">

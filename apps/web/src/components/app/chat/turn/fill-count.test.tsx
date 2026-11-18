@@ -1,10 +1,10 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it } from "vitest";
-import { cleanup, render } from "@testing-library/react";
+import { cleanup, fireEvent, render } from "@testing-library/react";
 
 import type { ActivityCategory } from "./activity-category";
 import type { Step } from "./contracts";
-import { fillBlocks, fillMix, topFillMix } from "./fill-count";
+import { FillCount, fillBlocks, fillMix, topFillMix } from "./fill-count";
 import {
   ResponsePlaceholder,
   defragCells,
@@ -135,5 +135,24 @@ describe("placeholder fill count", () => {
     expect(chip.parentElement!.lastElementChild).toBe(
       view.getByTestId("chat-response-show-progress")
     );
+  });
+});
+
+describe("FillCount", () => {
+  it("toggles the breakdown on tap even though the tap also focuses it", () => {
+    const view = render(
+      <FillCount fills={[{ categories: reads(4) }, { categories: reads(4) }]} />
+    );
+    const chip = view.getByTestId("chat-response-fill-count");
+    const tap = () => {
+      fireEvent.pointerDown(chip, { pointerType: "touch" });
+      fireEvent.pointerUp(chip, { pointerType: "touch" });
+      fireEvent.focus(chip);
+      fireEvent.click(chip);
+    };
+    tap();
+    expect(chip.getAttribute("data-state")).not.toBe("closed");
+    tap();
+    expect(chip.getAttribute("data-state")).toBe("closed");
   });
 });
