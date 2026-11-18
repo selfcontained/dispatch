@@ -7,12 +7,12 @@ error() { printf 'error: %s\n' "$*" >&2; exit 1; }
 usage() {
   cat <<'USAGE'
 Usage:
-  install-dispatch-runner.sh install --tag vX.Y.Z --endpoint URL --ca-sha256 HEX --code CODE
+  install-dispatch-runner.sh install --tag vX.Y.Z
   install-dispatch-runner.sh update --tag vX.Y.Z
   install-dispatch-runner.sh recover
 
 Run as root on Linux with systemd and unified cgroup v2.
-Install verifies the release, enrolls the runner, and enables its service.
+Install verifies the release and prepares the runner for the connect command.
 Update exits 75 if the runner has workload processes. Retry when idle.
 Recover restores the previous binary after an interrupted update.
 USAGE
@@ -45,6 +45,15 @@ stable_start() {
     [[ "$pid" == "$(systemctl show -p MainPID --value "$unit")" ]]
 }
 
+start_enabled_runner() {
+  local enabled
+  enabled=$(systemctl is-enabled "$unit") || {
+    [[ "$enabled" == disabled ]] && return 0
+    return 1
+  }
+  stable_start
+}
+
 write_config() {
   local uid gid
   uid=$(id -u "$account")
@@ -70,6 +79,10 @@ CONFIG
 
 install_runner() {
   local account_entry account_home account_shell
+  if [[ -e "$command_path" || -L "$command_path" ]]; then
+    [[ -L "$command_path" && "$(readlink "$command_path")" == "$runtime/dispatch" ]] ||
+      error "Another dispatch-runner command already occupies $command_path"
+  fi
   if [[ ! -f "$runtime/managed-install" ]]; then
     [[ ! -e "$config" && ! -e "$unit_path" && ! -e "$runtime/dispatch" ]] ||
       error "An unmanaged runner already occupies the install paths"
@@ -108,16 +121,18 @@ install_runner() {
   if [[ ! -f "$unit_path" ]]; then
     install -m 0644 "$stage/$unit" "$unit_path"
   fi
-  install -m 0755 "${BASH_SOURCE[0]}" "$runtime/install-dispatch-runner.sh"
-  if [[ ! -s "$settings/key.pem" || ! -s "$settings/cert.pem" || ! -s "$settings/ca.pem" ]] ||
-     ! grep -q '"endpoint"' "$config"; then
-    "$runtime/dispatch" remote-runner-pair --dir "$settings" --config "$config" \
-      --endpoint "$endpoint" --ca-sha256 "$pin" --code "$code"
+  tar -xOzf "$stage/dispatch-server.tar.gz" bin/install-dispatch-runner.sh > "$stage/updater"
+  [[ -s "$stage/updater" ]] || error "Missing updater from $tag"
+  chmod 0755 "$stage/updater"
+  mv -fT "$stage/updater" "$runtime/install-dispatch-runner.sh"
+  if [[ ! -L "$command_path" ]]; then
+    if [[ ! -d "$(dirname "$command_path")" ]]; then
+      install -d -m 0755 "$(dirname "$command_path")"
+    fi
+    ln -s "$runtime/dispatch" "$command_path"
   fi
   systemctl daemon-reload
-  systemctl enable "$unit"
-  stable_start || error "Runner failed to start. See journalctl -u $unit"
-  printf 'Runner service started. Check its connection in Dispatch Settings.\n'
+  printf 'Runner installed. Use the connect command from Dispatch Settings to enroll.\n'
 }
 
 defer() {
@@ -181,7 +196,7 @@ recover_runner() {
     mv -fT "$stage/restore" "$runtime/dispatch"
     sync -f "$runtime"
   fi
-  stable_start || error "Runner recovery could not start. See journalctl -u $unit"
+  start_enabled_runner || error "Runner recovery could not start. See journalctl -u $unit"
   rm -f -- "$runtime/previous"
   sync -f "$runtime"
 }
@@ -207,13 +222,13 @@ update_runner() {
   sync -f "$runtime"
   mv -fT "$stage/next" "$runtime/dispatch"
   sync -f "$runtime"
-  if ! stable_start; then
+  if ! start_enabled_runner; then
     recover_runner
     error "New runner failed to start. Restored the previous release"
   fi
   rm -f -- "$runtime/previous"
   sync -f "$runtime"
-  printf 'Runner updated to %s. Check its connection in Dispatch Settings.\n' "$tag"
+  printf 'Runner updated to %s.\n' "$tag"
 }
 
 cleanup() {
@@ -230,26 +245,12 @@ main() {
     install|update|recover) shift ;;
     *) usage >&2; error "Choose install, update, or recover" ;;
   esac
-  tag= endpoint= pin= code=
-  while (( $# )); do
-    [[ $# -ge 2 && -n "$2" && "$2" != --* ]] || error "Missing value for $1"
-    case "$1" in
-      --tag) tag=$2 ;;
-      --endpoint) endpoint=$2 ;;
-      --ca-sha256) pin=$2 ;;
-      --code) code=$2 ;;
-      *) error "Unknown option $1" ;;
-    esac
-    shift 2
-  done
-  if [[ "$action" != recover ]]; then
+  if [[ "$action" == recover ]]; then
+    [[ $# -eq 0 ]] || error "Recover takes no options"
+  else
+    [[ $# -eq 2 && "$1" == --tag ]] || error "Supply --tag vX.Y.Z"
+    tag=$2
     [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || error "Use an exact release tag (vX.Y.Z)"
-  fi
-  if [[ "$action" == install ]]; then
-    [[ "$endpoint" == https://* && "$pin" =~ ^[0-9a-fA-F]{64}$ && -n "$code" ]] ||
-      error "Copy a complete pairing command from Dispatch Settings"
-  elif [[ -n "$endpoint$pin$code" ]]; then
-    error "Pairing options are for installation"
   fi
   [[ "$EUID" == 0 && "$(uname -s)" == Linux ]] || error "Run as root on Linux"
   case "$(uname -m)" in
@@ -269,6 +270,7 @@ main() {
   umask 077
   unit=dispatch-runner.service
   unit_path="/etc/systemd/system/$unit"
+  command_path=/usr/local/bin/dispatch-runner
   runtime=/opt/dispatch-runner
   settings=/etc/dispatch-runner
   config="$settings/runner.json"

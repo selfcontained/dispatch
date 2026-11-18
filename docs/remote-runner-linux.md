@@ -7,14 +7,25 @@ Install Bash, curl, tar, util-linux (including `/usr/bin/setpriv` and `flock`),
 GitHub CLI verifies the published bundles without a GitHub login.
 The runner must be able to reach the HTTPS address in the pairing command.
 
-1. Install the engines you plan to use according to their Linux instructions.
-   The default runner configuration looks for `claude`, `codex`, and `opencode`
-   under `/usr/local/bin`. Install any companion binaries the engine requires.
-2. In Dispatch, open **Settings → Connections → Remote runners**, name the
-   runner, and choose **Pair runner**. Run the displayed installation command
-   on Linux with sudo access. The code is single-use and expires after ten
-   minutes. If it expires during setup, request a fresh code.
-3. Wait for **Online** in Settings. If the selected engine needs credentials,
+1. In Dispatch, open **Settings → Connections → Remote runners** and run
+   the installation command for the available release. The installer
+   prepares the workload account and configuration, and adds
+   `dispatch-runner` to `/usr/local/bin`.
+2. Run the separate connect command on Linux. Use the service URL and any
+   CA pin supplied by Dispatch Settings:
+
+   ```sh
+   sudo dispatch-runner connect --service 'https://dispatch.example'
+   ```
+
+   Enter the code shown in the terminal into Dispatch and approve the
+   connection there. The CLI completes enrollment and starts the service
+   after approval. Wait for **Online** in Settings.
+
+3. Install the engines you plan to use according to their Linux instructions.
+   The default runner configuration looks for `claude`, `codex`, and
+   `opencode` under `/usr/local/bin`. Install any companion binaries the
+   engine requires. If the selected engine needs credentials,
    sign in as the workload account using its managed home. For example, run
    `sudo -u dispatch-runner -H /usr/local/bin/codex login` if you use Codex.
 4. Choose the runner when launching a session in Dispatch. The runner allocates
@@ -28,6 +39,32 @@ sudo. The installer verifies the existing `dispatch-server.tar.gz` with the
 same policy and extracts the Linux binary for the host's architecture and
 release tag. The published `.sigstore.json` sidecars carry the attestations.
 This path requires a release that includes those assets.
+
+For a manual installation, set `tag` to the exact published release:
+
+```sh
+(
+  set -e
+  tag=vX.Y.Z
+  dir=$(mktemp -d)
+  trap 'rm -rf -- "$dir"' EXIT
+  base="https://github.com/selfcontained/dispatch/releases/download/$tag"
+  curl -qfsSL --proto '=https' --proto-redir '=https' "$base/install-dispatch-runner.sh" -o "$dir/install.sh"
+  curl -qfsSL --proto '=https' --proto-redir '=https' "$base/install-dispatch-runner.sh.sigstore.json" -o "$dir/install.json"
+  gh attestation verify "$dir/install.sh" --hostname github.com \
+    --bundle "$dir/install.json" --repo selfcontained/dispatch \
+    --signer-workflow selfcontained/dispatch/.github/workflows/release.yml
+  sudo bash "$dir/install.sh" install --tag "$tag"
+)
+```
+
+Settings can check availability using
+`GET https://api.github.com/repos/selfcontained/dispatch/releases/tags/<tag>`.
+The response's `assets[].name` values must include
+`install-dispatch-runner.sh`, `install-dispatch-runner.sh.sigstore.json`,
+`dispatch-server.tar.gz`, and `dispatch-server.tar.gz.sigstore.json`.
+Inspect the exact tag rather than GitHub's latest-release alias so the runner
+matches the Dispatch protocol bundled with that release.
 
 The service runs the supervisor as root and starts engine processes as the
 dedicated non-login `dispatch-runner` account. The workload account owns
@@ -56,7 +93,8 @@ ended. On an idle runner it retains the previous executable, atomically
 replaces the live executable, and checks that the replacement service survives
 startup. The runner's **Online** status in Settings confirms reconnection. If
 startup fails, the updater restores the previous executable and starts it.
-Updates preserve the enrollment, settings, and workload state.
+Updates preserve the enrollment, settings, and workload state. Updating before
+connect keeps the service stopped.
 
 If an update was interrupted, run:
 
@@ -72,5 +110,6 @@ executable otherwise.
 
 Run `bash scripts/remote-runner/test-installer.sh` from the worktree root.
 The fixtures use a temporary service state, synthetic signatures, and fake
-systemd commands. They cover enrollment retry, asset verification, both Linux
-architectures, busy-session deferral, replacement, and recovery.
+systemd commands. They cover retrying installation before and after connect,
+asset verification, both Linux architectures, busy-session deferral,
+replacement, and recovery.

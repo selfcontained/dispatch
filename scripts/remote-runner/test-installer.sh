@@ -19,13 +19,14 @@ state="$root/state"
 account=dispatch-runner
 unit=dispatch-runner.service
 unit_path="$root/$unit"
+command_path="$root/bin/dispatch-runner"
 cgroup_root="$root/cgroups"
-endpoint=https://runner.example:4310
-pin=$(printf 'a%.0s' {1..64})
-code=fixture
 frozen=0
 umask 077
 mkdir -p "$runtime" "$stage" "$cgroup_root/service"
+if [[ ! -e "$cgroup_root/service/cgroup.events" ]]; then
+  printf 'populated 0\nfrozen 0\n' > "$cgroup_root/service/cgroup.events"
+fi
 trap cleanup EXIT
 
 curl() {
@@ -48,6 +49,14 @@ systemctl() {
       : > "$root/running"
       ;;
     is-active) [[ -e "$root/running" ]];;
+    is-enabled)
+      if [[ -e "$root/enabled" ]]; then
+        printf 'enabled\n'
+      else
+        printf 'disabled\n'
+        return 1
+      fi
+      ;;
     stop)
       rm -f "$root/running"
       printf 'populated 0\nfrozen 0\n' > "$cgroup_root/service/cgroup.events"
@@ -70,7 +79,7 @@ systemctl() {
       ;;
     thaw) rm -rf "$cgroup_root/service/child" ;;
     kill) [[ "$*" == 'kill --kill-whom=main --signal=SIGKILL dispatch-runner.service' ]];;
-    daemon-reload|enable) ;;
+    daemon-reload) ;;
     *) return 1 ;;
   esac
 }
@@ -114,13 +123,8 @@ for version in 1.0.0 1.0.1; do
   for arch in x64 arm64; do
     cat > "$root/archive/dist/bun/dispatch-$version-bun-linux-$arch" <<'RUNNER'
 #!/usr/bin/env bash
-[[ "$1 $2 $4" == 'remote-runner-pair --dir --config' ]]
-dir=$3
-printf 'fixture-key\n' > "$dir/key.pem"
-printf 'fixture-cert\n' > "$dir/cert.pem"
-printf 'fixture-ca\n' > "$dir/ca.pem"
-node -e 'const fs = require("fs"); const file = process.argv[1]; const config = JSON.parse(fs.readFileSync(file)); config.endpoint = process.argv[2]; fs.writeFileSync(file, JSON.stringify(config, null, 2));' "$5" "$7"
-printf 'paired\n' >> "$dir/../enrollment"
+printf 'connect fixture binary\n'
+exit 1
 RUNNER
     if [[ "$version" == 1.0.1 ]]; then
       printf '# release-new %s\n' "$arch" >> "$root/archive/dist/bun/dispatch-$version-bun-linux-$arch"
@@ -146,10 +150,26 @@ expect_status() {
 
 run install v1.0.0
 run install v1.0.0
-[[ "$(wc -l < "$root/enrollment")" -eq 1 ]]
+[[ "$(readlink "$root/bin/dispatch-runner")" == "$root/runtime/dispatch" ]]
+[[ ! -e "$root/running" && ! -e "$root/settings/key.pem" ]]
+! grep -Eq '^(start|enable) ' "$root/systemctl"
 [[ "$(find "$root/settings/runner.json" -perm 0600 -print)" == "$root/settings/runner.json" ]]
 grep -q '"workspaces": {}' "$root/settings/runner.json"
 cp "$root/runtime/dispatch" "$root/original"
+
+run update v1.0.1
+grep -q 'release-new x64' "$root/bin/dispatch-runner"
+[[ ! -e "$root/running" && ! -e "$root/settings/key.pem" ]]
+
+# Model a successful separate connect, with credentials and an enabled service.
+cp "$root/original" "$root/runtime/dispatch"
+printf 'fixture-key\n' > "$root/settings/key.pem"
+printf 'fixture-cert\n' > "$root/settings/cert.pem"
+printf 'fixture-ca\n' > "$root/settings/ca.pem"
+: > "$root/enabled"
+: > "$root/running"
+run install v1.0.0
+! grep -Eq '^(start|enable) ' "$root/systemctl"
 cp -R "$root/settings" "$root/original-settings"
 
 : > "$root/busy"
