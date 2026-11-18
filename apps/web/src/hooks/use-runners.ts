@@ -1,3 +1,4 @@
+import type { RunnerHealth } from "@dispatch/runner-protocol";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api } from "@/lib/api";
@@ -9,6 +10,8 @@ export type Runner = {
   name: string;
   status: RunnerStatus;
   workspaces: string[];
+  health?: RunnerHealth;
+  healthReceivedAt?: string;
 };
 
 export type RunnerPairing = { id: string; command: string; expiresAt: string };

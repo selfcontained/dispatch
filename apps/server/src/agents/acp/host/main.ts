@@ -11,6 +11,7 @@ import type { PromptSource } from "../prompt-source.js";
 import {
   appendFileSync,
   existsSync,
+  rmSync,
   readFileSync,
   writeFileSync,
 } from "node:fs";
@@ -252,6 +253,18 @@ async function main(): Promise<void> {
     if (event.type === "exit") {
       running = false;
       openTurn = null;
+    }
+    if (
+      launch.reportTurnActivity &&
+      (event.type === "turn" || event.type === "exit")
+    ) {
+      const marker = path.join(stateDir, "turn-active");
+      try {
+        if (openTurn) writeFileSync(marker, "", { flag: "wx", mode: 0o600 });
+        else rmSync(marker, { force: true });
+      } catch {
+        // Telemetry must never interrupt event delivery.
+      }
     }
     send(client, { type: "event", ...entry });
     if (event.type === "exit" && !shuttingDown) {

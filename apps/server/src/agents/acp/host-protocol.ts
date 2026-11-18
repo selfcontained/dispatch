@@ -30,6 +30,8 @@ import type { EngineBins } from "./engine-spec.js";
  */
 export type HostLaunch = RemoteLaunch & {
   cwd: string;
+  /** A supervised runner samples the lifetime of active turns. */
+  reportTurnActivity?: boolean;
   bins: EngineBins;
   /** Environment the engine child gets on top of the host's own. */
   env: Record<string, string>;

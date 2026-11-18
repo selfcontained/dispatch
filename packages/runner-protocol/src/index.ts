@@ -1,3 +1,5 @@
+import type { RunnerHealth } from "./health.js";
+export { type RunnerHealth, parseRunnerHealth } from "./health.js";
 export type Placement = { runner: string; workspace: string };
 
 /** Wire identities are case-sensitive and are not paths. */
@@ -71,7 +73,14 @@ export type Command = { agentId: string; workspace: string } & (
   | { kind: "stop"; force: boolean }
 );
 export type Frame =
-  | { type: "ready"; version: typeof RUNNER_WIRE_VERSION; workspaces: string[] }
+  | {
+      type: "ready";
+      version: typeof RUNNER_WIRE_VERSION;
+      workspaces: string[];
+      health?: true;
+    }
+  | { type: "accept_health" }
+  | { type: "health"; sample: RunnerHealth }
   | { type: "request"; id: string; command: Command }
   | {
       type: "result";

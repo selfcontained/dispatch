@@ -51,6 +51,7 @@ function dialRunner(input: {
   label: string;
   workspaces: string[];
   answer?: boolean;
+  health?: Extract<Frame, { type: "health" }>["sample"];
 }): Promise<FakeRunner> {
   const url = new URL(input.endpoint);
   return new Promise((resolve, reject) => {
@@ -67,11 +68,18 @@ function dialRunner(input: {
     socket.on("error", reject);
     const send = wireFrames(socket, (frame) => {
       requests.push(frame);
+      if (frame.type === "accept_health" && input.health)
+        send({ type: "health", sample: input.health });
       if (frame.type === "request" && input.answer !== false)
         send({ type: "result", id: frame.id, value: input.label });
     });
     socket.once("secureConnect", () => {
-      send({ type: "ready", version: 1, workspaces: input.workspaces });
+      send({
+        type: "ready",
+        version: 1,
+        workspaces: input.workspaces,
+        ...(input.health ? { health: true as const } : {}),
+      });
       resolve({ socket, closed, requests });
     });
   });
@@ -245,6 +253,47 @@ describe("runner enrollment service", () => {
         workspaces: ["proof"],
       },
     ]);
+  });
+
+  it("stores a negotiated runner-pushed sample under the peer identity and retains it offline", async () => {
+    const service = makeService();
+    const alpha = await enroll(service, "alpha");
+    const beta = await enroll(service, "beta");
+    const health = {
+      version: "1.2.3",
+      sessions: 3,
+      working: 1,
+      cpuPercent: 12,
+      memoryUsed: 64,
+      memoryTotal: 512,
+    };
+    const runner = await dialRunner({
+      ...alpha,
+      label: "alpha",
+      workspaces: ["proof"],
+      health,
+    });
+    runners.push(runner);
+    await waitFor(
+      async () =>
+        (await service.list()).find((r) => r.id === alpha.id)?.health
+          ?.sessions === 3
+    );
+    runner.socket.destroy();
+    await waitFor(
+      async () =>
+        (await service.list()).find((r) => r.id === alpha.id)?.status ===
+        "offline"
+    );
+    await waitFor(async () =>
+      Boolean((await service.list()).find((r) => r.id === alpha.id)?.health)
+    );
+    const rows = await service.list();
+    expect(rows.find((r) => r.id === alpha.id)).toMatchObject({
+      health,
+      healthReceivedAt: expect.any(String),
+    });
+    expect(rows.find((r) => r.id === beta.id)?.health).toBeUndefined();
   });
 
   it("validates names and rejects duplicates", async () => {

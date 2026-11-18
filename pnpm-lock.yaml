@@ -177,6 +177,9 @@ importers:
 
   apps/web:
     dependencies:
+      '@dispatch/runner-protocol':
+        specifier: workspace:*
+        version: link:../../packages/runner-protocol
       '@dispatch/shared':
         specifier: workspace:*
         version: link:../../packages/shared

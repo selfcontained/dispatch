@@ -85,7 +85,7 @@ async function dropTasks(): Promise<void> {
     "DROP TABLE IF EXISTS runner_registrations, runner_authority"
   );
   await pool.query(
-    "DELETE FROM pgmigrations WHERE name = '0053_runner_registrations'"
+    "DELETE FROM pgmigrations WHERE name IN ('0053_runner_registrations', '0055_runner_health')"
   );
   await pool.query(
     "DELETE FROM pgmigrations WHERE name = '0051_attention_stream_events'"

@@ -1,3 +1,4 @@
+import type { RunnerHealth } from "./protocol.js";
 import { createHash, randomBytes } from "node:crypto";
 import { X509Certificate } from "node:crypto";
 import type { Pool } from "pg";
@@ -25,6 +26,8 @@ export type Registration = {
   enrolled: boolean;
   revoked: boolean;
   codeExpiresAt: Date | null;
+  health?: RunnerHealth;
+  healthReceivedAt?: Date;
 };
 
 type Row = {
@@ -36,6 +39,8 @@ type Row = {
   enrolled_at: Date | null;
   revoked_at: Date | null;
   code_expires_at: Date | null;
+  health: RunnerHealth | null;
+  health_received_at: Date | null;
 };
 
 const PAIRING_TTL_MS = 10 * 60 * 1000;
@@ -57,6 +62,8 @@ function registration(row: Row): Registration {
     enrolled: Boolean(row.enrolled_at),
     revoked: Boolean(row.revoked_at),
     codeExpiresAt: row.code_expires_at,
+    health: row.health ?? undefined,
+    healthReceivedAt: row.health_received_at ?? undefined,
   };
 }
 
@@ -285,6 +292,14 @@ export class RunnerRegistry {
           SET workspaces = $2::jsonb, last_seen_at = now()
         WHERE id = $1 AND revoked_at IS NULL`,
       [id, JSON.stringify(workspaces)]
+    );
+  }
+
+  async recordHealth(id: string, sample: RunnerHealth, receivedAt: Date) {
+    await this.pool.query(
+      `UPDATE runner_registrations SET health = $2::jsonb, health_received_at = $3, last_seen_at = now()
+       WHERE id = $1 AND revoked_at IS NULL AND (health_received_at IS NULL OR health_received_at <= $3)`,
+      [id, JSON.stringify(sample), receivedAt]
     );
   }
 

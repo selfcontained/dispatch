@@ -78,3 +78,18 @@ outcome. Reconcile such an operation from journal evidence and avoid automatic
 resubmission. A legacy prompt with no journal ID bypasses receipt
 deduplication. `prompt_deferred` explicitly indicates the host held back
 submission because an engine-initiated turn was already open.
+
+## Runner health
+
+A runner can advertise `health: true` in its v1 ready frame. A service that
+wants reports replies once with `{"type":"accept_health"}`. The runner pushes
+a `health` frame containing its latest sample immediately and every 30 seconds
+while connected. Older services ignore the advertisement. A service chooses
+what to retain. Samples have no journal cursor, acknowledgement or replay.
+Reconnection starts a fresh reporting interval.
+
+Session and working counts describe live agent hosts and hosts with an open
+turn. CPU is a percentage over two samples (null until available), and memory
+is reported in bytes. Version identifies the runner build. Dispatch binds each
+report to its authenticated registration and stores the last snapshot with a
+service-side receipt time so stale measurements can be labeled after disconnect.

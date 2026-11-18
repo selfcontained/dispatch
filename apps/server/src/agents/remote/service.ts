@@ -8,6 +8,8 @@ import { createServer, type Server, type TLSSocket } from "node:tls";
 import type { Duplex } from "node:stream";
 import type { Pool } from "pg";
 import {
+  parseRunnerHealth,
+  type RunnerHealth,
   hostChannel,
   wireFrames,
   type Command,
@@ -68,6 +70,8 @@ export type RunnerSummary = {
   id: string;
   name: string;
   status: RunnerStatus;
+  health?: RunnerHealth;
+  healthReceivedAt?: string;
   workspaces: string[];
 };
 
@@ -105,6 +109,8 @@ type Peer = {
   send: (frame: Frame) => void;
   workspaces: Set<string>;
   gate: Gate;
+  health?: { sample: RunnerHealth; receivedAt: Date };
+  reportsHealth?: boolean;
   pending: Map<string, Settle>;
   channels: Map<string, Duplex>;
 };
@@ -592,6 +598,7 @@ export class RemoteRunnerService {
         clearTimeout(deadline);
         peer = {
           socket,
+          reportsHealth: frame.health === true,
           send,
           workspaces: new Set(frame.workspaces),
           gate,
@@ -603,9 +610,31 @@ export class RemoteRunnerService {
         this.peers.set(gate.key, peer);
         previous?.socket.destroy();
         gate.ready?.(frame.workspaces);
+        if (peer.reportsHealth) send({ type: "accept_health" });
         return;
       }
-      if (frame.type === "result") peer.pending.get(frame.id)?.(frame);
+      if (this.peers.get(gate.key) !== peer) return socket.destroy();
+      if (frame.type === "health" && peer.reportsHealth) {
+        const sample = parseRunnerHealth(frame.sample);
+        if (!sample) return socket.destroy();
+        const receivedAt = new Date();
+        // Bound storage writes from an over-eager peer.
+        if (
+          peer.health &&
+          receivedAt.getTime() - peer.health.receivedAt.getTime() < 1000
+        )
+          return;
+        peer.health = { sample, receivedAt };
+        if (gate.registrationId)
+          void this.enrollment?.registry
+            .recordHealth(gate.registrationId, sample, receivedAt)
+            .catch((error) =>
+              (this.enrollment?.log ?? console).warn(
+                "Could not store runner health",
+                error
+              )
+            );
+      } else if (frame.type === "result") peer.pending.get(frame.id)?.(frame);
       else if (frame.type === "data")
         peer.channels.get(frame.id)?.push(Buffer.from(frame.data, "base64"));
       else if (frame.type === "close") peer.channels.get(frame.id)?.push(null);
@@ -758,6 +787,12 @@ export class RemoteRunnerService {
         // Legacy locators keep addressing the configured id.
         id: this.legacy.id,
         name: this.legacy.id,
+        ...(peer?.health
+          ? {
+              health: peer.health.sample,
+              healthReceivedAt: peer.health.receivedAt.toISOString(),
+            }
+          : {}),
         status: peer?.gate.approved() ? "online" : "offline",
         workspaces: peer
           ? [...peer.workspaces].filter((w) =>
@@ -783,6 +818,17 @@ export class RemoteRunnerService {
             : online
               ? "online"
               : "offline",
+        ...(online && peer.health
+          ? {
+              health: peer.health.sample,
+              healthReceivedAt: peer.health.receivedAt.toISOString(),
+            }
+          : registration.health && registration.healthReceivedAt
+            ? {
+                health: registration.health,
+                healthReceivedAt: registration.healthReceivedAt.toISOString(),
+              }
+            : {}),
         workspaces: online ? [...peer!.workspaces] : registration.workspaces,
       });
     }

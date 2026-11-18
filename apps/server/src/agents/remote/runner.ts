@@ -1,3 +1,4 @@
+import { runnerHealthSampler } from "./health.js";
 import { spawn, execFile, type ChildProcess } from "node:child_process";
 import { createHash } from "node:crypto";
 import { closeSync, openSync, readFileSync } from "node:fs";
@@ -162,6 +163,7 @@ export async function runRemoteRunner(filename: string) {
   await mkdir(hostRoot, { recursive: true, mode: 0o711 });
   await chmod(hostRoot, 0o711);
 
+  const sampleHealth = runnerHealthSampler();
   const hosts = new Map<string, ChildProcess>();
   const active = new Set<string>();
   const owns = async (id: string, workspace: string) =>
@@ -208,6 +210,7 @@ export async function runRemoteRunner(filename: string) {
           NODE_EXTRA_CA_CERTS: config.ca,
         },
         pathPrefix: [],
+        reportTurnActivity: true,
       };
       // Write only into a fresh directory: a previous CLI account could have
       // replaced anything under its old host directory with symlinks.
@@ -274,6 +277,26 @@ export async function runRemoteRunner(filename: string) {
         ...(isIP(host) ? {} : { servername: host }),
         rejectUnauthorized: true,
       });
+      let healthInterval: ReturnType<typeof setInterval> | undefined;
+      let sampling = false;
+      const reportHealth = async () => {
+        if (sampling || socket.destroyed) return;
+        sampling = true;
+        try {
+          const dirs = [...hosts.keys()].map((id) =>
+            path.join(hostRoot, runnerStorageKey(id))
+          );
+          const sample = await sampleHealth(dirs);
+          safeSend({ type: "health", sample });
+        } catch (error) {
+          console.warn(
+            "Runner health sample unavailable:",
+            (error as Error).message
+          );
+        } finally {
+          sampling = false;
+        }
+      };
       const channels = new Map<string, ReturnType<typeof createConnection>>();
       const timeout = setTimeout(() => socket.destroy(), 5000);
       socket.on("error", (error: Error) =>
@@ -281,6 +304,7 @@ export async function runRemoteRunner(filename: string) {
       );
       socket.on("close", () => {
         clearTimeout(timeout);
+        clearInterval(healthInterval);
         for (const channel of channels.values()) channel.destroy();
         finished();
       });
@@ -415,7 +439,10 @@ export async function runRemoteRunner(filename: string) {
       }
 
       const send = wireFrames(socket, (frame) => {
-        if (frame.type === "request") {
+        if (frame.type === "accept_health" && !healthInterval) {
+          void reportHealth();
+          healthInterval = setInterval(() => void reportHealth(), 30_000);
+        } else if (frame.type === "request") {
           void request(frame.id, frame.command).catch((error) =>
             safeSend({
               type: "result",
@@ -439,6 +466,7 @@ export async function runRemoteRunner(filename: string) {
         safeSend({
           type: "ready",
           version: RUNNER_WIRE_VERSION,
+          health: true,
           workspaces: Object.keys(config.workspaces),
         });
       });

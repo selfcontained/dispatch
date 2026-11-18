@@ -1,3 +1,4 @@
+import { RunnerHealthDetails } from "./runner-health";
 import { useState, type FormEvent } from "react";
 import { Copy, Server, Unplug } from "lucide-react";
 
@@ -191,6 +192,7 @@ export function RunnerSettings(): JSX.Element {
                       {STATUS_LABEL[runner.status]}
                     </Badge>
                   </div>
+                  <RunnerHealthDetails runner={runner} />
                   <p className="mt-0.5 break-words text-xs text-muted-foreground">
                     {runner.workspaces.length > 0
                       ? `Workspaces: ${runner.workspaces.join(", ")}`
