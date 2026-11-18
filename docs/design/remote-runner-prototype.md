@@ -103,6 +103,42 @@ comma list of `<id>` or `<id>/<workspace>`.
 `DISPATCH_REMOTE_SERVICE_CONFIG` below still works. Its `mcpOrigin` is now
 optional when `endpointHost` is given.
 
+## Runner-initiated enrollment
+
+`dispatch-runner connect --service https://HOST:PORT [--ca-sha256 HEX]
+[--dir /etc/dispatch-runner] [--config FILE]` enrolls without a pairing
+command typed on the runner: the runner dials the Dispatch service itself.
+It generates its keypair locally (the private key never leaves the host, as
+with the operator-initiated flow above) and `POST /api/runners/connect`
+with only its public key. The service returns a short operator-facing code,
+an opaque high-entropy request id for the CLI's own polling, and, when the
+request carried a usable `Host` header, an `approveUrl` pointing at
+**Settings → Connections → Remote runners** on that same origin. The CLI
+prints the code and URL and polls `GET /api/runners/connect/:id` (addressed
+only by that same opaque id) until an operator approves it.
+
+The operator reads the code off the runner's own terminal or logs — it is
+never sent back by the runner — and calls the authenticated
+`POST /api/runners/connect/:id/approve {code, name}`. Approval is key-bound:
+it issues a client certificate only for the public key submitted when the
+request was created, so a code observed or guessed in transit can never
+redeem a different key. The code is a 10-minute, 8-character one-time value;
+five wrong attempts void the request outright, forcing the runner to connect
+again. `DELETE /api/runners/connect/:id` denies a pending request.
+`GET /api/runners/connect` (authenticated) lists pending requests without
+exposing their code or key.
+
+Approval issues the same kind of mTLS client certificate as pairing above,
+automatically and without a second step, and the poll response that follows
+carries the certificate, the CA, and the `endpoint` to dial — the same
+`runner.json` fields `remote-runner-pair` writes. `--ca-sha256` pins the
+service's certificate chain for a self-signed deployment; unlike pairing,
+pinning happens inside the single connection that carries the actual
+request — nothing is written to the socket until the presented chain
+matches, and there is no separate unauthenticated round trip first. Without
+`--ca-sha256`, the service is expected to hold an ordinarily trusted
+certificate.
+
 ## Legacy manual enrollment
 
 Set `DISPATCH_REMOTE_SERVICE_CONFIG` on an isolated Dispatch service. The

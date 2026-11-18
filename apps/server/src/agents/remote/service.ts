@@ -25,6 +25,7 @@ import {
   type EnrollFrame,
 } from "./enrollment.js";
 import {
+  ConnectRequestInvalid,
   PairingRejected,
   RunnerNameTaken,
   RunnerRegistry,
@@ -930,6 +931,122 @@ export class RemoteRunnerService {
       if (entry.id === id) this.enrolled.delete(fingerprint);
     for (const peer of this.peers.values())
       if (peer.gate.registrationId === id) peer.socket.destroy();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Runner-initiated ("connect") enrollment
+  // ---------------------------------------------------------------------------
+
+  /** `POST /api/runners/connect`: an unauthenticated runner requests pairing. */
+  async createConnectRequest(publicKey: unknown, serviceOrigin?: string) {
+    if (!this.enrollment)
+      throw new RunnerRequestError(409, "Runner enrollment is disabled.");
+    if (typeof publicKey !== "string" || publicKey.length === 0)
+      throw new RunnerRequestError(400, "A public key is required.");
+    try {
+      const { id, code, expiresAt } =
+        await this.enrollment.registry.createConnectRequest(publicKey);
+      return {
+        id,
+        code,
+        approveUrl: serviceOrigin
+          ? `https://${serviceOrigin}/settings/connections`
+          : undefined,
+        expiresAt: expiresAt.toISOString(),
+      };
+    } catch (error) {
+      if (error instanceof PairingRejected)
+        throw new RunnerRequestError(400, error.message);
+      throw error;
+    }
+  }
+
+  /** `GET /api/runners/connect/:id`: the runner's own unauthenticated poll. */
+  async pollConnectRequest(id: string) {
+    if (!this.enrollment)
+      throw new RunnerRequestError(409, "Runner enrollment is disabled.");
+    const request = await this.enrollment.registry.pollConnectRequest(id);
+    if (!request) return { status: "expired" as const };
+    if (request.denied) return { status: "denied" as const };
+    if (!request.approved || !request.registrationId || !request.cert)
+      return { status: "pending" as const };
+    const authority = await this.enrollment.registry.authority();
+    if (!authority.port) return { status: "pending" as const };
+    const registration = (await this.enrollment.registry.list()).find(
+      (entry) => entry.id === request.registrationId
+    );
+    if (!registration) return { status: "pending" as const };
+    return {
+      status: "approved" as const,
+      id: request.registrationId,
+      name: request.name ?? registration.name,
+      endpoint: `https://${formatHost(registration.endpointHost)}:${authority.port}`,
+      cert: request.cert,
+      ca: authority.ca.cert,
+    };
+  }
+
+  /** The authenticated list for the approval UI. */
+  async listConnectRequests() {
+    if (!this.enrollment) return [];
+    return (await this.enrollment.registry.listConnectRequests()).map(
+      (request) => ({
+        id: request.id,
+        createdAt: request.createdAt.toISOString(),
+        expiresAt: request.codeExpiresAt.toISOString(),
+      })
+    );
+  }
+
+  /** `POST /api/runners/connect/:id/approve`: the authenticated operator. */
+  async approveConnectRequest(
+    id: string,
+    code: unknown,
+    name: unknown,
+    hostHint?: string
+  ) {
+    if (!this.enrollment)
+      throw new RunnerRequestError(409, "Runner enrollment is disabled.");
+    if (typeof code !== "string" || code.length === 0)
+      throw new RunnerRequestError(400, "A code is required.");
+    if (!validRunnerName(name))
+      throw new RunnerRequestError(
+        400,
+        "Runner names are 1-64 characters without control characters or surrounding spaces."
+      );
+    const host = await this.prepareEndpoint(hostHint);
+    try {
+      const approved = await this.enrollment.registry.approveConnectRequest(
+        id,
+        code,
+        name,
+        host
+      );
+      // Mirror the legacy pairing frame handler: a runner dialing the
+      // listener immediately after approval must already resolve to a gate.
+      this.enrolled.set(
+        approved.registration.fingerprint!,
+        approved.registration
+      );
+      return { id: approved.registration.id, name: approved.registration.name };
+    } catch (error) {
+      if (error instanceof RunnerNameTaken)
+        throw new RunnerRequestError(409, error.message);
+      if (error instanceof ConnectRequestInvalid)
+        throw new RunnerRequestError(404, error.message);
+      if (error instanceof PairingRejected)
+        throw new RunnerRequestError(400, error.message);
+      throw error;
+    }
+  }
+
+  /** `DELETE /api/runners/connect/:id`: deny or cancel a pending request. */
+  async denyConnectRequest(id: string) {
+    if (!this.enrollment)
+      throw new RunnerRequestError(409, "Runner enrollment is disabled.");
+    const denied = await this.enrollment.registry.denyConnectRequest(id);
+    if (!denied)
+      throw new RunnerRequestError(404, "Connect request not found.");
   }
 
   // ---------------------------------------------------------------------------

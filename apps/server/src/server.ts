@@ -933,6 +933,11 @@ async function registerRoutes() {
     if (request.routeOptions.config.browserExtensionBearer) return;
     // The menu app's control routes check its per-launch token themselves.
     if (request.routeOptions.config.macAppBearer) return;
+    // Runner-initiated enrollment: the runner has no Dispatch credentials
+    // until an operator approves it. These routes gate themselves with a
+    // short, bounded-attempt code and a key-bound certificate; approval and
+    // denial are ordinary authenticated routes alongside them.
+    if (request.routeOptions.config.runnerConnectBootstrap) return;
     // The recovery helper authenticates with its enrollment key, loopback-only.
     if (request.routeOptions.config.updateRecovery) return;
     // If no password is set, all routes are open (first-run mode).
