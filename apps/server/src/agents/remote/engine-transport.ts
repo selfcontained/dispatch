@@ -1,8 +1,4 @@
-import {
-  MANAGED_WORKSPACE,
-  type EngineOperationAck,
-  type EngineOperationEvent,
-} from "./protocol.js";
+import type { EngineOperationAck, EngineOperationEvent } from "./protocol.js";
 import { RunnerUnavailable, type RemoteRunnerService } from "./service.js";
 import type { RunnerEngineTransport } from "./engine-manager.js";
 
@@ -23,16 +19,18 @@ export function remoteEngineTransport(
     },
     async send(runnerId, operation, onEvent) {
       // Engine management is runner-wide, not per-workspace; the wire
-      // Command still needs *a* workspace for routing, and every runner
-      // built for this always advertises MANAGED_WORKSPACE.
-      const placement = { runner: runnerId, workspace: MANAGED_WORKSPACE };
-      if (!service.available(placement)) {
+      // Command still needs *a* workspace for routing. A runner with only
+      // configured folders (no managed-session support) never advertises
+      // MANAGED_WORKSPACE, so pick whatever it actually advertises.
+      const workspace = service.anyWorkspace(runnerId);
+      if (!workspace) {
         return {
           ok: false,
           error: "The runner is disconnected or unavailable.",
           unsupported: true,
         };
       }
+      const placement = { runner: runnerId, workspace };
       try {
         const { value, channel } = await service.request(
           placement,
@@ -40,7 +38,7 @@ export function remoteEngineTransport(
           // opaque placeholder the runner's "engine" branch never checks.
           {
             agentId: "@engine",
-            workspace: MANAGED_WORKSPACE,
+            workspace,
             kind: "engine",
             operation,
           },

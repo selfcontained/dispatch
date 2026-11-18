@@ -1,5 +1,8 @@
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { chown, mkdtemp } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 
 import type { RunnerEngine } from "@dispatch/runner-protocol";
 import {
@@ -114,6 +117,17 @@ export class EngineRunnerExecutor {
         return this.wrap(shBin!, shArgs);
       },
       env: config.env,
+      // A staged login (Codex) writes its scratch CODEX_HOME under the
+      // dropped-privilege workload identity, not this (root) process —
+      // the default root-owned 0700 mkdtemp would refuse that write, so
+      // this chowns it to the workload before the CLI ever touches it.
+      createStageDir: async () => {
+        const dir = await mkdtemp(
+          path.join(os.tmpdir(), "dispatch-engine-login-")
+        );
+        await chown(dir, config.uid, config.gid);
+        return dir;
+      },
     });
   }
 
@@ -178,15 +192,21 @@ export class EngineRunnerExecutor {
     return { installed: true, version: sanitizeVersion(output) };
   }
 
-  /** Whether a configured install/update command's own executable can run at all. */
+  /**
+   * Whether a configured install/update command's own executable can run
+   * at all. `setpriv` itself is a fixed system path, so a missing target
+   * (e.g. no npm on the workload's PATH) is never a Node-level spawn
+   * error — setpriv starts fine and the shell it execs into exits 127.
+   * Both failure shapes must be checked.
+   */
   private async commandUsable(command: ManagedCommand): Promise<boolean> {
-    const { spawnError } = await this.run(
+    const { spawnError, code } = await this.run(
       command.executable,
       ["--version"],
       { ...this.config.env, ...command.env },
       5_000
     );
-    return spawnError === undefined;
+    return spawnError === undefined && code === 0;
   }
 
   /** The scope-aware engine list and supported actions, for a snapshot view. */
@@ -270,6 +290,11 @@ export class EngineRunnerExecutor {
         if (!login) return { ok: false, error: "Sign-in not found." };
         return { ok: true, login: toLoginView(login) };
       }
+      case "login_status": {
+        const login = this.logins.get(operation.loginId);
+        if (!login) return { ok: false, error: "Sign-in not found." };
+        return { ok: true, login: toLoginView(login) };
+      }
     }
   }
 
@@ -295,7 +320,7 @@ export class EngineRunnerExecutor {
       message: kind === "install" ? "Installing…" : "Updating…",
     });
     const before = cfg?.bin ? (await this.probe(cfg.bin)).version : null;
-    await this.run(
+    const result = await this.run(
       step.executable,
       step.args,
       { ...this.config.env, ...step.env },
@@ -311,21 +336,35 @@ export class EngineRunnerExecutor {
         });
       }
     );
+    const commandFailed = result.spawnError !== undefined || result.code !== 0;
     const after = cfg?.bin ? (await this.probe(cfg.bin)).version : null;
-    const success =
+    const label = kind === "install" ? "Install" : "Update";
+    const advanced =
       kind === "install"
         ? Boolean(after)
         : Boolean(before && after && compareVersions(after, before) > 0);
+    // An update command can legitimately exit 0 and do nothing — the
+    // engine was already current. That's success, not a failed update.
+    const upToDate =
+      !commandFailed && kind === "update" && !advanced && Boolean(before);
+    const success = !commandFailed && (advanced || upToDate);
+    const message = commandFailed
+      ? `${label} command failed${result.code !== null ? ` (exit code ${result.code})` : ""}.`
+      : upToDate
+        ? `Already up to date (version ${after}).`
+        : advanced
+          ? `${label} completed. Verified installed version ${after}.`
+          : `${label} command completed, but a ${kind === "install" ? "new" : "newer"} installed version could not be verified.`;
     onEvent?.({
       type: "operation_complete",
       operationId,
       engine,
       success,
-      message: success
-        ? `${kind === "install" ? "Install" : "Update"} completed. Verified installed version ${after}.`
-        : `${kind === "install" ? "Install" : "Update"} command completed, but a ${kind === "install" ? "new" : "newer"} installed version could not be verified.`,
+      message,
     });
-    return { ok: true, operationId };
+    return success
+      ? { ok: true, operationId, message }
+      : { ok: false, error: message };
   }
 
   /** Stop every sign-in under way; for shutdown. */

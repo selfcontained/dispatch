@@ -121,7 +121,7 @@ export class EngineManager {
     // own pushed-cache update can lag its ack by a round trip, so force a
     // live read here rather than risk handing back what the cache held
     // before the operation ran.
-    if (operation.type !== "status") {
+    if (operation.type !== "status" && operation.type !== "login_status") {
       const entries =
         scope.kind === "local"
           ? await this.localInventory().catch(() => null)
@@ -243,6 +243,11 @@ export class EngineManager {
       }
       case "login_cancel": {
         const login = logins.cancel(operation.loginId);
+        if (!login) return { ok: false, error: "Sign-in not found." };
+        return { ok: true, login };
+      }
+      case "login_status": {
+        const login = logins.get(operation.loginId);
         if (!login) return { ok: false, error: "Sign-in not found." };
         return { ok: true, login };
       }

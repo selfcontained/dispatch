@@ -190,6 +190,32 @@ describe("engine wire integration", () => {
     ]);
   });
 
+  it("routes engine commands over a configured-folder workspace when @session isn't advertised", async () => {
+    const service = makeService();
+    const alpha = await enroll(service, "alpha");
+    const { socket } = await dialEngineRunner({
+      endpoint: alpha.endpoint,
+      ca: alpha.ca,
+      cert: alpha.cert,
+      key: alpha.key,
+      // No MANAGED_WORKSPACE at all — a runner with only named folders
+      // and no managed-session support, per the real runner.ts shape.
+      workspaces: ["proof"],
+      onEngine: (id, reply, operation) => {
+        expect(operation).toEqual({ type: "status" });
+        reply({ type: "result", id, value: JSON.stringify({ ok: true }) });
+      },
+    });
+    sockets.push(socket);
+    await waitFor(() =>
+      service.available({ runner: alpha.created.id, workspace: "proof" })
+    );
+
+    const transport = remoteEngineTransport(service);
+    const ack = await transport.send(alpha.created.id, { type: "status" });
+    expect(ack).toEqual({ ok: true });
+  });
+
   it("reports unsupported for an offline or non-engine-aware runner", async () => {
     const service = makeService();
     const alpha = await enroll(service, "alpha");

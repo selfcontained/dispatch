@@ -47,6 +47,10 @@ const engineOperationSchema = z.union([
     type: z.literal("login_cancel"),
     loginId: z.string().min(1).max(128),
   }),
+  z.object({
+    type: z.literal("login_status"),
+    loginId: z.string().min(1).max(128),
+  }),
 ]);
 
 const operationBodySchema = z.object({

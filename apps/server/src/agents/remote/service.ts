@@ -1217,6 +1217,22 @@ export class RemoteRunnerService {
     return peer?.gate.approved() ? peer.engines : undefined;
   }
 
+  /**
+   * Any workspace this (approved, connected) peer currently advertises —
+   * for a runner-wide command like `"engine"` that needs *a* workspace
+   * for routing but has no workspace of its own. A runner with only
+   * configured folders and no managed-session support never advertises
+   * `MANAGED_WORKSPACE`, so that must never be assumed.
+   */
+  anyWorkspace(runnerId: string): string | undefined {
+    const peer = this.peers.get(runnerId);
+    if (!peer?.gate.approved()) return undefined;
+    for (const workspace of peer.workspaces) {
+      if (peer.gate.allows(workspace)) return workspace;
+    }
+    return undefined;
+  }
+
   available(placement: Placement) {
     const peer = this.peers.get(placement.runner);
     return Boolean(

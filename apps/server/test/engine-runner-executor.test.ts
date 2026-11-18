@@ -1,4 +1,10 @@
-import { mkdtempSync, rmSync, writeFileSync, chmodSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+  chmodSync,
+} from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
@@ -32,7 +38,7 @@ if (args === "--version") {
 } else if (args === "install") {
   process.exit(mode === "fail-install" ? 1 : 0);
 } else if (args === "update") {
-  process.exit(0);
+  process.exit(mode === "fail-update" ? 1 : 0);
 } else {
   process.exit(2);
 }
@@ -40,6 +46,13 @@ if (args === "--version") {
     );
     chmodSync(fake, 0o755);
   });
+
+  const makeExitCode = (dir: string, code: number) => {
+    const file = path.join(dir, `fake-exit-${code}.mjs`);
+    writeFileSync(file, `#!/usr/bin/env node\nprocess.exit(${code});\n`);
+    chmodSync(file, 0o755);
+    return file;
+  };
 
   afterAll(() => rmSync(dir, { recursive: true, force: true }));
   afterEach(() => executor?.close());
@@ -189,6 +202,147 @@ if (args === "--version") {
     expect(ack.ok).toBe(true);
     expect(events).toContain("operation_progress");
     expect(events[events.length - 1]).toBe("operation_complete");
+  });
+
+  it("reports a failed update as ok:false with the exit code, not a false success", async () => {
+    executor = new EngineRunnerExecutor({
+      uid: 1000,
+      gid: 1000,
+      env: { ...process.env, FAKE_ENGINE_MODE: "fail-update" },
+      wrap: passthroughWrap,
+      engines: {
+        claude: { bin: fake, update: { executable: fake, args: ["update"] } },
+      },
+    });
+    const events: unknown[] = [];
+    const ack = await executor.handle(
+      { type: "update", engine: "claude" },
+      (event) => events.push(event)
+    );
+    expect(ack).toMatchObject({
+      ok: false,
+      error: expect.stringContaining("exit code 1"),
+    });
+    expect(events.at(-1)).toMatchObject({
+      type: "operation_complete",
+      success: false,
+    });
+  });
+
+  it("reports an already-current update as success, not a failure", async () => {
+    // The fake CLI's update command exits 0 and leaves the version
+    // unchanged (no FAKE_ENGINE_MODE override) — a legitimate no-op.
+    executor = new EngineRunnerExecutor({
+      uid: 1000,
+      gid: 1000,
+      env: process.env,
+      wrap: passthroughWrap,
+      engines: {
+        claude: { bin: fake, update: { executable: fake, args: ["update"] } },
+      },
+    });
+    const ack = await executor.handle({ type: "update", engine: "claude" });
+    expect(ack).toMatchObject({
+      ok: true,
+      message: expect.stringContaining("up to date"),
+    });
+  });
+
+  it("treats a setpriv-started but command-not-found installer as unusable (exit 127)", async () => {
+    const exit127 = makeExitCode(dir, 127);
+    executor = new EngineRunnerExecutor({
+      uid: 1000,
+      gid: 1000,
+      env: process.env,
+      wrap: passthroughWrap,
+      engines: {
+        codex: { bin: null, install: { executable: exit127, args: [] } },
+      },
+    });
+    const inventory = await executor.inventory();
+    const codex = inventory.find((entry) => entry.id === "codex")!;
+    expect(codex.actions).toEqual([]);
+    expect(codex.issue).toBe("install-unavailable");
+  });
+
+  it("stages a Codex device sign-in under the workload's own home, never the supervisor's", async () => {
+    const workloadHome = mkdtempSync(
+      path.join(os.tmpdir(), "dispatch-workload-home-")
+    );
+    const codexFake = path.join(dir, "fake-codex.mjs");
+    writeFileSync(
+      codexFake,
+      `#!/usr/bin/env node
+import { writeFileSync } from "node:fs";
+const args = process.argv.slice(2).join(" ");
+if (args === "login --device-auth") {
+  process.stdout.write("Open: https://auth.openai.com/codex/device\\nEnter code: ABCD-1234\\n");
+  setTimeout(() => {
+    writeFileSync(process.env.CODEX_HOME + "/auth.json", "{}");
+    process.exit(0);
+  }, 30);
+} else if (args === "login status") {
+  console.log("Logged in using ChatGPT");
+} else {
+  process.exit(2);
+}
+`
+    );
+    chmodSync(codexFake, 0o755);
+    // Chowning the stage dir to the process's own uid/gid is always
+    // permitted (no root needed), so this exercises the real
+    // createStageDir/chown code path rather than a mocked seam.
+    const uid = process.getuid?.() ?? 0;
+    const gid = process.getgid?.() ?? 0;
+    // vitest.config.ts pins CODEX_HOME for the whole suite so no test
+    // ever touches the real ~/.codex; a real runner's env never sets it,
+    // so this test must clear it to exercise the actual $HOME/.codex
+    // fallback the staged login script falls back to.
+    const { CODEX_HOME: _pinned, ...envWithoutCodexHome } = process.env;
+    executor = new EngineRunnerExecutor({
+      uid,
+      gid,
+      env: { ...envWithoutCodexHome, HOME: workloadHome },
+      wrap: passthroughWrap,
+      engines: { codex: { bin: codexFake } },
+    });
+    const started = await executor.handle({
+      type: "login_start",
+      engine: "codex",
+    });
+    expect(started.ok).toBe(true);
+    expect(started.login?.status).toBe("waiting");
+    expect(started.login?.userCode).toBe("ABCD-1234");
+
+    const untilTerminal = async (loginId: string, timeoutMs = 5_000) => {
+      const start = Date.now();
+      while (Date.now() - start < timeoutMs) {
+        const status = await executor!.handle({
+          type: "login_status",
+          loginId,
+        });
+        if (
+          status.login?.status === "succeeded" ||
+          status.login?.status === "failed"
+        )
+          return status;
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+      throw new Error("timed out waiting for the sign-in to settle");
+    };
+    const status = await untilTerminal(started.login!.id);
+    expect(status.ok).toBe(true);
+    expect(status.login?.status).toBe("succeeded");
+    // The final credential landed under the workload home we configured
+    // — proof the staged script's $HOME-derived path actually resolved
+    // to it, not to this (real) process's own home. This machine's real
+    // ~/.codex may already contain unrelated files from ordinary local
+    // use, so the isolation proof is "it wrote here", not "it didn't
+    // write there" against that uncontrolled real directory.
+    expect(existsSync(path.join(workloadHome, ".codex", "auth.json"))).toBe(
+      true
+    );
+    rmSync(workloadHome, { recursive: true, force: true });
   });
 
   it("rejects an operation with no configured managed command", async () => {

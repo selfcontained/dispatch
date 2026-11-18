@@ -61,7 +61,14 @@ export type EngineOperation =
   | { type: "update"; engine: RunnerEngine }
   | { type: "login_start"; engine: RunnerEngine; restart?: boolean }
   | { type: "login_submit"; loginId: string; code: string }
-  | { type: "login_cancel"; loginId: string };
+  | { type: "login_cancel"; loginId: string }
+  /**
+   * Read a sign-in's current view without acting on it — the only way to
+   * observe progress that happens after the CLI's output arrived
+   * asynchronously (a code being verified, a device flow finishing on its
+   * own), since the op that started or answered it already returned.
+   */
+  | { type: "login_status"; loginId: string };
 
 /**
  * Progress for a long-running operation. Sent as they happen; a scope may
@@ -89,7 +96,13 @@ export type EngineOperationEvent =
   | { type: "login_update"; login: EngineLoginView };
 
 export type EngineOperationAck =
-  | { ok: true; operationId?: string; login?: EngineLoginView }
+  | {
+      ok: true;
+      operationId?: string;
+      login?: EngineLoginView;
+      /** e.g. "Already up to date (version 1.2.3)." — never raw CLI output. */
+      message?: string;
+    }
   | { ok: false; error: string; unsupported?: boolean };
 
 export const RUNNER_ENGINES: readonly RunnerEngine[] = [
@@ -121,7 +134,8 @@ export function isEngineOperation(value: unknown): value is EngineOperation {
     type === "update" ||
     type === "login_start" ||
     type === "login_submit" ||
-    type === "login_cancel"
+    type === "login_cancel" ||
+    type === "login_status"
   );
 }
 

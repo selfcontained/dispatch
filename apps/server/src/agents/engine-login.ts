@@ -122,6 +122,14 @@ export type EngineLoginDeps = {
   now?: () => number;
   /** Test seam: how long the CLI gets to print its link. */
   linkTimeoutMs?: number;
+  /**
+   * How a staged login's scratch `CODEX_HOME` is created. Defaults to a
+   * root-owned `mkdtemp` under the system temp dir — correct when the CLI
+   * runs as this same process's own identity. A caller whose `command`
+   * drops to a different (e.g. workload) uid before running the CLI must
+   * override this so that identity can actually write into the directory.
+   */
+  createStageDir?: () => Promise<string>;
 };
 
 export type LoginScriptOptions = {
@@ -211,9 +219,15 @@ export class EngineLogins {
   private readonly env: NodeJS.ProcessEnv;
   private readonly now: () => number;
   private readonly linkTimeoutMs: number;
+  private readonly createStageDir: NonNullable<
+    EngineLoginDeps["createStageDir"]
+  >;
 
   constructor(private readonly deps: EngineLoginDeps) {
     this.command = deps.command ?? shellCommand;
+    this.createStageDir =
+      deps.createStageDir ??
+      (() => mkdtemp(path.join(os.tmpdir(), "dispatch-engine-login-")));
     this.env = {
       ...hostProcessEnv(deps.env ?? process.env),
       // Claude also tries to open the link itself; on a server that is the
@@ -301,9 +315,7 @@ export class EngineLogins {
     }
     const { staged } = COMMANDS[engine];
     if (staged) {
-      entry.stageDir = await mkdtemp(
-        path.join(os.tmpdir(), "dispatch-engine-login-")
-      );
+      entry.stageDir = await this.createStageDir();
     }
     const command = this.command(bin, args, {
       ttlSeconds: LOGIN_TTL_MS / 1000 + 60,

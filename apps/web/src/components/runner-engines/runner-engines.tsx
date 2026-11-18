@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { CheckCircle2, Loader2 } from "lucide-react";
 
 import type {
@@ -12,6 +12,7 @@ import { CopyButton } from "@/components/ui/copy-button";
 import { Input } from "@/components/ui/input";
 import {
   useRunnerEngineInventory,
+  useRunnerEngineLoginStatus,
   useRunnerEngineOperation,
 } from "@/hooks/use-runner-engines";
 import type { EngineScope } from "@dispatch/runner-protocol/engine-management";
@@ -82,15 +83,43 @@ function EngineRow({
 }): JSX.Element {
   const operation = useRunnerEngineOperation(scope);
   const [code, setCode] = useState("");
+  const [actionResult, setActionResult] = useState<{
+    kind: "success" | "error";
+    message: string;
+  } | null>(null);
+
+  // The CLI's own output (a code being verified, a device flow finishing
+  // on its own) settles asynchronously, after login_start/login_submit
+  // already returned — poll the sign-in's current view while it's active
+  // so that settling is actually visible instead of stuck on "waiting".
+  const loginActive = isLoginActive(activeLogin);
+  const loginStatus = useRunnerEngineLoginStatus(
+    scope,
+    loginActive ? activeLogin!.id : null
+  );
+  useEffect(() => {
+    const polled = loginStatus.data?.ack;
+    if (polled?.ok && polled.login) onLoginChange(polled.login);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loginStatus.data]);
 
   const run = (
     op: Parameters<ReturnType<typeof useRunnerEngineOperation>["mutate"]>[0]
-  ) =>
+  ) => {
+    setActionResult(null);
     operation.mutate(op, {
       onSuccess: ({ ack }) => {
         if (ack.ok && ack.login) onLoginChange(ack.login);
+        if (op.type === "install" || op.type === "update") {
+          setActionResult(
+            ack.ok
+              ? { kind: "success", message: ack.message ?? "Done." }
+              : { kind: "error", message: ack.error }
+          );
+        }
       },
     });
+  };
 
   const canInstall = entry.actions.includes("install");
   const canUpdate = entry.actions.includes("update");
@@ -176,6 +205,28 @@ function EngineRow({
       {operation.isError && (
         <p role="alert" className="text-[12px] text-destructive">
           {operation.error.message}
+        </p>
+      )}
+
+      {actionResult?.kind === "error" && (
+        <p
+          role="alert"
+          className="text-[12px] text-destructive"
+          data-testid={`runner-engine-${entry.id}-action-error`}
+        >
+          {actionResult.message}
+        </p>
+      )}
+      {actionResult?.kind === "success" && (
+        <p
+          className="flex items-center gap-2 text-[12px] text-foreground"
+          data-testid={`runner-engine-${entry.id}-action-success`}
+        >
+          <CheckCircle2
+            className="h-3.5 w-3.5 text-status-working"
+            aria-hidden="true"
+          />
+          {actionResult.message}
         </p>
       )}
 

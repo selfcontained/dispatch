@@ -131,3 +131,109 @@ it("walks a Codex-style device sign-in to the waiting state", async () => {
   await waitFor(() => expect(screen.getByText("ABCD-1234")).toBeTruthy());
   expect(screen.getByText("https://auth.example.com/device")).toBeTruthy();
 });
+
+it("surfaces a failed update instead of silently reporting success", async () => {
+  const ack: EngineOperationAck = {
+    ok: false,
+    error: "Update command failed (exit code 1).",
+  };
+  vi.mocked(api).mockImplementation(
+    async (path: string, init?: RequestInit) => {
+      if (init?.method === "POST") return { ack };
+      return { entries: baseEntries };
+    }
+  );
+
+  renderWithClient({ kind: "local" });
+  await waitFor(() => screen.getByTestId("runner-engine-claude-update"));
+  fireEvent.click(screen.getByTestId("runner-engine-claude-update"));
+
+  await waitFor(() =>
+    expect(
+      screen.getByTestId("runner-engine-claude-action-error").textContent
+    ).toContain("exit code 1")
+  );
+});
+
+it("shows an up-to-date update as a success message, not a failure", async () => {
+  const ack: EngineOperationAck = {
+    ok: true,
+    message: "Already up to date (version 1.2.3).",
+  };
+  vi.mocked(api).mockImplementation(
+    async (path: string, init?: RequestInit) => {
+      if (init?.method === "POST") return { ack };
+      return { entries: baseEntries };
+    }
+  );
+
+  renderWithClient({ kind: "local" });
+  await waitFor(() => screen.getByTestId("runner-engine-claude-update"));
+  fireEvent.click(screen.getByTestId("runner-engine-claude-update"));
+
+  await waitFor(() =>
+    expect(
+      screen.getByTestId("runner-engine-claude-action-success").textContent
+    ).toContain("Already up to date")
+  );
+  expect(screen.queryByTestId("runner-engine-claude-action-error")).toBeNull();
+});
+
+it("polls login status and reflects a device sign-in settling on its own", async () => {
+  let loginPolls = 0;
+  vi.mocked(api).mockImplementation(
+    async (path: string, init?: RequestInit) => {
+      if (init?.method === "POST") {
+        const body = JSON.parse(init.body as string);
+        if (body.operation.type === "login_start") {
+          return {
+            ack: {
+              ok: true,
+              login: {
+                id: "login-1",
+                engine: "claude",
+                status: "waiting",
+                needsCode: false,
+                url: "https://auth.example.com/device",
+                userCode: "ABCD-1234",
+                expiresAt: new Date().toISOString(),
+              },
+            },
+          };
+        }
+        // login_status: settle to "succeeded" on the second poll, the
+        // way a self-driven device flow finishes without the user
+        // submitting anything.
+        loginPolls += 1;
+        const settled = loginPolls >= 2;
+        return {
+          ack: {
+            ok: true,
+            login: {
+              id: "login-1",
+              engine: "claude",
+              status: settled ? "succeeded" : "waiting",
+              needsCode: false,
+              ...(settled ? { detail: "me@example.com" } : {}),
+              expiresAt: new Date().toISOString(),
+            },
+          },
+        };
+      }
+      return { entries: [{ ...baseEntries[0]!, signedIn: false }] };
+    }
+  );
+
+  renderWithClient({ kind: "local" });
+  await waitFor(() => screen.getByTestId("runner-engine-claude-sign-in"));
+  fireEvent.click(screen.getByTestId("runner-engine-claude-sign-in"));
+
+  await waitFor(() => expect(screen.getByText("ABCD-1234")).toBeTruthy());
+  await waitFor(
+    () =>
+      expect(screen.getByText(/Signed in/).textContent).toContain(
+        "me@example.com"
+      ),
+    { timeout: 5_000 }
+  );
+});
