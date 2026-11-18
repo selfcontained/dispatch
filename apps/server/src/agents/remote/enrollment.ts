@@ -79,41 +79,16 @@ export function pairingCommand(input: {
  * Dispatch API is loopback-only or plain HTTP, since nothing about it
  * depends on the main API's own binding or certificate.
  */
-/**
- * A bare shell word, single-quoted. Only ever used for a URL that already
- * passed `new URL(...)`, so the single-quote rejection is a defense-in-depth
- * backstop, not the primary validation.
- */
-function shellSingleQuoted(value: string) {
-  if (value.includes("'") || /[\x00-\x1f]/.test(value))
-    throw new Error("Value is not safe to embed in a shell command.");
-  return `'${value}'`;
-}
-
 export function connectCliCommand(input: {
   host: string;
   port: number;
   caFingerprint: string;
-  /** Embedded as `--approval-url` so the CLI can print it without needing
-   *  the service to know the operator's browser origin on its own. */
-  approvalUrl?: string;
 }) {
-  const pin = normalizeFingerprint(input.caFingerprint)
-    .replace(/:/g, "")
-    .toLowerCase();
-  const parts = [
-    // Writing to the default /etc/dispatch-runner needs root, same as
-    // remote-runner-pair; unlike that command, this one is copied and run
-    // directly by an operator, so spell it out rather than assume it.
-    "sudo dispatch-runner connect",
-    `--service https://${formatHost(input.host)}:${input.port}`,
-    `--ca-sha256 ${pin}`,
-  ];
-  if (input.approvalUrl !== undefined)
-    parts.push(
-      `--approval-url ${shellSingleQuoted(new URL(input.approvalUrl).toString())}`
-    );
-  return parts.join(" ");
+  const pin = normalizeFingerprint(input.caFingerprint).replace(/:/g, "");
+  const service = new URL(`https://${formatHost(input.host)}:${input.port}`);
+  // The fragment conveys trust from Settings and is never sent over HTTP.
+  service.hash = `sha256=${Buffer.from(pin, "hex").toString("base64url")}`;
+  return `sudo dispatch-runner connect '${service.href}'`;
 }
 
 /**
@@ -445,19 +420,40 @@ type ConnectOptions = {
 };
 
 function parseConnectArgs(argv: string[]): ConnectOptions {
+  const positional = argv[0] && !argv[0].startsWith("--") ? argv[0] : undefined;
   const values = new Map<string, string>();
-  for (let index = 0; index < argv.length; index += 2) {
+  for (let index = positional ? 1 : 0; index < argv.length; index += 2) {
     const flag = argv[index];
     const value = argv[index + 1];
     if (!flag?.startsWith("--") || value === undefined)
       throw new Error(`Unexpected argument: ${flag ?? ""}`);
     values.set(flag.slice(2), value);
   }
-  const service = values.get("service");
-  if (!service)
+  if (positional && values.has("service"))
+    throw new Error("Supply only one service URL.");
+  const address = positional ?? values.get("service");
+  if (!address)
     throw new Error(
-      "Usage: dispatch-runner connect --service https://HOST:PORT [--ca-sha256 HEX] [--approval-url URL] [--dir /etc/dispatch-runner] [--config FILE]"
+      "Usage: dispatch-runner connect <https-service-url> [--dir DIR] [--config FILE]"
     );
+  const service = new URL(address);
+  let pin = values.get("ca-sha256");
+  if (service.hash) {
+    const encoded = /^#sha256=([A-Za-z0-9_-]{43})$/.exec(service.hash)?.[1];
+    if (
+      !encoded ||
+      Buffer.from(encoded, "base64url").toString("base64url") !== encoded
+    )
+      throw new Error("Invalid service URL fingerprint.");
+    const embedded = Buffer.from(encoded, "base64url").toString("hex");
+    if (
+      pin !== undefined &&
+      normalizeFingerprint(pin) !== normalizeFingerprint(embedded)
+    )
+      throw new Error("Conflicting service fingerprints.");
+    pin = embedded;
+    service.hash = "";
+  }
   const approvalUrl = values.get("approval-url");
   if (approvalUrl !== undefined) {
     const protocol = new URL(approvalUrl).protocol;
@@ -465,8 +461,8 @@ function parseConnectArgs(argv: string[]): ConnectOptions {
       throw new Error("--approval-url must be an http(s) URL.");
   }
   return {
-    service,
-    pin: values.get("ca-sha256"),
+    service: service.href,
+    pin,
     dir: path.resolve(values.get("dir") ?? "/etc/dispatch-runner"),
     config: values.get("config"),
     approvalUrl,
@@ -661,10 +657,6 @@ export async function runRunnerConnect(argv: string[]) {
     { pin: options.pin, timeoutMs: options.timeoutMs }
   )) as ConnectCreated;
 
-  // `--approval-url` (the operator's own browser, baked into the copied
-  // command by connect-command) takes priority: the service's own
-  // approveUrl only exists when DISPATCH_RUNNER_APPROVAL_ORIGIN is set,
-  // which a preview or default install typically has no reason to.
   const approveUrl = options.approvalUrl ?? created.approveUrl;
   process.stdout.write(
     [

@@ -163,9 +163,9 @@ describe("runner-initiated connect enrollment", () => {
     expect(created.id).toMatch(/^conn_/);
     expect(created.code).toMatch(/^[0-9A-Z]{4}-[0-9A-Z]{4}$/);
     expect(new Date(created.expiresAt).getTime()).toBeGreaterThan(Date.now());
-    // No DISPATCH_RUNNER_APPROVAL_ORIGIN configured: omitted, not guessed —
-    // this call came from the runner, which has no browser origin to offer.
-    expect(created.approveUrl).toBeUndefined();
+    expect(created.approveUrl).toBe(
+      `http://${HOST}:${(api.address() as AddressInfo).port}/settings/connections`
+    );
 
     expect(await service.pollConnectRequest(created.id)).toEqual({
       status: "pending",
@@ -180,20 +180,16 @@ describe("runner-initiated connect enrollment", () => {
     ]);
   });
 
-  it("offers an approval link, including over plain HTTP for a dev frontend, only when configured", async () => {
+  it("offers an approval link, including over plain HTTP for a dev frontend, when the web UI uses a separate origin", async () => {
     const service = makeService("http://localhost:5173");
     const { publicKey } = generateRunnerKey();
     const created = await service.createConnectRequest(publicKey);
     expect(created.approveUrl).toBe(
       "http://localhost:5173/settings/connections"
     );
-    // connect-command prefers the same configured origin over the
-    // (unreliable for a dev frontend on a different port) request host.
-    const built = await service.connectCommand(HOST, "127.0.0.1:9999");
-    expect(built.approveUrl).toBe("http://localhost:5173/settings/connections");
-    expect(built.command).toContain(
-      "--approval-url 'http://localhost:5173/settings/connections'"
-    );
+    const built = await service.connectCommand(HOST);
+    expect(built.approveUrl).toBe(created.approveUrl);
+    expect(built.command).not.toContain("localhost:5173");
   });
 
   it("rejects a malformed DISPATCH_RUNNER_APPROVAL_ORIGIN", () => {
@@ -222,48 +218,10 @@ describe("runner-initiated connect enrollment", () => {
     ).rejects.toMatchObject({ status: 400 });
   });
 
-  it("builds a reusable, sudo-prefixed connect command embedding the approval link", async () => {
+  it("keeps the copied service address reusable across runner registrations", async () => {
     const service = makeService();
-    const built = await service.connectCommand(HOST, "web.example:8443");
-    expect(built.command).toMatch(
-      /^sudo dispatch-runner connect --service https:\/\/127\.0\.0\.1:\d+ --ca-sha256 [a-f0-9]{64} --approval-url 'https:\/\/web\.example:8443\/settings\/connections'$/
-    );
-    expect(built.approveUrl).toBe(
-      "https://web.example:8443/settings/connections"
-    );
-    // Not single-use: asking again returns the same reachable address.
-    const again = await service.connectCommand(HOST, "web.example:8443");
-    expect(again.command).toBe(built.command);
-  });
-
-  it("drops a Host header that isn't a safe bare host[:port] rather than embed it anywhere", async () => {
-    const service = makeService();
-    const built = await service.connectCommand(
-      HOST,
-      "web.example:8443'; rm -rf / #"
-    );
-    expect(built.approveUrl).toBeUndefined();
-    expect(built.command).not.toContain("--approval-url");
-    expect(built.command).not.toContain("rm -rf");
-  });
-
-  it("matches a plain-HTTP LAN preview frontend's own scheme, not the bootstrap's HTTPS", async () => {
-    const service = makeService();
-    // A Vite dev frontend reachable on the LAN is plain HTTP on its own
-    // port, independent of the runner's own (always-HTTPS) bootstrap.
-    const built = await service.connectCommand(
-      HOST,
-      "192.168.1.246:59244",
-      "http"
-    );
-    expect(built.approveUrl).toBe(
-      "http://192.168.1.246:59244/settings/connections"
-    );
-    expect(built.command).toContain(
-      "--approval-url 'http://192.168.1.246:59244/settings/connections'"
-    );
-    // The --service target is still always https, regardless.
-    expect(built.command).toMatch(/--service https:\/\//);
+    const first = await service.connectCommand(HOST);
+    expect((await service.connectCommand(HOST)).command).toBe(first.command);
   });
 
   it("approves with the correct code, binds the key, and lets the runner connect", async () => {
@@ -387,8 +345,8 @@ describe("runner-initiated connect enrollment", () => {
   it("runs the real CLI end-to-end over the runner listener's own pinned HTTPS (no main API HTTPS needed)", async () => {
     const service = makeService();
     const { command } = await service.connectCommand(HOST);
-    const [, endpoint, pin] =
-      /--service (\S+) --ca-sha256 (\S+)/.exec(command) ?? [];
+    const [, endpoint] =
+      /^sudo dispatch-runner connect '(https:\/\/[^']+)'$/.exec(command) ?? [];
     const dir = await mkdtemp(path.join(tmpdir(), "connect-cli-"));
 
     const printed: string[] = [];
@@ -398,16 +356,11 @@ describe("runner-initiated connect enrollment", () => {
       return true;
     };
 
-    const connectPromise = runRunnerConnect([
-      "--service",
-      endpoint!,
-      "--ca-sha256",
-      pin!,
-      "--dir",
-      dir,
-    ]).finally(() => {
-      process.stdout.write = originalWrite;
-    });
+    const connectPromise = runRunnerConnect([endpoint!, "--dir", dir]).finally(
+      () => {
+        process.stdout.write = originalWrite;
+      }
+    );
 
     let id: string | undefined;
     let code: string | undefined;
@@ -420,6 +373,9 @@ describe("runner-initiated connect enrollment", () => {
     // The UI's own last-8-characters reference matches what the CLI prints.
     expect(printed.join("")).toContain(`Request: ${id!.slice(-8)}`);
 
+    expect(printed.join("")).toContain(
+      `Approve at: http://${HOST}:${(api.address() as AddressInfo).port}/settings/connections`
+    );
     await service.approveConnectRequest(id!, code!, "zeta", HOST);
     await connectPromise;
 
@@ -432,7 +388,7 @@ describe("runner-initiated connect enrollment", () => {
 
     runners.push(
       await dialRunner({
-        endpoint: endpoint!,
+        endpoint: new URL(endpoint!).origin,
         ca,
         cert,
         key,
@@ -506,26 +462,29 @@ function connectServer(
 }
 
 describe("connect command shell safety", () => {
-  it("sudo-prefixes and omits --approval-url when none is given", () => {
+  it("copies a single service URL with the private CA fingerprint", () => {
     const command = connectCliCommand({
       host: "runner.example",
       port: 12345,
       caFingerprint: "AB".repeat(32),
     });
     expect(command).toBe(
-      `sudo dispatch-runner connect --service https://runner.example:12345 --ca-sha256 ${"ab".repeat(32)}`
+      `sudo dispatch-runner connect 'https://runner.example:12345/#sha256=${Buffer.alloc(32, 0xab).toString("base64url")}'`
     );
   });
 
-  it("rejects an approval URL that isn't a well-formed URL at all", () => {
-    expect(() =>
-      connectCliCommand({
-        host: "runner.example",
-        port: 1,
-        caFingerprint: "AB".repeat(32),
-        approvalUrl: "not a url",
-      })
-    ).toThrow();
+  it("rejects malformed or conflicting URL fingerprints before enrollment", async () => {
+    await expect(
+      runRunnerConnect(["https://example.org/#sha256=oops"])
+    ).rejects.toThrow(/Invalid service URL fingerprint/);
+    const encoded = Buffer.alloc(32, 1).toString("base64url");
+    await expect(
+      runRunnerConnect([
+        `https://example.org/#sha256=${encoded}`,
+        "--ca-sha256",
+        "00".repeat(32),
+      ])
+    ).rejects.toThrow(/Conflicting service fingerprints/);
   });
 
   it("CLI rejects a non-http(s) --approval-url before contacting the service", async () => {

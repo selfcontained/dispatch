@@ -62,15 +62,7 @@ export type EnrollmentOptions = {
   endpointHost?: string;
   /** External HTTPS MCP origin; defaults to the runner listener's proxy. */
   mcpOrigin?: string;
-  /**
-   * Where an operator approves a runner-initiated connect request in a
-   * browser — the Dispatch web app's own reachable origin, http or https
-   * (a Vite dev server is plain HTTP on its own port; production is
-   * typically HTTPS). Unset means no link is offered: a single inbound
-   * request's own Host header is reliable for `connectCommand` (the
-   * operator's own browser call) but not for `createConnectRequest` (the
-   * runner's), which has no way to know the operator's browser origin.
-   */
+  /** Public web origin when the operator UI has a separate listener or proxy. */
   approvalOrigin?: string;
   /**
    * Service-side approval for the runner's fixed repo operation: true for
@@ -147,20 +139,6 @@ function validHost(host: string) {
     isIP(host) > 0 ||
     /^[a-zA-Z0-9](?:[a-zA-Z0-9.-]{0,251}[a-zA-Z0-9])?$/.test(host)
   );
-}
-
-/**
- * A bare `host[:port]`, as a Host header should contain. Used before a
- * request-derived value is embedded in a URL that itself gets embedded in
- * a copy-pasted shell command (`connectCommand`'s `--approval-url`) —
- * reject anything else rather than let a crafted Host header ride along.
- */
-function validHostPort(value: string) {
-  const match = /^(\[[0-9a-fA-F:]+\]|[^:[\]\s]+)(?::(\d+))?$/.exec(value);
-  if (!match) return false;
-  const host = match[1]!.replace(/^\[|\]$/g, "");
-  const port = match[2];
-  return validHost(host) && (!port || Number(port) <= 65535);
 }
 
 function httpsOrigin(value: string | undefined, label: string) {
@@ -1022,61 +1000,28 @@ export class RemoteRunnerService {
   // Runner-initiated ("connect") enrollment
   // ---------------------------------------------------------------------------
 
-  /**
-   * `GET /api/runners/connect-command`: the authenticated operator's copy
-   * of the invocation to run on the runner. Unlike pairing, this is not
-   * single-use — the runner supplies its own one-time code — so the same
-   * command stays valid for any number of runners until the CA renews.
-   * The approval link uses this request's own (authenticated, unproxied)
-   * Host header: it is for the operator's browser, which is already here.
-   */
-  /** Where an operator approves a connect request, if known. */
-  /**
-   * `fallbackProtocol` is the *browser's* own scheme for this request
-   * (Fastify's `request.protocol`) — a LAN preview's Vite frontend is
-   * plain HTTP even though the runner's own bootstrap stays HTTPS-only,
-   * so this can never be assumed to be `https`.
-   */
-  private approveUrl(fallbackHost?: string, fallbackProtocol?: string) {
-    if (this.enrollment?.approvalOrigin)
-      return `${this.enrollment.approvalOrigin}/settings/connections`;
-    // Best-effort only: reliable when `fallbackHost`/`fallbackProtocol` are
-    // this request's own (unproxied) Host header and scheme, not when
-    // they're a guess at the runner's view of the service.
-    if (!fallbackHost || !validHostPort(fallbackHost)) return undefined;
-    const protocol =
-      fallbackProtocol === "http" || fallbackProtocol === "https"
-        ? fallbackProtocol
-        : "https";
-    return `${protocol}://${fallbackHost}/settings/connections`;
+  private approveUrl() {
+    let origin = this.enrollment?.approvalOrigin;
+    if (!origin && this.api) {
+      const { host, port, tls } = this.api;
+      const webHost =
+        host === "0.0.0.0" || host === "::" ? advertisedHost(undefined) : host;
+      origin = `${tls ? "https" : "http"}://${formatHost(webHost)}:${port}`;
+    }
+    return origin ? new URL("/settings/connections", origin).href : undefined;
   }
 
-  /**
-   * `GET /api/runners/connect-command`. The approval link is embedded in
-   * the printed command itself (`--approval-url`) as well as returned
-   * alongside it: with no `DISPATCH_RUNNER_APPROVAL_ORIGIN` configured —
-   * the common case for a preview or default install — this request's own
-   * Host header and scheme (the operator's browser, calling this
-   * authenticated route directly) are still the best answer, and the CLI
-   * has no other way to learn them.
-   */
-  async connectCommand(
-    hostHint?: string,
-    rawHost?: string,
-    rawProtocol?: string
-  ) {
+  async connectCommand(hostHint?: string) {
     if (!this.enrollment)
       throw new RunnerRequestError(409, "Runner enrollment is disabled.");
     const host = await this.prepareEndpoint(hostHint);
-    const approveUrl = this.approveUrl(rawHost, rawProtocol);
     return {
       command: connectCliCommand({
         host,
         port: this.port!,
         caFingerprint: this.authority!.caFingerprint,
-        approvalUrl: approveUrl,
       }),
-      approveUrl,
+      approveUrl: this.approveUrl(),
     };
   }
 
@@ -1097,9 +1042,6 @@ export class RemoteRunnerService {
         id,
         code,
         expiresAt: expiresAt.toISOString(),
-        // Only ever set from configuration (see approveUrl): this request
-        // came from the runner, which has no way to tell us the operator's
-        // browser origin, so there is no per-request fallback to guess.
         approveUrl: this.approveUrl(),
       };
     } catch (error) {

@@ -11,16 +11,14 @@ The runner must be able to reach the HTTPS address in the pairing command.
    the installation command for the available release. The installer
    prepares the workload account and configuration, and adds
    `dispatch-runner` to `/usr/local/bin`.
-2. Run the separate connect command on Linux. Use the service URL and any
-   CA pin supplied by Dispatch Settings:
+2. Run the separate connect command on Linux. Copy the service URL from Dispatch Settings:
 
    ```sh
-   sudo dispatch-runner connect --service 'https://dispatch.example'
+   sudo dispatch-runner connect 'https://dispatch.example'
    ```
 
-   Add `--ca-sha256 HEX` if Settings includes a CA fingerprint for a
-   privately trusted service. Enter the code shown in the terminal into
-   Dispatch and approve the connection there. The installed command enables
+   Keep the full URL when copying. For a private certificate it includes a
+   fingerprint. Open the approval link printed by the runner and enter its code. The installed command enables
    and starts the service once enrollment succeeds. Wait for **Online** in
    Settings.
 

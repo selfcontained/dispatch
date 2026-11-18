@@ -135,9 +135,7 @@ export async function registerRunnerRoutes(
           .send({ error: "Runner enrollment is disabled." });
       try {
         return await deps.runners.connectCommand(
-          hostHint(request.headers.host),
-          request.headers.host,
-          request.protocol
+          hostHint(request.headers.host)
         );
       } catch (error) {
         return fail(reply, error);

@@ -14,7 +14,12 @@ export function RunnerHealthDetails({ runner }: { runner: Runner }) {
   const [open, setOpen] = useState(false);
   const installer = useRunnerInstaller(open);
   const tag = installer.data?.tag;
-  if (!health || !healthReceivedAt) return null;
+  if (!health || !healthReceivedAt)
+    return runner.status === "online" ? (
+      <p className="mt-1 text-xs text-muted-foreground">
+        No health report received.
+      </p>
+    ) : null;
   const update =
     tag &&
     /^v?\d+\.\d+\.\d+$/.test(health.version) &&

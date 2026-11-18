@@ -127,20 +127,17 @@ async function connectCommand(page: Page) {
   return (await command.innerText()).trim();
 }
 
-function commandOption(command: string, flag: string) {
-  const match = new RegExp(flag + " +(?:'([^']+)'|([^\\s]+))").exec(command);
-  return match?.[1] ?? match?.[2];
-}
-
 export async function requestConnection(
   page: Page,
   name: GuestName,
   dir = "/etc/dispatch-runner"
 ) {
   const command = await connectCommand(page);
-  const service = new URL(commandOption(command, "--service")!);
-  const pin = commandOption(command, "--ca-sha256");
-  const approvalUrl = commandOption(command, "--approval-url");
+  const match = /^sudo dispatch-runner connect '(https:\/\/[^']+)'$/.exec(
+    command
+  );
+  expect(match, "Settings supplies exactly one service URL").toBeTruthy();
+  const service = new URL(match![1]!);
   if (Number(service.port) === state.runnerPort)
     service.port = String(state.runners[name].proxyPort);
   const args = [
@@ -148,12 +145,9 @@ export async function requestConnection(
     state.runners[name].container,
     "/opt/bin/dispatch-runner",
     "connect",
-    "--service",
     service.href,
     "--dir",
     dir,
-    ...(pin ? ["--ca-sha256", pin] : []),
-    ...(approvalUrl ? ["--approval-url", approvalUrl] : []),
     ...(dir === "/etc/dispatch-runner"
       ? ["--config", "/run/cfg/runner.json"]
       : []),
@@ -191,7 +185,9 @@ export async function requestConnection(
     )
     .toBeTruthy();
   const { code, reference } = approval()!;
-  if (approvalUrl) expect(output).toContain(`Approve at: ${approvalUrl}`);
+  expect(output).toContain(
+    `Approve at: ${new URL("/settings/connections", page.url()).href}`
+  );
   const form = page.getByTestId("runner-approval").filter({
     has: page.getByText(`Connection request · ${reference}`, { exact: true }),
   });

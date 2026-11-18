@@ -107,7 +107,7 @@ optional when `endpointHost` is given.
 
 ## Runner-initiated enrollment
 
-`dispatch-runner connect --service https://HOST:PORT [--ca-sha256 HEX]
+`dispatch-runner connect <service-url>
 [--dir /etc/dispatch-runner] [--config FILE]` enrolls without a pairing
 command typed on the runner: the runner dials the Dispatch service itself.
 `GET /api/runners/connect-command` (authenticated) gives an operator the
@@ -126,25 +126,16 @@ for the CLI's own polling. The CLI prints the code and polls
 `GET /api/runners/connect/:id` (addressed only by that same opaque id)
 until an operator approves it.
 
-Both `connect-command` and the create response may also carry an
-`approveUrl` pointing at **Settings → Connections → Remote runners**. For
-`connect-command` it is built from that authenticated call's own (reliable)
-Host header and scheme — a LAN preview's Vite frontend is plain HTTP on its
-own port, so the scheme is never assumed to be HTTPS even though the
-runner's own bootstrap always is — or from `DISPATCH_RUNNER_APPROVAL_ORIGIN`
-when that is set (a bare `http://` or `https://` origin; `http://` so a
-Vite dev server's own port can be used, not just a production HTTPS
-origin). The Host is checked against a bare-host-and-port shape before it
-goes anywhere near a URL. That URL is also embedded directly in the printed
-command as `--approval-url`, single-quoted and re-validated as a
-well-formed URL first, so the common preview or default-install case (no
-approval-origin configured at all) still gets a working link without the
-service needing to know anything about the operator's browser in advance.
-The create call has no such host to go on — it comes from the runner, not
-a browser — so its own `approveUrl` is only ever populated from
-`DISPATCH_RUNNER_APPROVAL_ORIGIN`; unset, it is omitted
-and the CLI falls back to whatever `--approval-url` it was given, or
-code-only instructions if that's absent too.
+Settings supplies a single HTTPS service URL. For Dispatch's private listener
+the URL fragment carries the SHA-256 fingerprint of the service CA, encoded
+in base64url. The runner verifies it locally before requesting a code. A bare
+HTTPS service URL uses the runner host's normal certificate trust store.
+
+The create response supplies the browser approval link alongside the code.
+Dispatch uses its web listener address, or the public web origin configured
+by the service when it serves the UI separately (including Vite previews).
+The runner prints the link supplied by the service. Older commands with
+`--service`, `--ca-sha256` and `--approval-url` are still accepted.
 
 The operator reads the code off the runner's own terminal or logs — it is
 never sent back by the runner — and calls the authenticated
