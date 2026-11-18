@@ -212,6 +212,7 @@ test("revoke alpha: it cannot return, beta and local are unaffected", async ({
   page,
   request,
 }, testInfo) => {
+  const alphaInvocations = invocations("alpha");
   await revokeViaUi(page, runnerIds.alpha!);
   await expect
     .poll(async () => (await runnerRow(request, "alpha"))?.status)
@@ -219,12 +220,13 @@ test("revoke alpha: it cannot return, beta and local are unaffected", async ({
   // The runner process keeps retrying; it must stay out.
   await new Promise((r) => setTimeout(r, 4000));
   expect((await runnerRow(request, "alpha"))?.status).toBe("revoked");
-  const alphaInvocations = invocations("alpha");
-  await chat(pages.alpha!, "proof-count after-revoke").catch(() => undefined);
-  await new Promise((r) => setTimeout(r, 3000));
+  await expect
+    .poll(async () => (await agentInfo(request, agents.alpha)).status)
+    .toBe("error");
+  expect(await launchViaApi(request, loc("alpha"))).toBe(409);
   expect(invocations("alpha")).toBe(alphaInvocations);
   await testInfo.attach("alpha revoked", {
-    body: await pages.alpha!.screenshot(),
+    body: await page.getByTestId("runner-settings").screenshot(),
     contentType: "image/png",
   });
 

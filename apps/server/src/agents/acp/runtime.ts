@@ -38,6 +38,7 @@ import type {
 } from "../steering.js";
 import {
   RunnerUnavailable,
+  RunnerRevoked,
   RunnerHostGone,
   type RemoteRunnerService,
 } from "../remote/service.js";
@@ -835,12 +836,15 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
                 )
               ).channel!;
             },
-            reconnectError: (error: unknown) =>
-              error instanceof RunnerUnavailable
-                ? "retry"
-                : error instanceof RunnerHostGone
-                  ? "gone"
-                  : undefined,
+            reconnectError: (error: unknown) => {
+              if (
+                error instanceof RunnerRevoked ||
+                error instanceof RunnerHostGone
+              )
+                return "gone";
+              if (error instanceof RunnerUnavailable) return "retry";
+              return undefined;
+            },
             onReady: () => void pump(agentId, entry),
           }
         : {}),
@@ -1161,6 +1165,7 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
           });
           return value === true;
         } catch (error) {
+          if (error instanceof RunnerRevoked) return false;
           if (error instanceof RunnerUnavailable) return true; // Disconnected is not host death.
           throw error;
         }

@@ -165,6 +165,14 @@ export class RunnerRegistry {
     return rows.map(registration);
   }
 
+  async isRevoked(id: string): Promise<boolean> {
+    const result = await this.pool.query(
+      "SELECT 1 FROM runner_registrations WHERE id = $1 AND revoked_at IS NOT NULL",
+      [id]
+    );
+    return result.rows.length > 0;
+  }
+
   async hasActive() {
     await this.pruneExpired();
     const { rows } = await this.pool.query(

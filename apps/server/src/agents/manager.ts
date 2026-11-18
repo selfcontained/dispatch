@@ -74,7 +74,7 @@ import type {
 import { type EngineBins, isAcpEngine } from "./acp/engine-spec.js";
 import { RemoteEventInbox } from "./remote/event-inbox.js";
 import { remotePlacement } from "./remote/protocol.js";
-import type { RemoteRunnerService } from "./remote/service.js";
+import { RunnerRevoked, type RemoteRunnerService } from "./remote/service.js";
 import { buildLaunchEnv } from "./acp/launch-env.js";
 import { dispatchMcpUrl } from "./acp/mcp-url.js";
 import {
@@ -555,7 +555,12 @@ export class AgentManager {
             : "unexpectedly"
           : `with code ${event.code}`;
       const tail = event.stderrTail ? `: ${event.stderrTail}` : "";
-      await this.markHostExited(agentId, `The agent exited ${how}${tail}`);
+      await this.markHostExited(
+        agentId,
+        event.stderrTail === RunnerRevoked.reason
+          ? RunnerRevoked.reason
+          : `The agent exited ${how}${tail}`
+      );
     }
     this.notifyStreamWrite(
       agentId,

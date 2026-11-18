@@ -72,6 +72,13 @@ export type RunnerSummary = {
 };
 
 export class RunnerUnavailable extends Error {}
+export class RunnerRevoked extends RunnerUnavailable {
+  static readonly reason =
+    "The runner registration was revoked. Dispatch no longer has access to this session.";
+  constructor() {
+    super(RunnerRevoked.reason);
+  }
+}
 export class RunnerHostGone extends Error {}
 export class RunnerRequestError extends Error {
   constructor(
@@ -877,6 +884,13 @@ export class RemoteRunnerService {
 
   async request(placement: Placement, command: Command, open = false) {
     const peer = this.peers.get(placement.runner);
+    if (
+      !this.registrationById(placement.runner) &&
+      placement.runner !== this.legacy?.id &&
+      (await this.enrollment?.registry.isRevoked(placement.runner))
+    ) {
+      throw new RunnerRevoked();
+    }
     if (
       !peer ||
       !this.available(placement) ||

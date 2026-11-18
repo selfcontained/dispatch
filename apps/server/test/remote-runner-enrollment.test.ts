@@ -13,6 +13,7 @@ import {
   RemoteRunnerService,
   RunnerRequestError,
   RunnerUnavailable,
+  RunnerRevoked,
 } from "../src/agents/remote/service.js";
 import {
   generateRunnerKey,
@@ -376,7 +377,7 @@ describe("runner enrollment service", () => {
         agentId: "agt_old",
         workspace: "proof",
       })
-    ).rejects.toBeInstanceOf(RunnerUnavailable);
+    ).rejects.toBeInstanceOf(RunnerRevoked);
     expect(runner.requests.some((f) => f.type === "request")).toBe(false);
     expect(
       service.permitsAgentMcp({ runner: "rnr_unknown", workspace: "proof" })
