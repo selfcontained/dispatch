@@ -25,8 +25,9 @@ import {
 // file landing on the wrong side is visible.
 test.describe.configure({ mode: "serial" });
 const WS = state.workspace;
-const loc = (r: RunnerName) => `runner://${r}/${WS}`;
 const runnerIds: Partial<Record<RunnerName, string>> = {};
+// Placement is keyed by the opaque registration id, never the display name.
+const loc = (r: RunnerName) => `runner://${runnerIds[r]}/${WS}`;
 const agents: Record<"local" | RunnerName, string> = {
   local: "",
   alpha: "",
@@ -77,6 +78,8 @@ test("UI launches local, alpha and beta; each answer comes from its own side", a
     );
     expect(status).toBe(201);
     agents[key] = id!;
+    if (key !== "local")
+      expect((await agentInfo(page.request, id!)).cwd).toBe(loc(key));
     await expect(page).toHaveURL((u) => u.pathname === `/agents/${id}`, {
       timeout: 15_000,
     });
@@ -238,8 +241,11 @@ test.describe("failure suite", () => {
     expect(body).not.toBeNull();
     const bad = body!.command.replace(/--code\s+\S+/, "--code WRONGCODE");
     expect(() => pairInContainer("beta", bad)).toThrow();
-    pairInContainer("beta", body!.command); // would overwrite beta's creds; restored below
-    expect(() => pairInContainer("beta", body!.command)).toThrow(); // replay
+    // Pair the unused code into a throwaway dir so beta's live credentials stay intact.
+    pairInContainer("beta", body!.command, "/tmp/gamma-creds");
+    expect(() =>
+      pairInContainer("beta", body!.command, "/tmp/gamma-creds-2")
+    ).toThrow(); // replay
     const row = await runnerRow(request, "gamma");
     expect(["pending", "online", "offline"]).toContain(row?.status);
   });

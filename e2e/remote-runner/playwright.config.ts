@@ -20,6 +20,7 @@ export default defineConfig({
       env: {
         ...((base.webServer as { env?: Record<string, string> }).env ?? {}),
         DISPATCH_RUNNER_HOST: process.env.DISPATCH_RUNNER_HOST ?? "",
+        DISPATCH_RUNNER_REPO_TOOL: process.env.DISPATCH_RUNNER_REPO_TOOL ?? "",
         DISPATCH_RUNNER_PORT: process.env.DISPATCH_RUNNER_PORT ?? "",
         DISPATCH_RUNNER_ENDPOINT_HOST:
           process.env.DISPATCH_RUNNER_ENDPOINT_HOST ?? "",

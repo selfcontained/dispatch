@@ -96,7 +96,11 @@ export async function createPairing(request: APIRequestContext, name: string) {
 }
 
 /** Pair inside the container (key generated there), then start the runner. */
-export function pairInContainer(name: RunnerName, command: string) {
+export function pairInContainer(
+  name: RunnerName,
+  command: string,
+  dir = "/etc/dispatch-runner"
+) {
   const c = state.runners[name].container;
   const pair = viaLane(name, command).replace(
     /^dispatch-runner/,
@@ -107,7 +111,7 @@ export function pairInContainer(name: RunnerName, command: string) {
     c,
     "sh",
     "-c",
-    `${pair} --dir /etc/dispatch-runner --config /run/cfg/runner.json 2>&1`
+    `${pair} --dir ${dir} ${dir === "/etc/dispatch-runner" ? "--config /run/cfg/runner.json" : ""} 2>&1`
   );
 }
 export function startRunner(name: RunnerName) {
@@ -257,4 +261,22 @@ export async function launchViaApi(request: APIRequestContext, cwd: string) {
   if (res.ok())
     trackAgent(((await res.json()) as { agent: { id: string } }).agent.id);
   return res.status();
+}
+
+/** Settled-turn counter: proves a NEW provider turn, not an old or echoed reply. */
+export const settledTurns = (page: Page) =>
+  page.locator('[data-testid="chat-turn"][data-settled="true"]');
+
+/** Send `prompt` and require one additional settled turn whose answer contains `expected`. */
+export async function newSettledTurn(
+  page: Page,
+  prompt: string,
+  expected: string
+) {
+  const before = await settledTurns(page).count();
+  await chat(page, prompt);
+  await expect(settledTurns(page)).toHaveCount(before + 1, { timeout: 45_000 });
+  await expect(
+    settledTurns(page).last().getByTestId("harness-result")
+  ).toContainText(expected);
 }

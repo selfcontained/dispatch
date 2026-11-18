@@ -94,6 +94,7 @@ async function up(run) {
   // Enrolled-mode service settings (no registration file; see enrollment slice).
   writeFileSync(path.join(run, "env"), [
     "export DISPATCH_RUNNER_HOST=0.0.0.0",
+    "export DISPATCH_RUNNER_REPO_TOOL=1", // approved repo operation for every placement
     `export DISPATCH_RUNNER_PORT=${runnerPort}`,
     "export DISPATCH_RUNNER_ENDPOINT_HOST=host.docker.internal",
     `export REMOTE_E2E_STATE='${path.join(run, "state.json")}'`, "",
