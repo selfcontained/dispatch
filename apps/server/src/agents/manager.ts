@@ -72,6 +72,7 @@ import type {
   PromptImage,
 } from "./acp/prompt-source.js";
 import { type EngineBins, isAcpEngine } from "./acp/engine-spec.js";
+import { RemoteEventInbox } from "./remote/event-inbox.js";
 import { remotePlacement } from "./remote/protocol.js";
 import type { RemoteRunnerService } from "./remote/service.js";
 import { buildLaunchEnv } from "./acp/launch-env.js";
@@ -401,11 +402,17 @@ export class AgentManager {
     this.eventBus = createAgentEventBus(logger);
     this.streamStore = new StreamStore(pool);
     this.streamRecorder = new StreamRecorder(this.streamStore, logger);
+    const remoteInbox = new RemoteEventInbox(pool);
     this.runtime =
       options.runtime ??
       createAgentRuntime(config, logger, {
         classifySteering: options.classifySteering,
         remote: this.remote,
+        remoteInbox,
+        recoverRemoteEvent: (agentId) =>
+          remoteInbox.recover(agentId, (event) =>
+            this.handleRuntimeEvent(agentId, event, 0, true)
+          ),
         placement: async (id) => {
           const row = (
             await pool.query<{ cwd: string }>(
@@ -436,8 +443,8 @@ export class AgentManager {
           );
         },
       });
-    this.runtime.onEvent((agentId, event, seq) =>
-      this.handleRuntimeEvent(agentId, event, seq)
+    this.runtime.onEvent((agentId, event, seq, receivedRemotely) =>
+      this.handleRuntimeEvent(agentId, event, seq, receivedRemotely)
     );
     this.reconciler = createReconciler({
       pool,
@@ -472,7 +479,8 @@ export class AgentManager {
   private async handleRuntimeEvent(
     agentId: string,
     event: DriverEvent,
-    seq: number
+    seq: number,
+    receivedRemotely = false
   ): Promise<void> {
     if (event.type === "permissions") {
       this.attentionHistory.permissions(agentId, event.requests);
@@ -503,6 +511,7 @@ export class AgentManager {
     if (event.type === "turn" && event.state !== "settled")
       this.attentionHistory.settleBlocked(agentId);
     await this.streamRecorder.handle(event);
+    if (receivedRemotely) await this.streamRecorder.flush(agentId);
     if (event.type === "turn" && event.state === "settled" && event.usage) {
       await this.recordUsage(agentId);
     }
@@ -517,7 +526,7 @@ export class AgentManager {
           this.logger.warn({ err, agentId }, "Git context refresh failed")
       );
     }
-    if (seq > 0) {
+    if (seq > 0 && !receivedRemotely) {
       await this.pool.query(
         "UPDATE agents SET host_seq = GREATEST(host_seq, $2) WHERE id = $1",
         [agentId, seq]

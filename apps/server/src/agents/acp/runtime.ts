@@ -42,6 +42,7 @@ import {
   type RemoteRunnerService,
 } from "../remote/service.js";
 import type { Placement } from "../remote/protocol.js";
+import type { RemoteEventInbox } from "../remote/event-inbox.js";
 import { HostClient } from "./host-client.js";
 import {
   type HostLaunch,
@@ -255,6 +256,7 @@ type Live = {
   /** Event handling is serialized per agent so rows land in seq order. */
   events: Promise<void>;
   lastSeq: number;
+  durableSeq: number;
   journalId: string | null;
   /** Resolvers for turns waiting on their settle event. */
   settleWaiters: Array<() => void>;
@@ -367,6 +369,8 @@ function sourceBlockIds(source?: PromptSource): string[] {
 
 export type AcpRuntimeDeps = {
   remote?: RemoteRunnerService;
+  remoteInbox?: Pick<RemoteEventInbox, "receive" | "projected">;
+  recoverRemoteEvent?: (agentId: string) => Promise<void>;
   placement?: (agentId: string) => Promise<Placement | null>;
   classifySteering?: ClassifySteering;
   config: Pick<AppConfig, "agentStateRoot" | "agentRuntime" | "dispatchBinDir">;
@@ -415,6 +419,10 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
 
   function dispatchEntry(agentId: string, entry: Live, journal: JournalEntry) {
     if (journal.seq <= entry.lastSeq) return; // replayed, already applied
+    if (entry.remote && journal.seq !== entry.lastSeq + 1) {
+      entry.client.replay();
+      return;
+    }
     entry.lastSeq = journal.seq;
     emit(agentId, entry, journal.event, journal.seq);
   }
@@ -730,17 +738,37 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
       entry.settleWaiters = [];
       for (const resolve of waiters) resolve();
     }
-    entry.events = entry.events
-      .catch(() => {})
-      .then(async () => {
-        for (const listener of listeners) {
-          try {
-            await listener(agentId, event, seq);
-          } catch (err) {
-            logger.warn({ err, agentId }, "runtime event listener failed");
-          }
+    const journalId = entry.journalId;
+    const inbox =
+      entry.remote && seq > 0 && journalId ? deps.remoteInbox : undefined;
+    entry.events = entry.events.then(async () => {
+      if (inbox && journalId) {
+        await inbox.receive(agentId, { journalId, seq, event });
+        entry.durableSeq = seq;
+      }
+      for (const listener of listeners) {
+        try {
+          await listener(agentId, event, seq, Boolean(inbox));
+        } catch (err) {
+          if (inbox) throw err;
+          logger.warn({ err, agentId }, "runtime event listener failed");
         }
-      });
+      }
+      if (inbox && journalId) await inbox.projected(agentId, journalId, seq);
+    });
+    // Leave a failed projection recoverable in the inbox. Never apply later
+    // events over a partial projection. The service reopens it on attach.
+    void entry.events.catch((err) => {
+      if (live.get(agentId) !== entry) return;
+      logger.error(
+        { err, agentId, seq },
+        "remote event projection interrupted"
+      );
+      entry.client.close();
+      live.delete(agentId);
+      failWaiting(entry, new Error("Remote output projection interrupted"));
+      for (const resolve of entry.settleWaiters.splice(0)) resolve();
+    });
   }
 
   function connect(
@@ -764,8 +792,9 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
   ): Promise<Live> {
     const existing = live.get(agentId);
     if (existing) return existing;
-    const cursor = await deps.hostSeq(agentId);
     const placement = await placementOf(agentId);
+    if (placement) await deps.recoverRemoteEvent?.(agentId);
+    const cursor = await deps.hostSeq(agentId);
     const entry: Live = {
       remote: Boolean(placement),
       client: null as unknown as HostClient,
@@ -783,6 +812,7 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
       conversation: undefined,
       events: Promise.resolve(),
       lastSeq: cursor.seq,
+      durableSeq: cursor.seq,
       journalId: cursor.journalId,
       settleWaiters: [],
     };
@@ -791,8 +821,9 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
       socketPath: hostFile(stateDir(agentId), "socket"),
       ...(placement
         ? {
-            openSocket: async () =>
-              (
+            openSocket: async () => {
+              await entry.events;
+              return (
                 await remoteService().request(
                   placement,
                   {
@@ -802,7 +833,8 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
                   },
                   true
                 )
-              ).channel!,
+              ).channel!;
+            },
             reconnectError: (error: unknown) =>
               error instanceof RunnerUnavailable
                 ? "retry"
@@ -813,7 +845,8 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
           }
         : {}),
       logger,
-      fromSeq: () => entry.lastSeq,
+      fromSeq: () =>
+        entry.remote && deps.remoteInbox ? entry.durableSeq : entry.lastSeq,
       journalId: () => entry.journalId,
       onEvent: (journal) => dispatchEntry(agentId, entry, journal),
       onPermissions: (requests) =>
@@ -837,6 +870,7 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
             "agent host journal changed; replaying from the beginning"
           );
           entry.lastSeq = 0;
+          entry.durableSeq = 0;
         }
         if (
           welcome.journalId &&
@@ -1086,7 +1120,8 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
           return false;
         }
       }
-      if (live.has(agentId)) return true;
+      const current = live.get(agentId);
+      if (current) return !current.remote || current.client.isReady();
       const placement = await placementOf(agentId);
       if (placement) {
         if (

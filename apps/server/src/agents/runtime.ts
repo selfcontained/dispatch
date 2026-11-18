@@ -48,7 +48,8 @@ export type RuntimeLaunch = {
 export type RuntimeEventListener = (
   agentId: string,
   event: DriverEvent,
-  seq: number
+  seq: number,
+  receivedRemotely?: boolean
 ) => Promise<void> | void;
 
 /**
@@ -148,7 +149,13 @@ export function createAgentRuntime(
   logger: FastifyBaseLogger,
   deps: Pick<
     AcpRuntimeDeps,
-    "hostSeq" | "syncJournal" | "classifySteering" | "remote" | "placement"
+    | "hostSeq"
+    | "syncJournal"
+    | "remoteInbox"
+    | "recoverRemoteEvent"
+    | "classifySteering"
+    | "remote"
+    | "placement"
   >
 ): AgentRuntime {
   if (config.agentRuntime === "inert") {

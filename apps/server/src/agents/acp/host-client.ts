@@ -224,7 +224,23 @@ export class HostClient {
   private wire(socket: Duplex): void {
     const decode = ndjsonDecoder<HostMessage>();
     socket.on("data", (chunk) => {
-      for (const message of decode(chunk)) this.handle(message);
+      for (const message of decode(chunk)) {
+        if (socket.destroyed || this.socket !== socket) break;
+        if (
+          this.deps.openSocket &&
+          ((message.type === "welcome" &&
+            (message.agentId !== this.deps.agentId || !message.journalId)) ||
+            (message.type === "event" &&
+              (!this.lastWelcome ||
+                message.event?.agentId !== this.deps.agentId ||
+                !Number.isSafeInteger(message.seq) ||
+                message.seq < 1)))
+        ) {
+          socket.destroy();
+          break;
+        }
+        this.handle(message);
+      }
     });
     socket.on("error", (err) => {
       this.deps.logger.debug(
@@ -633,6 +649,11 @@ export class HostClient {
 
   isConnected(): boolean {
     return this.socket !== null && !this.socket.destroyed;
+  }
+
+  /** Reject an incomplete journal suffix and ask for replay on a fresh channel. */
+  replay(): void {
+    this.socket?.destroy();
   }
 
   /** Stop reconnecting and drop the socket. */
