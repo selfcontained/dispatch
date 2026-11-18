@@ -3,7 +3,7 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import { chmod, mkdir, rename, rm, writeFile } from "node:fs/promises";
 import { isIP } from "node:net";
 import path from "node:path";
-import { connect, type PeerCertificate, type TLSSocket } from "node:tls";
+import { connect, type TLSSocket } from "node:tls";
 import { wireFrames } from "./protocol.js";
 import { generateRunnerKey, normalizeFingerprint } from "./x509.js";
 
@@ -17,7 +17,9 @@ import { generateRunnerKey, normalizeFingerprint } from "./x509.js";
 export type EnrollFrame =
   | { type: "enroll"; version: 1; code: string; publicKey: string }
   | { type: "enrolled"; id: string; name: string; cert: string; ca: string }
-  | { type: "enroll_error"; error: string };
+  | { type: "enroll_error"; error: string }
+  | { type: "ca_request"; version: 1 }
+  | { type: "ca"; ca: string };
 
 /** Display names only; placements address runners by registration id. */
 export function validRunnerName(name: unknown): name is string {
@@ -69,50 +71,57 @@ export function pairingCommand(input: {
 }
 
 /**
- * Verify a TLS peer against a pinned CA without any prior trust store: the
- * chain must contain the pinned CA, the leaf must be issued and signed by it,
- * be currently valid, and name the dialed host.
+ * Check a CA certificate the service presented against the pinned SHA-256
+ * fingerprint of its DER bytes. Only public bytes are involved.
  */
-export function verifyPinnedPeer(
-  socket: TLSSocket,
-  host: string,
-  pin: string
-): X509Certificate {
+export function pinnedAuthority(pem: unknown, pin: string): X509Certificate {
   const expected = normalizeFingerprint(pin);
-  const leafInfo = socket.getPeerCertificate(true);
-  if (!leafInfo?.raw) throw new Error("The service sent no certificate.");
-  const chain: X509Certificate[] = [];
-  const seen = new Set<string>();
-  for (
-    let entry: PeerCertificate | undefined = leafInfo;
-    entry?.raw && !seen.has(entry.fingerprint256);
-    entry = (entry as { issuerCertificate?: PeerCertificate }).issuerCertificate
-  ) {
-    seen.add(entry.fingerprint256);
-    chain.push(new X509Certificate(entry.raw));
+  let ca: X509Certificate;
+  try {
+    ca = new X509Certificate(String(pem));
+  } catch {
+    throw new Error("The service sent an unreadable runner CA.");
   }
-  const leaf = chain[0]!;
-  const ca = chain.find((cert) => cert.fingerprint256 === expected);
   const now = Date.now();
-  const current = (cert: X509Certificate) =>
-    new Date(cert.validFrom).getTime() <= now &&
-    now <= new Date(cert.validTo).getTime();
-  const names = isIP(host) ? leaf.checkIP(host) : leaf.checkHost(host);
   if (
-    !ca ||
+    ca.fingerprint256 !== expected ||
     !ca.ca ||
-    ca === leaf ||
-    !leaf.checkIssued(ca) ||
-    !leaf.verify(ca.publicKey) ||
-    !current(ca) ||
-    !current(leaf) ||
-    !names
+    !ca.checkIssued(ca) ||
+    !ca.verify(ca.publicKey) ||
+    new Date(ca.validFrom).getTime() > now ||
+    now > new Date(ca.validTo).getTime()
   ) {
     throw new Error(
       "The service certificate does not match the pinned Dispatch runner CA."
     );
   }
   return ca;
+}
+
+/**
+ * Defense in depth after a handshake that trusted only the pinned CA: the
+ * leaf (exposed the same way by Node and Bun) is issued and signed by it and
+ * names the dialed host.
+ */
+export function verifyServiceLeaf(
+  socket: TLSSocket,
+  host: string,
+  ca: X509Certificate
+) {
+  const leaf = socket.getPeerX509Certificate();
+  const names =
+    leaf && (isIP(host) ? leaf.checkIP(host) : leaf.checkHost(host));
+  if (
+    !socket.authorized ||
+    !leaf ||
+    !leaf.checkIssued(ca) ||
+    !leaf.verify(ca.publicKey) ||
+    !names
+  ) {
+    throw new Error(
+      "The service certificate does not match the pinned Dispatch runner CA."
+    );
+  }
 }
 
 type PairOptions = {
@@ -162,7 +171,75 @@ async function writeAtomic(file: string, data: string, mode: number) {
   }
 }
 
-/** Dial the service, verify the pin, and exchange the code for a cert. */
+type Endpoint = { host: string; port: number };
+
+/** One frame out, one frame back, over a fresh TLS connection. */
+function roundTrip(
+  endpoint: Endpoint,
+  tls: { ca?: string },
+  timeoutMs: number,
+  request: (socket: TLSSocket) => EnrollFrame,
+  accept: (reply: EnrollFrame) => unknown
+): Promise<unknown> {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const socket = connect({
+      host: endpoint.host,
+      port: endpoint.port,
+      ...(isIP(endpoint.host) ? {} : { servername: endpoint.host }),
+      ...(tls.ca
+        ? { ca: tls.ca, rejectUnauthorized: true }
+        : // Bootstrap only: nothing secret is sent on this connection and
+          // the returned CA must match the pinned digest.
+          { rejectUnauthorized: false }),
+    });
+    const finish = (error?: Error, value?: unknown) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      socket.destroy();
+      if (error) reject(error);
+      else resolve(value);
+    };
+    const timer = setTimeout(
+      () => finish(new Error("Pairing timed out.")),
+      timeoutMs
+    );
+    socket.on("error", (error: Error) => finish(error));
+    socket.on("close", () =>
+      finish(new Error("The service closed the pairing connection."))
+    );
+    socket.once("secureConnect", () => {
+      let frame: EnrollFrame;
+      try {
+        frame = request(socket);
+      } catch (error) {
+        return finish(error as Error);
+      }
+      const send = wireFrames(socket, (incoming) => {
+        const reply = incoming as unknown as EnrollFrame;
+        if (reply.type === "enroll_error")
+          return finish(new Error(reply.error));
+        try {
+          finish(undefined, accept(reply));
+        } catch (error) {
+          finish(error as Error);
+        }
+      });
+      send(frame as never);
+    });
+  });
+}
+
+/**
+ * Dial the service and exchange the code for a certificate.
+ *
+ * 1. Fetch the service's public CA certificate and check it against the
+ *    pinned fingerprint. No secret is sent and the peer's chain is not
+ *    needed (Bun does not expose it).
+ * 2. Pair over an ordinary TLS connection that trusts only that CA and
+ *    verifies the hostname, re-checking the leaf, before revealing the code.
+ */
 export async function exchangeCode(input: {
   endpoint: string;
   pin: string;
@@ -173,72 +250,53 @@ export async function exchangeCode(input: {
   const url = new URL(input.endpoint);
   if (url.protocol !== "https:")
     throw new Error("The pairing endpoint must use https.");
-  const host = url.hostname.replace(/^\[|\]$/g, "");
-  const port = Number(url.port || 443);
-  return new Promise<Extract<EnrollFrame, { type: "enrolled" }>>(
-    (resolve, reject) => {
-      let settled = false;
-      const socket = connect({
-        host,
-        port,
-        ...(isIP(host) ? {} : { servername: host }),
-        // Trust comes only from the pinned CA, checked before sending the code.
-        rejectUnauthorized: false,
-      });
-      const finish = (error?: Error, value?: unknown) => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timer);
-        socket.destroy();
-        if (error) reject(error);
-        else resolve(value as Extract<EnrollFrame, { type: "enrolled" }>);
-      };
-      const timer = setTimeout(
-        () => finish(new Error("Pairing timed out.")),
-        input.timeoutMs ?? 15_000
-      );
-      socket.on("error", (error: Error) => finish(error));
-      socket.on("close", () =>
-        finish(new Error("The service closed the pairing connection."))
-      );
-      socket.once("secureConnect", () => {
-        let ca: X509Certificate;
-        try {
-          ca = verifyPinnedPeer(socket, host, input.pin);
-        } catch (error) {
-          return finish(error as Error);
-        }
-        const send = wireFrames(socket, (frame) => {
-          const reply = frame as unknown as EnrollFrame;
-          if (reply.type === "enroll_error")
-            return finish(new Error(reply.error));
-          if (reply.type !== "enrolled")
-            return finish(new Error("Unexpected pairing reply."));
-          try {
-            const issuedCa = new X509Certificate(reply.ca);
-            const cert = new X509Certificate(reply.cert);
-            if (
-              issuedCa.fingerprint256 !== ca.fingerprint256 ||
-              !cert.checkIssued(issuedCa) ||
-              !cert.verify(issuedCa.publicKey) ||
-              cert.publicKey.export({ type: "spki", format: "pem" }) !==
-                input.publicKey
-            )
-              throw new Error("The issued certificate does not match.");
-          } catch (error) {
-            return finish(error as Error);
-          }
-          finish(undefined, reply);
-        });
-        send({
-          type: "enroll",
-          version: 1,
-          code: input.code,
-          publicKey: input.publicKey,
-        } as never);
-      });
+  const endpoint = {
+    host: url.hostname.replace(/^\[|\]$/g, ""),
+    port: Number(url.port || 443),
+  };
+  const timeoutMs = input.timeoutMs ?? 15_000;
+  normalizeFingerprint(input.pin);
+  const caPem = (await roundTrip(
+    endpoint,
+    {},
+    timeoutMs,
+    () => ({ type: "ca_request", version: 1 }),
+    (reply) => {
+      if (reply.type !== "ca") throw new Error("Unexpected pairing reply.");
+      pinnedAuthority(reply.ca, input.pin);
+      return reply.ca;
     }
-  );
+  )) as string;
+  const ca = pinnedAuthority(caPem, input.pin);
+  return (await roundTrip(
+    endpoint,
+    { ca: caPem },
+    timeoutMs,
+    (socket) => {
+      verifyServiceLeaf(socket, endpoint.host, ca);
+      return {
+        type: "enroll",
+        version: 1,
+        code: input.code,
+        publicKey: input.publicKey,
+      };
+    },
+    (reply) => {
+      if (reply.type !== "enrolled")
+        throw new Error("Unexpected pairing reply.");
+      const issuedCa = new X509Certificate(reply.ca);
+      const cert = new X509Certificate(reply.cert);
+      if (
+        issuedCa.fingerprint256 !== ca.fingerprint256 ||
+        !cert.checkIssued(issuedCa) ||
+        !cert.verify(issuedCa.publicKey) ||
+        cert.publicKey.export({ type: "spki", format: "pem" }) !==
+          input.publicKey
+      )
+        throw new Error("The issued certificate does not match.");
+      return reply;
+    }
+  )) as Extract<EnrollFrame, { type: "enrolled" }>;
 }
 
 /** `dispatch-runner remote-runner-pair …`: enroll this host as a runner. */
