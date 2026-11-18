@@ -272,6 +272,8 @@
         "e2e/*release*",
         "apps/macos/**",
         "docs/macos-native-recovery.md",
+        "docs/macos-notification-validation.md",
+        "scripts/fixtures/NotificationValidation.swift",
         "apps/server/src/update-recovery/**",
         "apps/server/src/server/request-lifecycle.ts",
         "apps/server/test/request-lifecycle.test.ts",
