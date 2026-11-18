@@ -742,7 +742,7 @@ export class RemoteRunnerService {
       /^\/api\/(?:v1\/)?runners\/connect$/.test(url) &&
       request.method === "POST";
     const connectPoll =
-      /^\/api\/(?:v1\/)?runners\/connect\/[^/]+$/.test(url) &&
+      /^\/api\/(?:v1\/)?runners\/connect\/conn_[A-Za-z0-9_-]{24}$/.test(url) &&
       request.method === "GET";
     const agentId = /^\/api\/mcp\/(agt_[a-z0-9]+)$/.exec(url)?.[1];
     const token = /^Bearer (\S+)$/.exec(

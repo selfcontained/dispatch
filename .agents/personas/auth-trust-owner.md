@@ -21,6 +21,8 @@ Trace changed authentication and trust boundaries across server hooks, routes, b
 
 - Portfolio reader credentials must remain read-only and distinct from account/MCP credentials, including first-run mode and cookie-bearing requests. Recheck revocation and project allowlists on every page; cached snapshots must never outlive their authorization.
 
+- Runner enrollment must bind the issued certificate to the locally generated key and the operator-approved request. Check the pinned CA, endpoint hostname, one-time code, and which requests the runner listener forwards.
+
 ## Findings
 
 Report only concrete defects introduced or worsened by the reviewed changes. Each finding must identify a realistic failure scenario, its impact, a changed location or contract responsible, and the smallest useful fix. Surrounding code is context, not an invitation to audit pre-existing debt. Submit a clean approval when there are no actionable findings.
