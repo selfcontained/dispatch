@@ -280,16 +280,16 @@ export async function launchViaApi(request: APIRequestContext, cwd: string) {
 export const settledTurns = (page: Page) =>
   page.locator('[data-testid="chat-turn"][data-settled="true"]');
 
-/** Send `prompt` and require one additional settled turn whose answer contains `expected`. */
+/** Send `prompt` and require one additional settled turn whose answer contains every `expected`. */
 export async function newSettledTurn(
   page: Page,
   prompt: string,
-  expected: string
+  expected: string | string[]
 ) {
   const before = await settledTurns(page).count();
   await chat(page, prompt);
   await expect(settledTurns(page)).toHaveCount(before + 1, { timeout: 45_000 });
-  await expect(
-    settledTurns(page).last().getByTestId("harness-result")
-  ).toContainText(expected);
+  const result = settledTurns(page).last().getByTestId("harness-result");
+  for (const text of [expected].flat())
+    await expect(result).toContainText(text);
 }

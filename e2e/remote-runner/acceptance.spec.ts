@@ -182,11 +182,11 @@ test("disconnect alpha mid-turn: others continue; reconnect gives one invocation
     "Local or guest fixture turn completed."
   );
   expect(invocations("beta")).toBe(betaBefore + 1);
-  await newSettledTurn(
-    pages.local!,
-    "sleep:500 still-local",
-    "You said: sleep:500 still-local"
-  );
+  await newSettledTurn(pages.local!, "sleep:500 still-local", [
+    "Waiting for the requested delay.",
+    "You said:",
+    "still-local",
+  ]);
   expect((await runnerRow(request, "beta"))?.status).toBe("online");
 
   await lane("alpha", "allow");
@@ -235,11 +235,10 @@ test("revoke alpha: it cannot return, beta and local are unaffected", async ({
     "Local or guest fixture turn completed."
   );
   expect(invocations("beta")).toBe(betaBefore + 1);
-  await newSettledTurn(
-    pages.local!,
+  await newSettledTurn(pages.local!, "after-revoke-local", [
+    "You said:",
     "after-revoke-local",
-    "You said: after-revoke-local"
-  );
+  ]);
   expect((await runnerRow(request, "beta"))?.status).toBe("online");
   expect((await agentInfo(request, agents.beta)).cwd).toBe(loc("beta"));
 });
@@ -313,11 +312,10 @@ test.describe("failure suite", () => {
       400
     );
     expect(await runnerOptionEnabled(page, runnerIds.beta!)).toBe(false);
-    await newSettledTurn(
-      pages.local!,
+    await newSettledTurn(pages.local!, "local-while-beta-down", [
+      "You said:",
       "local-while-beta-down",
-      "You said: local-while-beta-down"
-    );
+    ]);
     await lane("beta", "allow");
     await expect
       .poll(async () => (await runnerRow(request, "beta"))?.status, {
