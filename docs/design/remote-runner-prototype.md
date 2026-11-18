@@ -146,5 +146,5 @@ features outside this slice. The implementation supports one manually enrolled
 runner and pre-provisioned standalone workspaces. Full restart recovery of the
 runner daemon itself requires work beyond the service and network reconnect
 tested here. The guest connection uses Lima's host-loopback reachability and
-establishes process and filesystem separation. A second host and a Hangar adapter
-are separate acceptance gates.
+establishes process and filesystem separation. Subsequent Cloudy and scoped Hangar runs are recorded in the
+[implementation handoff](remote-runner-handoff.md).
