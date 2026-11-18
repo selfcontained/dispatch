@@ -39,6 +39,12 @@ vi.mock("./use-create-agent-form", async () => {
         createCwd: "/repo",
         createFullAccess: true,
         locationReady: true,
+        runners: [],
+        runnerId: null,
+        runnerUnavailable: false,
+        runnerWorkspace: null,
+        selectRunner: vi.fn(),
+        setRunnerWorkspace: vi.fn(),
         creating: false,
       };
     },
