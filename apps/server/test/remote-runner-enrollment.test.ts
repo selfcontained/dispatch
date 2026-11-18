@@ -661,3 +661,40 @@ describe("advertised pairing host", () => {
     ).toBe("studio");
   });
 });
+
+describe("pinned pairing bootstrap", () => {
+  it("never sends the code to a peer that echoes the pinned CA but serves another chain", async () => {
+    const { createServer } = await import("node:tls");
+    const real = issueAuthority("real");
+    const rogue = issueAuthority("rogue");
+    const leaf = issueServer(rogue, [HOST]);
+    const received: unknown[] = [];
+    const server = createServer(
+      { cert: leaf.cert + rogue.cert, key: leaf.key },
+      (socket) => {
+        socket.on("error", () => {});
+        const send = wireFrames(socket, (frame) => {
+          received.push(frame);
+          send({ type: "ca", ca: real.cert } as never);
+          socket.end();
+        });
+      }
+    );
+    await new Promise<void>((resolve) => server.listen(0, HOST, resolve));
+    const port = (server.address() as AddressInfo).port;
+    const pin = new X509Certificate(real.cert).fingerprint256;
+    try {
+      await expect(
+        exchangeCode({
+          endpoint: `https://${HOST}:${port}`,
+          pin,
+          code: "secret-code",
+          publicKey: generateRunnerKey().publicKey,
+        })
+      ).rejects.toThrow();
+      expect(received).toEqual([{ type: "ca_request", version: 1 }]);
+    } finally {
+      server.close();
+    }
+  });
+});

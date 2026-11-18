@@ -221,7 +221,11 @@ export class RemoteRunnerService {
   private legacyListener?: Server;
   private listener?: Server;
   private listening?: Promise<void>;
-  private authority?: { caFingerprint: string; serverCert: string };
+  private authority?: {
+    caFingerprint: string;
+    caPem: string;
+    serverCert: string;
+  };
   private port?: number;
   private readonly proxy: http.Server;
   private proxyPort?: Promise<number>;
@@ -405,6 +409,7 @@ export class RemoteRunnerService {
       };
       this.authority = {
         caFingerprint: new X509Certificate(authority.ca.cert).fingerprint256,
+        caPem: authority.ca.cert,
         serverCert: authority.server.cert,
       };
       for (const registration of await options.registry.active())
@@ -615,6 +620,13 @@ export class RemoteRunnerService {
       if (used) return socket.destroy();
       used = true;
       const request = frame as unknown as EnrollFrame;
+      // Public bootstrap: the CA certificate, which runners check against
+      // the fingerprint pinned in their pairing command.
+      if (request.type === "ca_request" && request.version === 1)
+        return reply({
+          type: "ca",
+          ca: this.authority?.caPem ?? "",
+        });
       if (
         request.type !== "enroll" ||
         request.version !== 1 ||
