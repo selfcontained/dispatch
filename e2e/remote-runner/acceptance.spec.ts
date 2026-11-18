@@ -142,9 +142,7 @@ test("permissions are answered per runner and never cross", async () => {
     )
   ).toBe(false);
   await expect(ask("beta")).toBeVisible();
-  await ask("beta")
-    .getByRole("button", { name: "Reject", exact: true })
-    .click();
+  await ask("beta").getByRole("button", { name: "Deny", exact: true }).click();
   await expect(
     answers(pages.beta!, "Guest permission answered.").last()
   ).toBeVisible({ timeout: 30_000 });
