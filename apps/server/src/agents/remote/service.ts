@@ -1031,16 +1031,24 @@ export class RemoteRunnerService {
    * Host header: it is for the operator's browser, which is already here.
    */
   /** Where an operator approves a connect request, if known. */
-  private approveUrl(fallbackHost?: string) {
+  /**
+   * `fallbackProtocol` is the *browser's* own scheme for this request
+   * (Fastify's `request.protocol`) — a LAN preview's Vite frontend is
+   * plain HTTP even though the runner's own bootstrap stays HTTPS-only,
+   * so this can never be assumed to be `https`.
+   */
+  private approveUrl(fallbackHost?: string, fallbackProtocol?: string) {
     if (this.enrollment?.approvalOrigin)
       return `${this.enrollment.approvalOrigin}/settings/connections`;
-    // Best-effort only: reliable when `fallbackHost` is this request's own
-    // (unproxied) Host header, not when it's a guess at the runner's view
-    // of the service. Validated before it goes anywhere near a URL that
-    // itself gets embedded in a copy-pasted shell command.
-    return fallbackHost && validHostPort(fallbackHost)
-      ? `https://${fallbackHost}/settings/connections`
-      : undefined;
+    // Best-effort only: reliable when `fallbackHost`/`fallbackProtocol` are
+    // this request's own (unproxied) Host header and scheme, not when
+    // they're a guess at the runner's view of the service.
+    if (!fallbackHost || !validHostPort(fallbackHost)) return undefined;
+    const protocol =
+      fallbackProtocol === "http" || fallbackProtocol === "https"
+        ? fallbackProtocol
+        : "https";
+    return `${protocol}://${fallbackHost}/settings/connections`;
   }
 
   /**
@@ -1048,15 +1056,19 @@ export class RemoteRunnerService {
    * the printed command itself (`--approval-url`) as well as returned
    * alongside it: with no `DISPATCH_RUNNER_APPROVAL_ORIGIN` configured —
    * the common case for a preview or default install — this request's own
-   * Host header (the operator's browser, calling this authenticated route
-   * directly) is still the best answer, and the CLI has no other way to
-   * learn it.
+   * Host header and scheme (the operator's browser, calling this
+   * authenticated route directly) are still the best answer, and the CLI
+   * has no other way to learn them.
    */
-  async connectCommand(hostHint?: string, rawHost?: string) {
+  async connectCommand(
+    hostHint?: string,
+    rawHost?: string,
+    rawProtocol?: string
+  ) {
     if (!this.enrollment)
       throw new RunnerRequestError(409, "Runner enrollment is disabled.");
     const host = await this.prepareEndpoint(hostHint);
-    const approveUrl = this.approveUrl(rawHost);
+    const approveUrl = this.approveUrl(rawHost, rawProtocol);
     return {
       command: connectCliCommand({
         host,

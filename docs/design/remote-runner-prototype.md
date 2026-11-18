@@ -129,17 +129,20 @@ until an operator approves it.
 Both `connect-command` and the create response may also carry an
 `approveUrl` pointing at **Settings → Connections → Remote runners**. For
 `connect-command` it is built from that authenticated call's own (reliable)
-Host header, or from `DISPATCH_RUNNER_APPROVAL_ORIGIN` when that is set (a
-bare `http://` or `https://` origin; `http://` so a Vite dev server's own
-port can be used, not just a production HTTPS origin) — checked against a
-bare-host-and-port shape before it goes anywhere near a URL. That URL is
-also embedded directly in the printed command as `--approval-url`, single-
-quoted and re-validated as a well-formed URL first, so the common preview
-or default-install case (no approval-origin configured at all) still gets
-a working link without the service needing to know anything about the
-operator's browser in advance. The create call has no such host to go on —
-it comes from the runner, not a browser — so its own `approveUrl` is only
-ever populated from `DISPATCH_RUNNER_APPROVAL_ORIGIN`; unset, it is omitted
+Host header and scheme — a LAN preview's Vite frontend is plain HTTP on its
+own port, so the scheme is never assumed to be HTTPS even though the
+runner's own bootstrap always is — or from `DISPATCH_RUNNER_APPROVAL_ORIGIN`
+when that is set (a bare `http://` or `https://` origin; `http://` so a
+Vite dev server's own port can be used, not just a production HTTPS
+origin). The Host is checked against a bare-host-and-port shape before it
+goes anywhere near a URL. That URL is also embedded directly in the printed
+command as `--approval-url`, single-quoted and re-validated as a
+well-formed URL first, so the common preview or default-install case (no
+approval-origin configured at all) still gets a working link without the
+service needing to know anything about the operator's browser in advance.
+The create call has no such host to go on — it comes from the runner, not
+a browser — so its own `approveUrl` is only ever populated from
+`DISPATCH_RUNNER_APPROVAL_ORIGIN`; unset, it is omitted
 and the CLI falls back to whatever `--approval-url` it was given, or
 code-only instructions if that's absent too.
 

@@ -136,7 +136,8 @@ export async function registerRunnerRoutes(
       try {
         return await deps.runners.connectCommand(
           hostHint(request.headers.host),
-          request.headers.host
+          request.headers.host,
+          request.protocol
         );
       } catch (error) {
         return fail(reply, error);

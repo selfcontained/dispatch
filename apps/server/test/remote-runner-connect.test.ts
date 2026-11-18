@@ -247,6 +247,25 @@ describe("runner-initiated connect enrollment", () => {
     expect(built.command).not.toContain("rm -rf");
   });
 
+  it("matches a plain-HTTP LAN preview frontend's own scheme, not the bootstrap's HTTPS", async () => {
+    const service = makeService();
+    // A Vite dev frontend reachable on the LAN is plain HTTP on its own
+    // port, independent of the runner's own (always-HTTPS) bootstrap.
+    const built = await service.connectCommand(
+      HOST,
+      "192.168.1.246:59244",
+      "http"
+    );
+    expect(built.approveUrl).toBe(
+      "http://192.168.1.246:59244/settings/connections"
+    );
+    expect(built.command).toContain(
+      "--approval-url 'http://192.168.1.246:59244/settings/connections'"
+    );
+    // The --service target is still always https, regardless.
+    expect(built.command).toMatch(/--service https:\/\//);
+  });
+
   it("approves with the correct code, binds the key, and lets the runner connect", async () => {
     const service = makeService();
     const { key, publicKey } = generateRunnerKey();
