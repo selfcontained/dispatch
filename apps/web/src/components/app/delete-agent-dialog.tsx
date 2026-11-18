@@ -243,9 +243,11 @@ export function DeleteAgentDialog({
         <DialogHeader>
           <DialogTitle>Archive Agent</DialogTitle>
           <DialogDescription>
-            {deleteTarget
-              ? `Archive "${deleteTarget.name}"? This removes the agent record and all files.${cascadeNote}`
-              : "Archive this agent?"}
+            {deleteTarget?.runnerManaged
+              ? `Archive "${deleteTarget.name}"? The runner will delete its session folder, including uncommitted files. If the runner is offline, cleanup happens when it reconnects.${cascadeNote}`
+              : deleteTarget
+                ? `Archive "${deleteTarget.name}"? This removes the agent record and all files.${cascadeNote}`
+                : "Archive this agent?"}
           </DialogDescription>
         </DialogHeader>
         <div className="flex justify-end gap-2">

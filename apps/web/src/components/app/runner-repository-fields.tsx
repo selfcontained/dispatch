@@ -159,6 +159,10 @@ export function RunnerRepositoryFields({
               }
             />
           </label>
+          <p className="text-xs text-muted-foreground">
+            Archiving removes the session worktree. Commit and push changes you
+            want to keep.
+          </p>
         </div>
       )}
     </div>
