@@ -74,7 +74,12 @@ test("UI launches local, alpha and beta; each answer comes from its own side", a
       page,
       key === "local"
         ? { name: `e2e-rr-${key}`, cwd: "/tmp", prompt }
-        : { name: `e2e-rr-${key}`, runnerId: runnerIds[key], prompt }
+        : {
+            name: `e2e-rr-${key}`,
+            runnerId: runnerIds[key],
+            prompt,
+            restricted: true,
+          }
     );
     expect(status).toBe(201);
     agents[key] = id!;
@@ -137,9 +142,7 @@ test("permissions are answered per runner and never cross", async () => {
     )
   ).toBe(false);
   await expect(ask("beta")).toBeVisible();
-  await ask("beta")
-    .getByRole("button", { name: "Reject", exact: true })
-    .click();
+  await ask("beta").getByRole("button", { name: "Deny", exact: true }).click();
   await expect(
     answers(pages.beta!, "Guest permission answered.").last()
   ).toBeVisible({ timeout: 30_000 });
