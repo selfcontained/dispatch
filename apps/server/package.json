@@ -19,6 +19,7 @@
     "@agentclientprotocol/claude-agent-acp": "0.100.0",
     "@agentclientprotocol/codex-acp": "2.5.0",
     "@agentclientprotocol/sdk": "1.8.0",
+    "@dispatch/runner-protocol": "workspace:*",
     "@dispatch/shared": "workspace:*",
     "@fastify/compress": "^9.2.0",
     "@fastify/cookie": "^11.0.2",

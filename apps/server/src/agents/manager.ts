@@ -2117,9 +2117,10 @@ export class AgentManager {
     // Rows a previous host left open (a crash mid-turn) settle first, so the
     // feed never shows a turn that can no longer finish.
     await this.streamRecorder.reconcile(agent.id);
-    const token = opts.jobRunId
-      ? createJobMcpToken(this.config.authToken, opts.jobRunId, agent.id)
-      : createAgentMcpToken(this.config.authToken, agent.id);
+    const remoteMcpOrigin = placement ? this.remote?.origin : undefined;
+    const mcpUrl = placement
+      ? remoteMcpOrigin && `${remoteMcpOrigin}/api/mcp/${agent.id}`
+      : dispatchMcpUrl(this.config, agent.id, opts.jobRunId);
     return this.runtime.launch({
       agentId: agent.id,
       cwd: agent.cwd,
@@ -2131,12 +2132,18 @@ export class AgentManager {
       effort: agent.effort ?? null,
       systemPrompt,
       personaContext: extractPersonaContext(agent.agentArgs ?? []),
-      mcp: {
-        url: placement
-          ? `${this.remote!.origin}/api/mcp/${agent.id}`
-          : dispatchMcpUrl(this.config, agent.id, opts.jobRunId),
-        token,
-      },
+      mcp: mcpUrl
+        ? {
+            url: mcpUrl,
+            token: opts.jobRunId
+              ? createJobMcpToken(
+                  this.config.authToken,
+                  opts.jobRunId,
+                  agent.id
+                )
+              : createAgentMcpToken(this.config.authToken, agent.id),
+          }
+        : undefined,
       env,
       pathPrefix,
       resumeSessionId: opts.resumeSessionId,

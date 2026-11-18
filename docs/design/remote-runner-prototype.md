@@ -53,6 +53,11 @@ mounts and SSH-agent forwarding, and keep the VM and dev data disposable.
 
 ## Wire contract
 
+The [portable protocol package](../../packages/runner-protocol/README.md)
+defines the v1 wire types, opaque locators, optional service MCP, and
+consumer receipt and replay semantics. The setup and traces below describe
+the prototype artifact.
+
 The runner sends `ready` with protocol version 1 and its workspace handles.
 The service requires a trusted client certificate, a matching manual approval
 fingerprint, and a workspace in both sides' configuration. A service request

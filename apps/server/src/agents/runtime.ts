@@ -1,5 +1,4 @@
 import type { BackgroundSnapshot } from "@dispatch/shared";
-import type { Effort } from "@dispatch/shared";
 import type { AgentMcpInventoryResponse } from "@dispatch/shared";
 import type { AgentInputState } from "@dispatch/shared";
 import type { AgentPermissionsResponse } from "@dispatch/shared";
@@ -7,13 +6,13 @@ import type { PromptSource, PromptOptions } from "./acp/prompt-source.js";
 import type { FastifyBaseLogger } from "fastify";
 
 import type { Placement } from "./remote/protocol.js";
+import type { HostLaunch } from "./acp/host-protocol.js";
 import type { AppConfig } from "../config.js";
 import type { DriverEvent } from "./acp/driver.js";
 import type {
   AvailableCommand,
   SessionConfigOption,
 } from "@agentclientprotocol/sdk";
-import type { AcpEngineId, EngineBins } from "./acp/engine-spec.js";
 import { createAcpRuntime, type AcpRuntimeDeps } from "./acp/runtime.js";
 
 /**
@@ -21,29 +20,7 @@ import { createAcpRuntime, type AcpRuntimeDeps } from "./acp/runtime.js";
  * The workspace (worktree, deps) already exists; this is only about the
  * process. See docs/design/acp-runtime.md.
  */
-export type RuntimeLaunch = {
-  agentId: string;
-  cwd: string;
-  placement?: Placement;
-  engine: AcpEngineId;
-  /** Missing only in launch files written before permission support (full access). */
-  fullAccess?: boolean;
-  bins: EngineBins;
-  /** The model to select after the session opens; null keeps the engine's default. */
-  model: string | null;
-  /** Resolved launch effort; null leaves the CLI settings in control. */
-  effort?: Effort | null;
-  systemPrompt: string | null;
-  /** Persona task context delivered with the first ordinary prompt, including on resume. */
-  personaContext?: string | null;
-  mcp: { url: string; token: string };
-  /** Environment additions for the engine child (DISPATCH_*, files dir). */
-  env: Record<string, string>;
-  /** Directories the engine child's PATH is prefixed with. */
-  pathPrefix: string[];
-  /** Resume this ACP session; null opens a new one. */
-  resumeSessionId: string | null;
-};
+export type RuntimeLaunch = HostLaunch & { placement?: Placement };
 
 export type RuntimeEventListener = (
   agentId: string,

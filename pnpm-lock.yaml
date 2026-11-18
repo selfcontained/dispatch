@@ -74,6 +74,9 @@ importers:
       '@agentclientprotocol/sdk':
         specifier: 1.8.0
         version: 1.8.0(zod@4.3.6)
+      '@dispatch/runner-protocol':
+        specifier: workspace:*
+        version: link:../../packages/runner-protocol
       '@dispatch/shared':
         specifier: workspace:*
         version: link:../../packages/shared
@@ -391,6 +394,8 @@ importers:
       vitest:
         specifier: ^2.1.0
         version: 2.1.9(@types/node@24.12.0)(happy-dom@18.0.1)(jsdom@29.1.1)(sass@1.51.0)(terser@5.46.1)
+
+  packages/runner-protocol: {}
 
   packages/shared: {}
 

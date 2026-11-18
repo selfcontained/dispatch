@@ -330,10 +330,11 @@ describe("AgentManager", () => {
         useWorktree: false,
         jobRunId: "run_1",
       });
-      expect(lastLaunch().mcp.url).toBe(
+      expect(lastLaunch().mcp?.url).toBe(
         `http://127.0.0.1:6767/api/mcp/jobs/run_1/${agent.id}`
       );
-      expect(lastLaunch().mcp.token).not.toBe(
+      expect(lastLaunch().mcp?.token).toEqual(expect.any(String));
+      expect(lastLaunch().mcp?.token).not.toBe(
         createAgentMcpToken("test-token", agent.id)
       );
     });
@@ -2415,10 +2416,11 @@ describe("AgentManager", () => {
       );
       runtime.prompt.mockClear();
       await manager.startAgent(agent.id);
-      expect(lastLaunch().mcp.url).toBe(
+      expect(lastLaunch().mcp?.url).toBe(
         `http://127.0.0.1:6767/api/mcp/jobs/run_resume/${agent.id}`
       );
-      expect(lastLaunch().mcp.token).not.toBe(
+      expect(lastLaunch().mcp?.token).toEqual(expect.any(String));
+      expect(lastLaunch().mcp?.token).not.toBe(
         createAgentMcpToken("test-token", agent.id)
       );
       expect(lastLaunch().systemPrompt).toContain(
@@ -2457,10 +2459,10 @@ describe("AgentManager", () => {
         );
         runtime.prompt.mockClear();
         await manager.startAgent(agent.id);
-        expect(lastLaunch().mcp.url).toBe(
+        expect(lastLaunch().mcp?.url).toBe(
           `http://127.0.0.1:6767/api/mcp/${agent.id}`
         );
-        expect(lastLaunch().mcp.token).toBe(
+        expect(lastLaunch().mcp?.token).toBe(
           createAgentMcpToken("test-token", agent.id)
         );
         expect(lastLaunch().systemPrompt).not.toContain("job_complete");

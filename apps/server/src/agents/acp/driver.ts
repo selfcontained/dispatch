@@ -1,3 +1,4 @@
+import type { ServiceMcp } from "@dispatch/runner-protocol";
 import {
   backgroundIngress,
   backgroundCapability,
@@ -57,7 +58,7 @@ export type DriverLaunch = {
   systemPromptAppend: string | null;
   /** Task context plus any first-message guidance, once per host start. */
   firstPromptAppend?: string | null;
-  mcp: { url: string; token: string };
+  mcp?: ServiceMcp;
   /** Resume this ACP session when set; falls back to a new one if the engine lost it. */
   sessionId: string | null;
   env: NodeJS.ProcessEnv;
@@ -833,16 +834,19 @@ export class AcpDriver {
         !!steering &&
         typeof steering === "object" &&
         (steering as { supported?: unknown }).supported === true;
-      const mcpServers: acp.McpServer[] = [
-        {
-          type: "http",
-          name: "dispatch",
-          url: launch.mcp.url,
-          headers: [
-            { name: "Authorization", value: `Bearer ${launch.mcp.token}` },
-          ],
-        },
-      ];
+      const { mcp } = launch;
+      const mcpServers: acp.McpServer[] = mcp
+        ? [
+            {
+              type: "http",
+              name: mcp.name ?? "dispatch",
+              url: mcp.url,
+              headers: [
+                { name: "Authorization", value: `Bearer ${mcp.token}` },
+              ],
+            },
+          ]
+        : [];
       let session: { sessionId: string; resumed: boolean } | null = null;
       if (launch.sessionId) {
         try {
