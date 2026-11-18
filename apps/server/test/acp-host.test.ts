@@ -602,6 +602,7 @@ await import(${JSON.stringify(pathToFileURL(fakeAgent).href)});
     const id = "agt_host_receipt";
     const { runtime } = runtimeWith(stateRoot, () => 0);
     const launch = launchFor(id, cwd);
+    delete launch.mcp;
     launch.bins.adapter = {
       bin: "bun",
       args: [path.join(here, "helpers/remote-acp-fixture.ts")],

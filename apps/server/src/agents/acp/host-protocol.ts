@@ -1,5 +1,14 @@
+import type {
+  HostEvent,
+  HostPrompt,
+  HostWelcome,
+  JournalEntry as RunnerJournalEntry,
+  PromptReceipt,
+  RemoteLaunch,
+  ReplayComplete,
+  ReplayHello,
+} from "@dispatch/runner-protocol";
 import type { BackgroundSnapshot } from "@dispatch/shared";
-import type { Effort } from "@dispatch/shared";
 import type { AgentMcpInventoryResponse } from "@dispatch/shared";
 import type { AgentPermissionRequest } from "@dispatch/shared";
 import type { PromptImage, PromptSource } from "./prompt-source.js";
@@ -11,7 +20,7 @@ import type {
   AvailableCommand,
   SessionConfigOption,
 } from "@agentclientprotocol/sdk";
-import type { AcpEngineId, EngineBins } from "./engine-spec.js";
+import type { EngineBins } from "./engine-spec.js";
 
 /**
  * What the server writes into an agent's state directory before spawning
@@ -19,28 +28,13 @@ import type { AcpEngineId, EngineBins } from "./engine-spec.js";
  * host takes no arguments beyond the directory. Mode 0600: it carries the
  * MCP token and the system prompt.
  */
-export type HostLaunch = {
-  agentId: string;
+export type HostLaunch = RemoteLaunch & {
   cwd: string;
-  engine: AcpEngineId;
-  /** Missing only in launch files written before permission support (full access). */
-  fullAccess?: boolean;
   bins: EngineBins;
-  /** The model to select through the engine's model config option; null keeps its default. */
-  model: string | null;
-  /** Resolved launch effort; null leaves the CLI settings in control. */
-  effort?: Effort | null;
-  /** Delivered as `_meta.systemPrompt.append` for engines that take one. */
-  systemPrompt: string | null;
-  /** Persona task context delivered with the first ordinary prompt, including on resume. */
-  personaContext?: string | null;
-  mcp: { url: string; token: string };
   /** Environment the engine child gets on top of the host's own. */
   env: Record<string, string>;
   /** Directories prepended to the engine child's PATH. */
   pathPrefix: string[];
-  /** The ACP session to resume when the host starts fresh; null for a new one. */
-  resumeSessionId: string | null;
 };
 
 /** Files inside an agent's state directory. */
@@ -62,29 +56,11 @@ export function hostFile(
 }
 
 /** One journal line: an event with its position in the host's stream. */
-export type JournalEntry = {
-  seq: number;
-  at: string;
-  event: DriverEvent;
-  /** Lets a surviving journal recover its identity if journal.id is lost. */
-  journalId?: string;
-};
+export type JournalEntry = RunnerJournalEntry<DriverEvent>;
 
 export type ClientMessage =
-  | {
-      type: "hello";
-      fromSeq: number;
-      journalId?: string | null;
-      replayComplete?: boolean;
-    }
-  | {
-      type: "prompt";
-      id: string;
-      text: string;
-      journalId?: string;
-      source?: PromptSource;
-      images?: PromptImage[];
-    }
+  | ReplayHello
+  | HostPrompt<PromptSource, PromptImage>
   | { type: "steer"; id: string; text: string; source?: PromptSource }
   | { type: "cancel" }
   | { type: "interrupt"; id: string; turnSeq: number }
@@ -102,15 +78,7 @@ export type ClientMessage =
   | { type: "ping" };
 
 export type HostMessage =
-  | {
-      type: "welcome";
-      agentId: string;
-      engine: AcpEngineId;
-      sessionId: string;
-      /** Whether the session was resumed from a stored id. */
-      resumed: boolean;
-      /** Whether the engine child is alive. */
-      running: boolean;
+  | (HostWelcome & {
       /** Absent on older hosts: keep queuing when they cannot steer. */
       mcpInventorySupported?: boolean;
       /** Host snapshot RPC, absent on older hosts. */
@@ -120,21 +88,15 @@ export type HostMessage =
       interruptSupported?: boolean;
       /** The open turn, if one is running. */
       turn: { seq: number; startedAt: string; source?: PromptSource } | null;
-      /** The newest journal seq; replay follows up to here. */
-      journalSeq: number;
-      /** Identity of the journal whose sequence numbers are being reported. */
-      journalId?: string;
       /** Current ACP commands, including skills; refreshed on each reconnect. */
       commands: AvailableCommand[];
       /** The session's config options as they stand; absent from older hosts. */
       configOptions?: SessionConfigOption[];
       permissions?: AgentPermissionRequest[];
-    }
-  | ({ type: "event" } & JournalEntry)
-  | { type: "replay_complete" }
-  | { type: "prompt_accepted"; id: string }
-  /** Not submitted: the engine's own turn is open. Send it again after it settles. */
-  | { type: "prompt_deferred"; id: string }
+    })
+  | HostEvent<DriverEvent>
+  | ReplayComplete
+  | PromptReceipt
   | { type: "interrupt_result"; id: string }
   | { type: "steer_result"; id: string; outcome: "injected" | "promptRequired" }
   /** A set_config took; the engine's options after it. */

@@ -45,7 +45,19 @@ vi.mock("node:tls", async (original) => ({
   connect: dial,
 }));
 
-import { runRemoteRunner } from "../src/agents/remote/runner.js";
+import {
+  runnerStorageKey,
+  runRemoteRunner,
+} from "../src/agents/remote/runner.js";
+
+it("preserves prototype storage while keeping opaque wire IDs out of paths", () => {
+  expect(runnerStorageKey("agt_123456")).toBe("agt_123456");
+  const key = runnerStorageKey("../tenant/Agent:42");
+  expect(key).toMatch(/^opaque-[A-Za-z0-9_-]{43}$/);
+  expect(runnerStorageKey("../tenant/Agent:42")).toBe(key);
+  expect(runnerStorageKey("../tenant/agent:42")).not.toBe(key);
+  expect(runnerStorageKey("logs")).not.toBe("logs");
+});
 
 const unprivilegedStatus = [
   "Uid:\t1000\t1000\t1000\t1000",

@@ -1,4 +1,5 @@
 import { spawn, execFile, type ChildProcess } from "node:child_process";
+import { createHash } from "node:crypto";
 import { closeSync, openSync, readFileSync } from "node:fs";
 import {
   mkdir,
@@ -20,7 +21,13 @@ import {
   killOwnedProcesses,
 } from "../../shared/process/owned-processes.js";
 import { hostCommand } from "../acp/runtime.js";
-import { wireFrames, type Command, type Frame } from "./protocol.js";
+import {
+  isOpaqueId,
+  RUNNER_WIRE_VERSION,
+  wireFrames,
+  type Command,
+  type Frame,
+} from "./protocol.js";
 
 type RunnerConfig = {
   endpoint: string;
@@ -40,6 +47,14 @@ type RunnerConfig = {
 
 const execute = promisify(execFile);
 const setpriv = "/usr/bin/setpriv";
+
+// Use the old storage name for existing prototype bindings. Other wire IDs
+// never enter a filesystem path, even when they look like a relative path.
+export function runnerStorageKey(agentId: string): string {
+  return /^agt_[a-z0-9]+$/.test(agentId)
+    ? agentId
+    : `opaque-${createHash("sha256").update(agentId).digest("base64url")}`;
+}
 
 function validExecutionId(value: number) {
   return Number.isInteger(value) && value > 0 && value < 0xffffffff;
@@ -118,6 +133,9 @@ export async function runRemoteRunner(filename: string) {
       "Runner requires an HTTPS endpoint and a separate, non-root execution account."
     );
   }
+  if (!Object.keys(config.workspaces).every(isOpaqueId)) {
+    throw new Error("Runner workspace IDs must be valid opaque identifiers.");
+  }
   const env = {
     HOME: config.home,
     PATH: config.path,
@@ -151,23 +169,31 @@ export async function runRemoteRunner(filename: string) {
 
   async function launch(
     command: Extract<Command, { kind: "launch" }>,
-    cwd: string
+    cwd: string,
+    key: string
   ) {
     const { agentId, workspace } = command;
     if (hosts.has(agentId) || active.has(agentId))
       throw new Error("Runner already has a host for this agent");
     active.add(agentId);
     try {
-      const binding = path.join(bindings, agentId);
+      const { mcp } = command.launch;
+      const mcpUrl = mcp === undefined ? undefined : new URL(mcp.url);
+      if (mcpUrl && (mcpUrl.protocol !== "https:" || !mcp?.token)) {
+        throw new Error(
+          "Remote service MCP requires HTTPS and a scoped token."
+        );
+      }
+      const binding = path.join(bindings, key);
       await writeFile(binding, workspace, { flag: "wx", mode: 0o600 }).catch(
         async (error) => {
-          if (error.code !== "EEXIST" || !(await owns(agentId, workspace)))
+          if (error.code !== "EEXIST" || !(await owns(key, workspace)))
             throw error;
         }
       );
       if (!(await stat(cwd)).isDirectory())
         throw new Error("Guest workspace is unavailable");
-      const dir = path.join(hostRoot, agentId);
+      const dir = path.join(hostRoot, key);
       const files = path.join(dir, "files");
       const launch: HostLaunch = {
         ...command.launch,
@@ -177,7 +203,7 @@ export async function runRemoteRunner(filename: string) {
         env: {
           DISPATCH_AGENT_ID: agentId,
           DISPATCH_FILES_DIR: files,
-          DISPATCH_API_URL: new URL(command.launch.mcp.url).origin,
+          ...(mcpUrl ? { DISPATCH_API_URL: mcpUrl.origin } : {}),
           NODE_EXTRA_CA_CERTS: config.ca,
         },
         pathPrefix: [],
@@ -193,7 +219,7 @@ export async function runRemoteRunner(filename: string) {
       });
       await chown(hostFile(dir, "launch"), config.uid, config.gid);
       await chown(dir, config.uid, config.gid);
-      const log = openSync(path.join(logs, agentId), "a", 0o600);
+      const log = openSync(path.join(logs, key), "a", 0o600);
       try {
         const [bin, ...args] = hostCommand();
         if (!bin) throw new Error("Runner host executable is missing");
@@ -268,29 +294,30 @@ export async function runRemoteRunner(filename: string) {
       };
 
       async function request(id: string, command: Command) {
-        if (!/^[a-f0-9-]{36}$/.test(id))
-          throw new Error("Invalid runner request ID");
+        if (!isOpaqueId(id)) throw new Error("Invalid runner request ID");
         if (socket.destroyed) return;
         const { agentId, workspace } = command;
-        const target = Object.hasOwn(config.workspaces, workspace)
-          ? config.workspaces[workspace]
-          : undefined;
-        if (!/^agt_[a-z0-9]+$/.test(agentId) || !target)
+        const target =
+          isOpaqueId(workspace) && Object.hasOwn(config.workspaces, workspace)
+            ? config.workspaces[workspace]
+            : undefined;
+        if (!isOpaqueId(agentId) || !target)
           throw new Error("Unknown runner workspace or agent");
+        const key = runnerStorageKey(agentId);
         const result = (value?: string | boolean) =>
           safeSend({ type: "result", id, value });
         if (command.kind === "launch") {
-          await launch(command, target.cwd);
+          await launch(command, target.cwd, key);
           result(true);
           return;
         }
-        if (!(await owns(agentId, workspace))) {
+        if (!(await owns(key, workspace))) {
           if (command.kind === "alive") return result(false);
           throw new Error("Agent is not bound to this workspace");
         }
         if (socket.destroyed) return;
         const host = hosts.get(agentId);
-        const dir = path.join(hostRoot, agentId);
+        const dir = path.join(hostRoot, key);
         switch (command.kind) {
           case "attach": {
             if (!host) {
@@ -352,11 +379,11 @@ export async function runRemoteRunner(filename: string) {
             if (host || active.has(agentId))
               throw new Error("Stop the guest host before discarding it");
             await rm(dir, { force: true, recursive: true });
-            await rm(path.join(bindings, agentId), { force: true });
+            await rm(path.join(bindings, key), { force: true });
             result(true);
             break;
           case "log": {
-            const log = await readFile(path.join(logs, agentId), "utf8").catch(
+            const log = await readFile(path.join(logs, key), "utf8").catch(
               () => ""
             );
             result(
@@ -410,7 +437,7 @@ export async function runRemoteRunner(filename: string) {
         clearTimeout(timeout);
         safeSend({
           type: "ready",
-          version: 1,
+          version: RUNNER_WIRE_VERSION,
           workspaces: Object.keys(config.workspaces),
         });
       });
