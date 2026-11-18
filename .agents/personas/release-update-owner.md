@@ -24,6 +24,8 @@ Read the affected release runtime, artifact helpers, installer, and release work
 
 - Server file-log retention must target the actual installation log path, preserve append stdout/stderr descriptors through rotation, bound retained backup sizes and counts even for oversized historical files, and run at startup. Linux journald output remains subject to host journal policy.
 
+- Native notification validation helpers must use a separate sandboxed bundle identity, link no production state/service code, and keep cleanup scoped to their verified test process and owned temporary directory. Transport-only harness evidence must not be presented as live updater or desktop notification proof.
+
 ## Findings
 
 Report only concrete defects introduced or worsened by the reviewed changes. Each finding must identify a realistic failure scenario, its impact, a changed location or contract responsible, and the smallest useful fix. Surrounding code is context, not an invitation to audit pre-existing debt. Submit a clean approval when there are no actionable findings.
