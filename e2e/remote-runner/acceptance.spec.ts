@@ -133,7 +133,7 @@ test("UI launches local, alpha and beta; each answer comes from its own side", a
   });
 });
 
-test("permissions are answered per runner and never cross", async () => {
+test("permissions are answered per runner and never cross", async ({}, testInfo) => {
   for (const r of ["alpha", "beta"] as const)
     await chat(pages[r]!, "prove-permission");
   const ask = (r: RunnerName) => pages[r]!.getByTestId("permission-requests");
@@ -159,6 +159,10 @@ test("permissions are answered per runner and never cross", async () => {
     )
   ).toBe(false);
   await expect(ask("beta")).toBeVisible();
+  await testInfo.attach("beta waiting after alpha approval", {
+    body: await pages.beta!.screenshot(),
+    contentType: "image/png",
+  });
   await ask("beta").getByRole("button", { name: "Deny", exact: true }).click();
   await expect(
     answers(pages.beta!, "Guest permission answered.").last()
