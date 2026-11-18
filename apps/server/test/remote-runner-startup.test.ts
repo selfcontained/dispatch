@@ -182,11 +182,13 @@ describe("remote runner startup", () => {
       try {
         await vi.waitFor(() => expect(dial).toHaveBeenCalledTimes(1));
         socket.emit("secureConnect");
-        expect(JSON.parse(socket.write.mock.calls[0]![0])).toEqual({
+        const ready = JSON.parse(socket.write.mock.calls[0]![0]);
+        expect(ready.managedWorkspace).toBe(managed ? true : undefined);
+        expect(ready).toMatchObject({
           type: "ready",
           version: 1,
           workspaces: handles,
-          ...(managed ? { managedWorkspace: true } : {}),
+          health: true,
         });
         socket.emit(
           "data",
