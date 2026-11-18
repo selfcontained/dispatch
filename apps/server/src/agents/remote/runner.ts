@@ -38,20 +38,97 @@ type RunnerConfig = {
 };
 
 const execute = promisify(execFile);
+const setpriv = "/usr/bin/setpriv";
+
+function validExecutionId(value: number) {
+  return Number.isInteger(value) && value > 0 && value < 0xffffffff;
+}
+
+// Bun versions disagree on whether spawn and execFile apply uid/gid. Make
+// the kernel privilege transition the same for the ACP host and repo tools.
+function executionArgs(uid: number, gid: number) {
+  return [
+    `--reuid=${uid}`,
+    `--regid=${gid}`,
+    "--clear-groups",
+    "--no-new-privs",
+    "--inh-caps=-all",
+    "--ambient-caps=-all",
+    "--bounding-set=-all",
+    "--",
+  ];
+}
+
+async function verifyExecutionIdentity(
+  uid: number,
+  gid: number,
+  args: string[],
+  env: NodeJS.ProcessEnv
+) {
+  try {
+    const { stdout } = await execute(
+      setpriv,
+      [...args, "/bin/cat", "/proc/self/status"],
+      {
+        env,
+        timeout: 5000,
+      }
+    );
+    const fields = new Map(
+      stdout.split("\n").map((line) => {
+        const [key, value] = line.split(":", 2);
+        return [key, (value ?? "").trim()];
+      })
+    );
+    const matchesId = (key: string, expected: number) =>
+      fields.get(key)?.split(/\s+/).join(" ") ===
+      Array(4).fill(expected).join(" ");
+    const capabilityFields = ["CapInh", "CapPrm", "CapEff", "CapBnd", "CapAmb"];
+    if (
+      !matchesId("Uid", uid) ||
+      !matchesId("Gid", gid) ||
+      fields.get("Groups") !== "" ||
+      fields.get("NoNewPrivs") !== "1" ||
+      !capabilityFields.every((key) => /^0+$/.test(fields.get(key) ?? ""))
+    ) {
+      throw new Error(
+        "the child retained privileges or used the wrong UID/GID"
+      );
+    }
+  } catch (error) {
+    throw new Error(
+      "Runner cannot verify unprivileged execution with /usr/bin/setpriv.",
+      { cause: error }
+    );
+  }
+}
 
 export async function runRemoteRunner(filename: string) {
   const config: RunnerConfig = JSON.parse(readFileSync(filename, "utf8"));
   const endpoint = new URL(config.endpoint);
   if (
     endpoint.protocol !== "https:" ||
-    !config.uid ||
-    !config.gid ||
+    process.platform !== "linux" ||
+    !validExecutionId(config.uid) ||
+    !validExecutionId(config.gid) ||
     process.getuid?.() !== 0
   ) {
     throw new Error(
       "Runner requires an HTTPS endpoint and a separate, non-root execution account."
     );
   }
+  const env = {
+    HOME: config.home,
+    PATH: config.path,
+    SHELL: "/bin/bash",
+    NODE_EXTRA_CA_CERTS: config.ca,
+    ...(config.trustBundle ? { SSL_CERT_FILE: config.trustBundle } : {}),
+    ...(config.adapter
+      ? { DISPATCH_ACP_ADAPTER_COMMAND: JSON.stringify(config.adapter) }
+      : {}),
+  };
+  const childArgs = executionArgs(config.uid, config.gid);
+  await verifyExecutionIdentity(config.uid, config.gid, childArgs, env);
   const credentials = {
     ca: readFileSync(config.ca),
     cert: readFileSync(config.cert),
@@ -63,17 +140,8 @@ export async function runRemoteRunner(filename: string) {
   await mkdir(logs, { recursive: true, mode: 0o700 });
   await chmod(config.state, 0o711);
   await mkdir(hostRoot, { recursive: true, mode: 0o711 });
-  const identity = { uid: config.uid, gid: config.gid };
-  const env = {
-    HOME: config.home,
-    PATH: config.path,
-    SHELL: "/bin/bash",
-    NODE_EXTRA_CA_CERTS: config.ca,
-    ...(config.trustBundle ? { SSL_CERT_FILE: config.trustBundle } : {}),
-    ...(config.adapter
-      ? { DISPATCH_ACP_ADAPTER_COMMAND: JSON.stringify(config.adapter) }
-      : {}),
-  };
+  await chmod(hostRoot, 0o711);
+
   const hosts = new Map<string, ChildProcess>();
   const active = new Set<string>();
   const owns = async (id: string, workspace: string) =>
@@ -129,13 +197,16 @@ export async function runRemoteRunner(filename: string) {
         const [bin, ...args] = hostCommand();
         if (!bin) throw new Error("Runner host executable is missing");
         const owned = ownedEnvironment(env);
-        const child = spawn(bin, [...args, "--state", dir], {
-          ...identity,
-          cwd,
-          env: owned.env,
-          detached: true,
-          stdio: ["ignore", log, log],
-        });
+        const child = spawn(
+          setpriv,
+          [...childArgs, bin, ...args, "--state", dir],
+          {
+            cwd,
+            env: owned.env,
+            detached: true,
+            stdio: ["ignore", log, log],
+          }
+        );
         hosts.set(agentId, child);
         const forget = () => {
           if (hosts.get(agentId) === child) hosts.delete(agentId);
@@ -298,13 +369,16 @@ export async function runRemoteRunner(filename: string) {
               throw new Error(
                 "Runner workspace has no approved repo operation"
               );
-            const { stdout } = await execute(bin, args, {
-              ...identity,
-              cwd: target.cwd,
-              env,
-              timeout: 10_000,
-              maxBuffer: 64 * 1024,
-            });
+            const { stdout } = await execute(
+              setpriv,
+              [...childArgs, bin, ...args],
+              {
+                cwd: target.cwd,
+                env,
+                timeout: 10_000,
+                maxBuffer: 64 * 1024,
+              }
+            );
             result(stdout);
             break;
           }

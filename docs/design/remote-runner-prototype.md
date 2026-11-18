@@ -40,9 +40,15 @@ defines its guest `cwd` and can define a fixed `repoTool` argv array. The
 optional `trustBundle` supplies a combined system and test trust bundle for
 clients that use `SSL_CERT_FILE`. There is a guest-local `adapter` override
 for the fake provider. Keep the enrollment key and runner settings root-only
-and the CA certificate readable by the CLI. The child starts under the
-configured non-root account with a constructed environment and receives only
-the scoped MCP credential and guest paths. Use test credentials, disable VM
+and the CA certificate readable by the CLI. The supervisor needs Linux
+util-linux `/usr/bin/setpriv` and permission to change identity and remove
+capabilities (`CAP_SETUID`, `CAP_SETGID`, and `CAP_SETPCAP`). Before enrollment,
+the runner verifies the kernel-reported non-root UID/GID, empty supplementary
+groups, zero capabilities, and `no_new_privs` through the same wrapper used
+for both the ACP host and repo operations. The runner grants traversal on its
+root and host-state parent even when the supervisor uses umask `0077`.
+Bindings and logs remain private. The child receives its scoped MCP credential
+and guest paths through a constructed environment. Use test credentials, disable VM
 mounts and SSH-agent forwarding, and keep the VM and dev data disposable.
 
 ## Wire contract
