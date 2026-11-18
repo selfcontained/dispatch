@@ -21,6 +21,7 @@ import { activitySteps } from "./activity-steps";
 import { activeStepLabel, runningTurnVerb } from "./registry";
 import { responsePieces, type ResponsePiece } from "./response-pieces";
 import { ACTIVITY_COLORS, type ActivityCategory } from "./activity-category";
+import { FillCount } from "./fill-count";
 
 export const ACTIVITY_LABELS: Record<ActivityCategory, string> = {
   dispatch: "Coordinating agents",
@@ -121,6 +122,22 @@ export function defragCells(
   categories: ActivityCategory[],
   repackAt: ReadonlySet<number> = new Set()
 ): DefragCell[] {
+  return defragHistory(seed, categories, repackAt).cells;
+}
+
+/** One time the grid filled up and scattered for a new pass. */
+export type DefragFill = {
+  /** The packed run when it filled, front to back. */
+  categories: ActivityCategory[];
+};
+
+/** The grid plus every fill it went through to get there. */
+export function defragHistory(
+  seed: string,
+  categories: ActivityCategory[],
+  repackAt: ReadonlySet<number> = new Set()
+): { cells: DefragCell[]; fills: DefragFill[] } {
+  const fills: DefragFill[] = [];
   const r = rng(seedOf(seed));
   const count = Math.round(SLOTS * (0.62 + r() * 0.14));
   const cells: DefragCell[] = Array.from({ length: count }, (_, id) => ({
@@ -150,7 +167,10 @@ export function defragCells(
   for (let k = 0; k < categories.length; k++) {
     // Compaction starts sorting from the front without teleporting the grid.
     if (repackAt.has(k)) beginPass(false);
-    else if (run.length === count) beginPass(true);
+    else if (run.length === count) {
+      fills.push({ categories: run.map((c) => c.category!) });
+      beginPass(true);
+    }
     const want = categories[k]!;
     const ids = [...unsorted];
     const matching = ids.filter((id) => cells[id]!.rest === want);
@@ -184,7 +204,7 @@ export function defragCells(
       bySlot.set(i, c);
     });
   }
-  return cells;
+  return { cells, fills };
 }
 
 /**
@@ -357,7 +377,7 @@ export function ResponsePlaceholder({
   const categoryKey = pieces
     .map((piece) => `${piece.compaction ? "compact:" : ""}${piece.category}`)
     .join(",");
-  const cells = useMemo(() => {
+  const { cells, fills } = useMemo(() => {
     const modes = categoryKey ? categoryKey.split(",") : [];
     const starts = new Set(
       modes.flatMap((mode, i) =>
@@ -366,7 +386,7 @@ export function ResponsePlaceholder({
           : []
       )
     );
-    return defragCells(
+    return defragHistory(
       seed,
       modes.map((mode) => mode.replace("compact:", "") as ActivityCategory),
       starts
@@ -385,6 +405,7 @@ export function ResponsePlaceholder({
   return (
     <ResponsePlaceholderVisual
       cells={cells}
+      fills={fills}
       pieces={pieces}
       arrivalKeys={arrivalKeys}
       textLength={textLength}
@@ -404,6 +425,7 @@ export function ResponsePlaceholderVisual({
   onShowProgress,
   reducedCells,
   statusLabel = "Preparing response",
+  fills = [],
 }: {
   cells: DefragCell[];
   pieces: ResponsePiece[];
@@ -412,6 +434,8 @@ export function ResponsePlaceholderVisual({
   onShowProgress?: () => void;
   reducedCells?: DefragCell[];
   statusLabel?: string;
+  /** Earlier passes that filled the grid and scattered it again. */
+  fills?: DefragFill[];
 }): JSX.Element {
   const newest = pieces.length - 1;
   const gridRef = useRef<HTMLDivElement>(null);
@@ -583,17 +607,20 @@ export function ResponsePlaceholderVisual({
           )}
         </Tooltip>
       </TooltipProvider>
-      {onShowProgress && textLength > 0 ? (
-        <div className="relative mt-2.5 flex justify-end">
-          <button
-            type="button"
-            onClick={onShowProgress}
-            aria-label="Show progress text"
-            data-testid="chat-response-show-progress"
-            className="rounded-sm text-[11px] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-          >
-            Show progress · {formatChars(textLength)}
-          </button>
+      {(onShowProgress && textLength > 0) || fills.length > 0 ? (
+        <div className="relative mt-2.5 flex items-center gap-2">
+          {fills.length > 0 && <FillCount fills={fills} />}
+          {onShowProgress && textLength > 0 && (
+            <button
+              type="button"
+              onClick={onShowProgress}
+              aria-label="Show progress text"
+              data-testid="chat-response-show-progress"
+              className="ml-auto rounded-sm text-[11px] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            >
+              Show progress · {formatChars(textLength)}
+            </button>
+          )}
         </div>
       ) : null}
     </div>

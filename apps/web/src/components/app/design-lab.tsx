@@ -2,6 +2,7 @@ import { SimulatedDefragTurn } from "./simulated-defrag-turn";
 import { useSearchParams } from "react-router-dom";
 import { CompactionComparison } from "./compaction-comparison";
 import { DefragActivityCheckpoint } from "./defrag-activity-checkpoint";
+import { FillCountStudy } from "./fill-count-study";
 import { THEMES, useTheme, type ThemeId } from "@/hooks/use-theme";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
@@ -52,7 +53,9 @@ export function DesignLab(): JSX.Element {
       ? "turn"
       : params.get("activity-defrag") === "1"
         ? "activity"
-        : "compaction";
+        : params.get("fill-count") === "1"
+          ? "fills"
+          : "compaction";
   return (
     <div className="bg-background min-h-full p-4 md:p-8">
       <div className="mx-auto max-w-4xl space-y-6">
@@ -68,6 +71,8 @@ export function DesignLab(): JSX.Element {
               if (value === "turn") next.set("turn-demo", "1");
               if (value === "activity") next.set("activity-defrag", "1");
               else next.delete("activity-defrag");
+              if (value === "fills") next.set("fill-count", "1");
+              else next.delete("fill-count");
               return next;
             })
           }
@@ -76,6 +81,7 @@ export function DesignLab(): JSX.Element {
             <TabsTrigger value="turn">Simulated turn</TabsTrigger>
             <TabsTrigger value="compaction">Compaction</TabsTrigger>
             <TabsTrigger value="activity">Activity</TabsTrigger>
+            <TabsTrigger value="fills">Fill count</TabsTrigger>
           </TabsList>
           <TabsContent value="turn" className="mt-6">
             <SimulatedDefragTurn />
@@ -85,6 +91,9 @@ export function DesignLab(): JSX.Element {
           </TabsContent>
           <TabsContent value="activity" className="mt-6">
             <DefragActivityCheckpoint />
+          </TabsContent>
+          <TabsContent value="fills" className="mt-6">
+            <FillCountStudy />
           </TabsContent>
         </Tabs>
       </div>
