@@ -777,6 +777,8 @@ jobs:
 
     permissions:
       contents: write
+      id-token: write
+      attestations: write
 
     steps:
       # Self-hosted workspaces persist between runs; only this run's
@@ -816,6 +818,31 @@ jobs:
           name: ${{ needs.build-macos-app.outputs.artifact_name }}
           path: macos
 
+      - name: Extract runner bootstrap from the tested bundle
+        id: runner-bootstrap
+        run: |
+          set -euo pipefail
+          # Recovery may publish a tag created before runner installation existed.
+          tar -tzf dispatch-server.tar.gz > release-members.txt
+          if grep -Fxq bin/install-dispatch-runner.sh release-members.txt; then
+            tar -xOzf dispatch-server.tar.gz bin/install-dispatch-runner.sh > install-dispatch-runner.sh
+            test -s install-dispatch-runner.sh
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Attest the Linux-containing release bundle
+        id: attest-bundle
+        uses: actions/attest-build-provenance@v3
+        with:
+          subject-path: dispatch-server.tar.gz
+
+      - name: Attest the runner bootstrap
+        if: steps.runner-bootstrap.outputs.present == 'true'
+        id: attest-runner-bootstrap
+        uses: actions/attest-build-provenance@v3
+        with:
+          subject-path: install-dispatch-runner.sh
+
       - name: Create GitHub prerelease from tested artifacts
         run: |
           set -euo pipefail
@@ -827,16 +854,24 @@ jobs:
             echo "error: release $TAG already exists" >&2
             exit 1
           fi
+          cp "$BUNDLE_ATTESTATION" dispatch-server.tar.gz.sigstore.json
+          ASSETS=(dispatch-server.tar.gz dispatch-server.tar.gz.sigstore.json)
+          if [ -n "$BOOTSTRAP_ATTESTATION" ]; then
+            cp "$BOOTSTRAP_ATTESTATION" install-dispatch-runner.sh.sigstore.json
+            ASSETS+=(install-dispatch-runner.sh install-dispatch-runner.sh.sigstore.json)
+          fi
           gh release create "$TAG" \
             --repo "${{ github.repository }}" \
             --verify-tag \
             --title "$TAG" \
             --notes-file release-notes/current.md \
             --prerelease \
-            dispatch-server.tar.gz \
+            "${ASSETS[@]}" \
             macos/dispatch-macos-*-arm64.zip
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BUNDLE_ATTESTATION: ${{ steps.attest-bundle.outputs.bundle-path }}
+          BOOTSTRAP_ATTESTATION: ${{ steps.attest-runner-bootstrap.outputs.bundle-path }}
 
   publish-macos-appcast:
     needs:

@@ -4,6 +4,10 @@ One Dispatch instance can run agents on this Mac and on multiple named Linux
 runners. Dispatch owns the agents, tasks, conversations, permissions UI and
 stream projection. Each runner owns its workspaces and engine processes.
 
+For released systemd installations, see
+[Install a managed Dispatch runner on Linux](../remote-runner-linux.md).
+The instructions below describe the manual prototype path.
+
 1. Prepare the Linux runner binary, workload account, workspace and
    `/etc/dispatch-runner/runner.json` as described below. Configure the
    workload settings before pairing.

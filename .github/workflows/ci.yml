@@ -55,6 +55,10 @@ jobs:
       - name: Test owned command cleanup
         run: node --test scripts/run-owned.test.mjs
 
+      - name: Test managed Linux runner installer
+        if: steps.scope.outputs.scope != 'docs'
+        run: bash scripts/remote-runner/test-installer.sh
+
       - uses: pnpm/action-setup@v6
         with:
           version: 9.15.9
