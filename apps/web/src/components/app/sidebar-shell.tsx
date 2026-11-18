@@ -1,11 +1,11 @@
 import {
   Activity,
-  Zap,
   Bot,
   ChevronLeft,
   Settings,
   X,
   ListTodo,
+  Share2,
 } from "lucide-react";
 import React from "react";
 
@@ -58,7 +58,7 @@ export function SidebarNavBar({
   const items: Array<{ id: NavSection; icon: typeof Bot; label: string }> = [
     { id: "agents", icon: Bot, label: "Agents" },
     { id: "tasks", icon: ListTodo, label: "Tasks" },
-    { id: "automations", icon: Zap, label: "Automations" },
+    { id: "automations", icon: Share2, label: "Automations" },
     { id: "activity", icon: Activity, label: "Activity" },
     { id: "settings", icon: Settings, label: "Settings" },
   ];
