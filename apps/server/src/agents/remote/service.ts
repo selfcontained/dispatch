@@ -1259,7 +1259,9 @@ export class RemoteRunnerService {
           };
           const timer = setTimeout(
             () => finish(),
-            command.kind === "launch" && command.launch.repository
+            // Repository fetches and engine package installs may take minutes.
+            command.kind === "engine" ||
+              (command.kind === "launch" && command.launch.repository)
               ? 300_000
               : 20_000
           );
