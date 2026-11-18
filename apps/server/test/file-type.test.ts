@@ -12,6 +12,24 @@ import {
 const typeOf = (bytes: Buffer, name: string) => detectFileType(bytes, name);
 
 describe("detectFileType", () => {
+  it("requires SVG bytes and extension", () => {
+    const svg = Buffer.from(
+      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 50"/>'
+    );
+    expect(typeOf(svg, "art.svg")).toMatchObject({
+      ok: true,
+      mimeType: "image/svg+xml",
+      media: "image",
+    });
+    expect(typeOf(svg, "art.txt")).toMatchObject({ ok: true, media: "text" });
+    for (const text of [
+      "<html><svg/></html>",
+      "<svgish/>",
+      "<!DOCTYPE html><html/>",
+    ]) {
+      expect(typeOf(Buffer.from(text), "art.svg").ok).toBe(false);
+    }
+  });
   it("types binary files by their signature", () => {
     expect(typeOf(PNG_BYTES, "a.png")).toMatchObject({
       ok: true,

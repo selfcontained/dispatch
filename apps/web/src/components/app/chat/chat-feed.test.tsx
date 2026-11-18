@@ -1966,6 +1966,37 @@ describe("ChatFeed", () => {
     ).toBeTruthy();
   });
 
+  it("renders an SVG file block as an image preview", () => {
+    renderFeed(
+      [
+        blockEntry(
+          block({
+            id: "kid-shot",
+            author: { kind: "agent", agentId: "agt_2" },
+            attachments: [
+              {
+                type: "file",
+                fileId: 11,
+                fileName: "art.svg",
+                sizeBytes: 512,
+                mimeType: "image/svg+xml",
+                media: "image",
+                ownerAgentId: "agt_2",
+              },
+            ],
+          })
+        ),
+      ],
+      {},
+      { peers: REVIEWER_PEER }
+    );
+    expect(screen.queryByTestId("chat-attachment-file")).toBeNull();
+    const image = screen.getByTestId("chat-attachment-image");
+    expect(image.querySelector("img")?.getAttribute("src")).toBe(
+      "/api/v1/agents/agt_2/files/art.svg"
+    );
+  });
+
   it("serves another agent's image from the agent that owns it, not the page's agent", () => {
     renderFeed(
       [

@@ -31,6 +31,7 @@ export type DetectedFileType =
 
 /** How a binary type reads in a message to a person. */
 const DESCRIBED: Readonly<Record<string, string>> = {
+  "image/svg+xml": "an SVG image",
   "image/png": "a PNG image",
   "image/jpeg": "a JPEG image",
   "image/gif": "a GIF image",
@@ -102,6 +103,7 @@ function isText(buffer: Buffer): boolean {
  * file's type on its own. Exported for its table's tests.
  */
 export function claimedMimeType(name: string): string {
+  if (/\.svg$/i.test(name)) return "image/svg+xml";
   if (/\.png$/i.test(name)) return "image/png";
   if (/\.jpe?g$/i.test(name)) return "image/jpeg";
   if (/\.gif$/i.test(name)) return "image/gif";
@@ -127,7 +129,16 @@ export function detectFileType(
   const named = claimedMimeType(fileName);
   const namedText = fileMedia(named) === "text";
   const namedBinary = named !== "application/octet-stream" && !namedText;
-  const sniffed = sniffBinary(buffer);
+  // SVG is XML, not a binary signature. Require the declared extension and
+  // an SVG root after an optional XML declaration and comments. Do not accept
+  // doctypes/entities or an HTML wrapper containing a nested svg.
+  const svg =
+    named === "image/svg+xml" &&
+    isText(buffer) &&
+    /^\s*(?:<\?xml\s[^?]*\?>\s*)?(?:<!--[\s\S]*?-->\s*)*<svg(?=[\s/>])/.test(
+      utf8.decode(buffer)
+    );
+  const sniffed = svg ? "image/svg+xml" : sniffBinary(buffer);
   if (sniffed) {
     if (namedBinary && named !== sniffed) {
       return {
