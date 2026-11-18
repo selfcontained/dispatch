@@ -86,7 +86,13 @@ export async function imageRasterSize(image: HTMLImageElement) {
   const ratio = validViewBox ? validViewBox[2] / validViewBox[3] : 2;
   width = w || (h ? h * ratio : validViewBox?.[2] || width);
   height = h || width / ratio;
-  const scale = Math.min(1, ANNOTATED_MAX_SIDE / Math.max(width, height));
+  // A viewBox describes vector units, not a desired bitmap resolution.
+  // Give dimensionless icons enough pixels for readable callouts.
+  const longest = Math.max(width, height);
+  const scale = Math.min(
+    !w && !h ? Math.max(1, 1024 / longest) : 1,
+    ANNOTATED_MAX_SIDE / longest
+  );
   width = Math.max(1, Math.round(width * scale));
   height = Math.max(1, Math.round(height * scale));
   image.width = width;

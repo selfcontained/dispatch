@@ -6,9 +6,10 @@ afterEach(() => vi.restoreAllMocks());
 
 it.each([
   ['width="640" height="320"', 640, 320],
-  ['viewBox="0 0 800 400"', 800, 400],
+  ['viewBox="0 0 800 400"', 1024, 512],
   ['viewBox="0 0 80000 40000"', 2560, 1280],
-  ["", 300, 150],
+  ["", 1024, 512],
+  ['viewBox="0 0 24 24"', 1024, 1024],
 ])(
   "exports a nonzero PNG with zero intrinsic SVG size: %s",
   async (attrs, width, height) => {
