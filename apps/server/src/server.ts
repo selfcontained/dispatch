@@ -126,6 +126,7 @@ import { registerMcpRoutes } from "./routes/mcp.js";
 import { registerPersonaRoutes } from "./routes/personas.js";
 import { registerPersonalityRoutes } from "./routes/personalities.js";
 import { registerQuickPhraseRoutes } from "./routes/quick-phrases.js";
+import { registerRunnerRoutes } from "./routes/runners.js";
 import { registerReleaseRoutes } from "./routes/release.js";
 import { registerMacAppRoutes } from "./routes/mac-app.js";
 import { MacAppUpdateBridge } from "./mac-app-update-bridge.js";
@@ -205,7 +206,12 @@ const pool = createPool(config);
 const serviceResourcesProbePool = createServiceResourcesProbePool(config);
 const routingSettings = new RoutingSettings(pool);
 const steeringDecisions = new SteeringDecisions(pool, routingSettings);
-const remoteRunner = configuredRunner();
+const remoteRunner = configuredRunner({
+  pool,
+  host: config.listenHosts?.[0] ?? config.host,
+  apiPort: config.port,
+  apiTls: Boolean(config.tls),
+});
 const agentManager = new AgentManager(pool, app.log, config, {
   remote: remoteRunner,
   classifySteering: steeringDecisions.classify,
@@ -1313,6 +1319,7 @@ async function registerRoutes() {
   // --- Quick Phrases ---
 
   await registerQuickPhraseRoutes(app, { pool });
+  await registerRunnerRoutes(app, { runners: remoteRunner });
 }
 
 async function waitForDatabase(maxAttempts = 15, delayMs = 2000) {
@@ -1346,6 +1353,12 @@ export async function initializeApp(options?: {
     await runMigrations();
   }
   config.authToken = await getOrCreateAuthToken(pool);
+  // Enrolled runners reconnect before agents are restored and reconciled.
+  try {
+    await remoteRunner?.startEnrolled();
+  } catch (error) {
+    app.log.error({ err: error }, "Runner listener failed to start");
+  }
   // The model lists engines published in earlier sessions, for the pickers.
   await loadLearnedAgentModels(pool);
   serviceResources.setCollectionEnabled(

@@ -37,6 +37,9 @@ if (process.argv[2]?.startsWith("recovery-")) {
       process.env.DISPATCH_HOST ?? "127.0.0.1",
     ]
   );
+} else if (process.argv[2] === "remote-runner-pair") {
+  const { runRunnerPairing } = await import("./agents/remote/enrollment.js");
+  await runRunnerPairing(process.argv.slice(3));
 } else if (process.argv[2] === "remote-runner") {
   const { runRemoteRunner } = await import("./agents/remote/runner.js");
   await runRemoteRunner(process.argv[3]!);

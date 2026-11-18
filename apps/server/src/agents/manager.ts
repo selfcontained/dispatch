@@ -2126,7 +2126,9 @@ export class AgentManager {
     // Rows a previous host left open (a crash mid-turn) settle first, so the
     // feed never shows a turn that can no longer finish.
     await this.streamRecorder.reconcile(agent.id);
-    const remoteMcpOrigin = placement ? this.remote?.origin : undefined;
+    const remoteMcpOrigin = placement
+      ? this.remote?.originFor(placement)
+      : undefined;
     const mcpUrl = placement
       ? remoteMcpOrigin && `${remoteMcpOrigin}/api/mcp/${agent.id}`
       : dispatchMcpUrl(this.config, agent.id, opts.jobRunId);
