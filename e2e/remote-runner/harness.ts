@@ -176,7 +176,13 @@ export async function enroll(request: APIRequestContext, name: RunnerName) {
 /** Launch through the normal Create Agent dialog (Folder = runner locator). */
 export async function launchViaUi(
   page: Page,
-  opts: { name: string; cwd?: string; runnerId?: string; prompt: string }
+  opts: {
+    name: string;
+    cwd?: string;
+    runnerId?: string;
+    prompt: string;
+    restricted?: boolean;
+  }
 ) {
   await page.goto("/", { waitUntil: "domcontentloaded" });
   await page.getByTestId("create-agent-button").click();
@@ -197,6 +203,13 @@ export async function launchViaUi(
       .getByRole("option", { name: state.workspace, exact: true })
       .click();
   } else await page.getByTestId("create-agent-cwd").fill(opts.cwd ?? "/tmp");
+  if (opts.restricted) {
+    // "Start in full access mode" is on by default; permission prompts need it off.
+    const full = page.getByTitle("Toggle full access");
+    if ((await full.getAttribute("aria-checked")) === "true")
+      await full.click();
+    await expect(full).toHaveAttribute("aria-checked", "false");
+  }
   await page.getByTestId("create-agent-with-context").click();
   await page.getByTestId("create-agent-initial-prompt").fill(opts.prompt);
   const created = page.waitForResponse(

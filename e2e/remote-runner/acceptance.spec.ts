@@ -74,7 +74,12 @@ test("UI launches local, alpha and beta; each answer comes from its own side", a
       page,
       key === "local"
         ? { name: `e2e-rr-${key}`, cwd: "/tmp", prompt }
-        : { name: `e2e-rr-${key}`, runnerId: runnerIds[key], prompt }
+        : {
+            name: `e2e-rr-${key}`,
+            runnerId: runnerIds[key],
+            prompt,
+            restricted: true,
+          }
     );
     expect(status).toBe(201);
     agents[key] = id!;
