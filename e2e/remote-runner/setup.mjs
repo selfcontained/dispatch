@@ -26,7 +26,8 @@ const WORKSPACE = "proof"; // identical handle on every runner, on purpose
 export const base =
   process.env.REMOTE_E2E_ROOT ??
   path.join(process.env.HOME, ".cache", "dispatch-remote-e2e");
-const IMAGE = process.env.REMOTE_E2E_IMAGE ?? "debian:bookworm-slim";
+// The supervisor uses procps to reap engine descendants during archive.
+const IMAGE = process.env.REMOTE_E2E_IMAGE ?? "node:22-bookworm";
 const sh = (cmd, args, opts = {}) =>
   execFileSync(cmd, args, {
     encoding: "utf8",

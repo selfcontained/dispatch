@@ -4,6 +4,10 @@
 # connects and starts the runners with `docker exec` so tests control timing.
 set -eu
 NAME="$1"
+if ! command -v ps >/dev/null || ! command -v setpriv >/dev/null; then
+  echo "Runner fixture image needs procps and util-linux." >&2
+  exit 1
+fi
 install -d -m 700 /run/cfg /var/lib/runner
 install -d -m 755 /home/guest /etc/dispatch-runner
 cp /etc/runner/runner.json /run/cfg/runner.json && chmod 600 /run/cfg/runner.json
