@@ -24,12 +24,12 @@ The runner must be able to reach the HTTPS address in the pairing command.
    and starts the service once enrollment succeeds. Wait for **Online** in
    Settings.
 
-3. Install the engines you plan to use according to their Linux instructions.
-   The default runner configuration looks for `claude`, `codex`, and
-   `opencode` under `/usr/local/bin`. Install any companion binaries the
-   engine requires. If the selected engine needs credentials,
-   sign in as the workload account using its managed home. For example, run
-   `sudo -u dispatch-runner -H /usr/local/bin/codex login` if you use Codex.
+3. Open **Manage engines** on the runner in Dispatch. Choose **Install** for
+   the engine you want, then **Sign in** for Codex or Claude. The runner uses
+   Node.js and npm from its workload PATH to install engine binaries under
+   `/var/lib/dispatch-runner/home/.local/bin`. Install Node.js and npm on
+   the Linux host to enable managed engine installs and updates. Credentials
+   belong to that runner's workload account.
 4. Choose the runner when launching a session in Dispatch. The runner allocates
    the managed session directory. The reserved `@session` placement is supplied
    by the runner. Installation requires no checkout or workspace path.

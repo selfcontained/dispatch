@@ -169,6 +169,22 @@ run install v1.0.0
 ! grep -Eq '^(start|enable) ' "$root/systemctl"
 [[ "$(find "$root/settings/runner.json" -perm 0600 -print)" == "$root/settings/runner.json" ]]
 grep -q '"workspaces": {}' "$root/settings/runner.json"
+node - "$root/settings/runner.json" <<'JS'
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const config = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
+const packages = { codex: "@openai/codex", claude: "@anthropic-ai/claude-code", opencode: "opencode-ai" };
+for (const [engine, pkg] of Object.entries(packages)) {
+  const prefix = config.home + "/.local";
+  assert.equal(config.bins[engine + "Bin"], prefix + "/bin/" + engine);
+  for (const action of ["install", "update"]) {
+    assert.deepEqual(config.engines[engine][action], {
+      executable: "npm",
+      args: ["install", "--global", "--prefix", prefix, pkg + "@latest"]
+    });
+  }
+}
+JS
 cp "$root/runtime/dispatch" "$root/original"
 
 run update v1.0.1

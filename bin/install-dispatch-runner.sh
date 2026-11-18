@@ -54,6 +54,14 @@ start_enabled_runner() {
   stable_start
 }
 
+# npm's global prefix has a bin/ directory that the workload owns and uses for launch.
+engine_commands() {
+  local package="$1" command
+  printf -v command '{"executable":"npm","args":["install","--global","--prefix","%s","%s@latest"]}' \
+    "$state/home/.local" "$package"
+  printf '{"install":%s,"update":%s}' "$command" "$command"
+}
+
 write_config() {
   local uid gid
   uid=$(id -u "$account")
@@ -67,9 +75,14 @@ write_config() {
   "home": "$state/home",
   "path": "$state/home/.local/bin:/usr/local/bin:/usr/bin:/bin",
   "bins": {
-    "claudeBin": "/usr/local/bin/claude",
-    "codexBin": "/usr/local/bin/codex",
-    "opencodeBin": "/usr/local/bin/opencode"
+    "claudeBin": "$state/home/.local/bin/claude",
+    "codexBin": "$state/home/.local/bin/codex",
+    "opencodeBin": "$state/home/.local/bin/opencode"
+  },
+  "engines": {
+    "claude": $(engine_commands @anthropic-ai/claude-code),
+    "codex": $(engine_commands @openai/codex),
+    "opencode": $(engine_commands opencode-ai)
   },
   "workspaces": {}
 }
