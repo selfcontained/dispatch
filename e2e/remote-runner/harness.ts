@@ -140,6 +140,7 @@ export async function requestConnection(
   const command = await connectCommand(page);
   const service = new URL(commandOption(command, "--service")!);
   const pin = commandOption(command, "--ca-sha256");
+  const approvalUrl = commandOption(command, "--approval-url");
   if (Number(service.port) === state.runnerPort)
     service.port = String(state.runners[name].proxyPort);
   const args = [
@@ -152,6 +153,7 @@ export async function requestConnection(
     "--dir",
     dir,
     ...(pin ? ["--ca-sha256", pin] : []),
+    ...(approvalUrl ? ["--approval-url", approvalUrl] : []),
     ...(dir === "/etc/dispatch-runner"
       ? ["--config", "/run/cfg/runner.json"]
       : []),
@@ -189,6 +191,7 @@ export async function requestConnection(
     )
     .toBeTruthy();
   const { code, reference } = approval()!;
+  if (approvalUrl) expect(output).toContain(`Approve at: ${approvalUrl}`);
   const form = page.getByTestId("runner-approval").filter({
     has: page.getByText(`Connection request · ${reference}`, { exact: true }),
   });
