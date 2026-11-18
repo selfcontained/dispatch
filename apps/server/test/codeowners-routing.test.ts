@@ -18,6 +18,7 @@ const cases: [string, string[]][] = [
   ["scripts/ci-owner-coverage.ts", ["review-lifecycle-owner"]],
   ["apps/server/src/personas/coverage.ts", ["review-lifecycle-owner"]],
   ["apps/server/test/owner-coverage.test.ts", ["review-lifecycle-owner"]],
+  ["apps/server/src/main.ts", ["agent-runtime-owner"]],
   [
     "patches/@agentclientprotocol__claude-agent-acp@0.108.0.patch",
     ["agent-runtime-owner"],
@@ -27,6 +28,7 @@ const cases: [string, string[]][] = [
     ["agent-runtime-owner"],
   ],
   ["apps/server/test/claude-adapter-steering.test.ts", ["agent-runtime-owner"]],
+  ["apps/server/test/claude-steering-patch.test.ts", ["agent-runtime-owner"]],
   ["apps/server/test/codex-adapter-patch.test.ts", ["agent-runtime-owner"]],
   ["apps/server/test/helpers/fake-acp-agent.ts", ["agent-runtime-owner"]],
   ["packages/shared/src/mcp-inventory-types.ts", ["mcp-contract-owner"]],
