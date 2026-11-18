@@ -133,19 +133,26 @@ export async function requestConnection(
       output += chunk;
     });
   });
-  const pairingCode = () => /^Code: ([A-Z0-9_-]+)\r?$/im.exec(output)?.[1];
+  const approval = () => {
+    const code = /^Code: ([A-Z0-9_-]+)\r?$/im.exec(output)?.[1];
+    const reference = /^Request: ([A-Z0-9_-]+)\r?$/im.exec(output)?.[1];
+    return code && reference ? { code, reference } : undefined;
+  };
   await expect
     .poll(
       () => {
         if (failure) throw failure;
-        return pairingCode();
+        return approval();
       },
       { timeout: 20_000 }
     )
     .toBeTruthy();
-  const form = page.getByTestId("runner-approval");
+  const { code, reference } = approval()!;
+  const form = page.getByTestId("runner-approval").filter({
+    has: page.getByText(`Connection request · ${reference}`, { exact: true }),
+  });
   await expect(form).toHaveCount(1, { timeout: 15_000 });
-  return { form, code: pairingCode()!, finished };
+  return { form, code, finished };
 }
 
 export function startRunner(name: GuestName) {
