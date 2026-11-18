@@ -1,3 +1,5 @@
+import { MANAGED_WORKSPACE } from "@dispatch/runner-protocol";
+import { RunnerRepositoryFields } from "./runner-repository-fields";
 import { taskAgentName } from "@dispatch/shared";
 import { ProjectLocation } from "./project-location";
 import { useProjectScope, useProjects } from "@/hooks/use-projects";
@@ -150,43 +152,58 @@ function CreateAgentDialogContent({
                   />
                 </div>
 
-                {task ? (
-                  <TaskContextCard task={task} />
-                ) : (
-                  <div className="space-y-1">
-                    <RunnerPicker
-                      runners={form.runners}
-                      runnerId={form.runnerId}
-                      unavailable={form.runnerUnavailable}
-                      onRunnerChange={form.selectRunner}
-                      workspace={form.runnerWorkspace}
-                      onWorkspaceChange={form.setRunnerWorkspace}
+                {task && <TaskContextCard task={task} />}
+                <div className="space-y-1">
+                  <RunnerPicker
+                    runners={
+                      task
+                        ? form.runners.filter((r) =>
+                            r.workspaces.includes(MANAGED_WORKSPACE)
+                          )
+                        : form.runners
+                    }
+                    runnerId={form.runnerId}
+                    unavailable={form.runnerUnavailable}
+                    onRunnerChange={form.selectRunner}
+                    workspace={form.runnerWorkspace}
+                    onWorkspaceChange={form.setRunnerWorkspace}
+                  />
+                  {form.managedSession && (
+                    <RunnerRepositoryFields
+                      repository={form.repository}
+                      onRepository={form.chooseRepo}
+                      mode={form.branchMode}
+                      onMode={form.changeBranchMode}
+                      branch={form.runnerBranch}
+                      onBranch={form.setRunnerBranch}
+                      loading={form.repoLoading}
+                      failed={form.repoFailed}
                     />
-                    {form.runnerId ? null : (
-                      <>
-                        <ProjectLocation
-                          projectId={form.createProjectId}
-                          rememberedProjectId={form.lastProjectId}
-                          onChange={(p) => {
-                            form.setCreateProjectId(p?.id ?? null);
-                          }}
-                        >
-                          <PathInput
-                            value={form.createCwd}
-                            onChange={form.setCreateCwd}
-                            history={form.cwdHistory}
-                            removableHistory={form.removableCwdHistory}
-                            historyMetadata={form.cwdHistoryMetadata}
-                            onRemoveHistory={form.removeCwdHistory}
-                            onPathInfoChange={form.handlePathInfoChange}
-                            data-testid="create-agent-cwd"
-                            historyItemTestId="create-agent-cwd-history-option"
-                          />
-                        </ProjectLocation>
-                      </>
-                    )}
-                  </div>
-                )}
+                  )}
+                  {form.runnerId || task ? null : (
+                    <>
+                      <ProjectLocation
+                        projectId={form.createProjectId}
+                        rememberedProjectId={form.lastProjectId}
+                        onChange={(p) => {
+                          form.setCreateProjectId(p?.id ?? null);
+                        }}
+                      >
+                        <PathInput
+                          value={form.createCwd}
+                          onChange={form.setCreateCwd}
+                          history={form.cwdHistory}
+                          removableHistory={form.removableCwdHistory}
+                          historyMetadata={form.cwdHistoryMetadata}
+                          onRemoveHistory={form.removeCwdHistory}
+                          onPathInfoChange={form.handlePathInfoChange}
+                          data-testid="create-agent-cwd"
+                          historyItemTestId="create-agent-cwd-history-option"
+                        />
+                      </ProjectLocation>
+                    </>
+                  )}
+                </div>
 
                 {form.runnerId ? null : (
                   <AgentPersonaSelect

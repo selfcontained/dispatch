@@ -1,4 +1,4 @@
-import type { RunnerHealth } from "@dispatch/runner-protocol";
+import { type RunnerHealth, workspaceLocator } from "@dispatch/runner-protocol";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api } from "@/lib/api";
@@ -20,7 +20,7 @@ export const runnersQueryKey = ["runners"] as const;
 
 /** Locator the server stores in an agent's cwd: opaque runner id, both parts encoded. */
 export function runnerLocator(runnerId: string, workspace: string): string {
-  return `runner://${encodeURIComponent(runnerId)}/${encodeURIComponent(workspace)}`;
+  return workspaceLocator({ runner: runnerId, workspace });
 }
 
 export function useRunners(options: { poll?: boolean } = {}) {

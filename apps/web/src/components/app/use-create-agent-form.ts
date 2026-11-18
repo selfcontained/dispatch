@@ -1,3 +1,10 @@
+import { createClientId } from "@/lib/client-id";
+import { MANAGED_WORKSPACE } from "@dispatch/runner-protocol";
+import { useQuery } from "@tanstack/react-query";
+import {
+  isRepositoryUrl,
+  type RunnerBranchMode,
+} from "./runner-repository-fields";
 import type { Effort } from "@dispatch/shared";
 import { useAtom } from "jotai";
 import { useProjects } from "@/hooks/use-projects";
@@ -73,8 +80,11 @@ export function useCreateAgentForm({
   const remote = Boolean(runnerId);
   const runnerUnavailable = remote && (!runner || runner.status === "revoked");
   // Only a workspace the runner reports now, on an online runner, can submit.
-  const runnerWorkspace =
-    runner && pickedWorkspace && runner.workspaces.includes(pickedWorkspace)
+  const managedSession =
+    runner?.workspaces.includes(MANAGED_WORKSPACE) ?? false;
+  const runnerWorkspace = managedSession
+    ? MANAGED_WORKSPACE
+    : runner && pickedWorkspace && runner.workspaces.includes(pickedWorkspace)
       ? pickedWorkspace
       : null;
   const remoteCwd =
@@ -100,13 +110,47 @@ export function useCreateAgentForm({
         (locationPref?.mode === "project" ? locationPref.projectId : null));
   const project = projects.find((p) => p.id === selectedProjectId);
   // Keep a pending choice while loading, but never submit an unavailable ID.
-  const createProjectId = runnerId
-    ? null
-    : projectsLoaded
-      ? (project?.id ?? null)
-      : selectedProjectId;
+  const createProjectId =
+    remote && !managedSession
+      ? null
+      : projectsLoaded
+        ? (project?.id ?? null)
+        : selectedProjectId;
+  const projectRepository = useQuery({
+    queryKey: ["runner-project-origin", createProjectId],
+    queryFn: () =>
+      api<{ url: string | null }>(
+        `/api/v1/projects/${encodeURIComponent(createProjectId!)}/repository`
+      ),
+    enabled: managedSession && Boolean(createProjectId),
+    retry: false,
+  });
+  const [chosenRepo, setChosenRepo] = useState<string | null>(null);
+  const [branchMode, setBranchMode] = useState<RunnerBranchMode>("new");
+  const [runnerBranch, setRunnerBranch] = useState("");
+  const repository = chosenRepo ?? projectRepository.data?.url ?? "";
+  const chooseRepo = (url: string) => {
+    setChosenRepo(url);
+    setRunnerBranch("");
+    setBranchMode("new");
+  };
+  const changeBranchMode = (mode: RunnerBranchMode) => {
+    setBranchMode(mode);
+    setRunnerBranch("");
+  };
+  const repoLoading =
+    managedSession &&
+    Boolean(createProjectId) &&
+    projectRepository.isLoading &&
+    chosenRepo === null;
+  const repoReady =
+    !managedSession ||
+    (!repoLoading &&
+      (!repository.trim() ||
+        (isRepositoryUrl(repository.trim()) &&
+          (branchMode === "new" || Boolean(runnerBranch.trim())))));
   const locationReady = runnerId
-    ? Boolean(remoteCwd)
+    ? Boolean(remoteCwd) && repoReady && (!selectedProjectId || projectsLoaded)
     : !selectedProjectId || projectsLoaded;
   const setCreateProjectId = (id: string | null) => {
     setLocationChoice({ projectId: id });
@@ -238,7 +282,7 @@ export function useCreateAgentForm({
   );
 
   useEffect(() => {
-    if (!createProjectId) return;
+    if (!createProjectId || remote) return;
     const controller = new AbortController();
     void api<CwdPathInfo>(
       `/api/v1/system/path-info?path=${encodeURIComponent(createCwd.trim())}`,
@@ -251,7 +295,7 @@ export function useCreateAgentForm({
         if (!controller.signal.aborted) handlePathInfoChange(null);
       });
     return () => controller.abort();
-  }, [createProjectId, createCwd, handlePathInfoChange]);
+  }, [createProjectId, createCwd, handlePathInfoChange, remote]);
   const currentCwd = createCwd.trim();
   const worktreeAvailable =
     validatedCwd?.cwd === currentCwd && validatedCwd.isGitRepo;
@@ -309,9 +353,47 @@ export function useCreateAgentForm({
         const submitCreateNewBranch = submitUseWorktree && createNewBranch;
         const contextInitialPrompt =
           step === "context" ? initialPrompt.trim() || undefined : undefined;
+        let checkout;
+        if (managedSession && repository.trim()) {
+          const branch = runnerBranch.trim();
+          if (branchMode === "new") {
+            checkout = {
+              url: repository.trim(),
+              checkout: {
+                kind: "new",
+                branch: `session/${createClientId()}`,
+                base: branch || undefined,
+              },
+            };
+          } else if (branch.startsWith("https://")) {
+            const pr = new URL(branch);
+            const repo = new URL(repository.trim());
+            if (
+              pr.hostname !== repo.hostname ||
+              pr.pathname.split("/").slice(0, 3).join("/").toLowerCase() !==
+                repo.pathname.replace(/\.git$|\/$/g, "").toLowerCase()
+            )
+              throw new Error(
+                "Choose a pull request from the selected repository."
+              );
+            const head = await api<{ url: string; branch: string }>(
+              `/api/v1/runners/pull-request-head?url=${encodeURIComponent(branch)}`
+            );
+            checkout = {
+              url: head.url,
+              checkout: { kind: "branch", branch: head.branch },
+            };
+          } else {
+            checkout = {
+              url: repository.trim(),
+              checkout: { kind: "branch", branch },
+            };
+          }
+        }
         const payloadBase = {
           name: createName.trim(),
-          cwd: createProjectId ? undefined : cwd,
+          cwd: createProjectId && !remote ? undefined : cwd,
+          repository: checkout,
           projectId: createProjectId ?? undefined,
           type: createType,
           persona: remote ? undefined : (createPersona ?? undefined),
@@ -343,7 +425,12 @@ export function useCreateAgentForm({
               const formData = new FormData();
               for (const [key, value] of Object.entries(payloadBase)) {
                 if (value === undefined || value === "") continue;
-                formData.append(key, String(value));
+                formData.append(
+                  key,
+                  typeof value === "object"
+                    ? JSON.stringify(value)
+                    : String(value)
+                );
               }
               formData.append(
                 "startupLinks",
@@ -378,6 +465,10 @@ export function useCreateAgentForm({
     },
     [
       createBaseBranch,
+      managedSession,
+      repository,
+      branchMode,
+      runnerBranch,
       locationReady,
       createCwd,
       remote,
@@ -406,6 +497,15 @@ export function useCreateAgentForm({
     runners,
     runnerId,
     runnerUnavailable,
+    managedSession,
+    repository,
+    chooseRepo,
+    branchMode,
+    changeBranchMode,
+    runnerBranch,
+    setRunnerBranch,
+    repoLoading,
+    repoFailed: projectRepository.isError,
     selectRunner,
     runnerWorkspace,
     setRunnerWorkspace,

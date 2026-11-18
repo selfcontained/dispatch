@@ -207,6 +207,51 @@ describe("launch location preference", () => {
     queryClient.setQueryData(["projects"], projects);
   });
 
+  it("keeps the project when a runner session starts in scratch or a worktree", async () => {
+    queryClient.setQueryDefaults(["runners"], { staleTime: Infinity });
+    queryClient.setQueryData(
+      ["runners"],
+      [
+        {
+          id: "rnr_lima",
+          name: "Lima",
+          status: "online",
+          workspaces: ["@session"],
+        },
+      ]
+    );
+    queryClient.setQueryDefaults(["runner-project-origin", "project-a"], {
+      staleTime: Infinity,
+    });
+    queryClient.setQueryData(["runner-project-origin", "project-a"], {
+      url: "https://github.com/org/project",
+    });
+    const { result } = await setup({ initialProjectId: "project-a" });
+    act(() => result.current.selectRunner("rnr_lima"));
+    expect(result.current.repository).toBe("https://github.com/org/project");
+    act(() => result.current.setRunnerBranch("release"));
+    await act(async () => result.current.handleSubmit(submitEvent()));
+    expect(agentsPostJson()).toMatchObject({
+      projectId: "project-a",
+      cwd: "runner://rnr_lima/@session",
+      repository: {
+        url: "https://github.com/org/project",
+        checkout: {
+          kind: "new",
+          base: "release",
+          branch: expect.stringMatching(/^session\//),
+        },
+      },
+    });
+    apiMock.mockClear();
+    act(() => result.current.chooseRepo(""));
+    await act(async () => result.current.handleSubmit(submitEvent()));
+    expect(agentsPostJson()).toMatchObject({
+      projectId: "project-a",
+      cwd: "runner://rnr_lima/@session",
+    });
+    expect(agentsPostJson()).not.toHaveProperty("repository");
+  });
   it("allows a folder choice but reopens with the latest concrete scope", async () => {
     const first = await setup({ initialProjectId: "project-a" });
     expect(first.result.current.createProjectId).toBe("project-a");
