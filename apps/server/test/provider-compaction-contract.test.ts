@@ -1,7 +1,8 @@
-import { ClaudeAcpAgent } from "@agentclientprotocol/claude-agent-acp/dist/acp-agent.js";
+import { SessionBackgroundWork } from "@agentclientprotocol/claude-agent-acp/dispatch-test/background-work";
+import { ClaudeAcpAgent } from "@agentclientprotocol/claude-agent-acp/dispatch-test/acp-agent";
 import type { AgentSideConnection } from "@agentclientprotocol/sdk";
 import { describe, expect, it, vi } from "vitest";
-import { ContextCompactionLifecycle } from "@agentclientprotocol/claude-agent-acp/dist/context-compaction.js";
+import { ContextCompactionLifecycle } from "@agentclientprotocol/claude-agent-acp/dispatch-test/context-compaction";
 import fixtures from "../../../test-fixtures/provider-compactions.json";
 import { compactionPayloadOf } from "../src/agents/acp/stream-recorder.js";
 import { assembleTurns, type TurnSourceRow } from "../src/chat/turns.js";
@@ -119,6 +120,7 @@ it("the installed Claude consumer maps native SDK compacting status to the fixtu
     turnQueue: [],
     sessionFailureState: {},
     messageIdToUuid: new Map(),
+    background: new SessionBackgroundWork("fixture"),
     liveBackgroundTasks: new Map(),
     accumulatedUsage: {
       inputTokens: 0,

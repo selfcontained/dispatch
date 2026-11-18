@@ -1,4 +1,4 @@
-import { ClaudeAcpAgent } from "@agentclientprotocol/claude-agent-acp/dist/acp-agent.js";
+import { ClaudeAcpAgent } from "@agentclientprotocol/claude-agent-acp/dispatch-test/acp-agent";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
