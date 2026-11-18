@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { sameConversation } from "@dispatch/shared";
 import { useDeliveryAgents } from "@/hooks/use-agent-tree";
 import { recipientTimings } from "./composer-delivery";
 import { Trash2, Zap } from "lucide-react";
@@ -11,10 +12,12 @@ type QueuedAction = "delete" | "send-now" | "interrupt";
 
 /**
  * What a person can do with a post waiting behind a turn. Send now steers
- * the post into the running turn when that is safe; otherwise it stops the
- * turn and the post opens the next one, the same as sending it as an
- * interrupt from the composer. The button is withheld only when neither is
- * possible for every recipient.
+ * the post into the running turn when that is safe and the turn is in the
+ * post's own conversation; otherwise it stops the turn and the post opens
+ * the next one, the same as sending it as an interrupt from the composer.
+ * The server makes the same conversation check, so this label is a preview
+ * of its decision rather than the only guard. The button is withheld only
+ * when neither is possible for every recipient.
  */
 export function QueuedMessageActions({
   agentId,
@@ -24,6 +27,7 @@ export function QueuedMessageActions({
   threadId,
   requiresNextTurn = false,
   pendingDelivery = false,
+  resumesAsk = false,
 }: {
   agentId: string;
   messageId: string;
@@ -34,6 +38,11 @@ export function QueuedMessageActions({
   requiresNextTurn?: boolean;
   /** Already being handed off: interrupt without replacing the attempt. */
   pendingDelivery?: boolean;
+  /**
+   * An answer to a question or form: it resumes the conversation that
+   * asked, so it never needs its own turn to land in the right place.
+   */
+  resumesAsk?: boolean;
 }) {
   const client = useQueryClient();
   const agents = useDeliveryAgents();
@@ -46,7 +55,13 @@ export function QueuedMessageActions({
       const busy =
         agent?.inputState?.active ??
         (!!agent?.currentTurn || agent?.activity === "working");
-      return !busy || agent?.inputState?.steeringSupported === true;
+      if (!busy) return true;
+      const active = agent?.inputState?.conversation;
+      // Steering a post into a turn in another conversation would answer it
+      // there, not where it was sent.
+      if (!resumesAsk && active && !sameConversation(conversation, active))
+        return false;
+      return agent?.inputState?.steeringSupported === true;
     });
   const canInterrupt =
     !!recipientIds &&
@@ -114,7 +129,7 @@ export function QueuedMessageActions({
                 ? "Interrupt current work without resending this message"
                 : sendNow === "interrupt"
                   ? "Stop the current turn and deliver this message as a new turn"
-                  : "Join ongoing work; replies stay in its current conversation"
+                  : "Join ongoing work in this conversation"
             }
             data-send-now={sendNow}
             onClick={() => action.mutate(sendNow)}
@@ -124,8 +139,8 @@ export function QueuedMessageActions({
             ) : null}
             {pendingDelivery && action.isSuccess
               ? "Interrupt requested"
-              : sendNow === "interrupt" && !pendingDelivery && threadId
-                ? "Interrupt and reply"
+              : sendNow === "interrupt" && !pendingDelivery
+                ? "Send now (stops current turn)"
                 : "Send now"}
           </Button>
         ) : null}

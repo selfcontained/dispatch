@@ -7012,6 +7012,31 @@ describe("StreamService queued message controls", () => {
     await svc.waitForInFlightDeliveries(1000);
   });
 
+  it("records Send now as an interrupt when the runtime stops a turn in another conversation", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const control = vi.fn<
+      NonNullable<StreamDeliveryAdapter["controlQueuedPrompt"]>
+    >(() => true);
+    const { svc } = build({ gate, held: true, controlQueuedPrompt: control });
+    const same = await svc.sendUserPost(A, { text: "Same conversation" });
+    await svc.controlQueuedMessage(A, same.block.id, "send-now");
+    expect((await svc.store.getById(same.block.id))?.data).not.toMatchObject({
+      delivery: "interrupt",
+    });
+    control.mockReturnValue("interrupt");
+    const other = await svc.sendUserPost(A, { text: "Another conversation" });
+    await svc.controlQueuedMessage(A, other.block.id, "send-now");
+    expect(control).toHaveBeenLastCalledWith([A], other.block.id, "send-now");
+    expect((await svc.store.getById(other.block.id))?.data).toMatchObject({
+      delivery: "interrupt",
+    });
+    release();
+    await svc.waitForInFlightDeliveries(1000);
+  });
+
   it("retries an interrupted queued review with its interrupt intent", async () => {
     let release!: () => void;
     const gate = new Promise<void>((resolve) => {

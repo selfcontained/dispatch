@@ -51,6 +51,7 @@ import {
 import {
   type AgentRuntime,
   type QueuedPromptAction,
+  type QueuedPromptControl,
   createAgentRuntime,
 } from "./runtime.js";
 import {
@@ -895,7 +896,7 @@ export class AgentManager {
     agentIds: string[],
     blockId: string,
     action: QueuedPromptAction
-  ): boolean {
+  ): QueuedPromptControl {
     return this.runtime.controlQueuedPrompt(agentIds, blockId, action);
   }
 

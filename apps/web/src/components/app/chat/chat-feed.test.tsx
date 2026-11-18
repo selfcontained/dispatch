@@ -3325,7 +3325,7 @@ describe("response backlinks", () => {
     expect(screen.getByRole("button", { name: "Send now" })).toBeTruthy();
   });
 
-  it("offers Send now steering across discussions while preserving ongoing output", async () => {
+  it("offers Send now as an interrupt when the running turn is in another discussion", async () => {
     const { api } = await import("@/lib/api");
     vi.mocked(api).mockClear();
     renderFeed(
@@ -3356,18 +3356,18 @@ describe("response backlinks", () => {
         } as Agent,
       ]
     );
-    const button = screen.getByRole("button", { name: "Send now" });
-    expect(button.getAttribute("data-send-now")).toBe("send-now");
-    expect(button.getAttribute("title")).toContain(
-      "replies stay in its current conversation"
-    );
+    const button = screen.getByRole("button", {
+      name: "Send now (stops current turn)",
+    });
+    expect(button.getAttribute("data-send-now")).toBe("interrupt");
+    expect(button.getAttribute("title")).toContain("Stop the current turn");
     fireEvent.click(button);
     await waitFor(() =>
       expect(api).toHaveBeenCalledWith(
         `/api/v1/streams/${AGENT_ID}/blocks/elsewhere/send-now`,
         expect.objectContaining({
           method: "POST",
-          body: JSON.stringify({ interrupt: false }),
+          body: JSON.stringify({ interrupt: true }),
         })
       )
     );

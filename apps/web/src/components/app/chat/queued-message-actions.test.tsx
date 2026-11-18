@@ -83,30 +83,40 @@ it("allows a fresh interrupt after the active recipient turn changes", async () 
   );
 });
 
-it("sends a queued thread message into ongoing work without interrupting", async () => {
-  const { api } = await import("@/lib/api");
-  vi.mocked(api).mockClear();
-  const client = new QueryClient();
-  render(
-    <QueryClientProvider client={client}>
-      <QueuedMessageActions
-        agentId="agent"
-        messageId="thread-message"
-        recipientIds={["agent"]}
-        threadId="other-thread"
-      />
-    </QueryClientProvider>
-  );
-  const button = screen.getByRole("button", { name: "Send now" });
-  expect(button.title).toContain("replies stay in its current conversation");
-  fireEvent.click(button);
-  await waitFor(() =>
-    expect(api).toHaveBeenCalledWith(
-      expect.stringContaining("/thread-message/send-now"),
-      { method: "POST", body: JSON.stringify({ interrupt: false }) }
-    )
-  );
-});
+it.each([
+  ["another thread", "other-thread", "Send now (stops current turn)", true],
+  ["the running turn's conversation", null, "Send now", false],
+] as const)(
+  "labels and sends a queued post from %s",
+  async (_case, threadId, label, interrupt) => {
+    const { api } = await import("@/lib/api");
+    vi.mocked(api).mockClear();
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <QueuedMessageActions
+          agentId="agent"
+          messageId="queued"
+          recipientIds={["agent"]}
+          threadId={threadId}
+        />
+      </QueryClientProvider>
+    );
+    const button = screen.getByRole("button", { name: label });
+    expect(button.getAttribute("data-send-now")).toBe(
+      interrupt ? "interrupt" : "send-now"
+    );
+    expect(button.title).toContain(
+      interrupt ? "Stop the current turn" : "Join ongoing work"
+    );
+    fireEvent.click(button);
+    await waitFor(() =>
+      expect(api).toHaveBeenCalledWith(
+        expect.stringContaining("/queued/send-now"),
+        { method: "POST", body: JSON.stringify({ interrupt }) }
+      )
+    );
+  }
+);
 
 it.each(["image", "interrupt-only"])(
   "keeps an explicit interrupt fallback for thread %s",
@@ -127,7 +137,7 @@ it.each(["image", "interrupt-only"])(
     );
     expect(screen.queryByRole("button", { name: "Send now" })).toBeNull();
     fireEvent.click(
-      screen.getByRole("button", { name: "Interrupt and reply" })
+      screen.getByRole("button", { name: "Send now (stops current turn)" })
     );
     await waitFor(() =>
       expect(api).toHaveBeenCalledWith(

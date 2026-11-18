@@ -58,6 +58,13 @@ export type RuntimeEventListener = (
 /** What a person can do to a post still waiting in an agent's queue. */
 export type QueuedPromptAction = "delete" | "send-now" | "interrupt";
 
+/**
+ * Whether a queued post was claimed. `"interrupt"` means a `send-now` was
+ * carried out as an interrupt for at least one recipient, because the post
+ * belongs to a different conversation from the turn running there.
+ */
+export type QueuedPromptControl = boolean | "interrupt";
+
 export type AgentRuntime = {
   /** Whether hosts are real processes whose absence means the agent died. */
   tracksProcesses(): boolean;
@@ -111,14 +118,15 @@ export type AgentRuntime = {
   ): { accepted: Promise<void>; settled: Promise<void> };
   /**
    * Atomically claim an unsent post at every recipient. `send-now` steers
-   * it into the running turn; `interrupt` stops that turn and gives the post
-   * its own turn next.
+   * it into the running turn when the post is in that turn's conversation,
+   * and otherwise interrupts it; `interrupt` stops that turn and gives the
+   * post its own turn next.
    */
   controlQueuedPrompt(
     agentIds: string[],
     blockId: string,
     action: QueuedPromptAction
-  ): boolean;
+  ): QueuedPromptControl;
   /** Interrupt the current turns without changing or resubmitting deliveries. */
   interruptDelivery?(agentIds: string[], blockId: string): Promise<boolean>;
   /** A turn is running or prompts are waiting behind one. */

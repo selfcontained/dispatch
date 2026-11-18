@@ -27,6 +27,7 @@ import type { DriverEvent } from "./driver.js";
 import type { PromptImage, PromptSource } from "./prompt-source.js";
 import type {
   AgentRuntime,
+  QueuedPromptAction,
   RuntimeEventListener,
   RuntimeLaunch,
 } from "../runtime.js";
@@ -310,6 +311,27 @@ function steers(
   if (w.source?.source !== "chat") return false;
   if (w.source.userMessage !== true && !w.source.conversation) return true;
   return sameConversation(w.source.conversation, entry.conversation);
+}
+
+/**
+ * A person's post whose conversation is known and is not the one the
+ * running turn answers in. Posts that resume an asking conversation
+ * (`steeringExcluded`) or that the agent awaits keep their own rules.
+ */
+function crossesConversation(
+  w: Waiting,
+  entry: Pick<Live, "conversation" | "turnOpen">
+): boolean {
+  return (
+    entry.turnOpen &&
+    !!entry.conversation &&
+    isUserPost(w) &&
+    !!w.source?.conversation &&
+    !w.source.steeringExcluded &&
+    !w.source.awaited &&
+    !w.source.scheduleId &&
+    !sameConversation(w.source.conversation, entry.conversation)
+  );
 }
 
 function isUserPost(w: Waiting): boolean {
@@ -1171,44 +1193,43 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
             w.source?.source === "chat" &&
             w.source.chatMessageId === blockId
         );
-        return entry && prompt ? { entry, prompt } : null;
+        if (!entry || !prompt) return null;
+        // Send now on a post from another conversation than the running
+        // turn's: steering it in would answer it where it was not asked, so
+        // it stops that turn and opens the next one where it was sent.
+        const act: QueuedPromptAction =
+          action === "send-now" && crossesConversation(prompt, entry)
+            ? "interrupt"
+            : action;
+        return { entry, prompt, act };
       });
       // No awaits between checking and claiming: partially delivered posts
       // cannot be deleted, nor can a prompt already handed to the engine.
       if (!targets.length || targets.some((target) => !target)) return false;
       if (
-        action === "send-now" &&
         targets.some((target) => {
-          const { entry, prompt } = target!;
-          return (
-            entry.turnOpen &&
-            (prompt.delivery === "interrupt" ||
-              !!prompt.images?.length ||
-              (!steers(prompt, entry) &&
-                !entry.client.welcome?.steeringSupported))
-          );
-        })
-      )
-        return false;
-      // An interrupt already asked for is not asked for twice, and a host
-      // that cannot cut a turn is refused up front rather than failing the
-      // post after the fact.
-      if (
-        action === "interrupt" &&
-        targets.some((target) => {
-          const { entry, prompt } = target!;
-          return (
-            prompt.delivery === "interrupt" ||
-            (entry.turnOpen && !entry.client.welcome?.interruptSupported)
-          );
+          const { entry, prompt, act } = target!;
+          return act === "send-now"
+            ? entry.turnOpen &&
+                (prompt.delivery === "interrupt" ||
+                  !!prompt.images?.length ||
+                  (!steers(prompt, entry) &&
+                    !entry.client.welcome?.steeringSupported))
+            : // An interrupt already asked for is not asked for twice, and a
+              // host that cannot cut a turn is refused up front rather than
+              // failing the post after the fact.
+              act === "interrupt" &&
+                (prompt.delivery === "interrupt" ||
+                  (entry.turnOpen &&
+                    !entry.client.welcome?.interruptSupported));
         })
       )
         return false;
       for (const target of targets) {
-        const { entry, prompt } = target!;
+        const { entry, prompt, act } = target!;
         finishDecision(prompt, "overridden");
         entry.waiting.splice(entry.waiting.indexOf(prompt), 1);
-        if (action === "delete") {
+        if (act === "delete") {
           prompt.cancelled = true;
           const error = new Error("Queued message deleted.");
           error.name = "QueuedPromptDeletedError";
@@ -1226,7 +1247,7 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
           0,
           prompt
         );
-        if (action === "interrupt") {
+        if (act === "interrupt") {
           // Exactly what a post sent as an interrupt gets on arrival: the
           // cancellation belongs to the turn open now, and is skipped when
           // that turn is already being stopped.
@@ -1243,7 +1264,10 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
       }
       for (let i = 0; i < targets.length; i++)
         void pump(agentIds[i]!, targets[i]!.entry);
-      return true;
+      return action === "send-now" &&
+        targets.some((target) => target!.act === "interrupt")
+        ? "interrupt"
+        : true;
     },
 
     async interruptDelivery(agentIds, blockId) {
