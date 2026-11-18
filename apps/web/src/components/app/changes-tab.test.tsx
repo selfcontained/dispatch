@@ -213,6 +213,12 @@ function renderTab(
     if (feed && init?.method === "PATCH") {
       return { block: null };
     }
+    if (path.includes("/workspace?"))
+      return {
+        kind: "svg",
+        src: "data:image/svg+xml;base64,PHN2Zy8+",
+        text: "<svg/>",
+      };
     if (path.includes("/diff/file")) return await fileDiff;
     if (path.includes("/diff?")) return { baseRef: "main", files };
     throw new Error(`unexpected request: ${path}`);
@@ -230,7 +236,7 @@ function renderTab(
           <LocationProbe />
           <ChangesTab
             agentId={agentId}
-            agent={{ id: agentId, status: "running" } as Agent}
+            agent={{ id: agentId, status: "running", cwd: "/work" } as Agent}
             enabledAgentTypes={["claude"]}
             active={tabActive}
             isMobile={isMobile}
@@ -947,4 +953,94 @@ describe("ChangesTab file diff content", () => {
       )
     );
   });
+});
+
+it("offers SVG previews only for added and modified files, leaving deletions as diffs", async () => {
+  renderTab({
+    files: [
+      diffFile("added.svg", { status: "added" }),
+      diffFile("modified.svg"),
+      diffFile("deleted.svg", { status: "deleted" }),
+      diffFile("regular.ts"),
+    ],
+  });
+  await screen.findByTestId("changes-file-section:added.svg");
+  expect(
+    within(screen.getByTestId("changes-file-section:added.svg"))
+      .getByRole("radio", { name: "Diff" })
+      .getAttribute("aria-checked")
+  ).toBe("true");
+  expect(
+    within(screen.getByTestId("changes-file-section:modified.svg")).getByRole(
+      "radio",
+      { name: "Preview" }
+    )
+  ).toBeTruthy();
+  expect(
+    within(screen.getByTestId("changes-file-section:deleted.svg")).queryByRole(
+      "radiogroup"
+    )
+  ).toBeNull();
+  expect(
+    within(screen.getByTestId("changes-file-section:regular.ts")).queryByRole(
+      "radiogroup"
+    )
+  ).toBeNull();
+});
+
+it("keeps SVG Preview through viewport exit/reentry and collapse/reopen", async () => {
+  const observers = new Map<Element, IntersectionObserverCallback>();
+  vi.stubGlobal(
+    "IntersectionObserver",
+    class {
+      constructor(private callback: IntersectionObserverCallback) {}
+      observe(el: Element) {
+        observers.set(el, this.callback);
+      }
+      disconnect() {}
+    }
+  );
+  renderTab({ files: [diffFile("viewbox.svg")] });
+  const section = await screen.findByTestId("changes-file-section:viewbox.svg");
+  await waitFor(() => expect(observers.has(section)).toBe(true));
+  const intersect = (visible: boolean) =>
+    act(() =>
+      observers.get(section)!(
+        [
+          {
+            target: section,
+            time: 0,
+            rootBounds: null,
+            boundingClientRect: section.getBoundingClientRect(),
+            intersectionRect: section.getBoundingClientRect(),
+            intersectionRatio: visible ? 1 : 0,
+            isIntersecting: visible,
+          } as IntersectionObserverEntry,
+        ],
+        {} as IntersectionObserver
+      )
+    );
+  intersect(true);
+  fireEvent.click(within(section).getByRole("radio", { name: "Preview" }));
+  await within(section).findByRole("img");
+  intersect(false);
+  expect(within(section).queryByRole("radiogroup")).toBeNull();
+  intersect(true);
+  expect(
+    within(section)
+      .getByRole("radio", { name: "Preview" })
+      .getAttribute("aria-checked")
+  ).toBe("true");
+  const collapse = within(section).getByRole("button", {
+    name: /^viewbox\.svg\+/,
+  });
+  fireEvent.click(collapse);
+  expect(within(section).queryByRole("radiogroup")).toBeNull();
+  fireEvent.click(collapse);
+  expect(
+    within(section)
+      .getByRole("radio", { name: "Preview" })
+      .getAttribute("aria-checked")
+  ).toBe("true");
+  await within(section).findByRole("img");
 });

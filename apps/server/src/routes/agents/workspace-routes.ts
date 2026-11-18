@@ -214,6 +214,14 @@ export async function registerAgentWorkspaceRoutes(
         // Keep image preview dependency-free and bounded. Animated formats are
         // deliberately excluded from this first read-only explorer.
         const detected = detectFileType(data, relative);
+        if (detected.ok && detected.mimeType === "image/svg+xml") {
+          return {
+            kind: "svg",
+            size: length,
+            text: data.toString("utf8"),
+            src: `data:image/svg+xml;base64,${data.toString("base64")}`,
+          };
+        }
         if (
           detected.ok &&
           detected.mimeType.startsWith("image/") &&

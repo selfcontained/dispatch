@@ -1,5 +1,6 @@
 import { useAtom } from "jotai";
 import { filesBrowserStateFamily } from "./files-browser-state";
+import { WorkspaceSvgPreview } from "./workspace-svg-preview";
 import { FilesTextPreview } from "./files-text-preview";
 import {
   useEffect,
@@ -44,6 +45,7 @@ type Listing = { entries: Entry[]; truncated: boolean };
 type Preview = { size: number } & (
   | { kind: "text"; text: string }
   | { kind: "image"; src: string }
+  | { kind: "svg"; src: string; text: string }
   | { kind: "unsupported"; message: string }
 );
 type Row =
@@ -717,6 +719,11 @@ function WorkspaceFiles({
                     text={preview.data.text}
                     fileName={selected}
                   />
+                ) : preview.data?.kind === "svg" ? (
+                  <WorkspaceSvgPreview
+                    preview={preview.data}
+                    fileName={selected}
+                  />
                 ) : preview.data?.kind === "image" ? (
                   <div className="grid min-h-0 flex-1 place-items-center overflow-auto p-6">
                     <img
@@ -770,15 +777,20 @@ function WorkspaceFileActions({
     setBlobUrl(url);
     return () => URL.revokeObjectURL(url);
   }, [preview]);
-  const src = preview.kind === "image" ? preview.src : blobUrl;
+  const src =
+    preview.kind === "image" || preview.kind === "svg" ? preview.src : blobUrl;
   if (preview.kind === "unsupported" || !src) return null;
   return (
     <FileActions
       src={src}
       fileName={fileName}
       downloadName={fileName}
-      isText={preview.kind === "text"}
-      textContent={preview.kind === "text" ? preview.text : undefined}
+      isText={preview.kind === "text" || preview.kind === "svg"}
+      textContent={
+        preview.kind === "text" || preview.kind === "svg"
+          ? preview.text
+          : undefined
+      }
     />
   );
 }

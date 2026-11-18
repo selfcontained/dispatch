@@ -42,6 +42,19 @@ describe("workspace browsing", () => {
       method: "GET",
       url: `/api/v1/agents/test/workspace?${new URLSearchParams({ path: relative, file: String(file), workspace: workspace ?? root })}`,
     });
+  it("returns SVG source and image data only for detected SVG bytes", async () => {
+    const text =
+      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 20"><rect width="40" height="20"/></svg>';
+    await writeFile(path.join(root, "preview.svg"), text);
+    expect((await get("preview.svg", true)).json()).toEqual({
+      kind: "svg",
+      size: Buffer.byteLength(text),
+      text,
+      src: `data:image/svg+xml;base64,${Buffer.from(text).toString("base64")}`,
+    });
+    await writeFile(path.join(root, "fake.svg"), "<html>hello</html>");
+    expect((await get("fake.svg", true)).json().kind).toBe("text");
+  });
   it("uses the effective workspace and lists one level without Git internals", async () => {
     const response = await get();
     expect(response.statusCode).toBe(200);
