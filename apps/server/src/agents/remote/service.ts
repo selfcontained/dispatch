@@ -17,7 +17,8 @@ import {
 import {
   formatHost,
   pairingCommand,
-  RUNNER_NAME,
+  validRunnerName,
+  validWorkspaceId,
   type EnrollFrame,
 } from "./enrollment.js";
 import {
@@ -54,7 +55,11 @@ export type EnrollmentOptions = {
   endpointHost?: string;
   /** External HTTPS MCP origin; defaults to the runner listener's proxy. */
   mcpOrigin?: string;
-  repoTool?: boolean;
+  /**
+   * Service-side approval for the runner's fixed repo operation: true for
+   * every placement, or a list of `<registrationId>` / `<registrationId>/<workspace>`.
+   */
+  repoTool?: boolean | string[];
   log?: Pick<Console, "info" | "warn">;
 };
 
@@ -78,8 +83,8 @@ export class RunnerRequestError extends Error {
 }
 
 type Gate = {
-  /** Runner name addressed by placements. */
-  name: string;
+  /** Runner component of placements: the registration id (or legacy id). */
+  key: string;
   registrationId?: string;
   approved(): boolean;
   allows(workspace: string): boolean;
@@ -97,8 +102,6 @@ type Peer = {
   channels: Map<string, Duplex>;
 };
 
-const WORKSPACE = /^[a-z0-9-]+$/;
-const LEGACY_PREFIX = "legacy-";
 const MAX_UNAUTHENTICATED = 64;
 
 function validHost(host: string) {
@@ -115,11 +118,21 @@ function httpsOrigin(value: string | undefined, label: string) {
   return value.replace(/\/$/, "");
 }
 
+function parseRepoTool(value: string | undefined): boolean | string[] {
+  if (!value || value === "0") return false;
+  if (value === "1" || value === "*") return true;
+  return value
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+}
+
 export function configuredRunner(input?: {
   pool: Pool;
   host: string;
   apiPort: number;
   apiTls: boolean;
+  validAgentToken?: (token: string, agentId: string) => boolean;
 }) {
   const filename = process.env.DISPATCH_REMOTE_SERVICE_CONFIG;
   const legacy: LegacyConfig | undefined = filename
@@ -135,7 +148,7 @@ export function configuredRunner(input?: {
             : undefined,
           endpointHost: process.env.DISPATCH_RUNNER_ENDPOINT_HOST,
           mcpOrigin: process.env.DISPATCH_RUNNER_MCP_ORIGIN,
-          repoTool: process.env.DISPATCH_RUNNER_REPO_TOOL === "1",
+          repoTool: parseRepoTool(process.env.DISPATCH_RUNNER_REPO_TOOL),
           log: console,
         }
       : undefined;
@@ -143,7 +156,12 @@ export function configuredRunner(input?: {
     ? new RemoteRunnerService(
         legacy,
         enrollment,
-        input && { host: input.host, port: input.apiPort, tls: input.apiTls }
+        input && {
+          host: input.host,
+          port: input.apiPort,
+          tls: input.apiTls,
+          validAgentToken: input.validAgentToken,
+        }
       )
     : undefined;
 }
@@ -168,7 +186,13 @@ export class RemoteRunnerService {
     private readonly legacy?: LegacyConfig,
     private readonly enrollment?: EnrollmentOptions,
     /** Local Dispatch API that the listeners proxy agent MCP requests to. */
-    private readonly api?: { host: string; port: number; tls: boolean }
+    private readonly api?: {
+      host: string;
+      port: number;
+      tls: boolean;
+      /** Accept only agent-scoped MCP credentials through the proxy. */
+      validAgentToken?: (token: string, agentId: string) => boolean;
+    }
   ) {
     if (legacy) {
       httpsOrigin(legacy.mcpOrigin, "Runner MCP origin");
@@ -202,7 +226,7 @@ export class RemoteRunnerService {
       "DISPATCH_RUNNER_MCP_ORIGIN"
     );
     if (configured) return configured;
-    const registration = this.registrationNamed(placement.runner);
+    const registration = this.registrationById(placement.runner);
     if (!registration || !this.port)
       throw new RunnerUnavailable("The runner is not enrolled.");
     return `https://${formatHost(registration.endpointHost)}:${this.port}`;
@@ -214,16 +238,60 @@ export class RemoteRunnerService {
       return this.originFor({ runner: this.legacy.id, workspace: "" });
     const first = [...this.enrolled.values()][0];
     if (!first) throw new RunnerUnavailable("No runner is enrolled.");
-    return this.originFor({ runner: first.name, workspace: "" });
+    return this.originFor({ runner: first.id, workspace: "" });
   }
 
+  /** @deprecated Whether any placement may use the repo operation. */
   get repoTool() {
-    return this.legacy?.repoTool === true || this.enrollment?.repoTool === true;
+    const enrolled = this.enrollment?.repoTool;
+    return (
+      this.legacy?.repoTool === true ||
+      enrolled === true ||
+      (Array.isArray(enrolled) && enrolled.length > 0)
+    );
   }
 
-  private registrationNamed(name: string) {
+  /**
+   * Whether the service approves the runner's fixed repo operation for this
+   * placement. Requires an agent-MCP-eligible registration; the runner still
+   * requires its own per-workspace `repoTool`.
+   */
+  repoToolFor(placement: Placement) {
+    if (!this.permitsAgentMcp(placement)) return false;
+    if (this.legacy && placement.runner === this.legacy.id)
+      return this.legacy.repoTool === true;
+    const approval = this.enrollment?.repoTool;
+    if (approval === true) return true;
+    return (
+      Array.isArray(approval) &&
+      (approval.includes(placement.runner) ||
+        approval.includes(`${placement.runner}/${placement.workspace}`))
+    );
+  }
+
+  /**
+   * Whether an agent placed here may still use its MCP credential: an
+   * active (enrolled, unrevoked) registration, online or offline. A legacy
+   * placement needs a currently non-empty approval file and a configured
+   * workspace. Revoked and unknown runners are refused.
+   */
+  permitsAgentMcp(placement: Placement) {
+    if (this.legacy && placement.runner === this.legacy.id) {
+      try {
+        return (
+          this.legacy.workspaces.includes(placement.workspace) &&
+          readFileSync(this.legacy.approval, "utf8").trim().length > 0
+        );
+      } catch {
+        return false;
+      }
+    }
+    return Boolean(this.registrationById(placement.runner));
+  }
+
+  private registrationById(id: string) {
     for (const registration of this.enrolled.values())
-      if (registration.name === name) return registration;
+      if (registration.id === id) return registration;
     return undefined;
   }
 
@@ -419,7 +487,7 @@ export class RemoteRunnerService {
       this.legacySockets.add(socket);
       socket.once("close", () => this.legacySockets.delete(socket));
       return {
-        name: legacy.id,
+        key: legacy.id,
         approved: () => this.legacyApproved(socket),
         allows: (workspace) => legacy.workspaces.includes(workspace),
       };
@@ -429,7 +497,7 @@ export class RemoteRunnerService {
     if (!registration) return undefined;
     const registry = this.enrollment!.registry;
     return {
-      name: registration.name,
+      key: registration.id,
       registrationId: registration.id,
       approved: () => this.enrolled.get(fingerprint)?.id === registration.id,
       allows: () => true,
@@ -446,7 +514,7 @@ export class RemoteRunnerService {
     socket.on("close", () => {
       clearTimeout(deadline);
       if (!peer) return;
-      if (this.peers.get(gate.name) === peer) this.peers.delete(gate.name);
+      if (this.peers.get(gate.key) === peer) this.peers.delete(gate.key);
       for (const settle of peer.pending.values()) settle();
       for (const channel of peer.channels.values()) channel.push(null);
       if (gate.registrationId)
@@ -462,10 +530,7 @@ export class RemoteRunnerService {
           frame.version !== 1 ||
           !Array.isArray(frame.workspaces) ||
           frame.workspaces.length > 256 ||
-          !frame.workspaces.every(
-            (workspace) =>
-              typeof workspace === "string" && WORKSPACE.test(workspace)
-          )
+          !frame.workspaces.every((workspace) => validWorkspaceId(workspace))
         )
           return socket.destroy();
         clearTimeout(deadline);
@@ -478,8 +543,8 @@ export class RemoteRunnerService {
           channels: new Map(),
         };
         // A reconnect replaces a half-open predecessor for the same runner.
-        const previous = this.peers.get(gate.name);
-        this.peers.set(gate.name, peer);
+        const previous = this.peers.get(gate.key);
+        this.peers.set(gate.key, peer);
         previous?.socket.destroy();
         gate.ready?.(frame.workspaces);
         return;
@@ -519,7 +584,12 @@ export class RemoteRunnerService {
           error: "Invalid pairing request.",
         });
       this.enrollment!.registry.redeem(request.code, request.publicKey).then(
-        ({ registration, cert, ca }) => {
+        ({ registration, cert, ca, previousFingerprint }) => {
+          // A re-key retires the old certificate and its live connection.
+          if (previousFingerprint) {
+            this.enrolled.delete(previousFingerprint);
+            this.peers.get(registration.id)?.socket.destroy();
+          }
           this.enrolled.set(registration.fingerprint!, registration);
           reply({
             type: "enrolled",
@@ -553,11 +623,18 @@ export class RemoteRunnerService {
     response: http.ServerResponse
   ) {
     const url = request.url ?? "";
-    const ping = url === "/ping" && request.method === "GET";
-    const mcp =
-      /^\/api\/mcp\/agt_[a-z0-9]+$/.test(url) &&
-      /^Bearer \S+$/.test(request.headers.authorization ?? "");
     const target = this.api;
+    const ping = url === "/ping" && request.method === "GET";
+    const agentId = /^\/api\/mcp\/(agt_[a-z0-9]+)$/.exec(url)?.[1];
+    const token = /^Bearer (\S+)$/.exec(
+      request.headers.authorization ?? ""
+    )?.[1];
+    const mcp = Boolean(
+      agentId &&
+      token &&
+      ["GET", "POST", "DELETE"].includes(request.method ?? "") &&
+      target?.validAgentToken?.(token, agentId)
+    );
     if ((!ping && !mcp) || !target) {
       response.writeHead(ping || mcp ? 503 : 404).end();
       return;
@@ -568,18 +645,21 @@ export class RemoteRunnerService {
         : target.host === "::"
           ? "::1"
           : target.host;
-    const headers = { ...request.headers };
+    // Allow-list: nothing ambient (cookies, forwarding, origin) crosses.
+    const headers: http.OutgoingHttpHeaders = {};
     for (const name of [
-      "cookie",
-      "host",
-      "origin",
-      "referer",
-      "forwarded",
-      "x-forwarded-for",
-      "x-forwarded-host",
-      "x-forwarded-proto",
+      "accept",
+      "content-type",
+      "content-length",
+      "transfer-encoding",
+      "user-agent",
+      "last-event-id",
+      "mcp-session-id",
+      "mcp-protocol-version",
+      ...(mcp ? ["authorization"] : []),
     ])
-      delete headers[name];
+      if (request.headers[name] !== undefined)
+        headers[name] = request.headers[name];
     const upstream = (target.tls ? https : http).request(
       {
         host,
@@ -612,7 +692,8 @@ export class RemoteRunnerService {
     if (this.legacy) {
       const peer = this.peers.get(this.legacy.id);
       runners.push({
-        id: `${LEGACY_PREFIX}${this.legacy.id}`,
+        // Legacy locators keep addressing the configured id.
+        id: this.legacy.id,
         name: this.legacy.id,
         status: peer?.gate.approved() ? "online" : "offline",
         workspaces: peer
@@ -624,7 +705,7 @@ export class RemoteRunnerService {
     }
     if (!this.enrollment) return runners;
     for (const registration of await this.enrollment.registry.list()) {
-      const peer = this.peers.get(registration.name);
+      const peer = this.peers.get(registration.id);
       const online =
         !registration.revoked &&
         peer?.gate.registrationId === registration.id &&
@@ -648,20 +729,12 @@ export class RemoteRunnerService {
   async createRegistration(name: unknown, hostHint?: string) {
     if (!this.enrollment)
       throw new RunnerRequestError(409, "Runner enrollment is disabled.");
-    if (typeof name !== "string" || !RUNNER_NAME.test(name))
+    if (!validRunnerName(name))
       throw new RunnerRequestError(
         400,
-        "Runner names use lowercase letters, digits and hyphens (1-40 characters)."
+        "Runner names are 1-64 characters without control characters or surrounding spaces."
       );
-    if (this.legacy?.id === name)
-      throw new RunnerRequestError(
-        409,
-        `A runner named "${name}" already exists.`
-      );
-    const host = this.enrollment.endpointHost ?? hostHint ?? os.hostname();
-    if (!validHost(host))
-      throw new RunnerRequestError(400, "The runner endpoint host is invalid.");
-    await this.ensureListening(host);
+    const host = await this.prepareEndpoint(hostHint);
     try {
       const { id, code, expiresAt } = await this.enrollment.registry.create(
         name,
@@ -684,9 +757,40 @@ export class RemoteRunnerService {
     }
   }
 
+  private async prepareEndpoint(hostHint?: string) {
+    const host = this.enrollment!.endpointHost ?? hostHint ?? os.hostname();
+    if (!validHost(host))
+      throw new RunnerRequestError(400, "The runner endpoint host is invalid.");
+    await this.ensureListening(host);
+    return host;
+  }
+
+  /**
+   * Renewal and re-keying: a fresh one-time code for an existing
+   * registration. Pairing with it replaces the certificate, keeps the id
+   * (so agent placements are unchanged), and drops the old connection.
+   */
+  async reissueRegistration(id: string, hostHint?: string) {
+    if (!this.enrollment || this.legacy?.id === id)
+      throw new RunnerRequestError(404, "Runner not found.");
+    const host = await this.prepareEndpoint(hostHint);
+    const issued = await this.enrollment.registry.reissue(id, host);
+    if (!issued) throw new RunnerRequestError(404, "Runner not found.");
+    return {
+      id,
+      command: pairingCommand({
+        host,
+        port: this.port!,
+        caFingerprint: this.authority!.caFingerprint,
+        code: issued.code,
+      }),
+      expiresAt: issued.expiresAt.toISOString(),
+    };
+  }
+
   /** Revoke a registration and drop its live connection immediately. */
   async revoke(id: string) {
-    if (id.startsWith(LEGACY_PREFIX) && this.legacy)
+    if (this.legacy?.id === id)
       throw new RunnerRequestError(
         409,
         "This runner is configured by DISPATCH_REMOTE_SERVICE_CONFIG; empty its approval file to revoke it."

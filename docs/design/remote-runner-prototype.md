@@ -68,7 +68,11 @@ writes `key.pem` (0600), `cert.pem` and `ca.pem`. It also sets `endpoint`, `ca`,
 registrations along with their last reported workspaces.
 `DELETE /api/runners/:id` revokes a registration and drops its connection
 immediately. Each registration is an independent mTLS peer, addressed as
-`runner://<name>/<workspace>`.
+`runner://<registration id>/<workspace>`. Names are display labels and can
+be reused after revocation. A replacement gets a new id, so an old agent never
+reaches it. `POST /api/runners/:id/pair` renews or re-keys a runner. It issues
+a new one-time command for the same id, and pairing with it retires the old
+certificate and connection. Restart the runner service afterwards.
 
 The listener binds `DISPATCH_RUNNER_HOST`, which defaults to the API host. It
 uses `DISPATCH_RUNNER_PORT` when set. Otherwise it uses the persisted port, and
@@ -76,8 +80,12 @@ on first start a free port. `DISPATCH_RUNNER_ENDPOINT_HOST` overrides the host
 written into commands, which otherwise comes from the request's Host header.
 The listener certificate gains each advertised host automatically. Unless
 `DISPATCH_RUNNER_MCP_ORIGIN` is set, the agent MCP origin is the runner
-listener itself. It forwards only bearer-authenticated `/api/mcp/agt_*`
-requests and `GET /ping` to the local API, with cookies removed.
+listener itself. It forwards `/api/mcp/<agentId>` only with that agent's
+own MCP token, and forwards `GET /ping`. It passes on only allow-listed
+headers, so no cookies, origin, forwarding or admin headers. It refuses
+every other path, including the admin API token.
+`DISPATCH_RUNNER_REPO_TOOL` approves the repo operation for `1` (every placement) or a
+comma list of `<id>` or `<id>/<workspace>`.
 `DISPATCH_RUNNERS=0` disables enrollment. The legacy
 `DISPATCH_REMOTE_SERVICE_CONFIG` below still works. Its `mcpOrigin` is now
 optional when `endpointHost` is given.

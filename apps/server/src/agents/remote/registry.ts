@@ -208,9 +208,10 @@ export class RunnerRegistry {
     const client = await this.pool.connect();
     try {
       await client.query("BEGIN");
+      // A code may enroll a pending registration or re-key an enrolled one.
       const { rows } = await client.query<Row>(
         `SELECT * FROM runner_registrations
-          WHERE code_hash = $1 AND enrolled_at IS NULL AND revoked_at IS NULL
+          WHERE code_hash = $1 AND revoked_at IS NULL
             AND code_expires_at > now()
           FOR UPDATE`,
         [hashCode(code)]
@@ -228,13 +229,15 @@ export class RunnerRegistry {
       const parsed = new X509Certificate(cert);
       await client.query(
         `UPDATE runner_registrations
-            SET code_hash = NULL, code_expires_at = NULL, enrolled_at = now(),
+            SET code_hash = NULL, code_expires_at = NULL,
+                enrolled_at = COALESCE(enrolled_at, now()),
                 cert_fingerprint = $2, cert_expires_at = $3
           WHERE id = $1`,
         [row.id, parsed.fingerprint256, new Date(parsed.validTo)]
       );
       await client.query("COMMIT");
       return {
+        previousFingerprint: row.cert_fingerprint,
         registration: registration({
           ...row,
           cert_fingerprint: parsed.fingerprint256,
@@ -249,6 +252,23 @@ export class RunnerRegistry {
     } finally {
       client.release();
     }
+  }
+
+  /**
+   * Issue a fresh one-time code for an existing registration. Redeeming it
+   * replaces the client certificate (renewal or re-key) and keeps the id, so
+   * placements keep addressing the same runner.
+   */
+  async reissue(id: string, endpointHost: string) {
+    const code = randomBytes(20).toString("base64url");
+    const expiresAt = new Date(Date.now() + PAIRING_TTL_MS);
+    const { rowCount } = await this.pool.query(
+      `UPDATE runner_registrations
+          SET code_hash = $2, code_expires_at = $3, endpoint_host = $4
+        WHERE id = $1 AND revoked_at IS NULL`,
+      [id, hashCode(code), expiresAt, endpointHost]
+    );
+    return rowCount ? { id, code, expiresAt } : undefined;
   }
 
   async connected(id: string, workspaces: string[]) {
