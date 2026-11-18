@@ -158,7 +158,12 @@ async function up(run) {
     { detached: true, stdio: ["ignore", "pipe", "inherit"] }
   );
   await new Promise((resolve, reject) => {
-    child.stdout.once("data", () => (child.unref(), resolve()));
+    child.stdout.once("data", () => {
+      // Release the pipe too, or setup.mjs never exits.
+      child.stdout.destroy();
+      child.unref();
+      resolve();
+    });
     child.once("exit", () => reject(new Error("chaos proxy exited")));
   });
   writeFileSync(path.join(run, "pids"), String(child.pid));
