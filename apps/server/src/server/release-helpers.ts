@@ -32,6 +32,7 @@ export type GitHubReleaseListItem = {
   url: string;
   prerelease: boolean;
   hasDispatchArtifact: boolean;
+  hasRunnerInstaller?: true;
 };
 
 const DEFAULT_GITHUB_REPO = "selfcontained/dispatch";
@@ -247,6 +248,14 @@ export async function fetchGitHubReleases(): Promise<GitHubReleaseListItem[]> {
     publishedAt: release.published_at,
     url: release.html_url,
     prerelease: release.prerelease,
+    ...([
+      "install-dispatch-runner.sh",
+      "install-dispatch-runner.sh.sigstore.json",
+      RELEASE_ARTIFACT_NAME,
+      RELEASE_ARTIFACT_NAME + ".sigstore.json",
+    ].every((name) => release.assets?.some((asset) => asset.name === name))
+      ? { hasRunnerInstaller: true as const }
+      : {}),
     hasDispatchArtifact:
       release.assets?.some(
         // Deliberately not 0.x's `dispatch-release.tar.gz`: 0.x servers look

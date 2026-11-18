@@ -1,3 +1,5 @@
+import { useState } from "react";
+import { RunnerCommand, useRunnerInstaller } from "./runner-onboarding";
 import type { Runner } from "@/hooks/use-runners";
 import { formatRelativeTime } from "@/lib/format";
 
@@ -8,6 +10,21 @@ const memory = (bytes: number) =>
 
 export function RunnerHealthDetails({ runner }: { runner: Runner }) {
   const { health, healthReceivedAt } = runner;
+  const [open, setOpen] = useState(false);
+  const installer = useRunnerInstaller(open);
+  const tag = installer.data?.tag;
+  // Release tags are validated semantic versions at the service.
+  const numeric = (v: string) => v.replace(/^v/, "").split(".").map(Number);
+  const installed = numeric(health?.version ?? "");
+  const firstDifference =
+    tag &&
+    numeric(tag)
+      .map((n, i) => n - (installed[i] ?? 0))
+      .find((d) => d !== 0);
+  const update =
+    tag &&
+    /^v?\d+\.\d+\.\d+$/.test(health?.version ?? "") &&
+    Number(firstDifference) > 0;
   if (!health || !healthReceivedAt) return null;
   const stale =
     runner.status !== "online" ||
@@ -15,6 +32,7 @@ export function RunnerHealthDetails({ runner }: { runner: Runner }) {
   return (
     <details
       className="mt-1 text-xs text-muted-foreground"
+      onToggle={(event) => setOpen(event.currentTarget.open)}
       data-testid="runner-health"
     >
       <summary className="w-fit cursor-pointer rounded py-1 text-foreground focus-visible:ring-2">
@@ -40,6 +58,18 @@ export function RunnerHealthDetails({ runner }: { runner: Runner }) {
           </time>
         </dd>
       </dl>
+      {update && (
+        <div className="mt-2 space-y-1">
+          <p>
+            Update available · {tag}. Run this on {runner.name} when its
+            sessions are finished.
+          </p>
+          <RunnerCommand
+            value={`sudo /opt/dispatch-runner/install-dispatch-runner.sh update --tag ${tag}`}
+            label="Update"
+          />
+        </div>
+      )}
     </details>
   );
 }

@@ -1,6 +1,6 @@
 import { RunnerHealthDetails } from "./runner-health";
-import { useState, type FormEvent } from "react";
-import { Copy, Server, Unplug } from "lucide-react";
+import { useState } from "react";
+import { Server, Unplug } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -11,15 +11,13 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { useCopyText } from "@/hooks/use-copy";
+import { RunnerOnboarding } from "./runner-onboarding";
+import { MANAGED_WORKSPACE } from "@dispatch/runner-protocol";
 import {
   useRunnerMutations,
   useRunners,
-  type RunnerPairing,
   type RunnerStatus,
 } from "@/hooks/use-runners";
-import { formatDateTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 const STATUS_LABEL: Record<RunnerStatus, string> = {
@@ -38,23 +36,8 @@ const STATUS_DOT: Record<RunnerStatus, string> = {
 
 export function RunnerSettings(): JSX.Element {
   const runners = useRunners({ poll: true });
-  const { pair, revoke } = useRunnerMutations();
-  const [name, setName] = useState("");
-  const [pairing, setPairing] = useState<RunnerPairing | null>(null);
-  const [copied, copyText] = useCopyText();
+  const { revoke } = useRunnerMutations();
   const [confirmId, setConfirmId] = useState<string | null>(null);
-
-  const submit = (event: FormEvent) => {
-    event.preventDefault();
-    const trimmed = name.trim();
-    if (!trimmed || pair.isPending) return;
-    pair.mutate(trimmed, {
-      onSuccess: (result) => {
-        setPairing(result);
-        setName("");
-      },
-    });
-  };
 
   const list = runners.data ?? [];
 
@@ -68,73 +51,7 @@ export function RunnerSettings(): JSX.Element {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        <form
-          onSubmit={submit}
-          className="flex flex-col gap-2 sm:flex-row"
-          data-testid="runner-pair-form"
-        >
-          <Input
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-            placeholder="Runner name, e.g. lima"
-            aria-label="Runner name"
-            data-testid="runner-name-input"
-          />
-          <Button
-            type="submit"
-            variant="primary"
-            disabled={!name.trim() || pair.isPending}
-            data-testid="runner-pair-submit"
-          >
-            Pair runner
-          </Button>
-        </form>
-        {pair.isError && (
-          <p className="text-sm text-destructive" role="alert">
-            {pair.error instanceof Error
-              ? pair.error.message
-              : "Could not start pairing."}
-          </p>
-        )}
-
-        {pairing && (
-          <div
-            className="space-y-2 rounded-md border border-primary/30 bg-primary/5 p-3"
-            data-testid="runner-pairing"
-          >
-            <p className="text-sm">
-              Run this on the runner machine. It expires{" "}
-              {formatDateTime(pairing.expiresAt)}.
-            </p>
-            <pre
-              className="overflow-x-auto whitespace-pre-wrap break-all rounded bg-background/60 p-2 font-mono text-xs"
-              data-testid="runner-command"
-            >
-              {pairing.command}
-            </pre>
-            <div className="flex gap-2">
-              <Button
-                type="button"
-                size="sm"
-                variant="ghost"
-                className="gap-1.5 border border-border"
-                onClick={() => copyText(pairing.command)}
-                data-testid="runner-command-copy"
-              >
-                <Copy className="h-3.5 w-3.5" aria-hidden="true" />
-                {copied ? "Copied" : "Copy command"}
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                variant="ghost"
-                onClick={() => setPairing(null)}
-              >
-                Done
-              </Button>
-            </div>
-          </div>
-        )}
+        <RunnerOnboarding />
 
         {runners.isPending ? (
           <p className="text-sm text-muted-foreground" role="status">
@@ -193,11 +110,12 @@ export function RunnerSettings(): JSX.Element {
                     </Badge>
                   </div>
                   <RunnerHealthDetails runner={runner} />
-                  <p className="mt-0.5 break-words text-xs text-muted-foreground">
-                    {runner.workspaces.length > 0
-                      ? `Workspaces: ${runner.workspaces.join(", ")}`
-                      : "No workspaces reported"}
-                  </p>
+                  {runner.workspaces.length > 0 &&
+                    !runner.workspaces.includes(MANAGED_WORKSPACE) && (
+                      <p className="mt-0.5 break-words text-xs text-muted-foreground">
+                        Folders: {runner.workspaces.join(", ")}
+                      </p>
+                    )}
                 </div>
                 {runner.status !== "revoked" &&
                   (confirmId === runner.id ? (

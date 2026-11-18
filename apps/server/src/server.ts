@@ -126,6 +126,7 @@ import { registerMcpRoutes } from "./routes/mcp.js";
 import { registerPersonaRoutes } from "./routes/personas.js";
 import { registerPersonalityRoutes } from "./routes/personalities.js";
 import { registerQuickPhraseRoutes } from "./routes/quick-phrases.js";
+import { registerRunnerInstaller } from "./routes/runner-installer.js";
 import { registerRunnerRepositorySearch } from "./routes/runner-repositories.js";
 import { registerRunnerRoutes } from "./routes/runners.js";
 import { registerReleaseRoutes } from "./routes/release.js";
@@ -1323,7 +1324,10 @@ async function registerRoutes() {
   // --- Quick Phrases ---
 
   await registerQuickPhraseRoutes(app, { pool });
-  if (remoteRunner) registerRunnerRepositorySearch(app);
+  if (remoteRunner) {
+    registerRunnerRepositorySearch(app);
+    registerRunnerInstaller(app, pool);
+  }
   await registerRunnerRoutes(app, { runners: remoteRunner });
 }
 
