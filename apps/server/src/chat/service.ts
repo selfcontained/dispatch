@@ -72,7 +72,10 @@ import {
 } from "@dispatch/shared";
 
 import type { AgentRecord, AgentTerminalAccess } from "../agents/types.js";
-import type { QueuedPromptAction } from "../agents/runtime.js";
+import type {
+  QueuedPromptAction,
+  QueuedPromptControl,
+} from "../agents/runtime.js";
 import {
   isValidStoredFileName,
   resolveFilesDir,
@@ -222,7 +225,7 @@ export type StreamDeliveryAdapter = {
     agentIds: string[],
     blockId: string,
     action: QueuedPromptAction
-  ) => boolean;
+  ) => QueuedPromptControl;
   /** Interrupt active work while leaving each existing delivery attempt alone. */
   interruptDelivery?: (agentIds: string[], blockId: string) => Promise<boolean>;
   /** Names of commands this agent's ACP session currently accepts. */
@@ -4807,14 +4810,18 @@ export class StreamService {
       // No injection, queue promotion, or persisted interrupt intent: keep the attempt.
       return { ok: true };
     }
-    if (
-      block.delivered !== null ||
-      !this.delivery().controlQueuedPrompt?.(
-        addressedTo(block),
-        blockId,
-        action
-      )
-    ) {
+    // Send now on a post from another conversation than the turn running
+    // there comes back as an interrupt: that turn stops and the post opens
+    // the next one, so the reply lands where it was sent.
+    const claimed =
+      block.delivered === null
+        ? this.delivery().controlQueuedPrompt?.(
+            addressedTo(block),
+            blockId,
+            action
+          )
+        : false;
+    if (!claimed) {
       throw new StreamConflictError(
         action === "interrupt"
           ? "This message cannot interrupt now: it is no longer queued, or the agent cannot stop its turn. Refresh and try again."
@@ -4825,7 +4832,7 @@ export class StreamService {
     // The post now carries the intent it was given, the same as one sent
     // as an interrupt from the composer: the row reads "Stop requested",
     // and a retry after a failed stop asks to interrupt again.
-    if (action === "interrupt") {
+    if (action === "interrupt" || claimed === "interrupt") {
       await this.store.update(blockId, {
         data: { ...(block.data ?? {}), delivery: "interrupt" },
       });
