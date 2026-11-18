@@ -6,6 +6,7 @@ import {
   enrollViaUi,
   revokeViaUi,
   guest,
+  guestDiagnostics,
   guestOk,
   invocations,
   lane,
@@ -50,15 +51,10 @@ test.afterAll(async ({ request }) => {
 test.afterEach(async ({}, testInfo) => {
   if (testInfo.status === testInfo.expectedStatus) return;
   for (const name of ["alpha", "beta", "scratch"] as const) {
-    const logs = guest(
-      name,
-      'for file in /var/log/runner.log /var/lib/runner/bindings/logs/*; do [ ! -f "$file" ] || { printf "\\n%s\\n" "$file"; tail -60 "$file"; }; done'
-    );
-    if (logs.trim())
-      await testInfo.attach(`${name} runner logs`, {
-        body: logs,
-        contentType: "text/plain",
-      });
+    await testInfo.attach(`${name} runner diagnostics`, {
+      body: guestDiagnostics(name),
+      contentType: "text/plain",
+    });
   }
 });
 

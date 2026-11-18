@@ -48,6 +48,47 @@ export const invocations = (name: RunnerName) =>
     ).trim()
   );
 
+export function guestDiagnostics(name: GuestName) {
+  const container = state.runners[name].container;
+  const status = docker(
+    "inspect",
+    "--format",
+    "status={{.State.Status}} exit={{.State.ExitCode}} oom={{.State.OOMKilled}}",
+    container
+  );
+  try {
+    const processes = guest(
+      name,
+      "ps -A -o pid,ppid,stat,comm; cat /sys/fs/cgroup/memory.events 2>/dev/null || true"
+    );
+    const journals = guest(
+      name,
+      "if [ -d /var/lib/runner/hosts ]; then find /var/lib/runner/hosts -name journal.jsonl -exec tail -n 8 {} +; fi"
+    )
+      .split("\n")
+      .filter((line) => line.startsWith("{"))
+      .map((line) => {
+        const { seq, journalId, event } = JSON.parse(line);
+        return `agent=${event?.agentId} journal=${journalId} seq=${seq} event=${event?.type} ${event?.state ?? ""}`.trimEnd();
+      })
+      .join("\n");
+    const calls =
+      name === "scratch"
+        ? guest(
+            name,
+            "if [ -d /var/lib/runner/sessions ]; then find /var/lib/runner/sessions -name provider-invocations -exec wc -l {} +; fi"
+          ).trim()
+        : String(invocations(name));
+    const logs = guest(
+      name,
+      'for file in /var/log/runner.log /var/lib/runner/bindings/logs/*; do [ ! -f "$file" ] || { printf "\\n%s\\n" "$file"; tail -60 "$file"; }; done'
+    );
+    return `${status}${processes}\nInvocation counts: ${calls}\n${journals}\n${logs}`;
+  } catch {
+    return `${status}Guest diagnostics unavailable.\n`;
+  }
+}
+
 /** Fault injection on the runner's TCP path (TLS stays end to end). */
 export async function lane(
   name: RunnerName,
