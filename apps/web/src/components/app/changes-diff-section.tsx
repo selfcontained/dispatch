@@ -209,6 +209,7 @@ const FileDiffSection = memo(function FileDiffSection({
   onStartReview,
   findings,
 }: FileDiffSectionProps): JSX.Element {
+  const [svgView, setSvgView] = useState("diff");
   const sectionRef = useRef<HTMLDivElement | null>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const editorBuffers = useRef(new Map<string, unknown>());
@@ -333,6 +334,8 @@ const FileDiffSection = memo(function FileDiffSection({
                 agentId={agentId}
                 workspace={workspace}
                 file={file}
+                view={svgView}
+                onViewChange={setSvgView}
               >
                 <FileDiffContent
                   agentId={agentId}
@@ -483,6 +486,8 @@ function FileDiffContent({
 }
 
 function SvgDiffContentWrapper({
+  view,
+  onViewChange,
   agentId,
   workspace,
   file,
@@ -492,12 +497,20 @@ function SvgDiffContentWrapper({
   workspace?: string | null;
   file: DiffFile;
   children: React.ReactNode;
+  view: string;
+  onViewChange: (view: string) => void;
 }) {
   return agentId &&
     workspace &&
     /\.svg$/i.test(file.path) &&
     (file.status === "added" || file.status === "modified") ? (
-    <ChangesSvgPreview agentId={agentId} workspace={workspace} path={file.path}>
+    <ChangesSvgPreview
+      agentId={agentId}
+      workspace={workspace}
+      path={file.path}
+      view={view}
+      onViewChange={onViewChange}
+    >
       {children}
     </ChangesSvgPreview>
   ) : (

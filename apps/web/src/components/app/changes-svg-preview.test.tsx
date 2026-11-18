@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { useState } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   act,
@@ -20,13 +21,23 @@ afterEach(() => {
 function mount(
   client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
 ) {
-  return render(
-    <QueryClientProvider client={client}>
-      <ChangesSvgPreview agentId="agent" workspace="/work" path="viewbox.svg">
-        <p>Original diff</p>
-      </ChangesSvgPreview>
-    </QueryClientProvider>
-  );
+  function Harness() {
+    const [view, setView] = useState("diff");
+    return (
+      <QueryClientProvider client={client}>
+        <ChangesSvgPreview
+          agentId="agent"
+          workspace="/work"
+          path="viewbox.svg"
+          view={view}
+          onViewChange={setView}
+        >
+          <p>Original diff</p>
+        </ChangesSvgPreview>
+      </QueryClientProvider>
+    );
+  }
+  return render(<Harness />);
 }
 it("defaults to Diff, loads current SVG only on Preview, and switches back", async () => {
   vi.mocked(api).mockResolvedValue({

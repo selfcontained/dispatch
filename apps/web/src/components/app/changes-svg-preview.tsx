@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Button } from "@/components/ui/button";
@@ -11,13 +11,16 @@ export function ChangesSvgPreview({
   workspace,
   path,
   children,
+  view,
+  onViewChange,
 }: {
   agentId: string;
   workspace: string;
   path: string;
   children: ReactNode;
+  view: string;
+  onViewChange: (view: string) => void;
 }) {
-  const [view, setView] = useState("diff");
   const preview = useQuery({
     queryKey: [...agentDiffQueryKey(agentId), "svg-preview", workspace, path],
     queryFn: ({ signal }) =>
@@ -36,7 +39,7 @@ export function ChangesSvgPreview({
           size="sm"
           value={view}
           onValueChange={(value) => {
-            if (value) setView(value);
+            if (value) onViewChange(value);
           }}
           aria-label={`SVG view: ${path}`}
         >
