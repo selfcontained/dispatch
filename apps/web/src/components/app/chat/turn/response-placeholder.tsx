@@ -121,6 +121,22 @@ export function defragCells(
   categories: ActivityCategory[],
   repackAt: ReadonlySet<number> = new Set()
 ): DefragCell[] {
+  return defragHistory(seed, categories, repackAt).cells;
+}
+
+/** One time the grid filled up and scattered for a new pass. */
+export type DefragFill = {
+  /** The packed run when it filled, front to back. */
+  categories: ActivityCategory[];
+};
+
+/** The grid plus every fill it went through to get there. */
+export function defragHistory(
+  seed: string,
+  categories: ActivityCategory[],
+  repackAt: ReadonlySet<number> = new Set()
+): { cells: DefragCell[]; fills: DefragFill[] } {
+  const fills: DefragFill[] = [];
   const r = rng(seedOf(seed));
   const count = Math.round(SLOTS * (0.62 + r() * 0.14));
   const cells: DefragCell[] = Array.from({ length: count }, (_, id) => ({
@@ -150,7 +166,10 @@ export function defragCells(
   for (let k = 0; k < categories.length; k++) {
     // Compaction starts sorting from the front without teleporting the grid.
     if (repackAt.has(k)) beginPass(false);
-    else if (run.length === count) beginPass(true);
+    else if (run.length === count) {
+      fills.push({ categories: run.map((c) => c.category!) });
+      beginPass(true);
+    }
     const want = categories[k]!;
     const ids = [...unsorted];
     const matching = ids.filter((id) => cells[id]!.rest === want);
@@ -184,7 +203,7 @@ export function defragCells(
       bySlot.set(i, c);
     });
   }
-  return cells;
+  return { cells, fills };
 }
 
 /**
@@ -404,6 +423,8 @@ export function ResponsePlaceholderVisual({
   onShowProgress,
   reducedCells,
   statusLabel = "Preparing response",
+  fills = [],
+  fillStyle,
 }: {
   cells: DefragCell[];
   pieces: ResponsePiece[];
@@ -412,8 +433,14 @@ export function ResponsePlaceholderVisual({
   onShowProgress?: () => void;
   reducedCells?: DefragCell[];
   statusLabel?: string;
+  /** Design Lab study: earlier fills of this grid, and how to show them. */
+  fills?: DefragFill[];
+  fillStyle?: FillStyle;
 }): JSX.Element {
   const newest = pieces.length - 1;
+  const fillCount = fillStyle ? fills.length : 0;
+  const fillText = `Filled ${fillCount} ${fillCount === 1 ? "time" : "times"}`;
+  const lastFill = fillStyle === "ghost" ? fills.at(-1) : undefined;
   const gridRef = useRef<HTMLDivElement>(null);
   const [label, setLabel] = useState<string | null>(null);
   // A pass can move the group away from a stationary mouse or touch point.
@@ -451,7 +478,18 @@ export function ResponsePlaceholderVisual({
         event.clientY >= rect.top - ROW_GAP / 2 &&
         event.clientY < rect.bottom + ROW_GAP / 2
     );
-    if (!hit) return null;
+    if (!hit) {
+      if (!lastFill) return null;
+      // The ghost's count: anywhere off a coloured block names the laps.
+      const bounds = grid.getBoundingClientRect();
+      setAnchor({
+        left: 0,
+        top: 0,
+        width: bounds.width,
+        color: "hsl(var(--muted-foreground))",
+      });
+      return fillText;
+    }
     const category = reduced
       ? "checks"
       : (hit.cell.dataset.category as ActivityCategory);
@@ -478,7 +516,22 @@ export function ResponsePlaceholderVisual({
     <div
       data-testid="chat-response-placeholder"
       className={`dispatch-placeholder-chase relative mt-3 w-full max-w-md rounded-lg border border-border/60 bg-muted/10 px-4 py-3.5 ${reducedCells ? "dispatch-defrag-reduced" : ""}`}
+      style={
+        fillStyle === "stack" && fillCount > 0
+          ? {
+              marginBottom:
+                Math.min(fillCount, STACK_CAP) * 4 +
+                (fillCount > STACK_CAP ? 12 : 0),
+            }
+          : undefined
+      }
     >
+      {fillStyle === "stack" && fillCount > 0 && (
+        <StackedFills count={fillCount} label={fillText} />
+      )}
+      {fillStyle === "ticks" && fillCount > 0 && (
+        <FillTicks fills={fills} label={fillText} />
+      )}
       {/* The status region holds only the picture; the peek control sits
           beside it, so its changing count is never announced. */}
       <TooltipProvider>
@@ -519,6 +572,9 @@ export function ResponsePlaceholderVisual({
             </TooltipTrigger>
             <div aria-hidden="true" className="absolute inset-0">
               <Slots />
+              {lastFill && (
+                <GhostFill key={fillCount} categories={lastFill.categories} />
+              )}
               {cells.map((c) => {
                 const latest = c.step === newest;
                 const piece = c.step === undefined ? undefined : pieces[c.step];
@@ -583,19 +639,166 @@ export function ResponsePlaceholderVisual({
           )}
         </Tooltip>
       </TooltipProvider>
-      {onShowProgress && textLength > 0 ? (
-        <div className="relative mt-2.5 flex justify-end">
-          <button
-            type="button"
-            onClick={onShowProgress}
-            aria-label="Show progress text"
-            data-testid="chat-response-show-progress"
-            className="rounded-sm text-[11px] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-          >
-            Show progress · {formatChars(textLength)}
-          </button>
+      {(onShowProgress && textLength > 0) ||
+      (fillStyle === "lap" && fillCount > 0) ? (
+        <div className="relative mt-2.5 flex items-center justify-end gap-2">
+          {fillStyle === "lap" && fillCount > 0 && (
+            <span
+              role="img"
+              aria-label={fillText}
+              title={fillText}
+              data-testid="chat-response-fill-count"
+              className="rounded-sm border border-border/60 px-1 text-[10px] leading-4 tabular-nums text-muted-foreground"
+            >
+              ×{fillCount}
+            </span>
+          )}
+          {onShowProgress && textLength > 0 && (
+            <button
+              type="button"
+              onClick={onShowProgress}
+              aria-label="Show progress text"
+              data-testid="chat-response-show-progress"
+              className="rounded-sm text-[11px] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            >
+              Show progress · {formatChars(textLength)}
+            </button>
+          )}
         </div>
       ) : null}
+    </div>
+  );
+}
+
+export type FillStyle = "lap" | "stack" | "ticks" | "ghost";
+
+const STACK_CAP = 3;
+const TICK_CAP = 12;
+
+/** Card edges peeking out below, one per fill, like a short deck. */
+function StackedFills({
+  count,
+  label,
+}: {
+  count: number;
+  label: string;
+}): JSX.Element {
+  const shown = Math.min(count, STACK_CAP);
+  return (
+    <div
+      role="img"
+      aria-label={label}
+      title={label}
+      data-testid="chat-response-fill-count"
+      className="pointer-events-none absolute inset-x-0 top-full"
+    >
+      {Array.from({ length: shown }, (_, i) => (
+        <span
+          key={i}
+          aria-hidden="true"
+          className="absolute h-[4px] rounded-b-md border border-t-0 border-border bg-muted/30"
+          style={{
+            top: i * 4,
+            left: (i + 1) * 6,
+            right: (i + 1) * 6,
+            opacity: 1 - i * 0.22,
+          }}
+        />
+      ))}
+      {count > STACK_CAP && (
+        <span
+          aria-hidden="true"
+          className="absolute right-0 text-[9px] leading-none tabular-nums text-muted-foreground"
+          style={{ top: shown * 4 + 3 }}
+        >
+          +{count - STACK_CAP}
+        </span>
+      )}
+    </div>
+  );
+}
+
+/** A fill's mix, front to back, as hard colour stops. */
+function fillGradient(categories: ActivityCategory[]): string {
+  const stops: string[] = [];
+  let start = 0;
+  for (let i = 1; i <= categories.length; i++) {
+    if (i < categories.length && categories[i] === categories[start]) continue;
+    const color = tint(ACTIVITY_COLORS[categories[start]!], 75);
+    const a = (start / categories.length) * 100;
+    const b = (i / categories.length) * 100;
+    stops.push(`${color} ${a}% ${b}%`);
+    start = i;
+  }
+  return `linear-gradient(to right, ${stops.join(", ")})`;
+}
+
+/** One short mark per fill along the card's bottom edge, in what filled it. */
+function FillTicks({
+  fills,
+  label,
+}: {
+  fills: DefragFill[];
+  label: string;
+}): JSX.Element {
+  const shown = fills.slice(-TICK_CAP);
+  return (
+    <div
+      role="img"
+      aria-label={label}
+      title={label}
+      data-testid="chat-response-fill-count"
+      className="absolute -bottom-[2px] left-4 flex items-center gap-[3px] bg-background px-1"
+    >
+      {fills.length > TICK_CAP && (
+        <span
+          aria-hidden="true"
+          className="mr-0.5 text-[9px] leading-none tabular-nums text-muted-foreground"
+        >
+          +{fills.length - TICK_CAP}
+        </span>
+      )}
+      {shown.map((fill, i) => (
+        <span
+          key={fills.length - shown.length + i}
+          aria-hidden="true"
+          className="block h-[3px] w-[14px] rounded-full"
+          style={{ background: fillGradient(fill.categories) }}
+        />
+      ))}
+    </div>
+  );
+}
+
+/** The last full grid, faded behind the new pass. */
+function GhostFill({
+  categories,
+}: {
+  categories: ActivityCategory[];
+}): JSX.Element {
+  return (
+    <div
+      aria-hidden="true"
+      data-testid="chat-response-fill-ghost"
+      className="dispatch-defrag-ghost absolute inset-0"
+      style={{ opacity: 0.55 }}
+    >
+      {categories.map((category, slot) => (
+        <span
+          key={slot}
+          className="absolute left-0 top-0 pr-[2px]"
+          style={{
+            width: `${100 / COLS}%`,
+            height: CELL_H,
+            transform: place(slot),
+          }}
+        >
+          <span
+            className="block h-full rounded-[1.5px]"
+            style={{ background: tint(ACTIVITY_COLORS[category], 75) }}
+          />
+        </span>
+      ))}
     </div>
   );
 }
