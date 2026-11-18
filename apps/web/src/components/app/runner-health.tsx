@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { RunnerCommand, useRunnerInstaller } from "./runner-onboarding";
 import type { Runner } from "@/hooks/use-runners";
+import { isVersionNewer } from "@/lib/tips/version-compare";
 import { formatRelativeTime } from "@/lib/format";
 
 const memory = (bytes: number) =>
@@ -13,19 +14,11 @@ export function RunnerHealthDetails({ runner }: { runner: Runner }) {
   const [open, setOpen] = useState(false);
   const installer = useRunnerInstaller(open);
   const tag = installer.data?.tag;
-  // Release tags are validated semantic versions at the service.
-  const numeric = (v: string) => v.replace(/^v/, "").split(".").map(Number);
-  const installed = numeric(health?.version ?? "");
-  const firstDifference =
-    tag &&
-    numeric(tag)
-      .map((n, i) => n - (installed[i] ?? 0))
-      .find((d) => d !== 0);
+  if (!health || !healthReceivedAt) return null;
   const update =
     tag &&
-    /^v?\d+\.\d+\.\d+$/.test(health?.version ?? "") &&
-    Number(firstDifference) > 0;
-  if (!health || !healthReceivedAt) return null;
+    /^v?\d+\.\d+\.\d+$/.test(health.version) &&
+    isVersionNewer(tag, health.version);
   const stale =
     runner.status !== "online" ||
     Date.now() - Date.parse(healthReceivedAt) > 90_000;

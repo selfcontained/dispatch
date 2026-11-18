@@ -78,7 +78,13 @@ function ApproveRunner({ request }: { request: PairRequest }) {
       className="space-y-2 rounded-md border border-primary/40 p-3"
       onSubmit={(e) => {
         e.preventDefault();
-        if (name.trim() && code.trim() && !approve.isPending) approve.mutate();
+        if (
+          name.trim() &&
+          code.trim() &&
+          !approve.isPending &&
+          !dismiss.isPending
+        )
+          approve.mutate();
       }}
       data-testid="runner-approval"
     >
