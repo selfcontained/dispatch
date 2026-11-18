@@ -1,5 +1,6 @@
-import { ClaudeAcpAgent } from "@agentclientprotocol/claude-agent-acp/dist/acp-agent.js";
-import { Pushable } from "@agentclientprotocol/claude-agent-acp/dist/utils.js";
+import { SessionBackgroundWork } from "@agentclientprotocol/claude-agent-acp/dispatch-test/background-work";
+import { ClaudeAcpAgent } from "@agentclientprotocol/claude-agent-acp/dispatch-test/acp-agent";
+import { Pushable } from "@agentclientprotocol/claude-agent-acp/dispatch-test/utils";
 import { describe, expect, it, vi } from "vitest";
 
 const sessionId = "steering-test";
@@ -310,6 +311,7 @@ function consumerFixture() {
   const session = {
     activeTurn: null as ReturnType<typeof makeTurn> | null,
     turnQueue: [] as ReturnType<typeof makeTurn>[],
+    configOptions: [],
     query: {
       next: vi.fn(() => iterator.next()),
       close: () => messages.end(),
@@ -320,6 +322,7 @@ function consumerFixture() {
     settingsManager: { dispose: vi.fn() },
     msgLifecycleV1: true,
     orphanCommands: new Map<string, string>(),
+    background: new SessionBackgroundWork(sessionId),
     liveBackgroundTasks: new Map(),
     emittedToolCalls: new Set(),
     emittedAssistantText: false,

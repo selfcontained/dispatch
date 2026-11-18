@@ -17,7 +17,7 @@ release checks the stack at event time.
 
 ## Package-manager compatibility
 
-Both ACP adapter patches (`claude-agent-acp@0.100.0`, `codex-acp@2.5.0`) are
+Both ACP adapter patches (`claude-agent-acp@0.108.0`, `codex-acp@2.7.0`) are
 declared in both package.json (pnpm 9 / CI) and pnpm-workspace.yaml (newer
 pnpm), matching this repository's package-manager compatibility convention.
 
@@ -31,6 +31,11 @@ the hash. Keep lockfile changes in pnpm 9's format until the repository migrates
 its package-manager version or these patches are removed. Regenerate a patch with
 `corepack pnpm patch <pkg>@<ver>` and `corepack pnpm patch-commit <dir>`, then
 mirror the entry into pnpm-workspace.yaml.
+
+Claude 0.103.0 restricted the package export map. The patch gives Dispatch
+an explicit subpath for upstream's CLI and narrow subpaths for installed-adapter
+tests. The CLI continues to apply Claude's managed policy, configure logging,
+and shut down when stdio closes.
 
 The Codex idle steering fallback (`_meta.steering.idleBehavior: "promptRequired"`
 → `{ outcome: "promptRequired", reason: "noRunningTurn" }`) is no longer patched:
@@ -114,11 +119,10 @@ treats as the prompt's own (it waits out an open self-started turn before
 prompting, so this only happens in a start race). The patch passes the turn id
 through both `onTurnStarted` call sites, which upstream calls without one.
 
-Claude needs no patch here: Dispatch never advertises the AIR async-tasks
-client capability (`clientSupportsAsyncTasks`; its session capabilities are only
-`notices` and `compaction`), so claude-agent-acp 0.100.0 still streams an autonomous cycle as plain updates and
-tags its final `usage_update` with `_meta["_claude/origin"]`; the async-task
-publication added in 0.95 (#1390) stays off.
+Claude needs no turn-boundary patch. It tags an autonomous cycle's final
+`usage_update` with `_meta["_claude/origin"]`. Dispatch also negotiates AIR
+async tasks separately and routes those updates into the background work
+registry.
 
 ## Read-only MCP inventory (v1)
 
