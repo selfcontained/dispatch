@@ -15,9 +15,9 @@ export type RunnerPairing = { id: string; command: string; expiresAt: string };
 
 export const runnersQueryKey = ["runners"] as const;
 
-/** Locator the server stores in an agent's cwd; both parts are encoded. */
-export function runnerLocator(name: string, workspace: string): string {
-  return `runner://${encodeURIComponent(name)}/${encodeURIComponent(workspace)}`;
+/** Locator the server stores in an agent's cwd: opaque runner id, both parts encoded. */
+export function runnerLocator(runnerId: string, workspace: string): string {
+  return `runner://${encodeURIComponent(runnerId)}/${encodeURIComponent(workspace)}`;
 }
 
 export function useRunners(options: { poll?: boolean } = {}) {

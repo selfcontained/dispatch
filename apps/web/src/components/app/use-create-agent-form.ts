@@ -65,13 +65,22 @@ export function useCreateAgentForm({
   // null runner = this Mac (the default). A runner swaps the folder for one
   // of its approved workspaces, addressed by a runner:// locator.
   const { data: runners = [] } = useRunners();
-  const [runnerId, setRunnerId] = useState<string | null>(null);
-  const [runnerWorkspace, setRunnerWorkspace] = useState<string | null>(null);
-  const runner = runnerId ? runners.find((r) => r.id === runnerId) : undefined;
-  const remote = Boolean(runnerId);
+  const [pickedRunnerId, setRunnerId] = useState<string | null>(null);
+  const [pickedWorkspace, setRunnerWorkspace] = useState<string | null>(null);
+  // A runner that vanished or was revoked falls back to This Mac.
+  const runner = runners.find(
+    (r) => r.id === pickedRunnerId && r.status !== "revoked"
+  );
+  const runnerId = runner?.id ?? null;
+  const remote = Boolean(runner);
+  // Only a workspace the runner reports now, on an online runner, can submit.
+  const runnerWorkspace =
+    runner && pickedWorkspace && runner.workspaces.includes(pickedWorkspace)
+      ? pickedWorkspace
+      : null;
   const remoteCwd =
-    runner && runnerWorkspace
-      ? runnerLocator(runner.name, runnerWorkspace)
+    runner?.status === "online" && runnerWorkspace
+      ? runnerLocator(runner.id, runnerWorkspace)
       : "";
   const selectRunner = (id: string | null) => {
     setRunnerId(id);
