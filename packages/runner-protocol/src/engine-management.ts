@@ -23,6 +23,13 @@ export type EngineInventoryEntry = {
   version: string | null;
   /** Who it's signed in as, or how; never a token, URL or code. */
   detail?: string;
+  /**
+   * A short, pre-defined reason an action isn't offered even though it
+   * otherwise would be — e.g. `"install-unavailable"` when a configured
+   * install/update command's own executable can't run (missing npm/node).
+   * Never raw CLI output.
+   */
+  issue?: string;
   actions: EngineSupportedAction[];
 };
 
@@ -91,16 +98,18 @@ export const RUNNER_ENGINES: readonly RunnerEngine[] = [
   "opencode",
 ];
 
-/** Where an engine's CLI runs: this machine, or a named runner workspace. */
+/**
+ * Where an engine's CLI runs: this machine, or a named runner. Runner-wide,
+ * not per-workspace — a runner's `bins` (and its install/update commands)
+ * are one configuration for the whole runner, not one per workspace.
+ */
 export type EngineScope =
   | { kind: "local" }
-  | { kind: "runner"; runnerId: string; workspace: string };
+  | { kind: "runner"; runnerId: string };
 
 /** A stable string key for a scope, for query params, cache keys and event names. */
 export function engineScopeKey(scope: EngineScope): string {
-  return scope.kind === "local"
-    ? "local"
-    : `runner:${scope.runnerId}/${scope.workspace}`;
+  return scope.kind === "local" ? "local" : `runner:${scope.runnerId}`;
 }
 
 export function isEngineOperation(value: unknown): value is EngineOperation {
@@ -114,4 +123,66 @@ export function isEngineOperation(value: unknown): value is EngineOperation {
     type === "login_submit" ||
     type === "login_cancel"
   );
+}
+
+const SUPPORTED_ACTIONS = new Set<EngineSupportedAction>([
+  "install",
+  "update",
+  "login",
+  "login_cancel",
+]);
+
+/**
+ * Validate a runner-pushed inventory snapshot before trusting it: bounded
+ * length, known engine ids and action names, safe-shaped version/detail
+ * strings. A malformed or over-long snapshot is dropped entirely (returns
+ * null) rather than partially accepted.
+ */
+export function parseEngineInventory(
+  input: unknown
+): EngineInventoryEntry[] | null {
+  if (!Array.isArray(input) || input.length > RUNNER_ENGINES.length)
+    return null;
+  const entries: EngineInventoryEntry[] = [];
+  const seen = new Set<RunnerEngine>();
+  for (const item of input) {
+    if (!item || typeof item !== "object") return null;
+    const { id, label, installed, signedIn, version, detail, issue, actions } =
+      item as Record<string, unknown>;
+    if (
+      typeof id !== "string" ||
+      !(RUNNER_ENGINES as readonly string[]).includes(id) ||
+      seen.has(id as RunnerEngine) ||
+      typeof label !== "string" ||
+      label.length > 80 ||
+      typeof installed !== "boolean" ||
+      (signedIn !== null && typeof signedIn !== "boolean") ||
+      (version !== null &&
+        (typeof version !== "string" || !/^[\w.+-]{1,40}$/.test(version))) ||
+      (detail !== undefined &&
+        (typeof detail !== "string" || detail.length > 200)) ||
+      (issue !== undefined &&
+        (typeof issue !== "string" || issue.length > 80)) ||
+      !Array.isArray(actions) ||
+      actions.length > SUPPORTED_ACTIONS.size ||
+      !actions.every(
+        (action): action is EngineSupportedAction =>
+          typeof action === "string" &&
+          SUPPORTED_ACTIONS.has(action as EngineSupportedAction)
+      )
+    )
+      return null;
+    seen.add(id as RunnerEngine);
+    entries.push({
+      id: id as RunnerEngine,
+      label,
+      installed,
+      signedIn: signedIn as boolean | null,
+      version: version as string | null,
+      ...(detail !== undefined ? { detail } : {}),
+      ...(issue !== undefined ? { issue } : {}),
+      actions,
+    });
+  }
+  return entries;
 }

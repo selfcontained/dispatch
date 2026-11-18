@@ -166,6 +166,13 @@ function EngineRow({
         <p className="text-[11.5px] text-muted-foreground">{entry.detail}</p>
       )}
 
+      {entry.issue === "install-unavailable" && (
+        <p className="text-[11.5px] text-muted-foreground">
+          Install isn't available on this runner — its install command couldn't
+          run (likely missing npm/node for this engine).
+        </p>
+      )}
+
       {operation.isError && (
         <p role="alert" className="text-[12px] text-destructive">
           {operation.error.message}

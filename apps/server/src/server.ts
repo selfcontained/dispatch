@@ -137,8 +137,15 @@ import { createAutoCheckRuntime } from "./release-auto-check.js";
 import { registerStaticRoutes } from "./routes/static.js";
 import { registerSystemRoutes } from "./routes/system.js";
 import { registerEngineLoginRoutes } from "./routes/engine-login.js";
+import { registerEngineManagementRoutes } from "./routes/engine-management.js";
 import { EngineLogins } from "./agents/engine-login.js";
 import { engineStatuses } from "./agents/engine-availability.js";
+import {
+  EngineUpdateOperations,
+  engineOperationStore,
+} from "./agents/engine-updates.js";
+import { EngineManager } from "./agents/remote/engine-manager.js";
+import { remoteEngineTransport } from "./agents/remote/engine-transport.js";
 import { registerPluginRoutes } from "./routes/plugin.js";
 import { registerResourceRoutes } from "./routes/resources.js";
 import {
@@ -1098,7 +1105,24 @@ async function registerRoutes() {
   });
 
   await registerScheduledMessageRoutes(app, scheduledMessages);
+  // Shared with registerEngineManagementRoutes below: one login/update
+  // tracker per process, so a scope-aware view (local or runner) and the
+  // existing engine routes never diverge on the same in-flight state.
+  const engineLogins = new EngineLogins({
+    resolveBin: async (engine) =>
+      (
+        await engineStatuses({
+          claude: config.claudeBin,
+          codex: config.codexBin,
+        })
+      ).find((status) => status.id === engine)?.path ?? null,
+  });
+  const engineUpdates = new EngineUpdateOperations(engineOperationStore(pool), {
+    onError: (error) =>
+      app.log.error({ err: error }, "Engine update persistence failed"),
+  });
   await registerSystemRoutes(app, {
+    engineUpdates,
     runnerWorkspaceAvailable: (placement) =>
       remoteRunner?.available(placement) ?? false,
     slackAnswers,
@@ -1132,16 +1156,28 @@ async function registerRoutes() {
       opencode: config.opencodeBin,
     },
   });
-  await registerEngineLoginRoutes(
+  await registerEngineLoginRoutes(app, engineLogins);
+  await registerEngineManagementRoutes(
     app,
-    new EngineLogins({
-      resolveBin: async (engine) =>
-        (
-          await engineStatuses({
-            claude: config.claudeBin,
-            codex: config.codexBin,
-          })
-        ).find((status) => status.id === engine)?.path ?? null,
+    new EngineManager({
+      local: {
+        logins: engineLogins,
+        updates: engineUpdates,
+        overrides: {
+          claude: config.claudeBin,
+          codex: config.codexBin,
+          opencode: config.opencodeBin,
+        },
+      },
+      remote: remoteRunner
+        ? remoteEngineTransport(remoteRunner)
+        : {
+            send: async () => ({
+              ok: false,
+              error: "Runner enrollment is disabled.",
+              unsupported: true,
+            }),
+          },
     })
   );
   await registerUpdateRecoveryRoutes(app, updateRecoveryRuntime.routeDeps);

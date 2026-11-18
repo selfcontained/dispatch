@@ -198,7 +198,13 @@ describe("runner enrollment service", () => {
       /^dispatch-runner remote-runner-pair --endpoint https:\/\/127\.0\.0\.1:\d+ --ca-sha256 [a-f0-9]{64} --code \S+$/
     );
     expect(await service.list()).toEqual([
-      { id: created.id, name: "alpha", status: "pending", workspaces: [] },
+      {
+        id: created.id,
+        name: "alpha",
+        status: "pending",
+        engineManagement: false,
+        workspaces: [],
+      },
     ]);
 
     const { endpoint, pin, code } = parseCommand(created.command);
@@ -252,6 +258,7 @@ describe("runner enrollment service", () => {
         id: created.id,
         name: "alpha",
         status: "online",
+        engineManagement: false,
         workspaces: ["proof"],
       },
     ]);

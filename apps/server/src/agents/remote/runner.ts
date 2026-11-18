@@ -40,8 +40,13 @@ import {
   wireFrames,
   type Command,
   type Frame,
+  type RunnerEngine,
   type RunnerRepository,
 } from "./protocol.js";
+import {
+  EngineRunnerExecutor,
+  type ManagedCommand,
+} from "./engine-runner-executor.js";
 
 type RunnerConfig = {
   endpoint: string;
@@ -57,6 +62,16 @@ type RunnerConfig = {
   bins: HostLaunch["bins"];
   adapter?: string[];
   workspaces?: Record<string, { cwd: string; repoTool?: string[] }>;
+  /**
+   * Operator-approved install/update commands per engine, run under the
+   * same workload identity as everything else here. The launch path for
+   * each engine comes from `bins` above, not from here — this only names
+   * how to get (or refresh) what lives at that path. Omitted entirely for
+   * runners that don't offer managed install/update.
+   */
+  engines?: Partial<
+    Record<RunnerEngine, { install?: ManagedCommand; update?: ManagedCommand }>
+  >;
 };
 
 export const runnerGitArgs = [
@@ -196,6 +211,19 @@ export async function runRemoteRunner(filename: string) {
   await chmod(hostRoot, 0o711);
 
   const sampleHealth = runnerHealthSampler();
+  const engineExecutor = new EngineRunnerExecutor({
+    uid: config.uid,
+    gid: config.gid,
+    env,
+    engines: {
+      claude: { bin: config.bins.claudeBin || null, ...config.engines?.claude },
+      codex: { bin: config.bins.codexBin || null, ...config.engines?.codex },
+      opencode: {
+        bin: config.bins.opencodeBin || null,
+        ...config.engines?.opencode,
+      },
+    },
+  });
   const storage = await realpath(config.state);
   const sessions = path.join(storage, "sessions");
   const cache = path.join(storage, "repositories");
@@ -451,6 +479,22 @@ export async function runRemoteRunner(filename: string) {
           sampling = false;
         }
       };
+      let samplingEngines = false;
+      const reportEngineInventory = async () => {
+        if (samplingEngines || socket.destroyed) return;
+        samplingEngines = true;
+        try {
+          const entries = await engineExecutor.inventory();
+          safeSend({ type: "engine_inventory", entries });
+        } catch (error) {
+          console.warn(
+            "Runner engine inventory unavailable:",
+            (error as Error).message
+          );
+        } finally {
+          samplingEngines = false;
+        }
+      };
       const channels = new Map<string, ReturnType<typeof createConnection>>();
       const timeout = setTimeout(() => socket.destroy(), 5000);
       socket.on("error", (error: Error) =>
@@ -475,6 +519,25 @@ export async function runRemoteRunner(filename: string) {
       async function request(id: string, command: Command) {
         if (!isOpaqueId(id)) throw new Error("Invalid runner request ID");
         if (socket.destroyed) return;
+        if (command.kind === "engine") {
+          const ack = await engineExecutor.handle(
+            command.operation,
+            (event) => {
+              if (!socket.destroyed)
+                safeSend({
+                  type: "data",
+                  id,
+                  data: Buffer.from(
+                    JSON.stringify(event) + "\n",
+                    "utf8"
+                  ).toString("base64"),
+                });
+            }
+          );
+          safeSend({ type: "result", id, value: JSON.stringify(ack) });
+          if (command.operation.type !== "status") void reportEngineInventory();
+          return;
+        }
         const { agentId, workspace } = command;
         const target =
           isOpaqueId(workspace) && Object.hasOwn(workspaces, workspace)
@@ -616,7 +679,11 @@ export async function runRemoteRunner(filename: string) {
       const send = wireFrames(socket, (frame) => {
         if (frame.type === "accept_health" && !healthInterval) {
           void reportHealth();
-          healthInterval = setInterval(() => void reportHealth(), 30_000);
+          void reportEngineInventory();
+          healthInterval = setInterval(() => {
+            void reportHealth();
+            void reportEngineInventory();
+          }, 30_000);
         } else if (frame.type === "request") {
           void request(frame.id, frame.command).catch((error) =>
             safeSend({
@@ -646,6 +713,7 @@ export async function runRemoteRunner(filename: string) {
             ? [MANAGED_WORKSPACE]
             : configuredHandles,
           ...(managedWorkspace ? { managedWorkspace: true } : {}),
+          engineManagement: true,
         });
       });
     });

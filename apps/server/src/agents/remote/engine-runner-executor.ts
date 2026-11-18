@@ -85,7 +85,19 @@ function setprivWrap(
   });
 }
 
-type RunResult = { code: number | null };
+type RunResult = { code: number | null; spawnError?: string };
+
+/**
+ * `--version` output reduced to a safe version token, or null. Never falls
+ * back to the raw line: arbitrary CLI stderr/stdout must not reach a
+ * persisted inventory or the browser as if it were a version number.
+ */
+const SAFE_VERSION = /^\d+\.\d+(?:\.\d+)?[\w.+-]{0,40}$/;
+function sanitizeVersion(output: string): string | null {
+  const line = output.trim().split("\n")[0]?.trim() ?? "";
+  const match = /\d+\.\d+(?:\.\d+)?[\w.+-]*/.exec(line)?.[0];
+  return match && SAFE_VERSION.test(match) ? match : null;
+}
 
 export class EngineRunnerExecutor {
   private readonly logins: EngineLogins;
@@ -132,16 +144,28 @@ export class EngineRunnerExecutor {
         clearTimeout(timer);
         resolve({ code });
       });
-      child.on("error", () => {
+      child.on("error", (error) => {
         clearTimeout(timer);
-        resolve({ code: null });
+        resolve({
+          code: null,
+          spawnError: (error as NodeJS.ErrnoException).code,
+        });
       });
     });
   }
 
-  private async readVersion(bin: string): Promise<string | null> {
+  /**
+   * Whether `bin` actually runs under the workload identity, and the safe
+   * version token it reports. A configured path is a launch-time target,
+   * not evidence of installation — a fresh host's `runner.json` names every
+   * engine's enforced path before any of them exist, so this always probes
+   * the real process rather than trusting path presence.
+   */
+  private async probe(
+    bin: string
+  ): Promise<{ installed: boolean; version: string | null }> {
     let output = "";
-    const { code } = await this.run(
+    const { code, spawnError } = await this.run(
       bin,
       ["--version"],
       this.config.env,
@@ -150,10 +174,19 @@ export class EngineRunnerExecutor {
         output = (output + chunk).slice(-2_000);
       }
     );
-    if (code !== 0) return null;
-    const line = output.trim().split("\n")[0]?.trim() ?? "";
-    if (!line) return null;
-    return /\d+\.\d+(?:\.\d+)?[\w.+-]*/.exec(line)?.[0] ?? line;
+    if (spawnError || code !== 0) return { installed: false, version: null };
+    return { installed: true, version: sanitizeVersion(output) };
+  }
+
+  /** Whether a configured install/update command's own executable can run at all. */
+  private async commandUsable(command: ManagedCommand): Promise<boolean> {
+    const { spawnError } = await this.run(
+      command.executable,
+      ["--version"],
+      { ...this.config.env, ...command.env },
+      5_000
+    );
+    return spawnError === undefined;
   }
 
   /** The scope-aware engine list and supported actions, for a snapshot view. */
@@ -162,8 +195,10 @@ export class EngineRunnerExecutor {
       RUNNER_ENGINES.map(async (engine) => {
         const cfg = this.config.engines[engine];
         const bin = cfg?.bin ?? null;
-        const installed = Boolean(bin);
-        const version = installed ? await this.readVersion(bin!) : null;
+        const probed = bin
+          ? await this.probe(bin)
+          : { installed: false, version: null };
+        const { installed, version } = probed;
         let signedIn: boolean | null = null;
         let detail: string | undefined;
         if (installed && isLoginEngine(engine)) {
@@ -172,7 +207,11 @@ export class EngineRunnerExecutor {
           detail = status.detail;
         }
         const actions: EngineSupportedAction[] = [];
-        if (!installed && cfg?.install) actions.push("install");
+        let issue: string | undefined;
+        if (!installed && cfg?.install) {
+          if (await this.commandUsable(cfg.install)) actions.push("install");
+          else issue = "install-unavailable";
+        }
         if (installed && cfg?.update) actions.push("update");
         if (installed && isLoginEngine(engine))
           actions.push("login", "login_cancel");
@@ -183,6 +222,7 @@ export class EngineRunnerExecutor {
           signedIn,
           version,
           ...(detail ? { detail } : {}),
+          ...(issue ? { issue } : {}),
           actions,
         };
       })
@@ -195,8 +235,11 @@ export class EngineRunnerExecutor {
     onEvent?: (event: EngineOperationEvent) => void
   ): Promise<EngineOperationAck> {
     switch (operation.type) {
-      case "status":
+      case "status": {
+        const entries = await this.inventory();
+        onEvent?.({ type: "inventory", entries });
         return { ok: true };
+      }
       case "install":
         return this.runManaged(operation.engine, "install", onEvent);
       case "update":
@@ -251,7 +294,7 @@ export class EngineRunnerExecutor {
       phase: kind,
       message: kind === "install" ? "Installing…" : "Updating…",
     });
-    const before = cfg?.bin ? await this.readVersion(cfg.bin) : null;
+    const before = cfg?.bin ? (await this.probe(cfg.bin)).version : null;
     await this.run(
       step.executable,
       step.args,
@@ -268,7 +311,7 @@ export class EngineRunnerExecutor {
         });
       }
     );
-    const after = cfg?.bin ? await this.readVersion(cfg.bin) : null;
+    const after = cfg?.bin ? (await this.probe(cfg.bin)).version : null;
     const success =
       kind === "install"
         ? Boolean(after)

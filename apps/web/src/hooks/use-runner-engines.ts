@@ -12,23 +12,21 @@ import { api } from "@/lib/api";
 
 /**
  * Scope-aware engine inventory and install/update/sign-in, for an engine
- * running locally or on a named runner workspace. Expects the HTTP routes:
+ * running locally or on a named runner (runner-wide, not per-workspace).
+ * Expects the HTTP routes:
  *
  * - `GET  /api/v1/engine-management/inventory?{scope query}` → `{ entries }`
  * - `POST /api/v1/engine-management/operations` with `{ scope, operation }`
  *   body → `{ ack }`
  *
- * where the scope query is `scope=local` or
- * `scope=runner&runnerId=<id>&workspace=<workspace>`. Both routes back onto
- * `EngineManager` (`apps/server/src/agents/remote/engine-manager.ts`).
+ * where the scope query is `scope=local` or `scope=runner&runnerId=<id>`.
+ * Both routes back onto `EngineManager`
+ * (`apps/server/src/agents/remote/engine-manager.ts`).
  */
 
 function scopeQuery(scope: EngineScope): string {
   const params = new URLSearchParams({ scope: scope.kind });
-  if (scope.kind === "runner") {
-    params.set("runnerId", scope.runnerId);
-    params.set("workspace", scope.workspace);
-  }
+  if (scope.kind === "runner") params.set("runnerId", scope.runnerId);
   return params.toString();
 }
 

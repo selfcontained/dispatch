@@ -13,7 +13,9 @@ import {
   hostChannel,
   MANAGED_WORKSPACE,
   wireFrames,
+  parseEngineInventory,
   type Command,
+  type EngineInventoryEntry,
   type Frame,
   type Placement,
 } from "./protocol.js";
@@ -85,6 +87,10 @@ export type RunnerSummary = {
   status: RunnerStatus;
   health?: RunnerHealth;
   healthReceivedAt?: string;
+  /** Whether this (online) peer advertised support for engine management. */
+  engineManagement: boolean;
+  /** Last pushed snapshot while online; absent offline or before the first push. */
+  engines?: EngineInventoryEntry[];
   workspaces: string[];
   managedWorkspace?: true;
 };
@@ -126,6 +132,10 @@ type Peer = {
   gate: Gate;
   health?: { sample: RunnerHealth; receivedAt: Date };
   reportsHealth?: boolean;
+  /** Advertised in `ready`; whether this peer answers the `"engine"` command. */
+  engineManagement: boolean;
+  /** Last pushed, validated engine inventory; absent until the runner first reports one. */
+  engines?: EngineInventoryEntry[];
   pending: Map<string, Settle>;
   channels: Map<string, Duplex>;
 };
@@ -639,6 +649,7 @@ export class RemoteRunnerService {
         peer = {
           socket,
           reportsHealth: frame.health === true,
+          engineManagement: frame.engineManagement === true,
           send,
           workspaces: new Set(frame.workspaces),
           managedWorkspace: frame.managedWorkspace === true,
@@ -675,6 +686,10 @@ export class RemoteRunnerService {
                 error
               )
             );
+      } else if (frame.type === "engine_inventory") {
+        const entries = parseEngineInventory(frame.entries);
+        if (entries === null) return socket.destroy();
+        peer.engines = entries;
       } else if (frame.type === "result") peer.pending.get(frame.id)?.(frame);
       else if (frame.type === "data")
         peer.channels.get(frame.id)?.push(Buffer.from(frame.data, "base64"));
@@ -842,6 +857,9 @@ export class RemoteRunnerService {
         // Legacy locators keep addressing the configured id.
         id: this.legacy.id,
         name: this.legacy.id,
+        engineManagement:
+          peer?.gate.approved() === true && peer.engineManagement,
+        ...(peer?.engines ? { engines: peer.engines } : {}),
         ...(peer?.health
           ? {
               health: peer.health.sample,
@@ -876,6 +894,8 @@ export class RemoteRunnerService {
             : online
               ? "online"
               : "offline",
+        engineManagement: online && peer.engineManagement,
+        ...(online && peer.engines ? { engines: peer.engines } : {}),
         ...(online && peer.health
           ? {
               health: peer.health.sample,
@@ -1140,6 +1160,14 @@ export class RemoteRunnerService {
       this.peers.get(placement.runner)?.managedWorkspace === true &&
       this.available(placement)
     );
+  }
+
+  /** The runner's last pushed, validated engine inventory, if any. */
+  engineInventorySnapshot(
+    runnerId: string
+  ): EngineInventoryEntry[] | undefined {
+    const peer = this.peers.get(runnerId);
+    return peer?.gate.approved() ? peer.engines : undefined;
   }
 
   available(placement: Placement) {

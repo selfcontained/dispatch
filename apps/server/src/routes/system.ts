@@ -75,6 +75,8 @@ type SystemRouteDeps = {
   maintenanceMode?: () => string;
   engineBins: { claude: string; codex: string; opencode?: string };
   localCertificateTrust?: boolean;
+  /** Shared with engine-management routes so both see the same operation state. */
+  engineUpdates?: EngineUpdateOperations;
   /** Update recovery helper protocol; omitted in tests that don't need it. */
 };
 
@@ -138,13 +140,12 @@ export async function registerSystemRoutes(
     };
   });
 
-  const engineUpdates = new EngineUpdateOperations(
-    engineOperationStore(deps.pool),
-    {
+  const engineUpdates =
+    deps.engineUpdates ??
+    new EngineUpdateOperations(engineOperationStore(deps.pool), {
       onError: (error) =>
         deps.appLog.error({ err: error }, "Engine update persistence failed"),
-    }
-  );
+    });
   app.get("/api/v1/system/engines", async (request) => {
     const operations = await engineUpdates.read();
     return {

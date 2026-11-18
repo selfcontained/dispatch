@@ -188,12 +188,11 @@ describe("EngineManager runner scope", () => {
       remote: transport,
     });
     await manager.rpc(
-      { kind: "runner", runnerId: "r1", workspace: "w1" },
+      { kind: "runner", runnerId: "r1" },
       { type: "login_start", engine: "claude" }
     );
     expect(transport.send).toHaveBeenCalledWith(
       "r1",
-      "w1",
       { type: "login_start", engine: "claude" },
       undefined
     );
@@ -201,7 +200,7 @@ describe("EngineManager runner scope", () => {
 
   it("reads inventory from the runner's streamed inventory event", async () => {
     const transport = fakeTransport({
-      send: vi.fn(async (_r, _w, _op, onEvent) => {
+      send: vi.fn(async (_r, _op, onEvent) => {
         onEvent?.({
           type: "inventory",
           entries: [
@@ -225,7 +224,6 @@ describe("EngineManager runner scope", () => {
     const inventory = await manager.inventory({
       kind: "runner",
       runnerId: "r1",
-      workspace: "w1",
     });
     expect(inventory).toEqual([
       {
@@ -254,7 +252,6 @@ describe("EngineManager runner scope", () => {
     const inventory = await manager.inventory({
       kind: "runner",
       runnerId: "r1",
-      workspace: "w1",
     });
     expect(inventory.every((e) => !e.installed && e.signedIn === null)).toBe(
       true
@@ -264,7 +261,7 @@ describe("EngineManager runner scope", () => {
 
   it("notifies onChanged listeners after a state-changing operation", async () => {
     const transport = fakeTransport({
-      send: vi.fn(async (_r, _w, op) => {
+      send: vi.fn(async (_r, op) => {
         if (op.type === "status") {
           return { ok: true };
         }
@@ -275,7 +272,7 @@ describe("EngineManager runner scope", () => {
       local: { logins: fakeLogins(), updates: fakeUpdates() },
       remote: transport,
     });
-    const scope = { kind: "runner" as const, runnerId: "r1", workspace: "w1" };
+    const scope = { kind: "runner" as const, runnerId: "r1" };
     const listener = vi.fn();
     const unsubscribe = manager.onChanged(scope, listener);
     await manager.rpc(scope, { type: "login_start", engine: "claude" });

@@ -74,25 +74,24 @@ it("renders each engine's installed/signed-in state and available actions", asyn
   expect(screen.getByTestId("runner-engine-codex-install")).toBeTruthy();
 });
 
-it("posts an install operation scoped to a runner workspace and refreshes", async () => {
+it("posts an install operation scoped to a runner and refreshes", async () => {
   const ack: EngineOperationAck = { ok: true, operationId: "op-1" };
   vi.mocked(api).mockImplementation(
     async (path: string, init?: RequestInit) => {
       if (init?.method === "POST") {
         expect(JSON.parse(init.body as string)).toMatchObject({
-          scope: { kind: "runner", runnerId: "r1", workspace: "w1" },
+          scope: { kind: "runner", runnerId: "r1" },
           operation: { type: "install", engine: "codex" },
         });
         return { ack };
       }
       expect(path).toContain("scope=runner");
       expect(path).toContain("runnerId=r1");
-      expect(path).toContain("workspace=w1");
       return { entries: baseEntries };
     }
   );
 
-  renderWithClient({ kind: "runner", runnerId: "r1", workspace: "w1" });
+  renderWithClient({ kind: "runner", runnerId: "r1" });
   await waitFor(() => screen.getByTestId("runner-engine-codex-install"));
   fireEvent.click(screen.getByTestId("runner-engine-codex-install"));
 

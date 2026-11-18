@@ -71,7 +71,13 @@ describe("runner control API", () => {
     });
     expect(listed.json()).toEqual({
       runners: [
-        { id: body.id, name: "lima", status: "pending", workspaces: [] },
+        {
+          id: body.id,
+          name: "lima",
+          status: "pending",
+          engineManagement: false,
+          workspaces: [],
+        },
       ],
     });
 

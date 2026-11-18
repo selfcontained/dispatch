@@ -66,6 +66,95 @@ if (args === "--version") {
     expect(codex.actions).toEqual([]);
   });
 
+  it("reports not installed when a configured launch path doesn't actually exist yet", async () => {
+    // A fresh runner's runner.json names every engine's enforced launch
+    // path before any of them have been installed — the configured path
+    // string is not evidence of installation.
+    executor = new EngineRunnerExecutor({
+      uid: 1000,
+      gid: 1000,
+      env: process.env,
+      wrap: passthroughWrap,
+      engines: {
+        claude: {
+          bin: path.join(dir, "does-not-exist"),
+          install: { executable: fake, args: ["install"] },
+        },
+      },
+    });
+    const inventory = await executor.inventory();
+    const claude = inventory.find((entry) => entry.id === "claude")!;
+    expect(claude.installed).toBe(false);
+    expect(claude.version).toBeNull();
+    expect(claude.signedIn).toBeNull();
+    expect(claude.actions).toEqual(["install"]);
+  });
+
+  it("never reports raw CLI output as a version", async () => {
+    const chatty = path.join(dir, "fake-chatty.mjs");
+    writeFileSync(
+      chatty,
+      `#!/usr/bin/env node\nconsole.log("not a version string, just chatter");\nprocess.exit(0);\n`
+    );
+    chmodSync(chatty, 0o755);
+    executor = new EngineRunnerExecutor({
+      uid: 1000,
+      gid: 1000,
+      env: process.env,
+      wrap: passthroughWrap,
+      engines: { claude: { bin: chatty } },
+    });
+    const inventory = await executor.inventory();
+    const claude = inventory.find((entry) => entry.id === "claude")!;
+    expect(claude.installed).toBe(true);
+    expect(claude.version).toBeNull();
+  });
+
+  it("flags install-unavailable and withholds the action when the installer's own executable is missing", async () => {
+    executor = new EngineRunnerExecutor({
+      uid: 1000,
+      gid: 1000,
+      env: process.env,
+      wrap: passthroughWrap,
+      engines: {
+        codex: {
+          bin: null,
+          install: {
+            executable: path.join(dir, "no-such-npm"),
+            args: ["install", "-g"],
+          },
+        },
+      },
+    });
+    const inventory = await executor.inventory();
+    const codex = inventory.find((entry) => entry.id === "codex")!;
+    expect(codex.installed).toBe(false);
+    expect(codex.actions).toEqual([]);
+    expect(codex.issue).toBe("install-unavailable");
+  });
+
+  it("pushes a fresh inventory snapshot for a status operation", async () => {
+    executor = new EngineRunnerExecutor({
+      uid: 1000,
+      gid: 1000,
+      env: process.env,
+      wrap: passthroughWrap,
+      engines: { claude: { bin: fake } },
+    });
+    const events: unknown[] = [];
+    const ack = await executor.handle({ type: "status" }, (event) =>
+      events.push(event)
+    );
+    expect(ack).toEqual({ ok: true });
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      type: "inventory",
+      entries: expect.arrayContaining([
+        expect.objectContaining({ id: "claude", installed: true }),
+      ]),
+    });
+  });
+
   it("offers install only when a managed install command is configured", async () => {
     executor = new EngineRunnerExecutor({
       uid: 1000,

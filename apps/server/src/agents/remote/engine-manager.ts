@@ -36,17 +36,23 @@ export type { EngineScope };
 /** What a runner's connection exposes for engine management; supplied by the caller. */
 export interface RunnerEngineTransport {
   /**
-   * Send one operation to the named runner workspace. `onEvent` receives
-   * any progress frames the runner streams before its ack. Reject (or
-   * resolve `{ ok: false, unsupported: true }`) for an offline runner or
-   * one that predates engine management.
+   * Send one operation to the named runner. `onEvent` receives any
+   * progress frames the runner streams before its ack. Reject (or resolve
+   * `{ ok: false, unsupported: true }`) for an offline runner or one that
+   * predates engine management.
    */
   send(
     runnerId: string,
-    workspace: string,
     operation: EngineOperation,
     onEvent?: (event: EngineOperationEvent) => void
   ): Promise<EngineOperationAck>;
+  /**
+   * The runner's last pushed inventory snapshot, if any — a cheap read
+   * that skips a wire round trip. `inventory()` falls back to `send` with
+   * a `"status"` operation when this is absent (not yet pushed, or the
+   * transport doesn't track a cache).
+   */
+  cachedInventory?(runnerId: string): EngineInventoryEntry[] | undefined;
 }
 
 export type LocalEngineDeps = {
@@ -109,16 +115,21 @@ export class EngineManager {
     const ack =
       scope.kind === "local"
         ? await this.localRpc(operation)
-        : await this.deps.remote.send(
-            scope.runnerId,
-            scope.workspace,
-            operation,
-            onEvent
-          );
+        : await this.deps.remote.send(scope.runnerId, operation, onEvent);
     // Refresh before returning, so a caller that awaits `rpc` sees the
-    // change notification fire no later than its own result.
-    if (operation.type !== "status")
-      await this.inventory(scope).catch(() => {});
+    // change notification fire no later than its own result. A runner's
+    // own pushed-cache update can lag its ack by a round trip, so force a
+    // live read here rather than risk handing back what the cache held
+    // before the operation ran.
+    if (operation.type !== "status") {
+      const entries =
+        scope.kind === "local"
+          ? await this.localInventory().catch(() => null)
+          : await this.remoteInventory(scope, { force: true }).catch(
+              () => null
+            );
+      if (entries) this.emitChanged(scope, entries);
+    }
     return ack;
   }
 
@@ -156,12 +167,16 @@ export class EngineManager {
   }
 
   private async remoteInventory(
-    scope: Extract<EngineScope, { kind: "runner" }>
+    scope: Extract<EngineScope, { kind: "runner" }>,
+    opts: { force?: boolean } = {}
   ): Promise<EngineInventoryEntry[]> {
+    const cached = opts.force
+      ? undefined
+      : this.deps.remote.cachedInventory?.(scope.runnerId);
+    if (cached) return cached;
     let result: EngineInventoryEntry[] = [];
     const ack = await this.deps.remote.send(
       scope.runnerId,
-      scope.workspace,
       { type: "status" },
       (event) => {
         if (event.type === "inventory") result = event.entries;

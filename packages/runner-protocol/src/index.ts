@@ -1,5 +1,9 @@
 import type { RunnerHealth } from "./health.js";
 export { type RunnerHealth, parseRunnerHealth } from "./health.js";
+import type {
+  EngineInventoryEntry,
+  EngineOperation,
+} from "./engine-management.js";
 export const MANAGED_WORKSPACE = "@session";
 
 export type Placement = { runner: string; workspace: string };
@@ -81,6 +85,15 @@ export type Command = { agentId: string; workspace: string } & (
   | { kind: "launch"; launch: RemoteLaunch }
   | { kind: "attach" | "alive" | "discard" | "log" | "repo" }
   | { kind: "stop"; force: boolean }
+  /**
+   * Runner-wide engine install/update/sign-in — not bound to any agent or
+   * workspace binding; the runner answers it before any agent-binding
+   * checks. `workspace` only needs to name one of the runner's online
+   * workspaces, for routing. A runner that predates this never answers it,
+   * so the reply handler (service.ts, RunnerEngineTransport) treats a lost
+   * acknowledgement or error as `unsupported`.
+   */
+  | { kind: "engine"; operation: EngineOperation }
 );
 export type Frame =
   | {
@@ -89,9 +102,13 @@ export type Frame =
       workspaces: string[];
       health?: true;
       managedWorkspace?: true;
+      /** Advertises support for the `"engine"` command and inventory push. */
+      engineManagement?: true;
     }
   | { type: "accept_health" }
   | { type: "health"; sample: RunnerHealth }
+  /** Runner-pushed, same cadence as health; see parseEngineInventory. */
+  | { type: "engine_inventory"; entries: EngineInventoryEntry[] }
   | { type: "request"; id: string; command: Command }
   | {
       type: "result";

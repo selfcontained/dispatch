@@ -132,7 +132,6 @@ export function RunnerSettings(): JSX.Element {
                           scope={{
                             kind: "runner",
                             runnerId: runner.id,
-                            workspace: runner.workspaces[0] ?? "",
                           }}
                         />
                       )}
