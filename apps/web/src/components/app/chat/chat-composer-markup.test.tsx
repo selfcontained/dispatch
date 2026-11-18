@@ -134,6 +134,25 @@ const shot = () => new File(["a"], "shot.png", { type: "image/png" });
 const other = () => new File(["bb"], "other.png", { type: "image/png" });
 
 describe("ChatComposer image markup", () => {
+  it("accepts pasted SVG markup", async () => {
+    const { input } = renderComposer();
+    pasteFiles(input, [
+      new File(
+        ['<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 200"/>'],
+        "diagram.svg",
+        { type: "image/svg+xml" }
+      ),
+    ]);
+    await markUp("diagram.svg", ["SVG note"]);
+    fireEvent.click(screen.getByRole("button", { name: "Done" }));
+    await waitFor(() =>
+      expect(screen.queryByTestId("file-lightbox")).toBeNull()
+    );
+    expect(
+      within(chip("diagram.svg")).getByTestId("context-file-note-count")
+        .textContent
+    ).toBe("1");
+  });
   it("saves callouts onto the attachment with Done, sending nothing", async () => {
     const { input, onSend, uploadFile } = renderComposer();
     pasteFiles(input, [shot()]);
