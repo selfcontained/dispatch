@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
+import { agentDiffQueryKey } from "@/hooks/use-agent-diff";
 
 /** Preview the current working tree only; the existing diff stays the default. */
 export function ChangesSvgPreview({
@@ -18,7 +19,7 @@ export function ChangesSvgPreview({
 }) {
   const [view, setView] = useState("diff");
   const preview = useQuery({
-    queryKey: ["changes-svg-preview", agentId, workspace, path],
+    queryKey: [...agentDiffQueryKey(agentId), "svg-preview", workspace, path],
     queryFn: ({ signal }) =>
       api<{ kind: string; src?: string; message?: string }>(
         `/api/v1/agents/${encodeURIComponent(agentId)}/workspace?${new URLSearchParams({ workspace, path, file: "true" })}`,

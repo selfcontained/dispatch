@@ -1,21 +1,27 @@
 // @vitest-environment jsdom
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { ChangesSvgPreview } from "./changes-svg-preview";
 import { api } from "@/lib/api";
+import { applyDiffStateChanged } from "@/hooks/use-sse";
 vi.mock("@/lib/api", () => ({ api: vi.fn() }));
 afterEach(() => {
   cleanup();
   vi.resetAllMocks();
 });
-function mount() {
+function mount(
+  client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+) {
   return render(
-    <QueryClientProvider
-      client={
-        new QueryClient({ defaultOptions: { queries: { retry: false } } })
-      }
-    >
+    <QueryClientProvider client={client}>
       <ChangesSvgPreview agentId="agent" workspace="/work" path="viewbox.svg">
         <p>Original diff</p>
       </ChangesSvgPreview>
@@ -49,4 +55,31 @@ it("does not render a source for non-SVG bytes", async () => {
   fireEvent.click(screen.getByRole("radio", { name: "Preview" }));
   expect(await screen.findByText(/SVG preview unavailable/)).toBeTruthy();
   expect(screen.queryByRole("img")).toBeNull();
+});
+
+it("refreshes an active Preview on a diff-change event while Diff stays request-free", async () => {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  vi.mocked(api).mockResolvedValue({
+    kind: "svg",
+    src: "data:image/svg+xml;base64,b2xk",
+  });
+  mount(client);
+  act(() => applyDiffStateChanged(client, "agent", null));
+  expect(api).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("radio", { name: "Preview" }));
+  await screen.findByRole("img");
+  vi.mocked(api).mockResolvedValue({
+    kind: "svg",
+    src: "data:image/svg+xml;base64,bmV3",
+  });
+  act(() => applyDiffStateChanged(client, "agent", null));
+  await waitFor(() =>
+    expect(screen.getByRole("img").getAttribute("src")).toContain("bmV3")
+  );
+  fireEvent.click(screen.getByRole("radio", { name: "Diff" }));
+  vi.mocked(api).mockClear();
+  act(() => applyDiffStateChanged(client, "agent", null));
+  expect(api).not.toHaveBeenCalled();
 });
