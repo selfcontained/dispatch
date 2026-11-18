@@ -1,3 +1,4 @@
+import { RunnerSettings } from "./runner-settings";
 import { RoutingSettings } from "./routing-settings";
 import { lazy, Suspense } from "react";
 import { Database, Server, Settings } from "lucide-react";
@@ -231,7 +232,14 @@ export function SettingsContent({
           <SecuritySettings onLogout={onLogout} />
         )}
         {activeSection === "notifications" && <NotificationSettings />}
-        {activeSection === "connections" && <BrowserExtensionSettings />}
+        {activeSection === "connections" && (
+          <>
+            <BrowserExtensionSettings />
+            <div className="mx-auto w-full max-w-4xl px-4 pb-6 md:px-6">
+              <RunnerSettings />
+            </div>
+          </>
+        )}
         {activeSection === "resources" && <ServiceResourcesSettings />}
         {activeSection === "updates" && (
           <div className="flex flex-col">

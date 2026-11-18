@@ -11,6 +11,7 @@ import { AgentEngineFields } from "@/components/app/agent-engine-fields";
 import { ContextPicker } from "@/components/app/context-picker";
 import { CONTEXT_PROMPT_ID } from "@/components/app/create-agent-dialog-utils";
 import { WorktreeSection } from "@/components/app/create-agent-worktree-section";
+import { RunnerPicker } from "@/components/app/runner-picker";
 import { PathInput } from "@/components/app/path-input";
 import { useCreateAgentForm } from "@/components/app/use-create-agent-form";
 import { ActivityBars } from "@/components/ui/activity-bars";
@@ -152,30 +153,39 @@ function CreateAgentDialogContent({
                   <TaskContextCard task={task} />
                 ) : (
                   <div className="space-y-1">
-                    <ProjectLocation
-                      projectId={form.createProjectId}
-                      rememberedProjectId={form.lastProjectId}
-                      onChange={(p) => {
-                        form.setCreateProjectId(p?.id ?? null);
-                      }}
-                    >
-                      <PathInput
-                        value={form.createCwd}
-                        onChange={form.setCreateCwd}
-                        history={form.cwdHistory}
-                        removableHistory={form.removableCwdHistory}
-                        historyMetadata={form.cwdHistoryMetadata}
-                        onRemoveHistory={form.removeCwdHistory}
-                        onPathInfoChange={form.handlePathInfoChange}
-                        data-testid="create-agent-cwd"
-                        historyItemTestId="create-agent-cwd-history-option"
-                      />
-                    </ProjectLocation>
+                    <RunnerPicker
+                      runners={form.runners}
+                      runnerId={form.runnerId}
+                      onRunnerChange={form.selectRunner}
+                      workspace={form.runnerWorkspace}
+                      onWorkspaceChange={form.setRunnerWorkspace}
+                    />
+                    <div hidden={Boolean(form.runnerId)}>
+                      <ProjectLocation
+                        projectId={form.createProjectId}
+                        rememberedProjectId={form.lastProjectId}
+                        onChange={(p) => {
+                          form.setCreateProjectId(p?.id ?? null);
+                        }}
+                      >
+                        <PathInput
+                          value={form.createCwd}
+                          onChange={form.setCreateCwd}
+                          history={form.cwdHistory}
+                          removableHistory={form.removableCwdHistory}
+                          historyMetadata={form.cwdHistoryMetadata}
+                          onRemoveHistory={form.removeCwdHistory}
+                          onPathInfoChange={form.handlePathInfoChange}
+                          data-testid="create-agent-cwd"
+                          historyItemTestId="create-agent-cwd-history-option"
+                        />
+                      </ProjectLocation>
+                    </div>
                   </div>
                 )}
 
                 <AgentPersonaSelect
-                  cwd={form.createCwd}
+                  cwd={form.runnerId ? "" : form.createCwd}
                   value={form.createPersona}
                   onChange={form.setCreatePersona}
                 />
