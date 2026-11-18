@@ -2,6 +2,7 @@ import type { Effort } from "@dispatch/shared";
 import { useAtom } from "jotai";
 import { useProjects } from "@/hooks/use-projects";
 import { createAgentLocationPrefAtom } from "@/lib/store";
+import { runnerLocator, useRunners } from "@/hooks/use-runners";
 import {
   type ClipboardEvent,
   type FormEvent,
@@ -61,6 +62,21 @@ export function useCreateAgentForm({
   task = null,
   onCreated,
 }: UseCreateAgentFormOptions) {
+  // null runner = this Mac (the default). A runner swaps the folder for one
+  // of its approved workspaces, addressed by a runner:// locator.
+  const { data: runners = [] } = useRunners();
+  const [runnerId, setRunnerId] = useState<string | null>(null);
+  const [runnerWorkspace, setRunnerWorkspace] = useState<string | null>(null);
+  const runner = runnerId ? runners.find((r) => r.id === runnerId) : undefined;
+  const remote = Boolean(runnerId);
+  const remoteCwd =
+    runner && runnerWorkspace
+      ? runnerLocator(runner.name, runnerWorkspace)
+      : "";
+  const selectRunner = (id: string | null) => {
+    setRunnerId(id);
+    setRunnerWorkspace(null);
+  };
   const [locationPref, setLocationPref] = useAtom(createAgentLocationPrefAtom);
   const { data: projects = [], isSuccess: projectsLoaded } = useProjects();
   // The scope seeds this opening, but a picker choice (including Folder)
@@ -76,10 +92,14 @@ export function useCreateAgentForm({
         (locationPref?.mode === "project" ? locationPref.projectId : null));
   const project = projects.find((p) => p.id === selectedProjectId);
   // Keep a pending choice while loading, but never submit an unavailable ID.
-  const createProjectId = projectsLoaded
-    ? (project?.id ?? null)
-    : selectedProjectId;
-  const locationReady = !selectedProjectId || projectsLoaded;
+  const createProjectId = runnerId
+    ? null
+    : projectsLoaded
+      ? (project?.id ?? null)
+      : selectedProjectId;
+  const locationReady = runnerId
+    ? Boolean(remoteCwd)
+    : !selectedProjectId || projectsLoaded;
   const setCreateProjectId = (id: string | null) => {
     setLocationChoice({ projectId: id });
     setLocationPref({
@@ -103,7 +123,7 @@ export function useCreateAgentForm({
     const resolved = resolveDefaultCwd().trim();
     return resolved || readLastUsedCwd();
   });
-  const createCwd = project?.repoRoot ?? folderCwd;
+  const createCwd = remote ? remoteCwd : (project?.repoRoot ?? folderCwd);
   const [createCwdInitialized, setCreateCwdInitialized] = useState(
     () => createCwd.trim().length > 0
   );
@@ -334,10 +354,10 @@ export function useCreateAgentForm({
             });
 
         if (typeof window !== "undefined") {
-          window.localStorage.setItem(LAST_USED_CWD_KEY, cwd);
+          if (!remote) window.localStorage.setItem(LAST_USED_CWD_KEY, cwd);
           window.localStorage.setItem(LAST_USED_TYPE_KEY, createType);
         }
-        addCwdHistory(cwd);
+        if (!remote) addCwdHistory(cwd);
         await onCreated(payload.agent, createType);
       } catch (err) {
         const message =
@@ -351,6 +371,7 @@ export function useCreateAgentForm({
       createBaseBranch,
       locationReady,
       createCwd,
+      remote,
       createProjectId,
       createFullAccess,
       createName,
@@ -373,6 +394,11 @@ export function useCreateAgentForm({
   );
 
   return {
+    runners,
+    runnerId,
+    selectRunner,
+    runnerWorkspace,
+    setRunnerWorkspace,
     createProjectId,
     locationReady,
     lastProjectId: locationPref?.projectId,
