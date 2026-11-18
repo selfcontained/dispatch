@@ -233,6 +233,8 @@ export class HostClient {
             (message.type === "event" &&
               (!this.lastWelcome ||
                 message.event?.agentId !== this.deps.agentId ||
+                (message.journalId !== undefined &&
+                  message.journalId !== this.lastWelcome.journalId) ||
                 !Number.isSafeInteger(message.seq) ||
                 message.seq < 1)))
         ) {

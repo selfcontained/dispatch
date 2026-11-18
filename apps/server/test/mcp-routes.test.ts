@@ -42,6 +42,7 @@ function createMockDeps() {
     // Only the chat-surface flag reads it from these routes.
     pool: { query: vi.fn(async () => ({ rows: [] })) } as never,
     agentManager: {
+      permitsRemoteAgentMcp: vi.fn(() => false),
       getAgent: vi.fn(async () => ({
         id: "agt_test1",
         cwd: "/tmp/test",
@@ -408,4 +409,23 @@ describe("Codex reset dependency forwarding", () => {
       expect(deps.redeemCodexReset).not.toHaveBeenCalled();
     }
   );
+});
+
+it("denies agent MCP after the agent's runner registration is revoked", async () => {
+  const agent = await deps.agentManager.getAgent();
+  deps.agentManager.getAgent.mockResolvedValueOnce({
+    ...agent,
+    cwd: "runner://rnr_old/proof",
+  });
+  const response = await app.inject({
+    method: "POST",
+    url: "/api/mcp/agt_test1",
+    payload: {},
+  });
+  expect(response.statusCode).toBe(403);
+  expect(deps.agentManager.permitsRemoteAgentMcp).toHaveBeenCalledWith({
+    runner: "rnr_old",
+    workspace: "proof",
+  });
+  expect(deps.jobService.getActiveRunForAgent).not.toHaveBeenCalled();
 });

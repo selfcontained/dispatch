@@ -2416,9 +2416,15 @@ export class AgentManager {
     return this.reconciler.reconcileAgentStatuses();
   }
 
+  permitsRemoteAgentMcp(
+    placement: NonNullable<ReturnType<typeof remotePlacement>>
+  ): boolean {
+    return this.remote?.permitsAgentMcp(placement) ?? false;
+  }
+
   remoteRepoOperation(agent: AgentRecord): (() => Promise<string>) | undefined {
     const placement = remotePlacement(agent.cwd);
-    if (!placement || !this.remote?.repoTool) return undefined;
+    if (!placement || !this.remote?.repoToolFor(placement)) return undefined;
     return async () =>
       String(
         (

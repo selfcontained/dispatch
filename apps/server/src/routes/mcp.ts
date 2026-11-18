@@ -323,6 +323,13 @@ export async function registerMcpRoutes(
       return reply.code(404).send({ error: "Agent not found." });
     }
 
+    const placement = remotePlacement(agent.cwd);
+    if (placement && !deps.agentManager.permitsRemoteAgentMcp(placement)) {
+      return reply
+        .code(403)
+        .send({ error: "The runner registration is no longer active." });
+    }
+
     const activeJobRun = await deps.jobService.getActiveRunForAgent(agentId);
     if (activeJobRun) {
       return reply
