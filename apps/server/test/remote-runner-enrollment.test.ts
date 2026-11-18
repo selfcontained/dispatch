@@ -9,6 +9,7 @@ import { exchangeCode } from "../src/agents/remote/enrollment.js";
 import { wireFrames, type Frame } from "../src/agents/remote/protocol.js";
 import { RunnerRegistry } from "../src/agents/remote/registry.js";
 import {
+  advertisedHost,
   RemoteRunnerService,
   RunnerRequestError,
   RunnerUnavailable,
@@ -624,5 +625,39 @@ describe("legacy runner config", () => {
     await writeFile(approval, "");
     expect(service.permitsAgentMcp(place)).toBe(false);
     expect(service.repoToolFor(place)).toBe(false);
+  });
+});
+
+describe("advertised pairing host", () => {
+  const nic = (address: string, internal = false) => ({
+    address,
+    internal,
+    family: "IPv4" as const,
+    netmask: "255.255.255.0",
+    mac: "00:00:00:00:00:00",
+    cidr: null,
+  });
+  const interfaces = {
+    lo0: [nic("127.0.0.1", true)],
+    utun0: [nic("100.64.1.2")],
+    en0: [nic("192.168.1.246")],
+  };
+
+  it("keeps a reachable request host", () => {
+    expect(advertisedHost("studio.local", interfaces, "studio")).toBe(
+      "studio.local"
+    );
+    expect(advertisedHost("10.0.0.5", interfaces, "studio")).toBe("10.0.0.5");
+  });
+
+  it("replaces loopback with a private LAN address", () => {
+    for (const hint of ["localhost", "127.0.0.1", "::1", "[::1]", undefined])
+      expect(advertisedHost(hint, interfaces, "studio")).toBe("192.168.1.246");
+  });
+
+  it("falls back to the hostname without a LAN address", () => {
+    expect(
+      advertisedHost("localhost", { lo0: [nic("127.0.0.1", true)] }, "studio")
+    ).toBe("studio");
   });
 });

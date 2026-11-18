@@ -74,10 +74,12 @@ reaches it. `POST /api/runners/:id/pair` renews or re-keys a runner. It issues
 a new one-time command for the same id, and pairing with it retires the old
 certificate and connection. Restart the runner service afterwards.
 
-The listener binds `DISPATCH_RUNNER_HOST`, which defaults to the API host. It
+The listener binds `DISPATCH_RUNNER_HOST`, which defaults to all interfaces (`0.0.0.0`) even when the API itself is loopback-only. It opens only once a registration exists. It
 uses `DISPATCH_RUNNER_PORT` when set. Otherwise it uses the persisted port, and
 on first start a free port. `DISPATCH_RUNNER_ENDPOINT_HOST` overrides the host
-written into commands, which otherwise comes from the request's Host header.
+written into commands. Otherwise the host comes from the request's Host header. A loopback
+request, such as the desktop app on `localhost`, advertises this machine's
+private LAN IPv4 address instead, falling back to its hostname.
 The listener certificate gains each advertised host automatically. Unless
 `DISPATCH_RUNNER_MCP_ORIGIN` is set, the agent MCP origin is the runner
 listener itself. It forwards `/api/mcp/<agentId>` only with that agent's
