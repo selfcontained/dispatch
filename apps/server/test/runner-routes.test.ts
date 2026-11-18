@@ -53,7 +53,7 @@ describe("runner control API", () => {
       method: "POST",
       url: "/api/runners",
       headers: { cookie },
-      payload: { name: "../x" },
+      payload: { name: " padded" },
     });
     expect(bad.statusCode).toBe(400);
     const duplicate = await ctx.app.inject({
@@ -74,6 +74,19 @@ describe("runner control API", () => {
         { id: body.id, name: "lima", status: "pending", workspaces: [] },
       ],
     });
+
+    const renewal = await ctx.app.inject({
+      method: "POST",
+      url: `/api/runners/${body.id}/pair`,
+      headers: { cookie },
+    });
+    expect(renewal.statusCode).toBe(201);
+    expect(renewal.json().id).toBe(body.id);
+    const unauthenticatedRenewal = await ctx.app.inject({
+      method: "POST",
+      url: `/api/runners/${body.id}/pair`,
+    });
+    expect(unauthenticatedRenewal.statusCode).toBe(401);
 
     const revoked = await ctx.app.inject({
       method: "DELETE",

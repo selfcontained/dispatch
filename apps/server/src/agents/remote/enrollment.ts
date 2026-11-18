@@ -19,7 +19,33 @@ export type EnrollFrame =
   | { type: "enrolled"; id: string; name: string; cert: string; ca: string }
   | { type: "enroll_error"; error: string };
 
-export const RUNNER_NAME = /^[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?$/;
+/** Display names only; placements address runners by registration id. */
+export function validRunnerName(name: unknown): name is string {
+  return (
+    typeof name === "string" &&
+    name === name.trim() &&
+    name.length > 0 &&
+    name.length <= 64 &&
+    !/[\x00-\x1f\x7f-\x9f]/u.test(name)
+  );
+}
+
+/** Mirrors the runner protocol's opaque workspace identity rule. */
+export function validWorkspaceId(value: unknown): value is string {
+  if (
+    typeof value !== "string" ||
+    value.length === 0 ||
+    value.length > 128 ||
+    /[\x00-\x1f\x7f-\x9f]/u.test(value)
+  )
+    return false;
+  try {
+    encodeURIComponent(value);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 export function formatHost(host: string) {
   return isIP(host) === 6 ? `[${host}]` : host;

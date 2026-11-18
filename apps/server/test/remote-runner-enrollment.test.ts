@@ -9,6 +9,7 @@ import { exchangeCode } from "../src/agents/remote/enrollment.js";
 import { wireFrames, type Frame } from "../src/agents/remote/protocol.js";
 import { RunnerRegistry } from "../src/agents/remote/registry.js";
 import {
+  advertisedHost,
   RemoteRunnerService,
   RunnerRequestError,
   RunnerUnavailable,
@@ -121,16 +122,21 @@ describe("runner enrollment service", () => {
   const services: RemoteRunnerService[] = [];
   const runners: FakeRunner[] = [];
 
-  const makeService = (port?: number) => {
+  const makeService = (repoTool?: boolean | string[]) => {
     const service = new RemoteRunnerService(
       undefined,
       {
         registry: new RunnerRegistry(pool),
         host: HOST,
-        port,
         endpointHost: HOST,
+        repoTool,
       },
-      { host: HOST, port: (api.address() as AddressInfo).port, tls: false }
+      {
+        host: HOST,
+        port: (api.address() as AddressInfo).port,
+        tls: false,
+        validAgentToken: (token, agentId) => token === `agent-token:${agentId}`,
+      }
     );
     services.push(service);
     return service;
@@ -224,7 +230,11 @@ describe("runner enrollment service", () => {
       })
     );
     await waitFor(() =>
-      service.available({ runner: "alpha", workspace: "proof" })
+      service.available({ runner: created.id, workspace: "proof" })
+    );
+    // Placements address the opaque registration id, never the name.
+    expect(service.available({ runner: "alpha", workspace: "proof" })).toBe(
+      false
     );
     expect(await service.list()).toEqual([
       {
@@ -238,9 +248,12 @@ describe("runner enrollment service", () => {
 
   it("validates names and rejects duplicates", async () => {
     const service = makeService();
-    await expect(service.createRegistration("Bad Name")).rejects.toMatchObject({
-      status: 400,
-    });
+    for (const bad of [" padded", "", "x".repeat(65), "tab\tname", 7])
+      await expect(service.createRegistration(bad)).rejects.toMatchObject({
+        status: 400,
+      });
+    // Display names are free-form; only the id addresses placements.
+    await service.createRegistration("Lima VM (arm64)");
     await service.createRegistration("dup");
     await expect(service.createRegistration("dup")).rejects.toBeInstanceOf(
       RunnerRequestError
@@ -269,8 +282,8 @@ describe("runner enrollment service", () => {
       workspaces: ["proof"],
     });
     runners.push(alpha, beta);
-    const alphaPlace = { runner: "alpha", workspace: "proof" };
-    const betaPlace = { runner: "beta", workspace: "proof" };
+    const alphaPlace = { runner: a.id, workspace: "proof" };
+    const betaPlace = { runner: b.id, workspace: "proof" };
     await waitFor(
       () => service.available(alphaPlace) && service.available(betaPlace)
     );
@@ -329,7 +342,133 @@ describe("runner enrollment service", () => {
     });
     runners.push(rogue);
     await rogue.closed;
-    expect(service.available({ runner: "alpha", workspace: "proof" })).toBe(
+    expect(service.available({ runner: a.id, workspace: "proof" })).toBe(false);
+  });
+
+  it("never routes an old placement to a re-paired runner with the same name", async () => {
+    const service = makeService(true);
+    const old = await enroll(service, "lima");
+    const oldPlace = { runner: old.id, workspace: "proof" };
+    expect(service.permitsAgentMcp(oldPlace)).toBe(true);
+    await service.revoke(old.id);
+    expect(service.permitsAgentMcp(oldPlace)).toBe(false);
+    expect(service.repoToolFor(oldPlace)).toBe(false);
+
+    const fresh = await enroll(service, "lima");
+    expect(fresh.id).not.toBe(old.id);
+    const freshPlace = { runner: fresh.id, workspace: "proof" };
+    // Offline but active: the agent's MCP credential stays valid.
+    expect(service.permitsAgentMcp(freshPlace)).toBe(true);
+    const runner = await dialRunner({
+      endpoint: fresh.endpoint,
+      ca: fresh.ca,
+      cert: fresh.cert,
+      key: fresh.key,
+      label: "fresh",
+      workspaces: ["proof"],
+    });
+    runners.push(runner);
+    await waitFor(() => service.available(freshPlace));
+    expect(service.available(oldPlace)).toBe(false);
+    await expect(
+      service.request(oldPlace, {
+        kind: "alive",
+        agentId: "agt_old",
+        workspace: "proof",
+      })
+    ).rejects.toBeInstanceOf(RunnerUnavailable);
+    expect(runner.requests.some((f) => f.type === "request")).toBe(false);
+    expect(
+      service.permitsAgentMcp({ runner: "rnr_unknown", workspace: "proof" })
+    ).toBe(false);
+    const listed = await service.list();
+    expect(listed.map((r) => [r.name, r.status])).toEqual([
+      ["lima", "revoked"],
+      ["lima", "online"],
+    ]);
+  });
+
+  it("renews a certificate under the same id and retires the old one", async () => {
+    const service = makeService();
+    const a = await enroll(service, "alpha");
+    const place = { runner: a.id, workspace: "proof" };
+    const before = await dialRunner({
+      endpoint: a.endpoint,
+      ca: a.ca,
+      cert: a.cert,
+      key: a.key,
+      label: "old",
+      workspaces: ["proof"],
+    });
+    runners.push(before);
+    await waitFor(() => service.available(place));
+
+    const renewal = await service.reissueRegistration(a.id);
+    expect(renewal.id).toBe(a.id);
+    const { endpoint, pin, code } = parseCommand(renewal.command);
+    const key = generateRunnerKey();
+    const renewed = await exchangeCode({
+      endpoint,
+      pin,
+      code,
+      publicKey: key.publicKey,
+    });
+    expect(renewed.id).toBe(a.id);
+    await before.closed;
+
+    const stale = await dialRunner({
+      endpoint: a.endpoint,
+      ca: a.ca,
+      cert: a.cert,
+      key: a.key,
+      label: "old",
+      workspaces: ["proof"],
+    });
+    runners.push(stale);
+    await stale.closed;
+    const after = await dialRunner({
+      endpoint,
+      ca: renewed.ca,
+      cert: renewed.cert,
+      key: key.key,
+      label: "new",
+      workspaces: ["proof"],
+    });
+    runners.push(after);
+    await waitFor(() => service.available(place));
+    expect(
+      (
+        await service.request(place, {
+          kind: "alive",
+          agentId: "agt_x",
+          workspace: "proof",
+        })
+      ).value
+    ).toBe("new");
+    await service.revoke(a.id);
+    await expect(service.reissueRegistration(a.id)).rejects.toMatchObject({
+      status: 404,
+    });
+  });
+
+  it("scopes the repo operation to approved placements", async () => {
+    const service = makeService();
+    const a = await enroll(service, "alpha");
+    const b = await enroll(service, "beta");
+    const scoped = makeService([`${a.id}/proof`, b.id]);
+    await scoped.startEnrolled();
+    expect(service.repoToolFor({ runner: a.id, workspace: "proof" })).toBe(
+      false
+    );
+    expect(scoped.repoToolFor({ runner: a.id, workspace: "proof" })).toBe(true);
+    expect(scoped.repoToolFor({ runner: a.id, workspace: "other" })).toBe(
+      false
+    );
+    expect(scoped.repoToolFor({ runner: b.id, workspace: "anything" })).toBe(
+      true
+    );
+    await scoped.revoke(b.id);
+    expect(scoped.repoToolFor({ runner: b.id, workspace: "anything" })).toBe(
       false
     );
   });
@@ -337,15 +476,14 @@ describe("runner enrollment service", () => {
   it("persists the CA, port and registrations across a service restart", async () => {
     const first = makeService();
     const a = await enroll(first, "alpha");
+    const place = (workspace: string) => ({ runner: a.id, workspace });
     const port = Number(new URL(a.endpoint).port);
     first.close();
     services.splice(services.indexOf(first), 1);
 
     const second = makeService();
     await second.startEnrolled();
-    expect(second.originFor({ runner: "alpha", workspace: "proof" })).toBe(
-      `https://127.0.0.1:${port}`
-    );
+    expect(second.originFor(place("proof"))).toBe(`https://127.0.0.1:${port}`);
     runners.push(
       await dialRunner({
         endpoint: a.endpoint,
@@ -356,9 +494,7 @@ describe("runner enrollment service", () => {
         workspaces: ["proof", "other"],
       })
     );
-    await waitFor(() =>
-      second.available({ runner: "alpha", workspace: "other" })
-    );
+    await waitFor(() => second.available(place("other")));
     second.close();
     services.splice(services.indexOf(second), 1);
     // Last reported workspaces survive while offline.
@@ -373,7 +509,7 @@ describe("runner enrollment service", () => {
     });
   });
 
-  it("proxies only bearer-authenticated agent MCP routes to the API", async () => {
+  it("proxies only agent-token MCP routes with allow-listed headers", async () => {
     const service = makeService();
     const a = await enroll(service, "alpha");
     const origin = new URL(a.endpoint);
@@ -408,15 +544,120 @@ describe("runner enrollment service", () => {
       (await get("/api/v1/agents", { authorization: "Bearer x" })).status
     ).toBe(404);
     expect((await get("/api/mcp/agt_abc")).status).toBe(404);
+    // Non-agent credentials (e.g. the admin API token) never pass.
+    expect(
+      (await get("/api/mcp/agt_abc", { authorization: "Bearer admin" }, "POST"))
+        .status
+    ).toBe(404);
+    expect(
+      (
+        await get(
+          "/api/mcp/agt_abc",
+          { authorization: "Bearer agent-token:agt_other" },
+          "POST"
+        )
+      ).status
+    ).toBe(404);
     apiRequests.length = 0;
     expect(
       await get(
         "/api/mcp/agt_abc",
-        { authorization: "Bearer token", cookie: "dispatch_session=secret" },
+        {
+          authorization: "Bearer agent-token:agt_abc",
+          cookie: "dispatch_session=secret",
+          "x-forwarded-for": "10.0.0.1",
+          "x-dispatch-admin": "1",
+          origin: "https://evil.example",
+          "mcp-session-id": "s1",
+        },
         "POST"
       )
     ).toEqual({ status: 200, body: "api:/api/mcp/agt_abc" });
-    expect(apiRequests[0]?.headers.authorization).toBe("Bearer token");
-    expect(apiRequests[0]?.headers.cookie).toBeUndefined();
+    const forwarded = apiRequests[0]!.headers;
+    expect(forwarded.authorization).toBe("Bearer agent-token:agt_abc");
+    expect(forwarded["mcp-session-id"]).toBe("s1");
+    for (const name of [
+      "cookie",
+      "x-forwarded-for",
+      "x-dispatch-admin",
+      "origin",
+    ])
+      expect(forwarded[name], name).toBeUndefined();
+    // /ping carries no credentials upstream.
+    apiRequests.length = 0;
+    await get("/ping", { authorization: "Bearer agent-token:agt_abc" });
+    expect(apiRequests[0]?.headers.authorization).toBeUndefined();
+  });
+});
+
+describe("legacy runner config", () => {
+  it("keeps its locator and gates MCP on the live approval file", async () => {
+    const { mkdtemp, writeFile } = await import("node:fs/promises");
+    const { tmpdir } = await import("node:os");
+    const path = await import("node:path");
+    const dir = await mkdtemp(path.join(tmpdir(), "legacy-runner-"));
+    const approval = path.join(dir, "approval");
+    await writeFile(approval, "AA:BB\n");
+    const service = new RemoteRunnerService({
+      id: "lima",
+      host: HOST,
+      port: 0,
+      cert: "",
+      key: "",
+      ca: "",
+      approval,
+      workspaces: ["proof"],
+      endpointHost: "host.lima.internal",
+      repoTool: true,
+    });
+    const place = { runner: "lima", workspace: "proof" };
+    expect(service.permitsAgentMcp(place)).toBe(true);
+    expect(service.repoToolFor(place)).toBe(true);
+    expect(service.permitsAgentMcp({ runner: "lima", workspace: "x" })).toBe(
+      false
+    );
+    expect(service.originFor(place)).toBe("https://host.lima.internal:0");
+    expect((await service.list())[0]).toMatchObject({
+      id: "lima",
+      name: "lima",
+    });
+    await expect(service.revoke("lima")).rejects.toMatchObject({ status: 409 });
+    await writeFile(approval, "");
+    expect(service.permitsAgentMcp(place)).toBe(false);
+    expect(service.repoToolFor(place)).toBe(false);
+  });
+});
+
+describe("advertised pairing host", () => {
+  const nic = (address: string, internal = false) => ({
+    address,
+    internal,
+    family: "IPv4" as const,
+    netmask: "255.255.255.0",
+    mac: "00:00:00:00:00:00",
+    cidr: null,
+  });
+  const interfaces = {
+    lo0: [nic("127.0.0.1", true)],
+    utun0: [nic("100.64.1.2")],
+    en0: [nic("192.168.1.246")],
+  };
+
+  it("keeps a reachable request host", () => {
+    expect(advertisedHost("studio.local", interfaces, "studio")).toBe(
+      "studio.local"
+    );
+    expect(advertisedHost("10.0.0.5", interfaces, "studio")).toBe("10.0.0.5");
+  });
+
+  it("replaces loopback with a private LAN address", () => {
+    for (const hint of ["localhost", "127.0.0.1", "::1", "[::1]", undefined])
+      expect(advertisedHost(hint, interfaces, "studio")).toBe("192.168.1.246");
+  });
+
+  it("falls back to the hostname without a LAN address", () => {
+    expect(
+      advertisedHost("localhost", { lo0: [nic("127.0.0.1", true)] }, "studio")
+    ).toBe("studio");
   });
 });

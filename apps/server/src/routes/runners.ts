@@ -54,6 +54,25 @@ export async function registerRunnerRoutes(
       }
     });
 
+    // Renew or re-key: a new one-time pairing command for the same id.
+    app.post(`${base}/:id/pair`, async (request, reply) => {
+      const { id } = request.params as { id: string };
+      if (!deps.runners)
+        return reply.code(404).send({ error: "Runner not found." });
+      try {
+        return reply
+          .code(201)
+          .send(
+            await deps.runners.reissueRegistration(
+              id,
+              hostHint(request.headers.host)
+            )
+          );
+      } catch (error) {
+        return fail(reply, error);
+      }
+    });
+
     app.delete(`${base}/:id`, async (request, reply) => {
       const { id } = request.params as { id: string };
       if (!deps.runners)
