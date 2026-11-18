@@ -5,11 +5,20 @@ import path from "node:path";
 
 import { DIFF_IMAGE_MAX_BYTES, type DiffImageInfo } from "@dispatch/shared";
 
-import { imageMimeType, isImageFile } from "../file-types.js";
+import { imageMimeType as attachmentImageMimeType } from "../file-types.js";
 import { resolveBaseRef } from "./base-ref.js";
 import { runCommand, type CommandRunner } from "../lib/run-command.js";
 
-export { imageMimeType, isImageFile };
+// SVG keeps its useful textual git diff. Attachment previews support SVG,
+// but this endpoint deliberately continues to serve raster images only.
+export function imageMimeType(name: string): string | null {
+  const mime = attachmentImageMimeType(name);
+  return mime === "image/svg+xml" ? null : mime;
+}
+
+export function isImageFile(name: string): boolean {
+  return imageMimeType(name) !== null;
+}
 
 const GIT_TIMEOUT_MS = 15_000;
 

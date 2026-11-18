@@ -14,6 +14,7 @@
  * upload accept-list and the Changes pane's image previews derive from it.
  */
 const IMAGE_MIME_BY_EXTENSION: Readonly<Record<string, string>> = {
+  ".svg": "image/svg+xml",
   ".png": "image/png",
   ".jpg": "image/jpeg",
   ".jpeg": "image/jpeg",
@@ -98,12 +99,7 @@ export function isDocumentFile(name: string): boolean {
   return DOCUMENT_EXTENSIONS.has(fileExtension(name));
 }
 
-/**
- * Raster image formats every browser renders without a plugin. Deliberately
- * without `.svg`: SVG is text (so git already produces a real textual diff for
- * it) and it carries script, which an <img> in the Changes pane must never
- * load.
- */
+/** Browser image formats. SVG must only be embedded through an img element. */
 export function isImageFile(name: string): boolean {
   return imageMimeType(name) !== null;
 }
@@ -127,6 +123,7 @@ export const FILE_UPLOAD_ACCEPT = [
 ].join(",");
 
 const MIME_TO_EXT: Record<string, string> = {
+  "image/svg+xml": ".svg",
   "image/png": ".png",
   "image/jpeg": ".jpg",
   "image/gif": ".gif",

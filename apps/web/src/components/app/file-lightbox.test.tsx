@@ -57,6 +57,31 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("FileLightbox", () => {
+  it("shows SVG in the img lightbox without raster markup", () => {
+    const svg = {
+      ...file("2026-08-31T00:00:00Z"),
+      name: "icon.svg",
+      mimeType: "image/svg+xml",
+      url: "/icon.svg",
+    };
+    render(
+      <QueryClientProvider client={queryClient()}>
+        <FileLightbox
+          files={[svg]}
+          fileId={7}
+          fileIds={[7]}
+          setFileId={vi.fn()}
+        />
+      </QueryClientProvider>
+    );
+    expect(
+      screen
+        .getByTestId("file-lightbox-image-viewport")
+        .querySelector("img")
+        ?.getAttribute("src")
+    ).toContain("/icon.svg");
+    expect(screen.queryByRole("button", { name: "Markup" })).toBeNull();
+  });
   it("keeps a task attachment open when the registry has a cached 404 for the same id", async () => {
     const client = queryClient();
     await client

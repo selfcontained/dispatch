@@ -345,6 +345,22 @@ describe("GET /api/v1/agents/:id/files/:file (serve)", () => {
     expect(res.headers["content-type"]).toContain("application/json");
   });
 
+  it("serves SVG with a strict sandbox and nosniff", async () => {
+    await storeFile(
+      "art.svg",
+      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 50"><script>alert(1)</script></svg>',
+      "image/svg+xml"
+    );
+    const res = await authedInject(
+      "GET",
+      `/api/v1/agents/${agentId}/files/art.svg`
+    );
+    expect(res.statusCode).toBe(200);
+    expect(res.headers["content-type"]).toContain("image/svg+xml");
+    expect(res.headers["content-security-policy"]).toBe("sandbox");
+    expect(res.headers["x-content-type-options"]).toBe("nosniff");
+  });
+
   it("serves HTML sandboxed so it cannot run same-origin", async () => {
     await storeFile("report.html", "<h1>hello</h1>", "text/html");
 

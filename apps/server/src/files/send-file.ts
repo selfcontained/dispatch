@@ -101,10 +101,12 @@ export async function sendStoredFile(
   // passive types are exempt; anything a browser might render as a
   // document (html, xml/xhtml, …) gets an opaque origin.
   const isPassive =
-    contentType.startsWith("image/") ||
+    (contentType.startsWith("image/") && contentType !== "image/svg+xml") ||
     contentType === "video/mp4" ||
     contentType === "application/pdf";
-  if (!isPassive) {
+  if (contentType === "image/svg+xml") {
+    reply.header("Content-Security-Policy", "sandbox");
+  } else if (!isPassive) {
     reply.header(
       "Content-Security-Policy",
       "sandbox allow-scripts allow-popups"

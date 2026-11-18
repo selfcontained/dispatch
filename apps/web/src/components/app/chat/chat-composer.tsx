@@ -1447,6 +1447,8 @@ export function ChatComposer({
                     noteCount={view.entry.callouts?.length}
                     onOpen={
                       isImageAttachment(view.file) &&
+                      view.file.type !== "image/svg+xml" &&
+                      !/\.svg$/i.test(view.file.name) &&
                       previewsRef.current.has(view.key) &&
                       !inFlight
                         ? () => setMarkupKey(view.key)
