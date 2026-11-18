@@ -11,6 +11,7 @@ export type Runner = {
   status: RunnerStatus;
   workspaces: string[];
   managedWorkspace?: true;
+  engineManagement?: true;
   health?: RunnerHealth;
   healthReceivedAt?: string;
 };

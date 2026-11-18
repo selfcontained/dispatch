@@ -1,3 +1,4 @@
+import { RunnerEngines } from "@/components/runner-engines/runner-engines";
 import { RunnerHealthDetails } from "./runner-health";
 import { useState } from "react";
 import { Server, Unplug } from "lucide-react";
@@ -36,6 +37,7 @@ const STATUS_DOT: Record<RunnerStatus, string> = {
 export function RunnerSettings(): JSX.Element {
   const runners = useRunners({ poll: true });
   const { revoke } = useRunnerMutations();
+  const [expandedEngines, setExpandedEngines] = useState<string | null>(null);
   const [confirmId, setConfirmId] = useState<string | null>(null);
 
   const list = runners.data ?? [];
@@ -109,6 +111,33 @@ export function RunnerSettings(): JSX.Element {
                     </Badge>
                   </div>
                   <RunnerHealthDetails runner={runner} />
+                  {runner.status === "online" && runner.engineManagement && (
+                    <div className="mt-1 space-y-2">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 px-1 text-xs"
+                        aria-expanded={expandedEngines === runner.id}
+                        aria-label={`Manage engines on ${runner.name}`}
+                        onClick={() =>
+                          setExpandedEngines(
+                            expandedEngines === runner.id ? null : runner.id
+                          )
+                        }
+                      >
+                        Manage engines
+                      </Button>
+                      {expandedEngines === runner.id && (
+                        <RunnerEngines
+                          scope={{
+                            kind: "runner",
+                            runnerId: runner.id,
+                            workspace: runner.workspaces[0] ?? "",
+                          }}
+                        />
+                      )}
+                    </div>
+                  )}
                   {runner.workspaces.length > 0 && !runner.managedWorkspace && (
                     <p className="mt-0.5 break-words text-xs text-muted-foreground">
                       Folders: {runner.workspaces.join(", ")}
