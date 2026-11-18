@@ -236,8 +236,16 @@ export function sequenceCategories(
   return out;
 }
 
-function place(slot: number): string {
-  return `translate(${(slot % COLS) * 100}%, ${Math.floor(slot / COLS) * (CELL_H + ROW_GAP)}px)`;
+/**
+ * A slot's offset in the grid. The column is a fraction of the grid's width
+ * (`cqw`), not a percentage of the cell's own box: WebKit resolves a
+ * percentage translate against the cell's pixel-snapped width, so a move's
+ * animated end and its resting position disagreed by a pixel or more and the
+ * block snapped sideways as it landed. `cqw` is an absolute length once
+ * computed, so every frame and the resting place use the same number.
+ */
+export function place(slot: number): string {
+  return `translate(calc(${slot % COLS} * 100cqw / ${COLS}), ${Math.floor(slot / COLS) * (CELL_H + ROW_GAP)}px)`;
 }
 const tint = (color: string, alpha: number) =>
   `color-mix(in srgb, ${color} ${alpha}%, transparent)`;
@@ -527,7 +535,8 @@ export function ResponsePlaceholderVisual({
             role="status"
             aria-label={statusLabel}
             className="relative w-full"
-            style={{ height: HEIGHT }}
+            // The container `place()` measures columns against.
+            style={{ height: HEIGHT, containerType: "inline-size" }}
           >
             <TooltipTrigger asChild>
               <span

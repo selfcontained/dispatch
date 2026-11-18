@@ -649,3 +649,35 @@ it("dismisses a stationary tooltip when a new grid pass moves its group", async 
   );
   expect(view.queryByRole("tooltip")).toBeNull();
 });
+
+it("moves blocks to offsets measured against the grid, not the block's own box", () => {
+  // WebKit resolves a percentage translate against the cell's pixel-snapped
+  // width, so a tween built from the exact width ended a pixel or more short
+  // of the resting place and the block snapped sideways as it landed.
+  const steps: Step[] = ["read", "edit", "think"].map((kind, i) => ({
+    id: `step-${i}`,
+    kind: kind as Step["kind"],
+    label: kind,
+    status: "ok",
+    startedAt: i,
+    endedAt: i + 1,
+  }));
+  const view = render(<ResponsePlaceholder seed="landing" steps={steps} />);
+  const grid = view.getByRole("status");
+  expect(grid.style.containerType).toBe("inline-size");
+  const cells = [...grid.querySelectorAll<HTMLElement>("[data-defrag-cell]")];
+  const slots = [
+    ...grid.querySelectorAll<HTMLElement>(
+      "span.absolute:not([data-defrag-cell])"
+    ),
+  ].filter((slot) => slot.style.transform);
+  expect(cells.length).toBeGreaterThan(0);
+  const slotTransforms = new Set(slots.map((slot) => slot.style.transform));
+  for (const cell of [...cells, ...slots]) {
+    expect(cell.style.transform).not.toContain("%");
+  }
+  // Every block rests exactly on an empty slot's position.
+  for (const cell of cells) {
+    expect(slotTransforms.has(cell.style.transform)).toBe(true);
+  }
+});
