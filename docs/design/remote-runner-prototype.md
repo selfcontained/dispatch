@@ -110,14 +110,32 @@ optional when `endpointHost` is given.
 `dispatch-runner connect --service https://HOST:PORT [--ca-sha256 HEX]
 [--dir /etc/dispatch-runner] [--config FILE]` enrolls without a pairing
 command typed on the runner: the runner dials the Dispatch service itself.
-It generates its keypair locally (the private key never leaves the host, as
-with the operator-initiated flow above) and `POST /api/runners/connect`
-with only its public key. The service returns a short operator-facing code,
-an opaque high-entropy request id for the CLI's own polling, and, when the
-request carried a usable `Host` header, an `approveUrl` pointing at
-**Settings → Connections → Remote runners** on that same origin. The CLI
-prints the code and URL and polls `GET /api/runners/connect/:id` (addressed
-only by that same opaque id) until an operator approves it.
+`GET /api/runners/connect-command` (authenticated) gives an operator the
+exact invocation to run — it always targets the runner listener's own
+pinned CA and port, so it works even when the ordinary API is loopback-only
+or plain HTTP, and it is reusable: the runner supplies its own one-time
+code, so the same command can be copied onto any number of clean runners.
+
+The runner generates its keypair locally (the private key never leaves the
+host, as with the operator-initiated flow above) and
+`POST /api/runners/connect` with only its public key, reached either
+directly or, for a runner that only has the listener's own pinned CA,
+proxied through that listener the same way `/ping` already is. The service
+returns a short operator-facing code and an opaque high-entropy request id
+for the CLI's own polling. The CLI prints the code and polls
+`GET /api/runners/connect/:id` (addressed only by that same opaque id)
+until an operator approves it.
+
+Both `connect-command` and the create response may also carry an
+`approveUrl` pointing at **Settings → Connections → Remote runners**. For
+`connect-command` it is built from that authenticated call's own (reliable)
+Host header; the create call has no such thing to go on — it comes from the
+runner, not a browser — so it is only ever populated from the explicitly
+configured `DISPATCH_RUNNER_APPROVAL_ORIGIN` (a bare `http://` or `https://`
+origin; `http://` so a Vite dev server's own port can be used, not just a
+production HTTPS origin). Unset, the create response simply omits it and
+the CLI falls back to code-only instructions — honest rather than a guess
+that can point at the wrong origin.
 
 The operator reads the code off the runner's own terminal or logs — it is
 never sent back by the runner — and calls the authenticated
@@ -134,12 +152,12 @@ Approval issues the same kind of mTLS client certificate as pairing above,
 automatically and without a second step, and the poll response that follows
 carries the certificate, the CA, and the `endpoint` to dial — the same
 `runner.json` fields `remote-runner-pair` writes. `--ca-sha256` pins the
-service's certificate chain for a self-signed deployment; unlike pairing,
-pinning happens inside the single connection that carries the actual
-request — nothing is written to the socket until the presented chain
-matches, and there is no separate unauthenticated round trip first. Without
-`--ca-sha256`, the service is expected to hold an ordinarily trusted
-certificate.
+service's certificate chain for a self-signed deployment the same way
+pairing's bootstrap does: the CLI confirms the CA over the same
+`ca_request`/`ca` wire-protocol exchange first, then makes the real request
+over an ordinary, fully chain-and-hostname-verified TLS connection trusting
+only that CA. Without `--ca-sha256`, the service is expected to hold an
+ordinarily trusted certificate.
 
 ## Legacy manual enrollment
 

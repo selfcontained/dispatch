@@ -565,7 +565,13 @@ async function requestJson(
   });
 }
 
-type ConnectCreated = { id: string; code: string; expiresAt: string };
+type ConnectCreated = {
+  id: string;
+  code: string;
+  expiresAt: string;
+  /** Set only when the service has an approval origin configured. */
+  approveUrl?: string;
+};
 type ConnectPoll =
   | { status: "pending" }
   | {
@@ -632,7 +638,9 @@ export async function runRunnerConnect(argv: string[]) {
       // Same reference the pending-requests list shows in Settings, so an
       // operator juggling more than one pending runner can tell them apart.
       `Request: ${created.id.slice(-8)}`,
-      "Ask an operator to approve this runner in Dispatch (Settings → Connections → Remote runners) using this code and request reference.",
+      created.approveUrl
+        ? `Approve at: ${created.approveUrl}`
+        : "Ask an operator to approve this runner using the code and request reference above.",
       `This code expires at ${created.expiresAt}.`,
       "Waiting for approval…",
       "",

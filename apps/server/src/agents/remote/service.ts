@@ -61,6 +61,16 @@ export type EnrollmentOptions = {
   /** External HTTPS MCP origin; defaults to the runner listener's proxy. */
   mcpOrigin?: string;
   /**
+   * Where an operator approves a runner-initiated connect request in a
+   * browser — the Dispatch web app's own reachable origin, http or https
+   * (a Vite dev server is plain HTTP on its own port; production is
+   * typically HTTPS). Unset means no link is offered: a single inbound
+   * request's own Host header is reliable for `connectCommand` (the
+   * operator's own browser call) but not for `createConnectRequest` (the
+   * runner's), which has no way to know the operator's browser origin.
+   */
+  approvalOrigin?: string;
+  /**
    * Service-side approval for the runner's fixed repo operation: true for
    * every placement, or a list of `<registrationId>` / `<registrationId>/<workspace>`.
    */
@@ -133,6 +143,21 @@ function httpsOrigin(value: string | undefined, label: string) {
   if (!value) return undefined;
   if (new URL(value).protocol !== "https:")
     throw new Error(`${label} must use HTTPS`);
+  return value.replace(/\/$/, "");
+}
+
+/**
+ * Unlike the MCP origin, the approval link may legitimately be plain HTTP
+ * (a Vite dev server) as well as HTTPS (production), so only its shape —
+ * a bare http(s) origin, no path — is checked here.
+ */
+function anyOrigin(value: string | undefined, label: string) {
+  if (!value) return undefined;
+  const url = new URL(value);
+  if (url.protocol !== "http:" && url.protocol !== "https:")
+    throw new Error(`${label} must be an http(s) origin`);
+  if (url.pathname !== "/" || url.search || url.hash)
+    throw new Error(`${label} must be a bare origin, without a path`);
   return value.replace(/\/$/, "");
 }
 
@@ -210,6 +235,7 @@ export function configuredRunner(input?: {
             : undefined,
           endpointHost: process.env.DISPATCH_RUNNER_ENDPOINT_HOST,
           mcpOrigin: process.env.DISPATCH_RUNNER_MCP_ORIGIN,
+          approvalOrigin: process.env.DISPATCH_RUNNER_APPROVAL_ORIGIN,
           repoTool: parseRepoTool(process.env.DISPATCH_RUNNER_REPO_TOOL),
           log: console,
         }
@@ -269,6 +295,7 @@ export class RemoteRunnerService {
     }
     if (enrollment) {
       httpsOrigin(enrollment.mcpOrigin, "DISPATCH_RUNNER_MCP_ORIGIN");
+      anyOrigin(enrollment.approvalOrigin, "DISPATCH_RUNNER_APPROVAL_ORIGIN");
       if (enrollment.endpointHost && !validHost(enrollment.endpointHost))
         throw new Error("DISPATCH_RUNNER_ENDPOINT_HOST is not a valid host");
     }
@@ -960,6 +987,18 @@ export class RemoteRunnerService {
    * The approval link uses this request's own (authenticated, unproxied)
    * Host header: it is for the operator's browser, which is already here.
    */
+  /** Where an operator approves a connect request, if known. */
+  private approveUrl(fallbackHost?: string) {
+    if (this.enrollment?.approvalOrigin)
+      return `${this.enrollment.approvalOrigin}/settings/connections`;
+    // Best-effort only: reliable when `fallbackHost` is this request's own
+    // (unproxied) Host header, not when it's a guess at the runner's view
+    // of the service.
+    return fallbackHost
+      ? `https://${fallbackHost}/settings/connections`
+      : undefined;
+  }
+
   async connectCommand(hostHint?: string, rawHost?: string) {
     if (!this.enrollment)
       throw new RunnerRequestError(409, "Runner enrollment is disabled.");
@@ -970,11 +1009,7 @@ export class RemoteRunnerService {
         port: this.port!,
         caFingerprint: this.authority!.caFingerprint,
       }),
-      // This browser's own Host header — reliable here, unlike for a
-      // runner that may reach us only through the listener's proxy.
-      approveUrl: rawHost
-        ? `https://${rawHost}/settings/connections`
-        : undefined,
+      approveUrl: this.approveUrl(rawHost),
     };
   }
 
@@ -991,7 +1026,15 @@ export class RemoteRunnerService {
     try {
       const { id, code, expiresAt } =
         await this.enrollment.registry.createConnectRequest(publicKey);
-      return { id, code, expiresAt: expiresAt.toISOString() };
+      return {
+        id,
+        code,
+        expiresAt: expiresAt.toISOString(),
+        // Only ever set from configuration (see approveUrl): this request
+        // came from the runner, which has no way to tell us the operator's
+        // browser origin, so there is no per-request fallback to guess.
+        approveUrl: this.approveUrl(),
+      };
     } catch (error) {
       if (error instanceof PairingRejected)
         throw new RunnerRequestError(400, error.message);

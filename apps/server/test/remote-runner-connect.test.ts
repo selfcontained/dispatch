@@ -72,10 +72,15 @@ describe("runner-initiated connect enrollment", () => {
   const services: RemoteRunnerService[] = [];
   const runners: FakeRunner[] = [];
 
-  const makeService = () => {
+  const makeService = (approvalOrigin?: string) => {
     const service = new RemoteRunnerService(
       undefined,
-      { registry: new RunnerRegistry(pool), host: HOST, endpointHost: HOST },
+      {
+        registry: new RunnerRegistry(pool),
+        host: HOST,
+        endpointHost: HOST,
+        approvalOrigin,
+      },
       {
         host: HOST,
         port: (api.address() as AddressInfo).port,
@@ -155,6 +160,9 @@ describe("runner-initiated connect enrollment", () => {
     expect(created.id).toMatch(/^conn_/);
     expect(created.code).toMatch(/^[0-9A-Z]{4}-[0-9A-Z]{4}$/);
     expect(new Date(created.expiresAt).getTime()).toBeGreaterThan(Date.now());
+    // No DISPATCH_RUNNER_APPROVAL_ORIGIN configured: omitted, not guessed —
+    // this call came from the runner, which has no browser origin to offer.
+    expect(created.approveUrl).toBeUndefined();
 
     expect(await service.pollConnectRequest(created.id)).toEqual({
       status: "pending",
@@ -167,6 +175,38 @@ describe("runner-initiated connect enrollment", () => {
         expiresAt: created.expiresAt,
       },
     ]);
+  });
+
+  it("offers an approval link, including over plain HTTP for a dev frontend, only when configured", async () => {
+    const service = makeService("http://localhost:5173");
+    const { publicKey } = generateRunnerKey();
+    const created = await service.createConnectRequest(publicKey);
+    expect(created.approveUrl).toBe(
+      "http://localhost:5173/settings/connections"
+    );
+    // connect-command prefers the same configured origin over the
+    // (unreliable for a dev frontend on a different port) request host.
+    const built = await service.connectCommand(HOST, "127.0.0.1:9999");
+    expect(built.approveUrl).toBe("http://localhost:5173/settings/connections");
+  });
+
+  it("rejects a malformed DISPATCH_RUNNER_APPROVAL_ORIGIN", () => {
+    expect(
+      () =>
+        new RemoteRunnerService(undefined, {
+          registry: new RunnerRegistry(pool),
+          host: HOST,
+          approvalOrigin: "https://example.com/settings",
+        })
+    ).toThrow(/bare origin/);
+    expect(
+      () =>
+        new RemoteRunnerService(undefined, {
+          registry: new RunnerRegistry(pool),
+          host: HOST,
+          approvalOrigin: "ftp://example.com",
+        })
+    ).toThrow(/http\(s\)/);
   });
 
   it("rejects a malformed public key", async () => {
