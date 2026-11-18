@@ -129,6 +129,7 @@ function CreateAgentDialogContent({
                   modelOptions={form.modelOptions}
                   modelLoading={form.modelCatalogLoading}
                   onTypeOpenChange={setTypeDropdownOpen}
+                  remote={Boolean(form.runnerId)}
                 />
 
                 <div className="space-y-1">
@@ -161,47 +162,53 @@ function CreateAgentDialogContent({
                       workspace={form.runnerWorkspace}
                       onWorkspaceChange={form.setRunnerWorkspace}
                     />
-                    <div hidden={Boolean(form.runnerId)}>
-                      <ProjectLocation
-                        projectId={form.createProjectId}
-                        rememberedProjectId={form.lastProjectId}
-                        onChange={(p) => {
-                          form.setCreateProjectId(p?.id ?? null);
-                        }}
-                      >
-                        <PathInput
-                          value={form.createCwd}
-                          onChange={form.setCreateCwd}
-                          history={form.cwdHistory}
-                          removableHistory={form.removableCwdHistory}
-                          historyMetadata={form.cwdHistoryMetadata}
-                          onRemoveHistory={form.removeCwdHistory}
-                          onPathInfoChange={form.handlePathInfoChange}
-                          data-testid="create-agent-cwd"
-                          historyItemTestId="create-agent-cwd-history-option"
-                        />
-                      </ProjectLocation>
-                    </div>
+                    {form.runnerId ? null : (
+                      <>
+                        <ProjectLocation
+                          projectId={form.createProjectId}
+                          rememberedProjectId={form.lastProjectId}
+                          onChange={(p) => {
+                            form.setCreateProjectId(p?.id ?? null);
+                          }}
+                        >
+                          <PathInput
+                            value={form.createCwd}
+                            onChange={form.setCreateCwd}
+                            history={form.cwdHistory}
+                            removableHistory={form.removableCwdHistory}
+                            historyMetadata={form.cwdHistoryMetadata}
+                            onRemoveHistory={form.removeCwdHistory}
+                            onPathInfoChange={form.handlePathInfoChange}
+                            data-testid="create-agent-cwd"
+                            historyItemTestId="create-agent-cwd-history-option"
+                          />
+                        </ProjectLocation>
+                      </>
+                    )}
                   </div>
                 )}
 
-                <AgentPersonaSelect
-                  cwd={form.runnerId ? "" : form.createCwd}
-                  value={form.createPersona}
-                  onChange={form.setCreatePersona}
-                />
-                <WorktreeSection
-                  cwd={form.createCwd}
-                  worktreeAvailable={form.worktreeAvailable}
-                  useWorktree={form.createUseWorktree}
-                  onUseWorktreeChange={form.setCreateUseWorktree}
-                  baseBranch={form.createBaseBranch}
-                  onBaseBranchChange={form.setCreateBaseBranch}
-                  worktreeBranch={form.createWorktreeBranch}
-                  onWorktreeBranchChange={form.setCreateWorktreeBranch}
-                  createNewBranch={form.createNewBranch}
-                  onCreateNewBranchChange={form.setCreateNewBranch}
-                />
+                {form.runnerId ? null : (
+                  <AgentPersonaSelect
+                    cwd={form.createCwd}
+                    value={form.createPersona}
+                    onChange={form.setCreatePersona}
+                  />
+                )}
+                {form.runnerId ? null : (
+                  <WorktreeSection
+                    cwd={form.createCwd}
+                    worktreeAvailable={form.worktreeAvailable}
+                    useWorktree={form.createUseWorktree}
+                    onUseWorktreeChange={form.setCreateUseWorktree}
+                    baseBranch={form.createBaseBranch}
+                    onBaseBranchChange={form.setCreateBaseBranch}
+                    worktreeBranch={form.createWorktreeBranch}
+                    onWorktreeBranchChange={form.setCreateWorktreeBranch}
+                    createNewBranch={form.createNewBranch}
+                    onCreateNewBranchChange={form.setCreateNewBranch}
+                  />
+                )}
 
                 <label className="flex cursor-pointer items-start gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3">
                   <Checkbox

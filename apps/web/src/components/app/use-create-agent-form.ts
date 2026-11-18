@@ -302,6 +302,7 @@ export function useCreateAgentForm({
       try {
         const latestPathInfo = validatedCwdRef.current;
         const submitUseWorktree =
+          !remote &&
           latestPathInfo?.cwd === cwd &&
           latestPathInfo.isGitRepo &&
           createUseWorktree;
@@ -313,7 +314,7 @@ export function useCreateAgentForm({
           cwd: createProjectId ? undefined : cwd,
           projectId: createProjectId ?? undefined,
           type: createType,
-          persona: createPersona ?? undefined,
+          persona: remote ? undefined : (createPersona ?? undefined),
           model: modelOptions.some((option) => option.id === createModel)
             ? createModel
             : undefined,
