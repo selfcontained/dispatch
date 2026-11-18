@@ -149,6 +149,20 @@ function validHost(host: string) {
   );
 }
 
+/**
+ * A bare `host[:port]`, as a Host header should contain. Used before a
+ * request-derived value is embedded in a URL that itself gets embedded in
+ * a copy-pasted shell command (`connectCommand`'s `--approval-url`) —
+ * reject anything else rather than let a crafted Host header ride along.
+ */
+function validHostPort(value: string) {
+  const match = /^(\[[0-9a-fA-F:]+\]|[^:[\]\s]+)(?::(\d+))?$/.exec(value);
+  if (!match) return false;
+  const host = match[1]!.replace(/^\[|\]$/g, "");
+  const port = match[2];
+  return validHost(host) && (!port || Number(port) <= 65535);
+}
+
 function httpsOrigin(value: string | undefined, label: string) {
   if (!value) return undefined;
   if (new URL(value).protocol !== "https:")
@@ -1013,23 +1027,35 @@ export class RemoteRunnerService {
       return `${this.enrollment.approvalOrigin}/settings/connections`;
     // Best-effort only: reliable when `fallbackHost` is this request's own
     // (unproxied) Host header, not when it's a guess at the runner's view
-    // of the service.
-    return fallbackHost
+    // of the service. Validated before it goes anywhere near a URL that
+    // itself gets embedded in a copy-pasted shell command.
+    return fallbackHost && validHostPort(fallbackHost)
       ? `https://${fallbackHost}/settings/connections`
       : undefined;
   }
 
+  /**
+   * `GET /api/runners/connect-command`. The approval link is embedded in
+   * the printed command itself (`--approval-url`) as well as returned
+   * alongside it: with no `DISPATCH_RUNNER_APPROVAL_ORIGIN` configured —
+   * the common case for a preview or default install — this request's own
+   * Host header (the operator's browser, calling this authenticated route
+   * directly) is still the best answer, and the CLI has no other way to
+   * learn it.
+   */
   async connectCommand(hostHint?: string, rawHost?: string) {
     if (!this.enrollment)
       throw new RunnerRequestError(409, "Runner enrollment is disabled.");
     const host = await this.prepareEndpoint(hostHint);
+    const approveUrl = this.approveUrl(rawHost);
     return {
       command: connectCliCommand({
         host,
         port: this.port!,
         caFingerprint: this.authority!.caFingerprint,
+        approvalUrl: approveUrl,
       }),
-      approveUrl: this.approveUrl(rawHost),
+      approveUrl,
     };
   }
 

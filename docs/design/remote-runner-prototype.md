@@ -129,13 +129,19 @@ until an operator approves it.
 Both `connect-command` and the create response may also carry an
 `approveUrl` pointing at **Settings → Connections → Remote runners**. For
 `connect-command` it is built from that authenticated call's own (reliable)
-Host header; the create call has no such thing to go on — it comes from the
-runner, not a browser — so it is only ever populated from the explicitly
-configured `DISPATCH_RUNNER_APPROVAL_ORIGIN` (a bare `http://` or `https://`
-origin; `http://` so a Vite dev server's own port can be used, not just a
-production HTTPS origin). Unset, the create response simply omits it and
-the CLI falls back to code-only instructions — honest rather than a guess
-that can point at the wrong origin.
+Host header, or from `DISPATCH_RUNNER_APPROVAL_ORIGIN` when that is set (a
+bare `http://` or `https://` origin; `http://` so a Vite dev server's own
+port can be used, not just a production HTTPS origin) — checked against a
+bare-host-and-port shape before it goes anywhere near a URL. That URL is
+also embedded directly in the printed command as `--approval-url`, single-
+quoted and re-validated as a well-formed URL first, so the common preview
+or default-install case (no approval-origin configured at all) still gets
+a working link without the service needing to know anything about the
+operator's browser in advance. The create call has no such host to go on —
+it comes from the runner, not a browser — so its own `approveUrl` is only
+ever populated from `DISPATCH_RUNNER_APPROVAL_ORIGIN`; unset, it is omitted
+and the CLI falls back to whatever `--approval-url` it was given, or
+code-only instructions if that's absent too.
 
 The operator reads the code off the runner's own terminal or logs — it is
 never sent back by the runner — and calls the authenticated
