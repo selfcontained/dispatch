@@ -94,6 +94,17 @@ function artifacts(arch) {
 async function up(run) {
   const id = path.basename(run);
   mkdirSync(run, { recursive: true, mode: 0o700 });
+  const providerFixture = path.join(run, "provider-fixture");
+  mkdirSync(providerFixture, { mode: 0o700 });
+  // An expired synthetic Claude login also prevents the macOS Keychain
+  // fallback. The adapter itself never needs a provider login.
+  writeFileSync(
+    path.join(providerFixture, ".credentials.json"),
+    JSON.stringify({
+      claudeAiOauth: { accessToken: "fake-expired-e2e-token", expiresAt: 1 },
+    }),
+    { mode: 0o600 }
+  );
   const arch =
     sh("docker", ["version", "--format", "{{.Server.Arch}}"]).trim() === "arm64"
       ? "arm64"
@@ -198,6 +209,8 @@ async function up(run) {
       "export DISPATCH_RUNNER_REPO_TOOL=1", // approved repo operation for every placement
       `export DISPATCH_RUNNER_PORT=${runnerPort}`,
       "export DISPATCH_RUNNER_ENDPOINT_HOST=host.docker.internal",
+      `export CLAUDE_CONFIG_DIR='${providerFixture}'`,
+      `export CODEX_HOME='${providerFixture}'`,
       `export REMOTE_E2E_STATE='${path.join(run, "state.json")}'`,
       "",
     ].join("\n")

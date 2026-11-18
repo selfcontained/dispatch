@@ -47,6 +47,21 @@ test.afterAll(async ({ request }) => {
   );
 });
 
+test.afterEach(async ({}, testInfo) => {
+  if (testInfo.status === testInfo.expectedStatus) return;
+  for (const name of ["alpha", "beta", "scratch"] as const) {
+    const logs = guest(
+      name,
+      'for file in /var/log/runner.log /var/lib/runner/bindings/logs/*; do [ ! -f "$file" ] || { printf "\\n%s\\n" "$file"; tail -60 "$file"; }; done'
+    );
+    if (logs.trim())
+      await testInfo.attach(`${name} runner logs`, {
+        body: logs,
+        contentType: "text/plain",
+      });
+  }
+});
+
 const text = (p: Page) => p.locator("body");
 const answers = (p: Page, s: string) => p.getByText(s, { exact: false });
 
@@ -371,6 +386,7 @@ test("managed scratch launch reports health and archive removes the guest sessio
   expect((await agentInfo(request, id!)).cwd).toBe(
     `runner://${runnerId}/@session`
   );
+  await expect(page).toHaveURL((url) => url.pathname === `/agents/${id}`);
   await expect(settledTurns(page)).toHaveCount(1, { timeout: 45_000 });
   await expect(
     settledTurns(page).last().getByTestId("harness-result")
