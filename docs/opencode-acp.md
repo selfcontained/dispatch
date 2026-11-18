@@ -12,6 +12,10 @@ future launches. Model IDs are provider-qualified, for example
 `ollama/qwen3-coder:30b`; availability depends on your provider configuration.
 No machine-specific model list is shipped in Dispatch.
 
+When you pin a model, startup requires OpenCode to report that selection. If
+OpenCode cannot resume a saved session, Dispatch reports the failure and keeps
+its session ID for retry. Create a new agent if you want a fresh conversation.
+
 OpenCode receives Dispatch guidance and persona rules through a private native
 instructions file. The host merges it into `OPENCODE_CONFIG_CONTENT`, preserving
 existing configuration and instruction paths, on both launch and resume.
