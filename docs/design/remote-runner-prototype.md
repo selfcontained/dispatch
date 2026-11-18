@@ -51,6 +51,37 @@ Bindings and logs remain private. The child receives its scoped MCP credential
 and guest paths through a constructed environment. Use test credentials, disable VM
 mounts and SSH-agent forwarding, and keep the VM and dev data disposable.
 
+## Enrolled runners
+
+Enrollment replaces the manual certificates and approval file. On first use
+Dispatch creates a runner CA and a listener certificate and stores them in
+PostgreSQL (`runner_authority`). `POST /api/runners {name}` returns
+`{id, command, expiresAt}`. The command looks like
+`dispatch-runner remote-runner-pair --endpoint https://HOST:PORT --ca-sha256 HEX --code CODE`.
+The code is single-use, expires after ten minutes, and is stored only as a
+hash. Run the command as root on the runner host. Add `--dir` (default
+`/etc/dispatch-runner`) or `--config FILE` as needed. The CLI pins the CA
+fingerprint before it sends the code. It generates the private key locally and
+writes `key.pem` (0600), `cert.pem` and `ca.pem`. It also sets `endpoint`, `ca`,
+`cert` and `key` in `runner.json` and leaves the rest of that file untouched.
+`GET /api/runners` lists `pending`, `online`, `offline` and `revoked`
+registrations along with their last reported workspaces.
+`DELETE /api/runners/:id` revokes a registration and drops its connection
+immediately. Each registration is an independent mTLS peer, addressed as
+`runner://<name>/<workspace>`.
+
+The listener binds `DISPATCH_RUNNER_HOST`, which defaults to the API host. It
+uses `DISPATCH_RUNNER_PORT` when set. Otherwise it uses the persisted port, and
+on first start a free port. `DISPATCH_RUNNER_ENDPOINT_HOST` overrides the host
+written into commands, which otherwise comes from the request's Host header.
+The listener certificate gains each advertised host automatically. Unless
+`DISPATCH_RUNNER_MCP_ORIGIN` is set, the agent MCP origin is the runner
+listener itself. It forwards only bearer-authenticated `/api/mcp/agt_*`
+requests and `GET /ping` to the local API, with cookies removed.
+`DISPATCH_RUNNERS=0` disables enrollment. The legacy
+`DISPATCH_REMOTE_SERVICE_CONFIG` below still works. Its `mcpOrigin` is now
+optional when `endpointHost` is given.
+
 ## Wire contract
 
 The runner sends `ready` with protocol version 1 and its workspace handles.

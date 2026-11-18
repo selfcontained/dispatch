@@ -2133,7 +2133,7 @@ export class AgentManager {
       personaContext: extractPersonaContext(agent.agentArgs ?? []),
       mcp: {
         url: placement
-          ? `${this.remote!.origin}/api/mcp/${agent.id}`
+          ? `${this.remote!.originFor(placement)}/api/mcp/${agent.id}`
           : dispatchMcpUrl(this.config, agent.id, opts.jobRunId),
         token,
       },
