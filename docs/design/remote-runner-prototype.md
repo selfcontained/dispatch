@@ -53,7 +53,9 @@ clients that use `SSL_CERT_FILE`. There is a guest-local `adapter` override
 for the fake provider. Keep the enrollment key and runner settings root-only
 and the CA certificate readable by the CLI. The supervisor needs Linux
 util-linux `/usr/bin/setpriv` and permission to change identity and remove
-capabilities (`CAP_SETUID`, `CAP_SETGID`, and `CAP_SETPCAP`). Before accepting execution commands,
+capabilities (`CAP_SETUID`, `CAP_SETGID`, and `CAP_SETPCAP`). Install `procps`
+to provide `ps` on the supervisor’s PATH for stopping agents and cleaning up
+their processes during archive. Before accepting execution commands,
 the runner verifies the kernel-reported non-root UID/GID, empty supplementary
 groups, zero capabilities, and `no_new_privs` through the same wrapper used
 for both the ACP host and repo operations. The runner grants traversal on its
