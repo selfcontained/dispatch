@@ -21,9 +21,11 @@ import {
   ownedEnvironment,
   killOwnedProcesses,
 } from "../../shared/process/owned-processes.js";
+import { prepareScratchSession } from "./session-storage.js";
 import { hostCommand } from "../acp/runtime.js";
 import {
   isOpaqueId,
+  MANAGED_WORKSPACE,
   RUNNER_WIRE_VERSION,
   wireFrames,
   type Command,
@@ -135,7 +137,10 @@ export async function runRemoteRunner(filename: string) {
       "Runner requires an HTTPS endpoint and a separate, non-root execution account."
     );
   }
-  if (!Object.keys(config.workspaces).every(isOpaqueId)) {
+  if (
+    Object.hasOwn(config.workspaces, MANAGED_WORKSPACE) ||
+    !Object.keys(config.workspaces).every(isOpaqueId)
+  ) {
     throw new Error("Runner workspace IDs must be valid opaque identifiers.");
   }
   const env = {
@@ -158,12 +163,16 @@ export async function runRemoteRunner(filename: string) {
   const bindings = path.join(config.state, "bindings");
   const hostRoot = path.join(config.state, "hosts");
   const logs = path.join(bindings, "logs");
+  const sessions = path.join(config.state, "sessions");
   await mkdir(logs, { recursive: true, mode: 0o700 });
   await chmod(config.state, 0o711);
   await mkdir(hostRoot, { recursive: true, mode: 0o711 });
   await chmod(hostRoot, 0o711);
 
   const sampleHealth = runnerHealthSampler();
+  await mkdir(sessions, { mode: 0o711, recursive: true });
+  await chmod(sessions, 0o711);
+
   const hosts = new Map<string, ChildProcess>();
   const active = new Set<string>();
   const owns = async (id: string, workspace: string) =>
@@ -172,7 +181,7 @@ export async function runRemoteRunner(filename: string) {
 
   async function launch(
     command: Extract<Command, { kind: "launch" }>,
-    cwd: string,
+    cwd: string | undefined,
     key: string
   ) {
     const { agentId, workspace } = command;
@@ -194,7 +203,23 @@ export async function runRemoteRunner(filename: string) {
             throw error;
         }
       );
-      if (!(await stat(cwd)).isDirectory())
+      const markerFile = path.join(bindings, `${key}.owner`);
+      const previousMarker = await readFile(markerFile, "utf8").catch(
+        (error) => {
+          if (error.code !== "ENOENT") throw error;
+          return null;
+        }
+      );
+      if (previousMarker) killOwnedProcesses(previousMarker);
+      if (workspace === MANAGED_WORKSPACE) {
+        cwd = await prepareScratchSession(
+          sessions,
+          key,
+          config.uid,
+          config.gid
+        );
+      }
+      if (!cwd || !(await stat(cwd)).isDirectory())
         throw new Error("Guest workspace is unavailable");
       const dir = path.join(hostRoot, key);
       const files = path.join(dir, "files");
@@ -228,6 +253,8 @@ export async function runRemoteRunner(filename: string) {
         const [bin, ...args] = hostCommand();
         if (!bin) throw new Error("Runner host executable is missing");
         const owned = ownedEnvironment(env);
+        if (workspace === MANAGED_WORKSPACE)
+          await writeFile(markerFile, owned.marker, { mode: 0o600 });
         const child = spawn(
           setpriv,
           [...childArgs, bin, ...args, "--state", dir],
@@ -326,18 +353,31 @@ export async function runRemoteRunner(filename: string) {
           isOpaqueId(workspace) && Object.hasOwn(config.workspaces, workspace)
             ? config.workspaces[workspace]
             : undefined;
-        if (!isOpaqueId(agentId) || !target)
+        const managed = workspace === MANAGED_WORKSPACE;
+        if (!isOpaqueId(agentId) || (!target && !managed))
           throw new Error("Unknown runner workspace or agent");
         const key = runnerStorageKey(agentId);
         const result = (value?: string | boolean) =>
           safeSend({ type: "result", id, value });
         if (command.kind === "launch") {
-          await launch(command, target.cwd, key);
+          await launch(command, target?.cwd, key);
           result(true);
           return;
         }
         if (!(await owns(key, workspace))) {
           if (command.kind === "alive") return result(false);
+          if (
+            managed &&
+            (command.kind === "discard" || command.kind === "stop") &&
+            !(await readFile(path.join(bindings, key), "utf8").catch(
+              (error) => {
+                if (error.code !== "ENOENT") throw error;
+                return null;
+              }
+            )) &&
+            !active.has(agentId)
+          )
+            return result(true);
           throw new Error("Agent is not bound to this workspace");
         }
         if (socket.destroyed) return;
@@ -403,8 +443,29 @@ export async function runRemoteRunner(filename: string) {
           case "discard":
             if (host || active.has(agentId))
               throw new Error("Stop the guest host before discarding it");
-            await rm(dir, { force: true, recursive: true });
-            await rm(path.join(bindings, key), { force: true });
+            active.add(agentId);
+            try {
+              if (managed) {
+                const markerPath = path.join(bindings, `${key}.owner`);
+                const marker = await readFile(markerPath, "utf8").catch(
+                  (error) => {
+                    if (error.code !== "ENOENT") throw error;
+                    return null;
+                  }
+                );
+                if (marker) killOwnedProcesses(marker);
+                await rm(path.join(sessions, key), {
+                  force: true,
+                  recursive: true,
+                });
+                await rm(markerPath, { force: true });
+                await rm(path.join(logs, key), { force: true });
+              }
+              await rm(dir, { force: true, recursive: true });
+              await rm(path.join(bindings, key), { force: true });
+            } finally {
+              active.delete(agentId);
+            }
             result(true);
             break;
           case "log": {
@@ -417,7 +478,7 @@ export async function runRemoteRunner(filename: string) {
             break;
           }
           case "repo": {
-            const [bin, ...args] = target.repoTool ?? [];
+            const [bin, ...args] = target?.repoTool ?? [];
             if (!bin)
               throw new Error(
                 "Runner workspace has no approved repo operation"
@@ -426,7 +487,7 @@ export async function runRemoteRunner(filename: string) {
               setpriv,
               [...childArgs, bin, ...args],
               {
-                cwd: target.cwd,
+                cwd: target?.cwd,
                 env,
                 timeout: 10_000,
                 maxBuffer: 64 * 1024,
@@ -467,7 +528,7 @@ export async function runRemoteRunner(filename: string) {
           type: "ready",
           version: RUNNER_WIRE_VERSION,
           health: true,
-          workspaces: Object.keys(config.workspaces),
+          workspaces: [...Object.keys(config.workspaces), MANAGED_WORKSPACE],
         });
       });
     });

@@ -11,6 +11,7 @@ import {
   getUnmergedChanges,
 } from "../shared/git/worktree-status.js";
 import { runLifecycleHook } from "./lifecycle-hooks.js";
+import { MANAGED_WORKSPACE, remotePlacement } from "./remote/protocol.js";
 import { AgentError } from "./errors.js";
 import type { AgentRuntime } from "./runtime.js";
 import type {
@@ -264,6 +265,8 @@ export async function executeArchive(
   try {
     const agent = await deps.getRequiredAgent(id);
     const cleanupWorktree = agent.archiveCleanupMode ?? "auto";
+    let runnerCleanupPending =
+      remotePlacement(agent.cwd)?.workspace === MANAGED_WORKSPACE;
 
     // Phase: stopping — tear down session without changing agent status
     const t = Date.now();
@@ -280,6 +283,7 @@ export async function executeArchive(
       // The state directory holds the launch file with the MCP token; the
       // stream is already in the database.
       await runtime.discard(id);
+      runnerCleanupPending = false;
     } catch (err) {
       logger.warn(
         { err, agentId: id },
@@ -338,8 +342,8 @@ export async function executeArchive(
     const tDb = Date.now();
 
     await pool.query(
-      "UPDATE agents SET deleted_at = NOW(), archive_phase = NULL, archive_cleanup_mode = NULL, updated_at = NOW() WHERE id = $1",
-      [id]
+      "UPDATE agents SET deleted_at = NOW(), archive_phase = NULL, archive_cleanup_mode = NULL, runner_cleanup_pending = $2, updated_at = NOW() WHERE id = $1",
+      [id, runnerCleanupPending]
     );
     durations.db = Date.now() - tDb;
     diffStatsRefresher?.clear(id);
@@ -399,7 +403,9 @@ export async function deleteAgentDirect(
     return [];
   }
 
-  if (agent.status !== "stopped") {
+  let runnerCleanupPending =
+    remotePlacement(agent.cwd)?.workspace === MANAGED_WORKSPACE;
+  if (agent.status !== "stopped" || runnerCleanupPending) {
     const t = Date.now();
     // Not stopAgent: it writes `stopping`/`stopped`, releasing the claim above
     // and letting a fresh archive take this agent mid-teardown.
@@ -416,6 +422,7 @@ export async function deleteAgentDirect(
       // The state directory holds the launch file with the MCP token; the
       // stream is already in the database.
       await runtime.discard(id);
+      runnerCleanupPending = false;
     } catch (err) {
       logger.warn(
         { err, agentId: id },
@@ -466,9 +473,9 @@ export async function deleteAgentDirect(
 
   await pool.query(
     `UPDATE agents
-     SET deleted_at = NOW(), archive_phase = NULL, archive_cleanup_mode = NULL, updated_at = NOW()
+     SET deleted_at = NOW(), archive_phase = NULL, archive_cleanup_mode = NULL, runner_cleanup_pending = $2, updated_at = NOW()
      WHERE id = $1`,
-    [id]
+    [id, runnerCleanupPending]
   );
   durations.db = Date.now() - tDb;
   diffStatsRefresher?.clear(id);

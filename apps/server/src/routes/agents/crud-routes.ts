@@ -1,3 +1,7 @@
+import {
+  MANAGED_WORKSPACE,
+  remotePlacement,
+} from "../../agents/remote/protocol.js";
 import { validateAgentEffort } from "../../shared/agent-effort.js";
 import type { Effort } from "@dispatch/shared";
 import { createReadStream } from "node:fs";
@@ -232,7 +236,10 @@ export async function registerAgentCrudRoutes(
       }
       if (!body.projectId && !body.cwd) body.projectId = taskBriefing.projectId;
     }
-    if (body.projectId && body.cwd)
+    const managed =
+      typeof body.cwd === "string" &&
+      remotePlacement(body.cwd)?.workspace === MANAGED_WORKSPACE;
+    if (body.projectId && body.cwd && !managed)
       return reply
         .code(400)
         .send({ error: "Choose a project or a folder, not both." });

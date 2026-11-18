@@ -73,7 +73,7 @@ import type {
 } from "./acp/prompt-source.js";
 import { type EngineBins, isAcpEngine } from "./acp/engine-spec.js";
 import { RemoteEventInbox } from "./remote/event-inbox.js";
-import { remotePlacement } from "./remote/protocol.js";
+import { MANAGED_WORKSPACE, remotePlacement } from "./remote/protocol.js";
 import { RunnerRevoked, type RemoteRunnerService } from "./remote/service.js";
 import { buildLaunchEnv } from "./acp/launch-env.js";
 import { dispatchMcpUrl } from "./acp/mcp-url.js";
@@ -1376,7 +1376,7 @@ export class AgentManager {
         );
       }
       if (
-        input.projectId ||
+        (input.projectId && placement.workspace !== MANAGED_WORKSPACE) ||
         input.parentAgentId ||
         input.templateId ||
         input.persona ||
@@ -1385,7 +1385,7 @@ export class AgentManager {
         input.useWorktree
       ) {
         throw new AgentError(
-          "Runner launches currently require a standalone agent in a pre-provisioned workspace.",
+          "Runner launches require a standalone agent and runner-managed storage.",
           400
         );
       }
@@ -1422,7 +1422,7 @@ export class AgentManager {
       ).rows[0];
       if (!project) throw new AgentError("Project not found.", 404);
       // A child can use its parent's worktree while retaining explicit membership.
-      if (!input.parentAgentId) {
+      if (!placement && !input.parentAgentId) {
         input.cwd = project.repo_root;
         // Plain-folder projects have no Git to branch from; only an explicit
         // useWorktree: true should attempt (and fail) a worktree there.
@@ -2410,6 +2410,7 @@ export class AgentManager {
     // entry point, so we drop the return value.
     await this.reconciler.reconcileAgentStatuses();
     await this.reconciler.cleanupOrphanedHosts();
+    await this.retryRunnerCleanup();
   }
 
   /**
@@ -2418,7 +2419,43 @@ export class AgentManager {
    * the orphan-session cleanup too should call `reconcileAgents()`.
    */
   async reconcileAgentStatuses(): Promise<AgentRecord[]> {
-    return this.reconciler.reconcileAgentStatuses();
+    const changed = await this.reconciler.reconcileAgentStatuses();
+    void this.retryRunnerCleanup().catch((err) =>
+      this.logger.warn({ err }, "Could not retry runner cleanup")
+    );
+    return changed;
+  }
+
+  private runnerCleanupRunning = false;
+
+  private async retryRunnerCleanup(): Promise<void> {
+    if (!this.remote || this.runnerCleanupRunning) return;
+    this.runnerCleanupRunning = true;
+    try {
+      const { rows } = await this.pool.query<{ id: string; cwd: string }>(
+        "SELECT id, cwd FROM agents WHERE runner_cleanup_pending AND deleted_at IS NOT NULL ORDER BY id"
+      );
+      for (const { id, cwd } of rows) {
+        const placement = remotePlacement(cwd);
+        if (!placement || !this.remote.available(placement)) continue;
+        try {
+          await this.runtime.stop(id, true);
+          await this.streamRecorder.settleStopped(id);
+          await this.runtime.discard(id);
+          await this.pool.query(
+            "UPDATE agents SET runner_cleanup_pending = false WHERE id = $1",
+            [id]
+          );
+        } catch (err) {
+          this.logger.warn(
+            { err, agentId: id },
+            "Runner cleanup remains pending"
+          );
+        }
+      }
+    } finally {
+      this.runnerCleanupRunning = false;
+    }
   }
 
   permitsRemoteAgentMcp(
