@@ -23,6 +23,8 @@ type AgentEngineFieldsProps = {
   onTypeOpenChange?: (open: boolean) => void;
   /** Overridden by dialogs other than Create Agent so ids stay unique. */
   idPrefix?: string;
+  /** Runs on a remote runner: this machine's CLI install state is irrelevant. */
+  remote?: boolean;
 };
 
 /**
@@ -43,6 +45,7 @@ export function AgentEngineFields({
   modelLoading,
   onTypeOpenChange,
   idPrefix,
+  remote = false,
 }: AgentEngineFieldsProps): JSX.Element {
   // Engines whose CLI this machine does not have: pickable, but the picker
   // says what to install rather than letting the launch fail.
@@ -59,7 +62,7 @@ export function AgentEngineFields({
       ),
     [engines]
   );
-  const engineLine = engineSummary(engines, agentType);
+  const engineLine = remote ? null : engineSummary(engines, agentType);
   const showModelSelect = modelLoading || modelOptions.length > 0;
 
   return (
@@ -74,7 +77,7 @@ export function AgentEngineFields({
           onChange={onAgentTypeChange}
           agentTypes={agentTypes}
           onOpenChange={onTypeOpenChange}
-          missing={missingEngines}
+          missing={remote ? undefined : missingEngines}
         />
 
         {showModelSelect ? (
