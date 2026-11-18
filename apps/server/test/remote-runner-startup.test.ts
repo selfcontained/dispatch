@@ -87,7 +87,7 @@ describe("remote runner startup", () => {
     await writeFile(
       config,
       JSON.stringify({
-        endpoint: "https://fixture.invalid",
+        endpoint: "https://192.0.2.1",
         key,
         cert: key,
         ca: key,
@@ -150,6 +150,10 @@ describe("remote runner startup", () => {
     });
 
     await expect(runRemoteRunner(config)).rejects.toBe(stopAtDial);
+    expect(dial).toHaveBeenCalledWith(
+      expect.objectContaining({ host: "192.0.2.1", rejectUnauthorized: true })
+    );
+    expect(dial.mock.calls[0]![0]).not.toHaveProperty("servername");
     expect(reportIdentity).toHaveBeenCalledWith(
       "/usr/bin/setpriv",
       [

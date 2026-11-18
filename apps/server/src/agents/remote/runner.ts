@@ -10,7 +10,7 @@ import {
   chmod,
   stat,
 } from "node:fs/promises";
-import { createConnection } from "node:net";
+import { createConnection, isIP } from "node:net";
 import path from "node:path";
 import process from "node:process";
 import { connect } from "node:tls";
@@ -122,6 +122,7 @@ async function verifyExecutionIdentity(
 export async function runRemoteRunner(filename: string) {
   const config: RunnerConfig = JSON.parse(readFileSync(filename, "utf8"));
   const endpoint = new URL(config.endpoint);
+  const host = endpoint.hostname.replace(/^\[|\]$/g, "");
   if (
     endpoint.protocol !== "https:" ||
     process.platform !== "linux" ||
@@ -268,9 +269,9 @@ export async function runRemoteRunner(filename: string) {
     await new Promise<void>((finished) => {
       const socket = connect({
         ...credentials,
-        host: endpoint.hostname,
+        host,
         port: Number(endpoint.port || 443),
-        servername: endpoint.hostname,
+        ...(isIP(host) ? {} : { servername: host }),
         rejectUnauthorized: true,
       });
       const channels = new Map<string, ReturnType<typeof createConnection>>();
