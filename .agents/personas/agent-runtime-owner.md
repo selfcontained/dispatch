@@ -14,6 +14,7 @@ Read `apps/server/src/agents/manager.ts`, `agents/acp/`, `shared/git/`, and the 
 
 - Effort choices come from the selected model’s reported capabilities. Trace validation, adapter propagation, live effort persistence, and resume fallback when a saved level is removed; never substitute a fixed per-runtime list.
 - Launch and restart must preserve the agent's cwd, worktree, model, ACP session and MCP identity, and permissions. Verify quoting through each shell/ACP adapter boundary, including paths with spaces.
+- Real-binary ACP smoke suites (including `scripts/opencode-v2-smoke.mjs`) must isolate HOME/config/credentials, assert observed tool results, and use rejecting deadlines with bounded cleanup on setup, startup and cancellation failures.
 - Cancellation, archive, and cleanup must target the owned engine host/session/worktree, preserve unrelated agents, and avoid orphan processes. Check failed or partially completed launches.
 - ACP initialization, prompt cancellation, permission replies, engine disconnect, and session restore must preserve the owning agent and stream. Never mix host IPC ids with engine request ids.
 - Lifecycle transitions and reconciliation must agree with persisted agent state; concurrent starts, restarts, and exits must not revive an archived agent or duplicate a session.
