@@ -69,6 +69,100 @@ async function fixture(extra = "prefix") {
   return { home, prefix, file, real, bin, status };
 }
 describe("selected installation", () => {
+  it.each(["@opencode/cli", "opencode-ai"])(
+    "reports and updates only the selected npm channel %s",
+    async (packageName) => {
+      const f = await fixture();
+      const real = await f.file(
+        `lib/node_modules/${packageName}/bin/opencode.exe`,
+        "opencode"
+      );
+      await f.file(
+        `lib/node_modules/${packageName}/package.json`,
+        JSON.stringify({
+          name: packageName,
+          bin: { opencode: "bin/opencode.exe", opencode2: "bin/opencode.exe" },
+        })
+      );
+      const bin = path.join(f.prefix, "bin/opencode");
+      await symlink(real, bin);
+      const result = await inspectInstallation(
+        { ...f.status, id: "opencode", path: bin },
+        f.home
+      );
+      expect(result).toMatchObject({
+        source: "npm",
+        realPath: real,
+        probePath: bin,
+        packageChannel: packageName,
+        latestKey: `npm:${packageName}`,
+        canUpdate: true,
+      });
+      expect(result.run?.args.at(-1)).toBe(`${packageName}@latest`);
+      expect(result.migrationWarning).toEqual(
+        packageName === "opencode-ai"
+          ? expect.stringContaining("V1 channel")
+          : undefined
+      );
+      await f.file(
+        `lib/node_modules/${packageName}/package.json`,
+        JSON.stringify({ name: packageName, bin: "wrong.exe" })
+      );
+      expect(
+        (
+          await inspectInstallation(
+            { ...f.status, id: "opencode", path: bin },
+            f.home
+          )
+        ).source
+      ).toBe("unknown");
+    }
+  );
+  it("recognizes the V2 Homebrew formula without switching the selected binary", async () => {
+    const f = await fixture();
+    const real = await f.file(
+      "Cellar/opencode-v2/2.3.2/bin/opencode",
+      "opencode"
+    );
+    await f.file("bin/brew", "brew");
+    await f.file(
+      "Cellar/opencode-v2/2.3.2/INSTALL_RECEIPT.json",
+      JSON.stringify({
+        source: {
+          tap: "anomalyco/tap",
+          path: path.join(
+            f.prefix,
+            "Library/Taps/anomalyco/homebrew-tap/opencode-v2.rb"
+          ),
+        },
+      })
+    );
+    const bin = path.join(f.prefix, "bin/opencode");
+    await symlink(real, bin);
+    const result = await inspectInstallation(
+      { ...f.status, id: "opencode", path: bin },
+      f.home
+    );
+    expect(result).toMatchObject({
+      source: "homebrew-formula",
+      realPath: real,
+      probePath: bin,
+      packageChannel: "anomalyco/tap/opencode-v2",
+      canUpdate: true,
+      run: { args: ["upgrade", "--formula", "anomalyco/tap/opencode-v2"] },
+    });
+    expect(result.latestKey).toContain('"name":"anomalyco/tap/opencode-v2"');
+    expect(result.migrationWarning).toBeUndefined();
+    expect(
+      (
+        await inspectInstallation(
+          { ...f.status, id: "opencode", path: real },
+          f.home
+        )
+      ).canUpdate
+    ).toBe(false);
+  });
+
   it("follows symlinks and verifies package identity and adjacent npm", async () => {
     const f = await fixture();
     const result = await inspectInstallation(f.status, f.home);
@@ -405,6 +499,10 @@ describe("selected installation", () => {
         )
       ).canUpdate
     ).toBe(false);
+    expect(thirdParty.packageChannel).toBe("anomalyco/tap/opencode");
+    expect(thirdParty.migrationWarning).toContain(
+      "conflicts with anomalyco/tap/opencode-v2"
+    );
     expect(thirdParty.latestKey).toContain('"name":"anomalyco/tap/opencode"');
     // An API receipt cannot authenticate a different binary artifact.
     await f.file(

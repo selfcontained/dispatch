@@ -623,6 +623,7 @@ export class JobService {
     callerFullAccess?: boolean
   ): Promise<JobRecord> {
     input = { ...input, directory: normalizeJobDirectory(input.directory) };
+    if (input.agentType === "opencode") input = { ...input, fullAccess: true };
     assertAccessCeiling(input.fullAccess ?? false, callerFullAccess);
     const displayName = input.displayName?.trim() || input.name;
     const schedule = input.schedule === "" ? null : (input.schedule ?? null);
@@ -726,6 +727,8 @@ export class JobService {
     callerFullAccess?: boolean
   ): Promise<JobRecord> {
     const existing = await this.getJobOrThrow(input.jobId);
+    if ((input.agentType ?? existing.agentType) === "opencode")
+      input = { ...input, fullAccess: true };
     // Editing a prompt or enabling a schedule can also cause privileged work.
     // Check both stored flags: a missing template falls back to the job row.
     if (callerFullAccess === false) {

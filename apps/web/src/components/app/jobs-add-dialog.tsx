@@ -402,10 +402,16 @@ export function AddJobFlow({
                     onBranchNameChange={setBranchName}
                     testIdPrefix="job-create"
                   />
-                  <JobFullAccessOption
-                    checked={fullAccess}
-                    onCheckedChange={setFullAccess}
-                  />
+                  {agentType === "opencode" ? (
+                    <p className="text-sm text-muted-foreground">
+                      OpenCode uses full access.
+                    </p>
+                  ) : (
+                    <JobFullAccessOption
+                      checked={fullAccess}
+                      onCheckedChange={setFullAccess}
+                    />
+                  )}
                   <JobKeepAgentOption
                     checked={keepAgent}
                     onCheckedChange={setKeepAgent}
@@ -455,7 +461,7 @@ export function AddJobFlow({
               useWorktree,
               baseBranch: useWorktree ? baseBranch : null,
               branchName: useWorktree ? branchName : null,
-              fullAccess,
+              fullAccess: agentType === "opencode" || fullAccess,
               autoArchive: continuation.enabled ? true : !keepAgent,
               callable,
               singleton,

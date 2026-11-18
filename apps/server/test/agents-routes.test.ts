@@ -895,3 +895,20 @@ it("validates launch effort against the selected model instead of the learned de
     forgetLearnedAgentModels();
   }
 });
+
+it("normalizes OpenCode restricted API requests and persisted sessions to full access", async () => {
+  const created = await createAgent({ type: "opencode", fullAccess: false });
+  expect(created.fullAccess).toBe(true);
+  await authedInject("POST", `/api/v1/agents/${created.id}/stop`);
+  await ctx.pool.query("UPDATE agents SET full_access = FALSE WHERE id = $1", [
+    created.id,
+  ]);
+  const restarted = await authedInject(
+    "POST",
+    `/api/v1/agents/${created.id}/start`
+  );
+  expect(restarted.statusCode).toBe(200);
+  expect(restarted.json().agent.fullAccess).toBe(true);
+  const detail = await authedInject("GET", `/api/v1/agents/${created.id}`);
+  expect(detail.json().agent.fullAccess).toBe(true);
+});

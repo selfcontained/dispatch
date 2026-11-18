@@ -1666,7 +1666,7 @@ export class AgentManager {
     const type: AgentType = input.type ?? "claude";
     const effort = validateAgentEffort(type, input.effort, input.model);
     const role: AgentRole = input.role ?? "standard";
-    const fullAccess = input.fullAccess ?? false;
+    const fullAccess = type === "opencode" || (input.fullAccess ?? false);
     const fullAccessArg =
       type === "claude"
         ? CLAUDE_FULL_ACCESS_ARG
@@ -2069,7 +2069,7 @@ export class AgentManager {
       agentId: agent.id,
       cwd: agent.cwd,
       engine: agent.type,
-      fullAccess: agent.fullAccess,
+      fullAccess: agent.type === "opencode" || agent.fullAccess,
       bins,
       model: agent.model ?? null,
       effort: agent.effort ?? null,
@@ -2444,7 +2444,7 @@ export class AgentManager {
         agent_args AS "agentArgs",
         model,
         effort,
-        full_access AS "fullAccess",
+        (full_access OR type = 'opencode') AS "fullAccess",
         setup_phase AS "setupPhase",
         archive_phase AS "archivePhase",
         archive_cleanup_mode AS "archiveCleanupMode",

@@ -1,7 +1,7 @@
 # OpenCode through ACP
 
 Dispatch launches the installed OpenCode CLI with `opencode acp`. Install it with
-`npm i -g opencode-ai` and configure a provider in OpenCode. The binary is found
+`npm i -g @opencode/cli` and configure a provider in OpenCode. The binary is found
 on PATH or in common installation directories (including `~/.opencode/bin`).
 `DISPATCH_OPENCODE_BIN` overrides it with an absolute executable path.
 
@@ -21,11 +21,84 @@ instructions file. The host merges it into `OPENCODE_CONFIG_CONTENT`, preserving
 existing configuration and instruction paths, on both launch and resume.
 HTTP MCP connects the session to Dispatch. Native ACP
 provides streamed text, tool calls, model/mode selection, cancellation, and resume.
-Restricted sessions route requested permissions to the user; full-access sessions
-automatically approve ACP permission requests. OpenCode's own agent configuration
+OpenCode V2 always uses full access. Dispatch normalizes OpenCode agents, templates,
+jobs and task launches to full access, including existing saved restricted settings.
+The UI shows full access and offers no restricted option. ACP permission requests
+are automatically approved using a one-time option; native effective deny rules
+still block operations. The old `OPENCODE_PERMISSION` wildcard is retired. OpenCode's own agent configuration
 still applies; build/plan modes are not filesystem sandboxes.
 
-## Version validation
+## V2 installation and update channels
+
+Validated against `@opencode/cli` 2.3.2. The official Homebrew V2 formula is
+`anomalyco/tap/opencode-v2`. The old `anomalyco/tap/opencode` formula and
+`opencode-ai` npm package are V1 channels. Both Homebrew formulas install the
+same `opencode` command and conflict; an upgrade of the V1 formula is not a
+migration to V2. Back up configuration and data before removing a package or
+converting configuration. Never overwrite an existing installation automatically.
+
+Dispatch keeps PATH/explicit-binary selection authoritative. Update reporting
+includes the selected path, resolved path, verified package channel, update
+command and V1 migration warning. A legacy installation stays on its verified
+legacy update channel; Dispatch never runs a cross-channel upgrade. Version-pinned
+Homebrew paths remain manual. Ownership and package identity checks still apply.
+Unknown OpenCode installations do not borrow npm's V2 latest-version metadata.
+
+V2's default Code Mode puts MCP tools in its system catalog as
+`tools.dispatch.<tool>`, called through `execute`; they are not ordinary direct
+model tools. No permission change is needed to expose them. The isolated fixture
+suite verifies an authenticated HTTP MCP call through this default catalog.
+
+## Isolated regression suite
+
+Run from the repository root with Bun and an explicitly selected V2 binary:
+
+```sh
+bun scripts/opencode-v2-smoke.mjs /absolute/path/to/v2/opencode ask
+bun scripts/opencode-v2-smoke.mjs /absolute/path/to/v2/opencode deny
+# Optional final argument: installed V1 binary, invoked only with disposable HOME.
+bun scripts/opencode-v2-smoke.mjs /absolute/path/to/v2/opencode ask /absolute/path/to/v1/opencode
+```
+
+This gated suite uses a deterministic localhost provider, fake provider credentials,
+fixture HTTP MCP, and disposable HOME/XDG directories. It never changes the selected
+system installation or uses a paid model. It covers full-access native ask and deny,
+Code Mode HTTP MCP, instructions, selected model, fresh session/resume and cancellation.
+Fixture MCP proves transport/catalog behavior; it is not a paid-model quality test.
+
+Isolated results, November 18, 2026 (V2 2.3.2; V1 1.19.6):
+
+| Flow                                      | Result                                                          |
+| ----------------------------------------- | --------------------------------------------------------------- |
+| Fresh V2 session and V2 resume            | Passed; same session ID                                         |
+| V1 fixture turn, then V2 resume           | Passed; same session ID, separate HOME/XDG                      |
+| Model and effort                          | `fixture/coder` and `high` reached localhost provider           |
+| Native instructions                       | Dispatch instructions reached provider system messages          |
+| Stream, usage, cancellation               | Text chunks, token usage and cancelled stop reason observed     |
+| Full-access native ask / effective deny   | Ask auto-approved; deny excluded shell and no command ran       |
+| Default Code Mode + fixture HTTP MCP      | Authenticated nested tool call completed                        |
+| Default Code Mode + isolated Dispatch MCP | `rename_session` persisted fixture name; `list_agents` returned |
+
+The real Dispatch MCP smoke used the isolated dev database/API and a disposable
+agent row, removed afterward. No production server or paid provider was used.
+
+## Rollback
+
+Keep the V1 binary/package version and separate copies of V1 config and data before
+switching. Preserve `~/.config/opencode`, `~/.local/share/opencode`, and any custom
+XDG/config locations. Do not run V1 against data or native config rewritten by V2.
+Rollback means restoring the V1 package and the untouched V1 config/data copies;
+retain the V2 data separately so neither history is lost. A selected absolute
+`DISPATCH_OPENCODE_BIN` can point back to the preserved V1 binary while restoring
+its matching config/data environment. Exact machine switch/rollback commands must
+be proposed after merge and require the user's go; this change does not switch the
+user's local installation.
+
+Sources: [V1 migration](https://opencode.ai/docs/migrate-v1/),
+[V2 MCP](https://opencode.ai/docs/mcp-servers/),
+[Homebrew V2 formula](https://github.com/anomalyco/homebrew-tap/blob/master/opencode-v2.rb).
+
+## Historical V1 validation
 
 Upgraded the local Homebrew installation from 1.14.30 to 1.18.32 and retested
 native ACP plus the isolated Dispatch stack.

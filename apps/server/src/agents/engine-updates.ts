@@ -18,7 +18,7 @@ import type { CommandRunner } from "../shared/lib/run-command.js";
 const packages = {
   claude: "@anthropic-ai/claude-code",
   codex: "@openai/codex",
-  opencode: "opencode-ai",
+  opencode: "@opencode/cli",
 };
 const brewNames = {
   claude: "claude-code",
@@ -35,6 +35,9 @@ export type Installation = {
   realPath: string | null;
   probePath?: string;
   source: "native" | "npm" | "homebrew-formula" | "homebrew-cask" | "unknown";
+  /** Verified package identity for the selected binary, never a proposed replacement. */
+  packageChannel?: string;
+  migrationWarning?: string;
   canUpdate: boolean;
   reason: string;
   command: string;
@@ -93,7 +96,10 @@ export async function inspectInstallation(
     reason:
       "Installation source could not be verified. Update it manually with its installer.",
     command: status.install,
-    latestKey: `npm:${packages[status.id]}`,
+    latestKey:
+      status.id === "opencode" && status.path
+        ? "unknown:"
+        : `npm:${packages[status.id]}`,
     target: status.path ?? status.id,
   };
   if (!status.path) {
@@ -149,7 +155,13 @@ export async function inspectInstallation(
   }
   // Homebrew's real path identifies the exact formula/cask; misleading prefix names do not.
   const brew = /^(.*)\/(Cellar|Caskroom)\/([^/]+)\/([^/]+)\//.exec(real);
-  if (brew && brew[3] === brewNames[status.id]) {
+  if (
+    brew &&
+    (brew[3] === brewNames[status.id] ||
+      (status.id === "opencode" &&
+        brew[2] === "Cellar" &&
+        brew[3] === "opencode-v2"))
+  ) {
     const [, prefix, kind, name, version] = brew;
     const root = path.join(prefix!, kind!, name!, version!);
     const cask = kind === "Caskroom";
@@ -213,6 +225,18 @@ export async function inspectInstallation(
       : tap !== null &&
         (tap === "homebrew/core" ? namedSource || apiLoaded : tapSource);
     if (identity) {
+      result.packageChannel =
+        tap === "homebrew/core" || tap === "homebrew/cask"
+          ? name!
+          : `${tap}/${name}`;
+      if (
+        status.id === "opencode" &&
+        tap === "anomalyco/tap" &&
+        name === "opencode"
+      ) {
+        result.migrationWarning =
+          "The selected opencode formula is the V1 channel. It conflicts with anomalyco/tap/opencode-v2 because both install opencode. Updating this installation does not switch to V2; back up V1 configuration and data before a manual migration.";
+      }
       const executable = path.join(prefix!, "bin/brew");
       const qualified =
         tap === "homebrew/core" || tap === "homebrew/cask"
@@ -259,7 +283,11 @@ export async function inspectInstallation(
   let dir = path.dirname(real);
   while (dir !== path.dirname(dir)) {
     const pkg = await json(path.join(dir, "package.json"));
-    if (pkg?.name === packages[status.id]) {
+    if (
+      pkg?.name === packages[status.id] ||
+      (status.id === "opencode" && pkg?.name === "opencode-ai")
+    ) {
+      const packageName = pkg.name as string;
       const bins =
         typeof pkg.bin === "string" ? [pkg.bin] : Object.values(pkg.bin ?? {});
       const matches = await Promise.all(
@@ -275,15 +303,21 @@ export async function inspectInstallation(
       );
       if (!matches.includes(true)) return result;
       result.source = "npm";
+      result.packageChannel = packageName;
+      result.latestKey = `npm:${packageName}`;
+      if (status.id === "opencode" && packageName === "opencode-ai") {
+        result.migrationWarning =
+          "The selected opencode-ai package is the V1 channel. Updating it does not switch to @opencode/cli. Back up V1 configuration and data before a manual migration; both packages install opencode.";
+      }
       result.target = dir;
-      const suffix = path.join("lib", "node_modules", packages[status.id]);
+      const suffix = path.join("lib", "node_modules", packageName);
       const prefix = dir.endsWith(`/${suffix}`)
         ? dir.slice(0, -(suffix.length + 1))
         : null;
       result.reason = deny;
       if (!prefix) return result;
       const npm = path.join(prefix, "bin/npm");
-      result.command = `${quote(npm)} install --global --prefix ${quote(prefix)} ${packages[status.id]}@latest`;
+      result.command = `${quote(npm)} install --global --prefix ${quote(prefix)} ${packageName}@latest`;
       if (
         !prefix.startsWith(`${home}/`) ||
         status.path !== path.join(prefix, "bin", path.basename(status.path))
@@ -317,7 +351,7 @@ export async function inspectInstallation(
               "--global",
               "--prefix",
               prefix,
-              `${packages[status.id]}@latest`,
+              `${packageName}@latest`,
             ],
             env: {
               PATH: `${path.join(prefix, "bin")}${path.delimiter}${process.env.PATH ?? ""}`,

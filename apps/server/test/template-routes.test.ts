@@ -635,3 +635,18 @@ it("clears saved effort when only a template's runtime is changed", async () => 
   expect(updated.statusCode).toBe(200);
   expect(updated.json()).toMatchObject({ model: null, effort: null });
 });
+
+it("normalizes OpenCode template creation and updates to full access", async () => {
+  const created = await createTemplate("opencode-access", {
+    agentType: "opencode",
+    fullAccess: false,
+  });
+  expect(created.fullAccess).toBe(true);
+  const updated = await authedInject(
+    "PATCH",
+    `/api/v1/templates/${created.id}`,
+    { fullAccess: false }
+  );
+  expect(updated.statusCode).toBe(200);
+  expect(updated.json().fullAccess).toBe(true);
+});

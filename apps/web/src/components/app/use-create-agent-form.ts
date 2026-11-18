@@ -136,7 +136,7 @@ export function useCreateAgentForm({
   const {
     persona: createPersona,
     setPersona: setCreatePersona,
-    fullAccess: createFullAccess,
+    fullAccess: savedCreateFullAccess,
     setFullAccess: setCreateFullAccess,
     useWorktree: createUseWorktree,
     setUseWorktree: setCreateUseWorktree,
@@ -147,6 +147,7 @@ export function useCreateAgentForm({
     model: createModel,
     setModel: setCreateModel,
   } = useCreateAgentPrefs(createCwd, createType);
+  const createFullAccess = createType === "opencode" || savedCreateFullAccess;
   const {
     options: modelOptions,
     loading: modelCatalogLoading,

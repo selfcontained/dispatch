@@ -718,6 +718,22 @@ describe("createMcpHandlers", () => {
       );
     });
 
+    it("prevents restricted callers from escalating through OpenCode normalization", async () => {
+      vi.mocked(getEnabledAgentTypes).mockResolvedValue([
+        "claude",
+        "codex",
+        "opencode",
+      ]);
+      await expect(
+        handlers.launchAgent("agt_test1", {
+          name: "child",
+          type: "opencode",
+          fullAccess: false,
+        })
+      ).rejects.toThrow(/restricted agent cannot launch full-access OpenCode/);
+      expect(deps.agentManager.createAgent).not.toHaveBeenCalled();
+    });
+
     it("does not include full-access arg for opencode agents", async () => {
       vi.mocked(getEnabledAgentTypes).mockResolvedValue([
         "claude",
