@@ -1,15 +1,33 @@
-# Dispatch remote runner prototype
+# Dispatch remote runners
 
-Dispatch keeps the agent row, conversation, prompt queue, MCP authorization, and
-stream projection. The runner opens an outbound mTLS connection and owns the
-workspace, ACP host, engine executable, and guest process lifecycle. The normal
-Create Agent dialog accepts a pre-approved workspace locator such as
-`runner://lima/proof` in Folder. Dispatch stores that locator in the agent's
-existing `cwd` field. The runner resolves the locator to a guest-local absolute
-path. The Create with context action creates the normal launch post and first
-turn.
+One Dispatch instance can run agents on this Mac and on multiple named Linux
+runners. Dispatch owns the agents, tasks, conversations, permissions UI and
+stream projection. Each runner owns its workspaces and engine processes.
 
-## Setup
+1. Prepare the Linux runner binary, workload account, workspace and
+   `/etc/dispatch-runner/runner.json` as described below. Configure the
+   workload settings before pairing.
+2. In **Settings → Connections → Remote runners**, enter a name and choose
+   **Pair runner**. Run the displayed one-time command as root on the runner.
+   Dispatch issues the certificate. The private key is generated on the runner.
+3. Start the runner supervisor with its updated configuration. In Settings,
+   wait for **Online** and check the advertised workspace list.
+4. Open **Create Agent**. **Runs on** defaults to **This Mac**. Choose the
+   named runner and workspace for a remote launch. Workspaces on different
+   runners may have the same name.
+5. To remove a runner's access, choose **Revoke** for that registration.
+   Each agent stays bound to its original runner, including after disconnect
+   and when a new runner is paired under a previously used name.
+
+The deterministic integration suite builds the Linux runner and exercises two
+Docker containers plus a local agent against a disposable Dispatch database.
+Run it from the worktree with Bun, Docker and Playwright installed.
+
+```sh
+pnpm run test:e2e:remote-runners --no-deps acceptance.spec.ts
+```
+
+## Linux runner setup
 
 Build the Linux artifact from this checkout. For x86-64 use the matching Bun
 target. The server and runner use the same source entry point.
@@ -20,18 +38,7 @@ bun build --compile --target=bun-linux-arm64 apps/server/src/main.ts \
   --outfile /tmp/dispatch-runner
 ```
 
-Set `DISPATCH_REMOTE_SERVICE_CONFIG` on an isolated Dispatch service. The
-service JSON names one registration `id`, listener `host` and `port`, PEM
-paths `ca`, `cert`, and `key`, an `approval` file containing the approved
-client certificate's SHA-256 fingerprint, a list of approved `workspaces`, and
-the guest-reachable HTTPS `mcpOrigin`. Set `repoTool` to true to expose the
-approved repository operation. For the Lima proof the API stayed on the dev
-stack's own loopback port and a scoped HTTPS front end forwarded `/ping` and
-agent MCP routes. The server certificate included `host.lima.internal` in its
-SAN. Empty the approval file to revoke the live connection and prevent further
-attachment. Reapproval restores access to the same registration.
-
-Run `dispatch-runner remote-runner /etc/dispatch-proof/runner.json` under a
+Run `dispatch-runner remote-runner /etc/dispatch-runner/runner.json` under a
 Linux service supervisor. The root-owned runner JSON names the HTTPS
 `endpoint`, trust and enrollment PEM paths `ca`, `cert`, and `key`, the
 dedicated `state` directory, guest CLI `uid`, `gid`, `home`, and `path`,
@@ -42,7 +49,7 @@ clients that use `SSL_CERT_FILE`. There is a guest-local `adapter` override
 for the fake provider. Keep the enrollment key and runner settings root-only
 and the CA certificate readable by the CLI. The supervisor needs Linux
 util-linux `/usr/bin/setpriv` and permission to change identity and remove
-capabilities (`CAP_SETUID`, `CAP_SETGID`, and `CAP_SETPCAP`). Before enrollment,
+capabilities (`CAP_SETUID`, `CAP_SETGID`, and `CAP_SETPCAP`). Before accepting execution commands,
 the runner verifies the kernel-reported non-root UID/GID, empty supplementary
 groups, zero capabilities, and `no_new_privs` through the same wrapper used
 for both the ACP host and repo operations. The runner grants traversal on its
@@ -51,7 +58,7 @@ Bindings and logs remain private. The child receives its scoped MCP credential
 and guest paths through a constructed environment. Use test credentials, disable VM
 mounts and SSH-agent forwarding, and keep the VM and dev data disposable.
 
-## Enrolled runners
+## Registration and networking
 
 Enrollment replaces the manual certificates and approval file. On first use
 Dispatch creates a runner CA and a listener certificate and stores them in
@@ -92,16 +99,28 @@ comma list of `<id>` or `<id>/<workspace>`.
 `DISPATCH_REMOTE_SERVICE_CONFIG` below still works. Its `mcpOrigin` is now
 optional when `endpointHost` is given.
 
+## Legacy manual enrollment
+
+Set `DISPATCH_REMOTE_SERVICE_CONFIG` on an isolated Dispatch service. The
+service JSON names one registration `id`, listener `host` and `port`, PEM
+paths `ca`, `cert`, and `key`, an `approval` file containing the approved
+client certificate's SHA-256 fingerprint, a list of approved `workspaces`, and
+the guest-reachable HTTPS `mcpOrigin`. Set `repoTool` to true to expose the
+approved repository operation. For the Lima proof the API stayed on the dev
+stack's own loopback port and a scoped HTTPS front end forwarded `/ping` and
+agent MCP routes. The server certificate included `host.lima.internal` in its
+SAN. Empty the approval file to revoke the live connection and prevent further
+attachment. Reapproval restores access to the same registration.
+
 ## Wire contract
 
 The [portable protocol package](../../packages/runner-protocol/README.md)
 defines the v1 wire types, opaque locators, optional service MCP, and
-consumer receipt and replay semantics. The setup and traces below describe
-the prototype artifact.
+consumer receipt and replay semantics. The original single-runner traces appear below.
 
 The runner sends `ready` with protocol version 1 and its workspace handles.
-The service requires a trusted client certificate, a matching manual approval
-fingerprint, and a workspace in both sides' configuration. A service request
+The service requires a trusted client certificate, an active registration or legacy approval
+fingerprint, and a workspace offered by that runner. A service request
 names an agent ID, workspace, operation, and a per-connection correlation ID.
 The runner stores the agent-to-workspace binding in its private state and
 rechecks it on every attach and workspace operation. Reply frames correlate
