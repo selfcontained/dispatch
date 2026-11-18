@@ -186,12 +186,13 @@ final class UpdateUserDriver: SPUStandardUserDriver {
         progress.showWindow(nil)
         return true
     }
-    /// The same deferred update can exhaust its retries after its handoff ended.
-    func retryExhausted(_ message: String) {
-        if stopped(message) { return }
-        guard let progress, case .stopped = progress.phase else { return }
-        progress.update(.stopped(message)); activateApp(); progress.showWindow(nil)
+    /// Informational withdrawals must never activate Dispatch or present a window.
+    func postponed(_ message: String) {
+        handoffInProgress = false; preparingHandoff = false; pendingInstallerError = nil
+        progress?.close(); progress = nil
+        UpdateNotifier.shared.notify(.postponed(message))
     }
+    func retryExhausted(_ message: String) { postponed(message) }
     override func showInstallingUpdate(withApplicationTerminated applicationTerminated: Bool, retryTerminatingApplication: @escaping () -> Void) {
         // The standard driver closes its window when quit is delayed. Our window
         // stays visible; only the protected handoff may announce a restart.

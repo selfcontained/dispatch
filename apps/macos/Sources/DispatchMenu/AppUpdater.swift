@@ -496,7 +496,7 @@ final class AppUpdater: NSObject, SPUUpdaterDelegate {
         if retry {
             remoteError = message
             scheduleDeferredRetry()
-            userDriver.stopped(deferredNote != nil ? "\(message) Dispatch will retry automatically when agents are idle." : remoteError ?? message)
+            userDriver.postponed(deferredNote != nil ? "\(message) Dispatch will retry automatically when agents are idle." : remoteError ?? message)
         } else {
             clearDeferral()
             if disableAutomatic {
