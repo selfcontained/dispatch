@@ -676,7 +676,12 @@ export class RemoteRunnerService {
         this.peers.set(gate.key, peer);
         previous?.socket.destroy();
         gate.ready?.(frame.workspaces, peer.managedWorkspace);
-        if (peer.reportsHealth) send({ type: "accept_health" });
+        if (peer.reportsHealth) {
+          send({
+            type: "accept_health",
+            ...(peer.engineManagement ? { engineInventory: true } : {}),
+          });
+        }
         return;
       }
       if (this.peers.get(gate.key) !== peer) return socket.destroy();
@@ -700,7 +705,11 @@ export class RemoteRunnerService {
                 error
               )
             );
-      } else if (frame.type === "engine_inventory") {
+      } else if (
+        frame.type === "engine_inventory" &&
+        peer.engineManagement &&
+        peer.reportsHealth
+      ) {
         const entries = parseEngineInventory(frame.entries);
         if (entries === null) return socket.destroy();
         peer.engines = entries;

@@ -74,6 +74,7 @@ function dialEngineRunner(input: {
       send({
         type: "ready",
         version: 1,
+        health: true,
         ...(input.engineManagement !== false ? { engineManagement: true } : {}),
         workspaces: input.workspaces,
       });

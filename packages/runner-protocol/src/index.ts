@@ -105,7 +105,7 @@ export type Frame =
       /** Advertises support for the `"engine"` command and inventory push. */
       engineManagement?: true;
     }
-  | { type: "accept_health" }
+  | { type: "accept_health"; engineInventory?: true }
   | { type: "health"; sample: RunnerHealth }
   /** Runner-pushed, same cadence as health; see parseEngineInventory. */
   | { type: "engine_inventory"; entries: EngineInventoryEntry[] }

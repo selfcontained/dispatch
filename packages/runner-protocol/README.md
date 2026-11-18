@@ -99,6 +99,11 @@ submission because an engine-initiated turn was already open.
 
 ## Runner health
 
+Engine inventory is opt-in for each connection. Runners advertise
+`engineManagement: true` in `ready`. A service can set `engineInventory: true`
+on its `accept_health` response to receive periodic `engine_inventory` frames.
+A plain `accept_health` subscribes to health samples alone.
+
 A runner can advertise `health: true` in its v1 ready frame. A service that
 wants reports replies once with `{"type":"accept_health"}`. The runner pushes
 a `health` frame containing its latest sample immediately and every 30 seconds

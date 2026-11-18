@@ -479,9 +479,10 @@ export async function runRemoteRunner(filename: string) {
           sampling = false;
         }
       };
+      let acceptsInventory = false;
       let samplingEngines = false;
       const reportEngineInventory = async () => {
-        if (samplingEngines || socket.destroyed) return;
+        if (!acceptsInventory || samplingEngines || socket.destroyed) return;
         samplingEngines = true;
         try {
           const entries = await engineExecutor.inventory();
@@ -678,6 +679,7 @@ export async function runRemoteRunner(filename: string) {
 
       const send = wireFrames(socket, (frame) => {
         if (frame.type === "accept_health" && !healthInterval) {
+          acceptsInventory = frame.engineInventory === true;
           void reportHealth();
           void reportEngineInventory();
           healthInterval = setInterval(() => {
