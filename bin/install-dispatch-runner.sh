@@ -267,7 +267,7 @@ main() {
     error "The managed runner needs systemd and cgroup v2"
   [[ -x /usr/bin/setpriv ]] || error "Install util-linux with /usr/bin/setpriv"
   if [[ "$action" != recover ]]; then
-    for command in curl gh tar; do
+    for command in curl gh tar ps find git; do
       command -v "$command" >/dev/null || error "Install $command"
     done
   fi

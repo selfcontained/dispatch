@@ -2,7 +2,7 @@
 
 Use a supported Dispatch release and a Linux x86-64 or ARM64 host with systemd,
 the unified cgroup v2 hierarchy, and systemd's `freeze` and `thaw` commands.
-Install Bash, curl, tar, util-linux (including `/usr/bin/setpriv` and `flock`),
+Install Git, procps (ps), findutils, Bash, curl, tar, util-linux (including `/usr/bin/setpriv` and `flock`),
 `useradd`, GNU coreutils, and a GitHub CLI with `gh attestation verify --bundle`.
 GitHub CLI verifies the published bundles without a GitHub login.
 The runner must be able to reach the HTTPS address in the pairing command.
