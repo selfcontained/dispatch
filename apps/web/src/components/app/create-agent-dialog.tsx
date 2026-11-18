@@ -1,4 +1,3 @@
-import { MANAGED_WORKSPACE } from "@dispatch/runner-protocol";
 import { RunnerRepositoryFields } from "./runner-repository-fields";
 import { taskAgentName } from "@dispatch/shared";
 import { ProjectLocation } from "./project-location";
@@ -26,6 +25,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { type Agent } from "@/components/app/types";
 import { useRadixPopoverZFix } from "@/hooks/use-radix-popover-z-fix";
@@ -157,9 +163,7 @@ function CreateAgentDialogContent({
                   <RunnerPicker
                     runners={
                       task
-                        ? form.runners.filter((r) =>
-                            r.workspaces.includes(MANAGED_WORKSPACE)
-                          )
+                        ? form.runners.filter((r) => r.managedWorkspace)
                         : form.runners
                     }
                     runnerId={form.runnerId}
@@ -168,6 +172,29 @@ function CreateAgentDialogContent({
                     workspace={form.runnerWorkspace}
                     onWorkspaceChange={form.setRunnerWorkspace}
                   />
+                  {form.managedSession && !task && form.projects.length > 0 && (
+                    <div className="space-y-1 text-sm">
+                      <label id="runner-project-label">Dispatch project</label>
+                      <Select
+                        value={form.createProjectId ?? "__none__"}
+                        onValueChange={(id) =>
+                          form.setCreateProjectId(id === "__none__" ? null : id)
+                        }
+                      >
+                        <SelectTrigger aria-labelledby="runner-project-label">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="__none__">No project</SelectItem>
+                          {form.projects.map((project) => (
+                            <SelectItem key={project.id} value={project.id}>
+                              {project.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
                   {form.managedSession && (
                     <RunnerRepositoryFields
                       repository={form.repository}

@@ -80,8 +80,7 @@ export function useCreateAgentForm({
   const remote = Boolean(runnerId);
   const runnerUnavailable = remote && (!runner || runner.status === "revoked");
   // Only a workspace the runner reports now, on an online runner, can submit.
-  const managedSession =
-    runner?.workspaces.includes(MANAGED_WORKSPACE) ?? false;
+  const managedSession = runner?.managedWorkspace === true;
   const runnerWorkspace = managedSession
     ? MANAGED_WORKSPACE
     : runner && pickedWorkspace && runner.workspaces.includes(pickedWorkspace)
@@ -102,12 +101,17 @@ export function useCreateAgentForm({
   const [locationChoice, setLocationChoice] = useState<{
     projectId: string | null;
   } | null>(null);
+  const [runnerProjectId, setRunnerProjectId] = useState<
+    string | null | undefined
+  >(undefined);
   const selectedProjectId = task
     ? task.projectId
-    : locationChoice
-      ? locationChoice.projectId
-      : (initialProjectId ??
-        (locationPref?.mode === "project" ? locationPref.projectId : null));
+    : managedSession && runnerProjectId !== undefined
+      ? runnerProjectId
+      : locationChoice
+        ? locationChoice.projectId
+        : (initialProjectId ??
+          (locationPref?.mode === "project" ? locationPref.projectId : null));
   const project = projects.find((p) => p.id === selectedProjectId);
   // Keep a pending choice while loading, but never submit an unavailable ID.
   const createProjectId =
@@ -153,6 +157,13 @@ export function useCreateAgentForm({
     ? Boolean(remoteCwd) && repoReady && (!selectedProjectId || projectsLoaded)
     : !selectedProjectId || projectsLoaded;
   const setCreateProjectId = (id: string | null) => {
+    if (managedSession) {
+      setRunnerProjectId(id);
+      setChosenRepo(null);
+      setBranchMode("new");
+      setRunnerBranch("");
+      return;
+    }
     setLocationChoice({ projectId: id });
     setLocationPref({
       mode: id ? "project" : "folder",
@@ -494,6 +505,7 @@ export function useCreateAgentForm({
   );
 
   return {
+    projects,
     runners,
     runnerId,
     runnerUnavailable,

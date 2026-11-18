@@ -12,7 +12,6 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { RunnerOnboarding } from "./runner-onboarding";
-import { MANAGED_WORKSPACE } from "@dispatch/runner-protocol";
 import {
   useRunnerMutations,
   useRunners,
@@ -110,12 +109,11 @@ export function RunnerSettings(): JSX.Element {
                     </Badge>
                   </div>
                   <RunnerHealthDetails runner={runner} />
-                  {runner.workspaces.length > 0 &&
-                    !runner.workspaces.includes(MANAGED_WORKSPACE) && (
-                      <p className="mt-0.5 break-words text-xs text-muted-foreground">
-                        Folders: {runner.workspaces.join(", ")}
-                      </p>
-                    )}
+                  {runner.workspaces.length > 0 && !runner.managedWorkspace && (
+                    <p className="mt-0.5 break-words text-xs text-muted-foreground">
+                      Folders: {runner.workspaces.join(", ")}
+                    </p>
+                  )}
                 </div>
                 {runner.status !== "revoked" &&
                   (confirmId === runner.id ? (

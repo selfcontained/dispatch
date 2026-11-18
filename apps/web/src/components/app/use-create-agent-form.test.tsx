@@ -217,6 +217,7 @@ describe("launch location preference", () => {
           name: "Lima",
           status: "online",
           workspaces: ["@session"],
+          managedWorkspace: true,
         },
       ]
     );

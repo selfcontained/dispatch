@@ -1,4 +1,3 @@
-import { MANAGED_WORKSPACE } from "@dispatch/runner-protocol";
 import { useId } from "react";
 
 import {
@@ -83,9 +82,7 @@ export function RunnerPicker({
           continue.
         </p>
       ) : null}
-      {selected &&
-      !unavailable &&
-      !selected.workspaces.includes(MANAGED_WORKSPACE) ? (
+      {selected && !unavailable && !selected.managedWorkspace ? (
         <div className="space-y-1">
           <label
             id={workspaceLabelId}

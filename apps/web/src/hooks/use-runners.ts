@@ -10,6 +10,7 @@ export type Runner = {
   name: string;
   status: RunnerStatus;
   workspaces: string[];
+  managedWorkspace?: true;
   health?: RunnerHealth;
   healthReceivedAt?: string;
 };

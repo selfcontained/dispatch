@@ -38,16 +38,16 @@ export function RunnerCommand({
   );
 }
 
-type PairRequest = { id: string; hostname: string; expiresAt: string };
+type PairRequest = { id: string; createdAt: string; expiresAt: string };
 
 function ApproveRunner({ request }: { request: PairRequest }) {
   const queryClient = useQueryClient();
-  const [name, setName] = useState(request.hostname);
+  const [name, setName] = useState("");
   const [code, setCode] = useState("");
   const approve = useMutation({
     mutationFn: () =>
       api(
-        "/api/v1/runners/pairing-requests/" +
+        "/api/v1/runners/connect/" +
           encodeURIComponent(request.id) +
           "/approve",
         {
@@ -65,6 +65,14 @@ function ApproveRunner({ request }: { request: PairRequest }) {
       ]);
     },
   });
+  const dismiss = useMutation({
+    mutationFn: () =>
+      api("/api/v1/runners/connect/" + encodeURIComponent(request.id), {
+        method: "DELETE",
+      }),
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: ["runner-pairing-requests"] }),
+  });
   return (
     <form
       className="space-y-2 rounded-md border border-primary/40 p-3"
@@ -74,15 +82,18 @@ function ApproveRunner({ request }: { request: PairRequest }) {
       }}
       data-testid="runner-approval"
     >
-      <p className="text-sm font-medium">Approve {request.hostname}</p>
+      <p className="text-sm font-medium">
+        Connection request · {request.id.slice(-8)}
+      </p>
       <p className="text-xs text-muted-foreground">
-        Enter the code printed on that machine to grant it access.
+        Match the request reference and enter the code printed on the runner.
       </p>
       <div className="grid gap-2 sm:grid-cols-2">
         <label className="space-y-1 text-sm">
           Runner name
           <Input
             value={name}
+            placeholder="e.g. Build machine"
             maxLength={64}
             required
             onChange={(e) => setName(e.target.value)}
@@ -103,13 +114,23 @@ function ApproveRunner({ request }: { request: PairRequest }) {
       <Button
         type="submit"
         variant="primary"
-        disabled={!name.trim() || !code.trim() || approve.isPending}
+        disabled={
+          !name.trim() || !code.trim() || approve.isPending || dismiss.isPending
+        }
       >
         Approve runner
       </Button>
-      {approve.error && (
+      <Button
+        type="button"
+        variant="ghost"
+        disabled={approve.isPending || dismiss.isPending}
+        onClick={() => dismiss.mutate()}
+      >
+        Deny request
+      </Button>
+      {(approve.error || dismiss.error) && (
         <p className="text-sm text-destructive" role="alert">
-          {approve.error.message}
+          {(approve.error ?? dismiss.error)?.message}
         </p>
       )}
     </form>
@@ -133,8 +154,7 @@ export function RunnerOnboarding() {
   const [opened, setOpened] = useState(false);
   const pending = useQuery({
     queryKey: ["runner-pairing-requests"],
-    queryFn: () =>
-      api<{ requests: PairRequest[] }>("/api/v1/runners/pairing-requests"),
+    queryFn: () => api<{ requests: PairRequest[] }>("/api/v1/runners/connect"),
     refetchInterval: 5000,
     retry: false,
   });
