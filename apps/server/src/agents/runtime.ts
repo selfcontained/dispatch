@@ -5,7 +5,7 @@ import type { AgentPermissionsResponse } from "@dispatch/shared";
 import type { PromptSource, PromptOptions } from "./acp/prompt-source.js";
 import type { FastifyBaseLogger } from "fastify";
 
-import type { Placement } from "./remote/protocol.js";
+import type { Placement, RunnerRepository } from "./remote/protocol.js";
 import type { HostLaunch } from "./acp/host-protocol.js";
 import type { AppConfig } from "../config.js";
 import type { DriverEvent } from "./acp/driver.js";
@@ -20,7 +20,10 @@ import { createAcpRuntime, type AcpRuntimeDeps } from "./acp/runtime.js";
  * The workspace (worktree, deps) already exists; this is only about the
  * process. See docs/design/acp-runtime.md.
  */
-export type RuntimeLaunch = HostLaunch & { placement?: Placement };
+export type RuntimeLaunch = HostLaunch & {
+  placement?: Placement;
+  repository?: RunnerRepository;
+};
 
 export type RuntimeEventListener = (
   agentId: string,

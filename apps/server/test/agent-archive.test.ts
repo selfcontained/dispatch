@@ -1093,7 +1093,7 @@ describe("deleteAgentDirect", () => {
     expect(runLifecycleHook).not.toHaveBeenCalled();
     expect(pool.query).toHaveBeenCalledWith(
       expect.stringContaining("SET deleted_at = NOW()"),
-      ["a1"]
+      ["a1", false]
     );
   });
 
@@ -1138,7 +1138,7 @@ describe("deleteAgentDirect", () => {
 
     expect(pool.query).toHaveBeenCalledWith(
       expect.stringContaining("SET deleted_at = NOW()"),
-      ["a1"]
+      ["a1", false]
     );
   });
 
@@ -1283,4 +1283,31 @@ describe("deleteAgentDirect", () => {
     );
     expect(childDeleteCalls).toHaveLength(1);
   });
+});
+
+it("archives an offline managed session with pending cleanup recorded in the same write", async () => {
+  const runtime = makeRuntime({
+    stop: vi.fn().mockRejectedValue(new Error("runner offline")),
+  });
+  const deps = makeDeps({
+    runtime,
+    getRequiredAgent: vi.fn().mockResolvedValue(
+      makeAgent("remote", {
+        cwd: "runner://runner/@session",
+        status: "archiving",
+      })
+    ),
+  });
+  const onComplete = vi.fn();
+  await executeArchive(deps, "remote", {
+    onComplete,
+    onPhaseChange: vi.fn(),
+    onError: vi.fn(),
+  });
+  expect(runtime.discard).not.toHaveBeenCalled();
+  expect(deps.pool.query).toHaveBeenCalledWith(
+    expect.stringContaining("runner_cleanup_pending = $2"),
+    ["remote", true]
+  );
+  expect(onComplete).toHaveBeenCalledWith(["remote"]);
 });

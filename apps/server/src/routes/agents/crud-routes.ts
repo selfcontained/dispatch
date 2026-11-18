@@ -250,6 +250,7 @@ export async function registerAgentCrudRoutes(
         .send({ error: "Body must include cwd as a string." });
     }
 
+    let repository: unknown;
     let parsedAgentArgs: string[] | undefined;
     let startupLinks: string[] | undefined;
     let fullAccess: boolean | undefined;
@@ -257,6 +258,10 @@ export async function registerAgentCrudRoutes(
     let createNewBranch: boolean | undefined;
 
     try {
+      repository =
+        parsedRequest.isMultipart && typeof body.repository === "string"
+          ? JSON.parse(body.repository)
+          : body.repository;
       parsedAgentArgs = parseOptionalStringArrayField(
         body.agentArgs ?? body.codexArgs,
         "agentArgs",
@@ -408,6 +413,7 @@ export async function registerAgentCrudRoutes(
           cwd: typeof body.cwd === "string" ? body.cwd : "",
           projectId:
             typeof body.projectId === "string" ? body.projectId : undefined,
+          repository,
           agentArgs: resolvedAgentArgs,
           model,
           effort,

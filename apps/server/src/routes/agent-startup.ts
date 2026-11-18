@@ -8,6 +8,7 @@ import {
 
 export type CreateAgentBody = {
   projectId?: unknown;
+  repository?: unknown;
   name?: unknown;
   type?: unknown;
   /** Not accepted — see the create route; typed so it can be refused. */

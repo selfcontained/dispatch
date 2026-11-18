@@ -32,6 +32,22 @@ existing host. Use unique request IDs within each connection. These IDs
 provide correlation only.
 
 The guest resolves the working directory, executable and environment.
+A runner that advertises the reserved workspace `@session` provides private
+storage for each agent ID. Launch uses an empty scratch directory by default.
+The optional `repository` launch field selects a credential-free HTTPS Git URL
+and a checkout instead:
+
+- `{ kind: "new", branch, base? }` creates a branch from the named or default
+  remote branch.
+- `{ kind: "branch", branch }` checks out an existing non-default branch.
+- `{ kind: "pr", branch, number }` fetches `refs/pull/<number>/head` and checks
+  it out under the supplied branch name.
+
+An occupied or conflicting branch causes launch to fail. A successful
+`discard` removes the agent's session directory and checkout while retaining
+cached branches. Services can retry discard after a lost acknowledgement.
+Configured workspace handles continue to use their configured directory.
+
 The optional launch field `mcp` supplies one service-scoped MCP endpoint
 using an HTTPS `url`, bearer `token`, and optional `name`. Absence starts the
 ACP session with an empty service MCP list. v1 launches with the original

@@ -11,6 +11,7 @@ import {
   parseRunnerHealth,
   type RunnerHealth,
   hostChannel,
+  MANAGED_WORKSPACE,
   wireFrames,
   type Command,
   type Frame,
@@ -318,7 +319,11 @@ export class RemoteRunnerService {
    * requires its own per-workspace `repoTool`.
    */
   repoToolFor(placement: Placement) {
-    if (!this.permitsAgentMcp(placement)) return false;
+    if (
+      placement.workspace === MANAGED_WORKSPACE ||
+      !this.permitsAgentMcp(placement)
+    )
+      return false;
     if (this.legacy && placement.runner === this.legacy.id)
       return this.legacy.repoTool === true;
     const approval = this.enrollment?.repoTool;
@@ -591,7 +596,8 @@ export class RemoteRunnerService {
           frame.type !== "ready" ||
           frame.version !== 1 ||
           !Array.isArray(frame.workspaces) ||
-          frame.workspaces.length > 256 ||
+          frame.workspaces.length >
+            (frame.workspaces.includes(MANAGED_WORKSPACE) ? 257 : 256) ||
           !frame.workspaces.every((workspace) => validWorkspaceId(workspace))
         )
           return socket.destroy();
@@ -970,7 +976,12 @@ export class RemoteRunnerService {
             else if (frame.error) reject(new Error(frame.error));
             else resolve(frame.value);
           };
-          const timer = setTimeout(() => finish(), 20_000);
+          const timer = setTimeout(
+            () => finish(),
+            command.kind === "launch" && command.launch.repository
+              ? 300_000
+              : 20_000
+          );
           peer.pending.set(id, finish);
           try {
             peer.send({ type: "request", id, command });

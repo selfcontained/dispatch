@@ -15,6 +15,7 @@ import {
   vi,
 } from "vitest";
 import type { Pool } from "pg";
+import type { RemoteRunnerService } from "../../src/agents/remote/service.js";
 
 import { setupTestDb, teardownTestDb, runTestMigrations } from "./setup.js";
 import type {
@@ -241,6 +242,73 @@ beforeEach(async () => {
 
 describe("AgentManager", () => {
   describe("createAgent", () => {
+    it("persists managed placement across restart and retries archive when the original runner returns", async () => {
+      const available = vi.fn(() => true);
+      const remote = {
+        available,
+        originFor: () => "https://example.test",
+      } as unknown as RemoteRunnerService;
+      const first = new AgentManager(pool, noopLogger, testConfig, {
+        runtime,
+        remote,
+      });
+      const cwd = "runner://runner-test/@session";
+      const projectId = "managed-runner-project";
+      await pool.query(
+        "INSERT INTO projects (id, name, repo_root) VALUES ($1, 'Runner', '/tmp/remote-project')",
+        [projectId]
+      );
+      const repository = {
+        url: "https://example.test/fixture.git",
+        checkout: { kind: "new", branch: "agent-work", base: "develop" },
+      };
+      const agent = await first.createAgent({ cwd, projectId, repository });
+      expect(agent).toMatchObject({ cwd, projectId });
+      expect(runtime.launch).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          placement: { runner: "runner-test", workspace: "@session" },
+          repository,
+        })
+      );
+
+      const resumedRuntime = createSpyRuntime();
+      const discard = vi.fn(async () => {});
+      const resumed = new AgentManager(pool, noopLogger, testConfig, {
+        runtime: { ...resumedRuntime, discard },
+        remote,
+      });
+      await resumed.stopAgent(agent.id);
+      await resumed.startAgent(agent.id);
+      expect(resumedRuntime.launch).toHaveBeenCalledWith(
+        expect.objectContaining({ repository })
+      );
+      await resumed.beginArchive(agent.id);
+      available.mockReturnValue(false);
+      resumedRuntime.stop.mockRejectedValueOnce(new Error("offline"));
+      await resumed.executeArchive(agent.id, {
+        onPhaseChange: vi.fn(),
+        onComplete: vi.fn(),
+        onError: vi.fn(),
+      });
+      const pending = async () =>
+        (
+          await pool.query(
+            "SELECT runner_cleanup_pending FROM agents WHERE id = $1 AND deleted_at IS NOT NULL",
+            [agent.id]
+          )
+        ).rows[0]?.runner_cleanup_pending;
+      expect(await pending()).toBe(true);
+      const placement = { runner: "runner-test", workspace: "@session" };
+      available.mockClear();
+      await resumed.reconcileAgentStatuses();
+      await vi.waitFor(() => expect(available).toHaveBeenCalledWith(placement));
+      expect(discard).not.toHaveBeenCalled();
+      available.mockReturnValue(true);
+      await resumed.reconcileAgentStatuses();
+      await vi.waitFor(async () => expect(await pending()).toBe(false));
+      expect(discard).toHaveBeenCalledExactlyOnceWith(agent.id);
+    });
+
     it.each([null, "project-b"])(
       "inherits parent membership with template project %s",
       async (templateProject) => {

@@ -56,6 +56,13 @@ export type ServiceMcp = {
   name?: string;
 };
 
+export type RepositoryCheckout =
+  | { kind: "new"; branch: string; base?: string }
+  | { kind: "branch"; branch: string }
+  | { kind: "pr"; branch: string; number: number };
+
+export type RunnerRepository = { url: string; checkout: RepositoryCheckout };
+
 /** The guest supplies all machine-local execution settings. */
 export type RemoteLaunch = {
   agentId: string;
@@ -67,6 +74,7 @@ export type RemoteLaunch = {
   personaContext?: string | null;
   mcp?: ServiceMcp;
   resumeSessionId: string | null;
+  repository?: RunnerRepository;
 };
 
 export type Command = { agentId: string; workspace: string } & (

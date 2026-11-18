@@ -73,7 +73,12 @@ import type {
 } from "./acp/prompt-source.js";
 import { type EngineBins, isAcpEngine } from "./acp/engine-spec.js";
 import { RemoteEventInbox } from "./remote/event-inbox.js";
-import { MANAGED_WORKSPACE, remotePlacement } from "./remote/protocol.js";
+import {
+  MANAGED_WORKSPACE,
+  remotePlacement,
+  type RunnerRepository,
+} from "./remote/protocol.js";
+import { inferRepositoryUrl, parseRepository } from "./remote/repository.js";
 import { RunnerRevoked, type RemoteRunnerService } from "./remote/service.js";
 import { buildLaunchEnv } from "./acp/launch-env.js";
 import { dispatchMcpUrl } from "./acp/mcp-url.js";
@@ -185,6 +190,7 @@ type CreateAgentInput = {
   initialFiles?: SeedFileInput[];
   templateId?: string;
   projectId?: string | null;
+  repository?: unknown;
 };
 
 type StopAgentInput = {
@@ -1365,6 +1371,20 @@ export class AgentManager {
   ): Promise<AgentRecord> {
     input = { ...input };
     const placement = remotePlacement(input.cwd);
+    const managed = placement?.workspace === MANAGED_WORKSPACE;
+    const repository = (() => {
+      if (input.repository === undefined) return undefined;
+      if (!managed)
+        throw new AgentError(
+          "Repository checkout requires a managed runner session.",
+          400
+        );
+      try {
+        return parseRepository(input.repository);
+      } catch (error) {
+        throw new AgentError(errorMessage(error), 400);
+      }
+    })();
     if (placement) {
       if (
         !this.remote?.available(placement) ||
@@ -1376,7 +1396,7 @@ export class AgentManager {
         );
       }
       if (
-        (input.projectId && placement.workspace !== MANAGED_WORKSPACE) ||
+        (input.projectId && !managed) ||
         input.parentAgentId ||
         input.templateId ||
         input.persona ||
@@ -1421,6 +1441,14 @@ export class AgentManager {
         ])
       ).rows[0];
       if (!project) throw new AgentError("Project not found.", 404);
+      if (repository && !repository.url) {
+        try {
+          repository.url = await inferRepositoryUrl(project.repo_root);
+        } catch (error) {
+          throw new AgentError(errorMessage(error), 400);
+        }
+      }
+
       // A child can use its parent's worktree while retaining explicit membership.
       if (!placement && !input.parentAgentId) {
         input.cwd = project.repo_root;
@@ -1469,8 +1497,16 @@ export class AgentManager {
         ],
       };
     }
+    const runnerRepository = repository?.url
+      ? { url: repository.url, checkout: repository.checkout }
+      : null;
+    if (repository && !runnerRepository)
+      throw new AgentError(
+        "Enter a repository URL or select a project with a repository origin.",
+        400
+      );
     const p = await this.prepareCreateInputs(input);
-    await this.insertAgentRecord(p, input);
+    await this.insertAgentRecord(p, input, runnerRepository);
 
     const createdAgent = await this.getAgent(p.id);
     if (createdAgent) {
@@ -1824,12 +1860,13 @@ export class AgentManager {
 
   private async insertAgentRecord(
     p: PreparedCreateInputs,
-    input: CreateAgentInput
+    input: CreateAgentInput,
+    repository: RunnerRepository | null
   ): Promise<void> {
     await this.pool.query(
       `
-      INSERT INTO agents (id, name, type, role, status, cwd, launch_cwd, files_dir, agent_args, model, full_access, setup_phase, persona, parent_agent_id, launched_by_agent_id, persona_context, review_agent_type, cli_session_id, base_branch, template_id, project_id, effort, updated_at)
-      VALUES ($1, $2, $3, $4, 'creating', $5, $6, $7, $8::jsonb, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, NOW())
+      INSERT INTO agents (id, name, type, role, status, cwd, launch_cwd, files_dir, agent_args, model, full_access, setup_phase, persona, parent_agent_id, launched_by_agent_id, persona_context, review_agent_type, cli_session_id, base_branch, template_id, project_id, effort, runner_repository, updated_at)
+      VALUES ($1, $2, $3, $4, 'creating', $5, $6, $7, $8::jsonb, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22::jsonb, NOW())
       `,
       [
         p.id,
@@ -1853,6 +1890,7 @@ export class AgentManager {
         input.templateId ?? null,
         input.projectId ?? null,
         p.effort,
+        repository ? JSON.stringify(repository) : null,
       ]
     );
   }
@@ -2137,8 +2175,17 @@ export class AgentManager {
     const mcpUrl = placement
       ? remoteMcpOrigin && `${remoteMcpOrigin}/api/mcp/${agent.id}`
       : dispatchMcpUrl(this.config, agent.id, opts.jobRunId);
+    const repository =
+      placement?.workspace === MANAGED_WORKSPACE
+        ? ((
+            await this.pool.query<{
+              runner_repository: RunnerRepository | null;
+            }>("SELECT runner_repository FROM agents WHERE id = $1", [agent.id])
+          ).rows[0]?.runner_repository ?? undefined)
+        : undefined;
     return this.runtime.launch({
       agentId: agent.id,
+      repository,
       cwd: agent.cwd,
       placement,
       engine: agent.type,
@@ -2410,7 +2457,6 @@ export class AgentManager {
     // entry point, so we drop the return value.
     await this.reconciler.reconcileAgentStatuses();
     await this.reconciler.cleanupOrphanedHosts();
-    await this.retryRunnerCleanup();
   }
 
   /**
@@ -2430,6 +2476,7 @@ export class AgentManager {
 
   private async retryRunnerCleanup(): Promise<void> {
     if (!this.remote || this.runnerCleanupRunning) return;
+    // Offline cleanup must never delay the status reconciliation loop.
     this.runnerCleanupRunning = true;
     try {
       const { rows } = await this.pool.query<{ id: string; cwd: string }>(
