@@ -19,6 +19,8 @@ const agentRuntime =
 
 export default defineConfig({
   testDir: "./e2e",
+  // The remote-runner acceptance needs Docker runners; it has its own config.
+  testIgnore: "**/remote-runner/**",
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,
   // The retry is diagnostic: a retry-pass must still fail CI.
