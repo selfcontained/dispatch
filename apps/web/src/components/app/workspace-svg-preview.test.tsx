@@ -14,6 +14,9 @@ it("defaults to an image and switches to source and back", () => {
       preview={{ src: "data:image/svg+xml;base64,PHN2Zy8+", text }}
     />
   );
+  expect(
+    screen.getByRole("tab", { name: "Preview" }).getAttribute("aria-controls")
+  ).toBe(screen.getByRole("tabpanel", { name: "Preview" }).id);
   expect(screen.getByRole("img").getAttribute("src")).toContain(
     "data:image/svg+xml"
   );
@@ -21,6 +24,9 @@ it("defaults to an image and switches to source and back", () => {
     button: 0,
     ctrlKey: false,
   });
+  expect(
+    screen.getByRole("tab", { name: "Code" }).getAttribute("aria-controls")
+  ).toBe(screen.getByRole("tabpanel", { name: "Code" }).id);
   expect(screen.queryByRole("img")).toBeNull();
   expect(screen.getByText(text)).toBeTruthy();
   fireEvent.mouseDown(screen.getByRole("tab", { name: "Preview" }), {

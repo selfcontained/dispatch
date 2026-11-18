@@ -1,3 +1,4 @@
+import { ChangesSvgPreview } from "./changes-svg-preview";
 import { OpenFullFileButton } from "./open-full-file-button";
 import {
   memo,
@@ -328,25 +329,31 @@ const FileDiffSection = memo(function FileDiffSection({
         {!collapsed &&
           (nearViewport ? (
             <div ref={contentRef}>
-              <FileDiffContent
+              <SvgDiffContentWrapper
                 agentId={agentId}
+                workspace={workspace}
                 file={file}
-                forceLoad={forceLoad}
-                onForceLoad={() => setForceLoad(true)}
-                lineSelection={lineSelection}
-                onLineSelection={onLineSelection}
-                commentOpen={commentOpen}
-                onCommentOpen={onCommentOpen}
-                viewType={viewType}
-                ignoreWhitespace={ignoreWhitespace}
-                reviewMode={reviewMode}
-                draftComments={draftComments}
-                onAddDraft={onAddDraft}
-                onRemoveDraft={onRemoveDraft}
-                onUpdateDraft={onUpdateDraft}
-                onStartReview={onStartReview}
-                findings={findings}
-              />
+              >
+                <FileDiffContent
+                  agentId={agentId}
+                  file={file}
+                  forceLoad={forceLoad}
+                  onForceLoad={() => setForceLoad(true)}
+                  lineSelection={lineSelection}
+                  onLineSelection={onLineSelection}
+                  commentOpen={commentOpen}
+                  onCommentOpen={onCommentOpen}
+                  viewType={viewType}
+                  ignoreWhitespace={ignoreWhitespace}
+                  reviewMode={reviewMode}
+                  draftComments={draftComments}
+                  onAddDraft={onAddDraft}
+                  onRemoveDraft={onRemoveDraft}
+                  onUpdateDraft={onUpdateDraft}
+                  onStartReview={onStartReview}
+                  findings={findings}
+                />
+              </SvgDiffContentWrapper>
             </div>
           ) : (
             <div aria-hidden="true" style={{ height: heightRef.current }} />
@@ -472,5 +479,28 @@ function FileDiffContent({
       onStartReview={onStartReview}
       findings={findings}
     />
+  );
+}
+
+function SvgDiffContentWrapper({
+  agentId,
+  workspace,
+  file,
+  children,
+}: {
+  agentId: string | null;
+  workspace?: string | null;
+  file: DiffFile;
+  children: React.ReactNode;
+}) {
+  return agentId &&
+    workspace &&
+    /\.svg$/i.test(file.path) &&
+    (file.status === "added" || file.status === "modified") ? (
+    <ChangesSvgPreview agentId={agentId} workspace={workspace} path={file.path}>
+      {children}
+    </ChangesSvgPreview>
+  ) : (
+    <>{children}</>
   );
 }

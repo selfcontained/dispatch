@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { FilesTextPreview } from "./files-text-preview";
 
 export function WorkspaceSvgPreview({
@@ -11,18 +11,19 @@ export function WorkspaceSvgPreview({
 }) {
   const [view, setView] = useState("preview");
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      <Tabs
-        value={view}
-        onValueChange={setView}
-        className="shrink-0 border-b px-3 py-2"
+    <Tabs
+      value={view}
+      onValueChange={setView}
+      className="flex min-h-0 flex-1 flex-col"
+    >
+      <TabsList aria-label="SVG view" className="m-2 self-start shrink-0">
+        <TabsTrigger value="preview">Preview</TabsTrigger>
+        <TabsTrigger value="code">Code</TabsTrigger>
+      </TabsList>
+      <TabsContent
+        value="preview"
+        className="mt-0 flex min-h-0 flex-1 flex-col data-[state=inactive]:hidden"
       >
-        <TabsList aria-label="SVG view">
-          <TabsTrigger value="preview">Preview</TabsTrigger>
-          <TabsTrigger value="code">Code</TabsTrigger>
-        </TabsList>
-      </Tabs>
-      {view === "preview" ? (
         <div className="grid min-h-0 flex-1 place-items-center overflow-auto p-6">
           <img
             src={preview.src}
@@ -30,9 +31,13 @@ export function WorkspaceSvgPreview({
             className="max-h-full w-full max-w-lg object-contain"
           />
         </div>
-      ) : (
+      </TabsContent>
+      <TabsContent
+        value="code"
+        className="mt-0 flex min-h-0 flex-1 flex-col data-[state=inactive]:hidden"
+      >
         <FilesTextPreview text={preview.text} fileName={fileName} />
-      )}
-    </div>
+      </TabsContent>
+    </Tabs>
   );
 }

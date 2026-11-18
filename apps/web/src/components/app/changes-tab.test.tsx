@@ -230,7 +230,7 @@ function renderTab(
           <LocationProbe />
           <ChangesTab
             agentId={agentId}
-            agent={{ id: agentId, status: "running" } as Agent}
+            agent={{ id: agentId, status: "running", cwd: "/work" } as Agent}
             enabledAgentTypes={["claude"]}
             active={tabActive}
             isMobile={isMobile}
@@ -947,4 +947,37 @@ describe("ChangesTab file diff content", () => {
       )
     );
   });
+});
+
+it("offers SVG previews only for added and modified files, leaving deletions as diffs", async () => {
+  renderTab({
+    files: [
+      diffFile("added.svg", { status: "added" }),
+      diffFile("modified.svg"),
+      diffFile("deleted.svg", { status: "deleted" }),
+      diffFile("regular.ts"),
+    ],
+  });
+  await screen.findByTestId("changes-file-section:added.svg");
+  expect(
+    within(screen.getByTestId("changes-file-section:added.svg"))
+      .getByRole("radio", { name: "Diff" })
+      .getAttribute("aria-checked")
+  ).toBe("true");
+  expect(
+    within(screen.getByTestId("changes-file-section:modified.svg")).getByRole(
+      "radio",
+      { name: "Preview" }
+    )
+  ).toBeTruthy();
+  expect(
+    within(screen.getByTestId("changes-file-section:deleted.svg")).queryByRole(
+      "radiogroup"
+    )
+  ).toBeNull();
+  expect(
+    within(screen.getByTestId("changes-file-section:regular.ts")).queryByRole(
+      "radiogroup"
+    )
+  ).toBeNull();
 });

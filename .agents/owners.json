@@ -365,6 +365,7 @@
         "apps/server/test/*file*",
         "apps/server/test/*image-variant*",
         "apps/server/test/helpers/noisy-png.ts",
+        "apps/server/test/workspace-routes.test.ts",
         "apps/server/test/*workspace-directory*",
         "apps/server/test/*workspace-ignore*",
         "apps/server/test/db/files-*",

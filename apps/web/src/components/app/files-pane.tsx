@@ -785,8 +785,12 @@ function WorkspaceFileActions({
       src={src}
       fileName={fileName}
       downloadName={fileName}
-      isText={preview.kind === "text"}
-      textContent={preview.kind === "text" ? preview.text : undefined}
+      isText={preview.kind === "text" || preview.kind === "svg"}
+      textContent={
+        preview.kind === "text" || preview.kind === "svg"
+          ? preview.text
+          : undefined
+      }
     />
   );
 }
