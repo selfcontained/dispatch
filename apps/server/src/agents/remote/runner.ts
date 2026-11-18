@@ -11,6 +11,7 @@ import {
 } from "node:fs/promises";
 import { createConnection } from "node:net";
 import path from "node:path";
+import process from "node:process";
 import { connect } from "node:tls";
 import { promisify } from "node:util";
 import { hostFile, type HostLaunch } from "../acp/host-protocol.js";
