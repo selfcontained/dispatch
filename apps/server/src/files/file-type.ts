@@ -148,6 +148,11 @@ export function detectFileType(
     }
     return { ok: true, mimeType: sniffed, media: fileMedia(sniffed) };
   }
+  // Preserve uploads of SVG exports whose XML prologue we cannot safely
+  // recognize (for example DTDs). They remain text, never image documents.
+  if (named === "image/svg+xml" && isText(buffer)) {
+    return { ok: true, mimeType: "text/plain", media: "text" };
+  }
   if (namedBinary) {
     return {
       ok: false,

@@ -25,9 +25,16 @@ describe("detectFileType", () => {
     for (const text of [
       "<html><svg/></html>",
       "<svgish/>",
+      '<?xml version="1.0"?><!-- Illustrator --><!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd"><svg/>',
+      '<!DOCTYPE svg [<!ENTITY x "hello">]><svg>&x;</svg>',
+      '<?xml-stylesheet href="theme.xsl"?><svg/>',
       "<!DOCTYPE html><html/>",
     ]) {
-      expect(typeOf(Buffer.from(text), "art.svg").ok).toBe(false);
+      expect(typeOf(Buffer.from(text), "art.svg")).toMatchObject({
+        ok: true,
+        mimeType: "text/plain",
+        media: "text",
+      });
     }
   });
   it("types binary files by their signature", () => {
