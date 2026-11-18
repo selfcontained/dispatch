@@ -1,13 +1,19 @@
 import { X509Certificate } from "node:crypto";
+import { mkdtemp, readFile } from "node:fs/promises";
 import http from "node:http";
 import type { AddressInfo } from "node:net";
-import { connect, type TLSSocket } from "node:tls";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { connect, createServer, type TLSSocket } from "node:tls";
 import type { Pool } from "pg";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { runRunnerConnect } from "../src/agents/remote/enrollment.js";
 import { RunnerRegistry } from "../src/agents/remote/registry.js";
 import { RemoteRunnerService } from "../src/agents/remote/service.js";
 import {
   generateRunnerKey,
+  issueAuthority,
+  issueServer,
   runnerPublicKey,
 } from "../src/agents/remote/x509.js";
 import { wireFrames, type Frame } from "../src/agents/remote/protocol.js";
@@ -62,6 +68,7 @@ async function waitFor(check: () => boolean | Promise<boolean>) {
 describe("runner-initiated connect enrollment", () => {
   let pool: Pool;
   let api: http.Server;
+  let activeService: RemoteRunnerService | undefined;
   const services: RemoteRunnerService[] = [];
   const runners: FakeRunner[] = [];
 
@@ -76,13 +83,55 @@ describe("runner-initiated connect enrollment", () => {
       }
     );
     services.push(service);
+    activeService = service;
     return service;
   };
 
   beforeAll(async () => {
     pool = await setupTestDb();
     await runTestMigrations();
-    api = http.createServer((_request, response) => response.end("api"));
+    // Stands in for the real Fastify app the listener proxies to: just
+    // enough of /api/runners/connect(...) to prove the proxy path works,
+    // delegating to whichever service this test created.
+    api = http.createServer((request, response) => {
+      const url = request.url ?? "";
+      const send = (status: number, body: unknown) => {
+        const text = JSON.stringify(body);
+        response.writeHead(status, { "content-type": "application/json" });
+        response.end(text);
+      };
+      if (url === "/api/runners/connect" && request.method === "POST") {
+        let raw = "";
+        request.on("data", (chunk) => (raw += chunk));
+        request.on("end", async () => {
+          try {
+            const body = JSON.parse(raw || "{}") as { publicKey?: unknown };
+            send(
+              201,
+              await activeService!.createConnectRequest(body.publicKey)
+            );
+          } catch (error) {
+            send((error as { status?: number }).status ?? 500, {
+              error: (error as Error).message,
+            });
+          }
+        });
+        return;
+      }
+      const pollId = /^\/api\/runners\/connect\/([^/]+)$/.exec(url)?.[1];
+      if (pollId && request.method === "GET") {
+        activeService!
+          .pollConnectRequest(pollId)
+          .then((result) => send(200, result))
+          .catch((error) =>
+            send((error as { status?: number }).status ?? 500, {
+              error: (error as Error).message,
+            })
+          );
+        return;
+      }
+      response.end("api");
+    });
     await new Promise<void>((resolve) => api.listen(0, HOST, resolve));
   }, 60_000);
 
@@ -102,15 +151,9 @@ describe("runner-initiated connect enrollment", () => {
   it("creates a pending request the runner can poll before approval", async () => {
     const service = makeService();
     const { publicKey } = generateRunnerKey();
-    const created = await service.createConnectRequest(
-      publicKey,
-      `${HOST}:9999`
-    );
+    const created = await service.createConnectRequest(publicKey);
     expect(created.id).toMatch(/^conn_/);
     expect(created.code).toMatch(/^[0-9A-Z]{4}-[0-9A-Z]{4}$/);
-    expect(created.approveUrl).toBe(
-      `https://${HOST}:9999/settings/connections`
-    );
     expect(new Date(created.expiresAt).getTime()).toBeGreaterThan(Date.now());
 
     expect(await service.pollConnectRequest(created.id)).toEqual({
@@ -129,8 +172,22 @@ describe("runner-initiated connect enrollment", () => {
   it("rejects a malformed public key", async () => {
     const service = makeService();
     await expect(
-      service.createConnectRequest("not a key", undefined)
+      service.createConnectRequest("not a key")
     ).rejects.toMatchObject({ status: 400 });
+  });
+
+  it("builds a reusable connect command and a usable approval link", async () => {
+    const service = makeService();
+    const built = await service.connectCommand(HOST, "web.example:8443");
+    expect(built.command).toMatch(
+      /^dispatch-runner connect --service https:\/\/127\.0\.0\.1:\d+ --ca-sha256 [a-f0-9]{64}$/
+    );
+    expect(built.approveUrl).toBe(
+      "https://web.example:8443/settings/connections"
+    );
+    // Not single-use: asking again returns the same reachable address.
+    const again = await service.connectCommand(HOST, "web.example:8443");
+    expect(again.command).toBe(built.command);
   });
 
   it("approves with the correct code, binds the key, and lets the runner connect", async () => {
@@ -250,4 +307,124 @@ describe("runner-initiated connect enrollment", () => {
       service.denyConnectRequest("conn_missing")
     ).rejects.toMatchObject({ status: 404 });
   });
+
+  it("runs the real CLI end-to-end over the runner listener's own pinned HTTPS (no main API HTTPS needed)", async () => {
+    const service = makeService();
+    const { command } = await service.connectCommand(HOST);
+    const [, endpoint, pin] =
+      /--service (\S+) --ca-sha256 (\S+)/.exec(command) ?? [];
+    const dir = await mkdtemp(path.join(tmpdir(), "connect-cli-"));
+
+    const printed: string[] = [];
+    const originalWrite = process.stdout.write.bind(process.stdout);
+    (process.stdout.write as unknown) = (chunk: unknown) => {
+      printed.push(String(chunk));
+      return true;
+    };
+
+    const connectPromise = runRunnerConnect([
+      "--service",
+      endpoint!,
+      "--ca-sha256",
+      pin!,
+      "--dir",
+      dir,
+    ]).finally(() => {
+      process.stdout.write = originalWrite;
+    });
+
+    let id: string | undefined;
+    let code: string | undefined;
+    await waitFor(async () => {
+      const pending = await service.listConnectRequests();
+      id = pending[0]?.id;
+      code = /Code: (\S+)/.exec(printed.join(""))?.[1];
+      return Boolean(id && code);
+    });
+    // The UI's own last-8-characters reference matches what the CLI prints.
+    expect(printed.join("")).toContain(`Request: ${id!.slice(-8)}`);
+
+    await service.approveConnectRequest(id!, code!, "zeta", HOST);
+    await connectPromise;
+
+    const cert = await readFile(path.join(dir, "cert.pem"), "utf8");
+    const key = await readFile(path.join(dir, "key.pem"), "utf8");
+    const ca = await readFile(path.join(dir, "ca.pem"), "utf8");
+    const leaf = new X509Certificate(cert);
+    expect(leaf.subject).toMatch(/^CN=rnr_[a-f0-9]+$/);
+    const registrationId = leaf.subject.replace("CN=", "");
+
+    runners.push(
+      await dialRunner({
+        endpoint: endpoint!,
+        ca,
+        cert,
+        key,
+        workspaces: ["proof"],
+      })
+    );
+    await waitFor(() =>
+      service.available({ runner: registrationId, workspace: "proof" })
+    );
+  }, 20_000);
 });
+
+describe("pinned connect bootstrap", () => {
+  it("rejects a leaf from another CA even though the peer echoes the real pinned CA", async () => {
+    const real = issueAuthority("real");
+    const rogue = issueAuthority("rogue");
+    const leaf = issueServer(rogue, [HOST]);
+    const received: unknown[] = [];
+    const server = connectServer(leaf, rogue, (frame, send, socket) => {
+      received.push(frame);
+      if ((frame as { type?: string }).type === "ca_request") {
+        send({ type: "ca", ca: real.cert } as never);
+        socket.end();
+      } else socket.destroy();
+    });
+    await new Promise<void>((resolve) => server.listen(0, HOST, resolve));
+    const port = (server.address() as AddressInfo).port;
+    const pin = new X509Certificate(real.cert).fingerprint256
+      .replace(/:/g, "")
+      .toLowerCase();
+    try {
+      const dir = await mkdtemp(path.join(tmpdir(), "connect-rogue-"));
+      // The bootstrap step alone succeeds — the real CA is exactly what was
+      // pinned — so a failure here must come from the second, real request
+      // refusing the rogue leaf, not from the CA check itself.
+      await expect(
+        runRunnerConnect([
+          "--service",
+          `https://${HOST}:${port}`,
+          "--ca-sha256",
+          pin,
+          "--dir",
+          dir,
+        ])
+      ).rejects.toThrow();
+      expect(received).toEqual([{ type: "ca_request", version: 1 }]);
+    } finally {
+      server.close();
+    }
+  });
+});
+
+function connectServer(
+  leaf: { cert: string; key: string },
+  ca: { cert: string },
+  onFrame: (
+    frame: unknown,
+    send: (frame: unknown) => void,
+    socket: TLSSocket
+  ) => void
+) {
+  return createServer(
+    { cert: leaf.cert + ca.cert, key: leaf.key },
+    (socket: TLSSocket) => {
+      socket.on("error", () => {});
+      const send = wireFrames(socket, (frame) =>
+        onFrame(frame, send as never, socket)
+      );
+    }
+  );
+}

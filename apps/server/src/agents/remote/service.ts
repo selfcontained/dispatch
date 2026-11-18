@@ -18,6 +18,7 @@ import {
   type Placement,
 } from "./protocol.js";
 import {
+  connectCliCommand,
   formatHost,
   pairingCommand,
   validRunnerName,
@@ -722,7 +723,14 @@ export class RemoteRunnerService {
     });
   }
 
-  /** Forward only bearer-authenticated agent MCP calls to the local API. */
+  /**
+   * Forward bearer-authenticated agent MCP calls, `/ping`, and the two
+   * runner-initiated ("connect") bootstrap calls to the local API. The
+   * bootstrap calls carry no Dispatch credentials — none exist yet — so
+   * they are allow-listed by path and method alone, exactly like `/ping`;
+   * this is what lets a clean runner reach them through this listener's own
+   * pinned CA even when the ordinary API is loopback-only or plain HTTP.
+   */
   private forward(
     request: http.IncomingMessage,
     response: http.ServerResponse
@@ -730,6 +738,12 @@ export class RemoteRunnerService {
     const url = request.url ?? "";
     const target = this.api;
     const ping = url === "/ping" && request.method === "GET";
+    const connectCreate =
+      /^\/api\/(?:v1\/)?runners\/connect$/.test(url) &&
+      request.method === "POST";
+    const connectPoll =
+      /^\/api\/(?:v1\/)?runners\/connect\/[^/]+$/.test(url) &&
+      request.method === "GET";
     const agentId = /^\/api\/mcp\/(agt_[a-z0-9]+)$/.exec(url)?.[1];
     const token = /^Bearer (\S+)$/.exec(
       request.headers.authorization ?? ""
@@ -740,8 +754,9 @@ export class RemoteRunnerService {
       ["GET", "POST", "DELETE"].includes(request.method ?? "") &&
       target?.validAgentToken?.(token, agentId)
     );
-    if ((!ping && !mcp) || !target) {
-      response.writeHead(ping || mcp ? 503 : 404).end();
+    const allowed = ping || mcp || connectCreate || connectPoll;
+    if (!allowed || !target) {
+      response.writeHead(allowed ? 503 : 404).end();
       return;
     }
     const host =
@@ -937,8 +952,38 @@ export class RemoteRunnerService {
   // Runner-initiated ("connect") enrollment
   // ---------------------------------------------------------------------------
 
-  /** `POST /api/runners/connect`: an unauthenticated runner requests pairing. */
-  async createConnectRequest(publicKey: unknown, serviceOrigin?: string) {
+  /**
+   * `GET /api/runners/connect-command`: the authenticated operator's copy
+   * of the invocation to run on the runner. Unlike pairing, this is not
+   * single-use — the runner supplies its own one-time code — so the same
+   * command stays valid for any number of runners until the CA renews.
+   * The approval link uses this request's own (authenticated, unproxied)
+   * Host header: it is for the operator's browser, which is already here.
+   */
+  async connectCommand(hostHint?: string, rawHost?: string) {
+    if (!this.enrollment)
+      throw new RunnerRequestError(409, "Runner enrollment is disabled.");
+    const host = await this.prepareEndpoint(hostHint);
+    return {
+      command: connectCliCommand({
+        host,
+        port: this.port!,
+        caFingerprint: this.authority!.caFingerprint,
+      }),
+      // This browser's own Host header — reliable here, unlike for a
+      // runner that may reach us only through the listener's proxy.
+      approveUrl: rawHost
+        ? `https://${rawHost}/settings/connections`
+        : undefined,
+    };
+  }
+
+  /**
+   * `POST /api/runners/connect`: an unauthenticated runner requests pairing.
+   * Reached either directly or, for a runner that only has the listener's
+   * own pinned CA (see `connectCommand`), proxied through it like `/ping`.
+   */
+  async createConnectRequest(publicKey: unknown) {
     if (!this.enrollment)
       throw new RunnerRequestError(409, "Runner enrollment is disabled.");
     if (typeof publicKey !== "string" || publicKey.length === 0)
@@ -946,14 +991,7 @@ export class RemoteRunnerService {
     try {
       const { id, code, expiresAt } =
         await this.enrollment.registry.createConnectRequest(publicKey);
-      return {
-        id,
-        code,
-        approveUrl: serviceOrigin
-          ? `https://${serviceOrigin}/settings/connections`
-          : undefined,
-        expiresAt: expiresAt.toISOString(),
-      };
+      return { id, code, expiresAt: expiresAt.toISOString() };
     } catch (error) {
       if (error instanceof PairingRejected)
         throw new RunnerRequestError(400, error.message);

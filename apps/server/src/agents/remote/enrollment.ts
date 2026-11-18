@@ -72,6 +72,29 @@ export function pairingCommand(input: {
 }
 
 /**
+ * Unlike `pairingCommand`, this is not single-use: the runner supplies its
+ * own one-time code at connect time, so the same invocation can be copied
+ * onto any number of clean runners. The target is always this listener's
+ * own pinned CA and port — reachable and verifiable even when the ordinary
+ * Dispatch API is loopback-only or plain HTTP, since nothing about it
+ * depends on the main API's own binding or certificate.
+ */
+export function connectCliCommand(input: {
+  host: string;
+  port: number;
+  caFingerprint: string;
+}) {
+  const pin = normalizeFingerprint(input.caFingerprint)
+    .replace(/:/g, "")
+    .toLowerCase();
+  return [
+    "dispatch-runner connect",
+    `--service https://${formatHost(input.host)}:${input.port}`,
+    `--ca-sha256 ${pin}`,
+  ].join(" ");
+}
+
+/**
  * Check a CA certificate the service presented against the pinned SHA-256
  * fingerprint of its DER bytes. Only public bytes are involved.
  */
@@ -419,31 +442,44 @@ function parseConnectArgs(argv: string[]): ConnectOptions {
   };
 }
 
-/** Whether the pin matches any certificate up the peer's presented chain. */
-function pinnedChainMatches(socket: TLSSocket, pin: string) {
-  const expected = normalizeFingerprint(pin);
-  let cert = socket.getPeerCertificate(true) as
-    | (ReturnType<TLSSocket["getPeerCertificate"]> & {
-        issuerCertificate?: ReturnType<TLSSocket["getPeerCertificate"]>;
-      })
-    | undefined;
-  for (let hop = 0; cert && hop < 8; hop++) {
-    if (cert.fingerprint256 === expected) return true;
-    const issuer = cert.issuerCertificate;
-    if (!issuer || issuer === cert) break;
-    cert = issuer as typeof cert;
-  }
-  return false;
+/**
+ * Fetch and pin the service's CA, the same way `exchangeCode` does for the
+ * operator-initiated flow and over the same wire-protocol port (`connect`
+ * targets the runner listener, which answers `ca_request` directly — see
+ * `connectCommand` in service.ts). A single connection cannot both ignore
+ * the chain *and* let the caller inspect it: Node exposes a verified peer
+ * leaf (`getPeerX509Certificate`) but not the full chain, and that API
+ * differs again under Bun. Confirming the CA's own fingerprint this way,
+ * then trusting only that CA for the real request, needs neither.
+ */
+async function fetchPinnedCa(
+  endpoint: Endpoint,
+  pin: string,
+  timeoutMs: number
+): Promise<{ caPem: string; ca: X509Certificate }> {
+  const caPem = (await roundTrip(
+    endpoint,
+    {},
+    timeoutMs,
+    () => ({ type: "ca_request", version: 1 }),
+    (reply) => {
+      if (reply.type !== "ca") throw new Error("Unexpected pairing reply.");
+      pinnedAuthority(reply.ca, pin);
+      return reply.ca;
+    }
+  )) as string;
+  return { caPem, ca: pinnedAuthority(caPem, pin) };
 }
 
 /**
- * One HTTPS round trip to the service's ordinary API — never a separate
- * unauthenticated connection to fetch its CA first. With `pin`, the single
- * TLS connection itself gates the request: nothing is written to the socket
- * until the presented chain matches the pinned fingerprint. Without `pin`,
- * the service is expected to hold an ordinarily trusted certificate.
+ * One HTTPS request to the service. With `pin`, first confirms the pinned
+ * CA over the runner listener's own wire-protocol bootstrap (see
+ * `fetchPinnedCa`), then makes the real request trusting only that CA —
+ * ordinary, fully-verified TLS from there, not a from-scratch chain check.
+ * Without `pin`, the service is expected to hold an ordinarily trusted
+ * certificate.
  */
-function requestJson(
+async function requestJson(
   serviceUrl: string,
   method: string,
   requestPath: string,
@@ -454,6 +490,12 @@ function requestJson(
   if (url.protocol !== "https:")
     throw new Error("--service must be an https URL.");
   const hostname = url.hostname.replace(/^\[|\]$/g, "");
+  const port = Number(url.port || 443);
+  const timeoutMs = options.timeoutMs ?? 15_000;
+  const pinned =
+    options.pin !== undefined
+      ? await fetchPinnedCa({ host: hostname, port }, options.pin, timeoutMs)
+      : undefined;
   const payload =
     body === undefined ? undefined : Buffer.from(JSON.stringify(body));
   return new Promise((resolve, reject) => {
@@ -468,11 +510,11 @@ function requestJson(
     const timer = setTimeout(() => {
       request.destroy();
       finish(new Error("The request to the service timed out."));
-    }, options.timeoutMs ?? 15_000);
+    }, timeoutMs);
     const request = https.request(
       {
         hostname,
-        port: Number(url.port || 443),
+        port,
         path: url.pathname + url.search,
         method,
         servername: isIP(hostname) ? undefined : hostname,
@@ -482,10 +524,15 @@ function requestJson(
               "content-length": payload.length,
             }
           : undefined,
-        // Pinned mode validates the chain itself (see pinnedChainMatches)
-        // before any request data is sent; it does not otherwise weaken
-        // verification of what the peer is allowed to claim.
-        rejectUnauthorized: options.pin === undefined,
+        // A fresh connection every call: this CLI makes only a handful of
+        // requests total, and Node's default agent can try to reuse a
+        // pooled socket while this request's own TLS verification is still
+        // deciding whether to send anything on it, surfacing as a spurious
+        // "socket hang up" on the next call.
+        agent: false,
+        ...(pinned
+          ? { ca: pinned.caPem, rejectUnauthorized: true }
+          : { rejectUnauthorized: true }),
       },
       (response) => {
         let data = "";
@@ -512,26 +559,24 @@ function requestJson(
       }
     );
     request.on("error", (error) => finish(error as Error));
-    const send = () => {
+    if (!pinned) {
       if (payload) request.write(payload);
       request.end();
-    };
-    if (options.pin === undefined) {
-      send();
       return;
     }
+    // Defense in depth, as exchangeCode also does: re-check the leaf itself
+    // against the now-confirmed CA before the request body goes out.
     request.on("socket", (socket: TLSSocket) => {
       socket.once("secureConnect", () => {
-        if (!pinnedChainMatches(socket, options.pin!)) {
-          finish(
-            new Error(
-              "The service certificate does not match the pinned Dispatch runner CA."
-            )
-          );
+        try {
+          verifyServiceLeaf(socket, hostname, pinned.ca);
+        } catch (error) {
+          finish(error as Error);
           request.destroy();
           return;
         }
-        send();
+        if (payload) request.write(payload);
+        request.end();
       });
     });
   });
@@ -551,6 +596,41 @@ type ConnectPoll =
   | { status: "denied" }
   | { status: "expired" };
 
+/**
+ * Independent, local checks on an approved reply before anything from it
+ * is trusted enough to write to disk — on top of, not instead of, the TLS
+ * verification `requestJson` already did to receive it.
+ */
+function verifyIssuedConnectCredentials(
+  polled: Extract<ConnectPoll, { status: "approved" }>,
+  publicKey: string,
+  pin: string | undefined
+) {
+  if (new URL(polled.endpoint).protocol !== "https:")
+    throw new Error("The service returned a non-HTTPS runner endpoint.");
+  const issuedCa = new X509Certificate(polled.ca);
+  const cert = new X509Certificate(polled.cert);
+  if (
+    !issuedCa.ca ||
+    !cert.checkIssued(issuedCa) ||
+    !cert.verify(issuedCa.publicKey) ||
+    cert.publicKey.export({ type: "spki", format: "pem" }).toString() !==
+      publicKey
+  )
+    throw new Error(
+      "The issued certificate does not match the key this runner generated."
+    );
+  // The connect endpoint and the runner listener share one CA; a pin
+  // checked only at the TLS layer still leaves the two free to disagree.
+  if (
+    pin !== undefined &&
+    issuedCa.fingerprint256 !== normalizeFingerprint(pin)
+  )
+    throw new Error(
+      "The issued CA does not match the pinned Dispatch runner CA."
+    );
+}
+
 /** `dispatch-runner connect …`: ask an operator to approve this runner. */
 export async function runRunnerConnect(argv: string[]) {
   const options = parseConnectArgs(argv);
@@ -566,7 +646,10 @@ export async function runRunnerConnect(argv: string[]) {
   process.stdout.write(
     [
       `Code: ${created.code}`,
-      `Ask an operator to approve this runner in Dispatch (Settings → Connections → Remote runners) using this code.`,
+      // Same reference the pending-requests list shows in Settings, so an
+      // operator juggling more than one pending runner can tell them apart.
+      `Request: ${created.id.slice(-8)}`,
+      "Ask an operator to approve this runner in Dispatch (Settings → Connections → Remote runners) using this code and request reference.",
       `This code expires at ${created.expiresAt}.`,
       "Waiting for approval…",
       "",
@@ -590,6 +673,7 @@ export async function runRunnerConnect(argv: string[]) {
     if (polled.status === "expired")
       throw new Error("The connect request expired before it was approved.");
     if (polled.status === "approved") {
+      verifyIssuedConnectCredentials(polled, publicKey, options.pin);
       const { configFile } = await persistRunnerCredentials({
         dir: options.dir,
         config: options.config,
@@ -610,6 +694,10 @@ export async function runRunnerConnect(argv: string[]) {
                 cert: path.join(options.dir, "cert.pem"),
                 key: path.join(options.dir, "key.pem"),
               })}`,
+          // This CLI never touches systemd itself (see persistRunnerCredentials);
+          // the installer only installs and daemon-reloads, so enrollment is
+          // the last step that needs telling the operator what to do next.
+          "Start it: sudo systemctl enable --now dispatch-runner.service",
           "",
         ].join("\n")
       );

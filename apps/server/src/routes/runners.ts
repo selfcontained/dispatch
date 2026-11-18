@@ -118,17 +118,30 @@ export async function registerRunnerRoutes(
         try {
           return reply
             .code(201)
-            .send(
-              await deps.runners.createConnectRequest(
-                body.publicKey,
-                request.headers.host
-              )
-            );
+            .send(await deps.runners.createConnectRequest(body.publicKey));
         } catch (error) {
           return fail(reply, error);
         }
       }
     );
+
+    // The authenticated operator's copy of the invocation to run on a
+    // runner — always reachable even when the ordinary API is loopback or
+    // plain HTTP, since it targets the runner listener's own pinned CA.
+    app.get(`${base}/connect-command`, async (request, reply) => {
+      if (!deps.runners)
+        return reply
+          .code(409)
+          .send({ error: "Runner enrollment is disabled." });
+      try {
+        return await deps.runners.connectCommand(
+          hostHint(request.headers.host),
+          request.headers.host
+        );
+      } catch (error) {
+        return fail(reply, error);
+      }
+    });
 
     app.get(
       `${base}/connect/:id`,
