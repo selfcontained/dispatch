@@ -5,7 +5,6 @@ import {
   useRef,
   useState,
   type CSSProperties,
-  type ReactNode,
 } from "react";
 
 import {
@@ -22,6 +21,7 @@ import { activitySteps } from "./activity-steps";
 import { activeStepLabel, runningTurnVerb } from "./registry";
 import { responsePieces, type ResponsePiece } from "./response-pieces";
 import { ACTIVITY_COLORS, type ActivityCategory } from "./activity-category";
+import { FillCount } from "./fill-count";
 
 export const ACTIVITY_LABELS: Record<ActivityCategory, string> = {
   dispatch: "Coordinating agents",
@@ -377,7 +377,7 @@ export function ResponsePlaceholder({
   const categoryKey = pieces
     .map((piece) => `${piece.compaction ? "compact:" : ""}${piece.category}`)
     .join(",");
-  const cells = useMemo(() => {
+  const { cells, fills } = useMemo(() => {
     const modes = categoryKey ? categoryKey.split(",") : [];
     const starts = new Set(
       modes.flatMap((mode, i) =>
@@ -386,7 +386,7 @@ export function ResponsePlaceholder({
           : []
       )
     );
-    return defragCells(
+    return defragHistory(
       seed,
       modes.map((mode) => mode.replace("compact:", "") as ActivityCategory),
       starts
@@ -405,6 +405,7 @@ export function ResponsePlaceholder({
   return (
     <ResponsePlaceholderVisual
       cells={cells}
+      fills={fills}
       pieces={pieces}
       arrivalKeys={arrivalKeys}
       textLength={textLength}
@@ -424,7 +425,7 @@ export function ResponsePlaceholderVisual({
   onShowProgress,
   reducedCells,
   statusLabel = "Preparing response",
-  fillIndicator,
+  fills = [],
 }: {
   cells: DefragCell[];
   pieces: ResponsePiece[];
@@ -433,8 +434,8 @@ export function ResponsePlaceholderVisual({
   onShowProgress?: () => void;
   reducedCells?: DefragCell[];
   statusLabel?: string;
-  /** Design Lab study: how many times the grid has filled, beside the peek. */
-  fillIndicator?: ReactNode;
+  /** Earlier passes that filled the grid and scattered it again. */
+  fills?: DefragFill[];
 }): JSX.Element {
   const newest = pieces.length - 1;
   const gridRef = useRef<HTMLDivElement>(null);
@@ -606,16 +607,16 @@ export function ResponsePlaceholderVisual({
           )}
         </Tooltip>
       </TooltipProvider>
-      {(onShowProgress && textLength > 0) || fillIndicator ? (
-        <div className="relative mt-2.5 flex items-center justify-end gap-2">
-          {fillIndicator}
+      {(onShowProgress && textLength > 0) || fills.length > 0 ? (
+        <div className="relative mt-2.5 flex items-center gap-2">
+          {fills.length > 0 && <FillCount fills={fills} />}
           {onShowProgress && textLength > 0 && (
             <button
               type="button"
               onClick={onShowProgress}
               aria-label="Show progress text"
               data-testid="chat-response-show-progress"
-              className="rounded-sm text-[11px] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              className="ml-auto rounded-sm text-[11px] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
             >
               Show progress · {formatChars(textLength)}
             </button>

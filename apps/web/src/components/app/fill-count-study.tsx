@@ -5,7 +5,6 @@ import {
   defragHistory,
   ResponsePlaceholderVisual,
 } from "./chat/turn/response-placeholder";
-import { LapIndicator, type LapStyle } from "./fill-lap-indicators";
 import { type ActivityCategory } from "./chat/turn/activity-category";
 
 const SEED = "fill-count-study";
@@ -57,29 +56,6 @@ function stepsUpTo(length: number): ActivityCategory[] {
 const lengthFor = (fills: number) =>
   fills * cellCount + Math.round(cellCount * 0.45);
 
-const VARIANTS: { style: LapStyle; title: string; note: string }[] = [
-  {
-    style: "underline",
-    title: "A · Underlined count",
-    note: "The ×n chip, underlined with the mix of every lap so far.",
-  },
-  {
-    style: "bar",
-    title: "B · Count + block row",
-    note: "A row of blocks beside the count, grouped by what filled the laps.",
-  },
-  {
-    style: "laps",
-    title: "C · One bar per lap",
-    note: "Each finished lap gets its own mini bar, last five shown.",
-  },
-  {
-    style: "grid",
-    title: "D · Mini defrag",
-    note: "A tiny packed grid of everything the laps did, in block groups.",
-  },
-];
-
 const PRESETS = [0, 1, 3, 12];
 
 export function FillCountStudy(): JSX.Element {
@@ -123,7 +99,8 @@ export function FillCountStudy(): JSX.Element {
           </h2>
           <p className="mt-1 text-sm text-muted-foreground">
             Each time every block is packed, the next step scatters the grid and
-            starts again. These show how many times that has happened.
+            starts again. The count beside Show progress says how many times,
+            and what those laps were made of.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -173,31 +150,15 @@ export function FillCountStudy(): JSX.Element {
           {cellCount} packed · step {categories.length}
         </p>
       </div>
-      <div className="grid gap-x-8 gap-y-8 md:grid-cols-2">
-        {VARIANTS.map((variant) => (
-          <figure
-            key={variant.style}
-            data-testid={`fill-variant-${variant.style}`}
-            className="min-w-0"
-          >
-            <figcaption>
-              <div className="text-sm font-medium">{variant.title}</div>
-              <div className="text-xs text-muted-foreground">
-                {variant.note}
-              </div>
-            </figcaption>
-            <ResponsePlaceholderVisual
-              cells={cells}
-              pieces={pieces}
-              arrivalKeys={arrivalKeys}
-              textLength={categories.filter((c) => c === "write").length * 250}
-              onShowProgress={() => undefined}
-              fillIndicator={
-                <LapIndicator fills={fills} variant={variant.style} />
-              }
-            />
-          </figure>
-        ))}
+      <div className="max-w-md">
+        <ResponsePlaceholderVisual
+          cells={cells}
+          pieces={pieces}
+          arrivalKeys={arrivalKeys}
+          textLength={categories.filter((c) => c === "write").length * 250}
+          onShowProgress={() => undefined}
+          fills={fills}
+        />
       </div>
     </section>
   );
