@@ -559,26 +559,9 @@ async function requestJson(
       }
     );
     request.on("error", (error) => finish(error as Error));
-    if (!pinned) {
-      if (payload) request.write(payload);
-      request.end();
-      return;
-    }
-    // Defense in depth, as exchangeCode also does: re-check the leaf itself
-    // against the now-confirmed CA before the request body goes out.
-    request.on("socket", (socket: TLSSocket) => {
-      socket.once("secureConnect", () => {
-        try {
-          verifyServiceLeaf(socket, hostname, pinned.ca);
-        } catch (error) {
-          finish(error as Error);
-          request.destroy();
-          return;
-        }
-        if (payload) request.write(payload);
-        request.end();
-      });
-    });
+    // Bun starts the HTTPS request on end(). TLS verifies the endpoint
+    // hostname and certificate chain against the selected CA before sending.
+    request.end(payload);
   });
 }
 
