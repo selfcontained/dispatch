@@ -664,6 +664,9 @@ export class AcpDriver {
         }
         if (params.update.sessionUpdate === "config_option_update") {
           config.options = params.update.configOptions ?? [];
+          // Publish the verified model once the OpenCode handshake succeeds.
+          if (engine.id === "opencode" && !this.live.has(launch.agentId))
+            return;
           this.emit({
             type: "config",
             agentId: launch.agentId,
@@ -695,9 +698,9 @@ export class AcpDriver {
           return { outcome: { outcome: "cancelled" } };
         if (engine.fullAccess.kind === "approval")
           return this.permissions.ask(launch.agentId, params);
-        const allow = params.options.find(
-          (o) => o.kind === "allow_once" || o.kind === "allow_always"
-        );
+        const allow =
+          params.options.find((o) => o.kind === "allow_once") ??
+          params.options.find((o) => o.kind === "allow_always");
         if (!allow) {
           this.opts.logger.warn(
             {
@@ -857,6 +860,12 @@ export class AcpDriver {
           config.options = resumed.configOptions ?? config.options;
           session = { sessionId: launch.sessionId, resumed: true };
         } catch (err) {
+          if (engine.id === "opencode") {
+            throw new Error(
+              `OpenCode could not resume the saved session. Retry to keep its context, or create a new agent to start fresh. ${describeRpcError(err, engine.id).message}`,
+              { cause: err }
+            );
+          }
           // The engine no longer has the session (home cleared, store
           // pruned, or an earlier start died after the id was recorded). A
           // fresh session beats an agent that can never start again.
@@ -874,6 +883,36 @@ export class AcpDriver {
         });
         config.options = res.configOptions ?? config.options;
         session = { sessionId: res.sessionId, resumed: false };
+      }
+      if (engine.id === "opencode" && launch.model) {
+        const model = config.options.find(
+          (option) =>
+            option.type === "select" &&
+            (option.category === "model" || option.id === "model")
+        );
+        const message = `OpenCode could not apply model "${launch.model}". Check the models configured for this workspace.`;
+        if (!model) throw new Error(message);
+        if (model.currentValue !== launch.model) {
+          try {
+            const result = await conn.setSessionConfigOption({
+              sessionId: session.sessionId,
+              configId: model.id,
+              value: launch.model,
+            });
+            config.options = result.configOptions ?? config.options;
+          } catch (err) {
+            throw new Error(
+              `${message} ${describeRpcError(err, engine.id).message}`,
+              { cause: err }
+            );
+          }
+          if (
+            config.options.find((option) => option.id === model.id)
+              ?.currentValue !== launch.model
+          ) {
+            throw new Error(message);
+          }
+        }
       }
       // OpenCode modes select agents (build/plan), not approval policies.
       // Its permission policy is configured in the engine environment.
