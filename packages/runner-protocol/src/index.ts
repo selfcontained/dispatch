@@ -83,7 +83,7 @@ export type Frame =
   | { type: "data"; id: string; data: string }
   | { type: "close"; id: string };
 
-/** The last durably applied position in the named host journal. */
+/** The last contiguous position durably received in the named host journal. */
 export type ReplayHello = {
   type: "hello";
   fromSeq: number;

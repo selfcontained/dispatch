@@ -49,21 +49,24 @@ those binaries.
 | Journaled terminal turn event       | The turn settled, with its reported outcome.          |
 
 An outer request timeout or dropped result may leave execution unknown.
-After attaching, send `hello` with the last durably applied `fromSeq`, its
-`journalId`, and `replayComplete: true`. Use sequence 0 on the first attach.
+After attaching, send `hello` with `fromSeq`, its `journalId`, and
+`replayComplete: true`. Dispatch sets `fromSeq` to the last contiguous
+sequence whose full event payload and receive cursor committed together in
+PostgreSQL. Use sequence 0 on the first attach.
+
 `welcome` gives the current journal identity and the inclusive replay head.
-The host sends events strictly after the resume position through that head,
-then sends `replay_complete` when requested. Later events are live. If the
-journal identity changed or the cursor exceeds the new head, the host starts
-replay from 0. Reset the receiver's stream position before accepting the
-replacement. An omitted journal identity is supported for legacy clients.
+For the same journal, replay starts strictly after `fromSeq` and continues
+through that head. The host then sends `replay_complete` when requested.
+Later events are live. If the journal identity changed or the cursor exceeds
+the new head, the host starts replay from 0. Reset the receiver's cursor
+before recording the replacement stream. An omitted journal identity is
+supported for legacy clients.
 
 Deduplicate by journal ID and sequence within the bound agent. Sequences
-start at 1 and increase contiguously. A gap prevents advancing the contiguous
-cursor. Persist each payload or its projection atomically with that cursor,
-or persist the payload first with idempotent application on retry.
-`replay_complete` marks the sender's replay boundary. The receiver's next
-`hello` advertises the prefix it committed.
+start at 1 and increase contiguously. A gap prevents advancing the receive
+cursor. `replay_complete` marks the sender's replay boundary. The receiver's
+next `hello` acknowledges the prefix it committed. Projection of stored
+events and prompt delivery receipts have separate state from this cursor.
 
 For prompts, persist the operation ID and selected journal ID before
 sending, and include both in the host prompt. The host records a claim
