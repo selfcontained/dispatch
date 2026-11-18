@@ -18,9 +18,11 @@ The runner must be able to reach the HTTPS address in the pairing command.
    sudo dispatch-runner connect --service 'https://dispatch.example'
    ```
 
-   Enter the code shown in the terminal into Dispatch and approve the
-   connection there. The CLI completes enrollment and starts the service
-   after approval. Wait for **Online** in Settings.
+   Add `--ca-sha256 HEX` if Settings includes a CA fingerprint for a
+   privately trusted service. Enter the code shown in the terminal into
+   Dispatch and approve the connection there. The installed command enables
+   and starts the service once enrollment succeeds. Wait for **Online** in
+   Settings.
 
 3. Install the engines you plan to use according to their Linux instructions.
    The default runner configuration looks for `claude`, `codex`, and

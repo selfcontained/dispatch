@@ -48,6 +48,12 @@ systemctl() {
       fi
       : > "$root/running"
       ;;
+    enable)
+      [[ "$*" == 'enable --now dispatch-runner.service' ]] || return 1
+      [[ -s "$settings/key.pem" && -s "$settings/cert.pem" && -s "$settings/ca.pem" ]] || return 1
+      : > "$root/enabled"
+      : > "$root/running"
+      ;;
     is-active) [[ -e "$root/running" ]];;
     is-enabled)
       if [[ -e "$root/enabled" ]]; then
@@ -105,9 +111,15 @@ mv() {
 }
 sleep() { :; }
 sync() { :; }
+flock() { [[ "$*" == '-n 9' ]]; }
 
 case "$action" in
   install) stage_release; install_runner ;;
+  connect)
+    export root settings
+    export -f systemctl flock
+    "$command_path" connect --service "$tag"
+    ;;
   *) update_runner ;;
 esac
 HARNESS
@@ -115,7 +127,7 @@ HARNESS
 openssl genrsa -out "$root/private.pem" 2048 2>/dev/null
 openssl rsa -in "$root/private.pem" -pubout -out "$root/public.pem" 2>/dev/null
 mkdir -p "$root/archive/dist/bun" "$root/archive/bin"
-cp bin/{dispatch-runner.service,install-dispatch-runner.sh,pack-release} "$root/archive/bin/"
+cp bin/{dispatch-runner,dispatch-runner.service,install-dispatch-runner.sh,pack-release} "$root/archive/bin/"
 touch "$root/archive/README.md" "$root/archive/.env.example"
 for version in 1.0.0 1.0.1; do
   release="$root/releases/v$version"
@@ -123,8 +135,10 @@ for version in 1.0.0 1.0.1; do
   for arch in x64 arm64; do
     cat > "$root/archive/dist/bun/dispatch-$version-bun-linux-$arch" <<'RUNNER'
 #!/usr/bin/env bash
-printf 'connect fixture binary\n'
-exit 1
+[[ "$*" == 'connect --service https://dispatch.example' ]] || exit 1
+printf 'fixture-key\n' > "$settings/key.pem"
+printf 'fixture-cert\n' > "$settings/cert.pem"
+printf 'fixture-ca\n' > "$settings/ca.pem"
 RUNNER
     if [[ "$version" == 1.0.1 ]]; then
       printf '# release-new %s\n' "$arch" >> "$root/archive/dist/bun/dispatch-$version-bun-linux-$arch"
@@ -150,7 +164,7 @@ expect_status() {
 
 run install v1.0.0
 run install v1.0.0
-[[ "$(readlink "$root/bin/dispatch-runner")" == "$root/runtime/dispatch" ]]
+[[ "$(readlink "$root/bin/dispatch-runner")" == "$root/runtime/runner-cli" ]]
 [[ ! -e "$root/running" && ! -e "$root/settings/key.pem" ]]
 ! grep -Eq '^(start|enable) ' "$root/systemctl"
 [[ "$(find "$root/settings/runner.json" -perm 0600 -print)" == "$root/settings/runner.json" ]]
@@ -158,18 +172,18 @@ grep -q '"workspaces": {}' "$root/settings/runner.json"
 cp "$root/runtime/dispatch" "$root/original"
 
 run update v1.0.1
-grep -q 'release-new x64' "$root/bin/dispatch-runner"
+grep -q 'release-new x64' "$root/runtime/dispatch"
 [[ ! -e "$root/running" && ! -e "$root/settings/key.pem" ]]
 
-# Model a successful separate connect, with credentials and an enabled service.
+# Verify the wrapper starts the service only after a successful connect.
 cp "$root/original" "$root/runtime/dispatch"
-printf 'fixture-key\n' > "$root/settings/key.pem"
-printf 'fixture-cert\n' > "$root/settings/cert.pem"
-printf 'fixture-ca\n' > "$root/settings/ca.pem"
-: > "$root/enabled"
-: > "$root/running"
+expect_status 1 connect https://unapproved.example
+[[ ! -e "$root/running" && ! -e "$root/enabled" ]]
+run connect https://dispatch.example
+[[ $(grep -c '^enable --now ' "$root/systemctl") == 1 ]]
+[[ -e "$root/running" && -e "$root/enabled" ]]
 run install v1.0.0
-! grep -Eq '^(start|enable) ' "$root/systemctl"
+[[ $(grep -c '^enable --now ' "$root/systemctl") == 1 ]]
 cp -R "$root/settings" "$root/original-settings"
 
 : > "$root/busy"

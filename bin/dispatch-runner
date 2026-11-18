@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# Public entry point for the managed Linux installation.
+set -euo pipefail
+
+runtime=$(dirname "$(readlink -f "$0")")
+if [[ "${1:-}" != connect ]]; then
+  exec "$runtime/dispatch" "$@"
+fi
+# Custom config paths are managed by the caller. The unit always reads the
+# managed config, so enrolling a different one must not start this unit.
+for argument in "${@:2}"; do
+  case "$argument" in
+    -h|--help|--dir|--dir=*|--config|--config=*) exec "$runtime/dispatch" "$@" ;;
+  esac
+done
+exec 9>"$runtime/install.lock"
+flock -n 9 || { printf 'Another runner install, update, or connection is running.\n' >&2; exit 1; }
+"$runtime/dispatch" "$@"
+systemctl enable --now dispatch-runner.service

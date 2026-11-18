@@ -56,6 +56,7 @@ describe.skipIf(!BUILDS_EXIST)("pack-release", () => {
     expect(files.some((f) => f.startsWith("bin/"))).toBe(true);
     expect(files).toContain("bin/install-dispatch.sh");
     expect(files).toContain("bin/install-dispatch-runner.sh");
+    expect(files).toContain("bin/dispatch-runner");
     expect(files).toContain("bin/dispatch-runner.service");
   });
 

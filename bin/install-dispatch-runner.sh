@@ -80,7 +80,7 @@ CONFIG
 install_runner() {
   local account_entry account_home account_shell
   if [[ -e "$command_path" || -L "$command_path" ]]; then
-    [[ -L "$command_path" && "$(readlink "$command_path")" == "$runtime/dispatch" ]] ||
+    [[ -L "$command_path" && "$(readlink "$command_path")" == "$runtime/runner-cli" ]] ||
       error "Another dispatch-runner command already occupies $command_path"
   fi
   if [[ ! -f "$runtime/managed-install" ]]; then
@@ -125,11 +125,15 @@ install_runner() {
   [[ -s "$stage/updater" ]] || error "Missing updater from $tag"
   chmod 0755 "$stage/updater"
   mv -fT "$stage/updater" "$runtime/install-dispatch-runner.sh"
+  tar -xOzf "$stage/dispatch-server.tar.gz" bin/dispatch-runner > "$stage/runner-cli"
+  [[ -s "$stage/runner-cli" ]] || error "Missing runner command from $tag"
+  chmod 0755 "$stage/runner-cli"
+  mv -fT "$stage/runner-cli" "$runtime/runner-cli"
   if [[ ! -L "$command_path" ]]; then
     if [[ ! -d "$(dirname "$command_path")" ]]; then
       install -d -m 0755 "$(dirname "$command_path")"
     fi
-    ln -s "$runtime/dispatch" "$command_path"
+    ln -s "$runtime/runner-cli" "$command_path"
   fi
   systemctl daemon-reload
   printf 'Runner installed. Use the connect command from Dispatch Settings to enroll.\n'
