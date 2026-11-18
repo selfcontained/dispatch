@@ -18,17 +18,19 @@ export function RunnerPicker({
   onRunnerChange,
   workspace,
   onWorkspaceChange,
+  unavailable,
 }: {
   runners: Runner[];
   runnerId: string | null;
   onRunnerChange: (id: string | null) => void;
   workspace: string | null;
   onWorkspaceChange: (workspace: string) => void;
+  unavailable: boolean;
 }): JSX.Element | null {
   const runnerLabelId = useId();
   const workspaceLabelId = useId();
   const usable = runners.filter((r) => r.status !== "revoked");
-  if (usable.length === 0) return null;
+  if (usable.length === 0 && !runnerId) return null;
   const selected = usable.find((r) => r.id === runnerId);
   return (
     <div className="space-y-2" data-testid="runner-picker">
@@ -50,6 +52,12 @@ export function RunnerPicker({
           </SelectTrigger>
           <SelectContent>
             <SelectItem value={THIS_MAC}>This Mac</SelectItem>
+            {unavailable && runnerId ? (
+              <SelectItem value={runnerId} disabled>
+                {runners.find((r) => r.id === runnerId)?.name ?? "Runner"}{" "}
+                (unavailable)
+              </SelectItem>
+            ) : null}
             {usable.map((runner) => (
               <SelectItem
                 key={runner.id}
@@ -64,7 +72,17 @@ export function RunnerPicker({
           </SelectContent>
         </Select>
       </div>
-      {selected ? (
+      {unavailable ? (
+        <p
+          className="text-sm text-destructive"
+          role="alert"
+          data-testid="create-agent-runner-unavailable"
+        >
+          This runner is revoked or gone. Choose This Mac or another runner to
+          continue.
+        </p>
+      ) : null}
+      {selected && !unavailable ? (
         <div className="space-y-1">
           <label
             id={workspaceLabelId}

@@ -156,6 +156,7 @@ function CreateAgentDialogContent({
                     <RunnerPicker
                       runners={form.runners}
                       runnerId={form.runnerId}
+                      unavailable={form.runnerUnavailable}
                       onRunnerChange={form.selectRunner}
                       workspace={form.runnerWorkspace}
                       onWorkspaceChange={form.setRunnerWorkspace}
