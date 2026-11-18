@@ -148,7 +148,6 @@ run install v1.0.0
 run install v1.0.0
 [[ "$(wc -l < "$root/enrollment")" -eq 1 ]]
 [[ "$(find "$root/settings/runner.json" -perm 0600 -print)" == "$root/settings/runner.json" ]]
-grep -q '"managedSessions": true' "$root/settings/runner.json"
 grep -q '"workspaces": {}' "$root/settings/runner.json"
 cp "$root/runtime/dispatch" "$root/original"
 cp -R "$root/settings" "$root/original-settings"

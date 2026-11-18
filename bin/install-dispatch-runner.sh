@@ -62,8 +62,7 @@ write_config() {
     "codexBin": "/usr/local/bin/codex",
     "opencodeBin": "/usr/local/bin/opencode"
   },
-  "workspaces": {},
-  "managedSessions": true
+  "workspaces": {}
 }
 CONFIG
   install -m 0600 "$stage/runner.json" "$config"
