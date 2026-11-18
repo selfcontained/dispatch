@@ -12,6 +12,7 @@ import {
   launchViaApi,
   launchViaUi,
   marker,
+  newSettledTurn,
   runnerOptionEnabled,
   pairInContainer,
   runnerRow,
@@ -174,14 +175,18 @@ test("disconnect alpha mid-turn: others continue; reconnect gives one invocation
   });
 
   // Beta and local keep working while alpha is away.
-  await chat(pages.beta!, "proof-count after-alpha-lost");
-  await expect(
-    answers(pages.beta!, "Local or guest fixture turn completed.").last()
-  ).toBeVisible({ timeout: 30_000 });
-  await chat(pages.local!, "sleep:500 still-local");
-  await expect(answers(pages.local!, "still-local").last()).toBeVisible({
-    timeout: 30_000,
-  });
+  const betaBefore = invocations("beta");
+  await newSettledTurn(
+    pages.beta!,
+    "proof-count after-alpha-lost",
+    "Local or guest fixture turn completed."
+  );
+  expect(invocations("beta")).toBe(betaBefore + 1);
+  await newSettledTurn(
+    pages.local!,
+    "sleep:500 still-local",
+    "You said: sleep:500 still-local"
+  );
   expect((await runnerRow(request, "beta"))?.status).toBe("online");
 
   await lane("alpha", "allow");
@@ -223,14 +228,18 @@ test("revoke alpha: it cannot return, beta and local are unaffected", async ({
     contentType: "image/png",
   });
 
-  await chat(pages.beta!, `proof-count after-revoke ${marker("beta")}`);
-  await expect(
-    answers(pages.beta!, "Local or guest fixture turn completed.").last()
-  ).toBeVisible({ timeout: 30_000 });
-  await chat(pages.local!, "after-revoke-local");
-  await expect(answers(pages.local!, "after-revoke-local").last()).toBeVisible({
-    timeout: 30_000,
-  });
+  const betaBefore = invocations("beta");
+  await newSettledTurn(
+    pages.beta!,
+    "proof-count after-revoke",
+    "Local or guest fixture turn completed."
+  );
+  expect(invocations("beta")).toBe(betaBefore + 1);
+  await newSettledTurn(
+    pages.local!,
+    "after-revoke-local",
+    "You said: after-revoke-local"
+  );
   expect((await runnerRow(request, "beta"))?.status).toBe("online");
   expect((await agentInfo(request, agents.beta)).cwd).toBe(loc("beta"));
 });
@@ -259,7 +268,7 @@ test.describe("failure suite", () => {
   }) => {
     for (const cwd of [
       "runner://nobody/proof",
-      "runner://beta/not-a-workspace",
+      `runner://${runnerIds.beta}/not-a-workspace`,
       loc("alpha"),
     ])
       expect(await launchViaApi(request, cwd), cwd).toBeGreaterThanOrEqual(400);
@@ -304,10 +313,11 @@ test.describe("failure suite", () => {
       400
     );
     expect(await runnerOptionEnabled(page, runnerIds.beta!)).toBe(false);
-    await chat(pages.local!, "local-while-beta-down");
-    await expect(
-      answers(pages.local!, "local-while-beta-down").last()
-    ).toBeVisible({ timeout: 30_000 });
+    await newSettledTurn(
+      pages.local!,
+      "local-while-beta-down",
+      "You said: local-while-beta-down"
+    );
     await lane("beta", "allow");
     await expect
       .poll(async () => (await runnerRow(request, "beta"))?.status, {
