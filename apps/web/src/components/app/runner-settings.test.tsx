@@ -151,12 +151,10 @@ it("leaves pairing approvals actionable after closing the Add runner dialog", as
   });
 
   renderSettings();
-  const approval = await screen.findByTestId("runner-approval");
-  const submit = within(approval).getByRole("button", {
-    name: "Approve runner",
-  }) as HTMLButtonElement;
-  expect(submit.disabled).toBe(true);
-  expect(screen.queryByRole("dialog")).toBeNull();
+  const review = await screen.findByRole("button", {
+    name: "Review request deadbeef",
+  });
+  expect(screen.queryByTestId("runner-approval")).toBeNull();
 
   fireEvent.click(screen.getByRole("button", { name: "Add runner" }));
   const dialog = screen.getByRole("dialog", { name: "Add runner" });
@@ -167,6 +165,15 @@ it("leaves pairing approvals actionable after closing the Add runner dialog", as
   fireEvent.click(within(dialog).getByRole("button", { name: "Done" }));
   expect(screen.queryByRole("dialog")).toBeNull();
 
+  fireEvent.click(review);
+  const request = screen.getByRole("dialog", {
+    name: "Review request deadbeef",
+  });
+  const approval = within(request).getByTestId("runner-approval");
+  const submit = within(approval).getByRole("button", {
+    name: "Approve runner",
+  }) as HTMLButtonElement;
+  expect(submit.disabled).toBe(true);
   fireEvent.change(within(approval).getByLabelText("Runner name"), {
     target: { value: " Build machine " },
   });

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Copy, Plus } from "lucide-react";
+import { Copy, Plus, X } from "lucide-react";
 import { useCopyText } from "@/hooks/use-copy";
 import { Button } from "@/components/ui/button";
 import {
@@ -49,7 +49,8 @@ export function RunnerCommand({
 
 type PairRequest = { id: string; createdAt: string; expiresAt: string };
 
-function ApproveRunner({ request }: { request: PairRequest }) {
+function RunnerPairingRequest({ request }: { request: PairRequest }) {
+  const reference = request.id.slice(-8);
   const queryClient = useQueryClient();
   const [name, setName] = useState("");
   const [code, setCode] = useState("");
@@ -83,75 +84,109 @@ function ApproveRunner({ request }: { request: PairRequest }) {
       queryClient.invalidateQueries({ queryKey: ["runner-pairing-requests"] }),
   });
   return (
-    <form
-      className="space-y-2 px-3 py-3"
-      onSubmit={(e) => {
-        e.preventDefault();
-        if (
-          name.trim() &&
-          code.trim() &&
-          !approve.isPending &&
-          !dismiss.isPending
-        )
-          approve.mutate();
-      }}
-      data-testid="runner-approval"
+    <li
+      className="flex flex-wrap items-center justify-between gap-2 px-3 py-2"
+      data-testid={`runner-approval-request-${request.id}`}
     >
-      <p className="text-sm font-medium">Request {request.id.slice(-8)}</p>
-      <p className="text-xs text-muted-foreground">
-        Enter the pairing code printed on the runner.
-      </p>
-      <div className="grid gap-2 sm:grid-cols-2">
-        <label className="space-y-1 text-sm">
-          Runner name
-          <Input
-            value={name}
-            placeholder="e.g. Build machine"
-            maxLength={64}
-            required
-            onChange={(e) => setName(e.target.value)}
-          />
-        </label>
-        <label className="space-y-1 text-sm">
-          Pairing code
-          <Input
-            value={code}
-            required
-            autoCapitalize="characters"
-            autoComplete="off"
-            spellCheck={false}
-            onChange={(e) => setCode(e.target.value)}
-          />
-        </label>
-      </div>
-      <div className="flex flex-wrap gap-2 pt-1">
-        <Button
-          type="submit"
-          variant="primary"
-          disabled={
-            !name.trim() ||
-            !code.trim() ||
-            approve.isPending ||
-            dismiss.isPending
-          }
-        >
-          {approve.isPending ? "Approving…" : "Approve runner"}
-        </Button>
-        <Button
-          type="button"
-          variant="ghost"
-          disabled={approve.isPending || dismiss.isPending}
-          onClick={() => dismiss.mutate()}
-        >
-          {dismiss.isPending ? "Denying…" : "Deny request"}
-        </Button>
-      </div>
-      {(approve.error || dismiss.error) && (
-        <p className="text-sm text-destructive" role="alert">
-          {(approve.error ?? dismiss.error)?.message}
-        </p>
-      )}
-    </form>
+      <span className="text-sm font-medium">Request {reference}</span>
+      <Dialog>
+        <DialogTrigger asChild>
+          <Button
+            type="button"
+            size="sm"
+            aria-label={`Review request ${reference}`}
+            data-testid={`runner-approval-review-${request.id}`}
+          >
+            Review
+          </Button>
+        </DialogTrigger>
+        <DialogContent>
+          <DialogHeader className="pr-8">
+            <DialogTitle>Review request {reference}</DialogTitle>
+            <DialogDescription>
+              Enter the pairing code printed on the runner.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogClose asChild>
+            <Button
+              type="button"
+              size="icon"
+              variant="ghost"
+              className="absolute right-3 top-3"
+              aria-label="Close review"
+            >
+              <X className="size-4" aria-hidden="true" />
+            </Button>
+          </DialogClose>
+          <form
+            className="min-h-0 space-y-3 overflow-y-auto p-0.5"
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (
+                name.trim() &&
+                code.trim() &&
+                !approve.isPending &&
+                !dismiss.isPending
+              ) {
+                approve.mutate();
+              }
+            }}
+            data-testid="runner-approval"
+          >
+            <div className="grid gap-2 sm:grid-cols-2">
+              <label className="space-y-1 text-sm">
+                Runner name
+                <Input
+                  value={name}
+                  placeholder="e.g. Build machine"
+                  maxLength={64}
+                  required
+                  onChange={(e) => setName(e.target.value)}
+                />
+              </label>
+              <label className="space-y-1 text-sm">
+                Pairing code
+                <Input
+                  value={code}
+                  required
+                  autoCapitalize="characters"
+                  autoComplete="off"
+                  spellCheck={false}
+                  onChange={(e) => setCode(e.target.value)}
+                />
+              </label>
+            </div>
+            <div className="flex flex-wrap justify-end gap-2 pt-1">
+              <Button
+                type="button"
+                variant="ghost"
+                disabled={approve.isPending || dismiss.isPending}
+                onClick={() => dismiss.mutate()}
+              >
+                {dismiss.isPending ? "Denying…" : "Deny request"}
+              </Button>
+              <Button
+                type="submit"
+                variant="primary"
+                disabled={
+                  !name.trim() ||
+                  !code.trim() ||
+                  approve.isPending ||
+                  dismiss.isPending
+                }
+              >
+                {approve.isPending ? "Approving…" : "Approve runner"}
+              </Button>
+            </div>
+            {(approve.error || dismiss.error) && (
+              <p className="text-sm text-destructive" role="alert">
+                {(approve.error ?? dismiss.error)?.message}
+              </p>
+            )}
+          </form>
+        </DialogContent>
+      </Dialog>
+    </li>
   );
 }
 
@@ -200,11 +235,11 @@ export function RunnerPairingRequests() {
       <h3 id="runner-pairing-heading" className="text-sm font-medium">
         Pending approvals
       </h3>
-      <div className="divide-y divide-border rounded-md border border-border">
+      <ul className="divide-y divide-border rounded-md border border-border">
         {requests.map((request) => (
-          <ApproveRunner key={request.id} request={request} />
+          <RunnerPairingRequest key={request.id} request={request} />
         ))}
-      </div>
+      </ul>
     </section>
   );
 }
