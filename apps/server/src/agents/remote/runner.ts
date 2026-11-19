@@ -23,6 +23,7 @@ import {
   parseServiceFrame,
   runnerRequestId,
   type Command,
+  MAX_SESSION_FILE_BASE64,
   type RunnerFrame,
   type RunnerEngine,
 } from "./protocol.js";
@@ -460,6 +461,45 @@ export async function runRemoteRunner(filename: string) {
         }
         if (socket.destroyed) return;
         switch (command.kind) {
+          case "sessionFile":
+            result(
+              await supervisor.sessionFile(
+                agentId,
+                workspace,
+                command.operation,
+                async (kind, root, name, data) => {
+                  const child = execute(
+                    setpriv,
+                    [
+                      ...childArgs,
+                      ...selfCommand("runner-session-file"),
+                      kind,
+                      root,
+                      name,
+                    ],
+                    {
+                      env,
+                      timeout: 15_000,
+                      signal: connection.signal,
+                      maxBuffer: MAX_SESSION_FILE_BASE64 + 1024,
+                    }
+                  );
+                  child.child.stdin?.on("error", () => {});
+                  child.child.stdin?.end(data);
+                  try {
+                    return (await child).stdout;
+                  } catch (error) {
+                    throw new Error(
+                      (error as { stderr?: string }).stderr
+                        ?.trim()
+                        .slice(0, 256) || "Runner file transfer failed."
+                    );
+                  }
+                },
+                target?.cwd
+              )
+            );
+            break;
           case "checkoutRelease": {
             const observation = await supervisor.checkoutRelease(
               agentId,
@@ -688,6 +728,7 @@ export async function runRemoteRunner(filename: string) {
           workspacePreparation: true,
           sessionCheckout: true,
           checkoutRelease: true,
+          sessionFiles: true,
           checkoutViews: true,
           sharedWorktree: true,
         });

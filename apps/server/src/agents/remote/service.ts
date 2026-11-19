@@ -163,6 +163,8 @@ type Peer = {
   checkoutInspection: boolean;
   sessionCheckout: boolean;
   checkoutRelease: boolean;
+  sessionFiles: boolean;
+  sessionFileTail?: Promise<unknown>;
   checkoutViews: boolean;
   sharedWorktree: boolean;
   workspacePreparation: boolean;
@@ -692,6 +694,7 @@ export class RemoteRunnerService {
           checkoutViews: ready.checkoutViews === true,
           sessionCheckout: ready.sessionCheckout === true,
           checkoutRelease: ready.checkoutRelease === true,
+          sessionFiles: ready.sessionFiles === true,
           checkoutInspection: ready.checkoutInspection === true,
           sharedWorktree: ready.sharedWorktree === true,
           workspacePreparation: ready.workspacePreparation === true,
@@ -1486,6 +1489,13 @@ export class RemoteRunnerService {
     );
   }
 
+  supportsSessionFiles(placement: Placement) {
+    return (
+      this.available(placement) &&
+      this.peers.get(placement.runner)?.sessionFiles === true
+    );
+  }
+
   supportsSessionCheckout(placement: Placement) {
     return (
       this.available(placement) &&
@@ -1553,6 +1563,10 @@ export class RemoteRunnerService {
       throw new RunnerCapabilityUnavailable(
         "Update the runner to use these checkout options."
       );
+    if (command.kind === "sessionFile" && !peer.sessionFiles)
+      throw new RunnerCapabilityUnavailable(
+        "Update the runner to transfer session files."
+      );
     if (command.kind === "checkoutRelease" && !peer.checkoutRelease)
       throw new RunnerCapabilityUnavailable(
         "Update the runner to inspect and release a session checkout."
@@ -1582,6 +1596,18 @@ export class RemoteRunnerService {
       throw new RunnerCapabilityUnavailable(
         "Update the runner to prepare session workspaces."
       );
+    if (command.kind === "sessionFile") {
+      // A single file can occupy most of the transport's write buffer.
+      const transfer = (peer.sessionFileTail ?? Promise.resolve())
+        .catch(() => {})
+        .then(() => peer.connection.request(command));
+      peer.sessionFileTail = transfer;
+      try {
+        return await transfer;
+      } finally {
+        if (peer.sessionFileTail === transfer) peer.sessionFileTail = undefined;
+      }
+    }
     return peer.connection.request(command, { openChannel: open, onProgress });
   }
 

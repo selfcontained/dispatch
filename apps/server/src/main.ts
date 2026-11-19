@@ -54,6 +54,10 @@ if (process.argv[2]?.startsWith("recovery-")) {
     warn() {},
   });
   if (!installed) process.exitCode = 1;
+} else if (process.argv[2] === "runner-session-file") {
+  const { runSessionFileCli } =
+    await import("./agents/remote/session-files.js");
+  await runSessionFileCli(process.argv[3]!, process.argv[4]!, process.argv[5]!);
 } else if (process.argv[2] === "runner-view-checkout") {
   const { runCheckoutViewCli } = await import("./agents/checkout-view-cli.js");
   await runCheckoutViewCli(process.argv[3]!, process.argv[4] === "--managed");

@@ -6,3 +6,4 @@ export * from "./health.js";
 export * from "./checkout.js";
 export * from "./github.js";
 export * from "./checkout-view.js";
+export * from "./session-files.js";

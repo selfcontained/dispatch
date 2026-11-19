@@ -1,3 +1,4 @@
+import { remotePlacement } from "@dispatch/runner-protocol";
 import { riskNotice } from "../agents/pull-request-risk-notice.js";
 import {
   parseVisualization,
@@ -235,7 +236,8 @@ export type StreamDeliveryAdapter = {
 export type StreamAgent = Pick<
   AgentRecord,
   "id" | "name" | "filesDir" | "status"
->;
+> &
+  Partial<Pick<AgentRecord, "cwd">>;
 
 export type StreamServiceDeps = {
   routingShadow?: {
@@ -3607,7 +3609,11 @@ export class StreamService {
     return {
       id,
       attachmentLines,
-      images: await this.promptImages(attachments, input.agentId),
+      images: await this.promptImages(
+        attachments,
+        input.agentId,
+        input.agentId
+      ),
       postText,
       record: async () => {
         const block = await this.store.writeLaunchBriefing({
@@ -4368,7 +4374,6 @@ export class StreamService {
   ): Promise<{ held: boolean }> {
     const finding = await this.findingOf(block);
     const task = await this.taskRoot(block.streamId);
-    const images = await this.promptImages(block.attachments, block.streamId);
     const outcomes = new Map<string, boolean>();
     // A post to several agents keeps each outcome of its own, so one
     // recipient that never took it can be seen, and sent again, without
@@ -4405,6 +4410,9 @@ export class StreamService {
     let held = false;
     for (const agentId of recipients) {
       const own = perRecipient(agentId);
+      const images = own.rawPrompt
+        ? []
+        : await this.promptImages(block.attachments, block.streamId, agentId);
       // A cancellation closes the ask the same way an answer does: it
       // resumes the work the ask came from rather than opening a thread.
       const closes = own.answers ?? own.cancels;
@@ -5245,16 +5253,23 @@ export class StreamService {
   /** Native image references come only from resolved attachment metadata. */
   private async promptImages(
     attachments: ChatAttachment[],
-    fallbackOwnerId: string
+    fallbackOwnerId: string,
+    recipientId: string
   ): Promise<PromptImage[]> {
+    const recipient = attachments.some(
+      (attachment) => attachment.type === "file"
+    )
+      ? await this.deps.getAgent(recipientId)
+      : null;
+    const remote = remotePlacement(recipient?.cwd ?? "");
     const images: PromptImage[] = [];
     for (const attachment of attachments) {
       if (
         attachment.type !== "file" ||
-        !attachment.mimeType ||
-        !["image/png", "image/jpeg", "image/webp", "image/gif"].includes(
-          attachment.mimeType
-        )
+        (!remote &&
+          !["image/png", "image/jpeg", "image/webp", "image/gif"].includes(
+            attachment.mimeType ?? ""
+          ))
       )
         continue;
       // Attachment metadata was resolved against the file registry on posting.
@@ -5268,10 +5283,23 @@ export class StreamService {
           resolveFilesDir(owner.id, owner.filesDir, this.deps.filesRoot),
           attachment.fileName
         ),
-        mimeType: attachment.mimeType,
+        mimeType: attachment.mimeType ?? "application/octet-stream",
+        ...(remote && {
+          runnerName: this.runnerInputName(attachment, owner, recipientId),
+        }),
       });
     }
     return images;
+  }
+
+  private runnerInputName(
+    attachment: Extract<ChatAttachment, { type: "file" }>,
+    owner: StreamAgent,
+    recipientId: string
+  ): string {
+    return owner.id === recipientId
+      ? attachment.fileName
+      : `attachment-${attachment.fileId}${path.extname(attachment.fileName).slice(0, 32)}`;
   }
 
   /** Keep file-tool fallback paths aligned with the actual attachment owner. */
@@ -5292,9 +5320,12 @@ export class StreamService {
             owner.filesDir,
             this.deps.filesRoot
           );
+          const filePath = remotePlacement(agent.cwd ?? "")
+            ? `$DISPATCH_FILES_DIR/${this.runnerInputName(attachment, owner, agent.id)}`
+            : path.join(filesDir, attachment.fileName);
           const mime = attachment.mimeType ?? "application/octet-stream";
           lines.push(
-            `- file: ${path.join(filesDir, attachment.fileName)} (${mime}, ${formatAttachmentSize(attachment.sizeBytes)})${attachment.caption ? ` caption: ${JSON.stringify(attachment.caption)}` : ""}`
+            `- file: ${filePath} (${mime}, ${formatAttachmentSize(attachment.sizeBytes)})${attachment.caption ? ` caption: ${JSON.stringify(attachment.caption)}` : ""}`
           );
           break;
         }

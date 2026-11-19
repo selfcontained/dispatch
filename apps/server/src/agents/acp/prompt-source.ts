@@ -1,5 +1,7 @@
-import type { PromptImage } from "@dispatch/runner-protocol";
-export type { PromptImage } from "@dispatch/runner-protocol";
+import type { PromptImage as WirePromptImage } from "@dispatch/runner-protocol";
+
+/** Host-side attachment reference. A runner name marks an input to stage before ACP submission. */
+export type PromptImage = WirePromptImage & { runnerName?: string };
 
 /**
  * What a prompt sent to the harness was, for the prompt a turn entry

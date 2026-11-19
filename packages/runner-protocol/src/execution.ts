@@ -1,3 +1,7 @@
+import {
+  isSessionFileOperation,
+  type SessionFileOperation,
+} from "./session-files.js";
 import { isCheckoutView, type CheckoutView } from "./checkout-view.js";
 import {
   isCheckoutQuery,
@@ -63,6 +67,7 @@ export type SessionLifecycleOperation = { agentId: string } & (
 
 export type SessionOperation =
   | SessionLifecycleOperation
+  | { agentId: string; kind: "sessionFile"; operation: SessionFileOperation }
   | { agentId: string; kind: "watchCheckout" }
   | { agentId: string; kind: "viewCheckout"; query: CheckoutView }
   | { agentId: string; kind: "inspectCheckout"; query: CheckoutQuery }
@@ -101,6 +106,7 @@ export type ReadyFrame = {
   workspacePreparation?: true;
   sessionCheckout?: true;
   checkoutRelease?: true;
+  sessionFiles?: true;
 };
 
 /** Accept v1 extension fields and enable optional features only when explicitly true. */
@@ -126,6 +132,7 @@ export function parseReadyFrame(value: unknown): ReadyFrame | null {
     ...(frame.checkoutViews === true && { checkoutViews: true }),
     ...(frame.checkoutInspection === true && { checkoutInspection: true }),
     ...(frame.sharedWorktree === true && { sharedWorktree: true }),
+    ...(frame.sessionFiles === true && { sessionFiles: true }),
     ...(frame.checkoutRelease === true && { checkoutRelease: true }),
     ...(frame.sessionCheckout === true && { sessionCheckout: true }),
     ...(frame.workspacePreparation === true && { workspacePreparation: true }),
@@ -306,6 +313,8 @@ function isCommand(value: unknown): value is Command {
         (value.launch.useWorktreeOf === undefined ||
           value.agentId === value.launch.agentId)
       );
+    case "sessionFile":
+      return isSessionFileOperation(value.operation);
     case "checkoutRelease":
       return isCheckoutRelease(value.operation);
     case "sessionCheckout":

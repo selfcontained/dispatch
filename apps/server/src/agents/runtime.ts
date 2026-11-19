@@ -146,6 +146,7 @@ export function createAgentRuntime(
     AcpRuntimeDeps,
     | "hostSeq"
     | "syncJournal"
+    | "preparePromptFiles"
     | "remoteInbox"
     | "recoverRemoteEvent"
     | "classifySteering"

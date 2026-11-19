@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
+  link,
   mkdir,
   mkdtemp,
   open,
@@ -14,13 +15,17 @@ import {
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { MANAGED_WORKSPACE } from "../src/agents/remote/protocol.js";
+import {
+  MANAGED_WORKSPACE,
+  MAX_SESSION_FILE_BYTES,
+} from "../src/agents/remote/protocol.js";
 import {
   parseProcessStat,
   runnerStateLockError,
   type SessionIdentity,
   type SessionProcesses,
 } from "../src/agents/remote/session-processes.js";
+import { readSessionFile } from "../src/agents/remote/session-files.js";
 import { createSessionSupervisor } from "../src/agents/remote/session-supervisor.js";
 
 import {
@@ -251,6 +256,72 @@ describe("runner session supervision", () => {
     await stopped;
     expect(processes.spawn).toHaveBeenCalledTimes(1);
     expect(processes.stop).toHaveBeenCalledExactlyOnceWith(identity, false);
+  });
+
+  it("bounds collection and rejects symlinks and hard links on disk", async () => {
+    const dir = await realpath(root);
+    const original = path.join(dir, "original.txt");
+    await writeFile(original, "complete");
+    expect(await readSessionFile(dir, "original.txt")).toEqual(
+      Buffer.from("complete")
+    );
+    await symlink(original, path.join(dir, "symlink.txt"));
+    await expect(readSessionFile(dir, "symlink.txt")).rejects.toThrow();
+    await link(original, path.join(dir, "hardlink.txt"));
+    await expect(readSessionFile(dir, "hardlink.txt")).rejects.toThrow(
+      "Hard-linked"
+    );
+    const large = await open(path.join(dir, "large.txt"), "w");
+    try {
+      await large.truncate(MAX_SESSION_FILE_BYTES + 1);
+    } finally {
+      await large.close();
+    }
+    await expect(readSessionFile(dir, "large.txt")).rejects.toThrow("20 MiB");
+  });
+
+  it("collects only from the bound session, including when the configured checkout contains runner state", async () => {
+    const runner = await start(["configured"]);
+    const cwd = await realpath(root);
+    const transfer = vi.fn(async () => "YWJj");
+    const first = launch("configured");
+    await runner.launch(first, cwd);
+    kernelHost = undefined;
+    const other = "agt_other";
+    record = path.join(state, "bindings", other + ".host");
+    await runner.launch({ ...first, agentId: other }, cwd);
+    const own = path.join(state, "hosts", agentId, "files", "input.txt");
+    const foreign = path.join(state, "hosts", other, "files", "input.txt");
+    const collect = (id: string, file: string, workspace = first.workspace) =>
+      runner.sessionFile(
+        id,
+        workspace,
+        { kind: "collect", path: file },
+        transfer,
+        cwd
+      );
+    expect(await collect(agentId, own)).toBe("YWJj");
+    expect(await collect(agentId, "generated/report.txt")).toBe("YWJj");
+    expect(transfer).toHaveBeenNthCalledWith(
+      1,
+      "collect",
+      path.dirname(own),
+      "input.txt"
+    );
+    expect(transfer).toHaveBeenNthCalledWith(
+      2,
+      "collect",
+      cwd,
+      "generated/report.txt"
+    );
+    for (const [id, file] of [
+      [agentId, foreign],
+      [other, own],
+      [agentId, "../input.txt"],
+      ["unbound/session", own],
+    ] as const)
+      await expect(collect(id, file)).rejects.toThrow();
+    expect(transfer).toHaveBeenCalledTimes(2);
   });
 
   it("treats a recycled PID as stale and leaves an unrelated host running", async () => {

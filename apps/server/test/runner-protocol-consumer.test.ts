@@ -17,6 +17,8 @@ import {
   runnerRequestId,
   sessionCommandId,
   isOpaqueId,
+  isSessionFileData,
+  MAX_SESSION_FILE_BYTES,
   isCheckoutReply,
   isSessionCheckout,
   isCheckoutObservation,
@@ -740,6 +742,7 @@ function fixtureRunner(current: boolean) {
       pullRequestWatch: true,
       sessionCheckout: true,
       checkoutRelease: true,
+      sessionFiles: true,
     }),
   };
   const sample = {
@@ -772,12 +775,17 @@ function fixtureRunner(current: boolean) {
   let selectedCheckout = "/workload/launch";
   const stateId = "b".repeat(64);
   let released = false;
+  const files = new Map<string, string>();
 
-  function connect() {
+  function connect(cut?: "partial-frame" | "lost-ack") {
     const service = new Duplex({
       read() {},
       write(chunk, _encoding, done) {
-        runner.push(chunk);
+        if (cut === "partial-frame") {
+          runner.push(chunk.subarray(0, Math.floor(chunk.length / 2)));
+          service.destroy();
+          runner.destroy();
+        } else runner.push(chunk);
         done();
       },
     });
@@ -873,6 +881,21 @@ function fixtureRunner(current: boolean) {
             command.agentId !== agentId
           ) {
             reply({ type: "result", id, error: "Unknown session binding" });
+          } else if (command.kind === "sessionFile" && current && running) {
+            const operation = command.operation;
+            const root = "/workload/files/";
+            if (operation.kind === "deliver") {
+              files.set(root + operation.name, operation.data);
+              if (cut === "lost-ack") {
+                service.destroy();
+                runner.destroy();
+              } else result(root + operation.name);
+            } else {
+              const bytes = files.get(operation.path);
+              if (bytes === undefined)
+                reply({ type: "result", id, error: "File unavailable" });
+              else result(bytes);
+            }
           } else if (command.kind === "checkoutRelease" && current) {
             if (command.operation.kind === "observe") {
               result(
@@ -1359,3 +1382,105 @@ it.each([true, false])(
     }
   }
 );
+
+it.each([true, false])(
+  "independent service negotiates and retries a complete session file: %s",
+  async (current) => {
+    const runner = fixtureRunner(current);
+    const peer = runner.connect();
+    const data = Buffer.from([0, 255, 128]).toString("base64");
+    const deliver = {
+      ...runner.session,
+      kind: "sessionFile",
+      operation: { kind: "deliver", name: "sample.bin", data },
+    } as const;
+    const collect = {
+      ...runner.session,
+      kind: "sessionFile",
+      operation: { kind: "collect", path: "/workload/files/sample.bin" },
+    } as const;
+    try {
+      await vi.waitFor(() => expect(peer.reports[0]).toBeDefined());
+      expect(parseReadyFrame(peer.reports[0])?.sessionFiles).toBe(
+        current ? true : undefined
+      );
+      if (!current) {
+        expect(runner.requests).toHaveLength(0);
+        return;
+      }
+      await peer.connection.request({
+        ...runner.session,
+        kind: "launch",
+        launch: {
+          agentId: runner.session.agentId,
+          engine: "codex",
+          model: null,
+          systemPrompt: null,
+          resumeSessionId: null,
+        },
+      });
+      for (const [cut, written] of [
+        ["partial-frame", false],
+        ["lost-ack", true],
+      ] as const) {
+        const interrupted = runner.connect(cut);
+        try {
+          await expect(
+            interrupted.connection.request(deliver)
+          ).rejects.toBeInstanceOf(RunnerUnavailable);
+          if (written)
+            expect((await peer.connection.request(collect)).value).toBe(data);
+          else
+            await expect(peer.connection.request(collect)).rejects.toThrow(
+              "File unavailable"
+            );
+        } finally {
+          interrupted.close();
+        }
+      }
+      expect((await peer.connection.request(deliver)).value).toBe(
+        collect.operation.path
+      );
+      const collected = (await peer.connection.request(collect)).value;
+      expect(isSessionFileData(collected)).toBe(true);
+      expect(collected).toBe(data);
+      await expect(
+        peer.connection.request({ ...collect, agentId: "other/session" })
+      ).rejects.toThrow("Unknown session binding");
+    } finally {
+      peer.close();
+    }
+  }
+);
+
+it("bounds decoded session files and rejects unsafe paths at the wire boundary", () => {
+  expect(
+    isSessionFileData(Buffer.alloc(MAX_SESSION_FILE_BYTES).toString("base64"))
+  ).toBe(true);
+  expect(
+    isSessionFileData(
+      Buffer.alloc(MAX_SESSION_FILE_BYTES + 1).toString("base64")
+    )
+  ).toBe(false);
+  expect(isSessionFileData("a=a=")).toBe(false);
+  expect(isSessionFileData("")).toBe(true);
+  for (const operation of [
+    { kind: "deliver", name: "../file", data: "" },
+    { kind: "deliver", name: "slash/file", data: "" },
+    { kind: "collect", path: "/root/../other/file" },
+    { kind: "collect", path: "path\0name" },
+  ]) {
+    expect(
+      parseServiceFrame({
+        type: "request",
+        id: "file/42",
+        command: {
+          workspace: "my/space",
+          agentId: "my/session",
+          kind: "sessionFile",
+          operation,
+        },
+      })
+    ).toBeNull();
+  }
+});

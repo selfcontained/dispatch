@@ -64,9 +64,9 @@ A native host can complete an accepted turn while its controller is down. A repl
 
 - Expand a directory and open a file in the runner checkout. A path escaping the workspace is refused there. [Workspace routes](../../apps/server/src/routes/agents/workspace-routes.ts) · [File explorer](../file-explorer.md)
 
-**Move attachments across the boundary.** **Partial.** Dispatch stores and serves user-visible attachments. Initial files, images supplied to a prompt, and files a runner agent posts by path require explicit delivery or collection. A runner-local file path in a chat post is insufficient.
+**Move attachments across the boundary.** **Present.** Dispatch keeps the durable copies and attachment records. The optional runner capability delivers startup files and prompt attachments into the receiving session and collects files posted from its files directory or checkout.
 
-- Upload an image, deliver it to one runner agent, then have it post a generated file that opens after its session is archived. [File routes](../../apps/server/src/routes/files.ts) · [Prompt images](../../apps/server/src/agents/acp/prompt-images.ts) · [Attachment behavior](../file-attachments.md)
+- Playwright sends a startup image and a composer image to both native and Linux runner sessions, compares the agent's local bytes with the ACP image block, and opens the posted copy after archive. The independent consumer covers interrupted requests, retries, size limits, and capability negotiation. The runner supervisor tests cover isolation between session file directories. [Playwright workflow](../../e2e/remote-runner/file-transfer.spec.ts) · [Protocol](../../packages/runner-protocol/README.md#session-files) · [Attachment behavior](../file-attachments.md)
 
 ### Repository automation and cleanup
 

@@ -1,3 +1,4 @@
+import { readSessionFile } from "./remote/session-files.js";
 import { readAgentView } from "./checkout-runner.js";
 import type { CheckoutView } from "@dispatch/runner-protocol";
 import { AttentionHistory } from "../notifications/attention-history.js";
@@ -9,7 +10,7 @@ import {
 } from "@dispatch/shared";
 import { validateAgentEffort } from "../shared/agent-effort.js";
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, rm, unlink } from "node:fs/promises";
+import { mkdir, readFile, realpath, rm, unlink } from "node:fs/promises";
 import path from "node:path";
 
 import type { FastifyBaseLogger } from "fastify";
@@ -91,6 +92,8 @@ import {
   isSessionCheckout,
   validBranch,
   remotePlacement,
+  isSessionFileData,
+  isSessionFilePath,
   type RunnerRepository,
   type LaunchProgress,
   type CheckoutQuery,
@@ -432,6 +435,7 @@ export class AgentManager {
         classifySteering: options.classifySteering,
         remote: this.remote,
         remoteInbox,
+        preparePromptFiles: (id, images) => this.preparePromptFiles(id, images),
         recoverRemoteEvent: (agentId) =>
           remoteInbox.recover(agentId, (event) =>
             this.handleRuntimeEvent(agentId, event, 0, true)
@@ -714,6 +718,66 @@ export class AgentManager {
   private cancelSchedules?: (id: string) => Promise<void>;
   attachScheduleCancellation(cancel: (id: string) => Promise<void>): void {
     this.cancelSchedules = cancel;
+  }
+
+  async collectRunnerFile(
+    agent: AgentRecord,
+    filePath: string
+  ): Promise<Buffer> {
+    const placement = remotePlacement(agent.cwd);
+    if (!placement || !this.remote || !isSessionFilePath(filePath))
+      throw new AgentError("Invalid runner session file path.", 400);
+    const { value } = await this.remote.requestSession(placement, {
+      agentId: agent.id,
+      kind: "sessionFile",
+      operation: { kind: "collect", path: filePath },
+    });
+    if (!isSessionFileData(value))
+      throw new Error("Invalid runner file response.");
+    return Buffer.from(value, "base64");
+  }
+
+  private async preparePromptFiles(
+    id: string,
+    images: PromptImage[]
+  ): Promise<PromptImage[]> {
+    if (!images.some((image) => image.runnerName !== undefined)) return images;
+    const agent = await this.getRequiredAgent(id);
+    const placement = remotePlacement(agent.cwd);
+    if (!placement || !this.remote)
+      throw new Error("Runner session is unavailable.");
+    const prepared: PromptImage[] = [];
+    const delivered = new Map<string, string>();
+    for (const { path: source, mimeType, runnerName } of images) {
+      if (runnerName === undefined) continue;
+      let destination = delivered.get(runnerName);
+      if (destination === undefined) {
+        const bytes = await readSessionFile(
+          await realpath(path.dirname(source)),
+          path.basename(source)
+        );
+        const { value } = await this.remote.requestSession(placement, {
+          agentId: id,
+          kind: "sessionFile",
+          operation: {
+            kind: "deliver",
+            name: runnerName,
+            data: bytes.toString("base64"),
+          },
+        });
+        if (!isSessionFilePath(value) || !path.posix.isAbsolute(value))
+          throw new Error("Invalid runner input file location.");
+        destination = value;
+        delivered.set(runnerName, destination);
+      }
+      if (
+        ["image/png", "image/jpeg", "image/webp", "image/gif"].includes(
+          mimeType
+        )
+      )
+        prepared.push({ path: destination, mimeType });
+    }
+    return prepared;
   }
 
   /** Queue one turn; see AgentRuntime.prompt. */
@@ -1583,14 +1647,21 @@ export class AgentManager {
           !useWorktreeOf &&
           !options.taskPersonaBody &&
           !input.templateId &&
-          !input.jobRunId) ||
-        input.initialFiles?.length
+          !input.jobRunId)
       ) {
         throw new AgentError(
           "Runner launches require a standalone agent and runner-managed storage.",
           400
         );
       }
+      if (
+        input.initialFiles?.length &&
+        !this.remote.supportsSessionFiles(placement)
+      )
+        throw new AgentError(
+          "Update the runner to launch with startup files.",
+          409
+        );
       if (useWorktreeOf && !this.remote.supportsSharedWorktree(placement))
         throw new AgentError(
           "Update the runner to launch an agent in an existing checkout.",
@@ -2158,6 +2229,36 @@ export class AgentManager {
         jobRunId: opts.jobRunId,
         recordWorkspaceProgress: true,
       });
+      const remote = remotePlacement(agent.cwd);
+      let images = chatLaunchPost?.images;
+      try {
+        if (remote) {
+          const filesDir = resolveFilesDir(
+            id,
+            agent.filesDir,
+            this.config.filesRoot
+          );
+          images = await this.preparePromptFiles(
+            id,
+            images ??
+              opts.initialFiles.map((file) => ({
+                path: path.join(filesDir, file.fileName),
+                runnerName: file.fileName,
+                mimeType: "application/octet-stream",
+              }))
+          );
+        }
+      } catch (error) {
+        await this.runtime
+          .stop(id, true)
+          .catch((err: unknown) =>
+            this.logger.warn(
+              { err, agentId: id },
+              "Runner host cleanup after file delivery failure"
+            )
+          );
+        throw error;
+      }
       await this.pool.query(
         `UPDATE agents SET status = 'running', cli_session_id = $2, setup_phase = NULL, updated_at = NOW() WHERE id = $1`,
         [id, sessionId]
@@ -2173,7 +2274,12 @@ export class AgentManager {
       const firstTurn = buildStartupTurn(
         {
           initialPrompt: opts.initialPrompt,
-          initialFiles: opts.initialFiles,
+          initialFiles: remote
+            ? opts.initialFiles.map((file) => ({
+                ...file,
+                runnerPath: `$DISPATCH_FILES_DIR/${file.fileName}`,
+              }))
+            : opts.initialFiles,
           chatLaunchPost,
         },
         { jobRunId: opts.jobRunId }
@@ -2183,9 +2289,7 @@ export class AgentManager {
           id,
           firstTurn,
           "first turn",
-          chatLaunchPost?.images?.length
-            ? { images: chatLaunchPost.images }
-            : undefined,
+          images?.length ? { images } : undefined,
           chatLaunchPost
             ? { source: "chat", chatMessageId: chatLaunchPost.messageId }
             : undefined

@@ -21,6 +21,8 @@ import {
   MANAGED_WORKSPACE,
   isOpaqueId,
   isCheckoutPath,
+  isSessionFileOperation,
+  type SessionFileOperation,
   type SessionCheckout,
   type CheckoutObservation,
   type CheckoutRelease,
@@ -872,6 +874,57 @@ export async function createSessionSupervisor(
           );
         }
         return launch(command, cwd, key, owner, progress);
+      });
+    },
+    sessionFile(
+      agentId: string,
+      workspace: string,
+      operation: SessionFileOperation,
+      transfer: (
+        kind: SessionFileOperation["kind"],
+        root: string,
+        name: string,
+        data?: string
+      ) => Promise<string>,
+      configuredCwd?: string
+    ) {
+      const key = runnerStorageKey(agentId);
+      return serialize(key, async () => {
+        if (
+          !isSessionFileOperation(operation) ||
+          !(await bound(key, workspace))
+        )
+          throw new Error("Invalid or unbound session file operation.");
+        const files = path.join(hostRoot, key, "files");
+        if (operation.kind === "deliver") {
+          await transfer("deliver", files, operation.name, operation.data);
+          return path.join(files, operation.name);
+        }
+        const source = path.isAbsolute(operation.path)
+          ? path.normalize(operation.path)
+          : null;
+        if (source && containsDirectory(files, source))
+          return transfer("collect", files, path.relative(files, source));
+        const checkout = await selectedDirectory(
+          key,
+          workspace,
+          await initialDirectory(key, workspace, configuredCwd)
+        );
+        const requested = source ?? path.join(checkout, operation.path);
+        const owner = checkoutOwner(await readBinding(key)) ?? key;
+        if (
+          !containsDirectory(checkout, requested) ||
+          (containsDirectory(storage, requested) &&
+            !containsDirectory(path.join(sessions, owner), requested))
+        )
+          throw new Error(
+            "File path is outside this session's files and checkout."
+          );
+        return transfer(
+          "collect",
+          checkout,
+          path.relative(checkout, requested)
+        );
       });
     },
     async checkoutRelease(

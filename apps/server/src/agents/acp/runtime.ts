@@ -247,6 +247,10 @@ function sourceBlockIds(source?: PromptSource): string[] {
 }
 
 export type AcpRuntimeDeps = {
+  preparePromptFiles?: (
+    agentId: string,
+    images: PromptImage[]
+  ) => Promise<PromptImage[]>;
   remote?: Pick<RemoteRunnerService, "available" | "requestSession">;
   remoteInbox?: Pick<RemoteEventInbox, "receive" | "projected">;
   recoverRemoteEvent?: (agentId: string) => Promise<void>;
@@ -455,6 +459,7 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
         const id = crypto.randomUUID();
         let ended = false;
         let accepted = false;
+        let submitted = false;
         const onSettle = () => {
           ended = true;
           if (accepted) for (const w of batch) w.resolveSettled();
@@ -530,6 +535,14 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
                   : "default"
               );
           } else {
+            const inputs = batch.flatMap((item) => item.images ?? []);
+            const images = inputs.some(
+              (input) => input.runnerName !== undefined
+            )
+              ? await deps.preparePromptFiles?.(agentId, inputs)
+              : inputs;
+            if (!images)
+              throw new Error("Runner prompt file delivery is unavailable.");
             if (entry.remote) {
               const dir = stateDir(agentId);
               await mkdir(dir, { recursive: true, mode: 0o700 });
@@ -544,10 +557,10 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
               );
             }
             // Set this before submitting: ack and settle can arrive together.
+            submitted = true;
             entry.turnOpen = true;
             entry.turnBlockIds = new Set(sourceBlockIds(source));
             entry.conversation = source?.conversation;
-            const images = batch.flatMap((item) => item.images ?? []);
             const outcome = await entry.client.prompt(
               id,
               text,
@@ -576,7 +589,7 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
             (w) => w !== onSettle
           );
           for (const w of batch) finishDecision(w, "failed");
-          if (!steering) entry.turnOpen = false;
+          if (submitted) entry.turnOpen = false;
           for (const w of batch) {
             w.rejectAccepted(
               error instanceof Error ? error : new Error(String(error))

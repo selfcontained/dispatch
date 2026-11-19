@@ -6,6 +6,7 @@
 // three that publish one, nested tool calls for Claude, a permission ask
 // for OpenCode, and honors set_mode for Gemini. It never calls a model and
 // only reads a workspace marker when the runner review fixture requests it.
+import { proveFileTransfer } from "./runner-file-transfer.mjs";
 import { existsSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
@@ -68,6 +69,7 @@ if (!PROFILE) {
 
 let conn;
 const cwdBySession = new Map();
+const mcpBySession = new Map();
 const modelBySession = new Map();
 const SLEEP = /sleep:(\d+)/;
 const RUN = /run:(\d+)/;
@@ -100,6 +102,7 @@ const agent = {
       agentInfo: { name: `fake-${ENGINE}`, version: "0.0.0" },
       agentCapabilities: {
         mcpCapabilities: { http: true },
+        promptCapabilities: { image: true },
         sessionCapabilities: { close: {}, resume: {} },
       },
       authMethods: [],
@@ -119,6 +122,7 @@ const agent = {
   async newSession(params) {
     const sessionId = `fake_${ENGINE}_${Date.now()}`;
     cwdBySession.set(sessionId, params.cwd);
+    mcpBySession.set(sessionId, params.mcpServers);
     setTimeout(() => {
       void conn.sessionUpdate({
         sessionId,
@@ -143,6 +147,7 @@ const agent = {
   },
   async resumeSession(params) {
     cwdBySession.set(params.sessionId, params.cwd);
+    mcpBySession.set(params.sessionId, params.mcpServers);
     return { configOptions: configOptions(params.sessionId) };
   },
   async setSessionMode() {
@@ -204,6 +209,20 @@ const agent = {
       const text = params.prompt
         .map((b) => (b.type === "text" ? b.text : ""))
         .join("");
+      if (text.includes("proof-file-transfer")) {
+        const { Client } = require("@modelcontextprotocol/sdk/client/index.js");
+        const {
+          StreamableHTTPClientTransport,
+        } = require("@modelcontextprotocol/sdk/client/streamableHttp.js");
+        await proveFileTransfer(
+          text,
+          params.prompt,
+          { mcpServers: mcpBySession.get(params.sessionId) },
+          Client,
+          StreamableHTTPClientTransport
+        );
+        return { stopReason: "end_turn" };
+      }
       if (text.includes("background-preview-fixture")) {
         for (const update of [
           {

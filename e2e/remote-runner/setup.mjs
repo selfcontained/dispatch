@@ -48,6 +48,7 @@ function artifacts(arch) {
   const inputs = [
     "apps/server/src",
     "apps/server/test/helpers",
+    "e2e/fixtures/runner-file-transfer.mjs",
     "packages/runner-protocol",
     "pnpm-lock.yaml",
   ];

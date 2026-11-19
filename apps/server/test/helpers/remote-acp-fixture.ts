@@ -1,3 +1,4 @@
+import { proveFileTransfer } from "../../../../e2e/fixtures/runner-file-transfer.mjs";
 // A standalone deterministic ACP provider for the isolated runner proof.
 import { appendFile, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -6,9 +7,20 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 import { createFakeAcpAgent } from "./fake-acp-agent.js";
 
 const fake = createFakeAcpAgent({
+  supportsImages: true,
   async turn(prompt, emit, ask) {
     const session =
       fake.seen.newSession.at(-1) ?? fake.seen.resumeSession.at(-1)!;
+    if (prompt.includes("proof-file-transfer")) {
+      await proveFileTransfer(
+        prompt,
+        fake.seen.promptBlocks.at(-1),
+        session,
+        Client,
+        StreamableHTTPClientTransport
+      );
+      return "end_turn";
+    }
     const report = (text: string) =>
       emit({
         sessionUpdate: "agent_message_chunk",

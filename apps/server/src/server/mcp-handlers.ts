@@ -682,7 +682,9 @@ async function handleShareFile(
   if (!agent) throw new Error("Agent not found.");
 
   if (opts.update) assertValidStoredFileName(opts.update);
-  const buffer = await readFile(opts.filePath);
+  const buffer = remotePlacement(agent.cwd)
+    ? await deps.agentManager.collectRunnerFile(agent, opts.filePath)
+    : await readFile(opts.filePath);
   // Typed against the name it will be stored and shown under.
   const type = detectFileType(
     buffer,

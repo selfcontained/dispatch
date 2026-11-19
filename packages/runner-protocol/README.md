@@ -443,3 +443,29 @@ released and its owned checkout was kept, and `inUse` means live borrower
 bindings still hold the checkout. Retry a deferred release using the same
 authorization. Repeating a release is safe, including after a lost reply.
 The legacy `discard` command keeps its original behavior for clients using it.
+
+## Session files
+
+A runner advertises `sessionFiles: true` in `ready` to enable the
+`sessionFile` command. Send it with the same opaque `agentId` and
+`workspace` used to launch the session. Peers that omit the flag continue
+to use the existing lifecycle and prompt protocol.
+
+- `operation: { kind: "deliver", name, data }` writes a complete file to the
+  session's input directory. `name` is a single filename. `data` is padded
+  standard base64. The result value is the absolute runner path for the
+  workload to read, including as an ACP prompt image path.
+- `operation: { kind: "collect", path }` reads a regular file from the session
+  files directory or the effective checkout. Absolute paths must belong to one
+  of those roots. Relative paths are relative to the effective checkout.
+  The result value is padded standard base64. Traversal, symlinks, hard links,
+  and paths outside the bound session's roots are rejected. A deliberately
+  shared checkout grants access to its shared files.
+
+Each file holds at most 20 MiB of decoded bytes, including zero-byte files.
+Send one transfer at a time per connection. There is no transfer cursor.
+An interrupted frame creates no visible file. If a delivery completed but
+the acknowledgement was lost, repeat the whole request with the same name
+and bytes. Delivery replaces the named file atomically. Collection is
+read-only and retries re-read the current file. Commit each successful
+collection to service-owned storage before publishing a reference to it.
