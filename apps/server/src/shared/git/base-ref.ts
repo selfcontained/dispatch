@@ -12,9 +12,10 @@ export type ResolveBaseRefOptions = {
 function normalizeBranchName(ref: string | null | undefined): string | null {
   const candidate = ref?.trim();
   if (!candidate || !isSafeRef(candidate)) return null;
-  return candidate.startsWith("origin/")
+  const branch = candidate.startsWith("origin/")
     ? candidate.slice("origin/".length)
     : candidate;
+  return isSafeRef(branch) ? branch : null;
 }
 
 async function resolveTargetBranch(
