@@ -119,8 +119,10 @@ for (const placement of ["This Mac", "Linux runner"] as const) {
         "proof-reviewed-checkout",
         "Checkout marker " + marker
       );
+      const screenshot = testInfo.outputPath("reviewer-checkout.png");
+      await page.screenshot({ path: screenshot });
       await testInfo.attach("reviewer in author checkout", {
-        body: await page.screenshot(),
+        path: screenshot,
         contentType: "image/png",
       });
       await deleteAgentViaAPI(request, reviewer);
