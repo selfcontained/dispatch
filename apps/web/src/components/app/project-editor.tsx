@@ -1,4 +1,5 @@
 import { ColorPicker, PROJECT_COLORS, isHexColor } from "./color-picker";
+import { readProjectLogoColor } from "./project-logo-color";
 import {
   Popover,
   PopoverContent,
@@ -35,7 +36,11 @@ export function ProjectEditor({
   const [name, setName] = useState(project?.name ?? "");
   const [repoRoot, setRepoRoot] = useState(project?.repoRoot ?? "");
   const [previewRoot, setPreviewRoot] = useState(repoRoot);
-  const [color, setColor] = useState(project?.color ?? PROJECT_COLORS[0]!);
+  const [manualColor, setManualColor] = useState<string>();
+  const [logoColor, setLogoColor] = useState<{
+    src: string;
+    color: string | null;
+  }>();
   const [icon, setIcon] = useState<string | null>(
     project?.iconOverride?.startsWith("data:") ? project.iconOverride : null
   );
@@ -64,7 +69,12 @@ export function ProjectEditor({
     enabled: !!previewRoot.trim(),
     staleTime: 0,
   });
-  const iconSrc = icon ?? preview.data?.dataUrl;
+  const iconSrc =
+    icon ??
+    (project || repoRoot === previewRoot ? preview.data?.dataUrl : null);
+  const suggestedColor = logoColor?.src === iconSrc ? logoColor?.color : null;
+  const color =
+    manualColor ?? project?.color ?? suggestedColor ?? PROJECT_COLORS[0]!;
   const validColor = isHexColor(color);
   return (
     <>
@@ -138,7 +148,17 @@ export function ProjectEditor({
                   >
                     {iconSrc ? (
                       <img
+                        key={iconSrc}
                         src={iconSrc}
+                        onLoad={(e) =>
+                          setLogoColor({
+                            src: iconSrc,
+                            color: readProjectLogoColor(e.currentTarget),
+                          })
+                        }
+                        onError={() =>
+                          setLogoColor({ src: iconSrc, color: null })
+                        }
                         alt="Project icon preview"
                         className="h-12 w-12 object-contain"
                       />
@@ -240,7 +260,8 @@ export function ProjectEditor({
                 <legend className="text-sm">Color</legend>
                 <ColorPicker
                   value={color}
-                  onChange={setColor}
+                  onChange={setManualColor}
+                  logoColor={project ? suggestedColor : null}
                   label="Project color"
                 />
               </fieldset>

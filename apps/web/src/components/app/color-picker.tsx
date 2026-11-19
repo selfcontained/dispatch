@@ -19,11 +19,13 @@ export function ColorPicker({
   onChange,
   disabled = false,
   label = "Color",
+  logoColor,
 }: {
   value: string;
   onChange: (value: string) => void;
   disabled?: boolean;
   label?: string;
+  logoColor?: string | null;
 }) {
   const valid = isHexColor(value);
   return (
@@ -49,6 +51,29 @@ export function ColorPicker({
             </span>
           </Button>
         ))}
+        {logoColor && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            disabled={disabled}
+            aria-pressed={value.toLowerCase() === logoColor}
+            title={logoColor}
+            className="h-7 gap-1.5 px-1.5 text-xs"
+            onClick={() => onChange(logoColor)}
+          >
+            <span
+              aria-hidden="true"
+              className="flex h-5 w-5 items-center justify-center rounded-full border border-black/10 text-black"
+              style={{ backgroundColor: logoColor }}
+            >
+              {value.toLowerCase() === logoColor && (
+                <Check className="h-3 w-3" />
+              )}
+            </span>
+            Use logo color
+          </Button>
+        )}
       </div>
       <div className="flex items-center gap-1.5">
         <Input
