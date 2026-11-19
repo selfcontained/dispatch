@@ -1,3 +1,5 @@
+import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
   mkdir,
   mkdtemp,
@@ -6,11 +8,13 @@ import {
   realpath,
   rm,
   stat,
+  symlink,
   writeFile,
 } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { MANAGED_WORKSPACE } from "../src/agents/remote/protocol.js";
 import {
   parseProcessStat,
   type SessionIdentity,
@@ -23,6 +27,7 @@ type Supervisor = Awaited<ReturnType<typeof createSessionSupervisor>>;
 const marker = "DISPATCH_OWNED_00000000000000000000000000000000=1";
 const identity = { pid: 100, start: "500", scope: "boot:namespace", marker };
 const agentId = "agt_fixture";
+const reviewerId = "agt_reviewer";
 const launch = (workspace: string) =>
   ({
     kind: "launch",
@@ -30,6 +35,14 @@ const launch = (workspace: string) =>
     workspace,
     launch: { engine: "codex" },
   }) as const;
+const sharedLaunch = (
+  useWorktreeOf: string = agentId,
+  workspace = MANAGED_WORKSPACE
+) => ({
+  ...launch(workspace),
+  agentId: reviewerId,
+  launch: { ...launch(workspace).launch, useWorktreeOf },
+});
 
 describe("runner session supervision", () => {
   let root: string;
@@ -37,6 +50,7 @@ describe("runner session supervision", () => {
   let record: string;
   let supervisor: Supervisor | undefined;
   let kernelHost: SessionIdentity | undefined;
+  let kernelReviewer: SessionIdentity | undefined;
   let locked: boolean;
 
   const processes = {
@@ -47,14 +61,19 @@ describe("runner session supervision", () => {
         locked = false;
       };
     }),
-    alive: vi.fn(
-      (record: SessionIdentity) =>
-        record.scope === kernelHost?.scope &&
-        record.pid === kernelHost.pid &&
-        record.start === kernelHost.start
+    alive: vi.fn((record: SessionIdentity) =>
+      [kernelHost, kernelReviewer].some(
+        (host) =>
+          host !== undefined &&
+          record.scope === host.scope &&
+          record.pid === host.pid &&
+          record.start === host.start
+      )
     ),
     stop: vi.fn(async (record: SessionIdentity) => {
-      if (processes.alive(record)) kernelHost = undefined;
+      if (!processes.alive(record)) return;
+      if (record.pid === kernelReviewer?.pid) kernelReviewer = undefined;
+      if (record.pid === kernelHost?.pid) kernelHost = undefined;
     }),
     cleanup: vi.fn(async (_identity: SessionIdentity) => {}),
     cleanupLegacy: vi.fn(async (_marker: string) => {}),
@@ -62,7 +81,12 @@ describe("runner session supervision", () => {
     spawn: vi.fn<SessionProcesses["spawn"]>(),
   } satisfies SessionProcesses;
 
-  async function start(workspaces: string[]) {
+  async function start(
+    workspaces: string[],
+    asWorkload: Parameters<
+      typeof createSessionSupervisor
+    >[0]["asWorkload"] = vi.fn()
+  ) {
     supervisor = await createSessionSupervisor(
       {
         state,
@@ -73,7 +97,7 @@ describe("runner session supervision", () => {
         env: {},
         workspaces: new Set(workspaces),
         hostCommand: () => ["/test-host"],
-        asWorkload: vi.fn(),
+        asWorkload,
       },
       processes
     );
@@ -91,6 +115,7 @@ describe("runner session supervision", () => {
       }
     );
     kernelHost = undefined;
+    kernelReviewer = undefined;
     locked = false;
     root = await mkdtemp(path.join(os.tmpdir(), "runner-supervisor-"));
     state = path.join(await realpath(root), "state");
@@ -271,6 +296,251 @@ describe("runner session supervision", () => {
     await expect(stat(record)).resolves.toBeDefined();
     await running.stop(agentId, "configured", true);
     await expect(stat(record)).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("starts the reviewer in the author's checkout with independent state", async () => {
+    const running = await start([]);
+    const author = path.join(state, "sessions", agentId);
+    const reviewerHost = path.join(state, "hosts", reviewerId);
+    await running.launch(launch(MANAGED_WORKSPACE), undefined);
+    await writeFile(path.join(author, "uncommitted.txt"), "author's work");
+    const reviewerIdentity = { ...identity, pid: 101 };
+    processes.spawn.mockImplementationOnce(
+      async (command, cwd, _env, _log, save) => {
+        expect(command.at(-1)).toBe(reviewerHost);
+        expect(cwd).toBe(author);
+        expect(await readFile(path.join(cwd, "uncommitted.txt"), "utf8")).toBe(
+          "author's work"
+        );
+        await save(reviewerIdentity);
+        kernelReviewer = reviewerIdentity;
+      }
+    );
+    await running.launch(sharedLaunch(), undefined);
+    expect(await running.alive(reviewerId, MANAGED_WORKSPACE)).toBe(true);
+    expect(await running.checkoutDirectory(reviewerId, MANAGED_WORKSPACE)).toBe(
+      author
+    );
+    const payload = JSON.parse(
+      await readFile(path.join(reviewerHost, "launch.json"), "utf8")
+    );
+    expect(payload).toMatchObject({
+      agentId: reviewerId,
+      cwd: author,
+      env: { DISPATCH_FILES_DIR: path.join(reviewerHost, "files") },
+    });
+    expect(payload).not.toHaveProperty("useWorktreeOf");
+    await expect(
+      stat(path.join(state, "sessions", reviewerId))
+    ).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(
+      running.discard(reviewerId, MANAGED_WORKSPACE)
+    ).rejects.toThrow("Stop the guest host");
+    await running.stop(reviewerId, MANAGED_WORKSPACE, true);
+    await running.discard(reviewerId, MANAGED_WORKSPACE);
+    expect(await running.alive(agentId, MANAGED_WORKSPACE)).toBe(true);
+    expect(await readFile(path.join(author, "uncommitted.txt"), "utf8")).toBe(
+      "author's work"
+    );
+  });
+
+  it("retains the author checkout until all borrower state is discarded across restarts", async () => {
+    const workspace = MANAGED_WORKSPACE;
+    const running = await start([]);
+    await running.launch(launch(workspace), undefined);
+    await running.stop(agentId, workspace, true);
+    // Even a failed spawn has reserved the binding. Only a successful
+    // discard confirms that any partially started host is gone.
+    processes.spawn.mockRejectedValueOnce(new Error("spawn failed"));
+    await expect(running.launch(sharedLaunch(), undefined)).rejects.toThrow(
+      "spawn failed"
+    );
+    await expect(running.discard(agentId, workspace)).rejects.toThrow(
+      "still in use"
+    );
+    running.close();
+
+    const recovered = await start([]);
+    const author = path.join(state, "sessions", agentId);
+    expect(await recovered.checkoutDirectory(reviewerId, workspace)).toBe(
+      author
+    );
+    await expect(
+      recovered.checkoutDirectory(agentId, workspace)
+    ).rejects.toThrow("archived");
+    await expect(
+      recovered.launch({ ...sharedLaunch(), agentId: "agt_new" }, undefined)
+    ).rejects.toThrow("archived");
+    await expect(
+      recovered.launch({ ...launch(workspace), agentId: reviewerId }, undefined)
+    ).rejects.toThrow("not bound");
+    await expect(recovered.discard(agentId, workspace)).rejects.toThrow(
+      "still in use"
+    );
+    await recovered.discard(reviewerId, workspace);
+    await expect(stat(author)).resolves.toBeDefined();
+    await recovered.discard(agentId, workspace);
+    await recovered.discard(agentId, workspace);
+    await expect(stat(author)).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("holds the owner checkout through a concurrent borrower launch", async () => {
+    const workspace = MANAGED_WORKSPACE;
+    const running = await start([]);
+    await running.launch(launch(workspace), undefined);
+    await running.stop(agentId, workspace, true);
+    const entered = Promise.withResolvers<void>();
+    const finish = Promise.withResolvers<void>();
+    processes.spawn.mockImplementationOnce(async () => {
+      entered.resolve();
+      await finish.promise;
+    });
+    const started = running.launch(sharedLaunch(), undefined);
+    await entered.promise;
+    const discarding = running.discard(agentId, workspace);
+    finish.resolve();
+    await started;
+    await expect(discarding).rejects.toThrow("still in use");
+  });
+
+  it("rejects invalid, unbound and chained author references", async () => {
+    const running = await start([]);
+    await expect(
+      running.launch(sharedLaunch(reviewerId), undefined)
+    ).rejects.toThrow("Invalid author");
+    await expect(
+      running.launch(sharedLaunch("bad\0id"), undefined)
+    ).rejects.toThrow("Invalid author");
+    await expect(running.launch(sharedLaunch(), undefined)).rejects.toThrow(
+      "does not own"
+    );
+    await running.launch(launch(MANAGED_WORKSPACE), undefined);
+    processes.spawn.mockResolvedValueOnce();
+    await running.launch(sharedLaunch(), undefined);
+    await expect(
+      running.launch(
+        { ...sharedLaunch(reviewerId), agentId: "agt_chain" },
+        undefined
+      )
+    ).rejects.toThrow("does not own");
+    expect(processes.spawn).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps named launches and rejects borrowing through a named workspace", async () => {
+    const running = await start(["configured", "other"]);
+    await running.launch(launch("configured"), root);
+    expect(await running.checkoutDirectory(agentId, "configured")).toBe(
+      await realpath(root)
+    );
+    await expect(running.checkoutDirectory(agentId, "other")).rejects.toThrow(
+      "not bound"
+    );
+    await expect(
+      running.launch(sharedLaunch(agentId, "other"), root)
+    ).rejects.toThrow("Sharing requires a managed");
+  });
+
+  it("rejects symlink redirection of a legacy repository checkout", async () => {
+    const running = await start([]);
+    const workspace = MANAGED_WORKSPACE;
+    const author = path.join(state, "sessions", agentId);
+    await mkdir(author);
+    await symlink(root, path.join(author, "checkout"));
+    await writeFile(path.join(state, "bindings", agentId), "\0managed");
+    await writeFile(
+      path.join(state, "bindings", agentId + ".repository"),
+      "{}"
+    );
+    await expect(running.launch(sharedLaunch(), undefined)).rejects.toThrow(
+      "checkout is unavailable"
+    );
+    await expect(running.checkoutDirectory(agentId, workspace)).rejects.toThrow(
+      "checkout is unavailable"
+    );
+    expect(await running.isBound(reviewerId, workspace)).toBe(false);
+    expect(processes.spawn).not.toHaveBeenCalled();
+  });
+
+  it("borrows a pre-migration Git worktree and retries owner cleanup", async () => {
+    const git = (...args: string[]) =>
+      execFileSync("git", args, { encoding: "utf8" });
+    const workspace = MANAGED_WORKSPACE;
+    const url = "https://github.com/fixture/project.git";
+    const repository = {
+      url,
+      checkout: { kind: "new" as const, branch: "feature" },
+    };
+    const cache = path.join(
+      state,
+      "repositories",
+      createHash("sha256").update(url).digest("hex")
+    );
+    const author = path.join(state, "sessions", agentId);
+    const checkout = path.join(author, "checkout");
+    const workload = vi.fn(async (bin, args) =>
+      execFileSync(bin, args, { encoding: "utf8" })
+    );
+    const running = await start([], workload);
+    git("init", "--quiet", "--bare", cache);
+    const seed = path.join(await realpath(root), "seed");
+    git("init", "--quiet", seed);
+    git(
+      "-C",
+      seed,
+      "-c",
+      "user.name=Test",
+      "-c",
+      "user.email=test@example.invalid",
+      "commit",
+      "--quiet",
+      "--allow-empty",
+      "-m",
+      "seed"
+    );
+    git("-C", seed, "push", "--quiet", cache, "HEAD:refs/heads/feature");
+    await mkdir(author);
+    git(
+      `--git-dir=${cache}`,
+      "worktree",
+      "add",
+      "--quiet",
+      checkout,
+      "feature"
+    );
+    await writeFile(path.join(state, "bindings", agentId), "\0managed");
+    await writeFile(
+      path.join(state, "bindings", agentId + ".repository"),
+      JSON.stringify(repository)
+    );
+    await writeFile(path.join(checkout, "uncommitted.txt"), "pending change");
+
+    processes.spawn.mockResolvedValueOnce();
+    await running.launch(sharedLaunch(), undefined);
+    expect(processes.spawn.mock.calls[0]?.[1]).toBe(checkout);
+    expect(await running.checkoutDirectory(reviewerId, workspace)).toBe(
+      checkout
+    );
+    expect((await stat(author)).mode & 0o777).toBe(0o711);
+    expect(workload).not.toHaveBeenCalled();
+    await expect(running.discard(agentId, workspace)).rejects.toThrow(
+      "still in use"
+    );
+    await running.discard(reviewerId, workspace);
+    expect(await readFile(path.join(checkout, "uncommitted.txt"), "utf8")).toBe(
+      "pending change"
+    );
+
+    workload.mockRejectedValueOnce(new Error("Git cleanup interrupted"));
+    await expect(running.discard(agentId, workspace)).rejects.toThrow(
+      "Git cleanup interrupted"
+    );
+    running.close();
+    const recovered = await start([], workload);
+    await recovered.discard(agentId, workspace);
+    expect(
+      git(`--git-dir=${cache}`, "worktree", "list", "--porcelain")
+    ).not.toContain(checkout);
+    await expect(stat(author)).rejects.toMatchObject({ code: "ENOENT" });
   });
 });
 

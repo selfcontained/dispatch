@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { closeSync, constants, fstatSync, openSync } from "node:fs";
+import { closeSync, constants, fstatSync, openSync, type Stats } from "node:fs";
 import {
   chmod,
   chown,
@@ -20,6 +20,7 @@ import path from "node:path";
 import { hostFile, type HostLaunch } from "../acp/host-protocol.js";
 import {
   MANAGED_WORKSPACE,
+  isOpaqueId,
   type Command,
   type RunnerRepository,
 } from "./protocol.js";
@@ -45,7 +46,9 @@ export function runnerStorageKey(agentId: string): string {
     : `opaque-${createHash("sha256").update(agentId).digest("base64url")}`;
 }
 
-type LaunchCommand = Extract<Command, { kind: "launch" }>;
+type LaunchCommand = Extract<Command, { kind: "launch" }> & {
+  launch: { useWorktreeOf?: unknown };
+};
 
 type SupervisorOptions = {
   state: string;
@@ -60,8 +63,18 @@ type SupervisorOptions = {
 };
 
 const managedBinding = "\0managed";
+const sharedBindingPrefix = managedBinding + ":";
+const storageKeyPattern = /^(agt_[a-z0-9]+|opaque-[A-Za-z0-9_-]{43})$/;
 const readOptional = (file: string) =>
   readFile(file, "utf8").catch(missingPath);
+
+function checkoutOwner(binding: string | null) {
+  if (!binding?.startsWith(sharedBindingPrefix)) return null;
+  const key = binding.slice(sharedBindingPrefix.length);
+  if (!storageKeyPattern.test(key))
+    throw new Error("Invalid runner checkout binding.");
+  return key;
+}
 
 const logTailBytes = 2 * 1024;
 
@@ -148,6 +161,29 @@ export async function createSessionSupervisor(
     });
   }
 
+  function withLaunchLocks<T>(
+    key: string,
+    owner: string | null,
+    operation: () => Promise<T>
+  ) {
+    if (owner === null) return serialize(key, operation);
+    // Acquire both keys in a stable order, including for invalid cross-loans.
+    const [first, second] = key < owner ? [key, owner] : [owner, key];
+    return serialize(first, () => serialize(second, operation));
+  }
+
+  async function syncBindings() {
+    const directory = await open(
+      bindings,
+      constants.O_RDONLY | constants.O_DIRECTORY
+    );
+    try {
+      await directory.sync();
+    } finally {
+      await directory.close();
+    }
+  }
+
   async function writePrivateState(file: string, contents: string) {
     const temp = path.join(bindings, `.pending-${randomUUID()}`);
     try {
@@ -159,15 +195,7 @@ export async function createSessionSupervisor(
         await handle.close();
       }
       await rename(temp, file);
-      const directory = await open(
-        bindings,
-        constants.O_RDONLY | constants.O_DIRECTORY
-      );
-      try {
-        await directory.sync();
-      } finally {
-        await directory.close();
-      }
+      await syncBindings();
     } finally {
       await rm(temp, { force: true });
     }
@@ -177,6 +205,7 @@ export async function createSessionSupervisor(
   const retireFile = (key: string) => path.join(bindings, `${key}.retired`);
   const repositoryFile = (key: string) =>
     path.join(bindings, `${key}.repository`);
+  const cwdFile = (key: string) => path.join(bindings, `${key}.cwd`);
   const markerFile = (key: string) => path.join(bindings, `${key}.owner`);
   const identityFile = (key: string) => path.join(bindings, `${key}.host`);
   function managedTarget(workspace: string) {
@@ -233,22 +262,75 @@ export async function createSessionSupervisor(
     await rmdir(dir);
   }
 
-  async function discardManaged(key: string) {
-    await writePrivateState(retireFile(key), "");
+  async function checkedDirectory(dir: string) {
+    const entry = await lstat(dir).catch(missingPath);
+    if (!entry?.isDirectory() || (await realpath(dir)) !== dir)
+      throw new Error("The runner session checkout is unavailable.");
+    return entry;
+  }
+
+  function checkoutParentIsProtected(entry: Stats | null) {
+    return (
+      entry !== null &&
+      entry.uid === process.getuid?.() &&
+      (entry.mode & 0o777) === 0o711
+    );
+  }
+
+  async function managedDirectory(key: string) {
+    const stored = await readOptional(repositoryFile(key));
+    if (stored === null)
+      throw new Error("The runner session checkout is unavailable.");
+    const session = path.join(sessions, key);
+    const entry = await checkedDirectory(session);
+    if (JSON.parse(stored) === null) return session;
+    const checkout = path.join(session, "checkout");
+    await checkedDirectory(checkout);
+    if (checkoutParentIsProtected(entry)) return checkout;
+    // The parent of a Git checkout must be supervisor-owned so a workload
+    // cannot swap the verified checkout for a symlink after it is resolved.
+    // Legacy sessions get this protection when first inspected or borrowed.
+    await chown(session, process.getuid!(), process.getgid!());
+    await chmod(session, 0o711);
+    await checkedDirectory(checkout);
+    return checkout;
+  }
+
+  async function hasBorrowers(key: string) {
+    for (const entry of await readdir(bindings)) {
+      if (
+        storageKeyPattern.test(entry) &&
+        checkoutOwner(await readBinding(entry)) === key
+      )
+        return true;
+    }
+    return false;
+  }
+
+  async function discardManagedCheckout(key: string) {
+    if (await hasBorrowers(key))
+      throw new Error("Runner checkout is still in use by a borrower.");
     const session = path.join(sessions, key);
     const stored = await readOptional(repositoryFile(key));
     const repository =
       stored === null ? null : (JSON.parse(stored) as RunnerRepository | null);
-    if (repository) await repositories.remove(session, repository);
+    // Remove the directory before unregistering it so the workload never
+    // regains write access to a protected checkout parent.
+    if (
+      repository &&
+      checkoutParentIsProtected(await lstat(session).catch(missingPath))
+    )
+      await removeGuestDirectory(path.join(session, "checkout"));
     await removeGuestDirectory(session);
+    if (repository) await repositories.remove(session, repository);
     await rm(repositoryFile(key), { force: true });
-    await rm(path.join(logs, key), { force: true });
   }
 
   async function launch(
     command: LaunchCommand,
     cwd: string | undefined,
-    key: string
+    key: string,
+    owner: string | null
   ) {
     const { agentId, workspace } = command;
     const { mcp } = command.launch;
@@ -263,18 +345,29 @@ export async function createSessionSupervisor(
       throw new Error("This runner session has been archived.");
 
     const binding = await readBinding(key);
-    const bindingValue = managed ? managedBinding : workspace;
+    const bindingValue = owner
+      ? sharedBindingPrefix + owner
+      : managed
+        ? managedBinding
+        : workspace;
+    if (binding !== null && binding !== bindingValue)
+      throw new Error("Agent is not bound to this workspace or checkout");
+    if (owner) {
+      if ((await readBinding(owner)) !== managedBinding)
+        throw new Error("The author does not own a checkout on this runner.");
+      if (binding === null && (await readOptional(retireFile(owner))) !== null)
+        throw new Error("The author checkout has been archived.");
+      cwd = await managedDirectory(owner);
+    }
     if (binding === null)
       await writePrivateState(path.join(bindings, key), bindingValue);
-    else if (binding !== bindingValue)
-      throw new Error("Agent is not bound to this workspace");
     const identity = await readIdentity(key);
     if (identity && processes.alive(identity))
       throw new Error("Runner already has a host for this agent");
     await cleanHost(key, identity);
     checkUntrackedSocket(path.join(hostRoot, key));
     await cleanLegacyHost(key);
-    if (managed) {
+    if (managed && !owner) {
       const parsed =
         command.launch.repository === undefined
           ? null
@@ -292,14 +385,31 @@ export async function createSessionSupervisor(
         );
       if (stored === null)
         await writePrivateState(repositoryFile(key), encoded);
-      cwd = await prepareScratchSession(sessions, key, config.uid, config.gid);
-      if (repository) cwd = await repositories.prepare(cwd, repository);
+      const session = path.join(sessions, key);
+      const entry = await lstat(session).catch(missingPath);
+      if (entry) await checkedDirectory(session);
+      const protectedParent = repository && checkoutParentIsProtected(entry);
+      cwd = protectedParent
+        ? session
+        : await prepareScratchSession(sessions, key, config.uid, config.gid);
+      if (repository) {
+        const checkout = path.join(cwd, "checkout");
+        if (await lstat(checkout).catch(missingPath))
+          await checkedDirectory(checkout);
+        await repositories.prepare(cwd, repository);
+        cwd = await managedDirectory(key);
+      }
     }
     if (!cwd || (!managed && !(await stat(cwd)).isDirectory()))
       throw new Error("Guest workspace is unavailable");
+    if (!managed) await writePrivateState(cwdFile(key), await realpath(cwd));
     const dir = path.join(hostRoot, key);
     const files = path.join(dir, "files");
-    const { repository: _repository, ...launchOptions } = command.launch;
+    const {
+      repository: _repository,
+      useWorktreeOf: _owner,
+      ...launchOptions
+    } = command.launch;
     const launch: HostLaunch = {
       ...launchOptions,
       agentId,
@@ -356,8 +466,13 @@ export async function createSessionSupervisor(
   }
 
   async function bound(key: string, workspace: string) {
-    const binding = await readBinding(key);
-    return binding === (managedTarget(workspace) ? managedBinding : workspace);
+    return matchesWorkspace(await readBinding(key), workspace);
+  }
+
+  function matchesWorkspace(binding: string | null, workspace: string) {
+    return managedTarget(workspace)
+      ? binding === managedBinding || checkoutOwner(binding) !== null
+      : binding === workspace;
   }
 
   async function cleanExited(key: string) {
@@ -402,9 +517,50 @@ export async function createSessionSupervisor(
   sweep.unref();
 
   return {
-    launch(command: LaunchCommand, cwd: string | undefined) {
+    async launch(command: LaunchCommand, cwd: string | undefined) {
       const key = runnerStorageKey(command.agentId);
-      return serialize(key, () => launch(command, cwd, key));
+      const { useWorktreeOf } = command.launch;
+      if (useWorktreeOf === undefined)
+        return withLaunchLocks(key, null, () =>
+          launch(command, cwd, key, null)
+        );
+      if (!isOpaqueId(useWorktreeOf) || useWorktreeOf === command.agentId)
+        throw new Error("Invalid author for a shared runner checkout.");
+      if (
+        !managedTarget(command.workspace) ||
+        command.launch.repository !== undefined
+      )
+        throw new Error(
+          "Sharing requires a managed runner session without a repository selection."
+        );
+      const owner = runnerStorageKey(useWorktreeOf);
+      return withLaunchLocks(key, owner, () =>
+        launch(command, cwd, key, owner)
+      );
+    },
+    checkoutDirectory(agentId: string, workspace: string): Promise<string> {
+      const key = runnerStorageKey(agentId);
+      return serialize(key, async () => {
+        const managed = managedTarget(workspace);
+        const binding = await readBinding(key);
+        if (!matchesWorkspace(binding, workspace))
+          throw new Error("Agent is not bound to this workspace");
+        if (managed) {
+          if ((await readOptional(retireFile(key))) !== null)
+            throw new Error("This runner session has been archived.");
+          const owner = checkoutOwner(binding);
+          if (owner && (await readBinding(owner)) !== managedBinding)
+            throw new Error(
+              "The author does not own a checkout on this runner."
+            );
+          return managedDirectory(owner ?? key);
+        }
+        const cwd = await readOptional(cwdFile(key));
+        if (cwd === null)
+          throw new Error("The runner session checkout is unavailable.");
+        await checkedDirectory(cwd);
+        return cwd;
+      });
     },
     async alive(agentId: string, workspace: string) {
       const key = runnerStorageKey(agentId);
@@ -488,13 +644,21 @@ export async function createSessionSupervisor(
         const identity = await readIdentity(key);
         if (identity && processes.alive(identity))
           throw new Error("Stop the guest host before discarding it");
+        if (managed) await writePrivateState(retireFile(key), "");
         const dir = path.join(hostRoot, key);
         await cleanHost(key, identity);
         checkUntrackedSocket(dir);
         await cleanLegacyHost(key);
-        if (managed) await discardManaged(key);
+        if (managed) {
+          if (!checkoutOwner(await readBinding(key)))
+            await discardManagedCheckout(key);
+          await rm(path.join(logs, key), { force: true });
+        } else {
+          await rm(cwdFile(key), { force: true });
+        }
         await removeGuestDirectory(dir);
         await rm(path.join(bindings, key), { force: true });
+        if (managed) await syncBindings();
       });
     },
     async log(agentId: string, workspace: string) {
@@ -516,7 +680,7 @@ export async function createSessionSupervisor(
           if (
             binding === null ||
             !(managedWorkspace
-              ? binding === managedBinding
+              ? binding === managedBinding || checkoutOwner(binding) !== null
               : config.workspaces.has(binding))
           )
             return null;
