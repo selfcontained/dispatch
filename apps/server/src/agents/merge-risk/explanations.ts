@@ -32,6 +32,7 @@ export type ExplanationReply =
   | { state: "limited"; reason: "concurrency" }
   | { state: "failed"; reason: ExplanationFailure | "unknown" };
 type Reply = ExplanationReply;
+type ExistingReply = Extract<Reply, { state: "pending" | "ready" | "limited" }>;
 type Assessment = {
   url: string;
   head_sha: string;
@@ -115,77 +116,30 @@ export class RiskExplanations {
       config === (await this.deps.settings.configuration());
     if (!(await unchanged()))
       return { state: "unavailable", reason: "config_changed" };
-    const client = await this.deps.pool.connect();
-    try {
-      await client.query("BEGIN");
-      const capacity = await mergeRiskCapacity(client);
-      const stored = (
-        await client.query<{
-          status: string;
-          result: {
-            text?: string;
-            limitedEvidence?: boolean;
-            version?: string;
-          };
-        }>(
-          "SELECT status,result FROM merge_risk_explanations WHERE assessment_id=$1",
-          [input.assessmentId]
-        )
-      ).rows[0];
-      // An explanation from an older prompt/model is not reused: it regenerates.
-      if (stored?.status === "pending") {
-        await client.query("COMMIT");
-        return (await authorized())
-          ? { state: "pending" }
-          : { state: "unavailable", reason: "not_found" };
-      }
-      if (
-        stored?.status === "ok" &&
-        stored.result.version === EXPLANATION_VERSION
-      ) {
-        await client.query("COMMIT");
-        if (!(await authorized()))
-          return { state: "unavailable", reason: "not_found" };
-        return {
-          state: "ready",
-          text: stored.result.text,
-          ...(stored.result.limitedEvidence
-            ? { limitedEvidence: true as const }
-            : {}),
-        };
-      }
-      if (capacity !== "pending") {
-        await client.query("COMMIT");
-        return { state: "limited", reason: "concurrency" };
-      }
-      await client.query(
-        "INSERT INTO merge_risk_explanations(assessment_id,status) VALUES($1,'pending') ON CONFLICT(assessment_id) DO UPDATE SET status='pending',created_at=now()",
-        [input.assessmentId]
-      );
-      await client.query("COMMIT");
-    } catch (error) {
-      await client.query("ROLLBACK");
-      throw error;
-    } finally {
-      client.release();
+    const existing = await this.reserve(input.assessmentId);
+    if (existing) {
+      if (existing.state === "limited" || (await authorized())) return existing;
+      return { state: "unavailable", reason: "not_found" };
     }
-    // Without saved evidence the model may not name files, so no hunks.
-    const diff = limitedEvidence
-      ? null
-      : github && details
-        ? await github.diff(
-            runnerId,
-            assessment.url,
-            assessment.base_sha ?? details.baseRefOid,
-            assessment.head_sha,
-            details.credentialContext,
-            assessment.evidence
-          )
-        : await (this.deps.readDiff ?? readAssessedDiff)(
-            assessment.url,
-            assessment.head_sha,
-            assessment.evidence
-          ).catch(() => null);
+    // Hunks require saved evidence and both commits from the assessment.
+    const diff =
+      limitedEvidence || !assessment.base_sha
+        ? null
+        : github && details
+          ? await github.diff(
+              runnerId,
+              assessment.url,
+              assessment.base_sha,
+              assessment.head_sha,
+              details.credentialContext,
+              assessment.evidence
+            )
+          : await (this.deps.readDiff ?? readAssessedDiff)(
+              assessment.url,
+              assessment.base_sha,
+              assessment.head_sha,
+              assessment.evidence
+            ).catch(() => null);
     if (!(await authorized())) {
       await this.finish(input.assessmentId, "stale", { reason: "not_found" });
       return { state: "unavailable", reason: "not_found" };
@@ -239,6 +193,59 @@ export class RiskExplanations {
           reason: result.status === "error" ? result.reason : "unknown",
         };
   }
+  private async reserve(
+    assessmentId: string
+  ): Promise<ExistingReply | undefined> {
+    const client = await this.deps.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const capacity = await mergeRiskCapacity(client);
+      const stored = (
+        await client.query<{
+          status: string;
+          result: {
+            text?: string;
+            limitedEvidence?: boolean;
+            version?: string;
+          };
+        }>(
+          "SELECT status,result FROM merge_risk_explanations WHERE assessment_id=$1",
+          [assessmentId]
+        )
+      ).rows[0];
+      let reply: ExistingReply | undefined;
+      // An explanation from an older prompt/model is regenerated.
+      if (stored?.status === "pending") {
+        reply = { state: "pending" };
+      } else if (
+        stored?.status === "ok" &&
+        stored.result.version === EXPLANATION_VERSION
+      ) {
+        reply = {
+          state: "ready",
+          text: stored.result.text,
+          ...(stored.result.limitedEvidence
+            ? { limitedEvidence: true as const }
+            : {}),
+        };
+      } else if (capacity !== "pending") {
+        reply = { state: "limited", reason: "concurrency" };
+      } else {
+        await client.query(
+          "INSERT INTO merge_risk_explanations(assessment_id,status) VALUES($1,'pending') ON CONFLICT(assessment_id) DO UPDATE SET status='pending',created_at=now()",
+          [assessmentId]
+        );
+      }
+      await client.query("COMMIT");
+      return reply;
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
   private async finish(id: string, status: string, result: unknown) {
     await this.deps.pool.query(
       `UPDATE merge_risk_explanations SET status=$2,result=(result || $3::jsonb) ||

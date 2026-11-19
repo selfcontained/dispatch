@@ -1,9 +1,14 @@
 import { retainedEvidence } from "../src/agents/merge-risk/explanation-evidence.js";
 import { beforeAll, beforeEach, afterAll, it, expect, vi } from "vitest";
 import { createHash } from "node:crypto";
-import type { Pool } from "pg";
+import { Pool } from "pg";
 import type { AgentPullRequest } from "@dispatch/shared";
-import { setupTestDb, runTestMigrations, teardownTestDb } from "./db/setup.js";
+import {
+  getTestDatabaseUrl,
+  setupTestDb,
+  runTestMigrations,
+  teardownTestDb,
+} from "./db/setup.js";
 import {
   RiskExplanations,
   followupEvidence,
@@ -786,8 +791,13 @@ it("regenerates explanations saved under an older prompt version and reuses the 
   expect(transport).toHaveBeenCalledTimes(1);
 });
 it("sends assessed-commit hunks with the evidence, redacted", async () => {
+  const base = "b".repeat(40);
+  await pool.query(
+    "UPDATE merge_risk_decision_records SET base_sha=$2 WHERE id=$1",
+    [id, base]
+  );
   readDiff.mockResolvedValue({
-    base: "b".repeat(40),
+    base,
     files: [
       {
         path: "auth/session.ts",
@@ -799,6 +809,7 @@ it("sends assessed-commit hunks with the evidence, redacted", async () => {
   expect((await service().explain(input())).state).toBe("ready");
   expect(readDiff).toHaveBeenCalledWith(
     "https://github.com/example/repo/pull/1",
+    base,
     "abc",
     expect.anything()
   );
@@ -808,6 +819,101 @@ it("sends assessed-commit hunks with the evidence, redacted", async () => {
   expect(payload).toContain("auth/session.ts");
   expect(payload).not.toContain("sk-abcdefghijklmnop");
 });
+const currentDetails = {
+  credentialContext: "a".repeat(64),
+  number: 1,
+  title: "Sessions",
+  body: "Current PR description",
+  baseRefName: "release",
+  headRefName: "topic",
+  baseRefOid: "d".repeat(40),
+  headRefOid: "e".repeat(40),
+  additions: 1,
+  deletions: 0,
+  files: [],
+};
+
+it("uses the saved snapshot without fetching hunks for a legacy PR retargeted since assessment", async () => {
+  await pool.query(
+    "UPDATE merge_risk_evidence_snapshots SET evidence=evidence || $2::jsonb WHERE assessment_id=$1",
+    [id, JSON.stringify({ pull_request: { base: "main" } })]
+  );
+  const github = {
+    details: vi.fn(async () => currentDetails),
+    diff: vi.fn(async () => null),
+  };
+  const explanations = new RiskExplanations({
+    pool,
+    settings,
+    github,
+    transport,
+  });
+  expect(
+    await explanations.explain({ assessmentId: id, url: pr.url })
+  ).toMatchObject({ state: "ready" });
+  expect(github.diff).not.toHaveBeenCalled();
+  const request = JSON.parse(String(transport.mock.calls[0]![1]!.body));
+  const payload = JSON.parse(request.input[0].content[0].text);
+  expect(payload.context.evidenceRetained).toBe(true);
+  expect(payload.evidence.pull_request.base).toBe("main");
+  expect(payload).not.toHaveProperty("diff");
+});
+
+it.each([
+  ["pending", null, { state: "unavailable", reason: "not_found" }],
+  ["ok", currentDetails, { state: "ready", text: "Saved explanation" }],
+] as const)(
+  "releases the single pool connection during authorization of a stored %s reply",
+  async (status, recheckedDetails, expected) => {
+    await pool.query(
+      "INSERT INTO merge_risk_explanations(assessment_id,status,result) VALUES($1,$2,$3)",
+      [
+        id,
+        status,
+        JSON.stringify({
+          version: EXPLANATION_VERSION,
+          text: "Saved explanation",
+        }),
+      ]
+    );
+    const single = new Pool({
+      connectionString: getTestDatabaseUrl(),
+      max: 1,
+      connectionTimeoutMillis: 1000,
+    });
+    let release!: (details: typeof currentDetails | null) => void;
+    const delayed = new Promise<typeof currentDetails | null>((resolve) => {
+      release = resolve;
+    });
+    const github = {
+      details: vi
+        .fn()
+        .mockResolvedValueOnce(currentDetails)
+        .mockImplementationOnce(() => delayed),
+      diff: vi.fn(async () => null),
+    };
+    const explanations = new RiskExplanations({
+      pool: single,
+      settings,
+      github,
+      transport,
+    });
+    const explaining = explanations.explain({ assessmentId: id, url: pr.url });
+    try {
+      await vi.waitFor(() => expect(github.details).toHaveBeenCalledTimes(2));
+      expect(single.totalCount).toBe(1);
+      expect(await single.query("SELECT 1 AS available")).toMatchObject({
+        rows: [{ available: 1 }],
+      });
+    } finally {
+      release(recheckedDetails);
+      await explaining.finally(() => single.end());
+    }
+    expect(await explaining).toEqual(expected);
+    expect(transport).not.toHaveBeenCalled();
+  }
+);
+
 it("prioritises source and migrations over tests, docs and lockfiles within the budget", () => {
   const patch = (n: number) =>
     Array.from({ length: n }, (_, i) => `@@ -${i} +${i} @@\n+line ${i}`).join(
@@ -882,42 +988,27 @@ it("never sends hunks from secret-bearing files", () => {
   expect(picked.files.map((f) => f.path)).toEqual(["src/env.ts"]);
   expect(picked.omitted_files).toBe(files.length);
 });
-it("reads hunks pinned to the PR base sha and assessed head, and degrades to none on gh failure", async () => {
+it("reads hunks pinned to the assessed base and head, and degrades to none on gh failure", async () => {
   const base = "c".repeat(40);
-  const run = vi.fn(async (_cmd: string, args: string[]) =>
-    args[1]!.includes("/compare/")
-      ? {
-          exitCode: 0,
-          stderr: "",
-          stdout: JSON.stringify([
-            {
-              path: "src/a.ts",
-              additions: 1,
-              deletions: 0,
-              patch: "@@ -1 +1 @@\n+a",
-            },
-          ]),
-        }
-      : { exitCode: 0, stderr: "", stdout: `${base}\n` }
-  );
-  const diff = await readAssessedDiff(
-    "https://github.com/o/r/pull/9",
-    "abc1234",
-    {},
-    run
-  );
-  expect(run.mock.calls[0]![1]).toContain("repos/o/r/pulls/9");
-  expect(run.mock.calls[1]![1]).toContain(
+  const run = vi.fn(async (_cmd: string, _args: string[]) => ({
+    exitCode: 0,
+    stderr: "",
+    stdout: JSON.stringify([
+      {
+        path: "src/a.ts",
+        additions: 1,
+        deletions: 0,
+        patch: "@@ -1 +1 @@\n+a",
+      },
+    ]),
+  }));
+  const url = "https://github.com/o/r/pull/9";
+  const diff = await readAssessedDiff(url, base, "abc1234", {}, run);
+  expect(run).toHaveBeenCalledTimes(1);
+  expect(run.mock.calls[0]![1]).toContain(
     `repos/o/r/compare/${base}...abc1234`
   );
   expect(diff?.files).toEqual([{ path: "src/a.ts", patch: "@@ -1 +1 @@\n+a" }]);
   const failing = vi.fn(async () => ({ exitCode: 1, stdout: "", stderr: "x" }));
-  expect(
-    await readAssessedDiff(
-      "https://github.com/o/r/pull/9",
-      "abc1234",
-      {},
-      failing
-    )
-  ).toBeNull();
+  expect(await readAssessedDiff(url, base, "abc1234", {}, failing)).toBeNull();
 });

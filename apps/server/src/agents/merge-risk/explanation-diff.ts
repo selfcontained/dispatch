@@ -1,6 +1,6 @@
 /**
  * Diff hunks for an explanation, read at click time and pinned to the
- * assessed commit: the PR's base sha compared with the assessed head sha, so
+ * assessed base and head SHAs, so
  * later pushes never change what is explained. Never stored; read-only `gh`.
  * Any failure yields null and the explanation proceeds without hunks.
  */
@@ -116,7 +116,7 @@ function repoOf(url: string) {
   const match = new URL(url).pathname.match(
     /^\/([\w.-]+)\/([\w.-]+)\/pull\/(\d+)\/?$/
   );
-  return match ? { repo: `${match[1]}/${match[2]}`, number: match[3]! } : null;
+  return match ? `${match[1]}/${match[2]}` : null;
 }
 
 /** Text of review findings, used only to rank files they mention. */
@@ -136,30 +136,24 @@ export function mentionedText(evidence: unknown): string {
 
 export async function readAssessedDiff(
   url: string,
+  base: string,
   headSha: string,
   evidence: unknown,
   run: CommandRunner = runCommand
 ): Promise<ExplanationDiff | null> {
   try {
-    const target = repoOf(url);
-    if (!target || !/^[0-9a-f]{7,40}$/i.test(headSha)) return null;
-    const pull = await run(
-      "gh",
-      [
-        "api",
-        `repos/${target.repo}/pulls/${target.number}`,
-        "--jq",
-        ".base.sha",
-      ],
-      { timeoutMs: 15_000, allowedExitCodes: [0, 1] }
-    );
-    const base = pull.stdout.trim();
-    if (pull.exitCode !== 0 || !/^[0-9a-f]{40}$/i.test(base)) return null;
+    const repo = repoOf(url);
+    if (
+      !repo ||
+      !/^[0-9a-f]{40}$/i.test(base) ||
+      !/^[0-9a-f]{7,40}$/i.test(headSha)
+    )
+      return null;
     const compare = await run(
       "gh",
       [
         "api",
-        `repos/${target.repo}/compare/${base}...${headSha}`,
+        `repos/${repo}/compare/${base}...${headSha}`,
         "--jq",
         "[.files[] | {path: .filename, additions, deletions, patch}]",
       ],
