@@ -20,6 +20,33 @@ const reportDateTimeOptions: Intl.DateTimeFormatOptions = {
   timeZoneName: "shortOffset",
 };
 
+function RunnerReportTime({ receivedAt }: { receivedAt: string }) {
+  const [open, setOpen] = useState(false);
+  const relativeTime = formatRelativeTime(receivedAt);
+
+  return (
+    <TooltipProvider>
+      <Tooltip open={open} onOpenChange={setOpen}>
+        <TooltipTrigger
+          type="button"
+          aria-label={`Last report: ${relativeTime}`}
+          className="cursor-pointer rounded-sm underline decoration-dotted underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring pointer-coarse:min-h-6"
+          onClick={(event) => {
+            // Radix closes the tooltip on click by default. Let activation open it.
+            event.preventDefault();
+            setOpen(true);
+          }}
+        >
+          <time dateTime={receivedAt}>{relativeTime}</time>
+        </TooltipTrigger>
+        <TooltipContent>
+          {new Date(receivedAt).toLocaleString(undefined, reportDateTimeOptions)}
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
+}
+
 const memory = (bytes: number) =>
   bytes < 1024 ** 3
     ? `${Math.round(bytes / 1024 ** 2)} MiB`
@@ -67,25 +94,7 @@ export function RunnerHealthDetails({ runner }: { runner: Runner }) {
         <dd>{health.version}</dd>
         <dt>Last report</dt>
         <dd>
-          <TooltipProvider>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <time
-                  dateTime={healthReceivedAt}
-                  tabIndex={0}
-                  className="cursor-help rounded-sm underline decoration-dotted underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                >
-                  {formatRelativeTime(healthReceivedAt)}
-                </time>
-              </TooltipTrigger>
-              <TooltipContent>
-                {new Date(healthReceivedAt).toLocaleString(
-                  undefined,
-                  reportDateTimeOptions
-                )}
-              </TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
+          <RunnerReportTime receivedAt={healthReceivedAt} />
         </dd>
       </dl>
       {update && (

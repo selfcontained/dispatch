@@ -24,7 +24,7 @@ afterEach(() => {
 });
 
 it.each(["online", "offline"] as const)(
-  "shows a relative report time and reveals the exact local timestamp on focus for an %s runner",
+  "reveals the exact local timestamp on focus or activation for an %s runner",
   async (status) => {
     vi.spyOn(Date, "now").mockReturnValue(Date.parse("2026-01-15T08:43:25Z"));
     render(
@@ -46,8 +46,10 @@ it.each(["online", "offline"] as const)(
     );
     fireEvent.click(screen.getByText(/1 session/));
 
-    const report = screen.getByText("1m ago");
-    expect(report.getAttribute("datetime")).toBe(receivedAt);
+    const report = screen.getByRole("button", { name: "Last report: 1m ago" });
+    expect(report.querySelector("time")?.getAttribute("datetime")).toBe(
+      receivedAt
+    );
     expect(report.tabIndex).toBe(0);
     expect(screen.queryByRole("tooltip")).toBeNull();
 
@@ -55,17 +57,22 @@ it.each(["online", "offline"] as const)(
 
     const tooltip = await screen.findByRole("tooltip");
     expect(report.getAttribute("aria-describedby")).toBe(tooltip.id);
-    expect(tooltip.textContent).toBe(
-      new Intl.DateTimeFormat(undefined, {
-        year: "numeric",
-        month: "short",
-        day: "numeric",
-        hour: "numeric",
-        minute: "2-digit",
-        second: "2-digit",
-        timeZoneName: "shortOffset",
-      }).format(new Date(receivedAt))
-    );
+    const exactTime = new Intl.DateTimeFormat(undefined, {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+      second: "2-digit",
+      timeZoneName: "shortOffset",
+    }).format(new Date(receivedAt));
+    expect(tooltip.textContent).toBe(exactTime);
+
+    fireEvent.blur(report);
+    expect(screen.queryByRole("tooltip")).toBeNull();
+
+    fireEvent.click(report);
+    expect((await screen.findByRole("tooltip")).textContent).toBe(exactTime);
   }
 );
 
