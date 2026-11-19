@@ -13,6 +13,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   parseProcessStat,
+  runnerStateLockError,
   type SessionIdentity,
   type SessionProcesses,
 } from "../src/agents/remote/session-processes.js";
@@ -30,6 +31,15 @@ const launch = (workspace: string) =>
     workspace,
     launch: { engine: "codex" },
   }) as const;
+
+it("explains lock contention while retaining diagnostics for other flock failures", () => {
+  expect(runnerStateLockError(11).message).toMatch(
+    /Another runner daemon is already using this state directory.*Stop the other runner or configure a different state directory/
+  );
+  expect(runnerStateLockError(9).message).toBe(
+    "Cannot lock runner session state (errno 9)."
+  );
+});
 
 describe("runner session supervision", () => {
   let root: string;

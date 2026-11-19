@@ -15,6 +15,14 @@ import type { WorkloadCommand } from "./session-storage.js";
 
 type Kernel = ReturnType<typeof linuxKernel>;
 
+export function runnerStateLockError(code: number): Error {
+  if (code === 11)
+    return new Error(
+      "Another runner daemon is already using this state directory. Stop the other runner or configure a different state directory."
+    );
+  return new Error(`Cannot lock runner session state (errno ${code}).`);
+}
+
 function linuxKernel() {
   if (!process.versions.bun)
     throw new Error(
@@ -35,7 +43,7 @@ function linuxKernel() {
   return {
     lock(fd: number) {
       if (symbols.flock(fd, 2 | 4) !== 0)
-        throw new Error(`Cannot lock runner session state (errno ${errno()}).`);
+        throw runnerStateLockError(errno());
     },
     signal(fd: number, signal: number) {
       if (symbols.syscall(424, fd, signal, null, 0) === 0) return;
