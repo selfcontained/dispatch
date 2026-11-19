@@ -310,6 +310,84 @@ describe("AgentManager", () => {
       expect(discard).toHaveBeenCalledExactlyOnceWith(agent.id);
     });
 
+    it("persists the actual reviewer checkout owner on the same runner and reuses it on restart", async () => {
+      const supportsSharedWorktree = vi.fn(() => true);
+      const requestSession = vi.fn(async () => ({
+        value: JSON.stringify({
+          kind: "changes",
+          head: "a".repeat(40),
+          baseRef: "origin/develop",
+          stateId: "b".repeat(64),
+          files: ["src/test.ts"],
+        }),
+      }));
+      const remote = {
+        available: () => true,
+        isManagedWorkspace: () => true,
+        supportsSharedWorktree,
+        requestSession,
+        originFor: () => "https://example.test",
+      } as unknown as RemoteRunnerService;
+      const first = new AgentManager(pool, noopLogger, testConfig, {
+        runtime,
+        remote,
+      });
+      const cwd = "runner://runner-test/@session";
+      const parent = await first.createAgent({
+        cwd,
+        repository: {
+          url: "https://example.test/r.git",
+          checkout: { kind: "new", branch: "topic", base: "develop" },
+        },
+      });
+      const launch = {
+        cwd,
+        role: "review" as const,
+        parentAgentId: parent.id,
+        launchedByAgentId: parent.id,
+        useWorktree: false,
+        persona: "code-review",
+      };
+      await expect(
+        first.createAgent(
+          { ...launch, cwd: "runner://unrelated/@session" },
+          { useWorktreeOf: parent.id }
+        )
+      ).rejects.toThrow("Invalid reviewer");
+      supportsSharedWorktree.mockReturnValueOnce(false);
+      await expect(
+        first.createAgent(launch, { useWorktreeOf: parent.id })
+      ).rejects.toThrow("Update the runner");
+      const child = await first.createAgent(launch, {
+        useWorktreeOf: parent.id,
+      });
+      const expected = expect.objectContaining({
+        agentId: child.id,
+        useWorktreeOf: parent.id,
+        placement: { runner: "runner-test", workspace: "@session" },
+      });
+      expect(runtime.launch).toHaveBeenLastCalledWith(expected);
+      await first.stopAgent(child.id);
+      const resumed = new AgentManager(pool, noopLogger, testConfig, {
+        runtime,
+        remote,
+      });
+      await resumed.startAgent(child.id);
+      expect(runtime.launch).toHaveBeenLastCalledWith(expected);
+      await resumed.inspectCheckout(child, {
+        kind: "changes",
+        baseBranch: null,
+      });
+      expect(requestSession).toHaveBeenCalledWith(
+        { runner: "runner-test", workspace: "@session" },
+        {
+          kind: "inspectCheckout",
+          agentId: child.id,
+          query: { kind: "changes", baseBranch: "develop" },
+        }
+      );
+    });
+
     it.each([null, "project-b"])(
       "inherits parent membership with template project %s",
       async (templateProject) => {

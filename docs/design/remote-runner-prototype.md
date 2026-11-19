@@ -222,6 +222,21 @@ established guest hosts continue. The client checks the service hostname.
   command as the guest CLI account and returns its bounded stdout. Product
   `post` runs through the usual Dispatch MCP route and permissions.
 
+### Inspecting and sharing a live checkout
+
+A service can inspect the checkout bound to an existing agent ID when the connected peer advertises `checkoutInspection: true`. The built-in local runner handles the same typed query in process. The Linux runner resolves the session binding and executes the inspection as the workload account.
+
+| Request                                              | Reply                                                                                                                                                                              |
+| ---------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `inspectCheckout` with `{kind:"changes",baseBranch}` | Effective base ref, HEAD commit, a state identifier for the inspected changes, and repo-relative changed paths. The paths include committed, staged, unstaged and untracked files. |
+| `inspectCheckout` with `{kind:"readFile",path}`      | Bounded text from a regular file relative to the checkout root, or null if absent.                                                                                                 |
+
+A service interprets checkout contents according to its own policy. Dispatch reads the ownership map and persona definitions and selects the reviewers. An independent consumer can use the same operations without implementing those concepts.
+
+With `sharedWorktree: true`, a launch can specify `useWorktreeOf`, an existing agent ID bound to the same runner and workspace. A launch supplies either that reference or a repository to provision. The new agent has its own host, identity, journal and credentials. Referencing a live worktree gives it access to the author's current files, including edits made after the review started. The state identifier lets the service compare what it inspected across requests. File write permissions depend on the workload and engine access policy. The checkout reference itself grants no read-only guarantee.
+
+The service checks advertised capabilities on each connection before sending a dependent command. A peer without the extension can continue its existing sessions. Callers receive an actionable unsupported error if they request checkout inspection or sharing. A failed remote inspection must never resolve the runner locator as a local path.
+
 ## Observed traces
 
 The initial fake-agent turn ran as `agt_4643ddec746a`. The UI showed

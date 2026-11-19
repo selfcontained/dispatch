@@ -76,6 +76,12 @@ describe("block_reactions uniqueness migration", () => {
 /** Rewinds task migrations, which depend on projects and agents, so older eras can replay. */
 async function dropTasks(): Promise<void> {
   await pool.query(
+    "ALTER TABLE agents DROP COLUMN IF EXISTS runner_worktree_owner"
+  );
+  await pool.query(
+    "DELETE FROM pgmigrations WHERE name = '0057_runner_worktree_owner'"
+  );
+  await pool.query(
     "ALTER TABLE agents DROP COLUMN IF EXISTS runner_managed, DROP COLUMN IF EXISTS runner_repository, DROP COLUMN IF EXISTS runner_cleanup_pending"
   );
   await pool.query(

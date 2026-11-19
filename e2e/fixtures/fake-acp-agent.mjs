@@ -5,8 +5,8 @@
 // Codex, usage with cost for Claude and OpenCode, a model option for the
 // three that publish one, nested tool calls for Claude, a permission ask
 // for OpenCode, and honors set_mode for Gemini. It never calls a model and
-// never touches the workspace.
-import { existsSync } from "node:fs";
+// only reads a workspace marker when the runner review fixture requests it.
+import { existsSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { Readable, Writable } from "node:stream";
@@ -239,6 +239,16 @@ const agent = {
       const cwd = cwdBySession.get(params.sessionId) ?? process.cwd();
       const emit = (update) =>
         conn.sessionUpdate({ sessionId: params.sessionId, update });
+      if (text.includes("proof-reviewed-checkout")) {
+        const marker = readFileSync(
+          path.join(cwd, "review-marker.txt"),
+          "utf8"
+        ).trim();
+        await emit({
+          sessionUpdate: "agent_message_chunk",
+          content: { type: "text", text: "Checkout marker " + marker },
+        });
+      }
       const receiptId = params._meta?.["dispatch/steering"]?.id;
       if (receiptId) {
         await new Promise((resolve) => setTimeout(resolve, 250));

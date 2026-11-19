@@ -72,11 +72,14 @@ import type {
   PromptImage,
 } from "./acp/prompt-source.js";
 import { type EngineBins, isAcpEngine } from "./acp/engine-spec.js";
+import { inspectAgentCheckout, reviewerWorkspace } from "./checkout-runner.js";
 import { RemoteEventInbox } from "./remote/event-inbox.js";
 import {
   MANAGED_WORKSPACE,
   remotePlacement,
   type RunnerRepository,
+  type CheckoutQuery,
+  type CheckoutReply,
 } from "./remote/protocol.js";
 import { inferRepositoryUrl, parseRepository } from "./remote/repository.js";
 import { RunnerRevoked, type RemoteRunnerService } from "./remote/service.js";
@@ -1353,6 +1356,29 @@ export class AgentManager {
     return updated;
   }
 
+  async inspectCheckout(
+    agent: AgentRecord,
+    query: CheckoutQuery
+  ): Promise<CheckoutReply> {
+    if (
+      agent.runnerManaged &&
+      query.kind === "changes" &&
+      query.baseBranch === null
+    ) {
+      // The launch checkout can have an unpublished base. A borrowed checkout inherits it.
+      const { rows } = await this.pool.query<{
+        runner_repository: RunnerRepository | null;
+      }>(
+        "SELECT owner.runner_repository FROM agents a JOIN agents owner ON owner.id = COALESCE(a.runner_worktree_owner, a.id) WHERE a.id = $1",
+        [agent.id]
+      );
+      const checkout = rows[0]?.runner_repository?.checkout;
+      if (checkout?.kind === "new" && checkout.base)
+        query = { ...query, baseBranch: checkout.base };
+    }
+    return inspectAgentCheckout(agent, query, this.remote);
+  }
+
   /**
    * Create an agent. By default the call returns once the agent is running
    * (jobs, templates and MCP launches want the outcome). With
@@ -1365,11 +1391,41 @@ export class AgentManager {
     input: CreateAgentInput,
     options: {
       detachLaunch?: boolean;
+      /** Trusted owner review launch, never accepted from an HTTP launch payload. */
+      useWorktreeOf?: string;
       /** Commit owner state before the engine can discover tools or run a turn. */
       beforeLaunch?: (agentId: string) => Promise<void>;
     } = {}
   ): Promise<AgentRecord> {
     input = { ...input };
+    const { useWorktreeOf } = options;
+    if (useWorktreeOf !== undefined) {
+      const owner = await this.getAgent(useWorktreeOf);
+      if (
+        !owner ||
+        input.role !== "review" ||
+        input.launchedByAgentId !== owner.id ||
+        !input.parentAgentId ||
+        !input.persona ||
+        input.repository ||
+        input.useWorktree ||
+        (input.cwd !== owner.cwd && input.cwd !== reviewerWorkspace(owner)) ||
+        (input.projectId !== undefined && input.projectId !== owner.projectId)
+      )
+        throw new AgentError("Invalid reviewer checkout binding.", 400);
+      const reviewerParent =
+        input.parentAgentId === owner.id
+          ? owner
+          : await this.getAgent(input.parentAgentId);
+      if (!reviewerParent || reviewerParent.projectId !== owner.projectId)
+        throw new AgentError(
+          "Review parent must belong to the requester's project.",
+          400
+        );
+      input.cwd = reviewerWorkspace(owner);
+      input.useWorktree = false;
+      input.projectId = owner.projectId;
+    }
     const placement = remotePlacement(input.cwd);
     const managed = placement
       ? (this.remote?.isManagedWorkspace(placement) ?? false)
@@ -1398,10 +1454,10 @@ export class AgentManager {
         );
       }
       if (
-        (input.projectId && !managed) ||
-        input.parentAgentId ||
+        (!useWorktreeOf &&
+          (input.parentAgentId || (input.projectId && !managed))) ||
         input.templateId ||
-        input.persona ||
+        (input.persona && !useWorktreeOf) ||
         input.jobRunId ||
         input.initialFiles?.length ||
         input.useWorktree
@@ -1411,6 +1467,11 @@ export class AgentManager {
           400
         );
       }
+      if (useWorktreeOf && !this.remote.supportsSharedWorktree(placement))
+        throw new AgentError(
+          "Update the runner to launch a reviewer in an existing checkout.",
+          409
+        );
       input.useWorktree = false;
     }
     if (input.templateId) {
@@ -1508,7 +1569,13 @@ export class AgentManager {
         400
       );
     const p = await this.prepareCreateInputs(input);
-    await this.insertAgentRecord(p, input, runnerRepository, managed);
+    await this.insertAgentRecord(
+      p,
+      input,
+      runnerRepository,
+      managed,
+      placement ? useWorktreeOf : undefined
+    );
 
     const createdAgent = await this.getAgent(p.id);
     if (createdAgent) {
@@ -1864,12 +1931,13 @@ export class AgentManager {
     p: PreparedCreateInputs,
     input: CreateAgentInput,
     repository: RunnerRepository | null,
-    runnerManaged: boolean
+    runnerManaged: boolean,
+    useWorktreeOf?: string
   ): Promise<void> {
     await this.pool.query(
       `
-      INSERT INTO agents (id, name, type, role, status, cwd, launch_cwd, files_dir, agent_args, model, full_access, setup_phase, persona, parent_agent_id, launched_by_agent_id, persona_context, review_agent_type, cli_session_id, base_branch, template_id, project_id, effort, runner_repository, runner_managed, updated_at)
-      VALUES ($1, $2, $3, $4, 'creating', $5, $6, $7, $8::jsonb, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22::jsonb, $23, NOW())
+      INSERT INTO agents (id, name, type, role, status, cwd, launch_cwd, files_dir, agent_args, model, full_access, setup_phase, persona, parent_agent_id, launched_by_agent_id, persona_context, review_agent_type, cli_session_id, base_branch, template_id, project_id, effort, runner_repository, runner_managed, runner_worktree_owner, updated_at)
+      VALUES ($1, $2, $3, $4, 'creating', $5, $6, $7, $8::jsonb, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22::jsonb, $23, $24, NOW())
       `,
       [
         p.id,
@@ -1895,6 +1963,7 @@ export class AgentManager {
         p.effort,
         repository ? JSON.stringify(repository) : null,
         runnerManaged,
+        useWorktreeOf ?? null,
       ]
     );
   }
@@ -2188,16 +2257,24 @@ export class AgentManager {
         "The runner workspace mode changed since this agent was created.",
         409
       );
-    const repository = agent.runnerManaged
-      ? ((
-          await this.pool.query<{
-            runner_repository: RunnerRepository | null;
-          }>("SELECT runner_repository FROM agents WHERE id = $1", [agent.id])
-        ).rows[0]?.runner_repository ?? undefined)
-      : undefined;
+    const binding =
+      placement && (agent.runnerManaged || agent.role === "review")
+        ? (
+            await this.pool.query<{
+              runner_repository: RunnerRepository | null;
+              runner_worktree_owner: string | null;
+            }>(
+              "SELECT runner_repository, runner_worktree_owner FROM agents WHERE id = $1",
+              [agent.id]
+            )
+          ).rows[0]
+        : undefined;
     return this.runtime.launch({
       agentId: agent.id,
-      repository,
+      repository: binding?.runner_repository ?? undefined,
+      ...(binding?.runner_worktree_owner && {
+        useWorktreeOf: binding.runner_worktree_owner,
+      }),
       cwd: agent.cwd,
       placement,
       engine: agent.type,

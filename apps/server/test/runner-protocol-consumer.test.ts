@@ -11,6 +11,7 @@ import {
   runnerRequestId,
   sessionCommandId,
   isOpaqueId,
+  isCheckoutReply,
   remotePlacement,
   workspaceLocator,
 } from "@dispatch/runner-protocol";
@@ -107,8 +108,56 @@ it("negotiates advertised v1 capabilities independently on each ready frame", ()
     workspaces: ["@session"],
     health: true,
     engineManagement: true,
+    checkoutInspection: true,
+    sharedWorktree: true,
   };
   expect(parseReadyFrame(managed)).toEqual(managed);
+});
+
+it("validates checkout queries, results and borrowed launches", () => {
+  const parse = (command: unknown) =>
+    parseServiceFrame({ type: "request", id: "request-1", command });
+  const request = {
+    kind: "inspectCheckout",
+    agentId: "author",
+    workspace: "@session",
+  };
+  const read = { kind: "readFile", path: ".agents/owners.json" } as const;
+  expect(parse({ ...request, query: read })).not.toBeNull();
+  for (const path of ["/etc/config", "../other", "a//b", "./config"])
+    expect(parse({ ...request, query: { ...read, path } })).toBeNull();
+  expect(isCheckoutReply({ kind: "changes", files: [] }, read)).toBe(false);
+  expect(isCheckoutReply({ kind: "readFile", content: null }, read)).toBe(true);
+  const command = {
+    kind: "launch",
+    workspace: "@session",
+    agentId: "reviewer",
+  };
+  const launch = {
+    agentId: "reviewer",
+    engine: "codex",
+    model: null,
+    systemPrompt: null,
+    resumeSessionId: null,
+    useWorktreeOf: "author",
+  };
+  expect(parse({ ...command, launch })).not.toBeNull();
+  expect(parse({ ...command, agentId: "other", launch })).toBeNull();
+  expect(
+    parse({ ...command, launch: { ...launch, useWorktreeOf: "reviewer" } })
+  ).toBeNull();
+  expect(
+    parse({
+      ...command,
+      launch: {
+        ...launch,
+        repository: {
+          url: "https://repo.test/x",
+          checkout: { kind: "branch", branch: "x" },
+        },
+      },
+    })
+  ).toBeNull();
 });
 
 function peer() {

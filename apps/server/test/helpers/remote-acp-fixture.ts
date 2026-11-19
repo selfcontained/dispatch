@@ -23,6 +23,12 @@ const fake = createFakeAcpAgent({
         "called\n"
       );
     }
+    if (prompt.includes("proof-reviewed-checkout")) {
+      const marker = (
+        await readFile(path.join(session.cwd, "review-marker.txt"), "utf8")
+      ).trim();
+      await report("Checkout marker " + marker);
+    }
     const sleep = /proof-delay:(\d+)/.exec(prompt);
     if (sleep) {
       await report("Guest turn waiting for reconnect.");

@@ -1,4 +1,8 @@
-import { isCheckoutQuery, type CheckoutQuery } from "./checkout.js";
+import {
+  isCheckoutQuery,
+  validBranch,
+  type CheckoutQuery,
+} from "./checkout.js";
 import { MANAGED_WORKSPACE, isOpaqueId } from "./placement.js";
 import {
   type EngineInventoryEntry,
@@ -122,24 +126,6 @@ export type RunnerFrame =
 
 export type Frame = ServiceFrame | RunnerFrame;
 
-/** A full branch name, never a revision expression, option, or raw ref. */
-export function validBranch(value: unknown): value is string {
-  return (
-    typeof value === "string" &&
-    value.length > 0 &&
-    value.length <= 200 &&
-    !value.startsWith("-") &&
-    !value.startsWith("refs/") &&
-    !value.endsWith(".") &&
-    value !== "HEAD" &&
-    value !== "@" &&
-    !/[\x00-\x20\x7f~^:?*\[\\]|\.\.|@\{/.test(value) &&
-    value
-      .split("/")
-      .every((part) => part && !part.startsWith(".") && !part.endsWith(".lock"))
-  );
-}
-
 /** Check the URL before a runner makes any workspace changes. */
 export function parseRunnerRepositoryUrl(
   source: unknown,
@@ -231,7 +217,11 @@ function isCommand(value: unknown): value is Command {
     return false;
   switch (value.kind) {
     case "launch":
-      return isRemoteLaunch(value.launch);
+      return (
+        isRemoteLaunch(value.launch) &&
+        (value.launch.useWorktreeOf === undefined ||
+          value.agentId === value.launch.agentId)
+      );
     case "inspectCheckout":
       return isCheckoutQuery(value.query);
     case "attach":

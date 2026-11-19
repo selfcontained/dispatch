@@ -136,6 +136,8 @@ type Peer = {
   reportsHealth?: boolean;
   /** Advertised in `ready`; whether this peer answers the `"engine"` command. */
   engineManagement: boolean;
+  checkoutInspection: boolean;
+  sharedWorktree: boolean;
   /** Last pushed, validated engine inventory; absent until the runner first reports one. */
   engines?: EngineInventoryEntry[];
 };
@@ -640,6 +642,8 @@ export class RemoteRunnerService {
           socket,
           reportsHealth: ready.health === true,
           engineManagement: ready.engineManagement === true,
+          checkoutInspection: ready.checkoutInspection === true,
+          sharedWorktree: ready.sharedWorktree === true,
           connection: new RunnerConnection(send),
           workspaces: new Set(ready.workspaces),
           managedWorkspace: ready.managedWorkspace === true,
@@ -1188,6 +1192,13 @@ export class RemoteRunnerService {
     throw new RunnerUnavailable("The runner has no available workspace.");
   }
 
+  supportsSharedWorktree(placement: Placement) {
+    return (
+      this.available(placement) &&
+      this.peers.get(placement.runner)?.sharedWorktree === true
+    );
+  }
+
   available(placement: Placement) {
     const peer = this.peers.get(placement.runner);
     return Boolean(
@@ -1216,6 +1227,18 @@ export class RemoteRunnerService {
         "The enrolled runner is disconnected or the workspace is unavailable."
       );
     }
+    if (command.kind === "inspectCheckout" && !peer.checkoutInspection)
+      throw new RunnerCapabilityUnavailable(
+        "Update the runner to inspect a session checkout."
+      );
+    if (
+      command.kind === "launch" &&
+      command.launch.useWorktreeOf &&
+      !peer.sharedWorktree
+    )
+      throw new RunnerCapabilityUnavailable(
+        "Update the runner to launch a reviewer in an existing checkout."
+      );
     return peer.connection.request(command, { openChannel: open });
   }
 

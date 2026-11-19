@@ -58,6 +58,8 @@ function dialRunner(input: {
   answer?: boolean;
   health?: Extract<Frame, { type: "health" }>["sample"];
   managedWorkspace?: true;
+  sharedWorktree?: true;
+  checkoutInspection?: true;
 }): Promise<FakeRunner> {
   const url = new URL(input.endpoint);
   return new Promise((resolve, reject) => {
@@ -86,6 +88,8 @@ function dialRunner(input: {
         workspaces: input.workspaces,
         ...(input.health ? { health: true as const } : {}),
         managedWorkspace: input.managedWorkspace,
+        sharedWorktree: input.sharedWorktree,
+        checkoutInspection: input.checkoutInspection,
       });
       resolve({ socket, closed, requests });
     });
@@ -535,6 +539,65 @@ describe("runner enrollment service", () => {
     expect(scoped.repoToolFor({ runner: b.id, workspace: "anything" })).toBe(
       false
     );
+  });
+
+  it("gates worktree reuse and inspection before sending requests to older peers", async () => {
+    const service = makeService();
+    const a = await enroll(service, "alpha");
+    const placement = { runner: a.id, workspace: "@session" };
+    const legacy = await dialRunner({
+      ...a,
+      label: "old",
+      workspaces: ["@session"],
+    });
+    await waitFor(() => service.available(placement));
+    const query = {
+      kind: "inspectCheckout",
+      agentId: "author",
+      query: { kind: "changes", baseBranch: null },
+    } as const;
+    const launch = {
+      kind: "launch",
+      agentId: "reviewer",
+      launch: {
+        agentId: "reviewer",
+        engine: "codex",
+        model: null,
+        systemPrompt: null,
+        resumeSessionId: null,
+        useWorktreeOf: "author",
+      },
+    } as const;
+    try {
+      await expect(service.requestSession(placement, query)).rejects.toThrow(
+        "Update the runner"
+      );
+      await expect(service.requestSession(placement, launch)).rejects.toThrow(
+        "Update the runner"
+      );
+      expect(legacy.requests.filter((f) => f.type === "request")).toEqual([]);
+    } finally {
+      legacy.socket.destroy();
+    }
+    await waitFor(() => !service.available(placement));
+    const current = await dialRunner({
+      ...a,
+      label: "current",
+      workspaces: ["@session"],
+      checkoutInspection: true,
+      sharedWorktree: true,
+    });
+    try {
+      await waitFor(() => service.supportsSharedWorktree(placement));
+      expect((await service.requestSession(placement, query)).value).toBe(
+        "current"
+      );
+      expect((await service.requestSession(placement, launch)).value).toBe(
+        "current"
+      );
+    } finally {
+      current.socket.destroy();
+    }
   });
 
   it("distinguishes a configured @session handle from managed mode and retains the mode offline", async () => {

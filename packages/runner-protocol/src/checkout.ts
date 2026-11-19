@@ -6,8 +6,32 @@ export type CheckoutQuery =
   | { kind: "readFile"; path: string };
 
 export type CheckoutReply =
-  | { kind: "changes"; baseRef: string; head: string; files: string[] }
+  | {
+      kind: "changes";
+      baseRef: string;
+      head: string;
+      stateId: string;
+      files: string[];
+    }
   | { kind: "readFile"; content: string | null };
+
+/** A full branch name, never a revision expression, option, or raw ref. */
+export function validBranch(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    value.length > 0 &&
+    value.length <= 200 &&
+    !value.startsWith("-") &&
+    !value.startsWith("refs/") &&
+    !value.endsWith(".") &&
+    value !== "HEAD" &&
+    value !== "@" &&
+    !/[\x00-\x20\x7f~^:?*\[\\]|\.\.|@\{/.test(value) &&
+    value
+      .split("/")
+      .every((part) => part && !part.startsWith(".") && !part.endsWith(".lock"))
+  );
+}
 
 function relativePath(value: unknown): value is string {
   return (
@@ -23,11 +47,7 @@ export function isCheckoutQuery(value: unknown): value is CheckoutQuery {
   if (value.kind === "readFile") return relativePath(value.path);
   return (
     value.kind === "changes" &&
-    (value.baseBranch === null ||
-      (typeof value.baseBranch === "string" &&
-        value.baseBranch.length > 0 &&
-        value.baseBranch.length <= 255 &&
-        !/^[.-]|[\x00-\x20\x7f~^:?*\[\\]|\.\.|@\{/.test(value.baseBranch)))
+    (value.baseBranch === null || validBranch(value.baseBranch))
   );
 }
 
@@ -42,6 +62,8 @@ export function isCheckoutReply(
     typeof value.baseRef === "string" &&
     value.baseRef.length > 0 &&
     value.baseRef.length <= 512 &&
+    typeof value.stateId === "string" &&
+    /^[a-f0-9]{64}$/.test(value.stateId) &&
     typeof value.head === "string" &&
     /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(value.head) &&
     Array.isArray(value.files) &&

@@ -10,7 +10,7 @@ import type { HostLaunch } from "../acp/host-protocol.js";
 import type { WorkloadCommand } from "./session-storage.js";
 import { createSessionSupervisor } from "./session-supervisor.js";
 export { runnerStorageKey } from "./session-supervisor.js";
-import { hostCommand } from "../acp/runtime.js";
+import { hostCommand, selfCommand } from "../acp/runtime.js";
 import {
   isOpaqueId,
   MANAGED_WORKSPACE,
@@ -332,6 +332,41 @@ export async function runRemoteRunner(filename: string) {
         }
         if (socket.destroyed) return;
         switch (command.kind) {
+          case "inspectCheckout": {
+            const cwd = await supervisor.checkoutDirectory(
+              agentId,
+              workspace,
+              target?.cwd
+            );
+            const child = execute(
+              setpriv,
+              [...childArgs, ...selfCommand("runner-inspect-checkout"), cwd],
+              {
+                env: {
+                  ...env,
+                  GIT_TERMINAL_PROMPT: "0",
+                  GH_PROMPT_DISABLED: "1",
+                },
+                timeout: 90_000,
+                maxBuffer: 4 * 1024 * 1024,
+              }
+            );
+            child.child.stdin?.on("error", () => {}); // execFile reports early child failure.
+            child.child.stdin?.end(JSON.stringify(command.query));
+            try {
+              const { stdout } = await child;
+              result(stdout.trimEnd());
+            } catch (error) {
+              // execFile's default message includes the command and machine-local paths.
+              const detail = (error as { stderr?: string }).stderr
+                ?.trim()
+                .slice(0, 1024);
+              throw new Error(
+                detail || "The runner could not inspect the checkout."
+              );
+            }
+            break;
+          }
           case "attach": {
             const channel = await supervisor.attach(agentId, workspace);
             if (!channel) {
@@ -453,6 +488,8 @@ export async function runRemoteRunner(filename: string) {
             : configuredHandles,
           ...(managedWorkspace ? { managedWorkspace: true } : {}),
           engineManagement: true,
+          checkoutInspection: true,
+          sharedWorktree: true,
         });
       });
     }).catch((error) => {

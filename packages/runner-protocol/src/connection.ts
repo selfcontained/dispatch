@@ -64,6 +64,7 @@ export class RunnerConnection {
   ): Promise<ResultFrame["value"]> {
     // Repository fetches and engine package installs can run for minutes.
     const timeoutMs =
+      command.kind === "inspectCheckout" ||
       command.kind === "engine" ||
       (command.kind === "launch" && command.launch.repository)
         ? 300_000
