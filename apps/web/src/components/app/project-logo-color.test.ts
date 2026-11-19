@@ -65,6 +65,23 @@ describe("prominentLogoColors", () => {
     expect(palette).toEqual(["#ec3b80", "#00918c", "#d26e14"]);
   });
 
+  it("preserves bright colors and gives a small distinct accent room beside a gradient", () => {
+    const cyan = [20, 238, 245, 255];
+    const purple = [208, 84, 255, 255];
+    const yellow = [235, 235, 10, 255];
+    const bands = [
+      ...Array(12).fill(cyan),
+      ...Array(8).fill([44, 148, 245, 255]),
+      ...Array(5).fill(purple),
+      yellow,
+    ];
+    expect(
+      sample(bands.length, 4, (x, y) =>
+        y === 0 || y === 3 ? transparent : bands[x]
+      )
+    ).toEqual(["#14eef5", "#d054ff", "#ebeb0a"]);
+  });
+
   it("lightens a saturated blue with poor visibility on dark surfaces", () => {
     const color = sample(4, 4, () => [0, 0, 255, 255]);
     expect(color[0]).toMatch(/^#([1-9a-f][0-9a-f])\1ff$/);

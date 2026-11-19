@@ -1,4 +1,4 @@
-const SAMPLE_SIZE = 48;
+const SAMPLE_SIZE = 96;
 
 function relativeLuminance(rgb: number[]) {
   const [red, green, blue] = rgb.map((channel) => {
@@ -9,30 +9,22 @@ function relativeLuminance(rgb: number[]) {
 }
 
 function readableHex(rgb: number[]) {
-  const luminance = relativeLuminance(rgb);
-  // Keep very dark or light accents visible on the sidebar in either theme.
-  const target = Math.max(0.15, Math.min(0.27, luminance));
-  if (target !== luminance) {
-    const endpoint = luminance < target ? 255 : 0;
+  // Preserve bright brand colors. Only lift dark accents that would recede
+  // against the dark sidebar.
+  const minimumLuminance = 0.15;
+  if (relativeLuminance(rgb) < minimumLuminance) {
     let lower = 0;
     let upper = 1;
     for (let step = 0; step < 8; step++) {
       const mix = (lower + upper) / 2;
-      const adjusted = rgb.map(
-        (channel) => channel + (endpoint - channel) * mix
-      );
-      const adjustedLuminance = relativeLuminance(adjusted);
-      const needsMoreMix =
-        endpoint === 255
-          ? adjustedLuminance < target
-          : adjustedLuminance > target;
-      if (needsMoreMix) {
+      const adjusted = rgb.map((channel) => channel + (255 - channel) * mix);
+      if (relativeLuminance(adjusted) < minimumLuminance) {
         lower = mix;
       } else {
         upper = mix;
       }
     }
-    rgb = rgb.map((channel) => channel + (endpoint - channel) * upper);
+    rgb = rgb.map((channel) => channel + (255 - channel) * upper);
   }
   return (
     "#" +
@@ -119,12 +111,12 @@ export function prominentLogoColors({ data, width, height }: ImageData) {
   const colors: string[] = [];
   for (const bucket of ranked) {
     if (bucket.weight < minimumWeight || colors.length === 3) break;
-    // Adjacent buckets can represent shades of the same color, including red
-    // on either side of the hue wheel's wraparound.
+    // Leave room for distinct accents instead of filling the palette with
+    // nearby shades from a gradient. Hue buckets are 15 degrees wide.
     if (
       selectedHues.some((hue) => {
         const distance = Math.abs(hue - bucket.hue);
-        return Math.min(distance, hues.length - distance) <= 1;
+        return Math.min(distance, hues.length - distance) <= 3;
       })
     )
       continue;
