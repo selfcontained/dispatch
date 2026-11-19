@@ -54,7 +54,7 @@ export type OwnerReviewPlan = {
   owners: Array<{ persona: string; files: string[] }>;
   uncoveredFiles: string[];
 };
-export type OwnerReviewResult = OwnerReviewPlan & {
+type OwnerReviewLaunchResult = OwnerReviewPlan & {
   /** Present for explicit selection; omitted owners have not been launched. */
   omittedOwners?: OwnerReviewPlan["owners"];
   launched: Array<{
@@ -64,6 +64,9 @@ export type OwnerReviewResult = OwnerReviewPlan & {
     warnings?: string[];
   }>;
   failures: Array<{ persona: string; error: string; files: string[] }>;
+};
+export type OwnerReviewResult = OwnerReviewLaunchResult & {
+  reviewedState: { head: string; stateId: string };
 };
 
 /** The owners map in use: `.agents/owners.json`, else the legacy location. */
@@ -173,8 +176,12 @@ export async function launchOwnerReviewPlan(
     persona: string,
     context: string
   ) => Promise<{ agentId: string; warnings?: string[] }>
-): Promise<OwnerReviewResult> {
-  const result: OwnerReviewResult = { ...plan, launched: [], failures: [] };
+): Promise<OwnerReviewLaunchResult> {
+  const result: OwnerReviewLaunchResult = {
+    ...plan,
+    launched: [],
+    failures: [],
+  };
   // Launch sequentially to preserve normal lifecycle ordering. Review agents
   // run concurrently once started. A failure must not hide successful launches.
   for (const owner of plan.owners) {

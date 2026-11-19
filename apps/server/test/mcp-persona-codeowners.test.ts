@@ -72,6 +72,8 @@ function setup(parentChanges: Record<string, unknown> = {}) {
   const checkout = {
     files: ["src/a.ts"],
     baseRef: "origin/acp-runtime",
+    head: "a".repeat(40),
+    stateId: "1".repeat(64),
     content: new Map([
       [modernOwnersPath, ownersMap("owner-one", "owner-two")],
       [personaFile("owner-one"), "Verify subsystem contracts"],
@@ -85,7 +87,8 @@ function setup(parentChanges: Record<string, unknown> = {}) {
         ? {
             kind: "changes" as const,
             baseRef: checkout.baseRef,
-            head: "head",
+            head: checkout.head,
+            stateId: checkout.stateId,
             files: checkout.files,
           }
         : {
@@ -143,6 +146,7 @@ describe("code owner launches through the checkout boundary", () => {
       });
       expect(preview).toEqual({
         baseRef: checkout.baseRef,
+        reviewedState: { head: checkout.head, stateId: checkout.stateId },
         changedFiles: [...checkout.files].sort(),
         owners: ["owner-one", "owner-two"].map((persona) => ({
           persona,
@@ -171,9 +175,11 @@ describe("code owner launches through the checkout boundary", () => {
         [parent, { kind: "changes", baseBranch }],
         [parent, { kind: "readFile", path: modernOwnersPath }],
         [parent, { kind: "changes", baseBranch }],
+        [parent, { kind: "changes", baseBranch }],
         [parent, { kind: "readFile", path: modernOwnersPath }],
         [parent, { kind: "readFile", path: personaFile("owner-one") }],
         [parent, { kind: "readFile", path: personaFile("owner-two") }],
+        [parent, { kind: "changes", baseBranch }],
       ]);
       expect(agentManager.createAgent).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -189,6 +195,9 @@ describe("code owner launches through the checkout boundary", () => {
           agentArgs: expect.arrayContaining([
             expect.stringContaining("Verify subsystem contracts"),
             expect.stringContaining('post with to: "parent"'),
+            expect.stringContaining(
+              `HEAD ${checkout.head}, state ID ${checkout.stateId}`
+            ),
           ]),
           personaContext: expect.stringContaining(
             "Inspect the shared checkout without modifying it."
@@ -207,6 +216,30 @@ describe("code owner launches through the checkout boundary", () => {
         resolveWorktreeRoot,
       ])
         expect(forbidden).not.toHaveBeenCalled();
+    }
+  );
+
+  it.each([
+    { cwd: "/checkout", path: modernOwnersPath, dryRun: true },
+    {
+      cwd: "runner://linux/@session",
+      path: personaFile("owner-two"),
+      dryRun: false,
+    },
+  ])(
+    "rejects a changed dirty state during $path inspection",
+    async ({ cwd, path, dryRun }) => {
+      const { handlers, agentManager, checkout } = setup({ cwd });
+      const inspect = agentManager.inspectCheckout.getMockImplementation()!;
+      agentManager.inspectCheckout.mockImplementation((agent, query) => {
+        if (query.kind === "readFile" && query.path === path)
+          checkout.stateId = "2".repeat(64);
+        return inspect(agent, query);
+      });
+      await expect(
+        handlers.launchOwnerReviews("parent", { context: "Review", dryRun })
+      ).rejects.toThrow(/checkout changed.*retry launch_owner_reviews/i);
+      expect(agentManager.createAgent).not.toHaveBeenCalled();
     }
   );
 

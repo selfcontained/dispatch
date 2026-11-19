@@ -244,18 +244,8 @@ export function createPersonaHandlers(deps: CreatePersonaHandlersDeps) {
   ): Promise<OwnerReviewResult> {
     const parent = await agentManager.getAgent(parentId);
     if (!parent) throw new Error("Parent agent not found.");
-    const baseBranch = remotePlacement(parent.cwd)
-      ? null
-      : parent.workspacePath
-        ? (parent.workspaceBaseBranch ?? null)
-        : (parent.baseBranch ??
-          (parent.worktreePath && parent.worktreeBranch ? "main" : null));
-    const changes = await agentManager.inspectCheckout(parent, {
-      kind: "changes",
-      baseBranch,
-    });
-    if (changes.kind !== "changes")
-      throw new Error("Runner did not return checkout changes.");
+    const changes = await inspectReviewChanges(parent);
+    const reviewedState = { head: changes.head, stateId: changes.stateId };
     const readCheckoutFile = async (path: string) => {
       const reply = await agentManager.inspectCheckout(parent, {
         kind: "readFile",
@@ -304,12 +294,12 @@ export function createPersonaHandlers(deps: CreatePersonaHandlersDeps) {
       };
     }
     const selection = omittedOwners === undefined ? {} : { omittedOwners };
-    if (opts.dryRun && opts.personas === undefined)
-      return { ...plan, launched: [], failures: [] };
     // Resolve the whole selection before launching any agent. Ownership is
     // local to this checkout, even though manual persona launches can fall back.
     const selectedPersonas = new Map<string, PersonaDefinition>();
-    for (const owner of plan.owners) {
+    const validateOwners =
+      opts.dryRun && opts.personas === undefined ? [] : plan.owners;
+    for (const owner of validateOwners) {
       const persona =
         (await loadPersonaFromCheckout(owner.persona, readCheckoutFile)) ??
         getBuiltInPersona(owner.persona);
@@ -327,35 +317,68 @@ export function createPersonaHandlers(deps: CreatePersonaHandlersDeps) {
         );
       selectedPersonas.set(owner.persona, persona);
     }
+    const author = await agentManager.getAgent(parentId);
+    if (!author) throw new Error("Parent agent not found.");
+    const latest = await inspectReviewChanges(author);
+    if (
+      latest.baseRef !== changes.baseRef ||
+      latest.head !== reviewedState.head ||
+      latest.stateId !== reviewedState.stateId
+    )
+      throw new Error(
+        "The checkout changed while planning owner reviews. Finish the checkout changes, then retry launch_owner_reviews."
+      );
     if (opts.dryRun)
-      return { ...plan, ...selection, launched: [], failures: [] };
+      return {
+        ...plan,
+        ...selection,
+        reviewedState,
+        launched: [],
+        failures: [],
+      };
     const result = await launchOwnerReviewPlan(
       plan,
       opts.context,
       (persona, context) => {
         const launchOpts = {
           persona,
-          context: `Inspect the shared checkout without modifying it. Report findings to the launcher.\n\n${context}`,
+          context: `Inspect the shared checkout without modifying it. Report findings to the launcher.\nCheckout recorded during review planning: HEAD ${reviewedState.head}, state ID ${reviewedState.stateId}.\n\n${context}`,
           agentType: opts.agentType,
           model: opts.model,
           effort: opts.effort,
         };
         return launchReviewer(
-          parent,
+          author,
           launchOpts,
           () =>
             prepareReviewLaunch(
-              parent,
+              author,
               launchOpts,
-              parent.cwd,
+              author.cwd,
               false,
               () => selectedPersonas.get(persona)!
             ),
-          parent.id
+          author.id
         );
       }
     );
-    return { ...result, ...selection };
+    return { ...result, ...selection, reviewedState };
+  }
+
+  async function inspectReviewChanges(agent: AgentRecord) {
+    const baseBranch = remotePlacement(agent.cwd)
+      ? null
+      : agent.workspacePath
+        ? (agent.workspaceBaseBranch ?? null)
+        : (agent.baseBranch ??
+          (agent.worktreePath && agent.worktreeBranch ? "main" : null));
+    const reply = await agentManager.inspectCheckout(agent, {
+      kind: "changes",
+      baseBranch,
+    });
+    if (reply.kind !== "changes")
+      throw new Error("Runner did not return checkout changes.");
+    return reply;
   }
 
   async function listPersonas(agentCwd: string) {
