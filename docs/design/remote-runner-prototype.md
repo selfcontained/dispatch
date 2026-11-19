@@ -224,6 +224,10 @@ established guest hosts continue. The client checks the service hostname.
 
 ### Inspecting and sharing a live checkout
 
+Peers advertising `checkoutViews: true` support two session operations. `viewCheckout` takes an agent ID, workspace handle and a typed query for a directory, preview, file index, diff, file diff, image or stats. The runner resolves the agent’s bound checkout and returns a JSON result with `data` or a bounded error with `status` and `error`. Older peers surface an update prompt when a view needs this capability.
+
+`watchCheckout` uses the same binding and opens a channel. The runner sends a one-byte notification after watch setup and when the checkout changes. Each notification tells the consumer to reread its current view. Consumers may coalesce notifications. Closing the channel releases the subscription. The Linux implementation reads and watches as the workload account. Dispatch shares watches for active views, expires interest after 75 seconds without a read, and forwards invalidations over the existing browser event stream. An open view also reconciles every 30 seconds for missed filesystem notifications, including nested changes under a non-repository directory. Session history continues to use its existing replay protocol.
+
 A service can inspect the checkout bound to an existing agent ID when the connected peer advertises `checkoutInspection: true`. The built-in local runner handles the same typed query in process. The Linux runner resolves the session binding and executes the inspection as the workload account.
 
 | Request                                              | Reply                                                                                                                                                                              |

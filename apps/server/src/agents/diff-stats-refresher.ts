@@ -30,6 +30,10 @@ type WarnLogger = {
 export type DiffStatsRefresherOptions = {
   getAgent: (id: string) => Promise<DiffStatsAgent | null>;
   publishEvent: (event: DiffStatsChangedEvent) => void;
+  computeAgentStats?: (
+    id: string,
+    agent: DiffStatsAgent
+  ) => Promise<DiffStatsComputation>;
   computeDiffStats?: ComputeDiffStats;
   /** Override Git command execution while retaining the default adapter. */
   runGitCommand?: GetDiffStatsOptions["runCommand"];
@@ -65,12 +69,14 @@ export class DiffStatsRefresher {
     baseRef: string | null
   ) => Promise<DiffStatsComputation>;
   private readonly freshnessMs: number;
+  private readonly computeAgentStats: DiffStatsRefresherOptions["computeAgentStats"];
   private readonly logger: WarnLogger | null;
   private readonly tracker: SubsystemTracker | null;
   private signals = 0;
   private dedupedSignals = 0;
 
   constructor(options: DiffStatsRefresherOptions) {
+    this.computeAgentStats = options.computeAgentStats;
     this.getAgent = options.getAgent;
     this.publishEvent = options.publishEvent;
     const customComputeDiffStats = options.computeDiffStats;
@@ -160,10 +166,10 @@ export class DiffStatsRefresher {
       const agent = await this.getAgent(agentId);
       // `getDiffStats` returns null when the path isn't inside a repo.
       const target = agent ? agentDiffTarget(agent) : null;
-      if (!target) {
-        nextStats = null;
-      } else {
-        computation = await this.computeDiffStats(target.path, target.baseRef);
+      if (agent && (this.computeAgentStats || target)) {
+        computation = this.computeAgentStats
+          ? await this.computeAgentStats(agentId, agent)
+          : await this.computeDiffStats(target!.path, target!.baseRef);
         if (computation.kind === "failure") throw computation.error;
         nextStats = computation.stats;
       }

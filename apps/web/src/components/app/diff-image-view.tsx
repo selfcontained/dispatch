@@ -32,11 +32,15 @@ function imageUrl(
   agentId: string,
   filePath: string,
   side: Side,
-  includeUncommitted: boolean
+  includeUncommitted: boolean,
+  revision?: string
 ): string {
-  return `/api/v1/agents/${agentId}/diff/image?path=${encodeURIComponent(
-    filePath
-  )}&side=${side}&includeUncommitted=${includeUncommitted}`;
+  return (
+    `/api/v1/agents/${agentId}/diff/image?path=${encodeURIComponent(
+      filePath
+    )}&side=${side}&includeUncommitted=${includeUncommitted}` +
+    (revision ? "&revision=" + encodeURIComponent(revision) : "")
+  );
 }
 
 type LoadedImage = { width: number; height: number };
@@ -168,6 +172,7 @@ export function DiffImageView({
   status: DiffFileStatus;
   image: DiffImageInfo;
 }): JSX.Element {
+  const revision = image.revision;
   const includeUncommitted = useAtomValue(diffIncludeUncommittedAtom);
   const [mode, setMode] = useAtom(diffImageCompareModeAtom);
   const [oldDim, setOldDim] = useState<LoadedImage | null>(null);
@@ -182,7 +187,13 @@ export function DiffImageView({
   const oldSide: SideState = {
     src:
       agentId && hasOld
-        ? imageUrl(agentId, oldPath ?? filePath, "old", includeUncommitted)
+        ? imageUrl(
+            agentId,
+            oldPath ?? filePath,
+            "old",
+            includeUncommitted,
+            revision
+          )
         : null,
     bytes: image.oldSize,
     dimensions: oldDim,
@@ -193,7 +204,7 @@ export function DiffImageView({
   const newSide: SideState = {
     src:
       agentId && hasNew
-        ? imageUrl(agentId, filePath, "new", includeUncommitted)
+        ? imageUrl(agentId, filePath, "new", includeUncommitted, revision)
         : null,
     bytes: image.newSize,
     dimensions: newDim,

@@ -9,7 +9,7 @@ import type {
   FileDiffResponse,
 } from "@dispatch/shared";
 
-import { api } from "@/lib/api";
+import { api, ApiError } from "@/lib/api";
 import { diffIncludeUncommittedAtom } from "@/lib/store";
 
 export type { DiffFile, DiffFileStatus, FileDiffResponse };
@@ -35,6 +35,7 @@ export function useAgentDiff(
 ): {
   data: DiffResponse | undefined;
   isLoading: boolean;
+  error: Error | null;
   refresh: () => void;
 } {
   const queryClient = useQueryClient();
@@ -53,6 +54,7 @@ export function useAgentDiff(
     },
     enabled: enabled && !!agentId,
     refetchOnWindowFocus: true,
+    refetchInterval: 30_000,
     staleTime: 5_000,
   });
 
@@ -64,7 +66,16 @@ export function useAgentDiff(
     }
   }, [agentId, queryClient]);
 
-  return { data: query.data, isLoading: query.isLoading, refresh };
+  return {
+    data:
+      query.isError &&
+      !(query.error instanceof ApiError && query.error.status === 503)
+        ? undefined
+        : query.data,
+    isLoading: query.isLoading,
+    error: query.error,
+    refresh,
+  };
 }
 
 export function useAgentFileDiff(
@@ -91,6 +102,7 @@ export function useAgentFileDiff(
       );
     },
     enabled: enabled && !!agentId && !!filePath,
+    refetchInterval: 30_000,
     staleTime: 10_000,
   });
 

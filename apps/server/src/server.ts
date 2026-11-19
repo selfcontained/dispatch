@@ -1,3 +1,5 @@
+import { CheckoutObservers } from "./agents/checkout-observers.js";
+import { readAgentStats } from "./agents/checkout-runner.js";
 import { discoverSlackLinkOrigins } from "./notifications/slack-link-origins.js";
 import { QuestionAlerts } from "./notifications/question-alerts.js";
 import { notifyForm } from "./notifications/notify-form.js";
@@ -391,20 +393,15 @@ const pullRequests = new PullRequestRefresher({
   warn: (error) => app.log.warn({ err: error }, "PR status refresh failed"),
 });
 const diffStatsRefresher = new DiffStatsRefresher({
-  getAgent: async (id) => {
-    const agent = await agentManager.getAgent(id);
-    if (!agent) return null;
-    return {
-      worktreePath: agent.worktreePath,
-      cwd: agent.cwd,
-      baseBranch: agent.baseBranch,
-      workspacePath: agent.workspacePath,
-      workspaceBaseBranch: agent.workspaceBaseBranch,
-    };
-  },
+  getAgent: (id) => agentManager.getAgent(id),
+  computeAgentStats: (id, agent) => readAgentStats(id, agent, remoteRunner),
   publishEvent: (event) => uiEventBroker.publish(event),
   logger: app.log,
   tracker: gitRefreshTracker,
+});
+const checkoutObservers = new CheckoutObservers(remoteRunner, (id) => {
+  uiEventBroker.publish({ type: "agent.checkout_changed", agentId: id });
+  void diffStatsRefresher.signal(id);
 });
 agentManager.attachDiffStatsRefresher(diffStatsRefresher);
 const loginLinkStore = new LoginLinkStore();
@@ -1343,6 +1340,7 @@ async function registerRoutes() {
     addStreamViewer: (agentId, stream) =>
       streamManager.addViewer(agentId, stream),
     diffStatsRefresher,
+    observeCheckout: (agent) => checkoutObservers.observe(agent),
     pullRequests,
     riskExplanations: new RiskExplanations({
       pool,
@@ -1558,6 +1556,7 @@ async function cleanupAppResources(): Promise<void> {
     return;
   }
   shuttingDown = true;
+  checkoutObservers.close();
   remoteRunner?.close();
   const stage = async (name: string, close: () => Promise<unknown>) => {
     app.log.info({ stage: name }, "Shutdown stage started");

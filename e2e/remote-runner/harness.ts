@@ -91,7 +91,7 @@ export function guestDiagnostics(name: GuestName) {
 
 /** Fault injection on the runner's TCP path (TLS stays end to end). */
 export async function lane(
-  name: RunnerName,
+  name: GuestName,
   action: "sever" | "block" | "allow" | "status"
 ) {
   const res = await fetch(

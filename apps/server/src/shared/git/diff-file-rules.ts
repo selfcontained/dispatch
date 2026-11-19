@@ -1,4 +1,5 @@
-import { lstat, readFile } from "node:fs/promises";
+import { openRegularFile } from "../../files/open-workspace-file.js";
+import { realpath } from "node:fs/promises";
 import path from "node:path";
 
 const EXCLUDED_BASENAMES = new Set([
@@ -71,14 +72,34 @@ export async function readUntrackedFile(
     return { lines: 0, content: null };
   }
   try {
-    const info = await lstat(fullPath);
-    if (!info.isFile()) return { lines: 0, content: null };
-    if (info.size === 0) return { lines: 0, content: null };
-    if (info.size > UNTRACKED_MAX_BYTES) return { lines: 0, content: null };
-    const buffer = await readFile(fullPath);
-    if (looksBinary(buffer)) return { lines: 0, content: null };
-    const text = buffer.toString("utf8");
-    return { lines: countLines(text), content: text };
+    const file = await openRegularFile(
+      await realpath(realWorktree),
+      path.relative(realWorktree, fullPath).split(path.sep)
+    );
+    try {
+      const info = await file.stat();
+      if (!info.isFile()) return { lines: 0, content: null };
+      if (info.size === 0) return { lines: 0, content: null };
+      if (info.size > UNTRACKED_MAX_BYTES) return { lines: 0, content: null };
+      const bytes = Buffer.alloc(info.size);
+      let offset = 0;
+      while (offset < bytes.length) {
+        const { bytesRead } = await file.read(
+          bytes,
+          offset,
+          bytes.length - offset,
+          offset
+        );
+        if (!bytesRead) break;
+        offset += bytesRead;
+      }
+      const buffer = bytes.subarray(0, offset);
+      if (looksBinary(buffer)) return { lines: 0, content: null };
+      const text = buffer.toString("utf8");
+      return { lines: countLines(text), content: text };
+    } finally {
+      await file.close();
+    }
   } catch {
     return { lines: 0, content: null };
   }

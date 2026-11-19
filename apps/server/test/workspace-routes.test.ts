@@ -5,6 +5,7 @@ import { mkdtemp, mkdir, writeFile, symlink, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { readAgentView } from "../src/agents/checkout-runner.js";
 import { registerAgentWorkspaceRoutes } from "../src/routes/agents/workspace-routes.js";
 import type { AgentRouteDeps } from "../src/routes/agents/shared.js";
 
@@ -22,6 +23,7 @@ describe("workspace browsing", () => {
     app = Fastify();
     await registerAgentWorkspaceRoutes(app, {
       agentManager: {
+        viewCheckout: readAgentView,
         getAgent: async (id: string) =>
           id === "missing"
             ? null

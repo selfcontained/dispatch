@@ -144,6 +144,7 @@ type Peer = {
   engineManagement: boolean;
   githubManagement: boolean;
   checkoutInspection: boolean;
+  checkoutViews: boolean;
   sharedWorktree: boolean;
   /** Last pushed, validated engine inventory; absent until the runner first reports one. */
   engines?: EngineInventoryEntry[];
@@ -275,6 +276,11 @@ export function configuredRunner(input?: {
 
 export class RemoteRunnerService {
   /** Connected runners by placement name; each is an independent peer. */
+  private readonly connectionListeners = new Set<(runnerId: string) => void>();
+  onConnectionChange(listener: (runnerId: string) => void) {
+    this.connectionListeners.add(listener);
+    return () => this.connectionListeners.delete(listener);
+  }
   private readonly peers = new Map<string, Peer>();
   /** Enrolled, unrevoked registrations by client certificate fingerprint. */
   private readonly enrolled = new Map<string, Registration>();
@@ -632,7 +638,10 @@ export class RemoteRunnerService {
     socket.on("close", () => {
       clearTimeout(deadline);
       if (!peer) return;
-      if (this.peers.get(gate.key) === peer) this.peers.delete(gate.key);
+      if (this.peers.get(gate.key) === peer) {
+        this.peers.delete(gate.key);
+        for (const notify of this.connectionListeners) notify(gate.key);
+      }
       peer.connection.close();
       if (gate.registrationId)
         void this.enrollment?.registry
@@ -650,6 +659,7 @@ export class RemoteRunnerService {
           reportsHealth: ready.health === true,
           engineManagement: ready.engineManagement === true,
           githubManagement: ready.githubManagement === true,
+          checkoutViews: ready.checkoutViews === true,
           checkoutInspection: ready.checkoutInspection === true,
           sharedWorktree: ready.sharedWorktree === true,
           connection: new RunnerConnection(send),
@@ -662,6 +672,7 @@ export class RemoteRunnerService {
         this.peers.set(gate.key, peer);
         previous?.socket.destroy();
         gate.ready?.(ready.workspaces, peer.managedWorkspace);
+        for (const notify of this.connectionListeners) notify(gate.key);
         if (peer.reportsHealth) {
           send({
             type: "accept_health",
@@ -1178,7 +1189,7 @@ export class RemoteRunnerService {
     return this.request(
       placement,
       { ...operation, workspace: placement.workspace },
-      operation.kind === "attach"
+      operation.kind === "attach" || operation.kind === "watchCheckout"
     );
   }
 
@@ -1320,6 +1331,13 @@ export class RemoteRunnerService {
         "The enrolled runner is disconnected or the workspace is unavailable."
       );
     }
+    if (
+      (command.kind === "viewCheckout" || command.kind === "watchCheckout") &&
+      !peer.checkoutViews
+    )
+      throw new RunnerCapabilityUnavailable(
+        "Update this runner to open Files and Changes."
+      );
     if (command.kind === "inspectCheckout" && !peer.checkoutInspection)
       throw new RunnerCapabilityUnavailable(
         "Update the runner to inspect a session checkout."

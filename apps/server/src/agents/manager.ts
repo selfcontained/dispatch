@@ -1,6 +1,12 @@
+import { readAgentView } from "./checkout-runner.js";
+import type { CheckoutView } from "@dispatch/runner-protocol";
 import { AttentionHistory } from "../notifications/attention-history.js";
 import { matchingProjects } from "../projects/matching.js";
-import { attentionPreview, type Effort } from "@dispatch/shared";
+import {
+  attentionPreview,
+  type Effort,
+  type FileDiffResponse,
+} from "@dispatch/shared";
 import { validateAgentEffort } from "../shared/agent-effort.js";
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rm, stat, unlink } from "node:fs/promises";
@@ -1355,6 +1361,15 @@ export class AgentManager {
     this.streamRecorder.setCwd(id, updated.workspacePath ?? updated.cwd);
     this.eventBus.publish(updated);
     return updated;
+  }
+
+  viewCheckout(
+    agent: AgentRecord,
+    query: Extract<CheckoutView, { kind: "fileDiff" }>
+  ): Promise<FileDiffResponse | null>;
+  viewCheckout(agent: AgentRecord, query: CheckoutView): Promise<unknown>;
+  viewCheckout(agent: AgentRecord, query: CheckoutView): Promise<unknown> {
+    return readAgentView(agent, query, this.remote);
   }
 
   async inspectCheckout(

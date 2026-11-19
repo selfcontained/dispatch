@@ -443,6 +443,7 @@ function FileDiffContent({
   if (file.image) {
     return (
       <DiffImageView
+        key={file.image.revision}
         agentId={agentId}
         filePath={file.path}
         oldPath={file.oldPath}

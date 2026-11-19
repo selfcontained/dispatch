@@ -7,6 +7,7 @@ import path from "node:path";
 import { authHeaders, callMcpToolViaAPI, deleteAgentViaAPI } from "../helpers";
 import {
   enrollViaUi,
+  lane,
   newSettledTurn,
   runnerRow,
   settledTurns,
@@ -91,6 +92,93 @@ for (const placement of ["This Mac", "Linux runner"] as const) {
           "1500:1500",
           directory,
         ]);
+      }
+      // Leave both views mounted. Mutate outside the agent so ACP turn events
+      // and a navigation-triggered refetch cannot account for the update.
+      const files = await page.context().newPage();
+      const changes = await page.context().newPage();
+      const edit = (value: string) => {
+        if (remote) {
+          execFileSync(
+            "docker",
+            [
+              "exec",
+              "-i",
+              "-u",
+              "1500:1500",
+              state.runners.scratch.container,
+              "tee",
+              "/var/lib/runner/sessions/" + author + "/review-marker.txt",
+            ],
+            { input: value, stdio: ["pipe", "ignore", "pipe"] }
+          );
+        } else writeFileSync(path.join(tmp, "review-marker.txt"), value);
+      };
+      try {
+        await files.goto(
+          "/agents/" + author + "/files?files.path=review-marker.txt",
+          { waitUntil: "domcontentloaded" }
+        );
+        await changes.goto("/agents/" + author + "/changes", {
+          waitUntil: "domcontentloaded",
+        });
+        const visibleOnBoth = async (value: string, timeout: number) => {
+          await Promise.all(
+            [files, changes].map((tab) =>
+              expect(tab.getByText(value, { exact: false }).last()).toBeVisible(
+                { timeout }
+              )
+            )
+          );
+        };
+        await visibleOnBoth(marker, 20_000);
+        const live = randomUUID();
+        edit(live);
+        await visibleOnBoth(live, 9_000);
+        if (remote) {
+          await lane("scratch", "block");
+          try {
+            await expect
+              .poll(async () => (await runnerRow(request, "scratch"))?.status)
+              .toBe("offline");
+            await expect(
+              files.getByText(/Showing the last loaded preview/)
+            ).toBeVisible({ timeout: 12_000 });
+            await expect(
+              files.getByText(live, { exact: false }).last()
+            ).toBeVisible();
+            edit(marker);
+          } finally {
+            await lane("scratch", "allow");
+          }
+        } else edit(marker);
+        await visibleOnBoth(marker, 12_000);
+        for (const [label, tab] of [
+          ["files", files],
+          ["changes", changes],
+        ] as const) {
+          const screenshot = testInfo.outputPath(label + ".png");
+          await tab.screenshot({ path: screenshot });
+          await testInfo.attach(label, {
+            path: screenshot,
+            contentType: "image/png",
+          });
+        }
+        if (remote) {
+          await files.setViewportSize({ width: 390, height: 844 });
+          await expect(
+            files.getByText(marker, { exact: false }).last()
+          ).toBeVisible();
+          const screenshot = testInfo.outputPath("files-mobile.png");
+          await files.screenshot({ path: screenshot });
+          await testInfo.attach("Mobile runner file preview", {
+            path: screenshot,
+            contentType: "image/png",
+          });
+        }
+      } finally {
+        await files.close();
+        await changes.close();
       }
       const review = await callMcpToolViaAPI(
         request,

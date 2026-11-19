@@ -43,6 +43,12 @@ if (process.argv[2]?.startsWith("recovery-")) {
 } else if (process.argv[2] === "connect") {
   const { runRunnerConnect } = await import("./agents/remote/enrollment.js");
   await runRunnerConnect(process.argv.slice(3));
+} else if (process.argv[2] === "runner-watch-checkout") {
+  const { runCheckoutWatchCli } = await import("./agents/checkout-watch.js");
+  runCheckoutWatchCli(process.argv[3]!);
+} else if (process.argv[2] === "runner-view-checkout") {
+  const { runCheckoutViewCli } = await import("./agents/checkout-view-cli.js");
+  await runCheckoutViewCli(process.argv[3]!, process.argv[4] === "--managed");
 } else if (process.argv[2] === "runner-inspect-checkout") {
   const { runCheckoutInspectionCli } =
     await import("./agents/checkout-inspection.js");

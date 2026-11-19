@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
-import { constants } from "node:fs";
-import { lstat, open, type FileHandle } from "node:fs/promises";
+import { openRegularFile } from "../../files/open-workspace-file.js";
+import { realpath, type FileHandle } from "node:fs/promises";
 import path from "node:path";
 
 import { DIFF_IMAGE_MAX_BYTES, type DiffImageInfo } from "@dispatch/shared";
@@ -31,13 +31,14 @@ export type ImageSide = "old" | "new";
  * worth of images; paths absent from the tree simply don't come back, which is
  * exactly the "did not exist on this side" answer the caller wants.
  */
-async function treeBlobSizes(
+type ImageVersion = { size: number; revision: string };
+async function treeImages(
   worktreePath: string,
   ref: string,
   paths: string[],
   run: CommandRunner
-): Promise<Map<string, number>> {
-  const sizes = new Map<string, number>();
+): Promise<Map<string, ImageVersion>> {
+  const sizes = new Map<string, ImageVersion>();
   if (paths.length === 0) return sizes;
   const result = await run(
     "git",
@@ -52,20 +53,33 @@ async function treeBlobSizes(
     const meta = record.slice(0, tabIndex).trim().split(/\s+/);
     const size = Number.parseInt(meta[3] ?? "", 10);
     if (!Number.isFinite(size)) continue;
-    sizes.set(record.slice(tabIndex + 1), size);
+    sizes.set(record.slice(tabIndex + 1), { size, revision: meta[2]! });
   }
   return sizes;
 }
 
-async function worktreeFileSize(
+async function worktreeImageVersion(
   worktreePath: string,
   filePath: string
-): Promise<number | null> {
+): Promise<ImageVersion | null> {
   const resolved = resolveInsideWorktree(worktreePath, filePath);
   if (!resolved) return null;
   try {
-    const info = await lstat(resolved);
-    return info.isFile() ? info.size : null;
+    const handle = await openRegularFile(
+      await realpath(worktreePath),
+      path.relative(worktreePath, resolved).split(path.sep)
+    );
+    try {
+      const info = await handle.stat({ bigint: true });
+      return info.isFile()
+        ? {
+            size: Number(info.size),
+            revision: [info.ino, info.ctimeNs, info.mtimeNs].join("-"),
+          }
+        : null;
+    } finally {
+      await handle.close();
+    }
   } catch {
     return null;
   }
@@ -113,24 +127,28 @@ export async function collectImageInfo(
     .map((e) => e.path);
 
   const [oldSizes, headSizes] = await Promise.all([
-    treeBlobSizes(worktreePath, mergeBaseSha, oldPaths, run),
+    treeImages(worktreePath, mergeBaseSha, oldPaths, run),
     options.includeUncommitted
-      ? Promise.resolve(new Map<string, number>())
-      : treeBlobSizes(worktreePath, "HEAD", newPaths, run),
+      ? Promise.resolve(new Map<string, ImageVersion>())
+      : treeImages(worktreePath, "HEAD", newPaths, run),
   ]);
 
   for (const entry of entries) {
-    const oldSize =
+    const oldSide =
       entry.status === "added"
         ? null
         : (oldSizes.get(entry.oldPath ?? entry.path) ?? null);
-    let newSize: number | null = null;
+    let newSide: ImageVersion | null = null;
     if (entry.status !== "deleted") {
-      newSize = options.includeUncommitted
-        ? await worktreeFileSize(worktreePath, entry.path)
+      newSide = options.includeUncommitted
+        ? await worktreeImageVersion(worktreePath, entry.path)
         : (headSizes.get(entry.path) ?? null);
     }
-    info.set(entry.path, { oldSize, newSize });
+    info.set(entry.path, {
+      oldSize: oldSide?.size ?? null,
+      newSize: newSide?.size ?? null,
+      revision: [oldSide?.revision, newSide?.revision].join("."),
+    });
   }
 
   return info;
@@ -160,7 +178,7 @@ export async function readImageSide(
   if (fromWorktree) {
     const resolved = resolveInsideWorktree(worktreePath, filePath);
     if (!resolved) return { ok: false, reason: "not-found" };
-    return await readWorktreeImage(resolved, contentType);
+    return await readWorktreeImage(worktreePath, resolved, contentType);
   }
 
   const buffer = await gitShowBinary(worktreePath, `${ref}:${filePath}`);
@@ -180,12 +198,16 @@ export async function readImageSide(
  * two calls, which would read past both the containment check and the cap.
  */
 async function readWorktreeImage(
+  root: string,
   fullPath: string,
   contentType: string
 ): Promise<ImageBytesResult> {
   let handle: FileHandle | null = null;
   try {
-    handle = await open(fullPath, constants.O_RDONLY | constants.O_NOFOLLOW);
+    handle = await openRegularFile(
+      await realpath(root),
+      path.relative(root, fullPath).split(path.sep)
+    );
     const info = await handle.stat();
     if (!info.isFile()) return { ok: false, reason: "not-found" };
     if (info.size > DIFF_IMAGE_MAX_BYTES) {

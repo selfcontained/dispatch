@@ -124,12 +124,14 @@ describe("getAgentDiff image metadata", () => {
 
     const added = byPath.get("assets/added.png")!;
     expect(added.image).toEqual({
+      revision: expect.any(String),
       oldSize: null,
       newSize: expect.any(Number),
     });
 
     const deleted = byPath.get("assets/gone.png")!;
     expect(deleted.image).toEqual({
+      revision: expect.any(String),
       oldSize: expect.any(Number),
       newSize: null,
     });
@@ -141,6 +143,24 @@ describe("getAgentDiff image metadata", () => {
     expect(untracked.image?.newSize).toBeGreaterThan(0);
   });
 
+  it("refreshes a same-size image edit without invalidating unchanged images", async () => {
+    const read = async () =>
+      (await getAgentDiff(repo, "main"))!.files.find(
+        (f) => f.path === "assets/logo.png"
+      )!.image!;
+    const before = await read();
+    expect(await read()).toEqual(before);
+    const filename = path.join(repo, "assets/logo.png");
+    const original = await readFile(filename);
+    try {
+      await writeFile(filename, Buffer.alloc(before.newSize!, 7));
+      const after = await read();
+      expect(after.newSize).toEqual(before.newSize);
+      expect(after.revision).not.toBe(before.revision);
+    } finally {
+      await writeFile(filename, original);
+    }
+  });
   it("leaves non-image files without image metadata", async () => {
     const result = await getAgentDiff(repo, "main");
     for (const file of result!.files) {

@@ -30,6 +30,7 @@ import type { MacAppUpdateSnapshot } from "./mac-app-update-types.js";
  *     it across the boundary instead.
  */
 export type SharedUiEvent =
+  | { type: "agent.checkout_changed"; agentId: string }
   | { type: "attention.history_changed" }
   | {
       type: "routing.pending";

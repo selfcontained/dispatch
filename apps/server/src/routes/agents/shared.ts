@@ -49,6 +49,7 @@ export type AgentRouteDeps = {
     agentId: string,
     stream: NodeJS.WritableStream
   ) => () => void;
+  observeCheckout?: (agent: AgentRecord) => void;
   diffStatsRefresher: DiffStatsRefresher;
   onArchivedAgentsDeleted: (deletedIds: string[]) => void;
   onArchiveError: (agentId: string, error: unknown) => void;

@@ -137,6 +137,12 @@ The portable session types cover commands received by the host, journal replay,
 and prompt receipts. Dispatch-specific host replies and event payloads are
 defined in `apps/server/src/agents/acp/host-protocol.ts`.
 
+### Files and Changes
+
+When `ready.checkoutViews` is true, the service can send `viewCheckout` with the bound agent ID, workspace handle and a `CheckoutView` query. The runner resolves the checkout. Successful results carry a JSON string containing `{data}`. Use `isCheckoutViewData(query, data)` to validate the result. An expected read error carries `{status,error}`. The complete UTF-8 response is capped at 16 MiB.
+
+To receive changes, send `watchCheckout` with the same agent and workspace and open its channel. A one-byte pulse (ASCII `1`) signals that setup completed or that contents changed. Coalesce pulses and reread the current view. Release the channel when interest ends. After a transport disconnect, reopen the subscription and reread. Consumers that need durable turn history use session journal replay.
+
 ### Surviving a daemon restart
 
 On Linux, the runner's session supervisor records each new host's identity

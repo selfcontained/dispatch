@@ -41,6 +41,8 @@ export const DIFF_IMAGE_MAX_BYTES = 10 * 1024 * 1024;
  * deleted has no new side).
  */
 export type DiffImageInfo = {
+  /** Changes when either image side changes, including same-size working edits. */
+  revision?: string;
   oldSize: number | null;
   newSize: number | null;
 };

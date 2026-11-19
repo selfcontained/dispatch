@@ -1,3 +1,4 @@
+import { AgentError } from "../../agents/errors.js";
 import { SESSION_RENAME_ASK } from "../../shared/lib/agent-strings.js";
 import type { FastifyInstance } from "fastify";
 import { BLOCK_TEXT_MAX_CHARS } from "@dispatch/shared";
@@ -7,11 +8,9 @@ import {
   getEnabledAgentTypes,
 } from "../../agent-type-settings.js";
 import { shouldSuggestSessionRename } from "../../agents/launch-guidance.js";
-import { agentDiffTarget } from "../../agents/workspace-target.js";
 import { StreamServiceError } from "../../chat/service.js";
-import { getAgentDiff, getAgentFileDiff } from "../../shared/git/agent-diff.js";
-import { getAgentDiffImage, isImageFile } from "../../shared/git/diff-image.js";
-import { getDiffStats } from "../../shared/git/diff-stats.js";
+import { serveCheckoutView } from "./checkout-response.js";
+import { isImageFile } from "../../shared/git/diff-image.js";
 import type { AgentRouteDeps } from "./shared.js";
 
 /**
@@ -284,18 +283,22 @@ export async function registerAgentLifecycleRoutes(
       return reply.code(404).send({ error: "Agent not found." });
     }
 
+    deps.observeCheckout?.(agent);
     const includeUncommitted =
       (request.query as { includeUncommitted?: string }).includeUncommitted !==
       "false";
 
     if (!includeUncommitted) {
-      const target = agentDiffTarget(agent);
-      if (!target) return { diffStats: null };
-      return {
-        diffStats: await getDiffStats(target.path, target.baseRef, {
+      return serveCheckoutView(
+        agent,
+        {
+          kind: "stats",
+          baseBranch: null,
           includeUncommitted: false,
-        }),
-      };
+        },
+        deps.agentManager,
+        reply
+      );
     }
 
     // Await the signal so first-paint always sees a fresh value rather
@@ -317,33 +320,22 @@ export async function registerAgentLifecycleRoutes(
       return reply.code(404).send({ error: "Agent not found." });
     }
 
-    const target = agentDiffTarget(agent);
-    if (!target) {
-      return reply
-        .code(404)
-        .send({ error: "Agent has no associated worktree." });
-    }
-    const { path: worktreePath, baseRef } = target;
-
-    try {
-      const query = request.query as {
-        ignoreWhitespace?: string;
-        includeUncommitted?: string;
-      };
-      const ignoreWhitespace = query.ignoreWhitespace !== "false";
-      const includeUncommitted = query.includeUncommitted !== "false";
-      const result = await getAgentDiff(worktreePath, baseRef, undefined, {
-        ignoreWhitespace,
-        includeUncommitted,
-      });
-      if (!result) {
-        return { baseRef: null, files: [] };
-      }
-      return result;
-    } catch (error) {
-      deps.appLog.warn({ err: error, agentId: id }, "Agent diff failed");
-      return reply.code(500).send({ error: "Failed to compute diff." });
-    }
+    deps.observeCheckout?.(agent);
+    const query = request.query as {
+      ignoreWhitespace?: string;
+      includeUncommitted?: string;
+    };
+    return serveCheckoutView(
+      agent,
+      {
+        kind: "diff",
+        baseBranch: null,
+        ignoreWhitespace: query.ignoreWhitespace !== "false",
+        includeUncommitted: query.includeUncommitted !== "false",
+      },
+      deps.agentManager,
+      reply
+    );
   });
 
   app.get("/api/v1/agents/:id/diff/file", async (request, reply) => {
@@ -369,35 +361,18 @@ export async function registerAgentLifecycleRoutes(
       return reply.code(404).send({ error: "Agent not found." });
     }
 
-    const target = agentDiffTarget(agent);
-    if (!target) {
-      return reply
-        .code(404)
-        .send({ error: "Agent has no associated worktree." });
-    }
-    const { path: worktreePath, baseRef } = target;
-
-    try {
-      const ignoreWhitespace = query.ignoreWhitespace !== "false";
-      const includeUncommitted = query.includeUncommitted !== "false";
-      const result = await getAgentFileDiff(
-        worktreePath,
-        baseRef,
-        query.path,
-        undefined,
-        { ignoreWhitespace, includeUncommitted }
-      );
-      if (!result) {
-        return reply.code(404).send({ error: "File not found in diff." });
-      }
-      return result;
-    } catch (error) {
-      deps.appLog.warn(
-        { err: error, agentId: id, filePath: query.path },
-        "Agent file diff failed"
-      );
-      return reply.code(500).send({ error: "Failed to compute file diff." });
-    }
+    return serveCheckoutView(
+      agent,
+      {
+        kind: "fileDiff",
+        path: query.path,
+        baseBranch: null,
+        ignoreWhitespace: query.ignoreWhitespace !== "false",
+        includeUncommitted: query.includeUncommitted !== "false",
+      },
+      deps.agentManager,
+      reply
+    );
   });
 
   app.get("/api/v1/agents/:id/diff/image", async (request, reply) => {
@@ -428,39 +403,18 @@ export async function registerAgentLifecycleRoutes(
       return reply.code(404).send({ error: "Agent not found." });
     }
 
-    const target = agentDiffTarget(agent);
-    if (!target) {
-      return reply
-        .code(404)
-        .send({ error: "Agent has no associated worktree." });
-    }
-    const { path: worktreePath, baseRef } = target;
-    const includeUncommitted = query.includeUncommitted !== "false";
-
-    try {
-      const result = await getAgentDiffImage(
-        worktreePath,
-        baseRef,
-        query.path,
+    return serveCheckoutView(
+      agent,
+      {
+        kind: "image",
+        path: query.path,
         side,
-        { includeUncommitted }
-      );
-      if (!result.ok) {
-        return reply
-          .code(result.reason === "too-large" ? 413 : 404)
-          .send({ error: "Image not available." });
-      }
-
-      reply.header("X-Content-Type-Options", "nosniff");
-      reply.header("Cache-Control", "private, max-age=30");
-      return reply.type(result.contentType).send(result.buffer);
-    } catch (error) {
-      deps.appLog.warn(
-        { err: error, agentId: id, filePath: query.path },
-        "Agent diff image failed"
-      );
-      return reply.code(500).send({ error: "Failed to read image." });
-    }
+        baseBranch: null,
+        includeUncommitted: query.includeUncommitted !== "false",
+      },
+      deps.agentManager,
+      reply
+    );
   });
 
   app.post("/api/v1/agents/:id/diff/comment", async (request, reply) => {
@@ -511,22 +465,22 @@ export async function registerAgentLifecycleRoutes(
       return reply.code(404).send({ error: "Agent not found." });
     }
 
-    const target = agentDiffTarget(agent);
-    if (!target) {
-      return reply
-        .code(404)
-        .send({ error: "Agent has no associated worktree." });
-    }
-    const { path: worktreePath, baseRef } = target;
-
     let fileDiff;
     try {
-      fileDiff = await getAgentFileDiff(worktreePath, baseRef, body.filePath);
+      fileDiff = await deps.agentManager.viewCheckout(agent, {
+        kind: "fileDiff",
+        path: body.filePath,
+        baseBranch: null,
+        includeUncommitted: true,
+        ignoreWhitespace: false,
+      });
     } catch (error) {
       deps.appLog.warn(
         { err: error, agentId: id, filePath: body.filePath },
         "Diff comment: failed to get file diff"
       );
+      if (error instanceof AgentError)
+        return deps.handleAgentError(reply, error);
       return reply.code(500).send({ error: "Failed to retrieve diff." });
     }
 

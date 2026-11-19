@@ -1,5 +1,6 @@
 import { runnerHealthSampler } from "./health.js";
-import { execFile } from "node:child_process";
+import { SharedCheckoutWatches, childWatch } from "../checkout-watch.js";
+import { execFile, spawn } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { createConnection, isIP } from "node:net";
 import path from "node:path";
@@ -15,6 +16,7 @@ import {
   isOpaqueId,
   MANAGED_WORKSPACE,
   RUNNER_WIRE_VERSION,
+  MAX_CHECKOUT_VIEW_BYTES,
   wireFrames,
   parseServiceFrame,
   runnerRequestId,
@@ -276,6 +278,18 @@ export async function runRemoteRunner(filename: string) {
           samplingEngines = false;
         }
       };
+      const watches = new Map<string, () => void>();
+      const sharedWatches = new SharedCheckoutWatches((cwd, changed, closed) =>
+        childWatch(
+          spawn(
+            setpriv,
+            [...childArgs, ...selfCommand("runner-watch-checkout"), cwd],
+            { env, stdio: ["pipe", "pipe", "pipe"] }
+          ),
+          changed,
+          closed
+        )
+      );
       const channels = new Map<string, ReturnType<typeof createConnection>>();
       const timeout = setTimeout(() => socket.destroy(), 5000);
       socket.on("error", (error: Error) =>
@@ -283,6 +297,8 @@ export async function runRemoteRunner(filename: string) {
       );
       socket.on("close", () => {
         connection.abort();
+        for (const close of watches.values()) close();
+        watches.clear();
         clearTimeout(timeout);
         clearInterval(healthInterval);
         for (const channel of channels.values()) channel.destroy();
@@ -355,6 +371,30 @@ export async function runRemoteRunner(filename: string) {
         }
         if (socket.destroyed) return;
         switch (command.kind) {
+          case "watchCheckout": {
+            const cwd = await supervisor.checkoutDirectory(
+              agentId,
+              workspace,
+              target?.cwd
+            );
+            if (socket.destroyed) return;
+            if (watches.size >= 512)
+              throw new Error("Too many open checkout watches.");
+            watches.set(
+              id,
+              sharedWatches.subscribe(
+                cwd,
+                () => safeSend({ type: "data", id, data: "MQ==" }),
+                () => {
+                  watches.delete(id);
+                  safeSend({ type: "close", id });
+                }
+              )
+            );
+            result(true);
+            break;
+          }
+          case "viewCheckout":
           case "inspectCheckout": {
             const cwd = await supervisor.checkoutDirectory(
               agentId,
@@ -363,7 +403,16 @@ export async function runRemoteRunner(filename: string) {
             );
             const child = execute(
               setpriv,
-              [...childArgs, ...selfCommand("runner-inspect-checkout"), cwd],
+              [
+                ...childArgs,
+                ...selfCommand(
+                  command.kind === "viewCheckout"
+                    ? "runner-view-checkout"
+                    : "runner-inspect-checkout"
+                ),
+                cwd,
+                ...(managed ? ["--managed"] : []),
+              ],
               {
                 env: {
                   ...env,
@@ -371,7 +420,10 @@ export async function runRemoteRunner(filename: string) {
                   GH_PROMPT_DISABLED: "1",
                 },
                 timeout: 90_000,
-                maxBuffer: 4 * 1024 * 1024,
+                maxBuffer:
+                  command.kind === "viewCheckout"
+                    ? MAX_CHECKOUT_VIEW_BYTES
+                    : 4 * 1024 * 1024,
               }
             );
             child.child.stdin?.on("error", () => {}); // execFile reports early child failure.
@@ -496,8 +548,11 @@ export async function runRemoteRunner(filename: string) {
           if (channel && channel.writableLength > 32 * 1024 * 1024)
             channel.destroy();
           else channel?.write(Buffer.from(frame.data, "base64"));
-        } else if (frame.type === "close") channels.get(frame.id)?.destroy();
-        else socket.destroy();
+        } else if (frame.type === "close") {
+          watches.get(frame.id)?.();
+          watches.delete(frame.id);
+          channels.get(frame.id)?.destroy();
+        } else socket.destroy();
       });
       socket.once("secureConnect", () => {
         connectedAt = performance.now();
@@ -513,6 +568,7 @@ export async function runRemoteRunner(filename: string) {
           engineManagement: true,
           githubManagement: true,
           checkoutInspection: true,
+          checkoutViews: true,
           sharedWorktree: true,
         });
       });

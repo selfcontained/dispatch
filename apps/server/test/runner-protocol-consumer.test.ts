@@ -12,6 +12,7 @@ import {
   sessionCommandId,
   isOpaqueId,
   isCheckoutReply,
+  isCheckoutViewData,
   remotePlacement,
   workspaceLocator,
 } from "@dispatch/runner-protocol";
@@ -110,6 +111,7 @@ it("negotiates advertised v1 capabilities independently on each ready frame", ()
     engineManagement: true,
     githubManagement: true,
     checkoutInspection: true,
+    checkoutViews: true,
     sharedWorktree: true,
   };
   expect(parseReadyFrame(managed)).toEqual(managed);
@@ -136,6 +138,38 @@ it("validates runner-scoped GitHub command payloads", () => {
   expect(
     parse({ type: "pullRequestHead", owner: "org", repo: "repo", number: 1 })
   ).not.toBeNull();
+});
+
+it("validates the checkout view commands and matching results", () => {
+  const parse = (command: unknown) =>
+    parseServiceFrame({ type: "request", id: "read", command });
+  const session = { agentId: "author", workspace: "@session" };
+  const query = { kind: "preview", path: "src/example.ts" } as const;
+  expect(parse({ ...session, kind: "watchCheckout" })).not.toBeNull();
+  expect(parse({ ...session, kind: "viewCheckout", query })).not.toBeNull();
+  for (const path of ["/etc/config", "../elsewhere", "a/.git/config", "a//b"])
+    expect(
+      parse({ ...session, kind: "viewCheckout", query: { ...query, path } })
+    ).toBeNull();
+  expect(
+    isCheckoutViewData(query, { kind: "text", text: "contents", size: 8 })
+  ).toBe(true);
+  expect(
+    isCheckoutViewData(query, {
+      kind: "image",
+      src: "https://example.com",
+      size: 8,
+    })
+  ).toBe(false);
+  expect(
+    isCheckoutViewData(
+      { kind: "directory", path: "src" },
+      {
+        truncated: false,
+        entries: [{ kind: "file", name: "A", path: "other/A" }],
+      }
+    )
+  ).toBe(false);
 });
 
 it("validates checkout queries, results and borrowed launches", () => {

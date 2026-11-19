@@ -1,3 +1,4 @@
+import { isCheckoutView, type CheckoutView } from "./checkout-view.js";
 import {
   isCheckoutQuery,
   validBranch,
@@ -55,6 +56,8 @@ export type SessionLifecycleOperation = { agentId: string } & (
 
 export type SessionOperation =
   | SessionLifecycleOperation
+  | { agentId: string; kind: "watchCheckout" }
+  | { agentId: string; kind: "viewCheckout"; query: CheckoutView }
   | { agentId: string; kind: "inspectCheckout"; query: CheckoutQuery }
   | { agentId: string; kind: "repo" };
 
@@ -77,6 +80,7 @@ export type ReadyFrame = {
   engineManagement?: true;
   githubManagement?: true;
   checkoutInspection?: true;
+  checkoutViews?: true;
   sharedWorktree?: true;
 };
 
@@ -100,6 +104,7 @@ export function parseReadyFrame(value: unknown): ReadyFrame | null {
     type: "ready",
     version: RUNNER_WIRE_VERSION,
     workspaces: frame.workspaces,
+    ...(frame.checkoutViews === true && { checkoutViews: true }),
     ...(frame.checkoutInspection === true && { checkoutInspection: true }),
     ...(frame.sharedWorktree === true && { sharedWorktree: true }),
     ...(frame.health === true && { health: true }),
@@ -231,6 +236,10 @@ function isCommand(value: unknown): value is Command {
         (value.launch.useWorktreeOf === undefined ||
           value.agentId === value.launch.agentId)
       );
+    case "watchCheckout":
+      return true;
+    case "viewCheckout":
+      return isCheckoutView(value.query);
     case "inspectCheckout":
       return isCheckoutQuery(value.query);
     case "attach":

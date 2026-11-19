@@ -52,7 +52,7 @@ A native host can complete an accepted turn while its controller is down. A repl
 
 - The original field test failed when Dispatch passed a runner URL to local Git. The [placement parity test](../../e2e/remote-runner/owner-review.spec.ts) checks an unpublished commit and an untracked marker, reads it through each reviewer, archives the reviewer, and confirms the author retains access. Staged, unstaged and renamed path handling have [checkout-level tests](../../apps/server/test/checkout-inspection.test.ts). [Owner handler](../../apps/server/src/server/mcp-persona-handlers.ts) · [Changed-file collection](../../apps/server/src/personas/codeowners.ts) · [Review workflow](../code-owner-reviews.md)
 
-**Display Changes and worktree state.** **Gap.** Base/ref resolution, file lists, diff stats, individual hunks, image diffs, repo identity and dirty/unmerged state read the checkout. Dispatch owns diff comments, rendering and refresh timing. Background refreshers must use the same placement as foreground requests.
+**Display Changes and worktree state.** **Partial.** The runner supplies the diff, individual hunks, image bytes and stats from the session checkout. Dispatch stores comments and forwards checkout notifications to the browser. Repo identity and archive-time dirty/unmerged checks are separate operations.
 
 - Compare an untracked file, rename, image and dirty worktree against the same base. Handle a missing base without probing another machine. [Agent diff](../../apps/server/src/shared/git/agent-diff.ts) · [Agent routes](../../apps/server/src/routes/agents/lifecycle-routes.ts) · [Stats refresher](../../apps/server/src/agents/diff-stats-refresher.ts)
 
@@ -60,7 +60,7 @@ A native host can complete an accepted turn while its controller is down. A repl
 
 - From a fresh runner account, sign in to GitHub, clone a private test repo, fetch a fork PR, and verify the identity used for push and PR creation. Sign out and verify isolation from other runners. Local-only review must also work with no published branch. [Search](../../apps/server/src/routes/runner-repositories.ts) · [PR reader](../../apps/server/src/agents/pull-request-reader.ts) · [Refresh](../../apps/server/src/agents/pull-request-refresher.ts) · [Risk inputs](../../apps/server/src/agents/merge-risk/sources.ts)
 
-**Browse workspace files.** **Gap.** Directory listing, filtering/ignore rules, indexing and bounded text/image reads require the effective workspace. Preserve traversal, symlink, size and binary-file handling on the execution side.
+**Browse workspace files.** **Present.** Both placements serve directory listings, ignored-file filtering, filename searches and bounded previews from the session checkout. Open tabs refresh on runner notifications and reconcile after a disconnect.
 
 - Expand a directory and open a file in the runner checkout. A path escaping the workspace is refused there. [Workspace routes](../../apps/server/src/routes/agents/workspace-routes.ts) · [File explorer](../file-explorer.md)
 

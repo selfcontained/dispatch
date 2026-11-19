@@ -393,6 +393,22 @@ export async function getAgentFileDiff(
 
   if (entries.length === 0) {
     if (includeUncommitted) {
+      const listed = await run(
+        "git",
+        [
+          "-C",
+          worktreePath,
+          "--literal-pathspecs",
+          "ls-files",
+          "--others",
+          "--exclude-standard",
+          "-z",
+          "--",
+          filePath,
+        ],
+        { timeoutMs: GIT_TIMEOUT_MS, trimOutput: false }
+      );
+      if (!listed.stdout.split("\0").includes(filePath)) return null;
       const { lines, content } = await readUntrackedFile(
         worktreePath,
         filePath
