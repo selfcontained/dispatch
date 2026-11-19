@@ -63,6 +63,26 @@ const managedBinding = "\0managed";
 const readOptional = (file: string) =>
   readFile(file, "utf8").catch(missingPath);
 
+const logTailBytes = 2 * 1024;
+
+async function readLogTail(file: string) {
+  const handle = await open(file, "r").catch(missingPath);
+  if (!handle) return "";
+  try {
+    const { size } = await handle.stat();
+    const start = Math.max(0, size - logTailBytes);
+    const tail = Buffer.alloc(size - start);
+    const { bytesRead } = await handle.read(tail, 0, tail.length, start);
+    let first = 0;
+    // The window may start inside a UTF-8 code point.
+    while (start > 0 && first < bytesRead && (tail[first]! & 0xc0) === 0x80)
+      first++;
+    return tail.toString("utf8", first, bytesRead);
+  } finally {
+    await handle.close();
+  }
+}
+
 async function ownedDirectory(dir: string, mode: number) {
   const entry = await lstat(dir);
   if (
@@ -483,10 +503,8 @@ export async function createSessionSupervisor(
         throw new Error("Agent is not bound to this workspace");
       const identity = await readIdentity(key);
       const live = identity && processes.alive(identity);
-      const log = await readFile(path.join(logs, key), "utf8").catch(
-        missingPath
-      );
-      return `Guest agent host ${live ? "log" : "exited"}.${log ? "\n" + log.slice(-2048) : ""}`;
+      const log = await readLogTail(path.join(logs, key));
+      return `Guest agent host ${live ? "log" : "exited"}.${log ? "\n" + log : ""}`;
     },
     async isBound(agentId: string, workspace: string) {
       return bound(runnerStorageKey(agentId), workspace);

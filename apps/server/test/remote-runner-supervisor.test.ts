@@ -1,6 +1,7 @@
 import {
   mkdir,
   mkdtemp,
+  open,
   readFile,
   realpath,
   rm,
@@ -56,7 +57,7 @@ describe("runner session supervision", () => {
       if (processes.alive(record)) kernelHost = undefined;
     }),
     cleanup: vi.fn(async (_identity: SessionIdentity) => {}),
-    cleanupLegacy: vi.fn(async () => {}),
+    cleanupLegacy: vi.fn(async (_marker: string) => {}),
     socketInUse: vi.fn(() => false),
     spawn: vi.fn<SessionProcesses["spawn"]>(),
   } satisfies SessionProcesses;
@@ -211,6 +212,53 @@ describe("runner session supervision", () => {
     );
     expect(processes.spawn).not.toHaveBeenCalled();
     expect(processes.stop).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    {
+      config: ["configured", "other"],
+      workspace: "configured",
+      binding: "configured",
+    },
+    { config: [], workspace: "@session", binding: "\0managed" },
+  ])(
+    "reuses an idle legacy $workspace binding",
+    async ({ config, workspace, binding }) => {
+      const running = await start(config);
+      const bindings = path.join(state, "bindings");
+      await writeFile(path.join(bindings, agentId), binding, { mode: 0o600 });
+      if (config.length === 0) {
+        await writeFile(path.join(bindings, agentId + ".owner"), marker, {
+          mode: 0o600,
+        });
+        await writeFile(path.join(bindings, agentId + ".repository"), "null", {
+          mode: 0o600,
+        });
+      }
+      expect(await running.alive(agentId, workspace)).toBe(false);
+      await running.launch(launch(workspace), root);
+      expect(await running.alive(agentId, workspace)).toBe(true);
+      expect(processes.cleanupLegacy.mock.calls).toEqual(
+        config.length ? [] : [[marker]]
+      );
+    }
+  );
+
+  it("reads a bounded UTF-8 tail from a large guest log", async () => {
+    const running = await start(["configured"]);
+    await running.launch(launch("configured"), root);
+    const log = await open(path.join(state, "bindings", "logs", agentId), "r+");
+    const expected = "x".repeat(2044) + "✓";
+    try {
+      // A sparse offset beyond Node's whole-file read limit leaves the actual
+      // disk usage small. The 2 KiB tail starts within the preceding emoji.
+      await log.write("🚀" + expected, 2 ** 31, "utf8");
+    } finally {
+      await log.close();
+    }
+    expect(await running.log(agentId, "configured")).toBe(
+      "Guest agent host log.\n" + expected
+    );
   });
 
   it("leaves the durable record in place when cleanup fails", async () => {

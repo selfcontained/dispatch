@@ -2,10 +2,13 @@
 
 Use a supported Dispatch release and a Linux x86-64 or ARM64 host with systemd,
 the unified cgroup v2 hierarchy, and systemd's `freeze` and `thaw` commands.
-Install Git, procps (ps), findutils, Bash, curl, tar, util-linux (including `/usr/bin/setpriv` and `flock`),
+Install Git, GNU grep, procps (ps), findutils, Bash, curl, tar, util-linux (including `/usr/bin/setpriv` and `flock`),
 `useradd`, GNU coreutils, and a GitHub CLI with `gh attestation verify --bundle`.
 GitHub CLI verifies the published bundles without a GitHub login.
 The runner must be able to reach the HTTPS address in the pairing command.
+The published binary bundles Bun and runs on glibc-based Linux. Session
+supervision requires a kernel with pidfd signaling (introduced in Linux 5.1).
+For manual source runs, use Bun.
 
 1. In Dispatch, open **Settings → Connections → Remote runners** and run
    the installation command for the available release. The installer
@@ -116,7 +119,10 @@ ended. On an idle runner it retains the previous executable, atomically
 replaces the live executable, and checks that the replacement service survives
 startup. The runner's **Online** status in Settings confirms reconnection. If
 startup fails, the updater restores the previous executable and starts it.
-Updates preserve the enrollment, settings, and workload state. Updating before
+Updates preserve the enrollment, settings, configured workspace bindings and
+managed checkouts. Host recovery starts with sessions launched by a
+restart-aware supervisor. For a manual upgrade from an older runner, stop
+its sessions with the old supervisor before replacing it. Updating before
 connect keeps the service stopped.
 
 If an update was interrupted, run:

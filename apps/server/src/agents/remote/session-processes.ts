@@ -16,6 +16,10 @@ import type { WorkloadCommand } from "./session-storage.js";
 type Kernel = ReturnType<typeof linuxKernel>;
 
 function linuxKernel() {
+  if (!process.versions.bun)
+    throw new Error(
+      "Runner session supervision requires the Bun runtime. Use the compiled Dispatch Linux binary."
+    );
   // These two supported Linux architectures share the pidfd_send_signal ABI.
   if (process.arch !== "arm64" && process.arch !== "x64")
     throw new Error("Runner session supervision requires arm64 or x64 Linux.");
