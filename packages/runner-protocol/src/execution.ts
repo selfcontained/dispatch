@@ -1,3 +1,4 @@
+import { isCheckoutQuery, type CheckoutQuery } from "./checkout.js";
 import { MANAGED_WORKSPACE, isOpaqueId } from "./placement.js";
 import {
   type EngineInventoryEntry,
@@ -38,10 +39,12 @@ export type RemoteLaunch = {
   mcp?: ServiceMcp;
   resumeSessionId: string | null;
   repository?: RunnerRepository;
+  useWorktreeOf?: string;
 };
 
 export type SessionOperation = { agentId: string } & (
   | { kind: "launch"; launch: RemoteLaunch }
+  | { kind: "inspectCheckout"; query: CheckoutQuery }
   | { kind: "attach" | "alive" | "discard" | "log" | "repo" }
   | { kind: "stop"; force: boolean }
 );
@@ -61,6 +64,8 @@ export type ReadyFrame = {
   managedWorkspace?: true;
   /** Advertises support for the `"engine"` command and inventory push. */
   engineManagement?: true;
+  checkoutInspection?: true;
+  sharedWorktree?: true;
 };
 
 /** Accept v1 extension fields and enable optional features only when explicitly true. */
@@ -83,6 +88,8 @@ export function parseReadyFrame(value: unknown): ReadyFrame | null {
     type: "ready",
     version: RUNNER_WIRE_VERSION,
     workspaces: frame.workspaces,
+    ...(frame.checkoutInspection === true && { checkoutInspection: true }),
+    ...(frame.sharedWorktree === true && { sharedWorktree: true }),
     ...(frame.health === true && { health: true }),
     ...(frame.engineManagement === true && { engineManagement: true }),
     ...(frame.managedWorkspace === true && { managedWorkspace: true }),
@@ -207,6 +214,10 @@ function isRemoteLaunch(value: unknown): value is RemoteLaunch {
     (value.personaContext === undefined ||
       isNullableString(value.personaContext)) &&
     (value.mcp === undefined || isServiceMcp(value.mcp)) &&
+    (value.useWorktreeOf === undefined ||
+      (isOpaqueId(value.useWorktreeOf) &&
+        value.repository === undefined &&
+        value.useWorktreeOf !== value.agentId)) &&
     (value.repository === undefined || isRepository(value.repository))
   );
 }
@@ -221,6 +232,8 @@ function isCommand(value: unknown): value is Command {
   switch (value.kind) {
     case "launch":
       return isRemoteLaunch(value.launch);
+    case "inspectCheckout":
+      return isCheckoutQuery(value.query);
     case "attach":
     case "alive":
     case "discard":
