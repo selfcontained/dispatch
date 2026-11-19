@@ -31,6 +31,7 @@
         "apps/server/test/helpers/remote-acp-fixture.ts",
         "packages/runner-protocol/**",
         "docs/design/remote-runner-handoff.md",
+        "docs/design/runner-capability-inventory.md",
         "scripts/e2e-remote-runners.sh",
         "scripts/remote-runner/codex-offline-preflight.sh",
         "apps/server/src/shared/process/**",
