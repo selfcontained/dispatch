@@ -1,7 +1,7 @@
 import { readAgentView } from "./checkout-runner.js";
 import type { CheckoutView } from "@dispatch/runner-protocol";
 import { AttentionHistory } from "../notifications/attention-history.js";
-import { matchingProjects } from "../projects/matching.js";
+import { matchProjectIdentity } from "../projects/matching.js";
 import {
   attentionPreview,
   type Effort,
@@ -9,7 +9,7 @@ import {
 } from "@dispatch/shared";
 import { validateAgentEffort } from "../shared/agent-effort.js";
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, rm, stat, unlink } from "node:fs/promises";
+import { mkdir, readFile, rm, unlink } from "node:fs/promises";
 import path from "node:path";
 
 import type { FastifyBaseLogger } from "fastify";
@@ -22,10 +22,8 @@ import {
 } from "../diagnostics.js";
 import {
   assertSafeRefName,
-  createGitWorktree,
   GitWorktreeError,
   normalizeBaseBranch,
-  worktreePathSlug,
 } from "../shared/git/worktree.js";
 import { readWorktreeStatus } from "../shared/git/worktree-status.js";
 import { resolveFilesDir } from "../shared/files.js";
@@ -65,8 +63,8 @@ import {
   type ChatLaunchPost,
   shouldSuggestSessionRename,
 } from "./launch-guidance.js";
-import { prepareWorkspace } from "./workspace.js";
-import { resolveWorkspace } from "./workspace-target.js";
+import { createLocalRunner } from "./local-runner.js";
+import type { LaunchDirectory, WorktreeRequest } from "./workspace.js";
 import { createAgentMcpToken, createJobMcpToken } from "../auth.js";
 import type { SessionConfigOption } from "@agentclientprotocol/sdk";
 import type { AvailableCommand } from "@agentclientprotocol/sdk";
@@ -85,10 +83,11 @@ import {
   MANAGED_WORKSPACE,
   remotePlacement,
   type RunnerRepository,
+  type LaunchProgress,
   type CheckoutQuery,
   type CheckoutReply,
 } from "./remote/protocol.js";
-import { inferRepositoryUrl, parseRepository } from "./remote/repository.js";
+import { parseRepository } from "./remote/repository.js";
 import { RunnerRevoked, type RemoteRunnerService } from "./remote/service.js";
 import { buildLaunchEnv } from "./acp/launch-env.js";
 import { dispatchMcpUrl } from "./acp/mcp-url.js";
@@ -218,11 +217,8 @@ type PreparedCreateInputs = {
   model: string | undefined;
   effort: Effort | null;
   fullAccess: boolean;
-  useWorktree: boolean;
-  createNewBranch: boolean;
   normalizedBaseBranch: string | undefined;
-  worktreeBranchName: string | undefined;
-  worktreePathOverride: string | undefined;
+  worktree: WorktreeRequest | null;
   cliSessionId: string | null;
   initialSetupPhase: SetupPhase;
 };
@@ -360,6 +356,7 @@ export class AgentManager {
   private readonly diagnostics: DiagnosticsRecorder;
   private readonly eventBus: AgentEventBus;
   private readonly runtime: AgentRuntime;
+  private readonly localRunner: ReturnType<typeof createLocalRunner>;
   private readonly reconciler: Reconciler;
   private readonly streamStore: StreamStore;
   private readonly streamRecorder: StreamRecorder;
@@ -413,6 +410,7 @@ export class AgentManager {
     });
     this.logger = logger;
     this.config = config;
+    this.localRunner = createLocalRunner(config.agentStateRoot, logger);
     this.remote = options.remote;
     this.diagnostics = createDiagnosticsRecorder(logger);
     this.eventBus = createAgentEventBus(logger);
@@ -1343,7 +1341,7 @@ export class AgentManager {
     const agent = await this.getRequiredAgent(id);
     if (remotePlacement(agent.cwd))
       throw new AgentError("Runner workspace is fixed for this agent.", 409);
-    const resolved = await resolveWorkspace(agent, input);
+    const resolved = await this.localRunner.resolveWorkspace(agent, input);
 
     await this.pool.query(
       `UPDATE agents
@@ -1532,7 +1530,9 @@ export class AgentManager {
       if (!project) throw new AgentError("Project not found.", 404);
       if (repository && !repository.url) {
         try {
-          repository.url = await inferRepositoryUrl(project.repo_root);
+          repository.url = await this.localRunner.inferRepositoryUrl(
+            project.repo_root
+          );
         } catch (error) {
           throw new AgentError(errorMessage(error), 400);
         }
@@ -1541,25 +1541,36 @@ export class AgentManager {
       // A child can use its parent's worktree while retaining explicit membership.
       if (!placement && !input.parentAgentId) {
         input.cwd = project.repo_root;
-        // Plain-folder projects have no Git to branch from; only an explicit
-        // useWorktree: true should attempt (and fail) a worktree there.
-        if (input.useWorktree === undefined) {
-          const git = await probeGitContext(project.repo_root);
-          if (git.status === "ok" && git.value === null)
-            input.useWorktree = false;
-        }
       }
     }
+    const directory = placement
+      ? null
+      : await this.localRunner.resolveLaunchDirectory(input.cwd);
+    // A project selected explicitly can represent a folder without Git.
+    if (
+      directory?.git.status === "ok" &&
+      directory.git.value === null &&
+      input.projectId &&
+      !input.parentAgentId &&
+      input.useWorktree === undefined
+    )
+      input.useWorktree = false;
     // Resolve only new, unscoped launches. Membership inherited from a parent
     // (including no project) and explicit/template selections remain authoritative.
-    if (!placement && !input.projectId && !input.parentAgentId) {
+    if (directory && !input.projectId && !input.parentAgentId) {
       const projects = (
         await this.pool.query(
           'SELECT id, name, repo_root AS "repoRoot" FROM projects'
         )
       ).rows;
-      const cwd = await this.validateWorkingDirectory(input.cwd);
-      const matches = await matchingProjects(cwd, projects);
+      const matches = await matchProjectIdentity(
+        directory.canonicalPath,
+        projects.length
+          ? await this.localRunner.resolveProjectRoot(directory.canonicalPath)
+          : directory.canonicalPath,
+        projects,
+        (candidate) => this.localRunner.canonicalPath(candidate)
+      );
       if (matches.length > 1)
         throw new AgentError(
           `Multiple projects match this directory. Choose a project: ${matches.map((p) => `${p.name} (${p.id})`).join(", ")}.`,
@@ -1595,7 +1606,10 @@ export class AgentManager {
         "Enter a repository URL or select a project with a repository origin.",
         400
       );
-    const p = await this.prepareCreateInputs(input);
+    const p = await this.prepareCreateInputs(
+      input,
+      directory?.cwd ?? input.cwd
+    );
     await this.insertAgentRecord(
       p,
       input,
@@ -1662,14 +1676,10 @@ export class AgentManager {
 
     const launch = this.launchAgent({
       id: p.id,
-      name: p.name,
       type: p.type,
       originalCwd: p.originalCwd,
-      useWorktree: p.useWorktree,
-      createNewBranch: p.createNewBranch,
-      worktreeBranchName: p.worktreeBranchName,
-      normalizedBaseBranch: p.normalizedBaseBranch,
-      worktreePathOverride: p.worktreePathOverride,
+      directory,
+      worktree: p.worktree,
       initialPrompt: input.initialPrompt,
       initialFiles,
       resolveLaunchPost,
@@ -1837,12 +1847,10 @@ export class AgentManager {
   }
 
   private async prepareCreateInputs(
-    input: CreateAgentInput
+    input: CreateAgentInput,
+    originalCwd: string
   ): Promise<PreparedCreateInputs> {
-    const placement = remotePlacement(input.cwd);
-    const originalCwd = placement
-      ? input.cwd
-      : await this.validateWorkingDirectory(input.cwd);
+    const placement = remotePlacement(originalCwd);
     // Remember the icon of the directory the user chose, before a managed
     // worktree can change the agent's effective cwd.
     if (!placement) await getDirectoryIconPath(this.pool, originalCwd);
@@ -1891,33 +1899,19 @@ export class AgentManager {
       }
       throw err;
     }
-    if (useWorktree) {
-      normalizedBaseBranch = normalizedBaseBranch ?? "main";
-    }
-
-    let worktreeBranchName: string | undefined;
-    let worktreePathOverride: string | undefined;
-    if (useWorktree) {
-      if (createNewBranch) {
-        const slugName = name
-          .toLowerCase()
-          .replace(/[^a-z0-9]+/g, "-")
-          .replace(/^-+|-+$/g, "");
-        worktreeBranchName =
-          normalizedWorktreeBranch || `${id}/${slugName || "work"}`;
-      } else {
-        worktreeBranchName = normalizedBaseBranch || "main";
-      }
-      const worktreeLocation = input.worktreeLocation ?? "sibling";
-      if (worktreeLocation === "nested") {
-        worktreePathOverride = path.join(
-          originalCwd,
-          ".dispatch",
-          "worktrees",
-          worktreePathSlug(worktreeBranchName, { createNewBranch })
-        );
-      }
-    }
+    const slugName = name
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "");
+    const worktree = useWorktree
+      ? {
+          name,
+          branch: normalizedWorktreeBranch || `${id}/${slugName || "work"}`,
+          createNewBranch,
+          baseBranch: normalizedBaseBranch,
+          location: input.worktreeLocation,
+        }
+      : null;
 
     // The engine mints the ACP session id at launch; a caller-supplied one
     // is a session to resume.
@@ -1935,11 +1929,8 @@ export class AgentManager {
       model: input.model,
       effort,
       fullAccess,
-      useWorktree,
-      createNewBranch,
       normalizedBaseBranch,
-      worktreeBranchName,
-      worktreePathOverride,
+      worktree,
       cliSessionId,
       initialSetupPhase,
     };
@@ -1992,14 +1983,10 @@ export class AgentManager {
    */
   private async launchAgent(opts: {
     id: string;
-    name: string;
     type: AgentType;
     originalCwd: string;
-    useWorktree: boolean;
-    createNewBranch: boolean;
-    worktreeBranchName: string | undefined;
-    normalizedBaseBranch: string | undefined;
-    worktreePathOverride: string | undefined;
+    directory: LaunchDirectory | null;
+    worktree: WorktreeRequest | null;
     initialPrompt: string | undefined;
     initialFiles: SeededFile[];
     /** Writes the launch post once the workspace is ready; see createAgent. */
@@ -2012,62 +1999,32 @@ export class AgentManager {
     const { id } = opts;
     try {
       await opts.preparePersona?.();
-      const workspace = remotePlacement(opts.originalCwd)
-        ? {
-            effectiveCwd: opts.originalCwd,
-            worktreePath: null,
-            worktreeBranch: null,
-          }
-        : await prepareWorkspace(
-            {
-              agentName: opts.name,
-              originalCwd: opts.originalCwd,
-              useWorktree: opts.useWorktree,
-              createNewBranch: opts.createNewBranch,
-              worktreeBranchName: opts.worktreeBranchName,
-              baseBranch: opts.normalizedBaseBranch,
-              worktreePathOverride: opts.worktreePathOverride,
-              onStepResult: async (progress) => {
-                await this.recordStartup(() =>
-                  this.launchContextRecorder?.recordStartupStep?.({
-                    agentId: id,
-                    label: "Installing dependencies",
-                    ...progress,
-                  })
-                );
-              },
-              onPhase: async (phase) => {
-                await this.setSetupPhase(id, phase);
-                await this.reportStartupPhase(id, phase, opts.type);
-              },
-            },
-            this.logger
-          );
-      await this.pool.query(
-        `UPDATE agents SET cwd = $2, worktree_path = $3, worktree_branch = $4, updated_at = NOW() WHERE id = $1`,
-        [
-          id,
-          workspace.effectiveCwd,
-          workspace.worktreePath,
-          workspace.worktreeBranch,
-        ]
-      );
+      const progress = this.workspaceProgress(id, opts.type);
+      const workspace = opts.directory
+        ? await this.localRunner.prepareWorkspace(
+            id,
+            opts.directory,
+            opts.worktree,
+            progress
+          )
+        : null;
+      if (workspace) await this.storePreparedWorkspace(id, workspace);
       const agent = await this.getRequiredAgent(id);
       const chatLaunchPost = await opts.resolveLaunchPost();
       await opts.beforeLaunch?.(id);
       const { sessionId } = await this.startHost(agent, {
         resumeSessionId: null,
         jobRunId: opts.jobRunId,
+        recordWorkspaceProgress: true,
       });
       await this.pool.query(
         `UPDATE agents SET status = 'running', cli_session_id = $2, setup_phase = NULL, updated_at = NOW() WHERE id = $1`,
         [id, sessionId]
       );
-      await this.populateGitContext(id);
       await this.recordStartup(() =>
         this.launchContextRecorder?.recordStartupDone?.({
           agentId: id,
-          cwd: workspace.effectiveCwd,
+          cwd: workspace?.effectiveCwd ?? opts.originalCwd,
         })
       );
 
@@ -2109,6 +2066,48 @@ export class AgentManager {
       }
       await this.failCreate(id, error);
     }
+  }
+
+  private workspaceProgress(
+    id: string,
+    type: AgentType
+  ): Parameters<typeof this.localRunner.resumeWorkspace>[1] {
+    return async (step) => {
+      if ("status" in step && step.status) {
+        await this.recordStartup(() =>
+          this.launchContextRecorder?.recordStartupStep?.({
+            agentId: id,
+            label: "Installing dependencies",
+            ...step,
+          })
+        );
+      } else {
+        await this.setSetupPhase(id, step.phase);
+        await this.reportStartupPhase(id, step.phase, type);
+      }
+    };
+  }
+
+  private async storePreparedWorkspace(
+    id: string,
+    workspace: Awaited<ReturnType<typeof this.localRunner.prepareWorkspace>>
+  ) {
+    const git = workspace.git;
+    await this.pool.query(
+      `UPDATE agents SET cwd = $2, worktree_path = $3, worktree_branch = $4,
+        base_branch = COALESCE($5, base_branch), git_context = $6::jsonb,
+        git_context_stale = $7, git_context_updated_at = NOW(), updated_at = NOW()
+       WHERE id = $1`,
+      [
+        id,
+        workspace.effectiveCwd,
+        workspace.worktreePath,
+        workspace.worktreeBranch,
+        workspace.baseBranch,
+        git.status === "ok" && git.value ? JSON.stringify(git.value) : null,
+        git.status === "error",
+      ]
+    );
   }
 
   /** Record setup progress in the stream's workspace block. */
@@ -2164,6 +2163,7 @@ export class AgentManager {
       resumeSessionId: string | null;
       jobRunId: string | undefined;
       previousJobFinished?: boolean;
+      recordWorkspaceProgress?: boolean;
     }
   ): Promise<{ sessionId: string; resumed: boolean }> {
     if (!isAcpEngine(agent.type)) {
@@ -2286,37 +2286,75 @@ export class AgentManager {
           )
         ).rows[0]
       : undefined;
-    return this.runtime.launch({
-      agentId: agent.id,
-      repository: binding?.runner_repository ?? undefined,
-      ...(binding?.runner_worktree_owner && {
-        useWorktreeOf: binding.runner_worktree_owner,
-      }),
-      cwd: agent.cwd,
-      placement,
-      engine: agent.type,
-      fullAccess: agent.type === "opencode" || agent.fullAccess,
-      bins,
-      model: agent.model ?? null,
-      effort: agent.effort ?? null,
-      systemPrompt,
-      personaContext: extractPersonaContext(agent.agentArgs ?? []),
-      mcp: mcpUrl
-        ? {
-            url: mcpUrl,
-            token: opts.jobRunId
-              ? createJobMcpToken(
-                  this.config.authToken,
-                  opts.jobRunId,
-                  agent.id
-                )
-              : createAgentMcpToken(this.config.authToken, agent.id),
-          }
-        : undefined,
-      env,
-      pathPrefix,
-      resumeSessionId: opts.resumeSessionId,
-    });
+    let progressWrites = Promise.resolve();
+    const onWorkspaceProgress = placement
+      ? (step: LaunchProgress) => {
+          if (!opts.recordWorkspaceProgress) return;
+          const write = this.workspaceProgress(agent.id, agent.type);
+          progressWrites = progressWrites
+            .then(async () => {
+              if (step.phase === "workspace") {
+                if (binding?.runner_repository)
+                  await write({ phase: "worktree" });
+              } else if (step.phase === "ready") {
+                await write({ phase: "session" });
+              } else if ("status" in step) {
+                await write({
+                  phase: "deps",
+                  status: step.status,
+                  ...(step.status === "failed" && {
+                    detail:
+                      "The runner could not install dependencies. Launch is continuing.",
+                  }),
+                });
+              } else {
+                await write({ phase: "deps" });
+              }
+            })
+            .catch((err) =>
+              this.logger.warn(
+                { err, agentId: agent.id },
+                "Could not record runner preparation"
+              )
+            );
+        }
+      : undefined;
+    try {
+      return await this.runtime.launch({
+        agentId: agent.id,
+        repository: binding?.runner_repository ?? undefined,
+        ...(binding?.runner_worktree_owner && {
+          useWorktreeOf: binding.runner_worktree_owner,
+        }),
+        cwd: agent.cwd,
+        placement,
+        engine: agent.type,
+        fullAccess: agent.type === "opencode" || agent.fullAccess,
+        bins,
+        model: agent.model ?? null,
+        effort: agent.effort ?? null,
+        systemPrompt,
+        personaContext: extractPersonaContext(agent.agentArgs ?? []),
+        mcp: mcpUrl
+          ? {
+              url: mcpUrl,
+              token: opts.jobRunId
+                ? createJobMcpToken(
+                    this.config.authToken,
+                    opts.jobRunId,
+                    agent.id
+                  )
+                : createAgentMcpToken(this.config.authToken, agent.id),
+            }
+          : undefined,
+        env,
+        pathPrefix,
+        resumeSessionId: opts.resumeSessionId,
+        ...(onWorkspaceProgress && { onWorkspaceProgress }),
+      });
+    } finally {
+      await progressWrites;
+    }
   }
 
   /**
@@ -2377,7 +2415,7 @@ export class AgentManager {
   }
 
   private async startAgentClaimed(id: string): Promise<AgentRecord> {
-    const agent = await this.getRequiredAgent(id);
+    let agent = await this.getRequiredAgent(id);
     if (await this.runtime.attach(id)) {
       this.streamRecorder.setCwd(id, agent.workspacePath ?? agent.cwd);
       await this.setAgentStatus(id, "running", null);
@@ -2387,6 +2425,16 @@ export class AgentManager {
 
     await this.setAgentStatus(id, "creating", null);
     try {
+      if (!remotePlacement(agent.cwd) && !agent.worktreePath) {
+        const workspace = await this.localRunner.resumeWorkspace(
+          id,
+          this.workspaceProgress(id, agent.type)
+        );
+        if (workspace) {
+          await this.storePreparedWorkspace(id, workspace);
+          agent = await this.getRequiredAgent(id);
+        }
+      }
       // A stopped job still needs its run-scoped tools and launch rules when
       // its host is recreated. Reattaching above keeps the existing context.
       const jobRun = await this.pool.query<{ id: string }>(
@@ -2399,7 +2447,7 @@ export class AgentManager {
         previousJobFinished: Boolean(agent.jobRun) && !jobRun.rows.length,
       });
       await this.pool.query(
-        `UPDATE agents SET status = 'running', cli_session_id = $2, last_error = NULL, updated_at = NOW() WHERE id = $1`,
+        `UPDATE agents SET status = 'running', cli_session_id = $2, last_error = NULL, setup_phase = NULL, updated_at = NOW() WHERE id = $1`,
         [id, sessionId]
       );
       // Re-populate gitContext on every restart so drift from external git
@@ -2634,28 +2682,6 @@ export class AgentManager {
   /** The agent's working directory: the worktree when it has one. */
   async resolveRuntimeCwd(agent: AgentRecord): Promise<string> {
     return agent.cwd;
-  }
-
-  private async validateWorkingDirectory(rawCwd: string): Promise<string> {
-    const cwd = rawCwd.startsWith("~/")
-      ? path.join(process.env.HOME ?? "/", rawCwd.slice(2))
-      : rawCwd === "~"
-        ? (process.env.HOME ?? "/")
-        : rawCwd;
-
-    if (!path.isAbsolute(cwd)) {
-      throw new AgentError("Working directory must be an absolute path.", 400);
-    }
-
-    const directory = await stat(cwd).catch(() => null);
-    if (!directory || !directory.isDirectory()) {
-      throw new AgentError(
-        "Working directory does not exist or is not a directory.",
-        400
-      );
-    }
-
-    return cwd;
   }
 
   private async getRequiredAgent(id: string): Promise<AgentRecord> {

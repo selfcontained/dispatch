@@ -1,3 +1,4 @@
+import type { RuntimeLaunch } from "../runtime.js";
 import { sameConversation, type PromptConversation } from "@dispatch/shared";
 import { appendFile, mkdir, rm } from "node:fs/promises";
 import path from "node:path";
@@ -292,10 +293,11 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
   function requestSession(
     placement: Placement | null | undefined,
     operation: SessionLifecycleOperation,
-    settings?: LocalLaunchSettings
+    settings?: LocalLaunchSettings,
+    onProgress?: RuntimeLaunch["onWorkspaceProgress"]
   ): Promise<SessionResult> {
     return placement
-      ? remoteService().requestSession(placement, operation)
+      ? remoteService().requestSession(placement, operation, onProgress)
       : local.requestSession(operation, settings);
   }
 
@@ -1040,11 +1042,20 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
     },
 
     async launch(input) {
-      const { placement, cwd, bins, env, pathPrefix, ...launch } = input;
+      const {
+        placement,
+        cwd,
+        bins,
+        env,
+        pathPrefix,
+        onWorkspaceProgress,
+        ...launch
+      } = input;
       const { launchExited } = await requestSession(
         placement,
         { kind: "launch", agentId: input.agentId, launch },
-        { cwd, bins, env, pathPrefix }
+        { cwd, bins, env, pathPrefix },
+        onWorkspaceProgress
       );
       try {
         const entry = await connect(

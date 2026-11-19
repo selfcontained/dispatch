@@ -46,6 +46,8 @@ export type RemoteLaunch = {
   resumeSessionId: string | null;
   repository?: RunnerRepository;
   useWorktreeOf?: string;
+  /** Opt in to workspace preparation and request-scoped progress. */
+  prepareWorkspace?: true;
 };
 
 export type SessionLifecycleOperation = { agentId: string } & (
@@ -85,6 +87,7 @@ export type ReadyFrame = {
   checkoutInspection?: true;
   checkoutViews?: true;
   sharedWorktree?: true;
+  workspacePreparation?: true;
 };
 
 /** Accept v1 extension fields and enable optional features only when explicitly true. */
@@ -110,6 +113,7 @@ export function parseReadyFrame(value: unknown): ReadyFrame | null {
     ...(frame.checkoutViews === true && { checkoutViews: true }),
     ...(frame.checkoutInspection === true && { checkoutInspection: true }),
     ...(frame.sharedWorktree === true && { sharedWorktree: true }),
+    ...(frame.workspacePreparation === true && { workspacePreparation: true }),
     ...(frame.health === true && { health: true }),
     ...(frame.engineManagement === true && { engineManagement: true }),
     ...(frame.pullRequestEvidence === true && { pullRequestEvidence: true }),
@@ -137,11 +141,43 @@ export type ResultFrame = {
   code?: "host-gone";
 };
 
+export type LaunchProgress =
+  | { phase: "workspace" | "dependencies" | "ready" }
+  | { phase: "dependencies"; status: "done" | "failed" };
+
+export type LaunchProgressFrame = {
+  type: "launch_progress";
+  id: string;
+  progress: LaunchProgress;
+};
+
+export function parseLaunchProgress(
+  value: unknown
+): LaunchProgressFrame | null {
+  if (
+    !isRecord(value) ||
+    value.type !== "launch_progress" ||
+    !isOpaqueId(value.id) ||
+    !isRecord(value.progress)
+  )
+    return null;
+  const { phase, status } = value.progress;
+  if (phase === "dependencies" && (status === "done" || status === "failed"))
+    return { type: value.type, id: value.id, progress: { phase, status } };
+  if (
+    status === undefined &&
+    (phase === "workspace" || phase === "dependencies" || phase === "ready")
+  )
+    return { type: value.type, id: value.id, progress: { phase } };
+  return null;
+}
+
 export type RunnerFrame =
   | ReadyFrame
   | { type: "health"; sample: RunnerHealth }
   | { type: "engine_inventory"; entries: EngineInventoryEntry[] }
   | ResultFrame
+  | LaunchProgressFrame
   | ChannelFrame;
 
 export type Frame = ServiceFrame | RunnerFrame;
@@ -219,6 +255,7 @@ function isRemoteLaunch(value: unknown): value is RemoteLaunch {
     (value.effort === undefined || isNullableString(value.effort)) &&
     (value.personaContext === undefined ||
       isNullableString(value.personaContext)) &&
+    (value.prepareWorkspace === undefined || value.prepareWorkspace === true) &&
     (value.mcp === undefined || isServiceMcp(value.mcp)) &&
     (value.useWorktreeOf === undefined ||
       (isOpaqueId(value.useWorktreeOf) &&

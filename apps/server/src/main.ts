@@ -46,6 +46,14 @@ if (process.argv[2]?.startsWith("recovery-")) {
 } else if (process.argv[2] === "runner-watch-checkout") {
   const { runCheckoutWatchCli } = await import("./agents/checkout-watch.js");
   runCheckoutWatchCli(process.argv[3]!);
+} else if (process.argv[2] === "runner-prepare-dependencies") {
+  const { installWorkspaceDependencies } =
+    await import("./agents/workspace-prep.js");
+  const installed = await installWorkspaceDependencies(process.argv[3]!, {
+    info() {},
+    warn() {},
+  });
+  if (!installed) process.exitCode = 1;
 } else if (process.argv[2] === "runner-view-checkout") {
   const { runCheckoutViewCli } = await import("./agents/checkout-view-cli.js");
   await runCheckoutViewCli(process.argv[3]!, process.argv[4] === "--managed");

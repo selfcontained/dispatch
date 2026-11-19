@@ -22,6 +22,7 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, "../..");
 const RUNNERS = ["alpha", "beta", "scratch"];
 const WORKSPACE = "proof"; // identical handle on every runner, on purpose
+const WORKSPACE_DIR = "/opt/dispatch-guest-proof";
 // Colima/Docker Desktop share $HOME, not /tmp, with the VM; bind mounts must live here.
 export const base =
   process.env.REMOTE_E2E_ROOT ??
@@ -144,7 +145,7 @@ async function up(run) {
             ? {}
             : {
                 [WORKSPACE]: {
-                  cwd: `/opt/dispatch-guest-${name}-proof`,
+                  cwd: WORKSPACE_DIR,
                   repoTool: ["/bin/sh", "-c", "echo ran > repo-op"],
                 },
               },
@@ -159,7 +160,7 @@ async function up(run) {
     state.runners[name] = {
       container: `dispatch-remote-e2e-${id}-${name}`,
       proxyPort,
-      workspaceDir: `/opt/dispatch-guest-${name}-proof`,
+      workspaceDir: WORKSPACE_DIR,
     };
   }
   const child = spawn(

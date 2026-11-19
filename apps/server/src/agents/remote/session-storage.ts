@@ -32,6 +32,19 @@ function worktreePaths(list: string): string[] {
     );
 }
 
+type CheckoutPlan = {
+  commit: string;
+  fastForward: boolean;
+  reviewBase?: string;
+  trackRemote: boolean;
+};
+
+type CheckoutJournal = {
+  read: () => Promise<CheckoutPlan | null>;
+  write: (plan: CheckoutPlan) => Promise<void>;
+  clear: () => Promise<void>;
+};
+
 // Serialize provisioning and removal for each shared bare repository.
 export class RunnerRepositories {
   private readonly pending = new Map<string, Promise<unknown>>();
@@ -65,7 +78,8 @@ export class RunnerRepositories {
 
   async prepare(
     session: string,
-    repository: RunnerRepository
+    repository: RunnerRepository,
+    journal: CheckoutJournal
   ): Promise<string> {
     const { url, checkout } = repository;
     const cwd = path.join(session, "checkout");
@@ -79,6 +93,34 @@ export class RunnerRepositories {
       const git = (...args: string[]) =>
         this.git(`--git-dir=${cache}`, ...args);
       await this.git("init", "--quiet", "--bare", "--template=", cache);
+      const branch = checkout.branch;
+      const finish = async (plan: CheckoutPlan) => {
+        try {
+          if (plan.fastForward)
+            await this.git("-C", cwd, "merge", "--ff-only", "--", plan.commit);
+          if (plan.reviewBase)
+            await git(
+              "config",
+              "--replace-all",
+              `branch.${branch}.dispatchReviewBase`,
+              plan.reviewBase
+            );
+          if (plan.trackRemote)
+            await git(
+              "branch",
+              `--set-upstream-to=refs/remotes/origin/${branch}`,
+              "--",
+              branch
+            );
+        } catch (error) {
+          // Keep the worktree reserved. A repeat launch can finish this plan
+          // without deleting the checkout or mistaking its branch for someone else's.
+          throw new Error("Could not update the runner session branch.", {
+            cause: error,
+          });
+        }
+        await journal.clear();
+      };
       const worktrees = worktreePaths(
         await git("worktree", "list", "--porcelain", "-z")
       );
@@ -89,6 +131,21 @@ export class RunnerRepositories {
           ).trimEnd() !== cwd
         )
           throw new Error("The runner session checkout is unavailable.");
+        const plan = await journal.read();
+        if (plan) {
+          const current = await this.git(
+            "-C",
+            cwd,
+            "symbolic-ref",
+            "--short",
+            "HEAD"
+          );
+          if (current.trim() !== branch)
+            throw new Error(
+              "The runner session checkout changed during preparation."
+            );
+          await finish(plan);
+        }
         return cwd;
       }
 
@@ -133,7 +190,6 @@ export class RunnerRepositories {
         throw new Error("Could not fetch the runner repository.");
       });
 
-      const branch = checkout.branch;
       const refCommit = async (ref: string) => {
         const output = await git(
           "for-each-ref",
@@ -195,34 +251,22 @@ export class RunnerRepositories {
       const args = local
         ? ["--", cwd, branch]
         : ["--no-track", "-b", branch, "--", cwd, commit];
+      const plan: CheckoutPlan = {
+        commit,
+        fastForward: needsFastForward,
+        reviewBase:
+          checkout.kind === "new"
+            ? (checkout.base ?? defaultBranch)
+            : undefined,
+        trackRemote: checkout.kind !== "new" && Boolean(remote),
+      };
+      await journal.write(plan);
       await git("worktree", "add", ...args).catch(() => {
         throw new Error(
           "Could not create the session checkout. The branch may already be occupied."
         );
       });
-      try {
-        if (needsFastForward)
-          await this.git("-C", cwd, "merge", "--ff-only", "--", commit);
-        if (checkout.kind === "new")
-          await git(
-            "config",
-            "--replace-all",
-            `branch.${branch}.dispatchReviewBase`,
-            checkout.base ?? defaultBranch
-          );
-        if (checkout.kind !== "new" && remote)
-          await git(
-            "branch",
-            `--set-upstream-to=refs/remotes/origin/${branch}`,
-            "--",
-            branch
-          );
-      } catch (error) {
-        await git("worktree", "remove", "--force", "--", cwd);
-        throw new Error("Could not update the runner session branch.", {
-          cause: error,
-        });
-      }
+      await finish(plan);
       return cwd;
     });
   }

@@ -244,6 +244,18 @@ export async function runRemoteRunner(filename: string) {
     env,
     workspaces: new Set(configuredHandles),
     asWorkload,
+    async prepareDependencies(cwd) {
+      await execute(
+        setpriv,
+        [...childArgs, ...selfCommand("runner-prepare-dependencies"), cwd],
+        {
+          env: { ...env, GIT_TERMINAL_PROMPT: "0", GH_PROMPT_DISABLED: "1" },
+          timeout: 135_000,
+          maxBuffer: 8_192,
+        }
+      );
+      return true;
+    },
     hostCommand: () => [setpriv, ...childArgs, ...hostCommand()],
   });
 
@@ -422,7 +434,14 @@ export async function runRemoteRunner(filename: string) {
         const result = (value?: string | boolean) =>
           safeSend({ type: "result", id, value });
         if (command.kind === "launch") {
-          await supervisor.launch(command, target?.cwd);
+          await supervisor.launch(
+            command,
+            target?.cwd,
+            command.launch.prepareWorkspace
+              ? (progress) =>
+                  safeSend({ type: "launch_progress", id, progress })
+              : undefined
+          );
           result(true);
           return;
         }
@@ -628,6 +647,7 @@ export async function runRemoteRunner(filename: string) {
           pullRequestWatch: true,
           pullRequestEvidence: true,
           checkoutInspection: true,
+          workspacePreparation: true,
           checkoutViews: true,
           sharedWorktree: true,
         });

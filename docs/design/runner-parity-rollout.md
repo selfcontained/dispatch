@@ -21,6 +21,22 @@ Merge-risk details and commit comparisons now use the owning runner's GitHub cre
 
 Dispatch now sends the union of tracked PRs to each capable runner. Runner observations include sampling time and full current state so a missed update can be recovered on the next sample. Reconnect reopens the watch, and account reset clears the previous credential’s snapshots. Older peers continue using scheduled reads. The Dispatch host still owns browser events, dismissals, and notices.
 
+## Workspace preparation
+
+The built-in runner probes the launch path and Git state, prepares native
+worktrees, and returns the effective directory, selected base and Git context
+to Dispatch. Dispatch still resolves project membership and picks launch
+options. A selected native project's inferred HTTPS origin comes from the
+native runner because that is where the project path is registered.
+
+Enrolled runners bind the workspace and session handles on the authenticated
+connection. Their configured directories, managed scratch directories, and
+repository checkouts are machine-local. Managed repository preparation can
+report progress through the optional v1 `workspacePreparation` capability,
+including dependency installation as the workload account. The service maps
+that progress to its own startup UI. Existing v1 launchers can continue to use
+the baseline launch request and result.
+
 ## Live updates
 
 Each observation needs an owning machine/account, freshness, a bounded payload, and a way to reconcile after a disconnect. Dispatch tracks which resources matter and projects observations into existing UI events. Test missed events and late replies from replaced connections. Preserve the difference between an empty result and unavailable data. Use the existing refresh budget while migrating PR reads, then test subscription and reconciliation behavior independently of browser count.

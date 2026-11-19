@@ -15,6 +15,9 @@ import {
   beforeEach,
   vi,
 } from "vitest";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import type { Pool } from "pg";
 
 import { setupTestDb, teardownTestDb, runTestMigrations } from "./setup.js";
@@ -26,6 +29,8 @@ vi.mock("../../src/shared/lib/run-command.js", () => ({
 
 // Stub the worktree helpers so we can (a) skip real git work during archive
 // and (b) observe what AgentManager asks us to do.
+let fixtureRoot: string;
+
 const cleanupGitWorktreeSpy = vi.fn(async () => ({
   repoRoot: "/tmp/repo",
   worktreePath: "/tmp/repo-wt",
@@ -45,7 +50,7 @@ vi.mock("../../src/shared/git/worktree.js", async () => {
     cleanupGitWorktree: cleanupGitWorktreeSpy,
     createGitWorktree: vi.fn(async (input) => ({
       repoRoot: "/tmp/repo",
-      worktreePath: "/tmp/repo-wt",
+      worktreePath: await mkdtemp(path.join(fixtureRoot, "worktree-")),
       worktreeName: "repo-wt",
       branchName:
         input.createNewBranch === false
@@ -94,10 +99,17 @@ let manager: InstanceType<typeof AgentManager>;
 beforeAll(async () => {
   pool = await setupTestDb();
   await runTestMigrations();
-  manager = new AgentManager(pool, noopLogger, inertConfig);
+  fixtureRoot = await mkdtemp(
+    path.join(tmpdir(), "dispatch-archive-worktree-")
+  );
+  manager = new AgentManager(pool, noopLogger, {
+    ...inertConfig,
+    agentStateRoot: path.join(fixtureRoot, "hosts"),
+  });
 });
 
 afterAll(async () => {
+  if (fixtureRoot) await rm(fixtureRoot, { recursive: true, force: true });
   await teardownTestDb();
 });
 

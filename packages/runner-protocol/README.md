@@ -114,6 +114,23 @@ An occupied or conflicting branch causes launch to fail. A successful
 cached branches. Services can retry discard after a lost acknowledgement.
 Configured workspace handles continue to use their configured directory.
 
+A runner advertising `workspacePreparation: true` accepts
+`launch.prepareWorkspace: true`. When requested, the runner sends
+`launch_progress` frames on the same connection and request ID before the
+ordinary launch result. Use `parseLaunchProgress` and route valid frames to
+`RunnerConnection.receive`. A caller using `RunnerConnection.request` can
+receive them through `onProgress`. Progress describes workspace selection
+(`workspace`), optional dependency preparation (`dependencies` with a
+separate `done` or `failed` event), and the handoff to host startup
+(`ready`). Dependency failure permits the host to start and a later launch
+can retry it. A launch result still acknowledges host startup. Progress is
+advisory and does not replay. After a lost result, attach first. If the host
+is absent, retry using the same session and repository handles. The runner
+retains a prepared checkout, resumes interrupted checkout configuration, and
+rejects conflicting checkout selections. Services can continue sending
+baseline launches without this field to v1 peers that omit the capability.
+A runner sends no progress frames on baseline launches.
+
 The optional launch field `mcp` supplies one service-scoped MCP endpoint
 using an HTTPS `url`, bearer `token`, and optional `name`. Absence starts the
 ACP session with an empty service MCP list. v1 launches with the original

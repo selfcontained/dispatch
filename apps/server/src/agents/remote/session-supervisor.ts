@@ -21,6 +21,7 @@ import {
   MANAGED_WORKSPACE,
   isOpaqueId,
   type Command,
+  type LaunchProgress,
   type RunnerRepository,
 } from "./protocol.js";
 import { parseRepository } from "./repository.js";
@@ -59,6 +60,7 @@ type SupervisorOptions = {
   workspaces: ReadonlySet<string>;
   hostCommand: () => string[];
   asWorkload: WorkloadCommand;
+  prepareDependencies?: (cwd: string) => Promise<boolean>;
 };
 
 const managedBinding = "\0managed";
@@ -205,6 +207,9 @@ export async function createSessionSupervisor(
   const retireFile = (key: string) => path.join(bindings, `${key}.retired`);
   const repositoryFile = (key: string) =>
     path.join(bindings, `${key}.repository`);
+  const planFile = (key: string) => path.join(bindings, `${key}.checkout-plan`);
+  const dependenciesFile = (key: string) =>
+    path.join(bindings, `${key}.dependencies`);
   const cwdFile = (key: string) => path.join(bindings, `${key}.cwd`);
   const markerFile = (key: string) => path.join(bindings, `${key}.owner`);
   const identityFile = (key: string) => path.join(bindings, `${key}.host`);
@@ -338,13 +343,16 @@ export async function createSessionSupervisor(
     await removeGuestDirectory(session);
     if (repository) await repositories.remove(session, repository);
     await rm(repositoryFile(key), { force: true });
+    await rm(planFile(key), { force: true });
+    await rm(dependenciesFile(key), { force: true });
   }
 
   async function launch(
     command: LaunchCommand,
     cwd: string | undefined,
     key: string,
-    owner: string | null
+    owner: string | null,
+    progress?: (step: LaunchProgress) => void
   ) {
     const { agentId, workspace } = command;
     const { mcp } = command.launch;
@@ -366,6 +374,7 @@ export async function createSessionSupervisor(
         : workspace;
     if (binding !== null && binding !== bindingValue)
       throw new Error("Agent is not bound to this workspace or checkout");
+    progress?.({ phase: "workspace" });
     if (owner) {
       if ((await readBinding(owner)) !== managedBinding)
         throw new Error("The author does not own a checkout on this runner.");
@@ -410,21 +419,51 @@ export async function createSessionSupervisor(
         const checkout = path.join(cwd, "checkout");
         if (await lstat(checkout).catch(missingPath))
           await checkedDirectory(checkout);
-        await repositories.prepare(cwd, repository);
+        await repositories.prepare(cwd, repository, {
+          read: async () => {
+            const storedPlan = await readOptional(planFile(key));
+            return storedPlan === null ? null : JSON.parse(storedPlan);
+          },
+          write: (plan) =>
+            writePrivateState(planFile(key), JSON.stringify(plan)),
+          clear: () => rm(planFile(key), { force: true }),
+        });
         cwd = await managedDirectory(key);
+        if (
+          command.launch.prepareWorkspace &&
+          config.prepareDependencies &&
+          (await readOptional(dependenciesFile(key))) === null
+        ) {
+          progress?.({ phase: "dependencies" });
+          const installed = await config
+            .prepareDependencies(cwd)
+            .catch(() => false);
+          if (installed) await writePrivateState(dependenciesFile(key), "done");
+          progress?.({
+            phase: "dependencies",
+            status: installed ? "done" : "failed",
+          });
+        }
       }
     }
     if (!cwd) throw new Error("Guest workspace is unavailable");
     if (!managed) {
-      if (command.launch.useWorktreeOf === undefined) cwd = await realpath(cwd);
+      if (command.launch.useWorktreeOf === undefined)
+        cwd = command.launch.prepareWorkspace
+          ? (await asWorkload("realpath", ["-e", "--", cwd])).trimEnd()
+          : await realpath(cwd);
+      if (command.launch.prepareWorkspace)
+        await asWorkload("test", ["-d", cwd]);
       await checkedDirectory(cwd);
       await writePrivateState(cwdFile(key), cwd);
     }
+    progress?.({ phase: "ready" });
     const dir = path.join(hostRoot, key);
     const files = path.join(dir, "files");
     const {
       repository: _repository,
       useWorktreeOf: _owner,
+      prepareWorkspace: _preparation,
       ...launchOptions
     } = command.launch;
     const launch: HostLaunch = {
@@ -534,11 +573,15 @@ export async function createSessionSupervisor(
   sweep.unref();
 
   return {
-    async launch(command: LaunchCommand, cwd: string | undefined) {
+    async launch(
+      command: LaunchCommand,
+      cwd: string | undefined,
+      progress?: (step: LaunchProgress) => void
+    ) {
       const key = runnerStorageKey(command.agentId);
       const { useWorktreeOf } = command.launch;
       if (useWorktreeOf === undefined)
-        return serialize(key, () => launch(command, cwd, key, null));
+        return serialize(key, () => launch(command, cwd, key, null, progress));
       if (!isOpaqueId(useWorktreeOf) || useWorktreeOf === command.agentId)
         throw new Error("Invalid author for a shared runner checkout.");
       if (command.launch.repository !== undefined)
@@ -557,7 +600,8 @@ export async function createSessionSupervisor(
             command,
             await configuredDirectory(author, cwd),
             key,
-            null
+            null,
+            progress
           );
         });
       }
@@ -571,7 +615,7 @@ export async function createSessionSupervisor(
             (await readOptional(retireFile(author))) !== null)
         )
           throw new Error("The author does not own a checkout on this runner.");
-        return launch(command, cwd, key, owner);
+        return launch(command, cwd, key, owner, progress);
       });
     },
     checkoutDirectory(

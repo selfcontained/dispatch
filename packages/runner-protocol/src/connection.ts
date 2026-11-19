@@ -3,6 +3,8 @@ import type {
   ChannelFrame,
   Command,
   ResultFrame,
+  LaunchProgress,
+  LaunchProgressFrame,
   ServiceFrame,
 } from "./index.js";
 import { hostChannel } from "./node.js";
@@ -13,13 +15,20 @@ export class RunnerHostGone extends Error {}
 /** Service side of one authenticated runner connection. Request IDs and channels are local to it. */
 export class RunnerConnection {
   private readonly pending = new Map<string, (frame?: ResultFrame) => void>();
+  private readonly progress = new Map<
+    string,
+    (progress: LaunchProgress) => void
+  >();
   private readonly channels = new Map<string, Duplex>();
   private closed = false;
 
   constructor(private readonly send: (frame: ServiceFrame) => void) {}
 
-  receive(frame: ChannelFrame | ResultFrame) {
+  receive(frame: ChannelFrame | ResultFrame | LaunchProgressFrame) {
     switch (frame.type) {
+      case "launch_progress":
+        this.progress.get(frame.id)?.(frame.progress);
+        break;
       case "result":
         this.pending.get(frame.id)?.(frame);
         break;
@@ -39,7 +48,16 @@ export class RunnerConnection {
     this.channels.clear();
   }
 
-  async request(command: Command, { openChannel = false } = {}) {
+  async request(
+    command: Command,
+    {
+      openChannel = false,
+      onProgress,
+    }: {
+      openChannel?: boolean;
+      onProgress?: (progress: LaunchProgress) => void;
+    } = {}
+  ) {
     if (this.closed)
       throw new RunnerUnavailable("The runner connection is closed.");
     const id = crypto.randomUUID();
@@ -49,6 +67,12 @@ export class RunnerConnection {
     // The consumer can attach its error listener after the request resolves.
     channel?.on("error", () => {});
     if (channel) this.channels.set(id, channel);
+    if (
+      command.kind === "launch" &&
+      command.launch.prepareWorkspace &&
+      onProgress
+    )
+      this.progress.set(id, onProgress);
     try {
       const value = await this.sendRequest(id, command);
       return { value, channel };
@@ -67,13 +91,15 @@ export class RunnerConnection {
       command.kind === "inspectCheckout" ||
       command.kind === "viewCheckout" ||
       command.kind === "engine" ||
-      (command.kind === "launch" && command.launch.repository)
+      (command.kind === "launch" &&
+        (command.launch.repository || command.launch.prepareWorkspace))
         ? 300_000
         : 20_000;
     return new Promise((resolve, reject) => {
       const finish = (frame?: ResultFrame) => {
         clearTimeout(timer);
         this.pending.delete(id);
+        this.progress.delete(id);
         if (!frame)
           reject(
             new RunnerUnavailable(

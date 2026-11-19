@@ -95,7 +95,8 @@ describe("runner session supervision", () => {
     workspaces: string[],
     asWorkload: Parameters<
       typeof createSessionSupervisor
-    >[0]["asWorkload"] = vi.fn()
+    >[0]["asWorkload"] = vi.fn(),
+    prepareDependencies?: (cwd: string) => Promise<boolean>
   ) {
     supervisor = await createSessionSupervisor(
       {
@@ -108,6 +109,7 @@ describe("runner session supervision", () => {
         workspaces: new Set(workspaces),
         hostCommand: () => ["/test-host"],
         asWorkload,
+        prepareDependencies,
       },
       processes
     );
@@ -136,6 +138,29 @@ describe("runner session supervision", () => {
     supervisor?.close();
     supervisor = undefined;
     await rm(root, { recursive: true, force: true });
+  });
+
+  it("prepares managed scratch and reports request-scoped progress before starting the host", async () => {
+    const runner = await start([]);
+    const progress = vi.fn();
+    const command = launch(MANAGED_WORKSPACE);
+    await runner.launch(
+      {
+        ...command,
+        launch: { ...command.launch, prepareWorkspace: true },
+      },
+      undefined,
+      progress
+    );
+    const cwd = path.join(state, "sessions", agentId);
+    expect(await runner.checkoutDirectory(agentId, MANAGED_WORKSPACE)).toBe(
+      cwd
+    );
+    expect((await stat(cwd)).isDirectory()).toBe(true);
+    expect(progress.mock.calls).toEqual([
+      [{ phase: "workspace" }],
+      [{ phase: "ready" }],
+    ]);
   });
 
   it.each([
@@ -621,7 +646,7 @@ describe("runner session supervision", () => {
     await expect(stat(author)).rejects.toMatchObject({ code: "ENOENT" });
   });
 
-  it("records the review base of new branches without assigning an upstream", async () => {
+  it("records review bases and retries dependency preparation in the same checkout", async () => {
     const git = (...args: string[]) =>
       execFileSync("git", args, { encoding: "utf8" });
     const workspace = MANAGED_WORKSPACE;
@@ -642,14 +667,21 @@ describe("runner session supervision", () => {
       "seed"
     );
     git("-C", seed, "branch", "release");
-    const running = await start([], async (bin, args) =>
-      execFileSync(
-        bin,
-        args.some((arg) => arg === "ls-remote" || arg === "fetch")
-          ? args.map((arg) => (arg === url ? seed : arg))
-          : args,
-        { encoding: "utf8" }
-      )
+    const prepareDependencies = vi
+      .fn()
+      .mockResolvedValueOnce(false)
+      .mockResolvedValue(true);
+    const running = await start(
+      [],
+      async (bin, args) =>
+        execFileSync(
+          bin,
+          args.some((arg) => arg === "ls-remote" || arg === "fetch")
+            ? args.map((arg) => (arg === url ? seed : arg))
+            : args,
+          { encoding: "utf8" }
+        ),
+      prepareDependencies
     );
 
     for (const [branch, base] of [
@@ -657,19 +689,40 @@ describe("runner session supervision", () => {
       ["default-base", undefined],
     ] as const) {
       const id = `review-${branch}`;
-      processes.spawn.mockResolvedValueOnce();
-      await running.launch(
-        {
-          ...launch(workspace),
-          agentId: id,
-          launch: {
-            ...launch(workspace).launch,
-            repository: { url, checkout: { kind: "new", branch, base } },
-          },
+      const command = {
+        ...launch(workspace),
+        agentId: id,
+        launch: {
+          ...launch(workspace).launch,
+          prepareWorkspace: true as const,
+          repository: { url, checkout: { kind: "new" as const, branch, base } },
         },
-        undefined
-      );
+      };
+      const startCheckout = async () => {
+        processes.spawn.mockResolvedValueOnce();
+        const progress = vi.fn();
+        await running.launch(command, undefined, progress);
+        return progress.mock.calls.map(([step]) => step);
+      };
+      const steps = await startCheckout();
       const cwd = await running.checkoutDirectory(id, workspace);
+      expect(prepareDependencies).toHaveBeenLastCalledWith(cwd);
+      if (base) {
+        expect(steps).toContainEqual({
+          phase: "dependencies",
+          status: "failed",
+        });
+        expect(await startCheckout()).toContainEqual({
+          phase: "dependencies",
+          status: "done",
+        });
+        expect(await running.checkoutDirectory(id, workspace)).toBe(cwd);
+        expect(await startCheckout()).toEqual([
+          { phase: "workspace" },
+          { phase: "ready" },
+        ]);
+        expect(prepareDependencies).toHaveBeenCalledTimes(2);
+      }
       const config = git(
         "-C",
         cwd,

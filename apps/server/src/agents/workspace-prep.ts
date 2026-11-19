@@ -49,7 +49,7 @@ export type WorkspaceProgress = {
 export async function setupAgentWorkspace(
   originalCwd: string,
   worktreePath: string,
-  logger: FastifyBaseLogger,
+  logger: Pick<FastifyBaseLogger, "info" | "warn">,
   onProgress?: (progress: WorkspaceProgress) => Promise<void>
 ): Promise<void> {
   await onProgress?.({ phase: "env" });
@@ -61,6 +61,14 @@ export async function setupAgentWorkspace(
     );
   }
 
+  await installWorkspaceDependencies(worktreePath, logger, onProgress);
+}
+
+export async function installWorkspaceDependencies(
+  worktreePath: string,
+  logger: Pick<FastifyBaseLogger, "info" | "warn">,
+  onProgress?: (progress: WorkspaceProgress) => Promise<void>
+): Promise<boolean> {
   await onProgress?.({ phase: "deps" });
   for (const [lockfile, bin, args] of LOCKFILE_INSTALL_COMMANDS) {
     const lockPath = path.join(worktreePath, lockfile);
@@ -86,6 +94,7 @@ export async function setupAgentWorkspace(
         status: "done",
         detail: `${bin} install completed`,
       });
+      return true;
     } catch (error) {
       await onProgress?.({
         phase: "deps",
@@ -96,8 +105,8 @@ export async function setupAgentWorkspace(
         { err: error, worktreePath, packageManager: bin },
         "Dependency install failed."
       );
+      return false;
     }
-    return;
   }
   await onProgress?.({
     phase: "deps",
@@ -105,4 +114,5 @@ export async function setupAgentWorkspace(
     detail:
       "No supported lockfile found; automatic dependency installation skipped.",
   });
+  return true;
 }

@@ -27,7 +27,7 @@ import {
 } from "./harness";
 
 // One serial fleet: a local agent plus two Docker runners that both expose a
-// workspace named "proof". Marker files differ per runner, so any output or
+// workspace named "proof" at the same absolute path. Markers differ, so any output or
 // file landing on the wrong side is visible.
 test.describe.configure({ mode: "serial" });
 const WS = state.workspace;
@@ -76,6 +76,9 @@ test("enroll two runners with identical workspace names", async ({
     expect(row.status).toBe("online");
     expect(row.workspaces).toContain(WS);
   }
+  expect(state.runners.alpha.workspaceDir).toBe(
+    state.runners.beta.workspaceDir
+  );
   expect(marker("alpha")).not.toBe(marker("beta"));
 });
 
@@ -471,6 +474,13 @@ test("managed scratch launch reports health and archive removes the guest sessio
   await expect(
     settledTurns(page).last().getByTestId("harness-result")
   ).toContainText("Local or guest fixture turn completed.");
+  // The runner records workspace preparation on the launch request before
+  // the fixture engine can return its first turn.
+  const stream = await request.get(`/api/v1/streams/${id}/blocks`, {
+    headers: authHeaders(),
+  });
+  expect(stream.ok(), await stream.text()).toBe(true);
+  expect(await stream.text()).toContain("Starting Claude");
   const directory = `/var/lib/runner/sessions/${id}`;
   expect(guest("scratch", `stat -c '%u:%g %a' ${directory}`).trim()).toBe(
     "1500:1500 700"

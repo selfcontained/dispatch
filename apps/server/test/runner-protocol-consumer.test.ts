@@ -8,6 +8,8 @@ import {
   type ServiceFrame,
   type Command,
   parseReadyFrame,
+  parseLaunchProgress,
+  type LaunchProgress,
   parseServiceFrame,
   parseSessionCommand,
   parseConnectCreated,
@@ -130,6 +132,89 @@ it("negotiates advertised v1 capabilities independently on each ready frame", ()
     sharedWorktree: true,
   };
   expect(parseReadyFrame(managed)).toEqual(managed);
+});
+
+it("negotiates workspace progress per runner when workspace handles match", async () => {
+  const ready = { type: "ready", version: 1, workspaces: ["workspace"] };
+  const placement = (runner: string) =>
+    workspaceLocator({ runner, workspace: "workspace" });
+  const legacy = placement("legacy");
+  const current = placement("current");
+  const peers = new Map(
+    [legacy, current].map((locator) => {
+      const advertised = parseReadyFrame({
+        ...ready,
+        workspacePreparation: locator === current,
+      })!;
+      const messages: ServiceFrame[] = [];
+      const connection = new RunnerConnection((frame) => messages.push(frame));
+      return [locator, { advertised, messages, connection }];
+    })
+  );
+  const launch = (locator: string, received: LaunchProgress[]) => {
+    const { connection, advertised } = peers.get(locator)!;
+    return connection.request(
+      {
+        kind: "launch",
+        agentId: "host/session",
+        workspace: "workspace",
+        launch: {
+          agentId: "host/session",
+          engine: "codex",
+          model: null,
+          systemPrompt: null,
+          resumeSessionId: null,
+          ...(advertised.workspacePreparation && { prepareWorkspace: true }),
+        },
+      },
+      { onProgress: (event) => received.push(event) }
+    );
+  };
+  const legacyProgress: LaunchProgress[] = [];
+  const enhancedProgress: LaunchProgress[] = [];
+  const earlier = launch(legacy, legacyProgress);
+  const enhanced = launch(current, enhancedProgress);
+  const currentPeer = peers.get(current)!;
+  const legacyPeer = peers.get(legacy)!;
+  const request = (peer: typeof currentPeer) => {
+    const frame = parseServiceFrame(peer.messages[0]);
+    if (frame?.type !== "request" || frame.command.kind !== "launch")
+      throw new Error("Expected launch request.");
+    return { id: frame.id, launch: frame.command.launch };
+  };
+  const currentRequest = request(currentPeer);
+  const legacyRequest = request(legacyPeer);
+  expect(currentRequest.launch.prepareWorkspace).toBe(true);
+  expect(legacyRequest.launch).not.toHaveProperty("prepareWorkspace");
+  const progress = parseLaunchProgress({
+    type: "launch_progress",
+    id: currentRequest.id,
+    progress: { phase: "workspace" },
+  })!;
+  currentPeer.connection.receive(progress);
+  legacyPeer.connection.receive(progress);
+  expect(enhancedProgress).toEqual([{ phase: "workspace" }]);
+  expect(legacyProgress).toEqual([]);
+  expect(
+    parseLaunchProgress({
+      ...progress,
+      progress: { phase: "ready", status: "failed" },
+    })
+  ).toBeNull();
+  for (const [peer, id] of [
+    [currentPeer, currentRequest.id],
+    [legacyPeer, legacyRequest.id],
+  ] as const) {
+    expect(peer.advertised.workspaces).toEqual(["workspace"]);
+    peer.connection.receive({ type: "result", id, value: true });
+  }
+  await expect(Promise.all([earlier, enhanced])).resolves.toEqual([
+    { value: true, channel: undefined },
+    { value: true, channel: undefined },
+  ]);
+  currentPeer.connection.receive(progress);
+  expect(enhancedProgress).toHaveLength(1);
+  for (const peer of peers.values()) peer.connection.close();
 });
 
 it("validates runner-scoped GitHub command payloads", () => {

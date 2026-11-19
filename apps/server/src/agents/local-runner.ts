@@ -4,6 +4,7 @@ import {
   mkdir,
   readdir,
   readFile,
+  realpath,
   rm,
   unlink,
   writeFile,
@@ -24,6 +25,14 @@ import {
 } from "./acp/host-command.js";
 import { preparePersonaContext } from "./acp/persona-context.js";
 import { hostFile, type HostLaunch } from "./acp/host-protocol.js";
+
+import {
+  createWorkspacePreparation,
+  resolveLaunchDirectory,
+} from "./workspace.js";
+import { resolveWorkspace } from "./workspace-target.js";
+import { resolveProjectRoot } from "../projects/resolve-root.js";
+import { inferRepositoryUrl } from "./remote/repository.js";
 
 export type LocalLaunchSettings = Pick<
   HostLaunch,
@@ -72,7 +81,7 @@ function signalGroup(pid: number, signal: NodeJS.Signals): void {
 }
 
 /** In-process implementation of runner lifecycle operations for native agent hosts.
- * Launch settings come from Dispatch's trusted local workspace preparation. State
+ * The native workload and the host service share an OS account. State
  * paths and host sockets must stay compatible with hosts from earlier versions.
  */
 export function createLocalRunner(
@@ -89,6 +98,7 @@ export function createLocalRunner(
       throw new Error("Invalid agent state directory");
     return path.join(agentStateRoot, agentId);
   }
+  const workspace = createWorkspacePreparation(logger);
   async function launch(input: HostLaunch) {
     const dir = stateDir(input.agentId);
     await mkdir(dir, { recursive: true, mode: 0o700 });
@@ -241,6 +251,21 @@ export function createLocalRunner(
   }
   return {
     requestSession,
+    resolveLaunchDirectory,
+    canonicalPath: (directory: string) => realpath(directory).catch(() => null),
+    resolveWorkspace,
+    resolveProjectRoot,
+    inferRepositoryUrl,
+    prepareWorkspace: (
+      agentId: string,
+      directory: Parameters<typeof workspace.prepare>[1],
+      request: Parameters<typeof workspace.prepare>[2],
+      progress: Parameters<typeof workspace.prepare>[3]
+    ) => workspace.prepare(stateDir(agentId), directory, request, progress),
+    resumeWorkspace: (
+      agentId: string,
+      progress: Parameters<typeof workspace.resume>[1]
+    ) => workspace.resume(stateDir(agentId), progress),
     async listHosted() {
       let ids: string[] = [];
       try {

@@ -159,15 +159,39 @@ it("uses isolated worktrees, protects occupied and default branches, and keeps e
     const sessions = path.join(root, "sessions");
     const uid = process.getuid!();
     const gid = process.getgid!();
+    let failReviewBase = false;
     const repositories = new RunnerRepositories(
       cache,
       uid,
       gid,
       (bin, args) => {
         expect(bin).toBe("git");
+        if (
+          failReviewBase &&
+          args.some((arg) => arg.endsWith(".dispatchReviewBase"))
+        ) {
+          failReviewBase = false;
+          return Promise.reject(new Error("interrupted Git configuration"));
+        }
         return git("-c", `url.file://${origin}.insteadOf=${url}`, ...args);
       }
     );
+    type Journal = Parameters<RunnerRepositories["prepare"]>[2];
+    type Plan = Parameters<Journal["write"]>[0];
+    const plans = new Map<string, Plan>();
+    const prepare = (
+      directory: string,
+      repository: Parameters<RunnerRepositories["prepare"]>[1]
+    ) =>
+      repositories.prepare(directory, repository, {
+        read: async () => plans.get(directory) ?? null,
+        write: async (plan) => {
+          plans.set(directory, plan);
+        },
+        clear: async () => {
+          plans.delete(directory);
+        },
+      });
     const spec = (checkout: RepositoryCheckout) => ({ url, checkout });
     const session = (key: string) =>
       prepareScratchSession(sessions, key, uid, gid);
@@ -177,9 +201,25 @@ it("uses isolated worktrees, protects occupied and default branches, and keeps e
     const c = await session("c");
     const newBranch = spec({ kind: "new", branch: "work" });
     const existing = spec({ kind: "branch", branch: "topic" });
+    const interrupted = await session("interrupted");
+    const retry = spec({ kind: "new", branch: "retry", base: "topic" });
+    failReviewBase = true;
+    await expect(prepare(interrupted, retry)).rejects.toThrow(
+      "Could not update"
+    );
+    const retryPath = path.join(interrupted, "checkout");
+    expect(await git("-C", retryPath, "rev-parse", "HEAD")).toBe(topic + "\n");
+    await expect(prepare(interrupted, retry)).resolves.toBe(retryPath);
+    expect(
+      (
+        await git("-C", retryPath, "config", "branch.retry.dispatchReviewBase")
+      ).trim()
+    ).toBe("topic");
+    expect(plans.has(interrupted)).toBe(false);
+
     const [first, second] = await Promise.all([
-      repositories.prepare(a, newBranch),
-      repositories.prepare(b, existing),
+      prepare(a, newBranch),
+      prepare(b, existing),
     ]);
     expect((await git("-C", first, "rev-parse", "HEAD")).trim()).toBe(initial);
     expect((await git("-C", first, "branch", "--show-current")).trim()).toBe(
@@ -189,13 +229,13 @@ it("uses isolated worktrees, protects occupied and default branches, and keeps e
     expect((await git("-C", second, "branch", "--show-current")).trim()).toBe(
       "topic"
     );
-    expect(await repositories.prepare(a, newBranch)).toBe(first);
-    await expect(repositories.prepare(c, existing)).rejects.toThrow("occupied");
+    expect(await prepare(a, newBranch)).toBe(first);
+    await expect(prepare(c, existing)).rejects.toThrow("occupied");
     await expect(
-      repositories.prepare(c, spec({ kind: "branch", branch: "main" }))
+      prepare(c, spec({ kind: "branch", branch: "main" }))
     ).rejects.toThrow("default branch");
     await expect(
-      repositories.prepare(c, spec({ kind: "new", branch: "topic" }))
+      prepare(c, spec({ kind: "new", branch: "topic" }))
     ).rejects.toThrow("already exists");
 
     await repositories.remove(b, existing);
@@ -205,16 +245,14 @@ it("uses isolated worktrees, protects occupied and default branches, and keeps e
     ).toBe(topic);
     const pr = spec({ kind: "pr", branch: "topic", number: 1 });
     expect(
-      (
-        await git("-C", await repositories.prepare(c, pr), "rev-parse", "HEAD")
-      ).trim()
+      (await git("-C", await prepare(c, pr), "rev-parse", "HEAD")).trim()
     ).toBe(topic);
     await repositories.remove(c, pr);
     await git("-C", origin, "switch", "topic");
     const updatedTopic = await commit("updated PR head");
     await git("-C", origin, "update-ref", "refs/pull/1/head", updatedTopic);
     await git("-C", origin, "switch", "main");
-    const updated = await repositories.prepare(c, pr);
+    const updated = await prepare(c, pr);
     expect((await git("-C", updated, "rev-parse", "HEAD")).trim()).toBe(
       updatedTopic
     );
@@ -240,15 +278,13 @@ it("uses isolated worktrees, protects occupied and default branches, and keeps e
     await git("-C", origin, "switch", "topic");
     const divergent = await commit("different remote work");
     await git("-C", origin, "switch", "main");
-    await expect(repositories.prepare(c, existing)).rejects.toThrow(
-      "has local work"
-    );
+    await expect(prepare(c, existing)).rejects.toThrow("has local work");
     expect(
       (await git("-C", first, "rev-parse", "refs/heads/topic")).trim()
     ).toBe(localHead);
 
     await expect(
-      repositories.prepare(c, spec({ kind: "pr", branch: "topic", number: 2 }))
+      prepare(c, spec({ kind: "pr", branch: "topic", number: 2 }))
     ).rejects.toThrow("does not match");
     const selectedBase = spec({
       kind: "new",
@@ -257,12 +293,7 @@ it("uses isolated worktrees, protects occupied and default branches, and keeps e
     });
     expect(
       (
-        await git(
-          "-C",
-          await repositories.prepare(c, selectedBase),
-          "rev-parse",
-          "HEAD"
-        )
+        await git("-C", await prepare(c, selectedBase), "rev-parse", "HEAD")
       ).trim()
     ).toBe(divergent);
   } finally {

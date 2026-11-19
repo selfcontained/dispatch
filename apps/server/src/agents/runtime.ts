@@ -5,7 +5,11 @@ import type { AgentPermissionsResponse } from "@dispatch/shared";
 import type { PromptSource, PromptOptions } from "./acp/prompt-source.js";
 import type { FastifyBaseLogger } from "fastify";
 
-import type { Placement, RunnerRepository } from "./remote/protocol.js";
+import type {
+  LaunchProgress,
+  Placement,
+  RunnerRepository,
+} from "./remote/protocol.js";
 import type { HostLaunch } from "./acp/host-protocol.js";
 import type { AppConfig } from "../config.js";
 import type { DriverEvent } from "./acp/driver.js";
@@ -17,12 +21,13 @@ import { createAcpRuntime, type AcpRuntimeDeps } from "./acp/runtime.js";
 
 /**
  * What the manager hands to `runtime.launch()` to start an agent's host.
- * The workspace (worktree, deps) already exists; this is only about the
- * process. See docs/design/acp-runtime.md.
+ * Native preparation supplies an effective cwd before launch. Enrolled
+ * runners prepare their own session workspace as part of launch.
  */
 export type RuntimeLaunch = HostLaunch & {
   placement?: Placement;
   repository?: RunnerRepository;
+  onWorkspaceProgress?: (progress: LaunchProgress) => void;
 };
 
 export type RuntimeEventListener = (

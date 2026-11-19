@@ -47,6 +47,8 @@ import {
   githubPullRequestHead,
   githubRepositoryResults,
   type SessionOperation,
+  type LaunchProgress,
+  parseLaunchProgress,
   type EngineInventoryEntry,
   type Placement,
 } from "./protocol.js";
@@ -161,6 +163,7 @@ type Peer = {
   checkoutInspection: boolean;
   checkoutViews: boolean;
   sharedWorktree: boolean;
+  workspacePreparation: boolean;
   /** Last pushed, validated engine inventory; absent until the runner first reports one. */
   engines?: EngineInventoryEntry[];
 };
@@ -680,6 +683,7 @@ export class RemoteRunnerService {
           checkoutViews: ready.checkoutViews === true,
           checkoutInspection: ready.checkoutInspection === true,
           sharedWorktree: ready.sharedWorktree === true,
+          workspacePreparation: ready.workspacePreparation === true,
           connection: new RunnerConnection(send),
           workspaces: new Set(ready.workspaces),
           managedWorkspace: ready.managedWorkspace === true,
@@ -728,6 +732,13 @@ export class RemoteRunnerService {
         const entries = parseEngineInventory(frame.entries);
         if (entries === null) return socket.destroy();
         peer.engines = entries;
+      } else if (
+        frame.type === "launch_progress" &&
+        peer.workspacePreparation
+      ) {
+        const progress = parseLaunchProgress(frame);
+        if (!progress) return socket.destroy();
+        peer.connection.receive(progress);
       } else if (
         frame.type === "result" ||
         frame.type === "data" ||
@@ -1203,11 +1214,16 @@ export class RemoteRunnerService {
     return peer?.gate.approved() ? peer.engines : undefined;
   }
 
-  requestSession(placement: Placement, operation: SessionOperation) {
+  requestSession(
+    placement: Placement,
+    operation: SessionOperation,
+    onProgress?: (progress: LaunchProgress) => void
+  ) {
     return this.request(
       placement,
       { ...operation, workspace: placement.workspace },
-      operation.kind === "attach" || operation.kind === "watchCheckout"
+      operation.kind === "attach" || operation.kind === "watchCheckout",
+      onProgress
     );
   }
 
@@ -1473,7 +1489,12 @@ export class RemoteRunnerService {
     );
   }
 
-  async request(placement: Placement, command: Command, open = false) {
+  async request(
+    placement: Placement,
+    command: Command,
+    open = false,
+    onProgress?: (progress: LaunchProgress) => void
+  ) {
     const peer = this.peers.get(placement.runner);
     if (
       !this.registrationById(placement.runner) &&
@@ -1510,7 +1531,20 @@ export class RemoteRunnerService {
       throw new RunnerCapabilityUnavailable(
         "Update the runner to launch a reviewer in an existing checkout."
       );
-    return peer.connection.request(command, { openChannel: open });
+    if (command.kind === "launch" && peer.workspacePreparation && onProgress)
+      command = {
+        ...command,
+        launch: { ...command.launch, prepareWorkspace: true },
+      };
+    if (
+      command.kind === "launch" &&
+      command.launch.prepareWorkspace &&
+      !peer.workspacePreparation
+    )
+      throw new RunnerCapabilityUnavailable(
+        "Update the runner to prepare session workspaces."
+      );
+    return peer.connection.request(command, { openChannel: open, onProgress });
   }
 
   close() {
