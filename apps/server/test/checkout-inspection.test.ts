@@ -147,6 +147,7 @@ describe.each([
       kind: "changes",
       baseRef: "origin/main",
       head: git(checkout, "rev-parse", "HEAD"),
+      stateId: expect.stringMatching(/^[0-9a-f]{64}$/),
       files: [
         "cancel.txt",
         "committed.txt",
@@ -184,6 +185,73 @@ JSON
     await expectBase("main", "origin/main");
     writeFileSync(path.join(bin, "gh"), "#!/bin/sh\nexit 1\n");
     await expectBase(null, "origin/integration");
+  });
+
+  it("uses the active branch's valid recorded base before inference", async () => {
+    git(repo, "branch", "-m", "main", "trunk");
+    git(checkout, "config", "branch.feature.dispatchReviewBase", "trunk");
+    git(checkout, "tag", "feature");
+    const result = await inspect(checkout, {
+      kind: "changes",
+      baseBranch: null,
+    });
+    expect(result).toMatchObject({ baseRef: "origin/trunk", files: [] });
+    git(checkout, "config", "branch.feature.dispatchReviewBase", "trunk.");
+    await expect(
+      inspect(checkout, { kind: "changes", baseBranch: null })
+    ).rejects.toThrow(/origin\/main/);
+  });
+
+  it("changes stateId for staged and unstaged edits to the same paths", async () => {
+    const query = { kind: "changes", baseBranch: "main" } as const;
+    put(checkout, "unstaged.txt", "after");
+    const unstaged = await inspect(checkout, query);
+    expect(await inspect(checkout, query)).toEqual(unstaged);
+    put(checkout, "unstaged.txt", "other");
+    const edited = await inspect(checkout, query);
+    git(checkout, "add", "unstaged.txt");
+    const staged = await inspect(checkout, query);
+    put(checkout, "unstaged.txt", "index");
+    git(checkout, "add", "unstaged.txt");
+    const restaged = await inspect(checkout, query);
+
+    const ids = [unstaged, edited, staged, restaged].map((result) => {
+      expect(result).toMatchObject({
+        files: ["unstaged.txt"],
+        stateId: expect.stringMatching(/^[0-9a-f]{64}$/),
+      });
+      return result.kind === "changes" && "stateId" in result
+        ? result.stateId
+        : null;
+    });
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  it("fingerprints untracked bytes and symlink targets without reading symlink destinations or FIFOs", async () => {
+    const query = { kind: "changes", baseBranch: "main" } as const;
+    const target = path.join(fixture, "outside");
+    put(fixture, "outside", "before");
+    put(checkout, "untracked", "one");
+    symlinkSync(target, path.join(checkout, "link"));
+    execFileSync("mkfifo", [path.join(checkout, "pipe")]);
+    const initial = await inspect(checkout, query);
+    put(fixture, "outside", "after");
+    expect(await inspect(checkout, query)).toEqual(initial);
+    put(checkout, "untracked", "two");
+    const edited = await inspect(checkout, query);
+    expect(edited).not.toEqual(initial);
+    rmSync(path.join(checkout, "link"));
+    symlinkSync(target + "-elsewhere", path.join(checkout, "link"));
+    const changedLink = await inspect(checkout, query);
+    expect(changedLink).toMatchObject({ files: ["link", "untracked"] });
+    expect(changedLink).not.toEqual(edited);
+  });
+
+  it("rejects a dirty checkout above the fingerprint byte budget", async () => {
+    put(checkout, "untracked", "x".repeat(16 * 1024 * 1024 + 1));
+    await expect(
+      inspect(checkout, { kind: "changes", baseBranch: "main" })
+    ).rejects.toThrow(/fingerprint limit/);
   });
 
   it("reads live, repo-relative regular files and reports missing files", async () => {
@@ -254,7 +322,7 @@ exec "$CHECKOUT_TEST_GIT" "$@"
     ).rejects.toThrow(/MAXBUFFER/);
   });
 
-  it("fails with a Git diagnostic when no base resolves", async () => {
+  it("fails clearly when no base resolves", async () => {
     git(repo, "branch", "-m", "main", "trunk");
     await expect(
       inspect(checkout, { kind: "changes", baseBranch: "unknown" })

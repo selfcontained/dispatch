@@ -1,6 +1,7 @@
 import { execFile } from "node:child_process";
+import { createHash } from "node:crypto";
 import { constants } from "node:fs";
-import { lstat, open, type FileHandle } from "node:fs/promises";
+import { lstat, open, readlink, type FileHandle } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 import {
@@ -13,13 +14,18 @@ import {
   refreshRemoteBaseRef,
   resolveBaseRef,
 } from "../shared/git/base-ref.js";
-import { collectOwnerReviewFiles } from "../shared/git/owner-review-files.js";
+import {
+  collectOwnerReviewChanges,
+  ownerReviewPaths,
+} from "../shared/git/owner-review-files.js";
 import { getPrStatus } from "../shared/github/pr.js";
 import type { CommandRunner } from "../shared/lib/run-command.js";
 
 const MAX_QUERY_BYTES = 16 * 1024;
 const MAX_REPLY_BYTES = 4 * 1024 * 1024;
 const MAX_FILE_BYTES = 256 * 1024;
+const MAX_FINGERPRINT_BYTES = 16 * 1024 * 1024;
+const MAX_FINGERPRINT_FILES = 10_000;
 const MAX_ERROR_BYTES = 4 * 1024;
 const execFileAsync = promisify(execFile);
 
@@ -105,21 +111,8 @@ async function openRegularFile(
     throw new Error("Checkout file inspection requires macOS or Linux");
   }
 
-  // Open each component relative to a pinned directory. A concurrent symlink
-  // replacement can't redirect either the directory traversal or the file open.
-  let directory = await open("/", LINUX_OPEN_PATH | constants.O_DIRECTORY);
+  const directory = await openLinuxDirectory(path.dirname(target));
   try {
-    for (const segment of path
-      .join(root, ...segments.slice(0, -1))
-      .split("/")
-      .filter(Boolean)) {
-      const next = await open(
-        `/proc/self/fd/${directory.fd}/${segment}`,
-        LINUX_OPEN_PATH | constants.O_DIRECTORY | constants.O_NOFOLLOW
-      );
-      await directory.close();
-      directory = next;
-    }
     const entry = await open(
       `/proc/self/fd/${directory.fd}/${segments.at(-1)}`,
       LINUX_OPEN_PATH | constants.O_NOFOLLOW
@@ -133,6 +126,27 @@ async function openRegularFile(
     }
   } finally {
     await directory.close();
+  }
+}
+
+// Pin every directory component so a symlink replacement cannot redirect
+// traversal. The procfs path acts as openat for Node's pathname APIs.
+async function openLinuxDirectory(target: string): Promise<FileHandle> {
+  let directory = await open("/", LINUX_OPEN_PATH | constants.O_DIRECTORY);
+  try {
+    for (const segment of target.split("/").filter(Boolean)) {
+      const next = await open(
+        `/proc/self/fd/${directory.fd}/${segment}`,
+        LINUX_OPEN_PATH | constants.O_DIRECTORY | constants.O_NOFOLLOW
+      );
+      const previous = directory;
+      directory = next;
+      await previous.close();
+    }
+    return directory;
+  } catch (error) {
+    await directory.close();
+    throw error;
   }
 }
 
@@ -170,10 +184,139 @@ async function readWorktreeFile(
   }
 }
 
-async function inspectChanges(
+async function recordedReviewBase(root: string): Promise<string | null> {
+  const { stdout: ref, exitCode } = await run(
+    "git",
+    ["symbolic-ref", "--quiet", "HEAD"],
+    { cwd: root, allowedExitCodes: [0, 1] }
+  );
+  if (exitCode !== 0 || !ref.startsWith("refs/heads/")) return null;
+  const branch = ref.slice("refs/heads/".length);
+
+  const { stdout: baseBranch } = await run(
+    "git",
+    ["config", "--local", "--get", `branch.${branch}.dispatchReviewBase`],
+    { cwd: root, allowedExitCodes: [0, 1], trimOutput: false }
+  );
+  const query = { kind: "changes", baseBranch: baseBranch.replace(/\n$/, "") };
+  if (!isCheckoutQuery(query)) return null;
+
+  const { exitCode: invalid } = await run(
+    "git",
+    ["check-ref-format", `refs/heads/${query.baseBranch}`],
+    { cwd: root, allowedExitCodes: [0, 1] }
+  );
+  return invalid === 0 ? query.baseBranch : null;
+}
+
+async function describeWorktreePath(root: string, relative: string) {
+  const target = path.join(root, relative);
+  const parent =
+    process.platform === "linux"
+      ? await openLinuxDirectory(path.dirname(target))
+      : await open(
+          path.dirname(target),
+          constants.O_DIRECTORY | DARWIN_NOFOLLOW_ANY
+        );
+  try {
+    const entry =
+      process.platform === "linux"
+        ? `/proc/self/fd/${parent.fd}/${path.basename(target)}`
+        : target;
+    const stat = await lstat(entry);
+    if (stat.isSymbolicLink()) {
+      const link = await readlink(entry, { encoding: "buffer" });
+      return { mode: stat.mode, link: link.toString("base64"), regular: false };
+    }
+    if (stat.isDirectory()) {
+      throw new Error(
+        "Checkout fingerprint cannot inspect a dirty directory or submodule"
+      );
+    }
+    return { mode: stat.mode, regular: stat.isFile() };
+  } finally {
+    await parent.close();
+  }
+}
+
+async function fingerprintCheckout(
   root: string,
-  baseBranch: string | null
-): Promise<CheckoutReply> {
+  base: string,
+  head: string,
+  staged: string,
+  unmerged: string,
+  unstaged: string[],
+  untracked: string[]
+): Promise<string> {
+  if (unstaged.length + untracked.length > MAX_FINGERPRINT_FILES)
+    throw new Error("Too many dirty files to fingerprint the checkout");
+
+  const hash = createHash("sha256");
+  hash.update(JSON.stringify([base, head, staged, unmerged]));
+  const buffer = Buffer.alloc(64 * 1024);
+  let remaining = MAX_FINGERPRINT_BYTES;
+  for (const [kind, files] of [
+    ["unstaged", unstaged],
+    ["untracked", untracked],
+  ] as const) {
+    for (const relative of [...new Set(files)].sort()) {
+      const descriptor = await describeWorktreePath(root, relative).catch(
+        (error) => {
+          if (
+            kind === "unstaged" &&
+            (error as NodeJS.ErrnoException).code === "ENOENT"
+          )
+            return null;
+          throw error;
+        }
+      );
+      hash.update(JSON.stringify([kind, relative, descriptor]));
+      if (!descriptor?.regular) continue;
+      const file = await openRegularFile(root, relative.split("/"));
+      try {
+        const before = await file.stat();
+        if (!before.isFile())
+          throw new Error("Checkout changed while fingerprinting dirty files");
+        if (before.size > remaining)
+          throw new Error(
+            "Dirty file contents exceed the checkout fingerprint limit"
+          );
+        const content = createHash("sha256");
+        let offset = 0;
+        for (;;) {
+          const { bytesRead } = await file.read(
+            buffer,
+            0,
+            Math.min(buffer.length, remaining + 1),
+            offset
+          );
+          if (bytesRead === 0) break;
+          offset += bytesRead;
+          remaining -= bytesRead;
+          if (remaining < 0)
+            throw new Error(
+              "Dirty file contents exceed the checkout fingerprint limit"
+            );
+          content.update(buffer.subarray(0, bytesRead));
+        }
+        const after = await file.stat();
+        if (
+          before.mode !== descriptor.mode ||
+          before.ctimeMs !== after.ctimeMs ||
+          before.size !== offset
+        )
+          throw new Error("Checkout changed while fingerprinting dirty files");
+        hash.update(content.digest());
+      } finally {
+        await file.close();
+      }
+    }
+  }
+  return hash.digest("hex");
+}
+
+async function inspectChanges(root: string, baseBranch: string | null) {
+  baseBranch ??= await recordedReviewBase(root);
   if (baseBranch === null) {
     try {
       baseBranch = (await getPrStatus({ cwd: root }, run)).baseRefName;
@@ -186,13 +329,54 @@ async function inspectChanges(
     allowUpstreamFallback: baseBranch === null,
   };
   await refreshRemoteBaseRef(root, baseBranch, options);
-  const baseRef =
-    (await resolveBaseRef(root, baseBranch, options)) ?? "origin/main";
-  const { stdout: head } = await run("git", ["rev-parse", "--verify", "HEAD"], {
-    cwd: root,
-  });
-  const files = await collectOwnerReviewFiles(root, baseRef, run, head);
-  return { kind: "changes", baseRef, head, files };
+  const baseRef = await resolveBaseRef(root, baseBranch, options);
+  if (baseRef === null)
+    throw new Error("Could not resolve checkout base (origin/main fallback)");
+  const [{ stdout: head }, { stdout: base }] = await Promise.all([
+    run("git", ["rev-parse", "--verify", "HEAD"], { cwd: root }),
+    run(
+      "git",
+      ["rev-parse", "--verify", "--end-of-options", `${baseRef}^{commit}`],
+      { cwd: root }
+    ),
+  ]);
+  const [changes, staged, unmerged] = await Promise.all([
+    collectOwnerReviewChanges(root, base, run, head),
+    run(
+      "git",
+      [
+        "diff",
+        "--cached",
+        "--raw",
+        "--no-abbrev",
+        "--no-renames",
+        "-z",
+        head,
+        "--",
+      ],
+      { cwd: root, trimOutput: false }
+    ),
+    run("git", ["ls-files", "--unmerged", "-z"], {
+      cwd: root,
+      trimOutput: false,
+    }),
+  ]);
+  const stateId = await fingerprintCheckout(
+    root,
+    base,
+    head,
+    staged.stdout,
+    unmerged.stdout,
+    changes.unstaged,
+    changes.untracked
+  );
+  return {
+    kind: "changes" as const,
+    baseRef,
+    head,
+    files: ownerReviewPaths(changes),
+    stateId,
+  };
 }
 
 function encodeReply(reply: CheckoutReply): string {

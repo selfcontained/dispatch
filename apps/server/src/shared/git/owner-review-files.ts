@@ -1,14 +1,14 @@
 import type { CommandRunner } from "../lib/run-command.js";
 
-export async function collectOwnerReviewFiles(
+export async function collectOwnerReviewChanges(
   cwd: string,
   baseRef: string,
   run: CommandRunner,
   head: string = "HEAD"
-): Promise<string[]> {
+) {
   // --no-renames represents a rename as deletion + addition, so both owners
   // are selected. NUL delimiters preserve whitespace and unusual filenames.
-  const results = await Promise.all([
+  const [committed, staged, unstaged, untracked] = await Promise.all([
     run(
       "git",
       [
@@ -36,9 +36,25 @@ export async function collectOwnerReviewFiles(
       trimOutput: false,
     }),
   ]);
-  return [
-    ...new Set(
-      results.flatMap((result) => result.stdout.split("\0").filter(Boolean))
-    ),
-  ].sort();
+  const paths = (stdout: string) => stdout.split("\0").filter(Boolean);
+  return {
+    committed: paths(committed.stdout),
+    staged: paths(staged.stdout),
+    unstaged: paths(unstaged.stdout),
+    untracked: paths(untracked.stdout),
+  };
+}
+
+export function ownerReviewPaths(
+  changes: Awaited<ReturnType<typeof collectOwnerReviewChanges>>
+): string[] {
+  return [...new Set(Object.values(changes).flat())].sort();
+}
+
+export async function collectOwnerReviewFiles(
+  cwd: string,
+  baseRef: string,
+  run: CommandRunner
+): Promise<string[]> {
+  return ownerReviewPaths(await collectOwnerReviewChanges(cwd, baseRef, run));
 }
