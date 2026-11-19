@@ -1,4 +1,6 @@
 import { useEffect, useRef } from "react";
+import { useQuery } from "@tanstack/react-query";
+import type { AppVersionInfo } from "./release-utils";
 import { useAtomValue, useSetAtom } from "jotai";
 import { useNavigate } from "react-router-dom";
 import { ArrowDownToLine } from "lucide-react";
@@ -25,6 +27,11 @@ const TOAST_ID_PREFIX = "release-available-";
  */
 export function ReleaseAvailableToast(): null {
   const navigate = useNavigate();
+  const { data: versionInfo } = useQuery({
+    queryKey: ["release", "app-version"],
+    queryFn: () => api<AppVersionInfo>("/api/v1/app/version"),
+    retry: false,
+  });
   const { data } = useCachedReleaseInfo();
   const snapshot = data?.snapshot ?? null;
   const tag = snapshot?.updateAvailable ? snapshot.latestTag : null;
@@ -40,6 +47,9 @@ export function ReleaseAvailableToast(): null {
 
   useEffect(() => {
     const wantsToShow =
+      // Wait for ownership before offering a server update. Sparkle owns Mac installs.
+      versionInfo !== undefined &&
+      versionInfo.updateOwner !== "macos-app" &&
       snapshot !== null &&
       snapshot.updateAvailable &&
       tag !== null &&
@@ -114,7 +124,7 @@ export function ReleaseAvailableToast(): null {
     // the next effect run via shownTagRef. This avoids the
     // dismiss-and-recreate flicker that happens when React Query produces
     // a new snapshot reference with identical content.
-  }, [snapshot, tag, dismissed, navigate, setDismissed]);
+  }, [snapshot, tag, dismissed, navigate, setDismissed, versionInfo]);
 
   return null;
 }
