@@ -48,6 +48,21 @@ function createReply() {
 afterEach(() => vi.useRealTimers());
 
 describe("GET /api/v1/events", () => {
+  it("sends an observable heartbeat even when there are no UI events", async () => {
+    vi.useFakeTimers();
+    const harness = await createRouteHarness(async () => []);
+    const request = createRequest();
+    const reply = createReply();
+    await harness.handler(request, reply);
+    reply.raw.write.mockClear();
+    vi.advanceTimersByTime(20_000);
+    expect(reply.raw.write).toHaveBeenCalledWith(
+      'data: {"type":"heartbeat"}\n\n'
+    );
+    request.raw.emit("close");
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
   it("omits private persona metadata from snapshots and upserts without mutating the launch record", async () => {
     vi.useFakeTimers();
     const context = "PRIVATE_CONTEXT_SENTINEL".repeat(4000);

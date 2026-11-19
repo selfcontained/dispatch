@@ -26,7 +26,9 @@ export async function registerAgentEventRoutes(
       sessionIdOf((request.query as { session?: unknown } | undefined)?.session)
     );
     const heartbeat = setInterval(() => {
-      stream.write(": keepalive\n\n");
+      // Comments keep proxies alive but are invisible to EventSource handlers.
+      // A data event lets clients detect a silently stalled WebKit connection.
+      stream.write('data: {"type":"heartbeat"}\n\n');
     }, 20_000);
     let cleanedUp = false;
     const cleanup = () => {
