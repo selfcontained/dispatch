@@ -1,3 +1,4 @@
+import { isPromptImageMimeType } from "./prompt-source.js";
 import type { RuntimeLaunch } from "../runtime.js";
 import { sameConversation, type PromptConversation } from "@dispatch/shared";
 import { appendFile, mkdir, rm } from "node:fs/promises";
@@ -70,6 +71,7 @@ type Waiting = {
   onDeferred?: () => Promise<void>;
   signal?: AbortSignal;
   images?: PromptImage[];
+  requiresPrompt: boolean;
   source?: PromptSource;
   /** Not to be combined with others: an interrupting post, a job's nudge. */
   alone: boolean;
@@ -435,7 +437,7 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
           const index = entry.waiting.findIndex(
             (w) =>
               w.delivery === "auto" &&
-              !w.images?.length &&
+              !w.requiresPrompt &&
               !w.steering?.pending &&
               !(
                 isUserPost(w) &&
@@ -517,6 +519,12 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
             }
             continue;
           }
+          const inputs = batch.flatMap((item) => item.images ?? []);
+          const images = inputs.some((input) => input.runnerName !== undefined)
+            ? await deps.preparePromptFiles?.(agentId, inputs)
+            : inputs;
+          if (!images)
+            throw new Error("Runner prompt file delivery is unavailable.");
           if (steering) {
             const outcome = await entry.client.steer(id, text, source);
             if (outcome === "promptRequired") {
@@ -535,14 +543,6 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
                   : "default"
               );
           } else {
-            const inputs = batch.flatMap((item) => item.images ?? []);
-            const images = inputs.some(
-              (input) => input.runnerName !== undefined
-            )
-              ? await deps.preparePromptFiles?.(agentId, inputs)
-              : inputs;
-            if (!images)
-              throw new Error("Runner prompt file delivery is unavailable.");
             if (entry.remote) {
               const dir = stateDir(agentId);
               await mkdir(dir, { recursive: true, mode: 0o700 });
@@ -858,7 +858,15 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
     }).finally(() => {
       entry.pending -= 1;
     });
+    const requiresPrompt =
+      opts?.images?.some(
+        (input) =>
+          entry.remote ||
+          input.runnerName === undefined ||
+          isPromptImageMimeType(input.mimeType)
+      ) ?? false;
     const own: Waiting = {
+      requiresPrompt,
       text,
       ...(opts?.beforeSubmit ? { beforeSubmit: opts.beforeSubmit } : {}),
       ...(opts?.onDeferred ? { onDeferred: opts.onDeferred } : {}),
@@ -869,11 +877,12 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
         opts?.delivery === "interrupt" ||
         opts?.alone === true ||
         source?.source !== "chat",
-      // Steering accepts text only. Keep images for the next ordinary turn.
+      // Remote inputs can require transfer, and native images need an ACP prompt.
+      // A native text attachment can still steer with its shared file path.
       delivery:
         opts?.delivery === "interrupt"
           ? "interrupt"
-          : opts?.images?.length
+          : requiresPrompt
             ? "queue"
             : (opts?.delivery ?? "queue"),
       taken: false,
@@ -921,7 +930,7 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
       !own.source?.steeringExcluded &&
       !own.source?.awaited &&
       !own.source?.scheduleId &&
-      !own.images?.length &&
+      !own.requiresPrompt &&
       entry.turnOpen &&
       entry.turnSeq !== undefined &&
       entry.conversation &&
@@ -1185,7 +1194,7 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
           return act === "send-now"
             ? entry.turnOpen &&
                 (prompt.delivery === "interrupt" ||
-                  !!prompt.images?.length ||
+                  prompt.requiresPrompt ||
                   (!steers(prompt, entry) &&
                     !entry.client.welcome?.steeringSupported))
             : // An interrupt already asked for is not asked for twice, and a

@@ -1,17 +1,11 @@
 import { open } from "node:fs/promises";
 import type { ImageContent } from "@agentclientprotocol/sdk";
-import type { PromptImage } from "./prompt-source.js";
+import { isPromptImageMimeType, type PromptImage } from "./prompt-source.js";
 
 // Bound both memory and the ACP request. File references remain in the envelope
 // when an image is too large or unavailable, so the agent can use its file tools.
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 const MAX_PROMPT_IMAGE_BYTES = 20 * 1024 * 1024;
-const MIME_TYPES = new Set([
-  "image/png",
-  "image/jpeg",
-  "image/webp",
-  "image/gif",
-]);
 
 export async function readPromptImages(
   images: PromptImage[],
@@ -21,7 +15,8 @@ export async function readPromptImages(
   let remaining = MAX_PROMPT_IMAGE_BYTES;
   const seen = new Set<string>();
   for (const image of images) {
-    if (!MIME_TYPES.has(image.mimeType) || seen.has(image.path)) continue;
+    if (!isPromptImageMimeType(image.mimeType) || seen.has(image.path))
+      continue;
     seen.add(image.path);
     try {
       const file = await open(image.path, "r");

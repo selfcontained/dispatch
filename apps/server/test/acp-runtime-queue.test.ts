@@ -3,6 +3,7 @@
  * where the test decides how the host's messages are framed on the wire.
  */
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { createLocalRunner } from "../src/agents/local-runner.js";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
@@ -682,10 +683,14 @@ function withinSeconds<T>(
 
 async function attached(
   stateRoot: string,
-  classifySteering?: Parameters<typeof createAcpRuntime>[0]["classifySteering"]
+  classifySteering?: Parameters<typeof createAcpRuntime>[0]["classifySteering"],
+  preparePromptFiles?: Parameters<
+    typeof createAcpRuntime
+  >[0]["preparePromptFiles"]
 ) {
   const runtime = createAcpRuntime({
     classifySteering,
+    preparePromptFiles,
     config: {
       agentStateRoot: stateRoot,
       agentRuntime: "acp",
@@ -1323,6 +1328,50 @@ describe("AcpRuntime delivery during a turn", () => {
     host.settle();
     await Promise.all([work.settled, next.settled]);
   });
+
+  it.each(["auto", "queue"] as const)(
+    "delivers a native composer text attachment through the runner with %s routing",
+    async (delivery) => {
+      const host = await heldTurnHost("injected");
+      const local = createLocalRunner(host.stateRoot, logger);
+      const deliver = vi.spyOn(local, "deliverSessionFile");
+      const runtime = await attached(
+        host.stateRoot,
+        undefined,
+        async (id, inputs) => {
+          for (const input of inputs)
+            await local.deliverSessionFile(id, input.path);
+          return [];
+        }
+      );
+      const file = path.join(host.stateRoot, "composer.txt");
+      writeFileSync(file, "text from composer");
+      const work = runtime.prompt(agentId, "work", post(0));
+      await work.accepted;
+      const text = envelope(1, `- file: ${file} (text/plain, 18 B)`);
+      const attachedText = runtime.prompt(agentId, text, post(1), {
+        delivery,
+        images: [
+          { path: file, mimeType: "text/plain", runnerName: "composer.txt" },
+        ],
+      });
+      if (delivery === "queue") {
+        expect(deliver).not.toHaveBeenCalled();
+        expect(host.steers).toEqual([]);
+        host.settle();
+      }
+      await withinSeconds(attachedText.accepted, "native text attachment");
+      expect(deliver).toHaveBeenCalledExactlyOnceWith(agentId, file);
+      if (delivery === "auto") {
+        expect(host.steers).toEqual([text]);
+        expect(host.prompts).toHaveLength(1);
+      } else {
+        expect(host.prompts[1]).toEqual({ text, source: post(1) });
+      }
+      host.settle();
+      await Promise.all([work.settled, attachedText.settled]);
+    }
+  );
 
   it("steers consecutive messages while explicit queue waits, without canceling", async () => {
     const host = await heldTurnHost("injected");
