@@ -1,3 +1,5 @@
+import { githubPullRequestUrl } from "../pull-request-reader.js";
+import { mergeRiskScope, type MergeRiskGitHubSource } from "./github-source.js";
 import { retainedEvidence } from "./explanation-evidence.js";
 import { mergeRiskCapacity } from "./budget.js";
 import { readAssessedDiff } from "./explanation-diff.js";
@@ -9,7 +11,7 @@ import {
   type ExplanationFailure,
 } from "./explanation-client.js";
 
-type Input = { assessmentId: string };
+type Input = { assessmentId: string; url?: string; runnerId?: string | null };
 /**
  * Why no explanation could start. Safe to show and log; never private data.
  * `not_found` means no completed assessment has that id (unknown or pruned).
@@ -33,6 +35,7 @@ type Reply = ExplanationReply;
 type Assessment = {
   url: string;
   head_sha: string;
+  base_sha: string | null;
   created_at: Date;
   result: Record<string, unknown>;
   /** Null when the record predates evidence retention or retention failed. */
@@ -44,7 +47,8 @@ type Assessment = {
  *
  * Explains one saved assessment by id, as it was made. Nothing about the
  * PR's current head, reviews, status or the in-memory inventory gates it.
- * Request auth and the browser-only route are the only access controls.
+ * The requesting placement must still be able to read the PR with the
+ * credential that supplied the assessment.
  */
 export class RiskExplanations {
   constructor(
@@ -52,18 +56,25 @@ export class RiskExplanations {
       pool: Pool;
       settings: RoutingSettings;
       transport?: typeof fetch;
+      github?: Pick<MergeRiskGitHubSource, "details" | "diff">;
       /** Hunks for the assessed commit; injectable so tests never call gh. */
       readDiff?: typeof readAssessedDiff;
     }
   ) {}
 
-  private async find(id: string): Promise<Assessment | undefined> {
+  private async find(
+    id: string,
+    url: string | null,
+    scope: string,
+    includeHistorical: boolean
+  ): Promise<Assessment | undefined> {
     const { rows } = await this.deps.pool.query<Assessment>(
-      `SELECT r.url,r.head_sha,r.created_at,r.result,s.evidence
+      `SELECT r.url,r.head_sha,r.base_sha,r.created_at,r.result,s.evidence
        FROM merge_risk_decision_records r
        LEFT JOIN merge_risk_evidence_snapshots s ON s.assessment_id=r.id
-       WHERE r.id=$1 AND r.status='ok'`,
-      [id]
+       WHERE r.id=$1 AND r.status='ok' AND ($2::text IS NULL OR r.url=$2)
+         AND (r.evidence_scope=$3 OR ($4 AND r.evidence_scope=''))`,
+      [id, url, scope, includeHistorical]
     );
     return rows[0];
   }
@@ -77,7 +88,26 @@ export class RiskExplanations {
     const config = await this.deps.settings.configuration();
     if (!config.mergeRiskEnabled || !config.apiKey)
       return { state: "unavailable", reason: "disabled" };
-    const assessment = await this.find(input.assessmentId);
+    const github = this.deps.github;
+    const runnerId = input.runnerId ?? null;
+    const url = input.url ? githubPullRequestUrl(input.url) : null;
+    const details = github && url ? await github.details(runnerId, url) : null;
+    if ((github && !details) || (!github && runnerId !== null))
+      return { state: "unavailable", reason: "not_found" };
+    const scope = details
+      ? mergeRiskScope(runnerId, details.credentialContext)
+      : "";
+    const authorized = async () =>
+      !details ||
+      (!!url &&
+        (await github?.details(runnerId, url))?.credentialContext ===
+          details.credentialContext);
+    const assessment = await this.find(
+      input.assessmentId,
+      url,
+      scope,
+      runnerId === null
+    );
     if (!assessment) return { state: "unavailable", reason: "not_found" };
     const limitedEvidence = assessment.evidence == null;
     // Settings are re-read after every await; a change aborts before spend.
@@ -105,13 +135,17 @@ export class RiskExplanations {
       // An explanation from an older prompt/model is not reused: it regenerates.
       if (stored?.status === "pending") {
         await client.query("COMMIT");
-        return { state: "pending" };
+        return (await authorized())
+          ? { state: "pending" }
+          : { state: "unavailable", reason: "not_found" };
       }
       if (
         stored?.status === "ok" &&
         stored.result.version === EXPLANATION_VERSION
       ) {
         await client.query("COMMIT");
+        if (!(await authorized()))
+          return { state: "unavailable", reason: "not_found" };
         return {
           state: "ready",
           text: stored.result.text,
@@ -138,11 +172,24 @@ export class RiskExplanations {
     // Without saved evidence the model may not name files, so no hunks.
     const diff = limitedEvidence
       ? null
-      : await (this.deps.readDiff ?? readAssessedDiff)(
-          assessment.url,
-          assessment.head_sha,
-          assessment.evidence
-        ).catch(() => null);
+      : github && details
+        ? await github.diff(
+            runnerId,
+            assessment.url,
+            assessment.base_sha ?? details.baseRefOid,
+            assessment.head_sha,
+            details.credentialContext,
+            assessment.evidence
+          )
+        : await (this.deps.readDiff ?? readAssessedDiff)(
+            assessment.url,
+            assessment.head_sha,
+            assessment.evidence
+          ).catch(() => null);
+    if (!(await authorized())) {
+      await this.finish(input.assessmentId, "stale", { reason: "not_found" });
+      return { state: "unavailable", reason: "not_found" };
+    }
     if (!(await unchanged())) {
       await this.finish(input.assessmentId, "stale", {
         reason: "config_changed",
@@ -164,16 +211,23 @@ export class RiskExplanations {
       ),
       this.deps.transport
     );
-    const current = await unchanged();
+    const stillAuthorized = await authorized();
+    const current = stillAuthorized && (await unchanged());
     // Results from replaced settings retain only accounting, never text.
     const { text, ...accounting } = result;
     await this.finish(input.assessmentId, current ? result.status : "stale", {
       ...accounting,
-      ...(current ? {} : { reason: "config_changed" }),
+      ...(current
+        ? {}
+        : { reason: stillAuthorized ? "config_changed" : "not_found" }),
       ...(current && text ? { text } : {}),
       ...(limitedEvidence ? { limitedEvidence: true } : {}),
     });
-    if (!current) return { state: "unavailable", reason: "config_changed" };
+    if (!current)
+      return {
+        state: "unavailable",
+        reason: stillAuthorized ? "config_changed" : "not_found",
+      };
     return result.status === "ok"
       ? {
           state: "ready",

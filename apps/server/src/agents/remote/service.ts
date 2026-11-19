@@ -1,5 +1,6 @@
 import {
   githubPullRequestUrl,
+  githubPullRequestTarget,
   projectPullRequest,
 } from "../pull-request-reader.js";
 import { X509Certificate } from "node:crypto";
@@ -37,6 +38,8 @@ import {
   type GitHubStatus,
   parseGitHubStatus,
   isGitHubPullRequestObservation,
+  isGitHubPullRequestDetails,
+  isGitHubPullRequestDiff,
   githubPullRequestHead,
   githubRepositoryResults,
   type SessionOperation,
@@ -149,6 +152,7 @@ type Peer = {
   engineManagement: boolean;
   githubManagement: boolean;
   pullRequestStatus: boolean;
+  pullRequestEvidence: boolean;
   checkoutInspection: boolean;
   checkoutViews: boolean;
   sharedWorktree: boolean;
@@ -665,6 +669,7 @@ export class RemoteRunnerService {
           reportsHealth: ready.health === true,
           engineManagement: ready.engineManagement === true,
           pullRequestStatus: ready.pullRequestStatus === true,
+          pullRequestEvidence: ready.pullRequestEvidence === true,
           githubManagement: ready.githubManagement === true,
           checkoutViews: ready.checkoutViews === true,
           checkoutInspection: ready.checkoutInspection === true,
@@ -1224,6 +1229,18 @@ export class RemoteRunnerService {
         "Update the runner to read pull request status."
       );
 
+    if (
+      operation.kind === "github" &&
+      (operation.operation.type === "pullRequestDetails" ||
+        operation.operation.type === "pullRequestDiff" ||
+        (operation.operation.type === "pullRequestStatus" &&
+          operation.operation.withCredentialContext)) &&
+      !peer.pullRequestEvidence
+    )
+      throw new RunnerCapabilityUnavailable(
+        "Update the runner to read pull request evidence."
+      );
+
     // V1 requires a routable workspace and an id even for a runner-wide operation.
     for (const workspace of peer.workspaces) {
       if (peer.gate.allows(workspace))
@@ -1240,10 +1257,13 @@ export class RemoteRunnerService {
     runnerId: string,
     operation: GitHubOperation
   ): Promise<unknown> {
+    const peer = this.peers.get(runnerId);
     const { value } = await this.requestRunner(runnerId, {
       kind: "github",
       operation,
     });
+    if (this.peers.get(runnerId) !== peer || !peer?.gate.approved())
+      throw new RunnerUnavailable("The runner connection changed.");
     if (typeof value !== "string") throw new Error("Invalid GitHub reply.");
     return JSON.parse(value);
   }
@@ -1305,10 +1325,44 @@ export class RemoteRunnerService {
       owner,
       repo,
       number: Number(number),
+      ...(this.peers.get(runnerId)?.pullRequestEvidence && {
+        withCredentialContext: true,
+      }),
     });
     if (!isGitHubPullRequestObservation(response))
       throw new Error("Invalid runner pull request observation.");
     return projectPullRequest(canonical, title, response);
+  }
+
+  async readPullRequestDetails(runnerId: string, url: string) {
+    const target = githubPullRequestTarget(url);
+    if (!target) return null;
+    const value = await this.requestGitHub(runnerId, {
+      ...target,
+      type: "pullRequestDetails",
+    });
+    return isGitHubPullRequestDetails(value) && value.number === target.number
+      ? value
+      : null;
+  }
+
+  async readPullRequestDiff(
+    runnerId: string,
+    url: string,
+    base: string,
+    head: string,
+    credentialContext: string
+  ) {
+    const target = githubPullRequestTarget(url);
+    if (!target) return null;
+    const value = await this.requestGitHub(runnerId, {
+      ...target,
+      type: "pullRequestDiff",
+      base,
+      head,
+      credentialContext,
+    });
+    return isGitHubPullRequestDiff(value) ? value : null;
   }
 
   async lookupGitHubPullRequestHead(

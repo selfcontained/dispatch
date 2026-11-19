@@ -44,6 +44,10 @@ case "$1 $2" in
     if [ -f reject ]; then printf 'synthetic-secret\n' >&2; exit 1; fi
     printf 'fixture-user\n' > login
     ;;
+  'auth token')
+    test "$*" = 'auth token --hostname github.com'
+    cat active-token
+    ;;
   'auth setup-git')
     test "$*" = 'auth setup-git --hostname github.com'
     git config --global credential.https://github.com.helper "!$0 auth git-credential"
@@ -69,15 +73,34 @@ case "$1 $2" in
   'api graphql')
     test "$3 $4" = '--hostname github.com'
     test "$7 $8 $9" = '-f owner=org -f'
-    test -f login
-    cat graphql-response
-    exit 1
+    case "$6" in
+      *'baseRefOid headRefOid'*)
+        test "$GH_TOKEN" = 'approved-token'
+        cat detail-response
+        ;;
+      *)
+        test -f login
+        cat graphql-response
+        exit 1
+        ;;
+    esac
     ;;
   'api --hostname')
     test "$3" = 'github.com'
     case "$4" in
       user) if [ -f revoked ]; then printf '(HTTP 401)\n' >&2; exit 1; fi; cat login ;;
-      repos/org/project/pulls/42) printf '%s' '{"url":"https://github.com/fork/project.git","branch":"fix"}' ;;
+      repos/org/project/pulls/42)
+        if [ "$6" = '.number' ]; then
+          test "$GH_TOKEN" = 'approved-token'
+          printf '42'
+          exit 0
+        fi
+        printf '%s' '{"url":"https://github.com/fork/project.git","branch":"fix"}' ;;
+      repos/org/project/compare/*)
+        test "$GH_TOKEN" = 'approved-token'
+        test "$4" = "$(cat compare-path)"
+        printf '%s' '[{"path":"src/example.ts","additions":1,"deletions":0,"patch":"@@ -1 +1 @@"}]'
+        ;;
       *) exit 1 ;;
     esac
     ;;
@@ -198,6 +221,81 @@ it("completes a device login and configures the same credential helper for an ag
     } finally {
       connection.abort();
     }
+  });
+});
+
+it("binds bounded PR details and an assessed diff to the workload credential", async () => {
+  await fixture(async ({ executor, root }) => {
+    const target = { owner: "org", repo: "project", number: 42 };
+    const signal = new AbortController().signal;
+    const base = "a".repeat(40);
+    const head = "b".repeat(40);
+    const metadata = {
+      number: 42,
+      title: "Private PR",
+      body: "Description",
+      baseRefName: "main",
+      headRefName: "fix",
+      baseRefOid: base,
+      headRefOid: head,
+      additions: 1,
+      deletions: 0,
+    };
+    const files = [{ path: "src/example.ts", additions: 1, deletions: 0 }];
+    const writeDetails = (hasNextPage: boolean) =>
+      writeFile(
+        path.join(root, "detail-response"),
+        JSON.stringify({
+          data: {
+            repository: {
+              pullRequest: {
+                ...metadata,
+                files: { pageInfo: { hasNextPage }, nodes: files },
+              },
+            },
+          },
+        })
+      );
+    await writeFile(path.join(root, "active-token"), "approved-token");
+    await writeDetails(false);
+    await writeFile(
+      path.join(root, "compare-path"),
+      `repos/org/project/compare/${base}...${head}`
+    );
+    const details = await executor.handle(
+      { ...target, type: "pullRequestDetails" },
+      signal
+    );
+    expect(details).toEqual({
+      ...metadata,
+      files,
+      credentialContext: expect.stringMatching(/^[a-f0-9]{64}$/),
+    });
+    if (
+      !details ||
+      !("credentialContext" in details) ||
+      !details.credentialContext
+    )
+      throw new Error("Missing credential context");
+    const diff = {
+      ...target,
+      type: "pullRequestDiff" as const,
+      base,
+      head,
+      credentialContext: details.credentialContext,
+    };
+    expect(await executor.handle(diff, signal)).toEqual({
+      files: [{ ...files[0], patch: "@@ -1 +1 @@" }],
+    });
+    await writeDetails(true);
+    expect(
+      await executor.handle({ ...target, type: "pullRequestDetails" }, signal)
+    ).toBeNull();
+    await writeFile(path.join(root, "active-token"), "denied-token");
+    expect(await executor.handle(diff, signal)).toBeNull();
+    await expect(
+      executor.handle({ ...target, type: "pullRequestDetails" }, signal)
+    ).rejects.toThrow();
   });
 });
 

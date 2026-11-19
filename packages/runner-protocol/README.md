@@ -139,7 +139,7 @@ The service prepares this text and any instructions it wants included.
 | `inspectCheckout`                | Run a `CheckoutQuery` against the bound checkout and return a JSON-encoded `CheckoutReply`. Validate it with `isCheckoutReply`.                    | `checkoutInspection`.                                                                                                 |
 | `viewCheckout` / `watchCheckout` | Read a checkout view or subscribe to change pulses. See below.                                                                                     | `checkoutViews`.                                                                                                      |
 | `engine`                         | Run an `EngineOperation` and return a JSON-encoded `EngineOperationAck`. When progress is available, stream NDJSON `EngineOperationEvent` records. | `engineManagement`. Open a channel when consuming progress.                                                           |
-| `github`                         | Perform a `GitHubOperation` using the runner account and return its JSON reply. See below.                                                         | `githubManagement`, plus `pullRequestStatus` for current-head checks.                                                 |
+| `github`                         | Perform a `GitHubOperation` using the runner account and return its JSON reply. See below.                                                         | `githubManagement`, plus `pullRequestStatus` for current-head checks or `pullRequestEvidence` for details and diffs.  |
 
 Use an advertised workspace and an opaque placeholder `agentId` for the
 runner-wide `engine` and `github` operations. The runner routes those
@@ -296,3 +296,38 @@ array means no checks. Null means incomplete, unavailable, truncated, or
 mismatched head. An inaccessible PR has no state. Leave CLI output and
 GraphQL diagnostics on the runner. Consumers validate the result and
 scope cached observations and notifications to the runner and canonical URL.
+
+A peer advertising `githubManagement` and `pullRequestEvidence` accepts
+two additional GitHub operations. Both use the same `owner`, `repo` and
+positive PR `number` as the status request.
+
+- `{type: "pullRequestDetails", owner, repo, number}` returns
+  `{credentialContext, number, title, body, baseRefName, headRefName,
+baseRefOid, headRefOid, additions, deletions, files}`. The files contain
+  provider paths and line counts. The fixed query includes up to 100 files.
+  An incomplete, denied, or oversized read is unavailable.
+- `{type: "pullRequestDiff", owner, repo, number, base, head, credentialContext}`
+  returns `{files}` for the GitHub comparison between those full commit SHAs.
+  The runner checks that the supplied credential context is still active and
+  can read the PR before it compares the commits. GitHub supplies up to 300
+  changed files. Files can include a `patch` of up to 32,768 characters.
+
+Replies use the existing JSON string carried by the `github` result. A
+JSON `null` or unsuccessful result means unavailable. The supplied Linux
+runner caps CLI output at 128 KiB per call and discards provider error
+details. It pins the credential across all GitHub calls within an operation.
+
+When the peer also advertises `pullRequestStatus`, a consumer may request
+`withCredentialContext: true` on a status operation. A scoped observation
+includes `credentialContext` alongside the original fields. A status-only
+observation can still be returned if a credential context was unavailable.
+Send the flag and the new operations only after negotiation. Existing
+consumers can continue to use the original status request and response.
+
+A credential context is an opaque 64-character lowercase hexadecimal handle
+for equality comparisons. Treat it as runner-local and sensitive metadata.
+It does not grant authority to read GitHub. Credential or runner key changes
+can invalidate it. To join provider data or reuse a saved result, match the
+runner, repository and PR, relevant commits, and credential context from a
+successful fresh read. Keep application policy, derived judgments, and
+history in the service that requested the GitHub data.

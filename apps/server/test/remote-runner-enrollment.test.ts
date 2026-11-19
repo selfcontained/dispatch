@@ -60,6 +60,8 @@ function dialRunner(input: {
   managedWorkspace?: true;
   sharedWorktree?: true;
   checkoutInspection?: true;
+  githubManagement?: true;
+  pullRequestStatus?: true;
 }): Promise<FakeRunner> {
   const url = new URL(input.endpoint);
   return new Promise((resolve, reject) => {
@@ -90,6 +92,8 @@ function dialRunner(input: {
         managedWorkspace: input.managedWorkspace,
         sharedWorktree: input.sharedWorktree,
         checkoutInspection: input.checkoutInspection,
+        githubManagement: input.githubManagement,
+        pullRequestStatus: input.pullRequestStatus,
       });
       resolve({ socket, closed, requests });
     });
@@ -196,6 +200,48 @@ describe("runner enrollment service", () => {
   afterAll(async () => {
     api?.close();
     await teardownTestDb();
+  });
+
+  it("keeps PR status enabled on a peer without the evidence capability", async () => {
+    const service = makeService();
+    const enrolled = await enroll(service, "legacy-github");
+    const peer = await dialRunner({
+      ...enrolled,
+      workspaces: ["work"],
+      githubManagement: true,
+      pullRequestStatus: true,
+      label: JSON.stringify({
+        state: "OPEN",
+        draft: false,
+        title: "PR",
+        head: null,
+        rollup: null,
+      }),
+    });
+    runners.push(peer);
+    const runnerId = enrolled.created.id;
+    await waitFor(() =>
+      service.available({ runner: runnerId, workspace: "work" })
+    );
+    const url = "https://github.com/example/repo/pull/1";
+    expect(
+      await service.readPullRequest(runnerId, url, "fallback")
+    ).toMatchObject({ status: "Open" });
+    await expect(service.readPullRequestDetails(runnerId, url)).rejects.toThrow(
+      /update.*evidence/i
+    );
+    await expect(
+      service.readPullRequestDiff(
+        runnerId,
+        url,
+        "a".repeat(40),
+        "b".repeat(40),
+        "a".repeat(64)
+      )
+    ).rejects.toThrow(/update.*evidence/i);
+    expect(
+      peer.requests.filter((frame) => frame.type === "request")
+    ).toHaveLength(1);
   });
 
   it("pairs with a one-time code over a pinned CA and lists the runner", async () => {

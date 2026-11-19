@@ -96,7 +96,20 @@ describe("server PR orchestration", () => {
         status: "Unavailable",
       });
       expect(f.read).not.toHaveBeenCalled();
-      expect(assess).not.toHaveBeenCalled();
+      expect(assess).toHaveBeenCalledWith(
+        url,
+        expect.objectContaining({ status: "Open" }),
+        ["a"],
+        expect.any(Function),
+        "alpha"
+      );
+      expect(assess).toHaveBeenCalledWith(
+        url,
+        expect.objectContaining({ status: "Unavailable" }),
+        ["b"],
+        expect.any(Function),
+        "beta"
+      );
       readRemote.mockClear();
       await expect(service.refreshOne("b", url)).rejects.toThrow("GitHub");
       expect(readRemote.mock.calls.map(([id]) => id)).toEqual(["beta"]);
@@ -723,7 +736,8 @@ it("attaches merge-risk assessments to observed heads and carries them while the
     "https://github.com/a/b/pull/0",
     expect.objectContaining({ status: "Open" }),
     ["a"],
-    expect.any(Function)
+    expect.any(Function),
+    null
   );
   expect(service.get("a")[0]!.mergeRisk?.verdict).toBe("routine");
   // A later observation of the same head without a fresh assessment keeps the verdict;

@@ -150,6 +150,9 @@ async function dropTasks(): Promise<void> {
     "DELETE FROM pgmigrations WHERE name = '0042_visualization_blocks'"
   );
   await pool.query(
+    "DELETE FROM pgmigrations WHERE name = '0058_merge_risk_evidence_scope'"
+  );
+  await pool.query(
     "DROP TABLE IF EXISTS merge_risk_decision_records, merge_risk_decision_daily"
   );
   await pool.query(

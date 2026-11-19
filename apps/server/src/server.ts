@@ -112,6 +112,9 @@ import {
 import { BrainStore } from "./brain/store.js";
 import { registerActivityRoutes } from "./routes/activity/index.js";
 import { createProviderPlansReporter } from "./agents/provider-plans.js";
+import { parseCodeowners } from "./personas/codeowners.js";
+import { LEGACY_OWNERS_PATH, OWNERS_PATH } from "./personas/paths.js";
+import { createMergeRiskGitHubSource } from "./agents/merge-risk/github-source.js";
 import { RiskExplanations } from "./agents/merge-risk/explanations.js";
 import { registerAgentRoutes } from "./routes/agents/index.js";
 import { registerBrainRoutes } from "./routes/brain.js";
@@ -367,8 +370,23 @@ const updateCheckTracker = new SubsystemTracker({
   description: "Checks the configured release channel for Dispatch updates.",
   expectedCadenceMs: 6 * 60 * 60 * 1000,
 });
+const mergeRiskGitHub = createMergeRiskGitHubSource(remoteRunner);
 const mergeRiskAssessor = new MergeRiskAssessor({
   pool,
+  github: mergeRiskGitHub,
+  remoteOwners: async (id, runnerId) => {
+    const agent = await agentManager.getAgent(id);
+    if (!agent || remotePlacement(agent.cwd)?.runner !== runnerId) return null;
+    for (const path of [OWNERS_PATH, LEGACY_OWNERS_PATH]) {
+      const reply = await agentManager.inspectCheckout(agent, {
+        kind: "readFile",
+        path,
+      });
+      if (reply.kind === "readFile" && reply.content !== null)
+        return parseCodeowners(reply.content, path);
+    }
+    return null;
+  },
   settings: routingSettings,
   agentRoot: async (id) => {
     const agent = await agentManager.getAgent(id);
@@ -383,10 +401,13 @@ const pullRequests = new PullRequestRefresher({
       id: agent.id,
       runnerId: remotePlacement(agent.cwd)?.runner ?? null,
     })),
-  read: createRunnerPullRequestReader(remoteRunner),
+  read: createRunnerPullRequestReader(
+    remoteRunner,
+    mergeRiskGitHub.nativeStatus
+  ),
   publish: (event) => uiEventBroker.publish(event),
-  assess: (url, value, owners, onProgress) =>
-    mergeRiskAssessor.assess(url, value, owners, onProgress),
+  assess: (url, value, owners, onProgress, runnerId) =>
+    mergeRiskAssessor.assess(url, value, owners, onProgress, runnerId),
   notify: async (id, previous, current, commit) => {
     await streamService.pullRequestTransition(id, previous, current, commit);
   },
@@ -1351,6 +1372,7 @@ async function registerRoutes() {
     pullRequests,
     riskExplanations: new RiskExplanations({
       pool,
+      github: mergeRiskGitHub,
       settings: routingSettings,
     }),
     onArchivedAgentsDeleted: (deletedIds) =>

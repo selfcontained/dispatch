@@ -16,6 +16,8 @@ import {
   sessionCommandId,
   isOpaqueId,
   isCheckoutReply,
+  isGitHubPullRequestDetails,
+  isGitHubPullRequestDiff,
   isCheckoutViewData,
   remotePlacement,
   workspaceLocator,
@@ -120,6 +122,7 @@ it("negotiates advertised v1 capabilities independently on each ready frame", ()
     engineManagement: true,
     githubManagement: true,
     pullRequestStatus: true,
+    pullRequestEvidence: true,
     checkoutInspection: true,
     checkoutViews: true,
     sharedWorktree: true,
@@ -559,6 +562,24 @@ it("recognizes only supported enrollment replies and retains their extensions", 
 
 // Independent service and deterministic runner peer. Both sides speak NDJSON;
 // runner session state outlives the service's authenticated connection.
+const githubTarget = { owner: "example", repo: "repo", number: 42 };
+const githubDetails = {
+  credentialContext: "c".repeat(64),
+  number: 42,
+  title: "Sample",
+  body: "Private source",
+  baseRefName: "main",
+  headRefName: "feature",
+  baseRefOid: "a".repeat(40),
+  headRefOid: "b".repeat(40),
+  additions: 1,
+  deletions: 0,
+  files: [{ path: "source.ts", additions: 1, deletions: 0 }],
+};
+const githubDiff = {
+  files: [{ ...githubDetails.files[0], patch: "@@ -1 +1 @@\n-old\n+new" }],
+};
+
 function fixtureRunner(current: boolean) {
   const workspace = current ? "@session" : "workload/β";
   const agentId = "collector/requests%2F:42";
@@ -571,6 +592,8 @@ function fixtureRunner(current: boolean) {
       managedWorkspace: true,
       health: true,
       engineManagement: true,
+      githubManagement: true,
+      pullRequestEvidence: true,
     }),
   };
   const sample = {
@@ -659,6 +682,22 @@ function fixtureRunner(current: boolean) {
           ) {
             const ack: EngineOperationAck = { ok: true };
             result(JSON.stringify(ack));
+          } else if (
+            current &&
+            command.kind === "github" &&
+            command.workspace === workspace
+          ) {
+            if (command.operation.type === "pullRequestDetails")
+              result(JSON.stringify(githubDetails));
+            else if (
+              command.operation.type === "pullRequestDiff" &&
+              command.operation.credentialContext ===
+                githubDetails.credentialContext &&
+              command.operation.base === githubDetails.baseRefOid &&
+              command.operation.head === githubDetails.headRefOid
+            )
+              result(JSON.stringify(githubDiff));
+            else result("null");
           } else if (
             command.workspace !== workspace ||
             command.agentId !== agentId
@@ -836,6 +875,48 @@ it.each([true, false])(
           : { unavailable: true }
       );
 
+      if (ready?.githubManagement && ready.pullRequestEvidence) {
+        const route = {
+          kind: "github" as const,
+          workspace: runner.session.workspace,
+          agentId: "collector/evidence",
+        };
+        const details = JSON.parse(
+          String(
+            (
+              await peer.connection.request({
+                ...route,
+                operation: { type: "pullRequestDetails", ...githubTarget },
+              })
+            ).value
+          )
+        );
+        expect(isGitHubPullRequestDetails(details)).toBe(true);
+        expect(details).toEqual(githubDetails);
+        const diff = JSON.parse(
+          String(
+            (
+              await peer.connection.request({
+                ...route,
+                operation: {
+                  type: "pullRequestDiff",
+                  ...githubTarget,
+                  credentialContext: details.credentialContext,
+                  base: details.baseRefOid,
+                  head: details.headRefOid,
+                },
+              })
+            ).value
+          )
+        );
+        expect(isGitHubPullRequestDiff(diff)).toBe(true);
+        expect(diff).toEqual(githubDiff);
+      }
+      expect(
+        runner.requests.some(
+          (frame) => frame.type === "request" && frame.command.kind === "github"
+        )
+      ).toBe(current);
       const first = await attach();
       first.send({ type: "hello", fromSeq: 0, replayComplete: true });
       const welcome = await first.take();

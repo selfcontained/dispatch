@@ -3,15 +3,111 @@ import { isRecord } from "./validation.js";
 
 export const githubDeviceUrl = "https://github.com/login/device";
 
+export type GitHubPullRequestTarget = {
+  owner: string;
+  repo: string;
+  number: number;
+};
+
 export type GitHubOperation =
   | { type: "status" | "login" | "cancel" | "logout" }
   | { type: "repositorySearch"; query: string }
-  | {
-      type: "pullRequestHead" | "pullRequestStatus";
-      owner: string;
-      repo: string;
-      number: number;
-    };
+  | (GitHubPullRequestTarget &
+      (
+        | { type: "pullRequestHead" | "pullRequestDetails" }
+        | { type: "pullRequestStatus"; withCredentialContext?: true }
+        | {
+            type: "pullRequestDiff";
+            base: string;
+            head: string;
+            credentialContext: string;
+          }
+      ));
+
+export type GitHubChangedFile = {
+  path: string;
+  additions: number;
+  deletions: number;
+  patch?: string;
+};
+
+export type GitHubPullRequestDetails = {
+  credentialContext: string;
+  number: number;
+  title: string;
+  body: string;
+  baseRefName: string;
+  headRefName: string;
+  baseRefOid: string;
+  headRefOid: string;
+  additions: number;
+  deletions: number;
+  files: GitHubChangedFile[];
+};
+
+export type GitHubPullRequestDiff = {
+  files: GitHubChangedFile[];
+};
+
+export function validGitHubCommit(value: unknown): value is string {
+  return typeof value === "string" && /^[0-9a-f]{40}$/i.test(value);
+}
+
+function validCredentialContext(value: unknown): value is string {
+  return typeof value === "string" && /^[0-9a-f]{64}$/.test(value);
+}
+
+function count(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+}
+
+function boundedString(value: unknown, limit: number): value is string {
+  return typeof value === "string" && value.length <= limit;
+}
+
+function validFile(value: unknown, diff: boolean): boolean {
+  return (
+    isRecord(value) &&
+    boundedString(value.path, 4096) &&
+    value.path.length > 0 &&
+    count(value.additions) &&
+    count(value.deletions) &&
+    (value.patch === undefined || (diff && boundedString(value.patch, 32768)))
+  );
+}
+
+export function isGitHubPullRequestDetails(
+  value: unknown
+): value is GitHubPullRequestDetails {
+  return (
+    isRecord(value) &&
+    validCredentialContext(value.credentialContext) &&
+    count(value.number) &&
+    value.number > 0 &&
+    boundedString(value.title, 1024) &&
+    boundedString(value.body, 65536) &&
+    boundedString(value.baseRefName, 1024) &&
+    boundedString(value.headRefName, 1024) &&
+    validGitHubCommit(value.baseRefOid) &&
+    validGitHubCommit(value.headRefOid) &&
+    count(value.additions) &&
+    count(value.deletions) &&
+    Array.isArray(value.files) &&
+    value.files.length <= 100 &&
+    value.files.every((file) => validFile(file, false))
+  );
+}
+
+export function isGitHubPullRequestDiff(
+  value: unknown
+): value is GitHubPullRequestDiff {
+  return (
+    isRecord(value) &&
+    Array.isArray(value.files) &&
+    value.files.length <= 300 &&
+    value.files.every((file) => validFile(file, true))
+  );
+}
 
 /** Result of the fixed current-head query. An inaccessible PR has a null state.
  * An empty rollup is authoritative. A null rollup is incomplete or unavailable. */
@@ -21,6 +117,7 @@ export type GitHubPullRequestObservation = {
   title: string | null;
   head: string | null;
   rollup: unknown[] | null;
+  credentialContext?: string;
 };
 
 export function isGitHubPullRequestObservation(
@@ -32,6 +129,8 @@ export function isGitHubPullRequestObservation(
       value.state === "OPEN" ||
       value.state === "CLOSED" ||
       value.state === "MERGED") &&
+    (value.credentialContext === undefined ||
+      validCredentialContext(value.credentialContext)) &&
     typeof value.draft === "boolean" &&
     (value.title === null || typeof value.title === "string") &&
     (value.head === null || typeof value.head === "string") &&
@@ -83,7 +182,16 @@ export function isGitHubOperation(value: unknown): value is GitHubOperation {
       return validRepositorySearch(value.query);
     case "pullRequestStatus":
     case "pullRequestHead":
+    case "pullRequestDetails":
+    case "pullRequestDiff":
       return (
+        (value.type !== "pullRequestStatus" ||
+          value.withCredentialContext === undefined ||
+          value.withCredentialContext === true) &&
+        (value.type !== "pullRequestDiff" ||
+          (validGitHubCommit(value.base) &&
+            validGitHubCommit(value.head) &&
+            validCredentialContext(value.credentialContext))) &&
         validGitHubRepoPart(value.owner) &&
         validGitHubRepoPart(value.repo) &&
         typeof value.number === "number" &&

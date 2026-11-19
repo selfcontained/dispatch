@@ -17,7 +17,9 @@ The branch already exercises session supervision, shared reviewer checkouts, che
 
 Scheduled and manual PR reads now use the selected runner. The optional `pullRequestStatus` capability returns lifecycle and current-head checks. Dispatch isolates cached observations, in-flight replies and notices by runner and URL. The Linux browser fixture posts a private PR, observes an initial check, changes the fixture on the runner, then refreshes to see the new check.
 
-Two pieces remain in this stage. First, move the PR details and assessment diff readers to the owning workload. Scope assessment reservations, prior decisions, explanations and their evidence to the placement before enabling remote assessments. The current assessment history looks up by URL alone. Existing unscoped rows should remain native-only. Second, let the runner watch the tracked set, send a current snapshot on subscribe or reconnect, and send subsequent changes. Test stale connections, bounded polling, manual refresh and the last subscriber leaving. Browser updates continue through the existing Dispatch event stream.
+Merge-risk details and commit comparisons now use the owning runner's GitHub credential. Dispatch matches the credential context from the status and details reads, partitions assessment reservations and history by runner and credential, and checks current PR access before using saved explanations. Unscoped assessments are visible only to the native placement. The wire returns GitHub source fields. Dispatch retains evidence selection, review history, policy and paid calls. An older runner can still report lifecycle and checks.
+
+Tracked-PR subscriptions remain to be implemented. Let the runner watch the tracked set, send current snapshots on subscribe or reconnect, and send subsequent changes. Test stale connections, bounded polling, manual refresh and the last subscriber leaving. Browser updates continue through the existing Dispatch event stream.
 
 ## Live updates
 

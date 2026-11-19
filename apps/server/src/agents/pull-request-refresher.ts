@@ -30,7 +30,8 @@ type Options = {
     url: string,
     value: AgentPullRequest,
     ownerAgentIds: string[],
-    onProgress?: (risk: NonNullable<AgentPullRequest["mergeRisk"]>) => void
+    onProgress?: (risk: NonNullable<AgentPullRequest["mergeRisk"]>) => void,
+    runnerId?: string | null
   ) => Promise<AgentPullRequest["mergeRisk"]>;
   warn: (error: unknown) => void;
 };
@@ -449,8 +450,7 @@ export class PullRequestRefresher {
           const previous = this.urls.get(key);
           // An assessor failure cannot establish that history is still enabled.
           let assessed = false;
-          // Merge-risk evidence still depends on the native checkout and GitHub account.
-          if (this.options.assess && runnerId === null) {
+          if (this.options.assess) {
             const owners = [...agents]
               .filter(([, urls]) => urls.has(key))
               .map(([id]) => id);
@@ -462,6 +462,7 @@ export class PullRequestRefresher {
                 (risk) => {
                   if (
                     this.stopped ||
+                    peerChanged() ||
                     this.riskHidden ||
                     (this.reviewGeneration.get(key) ?? 0) !== reviewGeneration
                   )
@@ -480,7 +481,8 @@ export class PullRequestRefresher {
                       pullRequests: next,
                     });
                   }
-                }
+                },
+                runnerId
               );
               assessed = true;
               if (
@@ -491,6 +493,13 @@ export class PullRequestRefresher {
             } catch (error) {
               this.options.warn(error);
             }
+          }
+          if (peerChanged()) {
+            if (target)
+              throw new Error(
+                "Runner connection or account changed. Please retry."
+              );
+            continue;
           }
           if (
             !this.options.assess &&
@@ -556,7 +565,7 @@ export class PullRequestRefresher {
           for (const notify of [
             lifecycleChanged ? this.options.notify : undefined,
             checksChanged ? this.options.notifyChecks : undefined,
-            runnerId === null && !reviewChanged && !this.riskHidden
+            !reviewChanged && !this.riskHidden
               ? this.options.notifyRisk
               : undefined,
           ]) {

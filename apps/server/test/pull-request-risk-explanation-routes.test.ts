@@ -7,7 +7,8 @@ it("validates the click contract, rejects agent bearer requests and scopes calls
   const explain = vi.fn().mockResolvedValue({ state: "unavailable" });
   await registerAgentPullRequestRoutes(app, {
     agentManager: {
-      getAgent: async (id: string) => (id === "owner" ? { id } : null),
+      getAgent: async (id: string) =>
+        id === "owner" ? { id, cwd: "runner://runner-a/workspace" } : null,
     },
     riskExplanations: { explain },
   } as unknown as AgentRouteDeps);
@@ -53,7 +54,8 @@ it("validates the click contract, rejects agent bearer requests and scopes calls
     expect(res.statusCode).toBe(200);
     expect(res.headers["cache-control"]).toBe("no-store");
     expect(explain).toHaveBeenCalledWith({
-      assessmentId: payload.assessmentId,
+      ...payload,
+      runnerId: "runner-a",
     });
   } finally {
     await app.close();

@@ -1,3 +1,4 @@
+import { GitHubPullRequestEvidence } from "../github-pull-request-evidence.js";
 import {
   pullRequestObservation,
   pullRequestQueryArgs,
@@ -36,6 +37,7 @@ type CommandWrapper = (
 
 /** Commands run with the same dedicated workload HOME as checkout and agents. */
 export class GitHubRunnerExecutor {
+  private readonly evidence: GitHubPullRequestEvidence;
   private readonly env: NodeJS.ProcessEnv;
   private login?: Login;
   private failed = false;
@@ -43,7 +45,8 @@ export class GitHubRunnerExecutor {
 
   constructor(
     env: NodeJS.ProcessEnv,
-    private readonly wrap: CommandWrapper
+    private readonly wrap: CommandWrapper,
+    credentialKey?: Buffer
   ) {
     this.env = {
       ...env,
@@ -54,12 +57,16 @@ export class GitHubRunnerExecutor {
       NO_COLOR: "1",
       LC_ALL: "C",
     };
+    this.evidence = new GitHubPullRequestEvidence(
+      this.run.bind(this),
+      credentialKey
+    );
   }
 
-  private async run(args: string[], signal: AbortSignal) {
+  private async run(args: string[], signal: AbortSignal, token?: string) {
     const command = this.wrap(gh, args);
     const { stdout } = await execute(command.bin, command.args, {
-      env: this.env,
+      env: token ? { ...this.env, GH_TOKEN: token } : this.env,
       signal,
       killSignal: "SIGKILL",
       timeout: 7_000,
@@ -269,7 +276,22 @@ export class GitHubRunnerExecutor {
           }))
         );
       }
+      case "pullRequestDetails":
+        return this.evidence.details(operation, signal);
+      case "pullRequestDiff":
+        return this.evidence.diff(
+          operation,
+          AbortSignal.any([signal, AbortSignal.timeout(18000)])
+        );
       case "pullRequestStatus": {
+        if (operation.withCredentialContext) {
+          // Older workload installations may support the status query but
+          // lack an exportable credential. Keep status usable without a scope.
+          const scoped = await this.evidence
+            .status(operation, signal)
+            .catch(() => null);
+          if (scoped) return scoped;
+        }
         const { owner, repo, number } = operation;
         const result = await this.run(
           pullRequestQueryArgs(owner, repo, String(number)),

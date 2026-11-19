@@ -186,10 +186,14 @@ export async function runRemoteRunner(filename: string) {
     key: readFileSync(config.key),
   };
   const sampleHealth = runnerHealthSampler();
-  const github = new GitHubRunnerExecutor(env, (bin, args) => ({
-    bin: setpriv,
-    args: [...childArgs, bin, ...args],
-  }));
+  const github = new GitHubRunnerExecutor(
+    env,
+    (bin, args) => ({
+      bin: setpriv,
+      args: [...childArgs, bin, ...args],
+    }),
+    credentials.key
+  );
   const engineExecutor = new EngineRunnerExecutor({
     uid: config.uid,
     gid: config.gid,
@@ -568,6 +572,7 @@ export async function runRemoteRunner(filename: string) {
           engineManagement: true,
           githubManagement: true,
           pullRequestStatus: true,
+          pullRequestEvidence: true,
           checkoutInspection: true,
           checkoutViews: true,
           sharedWorktree: true,

@@ -2,6 +2,19 @@ import type { GitHubPullRequestObservation } from "@dispatch/runner-protocol";
 import type { AgentPullRequest } from "@dispatch/shared";
 import { runCommand, type CommandRunner } from "../shared/lib/run-command.js";
 
+const credentialContexts = new WeakMap<AgentPullRequest, string>();
+
+export function pullRequestCredentialContext(pr: AgentPullRequest) {
+  return credentialContexts.get(pr);
+}
+
+export function githubPullRequestTarget(url: string) {
+  const canonical = githubPullRequestUrl(url);
+  if (!canonical) return null;
+  const [, owner, repo, , number] = new URL(canonical).pathname.split("/");
+  return { owner, repo, number: Number(number) };
+}
+
 export function githubPullRequestUrl(value: string): string | null {
   try {
     const url = new URL(value);
@@ -159,12 +172,15 @@ export function projectPullRequest(
             : "Open"
           : "Unavailable";
   if (status === "Unavailable") return { url, title, status };
-  return {
+  const pr: AgentPullRequest = {
     url,
     status,
     title: typeof observedTitle === "string" ? observedTitle : title,
     ci: mapPullRequestChecks(head, rollup),
   };
+  if (observation.credentialContext)
+    credentialContexts.set(pr, observation.credentialContext);
+  return pr;
 }
 
 const CHECKS_QUERY = `query($owner: String!, $repo: String!, $number: Int!) {
