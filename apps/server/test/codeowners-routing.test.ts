@@ -19,6 +19,7 @@ const cases: [string, string[]][] = [
   ["apps/server/src/personas/coverage.ts", ["review-lifecycle-owner"]],
   ["apps/server/test/owner-coverage.test.ts", ["review-lifecycle-owner"]],
   ["apps/server/src/main.ts", ["agent-runtime-owner"]],
+  ["apps/server/test/events-routes.test.ts", ["agent-runtime-owner"]],
   [
     "patches/@agentclientprotocol__claude-agent-acp@0.108.0.patch",
     ["agent-runtime-owner"],
