@@ -295,7 +295,7 @@ export class TemplateStore {
       use_worktree AS "useWorktree",
       base_branch AS "baseBranch",
       branch_name AS "branchName",
-      full_access AS "fullAccess",
+      (full_access OR agent_type = 'opencode') AS "fullAccess",
       callable,
       allow_files AS "allowFiles",
       self_improve AS "selfImprove",

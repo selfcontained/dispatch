@@ -72,6 +72,7 @@ export class TemplateService {
     input: AddTemplateInput,
     callerFullAccess?: boolean
   ): Promise<TemplateRecord> {
+    if (input.agentType === "opencode") input = { ...input, fullAccess: true };
     assertAccessCeiling(input.fullAccess ?? false, callerFullAccess);
     if (input.projectId) {
       const project = await this.projects.get(input.projectId);
@@ -135,6 +136,8 @@ export class TemplateService {
   ): Promise<TemplateRecord> {
     const existing = await this.store.getTemplate(id);
     if (!existing) throw new Error(`Template "${id}" not found.`);
+    if ((input.agentType ?? existing.agentType) === "opencode")
+      input = { ...input, fullAccess: true };
     assertAccessCeiling(
       existing.fullAccess || input.fullAccess === true,
       callerFullAccess

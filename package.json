@@ -1,6 +1,6 @@
 {
   "name": "dispatch",
-  "version": "1.7.25",
+  "version": "1.7.28",
   "private": true,
   "packageManager": "pnpm@9.15.9",
   "description": "Local-first control plane for AI coding agents with shared files",
@@ -39,8 +39,8 @@
   "pnpm": {
     "patchedDependencies": {
       "@radix-ui/react-dismissable-layer@1.1.11": "patches/@radix-ui__react-dismissable-layer@1.1.11.patch",
-      "@agentclientprotocol/claude-agent-acp@0.100.0": "patches/@agentclientprotocol__claude-agent-acp@0.100.0.patch",
-      "@agentclientprotocol/codex-acp@2.5.0": "patches/@agentclientprotocol__codex-acp@2.5.0.patch"
+      "@agentclientprotocol/claude-agent-acp@0.108.0": "patches/@agentclientprotocol__claude-agent-acp@0.108.0.patch",
+      "@agentclientprotocol/codex-acp@2.7.0": "patches/@agentclientprotocol__codex-acp@2.7.0.patch"
     },
     "onlyBuiltDependencies": [
       "esbuild",

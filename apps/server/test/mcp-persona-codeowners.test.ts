@@ -243,6 +243,49 @@ describe("code owner launches through the checkout boundary", () => {
     }
   );
 
+  it.each(["explicit", "saved"])(
+    "blocks restricted OpenCode owner reviews selected by %s runtime",
+    async (selection) => {
+      const { handlers, agentManager } = setup(
+        selection === "saved" ? { reviewAgentType: "opencode" } : {}
+      );
+      const result = await handlers.launchOwnerReviews("parent", {
+        context: "review",
+        ...(selection === "explicit" ? { agentType: "opencode" as const } : {}),
+      });
+      expect(result.launched).toHaveLength(0);
+      expect(result.failures.length).toBeGreaterThan(0);
+      expect(
+        result.failures.every((f) =>
+          JSON.stringify(f).includes(
+            "restricted agent cannot launch full-access OpenCode"
+          )
+        )
+      ).toBe(true);
+      expect(agentManager.createAgent).not.toHaveBeenCalled();
+    }
+  );
+  it("blocks restricted direct personas using a saved OpenCode reviewer", async () => {
+    const { handlers, agentManager } = setup({ reviewAgentType: "opencode" });
+    await expect(
+      handlers.launchPersonaAgent("parent", {
+        persona: "owner-one",
+        context: "review",
+      })
+    ).rejects.toThrow(/restricted agent cannot launch full-access OpenCode/);
+    expect(agentManager.createAgent).not.toHaveBeenCalled();
+  });
+
+  it("keeps owner reviews restricted when a full-access author chooses OpenCode", async () => {
+    const { handlers, agentManager } = setup({ fullAccess: true });
+    const result = await handlers.launchOwnerReviews("parent", {
+      context: "Review",
+      agentType: "opencode",
+    });
+    expect(result.failures[0]?.error).toMatch(/requires full access/i);
+    expect(agentManager.createAgent).not.toHaveBeenCalled();
+  });
+
   it.each([false, true])(
     "selects and deduplicates a subset (dryRun=%s)",
     async (dryRun) => {

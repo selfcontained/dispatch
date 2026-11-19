@@ -3183,6 +3183,27 @@ describe("task template overrides", () => {
     });
   });
 
+  it("normalizes a saved restricted OpenCode template before a task trigger launches", async () => {
+    selected = { ...selected!, agentType: "opencode", model: null };
+    const stage = await withTrigger("in_progress", {
+      agentType: "claude",
+      model: "haiku",
+    });
+    const task = await service.createTask(
+      {
+        projectId,
+        title: "OpenCode task",
+        launchTemplateId: LEAD,
+      },
+      USER
+    );
+    await service.updateTask(task.id, { columnId: stage }, USER);
+    expect(launches).toHaveLength(1);
+    expect(launches[0]).toMatchObject({
+      resolvedTemplate: { agentType: "opencode", fullAccess: true },
+    });
+  });
+
   it("inherits runtime overrides, selects the full task template for all triggers, and snapshots the actual launch", async () => {
     const implementation = await withTrigger("in_progress", {
       agentType: "claude",

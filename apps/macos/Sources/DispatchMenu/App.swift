@@ -17,6 +17,7 @@ final class MenuController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var changingService = false
     private var validationServer: Process?
     private var status = "Checking…"
+    private var notificationStatus: UpdateNotifier.Message?
     #if SPARKLE_UPDATES
     private var appUpdater: AppUpdater?
     private var appControl: AppControlChannel?
@@ -79,6 +80,12 @@ final class MenuController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
             statusItem.button?.image = dispatchStatusIcon()
         }
+        UpdateNotifier.shared.fallback = { [weak self] message in
+            self?.notificationStatus = message
+            self?.statusItem.button?.toolTip = "\(message.title): \(message.body)"
+            self?.rebuildMenu()
+        }
+        UpdateNotifier.shared.onOpen = { [weak self] in self?.statusItem.button?.performClick(nil) }
         rebuildMenu()
         refresh()
         if externalURL == nil && configuration.databaseURL.isEmpty && migrationError == nil && !nativeRecoveryPending { DispatchQueue.main.async { self.showSettings() } }
@@ -133,6 +140,12 @@ final class MenuController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func rebuildMenuContents(_ menu: NSMenu) {
         menu.removeAllItems()
         menu.addItem(item(status, nil, enabled: false))
+        if let message = notificationStatus {
+            menu.addItem(item(message.title, nil, enabled: false))
+            let detail = item(message.body, nil, enabled: false)
+            detail.toolTip = message.body
+            menu.addItem(detail)
+        }
         menu.addItem(item("Open Dispatch", #selector(openDispatch), enabled: ready))
         let address = item(serverURL.absoluteString, #selector(copyURL))
         address.image = NSImage(systemSymbolName: "doc.on.doc", accessibilityDescription: "Copy URL")

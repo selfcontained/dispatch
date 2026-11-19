@@ -98,6 +98,15 @@ describe("agentProjectRoot", () => {
 });
 
 describe("isFullAccessEnabled", () => {
+  it("always displays saved OpenCode agents as full access", () => {
+    expect(
+      isFullAccessEnabled({
+        type: "opencode",
+        fullAccess: false,
+        agentArgs: [],
+      })
+    ).toBe(true);
+  });
   it("is true when agent.fullAccess is set, regardless of agentArgs", () => {
     expect(
       isFullAccessEnabled({ fullAccess: true, agentArgs: ["--verbose"] })

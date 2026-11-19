@@ -53,6 +53,9 @@ function InstallationDetails({
         <p>
           {installer ? `Installed using ${installer}` : "Installer unknown"}
         </p>
+        {engine.update?.packageChannel && (
+          <p>Package channel: {engine.update.packageChannel}</p>
+        )}
         {engine.path && <p className="break-all font-mono">{engine.path}</p>}
         {engine.update?.realPath && engine.update.realPath !== engine.path && (
           <p className="break-all">Resolved path: {engine.update.realPath}</p>
@@ -208,6 +211,11 @@ function EngineRow({
                 "Up to date"
               )}
             </div>
+          )}
+          {metadata?.migrationWarning && (
+            <p className="text-sm text-muted-foreground">
+              {metadata.migrationWarning}
+            </p>
           )}
           {(!engine.installed || !metadata?.canUpdate) && (
             <>

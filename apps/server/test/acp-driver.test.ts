@@ -413,7 +413,7 @@ describe("AcpDriver", () => {
     }
   );
 
-  it.each(["claude", "codex", "opencode"] as const)(
+  it.each(["claude", "codex"] as const)(
     "%s: restricted mode is applied on resume and requests wait for a matching user choice",
     async (engine) => {
       let result: acp.RequestPermissionResponse | undefined;
@@ -943,6 +943,74 @@ describe("AcpDriver", () => {
     expect(fake.seen.resumeSession).toHaveLength(1);
     expect(fake.seen.newSession).toHaveLength(1);
     await driver.stop("agt_1");
+  });
+
+  it("preserves OpenCode context when resume fails", async () => {
+    const fake = createFakeAcpAgent({ resumeFails: true });
+    const driver = new AcpDriver({
+      spawn: () => fake.child,
+      resolveBinary,
+      logger,
+    });
+    await expect(
+      driver.start({ ...launch({}, "opencode"), sessionId: "sess_gone" })
+    ).rejects.toThrow(/OpenCode could not resume the saved session/);
+    expect(fake.seen.resumeSession).toHaveLength(1);
+    expect(fake.seen.newSession).toHaveLength(0);
+  });
+
+  it("fails OpenCode startup when it cannot verify the requested model", async () => {
+    const fake = createFakeAcpAgent();
+    const driver = new AcpDriver({
+      spawn: () => fake.child,
+      resolveBinary,
+      logger,
+    });
+    const events: DriverEvent[] = [];
+    driver.onEvent((event) => events.push(event));
+    await expect(
+      driver.start({ ...launch({}, "opencode"), model: "provider/pinned" })
+    ).rejects.toThrow(/OpenCode could not apply model "provider\/pinned"/);
+    expect(events).toEqual([]);
+  });
+
+  it("publishes the applied OpenCode model as the first config", async () => {
+    const fake = createFakeAcpAgent({
+      configOptions: [
+        {
+          id: "model",
+          category: "model",
+          type: "select",
+          name: "Model",
+          currentValue: "provider/default",
+          options: [{ value: "provider/pinned", name: "Pinned" }],
+        },
+      ],
+    });
+    const driver = new AcpDriver({
+      spawn: () => fake.child,
+      resolveBinary,
+      logger,
+    });
+    const events: DriverEvent[] = [];
+    driver.onEvent((event) => events.push(event));
+    await driver.start({
+      ...launch({}, "opencode"),
+      model: "provider/pinned",
+    });
+    try {
+      expect(fake.seen.setConfig).toMatchObject([
+        { configId: "model", value: "provider/pinned" },
+      ]);
+      expect(events).toMatchObject([
+        {
+          type: "config",
+          options: [{ id: "model", currentValue: "provider/pinned" }],
+        },
+      ]);
+    } finally {
+      await driver.stop("agt_1");
+    }
   });
 
   it("reports an unexpected child death as a crash", async () => {

@@ -1021,6 +1021,125 @@ describe("queued post controls", () => {
   });
 });
 
+describe("Send now across conversations", () => {
+  const inThread = (n: number, threadId: string | null): PromptSource => ({
+    ...post(n),
+    conversation: { streamId: agentId, threadId },
+  });
+  const id = (n: number) =>
+    (post(n) as { chatMessageId: string }).chatMessageId;
+
+  it("interrupts a thread turn for a root post, whose turn then answers at the root", async () => {
+    const host = await heldTurnHost("injected", "supported");
+    const runtime = await attached(host.stateRoot);
+    const active = runtime.prompt(agentId, "thread work", inThread(0, "t1"));
+    await active.accepted;
+    const root = runtime.prompt(agentId, envelope(1), inThread(1, null));
+    expect(runtime.controlQueuedPrompt([agentId], id(1), "send-now")).toBe(
+      "interrupt"
+    );
+    await expect.poll(host.cancels).toBe(1);
+    expect(host.interruptTargets).toEqual([1]);
+    expect(host.steers).toEqual([]);
+    host.settle();
+    await withinSeconds(root.accepted, "root post opens the next turn");
+    expect(host.prompts[1]).toEqual({
+      text: envelope(1),
+      source: inThread(1, null),
+    });
+    expect(runtime.inputState?.(agentId).conversation).toEqual({
+      streamId: agentId,
+      threadId: null,
+    });
+    host.settle();
+    await Promise.all([active.settled, root.settled]);
+  });
+
+  it("steers a post from the same thread into the running turn", async () => {
+    const host = await heldTurnHost("injected", "supported");
+    const runtime = await attached(host.stateRoot);
+    const active = runtime.prompt(agentId, "thread work", inThread(0, "t1"));
+    await active.accepted;
+    const same = runtime.prompt(agentId, envelope(1), inThread(1, "t1"), {
+      delivery: "queue",
+    });
+    expect(runtime.controlQueuedPrompt([agentId], id(1), "send-now")).toBe(
+      true
+    );
+    await withinSeconds(same.accepted, "steered post");
+    expect(host.steers).toEqual([envelope(1)]);
+    expect(host.cancels()).toBe(0);
+    host.settle();
+    await Promise.all([active.settled, same.settled]);
+  });
+
+  it("interrupts a root turn for a thread post", async () => {
+    const host = await heldTurnHost("injected", "supported");
+    const runtime = await attached(host.stateRoot);
+    const active = runtime.prompt(agentId, "root work", inThread(0, null));
+    await active.accepted;
+    const thread = runtime.prompt(agentId, envelope(1), inThread(1, "t2"));
+    expect(runtime.controlQueuedPrompt([agentId], id(1), "send-now")).toBe(
+      "interrupt"
+    );
+    await expect.poll(host.cancels).toBe(1);
+    host.settle();
+    await withinSeconds(thread.accepted, "thread post opens the next turn");
+    expect(host.steers).toEqual([]);
+    expect(runtime.inputState?.(agentId).conversation).toEqual({
+      streamId: agentId,
+      threadId: "t2",
+    });
+    host.settle();
+    await Promise.all([active.settled, thread.settled]);
+  });
+
+  it("interrupts for a post from another stream, such as a task conversation", async () => {
+    const host = await heldTurnHost("injected", "supported");
+    const runtime = await attached(host.stateRoot);
+    const active = runtime.prompt(agentId, "home work", inThread(0, null));
+    await active.accepted;
+    const task = {
+      ...post(1),
+      conversation: { streamId: "tsk_other", threadId: null },
+    } as PromptSource;
+    const queued = runtime.prompt(agentId, envelope(1), task);
+    expect(runtime.controlQueuedPrompt([agentId], id(1), "send-now")).toBe(
+      "interrupt"
+    );
+    await expect.poll(host.cancels).toBe(1);
+    host.settle();
+    await withinSeconds(queued.accepted, "task post");
+    host.settle();
+    await Promise.all([active.settled, queued.settled]);
+  });
+
+  it("keeps steering a steering-excluded post, and refuses a cross-conversation one on a host that cannot interrupt", async () => {
+    const host = await heldTurnHost("injected");
+    const runtime = await attached(host.stateRoot);
+    const active = runtime.prompt(agentId, "thread work", inThread(0, "t1"));
+    await active.accepted;
+    const excluded = runtime.prompt(agentId, envelope(1), {
+      ...inThread(1, null),
+      steeringExcluded: true,
+    } as PromptSource);
+    const root = runtime.prompt(agentId, envelope(2), inThread(2, null));
+    expect(runtime.controlQueuedPrompt([agentId], id(2), "send-now")).toBe(
+      false
+    );
+    expect(runtime.controlQueuedPrompt([agentId], id(1), "send-now")).toBe(
+      true
+    );
+    await withinSeconds(excluded.accepted, "excluded post steered");
+    expect(host.steers).toEqual([envelope(1)]);
+    expect(host.cancels()).toBe(0);
+    host.settle();
+    await withinSeconds(root.accepted, "root post waits for its turn");
+    host.settle();
+    await Promise.all([active.settled, excluded.settled, root.settled]);
+  });
+});
+
 describe("AcpRuntime interrupt without replacing delivery", () => {
   it("does not cancel the pending message's own turn before its ACK", async () => {
     const host = await heldTurnHost("injected", "supported", true);
@@ -1316,9 +1435,9 @@ describe("conversation-authoritative delivery", () => {
   });
 
   it.each([null, "thread-a"])(
-    "steers only the exact active conversation (%s)",
+    "steers only the exact active conversation; Send now from another interrupts (%s)",
     async (threadId) => {
-      const host = await heldTurnHost("injected");
+      const host = await heldTurnHost("injected", "supported");
       const runtime = await attached(host.stateRoot);
       const work = runtime.prompt(
         agentId,
@@ -1343,11 +1462,16 @@ describe("conversation-authoritative delivery", () => {
           (post(1) as { chatMessageId: string }).chatMessageId,
           "send-now"
         )
-      ).toBe(true);
-      await withinSeconds(other.accepted, "explicit steering");
-      expect(host.steers).toEqual(["same", "other"]);
-      expect(host.prompts.map((item) => item.text)).toEqual(["work"]);
+      ).toBe("interrupt");
+      await expect.poll(host.cancels).toBe(1);
+      expect(host.steers).toEqual(["same"]);
       expect(runtime.inputState(agentId).conversation?.threadId).toBe(threadId);
+      host.settle();
+      await withinSeconds(other.accepted, "its own turn");
+      expect(host.prompts.map((item) => item.text)).toEqual(["work", "other"]);
+      expect(runtime.inputState(agentId).conversation?.threadId).toBe(
+        threadId === null ? "thread-a" : null
+      );
       host.settle();
       await Promise.all([work.settled, same.settled, other.settled]);
     }

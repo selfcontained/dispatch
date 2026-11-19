@@ -53,9 +53,9 @@ if (process.argv[2]?.startsWith("recovery-")) {
 } else if (process.argv[2] === "agent-host") {
   await import("./agents/acp/host/main.js");
 } else if (process.argv[2] === "claude-acp") {
-  // The CLI entry, not the package's `main`: that one is a library whose
-  // import starts nothing, and the adapter would sit there reading no stdin.
-  await import("@agentclientprotocol/claude-agent-acp/dist/index.js");
+  // The dependency patch exports upstream's CLI so the bundled adapter
+  // uses its managed policy, logging, and stdio shutdown behavior.
+  await import("@agentclientprotocol/claude-agent-acp/dispatch-cli");
 } else if (process.argv[2] === "codex-acp") {
   await import("@agentclientprotocol/codex-acp/dist/index.js");
 } else {

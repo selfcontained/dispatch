@@ -12,7 +12,7 @@ test.afterEach(async ({ request }) => {
 });
 
 for (const mobile of [false, true]) {
-  test(`thread turns and explicit steering preserve output location (${mobile ? "mobile" : "desktop"})`, async ({
+  test(`thread turns, steering and Send now preserve output location (${mobile ? "mobile" : "desktop"})`, async ({
     page,
     request,
   }, testInfo) => {
@@ -122,34 +122,35 @@ for (const mobile of [false, true]) {
 
     await send("independent home sleep:12000");
     await location(null);
-    await send("queued thread steering", root.id);
+    await send("queued thread send now sleep:5000", root.id);
     const panel = page
       .getByTestId("chat-thread-panel")
       .filter({ visible: true });
     await expect(
       panel.getByText("Queued for a reply here", { exact: true })
     ).toBeVisible();
-    await panel
-      .getByRole("button", { name: "Send now", exact: true })
-      .scrollIntoViewIfNeeded();
+    // The running turn is at home: steering a thread post into it would
+    // answer it at home, so Send now stops that turn instead.
+    const sendNow = panel.getByRole("button", {
+      name: "Send now (stops current turn)",
+      exact: true,
+    });
+    await sendNow.scrollIntoViewIfNeeded();
     await page.reload({ waitUntil: "domcontentloaded" });
     await expect(
       panel.getByText("Queued for a reply here", { exact: true })
     ).toBeVisible();
     await capture("queued");
-    await panel.getByRole("button", { name: "Send now", exact: true }).click();
-    await location(null);
+    await sendNow.click();
+    await location(root.id);
     await expect(
       panel.getByText("Queued for a reply here", { exact: true })
     ).toHaveCount(0);
-    await page.goto(`/agents/${agent.id}`, { waitUntil: "domcontentloaded" });
+    const moved = await call("get_conversation_context");
     await expect(
-      page.getByText("Steered:", { exact: false }).first()
-    ).toBeVisible();
-    await capture("send-now-home-unmoved");
-    await page.goto(`/agents/${agent.id}?thread=${root.id}`, {
-      waitUntil: "domcontentloaded",
-    });
+      panel.locator(`[data-chat-entry-id="${moved.activeTurnId}"]`)
+    ).toContainText("Waiting for the requested delay");
+    await capture("send-now-interrupts-into-thread");
     await expect
       .poll(async () => (await call("get_conversation_context")).current, {
         timeout: 20_000,

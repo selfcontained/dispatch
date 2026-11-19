@@ -44,7 +44,7 @@ const ENGINES: Record<
   opencode: {
     label: "OpenCode",
     bin: "opencode",
-    install: "npm i -g opencode-ai",
+    install: "npm i -g @opencode/cli",
   },
   codex: {
     label: "Codex",

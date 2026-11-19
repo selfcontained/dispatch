@@ -40,9 +40,10 @@ export function readExpandedAgentId(): string | null {
 }
 
 export function isFullAccessEnabled(
-  agent: Pick<Agent, "fullAccess" | "agentArgs">
+  agent: Pick<Agent, "fullAccess" | "agentArgs"> & Partial<Pick<Agent, "type">>
 ): boolean {
   return (
+    agent.type === "opencode" ||
     agent.fullAccess ||
     agent.agentArgs.includes(CODEX_FULL_ACCESS_ARG) ||
     agent.agentArgs.includes(CLAUDE_FULL_ACCESS_ARG)

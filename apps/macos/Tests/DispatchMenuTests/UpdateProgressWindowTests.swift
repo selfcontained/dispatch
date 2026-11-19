@@ -148,8 +148,14 @@ final class UpdateProgressWindowTests: XCTestCase {
         XCTAssertFalse(driver.handleHandoffError("Unrelated feed failure"))
         XCTAssertFalse(driver.stopped("Unrelated recovery failure"))
         XCTAssertEqual(driver.progress?.phase, .stopped("Preparation failed"))
+        let originalDelivery = UpdateNotifier.shared.deliver
+        defer { UpdateNotifier.shared.deliver = originalDelivery }
+        var notices = 0
+        UpdateNotifier.shared.deliver = { _, done in notices += 1; done(true) }
         driver.retryExhausted("Retries exhausted. Choose Check for Updates when agents are idle.")
-        XCTAssertEqual(driver.progress?.phase, .stopped("Retries exhausted. Choose Check for Updates when agents are idle."))
+        XCTAssertNil(driver.progress)
+        XCTAssertEqual(notices, 1)
+        XCTAssertEqual(activations, 1, "Retry exhaustion must not activate the app again")
         XCTAssertFalse(driver.handoffInProgress)
         driver.showUserInitiatedUpdateCheck(cancellation: {})
         XCTAssertNil(driver.progress, "A new check clears the old paused feedback")

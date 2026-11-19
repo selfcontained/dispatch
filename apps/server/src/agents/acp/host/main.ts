@@ -577,9 +577,9 @@ async function main(): Promise<void> {
     });
     sessionId = session.sessionId;
     resumed = session.resumed;
-    // A chosen model is applied through the engine's own model option; an
-    // engine that publishes none, or refuses the value, keeps its default.
-    if (launch.model) {
+    // OpenCode applies and verifies the chosen model during its handshake.
+    // The bundled adapters retain their existing fallback to the CLI default.
+    if (launch.model && launch.engine !== "opencode") {
       const options = driver.getConfigOptions(agentId) ?? [];
       const option = options.find(
         (o) => o.id === "model" || o.category === "model"

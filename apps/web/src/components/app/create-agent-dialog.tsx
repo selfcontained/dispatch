@@ -257,24 +257,26 @@ function CreateAgentDialogContent({
                   />
                 )}
 
-                <label className="flex cursor-pointer items-start gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3">
-                  <Checkbox
-                    checked={form.createFullAccess}
-                    onCheckedChange={() =>
-                      form.setCreateFullAccess((current) => !current)
-                    }
-                    className="mt-0.5"
-                    title="Toggle full access"
-                  />
-                  <span className="space-y-1">
-                    <span className="block text-sm font-medium text-foreground">
-                      Start in full access mode
+                {form.createType !== "opencode" && (
+                  <label className="flex cursor-pointer items-start gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3">
+                    <Checkbox
+                      checked={form.createFullAccess}
+                      onCheckedChange={() =>
+                        form.setCreateFullAccess((current) => !current)
+                      }
+                      className="mt-0.5"
+                      title="Toggle full access"
+                    />
+                    <span className="space-y-1">
+                      <span className="block text-sm font-medium text-foreground">
+                        Start in full access mode
+                      </span>
+                      <span className="block text-xs text-muted-foreground">
+                        Skip permission prompts. Turn off to require approvals.
+                      </span>
                     </span>
-                    <span className="block text-xs text-muted-foreground">
-                      Skip permission prompts. Turn off to require approvals.
-                    </span>
-                  </span>
-                </label>
+                  </label>
+                )}
               </div>
             </div>
             <div className="flex justify-end gap-2 pt-3">

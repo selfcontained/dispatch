@@ -143,6 +143,15 @@ export function createPersonaHandlers(deps: CreatePersonaHandlersDeps) {
     if (!CLI_AGENT_TYPES.includes(agentType)) {
       throw new Error(`Unsupported agent type "${agentType}".`);
     }
+    if (agentType === "opencode" && !parent.fullAccess) {
+      throw new Error(
+        "Permission denied: a restricted agent cannot launch full-access OpenCode agents."
+      );
+    }
+    if (agentType === "opencode" && !fullAccess)
+      throw new Error(
+        "OpenCode requires full access and cannot run a restricted owner review."
+      );
     const enabledAgentTypes = await getEnabledAgentTypes(pool);
     if (!enabledAgentTypes.includes(agentType)) {
       throw new Error(`${agentType} agents are disabled in settings.`);

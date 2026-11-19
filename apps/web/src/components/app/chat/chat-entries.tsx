@@ -1799,6 +1799,7 @@ export const BlockView = memo(function BlockView({
             <QueuedMessageActions
               agentId={block.inputReply.streamId}
               messageId={block.inputReply.id}
+              resumesAsk
               pendingDelivery={block.inputReply.delivery?.some(
                 (entry) => entry.state === "pending"
               )}

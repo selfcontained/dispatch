@@ -13,9 +13,9 @@ describe("engineSpecFor", () => {
       bin: "/x/opencode",
       args: ["acp"],
       personaDelivery: "instructions_file",
-      fullAccess: { kind: "approval" },
+      fullAccess: { kind: "permission_request" },
     });
-    expect(JSON.parse(spec.env.OPENCODE_PERMISSION!)).toEqual({ "*": "ask" });
+    expect(spec.env.OPENCODE_PERMISSION).toBeUndefined();
     expect(engineSpecFor("opencode", bins, true).fullAccess.kind).toBe(
       "permission_request"
     );
