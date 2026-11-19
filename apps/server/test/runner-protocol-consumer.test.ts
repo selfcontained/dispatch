@@ -16,6 +16,7 @@ import {
   sessionCommandId,
   isOpaqueId,
   isCheckoutReply,
+  parseGitHubPullRequestWatchEvent,
   isGitHubPullRequestDetails,
   isGitHubPullRequestDiff,
   isCheckoutViewData,
@@ -122,6 +123,7 @@ it("negotiates advertised v1 capabilities independently on each ready frame", ()
     engineManagement: true,
     githubManagement: true,
     pullRequestStatus: true,
+    pullRequestWatch: true,
     pullRequestEvidence: true,
     checkoutInspection: true,
     checkoutViews: true,
@@ -156,6 +158,31 @@ it("validates runner-scoped GitHub command payloads", () => {
       owner: "example",
       repo: "project",
       number: 0,
+    })
+  ).toBeNull();
+  const target = { owner: "example", repo: "project", number: 42 };
+  expect(
+    parse({ type: "watchPullRequests", targets: [target] })
+  ).not.toBeNull();
+  expect(parse({ type: "watchPullRequests", targets: [] })).toBeNull();
+  expect(
+    parse({ type: "watchPullRequests", targets: Array(65).fill(target) })
+  ).toBeNull();
+  expect(
+    parse({ type: "watchPullRequests", targets: [{ ...target, owner: ".." }] })
+  ).toBeNull();
+  expect(
+    parse({ ...target, type: "pullRequestStatus", refreshWatch: true })
+  ).not.toBeNull();
+  expect(
+    parse({ ...target, type: "pullRequestStatus", refreshWatch: "yes" })
+  ).toBeNull();
+  expect(
+    parseGitHubPullRequestWatchEvent({
+      type: "observation",
+      target,
+      observedAt: -1,
+      observation: null,
     })
   ).toBeNull();
   expect(parse({ type: "login" })).not.toBeNull();
@@ -594,6 +621,7 @@ function fixtureRunner(current: boolean) {
       engineManagement: true,
       githubManagement: true,
       pullRequestEvidence: true,
+      pullRequestWatch: true,
     }),
   };
   const sample = {
@@ -687,7 +715,27 @@ function fixtureRunner(current: boolean) {
             command.kind === "github" &&
             command.workspace === workspace
           ) {
-            if (command.operation.type === "pullRequestDetails")
+            if (command.operation.type === "watchPullRequests") {
+              const channel = hostChannel(id, reply, () => channels.delete(id));
+              channels.set(id, channel);
+              result(true);
+              for (const target of command.operation.targets) {
+                channel.write(
+                  JSON.stringify({
+                    type: "observation",
+                    target,
+                    observedAt: Date.now(),
+                    observation: {
+                      state: "OPEN",
+                      title: "Tracked",
+                      draft: false,
+                      head: githubDetails.headRefOid,
+                      rollup: [],
+                    },
+                  }) + "\n"
+                );
+              }
+            } else if (command.operation.type === "pullRequestDetails")
               result(JSON.stringify(githubDetails));
             else if (
               command.operation.type === "pullRequestDiff" &&
@@ -875,6 +923,40 @@ it.each([true, false])(
           : { unavailable: true }
       );
 
+      if (ready?.githubManagement && ready.pullRequestWatch) {
+        const { value, channel } = await peer.connection.request(
+          {
+            kind: "github",
+            workspace: runner.session.workspace,
+            agentId: "independent-watcher",
+            operation: { type: "watchPullRequests", targets: [githubTarget] },
+          },
+          { openChannel: true }
+        );
+        expect(value).toBe(true);
+        const snapshots: unknown[] = [];
+        wireFrames(channel!, (raw) =>
+          snapshots.push(parseGitHubPullRequestWatchEvent(raw))
+        );
+        await vi.waitFor(() =>
+          expect(snapshots).toEqual([
+            expect.objectContaining({
+              type: "observation",
+              target: githubTarget,
+              observedAt: expect.any(Number),
+              observation: expect.objectContaining({ rollup: [] }),
+            }),
+          ])
+        );
+        channel!.destroy();
+        await vi.waitFor(() =>
+          expect(runner.requests).toContainEqual(
+            expect.objectContaining({ type: "close" })
+          )
+        );
+      } else {
+        expect(ready?.pullRequestWatch).toBeUndefined();
+      }
       if (ready?.githubManagement && ready.pullRequestEvidence) {
         const route = {
           kind: "github" as const,

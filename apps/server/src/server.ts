@@ -396,6 +396,7 @@ const mergeRiskAssessor = new MergeRiskAssessor({
 });
 const pullRequests = new PullRequestRefresher({
   pool,
+  remote: remoteRunner,
   listAgents: async () =>
     (await agentManager.listAgents()).map((agent) => ({
       id: agent.id,

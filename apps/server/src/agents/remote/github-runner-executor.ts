@@ -163,6 +163,7 @@ export class GitHubRunnerExecutor {
       clearTimeout(codeDeadline);
       session.code = undefined;
       if (code === 0) {
+        this.onLogin?.();
         try {
           // gh's non-interactive login does not prompt to install this helper.
           await this.run(
@@ -246,6 +247,8 @@ export class GitHubRunnerExecutor {
         throw new Error("Invalid GitHub account operation.");
     }
   }
+
+  onLogin?: () => void;
 
   async handle(operation: GitHubOperation, signal: AbortSignal) {
     signal.throwIfAborted();

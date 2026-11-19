@@ -108,22 +108,43 @@ test("GitHub sign-in, private checkout and sign-out belong to the selected runne
     await page
       .getByRole("button", { name: /Details for pull request #42: Open/i })
       .click();
-    const details = page.getByRole("dialog");
+    const details = page.getByRole("dialog").filter({
+      has: page.getByRole("heading", { name: "Pull request #42", exact: true }),
+    });
     await expect(details.getByText("build", { exact: true })).toBeVisible();
     guest("scratch", "touch /tmp/runner-ci-finished");
-    await details
-      .getByRole("button", { name: "Refresh pull request checks" })
-      .click();
-    await expect(
-      details.getByText("integration", { exact: true })
-    ).toBeVisible();
+    await expect(details.getByText("integration", { exact: true })).toBeVisible(
+      { timeout: 45_000 }
+    );
     const screenshot = testInfo.outputPath("runner-private-pr-checks.png");
     await page.screenshot({ path: screenshot });
-    await testInfo.attach("Refreshed checks using the runner GitHub account", {
+    await testInfo.attach("Open PR card received checks from the runner", {
       path: screenshot,
       contentType: "image/png",
     });
     await page.keyboard.press("Escape");
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.getByTitle("Open sidebar").click();
+    await page
+      .getByRole("button", { name: /Details for pull request #42: Open/i })
+      .click();
+    guest("scratch", "rm /tmp/runner-ci-finished");
+    await details
+      .getByRole("button", { name: "Refresh pull request checks" })
+      .click();
+    await expect(details.getByText("build", { exact: true })).toBeVisible({
+      timeout: 10_000,
+    });
+    const mobileScreenshot = testInfo.outputPath(
+      "runner-private-pr-mobile-refresh.png"
+    );
+    await page.screenshot({ path: mobileScreenshot });
+    await testInfo.attach("Manual runner refresh on mobile", {
+      path: mobileScreenshot,
+      contentType: "image/png",
+    });
+    await page.keyboard.press("Escape");
+    await page.setViewportSize({ width: 1280, height: 720 });
     // Uses the ordinary workload user's installed helper, independent of the provisioning helper.
     const fetch =
       "setpriv --reuid 1500 --regid 1500 --clear-groups env HOME=/home/guest GIT_TERMINAL_PROMPT=0 git ls-remote https://github.com/fixture-scratch/private.git HEAD";
@@ -138,6 +159,12 @@ test("GitHub sign-in, private checkout and sign-out belong to the selected runne
       account.getByRole("button", { name: "Sign in to GitHub" })
     ).toBeVisible();
     expect(guestOk("scratch", fetch + " >/dev/null 2>&1")).toBe(false);
+    await page.goto("/agents/" + agent.id, { waitUntil: "domcontentloaded" });
+    await expect(
+      page.getByRole("button", {
+        name: /Details for pull request #42: Unavailable/i,
+      })
+    ).toBeVisible({ timeout: 15_000 });
     await expect(
       (await openAccount("beta")).getByText("Signed in as @fixture-beta")
     ).toBeVisible();

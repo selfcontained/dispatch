@@ -80,6 +80,7 @@ export type ReadyFrame = {
   engineManagement?: true;
   githubManagement?: true;
   pullRequestStatus?: true;
+  pullRequestWatch?: true;
   pullRequestEvidence?: true;
   checkoutInspection?: true;
   checkoutViews?: true;
@@ -112,6 +113,7 @@ export function parseReadyFrame(value: unknown): ReadyFrame | null {
     ...(frame.health === true && { health: true }),
     ...(frame.engineManagement === true && { engineManagement: true }),
     ...(frame.pullRequestEvidence === true && { pullRequestEvidence: true }),
+    ...(frame.pullRequestWatch === true && { pullRequestWatch: true }),
     ...(frame.pullRequestStatus === true && { pullRequestStatus: true }),
     ...(frame.githubManagement === true && { githubManagement: true }),
     ...(frame.managedWorkspace === true && { managedWorkspace: true }),

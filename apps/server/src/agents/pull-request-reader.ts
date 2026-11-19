@@ -37,7 +37,8 @@ export function createRunnerPullRequestReader(
         readPullRequest(
           runnerId: string,
           url: string,
-          title: string
+          title: string,
+          refreshWatch?: boolean
         ): Promise<AgentPullRequest>;
       }
     | undefined,
@@ -46,11 +47,14 @@ export function createRunnerPullRequestReader(
   return async (
     url: string,
     title: string,
-    runnerId: string | null
+    runnerId: string | null,
+    refreshWatch?: boolean
   ): Promise<AgentPullRequest> => {
     if (runnerId === null) return readLocal(url, title);
     if (!remote) return { url, title, status: "Unavailable" };
-    return remote.readPullRequest(runnerId, url, title);
+    return refreshWatch
+      ? remote.readPullRequest(runnerId, url, title, true)
+      : remote.readPullRequest(runnerId, url, title);
   };
 }
 
@@ -158,7 +162,8 @@ export function pullRequestObservation(
 export function projectPullRequest(
   url: string,
   title: string,
-  observation: GitHubPullRequestObservation
+  observation: GitHubPullRequestObservation,
+  observedAt?: number
 ): AgentPullRequest {
   const { state, draft, head, rollup, title: observedTitle } = observation;
   const status =
@@ -176,7 +181,7 @@ export function projectPullRequest(
     url,
     status,
     title: typeof observedTitle === "string" ? observedTitle : title,
-    ci: mapPullRequestChecks(head, rollup),
+    ci: mapPullRequestChecks(head, rollup, observedAt),
   };
   if (observation.credentialContext)
     credentialContexts.set(pr, observation.credentialContext);
@@ -201,10 +206,11 @@ const CHECKS_QUERY = `query($owner: String!, $repo: String!, $number: Int!) {
 /** gh returns the current head rollup (CheckRun and StatusContext), not history. */
 export function mapPullRequestChecks(
   head: unknown,
-  rollup: unknown
+  rollup: unknown,
+  observedAt = Date.now()
 ): NonNullable<AgentPullRequest["ci"]> {
   const ci: NonNullable<AgentPullRequest["ci"]> = {
-    checkedAt: new Date().toISOString(),
+    checkedAt: new Date(observedAt).toISOString(),
     headSha: typeof head === "string" ? head : "",
     availability: "unavailable",
     summary: {

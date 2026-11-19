@@ -331,3 +331,39 @@ can invalidate it. To join provider data or reuse a saved result, match the
 runner, repository and PR, relevant commits, and credential context from a
 successful fresh read. Keep application policy, derived judgments, and
 history in the service that requested the GitHub data.
+
+### Watching pull requests
+
+A v1 peer advertising both `githubManagement: true` and
+`pullRequestWatch: true` accepts the GitHub operation
+`{type: "watchPullRequests", targets: [{owner, repo, number}, ...]}`.
+Use a regular GitHub command envelope with an advertised workspace and any
+opaque routing ID. The ID does not need to identify a session. Open the channel
+when issuing the request and expect a boolean `true` acknowledgement. Cached
+observations may arrive before the acknowledgement. Older peers continue to
+use `pullRequestStatus` if advertised.
+
+Each runner-to-service channel data frame contains one UTF-8 JSON line of at
+most 1 MiB, validated by `parseGitHubPullRequestWatchEvent`. An observation
+includes the target, the runner's sampling time in Unix milliseconds
+(`observedAt`), and the same full observation as the scoped status read.
+A null observation indicates a lookup failure. A null check rollup indicates
+unavailable or incomplete checks, while an empty rollup is authoritative.
+The initial snapshot arrives one target at a time as samples become available.
+Subsequent full observations include changes and refresh the timestamp even
+when the source is unchanged, so a receiver can recover a missed update without
+applying deltas. A `{type: "reset"}` event invalidates all prior observations on
+the channel after a credential transition. A consumer should discard state on
+disconnect or reset, fence off the old connection, and subscribe again after
+reconnect. A service can use its own receipt time for expiry.
+
+Send the desired set of up to 64 targets when opening each channel. To update
+the set, open a replacement and close the previous channel. The ordinary
+channel `close` frame releases the subscription. The runner deduplicates
+case-insensitively, shares up to two concurrent samples and 12 sample attempts
+per rolling minute, and normally resamples each active target after 30 seconds
+subject to that budget. A host can pass `refreshWatch: true` on
+`pullRequestStatus` when the watch capability is advertised. For a watched
+target this forces a new sample or joins one already in flight, and may return
+an error when capacity is exhausted. Regular status reads retain their
+existing behavior. All samples use the runner's workload credential.

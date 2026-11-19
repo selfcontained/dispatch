@@ -36,6 +36,10 @@ import {
   type RunnerOperation,
   type GitHubOperation,
   type GitHubStatus,
+  type GitHubPullRequestWatchEvent,
+  isGitHubPullRequestTarget,
+  parseGitHubPullRequestWatchEvent,
+  MAX_PULL_REQUEST_WATCH_EVENT_BYTES,
   parseGitHubStatus,
   isGitHubPullRequestObservation,
   isGitHubPullRequestDetails,
@@ -152,6 +156,7 @@ type Peer = {
   engineManagement: boolean;
   githubManagement: boolean;
   pullRequestStatus: boolean;
+  pullRequestWatch: boolean;
   pullRequestEvidence: boolean;
   checkoutInspection: boolean;
   checkoutViews: boolean;
@@ -669,6 +674,7 @@ export class RemoteRunnerService {
           reportsHealth: ready.health === true,
           engineManagement: ready.engineManagement === true,
           pullRequestStatus: ready.pullRequestStatus === true,
+          pullRequestWatch: ready.pullRequestWatch === true,
           pullRequestEvidence: ready.pullRequestEvidence === true,
           githubManagement: ready.githubManagement === true,
           checkoutViews: ready.checkoutViews === true,
@@ -1241,13 +1247,25 @@ export class RemoteRunnerService {
         "Update the runner to read pull request evidence."
       );
 
+    if (
+      operation.kind === "github" &&
+      (operation.operation.type === "watchPullRequests" ||
+        (operation.operation.type === "pullRequestStatus" &&
+          operation.operation.refreshWatch)) &&
+      !peer.pullRequestWatch
+    )
+      throw new RunnerCapabilityUnavailable(
+        "Runner does not support PR watches."
+      );
+
     // V1 requires a routable workspace and an id even for a runner-wide operation.
     for (const workspace of peer.workspaces) {
       if (peer.gate.allows(workspace))
         return this.request(
           { runner: runnerId, workspace },
           { ...operation, agentId: `@${operation.kind}`, workspace },
-          operation.kind === "engine"
+          operation.kind === "engine" ||
+            operation.operation.type === "watchPullRequests"
         );
     }
     throw new RunnerUnavailable("The runner has no available workspace.");
@@ -1316,7 +1334,62 @@ export class RemoteRunnerService {
     return githubRepositoryResults(response.repositories);
   }
 
-  async readPullRequest(runnerId: string, url: string, title: string) {
+  canWatchPullRequests(runnerId: string) {
+    const peer = this.peers.get(runnerId);
+    return (
+      peer?.gate.approved() === true &&
+      peer.githubManagement &&
+      peer.pullRequestWatch
+    );
+  }
+
+  async watchPullRequests(
+    runnerId: string,
+    urls: string[],
+    event: (value: GitHubPullRequestWatchEvent) => void,
+    closed: () => void
+  ) {
+    const peer = this.peers.get(runnerId);
+    const active = () =>
+      this.peers.get(runnerId) === peer && peer?.gate.approved();
+    const { value, channel } = await this.requestRunner(runnerId, {
+      kind: "github",
+      operation: {
+        type: "watchPullRequests",
+        targets: urls
+          .map(githubPullRequestTarget)
+          .filter(isGitHubPullRequestTarget),
+      },
+    });
+    if (!active() || !channel || value !== true) {
+      channel?.destroy();
+      throw new RunnerUnavailable("Runner PR watch is unavailable.");
+    }
+    // A runner sends one complete JSON line per channel data frame.
+    channel.on("data", (chunk: Buffer) => {
+      if (!active() || channel.destroyed) return;
+      try {
+        if (chunk.length > MAX_PULL_REQUEST_WATCH_EVENT_BYTES)
+          throw new Error();
+        const observation = parseGitHubPullRequestWatchEvent(
+          JSON.parse(chunk.toString())
+        );
+        if (!observation) throw new Error();
+        event(observation);
+      } catch {
+        channel.destroy();
+      }
+    });
+    channel.once("close", closed);
+    return () => channel.destroy();
+  }
+
+  async readPullRequest(
+    runnerId: string,
+    url: string,
+    title: string,
+    refreshWatch = false
+  ) {
     const canonical = githubPullRequestUrl(url);
     if (!canonical) return { url, title, status: "Unavailable" as const };
     const [, owner, repo, , number] = new URL(canonical).pathname.split("/");
@@ -1325,6 +1398,8 @@ export class RemoteRunnerService {
       owner,
       repo,
       number: Number(number),
+      ...(refreshWatch &&
+        this.canWatchPullRequests(runnerId) && { refreshWatch: true }),
       ...(this.peers.get(runnerId)?.pullRequestEvidence && {
         withCredentialContext: true,
       }),

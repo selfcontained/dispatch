@@ -9,13 +9,56 @@ export type GitHubPullRequestTarget = {
   number: number;
 };
 
+export const MAX_PULL_REQUEST_WATCH_TARGETS = 64;
+export const MAX_PULL_REQUEST_WATCH_EVENT_BYTES = 1024 * 1024;
+
+export type GitHubPullRequestWatchEvent =
+  | { type: "reset" }
+  | {
+      type: "observation";
+      target: GitHubPullRequestTarget;
+      observedAt: number;
+      observation: GitHubPullRequestObservation | null;
+    };
+
+export function parseGitHubPullRequestWatchEvent(
+  value: unknown
+): GitHubPullRequestWatchEvent | null {
+  if (!isRecord(value)) return null;
+  if (value.type === "reset") return { type: "reset" };
+  if (
+    value.type !== "observation" ||
+    !isGitHubPullRequestTarget(value.target) ||
+    !count(value.observedAt) ||
+    value.observedAt > 8_640_000_000_000_000 ||
+    (value.observation !== null &&
+      !isGitHubPullRequestObservation(value.observation))
+  )
+    return null;
+  return {
+    type: "observation",
+    target: value.target,
+    observedAt: value.observedAt,
+    observation: value.observation,
+  };
+}
+
+export function githubPullRequestTargetKey(target: GitHubPullRequestTarget) {
+  return `${target.owner.toLowerCase()}/${target.repo.toLowerCase()}/${target.number}`;
+}
+
 export type GitHubOperation =
+  | { type: "watchPullRequests"; targets: GitHubPullRequestTarget[] }
   | { type: "status" | "login" | "cancel" | "logout" }
   | { type: "repositorySearch"; query: string }
   | (GitHubPullRequestTarget &
       (
         | { type: "pullRequestHead" | "pullRequestDetails" }
-        | { type: "pullRequestStatus"; withCredentialContext?: true }
+        | {
+            type: "pullRequestStatus";
+            withCredentialContext?: true;
+            refreshWatch?: true;
+          }
         | {
             type: "pullRequestDiff";
             base: string;
@@ -170,6 +213,19 @@ export function validGitHubRepoPart(value: unknown): value is string {
   );
 }
 
+export function isGitHubPullRequestTarget(
+  value: unknown
+): value is GitHubPullRequestTarget {
+  return (
+    isRecord(value) &&
+    validGitHubRepoPart(value.owner) &&
+    validGitHubRepoPart(value.repo) &&
+    count(value.number) &&
+    value.number > 0 &&
+    value.number <= 9_999_999_999
+  );
+}
+
 export function isGitHubOperation(value: unknown): value is GitHubOperation {
   if (!isRecord(value)) return false;
   switch (value.type) {
@@ -178,6 +234,13 @@ export function isGitHubOperation(value: unknown): value is GitHubOperation {
     case "cancel":
     case "logout":
       return true;
+    case "watchPullRequests":
+      return (
+        Array.isArray(value.targets) &&
+        value.targets.length > 0 &&
+        value.targets.length <= MAX_PULL_REQUEST_WATCH_TARGETS &&
+        value.targets.every(isGitHubPullRequestTarget)
+      );
     case "repositorySearch":
       return validRepositorySearch(value.query);
     case "pullRequestStatus":
@@ -186,18 +249,15 @@ export function isGitHubOperation(value: unknown): value is GitHubOperation {
     case "pullRequestDiff":
       return (
         (value.type !== "pullRequestStatus" ||
-          value.withCredentialContext === undefined ||
-          value.withCredentialContext === true) &&
+          ((value.withCredentialContext === undefined ||
+            value.withCredentialContext === true) &&
+            (value.refreshWatch === undefined ||
+              value.refreshWatch === true))) &&
         (value.type !== "pullRequestDiff" ||
           (validGitHubCommit(value.base) &&
             validGitHubCommit(value.head) &&
             validCredentialContext(value.credentialContext))) &&
-        validGitHubRepoPart(value.owner) &&
-        validGitHubRepoPart(value.repo) &&
-        typeof value.number === "number" &&
-        Number.isSafeInteger(value.number) &&
-        value.number > 0 &&
-        value.number <= 9_999_999_999
+        isGitHubPullRequestTarget(value)
       );
     default:
       return false;

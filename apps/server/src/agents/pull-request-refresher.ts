@@ -2,7 +2,13 @@ import { checkChanges } from "./pull-request-check-notice.js";
 import type { AgentPullRequest, Block } from "@dispatch/shared";
 import type { Pool } from "pg";
 import type { PublishUiEvent } from "../server/ui-events.js";
-import { githubPullRequestUrl } from "./pull-request-reader.js";
+import { PullRequestObservations } from "./pull-request-observations.js";
+import type { RemoteRunnerService } from "./remote/service.js";
+import {
+  githubPullRequestUrl,
+  projectPullRequest,
+  pullRequestCredentialContext,
+} from "./pull-request-reader.js";
 
 export type CommitPullRequestNotice = <T>(
   write: () => Promise<T>
@@ -10,12 +16,17 @@ export type CommitPullRequestNotice = <T>(
 
 type Options = {
   pool: Pool;
+  remote?: Pick<
+    RemoteRunnerService,
+    "canWatchPullRequests" | "watchPullRequests"
+  >;
   listAgents: () => Promise<{ id: string; runnerId: string | null }[]>;
   publish: PublishUiEvent;
   read: (
     url: string,
     title: string,
-    runnerId: string | null
+    runnerId: string | null,
+    refreshWatch?: boolean
   ) => Promise<AgentPullRequest>;
   notify?: (
     agentId: string,
@@ -76,7 +87,8 @@ export class PullRequestRefresher {
       checks?: AgentPullRequest;
       due: number;
       failures: number;
-      checkedAt: number;
+      observedAt?: number;
+      assessment?: { context?: string; until: number };
     }
   >();
   private attempts: number[] = [];
@@ -89,7 +101,16 @@ export class PullRequestRefresher {
   private flight?: Promise<void>;
   private stopped = false;
   private dirty = false;
-  constructor(private options: Options) {}
+  private readonly observations?: PullRequestObservations;
+  private watchDeadlines = new Map<string, number>();
+  constructor(private options: Options) {
+    if (options.remote)
+      this.observations = new PullRequestObservations(
+        options.remote,
+        () => this.signal(),
+        (id) => this.invalidateRunner(id, false)
+      );
+  }
   get(agentId: string): AgentPullRequest[] {
     return this.snapshots.get(agentId) ?? [];
   }
@@ -131,7 +152,8 @@ export class PullRequestRefresher {
   }
   private readonly runnerRevision = new Map<string, number>();
   /** A changed connection or GitHub account cannot reuse the previous peer's observations. */
-  invalidateRunner(runnerId: string) {
+  invalidateRunner(runnerId: string, reconnect = true) {
+    if (reconnect) this.observations?.remove(runnerId);
     const owners = [...this.placements].filter(
       ([, runner]) => runner === runnerId
     );
@@ -209,9 +231,13 @@ export class PullRequestRefresher {
     const now = Date.now();
     this.attempts = this.attempts.filter((at) => at > now - 60_000);
     let due = this.pendingUrls.size ? now : Infinity;
-    for (const entry of this.urls.values()) due = Math.min(due, entry.due);
+    for (const [key, until] of this.watchDeadlines)
+      due = Math.min(due, Math.max(until, this.urls.get(key)?.due ?? 0));
+    for (const [key, entry] of this.urls)
+      if (!this.watchDeadlines.has(key)) due = Math.min(due, entry.due);
     if (this.attempts.length >= 12)
       due = Math.max(due, this.attempts[0] + 60_001);
+    due = Math.min(due, this.observations?.retryAt ?? Infinity);
     if (Number.isFinite(this.inventoryRetryAt)) due = this.inventoryRetryAt;
     if (!Number.isFinite(due)) return;
     this.timer = setTimeout(
@@ -230,6 +256,7 @@ export class PullRequestRefresher {
     clearTimeout(this.pending);
     this.timer = undefined;
     this.pending = undefined;
+    this.observations?.close();
     await this.flight;
   }
   /** Coalesce inventory events without bypassing lookup freshness or rate limits. */
@@ -352,6 +379,15 @@ export class PullRequestRefresher {
         own.add(key);
         agents.set(row.author_agent_id, own);
       }
+    if (this.stopped) return;
+    const groups = new Map<string, string[]>();
+    for (const { url, runnerId } of links.values()) {
+      if (runnerId === null) continue;
+      const group = groups.get(runnerId) ?? [];
+      group.push(url);
+      groups.set(runnerId, group);
+    }
+    this.observations?.update(groups);
     const publishSnapshots = () => {
       if (this.stopped) return;
       for (const id of new Set([...ids, ...this.snapshots.keys()])) {
@@ -386,10 +422,29 @@ export class PullRequestRefresher {
     const notices: Array<() => Promise<void>> = [];
     let refreshError: Error | undefined;
     publishSnapshots();
-    this.pendingUrls = new Set(
-      [...links.keys()].filter((url) => !this.urls.has(url))
-    );
     const now = Date.now();
+    this.watchDeadlines.clear();
+    const pushed: typeof links = new Map();
+    const dueReads: typeof links = new Map();
+    for (const [key, link] of links) {
+      const cached = this.urls.get(key);
+      const watch = this.observations?.get(link.runnerId, link.url);
+      const deadline = watch?.until ?? 0;
+      const sample = deadline > now ? watch?.sample : undefined;
+      if (target) {
+        if (key === this.trackingKey(target.agentId, target.url))
+          dueReads.set(key, link);
+      } else if (
+        sample &&
+        (sample.observedAt !== cached?.observedAt || cached.due === 0)
+      ) {
+        pushed.set(key, link);
+      } else if (deadline <= now && (cached?.due ?? 0) <= now) {
+        dueReads.set(key, link);
+      }
+      if (watch) this.watchDeadlines.set(key, deadline);
+    }
+    if (!target) this.pendingUrls = new Set(dueReads.keys());
     this.attempts = this.attempts.filter((at) => at > now - 60_000);
     if (target) {
       if (
@@ -402,17 +457,15 @@ export class PullRequestRefresher {
       if (this.attempts.length >= 12)
         throw new Error("PR refresh budget reached. Please retry in a minute.");
     }
-    const queue = [...links]
-      .filter(([url]) =>
-        target
-          ? url === this.trackingKey(target.agentId, target.url)
-          : (this.urls.get(url)?.due ?? 0) <= now
-      )
-      .sort(
-        ([a], [b]) =>
-          (this.urls.get(a)?.due ?? 0) - (this.urls.get(b)?.due ?? 0)
-      )
-      .slice(0, Math.max(0, 12 - this.attempts.length));
+    const queue = [
+      ...pushed,
+      ...[...dueReads]
+        .sort(
+          ([a], [b]) =>
+            (this.urls.get(a)?.due ?? 0) - (this.urls.get(b)?.due ?? 0)
+        )
+        .slice(0, Math.max(0, 12 - this.attempts.length)),
+    ];
     // Global rolling budget and two workers, regardless of clients or agents.
     await Promise.all(
       Array.from({ length: Math.min(2, queue.length) }, async () => {
@@ -423,11 +476,37 @@ export class PullRequestRefresher {
             runnerId === null ? undefined : this.runnerRevision.get(runnerId);
           const peerChanged = () =>
             runnerId !== null && this.runnerRevision.get(runnerId) !== revision;
-          this.attempts.push(Date.now());
+          let observation = pushed.has(key)
+            ? this.observations?.get(runnerId, url)?.sample
+            : undefined;
+          if (pushed.has(key) && !observation) continue;
           let value: AgentPullRequest;
           try {
-            value = await this.options.read(url, title, runnerId);
-          } catch {
+            if (observation) {
+              value = observation.observation
+                ? projectPullRequest(
+                    url,
+                    title,
+                    observation.observation,
+                    observation.observedAt
+                  )
+                : { url, title, status: "Unavailable" };
+            } else {
+              this.attempts.push(Date.now());
+              value = this.watchDeadlines.has(key)
+                ? await this.options.read(url, title, runnerId, true)
+                : await this.options.read(url, title, runnerId);
+              if (value.status !== "Unavailable")
+                observation = this.observations?.get(runnerId, url)?.sample;
+            }
+          } catch (error) {
+            if (target && this.watchDeadlines.has(key) && !peerChanged()) {
+              // A failed refresh request can be a busy runner. Leave the last
+              // card intact until the watch confirms the source is unavailable.
+              throw new Error("Could not refresh PR. Please try again.", {
+                cause: error,
+              });
+            }
             value = { url, title, status: "Unavailable" };
           }
           if (peerChanged()) {
@@ -448,9 +527,22 @@ export class PullRequestRefresher {
             if (runnerId === null) throw refreshError;
           }
           const previous = this.urls.get(key);
-          // An assessor failure cannot establish that history is still enabled.
-          let assessed = false;
-          if (this.options.assess) {
+          const context = pullRequestCredentialContext(value);
+          let assessment = previous?.assessment;
+          const reuseAssessment =
+            observation &&
+            !target &&
+            previous &&
+            previous.due !== 0 &&
+            assessment &&
+            assessment.until > Date.now() &&
+            assessment.context === context &&
+            previous.value.status === value.status &&
+            previous.value.ci?.headSha === value.ci?.headSha;
+          if (reuseAssessment) {
+            value = { ...value, mergeRisk: previous.value.mergeRisk };
+          } else if (this.options.assess) {
+            assessment = undefined;
             const owners = [...agents]
               .filter(([, urls]) => urls.has(key))
               .map(([id]) => id);
@@ -484,7 +576,7 @@ export class PullRequestRefresher {
                 },
                 runnerId
               );
-              assessed = true;
+              assessment = { context, until: Date.now() + 5 * 60_000 };
               if (
                 mergeRisk &&
                 (!this.riskHidden || mergeRisk.displayState === "disabled")
@@ -503,7 +595,6 @@ export class PullRequestRefresher {
           }
           if (
             !this.options.assess &&
-            !assessed &&
             !value.mergeRisk &&
             previous?.value.mergeRisk &&
             previous.value.mergeRisk.headSha === value.ci?.headSha
@@ -565,7 +656,7 @@ export class PullRequestRefresher {
           for (const notify of [
             lifecycleChanged ? this.options.notify : undefined,
             checksChanged ? this.options.notifyChecks : undefined,
-            !reviewChanged && !this.riskHidden
+            !reuseAssessment && !reviewChanged && !this.riskHidden
               ? this.options.notifyRisk
               : undefined,
           ]) {
@@ -625,7 +716,8 @@ export class PullRequestRefresher {
                   ? undefined
                   : previous?.checks,
             failures,
-            checkedAt: Date.now(),
+            observedAt: observation?.observedAt ?? previous?.observedAt,
+            assessment,
             due: reviewChanged ? 0 : Date.now() + delay,
           });
           this.pendingUrls.delete(key);

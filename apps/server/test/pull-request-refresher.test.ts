@@ -1,5 +1,6 @@
 import { createRunnerPullRequestReader } from "../src/agents/pull-request-reader.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { GitHubPullRequestWatchEvent } from "@dispatch/runner-protocol";
 import type { Pool } from "pg";
 import type { AgentPullRequest, Block } from "@dispatch/shared";
 import { PullRequestRefresher } from "../src/agents/pull-request-refresher.js";
@@ -56,6 +57,85 @@ function fixture(count = 1) {
 }
 afterEach(() => vi.useRealTimers());
 describe("server PR orchestration", () => {
+  it("shares runner subscriptions, projects pushed updates and rejects events from a replaced connection", async () => {
+    const f = fixture(2);
+    const row = f.rows[1];
+    f.rows.splice(
+      0,
+      1,
+      { ...row, author_agent_id: "b" },
+      { ...row, author_agent_id: "c" }
+    );
+    const url = row.attachments[0].url;
+    type Receiver = (event: GitHubPullRequestWatchEvent) => void;
+    const events = new Map<string, Receiver>();
+    const close = vi.fn();
+    const watchPullRequests = vi.fn(
+      async (id: string, _urls: string[], receive: Receiver) => {
+        events.set(id, receive);
+        return close;
+      }
+    );
+    const service = new PullRequestRefresher({
+      pool: { query: f.query } as unknown as Pool,
+      listAgents: async () => [
+        { id: "a", runnerId: "alpha" },
+        { id: "b", runnerId: "alpha" },
+        { id: "c", runnerId: "beta" },
+      ],
+      publish: f.publish,
+      read: f.read,
+      remote: { canWatchPullRequests: () => true, watchPullRequests },
+      warn: vi.fn(),
+    });
+    const sample = (
+      observedAt: number,
+      state: "OPEN" | "MERGED" | null
+    ): GitHubPullRequestWatchEvent => ({
+      type: "observation",
+      target: { owner: "a", repo: "b", number: 1 },
+      observedAt,
+      observation: state
+        ? { state, draft: false, title: "Private", head: "sha", rollup: [] }
+        : null,
+    });
+    try {
+      await service.refresh();
+      expect(
+        watchPullRequests.mock.calls.map(([id, urls]) => [id, urls])
+      ).toEqual([
+        ["alpha", [url]],
+        ["beta", [url]],
+      ]);
+      const old = events.get("alpha")!;
+      old(sample(1, "OPEN"));
+      events.get("beta")!(sample(2, null));
+      await service.refresh();
+      expect(service.get("a")[0].status).toBe("Open");
+      expect(service.get("b")[0].status).toBe("Open");
+      expect(service.get("c")[0].status).toBe("Unavailable");
+      expect(f.read).not.toHaveBeenCalled();
+
+      service.invalidateRunner("alpha");
+      await service.refresh();
+      old(sample(4, "MERGED"));
+      events.get("alpha")!(sample(3, "OPEN"));
+      await service.refresh();
+      expect(service.get("a")[0].status).toBe("Open");
+      events.get("alpha")!({ type: "reset" });
+      expect(service.get("a")[0].status).toBe("Pending");
+      events.get("alpha")!(sample(5, null));
+      await service.refresh();
+      expect(service.get("a")[0].status).toBe("Unavailable");
+      await service.dismiss("a", url);
+      await service.dismiss("b", url);
+      await service.refresh();
+      expect(close).toHaveBeenCalledTimes(2);
+    } finally {
+      await service.stop();
+    }
+  });
+
   it("isolates background and manual reads of the same URL by runner and drops a late reply after replacement", async () => {
     const f = fixture();
     f.rows.push({ ...f.rows[0], author_agent_id: "b" });
