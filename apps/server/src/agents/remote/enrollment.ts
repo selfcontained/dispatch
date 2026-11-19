@@ -7,7 +7,8 @@ import path from "node:path";
 import { connect, type TLSSocket } from "node:tls";
 import {
   wireFrames,
-  type ConnectCreated,
+  parseConnectCreated,
+  parseConnectPoll,
   type ConnectPoll,
   type EnrollmentRequest,
   type EnrollmentReply,
@@ -544,11 +545,14 @@ async function requestJson(
               new Error("The service sent an unreadable response.")
             );
           }
-          if ((response.statusCode ?? 0) >= 400) {
+          const status = response.statusCode ?? 0;
+          if (status < 200 || status >= 300) {
+            const error = (parsed as { error?: unknown } | null)?.error;
             return finish(
               new Error(
-                (parsed as { error?: string } | undefined)?.error ??
-                  `The service returned ${response.statusCode}.`
+                typeof error === "string"
+                  ? error
+                  : `The service returned ${status}.`
               )
             );
           }
@@ -573,8 +577,6 @@ function verifyIssuedConnectCredentials(
   publicKey: string,
   pin: string | undefined
 ) {
-  if (new URL(polled.endpoint).protocol !== "https:")
-    throw new Error("The service returned a non-HTTPS runner endpoint.");
   const issuedCa = new X509Certificate(polled.ca);
   const cert = new X509Certificate(polled.cert);
   if (
@@ -600,13 +602,17 @@ function verifyIssuedConnectCredentials(
 export async function runRunnerConnect(argv: string[]) {
   const options = parseConnectArgs(argv);
   const { key, publicKey } = generateRunnerKey();
-  const created = (await requestJson(
-    options.service,
-    "POST",
-    "/api/runners/connect",
-    { publicKey },
-    { pin: options.pin, timeoutMs: options.timeoutMs }
-  )) as ConnectCreated;
+  const created = parseConnectCreated(
+    await requestJson(
+      options.service,
+      "POST",
+      "/api/runners/connect",
+      { publicKey },
+      { pin: options.pin, timeoutMs: options.timeoutMs }
+    )
+  );
+  if (!created)
+    throw new Error("Invalid connect creation response from the service.");
 
   const approveUrl = options.approvalUrl ?? created.approveUrl;
   process.stdout.write(
@@ -629,13 +635,17 @@ export async function runRunnerConnect(argv: string[]) {
   for (;;) {
     if (Date.now() > deadline)
       throw new Error("The connect request expired before it was approved.");
-    const polled = (await requestJson(
-      options.service,
-      "GET",
-      `/api/runners/connect/${created.id}`,
-      undefined,
-      { pin: options.pin, timeoutMs: options.timeoutMs }
-    )) as ConnectPoll;
+    const polled = parseConnectPoll(
+      await requestJson(
+        options.service,
+        "GET",
+        `/api/runners/connect/${encodeURIComponent(created.id)}`,
+        undefined,
+        { pin: options.pin, timeoutMs: options.timeoutMs }
+      )
+    );
+    if (!polled)
+      throw new Error("Invalid connect polling response from the service.");
     if (polled.status === "denied")
       throw new Error("The connect request was denied.");
     if (polled.status === "expired")

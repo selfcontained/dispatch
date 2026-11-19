@@ -1,12 +1,20 @@
 import { X509Certificate } from "node:crypto";
-import { mkdtemp, readFile } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import http from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { connect, createServer, type TLSSocket } from "node:tls";
 import type { Pool } from "pg";
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 import {
   connectCliCommand,
   runRunnerConnect,
@@ -345,6 +353,37 @@ describe("runner-initiated connect enrollment", () => {
     await expect(
       service.denyConnectRequest("conn_missing")
     ).rejects.toMatchObject({ status: 404 });
+  });
+
+  it("rejects malformed creation and unknown polling replies before writing credentials", async () => {
+    const service = makeService();
+    const { command } = await service.connectCommand(HOST);
+    const [, endpoint] =
+      /^sudo dispatch-runner connect '(https:\/\/[^']+)'$/.exec(command) ?? [];
+    const dir = await mkdtemp(path.join(tmpdir(), "malformed-connect-cli-"));
+    const create = service.createConnectRequest.bind(service);
+    const createReply = vi.spyOn(service, "createConnectRequest");
+    const pollReply = vi.spyOn(service, "pollConnectRequest");
+    try {
+      createReply.mockImplementationOnce(async (key) => {
+        const reply = await create(key);
+        return { ...reply, expiresAt: "invalid" };
+      });
+      await expect(runRunnerConnect([endpoint!, "--dir", dir])).rejects.toThrow(
+        "Invalid connect creation response"
+      );
+      expect(pollReply).not.toHaveBeenCalled();
+      pollReply.mockResolvedValueOnce(JSON.parse('{"status":"future-status"}'));
+      await expect(runRunnerConnect([endpoint!, "--dir", dir])).rejects.toThrow(
+        "Invalid connect polling response"
+      );
+      expect(pollReply).toHaveBeenCalledTimes(1);
+      expect(await readdir(dir)).toEqual([]);
+    } finally {
+      createReply.mockRestore();
+      pollReply.mockRestore();
+      await rm(dir, { force: true, recursive: true });
+    }
   });
 
   it("runs the real CLI end-to-end over the runner listener's own pinned HTTPS (no main API HTTPS needed)", async () => {

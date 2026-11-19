@@ -1,9 +1,12 @@
 import { MANAGED_WORKSPACE, isOpaqueId } from "./placement.js";
-import type {
-  EngineInventoryEntry,
-  EngineOperation,
+import {
+  type EngineInventoryEntry,
+  type EngineOperation,
+  isEngineOperation,
+  isRunnerEngine,
 } from "./engine-management.js";
 import type { RunnerHealth } from "./health.js";
+import { isHttpUrl, isNullableString, isRecord } from "./validation.js";
 
 export const RUNNER_WIRE_VERSION = 1;
 
@@ -111,3 +114,164 @@ export type RunnerFrame =
   | ChannelFrame;
 
 export type Frame = ServiceFrame | RunnerFrame;
+
+/** A full branch name, never a revision expression, option, or raw ref. */
+export function validBranch(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    value.length > 0 &&
+    value.length <= 200 &&
+    !value.startsWith("-") &&
+    !value.startsWith("refs/") &&
+    !value.endsWith(".") &&
+    value !== "HEAD" &&
+    value !== "@" &&
+    !/[\x00-\x20\x7f~^:?*\[\\]|\.\.|@\{/.test(value) &&
+    value
+      .split("/")
+      .every((part) => part && !part.startsWith(".") && !part.endsWith(".lock"))
+  );
+}
+
+/** Check the URL before a runner makes any workspace changes. */
+export function parseRunnerRepositoryUrl(
+  source: unknown,
+  fromOrigin = false
+): URL | null {
+  if (
+    typeof source !== "string" ||
+    !source.startsWith("https://") ||
+    source.length > 2048 ||
+    /[\s\\?#\x00-\x1f\x7f]/.test(source)
+  )
+    return null;
+  try {
+    const url = new URL(source);
+    return url.hostname &&
+      url.pathname !== "/" &&
+      !url.hash &&
+      !url.search &&
+      (fromOrigin || (!url.username && !url.password))
+      ? url
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function isRepository(value: unknown): value is RunnerRepository {
+  if (
+    !isRecord(value) ||
+    !parseRunnerRepositoryUrl(value.url) ||
+    !isRecord(value.checkout)
+  )
+    return false;
+  const checkout = value.checkout;
+  if (!validBranch(checkout.branch)) return false;
+  switch (checkout.kind) {
+    case "new":
+      return checkout.base === undefined || validBranch(checkout.base);
+    case "branch":
+      return true;
+    case "pr":
+      return (
+        typeof checkout.number === "number" &&
+        Number.isSafeInteger(checkout.number) &&
+        checkout.number > 0
+      );
+    default:
+      return false;
+  }
+}
+
+function isServiceMcp(value: unknown): value is ServiceMcp {
+  return (
+    isRecord(value) &&
+    isHttpUrl(value.url) &&
+    typeof value.token === "string" &&
+    value.token.length > 0 &&
+    (value.name === undefined || typeof value.name === "string")
+  );
+}
+
+function isRemoteLaunch(value: unknown): value is RemoteLaunch {
+  return (
+    isRecord(value) &&
+    isOpaqueId(value.agentId) &&
+    isRunnerEngine(value.engine) &&
+    isNullableString(value.model) &&
+    isNullableString(value.systemPrompt) &&
+    isNullableString(value.resumeSessionId) &&
+    (value.fullAccess === undefined || typeof value.fullAccess === "boolean") &&
+    (value.effort === undefined || isNullableString(value.effort)) &&
+    (value.personaContext === undefined ||
+      isNullableString(value.personaContext)) &&
+    (value.mcp === undefined || isServiceMcp(value.mcp)) &&
+    (value.repository === undefined || isRepository(value.repository))
+  );
+}
+
+function isCommand(value: unknown): value is Command {
+  if (
+    !isRecord(value) ||
+    !isOpaqueId(value.agentId) ||
+    !isOpaqueId(value.workspace)
+  )
+    return false;
+  switch (value.kind) {
+    case "launch":
+      return isRemoteLaunch(value.launch);
+    case "attach":
+    case "alive":
+    case "discard":
+    case "log":
+    case "repo":
+      return true;
+    case "stop":
+      return typeof value.force === "boolean";
+    case "engine":
+      return isEngineOperation(value.operation);
+    default:
+      return false;
+  }
+}
+
+/** Correlation ID usable even if the rest of the request is malformed. */
+export function runnerRequestId(value: unknown): string | undefined {
+  return isRecord(value) && value.type === "request" && isOpaqueId(value.id)
+    ? value.id
+    : undefined;
+}
+
+function isBase64(value: unknown): value is string {
+  if (typeof value !== "string" || /[^A-Za-z0-9+/=]/u.test(value)) return false;
+  const paddingStart = value.indexOf("=");
+  if (paddingStart === -1) return value.length % 4 !== 1;
+  return (
+    value.length % 4 === 0 &&
+    (value.slice(paddingStart) === "=" || value.slice(paddingStart) === "==")
+  );
+}
+
+function isServiceFrame(value: unknown): value is ServiceFrame {
+  if (!isRecord(value)) return false;
+  switch (value.type) {
+    case "accept_health":
+      return (
+        value.engineInventory === undefined || value.engineInventory === true
+      );
+    case "request":
+      return isOpaqueId(value.id) && isCommand(value.command);
+    case "close":
+      return isOpaqueId(value.id);
+    case "data":
+      return isOpaqueId(value.id) && isBase64(value.data);
+    default:
+      return false;
+  }
+}
+
+/** Validate known v1 fields while preserving any additive fields from peers. */
+export function parseServiceFrame(value: unknown): ServiceFrame | null {
+  return isServiceFrame(value) ? value : null;
+}

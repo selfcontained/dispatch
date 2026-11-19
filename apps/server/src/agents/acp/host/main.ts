@@ -1,3 +1,7 @@
+import {
+  parseSessionCommand,
+  sessionCommandId,
+} from "@dispatch/runner-protocol";
 import { applyLaunchEffort } from "../launch-effort.js";
 import { firstPromptContext } from "../persona-context.js";
 import type { PromptSource } from "../prompt-source.js";
@@ -293,9 +297,16 @@ async function main(): Promise<void> {
   const server = net.createServer((socket) => {
     if (client && client !== socket) client.destroy();
     client = socket;
-    const decode = ndjsonDecoder<ClientMessage>();
+    const rejectCommand = (id?: string) =>
+      send(socket, { type: "error", id, message: "Invalid host command." });
+    const decode = ndjsonDecoder<unknown>(() => rejectCommand());
     socket.on("data", (chunk) => {
-      for (const message of decode(chunk)) {
+      for (const value of decode(chunk)) {
+        const message = parseSessionCommand(value);
+        if (!message) {
+          rejectCommand(sessionCommandId(value));
+          continue;
+        }
         void handle(socket, message).catch((err) => {
           logger.warn({ err: String(err) }, "host: message handler failed");
         });

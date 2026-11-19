@@ -1,6 +1,11 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import type { RepositoryCheckout } from "./protocol.js";
+import {
+  parseRunnerRepositoryUrl,
+  validBranch,
+  type RepositoryCheckout,
+} from "./protocol.js";
+export { validBranch };
 
 export type RepositoryInput = { url?: string; checkout: RepositoryCheckout };
 
@@ -12,47 +17,11 @@ export function repositoryUrl(input: string, fromOrigin = false): string {
   }
   const invalid = () =>
     new Error("Runner repositories require a credential-free HTTPS Git URL.");
-  if (
-    !source.startsWith("https://") ||
-    source.length > 2048 ||
-    /[\s\\?#\x00-\x1f\x7f]/.test(source)
-  )
-    throw invalid();
-  let url: URL;
-  try {
-    url = new URL(source);
-  } catch {
-    throw invalid();
-  }
-  if (
-    !url.hostname ||
-    url.pathname === "/" ||
-    url.hash ||
-    url.search ||
-    (!fromOrigin && (url.username || url.password))
-  )
-    throw invalid();
+  const url = parseRunnerRepositoryUrl(source, fromOrigin);
+  if (!url) throw invalid();
   url.username = "";
   url.password = "";
   return url.href;
-}
-
-/** A full branch name, never a revision expression, option, or raw ref. */
-export function validBranch(value: unknown): value is string {
-  return (
-    typeof value === "string" &&
-    value.length > 0 &&
-    value.length <= 200 &&
-    !value.startsWith("-") &&
-    !value.startsWith("refs/") &&
-    !value.endsWith(".") &&
-    value !== "HEAD" &&
-    value !== "@" &&
-    !/[\x00-\x20\x7f~^:?*\[\\]|\.\.|@\{/.test(value) &&
-    value
-      .split("/")
-      .every((part) => part && !part.startsWith(".") && !part.endsWith(".lock"))
-  );
 }
 
 export function parseRepository(input: unknown): RepositoryInput {

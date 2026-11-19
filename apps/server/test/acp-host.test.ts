@@ -627,6 +627,23 @@ await import(${JSON.stringify(pathToFileURL(fakeAgent).href)});
     const welcome = first.messages.find(
       (message) => message.type === "welcome"
     )!;
+    first.socket.write(
+      encodeMessage({
+        type: "prompt",
+        id: "malformed-operation",
+        text: "proof-count",
+        journalId: welcome.journalId,
+        images: [{ path: true, mimeType: "image/png" }],
+      })
+    );
+    await until(() =>
+      first.messages.some(
+        (message) =>
+          message.type === "error" &&
+          message.id === "malformed-operation" &&
+          message.message === "Invalid host command."
+      )
+    );
     const command = {
       type: "prompt",
       id: "first-operation",

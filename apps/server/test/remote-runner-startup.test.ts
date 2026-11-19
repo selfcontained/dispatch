@@ -195,6 +195,25 @@ describe("remote runner startup", () => {
           Buffer.from(
             JSON.stringify({
               type: "request",
+              id: "invalid-discard",
+              command: {
+                kind: "discard",
+                agentId: ["fixture"],
+                workspace: "@session",
+              },
+            }) + "\n"
+          )
+        );
+        expect(JSON.parse(socket.write.mock.calls[1]![0])).toEqual({
+          type: "result",
+          id: "invalid-discard",
+          error: "Invalid runner command.",
+        });
+        socket.emit(
+          "data",
+          Buffer.from(
+            JSON.stringify({
+              type: "request",
               id: "discard-test",
               command: {
                 kind: "discard",
@@ -204,8 +223,8 @@ describe("remote runner startup", () => {
             }) + "\n"
           )
         );
-        await vi.waitFor(() => expect(socket.write).toHaveBeenCalledTimes(2));
-        expect(JSON.parse(socket.write.mock.calls[1]![0])).toMatchObject({
+        await vi.waitFor(() => expect(socket.write).toHaveBeenCalledTimes(3));
+        expect(JSON.parse(socket.write.mock.calls[2]![0])).toMatchObject({
           type: "result",
           id: "discard-test",
           ...(managed ? { value: true } : { error: expect.any(String) }),

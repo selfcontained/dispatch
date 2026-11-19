@@ -1,17 +1,16 @@
 import type {
   HostEvent,
-  HostPrompt,
   HostWelcome,
   JournalEntry as RunnerJournalEntry,
   PromptReceipt,
   RemoteLaunch,
   ReplayComplete,
-  ReplayHello,
+  SessionCommand,
 } from "@dispatch/runner-protocol";
 import type { BackgroundSnapshot } from "@dispatch/shared";
 import type { AgentMcpInventoryResponse } from "@dispatch/shared";
 import type { AgentPermissionRequest } from "@dispatch/shared";
-import type { PromptImage, PromptSource } from "./prompt-source.js";
+import type { PromptSource } from "./prompt-source.js";
 import path from "node:path";
 import { StringDecoder } from "node:string_decoder";
 
@@ -60,24 +59,7 @@ export function hostFile(
 /** One journal line: an event with its position in the host's stream. */
 export type JournalEntry = RunnerJournalEntry<DriverEvent>;
 
-export type ClientMessage =
-  | ReplayHello
-  | HostPrompt<PromptSource, PromptImage>
-  | { type: "steer"; id: string; text: string; source?: PromptSource }
-  | { type: "cancel" }
-  | { type: "interrupt"; id: string; turnSeq: number }
-  | {
-      type: "answer_permission";
-      id: string;
-      requestId: string;
-      optionId: string | null;
-    }
-  /** Set one of the session's config options (model, effort, mode). */
-  | { type: "set_config"; id: string; configId: string; value: string }
-  | { type: "shutdown"; force?: boolean }
-  | { type: "mcp_inventory"; id: string; sessionId: string }
-  | { type: "background_work"; id: string; sessionId: string }
-  | { type: "ping" };
+export type ClientMessage = SessionCommand;
 
 export type HostMessage =
   | (HostWelcome & {
@@ -119,7 +101,9 @@ export type HostMessage =
  * function that takes each chunk and yields the complete messages in it;
  * a partial trailing line waits for the next chunk.
  */
-export function ndjsonDecoder<T>(): (chunk: Buffer | string) => T[] {
+export function ndjsonDecoder<T>(
+  onMalformed?: () => void
+): (chunk: Buffer | string) => T[] {
   let buffer = "";
   const decoder = new StringDecoder("utf8");
   return (chunk) => {
@@ -133,7 +117,8 @@ export function ndjsonDecoder<T>(): (chunk: Buffer | string) => T[] {
       try {
         out.push(JSON.parse(line) as T);
       } catch {
-        // A corrupt line is dropped rather than poisoning the stream.
+        // Keep parsing subsequent lines after a malformed message.
+        onMalformed?.();
       }
     }
     return out;

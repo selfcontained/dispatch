@@ -4,6 +4,12 @@ import {
   type ServiceFrame,
   type Command,
   parseReadyFrame,
+  parseServiceFrame,
+  parseSessionCommand,
+  parseConnectCreated,
+  parseConnectPoll,
+  runnerRequestId,
+  sessionCommandId,
   isOpaqueId,
   remotePlacement,
   workspaceLocator,
@@ -50,7 +56,11 @@ it("consumes the v1 launch and channel framing without Dispatch server imports",
       done();
     },
   });
-  const send = wireFrames(transport, (frame) => received.push(frame));
+  const send = wireFrames<unknown, Frame>(transport, (value) => {
+    const frame = parseServiceFrame(value);
+    if (!frame) throw new Error("Malformed service frame");
+    received.push(frame);
+  });
   const launch: Frame = {
     type: "request",
     id: "provider:launch/42",
@@ -164,5 +174,253 @@ it("a timed-out request has an unknown outcome even if its receipt arrives late"
     expect(sent).toHaveLength(1);
   } finally {
     vi.useRealTimers();
+  }
+});
+
+const requestFrame = (command: object) => ({
+  type: "request",
+  id: "caller/request:1",
+  command: { agentId: "caller/agent:1", workspace: "@session", ...command },
+});
+
+it("accepts each v1 execution command and preserves additive launch fields", () => {
+  for (const kind of ["attach", "alive", "discard", "log", "repo"]) {
+    const request = requestFrame({ kind });
+    expect(parseServiceFrame(request)).toBe(request);
+  }
+  const stop = requestFrame({ kind: "stop", force: false });
+  expect(parseServiceFrame(stop)).toBe(stop);
+
+  const launch = {
+    agentId: "legacy-launch-id",
+    engine: "claude",
+    model: null,
+    systemPrompt: "",
+    resumeSessionId: null,
+    fullAccess: false,
+    effort: "high",
+    personaContext: null,
+    mcp: {
+      url: "https://service.example/mcp",
+      token: "fixture",
+      name: "tool-service",
+      futureMcpField: true,
+    },
+  };
+  for (const checkout of [
+    { kind: "new", branch: "topic/new", base: "main" },
+    { kind: "branch", branch: "topic/existing" },
+    { kind: "pr", branch: "topic/pr", number: 42 },
+  ]) {
+    const request = {
+      ...requestFrame({
+        kind: "launch",
+        launch: {
+          ...launch,
+          repository: { url: "https://git.example/project.git", checkout },
+        },
+      }),
+      futureFrameField: {},
+    };
+    expect(parseServiceFrame(request)).toBe(request);
+  }
+  for (const fields of [
+    { fullAccess: "false" },
+    { engine: "future-engine" },
+    { model: false },
+    { systemPrompt: 1 },
+    { effort: 1 },
+    { personaContext: [] },
+    { resumeSessionId: [] },
+    { mcp: { url: "http://service.example/mcp", token: "fixture" } },
+    { mcp: { url: "https://service.example/mcp", token: 1 } },
+    {
+      repository: {
+        url: "https://git.example/project",
+        checkout: { kind: "pr", branch: "topic/pr", number: -1 },
+      },
+    },
+    {
+      repository: {
+        url: "https://git.example/project",
+        checkout: { kind: "new", branch: "--option" },
+      },
+    },
+    {
+      repository: {
+        url: "https://user:pass@git.example/project",
+        checkout: { kind: "branch", branch: "topic" },
+      },
+    },
+  ]) {
+    const request = requestFrame({
+      kind: "launch",
+      launch: { ...launch, ...fields },
+    });
+    expect(parseServiceFrame(request)).toBeNull();
+    expect(runnerRequestId(request)).toBe(request.id);
+  }
+  expect(parseServiceFrame(requestFrame({ kind: "stop" }))).toBeNull();
+  expect(
+    parseServiceFrame(requestFrame({ kind: "future-command" }))
+  ).toBeNull();
+  expect(parseServiceFrame({ ...stop, command: null })).toBeNull();
+  expect(parseServiceFrame({ ...stop, id: "" })).toBeNull();
+  expect(runnerRequestId({ ...stop, id: [] })).toBeUndefined();
+  expect(
+    parseServiceFrame({ type: "data", id: "channel", data: "AP8=\n" })
+  ).toBeNull();
+});
+
+it("validates operation-specific engine arguments", () => {
+  for (const operation of [
+    { type: "status", futureStatusParameter: true },
+    { type: "install", engine: "codex" },
+    { type: "update", engine: "claude" },
+    { type: "login_start", engine: "opencode" },
+    { type: "login_start", engine: "opencode", restart: false },
+    { type: "login_submit", loginId: "login:1", code: "fixture" },
+    { type: "login_cancel", loginId: "login:1" },
+    { type: "login_status", loginId: "login:1" },
+  ]) {
+    const request = requestFrame({
+      kind: "engine",
+      agentId: "@engine",
+      operation,
+    });
+    expect(parseServiceFrame(request)).toBe(request);
+  }
+  for (const operation of [
+    null,
+    { type: "install" },
+    { type: "update", engine: "future-engine" },
+    { type: "login_start", engine: "codex", restart: "no" },
+    { type: "login_submit", loginId: "login:1", code: 42 },
+    { type: "login_cancel", loginId: null },
+    { type: "login_status" },
+    { type: "future-operation" },
+  ]) {
+    expect(
+      parseServiceFrame(requestFrame({ kind: "engine", operation }))
+    ).toBeNull();
+  }
+});
+
+it("decodes the host session vocabulary including legacy and extended prompts", () => {
+  const source = {
+    source: "chat",
+    chatMessageId: "message:1",
+    chatMessageIds: ["message:1", "message:2"],
+    conversation: { streamId: "stream:1", threadId: null },
+    answerIn: "message:2",
+    userMessage: true,
+    steeringExcluded: false,
+    awaited: false,
+    scheduleId: "schedule:1",
+    scheduleDeliveryId: "delivery:1",
+    attribution: { displayName: "Fixture" },
+  };
+  const prompt = {
+    type: "prompt",
+    id: "prompt:1",
+    text: "",
+    journalId: "journal:1",
+    source,
+    images: [{ path: "/fixture/image", mimeType: "image/png", alt: "Fixture" }],
+  };
+  for (const command of [
+    { type: "hello", fromSeq: 0 },
+    { type: "hello", fromSeq: 1, journalId: null, replayComplete: true },
+    { type: "prompt", id: "legacy", text: "Hello" },
+    prompt,
+    { type: "steer", id: "steer:1", text: "Follow-up", source },
+    { type: "cancel" },
+    { type: "interrupt", id: "interrupt:1", turnSeq: 2 },
+    {
+      type: "answer_permission",
+      id: "permission:1",
+      requestId: "request:2",
+      optionId: null,
+    },
+    { type: "set_config", id: "set:1", configId: "mode", value: "default" },
+    { type: "shutdown", force: false },
+    { type: "shutdown" },
+    { type: "mcp_inventory", id: "inventory:1", sessionId: "session:1" },
+    { type: "background_work", id: "background:1", sessionId: "session:1" },
+    { type: "ping", futureFlag: true },
+  ]) {
+    expect(parseSessionCommand(command)).toBe(command);
+  }
+  for (const command of [
+    null,
+    { type: "hello", fromSeq: -1 },
+    { type: "hello", fromSeq: 1.5 },
+    { type: "hello", fromSeq: 0, replayComplete: "true" },
+    { ...prompt, journalId: 7 },
+    { ...prompt, source: { ...source, conversation: { streamId: "stream" } } },
+    { ...prompt, source: { ...source, chatMessageIds: [null] } },
+    { ...prompt, images: [{ path: "/fixture/image" }] },
+    { type: "steer", id: "steer:1", text: 1 },
+    { type: "interrupt", id: "interrupt:1", turnSeq: 2 ** 53 },
+    { type: "answer_permission", id: "permission:1", requestId: "request:2" },
+    { type: "set_config", id: "set:1", configId: "mode", value: true },
+    { type: "shutdown", force: "false" },
+    { type: "mcp_inventory", id: "inventory:1" },
+    { type: "background_work", id: "background:1", sessionId: [] },
+    { type: "future-command", id: "future:1" },
+  ]) {
+    expect(parseSessionCommand(command)).toBeNull();
+  }
+  expect(sessionCommandId({ ...prompt, text: false })).toBe(prompt.id);
+});
+
+it("recognizes only supported enrollment replies and retains their extensions", () => {
+  const created = {
+    id: "connect/request:1",
+    code: "TEST-CODE",
+    expiresAt: "2030-01-01T00:00:00.000Z",
+  };
+  const withLink = {
+    ...created,
+    approveUrl: "http://service.example/approve",
+    futureField: true,
+  };
+  expect(parseConnectCreated(created)).toBe(created);
+  expect(parseConnectCreated(withLink)).toBe(withLink);
+  for (const result of [
+    null,
+    { ...created, id: ".." },
+    { ...created, code: "CODE\nFORGED" },
+    { ...created, expiresAt: "tomorrow" },
+    { ...created, approveUrl: "file:///tmp/approve" },
+  ]) {
+    expect(parseConnectCreated(result)).toBeNull();
+  }
+  const approved = {
+    status: "approved",
+    id: "collector/runner:1",
+    name: "Collector",
+    endpoint: "https://runner.example:4000",
+    cert: "fixture PEM",
+    ca: "fixture CA",
+    newerField: true,
+  };
+  for (const reply of [
+    { status: "pending" },
+    { status: "denied" },
+    { status: "expired" },
+    approved,
+  ]) {
+    expect(parseConnectPoll(reply)).toBe(reply);
+  }
+  for (const reply of [
+    null,
+    { status: "queued" },
+    { ...approved, endpoint: "http://runner.example:4000" },
+    { ...approved, name: [] },
+    { ...approved, cert: "" },
+    { ...approved, ca: false },
+  ]) {
+    expect(parseConnectPoll(reply)).toBeNull();
   }
 });

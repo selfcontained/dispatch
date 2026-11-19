@@ -27,7 +27,17 @@ To extend v1, define the message in its sending direction and document its
 receipt or failure semantics. For an optional operation, advertise support in
 `ready` and exercise both a capable peer and a peer that omits the flag.
 `wireFrames` handles NDJSON and buffering. Its directional TypeScript types
-describe the expected messages; the recipient validates incoming values.
+describe the expected messages. Pass parsed JSON to `parseServiceFrame`
+before dispatching a runner command, and to `parseSessionCommand` at the host
+end of an attached channel. These decoders accept additive fields in familiar
+v1 messages and reject unknown command kinds. The runner replies with
+`result.error` if a malformed request has a usable ID and closes the transport
+if it cannot correlate the frame. The host replies with an `error` message.
+
+For HTTPS enrollment, decode successful response bodies with
+`parseConnectCreated` and `parseConnectPoll` before displaying a code, polling,
+or saving credentials. An unknown poll status is a protocol error. Verify the
+issued certificate and CA before saving credentials.
 
 Run the in-memory consumer tests from the repository root with
 `pnpm run test:runner-protocol`.
@@ -120,9 +130,9 @@ also sets `result.code` to `host-gone`. Losing the connection before the
 result leaves the outcome unknown. The service can reattach using the
 durable cursor described below.
 
-The portable session types cover journal replay and prompt receipts. The
-complete vocabulary spoken by Dispatch's ACP host, including permission
-decisions, is in `apps/server/src/agents/acp/host-protocol.ts`.
+The portable session types cover commands received by the host, journal replay,
+and prompt receipts. Dispatch-specific host replies and event payloads are
+defined in `apps/server/src/agents/acp/host-protocol.ts`.
 
 ## Receipts and replay
 

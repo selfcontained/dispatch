@@ -1,58 +1,5 @@
-import type { PromptConversation } from "@dispatch/shared";
-
-/**
- * What a prompt sent to the harness was, for the prompt a turn entry
- * renders. The wire text is an envelope Dispatch built; the feed wants the
- * human-facing source behind it, not the envelope.
- */
-export type PromptSource = {
-  /** Source discussion for batching and steering, retained through the host journal.
-   * User-thread turns use their validated source discussion for output at turn start. */
-  conversation?: PromptConversation;
-  /**
-   * A person's post. With a conversation, a prompt steers only that
-   * conversation; another agent's post without one steers any open turn.
-   */
-  userMessage?: boolean;
-  /** Structured answers and commands retain their dedicated delivery policy. */
-  steeringExcluded?: boolean;
-  /** Agent-authored scheduled content, explicitly eligible for steering. */
-  scheduleId?: string;
-  scheduleDeliveryId?: string;
-  /**
-   * The recipient is waiting on this: a review it launched, a finding
-   * thread it is a side of, a finding settled or reopened. It joins the
-   * active turn whatever conversation that turn is in, rather than
-   * waiting behind the very work that is waiting on it.
-   */
-  awaited?: boolean;
-} & (
-  | {
-      source: "chat";
-      /** The post that opened the turn: the first, when there were several. */
-      chatMessageId: string;
-      /**
-       * Every post the turn was given, in order, when posts that queued up
-       * behind a turn were delivered to it together.
-       */
-      chatMessageIds?: string[];
-      /**
-       * The block whose thread this prompt's answer belongs in, when the
-       * prompt says so rather than leaving it to what the post is: a
-       * notice that a finding changed is answered under the finding.
-       * Retained when prompts from this conversation are delivered together.
-       */
-      answerIn?: string;
-    }
-  | { source: "agent"; senderId: string; senderName: string; text: string }
-  | { source: "system"; text: string }
-  /**
-   * A turn the engine started on its own between prompts (a background
-   * task finished, a goal continued). `after` is the block that answered
-   * the turn before it: this is source context; new ordinary work uses the agent home.
-   */
-  | { source: "engine"; text: string; after?: string }
-);
+import type { PromptImage, PromptSource } from "@dispatch/runner-protocol";
+export type { PromptImage, PromptSource } from "@dispatch/runner-protocol";
 
 const SYSTEM_MAX = 500;
 
@@ -69,8 +16,6 @@ export type QueuedPrompt = {
   createdAt: string;
 };
 
-/** Server-resolved files, kept out of turn journals and encoded only for ACP. */
-export type PromptImage = { path: string; mimeType: string };
 export type PromptOptions = {
   alone?: boolean;
   /** Checked immediately before submission, including queued release. */

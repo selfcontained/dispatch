@@ -38,9 +38,10 @@ import {
   MANAGED_WORKSPACE,
   RUNNER_WIRE_VERSION,
   wireFrames,
+  parseServiceFrame,
+  runnerRequestId,
   type Command,
   type RunnerFrame,
-  type ServiceFrame,
   type RunnerEngine,
   type RunnerRepository,
 } from "./protocol.js";
@@ -678,7 +679,16 @@ export async function runRemoteRunner(filename: string) {
         }
       }
 
-      const send = wireFrames<ServiceFrame, RunnerFrame>(socket, (frame) => {
+      const send = wireFrames<unknown, RunnerFrame>(socket, (value) => {
+        if (socket.destroyed) return;
+        const frame = parseServiceFrame(value);
+        if (!frame) {
+          const id = runnerRequestId(value);
+          if (id !== undefined)
+            safeSend({ type: "result", id, error: "Invalid runner command." });
+          else socket.destroy();
+          return;
+        }
         if (frame.type === "accept_health" && !healthInterval) {
           acceptsInventory = frame.engineInventory === true;
           void reportHealth();

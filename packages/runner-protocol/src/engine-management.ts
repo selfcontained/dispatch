@@ -1,4 +1,5 @@
-import type { RunnerEngine } from "./index.js";
+import type { RunnerEngine } from "./execution.js";
+import { isRecord } from "./validation.js";
 
 /**
  * Engine install/update/sign-in, scoped to wherever an engine's CLI runs:
@@ -125,18 +126,33 @@ export function engineScopeKey(scope: EngineScope): string {
   return scope.kind === "local" ? "local" : `runner:${scope.runnerId}`;
 }
 
+export function isRunnerEngine(value: unknown): value is RunnerEngine {
+  return RUNNER_ENGINES.some((engine) => engine === value);
+}
+
 export function isEngineOperation(value: unknown): value is EngineOperation {
-  if (!value || typeof value !== "object") return false;
-  const type = (value as { type?: unknown }).type;
-  return (
-    type === "status" ||
-    type === "install" ||
-    type === "update" ||
-    type === "login_start" ||
-    type === "login_submit" ||
-    type === "login_cancel" ||
-    type === "login_status"
-  );
+  if (!isRecord(value)) return false;
+  switch (value.type) {
+    case "status":
+      return true;
+    case "install":
+    case "update":
+      return isRunnerEngine(value.engine);
+    case "login_start":
+      return (
+        isRunnerEngine(value.engine) &&
+        (value.restart === undefined || typeof value.restart === "boolean")
+      );
+    case "login_submit":
+      return (
+        typeof value.loginId === "string" && typeof value.code === "string"
+      );
+    case "login_cancel":
+    case "login_status":
+      return typeof value.loginId === "string";
+    default:
+      return false;
+  }
 }
 
 const SUPPORTED_ACTIONS = new Set<EngineSupportedAction>([
