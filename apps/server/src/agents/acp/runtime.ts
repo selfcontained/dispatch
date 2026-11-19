@@ -25,7 +25,11 @@ import type {
 
 import type { AppConfig } from "../../config.js";
 import type { DriverEvent } from "./driver.js";
-import type { PromptImage, PromptSource } from "./prompt-source.js";
+import type {
+  PromptImage,
+  PromptSource,
+  PromptOptions,
+} from "./prompt-source.js";
 import type {
   AgentRuntime,
   RuntimeEventListener,
@@ -369,7 +373,7 @@ function sourceBlockIds(source?: PromptSource): string[] {
 }
 
 export type AcpRuntimeDeps = {
-  remote?: RemoteRunnerService;
+  remote?: Pick<RemoteRunnerService, "available" | "requestSession">;
   remoteInbox?: Pick<RemoteEventInbox, "receive" | "projected">;
   recoverRemoteEvent?: (agentId: string) => Promise<void>;
   placement?: (agentId: string) => Promise<Placement | null>;
@@ -949,6 +953,170 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
     }
   }
 
+  function enqueuePrompt(
+    entry: Live,
+    agentId: string,
+    text: string,
+    source?: PromptSource,
+    opts?: PromptOptions
+  ) {
+    let resolveAccepted!: () => void;
+    let rejectAccepted!: (err: Error) => void;
+    const accepted = new Promise<void>((resolve, reject) => {
+      resolveAccepted = resolve;
+      rejectAccepted = reject;
+    });
+    let resolveSettled!: () => void;
+    const settled = new Promise<void>((resolve) => {
+      resolveSettled = resolve;
+    }).finally(() => {
+      entry.pending -= 1;
+    });
+    const own: Waiting = {
+      text,
+      ...(opts?.beforeSubmit ? { beforeSubmit: opts.beforeSubmit } : {}),
+      ...(opts?.onDeferred ? { onDeferred: opts.onDeferred } : {}),
+      ...(opts?.signal ? { signal: opts.signal } : {}),
+      ...(opts?.images?.length ? { images: opts.images } : {}),
+      ...(source ? { source } : {}),
+      alone:
+        opts?.delivery === "interrupt" ||
+        opts?.alone === true ||
+        source?.source !== "chat",
+      // Steering accepts text only. Keep images for the next ordinary turn.
+      delivery:
+        opts?.delivery === "interrupt"
+          ? "interrupt"
+          : opts?.images?.length
+            ? "queue"
+            : (opts?.delivery ?? "queue"),
+      taken: false,
+      resolveAccepted,
+      rejectAccepted,
+      resolveSettled,
+      cancelled: false,
+      interruptTargetSeq: entry.turnSeq,
+      interruptHandled:
+        !entry.turnOpen ||
+        (entry.turnSeq !== undefined &&
+          entry.interruptedTurnSeq === entry.turnSeq),
+    };
+    if (own.delivery === "interrupt") {
+      const firstOrdinary = entry.waiting.findIndex(
+        (w) => w.delivery !== "interrupt"
+      );
+      entry.waiting.splice(
+        firstOrdinary < 0 ? entry.waiting.length : firstOrdinary,
+        0,
+        own
+      );
+    } else if (isUserPost(own)) {
+      // A person's post goes ahead of queued agent and system traffic,
+      // behind interrupts and the person's own earlier posts. A deferred
+      // batch put back at the front may sit ahead of those posts.
+      let after = entry.waiting.length;
+      while (after > 0 && !isUserPost(entry.waiting[after - 1]!)) after--;
+      const firstOther = entry.waiting.findIndex(
+        (w, i) => i >= after && w.delivery !== "interrupt" && !isUserPost(w)
+      );
+      entry.waiting.splice(
+        firstOther < 0 ? entry.waiting.length : firstOther,
+        0,
+        own
+      );
+    } else {
+      entry.waiting.push(own);
+    }
+    entry.pending += 1;
+    if (
+      deps.classifySteering &&
+      own.delivery === "auto" &&
+      isUserPost(own) &&
+      !own.source?.steeringExcluded &&
+      !own.source?.awaited &&
+      !own.source?.scheduleId &&
+      !own.images?.length &&
+      entry.turnOpen &&
+      entry.turnSeq !== undefined &&
+      entry.conversation &&
+      entry.client.welcome?.steeringSupported &&
+      source?.source === "chat"
+    ) {
+      const state: NonNullable<Waiting["steering"]> = {
+        seq: entry.turnSeq,
+        controller: new AbortController(),
+        pending: true,
+        decision: undefined as SteeringDecision | undefined,
+      };
+      own.steering = state;
+      const timer = setTimeout(() => {
+        if (own.steering !== state) return;
+        finishDecision(own, "expired");
+        void pump(agentId, entry);
+      }, 3000);
+      void deps
+        .classifySteering({
+          agentId,
+          messageId: source.chatMessageId,
+          turnSeq: state.seq,
+          activeMessageIds: [...entry.turnBlockIds],
+          conversation: entry.conversation,
+          defaultSteers: steers(own, entry),
+          signal: state.controller.signal,
+        })
+        .then((decision) => {
+          if (
+            own.steering !== state ||
+            live.get(agentId) !== entry ||
+            !entry.turnOpen ||
+            entry.turnSeq !== state.seq ||
+            own.taken
+          ) {
+            decision?.finish(state.outcome ?? "expired");
+            return;
+          }
+          state.pending = false;
+          state.decision = decision;
+          if (decision?.valid() && decision.choice === "queue_next")
+            decision.finish("queued");
+          if (decision?.choice === "keep_existing_default")
+            decision.finish("default");
+        })
+        .catch(() => {
+          if (own.steering === state) state.pending = false;
+        })
+        .finally(() => {
+          clearTimeout(timer);
+          void pump(agentId, entry);
+        });
+    }
+    if (opts?.signal) {
+      const discard = () => {
+        if (own.taken) return;
+        const index = entry.waiting.indexOf(own);
+        if (index < 0) return;
+        entry.waiting.splice(index, 1);
+        finishDecision(own, "overridden");
+        own.cancelled = true;
+        own.rejectAccepted(
+          Object.assign(
+            new Error("Scheduled delivery cancelled before submission."),
+            { name: "ScheduledDeliveryCancelledError" }
+          )
+        );
+        own.resolveSettled();
+      };
+      opts.signal.addEventListener("abort", discard, { once: true });
+      void settled.finally(() =>
+        opts.signal?.removeEventListener("abort", discard)
+      );
+      if (opts.signal.aborted) discard();
+    }
+    accepted.catch(() => {});
+    void pump(agentId, entry);
+    return { accepted, settled };
+  }
+
   runtime = {
     tracksProcesses: () => true,
     async getBackgroundWork(agentId) {
@@ -1168,167 +1336,29 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
 
     prompt(agentId, text, source, opts) {
       const entry = live.get(agentId);
-      if (!entry) {
-        const err = new Error(
-          "The agent is not running; the prompt cannot be delivered."
-        );
-        return { accepted: Promise.reject(err), settled: Promise.reject(err) };
-      }
-      let resolveAccepted!: () => void;
-      let rejectAccepted!: (err: Error) => void;
-      const accepted = new Promise<void>((resolve, reject) => {
-        resolveAccepted = resolve;
-        rejectAccepted = reject;
-      });
-      let resolveSettled!: () => void;
-      const settled = new Promise<void>((resolve) => {
-        resolveSettled = resolve;
-      }).finally(() => {
-        entry.pending -= 1;
-      });
-      const own: Waiting = {
-        text,
-        ...(opts?.beforeSubmit ? { beforeSubmit: opts.beforeSubmit } : {}),
-        ...(opts?.onDeferred ? { onDeferred: opts.onDeferred } : {}),
-        ...(opts?.signal ? { signal: opts.signal } : {}),
-        ...(opts?.images?.length ? { images: opts.images } : {}),
-        ...(source ? { source } : {}),
-        alone:
-          opts?.delivery === "interrupt" ||
-          opts?.alone === true ||
-          source?.source !== "chat",
-        // Steering accepts text only. Keep images for the next ordinary turn.
-        delivery:
-          opts?.delivery === "interrupt"
-            ? "interrupt"
-            : opts?.images?.length
-              ? "queue"
-              : (opts?.delivery ?? "queue"),
-        taken: false,
-        resolveAccepted,
-        rejectAccepted,
-        resolveSettled,
-        cancelled: false,
-        interruptTargetSeq: entry.turnSeq,
-        interruptHandled:
-          !entry.turnOpen ||
-          (entry.turnSeq !== undefined &&
-            entry.interruptedTurnSeq === entry.turnSeq),
-      };
-      if (own.delivery === "interrupt") {
-        const firstOrdinary = entry.waiting.findIndex(
-          (w) => w.delivery !== "interrupt"
-        );
-        entry.waiting.splice(
-          firstOrdinary < 0 ? entry.waiting.length : firstOrdinary,
-          0,
-          own
-        );
-      } else if (isUserPost(own)) {
-        // A person's post goes ahead of queued agent and system traffic,
-        // behind interrupts and the person's own earlier posts. A deferred
-        // batch put back at the front may sit ahead of those posts.
-        let after = entry.waiting.length;
-        while (after > 0 && !isUserPost(entry.waiting[after - 1]!)) after--;
-        const firstOther = entry.waiting.findIndex(
-          (w, i) => i >= after && w.delivery !== "interrupt" && !isUserPost(w)
-        );
-        entry.waiting.splice(
-          firstOther < 0 ? entry.waiting.length : firstOther,
-          0,
-          own
-        );
-      } else {
-        entry.waiting.push(own);
-      }
-      entry.pending += 1;
-      if (
-        deps.classifySteering &&
-        own.delivery === "auto" &&
-        isUserPost(own) &&
-        !own.source?.steeringExcluded &&
-        !own.source?.awaited &&
-        !own.source?.scheduleId &&
-        !own.images?.length &&
-        entry.turnOpen &&
-        entry.turnSeq !== undefined &&
-        entry.conversation &&
-        entry.client.welcome?.steeringSupported &&
-        source?.source === "chat"
-      ) {
-        const state: NonNullable<Waiting["steering"]> = {
-          seq: entry.turnSeq,
-          controller: new AbortController(),
-          pending: true,
-          decision: undefined as SteeringDecision | undefined,
-        };
-        own.steering = state;
-        const timer = setTimeout(() => {
-          if (own.steering !== state) return;
-          finishDecision(own, "expired");
-          void pump(agentId, entry);
-        }, 3000);
-        void deps
-          .classifySteering({
-            agentId,
-            messageId: source.chatMessageId,
-            turnSeq: state.seq,
-            activeMessageIds: [...entry.turnBlockIds],
-            conversation: entry.conversation,
-            defaultSteers: steers(own, entry),
-            signal: state.controller.signal,
-          })
-          .then((decision) => {
-            if (
-              own.steering !== state ||
-              live.get(agentId) !== entry ||
-              !entry.turnOpen ||
-              entry.turnSeq !== state.seq ||
-              own.taken
-            ) {
-              decision?.finish(state.outcome ?? "expired");
-              return;
-            }
-            state.pending = false;
-            state.decision = decision;
-            if (decision?.valid() && decision.choice === "queue_next")
-              decision.finish("queued");
-            if (decision?.choice === "keep_existing_default")
-              decision.finish("default");
-          })
-          .catch(() => {
-            if (own.steering === state) state.pending = false;
-          })
-          .finally(() => {
-            clearTimeout(timer);
-            void pump(agentId, entry);
-          });
-      }
-      if (opts?.signal) {
-        const discard = () => {
-          if (own.taken) return;
-          const index = entry.waiting.indexOf(own);
-          if (index < 0) return;
-          entry.waiting.splice(index, 1);
-          finishDecision(own, "overridden");
-          own.cancelled = true;
-          own.rejectAccepted(
-            Object.assign(
-              new Error("Scheduled delivery cancelled before submission."),
-              { name: "ScheduledDeliveryCancelledError" }
-            )
+      const pending = connecting.get(agentId);
+      if (entry && (!entry.remote || !pending))
+        return enqueuePrompt(entry, agentId, text, source, opts);
+
+      // Dispatch may finish starting while an already running remote host is
+      // still reconnecting. Attach before the first send, sharing any replay
+      // already under way. This path never retries a submitted prompt.
+      const delivery = (async () => {
+        if (!deps.remote || !(await placementOf(agentId)))
+          throw new Error(
+            "The agent is not running; the prompt cannot be delivered."
           );
-          own.resolveSettled();
-        };
-        opts.signal.addEventListener("abort", discard, { once: true });
-        void settled.finally(() =>
-          opts.signal?.removeEventListener("abort", discard)
-        );
-        if (opts.signal.aborted) discard();
-      }
-      accepted.catch(() => {});
-      void pump(agentId, entry);
-      return { accepted, settled };
+        const host = await (pending ?? connect(agentId, ATTACH_TIMEOUT_MS));
+        if (live.get(agentId) !== host)
+          throw new Error(
+            "The agent host disconnected before prompt submission."
+          );
+        return enqueuePrompt(host, agentId, text, source, opts);
+      })();
+      return {
+        accepted: delivery.then((result) => result.accepted),
+        settled: delivery.then((result) => result.settled),
+      };
     },
 
     controlQueuedPrompt(agentIds, blockId, action) {

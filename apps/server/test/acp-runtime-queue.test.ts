@@ -80,8 +80,11 @@ async function fastFailingHost(): Promise<{
               running: true,
               turn: null,
               journalSeq: seq,
+              ...(message.replayComplete && { journalId: "fixture-journal" }),
             } satisfies HostMessage)
           );
+          if (message.replayComplete)
+            socket.write(encodeMessage({ type: "replay_complete" }));
         } else if (message.type === "prompt") {
           prompts.push(message.text);
           socket.write(
@@ -120,6 +123,40 @@ async function fastFailingHost(): Promise<{
 }
 
 describe("AcpRuntime prompt queue", () => {
+  it("attaches a surviving remote host on the first prompt after service startup", async () => {
+    const { stateRoot, prompts } = await fastFailingHost();
+    const placement = { runner: "test-runner", workspace: "proof" };
+    // The host already exists, while the new service has no runtime entry.
+    const requestSession = vi.fn(async (target, operation) => {
+      if (operation.kind === "discard")
+        return { value: true, channel: undefined };
+      expect(target).toEqual(placement);
+      expect(operation).toEqual({ kind: "attach", agentId });
+      return {
+        value: true,
+        channel: net.createConnection(
+          hostFile(path.join(stateRoot, agentId), "socket")
+        ),
+      };
+    });
+    const runtime = createAcpRuntime({
+      config: {
+        agentStateRoot: stateRoot,
+        agentRuntime: "acp",
+        dispatchApiUrl: "https://test.invalid",
+      } as Parameters<typeof createAcpRuntime>[0]["config"],
+      logger,
+      hostSeq: async () => ({ seq: 0, journalId: null }),
+      placement: async () => placement,
+      remote: { requestSession, available: () => true },
+    });
+    const delivery = runtime.prompt(agentId, "during service recovery");
+    await Promise.all([delivery.accepted, delivery.settled]);
+    expect(requestSession).toHaveBeenCalledTimes(1);
+    expect(prompts).toEqual(["during service recovery"]);
+    await runtime.discard(agentId);
+  });
+
   it("takes the next prompt after a turn whose ack and settle arrive together", async () => {
     const { stateRoot, prompts } = await fastFailingHost();
     const runtime = createAcpRuntime({
