@@ -5,6 +5,7 @@ import type { ScheduledMessageService } from "../scheduled-messages/service.js";
 import path from "node:path";
 
 import type { FastifyInstance } from "fastify";
+import { isJSONRPCRequest } from "@modelcontextprotocol/sdk/types.js";
 import type { Pool } from "pg";
 import type { SharedUiEvent } from "@dispatch/shared";
 
@@ -44,6 +45,19 @@ function onceResponseFinished(res: {
     res.once("finish", () => resolve());
     res.once("close", () => resolve());
   });
+}
+
+function isOwnerReviewRequest(body: unknown): boolean {
+  const messages: unknown[] = Array.isArray(body) ? body : [body];
+  return (
+    messages.length > 0 &&
+    messages.every(
+      (message) =>
+        isJSONRPCRequest(message) &&
+        message.method === "tools/call" &&
+        message.params?.name === "launch_owner_reviews"
+    )
+  );
 }
 
 type McpRouteDeps = {
@@ -208,7 +222,9 @@ export async function registerMcpRoutes(
     // Repo tools, brain and job defaults follow a moved workspace.
     const workspaceDir = agentWorkspaceDir(agent) ?? agent.cwd;
     try {
-      if (!remotePlacement(agent.cwd)) {
+      // Owner review gets checkout facts through the runner. Keep the usual
+      // scope for other requests, including batches with repo-dependent tools.
+      if (!remotePlacement(agent.cwd) && !isOwnerReviewRequest(request.body)) {
         repoRoot = await resolveRepoRoot(workspaceDir);
         worktreeRoot = await resolveWorktreeRoot(workspaceDir);
       }
@@ -342,7 +358,7 @@ export async function registerMcpRoutes(
     // Repo tools, brain and job defaults follow a moved workspace.
     const workspaceDir = agentWorkspaceDir(agent) ?? agent.cwd;
     try {
-      if (!remotePlacement(agent.cwd)) {
+      if (!remotePlacement(agent.cwd) && !isOwnerReviewRequest(request.body)) {
         repoRoot = await resolveRepoRoot(workspaceDir);
         worktreeRoot = await resolveWorktreeRoot(workspaceDir);
       }

@@ -1,46 +1,38 @@
-import { personaCatalog } from "../src/personas/catalog.js";
+import { access, readFile, readdir } from "node:fs/promises";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { personaCatalog } from "../src/personas/catalog.js";
 import { createPersonaHandlers } from "../src/server/mcp-persona-handlers.js";
-import { loadCodeowners } from "../src/personas/codeowners.js";
 import {
-  loadPersonaBySlug,
-  assemblePersonaPrompt,
-} from "../src/personas/loader.js";
-import {
-  refreshRemoteBaseRef,
-  resolveBaseRef,
-} from "../src/shared/git/base-ref.js";
-import { resolveRepoRoot } from "../src/shared/git/git-context.js";
+  resolveRepoRoot,
+  resolveWorktreeRoot,
+} from "../src/shared/git/git-context.js";
 import { getBuiltInPersona } from "../src/personas/built-in.js";
 import { runCommand } from "../src/shared/lib/run-command.js";
 
-vi.mock("../src/shared/git/git-context.js", () => ({
-  resolveRepoRoot: vi.fn(async (cwd: string) => cwd),
-  resolveWorktreeRoot: vi.fn(async (cwd: string) => cwd),
+vi.mock("node:fs/promises", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("node:fs/promises")>()),
+  access: vi.fn(() => {
+    throw new Error("Unexpected checkout filesystem access");
+  }),
+  readFile: vi.fn(() => {
+    throw new Error("Unexpected checkout filesystem read");
+  }),
+  readdir: vi.fn(() => {
+    throw new Error("Unexpected checkout filesystem listing");
+  }),
 }));
-vi.mock("../src/shared/git/base-ref.js", () => ({
-  refreshRemoteBaseRef: vi.fn(async () => {}),
-  resolveBaseRef: vi.fn(async () => "origin/acp-runtime"),
-}));
-vi.mock("../src/shared/github/pr.js", () => ({
-  getPrStatus: vi.fn(async () => ({ baseRefName: "acp-runtime" })),
+vi.mock("../src/shared/git/git-context.js", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("../src/shared/git/git-context.js")
+  >()),
+  resolveRepoRoot: vi.fn(async () => "/main-checkout"),
+  resolveWorktreeRoot: vi.fn(async () => "/worktree"),
 }));
 vi.mock("../src/shared/lib/run-command.js", () => ({
-  runCommand: vi.fn(async () => ({
-    exitCode: 0,
-    stdout: "src/a.ts\0",
-    stderr: "",
-  })),
+  runCommand: vi.fn(() => {
+    throw new Error("Unexpected local process");
+  }),
 }));
-vi.mock("../src/personas/loader.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../src/personas/loader.js")>()),
-  loadPersonas: vi.fn(async () => []),
-  loadPersonaBySlug: vi.fn(),
-  assemblePersonaPrompt: vi.fn(() => "assembled-prompt"),
-  buildStandardFeedbackGuidance: vi.fn(() => "protected-review-guidance"),
-  MAX_PERSONA_PROMPT_BYTES: 64 * 1024,
-}));
-
 vi.mock("../src/agent-type-settings.js", () => ({
   CLI_AGENT_TYPES: ["codex", "claude", "opencode", "cursor"],
   getEnabledAgentTypes: vi.fn(async () => [
@@ -52,10 +44,15 @@ vi.mock("../src/agent-type-settings.js", () => ({
   isCliAgentType: (type: string) =>
     ["codex", "claude", "opencode", "cursor"].includes(type),
 }));
-vi.mock("../src/personas/codeowners.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../src/personas/codeowners.js")>()),
-  loadCodeowners: vi.fn(),
-}));
+
+const modernOwnersPath = ".agents/owners.json";
+const legacyOwnersPath = ".dispatch/codeowners.json";
+const personaFile = (slug: string) => `.agents/personas/${slug}.md`;
+const ownersMap = (...personas: string[]) =>
+  JSON.stringify({ version: 1, rules: [{ paths: ["src/**"], personas }] });
+type Query = Parameters<
+  import("../src/agents/manager.js").AgentManager["inspectCheckout"]
+>[1];
 
 function setup(parentChanges: Record<string, unknown> = {}) {
   const parent = {
@@ -68,11 +65,34 @@ function setup(parentChanges: Record<string, unknown> = {}) {
     baseBranch: "acp-runtime",
     type: "codex",
     parentAgentId: null,
+    projectId: "project",
     fullAccess: false,
     ...parentChanges,
   };
+  const checkout = {
+    files: ["src/a.ts"],
+    baseRef: "origin/acp-runtime",
+    content: new Map([
+      [modernOwnersPath, ownersMap("owner-one", "owner-two")],
+      [personaFile("owner-one"), "Verify subsystem contracts"],
+      [personaFile("owner-two"), "Verify other contracts"],
+    ]),
+  };
   const agentManager = {
     getAgent: vi.fn(async (_id?: string) => parent),
+    inspectCheckout: vi.fn(async (_agent: typeof parent, query: Query) =>
+      query.kind === "changes"
+        ? {
+            kind: "changes" as const,
+            baseRef: checkout.baseRef,
+            head: "head",
+            files: checkout.files,
+          }
+        : {
+            kind: "readFile" as const,
+            content: checkout.content.get(query.path) ?? null,
+          }
+    ),
     createAgent: vi.fn(async (input: { name: string }) => ({
       id: `agent-${input.name}`,
       name: input.name,
@@ -84,80 +104,117 @@ function setup(parentChanges: Record<string, unknown> = {}) {
     publishUiEvent: vi.fn(),
     withStreamFlag: (agent: any) => ({ ...agent, hasStream: false }),
   });
-  return { parent, agentManager, handlers };
+  return { parent, agentManager, handlers, checkout };
 }
-beforeEach(() => {
-  vi.clearAllMocks();
-  vi.mocked(resolveRepoRoot).mockImplementation(async (cwd) => cwd);
-  vi.mocked(loadCodeowners).mockResolvedValue({
-    version: 1,
-    rules: [{ paths: ["src/**"], personas: ["owner-one", "owner-two"] }],
-  });
-  vi.mocked(loadPersonaBySlug).mockImplementation(async (_root, slug) => ({
-    slug,
-    name: slug,
-    description: "Owner",
-    type: "review",
 
-    body: "Verify subsystem contracts",
-  }));
-  vi.mocked(runCommand).mockResolvedValue({
-    exitCode: 0,
-    stdout: "src/a.ts\0",
-    stderr: "",
-  });
-});
+beforeEach(() => vi.clearAllMocks());
 
-describe("ACP code owner launches", () => {
-  it("previews selected owners without launching", async () => {
-    const { handlers, agentManager } = setup();
-    const result = await handlers.launchOwnerReviews("parent", {
-      context: "Changed routing",
-      dryRun: true,
-    });
-    expect(result.owners).toEqual([
-      { persona: "owner-one", files: ["src/a.ts"] },
-      { persona: "owner-two", files: ["src/a.ts"] },
-    ]);
-    expect(result.launched).toEqual([]);
-    expect(agentManager.createAgent).not.toHaveBeenCalled();
-  });
-  it("launches ordinary ACP persona agents with the briefing and one resolved base", async () => {
-    const { handlers, agentManager } = setup();
-    const result = await handlers.launchOwnerReviews("parent", {
-      context: "Changed routing",
-      agentType: "codex",
-    });
-    expect(result.launched.map((owner) => owner.persona)).toEqual([
-      "owner-one",
-      "owner-two",
-    ]);
-    expect(agentManager.createAgent).toHaveBeenCalledTimes(2);
-    expect(resolveBaseRef).toHaveBeenCalledTimes(1);
-    expect(assemblePersonaPrompt).toHaveBeenCalledWith(
-      expect.objectContaining({ slug: "owner-one" }),
-      expect.stringContaining("Changed routing")
-    );
-    expect(agentManager.createAgent).toHaveBeenCalledWith(
-      expect.objectContaining({
-        persona: "owner-one",
-        parentAgentId: "parent",
-        launchedByAgentId: "parent",
-        useWorktree: false,
-        cwd: "/checkout",
-      }),
-      { detachLaunch: true }
-    );
-  });
+describe("code owner launches through the checkout boundary", () => {
+  it.each([
+    { cwd: "/checkout", baseBranch: "acp-runtime" },
+    { cwd: "runner://linux/@session", baseBranch: null },
+  ])(
+    "plans and launches using only runner checkout facts for $cwd",
+    async ({ cwd, baseBranch }) => {
+      const { handlers, agentManager, parent, checkout } = setup({
+        cwd,
+        parentAgentId: "launcher",
+        fullAccess: true,
+        reviewAgentType: "claude",
+      });
+      checkout.baseRef = "origin/review-target";
+      checkout.files = [
+        "src/unstaged.ts",
+        "src/staged.ts",
+        "src/committed.ts",
+        "src/untracked.ts",
+        "src/renamed-from.ts",
+        "renamed-to.ts",
+      ];
+      checkout.content.set(legacyOwnersPath, ownersMap("legacy-owner"));
+      checkout.content.set(
+        ".dispatch/personas/owner-one.md",
+        "Stale legacy instructions"
+      );
+      const context = "Changed routing";
+      const preview = await handlers.launchOwnerReviews(parent.id, {
+        context,
+        dryRun: true,
+      });
+      expect(preview).toEqual({
+        baseRef: checkout.baseRef,
+        changedFiles: [...checkout.files].sort(),
+        owners: ["owner-one", "owner-two"].map((persona) => ({
+          persona,
+          files: checkout.files
+            .filter((path) => path.startsWith("src/"))
+            .sort(),
+        })),
+        uncoveredFiles: ["renamed-to.ts"],
+        launched: [],
+        failures: [],
+      });
+      expect(agentManager.createAgent).not.toHaveBeenCalled();
+
+      const result = await handlers.launchOwnerReviews(parent.id, {
+        context,
+        agentType: "opencode",
+      });
+      expect(result).toEqual({
+        ...preview,
+        launched: preview.owners.map((owner) => ({
+          ...owner,
+          agentId: `agent-${owner.persona}-parent`,
+        })),
+      });
+      expect(agentManager.inspectCheckout.mock.calls).toEqual([
+        [parent, { kind: "changes", baseBranch }],
+        [parent, { kind: "readFile", path: modernOwnersPath }],
+        [parent, { kind: "changes", baseBranch }],
+        [parent, { kind: "readFile", path: modernOwnersPath }],
+        [parent, { kind: "readFile", path: personaFile("owner-one") }],
+        [parent, { kind: "readFile", path: personaFile("owner-two") }],
+      ]);
+      expect(agentManager.createAgent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          cwd,
+          type: "opencode",
+          persona: "owner-one",
+          projectId: "project",
+          parentAgentId: "launcher",
+          launchedByAgentId: "parent",
+          useWorktree: false,
+          fullAccess: false,
+          initialPrompt: expect.stringContaining('to: "parent"'),
+          agentArgs: expect.arrayContaining([
+            expect.stringContaining("Verify subsystem contracts"),
+            expect.stringContaining('post with to: "parent"'),
+          ]),
+          personaContext: expect.stringContaining(
+            "Inspect the shared checkout without modifying it."
+          ),
+        }),
+        { detachLaunch: true, useWorktreeOf: "parent" }
+      );
+      // These spies also catch checkout access hidden inside a helper. The source
+      // locator may be opaque, and neither placement may consult the server host.
+      for (const forbidden of [
+        access,
+        readFile,
+        readdir,
+        runCommand,
+        resolveRepoRoot,
+        resolveWorktreeRoot,
+      ])
+        expect(forbidden).not.toHaveBeenCalled();
+    }
+  );
+
   it.each([false, true])(
     "selects and deduplicates a subset (dryRun=%s)",
     async (dryRun) => {
-      const { handlers, agentManager } = setup();
-      vi.mocked(runCommand).mockResolvedValue({
-        exitCode: 0,
-        stdout: "src/a.ts\0unowned.txt\0",
-        stderr: "",
-      });
+      const { handlers, agentManager, checkout } = setup();
+      checkout.files.push("unowned.txt");
       const result = await handlers.launchOwnerReviews("parent", {
         context: "Subset review",
         personas: ["owner-two", "owner-two"],
@@ -175,19 +232,24 @@ describe("ACP code owner launches", () => {
       );
       expect(agentManager.createAgent).toHaveBeenCalledTimes(dryRun ? 0 : 1);
       if (!dryRun)
-        expect(assemblePersonaPrompt).toHaveBeenCalledWith(
-          expect.objectContaining({ slug: "owner-two" }),
-          expect.stringContaining('Matched changed paths:\n"src/a.ts"')
+        expect(agentManager.createAgent).toHaveBeenCalledWith(
+          expect.objectContaining({
+            personaContext: expect.stringContaining(
+              'Matched changed paths:\n"src/a.ts"'
+            ),
+          }),
+          { detachLaunch: true, useWorktreeOf: "parent" }
         );
     }
   );
+
   it.each(
     [[], ["owner-one", "typo"], ["unrelated-persona"]].map((personas) => ({
       personas,
     }))
   )("rejects invalid selection %j before launching", async ({ personas }) => {
     const { handlers, agentManager } = setup();
-    for (const dryRun of [false, true]) {
+    for (const dryRun of [false, true])
       await expect(
         handlers.launchOwnerReviews("parent", {
           context: "Review",
@@ -195,106 +257,160 @@ describe("ACP code owner launches", () => {
           dryRun,
         })
       ).rejects.toThrow(/at least one|not in the resolved owner plan/);
-    }
     expect(agentManager.createAgent).not.toHaveBeenCalled();
   });
+
   it("validates all selected definitions before launching, including dry runs", async () => {
-    const { handlers, agentManager } = setup();
-    vi.mocked(loadPersonaBySlug).mockResolvedValue(null);
-    for (const dryRun of [false, true]) {
+    const { handlers, agentManager, checkout } = setup();
+    checkout.content.delete(personaFile("owner-two"));
+    for (const dryRun of [false, true])
       await expect(
         handlers.launchOwnerReviews("parent", {
           context: "Review",
           personas: ["owner-one", "owner-two"],
           dryRun,
         })
-      ).rejects.toThrow("not found");
-    }
+      ).rejects.toThrow('Owner persona "owner-two" not found');
     expect(agentManager.createAgent).not.toHaveBeenCalled();
   });
-  it("routes against a moved workspace and its base, not the original checkout", async () => {
-    const { handlers, agentManager } = setup({
-      workspacePath: "/moved",
-      workspaceBaseBranch: "feature-base",
-    });
-    await handlers.launchOwnerReviews("parent", {
-      context: "Changed moved workspace",
-    });
-    expect(loadCodeowners).toHaveBeenCalledWith("/moved");
-    expect(refreshRemoteBaseRef).toHaveBeenCalledWith(
-      "/moved",
+
+  it.each([
+    [
+      { workspacePath: "/moved", workspaceBaseBranch: "feature-base" },
       "feature-base",
-      expect.objectContaining({ allowUpstreamFallback: false })
+    ],
+    [{ workspacePath: "/moved", workspaceBaseBranch: null }, null],
+    [
+      { baseBranch: null, worktreePath: "/managed", worktreeBranch: "feature" },
+      "main",
+    ],
+    [{ baseBranch: null }, null],
+  ] as const)(
+    "preserves the local base choice for %j",
+    async (overrides, baseBranch) => {
+      const { handlers, agentManager, parent } = setup(overrides);
+      await handlers.launchOwnerReviews("parent", {
+        context: "Review",
+        dryRun: true,
+      });
+      expect(agentManager.inspectCheckout).toHaveBeenCalledWith(parent, {
+        kind: "changes",
+        baseBranch,
+      });
+    }
+  );
+
+  it("loads legacy rules and personas when modern paths are missing", async () => {
+    const { handlers, agentManager, checkout } = setup();
+    checkout.content.delete(modernOwnersPath);
+    checkout.content.set(legacyOwnersPath, ownersMap("legacy-owner"));
+    checkout.content.set(
+      ".dispatch/personas/legacy-owner.md",
+      "Legacy review instructions"
     );
-    expect(runCommand).toHaveBeenCalledWith(
-      "git",
-      expect.anything(),
-      expect.objectContaining({ cwd: "/moved" })
-    );
+    const result = await handlers.launchOwnerReviews("parent", {
+      context: "Review",
+    });
+    expect(result.launched.map(({ persona }) => persona)).toEqual([
+      "legacy-owner",
+    ]);
     expect(agentManager.createAgent).toHaveBeenCalledWith(
-      expect.objectContaining({ cwd: "/moved" }),
-      expect.anything()
+      expect.objectContaining({
+        agentArgs: expect.arrayContaining([
+          expect.stringContaining("Legacy review instructions"),
+        ]),
+      }),
+      { detachLaunch: true, useWorktreeOf: "parent" }
     );
   });
-  it("launches the validated built-in instead of another checkout override", async () => {
-    const { handlers, parent } = setup();
-    vi.mocked(resolveRepoRoot).mockResolvedValue("/main-checkout");
-    vi.mocked(loadCodeowners).mockResolvedValue({
-      version: 1,
-      rules: [{ paths: ["src/**"], personas: ["code-review"] }],
+
+  it("reports a missing map", async () => {
+    const { handlers, checkout } = setup();
+    checkout.content.delete(modernOwnersPath);
+    await expect(
+      handlers.launchOwnerReviews("parent", { context: "Review" })
+    ).rejects.toThrow("No .agents/owners.json found");
+  });
+
+  it("rejects an invalid modern map even when a legacy map is present", async () => {
+    const { handlers, agentManager, checkout } = setup();
+    checkout.content.set(modernOwnersPath, "");
+    checkout.content.set(legacyOwnersPath, ownersMap("owner-one"));
+    await expect(
+      handlers.launchOwnerReviews("parent", { context: "Review" })
+    ).rejects.toThrow("Invalid .agents/owners.json");
+    expect(agentManager.createAgent).not.toHaveBeenCalled();
+  });
+
+  it("rejects an invalid modern persona even when a legacy persona is present", async () => {
+    const { handlers, agentManager, checkout } = setup();
+    checkout.content.set(
+      personaFile("owner-one"),
+      "---\ntype: other\n---\nInvalid"
+    );
+    checkout.content.set(
+      ".dispatch/personas/owner-one.md",
+      "Legacy instructions"
+    );
+    await expect(
+      handlers.launchOwnerReviews("parent", { context: "Review" })
+    ).rejects.toThrow("Invalid persona type");
+    expect(agentManager.createAgent).not.toHaveBeenCalled();
+  });
+
+  it("uses the built-in for owner review and allows catalog overrides for manual review", async () => {
+    const { handlers, agentManager, parent, checkout } = setup({
+      fullAccess: true,
     });
+    checkout.content.set(modernOwnersPath, ownersMap("code-review"));
+    const builtin = getBuiltInPersona("code-review")!;
     const override = {
-      ...getBuiltInPersona("code-review")!,
+      ...builtin,
       body: "Conflicting main checkout instructions",
     };
-    vi.mocked(loadPersonaBySlug).mockImplementation(async (root) =>
-      root === "/main-checkout" ? override : null
-    );
-    await handlers.launchOwnerReviews("parent", { context: "Review" });
-    expect(assemblePersonaPrompt).toHaveBeenLastCalledWith(
-      getBuiltInPersona("code-review"),
-      expect.any(String)
-    );
-    expect(loadPersonaBySlug).not.toHaveBeenCalledWith(
-      "/main-checkout",
-      "code-review"
-    );
-    // Ordinary manual launches may use the shared remote catalog, but owner
-    // reviews must stay pinned to their own workspace.
-    vi.spyOn(personaCatalog, "get").mockResolvedValueOnce({
+    const catalog = vi.spyOn(personaCatalog, "get").mockResolvedValueOnce({
       personas: [override],
       warnings: [],
       refreshing: false,
       updatedAt: null,
     });
-    await handlers.preparePersonaLaunch(parent as any, {
-      persona: "code-review",
-      context: "Manual review",
-    });
-    expect(assemblePersonaPrompt).toHaveBeenLastCalledWith(
-      override,
-      "Manual review"
-    );
+    try {
+      await handlers.launchOwnerReviews("parent", { context: "Review" });
+      expect(catalog).not.toHaveBeenCalled();
+      expect(agentManager.createAgent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          fullAccess: false,
+          agentArgs: expect.arrayContaining([
+            expect.stringContaining(builtin.body.trimEnd()),
+          ]),
+        }),
+        { detachLaunch: true, useWorktreeOf: "parent" }
+      );
+      const absent = Object.assign(new Error("Persona file absent"), {
+        code: "ENOENT",
+      });
+      vi.mocked(readFile)
+        .mockRejectedValueOnce(absent)
+        .mockRejectedValueOnce(absent);
+      await handlers.launchPersonaAgent(parent.id, {
+        persona: "code-review",
+        context: "Manual review",
+      });
+      expect(agentManager.createAgent).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          fullAccess: true,
+          agentArgs: expect.arrayContaining([
+            "--dangerously-bypass-approvals-and-sandbox",
+            expect.stringContaining(override.body),
+          ]),
+        }),
+        { detachLaunch: true }
+      );
+    } finally {
+      catalog.mockRestore();
+    }
   });
-  it("rejects unknown owners before creating any agents", async () => {
-    const { handlers, agentManager } = setup();
-    vi.mocked(loadPersonaBySlug).mockImplementation(async (_root, slug) =>
-      slug === "owner-two"
-        ? null
-        : {
-            slug,
-            name: slug,
-            description: "Owner",
-            type: "review",
 
-            body: "Instructions",
-          }
-    );
-    await expect(
-      handlers.launchOwnerReviews("parent", { context: "Review" })
-    ).rejects.toThrow('Owner persona "owner-two" not found');
-    expect(agentManager.createAgent).not.toHaveBeenCalled();
-  });
   it("reports a partial launch without hiding successful agents", async () => {
     const { handlers, agentManager } = setup();
     agentManager.createAgent.mockRejectedValueOnce(
@@ -314,40 +430,52 @@ describe("ACP code owner launches", () => {
       },
     ]);
   });
-  it("launches child owner reviews in the caller checkout with flat lineage and caller delivery", async () => {
+
+  it("surfaces unavailable shared-checkout launch on a runner that can inspect", async () => {
     const { handlers, agentManager } = setup({
-      parentAgentId: "launcher",
-      worktreePath: "/child-checkout",
-      fullAccess: false,
+      cwd: "runner://older/@session",
+      reviewAgentType: "claude",
     });
-    const result = await handlers.launchOwnerReviews("parent", {
-      context: "Review child changes",
-      personas: ["owner-two"],
-    });
-    expect(loadCodeowners).toHaveBeenCalledWith("/child-checkout");
-    expect(loadPersonaBySlug).toHaveBeenCalledWith(
-      "/child-checkout",
-      "owner-two"
+    agentManager.createAgent.mockRejectedValueOnce(
+      new Error("Runner does not support sharing checkouts")
     );
-    expect(result.launched).toHaveLength(1);
-    expect(agentManager.createAgent).toHaveBeenCalledWith(
+    const result = await handlers.launchOwnerReviews("parent", {
+      context: "Review",
+      personas: ["owner-one"],
+    });
+    expect(result.launched).toEqual([]);
+    expect(result.failures).toEqual([
+      {
+        persona: "owner-one",
+        files: ["src/a.ts"],
+        error: "Runner does not support sharing checkouts",
+      },
+    ]);
+    expect(agentManager.createAgent).toHaveBeenCalledExactlyOnceWith(
       expect.objectContaining({
-        cwd: "/child-checkout",
-        parentAgentId: "launcher",
-        launchedByAgentId: "parent",
+        cwd: "runner://older/@session",
+        type: "claude",
         fullAccess: false,
-        initialPrompt: expect.stringContaining('to: "parent"'),
       }),
-      { detachLaunch: true }
+      { detachLaunch: true, useWorktreeOf: "parent" }
     );
   });
-  it("rejects a cross-project display parent before creating a reviewer", async () => {
+
+  it("rejects cross-project display parents for both owner and manual launch", async () => {
     const { handlers, agentManager, parent } = setup({
       parentAgentId: "launcher",
-      projectId: "child-project",
     });
     agentManager.getAgent.mockImplementation(async (id?: string) =>
       id === "launcher" ? { ...parent, projectId: "other-project" } : parent
+    );
+    const result = await handlers.launchOwnerReviews("parent", {
+      context: "Review",
+    });
+    expect(result.launched).toEqual([]);
+    expect(result.failures.map(({ error }) => error)).toEqual(
+      Array(2).fill(
+        "Review display parent must belong to the requester's project."
+      )
     );
     await expect(
       handlers.launchPersonaAgent("parent", {
@@ -357,12 +485,22 @@ describe("ACP code owner launches", () => {
     ).rejects.toThrow("requester's project");
     expect(agentManager.createAgent).not.toHaveBeenCalled();
   });
-  it("propagates git failures instead of treating them as empty changes", async () => {
-    const { handlers, agentManager } = setup();
-    vi.mocked(runCommand).mockRejectedValue(new Error("Cannot read diff"));
-    await expect(
-      handlers.launchOwnerReviews("parent", { context: "Review" })
-    ).rejects.toThrow("Cannot read diff");
+
+  it.each([
+    { cwd: "/checkout", reason: "Cannot read diff" },
+    {
+      cwd: "runner://old/@session",
+      reason: "Runner does not support checkout inspection",
+    },
+  ])("surfaces checkout failure for $cwd", async ({ cwd, reason }) => {
+    const { handlers, agentManager } = setup({ cwd });
+    agentManager.inspectCheckout.mockRejectedValue(new Error(reason));
+    for (const dryRun of [false, true])
+      await expect(
+        handlers.launchOwnerReviews("parent", { context: "Review", dryRun })
+      ).rejects.toThrow(reason);
     expect(agentManager.createAgent).not.toHaveBeenCalled();
+    expect(runCommand).not.toHaveBeenCalled();
+    expect(readFile).not.toHaveBeenCalled();
   });
 });

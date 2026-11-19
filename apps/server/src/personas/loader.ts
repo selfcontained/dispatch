@@ -166,21 +166,33 @@ export async function loadPersonaBySlug(
   repoRoot: string,
   slug: string
 ): Promise<PersonaDefinition | null> {
+  return loadPersonaFromCheckout(slug, async (filePath) => {
+    try {
+      return await readFile(path.join(repoRoot, filePath), "utf-8");
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+      throw error;
+    }
+  });
+}
+
+/** Read and parse the first definition present in checkout precedence order. */
+export async function loadPersonaFromCheckout(
+  slug: string,
+  readCheckoutFile: (path: string) => Promise<string | null>
+): Promise<PersonaDefinition | null> {
   if (slug.includes("/") || slug.includes("\\") || slug.includes("..")) {
     throw new Error("Invalid persona slug.");
   }
   for (const personasDir of PERSONA_DIRS) {
-    const filePath = path.join(repoRoot, personasDir, `${slug}.md`);
+    const filePath = `${personasDir}/${slug}.md`;
     try {
-      return toPersonaDefinition(slug, await readFile(filePath, "utf-8"));
+      const content = await readCheckoutFile(filePath);
+      if (content !== null) return toPersonaDefinition(slug, content);
     } catch (error) {
-      // Only a missing file falls through; anything else must not silently
-      // select a stale legacy copy.
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
-        throw new Error(
-          `Could not read persona ${path.join(personasDir, `${slug}.md`)}: ${errorMessage(error)}`
-        );
-      }
+      throw new Error(
+        `Could not read persona ${filePath}: ${errorMessage(error)}`
+      );
     }
   }
   return null;

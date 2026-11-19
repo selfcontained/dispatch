@@ -11,6 +11,10 @@ import Fastify, { type FastifyInstance } from "fastify";
 
 import { registerMcpRoutes } from "../src/routes/mcp.js";
 import { handleMcpRequest } from "../src/shared/mcp/server.js";
+import {
+  resolveRepoRoot,
+  resolveWorktreeRoot,
+} from "../src/shared/git/git-context.js";
 
 // The routes hijack the reply and hand the raw socket to the MCP transport,
 // so the stub has to end the response itself or `inject` never settles.
@@ -313,6 +317,43 @@ describe("usage callback wiring", () => {
         "codex",
         "opencode",
       ]);
+    }
+  );
+});
+
+describe("owner review checkout boundary", () => {
+  it.each(["/api/mcp/agt_test1", "/api/mcp/jobs/run_1/agt_test1"])(
+    "skips host checkout discovery for owner calls on %s",
+    async (url) => {
+      const call = {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: {
+          name: "launch_owner_reviews",
+          arguments: { context: "Review" },
+        },
+      };
+      for (const payload of [call, [call, { ...call, id: 2 }]]) {
+        const res = await app.inject({ method: "POST", url, payload });
+        expect(res.statusCode).toBe(200);
+        expect(handleMcpRequest).toHaveBeenLastCalledWith(
+          expect.anything(),
+          expect.anything(),
+          payload,
+          expect.objectContaining({ repoRoot: null, worktreeRoot: null })
+        );
+        expect(resolveRepoRoot).not.toHaveBeenCalled();
+        expect(resolveWorktreeRoot).not.toHaveBeenCalled();
+      }
+      const res = await app.inject({
+        method: "POST",
+        url,
+        payload: [call, { ...call, id: 2, params: { name: "list_personas" } }],
+      });
+      expect(res.statusCode).toBe(200);
+      expect(resolveRepoRoot).toHaveBeenCalledWith("/tmp/test");
+      expect(resolveWorktreeRoot).toHaveBeenCalledWith("/tmp/test");
     }
   );
 });
