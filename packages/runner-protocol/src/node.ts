@@ -1,13 +1,13 @@
 import { Duplex } from "node:stream";
 import { StringDecoder } from "node:string_decoder";
-import type { Frame } from "./index.js";
+import type { Frame, ChannelFrame } from "./index.js";
 
-type Send = (frame: Frame) => void;
+type Send<T> = (frame: T) => void;
 
-export function wireFrames(
+export function wireFrames<Incoming = Frame, Outgoing = Frame>(
   socket: Duplex,
-  receive: (frame: Frame) => void
-): Send {
+  receive: (frame: Incoming) => void
+): Send<Outgoing> {
   const decoder = new StringDecoder("utf8");
   let pending = "";
   socket.on("data", (chunk: Buffer) => {
@@ -18,7 +18,7 @@ export function wireFrames(
       const line = pending.slice(0, newline);
       pending = pending.slice(newline + 1);
       try {
-        receive(JSON.parse(line) as Frame);
+        receive(JSON.parse(line) as Incoming);
       } catch {
         return socket.destroy();
       }
@@ -34,7 +34,11 @@ export function wireFrames(
   };
 }
 
-export function hostChannel(id: string, send: Send, dispose: () => void) {
+export function hostChannel(
+  id: string,
+  send: Send<ChannelFrame>,
+  dispose: () => void
+) {
   return new Duplex({
     allowHalfOpen: false,
     read() {},

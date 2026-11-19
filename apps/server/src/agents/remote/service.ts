@@ -5,18 +5,30 @@ import https from "node:https";
 import { connect as connectTcp, isIP } from "node:net";
 import os from "node:os";
 import { createServer, type Server, type TLSSocket } from "node:tls";
-import type { Duplex } from "node:stream";
+import {
+  RunnerConnection,
+  RunnerUnavailable,
+} from "@dispatch/runner-protocol/connection";
+export {
+  RunnerUnavailable,
+  RunnerHostGone,
+} from "@dispatch/runner-protocol/connection";
 import type { Pool } from "pg";
 import {
   parseRunnerHealth,
   type RunnerHealth,
-  hostChannel,
+  parseReadyFrame,
+  type ConnectCreated,
+  type ConnectPoll,
+  type ServiceFrame,
+  type RunnerFrame,
+  type EnrollmentRequest,
+  type EnrollmentReply,
   MANAGED_WORKSPACE,
   wireFrames,
   parseEngineInventory,
   type Command,
   type EngineInventoryEntry,
-  type Frame,
   type Placement,
 } from "./protocol.js";
 import {
@@ -24,8 +36,6 @@ import {
   formatHost,
   pairingCommand,
   validRunnerName,
-  validWorkspaceId,
-  type EnrollFrame,
 } from "./enrollment.js";
 import {
   ConnectRequestInvalid,
@@ -87,7 +97,6 @@ export type RunnerSummary = {
   managedWorkspace?: true;
 };
 
-export class RunnerUnavailable extends Error {}
 export class RunnerRevoked extends RunnerUnavailable {
   static readonly reason =
     "The runner registration was revoked. Dispatch no longer has access to this session.";
@@ -95,7 +104,6 @@ export class RunnerRevoked extends RunnerUnavailable {
     super(RunnerRevoked.reason);
   }
 }
-export class RunnerHostGone extends Error {}
 export class RunnerRequestError extends Error {
   constructor(
     readonly status: number,
@@ -114,11 +122,9 @@ type Gate = {
   ready?(workspaces: string[], managedWorkspace: boolean): void;
 };
 
-type Settle = (frame?: Extract<Frame, { type: "result" }>) => void;
-
 type Peer = {
   socket: TLSSocket;
-  send: (frame: Frame) => void;
+  connection: RunnerConnection;
   workspaces: Set<string>;
   managedWorkspace: boolean;
   gate: Gate;
@@ -128,8 +134,6 @@ type Peer = {
   engineManagement: boolean;
   /** Last pushed, validated engine inventory; absent until the runner first reports one. */
   engines?: EngineInventoryEntry[];
-  pending: Map<string, Settle>;
-  channels: Map<string, Duplex>;
 };
 
 const MAX_UNAUTHENTICATED = 64;
@@ -615,45 +619,32 @@ export class RemoteRunnerService {
       clearTimeout(deadline);
       if (!peer) return;
       if (this.peers.get(gate.key) === peer) this.peers.delete(gate.key);
-      for (const settle of peer.pending.values()) settle();
-      for (const channel of peer.channels.values()) channel.push(null);
+      peer.connection.close();
       if (gate.registrationId)
         void this.enrollment?.registry
           .seen(gate.registrationId)
           .catch(() => {});
     });
-    const send = wireFrames(socket, (frame) => {
+    const send = wireFrames<RunnerFrame, ServiceFrame>(socket, (frame) => {
       if (!gate.approved()) return socket.destroy();
       if (!peer) {
-        if (
-          frame.type !== "ready" ||
-          frame.version !== 1 ||
-          !Array.isArray(frame.workspaces) ||
-          frame.workspaces.length > 256 ||
-          (frame.managedWorkspace !== undefined &&
-            (frame.managedWorkspace !== true ||
-              frame.workspaces.length !== 1 ||
-              frame.workspaces[0] !== MANAGED_WORKSPACE)) ||
-          !frame.workspaces.every((workspace) => validWorkspaceId(workspace))
-        )
-          return socket.destroy();
+        const ready = parseReadyFrame(frame);
+        if (!ready) return socket.destroy();
         clearTimeout(deadline);
         peer = {
           socket,
-          reportsHealth: frame.health === true,
-          engineManagement: frame.engineManagement === true,
-          send,
-          workspaces: new Set(frame.workspaces),
-          managedWorkspace: frame.managedWorkspace === true,
+          reportsHealth: ready.health === true,
+          engineManagement: ready.engineManagement === true,
+          connection: new RunnerConnection(send),
+          workspaces: new Set(ready.workspaces),
+          managedWorkspace: ready.managedWorkspace === true,
           gate,
-          pending: new Map(),
-          channels: new Map(),
         };
         // A reconnect replaces a half-open predecessor for the same runner.
         const previous = this.peers.get(gate.key);
         this.peers.set(gate.key, peer);
         previous?.socket.destroy();
-        gate.ready?.(frame.workspaces, peer.managedWorkspace);
+        gate.ready?.(ready.workspaces, peer.managedWorkspace);
         if (peer.reportsHealth) {
           send({
             type: "accept_health",
@@ -691,79 +682,83 @@ export class RemoteRunnerService {
         const entries = parseEngineInventory(frame.entries);
         if (entries === null) return socket.destroy();
         peer.engines = entries;
-      } else if (frame.type === "result") peer.pending.get(frame.id)?.(frame);
-      else if (frame.type === "data")
-        peer.channels.get(frame.id)?.push(Buffer.from(frame.data, "base64"));
-      else if (frame.type === "close") peer.channels.get(frame.id)?.push(null);
+      } else if (
+        frame.type === "result" ||
+        frame.type === "data" ||
+        frame.type === "close"
+      )
+        peer.connection.receive(frame);
       else socket.destroy();
     });
   }
 
   private pair(socket: TLSSocket) {
     let used = false;
-    const reply = (frame: EnrollFrame) => {
+    const reply = (frame: EnrollmentReply) => {
       try {
-        send(frame as unknown as Frame);
+        send(frame);
       } catch {
         /* closed */
       }
       socket.end();
     };
-    const send = wireFrames(socket, (frame) => {
-      if (used) return socket.destroy();
-      used = true;
-      const request = frame as unknown as EnrollFrame;
-      // Public bootstrap: the CA certificate, which runners check against
-      // the fingerprint pinned in their pairing command.
-      if (request.type === "ca_request" && request.version === 1)
-        return reply({
-          type: "ca",
-          ca: this.authority?.caPem ?? "",
-        });
-      if (
-        request.type !== "enroll" ||
-        request.version !== 1 ||
-        typeof request.code !== "string" ||
-        request.code.length > 128 ||
-        typeof request.publicKey !== "string" ||
-        request.publicKey.length > 8192
-      )
-        return reply({
-          type: "enroll_error",
-          error: "Invalid pairing request.",
-        });
-      this.enrollment!.registry.redeem(request.code, request.publicKey).then(
-        ({ registration, cert, ca, previousFingerprint }) => {
-          // A re-key retires the old certificate and its live connection.
-          if (previousFingerprint) {
-            this.enrolled.delete(previousFingerprint);
-            this.peers.get(registration.id)?.socket.destroy();
-          }
-          this.enrolled.set(registration.fingerprint!, registration);
-          reply({
-            type: "enrolled",
-            id: registration.id,
-            name: registration.name,
-            cert,
-            ca,
+    const send = wireFrames<EnrollmentRequest, EnrollmentReply>(
+      socket,
+      (request) => {
+        if (used) return socket.destroy();
+        used = true;
+        // Public bootstrap: the CA certificate, which runners check against
+        // the fingerprint pinned in their pairing command.
+        if (request.type === "ca_request" && request.version === 1)
+          return reply({
+            type: "ca",
+            ca: this.authority?.caPem ?? "",
           });
-        },
-        (error) => {
-          // Slow down code guessing; codes carry 160 bits regardless.
-          setTimeout(
-            () =>
-              reply({
-                type: "enroll_error",
-                error:
-                  error instanceof PairingRejected
-                    ? error.message
-                    : "Pairing failed.",
-              }),
-            500
-          );
-        }
-      );
-    });
+        if (
+          request.type !== "enroll" ||
+          request.version !== 1 ||
+          typeof request.code !== "string" ||
+          request.code.length > 128 ||
+          typeof request.publicKey !== "string" ||
+          request.publicKey.length > 8192
+        )
+          return reply({
+            type: "enroll_error",
+            error: "Invalid pairing request.",
+          });
+        this.enrollment!.registry.redeem(request.code, request.publicKey).then(
+          ({ registration, cert, ca, previousFingerprint }) => {
+            // A re-key retires the old certificate and its live connection.
+            if (previousFingerprint) {
+              this.enrolled.delete(previousFingerprint);
+              this.peers.get(registration.id)?.socket.destroy();
+            }
+            this.enrolled.set(registration.fingerprint!, registration);
+            reply({
+              type: "enrolled",
+              id: registration.id,
+              name: registration.name,
+              cert,
+              ca,
+            });
+          },
+          (error) => {
+            // Slow down code guessing; codes carry 160 bits regardless.
+            setTimeout(
+              () =>
+                reply({
+                  type: "enroll_error",
+                  error:
+                    error instanceof PairingRejected
+                      ? error.message
+                      : "Pairing failed.",
+                }),
+              500
+            );
+          }
+        );
+      }
+    );
   }
 
   /**
@@ -1030,7 +1025,7 @@ export class RemoteRunnerService {
    * Reached either directly or, for a runner that only has the listener's
    * own pinned CA (see `connectCommand`), proxied through it like `/ping`.
    */
-  async createConnectRequest(publicKey: unknown) {
+  async createConnectRequest(publicKey: unknown): Promise<ConnectCreated> {
     if (!this.enrollment)
       throw new RunnerRequestError(409, "Runner enrollment is disabled.");
     if (typeof publicKey !== "string" || publicKey.length === 0)
@@ -1052,7 +1047,7 @@ export class RemoteRunnerService {
   }
 
   /** `GET /api/runners/connect/:id`: the runner's own unauthenticated poll. */
-  async pollConnectRequest(id: string) {
+  async pollConnectRequest(id: string): Promise<ConnectPoll> {
     if (!this.enrollment)
       throw new RunnerRequestError(409, "Runner enrollment is disabled.");
     const request = await this.enrollment.registry.pollConnectRequest(id);
@@ -1203,51 +1198,7 @@ export class RemoteRunnerService {
         "The enrolled runner is disconnected or the workspace is unavailable."
       );
     }
-    const id = crypto.randomUUID();
-    const channel = open
-      ? hostChannel(id, peer.send, () => peer.channels.delete(id))
-      : undefined;
-    // The HostClient takes over error handling after the attach acknowledgement.
-    channel?.on("error", () => {});
-    if (channel) peer.channels.set(id, channel);
-    try {
-      const value = await new Promise<boolean | string | undefined>(
-        (resolve, reject) => {
-          const finish: Settle = (frame) => {
-            clearTimeout(timer);
-            peer.pending.delete(id);
-            if (!frame)
-              reject(
-                new RunnerUnavailable(
-                  "Runner acknowledgement was lost; execution is unknown."
-                )
-              );
-            else if (frame.code === "host-gone")
-              reject(new RunnerHostGone(frame.error));
-            else if (frame.error) reject(new Error(frame.error));
-            else resolve(frame.value);
-          };
-          const timer = setTimeout(
-            () => finish(),
-            // Repository fetches and engine package installs may take minutes.
-            command.kind === "engine" ||
-              (command.kind === "launch" && command.launch.repository)
-              ? 300_000
-              : 20_000
-          );
-          peer.pending.set(id, finish);
-          try {
-            peer.send({ type: "request", id, command });
-          } catch {
-            finish();
-          }
-        }
-      );
-      return { value, channel };
-    } catch (error) {
-      channel?.destroy();
-      throw error;
-    }
+    return peer.connection.request(command, { openChannel: open });
   }
 
   close() {

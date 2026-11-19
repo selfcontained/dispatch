@@ -5,7 +5,13 @@ import https from "node:https";
 import { isIP } from "node:net";
 import path from "node:path";
 import { connect, type TLSSocket } from "node:tls";
-import { wireFrames } from "./protocol.js";
+import {
+  wireFrames,
+  type ConnectCreated,
+  type ConnectPoll,
+  type EnrollmentRequest,
+  type EnrollmentReply,
+} from "./protocol.js";
 import { generateRunnerKey, normalizeFingerprint } from "./x509.js";
 
 /*
@@ -14,13 +20,6 @@ import { generateRunnerKey, normalizeFingerprint } from "./x509.js";
  * its SHA-256 fingerprint (carried in the pairing command) before it reveals
  * the code, generates its private key locally and only sends the public key.
  */
-
-export type EnrollFrame =
-  | { type: "enroll"; version: 1; code: string; publicKey: string }
-  | { type: "enrolled"; id: string; name: string; cert: string; ca: string }
-  | { type: "enroll_error"; error: string }
-  | { type: "ca_request"; version: 1 }
-  | { type: "ca"; ca: string };
 
 /** Display names only; placements address runners by registration id. */
 export function validRunnerName(name: unknown): name is string {
@@ -31,23 +30,6 @@ export function validRunnerName(name: unknown): name is string {
     name.length <= 64 &&
     !/[\x00-\x1f\x7f-\x9f]/u.test(name)
   );
-}
-
-/** Mirrors the runner protocol's opaque workspace identity rule. */
-export function validWorkspaceId(value: unknown): value is string {
-  if (
-    typeof value !== "string" ||
-    value.length === 0 ||
-    value.length > 128 ||
-    /[\x00-\x1f\x7f-\x9f]/u.test(value)
-  )
-    return false;
-  try {
-    encodeURIComponent(value);
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 export function formatHost(host: string) {
@@ -195,13 +177,13 @@ async function writeAtomic(file: string, data: string, mode: number) {
 type Endpoint = { host: string; port: number };
 
 /** One frame out, one frame back, over a fresh TLS connection. */
-function roundTrip(
+function roundTrip<T>(
   endpoint: Endpoint,
   tls: { ca?: string },
   timeoutMs: number,
-  request: (socket: TLSSocket) => EnrollFrame,
-  accept: (reply: EnrollFrame) => unknown
-): Promise<unknown> {
+  request: (socket: TLSSocket) => EnrollmentRequest,
+  accept: (reply: EnrollmentReply) => T
+): Promise<T> {
   return new Promise((resolve, reject) => {
     let settled = false;
     const socket = connect({
@@ -214,13 +196,13 @@ function roundTrip(
           // the returned CA must match the pinned digest.
           { rejectUnauthorized: false }),
     });
-    const finish = (error?: Error, value?: unknown) => {
+    const finish = (...result: [Error] | [null, T]) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
       socket.destroy();
-      if (error) reject(error);
-      else resolve(value);
+      if (result[0]) reject(result[0]);
+      else resolve(result[1]);
     };
     const timer = setTimeout(
       () => finish(new Error("Pairing timed out.")),
@@ -231,23 +213,25 @@ function roundTrip(
       finish(new Error("The service closed the pairing connection."))
     );
     socket.once("secureConnect", () => {
-      let frame: EnrollFrame;
+      let frame: EnrollmentRequest;
       try {
         frame = request(socket);
       } catch (error) {
         return finish(error as Error);
       }
-      const send = wireFrames(socket, (incoming) => {
-        const reply = incoming as unknown as EnrollFrame;
-        if (reply.type === "enroll_error")
-          return finish(new Error(reply.error));
-        try {
-          finish(undefined, accept(reply));
-        } catch (error) {
-          finish(error as Error);
+      const send = wireFrames<EnrollmentReply, EnrollmentRequest>(
+        socket,
+        (reply) => {
+          if (reply.type === "enroll_error")
+            return finish(new Error(reply.error));
+          try {
+            finish(null, accept(reply));
+          } catch (error) {
+            finish(error as Error);
+          }
         }
-      });
-      send(frame as never);
+      );
+      send(frame);
     });
   });
 }
@@ -277,19 +261,8 @@ export async function exchangeCode(input: {
   };
   const timeoutMs = input.timeoutMs ?? 15_000;
   normalizeFingerprint(input.pin);
-  const caPem = (await roundTrip(
-    endpoint,
-    {},
-    timeoutMs,
-    () => ({ type: "ca_request", version: 1 }),
-    (reply) => {
-      if (reply.type !== "ca") throw new Error("Unexpected pairing reply.");
-      pinnedAuthority(reply.ca, input.pin);
-      return reply.ca;
-    }
-  )) as string;
-  const ca = pinnedAuthority(caPem, input.pin);
-  return (await roundTrip(
+  const { caPem, ca } = await fetchPinnedCa(endpoint, input.pin, timeoutMs);
+  return roundTrip(
     endpoint,
     { ca: caPem },
     timeoutMs,
@@ -317,7 +290,7 @@ export async function exchangeCode(input: {
         throw new Error("The issued certificate does not match.");
       return reply;
     }
-  )) as Extract<EnrollFrame, { type: "enrolled" }>;
+  );
 }
 
 /**
@@ -484,18 +457,16 @@ async function fetchPinnedCa(
   pin: string,
   timeoutMs: number
 ): Promise<{ caPem: string; ca: X509Certificate }> {
-  const caPem = (await roundTrip(
+  return roundTrip(
     endpoint,
     {},
     timeoutMs,
     () => ({ type: "ca_request", version: 1 }),
     (reply) => {
       if (reply.type !== "ca") throw new Error("Unexpected pairing reply.");
-      pinnedAuthority(reply.ca, pin);
-      return reply.ca;
+      return { caPem: reply.ca, ca: pinnedAuthority(reply.ca, pin) };
     }
-  )) as string;
-  return { caPem, ca: pinnedAuthority(caPem, pin) };
+  );
 }
 
 /**
@@ -591,26 +562,6 @@ async function requestJson(
     request.end(payload);
   });
 }
-
-type ConnectCreated = {
-  id: string;
-  code: string;
-  expiresAt: string;
-  /** Set only when the service has an approval origin configured. */
-  approveUrl?: string;
-};
-type ConnectPoll =
-  | { status: "pending" }
-  | {
-      status: "approved";
-      id: string;
-      name: string;
-      endpoint: string;
-      cert: string;
-      ca: string;
-    }
-  | { status: "denied" }
-  | { status: "expired" };
 
 /**
  * Independent, local checks on an approved reply before anything from it

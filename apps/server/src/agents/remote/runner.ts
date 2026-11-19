@@ -39,7 +39,8 @@ import {
   RUNNER_WIRE_VERSION,
   wireFrames,
   type Command,
-  type Frame,
+  type RunnerFrame,
+  type ServiceFrame,
   type RunnerEngine,
   type RunnerRepository,
 } from "./protocol.js";
@@ -507,7 +508,7 @@ export async function runRemoteRunner(filename: string) {
         for (const channel of channels.values()) channel.destroy();
         finished();
       });
-      const safeSend = (frame: Frame) => {
+      const safeSend = (frame: RunnerFrame) => {
         if (!socket.destroyed) {
           try {
             send(frame);
@@ -677,7 +678,7 @@ export async function runRemoteRunner(filename: string) {
         }
       }
 
-      const send = wireFrames(socket, (frame) => {
+      const send = wireFrames<ServiceFrame, RunnerFrame>(socket, (frame) => {
         if (frame.type === "accept_health" && !healthInterval) {
           acceptsInventory = frame.engineInventory === true;
           void reportHealth();

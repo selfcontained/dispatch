@@ -1,12 +1,20 @@
 import { Duplex } from "node:stream";
 import {
   type Frame,
+  type ServiceFrame,
+  type Command,
+  parseReadyFrame,
   isOpaqueId,
   remotePlacement,
   workspaceLocator,
 } from "@dispatch/runner-protocol";
 import { hostChannel, wireFrames } from "@dispatch/runner-protocol/node";
-import { expect, it } from "vitest";
+import {
+  RunnerConnection,
+  RunnerHostGone,
+  RunnerUnavailable,
+} from "@dispatch/runner-protocol/connection";
+import { expect, it, vi } from "vitest";
 
 it("round-trips opaque locator components without URL normalization", () => {
   const placement = { runner: "Runner/β", workspace: "../repo?x=%2F#main" };
@@ -74,4 +82,87 @@ it("consumes the v1 launch and channel framing without Dispatch server imports",
     { type: "close", id: "provider:attach/42" },
   ]);
   transport.destroy();
+});
+
+it("negotiates advertised v1 capabilities independently on each ready frame", () => {
+  const ready = { type: "ready", version: 1, workspaces: ["proof"] };
+  expect(parseReadyFrame({ ...ready, futureExtension: true })).toEqual(ready);
+  expect(parseReadyFrame({ ...ready, health: "yes" })).toEqual(ready);
+  expect(parseReadyFrame({ ...ready, version: 2 })).toBeNull();
+  expect(parseReadyFrame({ ...ready, workspaces: [""] })).toBeNull();
+  expect(parseReadyFrame({ ...ready, managedWorkspace: true })).toBeNull();
+  const managed = {
+    ...ready,
+    managedWorkspace: true,
+    workspaces: ["@session"],
+    health: true,
+    engineManagement: true,
+  };
+  expect(parseReadyFrame(managed)).toEqual(managed);
+});
+
+function peer() {
+  const sent: ServiceFrame[] = [];
+  const connection = new RunnerConnection((frame) => sent.push(frame));
+  return { connection, sent };
+}
+const attach: Command = {
+  kind: "attach",
+  agentId: "session-A",
+  workspace: "shared",
+};
+function requestId(frame: ServiceFrame | undefined) {
+  if (frame?.type !== "request") throw new Error("Expected a service request");
+  return frame.id;
+}
+
+it("correlates out-of-order replies and buffers channel bytes before the attach receipt", async () => {
+  const { connection, sent } = peer();
+  const attached = connection.request(attach, { openChannel: true });
+  const alive = connection.request({ ...attach, kind: "alive" });
+  const id = requestId(sent[0]);
+  connection.receive({ type: "result", id: requestId(sent[1]), value: false });
+  expect((await alive).value).toBe(false);
+  connection.receive({ type: "data", id, data: "AP8=" });
+  connection.receive({ type: "result", id, value: true });
+  const { channel } = await attached;
+  expect(channel!.read()).toEqual(Buffer.from([0, 255]));
+  connection.receive({ type: "close", id });
+  for await (const _chunk of channel!)
+    throw new Error("Unexpected extra channel data");
+  expect(channel!.destroyed).toBe(true);
+});
+
+it("disconnect settles only its own requests and a missing host has a distinct result", async () => {
+  const alpha = peer();
+  const beta = peer();
+  const lost = alpha.connection.request(attach);
+  const pending = beta.connection.request(attach);
+  alpha.connection.close();
+  await expect(lost).rejects.toThrow(/acknowledgement was lost/);
+  await expect(alpha.connection.request(attach)).rejects.toBeInstanceOf(
+    RunnerUnavailable
+  );
+  beta.connection.receive({
+    type: "result",
+    id: requestId(beta.sent[0]),
+    code: "host-gone",
+  });
+  await expect(pending).rejects.toBeInstanceOf(RunnerHostGone);
+});
+
+it("a timed-out request has an unknown outcome even if its receipt arrives late", async () => {
+  vi.useFakeTimers();
+  try {
+    const { connection, sent } = peer();
+    const lost = expect(connection.request(attach)).rejects.toThrow(
+      /execution is unknown/
+    );
+    await vi.advanceTimersByTimeAsync(20_000);
+    await lost;
+    connection.receive({ type: "result", id: requestId(sent[0]), value: true });
+    expect(sent).toHaveLength(1);
+  } finally {
+    vi.useRealTimers();
+  }
 });

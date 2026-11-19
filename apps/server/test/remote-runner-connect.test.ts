@@ -19,7 +19,12 @@ import {
   issueServer,
   runnerPublicKey,
 } from "../src/agents/remote/x509.js";
-import { wireFrames, type Frame } from "../src/agents/remote/protocol.js";
+import {
+  wireFrames,
+  type Frame,
+  type EnrollmentRequest,
+  type EnrollmentReply,
+} from "../src/agents/remote/protocol.js";
 import { runTestMigrations, setupTestDb, teardownTestDb } from "./db/setup.js";
 
 const HOST = "127.0.0.1";
@@ -409,8 +414,8 @@ describe("pinned connect bootstrap", () => {
     const received: unknown[] = [];
     const server = connectServer(leaf, rogue, (frame, send, socket) => {
       received.push(frame);
-      if ((frame as { type?: string }).type === "ca_request") {
-        send({ type: "ca", ca: real.cert } as never);
+      if (frame.type === "ca_request") {
+        send({ type: "ca", ca: real.cert });
         socket.end();
       } else socket.destroy();
     });
@@ -445,8 +450,8 @@ function connectServer(
   leaf: { cert: string; key: string },
   ca: { cert: string },
   onFrame: (
-    frame: unknown,
-    send: (frame: unknown) => void,
+    frame: EnrollmentRequest,
+    send: (frame: EnrollmentReply) => void,
     socket: TLSSocket
   ) => void
 ) {
@@ -454,8 +459,9 @@ function connectServer(
     { cert: leaf.cert + ca.cert, key: leaf.key },
     (socket: TLSSocket) => {
       socket.on("error", () => {});
-      const send = wireFrames(socket, (frame) =>
-        onFrame(frame, send as never, socket)
+      const send = wireFrames<EnrollmentRequest, EnrollmentReply>(
+        socket,
+        (frame) => onFrame(frame, send, socket)
       );
     }
   );

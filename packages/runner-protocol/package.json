@@ -5,6 +5,7 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
+    "./connection": "./src/connection.ts",
     "./node": "./src/node.ts",
     "./engine-management": "./src/engine-management.ts"
   },

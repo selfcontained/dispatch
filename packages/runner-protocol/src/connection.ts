@@ -1,0 +1,95 @@
+import type { Duplex } from "node:stream";
+import type {
+  ChannelFrame,
+  Command,
+  ResultFrame,
+  ServiceFrame,
+} from "./index.js";
+import { hostChannel } from "./node.js";
+
+export class RunnerUnavailable extends Error {}
+export class RunnerHostGone extends Error {}
+
+/** Service side of one authenticated runner connection. Request IDs and channels are local to it. */
+export class RunnerConnection {
+  private readonly pending = new Map<string, (frame?: ResultFrame) => void>();
+  private readonly channels = new Map<string, Duplex>();
+  private closed = false;
+
+  constructor(private readonly send: (frame: ServiceFrame) => void) {}
+
+  receive(frame: ChannelFrame | ResultFrame) {
+    switch (frame.type) {
+      case "result":
+        this.pending.get(frame.id)?.(frame);
+        break;
+      case "data":
+        this.channels.get(frame.id)?.push(Buffer.from(frame.data, "base64"));
+        break;
+      case "close":
+        this.channels.get(frame.id)?.push(null);
+        break;
+    }
+  }
+
+  close() {
+    this.closed = true;
+    for (const settle of this.pending.values()) settle();
+    for (const channel of this.channels.values()) channel.push(null);
+    this.channels.clear();
+  }
+
+  async request(command: Command, { openChannel = false } = {}) {
+    if (this.closed)
+      throw new RunnerUnavailable("The runner connection is closed.");
+    const id = crypto.randomUUID();
+    const channel = openChannel
+      ? hostChannel(id, this.send, () => this.channels.delete(id))
+      : undefined;
+    // The consumer can attach its error listener after the request resolves.
+    channel?.on("error", () => {});
+    if (channel) this.channels.set(id, channel);
+    try {
+      const value = await this.sendRequest(id, command);
+      return { value, channel };
+    } catch (error) {
+      channel?.destroy();
+      throw error;
+    }
+  }
+
+  private sendRequest(
+    id: string,
+    command: Command
+  ): Promise<ResultFrame["value"]> {
+    // Repository fetches and engine package installs can run for minutes.
+    const timeoutMs =
+      command.kind === "engine" ||
+      (command.kind === "launch" && command.launch.repository)
+        ? 300_000
+        : 20_000;
+    return new Promise((resolve, reject) => {
+      const finish = (frame?: ResultFrame) => {
+        clearTimeout(timer);
+        this.pending.delete(id);
+        if (!frame)
+          reject(
+            new RunnerUnavailable(
+              "Runner acknowledgement was lost; execution is unknown."
+            )
+          );
+        else if (frame.code === "host-gone")
+          reject(new RunnerHostGone(frame.error));
+        else if (frame.error) reject(new Error(frame.error));
+        else resolve(frame.value);
+      };
+      const timer = setTimeout(finish, timeoutMs);
+      this.pending.set(id, finish);
+      try {
+        this.send({ type: "request", id, command });
+      } catch {
+        finish();
+      }
+    });
+  }
+}

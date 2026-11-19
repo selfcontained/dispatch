@@ -6,7 +6,12 @@ import { connect, type TLSSocket } from "node:tls";
 import type { Pool } from "pg";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { exchangeCode } from "../src/agents/remote/enrollment.js";
-import { wireFrames, type Frame } from "../src/agents/remote/protocol.js";
+import {
+  wireFrames,
+  type Frame,
+  type EnrollmentRequest,
+  type EnrollmentReply,
+} from "../src/agents/remote/protocol.js";
 import { RunnerRegistry } from "../src/agents/remote/registry.js";
 import {
   advertisedHost,
@@ -778,11 +783,14 @@ describe("pinned pairing bootstrap", () => {
       { cert: leaf.cert + rogue.cert, key: leaf.key },
       (socket) => {
         socket.on("error", () => {});
-        const send = wireFrames(socket, (frame) => {
-          received.push(frame);
-          send({ type: "ca", ca: real.cert } as never);
-          socket.end();
-        });
+        const send = wireFrames<EnrollmentRequest, EnrollmentReply>(
+          socket,
+          (frame) => {
+            received.push(frame);
+            send({ type: "ca", ca: real.cert });
+            socket.end();
+          }
+        );
       }
     );
     await new Promise<void>((resolve) => server.listen(0, HOST, resolve));

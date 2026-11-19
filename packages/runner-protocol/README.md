@@ -6,6 +6,47 @@ the package. The separate `@dispatch/runner-protocol/node` entry point provides
 NDJSON framing and a `Duplex` channel for Node-compatible runtimes. The package
 ships TypeScript source for Bun or a TypeScript-aware bundler.
 
+## Implementing a service or runner
+
+| Boundary   | Initiator                           | Responsibility                                                                                                                                                     | Contract                                                                                |
+| ---------- | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------- |
+| Enrollment | Runner                              | Ask the service for a code, poll for approval, and verify the issued certificate before persisting credentials.                                                    | `enrollment.ts` defines HTTP responses and private-CA bootstrap frames.                 |
+| Execution  | Runner advertises, service requests | Bind each authenticated connection to a registration. Validate the first `ready` with `parseReadyFrame`. Send commands for advertised workspaces and capabilities. | `execution.ts` defines `ServiceFrame`, `RunnerFrame`, and `Command`.                    |
+| Session    | Service attaches to a host          | Exchange hello/welcome, replay journal entries, and deliver prompts inside the attached byte stream.                                                               | `session.ts` defines journal positions and receipts. See **Receipts and replay** below. |
+
+For a Node-compatible service, create one `RunnerConnection` from
+`@dispatch/runner-protocol/connection` per authenticated, ready peer. Its
+constructor takes a frame sender. Route incoming `result`, `data`, and
+`close` to `receive`. Call `close()` when the transport disconnects and
+create a fresh connection when the runner returns. Call
+`request(command, { openChannel: true })` to buffer channel data from the
+moment an attach or engine operation is sent. Dispatch owns the registration
+lookup, authorization, dashboard state, and durable journal storage.
+
+To extend v1, define the message in its sending direction and document its
+receipt or failure semantics. For an optional operation, advertise support in
+`ready` and exercise both a capable peer and a peer that omits the flag.
+`wireFrames` handles NDJSON and buffering. Its directional TypeScript types
+describe the expected messages; the recipient validates incoming values.
+
+Run the in-memory consumer tests from the repository root with
+`pnpm run test:runner-protocol`.
+They use the package's public exports and require no database, TLS certificates,
+agent process, or running Dispatch instance.
+
+For changes beyond the portable contract, the implementation tests in
+`apps/server/test/` exercise different boundaries:
+
+| Change                                                         | Test fixture                                                                                                                  |
+| -------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| Pair, approve, rotate or revoke                                | `remote-runner-connect` and `remote-runner-enrollment` use a test registry and local TLS peers.                               |
+| Start a workload, allocate a session or check out a repository | `remote-runner-startup`, `remote-session-storage` and `runner-repositories` cover host configuration and filesystem behavior. |
+| Record and recover received events                             | `remote-event-inbox` exercises the durable cursor and payload together.                                                       |
+| Report health or manage an engine                              | `runner-health`, `engine-manager` and `engine-runner-executor` exercise sampling, routing and workload execution.             |
+
+For a change that crosses these boundaries, `pnpm run test:e2e:remote-runners`
+runs the browser workflow with isolated Linux runners and deterministic engines.
+
 ## Identity and transport
 
 Runner registration is a service-side identity bound to its authenticated
@@ -56,6 +97,32 @@ ACP session with an empty service MCP list. v1 launches with the original
 `{ url, token }` shape use the server name `dispatch`. Prototype runner
 binaries require that shape, so keep sending it when interoperating with
 those binaries.
+
+## Commands and results
+
+| Command   | Successful `result.value`                             | Channel                                                                |
+| --------- | ----------------------------------------------------- | ---------------------------------------------------------------------- |
+| `launch`  | `true` after spawning the host                        | None                                                                   |
+| `attach`  | `true` after connecting to the host                   | Bidirectional host protocol until close                                |
+| `alive`   | Boolean indicating host presence                      | None                                                                   |
+| `stop`    | `true` after stopping the host                        | None                                                                   |
+| `discard` | `true` after retiring session state                   | None                                                                   |
+| `log`     | A short guest host diagnostic string                  | None                                                                   |
+| `repo`    | Standard output of the workspace's configured command | None                                                                   |
+| `engine`  | JSON-encoded `EngineOperationAck`                     | Newline-delimited `EngineOperationEvent` records in base64 data frames |
+
+An agent command addresses its bound workspace. Engine management is
+runner-wide. Its v1 envelope still carries an advertised workspace and an
+agent ID placeholder. Gate it on the runner's `engineManagement` capability.
+
+An execution error uses `result.error`. An attach to a known missing host
+also sets `result.code` to `host-gone`. Losing the connection before the
+result leaves the outcome unknown. The service can reattach using the
+durable cursor described below.
+
+The portable session types cover journal replay and prompt receipts. The
+complete vocabulary spoken by Dispatch's ACP host, including permission
+decisions, is in `apps/server/src/agents/acp/host-protocol.ts`.
 
 ## Receipts and replay
 
