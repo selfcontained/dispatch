@@ -1,3 +1,4 @@
+import { remotePlacement } from "@dispatch/runner-protocol";
 import { CheckoutObservers } from "./agents/checkout-observers.js";
 import { readAgentStats } from "./agents/checkout-runner.js";
 import { discoverSlackLinkOrigins } from "./notifications/slack-link-origins.js";
@@ -376,8 +377,15 @@ const mergeRiskAssessor = new MergeRiskAssessor({
 });
 const pullRequests = new PullRequestRefresher({
   pool,
-  listAgentIds: async () =>
-    (await agentManager.listAgents()).map((agent) => agent.id),
+  listAgents: async () =>
+    (await agentManager.listAgents()).map((agent) => ({
+      id: agent.id,
+      runnerId: remotePlacement(agent.cwd)?.runner ?? null,
+    })),
+  readRemote: async (runnerId, url, title) => {
+    if (!remoteRunner) throw new Error("Runner unavailable.");
+    return remoteRunner.readPullRequest(runnerId, url, title);
+  },
   publish: (event) => uiEventBroker.publish(event),
   assess: (url, value, owners, onProgress) =>
     mergeRiskAssessor.assess(url, value, owners, onProgress),
@@ -392,6 +400,7 @@ const pullRequests = new PullRequestRefresher({
   },
   warn: (error) => app.log.warn({ err: error }, "PR status refresh failed"),
 });
+remoteRunner?.onConnectionChange((id) => pullRequests.invalidateRunner(id));
 const diffStatsRefresher = new DiffStatsRefresher({
   getAgent: (id) => agentManager.getAgent(id),
   computeAgentStats: (id, agent) => readAgentStats(id, agent, remoteRunner),
@@ -1372,7 +1381,9 @@ async function registerRoutes() {
 
   await registerQuickPhraseRoutes(app, { pool });
   if (remoteRunner) {
-    registerRunnerGitHub(app, remoteRunner);
+    registerRunnerGitHub(app, remoteRunner, (id) =>
+      pullRequests.invalidateRunner(id)
+    );
     registerRunnerRepositorySearch(app, remoteRunner);
     registerRunnerInstaller(app, pool);
   }

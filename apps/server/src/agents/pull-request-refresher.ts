@@ -13,9 +13,14 @@ export type CommitPullRequestNotice = <T>(
 
 type Options = {
   pool: Pool;
-  listAgentIds: () => Promise<string[]>;
+  listAgents: () => Promise<{ id: string; runnerId: string | null }[]>;
   publish: PublishUiEvent;
   read?: (url: string, title: string) => Promise<AgentPullRequest>;
+  readRemote?: (
+    runnerId: string,
+    url: string,
+    title: string
+  ) => Promise<AgentPullRequest>;
   notify?: (
     agentId: string,
     previous: AgentPullRequest,
@@ -126,6 +131,38 @@ export class PullRequestRefresher {
     this.stopped = false;
     this.signal();
   }
+  private placements = new Map<string, string | null>();
+  private trackingKey(agentId: string, url: string) {
+    return JSON.stringify([this.placements.get(agentId), url]);
+  }
+  private readonly runnerRevision = new Map<string, number>();
+  /** A changed connection or GitHub account cannot reuse the previous peer's observations. */
+  invalidateRunner(runnerId: string) {
+    const owners = [...this.placements].filter(
+      ([, runner]) => runner === runnerId
+    );
+    if (!owners.length) return;
+    this.runnerRevision.set(
+      runnerId,
+      (this.runnerRevision.get(runnerId) ?? 0) + 1
+    );
+    for (const [id] of owners) {
+      const current = this.get(id);
+      if (!current.length) continue;
+      const pending = current.map(({ url }) => {
+        this.urls.delete(this.trackingKey(id, url));
+        return { url, title: url, status: "Pending" as const };
+      });
+      this.snapshots.set(id, pending);
+      this.options.publish({
+        type: "agent.pull_requests_changed",
+        agentId: id,
+        pullRequests: pending,
+      });
+    }
+    this.signal();
+  }
+
   private reviewGeneration = new Map<string, number>();
   private reviewStates = new Map<string, string>();
   /** Explicit PR posts and edits to previously tracked posts reconcile inventory. */
@@ -148,10 +185,11 @@ export class PullRequestRefresher {
           // Review updates otherwise reconcile inventory but leave the five-minute
           // GitHub freshness deadline intact. Reuse the existing bounded queue.
           for (const pr of this.get(current.toAgentId)) {
-            const entry = this.urls.get(pr.url);
+            const key = this.trackingKey(current.toAgentId, pr.url);
+            const entry = this.urls.get(key);
             this.reviewGeneration.set(
-              pr.url,
-              (this.reviewGeneration.get(pr.url) ?? 0) + 1
+              key,
+              (this.reviewGeneration.get(key) ?? 0) + 1
             );
             if (entry) entry.due = 0;
           }
@@ -251,7 +289,11 @@ export class PullRequestRefresher {
     }
   }
   private async reconcile(target?: { agentId: string; url: string }) {
-    const ids = await this.options.listAgentIds();
+    const placements = await this.options.listAgents();
+    this.placements = new Map(
+      placements.map(({ id, runnerId }) => [id, runnerId])
+    );
+    const ids = [...this.placements.keys()];
     const tombstones = await this.options.pool.query<{
       agent_id: string;
       url: string;
@@ -283,7 +325,10 @@ export class PullRequestRefresher {
       ])
     );
     const agents = new Map<string, Set<string>>();
-    const links = new Map<string, string>();
+    const links = new Map<
+      string,
+      { url: string; title: string; runnerId: string | null }
+    >();
     for (const row of rows)
       for (const attachment of row.attachments) {
         if (attachment.type !== "pr") continue;
@@ -294,9 +339,21 @@ export class PullRequestRefresher {
           continue;
         }
         if (url.protocol !== "https:" && url.protocol !== "http:") continue;
-        const key = githubPullRequestUrl(attachment.url) ?? attachment.url;
-        if (this.isDismissed(row.author_agent_id, key)) continue;
-        if (!links.has(key)) links.set(key, attachment.title ?? key);
+        const canonical =
+          githubPullRequestUrl(attachment.url) ?? attachment.url;
+        const runnerId = this.placements.get(row.author_agent_id);
+        if (
+          runnerId === undefined ||
+          this.isDismissed(row.author_agent_id, canonical)
+        )
+          continue;
+        const key = this.trackingKey(row.author_agent_id, canonical);
+        if (!links.has(key))
+          links.set(key, {
+            url: canonical,
+            title: attachment.title ?? canonical,
+            runnerId,
+          });
         const own = agents.get(row.author_agent_id) ?? new Set<string>();
         own.add(key);
         agents.set(row.author_agent_id, own);
@@ -304,15 +361,17 @@ export class PullRequestRefresher {
     const publishSnapshots = () => {
       if (this.stopped) return;
       for (const id of new Set([...ids, ...this.snapshots.keys()])) {
-        const next = [...(agents.get(id) ?? [])].flatMap((url) =>
-          this.isDismissed(id, url)
-            ? []
-            : (this.urls.get(url)?.value ?? {
-                url,
-                title: links.get(url) ?? url,
-                status: "Pending" as const,
-              })
-        );
+        const next = [...(agents.get(id) ?? [])].flatMap((key) => {
+          const { url, title } = links.get(key)!;
+          if (this.isDismissed(id, url)) return [];
+          return (
+            this.urls.get(key)?.value ?? {
+              url,
+              title,
+              status: "Pending" as const,
+            }
+          );
+        });
         if (JSON.stringify(this.get(id)) !== JSON.stringify(next)) {
           this.snapshots.set(id, next);
           this.options.publish({
@@ -331,6 +390,7 @@ export class PullRequestRefresher {
       ])
     );
     const notices: Array<() => Promise<void>> = [];
+    let refreshError: Error | undefined;
     publishSnapshots();
     this.pendingUrls = new Set(
       [...links.keys()].filter((url) => !this.urls.has(url))
@@ -339,7 +399,9 @@ export class PullRequestRefresher {
     this.attempts = this.attempts.filter((at) => at > now - 60_000);
     if (target) {
       if (
-        !agents.get(target.agentId)?.has(target.url) ||
+        !agents
+          .get(target.agentId)
+          ?.has(this.trackingKey(target.agentId, target.url)) ||
         this.isDismissed(target.agentId, target.url)
       )
         throw new Error("PR is no longer tracked by this agent.");
@@ -348,7 +410,9 @@ export class PullRequestRefresher {
     }
     const queue = [...links]
       .filter(([url]) =>
-        target ? url === target.url : (this.urls.get(url)?.due ?? 0) <= now
+        target
+          ? url === this.trackingKey(target.agentId, target.url)
+          : (this.urls.get(url)?.due ?? 0) <= now
       )
       .sort(
         ([a], [b]) =>
@@ -359,29 +423,46 @@ export class PullRequestRefresher {
     await Promise.all(
       Array.from({ length: Math.min(2, queue.length) }, async () => {
         while (queue.length && !this.stopped) {
-          const [url, title] = queue.shift()!;
-          const reviewGeneration = this.reviewGeneration.get(url) ?? 0;
+          const [key, { url, title, runnerId }] = queue.shift()!;
+          const reviewGeneration = this.reviewGeneration.get(key) ?? 0;
+          const revision =
+            runnerId === null ? undefined : this.runnerRevision.get(runnerId);
+          const peerChanged = () =>
+            runnerId !== null && this.runnerRevision.get(runnerId) !== revision;
           this.attempts.push(Date.now());
           let value: AgentPullRequest;
           try {
-            value = await this.read(url, title);
+            if (runnerId === null) value = await this.read(url, title);
+            else if (this.options.readRemote)
+              value = await this.options.readRemote(runnerId, url, title);
+            else value = { url, title, status: "Unavailable" };
           } catch {
             value = { url, title, status: "Unavailable" };
+          }
+          if (peerChanged()) {
+            if (target)
+              throw new Error(
+                "Runner connection or account changed. Please retry."
+              );
+            continue;
           }
           if (
             target &&
             (value.status === "Unavailable" ||
               value.ci?.availability === "unavailable")
-          )
-            throw new Error(
+          ) {
+            refreshError = new Error(
               "Could not refresh PR. Check GitHub authentication and try again."
             );
-          const previous = this.urls.get(url);
+            if (runnerId === null) throw refreshError;
+          }
+          const previous = this.urls.get(key);
           // An assessor failure cannot establish that history is still enabled.
           let assessed = false;
-          if (this.options.assess) {
+          // Merge-risk evidence still depends on the native checkout and GitHub account.
+          if (this.options.assess && runnerId === null) {
             const owners = [...agents]
-              .filter(([, urls]) => urls.has(url))
+              .filter(([, urls]) => urls.has(key))
               .map(([id]) => id);
             try {
               const mergeRisk = await this.options.assess(
@@ -392,7 +473,7 @@ export class PullRequestRefresher {
                   if (
                     this.stopped ||
                     this.riskHidden ||
-                    (this.reviewGeneration.get(url) ?? 0) !== reviewGeneration
+                    (this.reviewGeneration.get(key) ?? 0) !== reviewGeneration
                   )
                     return;
                   for (const id of owners) {
@@ -433,7 +514,11 @@ export class PullRequestRefresher {
           // nor keep displaying old-head checks as current.
           // CI-only errors must not delay healthy lifecycle reads/notices.
           const unavailable = value.status === "Unavailable";
-          if (value.status === "Unavailable" && previous?.lifecycle) {
+          if (
+            runnerId === null &&
+            value.status === "Unavailable" &&
+            previous?.lifecycle
+          ) {
             value = {
               ...previous.lifecycle,
               mergeRisk: value.mergeRisk,
@@ -466,7 +551,9 @@ export class PullRequestRefresher {
             value.status
           )
             ? value
-            : previous?.lifecycle;
+            : runnerId !== null && unavailable
+              ? undefined
+              : previous?.lifecycle;
           const lifecycleChanged =
             lifecycle === value &&
             previous?.lifecycle &&
@@ -475,18 +562,18 @@ export class PullRequestRefresher {
             previous &&
             checkChanges(previous.checks ?? previous.value, value).length > 0;
           const reviewChanged =
-            (this.reviewGeneration.get(url) ?? 0) !== reviewGeneration;
+            (this.reviewGeneration.get(key) ?? 0) !== reviewGeneration;
           for (const notify of [
             lifecycleChanged ? this.options.notify : undefined,
             checksChanged ? this.options.notifyChecks : undefined,
-            !reviewChanged && !this.riskHidden
+            runnerId === null && !reviewChanged && !this.riskHidden
               ? this.options.notifyRisk
               : undefined,
           ]) {
             if (!notify) continue;
             for (const [id, urls] of agents) {
               if (
-                urls.has(url) &&
+                urls.has(key) &&
                 (notify === this.options.notifyRisk ||
                   existingOwners.get(id)?.has(url)) &&
                 notify
@@ -496,28 +583,29 @@ export class PullRequestRefresher {
                     ? (previous!.checks ?? previous!.value)
                     : (previous?.lifecycle ?? value);
                 notices.push(async () => {
-                  if (!this.isDismissed(id, url))
+                  if (!peerChanged() && !this.isDismissed(id, url))
                     await notify(id, before, value, async (write) => {
                       if (
+                        peerChanged() ||
                         this.isDismissed(id, url) ||
                         (notify === this.options.notifyRisk &&
                           (this.riskHidden ||
-                            (this.reviewGeneration.get(url) ?? 0) !==
+                            (this.reviewGeneration.get(key) ?? 0) !==
                               reviewGeneration))
                       )
                         return undefined;
-                      const key = `${id}:${url}`;
+                      const noticeKey = `${id}:${url}`;
                       const writes =
-                        this.noticeWrites.get(key) ??
+                        this.noticeWrites.get(noticeKey) ??
                         new Set<Promise<unknown>>();
                       const flight = Promise.resolve().then(write);
                       writes.add(flight);
-                      this.noticeWrites.set(key, writes);
+                      this.noticeWrites.set(noticeKey, writes);
                       try {
                         return await flight;
                       } finally {
                         writes.delete(flight);
-                        if (!writes.size) this.noticeWrites.delete(key);
+                        if (!writes.size) this.noticeWrites.delete(noticeKey);
                       }
                     });
                 });
@@ -528,16 +616,20 @@ export class PullRequestRefresher {
           // URL due so the dirty follow-up consumes the new evidence, even on
           // its first refresh when no cache entry existed at invalidation time.
           if (reviewChanged) value = { ...value, mergeRisk: undefined };
-          this.urls.set(url, {
+          this.urls.set(key, {
             value,
             lifecycle,
             checks:
-              value.ci?.availability === "available" ? value : previous?.checks,
+              value.ci?.availability === "available"
+                ? value
+                : runnerId !== null && unavailable
+                  ? undefined
+                  : previous?.checks,
             failures,
             checkedAt: Date.now(),
             due: reviewChanged ? 0 : Date.now() + delay,
           });
-          this.pendingUrls.delete(url);
+          this.pendingUrls.delete(key);
         }
       })
     );
@@ -557,5 +649,6 @@ export class PullRequestRefresher {
         }
       })
     );
+    if (refreshError) throw refreshError;
   }
 }

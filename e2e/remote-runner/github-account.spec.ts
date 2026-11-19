@@ -95,7 +95,7 @@ test("GitHub sign-in, private checkout and sign-out belong to the selected runne
     repository: "fixture-scratch/private",
     pullRequest: "https://github.com/fixture-scratch/private/pull/42",
     name: "Private checkout",
-    prompt: "proof-reviewed-checkout",
+    prompt: "proof-reviewed-checkout post-private-pr",
   });
   expect(agent.id).toBeTruthy();
   try {
@@ -105,6 +105,25 @@ test("GitHub sign-in, private checkout and sign-out belong to the selected runne
     ).toContainText("Checkout marker private PR on scratch", {
       timeout: 45000,
     });
+    await page
+      .getByRole("button", { name: /Details for pull request #42: Open/i })
+      .click();
+    const details = page.getByRole("dialog");
+    await expect(details.getByText("build", { exact: true })).toBeVisible();
+    guest("scratch", "touch /tmp/runner-ci-finished");
+    await details
+      .getByRole("button", { name: "Refresh pull request checks" })
+      .click();
+    await expect(
+      details.getByText("integration", { exact: true })
+    ).toBeVisible();
+    const screenshot = testInfo.outputPath("runner-private-pr-checks.png");
+    await page.screenshot({ path: screenshot });
+    await testInfo.attach("Refreshed checks using the runner GitHub account", {
+      path: screenshot,
+      contentType: "image/png",
+    });
+    await page.keyboard.press("Escape");
     // Uses the ordinary workload user's installed helper, independent of the provisioning helper.
     const fetch =
       "setpriv --reuid 1500 --regid 1500 --clear-groups env HOME=/home/guest GIT_TERMINAL_PROMPT=0 git ls-remote https://github.com/fixture-scratch/private.git HEAD";

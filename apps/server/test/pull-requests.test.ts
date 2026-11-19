@@ -124,7 +124,7 @@ describe("session pull requests", () => {
     );
     const pullRequests = new PullRequestRefresher({
       pool: { query } as any,
-      listAgentIds: async () => ["agent"],
+      listAgents: async () => [{ id: "agent", runnerId: null }],
       publish: vi.fn(),
       warn: vi.fn(),
     });

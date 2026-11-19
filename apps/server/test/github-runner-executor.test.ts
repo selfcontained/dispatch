@@ -66,6 +66,13 @@ case "$1 $2" in
     test -f login
     printf 'username=fixture-user\npassword=synthetic-token\n'
     ;;
+  'api graphql')
+    test "$3 $4" = '--hostname github.com'
+    test "$7 $8 $9" = '-f owner=org -f'
+    test -f login
+    cat graphql-response
+    exit 1
+    ;;
   'api --hostname')
     test "$3" = 'github.com'
     case "$4" in
@@ -153,6 +160,38 @@ it("completes a device login and configures the same credential helper for an ag
           connection.signal
         )
       ).toEqual({ url: "https://github.com/fork/project.git", branch: "fix" });
+      await writeFile(
+        path.join(root, "graphql-response"),
+        JSON.stringify({
+          errors: [{ message: "private diagnostic" }],
+          data: {
+            repository: {
+              pullRequest: {
+                state: "OPEN",
+                title: "Partial status",
+                headRefOid: "sha",
+              },
+            },
+          },
+        })
+      );
+      expect(
+        await executor.handle(
+          {
+            type: "pullRequestStatus",
+            owner: "org",
+            repo: "project",
+            number: 42,
+          },
+          connection.signal
+        )
+      ).toEqual({
+        state: "OPEN",
+        title: "Partial status",
+        head: "sha",
+        draft: false,
+        rollup: null,
+      });
       await writeFile(path.join(root, "revoked"), "");
       expect(await handle("status")).toEqual({ status: "signed-out" });
       expect(await handle("logout")).toEqual({ status: "signed-out" });

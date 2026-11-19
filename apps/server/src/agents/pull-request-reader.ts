@@ -1,3 +1,4 @@
+import type { GitHubPullRequestObservation } from "@dispatch/runner-protocol";
 import type { AgentPullRequest } from "@dispatch/shared";
 import { runCommand, type CommandRunner } from "../shared/lib/run-command.js";
 
@@ -36,58 +37,108 @@ export function createPullRequestReader(run: CommandRunner = runCommand) {
         );
         const result = await run(
           "gh",
-          [
-            "api",
-            "graphql",
-            "--hostname",
-            "github.com",
-            "-f",
-            `query=${CHECKS_QUERY}`,
-            "-f",
-            `owner=${owner}`,
-            "-f",
-            `repo=${repo}`,
-            "-F",
-            `number=${number}`,
-          ],
+          pullRequestQueryArgs(owner, repo, number),
           { timeoutMs: 10_000, allowedExitCodes: [0, 1] }
         );
-        const response = JSON.parse(result.stdout);
-        const pr = response.data?.repository?.pullRequest;
-        if (!pr) return fallback;
-        const commit = pr.commits?.nodes?.[0]?.commit;
-        const contexts = commit?.statusCheckRollup?.contexts;
-        // A null rollup means no checks; partial/error/truncated data is unavailable.
-        const rollup =
-          !response.errors?.length && commit?.oid === pr.headRefOid
-            ? commit.statusCheckRollup === null
-              ? []
-              : contexts && !contexts.pageInfo?.hasNextPage
-                ? contexts.nodes
-                : undefined
-            : undefined;
-        const status =
-          pr.state === "MERGED"
-            ? "Merged"
-            : pr.state === "CLOSED"
-              ? "Closed"
-              : pr.state === "OPEN"
-                ? pr.isDraft
-                  ? "Draft"
-                  : "Open"
-                : "Unavailable";
-        return {
-          url: canonical,
-          title: typeof pr.title === "string" ? pr.title : title,
-          status,
-          ci: mapPullRequestChecks(pr.headRefOid, rollup),
-        };
+        return projectPullRequest(
+          canonical,
+          title,
+          pullRequestObservation(JSON.parse(result.stdout))
+        );
       } catch {
         return fallback;
       }
     })();
     cache.set(canonical, { expires: Date.now() + 60_000, value });
     return value;
+  };
+}
+
+export function pullRequestQueryArgs(
+  owner: string,
+  repo: string,
+  number: string
+) {
+  return [
+    "api",
+    "graphql",
+    "--hostname",
+    "github.com",
+    "-f",
+    `query=${CHECKS_QUERY}`,
+    "-f",
+    `owner=${owner}`,
+    "-f",
+    `repo=${repo}`,
+    "-F",
+    `number=${number}`,
+  ];
+}
+
+function record(value: unknown): Record<string, unknown> {
+  return value !== null && typeof value === "object"
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+/** Only the fields selected by the fixed query travel back to Dispatch. In
+ * particular, gh diagnostics and the GraphQL errors array stay on the runner. */
+export function pullRequestObservation(
+  result: unknown
+): GitHubPullRequestObservation {
+  const response = record(result);
+  const repository = record(record(response.data).repository);
+  const pr = record(repository.pullRequest);
+  const nodes = record(pr.commits).nodes;
+  const commit = record(Array.isArray(nodes) && record(nodes[0]).commit);
+  const contexts = record(record(commit.statusCheckRollup).contexts);
+  const complete =
+    (response.errors === undefined ||
+      (Array.isArray(response.errors) && response.errors.length === 0)) &&
+    typeof pr.headRefOid === "string" &&
+    commit.oid === pr.headRefOid;
+  return {
+    state:
+      pr.state === "OPEN" || pr.state === "CLOSED" || pr.state === "MERGED"
+        ? pr.state
+        : null,
+    draft: pr.isDraft === true,
+    title: typeof pr.title === "string" ? pr.title : null,
+    head: typeof pr.headRefOid === "string" ? pr.headRefOid : null,
+    rollup:
+      complete && commit.statusCheckRollup === null
+        ? []
+        : complete &&
+            record(contexts.pageInfo).hasNextPage === false &&
+            Array.isArray(contexts.nodes) &&
+            contexts.nodes.length <= 100
+          ? contexts.nodes
+          : null,
+  };
+}
+
+export function projectPullRequest(
+  url: string,
+  title: string,
+  observation: GitHubPullRequestObservation
+): AgentPullRequest {
+  const { state, draft, head, rollup, title: observedTitle } = observation;
+  const status =
+    state === "MERGED"
+      ? "Merged"
+      : state === "CLOSED"
+        ? "Closed"
+        : state === "OPEN"
+          ? draft === true
+            ? "Draft"
+            : "Open"
+          : "Unavailable";
+  if (status === "Unavailable") return { url, title, status };
+  return {
+    url,
+    status,
+    title: typeof observedTitle === "string" ? observedTitle : title,
+    ci: mapPullRequestChecks(head, rollup),
   };
 }
 
@@ -125,7 +176,7 @@ export function mapPullRequestChecks(
     },
     checks: [],
   };
-  if (!ci.headSha || !Array.isArray(rollup)) return ci;
+  if (!ci.headSha || !Array.isArray(rollup) || rollup.length > 100) return ci;
   const checks = new Map<string, (typeof ci.checks)[number]>();
   const latest = new Map<string, number>();
   for (const raw of rollup) {
@@ -139,6 +190,7 @@ export function mapPullRequestChecks(
         ? "PENDING"
         : "COMPLETED"
       : raw.status;
+    if (typeof status !== "string") return ci;
     const conclusion = context
       ? status === "PENDING"
         ? null
@@ -146,6 +198,7 @@ export function mapPullRequestChecks(
           ? "FAILURE"
           : raw.state
       : raw.conclusion || null;
+    if (conclusion !== null && typeof conclusion !== "string") return ci;
     const url = context ? raw.targetUrl : raw.detailsUrl;
     // Reruns replace earlier attempts of a job from the same provider. In
     // particular an earlier cancelled attempt must not fail a passing rerun.

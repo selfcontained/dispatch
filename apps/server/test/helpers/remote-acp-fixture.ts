@@ -52,11 +52,7 @@ const fake = createFakeAcpAgent({
       }
       await report("Guest permission answered.");
     }
-    if (prompt.includes("prove-marker")) {
-      const marker = (
-        await readFile(path.join(session.cwd, "marker.txt"), "utf8")
-      ).trim();
-      await report(`Guest marker ${marker}`);
+    if (prompt.includes("prove-marker") || prompt.includes("post-private-pr")) {
       const endpoint = session.mcpServers.find(
         (entry) => "url" in entry && "headers" in entry
       );
@@ -76,19 +72,40 @@ const fake = createFakeAcpAgent({
         })
       );
       try {
-        const post = await client.callTool({
-          name: "post",
-          arguments: { text: `Posted from Lima: ${marker}` },
-        });
-        if (post.isError) throw new Error(JSON.stringify(post.content));
-        const repo = await client.callTool({
-          name: "repo_runner_workspace",
-          arguments: {},
-        });
-        if (repo.isError) throw new Error(JSON.stringify(repo.content));
-        await report(
-          ` Approved repo operation: ${JSON.stringify(repo.content)}`
-        );
+        if (prompt.includes("post-private-pr")) {
+          const post = await client.callTool({
+            name: "post",
+            arguments: {
+              text: "Private checkout PR",
+              attachments: [
+                {
+                  type: "pr",
+                  url: "https://github.com/fixture-scratch/private/pull/42",
+                  title: "Fixture PR",
+                },
+              ],
+            },
+          });
+          if (post.isError) throw new Error(JSON.stringify(post.content));
+        } else {
+          const marker = (
+            await readFile(path.join(session.cwd, "marker.txt"), "utf8")
+          ).trim();
+          await report(`Guest marker ${marker}`);
+          const post = await client.callTool({
+            name: "post",
+            arguments: { text: `Posted from Lima: ${marker}` },
+          });
+          if (post.isError) throw new Error(JSON.stringify(post.content));
+          const repo = await client.callTool({
+            name: "repo_runner_workspace",
+            arguments: {},
+          });
+          if (repo.isError) throw new Error(JSON.stringify(repo.content));
+          await report(
+            ` Approved repo operation: ${JSON.stringify(repo.content)}`
+          );
+        }
       } finally {
         await client.close();
       }

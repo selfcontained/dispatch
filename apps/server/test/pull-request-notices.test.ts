@@ -134,7 +134,7 @@ describe("PR observation delivery", () => {
     });
     const refresher = new PullRequestRefresher({
       pool,
-      listAgentIds: async () => ["child"],
+      listAgents: async () => [{ id: "child", runnerId: null }],
       publish: () => {},
       warn: () => {},
       read: async () => current,
@@ -162,7 +162,10 @@ describe("PR observation delivery", () => {
     });
     const restarted = new PullRequestRefresher({
       pool,
-      listAgentIds: async () => ["child", "parent"],
+      listAgents: async () => [
+        { id: "child", runnerId: null },
+        { id: "parent", runnerId: null },
+      ],
       publish: () => {},
       warn: () => {},
       read: async () => current,

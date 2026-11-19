@@ -10,8 +10,10 @@ declare module "fastify" {
 
 export function registerRunnerGitHub(
   app: FastifyInstance,
-  runners: Pick<RemoteRunnerService, "githubAccount">
+  runners: Pick<RemoteRunnerService, "githubAccount">,
+  onIdentityChange?: (runnerId: string) => void
 ) {
+  const identities = new Map<string, string | null>();
   const base = "/api/v1/runners/:id/github";
   const operations = [
     ["GET", base, "status"],
@@ -26,7 +28,16 @@ export function registerRunnerGitHub(
       config: { validateSuppliedAuthorization: true },
       async handler(req, reply) {
         reply.header("Cache-Control", "no-store");
-        return runners.githubAccount(req.params.id, operation);
+        const id = req.params.id;
+        const result = await runners.githubAccount(id, operation);
+        if (result.status === "signed-in" || result.status === "signed-out") {
+          const login = result.status === "signed-in" ? result.login : null;
+          if (identities.get(id) !== login) {
+            identities.set(id, login);
+            onIdentityChange?.(id);
+          }
+        }
+        return result;
       },
     });
   }

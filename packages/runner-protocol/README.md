@@ -235,3 +235,13 @@ the same account through the gh credential helper. A transport disconnect
 ends a pending login, and a completed credential remains with that
 workload account. Logout removes the active account locally. GitHub
 authorization can be revoked separately in GitHub settings.
+
+A peer advertising both `githubManagement` and `pullRequestStatus` accepts
+`{type: "pullRequestStatus", owner, repo, number}`. Run the fixed current-head
+GitHub query under the workload account. Return the GitHub state, draft flag,
+title, head SHA and rollup in `{state, draft, title, head, rollup}`. Rollup
+contains up to 100 current-head CheckRun or StatusContext nodes. An empty
+array means no checks. Null means incomplete, unavailable, truncated, or
+mismatched head. An inaccessible PR has no state. Leave CLI output and
+GraphQL diagnostics on the runner. Consumers validate the result and
+scope cached observations and notifications to the runner and canonical URL.

@@ -79,6 +79,7 @@ export type ReadyFrame = {
   /** Advertises support for the `"engine"` command and inventory push. */
   engineManagement?: true;
   githubManagement?: true;
+  pullRequestStatus?: true;
   checkoutInspection?: true;
   checkoutViews?: true;
   sharedWorktree?: true;
@@ -109,6 +110,7 @@ export function parseReadyFrame(value: unknown): ReadyFrame | null {
     ...(frame.sharedWorktree === true && { sharedWorktree: true }),
     ...(frame.health === true && { health: true }),
     ...(frame.engineManagement === true && { engineManagement: true }),
+    ...(frame.pullRequestStatus === true && { pullRequestStatus: true }),
     ...(frame.githubManagement === true && { githubManagement: true }),
     ...(frame.managedWorkspace === true && { managedWorkspace: true }),
   };

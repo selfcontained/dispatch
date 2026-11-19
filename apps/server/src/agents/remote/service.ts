@@ -1,3 +1,7 @@
+import {
+  githubPullRequestUrl,
+  projectPullRequest,
+} from "../pull-request-reader.js";
 import { X509Certificate } from "node:crypto";
 import { readFileSync, watchFile, unwatchFile } from "node:fs";
 import http from "node:http";
@@ -32,6 +36,7 @@ import {
   type GitHubOperation,
   type GitHubStatus,
   parseGitHubStatus,
+  isGitHubPullRequestObservation,
   githubPullRequestHead,
   githubRepositoryResults,
   type SessionOperation,
@@ -143,6 +148,7 @@ type Peer = {
   /** Advertised in `ready`; whether this peer answers the `"engine"` command. */
   engineManagement: boolean;
   githubManagement: boolean;
+  pullRequestStatus: boolean;
   checkoutInspection: boolean;
   checkoutViews: boolean;
   sharedWorktree: boolean;
@@ -658,6 +664,7 @@ export class RemoteRunnerService {
           socket,
           reportsHealth: ready.health === true,
           engineManagement: ready.engineManagement === true,
+          pullRequestStatus: ready.pullRequestStatus === true,
           githubManagement: ready.githubManagement === true,
           checkoutViews: ready.checkoutViews === true,
           checkoutInspection: ready.checkoutInspection === true,
@@ -1208,6 +1215,15 @@ export class RemoteRunnerService {
           : "Update the runner to manage its GitHub account."
       );
 
+    if (
+      operation.kind === "github" &&
+      operation.operation.type === "pullRequestStatus" &&
+      !peer.pullRequestStatus
+    )
+      throw new RunnerCapabilityUnavailable(
+        "Update the runner to read pull request status."
+      );
+
     // V1 requires a routable workspace and an id even for a runner-wide operation.
     for (const workspace of peer.workspaces) {
       if (peer.gate.allows(workspace))
@@ -1278,6 +1294,21 @@ export class RemoteRunnerService {
     )
       throw new Error("Invalid GitHub repository reply.");
     return githubRepositoryResults(response.repositories);
+  }
+
+  async readPullRequest(runnerId: string, url: string, title: string) {
+    const canonical = githubPullRequestUrl(url);
+    if (!canonical) return { url, title, status: "Unavailable" as const };
+    const [, owner, repo, , number] = new URL(canonical).pathname.split("/");
+    const response = await this.requestGitHub(runnerId, {
+      type: "pullRequestStatus",
+      owner,
+      repo,
+      number: Number(number),
+    });
+    if (!isGitHubPullRequestObservation(response))
+      throw new Error("Invalid runner pull request observation.");
+    return projectPullRequest(canonical, title, response);
   }
 
   async lookupGitHubPullRequestHead(

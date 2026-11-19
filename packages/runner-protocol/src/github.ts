@@ -6,7 +6,39 @@ export const githubDeviceUrl = "https://github.com/login/device";
 export type GitHubOperation =
   | { type: "status" | "login" | "cancel" | "logout" }
   | { type: "repositorySearch"; query: string }
-  | { type: "pullRequestHead"; owner: string; repo: string; number: number };
+  | {
+      type: "pullRequestHead" | "pullRequestStatus";
+      owner: string;
+      repo: string;
+      number: number;
+    };
+
+/** Result of the fixed current-head query. An inaccessible PR has a null state.
+ * An empty rollup is authoritative. A null rollup is incomplete or unavailable. */
+export type GitHubPullRequestObservation = {
+  state: "OPEN" | "CLOSED" | "MERGED" | null;
+  draft: boolean;
+  title: string | null;
+  head: string | null;
+  rollup: unknown[] | null;
+};
+
+export function isGitHubPullRequestObservation(
+  value: unknown
+): value is GitHubPullRequestObservation {
+  return (
+    isRecord(value) &&
+    (value.state === null ||
+      value.state === "OPEN" ||
+      value.state === "CLOSED" ||
+      value.state === "MERGED") &&
+    typeof value.draft === "boolean" &&
+    (value.title === null || typeof value.title === "string") &&
+    (value.head === null || typeof value.head === "string") &&
+    (value.rollup === null ||
+      (Array.isArray(value.rollup) && value.rollup.length <= 100))
+  );
+}
 
 export type GitHubStatus =
   | { status: "signed-in"; login: string }
@@ -49,6 +81,7 @@ export function isGitHubOperation(value: unknown): value is GitHubOperation {
       return true;
     case "repositorySearch":
       return validRepositorySearch(value.query);
+    case "pullRequestStatus":
     case "pullRequestHead":
       return (
         validGitHubRepoPart(value.owner) &&

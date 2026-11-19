@@ -312,6 +312,13 @@ describe("engine wire integration", () => {
         { name: "org/project", url: "https://github.com/org/project" },
       ],
     });
+    await expect(
+      service.readPullRequest(
+        alpha.created.id,
+        "https://github.com/org/project/pull/42",
+        "Fixture"
+      )
+    ).rejects.toThrow("Update the runner");
     expect(await service.githubAccount(beta.created.id, "login")).toMatchObject(
       {
         status: "unavailable",

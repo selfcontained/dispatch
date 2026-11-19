@@ -38,20 +38,86 @@ function fixture(count = 1) {
       >
     >()
     .mockResolvedValue(undefined);
-  const listAgentIds = vi.fn().mockResolvedValue(["a", "b"]);
+  const listAgents = vi.fn().mockResolvedValue([
+    { id: "a", runnerId: null },
+    { id: "b", runnerId: null },
+  ]);
   const service = new PullRequestRefresher({
     pool: { query } as unknown as Pool,
     read,
     publish,
     notify,
     notifyChecks: notify,
-    listAgentIds,
+    listAgents,
     warn: vi.fn(),
   });
-  return { rows, query, read, publish, notify, service, listAgentIds };
+  return { rows, query, read, publish, notify, service, listAgents };
 }
 afterEach(() => vi.useRealTimers());
 describe("server PR orchestration", () => {
+  it("isolates background and manual reads of the same URL by runner and drops a late reply after replacement", async () => {
+    const f = fixture();
+    f.rows.push({ ...f.rows[0], author_agent_id: "b" });
+    const url = f.rows[0].attachments[0].url;
+    const readRemote = vi.fn(
+      async (
+        runnerId: string,
+        url: string,
+        title: string
+      ): Promise<AgentPullRequest> => {
+        if (runnerId === "beta") throw new Error("Access denied");
+        return { url, title: "Visible to alpha", status: "Open" };
+      }
+    );
+    const assess = vi.fn();
+    const service = new PullRequestRefresher({
+      pool: { query: f.query } as unknown as Pool,
+      listAgents: async () => [
+        { id: "a", runnerId: "alpha" },
+        { id: "b", runnerId: "beta" },
+      ],
+      publish: f.publish,
+      read: f.read,
+      readRemote,
+      assess,
+      warn: vi.fn(),
+    });
+    try {
+      await service.refresh();
+      expect(service.get("a")[0]).toMatchObject({
+        title: "Visible to alpha",
+        status: "Open",
+      });
+      expect(service.get("b")[0]).toMatchObject({
+        title: "PR 0",
+        status: "Unavailable",
+      });
+      expect(f.read).not.toHaveBeenCalled();
+      expect(assess).not.toHaveBeenCalled();
+      readRemote.mockClear();
+      await expect(service.refreshOne("b", url)).rejects.toThrow("GitHub");
+      expect(readRemote.mock.calls.map(([id]) => id)).toEqual(["beta"]);
+      let finish!: (pr: AgentPullRequest) => void;
+      readRemote.mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            finish = resolve;
+          })
+      );
+      const refreshing = service.refreshOne("a", url);
+      await vi.waitFor(() => expect(finish).toBeTypeOf("function"));
+      service.invalidateRunner("alpha");
+      finish({ url, title: "Previous account", status: "Merged" });
+      await expect(refreshing).rejects.toThrow("changed");
+      expect(service.get("a")[0]).toMatchObject({
+        status: "Pending",
+        title: url,
+      });
+      expect(service.get("b")[0].status).toBe("Unavailable");
+    } finally {
+      await service.stop();
+    }
+  });
   it("persists canonical agent-scoped dismissal through rediscovery and a reconstructed refresher", async () => {
     const f = fixture();
     f.rows.push({ ...f.rows[0], author_agent_id: "b" });
@@ -64,7 +130,7 @@ describe("server PR orchestration", () => {
     await f.service.stop();
     const restarted = new PullRequestRefresher({
       pool: { query: f.query } as unknown as Pool,
-      listAgentIds: f.listAgentIds,
+      listAgents: f.listAgents,
       read: f.read,
       publish: f.publish,
       warn: vi.fn(),
@@ -645,7 +711,7 @@ it("attaches merge-risk assessments to observed heads and carries them while the
     pool: { query: f.query } as unknown as Pool,
     read: f.read,
     publish: f.publish,
-    listAgentIds: f.listAgentIds,
+    listAgents: f.listAgents,
     assess,
     warn: vi.fn(),
   });
@@ -711,7 +777,7 @@ it("clears cached risk immediately on disable and suppresses in-flight progress"
   const service = new PullRequestRefresher({
     notifyRisk,
     pool: { query: f.query } as unknown as Pool,
-    listAgentIds: f.listAgentIds,
+    listAgents: f.listAgents,
     read: f.read,
     publish: f.publish,
     warn: vi.fn(),
@@ -749,7 +815,7 @@ it.each([false, true])(
     const service = new PullRequestRefresher({
       notifyRisk,
       pool: { query: f.query } as unknown as Pool,
-      listAgentIds: f.listAgentIds,
+      listAgents: f.listAgents,
       read: f.read,
       publish: f.publish,
       warn: vi.fn(),

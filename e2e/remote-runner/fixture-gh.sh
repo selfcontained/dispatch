@@ -30,6 +30,13 @@ case "$1 ${2:-}" in
     grep -qx 'host=github.com' || exit 1
     printf 'username=%s\npassword=test-only-%s\n\n' "$login" "$name"
     ;;
+  'api graphql')
+    test -s "$key"
+    test "$login" = "fixture-scratch"
+    job=build
+    if [ -f /tmp/runner-ci-finished ]; then job=integration; fi
+    printf '{"data":{"repository":{"pullRequest":{"state":"OPEN","title":"Private runner change","headRefOid":"a1b2c3d","commits":{"nodes":[{"commit":{"oid":"a1b2c3d","statusCheckRollup":{"contexts":{"pageInfo":{"hasNextPage":false},"nodes":[{"__typename":"CheckRun","name":"%s","status":"COMPLETED","conclusion":"SUCCESS"}]}}}}]}}}}}' "$job"
+    ;;
   'api user'|'api --hostname')
     test -s "$key"
     case " $* " in

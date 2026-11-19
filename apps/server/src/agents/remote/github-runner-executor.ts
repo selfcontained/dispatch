@@ -1,3 +1,7 @@
+import {
+  pullRequestObservation,
+  pullRequestQueryArgs,
+} from "../pull-request-reader.js";
 import { execFile, spawn, type ChildProcess } from "node:child_process";
 import { promisify } from "node:util";
 import {
@@ -264,6 +268,23 @@ export class GitHubRunnerExecutor {
             url: row?.url,
           }))
         );
+      }
+      case "pullRequestStatus": {
+        const { owner, repo, number } = operation;
+        const result = await this.run(
+          pullRequestQueryArgs(owner, repo, String(number)),
+          signal
+        ).catch((error) => {
+          // GraphQL can return a usable PR and a check-level error together.
+          if (
+            error.code === 1 &&
+            typeof error.stdout === "string" &&
+            error.stdout
+          )
+            return error.stdout;
+          throw error;
+        });
+        return pullRequestObservation(JSON.parse(result));
       }
       case "pullRequestHead": {
         const { owner, repo, number } = operation;

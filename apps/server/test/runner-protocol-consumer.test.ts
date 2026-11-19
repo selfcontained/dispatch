@@ -110,6 +110,7 @@ it("negotiates advertised v1 capabilities independently on each ready frame", ()
     health: true,
     engineManagement: true,
     githubManagement: true,
+    pullRequestStatus: true,
     checkoutInspection: true,
     checkoutViews: true,
     sharedWorktree: true,
@@ -129,6 +130,22 @@ it("validates runner-scoped GitHub command payloads", () => {
         operation,
       },
     });
+  expect(
+    parse({
+      type: "pullRequestStatus",
+      owner: "example",
+      repo: "project",
+      number: 42,
+    })
+  ).not.toBeNull();
+  expect(
+    parse({
+      type: "pullRequestStatus",
+      owner: "example",
+      repo: "project",
+      number: 0,
+    })
+  ).toBeNull();
   expect(parse({ type: "login" })).not.toBeNull();
   expect(parse({ type: "repositorySearch", query: "org/repo" })).not.toBeNull();
   expect(parse({ type: "repositorySearch", query: "--help\n" })).toBeNull();

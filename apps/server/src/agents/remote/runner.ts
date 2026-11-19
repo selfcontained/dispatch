@@ -567,6 +567,7 @@ export async function runRemoteRunner(filename: string) {
           ...(managedWorkspace ? { managedWorkspace: true } : {}),
           engineManagement: true,
           githubManagement: true,
+          pullRequestStatus: true,
           checkoutInspection: true,
           checkoutViews: true,
           sharedWorktree: true,
