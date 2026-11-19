@@ -10,6 +10,8 @@ Trace changed authentication and trust boundaries across server hooks, routes, b
 
 ## Invariants and failure modes
 
+- Runner GitHub operations use the selected runner’s workload account. Check that operator authorization, cancellation on disconnect and credential storage hold across device login, repository lookup and sign-out. Only the pending user code belongs in the interactive response. Access tokens must stay out of the service, telemetry and logs.
+
 - Session validation, expiry, logout/revocation, and password-state caching must agree. Never expose password hashes, session credentials, or signing keys through responses or logs.
 - Browser writes remain origin-protected even during first-run/no-password operation. Encoded paths must receive the same checks as canonical routes; exceptions for extension pairing and scoped bearer routes must not enable cookie-based bypasses.
 - MCP scope tokens and extension bearer tokens must not become interchangeable with user sessions. Check the intended scope, expiry/revocation, malformed inputs, and denied-operation behavior.

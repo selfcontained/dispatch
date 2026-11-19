@@ -365,6 +365,11 @@
         "apps/server/src/shared/mcp/login-link-tools.ts",
         "apps/server/src/agents/engine-login.ts",
         "apps/server/src/routes/engine-login.ts",
+        "apps/server/src/agents/remote/github-runner-executor.ts",
+        "apps/server/src/routes/runner-github.ts",
+        "apps/server/test/github-runner-executor.test.ts",
+        "apps/server/test/runner-github-auth.test.ts",
+        "packages/runner-protocol/src/github.ts",
         "apps/server/test/*login-link*"
       ],
       "personas": ["auth-trust-owner"]
