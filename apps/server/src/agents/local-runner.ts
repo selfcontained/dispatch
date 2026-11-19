@@ -32,6 +32,7 @@ import {
 } from "./workspace.js";
 import { resolveWorkspace } from "./workspace-target.js";
 import { resolveProjectRoot } from "../projects/resolve-root.js";
+import { localCheckoutRelease } from "./local-runner-checkout.js";
 import { inferRepositoryUrl } from "./remote/repository.js";
 
 export type LocalLaunchSettings = Pick<
@@ -251,6 +252,7 @@ export function createLocalRunner(
   }
   return {
     requestSession,
+    checkoutRelease: localCheckoutRelease,
     resolveLaunchDirectory,
     canonicalPath: (directory: string) => realpath(directory).catch(() => null),
     resolveWorkspace,

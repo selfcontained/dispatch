@@ -1,4 +1,3 @@
-import { realpath } from "node:fs/promises";
 import {
   isCheckoutObservation,
   remotePlacement,
@@ -6,8 +5,7 @@ import {
   type CheckoutReleaseResult,
 } from "@dispatch/runner-protocol";
 import type { Pool } from "pg";
-import { normalizePath } from "../shared/git/git-context.js";
-import { observeGitCheckout } from "./checkout-inspection.js";
+import type { createLocalRunner } from "./local-runner.js";
 import { AgentError } from "./errors.js";
 import type { RemoteRunnerService } from "./remote/service.js";
 import type { AgentRecord, WorktreeCleanupMode } from "./types.js";
@@ -17,19 +15,25 @@ export type ArchiveCheckoutAgent = Pick<
   "id" | "cwd" | "worktreePath" | "baseBranch" | "worktreeBranch"
 >;
 
-export async function nativeBorrowers(pool: Pool, agent: ArchiveCheckoutAgent) {
+export type LocalArchiveRunner = Pick<
+  ReturnType<typeof createLocalRunner>,
+  "checkoutRelease"
+>;
+
+export async function nativeBorrowers(
+  pool: Pool,
+  agent: ArchiveCheckoutAgent,
+  canonicalPath: string
+) {
   const path = agent.worktreePath;
   if (!path) return [];
-  const canonical = await realpath(path)
-    .then(normalizePath)
-    .catch(() => path);
   const { rows } = await pool.query<{ id: string }>(
     `SELECT id FROM agents
        WHERE deleted_at IS NULL AND id <> $1
          AND (worktree_path = ANY($2::text[])
            OR workspace_path = ANY($2::text[])
            OR cwd = ANY($2::text[])) ORDER BY id`,
-    [agent.id, [...new Set([path, canonical])]]
+    [agent.id, [...new Set([path, canonicalPath])]]
   );
   return rows.map(({ id }) => id);
 }
@@ -37,38 +41,40 @@ export async function nativeBorrowers(pool: Pool, agent: ArchiveCheckoutAgent) {
 export async function observeArchiveCheckout(
   pool: Pool,
   agent: ArchiveCheckoutAgent,
+  localRunner: LocalArchiveRunner,
   remote?: RemoteRunnerService
 ): Promise<CheckoutObservation> {
   const placement = remotePlacement(agent.cwd);
   if (placement) {
     if (!remote)
       throw new AgentError("The session runner is unavailable.", 503);
-    const { value } = await remote.requestSession(placement, {
-      kind: "checkoutRelease",
-      agentId: agent.id,
-      operation: { kind: "observe" },
-    });
-    const observation: unknown =
-      typeof value === "string" ? JSON.parse(value) : null;
-    if (!isCheckoutObservation(observation))
-      throw new AgentError(
-        "Invalid checkout observation from the runner.",
-        502
-      );
-    return observation;
+    return observeRemoteCheckout(agent, remote, placement);
   }
-  if (!agent.worktreePath)
-    return {
-      ownership: "external",
-      owner: null,
-      borrowers: [],
-      checkout: null,
-    };
-  const [checkout, borrowers] = await Promise.all([
-    observeGitCheckout(agent.worktreePath, agent.baseBranch),
-    nativeBorrowers(pool, agent),
-  ]);
-  return { ownership: "owned", owner: agent.id, borrowers, checkout };
+  const observed = await localRunner.checkoutRelease(agent, {
+    kind: "observe",
+  });
+  if (observed.ownership !== "owned" || !observed.checkout) return observed;
+  return {
+    ...observed,
+    borrowers: await nativeBorrowers(pool, agent, observed.checkout.path),
+  };
+}
+
+async function observeRemoteCheckout(
+  agent: ArchiveCheckoutAgent,
+  remote: RemoteRunnerService,
+  placement: NonNullable<ReturnType<typeof remotePlacement>>
+): Promise<CheckoutObservation> {
+  const { value } = await remote.requestSession(placement, {
+    kind: "checkoutRelease",
+    agentId: agent.id,
+    operation: { kind: "observe" },
+  });
+  const observation: unknown =
+    typeof value === "string" ? JSON.parse(value) : null;
+  if (!isCheckoutObservation(observation))
+    throw new AgentError("Invalid checkout observation from the runner.", 502);
+  return observation;
 }
 
 export async function archiveCheckoutState(pool: Pool, id: string) {
@@ -101,10 +107,10 @@ export async function releaseRemoteCheckout(
   let expectedState =
     mode === "keep" ? null : await archiveCheckoutState(pool, agent.id);
   if (mode === "auto") {
-    const { checkout, ownership } = await observeArchiveCheckout(
-      pool,
+    const { checkout, ownership } = await observeRemoteCheckout(
       agent,
-      remote
+      remote,
+      placement
     );
     if (
       ownership === "owned" &&

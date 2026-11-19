@@ -17,6 +17,17 @@ import type {
   WorktreeCleanupMode,
 } from "../src/agents/types.js";
 
+vi.mock("node:fs/promises", async (importOriginal) => {
+  const fs = await importOriginal<typeof import("node:fs/promises")>();
+  return {
+    ...fs,
+    lstat: (path: string, ...options: []) =>
+      path.startsWith("/tmp/wt")
+        ? Promise.resolve({})
+        : fs.lstat(path, ...options),
+  };
+});
+
 vi.mock("../src/agents/lifecycle-hooks.js", () => ({
   runLifecycleHook: vi.fn().mockResolvedValue(undefined),
 }));
@@ -32,6 +43,7 @@ vi.mock("../src/agents/checkout-inspection.js", () => ({
 import { runLifecycleHook } from "../src/agents/lifecycle-hooks.js";
 import { cleanupGitWorktree } from "../src/shared/git/worktree.js";
 import { observeGitCheckout } from "../src/agents/checkout-inspection.js";
+import { createLocalRunner } from "../src/agents/local-runner.js";
 
 const cleanCheckout = {
   path: "/tmp/wt",
@@ -125,6 +137,10 @@ const makeDeps = (overrides: Partial<ArchiveDeps> = {}): ArchiveDeps => {
     pool: pool as never,
     logger: noopLogger,
     runtime: makeRuntime(),
+    localRunner: createLocalRunner(
+      "/tmp/dispatch-unused-archive-hosts",
+      noopLogger
+    ),
     diffStatsRefresher: { clear: vi.fn() },
     getAgent: vi.fn().mockResolvedValue(null),
     getRequiredAgent: vi.fn(),
@@ -373,7 +389,7 @@ describe("executeArchive", () => {
   });
 
   describe("worktree cleanup decision — force mode", () => {
-    it("always cleans up when mode is force, even with outstanding changes", async () => {
+    it("authorizes the observed checkout in force mode even with outstanding changes", async () => {
       vi.mocked(observeGitCheckout).mockResolvedValue({
         ...cleanCheckout,
         unmerged: true,
@@ -394,8 +410,24 @@ describe("executeArchive", () => {
       await executeArchive(deps, "a1", makeCallbacks());
 
       expect(cleanupGitWorktree).toHaveBeenCalled();
-      expect(observeGitCheckout).not.toHaveBeenCalled();
+      expect(observeGitCheckout).toHaveBeenCalledWith("/tmp/wt", null);
     });
+  });
+
+  it("preserves a checkout when the built-in runner cannot observe it, even in force mode", async () => {
+    vi.mocked(observeGitCheckout).mockRejectedValueOnce(
+      new Error("Git status unavailable")
+    );
+    const deps = makeDeps({
+      getRequiredAgent: vi.fn().mockResolvedValue(
+        makeAgent("a1", {
+          worktreePath: "/tmp/wt",
+          archiveCleanupMode: "force",
+        })
+      ),
+    });
+    await executeArchive(deps, "a1", makeCallbacks());
+    expect(cleanupGitWorktree).not.toHaveBeenCalled();
   });
 
   describe("worktree cleanup decision — keep mode", () => {

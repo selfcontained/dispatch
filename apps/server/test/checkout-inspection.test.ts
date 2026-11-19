@@ -1,5 +1,6 @@
 import { execFileSync, spawnSync } from "node:child_process";
 import {
+  existsSync,
   mkdirSync,
   mkdtempSync,
   rmSync,
@@ -22,6 +23,8 @@ import {
 } from "vitest";
 
 import { inspectCheckout } from "../src/agents/checkout-inspection.js";
+import { createLocalRunner } from "../src/agents/local-runner.js";
+import type { FastifyBaseLogger } from "fastify";
 
 let scratch: string;
 let cli: string;
@@ -360,4 +363,61 @@ it("rejects malformed and oversized stdin with stderr and no reply", () => {
     expect(result.stdout).toBe("");
     expect(result.stderr).toMatch(diagnostic);
   }
+});
+
+describe("native runner checkout release", () => {
+  function adapter() {
+    const binding = {
+      id: "agent/fixture",
+      worktreePath: checkout,
+      worktreeBranch: "feature",
+      baseBranch: "main",
+    };
+    const runner = createLocalRunner(
+      path.join(fixture, "hosts"),
+      {} as FastifyBaseLogger
+    );
+    return {
+      observe: () => runner.checkoutRelease(binding, { kind: "observe" }),
+      release: (expectedState: string) =>
+        runner.checkoutRelease(binding, { kind: "release", expectedState }),
+    };
+  }
+
+  it("removes a clean switched worktree without deleting the separately owned ref", async () => {
+    git(repo, "branch", "user-owned", "main");
+    const userTip = git(repo, "rev-parse", "refs/heads/user-owned");
+    git(checkout, "switch", "user-owned");
+    const runner = adapter();
+    const { checkout: observed } = await runner.observe();
+    expect(observed).toMatchObject({
+      branch: "user-owned",
+      unmerged: false,
+      uncommittedFiles: [],
+    });
+    expect(await runner.release(observed!.stateId)).toBe("released");
+    expect(existsSync(checkout)).toBe(false);
+    expect(git(repo, "rev-parse", "refs/heads/user-owned")).toBe(userTip);
+    expect(await runner.release(observed!.stateId)).toBe("released");
+  });
+
+  it("removes the owned branch when it is still checked out", async () => {
+    const runner = adapter();
+    const { checkout: observed } = await runner.observe();
+    expect(observed?.branch).toBe("feature");
+    expect(await runner.release(observed!.stateId)).toBe("released");
+    expect(existsSync(checkout)).toBe(false);
+    expect(git(repo, "branch", "--list", "feature")).toBe("");
+  });
+
+  it("preserves a checkout edited after the runner observed it", async () => {
+    put(checkout, "draft.txt", "first version");
+    const runner = adapter();
+    const { checkout: observed } = await runner.observe();
+    expect(observed?.uncommittedFiles).toEqual(["draft.txt"]);
+    put(checkout, "draft.txt", "second version");
+    expect(await runner.release(observed!.stateId)).toBe("retained");
+    expect(existsSync(path.join(checkout, "draft.txt"))).toBe(true);
+    expect(git(repo, "branch", "--list", "feature")).toContain("feature");
+  });
 });

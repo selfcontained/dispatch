@@ -27,6 +27,17 @@ vi.mock("../../src/shared/lib/run-command.js", () => ({
   runCommand: vi.fn(async () => ({ exitCode: 0, stdout: "", stderr: "" })),
 }));
 
+vi.mock("../../src/agents/checkout-inspection.js", () => ({
+  observeGitCheckout: vi.fn(async (path: string) => ({
+    path,
+    branch: null,
+    stateId: "a".repeat(64),
+    unmerged: false,
+    changedFiles: [],
+    uncommittedFiles: [],
+  })),
+}));
+
 // Stub the worktree helpers so we can (a) skip real git work during archive
 // and (b) observe what AgentManager asks us to do.
 let fixtureRoot: string;

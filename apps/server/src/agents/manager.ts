@@ -2737,7 +2737,12 @@ export class AgentManager {
 
     let observation;
     try {
-      observation = await observeArchiveCheckout(this.pool, agent, this.remote);
+      observation = await observeArchiveCheckout(
+        this.pool,
+        agent,
+        this.localRunner,
+        this.remote
+      );
     } catch {
       throw new AgentError(
         "Checkout status is unavailable on the owning runner.",
@@ -2828,6 +2833,7 @@ export class AgentManager {
             await cleanupAgentWorktree(
               this.pool,
               this.logger,
+              this.localRunner,
               agent,
               mode ?? "auto",
               {}
@@ -3022,6 +3028,7 @@ export class AgentManager {
       pool: this.pool,
       logger: this.logger,
       runtime: this.runtime,
+      localRunner: this.localRunner,
       remote: this.remote,
       diffStatsRefresher: this.diffStatsRefresher,
       getAgent: (id) => this.getAgent(id),

@@ -179,7 +179,7 @@ test.describe("Safe worktree archive", () => {
     });
   });
 
-  test("removes an unchanged clean checkout through Archive", async ({
+  test("removes a clean switched checkout and preserves the existing branch through Archive", async ({
     page,
     request,
   }, testInfo) => {
@@ -187,6 +187,15 @@ test.describe("Safe worktree archive", () => {
       name: "clean checkout archive",
       cwd: repoPath,
       useWorktree: true,
+    });
+    execSync("git branch user-owned main", { cwd: repoPath });
+    const originalTip = execSync("git rev-parse user-owned", {
+      cwd: repoPath,
+      encoding: "utf8",
+    });
+    execSync("git switch user-owned", {
+      cwd: agent.worktreePath!,
+      stdio: "ignore",
     });
     await loadApp(page);
     await page.getByTestId(`agent-expand-toggle-${agent.id}`).click();
@@ -200,6 +209,9 @@ test.describe("Safe worktree archive", () => {
     await dialog.getByTestId("delete-agent-confirm").click();
     await expect(page.getByTestId(`agent-card-${agent.id}`)).toHaveCount(0);
     expect(existsSync(agent.worktreePath!)).toBe(false);
+    expect(
+      execSync("git rev-parse user-owned", { cwd: repoPath, encoding: "utf8" })
+    ).toBe(originalTip);
   });
 
   test("keeps a dirty checkout changed between confirmation and removal", async ({

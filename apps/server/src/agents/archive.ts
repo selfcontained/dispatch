@@ -2,8 +2,6 @@ import type { FastifyBaseLogger } from "fastify";
 import type { Pool } from "pg";
 
 import { MANAGED_WORKSPACE, remotePlacement } from "@dispatch/runner-protocol";
-import { cleanupGitWorktree } from "../shared/git/worktree.js";
-import { runCommand, type CommandRunner } from "../shared/lib/run-command.js";
 import {
   archiveCheckoutState,
   nativeBorrowers,
@@ -11,6 +9,7 @@ import {
   releaseRemoteCheckout,
   rememberArchiveCheckoutState,
   type ArchiveCheckoutAgent,
+  type LocalArchiveRunner,
 } from "./archive-checkout.js";
 import type { RemoteRunnerService } from "./remote/service.js";
 import { runLifecycleHook } from "./lifecycle-hooks.js";
@@ -27,6 +26,7 @@ export type ArchiveDeps = {
   pool: Pool;
   logger: FastifyBaseLogger;
   runtime: AgentRuntime;
+  localRunner: LocalArchiveRunner;
   remote?: RemoteRunnerService;
   diffStatsRefresher: { clear(agentId: string): void } | null;
   getAgent: (id: string) => Promise<AgentRecord | null>;
@@ -70,35 +70,11 @@ async function getChildAgentIds(
   return result.rows.map((row) => row.id);
 }
 
-/**
- * git blocks indefinitely on a held index lock, and the cascade is sequential —
- * one hang would strand every sibling behind it.
- */
-const WORKTREE_CLEANUP_TIMEOUT_MS = 60_000;
-
-/** Rejects if `work` outruns `ms`, always clearing its own timer. */
-async function withTimeout<T>(
-  work: Promise<T>,
-  ms: number,
-  message: string
-): Promise<T> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  try {
-    return await Promise.race([
-      work,
-      new Promise<never>((_, reject) => {
-        timer = setTimeout(() => reject(new Error(message)), ms);
-      }),
-    ]);
-  } finally {
-    if (timer) clearTimeout(timer);
-  }
-}
-
 /** Returns whether cleanup should be retried after archive. */
 export async function cleanupAgentWorktree(
   pool: Pool,
   logger: FastifyBaseLogger,
+  localRunner: LocalArchiveRunner,
   agent: ArchiveCheckoutAgent,
   mode: WorktreeCleanupMode,
   durations: Record<string, number>,
@@ -107,73 +83,39 @@ export async function cleanupAgentWorktree(
   const { id, worktreePath } = agent;
   if (!worktreePath || remotePlacement(agent.cwd) || mode === "keep")
     return false;
-  const run = async () => {
+  try {
     const started = Date.now();
-    let expectedState = await archiveCheckoutState(pool, id);
-    const borrowers = await nativeBorrowers(pool, agent);
-    // Preserve legacy explicit force requests, which predate observation IDs.
-    if (mode === "auto" || expectedState !== null || borrowers.length) {
-      const { checkout } = await observeArchiveCheckout(pool, agent);
-      if (
-        !checkout ||
-        (expectedState !== null && expectedState !== checkout.stateId) ||
-        (mode === "auto" &&
-          (checkout.unmerged || checkout.uncommittedFiles.length))
-      )
-        return false;
-      expectedState = checkout.stateId;
-      if (borrowers.length) {
-        await rememberArchiveCheckoutState(pool, id, expectedState);
-        return true;
-      }
-    }
+    const expectedState = await archiveCheckoutState(pool, id);
+    const { checkout, borrowers } = await observeArchiveCheckout(
+      pool,
+      agent,
+      localRunner
+    );
+    if (
+      !checkout ||
+      (expectedState !== null && checkout.stateId !== expectedState) ||
+      (mode === "auto" &&
+        (checkout.unmerged || checkout.uncommittedFiles.length))
+    )
+      return false;
     durations.outstandingChangesCheck = Date.now() - started;
-    await onCleanupStart?.();
-    if ((await nativeBorrowers(pool, agent)).length) {
-      if (expectedState === null) return false;
-      await rememberArchiveCheckoutState(pool, id, expectedState);
+    if (borrowers.length) {
+      await rememberArchiveCheckoutState(pool, id, checkout.stateId);
       return true;
     }
-    // Re-read after publishing the phase, including any file edited since the
-    // confirmation. Git is run by the built-in runner on this machine.
-    if (mode === "auto" || expectedState !== null) {
-      const { checkout } = await observeArchiveCheckout(pool, agent);
-      if (
-        !checkout ||
-        (expectedState !== null && checkout.stateId !== expectedState) ||
-        (mode === "auto" &&
-          (checkout.unmerged || checkout.uncommittedFiles.length))
-      )
-        return false;
+    await onCleanupStart?.();
+    if ((await nativeBorrowers(pool, agent, checkout.path)).length) {
+      await rememberArchiveCheckoutState(pool, id, checkout.stateId);
+      return true;
     }
-    // A timed-out observation must never start removal in the background.
-    if (Date.now() - started >= WORKTREE_CLEANUP_TIMEOUT_MS) return false;
-    const boundedGit: CommandRunner = (command, args, options) =>
-      runCommand(command, args, {
-        ...options,
-        timeoutMs: options?.timeoutMs ?? WORKTREE_CLEANUP_TIMEOUT_MS,
-      });
+
     const cleanupStarted = Date.now();
-    await cleanupGitWorktree(
-      {
-        cwd: worktreePath,
-        deleteBranch:
-          !!agent.worktreeBranch &&
-          (!agent.baseBranch || agent.worktreeBranch !== agent.baseBranch),
-        force: true,
-        originalBranch: agent.worktreeBranch,
-      },
-      boundedGit
-    );
+    await localRunner.checkoutRelease(agent, {
+      kind: "release",
+      expectedState: checkout.stateId,
+    });
     durations.worktreeCleanup = Date.now() - cleanupStarted;
     return false;
-  };
-  try {
-    return await withTimeout(
-      run(),
-      WORKTREE_CLEANUP_TIMEOUT_MS,
-      "Worktree cleanup timed out"
-    );
   } catch (err) {
     logger.warn(
       { err, agentId: id, worktreePath },
@@ -202,6 +144,7 @@ async function finishCheckout(
     return cleanupAgentWorktree(
       deps.pool,
       deps.logger,
+      deps.localRunner,
       agent,
       mode,
       durations,
