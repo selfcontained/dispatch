@@ -32,6 +32,8 @@ export type EngineStatus = {
   update?: {
     realPath: string | null;
     source: string;
+    packageChannel?: string;
+    migrationWarning?: string;
     canUpdate: boolean;
     reason: string;
     command: string;

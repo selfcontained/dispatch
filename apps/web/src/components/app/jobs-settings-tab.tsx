@@ -337,10 +337,12 @@ export function SettingsTab({
             onBranchNameChange={setBranchName}
             testIdPrefix={`job-settings-${job.id}`}
           />
-          <JobFullAccessOption
-            checked={fullAccess}
-            onCheckedChange={setFullAccess}
-          />
+          {agentType !== "opencode" && (
+            <JobFullAccessOption
+              checked={fullAccess}
+              onCheckedChange={setFullAccess}
+            />
+          )}
           <JobKeepAgentOption
             checked={keepAgent}
             onCheckedChange={setKeepAgent}
@@ -439,7 +441,7 @@ export function SettingsTab({
                 useWorktree,
                 baseBranch: useWorktree ? baseBranch : null,
                 branchName: useWorktree ? branchName : null,
-                fullAccess,
+                fullAccess: agentType === "opencode" || fullAccess,
                 autoArchive: job.continuationEnabled ? true : !keepAgent,
                 callable,
                 singleton,

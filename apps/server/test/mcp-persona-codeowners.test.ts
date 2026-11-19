@@ -109,6 +109,39 @@ beforeEach(() => {
 });
 
 describe("ACP code owner launches", () => {
+  it.each(["explicit", "saved"])(
+    "blocks restricted OpenCode owner reviews selected by %s runtime",
+    async (selection) => {
+      const { handlers, agentManager } = setup(
+        selection === "saved" ? { reviewAgentType: "opencode" } : {}
+      );
+      const result = await handlers.launchOwnerReviews("parent", {
+        context: "review",
+        ...(selection === "explicit" ? { agentType: "opencode" as const } : {}),
+      });
+      expect(result.launched).toHaveLength(0);
+      expect(result.failures.length).toBeGreaterThan(0);
+      expect(
+        result.failures.every((f) =>
+          JSON.stringify(f).includes(
+            "restricted agent cannot launch full-access OpenCode"
+          )
+        )
+      ).toBe(true);
+      expect(agentManager.createAgent).not.toHaveBeenCalled();
+    }
+  );
+  it("blocks restricted direct personas using a saved OpenCode reviewer", async () => {
+    const { handlers, agentManager } = setup({ reviewAgentType: "opencode" });
+    await expect(
+      handlers.launchPersonaAgent("parent", {
+        persona: "owner-one",
+        context: "review",
+      })
+    ).rejects.toThrow(/restricted agent cannot launch full-access OpenCode/);
+    expect(agentManager.createAgent).not.toHaveBeenCalled();
+  });
+
   it("previews selected owners without launching", async () => {
     const { handlers, agentManager } = setup();
     const result = await handlers.launchOwnerReviews("parent", {

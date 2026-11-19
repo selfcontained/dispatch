@@ -28,6 +28,7 @@
         "apps/server/src/shared/git/**",
         "apps/server/src/agents/acp/**",
         "docs/opencode-acp.md",
+        "scripts/opencode-v2-smoke.mjs",
         "apps/server/src/agents/engine-*.ts",
         "apps/server/src/shared/mcp/agent-*.ts",
         "apps/server/src/routes/agents/**",

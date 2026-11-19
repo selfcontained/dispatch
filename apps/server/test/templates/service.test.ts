@@ -464,3 +464,19 @@ it.each([{ agentType: "opencode" as const }, { model: null }])(
     ).toBeNull();
   }
 );
+
+it("normalizes saved restricted templates and task runtime overrides to OpenCode full access", async () => {
+  const { resolveTemplateLaunch } =
+    await import("../../src/templates/resolve-launch.js");
+  expect(
+    resolveTemplateLaunch(
+      buildTemplate({ agentType: "opencode", fullAccess: false })
+    ).fullAccess
+  ).toBe(true);
+  expect(
+    resolveTemplateLaunch(
+      buildTemplate({ agentType: "claude", fullAccess: false }),
+      { agentType: "opencode" }
+    ).fullAccess
+  ).toBe(true);
+});

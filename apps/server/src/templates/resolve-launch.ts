@@ -50,7 +50,7 @@ export function resolveTemplateLaunch(
       model
     ),
     persona: template.persona ?? null,
-    fullAccess: template.fullAccess ?? false,
+    fullAccess: agentType === "opencode" || (template.fullAccess ?? false),
     useWorktree: workspace.useWorktree,
     baseBranch,
     branchName,

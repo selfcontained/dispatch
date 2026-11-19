@@ -413,7 +413,7 @@ describe("AcpDriver", () => {
     }
   );
 
-  it.each(["claude", "codex", "opencode"] as const)(
+  it.each(["claude", "codex"] as const)(
     "%s: restricted mode is applied on resume and requests wait for a matching user choice",
     async (engine) => {
       let result: acp.RequestPermissionResponse | undefined;

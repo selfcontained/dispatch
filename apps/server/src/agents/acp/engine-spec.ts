@@ -137,10 +137,10 @@ export function engineSpecFor(
       return {
         id: engine,
         ...adapterCommand(engine, bins),
-        // Default tool approvals go through ACP; full access auto-answers them.
-        env: { OPENCODE_PERMISSION: JSON.stringify({ "*": "ask" }) },
+        // V2 supports full access only; native effective denies still apply.
+        env: {},
         personaDelivery: "instructions_file",
-        fullAccess: { kind: fullAccess ? "permission_request" : "approval" },
+        fullAccess: { kind: "permission_request" },
         subagentTranscripts: false,
       };
     case "claude":
