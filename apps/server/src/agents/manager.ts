@@ -2529,10 +2529,9 @@ export class AgentManager {
     return async () =>
       String(
         (
-          await this.remote!.request(placement, {
+          await this.remote!.requestSession(placement, {
             kind: "repo",
             agentId: agent.id,
-            workspace: placement.workspace,
           })
         ).value ?? ""
       );

@@ -825,15 +825,10 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
             openSocket: async () => {
               await entry.events;
               return (
-                await remoteService().request(
-                  placement,
-                  {
-                    kind: "attach",
-                    agentId,
-                    workspace: placement.workspace,
-                  },
-                  true
-                )
+                await remoteService().requestSession(placement, {
+                  kind: "attach",
+                  agentId,
+                })
               ).channel!;
             },
             reconnectError: (error: unknown) => {
@@ -936,10 +931,9 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
     const placement = await placementOf(agentId);
     if (placement) {
       const response = await remoteService()
-        .request(placement, {
+        .requestSession(placement, {
           kind: "log",
           agentId,
-          workspace: placement.workspace,
         })
         .catch(() => null);
       return String(response?.value ?? "");
@@ -1017,10 +1011,9 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
           placement: _placement,
           ...launch
         } = input;
-        await remoteService().request(placement, {
+        await remoteService().requestSession(placement, {
           kind: "launch",
           agentId: input.agentId,
-          workspace: placement.workspace,
           launch,
         });
         const entry = await connect(input.agentId, LAUNCH_TIMEOUT_MS);
@@ -1158,10 +1151,9 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
       const placement = await placementOf(agentId);
       if (placement) {
         try {
-          const { value } = await remoteService().request(placement, {
+          const { value } = await remoteService().requestSession(placement, {
             kind: "alive",
             agentId,
-            workspace: placement.workspace,
           });
           return value === true;
         } catch (error) {
@@ -1497,10 +1489,9 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
     async stop(agentId, force) {
       const placement = await placementOf(agentId);
       if (placement) {
-        await remoteService().request(placement, {
+        await remoteService().requestSession(placement, {
           kind: "stop",
           agentId,
-          workspace: placement.workspace,
           force,
         });
         const entry = live.get(agentId);
@@ -1582,10 +1573,9 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
     async discard(agentId) {
       const placement = await placementOf(agentId);
       if (placement) {
-        await remoteService().request(placement, {
+        await remoteService().requestSession(placement, {
           kind: "discard",
           agentId,
-          workspace: placement.workspace,
         });
       }
       const entry = live.get(agentId);

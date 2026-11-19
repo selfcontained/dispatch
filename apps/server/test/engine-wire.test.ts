@@ -216,12 +216,36 @@ describe("engine wire integration", () => {
     expect(ack).toEqual({ ok: true });
   });
 
-  it("reports unsupported for an offline or non-engine-aware runner", async () => {
+  it("distinguishes a disconnected peer from a connected peer lacking engine management", async () => {
     const service = makeService();
     const alpha = await enroll(service, "alpha");
     const transport = remoteEngineTransport(service);
     const ack = await transport.send(alpha.created.id, { type: "status" });
-    expect(ack).toMatchObject({ ok: false, unsupported: true });
+    expect(ack).toMatchObject({
+      ok: false,
+      error: expect.stringContaining("disconnected"),
+    });
+    expect(ack).not.toHaveProperty("unsupported");
+    let received = 0;
+    const { socket } = await dialEngineRunner({
+      ...alpha,
+      workspaces: ["proof"],
+      engineManagement: false,
+      onEngine: () => {
+        received++;
+      },
+    });
+    sockets.push(socket);
+    await waitFor(() =>
+      service.available({ runner: alpha.created.id, workspace: "proof" })
+    );
+    expect(
+      await transport.send(alpha.created.id, { type: "status" })
+    ).toMatchObject({
+      ok: false,
+      unsupported: true,
+    });
+    expect(received).toBe(0);
   });
 
   it("stores and validates a pushed engine inventory, exposed via list()", async () => {

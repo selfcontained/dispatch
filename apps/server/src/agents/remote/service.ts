@@ -28,6 +28,8 @@ import {
   wireFrames,
   parseEngineInventory,
   type Command,
+  type RunnerOperation,
+  type SessionOperation,
   type EngineInventoryEntry,
   type Placement,
 } from "./protocol.js";
@@ -96,6 +98,8 @@ export type RunnerSummary = {
   workspaces: string[];
   managedWorkspace?: true;
 };
+
+export class RunnerCapabilityUnavailable extends Error {}
 
 export class RunnerRevoked extends RunnerUnavailable {
   static readonly reason =
@@ -1154,20 +1158,33 @@ export class RemoteRunnerService {
     return peer?.gate.approved() ? peer.engines : undefined;
   }
 
-  /**
-   * Any workspace this (approved, connected) peer currently advertises —
-   * for a runner-wide command like `"engine"` that needs *a* workspace
-   * for routing but has no workspace of its own. A runner with only
-   * configured folders and no managed-session support never advertises
-   * `MANAGED_WORKSPACE`, so that must never be assumed.
-   */
-  anyWorkspace(runnerId: string): string | undefined {
+  requestSession(placement: Placement, operation: SessionOperation) {
+    return this.request(
+      placement,
+      { ...operation, workspace: placement.workspace },
+      operation.kind === "attach"
+    );
+  }
+
+  async requestRunner(runnerId: string, operation: RunnerOperation) {
     const peer = this.peers.get(runnerId);
-    if (!peer?.gate.approved()) return undefined;
+    if (!peer?.gate.approved())
+      throw new RunnerUnavailable("The runner is disconnected or unavailable.");
+    if (!peer.engineManagement)
+      throw new RunnerCapabilityUnavailable(
+        "This runner does not support engine management."
+      );
+
+    // V1 requires a routable workspace and an id even for a runner-wide operation.
     for (const workspace of peer.workspaces) {
-      if (peer.gate.allows(workspace)) return workspace;
+      if (peer.gate.allows(workspace))
+        return this.request(
+          { runner: runnerId, workspace },
+          { ...operation, agentId: "@engine", workspace },
+          true
+        );
     }
-    return undefined;
+    throw new RunnerUnavailable("The runner has no available workspace.");
   }
 
   available(placement: Placement) {

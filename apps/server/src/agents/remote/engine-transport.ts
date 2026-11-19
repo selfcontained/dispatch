@@ -1,15 +1,10 @@
 import type { EngineOperationAck, EngineOperationEvent } from "./protocol.js";
-import { RunnerUnavailable, type RemoteRunnerService } from "./service.js";
+import {
+  RunnerCapabilityUnavailable,
+  type RemoteRunnerService,
+} from "./service.js";
 import type { RunnerEngineTransport } from "./engine-manager.js";
 
-/**
- * `RunnerEngineTransport` backed by the live runner wire connection: sends
- * an `"engine"` command through `RemoteRunnerService.request`, which opens
- * a channel for progress (`data` frames, NDJSON `EngineOperationEvent`
- * lines) alongside the terminal `result` frame carrying the JSON-encoded
- * ack. A runner that predates engine management never answers the
- * command, surfacing as `unsupported`.
- */
 export function remoteEngineTransport(
   service: RemoteRunnerService
 ): RunnerEngineTransport {
@@ -18,32 +13,11 @@ export function remoteEngineTransport(
       return service.engineInventorySnapshot(runnerId);
     },
     async send(runnerId, operation, onEvent) {
-      // Engine management is runner-wide, not per-workspace; the wire
-      // Command still needs *a* workspace for routing. A runner with only
-      // configured folders (no managed-session support) never advertises
-      // MANAGED_WORKSPACE, so pick whatever it actually advertises.
-      const workspace = service.anyWorkspace(runnerId);
-      if (!workspace) {
-        return {
-          ok: false,
-          error: "The runner is disconnected or unavailable.",
-          unsupported: true,
-        };
-      }
-      const placement = { runner: runnerId, workspace };
       try {
-        const { value, channel } = await service.request(
-          placement,
-          // Engine commands aren't bound to any agent; the id is a fixed,
-          // opaque placeholder the runner's "engine" branch never checks.
-          {
-            agentId: "@engine",
-            workspace,
-            kind: "engine",
-            operation,
-          },
-          true
-        );
+        const { value, channel } = await service.requestRunner(runnerId, {
+          kind: "engine",
+          operation,
+        });
         try {
           let buffer = "";
           let chunk: Buffer | null;
@@ -80,7 +54,7 @@ export function remoteEngineTransport(
           return { ok: false, error: "Malformed response from the runner." };
         }
       } catch (error) {
-        if (error instanceof RunnerUnavailable) {
+        if (error instanceof RunnerCapabilityUnavailable) {
           return { ok: false, error: error.message, unsupported: true };
         }
         return {

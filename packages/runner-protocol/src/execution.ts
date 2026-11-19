@@ -37,19 +37,18 @@ export type RemoteLaunch = {
   repository?: RunnerRepository;
 };
 
-export type Command = { agentId: string; workspace: string } & (
+export type SessionOperation = { agentId: string } & (
   | { kind: "launch"; launch: RemoteLaunch }
   | { kind: "attach" | "alive" | "discard" | "log" | "repo" }
   | { kind: "stop"; force: boolean }
-  /**
-   * Runner-wide engine install/update/sign-in — not bound to any agent or
-   * workspace binding; the runner answers it before any agent-binding
-   * checks. `workspace` only needs to name one of the runner's online
-   * workspaces, for routing. A runner that predates this never answers it,
-   * so the reply handler (service.ts, RunnerEngineTransport) treats a lost
-   * acknowledgement or error as `unsupported`.
-   */
-  | { kind: "engine"; operation: EngineOperation }
+);
+
+export type RunnerOperation = { kind: "engine"; operation: EngineOperation };
+
+/** V1 uses one envelope for both scopes. Runner operations ignore the agent id. */
+export type Command = { workspace: string } & (
+  | SessionOperation
+  | (RunnerOperation & { agentId: string })
 );
 export type ReadyFrame = {
   type: "ready";
