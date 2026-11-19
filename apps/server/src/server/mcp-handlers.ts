@@ -56,7 +56,11 @@ import type {
   SendAgentPrompt,
 } from "./mcp-handler-types.js";
 import { resolveLaunchPersona } from "../personas/resolve.js";
-import { createPersonaHandlers } from "./mcp-persona-handlers.js";
+import { remotePlacement } from "@dispatch/runner-protocol";
+import {
+  createPersonaHandlers,
+  resolveRunnerPersona,
+} from "./mcp-persona-handlers.js";
 import {
   activatePersonality,
   createPersonality,
@@ -357,14 +361,18 @@ async function handleLaunchAgent(
   if (input.templateId && !template) {
     throw new Error(`Template ${input.templateId} not found.`);
   }
+  const parentCwd = agentWorkspaceDir(parent) ?? parent.cwd;
+  const cwd = input.cwd ?? template?.directory ?? parentCwd;
+  const runnerParent = remotePlacement(parent.cwd);
+  if (runnerParent && cwd !== parent.cwd)
+    throw new AgentError(
+      "A runner agent must launch in its own runner workspace.",
+      400
+    );
   const selectedPersona = input.persona
-    ? await resolveLaunchPersona(
-        input.cwd ??
-          template?.directory ??
-          agentWorkspaceDir(parent) ??
-          parent.cwd,
-        input.persona
-      )
+    ? runnerParent
+      ? await resolveRunnerPersona(deps.agentManager, parent, input.persona)
+      : await resolveLaunchPersona(cwd, input.persona)
     : null;
   if (selectedPersona && (selectedPersona.type ?? "review") === "review") {
     if (template)
@@ -449,7 +457,6 @@ async function handleLaunchAgent(
   // explicitly at the call site still wins.
   const fromTemplate = templateWorktreeConfig(template);
 
-  const parentCwd = agentWorkspaceDir(parent) ?? parent.cwd;
   const useWorktree = input.useWorktree ?? fromTemplate.useWorktree;
   // Templates have no createNewBranch column, so the decision keys off where
   // the worktree came from: a template-supplied one follows the template's
@@ -508,10 +515,10 @@ async function handleLaunchAgent(
     throw new Error("Project template directory cannot be overridden.");
   }
 
-  const agent = await deps.agentManager.createAgent({
+  const launch: Parameters<AgentManager["createAgent"]>[0] = {
     name: input.name,
     type: agentType as (typeof CLI_AGENT_TYPES)[number],
-    cwd: input.cwd ?? template?.directory ?? parentCwd,
+    cwd,
     fullAccess,
     model,
     effort,
@@ -529,7 +536,14 @@ async function handleLaunchAgent(
     templateId: input.templateId,
     persona: input.persona ?? template?.persona ?? undefined,
     personaSource: "workspace",
-  });
+  };
+  const agent =
+    child && runnerParent
+      ? await deps.agentManager.createAgent(launch, {
+          useWorktreeOf: parent.id,
+          taskPersonaBody: selectedPersona?.body,
+        })
+      : await deps.agentManager.createAgent(launch);
 
   deps.publishUiEvent({
     type: "agent.upsert",

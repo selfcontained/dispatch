@@ -20,7 +20,15 @@ function seed(directory: string, marker: string) {
   git("init", "-b", "main");
   git("config", "user.name", "Runner review fixture");
   git("config", "user.email", "fixture@localhost");
-  mkdirSync(path.join(directory, ".agents"));
+  mkdirSync(path.join(directory, ".agents/personas"), { recursive: true });
+  writeFileSync(
+    path.join(directory, ".agents/personas/fixture-review.md"),
+    "Review the working checkout."
+  );
+  writeFileSync(
+    path.join(directory, ".agents/personas/fixture-task.md"),
+    "---\ntype: task\n---\nWork in the shared checkout."
+  );
   writeFileSync(
     path.join(directory, ".agents/owners.json"),
     JSON.stringify({
@@ -134,6 +142,33 @@ for (const placement of ["This Mac", "Linux runner"] as const) {
         "proof-reviewed-checkout",
         "Checkout marker " + marker
       );
+      for (const persona of [undefined, "fixture-review", "fixture-task"]) {
+        const reply = await callMcpToolViaAPI(request, author, "launch_agent", {
+          prompt: "proof-reviewed-checkout",
+          name: persona ?? "Ordinary child",
+          ...(persona ? { persona } : {}),
+          type: "claude",
+        });
+        const { agentId } = (
+          reply.result as { structuredContent: { agentId: string } }
+        ).structuredContent;
+        agents.push(agentId);
+        await page.goto("/agents/" + agentId, {
+          waitUntil: "domcontentloaded",
+        });
+        // Review personas receive a separate kickoff. Ask explicitly in both sessions.
+        await expect(settledTurns(page)).toHaveCount(1, { timeout: 45000 });
+        await newSettledTurn(
+          page,
+          "proof-reviewed-checkout",
+          "Checkout marker " + marker
+        );
+        await page.screenshot({
+          path: testInfo.outputPath((persona ?? "ordinary-child") + ".png"),
+        });
+        await deleteAgentViaAPI(request, agentId);
+        agents.pop();
+      }
     } finally {
       for (const id of agents.reverse()) await deleteAgentViaAPI(request, id);
       rmSync(tmp, { recursive: true, force: true });

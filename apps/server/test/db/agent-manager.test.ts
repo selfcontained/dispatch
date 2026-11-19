@@ -353,7 +353,18 @@ describe("AgentManager", () => {
           { ...launch, cwd: "runner://unrelated/@session" },
           { useWorktreeOf: parent.id }
         )
-      ).rejects.toThrow("Invalid reviewer");
+      ).rejects.toThrow("Invalid shared checkout binding");
+      await expect(
+        first.createAgent(
+          {
+            cwd,
+            parentAgentId: parent.id,
+            launchedByAgentId: parent.id,
+            fullAccess: true,
+          },
+          { useWorktreeOf: parent.id }
+        )
+      ).rejects.toThrow("Invalid child checkout binding");
       supportsSharedWorktree.mockReturnValueOnce(false);
       await expect(
         first.createAgent(launch, { useWorktreeOf: parent.id })

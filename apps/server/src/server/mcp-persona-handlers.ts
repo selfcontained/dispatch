@@ -42,6 +42,38 @@ export type CreatePersonaHandlersDeps = {
   withStreamFlag: (agent: AgentRecord) => AgentRecord & { hasStream: boolean };
 };
 
+async function readAgentCheckoutFile(
+  manager: AgentManager,
+  agent: AgentRecord,
+  path: string
+) {
+  const reply = await manager.inspectCheckout(agent, {
+    kind: "readFile",
+    path,
+  });
+  if (reply.kind !== "readFile")
+    throw new Error("Runner did not return the checkout file.");
+  return reply.content;
+}
+
+export async function resolveRunnerPersona(
+  manager: AgentManager,
+  agent: AgentRecord,
+  slug: string
+) {
+  const persona =
+    (await loadPersonaFromCheckout(slug, (path) =>
+      readAgentCheckoutFile(manager, agent, path)
+    )) ?? getBuiltInPersona(slug);
+  if (!persona)
+    throw new Error(
+      `Persona "${slug}" not found in this checkout or built-ins.`
+    );
+  if (!persona.body.trim())
+    throw new Error(`Persona "${slug}" has no instructions.`);
+  return persona;
+}
+
 export type PersonaLaunchOptions = {
   persona: string;
   /** The briefing the launcher wrote: what was built, what to look at. */
@@ -163,6 +195,23 @@ export function createPersonaHandlers(deps: CreatePersonaHandlersDeps) {
   ) {
     const parent = await agentManager.getAgent(parentId);
     if (!parent) throw new Error("Parent agent not found.");
+    if (remotePlacement(parent.cwd)) {
+      return launchReviewer(
+        parent,
+        opts,
+        () =>
+          prepareReviewLaunch(
+            parent,
+            opts,
+            parent.cwd,
+            false,
+            () =>
+              opts.resolvedPersona ??
+              resolveRunnerPersona(agentManager, parent, opts.persona)
+          ),
+        parent.id
+      );
+    }
     return launchReviewer(parent, opts, () =>
       preparePersonaLaunch(parent, opts)
     );
@@ -246,15 +295,8 @@ export function createPersonaHandlers(deps: CreatePersonaHandlersDeps) {
     if (!parent) throw new Error("Parent agent not found.");
     const changes = await inspectReviewChanges(parent);
     const reviewedState = { head: changes.head, stateId: changes.stateId };
-    const readCheckoutFile = async (path: string) => {
-      const reply = await agentManager.inspectCheckout(parent, {
-        kind: "readFile",
-        path,
-      });
-      if (reply.kind !== "readFile")
-        throw new Error("Runner did not return the checkout file.");
-      return reply.content;
-    };
+    const readCheckoutFile = (path: string) =>
+      readAgentCheckoutFile(agentManager, parent, path);
     let ownersPath = OWNERS_PATH;
     let content = await readCheckoutFile(ownersPath);
     if (content === null) {

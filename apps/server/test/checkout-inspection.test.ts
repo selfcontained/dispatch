@@ -329,6 +329,15 @@ exec "$CHECKOUT_TEST_GIT" "$@"
     ).rejects.toThrow(/origin\/main/);
   });
 
+  it("reads a scratch-session persona without requiring a repository", async () => {
+    const path = ".agents/personas/scratch.md";
+    put(fixture, path, "Scratch reviewer");
+    expect(await inspect(fixture, { kind: "readFile", path })).toEqual({
+      kind: "readFile",
+      content: "Scratch reviewer",
+    });
+  });
+
   it("fails with a Git diagnostic outside a worktree", async () => {
     await expect(
       inspect(fixture, { kind: "changes", baseBranch: "main" })

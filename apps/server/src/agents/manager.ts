@@ -1391,8 +1391,9 @@ export class AgentManager {
     input: CreateAgentInput,
     options: {
       detachLaunch?: boolean;
-      /** Trusted owner review launch, never accepted from an HTTP launch payload. */
+      /** Trusted shared-checkout launch, never accepted from an HTTP launch payload. */
       useWorktreeOf?: string;
+      taskPersonaBody?: string;
       /** Commit owner state before the engine can discover tools or run a turn. */
       beforeLaunch?: (agentId: string) => Promise<void>;
     } = {}
@@ -1403,23 +1404,32 @@ export class AgentManager {
       const owner = await this.getAgent(useWorktreeOf);
       if (
         !owner ||
-        input.role !== "review" ||
         input.launchedByAgentId !== owner.id ||
         !input.parentAgentId ||
-        !input.persona ||
         input.repository ||
         input.useWorktree ||
         (input.cwd !== owner.cwd && input.cwd !== reviewerWorkspace(owner)) ||
         (input.projectId !== undefined && input.projectId !== owner.projectId)
       )
-        throw new AgentError("Invalid reviewer checkout binding.", 400);
-      const reviewerParent =
+        throw new AgentError("Invalid shared checkout binding.", 400);
+      if (input.role === "review") {
+        if (!input.persona)
+          throw new AgentError("Missing reviewer persona.", 400);
+      } else if (
+        input.parentAgentId !== owner.id ||
+        !remotePlacement(owner.cwd) ||
+        (input.fullAccess && !owner.fullAccess) ||
+        (input.persona && !options.taskPersonaBody)
+      ) {
+        throw new AgentError("Invalid child checkout binding.", 400);
+      }
+      const displayParent =
         input.parentAgentId === owner.id
           ? owner
           : await this.getAgent(input.parentAgentId);
-      if (!reviewerParent || reviewerParent.projectId !== owner.projectId)
+      if (!displayParent || displayParent.projectId !== owner.projectId)
         throw new AgentError(
-          "Review parent must belong to the requester's project.",
+          "Display parent must belong to the requester's project.",
           400
         );
       input.cwd = reviewerWorkspace(owner);
@@ -1469,7 +1479,7 @@ export class AgentManager {
       }
       if (useWorktreeOf && !this.remote.supportsSharedWorktree(placement))
         throw new AgentError(
-          "Update the runner to launch a reviewer in an existing checkout.",
+          "Update the runner to launch an agent in an existing checkout.",
           409
         );
       input.useWorktree = false;
@@ -1544,20 +1554,21 @@ export class AgentManager {
       if (matches.length === 1) input.projectId = matches[0]!.id;
     }
     const taskPersona = Boolean(input.persona && input.role !== "review");
+    const taskPersonaBody = async () =>
+      options.taskPersonaBody ??
+      (
+        await resolveLaunchPersona(
+          input.cwd,
+          input.persona!,
+          "task",
+          input.personaSource ?? "catalog"
+        )
+      ).body;
     if (taskPersona && !options.detachLaunch) {
-      const persona = await resolveLaunchPersona(
-        input.cwd,
-        input.persona!,
-        "task",
-        input.personaSource ?? "catalog"
-      );
+      const body = await taskPersonaBody();
       input = {
         ...input,
-        agentArgs: [
-          ...(input.agentArgs ?? []),
-          PERSONA_CONTEXT_ARG,
-          persona.body,
-        ],
+        agentArgs: [...(input.agentArgs ?? []), PERSONA_CONTEXT_ARG, body],
       };
     }
     const runnerRepository = repository?.url
@@ -1651,21 +1662,12 @@ export class AgentManager {
       preparePersona:
         taskPersona && options.detachLaunch
           ? async () => {
-              const persona = await resolveLaunchPersona(
-                input.cwd,
-                input.persona!,
-                "task",
-                input.personaSource ?? "catalog"
-              );
+              const body = await taskPersonaBody();
               const result = await this.pool.query(
                 "UPDATE agents SET agent_args = $2::jsonb, updated_at = NOW() WHERE id = $1 AND status = 'creating' RETURNING id",
                 [
                   p.id,
-                  JSON.stringify([
-                    ...p.agentArgs,
-                    PERSONA_CONTEXT_ARG,
-                    persona.body,
-                  ]),
+                  JSON.stringify([...p.agentArgs, PERSONA_CONTEXT_ARG, body]),
                 ]
               );
               if (!result.rowCount)
@@ -2257,18 +2259,17 @@ export class AgentManager {
         "The runner workspace mode changed since this agent was created.",
         409
       );
-    const binding =
-      placement && (agent.runnerManaged || agent.role === "review")
-        ? (
-            await this.pool.query<{
-              runner_repository: RunnerRepository | null;
-              runner_worktree_owner: string | null;
-            }>(
-              "SELECT runner_repository, runner_worktree_owner FROM agents WHERE id = $1",
-              [agent.id]
-            )
-          ).rows[0]
-        : undefined;
+    const binding = placement
+      ? (
+          await this.pool.query<{
+            runner_repository: RunnerRepository | null;
+            runner_worktree_owner: string | null;
+          }>(
+            "SELECT runner_repository, runner_worktree_owner FROM agents WHERE id = $1",
+            [agent.id]
+          )
+        ).rows[0]
+      : undefined;
     return this.runtime.launch({
       agentId: agent.id,
       repository: binding?.runner_repository ?? undefined,

@@ -22,7 +22,7 @@ The outer protocol already covers launch, attach, liveness, stop, discard, log t
 
 - Check a new branch, a direct existing branch, a busy branch, a missing package manager and a retry after partial setup. In the field test a valid checkout still lacked dependencies and the guest install exited 137. [Workspace preparation](../../apps/server/src/agents/workspace-prep.ts) · [File seeding](../../apps/server/src/agents/file-seed.ts) · [Runner Git](../../apps/server/src/agents/remote/repository.ts)
 
-**Track the effective checkout.** **Present for owner reviews.** A reviewer can borrow the author’s effective checkout by opaque agent ID on This Mac or on a capable Linux runner. Each reviewer has its own session. A managed runner retains the checkout until its owner and borrowers have released it. General child launches and workspace moves still need parity coverage.
+**Track the effective checkout.** **Present for shared child launches.** An ordinary child or reviewer can borrow the author’s effective checkout by opaque agent ID on This Mac or on a capable Linux runner. Each child has its own session. A managed runner retains the checkout until its owner and borrowers have released it. Independent worktrees and workspace moves still need parity coverage.
 
 - Launch a child in the author’s current checkout and another in a separate checkout. Reviewers keep separate sessions and see the author’s uncommitted files. A cross-runner reference is rejected. [Workspace selection](../../apps/server/src/agents/workspace-target.ts) · [Child launch options](../../apps/server/src/shared/mcp/agent-launch-tools.ts) · [Runner supervisor](../../apps/server/src/agents/remote/session-supervisor.ts)
 

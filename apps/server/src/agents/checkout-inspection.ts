@@ -1,7 +1,13 @@
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import { constants } from "node:fs";
-import { lstat, open, readlink, type FileHandle } from "node:fs/promises";
+import {
+  lstat,
+  open,
+  readlink,
+  realpath,
+  type FileHandle,
+} from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 import {
@@ -33,7 +39,12 @@ const execFileAsync = promisify(execFile);
 const run: CommandRunner = async (command, args, options = {}) => {
   const { stdout, stderr, exitCode } = await execFileAsync(command, args, {
     cwd: options.cwd,
-    env: { ...process.env, GIT_TERMINAL_PROMPT: "0", GH_PROMPT_DISABLED: "1" },
+    env: {
+      ...process.env,
+      LC_ALL: "C",
+      GIT_TERMINAL_PROMPT: "0",
+      GH_PROMPT_DISABLED: "1",
+    },
     maxBuffer: MAX_REPLY_BYTES,
     timeout: options.timeoutMs ?? 5_000,
     killSignal: "SIGKILL",
@@ -393,11 +404,18 @@ export async function inspectCheckout(
 ): Promise<CheckoutReply> {
   const validated = parseQuery(query);
   // Preserve whitespace in the root, removing only Git's terminating newline.
-  const { stdout } = await run("git", ["rev-parse", "--show-toplevel"], {
+  const probe = await run("git", ["rev-parse", "--show-toplevel"], {
     cwd,
     trimOutput: false,
+    allowedExitCodes: validated.kind === "readFile" ? [0, 128] : [0],
   });
-  const root = stdout.replace(/\n$/, "");
+  if (probe.exitCode && !probe.stderr.startsWith("fatal: not a git repository"))
+    throw new Error(
+      `Could not resolve checkout root: ${probe.stderr.slice(0, MAX_ERROR_BYTES)}`
+    );
+  const root = probe.exitCode
+    ? await realpath(cwd)
+    : probe.stdout.replace(/\n$/, "");
   if (!path.isAbsolute(root))
     throw new Error("Could not resolve checkout root");
   const reply: CheckoutReply =
