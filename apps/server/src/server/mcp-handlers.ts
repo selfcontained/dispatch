@@ -1,6 +1,6 @@
 import { validateAgentEffort } from "../shared/agent-effort.js";
 import path from "node:path";
-import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
+import { mkdir, unlink, writeFile } from "node:fs/promises";
 
 import type { FastifyBaseLogger } from "fastify";
 import type { Pool } from "pg";
@@ -682,9 +682,10 @@ async function handleShareFile(
   if (!agent) throw new Error("Agent not found.");
 
   if (opts.update) assertValidStoredFileName(opts.update);
-  const buffer = remotePlacement(agent.cwd)
-    ? await deps.agentManager.collectRunnerFile(agent, opts.filePath)
-    : await readFile(opts.filePath);
+  const buffer = await deps.agentManager.collectSessionFile(
+    agent,
+    opts.filePath
+  );
   // Typed against the name it will be stored and shown under.
   const type = detectFileType(
     buffer,

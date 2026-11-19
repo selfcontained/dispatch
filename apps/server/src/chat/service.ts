@@ -5284,9 +5284,7 @@ export class StreamService {
           attachment.fileName
         ),
         mimeType: attachment.mimeType ?? "application/octet-stream",
-        ...(remote && {
-          runnerName: this.runnerInputName(attachment, owner, recipientId),
-        }),
+        runnerName: this.runnerInputName(attachment, owner, recipientId),
       });
     }
     return images;

@@ -30,15 +30,18 @@ attach from, or the owner-independent authenticated file-ID metadata lookup.
 ## Runner sessions
 
 Dispatch keeps the authoritative bytes and attachment records on the host.
-Local sessions continue to read the shared directory directly. On runners
-that advertise session file transfer, startup files and prompt attachments are
-copied into the receiving workload's `DISPATCH_FILES_DIR`. Input paths in
-remote prompts refer to that directory. Image attachments also become native
-ACP image blocks on adapters that accept them, subject to the existing
-native-image limits.
+The built-in runner delivers startup files and prompt images by reusing their
+registered host paths. On remote runners that advertise session file transfer,
+startup files and prompt attachments are copied into the receiving workload's
+`DISPATCH_FILES_DIR`. Input paths in remote prompts refer to that directory.
+Image attachments also become native ACP image blocks on adapters that accept
+them, subject to the existing native-image limits.
 
 When an agent posts an attachment by path, Dispatch collects a complete
 copy before registering the file. Remote paths can point into the session
-files directory or its effective checkout. Relative paths resolve inside
-the checkout. Remote transfers support regular files up to 20 MiB. Browser
+files directory or its effective checkout. Relative remote paths resolve
+inside the checkout. Local paths can also point to ordinary files such as
+screenshots in `/tmp`. The built-in runner refuses paths into another
+session's private files or Dispatch's agent state directory, including aliases
+that resolve there. Both runners collect regular files up to 20 MiB. Browser
 URLs still resolve to the Dispatch copy after the runner session is archived.

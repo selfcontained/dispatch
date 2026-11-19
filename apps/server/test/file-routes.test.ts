@@ -1,4 +1,13 @@
-import { mkdir, writeFile, rm, readdir } from "node:fs/promises";
+import { MAX_SESSION_FILE_BYTES } from "@dispatch/runner-protocol";
+import {
+  mkdir,
+  mkdtemp,
+  writeFile,
+  rm,
+  readdir,
+  symlink,
+  truncate,
+} from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
 import jpeg from "jpeg-js";
@@ -15,7 +24,10 @@ afterAll(async () => {
 });
 
 const ctx = useInjectApp({
-  env: { DISPATCH_FILES_ROOT: filesRoot },
+  env: {
+    DISPATCH_FILES_ROOT: filesRoot,
+    DISPATCH_AGENT_STATE_ROOT: path.join(filesRoot, ".session-state"),
+  },
 });
 
 async function authedInject(
@@ -107,6 +119,96 @@ beforeEach(async () => {
   await ctx.pool.query("DELETE FROM agents");
   const agent = await createAgent();
   agentId = agent.id;
+});
+
+describe("native MCP path attachments", () => {
+  it("collects files from the session and /tmp, and refuses private paths and oversized outputs", async () => {
+    const foreign = await createAgent("files-test-foreign");
+    const own = path.join(filesRoot, agentId, "own.txt");
+    const foreignPath = path.join(filesRoot, foreign.id, "foreign.txt");
+    await writeFile(own, "own session output");
+    await writeFile(foreignPath, "foreign session output");
+    const scratch = await mkdtemp("/tmp/dispatch-native-file-test-");
+    const {
+      rows: [{ value: token }],
+    } = await ctx.pool.query<{ value: string }>(
+      "SELECT value FROM settings WHERE key = 'auth_token'"
+    );
+    const post = async (file: string) => {
+      const response = await ctx.app.inject({
+        method: "POST",
+        url: `/api/mcp/${agentId}`,
+        headers: {
+          authorization: `Bearer ${ctx.auth.createAgentMcpToken(token, agentId)}`,
+          accept: "application/json, text/event-stream",
+          "content-type": "application/json",
+        },
+        payload: {
+          jsonrpc: "2.0",
+          id: 1,
+          method: "tools/call",
+          params: {
+            name: "post",
+            arguments: {
+              text: "File result",
+              attachments: [{ type: "file", path: file }],
+            },
+          },
+        },
+      });
+      expect(response.statusCode).toBe(200);
+      const data = response.body
+        .split("\n")
+        .find((line) => line.startsWith("data: "));
+      return JSON.parse(data!.slice(6)).result as {
+        isError?: boolean;
+        content: Array<{ text: string }>;
+      };
+    };
+    try {
+      const temporary = path.join(scratch, "temporary.txt");
+      const large = path.join(scratch, "large.txt");
+      const alias = path.join(scratch, "alias.txt");
+      const custom = path.join(scratch, "legacy-files");
+      const legacy = path.join(custom, "legacy.txt");
+      const stateDir = path.join(filesRoot, ".session-state", agentId);
+      const stateFile = path.join(stateDir, "state.txt");
+      await mkdir(stateDir, { recursive: true });
+      await writeFile(stateFile, "session state");
+      await writeFile(temporary, "temporary output");
+      await writeFile(large, "");
+      await truncate(large, MAX_SESSION_FILE_BYTES + 1);
+      await symlink(foreignPath, alias);
+      await mkdir(custom);
+      await writeFile(legacy, "foreign legacy output");
+      await ctx.pool.query("UPDATE agents SET files_dir = $2 WHERE id = $1", [
+        foreign.id,
+        custom,
+      ]);
+      for (const output of [own, temporary]) {
+        expect((await post(output)).isError).not.toBe(true);
+      }
+      for (const output of [
+        foreignPath,
+        alias,
+        legacy,
+        stateFile,
+        large,
+        `${scratch}/../${path.basename(scratch)}/temporary.txt`,
+      ]) {
+        const result = await post(output);
+        expect(result.isError, output).toBe(true);
+        if (output === large)
+          expect(result.content[0]?.text).toContain("20 MiB");
+      }
+      expect(
+        (await authedInject("GET", `/api/v1/agents/${agentId}/files`)).json()
+          .files
+      ).toHaveLength(2);
+    } finally {
+      await rm(scratch, { recursive: true, force: true });
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------

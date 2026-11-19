@@ -226,7 +226,11 @@ describe("StreamService.recordLaunchContext", () => {
       files: [{ fileId }],
     });
     expect(prepared?.images).toEqual([
-      { path: `/files-root/${A}/native.png`, mimeType: "image/png" },
+      {
+        path: `/files-root/${A}/native.png`,
+        mimeType: "image/png",
+        runnerName: "native.png",
+      },
     ]);
   });
 

@@ -1,4 +1,4 @@
-import { readSessionFile } from "./remote/session-files.js";
+import { readSessionFile } from "../files/session-file.js";
 import { readAgentView } from "./checkout-runner.js";
 import type { CheckoutView } from "@dispatch/runner-protocol";
 import { AttentionHistory } from "../notifications/attention-history.js";
@@ -720,12 +720,31 @@ export class AgentManager {
     this.cancelSchedules = cancel;
   }
 
-  async collectRunnerFile(
+  async collectSessionFile(
     agent: AgentRecord,
     filePath: string
   ): Promise<Buffer> {
     const placement = remotePlacement(agent.cwd);
-    if (!placement || !this.remote || !isSessionFilePath(filePath))
+    if (!placement) {
+      const { rows } = await this.pool.query<{ id: string; files_dir: string }>(
+        `SELECT id, files_dir FROM agents
+          WHERE id <> $1 AND files_dir IS NOT NULL
+            AND files_dir <> ($2 || '/' || id)`,
+        [agent.id, this.config.filesRoot]
+      );
+      return this.localRunner.collectSessionFile(agent.id, filePath, {
+        root: this.config.filesRoot,
+        ownDir: resolveFilesDir(
+          agent.id,
+          agent.filesDir,
+          this.config.filesRoot
+        ),
+        otherDirs: rows.map((row) =>
+          resolveFilesDir(row.id, row.files_dir, this.config.filesRoot)
+        ),
+      });
+    }
+    if (!this.remote || !isSessionFilePath(filePath))
       throw new AgentError("Invalid runner session file path.", 400);
     const { value } = await this.remote.requestSession(placement, {
       agentId: agent.id,
@@ -737,38 +756,60 @@ export class AgentManager {
     return Buffer.from(value, "base64");
   }
 
+  private async deliverSessionFile(
+    agent: AgentRecord,
+    source: string,
+    name: string
+  ) {
+    const placement = remotePlacement(agent.cwd);
+    if (!placement)
+      return this.localRunner.deliverSessionFile(agent.id, source);
+    if (!this.remote) throw new Error("Runner session is unavailable.");
+    const bytes = await readSessionFile(
+      await realpath(path.dirname(source)),
+      path.basename(source)
+    );
+    const { value } = await this.remote.requestSession(placement, {
+      agentId: agent.id,
+      kind: "sessionFile",
+      operation: { kind: "deliver", name, data: bytes.toString("base64") },
+    });
+    if (!isSessionFilePath(value) || !path.posix.isAbsolute(value))
+      throw new Error("Invalid runner input file location.");
+    return value;
+  }
+
   private async preparePromptFiles(
     id: string,
     images: PromptImage[]
   ): Promise<PromptImage[]> {
     if (!images.some((image) => image.runnerName !== undefined)) return images;
     const agent = await this.getRequiredAgent(id);
-    const placement = remotePlacement(agent.cwd);
-    if (!placement || !this.remote)
-      throw new Error("Runner session is unavailable.");
     const prepared: PromptImage[] = [];
     const delivered = new Map<string, string>();
     for (const { path: source, mimeType, runnerName } of images) {
-      if (runnerName === undefined) continue;
-      let destination = delivered.get(runnerName);
+      if (runnerName === undefined) {
+        prepared.push({ path: source, mimeType });
+        continue;
+      }
+      let destination = delivered.get(source);
       if (destination === undefined) {
-        const bytes = await readSessionFile(
-          await realpath(path.dirname(source)),
-          path.basename(source)
-        );
-        const { value } = await this.remote.requestSession(placement, {
-          agentId: id,
-          kind: "sessionFile",
-          operation: {
-            kind: "deliver",
-            name: runnerName,
-            data: bytes.toString("base64"),
-          },
-        });
-        if (!isSessionFilePath(value) || !path.posix.isAbsolute(value))
-          throw new Error("Invalid runner input file location.");
-        destination = value;
-        delivered.set(runnerName, destination);
+        try {
+          destination = await this.deliverSessionFile(
+            agent,
+            source,
+            runnerName
+          );
+        } catch (error) {
+          // Native prompts historically retain a reference if an image is gone.
+          if (remotePlacement(agent.cwd)) throw error;
+          this.logger.warn(
+            { err: error, agentId: id },
+            "Native prompt file is unavailable"
+          );
+          continue;
+        }
+        delivered.set(source, destination);
       }
       if (
         ["image/png", "image/jpeg", "image/webp", "image/gif"].includes(
@@ -2232,21 +2273,21 @@ export class AgentManager {
       const remote = remotePlacement(agent.cwd);
       let images = chatLaunchPost?.images;
       try {
-        if (remote) {
+        if (opts.initialFiles.length || images?.length) {
           const filesDir = resolveFilesDir(
             id,
             agent.filesDir,
             this.config.filesRoot
           );
-          images = await this.preparePromptFiles(
-            id,
-            images ??
-              opts.initialFiles.map((file) => ({
-                path: path.join(filesDir, file.fileName),
-                runnerName: file.fileName,
-                mimeType: "application/octet-stream",
-              }))
-          );
+          const inputs = [...(images ?? [])];
+          const sources = new Set(inputs.map((image) => image.path));
+          for (const file of opts.initialFiles) {
+            const source = path.join(filesDir, file.fileName);
+            if (!sources.has(source)) {
+              await this.deliverSessionFile(agent, source, file.fileName);
+            }
+          }
+          images = await this.preparePromptFiles(id, inputs);
         }
       } catch (error) {
         await this.runtime

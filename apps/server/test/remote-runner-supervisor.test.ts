@@ -25,7 +25,7 @@ import {
   type SessionIdentity,
   type SessionProcesses,
 } from "../src/agents/remote/session-processes.js";
-import { readSessionFile } from "../src/agents/remote/session-files.js";
+import { readSessionFile } from "../src/files/session-file.js";
 import { createSessionSupervisor } from "../src/agents/remote/session-supervisor.js";
 
 import {

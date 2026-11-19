@@ -219,7 +219,8 @@ const agent = {
           params.prompt,
           { mcpServers: mcpBySession.get(params.sessionId) },
           Client,
-          StreamableHTTPClientTransport
+          StreamableHTTPClientTransport,
+          "/tmp"
         );
         return { stopReason: "end_turn" };
       }

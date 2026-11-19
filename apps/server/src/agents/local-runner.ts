@@ -13,7 +13,15 @@ import net from "node:net";
 import path from "node:path";
 import type { Duplex } from "node:stream";
 import type { FastifyBaseLogger } from "fastify";
-import type { SessionLifecycleOperation } from "@dispatch/runner-protocol";
+import {
+  isSessionFileName,
+  isSessionFilePath,
+  type SessionLifecycleOperation,
+} from "@dispatch/runner-protocol";
+import {
+  openBoundedSessionFile,
+  readSessionFile,
+} from "../files/session-file.js";
 import {
   killOwnedProcesses,
   ownedEnvironment,
@@ -81,6 +89,26 @@ function signalGroup(pid: number, signal: NodeJS.Signals): void {
   }
 }
 
+function containsPath(directory: string, file: string) {
+  const compare = (value: string) =>
+    process.platform === "darwin"
+      ? value.normalize("NFC").toLowerCase()
+      : value;
+  const relative = path.relative(compare(directory), compare(file));
+  return (
+    relative !== ".." &&
+    !relative.startsWith(".." + path.sep) &&
+    !path.isAbsolute(relative)
+  );
+}
+
+function realpathIfPresent(directory: string) {
+  return realpath(directory).catch((error: NodeJS.ErrnoException) => {
+    if (error.code !== "ENOENT") throw error;
+    return null;
+  });
+}
+
 /** In-process implementation of runner lifecycle operations for native agent hosts.
  * The native workload and the host service share an OS account. State
  * paths and host sockets must stay compatible with hosts from earlier versions.
@@ -99,6 +127,63 @@ export function createLocalRunner(
       throw new Error("Invalid agent state directory");
     return path.join(agentStateRoot, agentId);
   }
+  async function deliverSessionFile(agentId: string, source: string) {
+    stateDir(agentId);
+    // The service resolved this registered attachment for the receiving
+    // session. The existing host file is already visible to the workload.
+    const name = path.basename(source);
+    if (!isSessionFileName(name))
+      throw new Error("Invalid session input file.");
+    const { file } = await openBoundedSessionFile(
+      await realpath(path.dirname(source)),
+      name
+    );
+    await file.close();
+    return source;
+  }
+
+  async function collectSessionFile(
+    agentId: string,
+    source: string,
+    files: { root: string; ownDir: string; otherDirs: string[] }
+  ) {
+    stateDir(agentId);
+    if (!isSessionFilePath(source))
+      throw new Error("Invalid session output file path.");
+    // Follow native aliases such as macOS /tmp, then open the resolved path
+    // without following any links that appear after authorization.
+    const requested = path.resolve(source);
+    const [target, root, state] = await Promise.all([
+      realpath(requested),
+      realpathIfPresent(files.root),
+      realpathIfPresent(agentStateRoot),
+    ]);
+    // Derive the permitted canonical child from the root. Resolving ownDir
+    // separately would let a symlink to a different session claim its files.
+    const ownRelative = path.relative(files.root, files.ownDir);
+    const ownInRoot = containsPath(files.root, files.ownDir);
+    if (
+      containsPath(agentStateRoot, requested) ||
+      (state && containsPath(state, target)) ||
+      (containsPath(files.root, requested) &&
+        !containsPath(files.ownDir, requested)) ||
+      (root &&
+        containsPath(root, target) &&
+        (!ownInRoot || !containsPath(path.join(root, ownRelative), target)))
+    ) {
+      throw new Error("File path is outside the session's permitted files.");
+    }
+    for (const other of files.otherDirs) {
+      const canonical = await realpathIfPresent(other);
+      if (
+        containsPath(other, requested) ||
+        (canonical && containsPath(canonical, target))
+      )
+        throw new Error("File path is outside the session's permitted files.");
+    }
+    return readSessionFile(path.dirname(target), path.basename(target));
+  }
+
   const workspace = createWorkspacePreparation(logger);
   async function launch(input: HostLaunch) {
     const dir = stateDir(input.agentId);
@@ -252,6 +337,8 @@ export function createLocalRunner(
   }
   return {
     requestSession,
+    deliverSessionFile,
+    collectSessionFile,
     checkoutRelease: localCheckoutRelease,
     resolveLaunchDirectory,
     canonicalPath: (directory: string) => realpath(directory).catch(() => null),

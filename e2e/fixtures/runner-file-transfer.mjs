@@ -1,4 +1,4 @@
-import { readFile, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 export async function proveFileTransfer(
@@ -6,22 +6,18 @@ export async function proveFileTransfer(
   blocks,
   session,
   Client,
-  Transport
+  Transport,
+  nativeTempRoot
 ) {
   const image = blocks.find((block) => block.type === "image");
   const reference = /- file: (.+) \(image\/png,/.exec(text)?.[1];
   if (!reference || !image)
     throw new Error("Missing prompt image or file reference");
-  const output = path.join(
-    process.env.DISPATCH_FILES_DIR,
-    "transfer-output.png"
-  );
   const input = await readFile(
     reference.replace("$DISPATCH_FILES_DIR", process.env.DISPATCH_FILES_DIR)
   );
   if (!input.equals(Buffer.from(image.data, "base64")))
     throw new Error("Image and on-machine file differ");
-  await writeFile(output, input);
 
   const endpoint = session.mcpServers.find(
     (entry) => "url" in entry && "headers" in entry
@@ -37,7 +33,17 @@ export async function proveFileTransfer(
       },
     })
   );
+  let temporary;
   try {
+    if (nativeTempRoot)
+      temporary = await mkdtemp(
+        path.join(nativeTempRoot, "dispatch-transfer-output-")
+      );
+    const output = path.join(
+      temporary ?? process.env.DISPATCH_FILES_DIR,
+      "transfer-output.png"
+    );
+    await writeFile(output, input);
     const post = await client.callTool({
       name: "post",
       arguments: {
@@ -48,5 +54,6 @@ export async function proveFileTransfer(
     if (post.isError) throw new Error(JSON.stringify(post.content));
   } finally {
     await client.close();
+    if (temporary) await rm(temporary, { recursive: true, force: true });
   }
 }

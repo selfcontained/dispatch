@@ -65,7 +65,6 @@ vi.mock("../src/shared/files.js", async (importOriginal) => ({
 }));
 
 vi.mock("node:fs/promises", () => ({
-  readFile: vi.fn(async () => Buffer.from("file-content")),
   writeFile: vi.fn(async () => {}),
   mkdir: vi.fn(async () => {}),
   unlink: vi.fn(async () => {}),
@@ -83,7 +82,7 @@ import {
 import { GENERIC_REVIEW_PERSONA_SLUG } from "../src/personas/built-in.js";
 import { getEnabledAgentTypes } from "../src/agent-type-settings.js";
 import { resolveFilesDir } from "../src/shared/files.js";
-import { readFile, writeFile } from "node:fs/promises";
+import { writeFile } from "node:fs/promises";
 import { BINARY_BYTES, PNG_BYTES } from "./helpers/file-bytes.js";
 
 function templateRecord(overrides: Record<string, unknown> = {}) {
@@ -111,6 +110,9 @@ function createMockDeps() {
     pool: { query: vi.fn(async () => ({ rows: [] })) } as any,
     filesRoot: "/tmp/files",
     agentManager: {
+      collectSessionFile: vi.fn(async (_agent, _source) =>
+        Buffer.from("file-content")
+      ),
       getAgent: vi.fn(async () => ({
         id: "agt_test1",
         name: "test-agent",
@@ -2456,7 +2458,7 @@ describe("createMcpHandlers", () => {
     it.each([230, 231])(
       "imports a %i-byte name with a bounded timestamp suffix",
       async (length) => {
-        vi.mocked(readFile).mockResolvedValueOnce(PNG_BYTES);
+        deps.agentManager.collectSessionFile.mockResolvedValueOnce(PNG_BYTES);
         const result = await handlers.shareFile("agt_test1", {
           filePath: "/tmp/source.png",
           name: `${"a".repeat(length - 4)}.png`,
@@ -2472,7 +2474,7 @@ describe("createMcpHandlers", () => {
     );
 
     it("rejects an oversized import before writing or registering", async () => {
-      vi.mocked(readFile).mockResolvedValueOnce(PNG_BYTES);
+      deps.agentManager.collectSessionFile.mockResolvedValueOnce(PNG_BYTES);
       await expect(
         handlers.shareFile("agt_test1", {
           filePath: "/tmp/source.png",
@@ -2500,7 +2502,7 @@ describe("createMcpHandlers", () => {
     );
 
     it("rejects contents that are no type Dispatch stores", async () => {
-      vi.mocked(readFile).mockResolvedValueOnce(BINARY_BYTES);
+      deps.agentManager.collectSessionFile.mockResolvedValueOnce(BINARY_BYTES);
       await expect(
         handlers.shareFile("agt_test1", {
           filePath: "/tmp/file.exe",
@@ -2520,7 +2522,9 @@ describe("createMcpHandlers", () => {
     });
 
     it("rejects a name that promises a type its contents are not", async () => {
-      vi.mocked(readFile).mockResolvedValueOnce(Buffer.from("not an image"));
+      deps.agentManager.collectSessionFile.mockResolvedValueOnce(
+        Buffer.from("not an image")
+      );
       await expect(
         handlers.shareFile("agt_test1", {
           filePath: "/tmp/shot.png",
@@ -2530,7 +2534,7 @@ describe("createMcpHandlers", () => {
     });
 
     it("creates new file entry, typed from its bytes, and publishes event", async () => {
-      vi.mocked(readFile).mockResolvedValueOnce(PNG_BYTES);
+      deps.agentManager.collectSessionFile.mockResolvedValueOnce(PNG_BYTES);
       const result = await handlers.shareFile("agt_test1", {
         filePath: "/tmp/shot.png",
         description: "a screenshot",
@@ -2549,7 +2553,9 @@ describe("createMcpHandlers", () => {
     });
 
     it("uses text source for text files", async () => {
-      vi.mocked(readFile).mockResolvedValueOnce(Buffer.from("# Notes"));
+      deps.agentManager.collectSessionFile.mockResolvedValueOnce(
+        Buffer.from("# Notes")
+      );
       const result = await handlers.shareFile("agt_test1", {
         filePath: "/tmp/notes.md",
         description: "notes",
@@ -2558,7 +2564,7 @@ describe("createMcpHandlers", () => {
     });
 
     it("updates existing file when update option is provided", async () => {
-      vi.mocked(readFile).mockResolvedValueOnce(PNG_BYTES);
+      deps.agentManager.collectSessionFile.mockResolvedValueOnce(PNG_BYTES);
       deps.pool.query.mockResolvedValueOnce({
         rows: [{ file_name: "existing.png" }],
       });
@@ -2575,7 +2581,7 @@ describe("createMcpHandlers", () => {
     });
 
     it("throws when update target not found", async () => {
-      vi.mocked(readFile).mockResolvedValueOnce(PNG_BYTES);
+      deps.agentManager.collectSessionFile.mockResolvedValueOnce(PNG_BYTES);
       deps.pool.query.mockResolvedValueOnce({ rows: [] });
       await expect(
         handlers.shareFile("agt_test1", {

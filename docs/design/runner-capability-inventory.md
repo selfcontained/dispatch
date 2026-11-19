@@ -64,7 +64,7 @@ A native host can complete an accepted turn while its controller is down. A repl
 
 - Expand a directory and open a file in the runner checkout. A path escaping the workspace is refused there. [Workspace routes](../../apps/server/src/routes/agents/workspace-routes.ts) · [File explorer](../file-explorer.md)
 
-**Move attachments across the boundary.** **Present.** Dispatch keeps the durable copies and attachment records. The optional runner capability delivers startup files and prompt attachments into the receiving session and collects files posted from its files directory or checkout.
+**Move attachments across the boundary.** **Present.** Dispatch keeps the durable copies and attachment records. The built-in runner reuses registered input paths and collects native files from permitted host paths. The optional remote runner capability delivers files to the receiving session and collects outputs from its files directory or checkout.
 
 - Playwright sends a startup image and a composer image to both native and Linux runner sessions, compares the agent's local bytes with the ACP image block, and opens the posted copy after archive. The independent consumer covers interrupted requests, retries, size limits, and capability negotiation. The runner supervisor tests cover isolation between session file directories. [Playwright workflow](../../e2e/remote-runner/file-transfer.spec.ts) · [Protocol](../../packages/runner-protocol/README.md#session-files) · [Attachment behavior](../file-attachments.md)
 
