@@ -24,6 +24,9 @@ const manager = {
     await options?.beforeLaunch?.(id);
     return { id } as Awaited<ReturnType<AgentManager["createAgent"]>>;
   }),
+  getLastEngineActivity: vi.fn(() => undefined),
+  hasOpenTurn: vi.fn(() => true),
+  stopAgent: vi.fn(),
   getAgent: vi.fn(async () => ({ status: "running" })),
 };
 const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };

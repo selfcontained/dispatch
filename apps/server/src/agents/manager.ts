@@ -341,6 +341,12 @@ export class AgentManager {
   private readonly diagnostics: DiagnosticsRecorder;
   private readonly eventBus: AgentEventBus;
   private readonly runtime: AgentRuntime;
+  private readonly jobActivity = new Map<string, number>();
+
+  /** Last actual engine event, excluding host heartbeats and snapshots. */
+  getLastEngineActivity(id: string): number | undefined {
+    return this.jobActivity.get(id);
+  }
   private readonly reconciler: Reconciler;
   private readonly streamStore: StreamStore;
   private readonly streamRecorder: StreamRecorder;
@@ -460,6 +466,9 @@ export class AgentManager {
     event: DriverEvent,
     seq: number
   ): Promise<void> {
+    if (event.type === "update" || event.type === "turn") {
+      this.jobActivity.set(agentId, Date.now());
+    }
     if (event.type === "permissions") {
       this.attentionHistory.permissions(agentId, event.requests);
       const previous = this.pendingPermissionIds.get(agentId);
