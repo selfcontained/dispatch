@@ -32,6 +32,7 @@
         "apps/server/src/agents/engine-*.ts",
         "apps/server/src/shared/mcp/agent-*.ts",
         "apps/server/src/routes/agents/**",
+        "apps/server/test/events-routes.test.ts",
         "apps/web/src/components/app/agent-pane*",
         "apps/web/src/components/app/agent-*",
         "apps/server/test/*agent*",
