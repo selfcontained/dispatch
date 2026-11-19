@@ -11,10 +11,24 @@ type Receiver = (event: GitHubPullRequestWatchEvent) => void;
 type Entry = {
   target: GitHubPullRequestTarget;
   receivers: Set<Receiver>;
-  due: number;
+  readAt: number;
+  deliverAt: number;
+  failures: number;
   sample?: Sample;
   flight?: Promise<Sample>;
 };
+
+const activeInterval = 30_000;
+const deliveryInterval = 60_000;
+const minute = 60_000;
+const hour = 60 * minute;
+
+function readDelay(sample: Sample, failures: number) {
+  if (failures) return Math.min(4 * hour, 15 * minute * 2 ** (failures - 1));
+  if (sample.observation?.state === "MERGED") return Infinity;
+  if (sample.observation?.state === "CLOSED") return 6 * hour;
+  return activeInterval;
+}
 
 /** One bounded queue per workload account, including across transport reconnects. */
 export class GitHubPullRequestWatches {
@@ -31,8 +45,7 @@ export class GitHubPullRequestWatches {
     private readonly read: (
       target: GitHubPullRequestTarget,
       signal: AbortSignal
-    ) => Promise<GitHubPullRequestObservation>,
-    private readonly interval = 30_000
+    ) => Promise<GitHubPullRequestObservation>
   ) {}
 
   subscribe(targets: GitHubPullRequestTarget[], receiver: Receiver) {
@@ -74,7 +87,9 @@ export class GitHubPullRequestWatches {
     const receivers = new Set<Receiver>();
     for (const entry of this.entries.values()) {
       entry.sample = undefined;
-      entry.due = 0;
+      entry.readAt = 0;
+      entry.deliverAt = Infinity;
+      entry.failures = 0;
       for (const receiver of entry.receivers) receivers.add(receiver);
     }
     for (const receiver of receivers) receiver({ type: "reset" });
@@ -109,7 +124,13 @@ export class GitHubPullRequestWatches {
   private entry(key: string, target: GitHubPullRequestTarget) {
     let entry = this.entries.get(key);
     if (!entry) {
-      entry = { target, due: 0, receivers: new Set() };
+      entry = {
+        target,
+        readAt: 0,
+        deliverAt: Infinity,
+        failures: 0,
+        receivers: new Set(),
+      };
       this.entries.set(key, entry);
     }
     return entry;
@@ -122,19 +143,43 @@ export class GitHubPullRequestWatches {
 
   private schedule() {
     clearTimeout(this.timer);
-    if (this.paused || this.active >= 2) return;
-    const next = [...this.entries]
-      .filter(([, entry]) => entry.receivers.size && !entry.flight)
-      .sort(([, a], [, b]) => a.due - b.due)[0];
-    if (!next) return;
+    if (this.paused) return;
+    let read: [string, Entry] | undefined;
+    let delivery: Entry | undefined;
+    for (const item of this.entries) {
+      const [, entry] = item;
+      if (!entry.receivers.size) continue;
+      if (
+        this.active < 2 &&
+        !entry.flight &&
+        entry.readAt < (read?.[1].readAt ?? Infinity)
+      )
+        read = item;
+      if (entry.deliverAt < (delivery?.deliverAt ?? Infinity)) delivery = entry;
+    }
+    const nextRead = read
+      ? Math.max(read[1].readAt, this.budgetDue())
+      : Infinity;
+    const nextDelivery = delivery?.deliverAt ?? Infinity;
+    const next = Math.min(nextRead, nextDelivery);
+    if (!Number.isFinite(next)) return;
     this.timer = setTimeout(
       () => {
-        void this.sample(...next).catch(() => {});
+        if (read && nextRead <= nextDelivery) {
+          void this.sample(...read).catch(() => {});
+        } else if (delivery?.sample) {
+          this.deliver(delivery, delivery.sample);
+        }
         this.schedule();
       },
-      Math.max(0, next[1].due - Date.now(), this.budgetDue() - Date.now())
+      Math.max(0, next - Date.now())
     );
     this.timer.unref();
+  }
+
+  private deliver(entry: Entry, sample: Sample) {
+    entry.deliverAt = Date.now() + deliveryInterval;
+    for (const receiver of entry.receivers) receiver(sample);
   }
 
   private sample(key: string, entry: Entry) {
@@ -157,8 +202,11 @@ export class GitHubPullRequestWatches {
           observation,
         };
         entry.sample = sample;
-        entry.due = sample.observedAt + this.interval;
-        for (const receiver of entry.receivers) receiver(sample);
+        // A response with no accessible PR is a failed lifecycle read.
+        // An unavailable checks rollup alone leaves a healthy lifecycle due.
+        entry.failures = observation?.state ? 0 : entry.failures + 1;
+        entry.readAt = sample.observedAt + readDelay(sample, entry.failures);
+        this.deliver(entry, sample);
         return sample;
       })
       .finally(() => {

@@ -102,7 +102,7 @@ export class PullRequestRefresher {
   private stopped = false;
   private dirty = false;
   private readonly observations?: PullRequestObservations;
-  private watchDeadlines = new Map<string, number>();
+  private watchedKeys = new Set<string>();
   constructor(private options: Options) {
     if (options.remote)
       this.observations = new PullRequestObservations(
@@ -231,13 +231,11 @@ export class PullRequestRefresher {
     const now = Date.now();
     this.attempts = this.attempts.filter((at) => at > now - 60_000);
     let due = this.pendingUrls.size ? now : Infinity;
-    for (const [key, until] of this.watchDeadlines)
-      due = Math.min(due, Math.max(until, this.urls.get(key)?.due ?? 0));
     for (const [key, entry] of this.urls)
-      if (!this.watchDeadlines.has(key)) due = Math.min(due, entry.due);
+      if (!this.watchedKeys.has(key)) due = Math.min(due, entry.due);
     if (this.attempts.length >= 12)
       due = Math.max(due, this.attempts[0] + 60_001);
-    due = Math.min(due, this.observations?.retryAt ?? Infinity);
+    due = Math.min(due, this.observations?.nextAt ?? Infinity);
     if (Number.isFinite(this.inventoryRetryAt)) due = this.inventoryRetryAt;
     if (!Number.isFinite(due)) return;
     this.timer = setTimeout(
@@ -423,14 +421,13 @@ export class PullRequestRefresher {
     let refreshError: Error | undefined;
     publishSnapshots();
     const now = Date.now();
-    this.watchDeadlines.clear();
+    this.watchedKeys.clear();
     const pushed: typeof links = new Map();
     const dueReads: typeof links = new Map();
     for (const [key, link] of links) {
       const cached = this.urls.get(key);
       const watch = this.observations?.get(link.runnerId, link.url);
-      const deadline = watch?.until ?? 0;
-      const sample = deadline > now ? watch?.sample : undefined;
+      const sample = watch?.sample;
       if (target) {
         if (key === this.trackingKey(target.agentId, target.url))
           dueReads.set(key, link);
@@ -439,10 +436,10 @@ export class PullRequestRefresher {
         (sample.observedAt !== cached?.observedAt || cached.due === 0)
       ) {
         pushed.set(key, link);
-      } else if (deadline <= now && (cached?.due ?? 0) <= now) {
+      } else if (!watch && (cached?.due ?? 0) <= now) {
         dueReads.set(key, link);
       }
-      if (watch) this.watchDeadlines.set(key, deadline);
+      if (watch) this.watchedKeys.add(key);
     }
     if (!target) this.pendingUrls = new Set(dueReads.keys());
     this.attempts = this.attempts.filter((at) => at > now - 60_000);
@@ -493,14 +490,14 @@ export class PullRequestRefresher {
                 : { url, title, status: "Unavailable" };
             } else {
               this.attempts.push(Date.now());
-              value = this.watchDeadlines.has(key)
+              value = this.watchedKeys.has(key)
                 ? await this.options.read(url, title, runnerId, true)
                 : await this.options.read(url, title, runnerId);
               if (value.status !== "Unavailable")
                 observation = this.observations?.get(runnerId, url)?.sample;
             }
           } catch (error) {
-            if (target && this.watchDeadlines.has(key) && !peerChanged()) {
+            if (target && this.watchedKeys.has(key) && !peerChanged()) {
               // A failed refresh request can be a busy runner. Leave the last
               // card intact until the watch confirms the source is unavailable.
               throw new Error("Could not refresh PR. Please try again.", {

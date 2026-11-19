@@ -350,19 +350,26 @@ includes the target, the runner's sampling time in Unix milliseconds
 A null observation indicates a lookup failure. A null check rollup indicates
 unavailable or incomplete checks, while an empty rollup is authoritative.
 The initial snapshot arrives one target at a time as samples become available.
-Subsequent full observations include changes and refresh the timestamp even
-when the source is unchanged, so a receiver can recover a missed update without
-applying deltas. A `{type: "reset"}` event invalidates all prior observations on
+Each new sample carries the time of its provider read. The runner also
+replays the latest full observation after a minute without a new delivery,
+keeping its original `observedAt`. This allows a receiver to recover a missed
+event without applying deltas or mistaking a replay for a fresh provider read. A `{type: "reset"}` event invalidates all prior observations on
 the channel after a credential transition. A consumer should discard state on
 disconnect or reset, fence off the old connection, and subscribe again after
-reconnect. A service can use its own receipt time for expiry.
+reconnect. A service can use receipt time to detect a silent subscription.
+Renew the subscription to recover delivery while preserving the runner's
+provider schedule.
 
 Send the desired set of up to 64 targets when opening each channel. To update
 the set, open a replacement and close the previous channel. The ordinary
 channel `close` frame releases the subscription. The runner deduplicates
 case-insensitively, shares up to two concurrent samples and 12 sample attempts
-per rolling minute, and normally resamples each active target after 30 seconds
-subject to that budget. A host can pass `refreshWatch: true` on
+per rolling minute. Subject to that budget, automatic provider reads run
+every 30 seconds for open or draft PRs and every six hours for closed PRs.
+Merged PRs have no automatic reads after their initial sample. Failed
+lifecycle reads back off from 15 minutes to four hours. Cached delivery
+does not consume the provider budget. A new subscription without a cached
+sample and an account reset require a fresh initial read. A host can pass `refreshWatch: true` on
 `pullRequestStatus` when the watch capability is advertised. For a watched
 target this forces a new sample or joins one already in flight, and may return
 an error when capacity is exhausted. Regular status reads retain their

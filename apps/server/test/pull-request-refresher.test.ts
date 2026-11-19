@@ -136,6 +136,82 @@ describe("server PR orchestration", () => {
     }
   });
 
+  it("recovers a silent watch by resubscribing without forcing provider reads", async () => {
+    vi.useFakeTimers();
+    const f = fixture(3);
+    f.rows.shift();
+    type Receiver = (event: GitHubPullRequestWatchEvent) => void;
+    const close = vi.fn();
+    const watchPullRequests = vi.fn(
+      async (
+        _id: string,
+        _urls: string[],
+        _receive: Receiver,
+        _ended: () => void
+      ) => close
+    );
+    const service = new PullRequestRefresher({
+      pool: { query: f.query } as unknown as Pool,
+      listAgents: async () => [{ id: "a", runnerId: "alpha" }],
+      publish: f.publish,
+      read: f.read,
+      remote: { canWatchPullRequests: () => true, watchPullRequests },
+      warn: vi.fn(),
+    });
+    try {
+      service.start();
+      await vi.advanceTimersByTimeAsync(200);
+      const receive = watchPullRequests.mock.calls[0][2];
+      const observedAt = Date.now();
+      const merged: GitHubPullRequestWatchEvent = {
+        type: "observation",
+        target: { owner: "a", repo: "b", number: 1 },
+        observedAt,
+        observation: {
+          state: "MERGED",
+          draft: false,
+          title: "Merged",
+          head: "sha",
+          rollup: [],
+        },
+      };
+      const failed: GitHubPullRequestWatchEvent = {
+        type: "observation",
+        target: { owner: "a", repo: "b", number: 2 },
+        observedAt,
+        observation: null,
+      };
+      receive(merged);
+      receive(failed);
+      await vi.advanceTimersByTimeAsync(200);
+      expect(service.get("a").map((pr) => pr.status)).toEqual([
+        "Merged",
+        "Unavailable",
+      ]);
+      receive(failed); // Replay keeps the provider timestamp unchanged.
+      await vi.advanceTimersByTimeAsync(7 * 60_000 + 1_000);
+      expect(watchPullRequests).toHaveBeenCalledTimes(2);
+      expect(close).toHaveBeenCalledTimes(1);
+      const replacement = watchPullRequests.mock.calls[1];
+      replacement[2](merged);
+      replacement[2](failed);
+      replacement[3](); // An ended channel also retries through subscribe.
+      await vi.advanceTimersByTimeAsync(31_000);
+      expect(watchPullRequests).toHaveBeenCalledTimes(3);
+      expect(f.read).not.toHaveBeenCalled();
+
+      await service.refreshOne("a", f.rows[0].attachments[0].url);
+      expect(f.read).toHaveBeenCalledExactlyOnceWith(
+        f.rows[0].attachments[0].url,
+        "PR 1",
+        "alpha",
+        true
+      );
+    } finally {
+      await service.stop();
+    }
+  });
+
   it("isolates background and manual reads of the same URL by runner and drops a late reply after replacement", async () => {
     const f = fixture();
     f.rows.push({ ...f.rows[0], author_agent_id: "b" });

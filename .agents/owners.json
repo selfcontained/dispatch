@@ -28,6 +28,7 @@
         "apps/server/test/remote-*.test.ts",
         "apps/server/test/checkout-inspection.test.ts",
         "apps/server/test/runner-*.test.ts",
+        "apps/server/test/github-pull-request-watches.test.ts",
         "apps/server/test/helpers/remote-acp-fixture.ts",
         "packages/runner-protocol/**",
         "docs/design/remote-runner-handoff.md",

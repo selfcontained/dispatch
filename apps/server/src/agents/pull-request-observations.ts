@@ -9,17 +9,20 @@ import type { RemoteRunnerService } from "./remote/service.js";
 type Sample = Extract<GitHubPullRequestWatchEvent, { type: "observation" }>;
 type Watch = {
   urls: Set<string>;
-  samples: Map<string, { sample: Sample; until: number }>;
-  until: number;
+  samples: Map<string, Sample>;
+  renewAt: number;
   close?: () => void;
+  ended?: true;
 };
 
-const freshness = 7 * 60_000;
+// Receipt deadlines only govern channel recovery. Samples carry their
+// own provider timestamp, which a replay leaves unchanged.
+const deliveryTimeout = 7 * 60_000;
+const retryDelay = 30_000;
 
 /** Track one union of the host's interests per authenticated runner. */
 export class PullRequestObservations {
   private readonly watches = new Map<string, Watch>();
-  private readonly retries = new Map<string, number>();
 
   constructor(
     private readonly remote: Pick<
@@ -31,8 +34,6 @@ export class PullRequestObservations {
   ) {}
 
   update(groups: Map<string, string[]>) {
-    for (const id of this.retries.keys())
-      if (!groups.has(id)) this.retries.delete(id);
     for (const id of this.watches.keys()) if (!groups.has(id)) this.remove(id);
     for (const [id, urls] of groups) {
       const targets = new Set(
@@ -50,22 +51,21 @@ export class PullRequestObservations {
       const previous = this.watches.get(id);
       if (
         previous &&
+        previous.renewAt > Date.now() &&
         targets.size === previous.urls.size &&
         [...targets].every((url) => previous.urls.has(url))
       )
         continue;
-      if ((this.retries.get(id) ?? 0) > Date.now()) continue;
-      this.retries.delete(id);
       const watch: Watch = {
         urls: targets,
         samples: new Map(),
-        until: Date.now() + freshness,
+        renewAt: Date.now() + deliveryTimeout,
       };
       this.watches.set(id, watch);
       const ended = () => {
         if (this.watches.get(id) !== watch) return;
-        this.remove(id);
-        this.retries.set(id, Date.now() + 30_000);
+        watch.ended = true;
+        watch.renewAt = Date.now() + retryDelay;
         this.changed();
       };
       void this.remote
@@ -73,10 +73,10 @@ export class PullRequestObservations {
           id,
           [...targets],
           (event) => {
-            if (this.watches.get(id) !== watch) return;
+            if (this.watches.get(id) !== watch || watch.ended) return;
+            watch.renewAt = Date.now() + deliveryTimeout;
             if (event.type === "reset") {
               watch.samples.clear();
-              watch.until = Date.now() + freshness;
               this.reset(id);
             } else {
               const url =
@@ -84,14 +84,10 @@ export class PullRequestObservations {
                 `${event.target.owner.toLowerCase()}/${event.target.repo.toLowerCase()}/pull/${event.target.number}`;
               if (!targets.has(url)) return;
               if (
-                (watch.samples.get(url)?.sample.observedAt ?? -1) >
-                event.observedAt
+                (watch.samples.get(url)?.observedAt ?? -1) >= event.observedAt
               )
                 return;
-              watch.samples.set(url, {
-                sample: event,
-                until: Date.now() + freshness,
-              });
+              watch.samples.set(url, event);
               this.changed();
             }
           },
@@ -109,22 +105,23 @@ export class PullRequestObservations {
   get(id: string | null, url: string) {
     const watch = id === null ? undefined : this.watches.get(id);
     if (!watch?.urls.has(url)) return undefined;
-    return watch.samples.get(url) ?? { sample: undefined, until: watch.until };
+    return { sample: watch.samples.get(url) };
   }
 
-  get retryAt() {
-    return Math.min(Infinity, ...this.retries.values());
+  get nextAt() {
+    return Math.min(
+      Infinity,
+      ...[...this.watches.values()].map((watch) => watch.renewAt)
+    );
   }
 
   remove(id: string) {
     const watch = this.watches.get(id);
     this.watches.delete(id);
-    this.retries.delete(id);
     watch?.close?.();
   }
 
   close() {
     for (const id of this.watches.keys()) this.remove(id);
-    this.retries.clear();
   }
 }
