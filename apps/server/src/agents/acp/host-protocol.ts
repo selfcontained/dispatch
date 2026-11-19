@@ -89,7 +89,7 @@ export type ClientMessage =
     }
   /** Set one of the session's config options (model, effort, mode). */
   | { type: "set_config"; id: string; configId: string; value: string }
-  | { type: "shutdown"; force?: boolean }
+  | { type: "shutdown"; force?: boolean; idleOnly?: boolean }
   | { type: "mcp_inventory"; id: string; sessionId: string }
   | { type: "background_work"; id: string; sessionId: string }
   | { type: "ping" };

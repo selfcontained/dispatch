@@ -748,6 +748,42 @@ describe("probation", () => {
     expect((await app.inject({ url: "/api/v1/agents" })).statusCode).toBe(503);
   });
 
+  it("stops idle surviving hosts before proving stopped-service readiness", async () => {
+    let alive = true;
+    const quiesceHosts = vi.fn(async () => {
+      alive = false;
+      return [];
+    });
+    const { app, maintenance } = await setup({
+      quiesceHosts,
+      boundary: vi.fn(async () => ({
+        hostsStopped: !alive,
+        liveHosts: alive ? ["agt_idle"] : [],
+        statePaths: ["/state"],
+        macBuild: "42",
+      })),
+    });
+    maintenance.markProbationReady();
+    expect((await ready(app)).statusCode).toBe(200);
+    expect(quiesceHosts).toHaveBeenCalledWith(TX);
+  });
+
+  it("names in-flight surviving hosts and keeps probation closed", async () => {
+    const { app, maintenance } = await setup({
+      quiesceHosts: vi.fn(async () => [
+        { kind: "host-busy", agentId: "agt_busy" },
+      ]),
+    });
+    maintenance.markProbationReady();
+    const response = await ready(app);
+    expect(response.statusCode).toBe(409);
+    expect(response.json()).toMatchObject({
+      code: "HOSTS_RUNNING",
+      liveHosts: ["agt_busy"],
+    });
+    expect(maintenance.mode).toBe("probation");
+  });
+
   it("is not ready while any agent host is alive", async () => {
     const { app, maintenance } = await setup({
       boundary: vi.fn(async () => ({

@@ -137,6 +137,7 @@ export type AgentRuntime = {
   cancel(agentId: string): Promise<void>;
   /** Shut the host down; `force` skips the graceful ACP close. */
   stop(agentId: string, force: boolean): Promise<void>;
+  stopIdleHostForRecovery?(agentId: string): Promise<boolean>;
   /** Agents with a live host, for the reconciler. */
   listHosted(): Promise<string[]>;
   /** The host's pid when it is alive; the root of the agent's process tree. */

@@ -2,7 +2,10 @@ import { mkdtemp, rm } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
 import { createUpdateRecoveryRuntime } from "../src/server/update-recovery-runtime.js";
-import { takeResumeReceipt } from "../src/update-recovery/resume-receipt.js";
+import {
+  takeResumeReceipt,
+  writeResumeReceipt,
+} from "../src/update-recovery/resume-receipt.js";
 const roots: string[] = [];
 afterEach(async () => {
   vi.unstubAllEnvs();
@@ -48,4 +51,34 @@ it("retains successfully stopped host intent when another host refuses to quiesc
       path.join(root, "update-recovery/resume-hosts.json")
     )
   ).toMatchObject({ status: "ok", receipt: { transactionId, agents } });
+});
+
+it("preserves earlier stopped agents when probation retries after a process restart", async () => {
+  const root = await mkdtemp("/tmp/dispatch-retry-receipt-");
+  roots.push(root);
+  const file = path.join(root, "resume.json");
+  const receipt = {
+    formatVersion: 1 as const,
+    transactionId: "3f0e1c52-4d4b-4b7e-9b61-5a7f8a2f0c11",
+    createdAt: new Date().toISOString(),
+    agents: [{ id: "agt_first", updatedAt: "2026-01-01 00:00:00+00" }],
+  };
+  await writeResumeReceipt(file, receipt);
+  await writeResumeReceipt(
+    file,
+    {
+      ...receipt,
+      agents: [{ id: "agt_second", updatedAt: "2026-01-02 00:00:00+00" }],
+    },
+    true
+  );
+  expect(await takeResumeReceipt(file)).toMatchObject({
+    status: "ok",
+    receipt: {
+      agents: [
+        ...receipt.agents,
+        { id: "agt_second", updatedAt: "2026-01-02 00:00:00+00" },
+      ],
+    },
+  });
 });

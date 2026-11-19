@@ -882,7 +882,13 @@ export class AgentManager {
       (id) => !this.runtime.isBusy(id)
     );
     await Promise.race([
-      Promise.allSettled(idle.map((id) => this.runtime.stop(id, false))),
+      Promise.allSettled(
+        idle.map((id) =>
+          this.runtime.stopIdleHostForRecovery
+            ? this.runtime.stopIdleHostForRecovery(id)
+            : this.runtime.stop(id, false)
+        )
+      ),
       new Promise((resolve) => setTimeout(resolve, timeoutMs)),
     ]);
     const remaining = await this.runtime.listHosted();
