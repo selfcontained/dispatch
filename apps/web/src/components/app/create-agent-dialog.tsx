@@ -220,6 +220,7 @@ function CreateAgentDialogContent({
                         }}
                       >
                         <PathInput
+                          localFoldersOnly
                           value={form.createCwd}
                           onChange={form.setCreateCwd}
                           history={form.cwdHistory}

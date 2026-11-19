@@ -1,3 +1,10 @@
+/** Runner locators belong to the machine picker, never the local folder field. */
+export function isLocalFolder(
+  value: string | null | undefined
+): value is string {
+  return !!value?.trim() && !value.trim().startsWith("runner://");
+}
+
 export type PathHistoryMetadata = {
   label?: string;
   usageCount?: number;

@@ -22,6 +22,7 @@ const FilesPane = lazy(() =>
 );
 import { Routes, Route, useParams, useSearchParams } from "react-router-dom";
 
+import { isLocalFolder } from "./path-input-utils";
 import { type CenterTab } from "@/lib/store";
 
 import { AgentPane, ChatFiltersButton } from "@/components/app/agent-pane";
@@ -367,13 +368,16 @@ export function AgentsView({
 
   const resolveCreateDefaultCwd = useCallback((): string => {
     const activeCwd = agentProjectRoot(selectedAgent);
-    if (activeCwd) return activeCwd;
+    if (isLocalFolder(selectedAgent?.cwd) && isLocalFolder(activeCwd))
+      return activeCwd;
     const lastUsedCwd = window.localStorage
       .getItem("dispatch:lastUsedAgentCwd")
       ?.trim();
-    if (lastUsedCwd) return lastUsedCwd;
-    const latestAgentCwd = agentProjectRoot(agents[0]);
-    if (latestAgentCwd) return latestAgentCwd;
+    if (isLocalFolder(lastUsedCwd)) return lastUsedCwd;
+    for (const agent of agents) {
+      const cwd = agentProjectRoot(agent);
+      if (isLocalFolder(agent.cwd) && isLocalFolder(cwd)) return cwd;
+    }
     return "";
   }, [agents, selectedAgent]);
 

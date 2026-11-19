@@ -1,3 +1,4 @@
+import { isLocalFolder } from "./path-input-utils";
 import { useCallback, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useAtom } from "jotai";
@@ -33,7 +34,8 @@ export function readStoredString(key: string): string {
 }
 
 export function readLastUsedCwd(): string {
-  return readStoredString(LAST_USED_CWD_KEY) || "~/";
+  const cwd = readStoredString(LAST_USED_CWD_KEY);
+  return isLocalFolder(cwd) ? cwd : "~/";
 }
 
 export function readLastUsedAgentType(): AgentType | null {

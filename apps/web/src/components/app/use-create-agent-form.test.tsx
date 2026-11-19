@@ -502,6 +502,17 @@ describe("cwd seeding", () => {
     expect(result.current.createCwd).toBe("/repo/spaced");
   });
 
+  it("keeps remote locators out of native launches, including saved values", async () => {
+    const locator = "runner://linux/@session";
+    window.localStorage.setItem(LAST_USED_CWD_KEY, locator);
+    const { result } = await setup({ resolveDefaultCwd: () => locator });
+    expect(result.current.createCwd).toBe("~/");
+    act(() => result.current.setCreateCwd(locator));
+    expect(result.current.locationReady).toBe(false);
+    act(() => result.current.setCreateCwd("/local/folder"));
+    expect(result.current.locationReady).toBe(true);
+  });
+
   it("falls back to the stored last-used cwd, then to ~/", async () => {
     window.localStorage.setItem(LAST_USED_CWD_KEY, "/last/used");
     const stored = await setup({ resolveDefaultCwd: () => "" });

@@ -1,3 +1,4 @@
+import { isLocalFolder } from "./path-input-utils";
 import { createClientId } from "@/lib/client-id";
 import { MANAGED_WORKSPACE } from "@dispatch/runner-protocol";
 import { useQuery } from "@tanstack/react-query";
@@ -157,9 +158,6 @@ export function useCreateAgentForm({
       (!repository.trim() ||
         (isRepositoryUrl(repository.trim()) &&
           (branchMode === "new" || Boolean(runnerBranch.trim())))));
-  const locationReady = runnerId
-    ? Boolean(remoteCwd) && repoReady && (!selectedProjectId || projectsLoaded)
-    : !selectedProjectId || projectsLoaded;
   const setCreateProjectId = (id: string | null) => {
     if (managedSession) {
       setRunnerProjectId(id);
@@ -188,9 +186,12 @@ export function useCreateAgentForm({
   });
   const [folderCwd, setCreateCwd] = useState(() => {
     const resolved = resolveDefaultCwd().trim();
-    return resolved || readLastUsedCwd();
+    return isLocalFolder(resolved) ? resolved : readLastUsedCwd();
   });
   const createCwd = remote ? remoteCwd : (project?.repoRoot ?? folderCwd);
+  const locationReady = runnerId
+    ? Boolean(remoteCwd) && repoReady && (!selectedProjectId || projectsLoaded)
+    : isLocalFolder(createCwd) && (!selectedProjectId || projectsLoaded);
   const [createCwdInitialized, setCreateCwdInitialized] = useState(
     () => createCwd.trim().length > 0
   );
