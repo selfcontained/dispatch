@@ -46,7 +46,8 @@ type Seen = { agentId: string; event: DriverEvent; seq: number };
 function runtimeWith(
   stateRoot: string,
   hostSeq: () => number,
-  journalId: string | null = null
+  journalId: string | null = null,
+  adapter: { bin: string } | null = { bin: fakeAgent }
 ): {
   runtime: AgentRuntime;
   seen: Seen[];
@@ -58,6 +59,7 @@ function runtimeWith(
     config: {
       agentStateRoot: stateRoot,
       agentRuntime: "acp",
+      acpAdapter: adapter ?? undefined,
       dispatchBinDir: path.join(repoRoot, "bin"),
     },
     logger,
@@ -81,8 +83,6 @@ function launchFor(agentId: string, cwd: string): RuntimeLaunch {
     bins: {
       claudeBin: "claude",
       codexBin: null,
-      // Stands a fake engine in place of the adapter this binary carries.
-      adapter: { bin: fakeAgent },
     },
     systemPrompt: "Be brief.",
     mcp: { url: "http://127.0.0.1:1/api/mcp/agt_1", token: "tok" },
@@ -130,7 +130,8 @@ describe("agent host", () => {
   const agentId = "agt_host_test_1";
 
   beforeAll(() => {
-    stateRoot = mkdtempSync(path.join(os.tmpdir(), "dispatch-host-state-"));
+    // Keep the socket path within macOS’s Unix socket path limit.
+    stateRoot = mkdtempSync("/tmp/dispatch-host-state-");
     cwd = mkdtempSync(path.join(os.tmpdir(), "unrelated-user-repo-"));
     execFileSync("git", ["init", "-q", cwd]);
     writeFileSync(path.join(cwd, "user-notes.txt"), "preserve user work\n");
@@ -149,6 +150,80 @@ describe("agent host", () => {
     rmSync(stateRoot, { recursive: true, force: true });
     rmSync(cwd, { recursive: true, force: true });
   });
+
+  it("uses native ACP in a checkout whose dotenv and launch env specify an override", async () => {
+    const id = "agt_checkout_dotenv";
+    const checkout = path.join(cwd, "checkout");
+    mkdirSync(checkout);
+    const override = JSON.stringify([fakeAgent]);
+    writeFileSync(
+      path.join(checkout, ".env"),
+      `DISPATCH_ACP_ADAPTER_COMMAND='${override}'\n`
+    );
+    // Stand in for the installed OpenCode CLI. The fixture reports OpenCode
+    // only when the native launch path passes the "acp" subcommand.
+    const { runtime, seen } = runtimeWith(stateRoot, () => 0, null, null);
+    try {
+      const session = await runtime.launch({
+        ...launchFor(id, checkout),
+        engine: "opencode",
+        bins: { claudeBin: "", codexBin: null, opencodeBin: fakeAgent },
+        env: { DISPATCH_ACP_ADAPTER_COMMAND: override },
+      });
+      expect(session.sessionId).toMatch(/^fake_opencode_/);
+      await until(() =>
+        seen.some(
+          ({ event }) =>
+            event.type === "config" && event.catalogSource === "engine"
+        )
+      );
+    } finally {
+      await runtime.stop(id, true);
+    }
+  }, 30_000);
+
+  it("uses the adapter exported before server startup", async () => {
+    const id = "agt_server_adapter";
+    const configUrl = pathToFileURL(
+      path.resolve(here, "../src/config.ts")
+    ).href;
+    const result = execFileSync(
+      "bun",
+      [
+        "--no-env-file",
+        "-e",
+        `const { loadConfig } = await import(${JSON.stringify(configUrl)});
+         console.log(JSON.stringify(loadConfig().acpAdapter));`,
+      ],
+      {
+        cwd,
+        env: {
+          ...process.env,
+          DATABASE_URL: "postgres://unused",
+          DISPATCH_ACP_ADAPTER_COMMAND: JSON.stringify([fakeAgent]),
+        },
+        encoding: "utf8",
+      }
+    );
+    const { runtime, seen } = runtimeWith(
+      stateRoot,
+      () => 0,
+      null,
+      JSON.parse(result)
+    );
+    try {
+      const session = await runtime.launch(launchFor(id, cwd));
+      expect(session.sessionId).toMatch(/^fake_claude_/);
+      await until(() =>
+        seen.some(
+          ({ event }) =>
+            event.type === "config" && event.catalogSource === "override"
+        )
+      );
+    } finally {
+      await runtime.stop(id, true);
+    }
+  }, 30_000);
 
   it("stops an idle orphan without replay and resumes the same session for the next prompt", async () => {
     const id = "agt_recovery_idle";
@@ -224,9 +299,10 @@ await import(${JSON.stringify(pathToFileURL(fakeAgent).href)});
         ["-e", "setInterval(() => {}, 1000)"],
         { stdio: "ignore" }
       );
-      const { runtime, seen } = runtimeWith(stateRoot, () => 0);
+      const { runtime, seen } = runtimeWith(stateRoot, () => 0, null, {
+        bin: wrapper,
+      });
       const launch = launchFor(id, cwd);
-      launch.bins.adapter = { bin: wrapper };
       const alive = (pid: number) => {
         try {
           return !execFileSync("ps", ["-p", String(pid), "-o", "stat="], {
@@ -796,7 +872,7 @@ await import(${JSON.stringify(pathToFileURL(fakeAgent).href)});
   }, 60_000);
 
   it("fails a launch whose engine CLI cannot be found instead of falling back to the adapter's own", async () => {
-    const { runtime } = runtimeWith(stateRoot, () => 0);
+    const { runtime } = runtimeWith(stateRoot, () => 0, null, null);
     await expect(
       runtime.launch({
         ...launchFor("agt_host_test_nocli", cwd),
@@ -810,16 +886,11 @@ await import(${JSON.stringify(pathToFileURL(fakeAgent).href)});
   }, 60_000);
 
   it("fails the launch, with the host log, when the adapter cannot start", async () => {
-    const { runtime } = runtimeWith(stateRoot, () => 0);
+    const { runtime } = runtimeWith(stateRoot, () => 0, null, {
+      bin: "/definitely/not/a/binary",
+    });
     await expect(
-      runtime.launch({
-        ...launchFor("agt_host_test_2", cwd),
-        bins: {
-          claudeBin: "claude",
-          codexBin: null,
-          adapter: { bin: "/definitely/not/a/binary" },
-        },
-      })
+      runtime.launch(launchFor("agt_host_test_2", cwd))
     ).rejects.toThrow(/engine failed|not executable|Host log/);
     expect(await runtime.isAlive("agt_host_test_2")).toBe(false);
   }, 60_000);

@@ -26,7 +26,7 @@ export type RuntimeLaunch = {
   engine: AcpEngineId;
   /** Missing only in launch files written before permission support (full access). */
   fullAccess?: boolean;
-  bins: EngineBins;
+  bins: Omit<EngineBins, "adapter">;
   /** The model to select after the session opens; null keeps the engine's default. */
   model: string | null;
   /** Resolved launch effort; null leaves the CLI settings in control. */

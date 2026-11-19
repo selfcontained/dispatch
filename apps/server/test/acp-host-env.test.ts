@@ -122,7 +122,7 @@ it("preserves the shell trust configuration without managed local TLS", () => {
 });
 
 describe("ACP host environment", () => {
-  it("passes the fake adapter command while withholding server settings and credentials", () => {
+  it("withholds the adapter command, server settings and credentials", () => {
     expect(
       hostProcessEnv({
         PATH: "/usr/bin",
@@ -132,10 +132,7 @@ describe("ACP host environment", () => {
         DATABASE_URL: "postgres://secret",
         ANTHROPIC_API_KEY: "secret",
       })
-    ).toEqual({
-      PATH: "/usr/bin",
-      DISPATCH_ACP_ADAPTER_COMMAND: '["/tmp/fake-acp-agent"]',
-    });
+    ).toEqual({ PATH: "/usr/bin" });
   });
 });
 

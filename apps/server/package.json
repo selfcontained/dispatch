@@ -5,9 +5,9 @@
   "type": "module",
   "scripts": {
     "prepare:runtime-assets": "bun ../../scripts/generate-server-runtime-assets.mjs",
-    "dev": "bun run prepare:runtime-assets && bun --watch src/main.ts",
+    "dev": "bun run prepare:runtime-assets && bun --no-env-file --watch src/main.ts",
     "build": "bun run prepare:runtime-assets && tsc -p tsconfig.json",
-    "start": "bun run prepare:runtime-assets && bun src/main.ts",
+    "start": "bun run prepare:runtime-assets && bun --no-env-file src/main.ts",
     "check": "bun run prepare:runtime-assets && tsc --noEmit",
     "test": "bun run prepare:runtime-assets && bash ../../scripts/server-tests-isolated.sh run",
     "test:coverage": "bun run prepare:runtime-assets && mkdir -p coverage/.tmp && bash ../../scripts/server-tests-isolated.sh run --coverage",

@@ -1,3 +1,4 @@
+import "./startup/acp-adapter.js";
 import { restoreLegacyMacLaunchAgentEnvironment } from "./startup/shell-environment.js";
 
 // Modes of this binary, checked before anything else so none of them

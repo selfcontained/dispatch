@@ -522,7 +522,11 @@ export class AgentManager {
       await this.publishTurnActivity(agentId, event);
     }
     if (event.type === "config") {
-      await this.applyEngineConfig(agentId, event.options);
+      await this.applyEngineConfig(
+        agentId,
+        event.options,
+        event.catalogSource === "engine"
+      );
     }
     if (event.type === "exit" && !event.expected) {
       const how =
@@ -552,14 +556,16 @@ export class AgentManager {
   /** The engine told us its options: record the model it really runs. */
   private async applyEngineConfig(
     agentId: string,
-    options: SessionConfigOption[]
+    options: SessionConfigOption[],
+    learnCatalog: boolean
   ): Promise<void> {
     const agent = await this.getAgent(agentId);
     if (!agent) return;
     const { modelChanged, modelsChanged } = await recordEngineModels(
       { pool: this.pool, logger: this.logger },
       { id: agent.id, type: agent.type, model: agent.model ?? null },
-      options
+      options,
+      learnCatalog
     );
     const effortChanged = await recordEngineEffort(this.pool, agent, options);
     if (modelChanged || effortChanged)
