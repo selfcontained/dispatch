@@ -5,7 +5,7 @@ import type {
   AgentPermissionsResponse,
 } from "@dispatch/shared";
 import type { PromptImage, PromptSource } from "./prompt-source.js";
-import net from "node:net";
+
 import type { Duplex } from "node:stream";
 
 import type { SessionConfigOption } from "@agentclientprotocol/sdk";
@@ -19,7 +19,6 @@ import {
   ndjsonDecoder,
 } from "./host-protocol.js";
 
-const CONNECT_TIMEOUT_MS = 5_000;
 const RECONNECT_BASE_MS = 500;
 const RECONNECT_MAX_MS = 10_000;
 
@@ -27,8 +26,8 @@ export type HostWelcome = Extract<HostMessage, { type: "welcome" }>;
 
 export type HostClientDeps = {
   agentId: string;
-  socketPath: string;
-  openSocket?: () => Promise<Duplex>;
+  remote: boolean;
+  openSocket: () => Promise<Duplex>;
   reconnectError?: (error: unknown) => "retry" | "gone" | undefined;
   onReady?: () => void;
   logger: DriverLogger;
@@ -180,36 +179,18 @@ export class HostClient {
   }
 
   private async dial(): Promise<void> {
-    if (this.deps.openSocket) {
-      const socket = await this.deps.openSocket();
-      if (this.closed) {
-        socket.destroy();
-        throw new Error("the agent host client was closed");
-      }
-      this.connected(socket);
-      return;
+    const socket = await this.deps.openSocket();
+    if (this.closed) {
+      socket.destroy();
+      throw new Error("the agent host client was closed");
     }
-    return new Promise<void>((resolve, reject) => {
-      const socket = net.createConnection(this.deps.socketPath);
-      const timer = setTimeout(() => {
-        socket.destroy(new Error("connect timed out"));
-      }, CONNECT_TIMEOUT_MS);
-      socket.once("connect", () => {
-        clearTimeout(timer);
-        this.connected(socket);
-        resolve();
-      });
-      socket.once("error", (err) => {
-        clearTimeout(timer);
-        if (this.socket !== socket) reject(err);
-      });
-    });
+    this.connected(socket);
   }
 
   private connected(socket: Duplex): void {
     this.attempts = 0;
     this.lastWelcome = null;
-    this.replayReady = !this.deps.openSocket;
+    this.replayReady = !this.deps.remote;
     this.socket = socket;
     this.wire(socket);
     this.sentFromSeq = this.deps.fromSeq();
@@ -217,7 +198,7 @@ export class HostClient {
       type: "hello",
       fromSeq: this.sentFromSeq,
       journalId: this.deps.journalId(),
-      ...(this.deps.openSocket ? { replayComplete: true } : {}),
+      ...(this.deps.remote ? { replayComplete: true } : {}),
     });
   }
 
@@ -227,7 +208,7 @@ export class HostClient {
       for (const message of decode(chunk)) {
         if (socket.destroyed || this.socket !== socket) break;
         if (
-          this.deps.openSocket &&
+          this.deps.remote &&
           ((message.type === "welcome" &&
             (message.agentId !== this.deps.agentId || !message.journalId)) ||
             (message.type === "event" &&
@@ -255,7 +236,7 @@ export class HostClient {
       this.socket = null;
       this.failPending(
         new Error(
-          this.deps.openSocket
+          this.deps.remote
             ? "Runner connection dropped before acknowledgement; execution is unknown."
             : "the agent host connection closed"
         )
@@ -550,7 +531,7 @@ export class HostClient {
           type: "prompt",
           id,
           text,
-          ...(this.deps.openSocket
+          ...(this.deps.remote
             ? { journalId: this.lastWelcome?.journalId }
             : {}),
           ...(source ? { source } : {}),

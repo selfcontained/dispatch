@@ -10,7 +10,7 @@ import type {
   EngineLoginEngine,
 } from "@dispatch/shared";
 
-import { hostProcessEnv, loginShellCommand } from "./acp/runtime.js";
+import { hostProcessEnv, loginShellCommand } from "./acp/host-command.js";
 
 /**
  * Signing an engine CLI in from the browser. The CLI's own login runs here,

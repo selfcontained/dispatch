@@ -598,6 +598,91 @@ await import(${JSON.stringify(pathToFileURL(fakeAgent).href)});
     expect(await replacement.runtime.listHosted()).toEqual([]);
   }, 60_000);
 
+  it("reattaches to an active native host after its controller exits", async () => {
+    const id = "agt_native_handoff";
+    const folder = mkdtempSync(path.join(cwd, "session-"));
+    const input = launchFor(id, folder);
+    input.bins.adapter = {
+      bin: "bun",
+      args: [path.join(here, "helpers/remote-acp-fixture.ts")],
+    };
+    const controller = path.join(stateRoot, "handoff.ts");
+    // Exit only after the engine has begun the turn. Nothing in this process
+    // runs the host's stop path or can resolve a promise in the new controller.
+    writeFileSync(
+      controller,
+      `
+      import {createAcpRuntime} from ${JSON.stringify(pathToFileURL(path.join(here, "../src/agents/acp/runtime.ts")).href)};
+      const runtime = createAcpRuntime({
+        config: { agentStateRoot: ${JSON.stringify(stateRoot)} },
+        logger: {info(){}, warn(){}, debug(){}, error(){}},
+        hostSeq:async()=>({seq:0,journalId:null}), syncJournal:async()=>{}
+      });
+      const input = ${JSON.stringify(input)};
+      const {sessionId}=await runtime.launch(input);
+      const pid=await runtime.hostPid(input.agentId);
+      runtime.onEvent((_, event, seq)=>{
+        if(event.type==="update" && event.update.content?.text==="Guest turn waiting for reconnect.") {
+          console.log(JSON.stringify({sessionId,pid,seq}));
+          process.exit(0);
+        }
+      });
+      await runtime.prompt(input.agentId,"proof-delay:2500 proof-count").settled;
+      throw new Error("Controller never received the in-flight checkpoint");
+    `
+    );
+    const result = execFileSync("bun", [controller], {
+      timeout: 20_000,
+      encoding: "utf8",
+    });
+    const checkpoint = JSON.parse(result.trim());
+    expect(checkpoint.pid).toBeGreaterThan(0);
+    const journalId = readFileSync(
+      path.join(stateRoot, id, "journal.id"),
+      "utf8"
+    ).trim();
+    const { runtime, seen } = runtimeWith(
+      stateRoot,
+      () => checkpoint.seq,
+      journalId
+    );
+    try {
+      expect(await runtime.attach(id)).toBe(true);
+      expect(await runtime.hostPid(id)).toBe(checkpoint.pid);
+      await until(() =>
+        seen.some(
+          ({ event }) => event.type === "turn" && event.state === "settled"
+        )
+      );
+      expect(
+        seen.filter(
+          ({ event }) => event.type === "turn" && event.state === "settled"
+        )
+      ).toHaveLength(1);
+      expect(seen[0]?.seq).toBe(checkpoint.seq + 1);
+      expect(
+        readFileSync(path.join(folder, "provider-invocations"), "utf8")
+      ).toBe("called\n");
+      writeFileSync(path.join(folder, "review-marker.txt"), "native-handoff");
+      await runtime.prompt(id, "proof-reviewed-checkout").settled;
+      await until(() =>
+        seen.some(
+          ({ event }) =>
+            event.type === "update" &&
+            event.update.sessionUpdate === "agent_message_chunk" &&
+            event.update.content.type === "text" &&
+            event.update.content.text.includes("Checkout marker native-handoff")
+        )
+      );
+    } finally {
+      await runtime.stop(id, true);
+      await runtime.discard(id);
+    }
+    expect(readFileSync(path.join(folder, "review-marker.txt"), "utf8")).toBe(
+      "native-handoff"
+    );
+  }, 40_000);
+
   it("replays a remote prompt receipt after a lost acknowledgement without invoking the provider again", async () => {
     const id = "agt_host_receipt";
     const { runtime } = runtimeWith(stateRoot, () => 0);

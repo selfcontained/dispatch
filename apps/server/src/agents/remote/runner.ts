@@ -10,7 +10,7 @@ import type { HostLaunch } from "../acp/host-protocol.js";
 import type { WorkloadCommand } from "./session-storage.js";
 import { createSessionSupervisor } from "./session-supervisor.js";
 export { runnerStorageKey } from "./session-supervisor.js";
-import { hostCommand, selfCommand } from "../acp/runtime.js";
+import { hostCommand, selfCommand } from "../acp/host-command.js";
 import {
   isOpaqueId,
   MANAGED_WORKSPACE,

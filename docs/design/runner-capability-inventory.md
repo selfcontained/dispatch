@@ -40,6 +40,12 @@ The outer protocol already covers launch, attach, liveness, stop, discard, log t
 
 - A real Codex session lists and calls its tool over authenticated TLS on first launch. In the field test, provider login succeeded while the tool connection failed until the guest trusted the service CA. Also run a session with MCP omitted. [MCP routes](../../apps/server/src/routes/mcp.ts) · [Access ceiling](../../apps/server/src/shared/access-ceiling.ts) · [Host environment](../../apps/server/src/agents/acp/host-env.ts)
 
+### Native runner and Dispatch updates
+
+Local and Linux sessions now start, attach, probe liveness, stop, read logs, and discard state through the same lifecycle operations. The local runner executes these in process and opens the existing Unix socket. Local workspace preparation still supplies the native working directory, engine paths, and environment. Native host discovery remains available to reconciliation and update recovery. [Local runner](../../apps/server/src/agents/local-runner.ts) · [Runtime](../../apps/server/src/agents/acp/runtime.ts)
+
+A native host can complete an accepted turn while its controller is down. A replacement controller can reattach to that host and read events after its saved journal position. The process-level test verifies one provider invocation, one completion, and continued use of the original folder. Before allowing an update with active work, exercise a released old host against a new controller and its rollback version, verify database migration and cursor compatibility, and fence new launches during the handoff. The existing maintenance policy still applies. [Restart test](../../apps/server/test/acp-host.test.ts) · [Update recovery](../../apps/server/src/server/update-recovery-runtime.ts)
+
 ### Working with a checkout
 
 **Select and launch owner reviewers.** **Present.** Dispatch requests changed paths, HEAD, a checkout state identifier and bounded file reads from the author’s runner. Dispatch loads ownership rules, selects review personas, checks that the review state still matches, and launches a reviewer in the same checkout. Dispatch owns review threads and findings.

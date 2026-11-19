@@ -47,12 +47,16 @@ export type RemoteLaunch = {
   useWorktreeOf?: string;
 };
 
-export type SessionOperation = { agentId: string } & (
+export type SessionLifecycleOperation = { agentId: string } & (
   | { kind: "launch"; launch: RemoteLaunch }
-  | { kind: "inspectCheckout"; query: CheckoutQuery }
-  | { kind: "attach" | "alive" | "discard" | "log" | "repo" }
+  | { kind: "attach" | "alive" | "discard" | "log" }
   | { kind: "stop"; force: boolean }
 );
+
+export type SessionOperation =
+  | SessionLifecycleOperation
+  | { agentId: string; kind: "inspectCheckout"; query: CheckoutQuery }
+  | { agentId: string; kind: "repo" };
 
 export type RunnerOperation =
   | { kind: "engine"; operation: EngineOperation }

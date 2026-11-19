@@ -1,21 +1,18 @@
-import {
-  ownedEnvironment,
-  killOwnedProcesses,
-} from "../../shared/process/owned-processes.js";
-import { preparePersonaContext } from "./persona-context.js";
 import { sameConversation, type PromptConversation } from "@dispatch/shared";
-import { spawn } from "node:child_process";
-import { existsSync, openSync } from "node:fs";
-import {
-  appendFile,
-  mkdir,
-  readdir,
-  readFile,
-  rm,
-  unlink,
-  writeFile,
-} from "node:fs/promises";
+import { appendFile, mkdir, rm } from "node:fs/promises";
 import path from "node:path";
+import {
+  createLocalRunner,
+  type LocalLaunchSettings,
+  type SessionResult,
+} from "../local-runner.js";
+import type { SessionLifecycleOperation } from "@dispatch/runner-protocol";
+export {
+  selfCommand,
+  hostCommand,
+  loginShellCommand,
+  hostProcessEnv,
+} from "./host-command.js";
 
 import type { FastifyBaseLogger } from "fastify";
 import type {
@@ -49,19 +46,11 @@ import {
 import type { Placement } from "../remote/protocol.js";
 import type { RemoteEventInbox } from "../remote/event-inbox.js";
 import { HostClient } from "./host-client.js";
-import {
-  type HostLaunch,
-  hostFile,
-  type JournalEntry,
-} from "./host-protocol.js";
+import { type JournalEntry } from "./host-protocol.js";
 
 /** The engine's ACP handshake can take a while on a cold adapter. */
 const LAUNCH_TIMEOUT_MS = 60_000;
 const ATTACH_TIMEOUT_MS = 5_000;
-const STOP_GRACE_MS = 8_000;
-const KILL_GRACE_MS = 2_000;
-const LOG_TAIL_LINES = 20;
-
 /**
  * Posts that queued up behind a turn go to the agent together, as one
  * prompt, rather than one turn apiece. A backlog longer than this carries
@@ -70,143 +59,6 @@ const LOG_TAIL_LINES = 20;
  */
 export const COMBINE_MAX_PROMPTS = 8;
 export const COMBINE_MAX_CHARS = 32_000;
-
-/**
- * The command that runs the host: the same executable as the server. Under
- * `bun src/main.ts` that is bun plus the script; a compiled binary is
- * itself. `DISPATCH_AGENT_HOST_COMMAND` (JSON array or whitespace-separated)
- * overrides both, for tests and e2e.
- */
-export function hostCommand(env: NodeJS.ProcessEnv = process.env): string[] {
-  const override = env.DISPATCH_AGENT_HOST_COMMAND;
-  if (override) {
-    try {
-      const parsed = JSON.parse(override);
-      if (Array.isArray(parsed)) return parsed.map(String);
-    } catch {
-      // Not JSON: a plain command line.
-    }
-    return override.split(/\s+/).filter(Boolean);
-  }
-  return selfCommand("agent-host");
-}
-
-/**
- * This executable plus one of its modes. Under `bun src/main.ts` that is bun
- * plus the script; a compiled binary is itself. Both the agent host and the
- * bundled ACP adapters are modes of this binary, so both are spawned this way.
- */
-export function selfCommand(mode: string): string[] {
-  const script = process.argv[1];
-  if (script && /\.[cm]?[jt]s$/.test(script) && existsSync(script)) {
-    return [process.execPath, script, mode];
-  }
-  return [process.execPath, mode];
-}
-
-/**
- * Wrap a command so it runs through the user's login shell: the host, and
- * so the engine, gets the PATH, ssh agent and tool config the user's own
- * shell has.
- */
-export function loginShellCommand(
-  command: string[],
-  shell = process.env.SHELL || "/bin/bash"
-): { bin: string; args: string[] } {
-  const base = path.basename(shell);
-  // ~/.dispatch/env is the documented place for agent-session overrides;
-  // it is read after the profile so it wins.
-  const posix =
-    '[ -f "$HOME/.dispatch/env" ] && . "$HOME/.dispatch/env"; exec "$@"';
-  if (base === "fish") {
-    return {
-      bin: shell,
-      args: [
-        "-lc",
-        'test -f "$HOME/.dispatch/env"; and source "$HOME/.dispatch/env"; exec $argv',
-        ...command,
-      ],
-    };
-  }
-  if (base === "bash" || base === "zsh" || base === "sh") {
-    return {
-      bin: shell,
-      args: ["-lc", posix, "dispatch-agent-host", ...command],
-    };
-  }
-  return {
-    bin: "/bin/bash",
-    args: ["-lc", posix, "dispatch-agent-host", ...command],
-  };
-}
-
-/** What the host must not inherit from the server process. */
-const ENV_DENY_EXACT = new Set([
-  "ANTHROPIC_API_KEY",
-  "OPENAI_API_KEY",
-  "CODEX_API_KEY",
-  "DATABASE_URL",
-  "TEST_DATABASE_URL",
-  "PGPASSWORD",
-  "PGUSER",
-  "PGHOST",
-  "PGPORT",
-  "PGDATABASE",
-  "DISPATCH_FILES_ROOT",
-  "TLS_CERT",
-  "TLS_KEY",
-  "TLS_CA",
-]);
-
-/** The fake ACP adapter test seam must reach the detached host process. */
-const ENV_ALLOW_DISPATCH = new Set(["DISPATCH_ACP_ADAPTER_COMMAND"]);
-
-export function hostProcessEnv(base: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = {};
-  for (const [key, value] of Object.entries(base)) {
-    if (value === undefined) continue;
-    if (
-      ENV_DENY_EXACT.has(key) ||
-      (key.startsWith("DISPATCH_") &&
-        !ENV_ALLOW_DISPATCH.has(key) &&
-        !/^DISPATCH_OWNED_[a-f0-9]{32}$/.test(key))
-    )
-      continue;
-    env[key] = value;
-  }
-  return env;
-}
-
-async function readPid(stateDir: string): Promise<number | null> {
-  try {
-    const text = await readFile(hostFile(stateDir, "pid"), "utf8");
-    const pid = Number(text.trim());
-    return Number.isInteger(pid) && pid > 0 ? pid : null;
-  } catch {
-    return null;
-  }
-}
-
-function pidAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-function signalGroup(pid: number, signal: NodeJS.Signals): void {
-  try {
-    process.kill(-pid, signal);
-  } catch {
-    try {
-      process.kill(pid, signal);
-    } catch {
-      // Already gone.
-    }
-  }
-}
 
 /** A prompt waiting for the turn ahead of it to settle. */
 type Waiting = {
@@ -414,6 +266,17 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
 
   const stateDir = (agentId: string) =>
     path.join(config.agentStateRoot, agentId);
+
+  const local = createLocalRunner(config.agentStateRoot, logger);
+  function requestSession(
+    placement: Placement | null | undefined,
+    operation: SessionLifecycleOperation,
+    settings?: LocalLaunchSettings
+  ): Promise<SessionResult> {
+    return placement
+      ? remoteService().requestSession(placement, operation)
+      : local.requestSession(operation, settings);
+  }
 
   function finishDecision(w: Waiting, outcome: SteeringOutcome) {
     if (w.steering) w.steering.outcome = outcome;
@@ -823,18 +686,18 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
     };
     entry.client = new HostClient({
       agentId,
-      socketPath: hostFile(stateDir(agentId), "socket"),
+      remote: Boolean(placement),
+      openSocket: async () => {
+        if (placement) await entry.events;
+        const { channel } = await requestSession(placement, {
+          kind: "attach",
+          agentId,
+        });
+        if (!channel) throw new Error("Runner returned no session channel");
+        return channel;
+      },
       ...(placement
         ? {
-            openSocket: async () => {
-              await entry.events;
-              return (
-                await remoteService().requestSession(placement, {
-                  kind: "attach",
-                  agentId,
-                })
-              ).channel!;
-            },
             reconnectError: (error: unknown) => {
               if (
                 error instanceof RunnerRevoked ||
@@ -933,24 +796,11 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
 
   async function readLogTail(agentId: string): Promise<string> {
     const placement = await placementOf(agentId);
-    if (placement) {
-      const response = await remoteService()
-        .requestSession(placement, {
-          kind: "log",
-          agentId,
-        })
-        .catch(() => null);
-      return String(response?.value ?? "");
-    }
-    try {
-      const log = await readFile(hostFile(stateDir(agentId), "log"), "utf8");
-      const tail = log.trim().split("\n").slice(-LOG_TAIL_LINES).join("\n");
-      return tail
-        ? `\n\nHost log (last ${LOG_TAIL_LINES} lines):\n${tail}`
-        : "";
-    } catch {
-      return "";
-    }
+    const response = await requestSession(placement, {
+      kind: "log",
+      agentId,
+    }).catch(() => null);
+    return String(response?.value ?? "");
   }
 
   function enqueuePrompt(
@@ -1169,105 +1019,23 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
     },
 
     async launch(input) {
-      const placement = input.placement;
-      if (placement) {
-        const {
-          cwd,
-          bins,
-          env,
-          pathPrefix,
-          placement: _placement,
-          ...launch
-        } = input;
-        await remoteService().requestSession(placement, {
-          kind: "launch",
-          agentId: input.agentId,
-          launch,
-        });
-        const entry = await connect(input.agentId, LAUNCH_TIMEOUT_MS);
-        const welcome = entry.client.welcome!;
-        return { sessionId: welcome.sessionId, resumed: welcome.resumed };
-      }
-      const dir = stateDir(input.agentId);
-      await mkdir(dir, { recursive: true, mode: 0o700 });
-      const launch: HostLaunch = {
-        agentId: input.agentId,
-        cwd: input.cwd,
-        engine: input.engine,
-        bins: input.bins,
-        model: input.model,
-        effort: input.effort ?? null,
-        fullAccess: input.fullAccess ?? true,
-        systemPrompt: input.systemPrompt,
-        personaContext: await preparePersonaContext(dir, input.personaContext),
-        mcp: input.mcp,
-        env: input.env,
-        pathPrefix: input.pathPrefix,
-        resumeSessionId: input.resumeSessionId,
-      };
-      await writeFile(
-        hostFile(dir, "launch"),
-        JSON.stringify(launch, null, 2),
-        {
-          mode: 0o600,
-        }
-      );
-      // A stale socket from a dead host would make connect() spin on
-      // ECONNREFUSED until the new host replaces it; clear it first.
-      await unlink(hostFile(dir, "socket")).catch(() => {});
-      const logFd = openSync(hostFile(dir, "log"), "a");
-      const { bin, args } = loginShellCommand([
-        ...hostCommand(),
-        "--state",
-        dir,
-      ]);
-      const owned = ownedEnvironment(hostProcessEnv(process.env));
-      await writeFile(path.join(dir, "ownership"), owned.marker, {
-        mode: 0o600,
-      });
-      const child = spawn(bin, args, {
-        cwd: input.cwd,
-        env: owned.env,
-        detached: true,
-        stdio: ["ignore", logFd, logFd],
-      });
-      // The shell execs the host, so this is the host's own exit; a host
-      // that dies during startup fails the launch at once instead of after
-      // the whole connect timeout.
-      let exited = false;
-      child.on("exit", () => {
-        exited = true;
-        try {
-          killOwnedProcesses(owned.marker);
-        } catch (err) {
-          logger.warn(
-            { err, agentId: input.agentId },
-            "host descendant cleanup failed"
-          );
-        }
-      });
-      child.on("error", (err) => {
-        exited = true;
-        logger.error(
-          { err, agentId: input.agentId },
-          "agent host spawn failed"
-        );
-      });
-      child.unref();
-      logger.info(
-        { agentId: input.agentId, pid: child.pid, bin, args: args.slice(0, 3) },
-        "agent host spawned"
+      const { placement, cwd, bins, env, pathPrefix, ...launch } = input;
+      const { launchExited } = await requestSession(
+        placement,
+        { kind: "launch", agentId: input.agentId, launch },
+        { cwd, bins, env, pathPrefix }
       );
       try {
         const entry = await connect(
           input.agentId,
           LAUNCH_TIMEOUT_MS,
-          () => exited
+          launchExited
         );
         const welcome = entry.client.welcome;
         if (!welcome) throw new Error("no welcome from the agent host");
         return { sessionId: welcome.sessionId, resumed: welcome.resumed };
       } catch (err) {
+        if (placement) throw err; // A disconnected remote host may still be running.
         const message = err instanceof Error ? err.message : String(err);
         const tail = await readLogTail(input.agentId);
         // A host whose engine never came up has nothing to serve.
@@ -1288,22 +1056,8 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
       const current = live.get(agentId);
       if (current) return !current.remote || current.client.isReady();
       const placement = await placementOf(agentId);
-      if (placement) {
-        if (
-          !deps.remote?.available(placement) ||
-          !(await runtime.isAlive(agentId))
-        )
-          return false;
-        try {
-          await connect(agentId, ATTACH_TIMEOUT_MS);
-          return true;
-        } catch {
-          return false;
-        }
-      }
-      const dir = stateDir(agentId);
-      const pid = await readPid(dir);
-      if (!pid || !pidAlive(pid)) return false;
+      if (placement && !deps.remote?.available(placement)) return false;
+      if (!(await runtime.isAlive(agentId))) return false;
       try {
         await connect(agentId, ATTACH_TIMEOUT_MS);
         return true;
@@ -1317,21 +1071,17 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
       const entry = live.get(agentId);
       if (entry?.client.isConnected()) return true;
       const placement = await placementOf(agentId);
-      if (placement) {
-        try {
-          const { value } = await remoteService().requestSession(placement, {
-            kind: "alive",
-            agentId,
-          });
-          return value === true;
-        } catch (error) {
-          if (error instanceof RunnerRevoked) return false;
-          if (error instanceof RunnerUnavailable) return true; // Disconnected is not host death.
-          throw error;
-        }
+      try {
+        const { value } = await requestSession(placement, {
+          kind: "alive",
+          agentId,
+        });
+        return value === true;
+      } catch (error) {
+        if (error instanceof RunnerRevoked) return false;
+        if (error instanceof RunnerUnavailable) return true;
+        throw error;
       }
-      const pid = await readPid(stateDir(agentId));
-      return pid !== null && pidAlive(pid);
     },
 
     prompt(agentId, text, source, opts) {
@@ -1518,78 +1268,26 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
 
     async stop(agentId, force) {
       const placement = await placementOf(agentId);
-      if (placement) {
-        await remoteService().requestSession(placement, {
-          kind: "stop",
-          agentId,
-          force,
-        });
-        const entry = live.get(agentId);
-        live.delete(agentId);
-        if (entry) {
-          failWaiting(entry, new Error("The agent stopped before delivery."));
-          entry.client.close();
-        }
-        return;
-      }
-      const dir = stateDir(agentId);
+      const operation = { kind: "stop", agentId, force } as const;
+      if (placement) await requestSession(placement, operation);
       const entry = live.get(agentId);
-      const pid = await readPid(dir);
       if (entry) {
         live.delete(agentId);
         failWaiting(entry, new Error("The agent stopped before delivery."));
-        try {
-          entry.client.shutdown(force);
-        } catch {
-          // Not connected; fall through to the signal.
-        }
-      }
-      if (pid && pidAlive(pid)) {
-        const deadline = Date.now() + (force ? 0 : STOP_GRACE_MS);
-        while (Date.now() < deadline && pidAlive(pid)) {
-          await new Promise((resolve) => setTimeout(resolve, 200));
-        }
-        if (pidAlive(pid)) {
-          signalGroup(pid, "SIGTERM");
-          const killAt = Date.now() + KILL_GRACE_MS;
-          while (Date.now() < killAt && pidAlive(pid)) {
-            await new Promise((resolve) => setTimeout(resolve, 200));
+        if (!placement) {
+          try {
+            entry.client.shutdown(force);
+          } catch {
+            // A disconnected local host can still be stopped by its supervisor.
           }
-          if (pidAlive(pid)) signalGroup(pid, "SIGKILL");
         }
       }
-      const marker = await readFile(path.join(dir, "ownership"), "utf8").catch(
-        () => null
-      );
-      if (marker) {
-        killOwnedProcesses(marker);
-        await unlink(path.join(dir, "ownership")).catch(() => {});
-      }
+      if (!placement) await requestSession(null, operation);
       entry?.client.close();
-      await unlink(hostFile(dir, "socket")).catch(() => {});
-      await unlink(hostFile(dir, "pid")).catch(() => {});
     },
 
-    async listHosted() {
-      let ids: string[] = [];
-      try {
-        ids = await readdir(config.agentStateRoot);
-      } catch {
-        return [];
-      }
-      const hosted: string[] = [];
-      for (const id of ids) {
-        if (!id.startsWith("agt_")) continue;
-        const pid = await readPid(stateDir(id));
-        if (pid && pidAlive(pid)) hosted.push(id);
-      }
-      return hosted;
-    },
-
-    async hostPid(agentId) {
-      const pid = await readPid(stateDir(agentId));
-      return pid && pidAlive(pid) ? pid : null;
-    },
+    listHosted: local.listHosted,
+    hostPid: local.hostPid,
 
     onEvent(listener) {
       listeners.add(listener);
@@ -1602,18 +1300,16 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
 
     async discard(agentId) {
       const placement = await placementOf(agentId);
-      if (placement) {
-        await remoteService().requestSession(placement, {
-          kind: "discard",
-          agentId,
-        });
-      }
+      const operation = { kind: "discard", agentId } as const;
+      if (placement) await requestSession(placement, operation);
       const entry = live.get(agentId);
       if (entry) {
         live.delete(agentId);
         entry.client.close();
       }
-      await rm(stateDir(agentId), { recursive: true, force: true });
+      if (placement)
+        await rm(stateDir(agentId), { recursive: true, force: true });
+      else await requestSession(null, operation);
     },
   };
   return runtime;
