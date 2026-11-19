@@ -771,6 +771,29 @@ describe("useSSE reconnect", () => {
     expect(FakeEventSource.instances).toHaveLength(2);
   });
 
+  it.each(["visibilitychange", "pageshow"])(
+    "catches up on %s without waiting for an SSE snapshot",
+    (event) => {
+      const { queryClient } = renderSSE();
+      const key = streamFeedQueryKey("agt_1");
+      queryClient.setQueryData(key, { entries: ["stale"] });
+      const old = FakeEventSource.instances[0];
+      if (event === "visibilitychange") {
+        setHidden(true);
+        setHidden(false);
+      } else {
+        act(() =>
+          window.dispatchEvent(
+            new PageTransitionEvent("pageshow", { persisted: true })
+          )
+        );
+      }
+      expect(old.readyState).toBe(FakeEventSource.CLOSED);
+      expect(FakeEventSource.instances).toHaveLength(2);
+      expect(queryClient.getQueryState(key)?.isInvalidated).toBe(true);
+    }
+  );
+
   it("reopens the stream after a fatal error the browser will not retry", () => {
     renderSSE();
     expect(FakeEventSource.instances).toHaveLength(1);

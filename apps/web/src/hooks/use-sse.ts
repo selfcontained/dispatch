@@ -965,20 +965,35 @@ export function useSSE(authState: AuthState): void {
       openSSE();
     }
 
+    const catchUp = () => {
+      reconnectDelayMs = INITIAL_RECONNECT_DELAY_MS;
+      openSSE();
+      // Catch up immediately even if the new connection cannot deliver its snapshot.
+      void queryClient.invalidateQueries({ queryKey: STREAM_QUERY_PREFIX });
+    };
+
     const onVisChange = () => {
       if (document.hidden || authState !== "authenticated") {
         closeSSE();
       } else {
         // Foregrounding is a fresh start — don't inherit a backed-off delay
         // from whatever killed the previous connection.
-        reconnectDelayMs = INITIAL_RECONNECT_DELAY_MS;
-        openSSE();
+        catchUp();
       }
     };
+    const onPageShow = (event: PageTransitionEvent) => {
+      if (document.hidden || authState !== "authenticated") return;
+      // A BFCache-restored page may retain a stale OPEN EventSource without
+      // a visibility transition. Replace it rather than waiting for silence.
+      if (event.persisted) closeSSE();
+      catchUp();
+    };
 
+    window.addEventListener("pageshow", onPageShow);
     document.addEventListener("visibilitychange", onVisChange);
 
     return () => {
+      window.removeEventListener("pageshow", onPageShow);
       document.removeEventListener("visibilitychange", onVisChange);
       closeSSE();
     };
