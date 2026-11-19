@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import type { AgentPermissionsResponse } from "@dispatch/shared";
 import { authHeaders, cleanupE2EAgents } from "../helpers";
 import {
   agentInfo,
@@ -133,12 +134,36 @@ test("UI launches local, alpha and beta; each answer comes from its own side", a
   });
 });
 
-test("permissions are answered per runner and never cross", async ({}, testInfo) => {
+test("permission decisions stay on their runner across a disconnect", async ({
+  request,
+}, testInfo) => {
+  const betaBefore = invocations("beta");
+  const url = `/api/v1/agents/${agents.beta}/permissions`;
+  const betaPermissions = async (): Promise<AgentPermissionsResponse> => {
+    const response = await request.get(url, { headers: authHeaders() });
+    expect(response.ok()).toBe(true);
+    return response.json();
+  };
   for (const r of ["alpha", "beta"] as const)
     await chat(pages[r]!, "prove-permission");
   const ask = (r: RunnerName) => pages[r]!.getByTestId("permission-requests");
   await expect(ask("alpha")).toBeVisible({ timeout: 30_000 });
   await expect(ask("beta")).toBeVisible({ timeout: 30_000 });
+  const pending = (await betaPermissions()).requests;
+  expect(pending).toHaveLength(1);
+  const permissionId = pending[0]!.id;
+  await lane("beta", "block");
+  await expect
+    .poll(async () => (await betaPermissions()).connected)
+    .toBe(false);
+  const offlineAnswer = await request.post(
+    `${url}/${encodeURIComponent(permissionId)}`,
+    {
+      headers: authHeaders(),
+      data: { optionId: "allow" },
+    }
+  );
+  expect(offlineAnswer.status()).toBe(409);
   await ask("alpha")
     .getByRole("button", { name: "Allow once", exact: true })
     .click();
@@ -158,6 +183,11 @@ test("permissions are answered per runner and never cross", async ({}, testInfo)
       `test -f ${state.runners.beta.workspaceDir}/protected-action`
     )
   ).toBe(false);
+  await lane("beta", "allow");
+  await expect.poll(betaPermissions, { timeout: 60_000 }).toMatchObject({
+    connected: true,
+    requests: [{ id: permissionId }],
+  });
   await expect(ask("beta")).toBeVisible();
   await testInfo.attach("beta waiting after alpha approval", {
     body: await pages.beta!.screenshot(),
@@ -167,6 +197,7 @@ test("permissions are answered per runner and never cross", async ({}, testInfo)
   await expect(
     answers(pages.beta!, "Guest permission answered.").last()
   ).toBeVisible({ timeout: 30_000 });
+  expect(invocations("beta")).toBe(betaBefore + 1);
   expect(
     guestOk(
       "beta",
