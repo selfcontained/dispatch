@@ -1,6 +1,6 @@
 ## What's Changed
-* Mac: notify instead of activating for safe update postponements by @selfcontained in https://github.com/selfcontained/dispatch/pull/1507
-* Preserve OpenCode session and model intent at startup by @selfcontained in https://github.com/selfcontained/dispatch/pull/1508
+* Use Share2 icon for Automations in the sidebar by @selfcontained in https://github.com/selfcontained/dispatch/pull/1509
+* Support OpenCode V2 with full-access launches and verified update channels by @selfcontained in https://github.com/selfcontained/dispatch/pull/1510
 
 
-**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v1.7.26...v1.7.27
+**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v1.7.27...v1.7.28
