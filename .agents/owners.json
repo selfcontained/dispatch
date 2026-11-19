@@ -37,6 +37,8 @@
         "apps/server/src/shared/process/**",
         "apps/server/src/server/agent-*.ts",
         "apps/server/src/shared/git/**",
+        "apps/server/test/diff-image.test.ts",
+        "packages/shared/src/diff-types.ts",
         "apps/server/src/agents/acp/**",
         "docs/opencode-acp.md",
         "scripts/opencode-v2-smoke.mjs",
