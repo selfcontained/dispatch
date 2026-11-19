@@ -34,7 +34,7 @@ const { reportIdentity, dial } = vi.hoisted(() => {
 });
 
 // Exercise the real runner startup on every test platform. The kernel probe
-// and TLS dial are the only external operations replaced by the test.
+// and TLS dial are mocked along with the Linux session primitives.
 vi.mock("node:process", async (original) => {
   const { default: process } = await original<typeof import("node:process")>();
   return {
@@ -51,6 +51,13 @@ vi.mock("node:child_process", async (original) => ({
 vi.mock("node:tls", async (original) => ({
   ...(await original<typeof import("node:tls")>()),
   connect: dial,
+}));
+
+vi.mock("../src/agents/remote/session-processes.js", async (original) => ({
+  ...(await original<
+    typeof import("../src/agents/remote/session-processes.js")
+  >()),
+  createSessionProcesses: () => ({ acquire: () => () => {} }),
 }));
 
 import {

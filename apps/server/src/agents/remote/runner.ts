@@ -1,37 +1,15 @@
 import { runnerHealthSampler } from "./health.js";
-import { spawn, execFile, type ChildProcess } from "node:child_process";
-import { createHash, randomUUID } from "node:crypto";
-import { closeSync, openSync, readFileSync } from "node:fs";
-import {
-  mkdir,
-  writeFile,
-  readFile,
-  rm,
-  chown,
-  chmod,
-  stat,
-  lstat,
-  rename,
-  realpath,
-  rmdir,
-} from "node:fs/promises";
+import { execFile } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { createConnection, isIP } from "node:net";
 import path from "node:path";
 import process from "node:process";
 import { connect } from "node:tls";
 import { promisify } from "node:util";
-import { hostFile, type HostLaunch } from "../acp/host-protocol.js";
-import {
-  ownedEnvironment,
-  killOwnedProcesses,
-} from "../../shared/process/owned-processes.js";
-import {
-  missingPath,
-  prepareScratchSession,
-  RunnerRepositories,
-  type WorkloadCommand,
-} from "./session-storage.js";
-import { parseRepository } from "./repository.js";
+import type { HostLaunch } from "../acp/host-protocol.js";
+import type { WorkloadCommand } from "./session-storage.js";
+import { createSessionSupervisor } from "./session-supervisor.js";
+export { runnerStorageKey } from "./session-supervisor.js";
 import { hostCommand } from "../acp/runtime.js";
 import {
   isOpaqueId,
@@ -43,7 +21,6 @@ import {
   type Command,
   type RunnerFrame,
   type RunnerEngine,
-  type RunnerRepository,
 } from "./protocol.js";
 import {
   EngineRunnerExecutor,
@@ -93,14 +70,6 @@ export const runnerGitArgs = [
 
 const execute = promisify(execFile);
 const setpriv = "/usr/bin/setpriv";
-
-// Use the old storage name for existing prototype bindings. Other wire IDs
-// never enter a filesystem path, even when they look like a relative path.
-export function runnerStorageKey(agentId: string): string {
-  return /^agt_[a-z0-9]+$/.test(agentId)
-    ? agentId
-    : `opaque-${createHash("sha256").update(agentId).digest("base64url")}`;
-}
 
 function validExecutionId(value: number) {
   return Number.isInteger(value) && value > 0 && value < 0xffffffff;
@@ -185,7 +154,6 @@ export async function runRemoteRunner(filename: string) {
   if (!configuredHandles.every(isOpaqueId))
     throw new Error("Runner workspace IDs must be valid opaque identifiers.");
   const managedWorkspace = configuredHandles.length === 0;
-  const managedBinding = "\0managed";
   const env = {
     HOME: config.home,
     PATH: config.path,
@@ -203,15 +171,6 @@ export async function runRemoteRunner(filename: string) {
     cert: readFileSync(config.cert),
     key: readFileSync(config.key),
   };
-  const bindings = path.join(config.state, "bindings");
-  const hostRoot = path.join(config.state, "hosts");
-  const logs = path.join(bindings, "logs");
-
-  await mkdir(logs, { recursive: true, mode: 0o700 });
-  await chmod(config.state, 0o711);
-  await mkdir(hostRoot, { recursive: true, mode: 0o711 });
-  await chmod(hostRoot, 0o711);
-
   const sampleHealth = runnerHealthSampler();
   const engineExecutor = new EngineRunnerExecutor({
     uid: config.uid,
@@ -226,13 +185,6 @@ export async function runRemoteRunner(filename: string) {
       },
     },
   });
-  const storage = await realpath(config.state);
-  const sessions = path.join(storage, "sessions");
-  const cache = path.join(storage, "repositories");
-  for (const root of [sessions, cache]) {
-    await mkdir(root, { mode: 0o711, recursive: true });
-    await chmod(root, 0o711);
-  }
   const asWorkload: WorkloadCommand = async (bin, args, opts) => {
     const { stdout } = await execute(
       setpriv,
@@ -252,205 +204,13 @@ export async function runRemoteRunner(filename: string) {
     );
     return stdout;
   };
-  const repositories = new RunnerRepositories(
-    cache,
-    config.uid,
-    config.gid,
-    asWorkload
-  );
-  const hosts = new Map<string, ChildProcess>();
-  const active = new Set<string>();
-  const readOptional = (file: string) =>
-    readFile(file, "utf8").catch(missingPath);
-  const writePrivateState = async (file: string, contents: string) => {
-    const temp = path.join(bindings, `.pending-${randomUUID()}`);
-    try {
-      await writeFile(temp, contents, { flag: "wx", mode: 0o600 });
-      await rename(temp, file);
-    } finally {
-      await rm(temp, { force: true });
-    }
-  };
-  const readBinding = (key: string) => readOptional(path.join(bindings, key));
-  const retireFile = (key: string) => path.join(bindings, `${key}.retired`);
-  const repositoryFile = (key: string) =>
-    path.join(bindings, `${key}.repository`);
-  const markerFile = (key: string) => path.join(bindings, `${key}.owner`);
-
-  async function stopFormerHost(key: string) {
-    const marker = await readOptional(markerFile(key));
-    if (marker) killOwnedProcesses(marker);
-  }
-
-  async function removeGuestDirectory(dir: string) {
-    const entry = await lstat(dir).catch(missingPath);
-    if (!entry) return;
-    if (entry.uid === 0) {
-      // Startup can fail before handing the fresh, private directory over.
-      // The workload has never had access to this directory.
-      await rm(dir, { force: true, recursive: true });
-      return;
-    }
-    // Resolve and remove workload-owned content as the workload. The
-    // supervisor only removes the now-empty, directly managed directory.
-    await asWorkload("/usr/bin/find", [dir, "-mindepth", "1", "-delete"]);
-    await rmdir(dir);
-  }
-
-  async function discardManaged(key: string, dir: string) {
-    await writeFile(retireFile(key), "", { mode: 0o600 });
-    await stopFormerHost(key);
-    const session = path.join(sessions, key);
-    const stored = await readOptional(repositoryFile(key));
-    const repository =
-      stored === null ? null : (JSON.parse(stored) as RunnerRepository | null);
-    if (repository) await repositories.remove(session, repository);
-    await removeGuestDirectory(session);
-    await removeGuestDirectory(dir);
-    await rm(repositoryFile(key), { force: true });
-    await rm(markerFile(key), { force: true });
-    await rm(path.join(logs, key), { force: true });
-  }
-
-  async function launch(
-    command: Extract<Command, { kind: "launch" }>,
-    cwd: string | undefined,
-    key: string
-  ) {
-    const { agentId, workspace } = command;
-    if (hosts.has(agentId) || active.has(agentId))
-      throw new Error("Runner already has a host for this agent");
-    active.add(agentId);
-    try {
-      const { mcp } = command.launch;
-      const mcpUrl = mcp === undefined ? undefined : new URL(mcp.url);
-      if (mcpUrl && (mcpUrl.protocol !== "https:" || !mcp?.token)) {
-        throw new Error(
-          "Remote service MCP requires HTTPS and a scoped token."
-        );
-      }
-      const managed = managedWorkspace && workspace === MANAGED_WORKSPACE;
-      if (!managed && command.launch.repository !== undefined)
-        throw new Error(
-          "Repository checkout requires a managed runner session."
-        );
-      if (managed && (await readOptional(retireFile(key))) !== null)
-        throw new Error("This runner session has been archived.");
-
-      const binding = path.join(bindings, key);
-      const bindingValue = managed ? managedBinding : workspace;
-      await writeFile(binding, bindingValue, { flag: "wx", mode: 0o600 }).catch(
-        async (error) => {
-          if (
-            error.code !== "EEXIST" ||
-            (await readBinding(key)) !== bindingValue
-          )
-            throw error;
-        }
-      );
-      if (managed) {
-        await stopFormerHost(key);
-        const parsed =
-          command.launch.repository === undefined
-            ? null
-            : parseRepository(command.launch.repository);
-        if (parsed && !parsed.url)
-          throw new Error("Missing runner repository URL.");
-        const repository = parsed?.url
-          ? { url: parsed.url, checkout: parsed.checkout }
-          : null;
-        const encoded = JSON.stringify(repository);
-        const stored = await readOptional(repositoryFile(key));
-        if (stored !== null && stored !== encoded)
-          throw new Error(
-            "This runner session is bound to a different checkout."
-          );
-        if (stored === null)
-          await writePrivateState(repositoryFile(key), encoded);
-        cwd = await prepareScratchSession(
-          sessions,
-          key,
-          config.uid,
-          config.gid
-        );
-        if (repository) cwd = await repositories.prepare(cwd, repository);
-      }
-      if (!cwd || (!managed && !(await stat(cwd)).isDirectory()))
-        throw new Error("Guest workspace is unavailable");
-      const dir = path.join(hostRoot, key);
-      const files = path.join(dir, "files");
-      const { repository: _repository, ...launchOptions } = command.launch;
-      const launch: HostLaunch = {
-        ...launchOptions,
-        agentId,
-        cwd,
-        bins: config.bins,
-        env: {
-          DISPATCH_AGENT_ID: agentId,
-          DISPATCH_FILES_DIR: files,
-          ...(mcpUrl ? { DISPATCH_API_URL: mcpUrl.origin } : {}),
-          NODE_EXTRA_CA_CERTS: config.ca,
-        },
-        pathPrefix: [],
-        reportTurnActivity: true,
-      };
-      // Write only into a fresh directory: a previous CLI account could have
-      // replaced anything under its old host directory with symlinks.
-      if (managed) await removeGuestDirectory(dir);
-      else await rm(dir, { force: true, recursive: true });
-      await mkdir(dir, { mode: 0o700 });
-      await mkdir(files, { mode: 0o700 });
-      await chown(files, config.uid, config.gid);
-      await writeFile(hostFile(dir, "launch"), JSON.stringify(launch), {
-        mode: 0o600,
-      });
-      await chown(hostFile(dir, "launch"), config.uid, config.gid);
-      await chown(dir, config.uid, config.gid);
-      const log = openSync(path.join(logs, key), "a", 0o600);
-      try {
-        const [bin, ...args] = hostCommand();
-        if (!bin) throw new Error("Runner host executable is missing");
-        const owned = ownedEnvironment(env);
-        if (managed) await writePrivateState(markerFile(key), owned.marker);
-        const child = spawn(
-          setpriv,
-          [...childArgs, bin, ...args, "--state", dir],
-          {
-            cwd,
-            env: owned.env,
-            detached: true,
-            stdio: ["ignore", log, log],
-          }
-        );
-        hosts.set(agentId, child);
-        const forget = () => {
-          if (hosts.get(agentId) === child) hosts.delete(agentId);
-        };
-        child.on("exit", () => {
-          try {
-            killOwnedProcesses(owned.marker);
-          } catch (error) {
-            console.error(
-              "Guest host descendant cleanup:",
-              (error as Error).message
-            );
-          } finally {
-            forget();
-          }
-        });
-        child.on("error", forget);
-        await new Promise<void>((resolve, reject) => {
-          child.once("spawn", resolve);
-          child.once("error", reject);
-        });
-        child.unref();
-      } finally {
-        closeSync(log);
-      }
-    } finally {
-      active.delete(agentId);
-    }
-  }
+  const supervisor = await createSessionSupervisor({
+    ...config,
+    env,
+    workspaces: new Set(configuredHandles),
+    asWorkload,
+    hostCommand: () => [setpriv, ...childArgs, ...hostCommand()],
+  });
 
   while (true) {
     await new Promise<void>((finished) => {
@@ -467,10 +227,7 @@ export async function runRemoteRunner(filename: string) {
         if (sampling || socket.destroyed) return;
         sampling = true;
         try {
-          const dirs = [...hosts.keys()].map((id) =>
-            path.join(hostRoot, runnerStorageKey(id))
-          );
-          const sample = await sampleHealth(dirs);
+          const sample = await sampleHealth(await supervisor.liveDirectories());
           safeSend({ type: "health", sample });
         } catch (error) {
           console.warn(
@@ -549,37 +306,18 @@ export async function runRemoteRunner(filename: string) {
         const managed = managedWorkspace && workspace === MANAGED_WORKSPACE;
         if (!isOpaqueId(agentId) || (!target && !managed))
           throw new Error("Unknown runner workspace or agent");
-        const key = runnerStorageKey(agentId);
         const result = (value?: string | boolean) =>
           safeSend({ type: "result", id, value });
         if (command.kind === "launch") {
-          await launch(command, target?.cwd, key);
+          await supervisor.launch(command, target?.cwd);
           result(true);
           return;
         }
-        const binding = await readBinding(key);
-        if (binding !== (managed ? managedBinding : workspace)) {
-          if (command.kind === "alive") return result(false);
-          if (managed && binding === null && !active.has(agentId)) {
-            if (command.kind === "stop") return result(true);
-            if (command.kind === "discard") {
-              active.add(agentId);
-              try {
-                await writeFile(retireFile(key), "", { mode: 0o600 });
-              } finally {
-                active.delete(agentId);
-              }
-              return result(true);
-            }
-          }
-          throw new Error("Agent is not bound to this workspace");
-        }
         if (socket.destroyed) return;
-        const host = hosts.get(agentId);
-        const dir = path.join(hostRoot, key);
         switch (command.kind) {
           case "attach": {
-            if (!host) {
+            const channel = await supervisor.attach(agentId, workspace);
+            if (!channel) {
               safeSend({
                 type: "result",
                 id,
@@ -588,7 +326,10 @@ export async function runRemoteRunner(filename: string) {
               });
               break;
             }
-            const channel = createConnection(hostFile(dir, "socket"));
+            if (socket.destroyed) {
+              channel.destroy();
+              break;
+            }
             channels.set(id, channel);
             channel.once("connect", () => result(true));
             channel.on("data", (chunk: Buffer) =>
@@ -609,55 +350,22 @@ export async function runRemoteRunner(filename: string) {
             break;
           }
           case "alive":
-            result(Boolean(host));
+            result(await supervisor.alive(agentId, workspace));
             break;
           case "stop":
-            if (host?.pid) {
-              const exited = new Promise<void>((resolve) =>
-                host.once("exit", () => resolve())
-              );
-              const signal = (value: NodeJS.Signals) => {
-                try {
-                  process.kill(-host.pid!, value);
-                } catch (error) {
-                  if ((error as NodeJS.ErrnoException).code !== "ESRCH")
-                    throw error;
-                }
-              };
-              const timer = setTimeout(() => signal("SIGKILL"), 8_000);
-              signal(command.force ? "SIGKILL" : "SIGTERM");
-              try {
-                await exited;
-              } finally {
-                clearTimeout(timer);
-              }
-            }
-            if (managed && !active.has(agentId)) await stopFormerHost(key);
+            await supervisor.stop(agentId, workspace, command.force);
             result(true);
             break;
           case "discard":
-            if (host || active.has(agentId))
-              throw new Error("Stop the guest host before discarding it");
-            active.add(agentId);
-            try {
-              if (managed) await discardManaged(key, dir);
-              else await rm(dir, { force: true, recursive: true });
-              await rm(path.join(bindings, key), { force: true });
-            } finally {
-              active.delete(agentId);
-            }
+            await supervisor.discard(agentId, workspace);
             result(true);
             break;
-          case "log": {
-            const log = await readFile(path.join(logs, key), "utf8").catch(
-              () => ""
-            );
-            result(
-              `Guest agent host ${host ? "log" : "exited"}.${log ? "\n" + log.slice(-2048) : ""}`
-            );
+          case "log":
+            result(await supervisor.log(agentId, workspace));
             break;
-          }
           case "repo": {
+            if (!(await supervisor.isBound(agentId, workspace)))
+              throw new Error("Agent is not bound to this workspace");
             const [bin, ...args] = target?.repoTool ?? [];
             if (!bin)
               throw new Error(
@@ -729,6 +437,9 @@ export async function runRemoteRunner(filename: string) {
           engineManagement: true,
         });
       });
+    }).catch((error) => {
+      supervisor.close();
+      throw error;
     });
     await new Promise((resolve) => setTimeout(resolve, 1000));
   }
