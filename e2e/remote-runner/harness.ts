@@ -190,10 +190,14 @@ export async function requestConnection(
   expect(output).toContain(
     `Approve at: ${new URL("/settings/runners", page.url()).href}`
   );
-  const form = page.getByTestId("runner-approval").filter({
-    has: page.getByText(`Connection request · ${reference}`, { exact: true }),
-  });
-  await expect(form).toHaveCount(1, { timeout: 15_000 });
+  const label = `Review request ${reference}`;
+  const review = page.getByRole("button", { name: label, exact: true });
+  await expect(review).toBeVisible({ timeout: 15_000 });
+  await review.click();
+  const form = page
+    .getByRole("dialog", { name: label, exact: true })
+    .getByTestId("runner-approval");
+  await expect(form).toBeVisible();
   return { form, code, finished };
 }
 
@@ -254,6 +258,7 @@ export async function enrollViaUi(
 export async function revokeViaUi(page: Page, id: string) {
   await page.goto("/settings/runners", { waitUntil: "domcontentloaded" });
   await page.getByTestId(`runner-select-${id}`).click();
+  await page.getByTestId(`runner-actions-${id}`).click();
   await page.getByTestId(`runner-revoke-${id}`).click();
   await page.getByTestId(`runner-revoke-confirm-${id}`).click();
   await page.getByText(/^Revoked runners \(/).click();

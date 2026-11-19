@@ -54,7 +54,16 @@ test("GitHub sign-in, private checkout and sign-out belong to the selected runne
     await page.getByTestId("runner-select-" + ids.get(name)).click();
     return page.getByTestId("runner-github");
   };
-  let account = await openAccount("scratch");
+  // Bookmarks from the earlier pairing flow still lead to the runner list.
+  await page.goto("/settings/connections", { waitUntil: "domcontentloaded" });
+  await page.getByRole("link", { name: "Manage runners" }).click();
+  await expect(page).toHaveURL(/\/settings\/runners$/);
+  await page.getByTestId("runner-select-" + ids.get("scratch")).click();
+  await expect
+    .poll(() => new URL(page.url()).searchParams.get("runner"))
+    .toBe(ids.get("scratch"));
+  await page.reload({ waitUntil: "domcontentloaded" });
+  let account = page.getByTestId("runner-detail").getByTestId("runner-github");
   await account.getByRole("button", { name: "Sign in to GitHub" }).click();
   await expect(account.getByText("B123-C456", { exact: true })).toBeVisible();
   await expect(

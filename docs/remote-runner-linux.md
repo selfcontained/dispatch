@@ -25,7 +25,7 @@ For manual source runs, use Bun.
    and starts the service once enrollment succeeds. Wait for **Online** in
    Settings.
 
-3. Open **Manage engines** on the runner in Dispatch. Choose **Install** for
+3. Select the runner in **Settings → Runners**. Under **Agent engines**, choose **Install** for
    the engine you want, then **Sign in** for Codex or Claude. The runner uses
    Node.js and npm from its workload PATH to install engine binaries under
    `/var/lib/dispatch-runner/home/.local/bin`. Install Node.js and npm on
