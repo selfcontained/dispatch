@@ -11,6 +11,7 @@ function fixture() {
     config: { timeoutMs: 3600000, needsInputTimeoutMs: 3600000 },
   };
   const manager = {
+    getCommands: vi.fn((): unknown[] | null => []),
     getAgent: vi.fn(async () => ({ status: "running" })),
     getLastEngineActivity: vi.fn(() => Date.parse(run.startedAt)),
     hasOpenTurn: vi.fn(() => true),
@@ -53,6 +54,32 @@ describe("job inactivity watchdog", () => {
       })
     );
     expect(manager.stopAgent).toHaveBeenCalledWith("agent", { force: true });
+    await service.shutdown();
+  });
+  it("publishes the timeout and schedules recovery if stopping fails", async () => {
+    vi.useFakeTimers();
+    const { service, manager, store } = fixture();
+    manager.stopAgent.mockRejectedValue(new Error("stop failed"));
+    const notify = vi.fn();
+    service.onRunStateChange(notify);
+    await service.reconcileActiveRuns();
+    await vi.advanceTimersByTimeAsync(600000);
+    expect(store.scheduleRecovery).toHaveBeenCalledWith("run");
+    expect(notify).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "timed_out" })
+    );
+    await service.shutdown();
+  });
+  it("keeps a live host awaiting attachment monitored on startup", async () => {
+    vi.useFakeTimers();
+    const { service, manager, store } = fixture();
+    manager.hasOpenTurn.mockReturnValue(false);
+    manager.getCommands.mockReturnValue(null);
+    await service.reconcileActiveRuns();
+    expect(store.markCrashed).not.toHaveBeenCalled();
+    expect(service.getRuntimeMetrics().activeMonitors).toBe(1);
+    service.stopAllSchedulers();
+    await vi.advanceTimersByTimeAsync(2000);
     await service.shutdown();
   });
   it("keeps a long job alive while engine events continue", async () => {

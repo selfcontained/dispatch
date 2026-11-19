@@ -32,6 +32,7 @@ const mockAgentManager = {
   getLastEngineActivity: vi.fn(),
   hasOpenTurn: vi.fn(() => true),
   stopAgent: vi.fn(),
+  getCommands: vi.fn(() => []),
   createAgent: vi.fn(),
   getAgent: vi.fn(),
   listAgents: vi.fn(() => Promise.resolve([])),

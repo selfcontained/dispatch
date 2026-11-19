@@ -272,6 +272,7 @@ export class JobService {
         run.agentId &&
         run.status !== "needs_input" &&
         !(await this.agentSessionCrashed(run.agentId)) &&
+        this.agentManager.getCommands(run.agentId) !== null &&
         !this.agentManager.hasOpenTurn(run.agentId)
       ) {
         await this.markCrashed(
@@ -1311,7 +1312,14 @@ export class JobService {
     // Stop before notifying archivers/continuations; a terminal row alone
     // leaves the host turn busy and continues to block maintenance.
     if (updated.agentId) {
-      await this.agentManager.stopAgent(updated.agentId, { force: true });
+      try {
+        await this.agentManager.stopAgent(updated.agentId, { force: true });
+      } catch (err) {
+        this.logger.warn(
+          { err, runId: run.id, agentId: updated.agentId },
+          "Failed to stop timed-out job agent; publishing terminal outcome"
+        );
+      }
     }
     return await this.scheduleInfrastructureRecovery(updated);
   }

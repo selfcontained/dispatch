@@ -5,7 +5,8 @@
       "paths": [
         "apps/server/src/routes/system.ts",
         "apps/server/test/system-routes.test.ts",
-        "e2e/engine-updates.spec.ts"
+        "e2e/engine-updates.spec.ts",
+        "apps/server/test/launch-persona-config.test.ts"
       ],
       "personas": ["code-review"]
     },
