@@ -203,6 +203,13 @@ export class RunnerRepositories {
       try {
         if (needsFastForward)
           await this.git("-C", cwd, "merge", "--ff-only", "--", commit);
+        if (checkout.kind === "new")
+          await git(
+            "config",
+            "--replace-all",
+            `branch.${branch}.dispatchReviewBase`,
+            checkout.base ?? defaultBranch
+          );
         if (checkout.kind !== "new" && remote)
           await git(
             "branch",

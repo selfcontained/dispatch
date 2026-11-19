@@ -542,6 +542,68 @@ describe("runner session supervision", () => {
     ).not.toContain(checkout);
     await expect(stat(author)).rejects.toMatchObject({ code: "ENOENT" });
   });
+
+  it("records the review base of new branches without assigning an upstream", async () => {
+    const git = (...args: string[]) =>
+      execFileSync("git", args, { encoding: "utf8" });
+    const workspace = MANAGED_WORKSPACE;
+    const url = "https://github.com/fixture/project.git";
+    const seed = path.join(await realpath(root), "seed");
+    git("init", "--quiet", "--initial-branch=trunk", seed);
+    git(
+      "-C",
+      seed,
+      "-c",
+      "user.name=Test",
+      "-c",
+      "user.email=test@example.invalid",
+      "commit",
+      "--quiet",
+      "--allow-empty",
+      "-m",
+      "seed"
+    );
+    git("-C", seed, "branch", "release");
+    const running = await start([], async (bin, args) =>
+      execFileSync(
+        bin,
+        args.some((arg) => arg === "ls-remote" || arg === "fetch")
+          ? args.map((arg) => (arg === url ? seed : arg))
+          : args,
+        { encoding: "utf8" }
+      )
+    );
+
+    for (const [branch, base] of [
+      ["explicit-base", "release"],
+      ["default-base", undefined],
+    ] as const) {
+      const id = `review-${branch}`;
+      processes.spawn.mockResolvedValueOnce();
+      await running.launch(
+        {
+          ...launch(workspace),
+          agentId: id,
+          launch: {
+            ...launch(workspace).launch,
+            repository: { url, checkout: { kind: "new", branch, base } },
+          },
+        },
+        undefined
+      );
+      const cwd = await running.checkoutDirectory(id, workspace);
+      const config = git(
+        "-C",
+        cwd,
+        "config",
+        "--get-regexp",
+        `^branch\\.${branch}\\.`
+      );
+      expect(config.trim()).toBe(
+        `branch.${branch}.dispatchreviewbase ${base ?? "trunk"}`
+      );
+    }
+  });
 });
 
 it("reads session and start time after a process name containing parentheses", () => {
