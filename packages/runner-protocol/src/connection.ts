@@ -89,6 +89,7 @@ export class RunnerConnection {
     // Repository fetches and engine package installs can run for minutes.
     const timeoutMs =
       command.kind === "sessionCheckout" ||
+      command.kind === "checkoutRelease" ||
       command.kind === "inspectCheckout" ||
       command.kind === "viewCheckout" ||
       command.kind === "engine" ||

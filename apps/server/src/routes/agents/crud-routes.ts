@@ -1,3 +1,4 @@
+import { isCheckoutStateId } from "@dispatch/runner-protocol";
 import {
   MANAGED_WORKSPACE,
   remotePlacement,
@@ -476,7 +477,10 @@ export async function registerAgentCrudRoutes(
 
   app.delete("/api/v1/agents/:id", async (request, reply) => {
     const params = request.params as { id?: unknown };
-    const query = request.query as { cleanupWorktree?: unknown };
+    const query = request.query as {
+      cleanupWorktree?: unknown;
+      checkoutState?: unknown;
+    };
 
     if (typeof params.id !== "string") {
       return reply.code(400).send({ error: "Missing agent id." });
@@ -490,10 +494,17 @@ export async function registerAgentCrudRoutes(
         ? (query.cleanupWorktree as CleanupMode)
         : "auto";
 
+    if (
+      query.checkoutState !== undefined &&
+      !isCheckoutStateId(query.checkoutState)
+    )
+      return reply.code(400).send({ error: "Invalid checkout state." });
+
     try {
       const agent = await deps.agentManager.beginArchive(
         params.id,
-        cleanupWorktree
+        cleanupWorktree,
+        ...(isCheckoutStateId(query.checkoutState) ? [query.checkoutState] : [])
       );
       deps.publishUiEvent({
         type: "agent.upsert",

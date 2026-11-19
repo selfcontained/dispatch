@@ -135,6 +135,8 @@ export type AgentRuntime = {
   readLogTail(agentId: string): Promise<string>;
   /** Remove the agent's state directory (archive). */
   discard(agentId: string): Promise<void>;
+  /** Clear Dispatch-side delivery state after stopping a remote host. */
+  clearRemoteState?(agentId: string): Promise<void>;
 };
 
 export function createAgentRuntime(

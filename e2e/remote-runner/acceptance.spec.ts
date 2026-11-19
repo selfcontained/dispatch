@@ -610,10 +610,18 @@ test("managed scratch checkout selection persists across host start and preserve
   if (!(await archive.isVisible()))
     await page.getByTestId(`agent-expand-toggle-${id}`).click();
   await archive.click();
-  await expect(
-    page.getByRole("dialog", { name: "Archive Agent" })
-  ).toContainText("The runner will delete its session folder");
   await page.getByTestId("delete-agent-confirm").click();
+  const choice = page.getByRole("dialog", {
+    name: "Worktree Has Outstanding Changes",
+  });
+  await expect(
+    choice.getByText("provider-invocations", { exact: true })
+  ).toBeVisible();
+  await testInfo.attach("runner-owned scratch archive choice", {
+    body: await page.screenshot(),
+    contentType: "image/png",
+  });
+  await choice.getByTestId("delete-agent-force-worktree").click();
   await expect(page.getByTestId(`agent-card-${id}`)).toHaveCount(0);
   await expect
     .poll(() => guestOk("scratch", `test ! -e ${directory}`), {

@@ -125,7 +125,6 @@ test.describe("Safe worktree archive", () => {
 
     await loadApp(page);
 
-    const sidebar = page.getByTestId("agent-sidebar");
     const agentCard = page.getByTestId(`agent-card-${agent.id}`);
     await expect(agentCard).toBeVisible({ timeout: 5_000 });
 
@@ -144,6 +143,20 @@ test.describe("Safe worktree archive", () => {
     ).toBeVisible({ timeout: 5_000 });
     await expect(page.getByTestId("delete-agent-keep-worktree")).toBeVisible();
     await expect(page.getByTestId("delete-agent-force-worktree")).toBeVisible();
+
+    for (const width of [page.viewportSize()!.width, 390]) {
+      await page.setViewportSize({ width, height: 844 });
+      const choice = page.getByRole("dialog", {
+        name: "Worktree Has Outstanding Changes",
+      });
+      await expect(
+        choice.getByText("ui-file.txt", { exact: true })
+      ).toBeVisible();
+      await testInfo.attach(`archive choice at ${width}px`, {
+        body: await page.screenshot(),
+        contentType: "image/png",
+      });
+    }
 
     // Choose "Leave worktree"
     const wtPath = agent.worktreePath!;
@@ -164,5 +177,53 @@ test.describe("Safe worktree archive", () => {
     execSync(`git -C "${repoPath}" worktree remove --force "${wtPath}"`, {
       stdio: "ignore",
     });
+  });
+
+  test("removes an unchanged clean checkout through Archive", async ({
+    page,
+    request,
+  }, testInfo) => {
+    const agent = await createAgentViaAPI(request, {
+      name: "clean checkout archive",
+      cwd: repoPath,
+      useWorktree: true,
+    });
+    await loadApp(page);
+    await page.getByTestId(`agent-expand-toggle-${agent.id}`).click();
+    await page.getByTestId(`agent-archive-${agent.id}`).click();
+    const dialog = page.getByRole("dialog", { name: "Archive Agent" });
+    await expect(dialog).toContainText("still clean and unchanged");
+    await testInfo.attach("clean checkout confirmation", {
+      body: await page.screenshot(),
+      contentType: "image/png",
+    });
+    await dialog.getByTestId("delete-agent-confirm").click();
+    await expect(page.getByTestId(`agent-card-${agent.id}`)).toHaveCount(0);
+    expect(existsSync(agent.worktreePath!)).toBe(false);
+  });
+
+  test("keeps a dirty checkout changed between confirmation and removal", async ({
+    page,
+    request,
+  }) => {
+    const agent = await createAgentViaAPI(request, {
+      name: "changed checkout archive",
+      cwd: repoPath,
+      useWorktree: true,
+    });
+    const file = path.join(agent.worktreePath!, "draft.txt");
+    writeFileSync(file, "seen");
+    await loadApp(page);
+    await page.getByTestId(`agent-expand-toggle-${agent.id}`).click();
+    await page.getByTestId(`agent-archive-${agent.id}`).click();
+    await page.getByTestId("delete-agent-confirm").click();
+    const choice = page.getByRole("dialog", {
+      name: "Worktree Has Outstanding Changes",
+    });
+    await expect(choice.getByText("draft.txt", { exact: true })).toBeVisible();
+    writeFileSync(file, "edited while the dialog was open");
+    await choice.getByTestId("delete-agent-force-worktree").click();
+    await expect(page.getByTestId(`agent-card-${agent.id}`)).toHaveCount(0);
+    expect(existsSync(file)).toBe(true);
   });
 });

@@ -425,3 +425,21 @@ sample and an account reset require a fresh initial read. A host can pass `refre
 target this forces a new sample or joins one already in flight, and may return
 an error when capacity is exhausted. Regular status reads retain their
 existing behavior. All samples use the runner's workload credential.
+
+### Conditional checkout release
+
+Send `checkoutRelease` only to a v1 peer advertising `checkoutRelease: true` in
+its ready frame. It uses the existing session and workspace handles. The
+`observe` operation replies with a JSON-encoded `CheckoutObservation`. Owner
+and borrower handles in that observation are opaque and machine-local. A null
+`checkout` for an owned binding means the checkout could not be observed.
+A rejected request or missing result is also unavailable.
+
+Stop the session before sending `release`. The host decides whether to pass
+the observed `stateId` to authorize removal, or `null` to retain the checkout.
+The runner rechecks the state before removal and keeps external checkouts.
+`released` means the session is released, `retained` means the session is
+released and its owned checkout was kept, and `inUse` means live borrower
+bindings still hold the checkout. Retry a deferred release using the same
+authorization. Repeating a release is safe, including after a lost reply.
+The legacy `discard` command keeps its original behavior for clients using it.

@@ -23,6 +23,11 @@ import {
 } from "../src/agents/remote/session-processes.js";
 import { createSessionSupervisor } from "../src/agents/remote/session-supervisor.js";
 
+import {
+  observeGitCheckout,
+  observeScratchCheckout,
+} from "../src/agents/checkout-inspection.js";
+
 type Supervisor = Awaited<ReturnType<typeof createSessionSupervisor>>;
 
 const marker = "DISPATCH_OWNED_00000000000000000000000000000000=1";
@@ -109,6 +114,8 @@ describe("runner session supervision", () => {
         workspaces: new Set(workspaces),
         hostCommand: () => ["/test-host"],
         asWorkload,
+        observeCheckout: (dir, scratch) =>
+          scratch ? observeScratchCheckout(dir) : observeGitCheckout(dir),
         prepareDependencies,
       },
       processes
@@ -418,6 +425,77 @@ describe("runner session supervision", () => {
     await recovered.discard(agentId, workspace);
     await expect(stat(author)).rejects.toMatchObject({ code: "ENOENT" });
   });
+
+  it.each(["owner-first", "borrower-first", "changed-after-observation"])(
+    "conditionally releases a scratch checkout: %s",
+    async (order) => {
+      const workspace = MANAGED_WORKSPACE;
+      const running = await start([]);
+      await running.launch(launch(workspace), undefined);
+      processes.spawn.mockResolvedValueOnce();
+      await running.launch(sharedLaunch(), undefined);
+      await running.stop(agentId, workspace, true);
+      const observation = await running.checkoutRelease(agentId, workspace, {
+        kind: "observe",
+      });
+      expect(observation).toMatchObject({
+        ownership: "owned",
+        owner: agentId,
+        borrowers: [reviewerId],
+      });
+      expect(
+        await running.checkoutRelease(reviewerId, workspace, {
+          kind: "observe",
+        })
+      ).toMatchObject({ ownership: "borrowed", owner: agentId });
+      if (typeof observation === "string" || !observation.checkout)
+        throw new Error("Missing fixture checkout observation");
+      const ownerRelease = {
+        kind: "release",
+        expectedState: observation.checkout.stateId,
+      } as const;
+      const borrowerRelease = { kind: "release", expectedState: null } as const;
+      if (order !== "borrower-first") {
+        expect(
+          await running.checkoutRelease(agentId, workspace, ownerRelease)
+        ).toBe("inUse");
+        expect(await stat(observation.checkout.path)).toBeDefined();
+      }
+      expect(
+        await running.checkoutRelease(reviewerId, workspace, borrowerRelease)
+      ).toBe("released");
+      if (order === "changed-after-observation")
+        await writeFile(
+          path.join(observation.checkout.path, "new.txt"),
+          "work"
+        );
+      running.close();
+      const recovered = await start([]);
+      const expected =
+        order === "changed-after-observation" ? "retained" : "released";
+      expect(
+        await recovered.checkoutRelease(agentId, workspace, ownerRelease)
+      ).toBe(expected);
+      expect(
+        await recovered.checkoutRelease(agentId, workspace, ownerRelease)
+      ).toBe(expected);
+      if (expected === "retained") {
+        await expect(recovered.discard(agentId, workspace)).rejects.toThrow(
+          "retained"
+        );
+        expect(
+          await readFile(
+            path.join(observation.checkout.path, "new.txt"),
+            "utf8"
+          )
+        ).toBe("work");
+      } else {
+        await expect(stat(observation.checkout.path)).rejects.toMatchObject({
+          code: "ENOENT",
+        });
+      }
+    }
+  );
 
   it("holds the owner checkout through a concurrent borrower launch", async () => {
     const workspace = MANAGED_WORKSPACE;
@@ -744,6 +822,15 @@ describe("runner session supervision", () => {
     );
     expect((await stat(author)).mode & 0o777).toBe(0o711);
     expect(workload).not.toHaveBeenCalled();
+    const legacyHead = git("-C", checkout, "rev-parse", "HEAD").trim();
+    git(`--git-dir=${cache}`, "update-ref", "refs/heads/main", legacyHead);
+    expect(
+      await running.checkoutRelease(agentId, workspace, { kind: "observe" })
+    ).toMatchObject({
+      ownership: "owned",
+      borrowers: [reviewerId],
+      checkout: { unmerged: false, uncommittedFiles: ["uncommitted.txt"] },
+    });
     await expect(running.discard(agentId, workspace)).rejects.toThrow(
       "still in use"
     );

@@ -1,15 +1,18 @@
-import { realpath } from "node:fs/promises";
-
 import type { FastifyBaseLogger } from "fastify";
 import type { Pool } from "pg";
 
-import { normalizePath } from "../shared/git/git-context.js";
+import { MANAGED_WORKSPACE, remotePlacement } from "@dispatch/runner-protocol";
 import { cleanupGitWorktree } from "../shared/git/worktree.js";
 import { runCommand, type CommandRunner } from "../shared/lib/run-command.js";
 import {
-  getUncommittedChanges,
-  getUnmergedChanges,
-} from "../shared/git/worktree-status.js";
+  archiveCheckoutState,
+  nativeBorrowers,
+  observeArchiveCheckout,
+  releaseRemoteCheckout,
+  rememberArchiveCheckoutState,
+  type ArchiveCheckoutAgent,
+} from "./archive-checkout.js";
+import type { RemoteRunnerService } from "./remote/service.js";
 import { runLifecycleHook } from "./lifecycle-hooks.js";
 import { AgentError } from "./errors.js";
 import type { AgentRuntime } from "./runtime.js";
@@ -24,6 +27,7 @@ export type ArchiveDeps = {
   pool: Pool;
   logger: FastifyBaseLogger;
   runtime: AgentRuntime;
+  remote?: RemoteRunnerService;
   diffStatsRefresher: { clear(agentId: string): void } | null;
   getAgent: (id: string) => Promise<AgentRecord | null>;
   getRequiredAgent: (id: string) => Promise<AgentRecord>;
@@ -41,8 +45,8 @@ export type ArchiveDeps = {
 
 /**
  * Children go with the parent, worktrees included. The parent's confirmation is
- * the one answer for the whole cascade, so children are never checked or asked
- * about separately.
+ * the one answer for the whole cascade. Native children retain the legacy
+ * force policy. Runner-managed children use automatic cleanup.
  */
 const CASCADED_CHILD_CLEANUP: WorktreeCleanupMode = "force";
 
@@ -91,150 +95,149 @@ async function withTimeout<T>(
   }
 }
 
-/**
- * `force` always removes, `keep` never does, `auto` removes only a worktree
- * holding nothing. Never throws — an unremovable worktree is left on disk.
- */
-async function cleanupAgentWorktree(
+/** Returns whether cleanup should be retried after archive. */
+export async function cleanupAgentWorktree(
   pool: Pool,
   logger: FastifyBaseLogger,
-  agent: AgentRecord,
-  cleanupWorktree: WorktreeCleanupMode,
+  agent: ArchiveCheckoutAgent,
+  mode: WorktreeCleanupMode,
   durations: Record<string, number>,
   onCleanupStart?: () => Promise<void>
-): Promise<void> {
-  if (!agent.worktreePath) return;
-  const id = agent.id;
-  const worktreePath = agent.worktreePath;
-
+): Promise<boolean> {
+  const { id, worktreePath } = agent;
+  if (!worktreePath || remotePlacement(agent.cwd) || mode === "keep")
+    return false;
   const run = async () => {
-    // No uniqueness constraint on either column, so two live rows can name one
-    // worktree; removing it would take the other agent's work. Another agent
-    // that moved its workspace into this worktree counts too. Workspaces are
-    // stored as real paths while worktree_path keeps the path it was created
-    // under, so match both spellings (/tmp vs /private/tmp, symlinked roots).
-    const worktreeSpellings = [
-      ...new Set([worktreePath, await realpathOrSelf(worktreePath)]),
-    ];
-    const coOwner = await pool.query<{ id: string }>(
-      `SELECT id
-       FROM agents
-       WHERE deleted_at IS NULL
-         AND id <> $1
-         AND (worktree_path = $2
-              OR workspace_path = ANY($4::text[])
-              OR (role = 'review' AND cwd = ANY($4::text[]))
-              OR ($3::text IS NOT NULL AND worktree_branch = $3))
-       LIMIT 1`,
-      [id, worktreePath, agent.worktreeBranch, worktreeSpellings]
-    );
-    if ((coOwner.rowCount ?? 0) > 0) {
-      logger.warn(
-        {
-          agentId: id,
-          worktreePath,
-          worktreeBranch: agent.worktreeBranch,
-          sharedWithAgentId: coOwner.rows[0]?.id,
-        },
-        "Another live agent references this worktree; leaving it on disk."
-      );
-      return;
-    }
-
-    const tCheck = Date.now();
-    let shouldCleanup = cleanupWorktree === "force";
-    let preserveReason: string | undefined;
-
-    if (!shouldCleanup && cleanupWorktree === "auto") {
-      const [unmerged, uncommitted] = await Promise.all([
-        getUnmergedChanges(worktreePath),
-        getUncommittedChanges(worktreePath),
-      ]);
-      const hasChanges =
-        unmerged.hasUnmergedCommits || uncommitted.hasUncommittedChanges;
-      shouldCleanup = !hasChanges;
-      if (hasChanges) {
-        const reasons: string[] = [];
-        if (unmerged.hasUnmergedCommits)
-          reasons.push(`${unmerged.changedFiles.length} unmerged file(s)`);
-        if (uncommitted.hasUncommittedChanges)
-          reasons.push(
-            `${uncommitted.uncommittedFiles.length} uncommitted file(s)`
-          );
-        preserveReason = reasons.join(", ");
+    const started = Date.now();
+    let expectedState = await archiveCheckoutState(pool, id);
+    const borrowers = await nativeBorrowers(pool, agent);
+    // Preserve legacy explicit force requests, which predate observation IDs.
+    if (mode === "auto" || expectedState !== null || borrowers.length) {
+      const { checkout } = await observeArchiveCheckout(pool, agent);
+      if (
+        !checkout ||
+        (expectedState !== null && expectedState !== checkout.stateId) ||
+        (mode === "auto" &&
+          (checkout.unmerged || checkout.uncommittedFiles.length))
+      )
+        return false;
+      expectedState = checkout.stateId;
+      if (borrowers.length) {
+        await rememberArchiveCheckoutState(pool, id, expectedState);
+        return true;
       }
-    } else if (!shouldCleanup && cleanupWorktree === "keep") {
-      preserveReason = "user chose keep";
     }
-    durations.outstandingChangesCheck = Date.now() - tCheck;
-
-    if (shouldCleanup) {
-      await onCleanupStart?.();
-
-      const tCleanup = Date.now();
-      const dispatchOwnsBranch =
-        !!agent.worktreeBranch &&
-        (!agent.baseBranch || agent.worktreeBranch !== agent.baseBranch);
-      const boundedGit: CommandRunner = (command, args, options) =>
-        runCommand(command, args, {
-          ...options,
-          timeoutMs: options?.timeoutMs ?? WORKTREE_CLEANUP_TIMEOUT_MS,
-        });
-      await cleanupGitWorktree(
-        {
-          cwd: worktreePath,
-          deleteBranch: dispatchOwnsBranch,
-          force: true,
-          originalBranch: agent.worktreeBranch,
-        },
-        boundedGit
-      );
-      durations.worktreeCleanup = Date.now() - tCleanup;
-      logger.info(
-        { agentId: id, worktreePath: worktreePath },
-        "Cleaned up agent worktree."
-      );
-    } else {
-      logger.info(
-        {
-          agentId: id,
-          worktreePath: worktreePath,
-          cleanupWorktree,
-          preserveReason,
-        },
-        `Preserved agent worktree: ${preserveReason}.`
-      );
+    durations.outstandingChangesCheck = Date.now() - started;
+    await onCleanupStart?.();
+    if ((await nativeBorrowers(pool, agent)).length) {
+      if (expectedState === null) return false;
+      await rememberArchiveCheckoutState(pool, id, expectedState);
+      return true;
     }
+    // Re-read after publishing the phase, including any file edited since the
+    // confirmation. Git is run by the built-in runner on this machine.
+    if (mode === "auto" || expectedState !== null) {
+      const { checkout } = await observeArchiveCheckout(pool, agent);
+      if (
+        !checkout ||
+        (expectedState !== null && checkout.stateId !== expectedState) ||
+        (mode === "auto" &&
+          (checkout.unmerged || checkout.uncommittedFiles.length))
+      )
+        return false;
+    }
+    // A timed-out observation must never start removal in the background.
+    if (Date.now() - started >= WORKTREE_CLEANUP_TIMEOUT_MS) return false;
+    const boundedGit: CommandRunner = (command, args, options) =>
+      runCommand(command, args, {
+        ...options,
+        timeoutMs: options?.timeoutMs ?? WORKTREE_CLEANUP_TIMEOUT_MS,
+      });
+    const cleanupStarted = Date.now();
+    await cleanupGitWorktree(
+      {
+        cwd: worktreePath,
+        deleteBranch:
+          !!agent.worktreeBranch &&
+          (!agent.baseBranch || agent.worktreeBranch !== agent.baseBranch),
+        force: true,
+        originalBranch: agent.worktreeBranch,
+      },
+      boundedGit
+    );
+    durations.worktreeCleanup = Date.now() - cleanupStarted;
+    return false;
   };
-
-  // Cleanup never fails the archive around it — siblings still have to run.
   try {
-    await withTimeout(
+    return await withTimeout(
       run(),
       WORKTREE_CLEANUP_TIMEOUT_MS,
-      `Worktree cleanup timed out after ${WORKTREE_CLEANUP_TIMEOUT_MS}ms`
+      "Worktree cleanup timed out"
     );
-  } catch (error) {
+  } catch (err) {
     logger.warn(
-      { err: error, agentId: id, worktreePath },
+      { err, agentId: id, worktreePath },
       "Worktree cleanup failed; leaving on disk."
     );
+    return false;
+  }
+}
+
+function managedCheckout(agent: Pick<AgentRecord, "runnerManaged" | "cwd">) {
+  return (
+    Boolean(agent.runnerManaged) ||
+    remotePlacement(agent.cwd)?.workspace === MANAGED_WORKSPACE
+  );
+}
+
+async function finishCheckout(
+  deps: ArchiveDeps,
+  agent: AgentRecord,
+  mode: WorktreeCleanupMode,
+  stopped: boolean,
+  durations: Record<string, number>,
+  onCleanupStart?: () => Promise<void>
+) {
+  if (!managedCheckout(agent)) {
+    return cleanupAgentWorktree(
+      deps.pool,
+      deps.logger,
+      agent,
+      mode,
+      durations,
+      onCleanupStart
+    );
+  }
+  if (!stopped || !deps.remote) return true;
+  try {
+    await onCleanupStart?.();
+    return (
+      (await releaseRemoteCheckout(deps.pool, agent, mode, deps.remote)) ===
+      "inUse"
+    );
+  } catch (err) {
+    deps.logger.warn(
+      { err, agentId: agent.id },
+      "Runner checkout release remains pending."
+    );
+    return true;
   }
 }
 
 export async function beginArchive(
   deps: ArchiveDeps,
   id: string,
-  cleanupWorktree: WorktreeCleanupMode = "auto"
+  cleanupWorktree: WorktreeCleanupMode = "auto",
+  checkoutState: string | null = null
 ): Promise<AgentRecord> {
   const { pool } = deps;
 
   const result = await pool.query(
     `UPDATE agents
-     SET status = 'archiving', archive_phase = 'stopping', archive_cleanup_mode = $2, updated_at = NOW()
+     SET status = 'archiving', archive_phase = 'stopping', archive_cleanup_mode = $2, archive_checkout_state = $3, updated_at = NOW()
      WHERE id = $1 AND deleted_at IS NULL AND status != 'archiving'
      RETURNING id`,
-    [id, cleanupWorktree]
+    [id, cleanupWorktree, checkoutState]
   );
 
   if (result.rowCount === 0) {
@@ -264,7 +267,7 @@ export async function executeArchive(
   try {
     const agent = await deps.getRequiredAgent(id);
     const cleanupWorktree = agent.archiveCleanupMode ?? "auto";
-    let runnerCleanupPending = Boolean(agent.runnerManaged);
+    let stopped = false;
 
     // Phase: stopping — tear down session without changing agent status
     const t = Date.now();
@@ -280,8 +283,9 @@ export async function executeArchive(
       await deps.settleStream(id);
       // The state directory holds the launch file with the MCP token; the
       // stream is already in the database.
-      await runtime.discard(id);
-      runnerCleanupPending = false;
+      if (managedCheckout(agent)) await runtime.clearRemoteState?.(id);
+      else await runtime.discard(id);
+      stopped = true;
     } catch (err) {
       logger.warn(
         { err, agentId: id },
@@ -325,11 +329,11 @@ export async function executeArchive(
     // Phase: worktree-check
     await publishPhase("worktree-check");
 
-    await cleanupAgentWorktree(
-      pool,
-      logger,
+    const runnerCleanupPending = await finishCheckout(
+      deps,
       agent,
       cleanupWorktree,
+      stopped,
       durations,
       () => publishPhase("worktree-cleanup")
     );
@@ -340,7 +344,7 @@ export async function executeArchive(
     const tDb = Date.now();
 
     await pool.query(
-      "UPDATE agents SET deleted_at = NOW(), archive_phase = NULL, archive_cleanup_mode = NULL, runner_cleanup_pending = $2, updated_at = NOW() WHERE id = $1",
+      "UPDATE agents SET deleted_at = NOW(), archive_phase = NULL, archive_cleanup_mode = CASE WHEN $2 THEN archive_cleanup_mode END, archive_checkout_state = CASE WHEN $2 THEN archive_checkout_state END, runner_cleanup_pending = $2, updated_at = NOW() WHERE id = $1",
       [id, runnerCleanupPending]
     );
     durations.db = Date.now() - tDb;
@@ -384,14 +388,15 @@ export async function deleteAgentDirect(
   const durations: Record<string, number> = {};
   const agent = await deps.getRequiredAgent(id);
 
+  const mode = managedCheckout(agent) ? "auto" : CASCADED_CHILD_CLEANUP;
   // Claim before any teardown — an agent's own archive and an ancestor's
   // cascade can reach it at once. Same CAS `beginArchive` takes.
   const claimed = await pool.query(
     `UPDATE agents
-     SET status = 'archiving', archive_phase = 'stopping', updated_at = NOW()
+     SET status = 'archiving', archive_phase = 'stopping', archive_cleanup_mode = $2, updated_at = NOW()
      WHERE id = $1 AND deleted_at IS NULL AND status != 'archiving'
      RETURNING id`,
-    [id]
+    [id, mode]
   );
   if (claimed.rowCount === 0) {
     logger.info(
@@ -401,8 +406,8 @@ export async function deleteAgentDirect(
     return [];
   }
 
-  let runnerCleanupPending = Boolean(agent.runnerManaged);
-  if (agent.status !== "stopped" || runnerCleanupPending) {
+  let stopped = false;
+  if (agent.status !== "stopped" || managedCheckout(agent)) {
     const t = Date.now();
     // Not stopAgent: it writes `stopping`/`stopped`, releasing the claim above
     // and letting a fresh archive take this agent mid-teardown.
@@ -418,8 +423,9 @@ export async function deleteAgentDirect(
       await deps.settleStream(id);
       // The state directory holds the launch file with the MCP token; the
       // stream is already in the database.
-      await runtime.discard(id);
-      runnerCleanupPending = false;
+      if (managedCheckout(agent)) await runtime.clearRemoteState?.(id);
+      else await runtime.discard(id);
+      stopped = true;
     } catch (err) {
       logger.warn(
         { err, agentId: id },
@@ -460,17 +466,17 @@ export async function deleteAgentDirect(
   const tDb = Date.now();
 
   // Keeping it would leave a worktree no agent record can reach.
-  await cleanupAgentWorktree(
-    pool,
-    logger,
+  const runnerCleanupPending = await finishCheckout(
+    deps,
     agent,
-    CASCADED_CHILD_CLEANUP,
+    mode,
+    stopped,
     durations
   );
 
   await pool.query(
     `UPDATE agents
-     SET deleted_at = NOW(), archive_phase = NULL, archive_cleanup_mode = NULL, runner_cleanup_pending = $2, updated_at = NOW()
+     SET deleted_at = NOW(), archive_phase = NULL, archive_cleanup_mode = CASE WHEN $2 THEN archive_cleanup_mode END, archive_checkout_state = CASE WHEN $2 THEN archive_checkout_state END, runner_cleanup_pending = $2, updated_at = NOW()
      WHERE id = $1`,
     [id, runnerCleanupPending]
   );
@@ -478,12 +484,4 @@ export async function deleteAgentDirect(
   diffStatsRefresher?.clear(id);
 
   return deletedIds;
-}
-
-async function realpathOrSelf(dir: string): Promise<string> {
-  try {
-    return normalizePath(await realpath(dir));
-  } catch {
-    return dir;
-  }
 }

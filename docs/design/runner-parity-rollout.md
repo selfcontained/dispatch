@@ -54,3 +54,11 @@ templates and scheduled jobs retain explicit runner locators, and task
 launches use the selected template placement. A new checkout uses a
 published base from its origin. Borrowing shares the existing files,
 including unpublished changes.
+
+Archive observes the checkout bound to the session on its owning runner.
+Moving the session to another directory leaves archive ownership with the
+original checkout. Dispatch stores the cleanup policy and the observed state
+ID for retries. The runner checks that state again under its checkout lock
+and defers removal while another session holds a borrower binding. Older
+runners keep their legacy protocol, and managed cleanup requested by a newer
+Dispatch waits for a runner that advertises conditional release.

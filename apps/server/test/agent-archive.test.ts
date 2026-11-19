@@ -25,23 +25,22 @@ vi.mock("../src/shared/git/worktree.js", () => ({
   cleanupGitWorktree: vi.fn().mockResolvedValue(undefined),
 }));
 
-vi.mock("../src/shared/git/worktree-status.js", () => ({
-  getUnmergedChanges: vi.fn().mockResolvedValue({
-    hasUnmergedCommits: false,
-    changedFiles: [],
-  }),
-  getUncommittedChanges: vi.fn().mockResolvedValue({
-    hasUncommittedChanges: false,
-    uncommittedFiles: [],
-  }),
+vi.mock("../src/agents/checkout-inspection.js", () => ({
+  observeGitCheckout: vi.fn(),
 }));
 
 import { runLifecycleHook } from "../src/agents/lifecycle-hooks.js";
 import { cleanupGitWorktree } from "../src/shared/git/worktree.js";
-import {
-  getUnmergedChanges,
-  getUncommittedChanges,
-} from "../src/shared/git/worktree-status.js";
+import { observeGitCheckout } from "../src/agents/checkout-inspection.js";
+
+const cleanCheckout = {
+  path: "/tmp/wt",
+  branch: "feature",
+  stateId: "a".repeat(64),
+  unmerged: false,
+  changedFiles: [],
+  uncommittedFiles: [],
+};
 
 // ── Helpers ─────────────────────────────────────────────────────────────
 
@@ -159,7 +158,7 @@ describe("beginArchive", () => {
     expect(result).toBe(agent);
     expect(pool.query).toHaveBeenCalledWith(
       expect.stringContaining("UPDATE agents"),
-      ["a1", "auto"]
+      ["a1", "auto", null]
     );
   });
 
@@ -174,7 +173,7 @@ describe("beginArchive", () => {
 
     expect(pool.query).toHaveBeenCalledWith(
       expect.stringContaining("UPDATE agents"),
-      ["a1", "force"]
+      ["a1", "force", null]
     );
   });
 
@@ -217,7 +216,11 @@ describe("beginArchive", () => {
 
     await beginArchive(deps, "a1");
 
-    expect(pool.query).toHaveBeenCalledWith(expect.any(String), ["a1", "auto"]);
+    expect(pool.query).toHaveBeenCalledWith(expect.any(String), [
+      "a1",
+      "auto",
+      null,
+    ]);
   });
 });
 
@@ -226,14 +229,7 @@ describe("beginArchive", () => {
 describe("executeArchive", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(getUnmergedChanges).mockResolvedValue({
-      hasUnmergedCommits: false,
-      changedFiles: [],
-    });
-    vi.mocked(getUncommittedChanges).mockResolvedValue({
-      hasUncommittedChanges: false,
-      uncommittedFiles: [],
-    });
+    vi.mocked(observeGitCheckout).mockResolvedValue(cleanCheckout);
   });
 
   describe("phase transitions", () => {
@@ -310,8 +306,9 @@ describe("executeArchive", () => {
     });
 
     it("preserves the worktree when there are unmerged commits", async () => {
-      vi.mocked(getUnmergedChanges).mockResolvedValue({
-        hasUnmergedCommits: true,
+      vi.mocked(observeGitCheckout).mockResolvedValue({
+        ...cleanCheckout,
+        unmerged: true,
         changedFiles: ["file1.ts", "file2.ts"],
       });
       const agent = makeAgent("a1", {
@@ -331,8 +328,8 @@ describe("executeArchive", () => {
     });
 
     it("preserves the worktree when there are uncommitted changes", async () => {
-      vi.mocked(getUncommittedChanges).mockResolvedValue({
-        hasUncommittedChanges: true,
+      vi.mocked(observeGitCheckout).mockResolvedValue({
+        ...cleanCheckout,
         uncommittedFiles: ["dirty.ts"],
       });
       const agent = makeAgent("a1", {
@@ -352,12 +349,10 @@ describe("executeArchive", () => {
     });
 
     it("preserves worktree when both unmerged and uncommitted changes exist", async () => {
-      vi.mocked(getUnmergedChanges).mockResolvedValue({
-        hasUnmergedCommits: true,
+      vi.mocked(observeGitCheckout).mockResolvedValue({
+        ...cleanCheckout,
+        unmerged: true,
         changedFiles: ["a.ts"],
-      });
-      vi.mocked(getUncommittedChanges).mockResolvedValue({
-        hasUncommittedChanges: true,
         uncommittedFiles: ["b.ts"],
       });
       const agent = makeAgent("a1", {
@@ -379,8 +374,9 @@ describe("executeArchive", () => {
 
   describe("worktree cleanup decision — force mode", () => {
     it("always cleans up when mode is force, even with outstanding changes", async () => {
-      vi.mocked(getUnmergedChanges).mockResolvedValue({
-        hasUnmergedCommits: true,
+      vi.mocked(observeGitCheckout).mockResolvedValue({
+        ...cleanCheckout,
+        unmerged: true,
         changedFiles: ["file.ts"],
       });
       const agent = makeAgent("a1", {
@@ -398,7 +394,7 @@ describe("executeArchive", () => {
       await executeArchive(deps, "a1", makeCallbacks());
 
       expect(cleanupGitWorktree).toHaveBeenCalled();
-      expect(getUnmergedChanges).not.toHaveBeenCalled();
+      expect(observeGitCheckout).not.toHaveBeenCalled();
     });
   });
 
@@ -418,8 +414,7 @@ describe("executeArchive", () => {
       await executeArchive(deps, "a1", makeCallbacks());
 
       expect(cleanupGitWorktree).not.toHaveBeenCalled();
-      expect(getUnmergedChanges).not.toHaveBeenCalled();
-      expect(getUncommittedChanges).not.toHaveBeenCalled();
+      expect(observeGitCheckout).not.toHaveBeenCalled();
     });
   });
 
@@ -525,7 +520,7 @@ describe("executeArchive", () => {
       await executeArchive(deps, "a1", makeCallbacks());
 
       expect(cleanupGitWorktree).not.toHaveBeenCalled();
-      expect(getUnmergedChanges).not.toHaveBeenCalled();
+      expect(observeGitCheckout).not.toHaveBeenCalled();
     });
   });
 
@@ -848,8 +843,8 @@ describe("executeArchive", () => {
         worktreePath: "/tmp/wt-child",
         worktreeBranch: "agt/child",
       });
-      vi.mocked(getUncommittedChanges).mockResolvedValue({
-        hasUncommittedChanges: true,
+      vi.mocked(observeGitCheckout).mockResolvedValue({
+        ...cleanCheckout,
         uncommittedFiles: ["src/wip.ts"],
       });
 
@@ -915,7 +910,7 @@ describe("executeArchive", () => {
       });
 
       const pool = makePool(async (sql: string, params?: unknown[]) => {
-        if (sql.includes("worktree_path = $2")) {
+        if (sql.includes("worktree_path = ANY")) {
           // A second live row points at the same worktree.
           return { rows: [{ id: "other" }], rowCount: 1 };
         }

@@ -18,6 +18,7 @@ import {
   vi,
 } from "vitest";
 import type { Pool } from "pg";
+import type { SessionOperation } from "@dispatch/runner-protocol";
 import type { RemoteRunnerService } from "../../src/agents/remote/service.js";
 
 import { setupTestDb, teardownTestDb, runTestMigrations } from "./setup.js";
@@ -247,8 +248,35 @@ describe("AgentManager", () => {
   describe("createAgent", () => {
     it("persists managed placement across restart and retries archive when the original runner returns", async () => {
       const available = vi.fn(() => true);
+      const stateId = "2".repeat(64);
+      const requestSession = vi.fn(
+        async (_placement: unknown, operation: SessionOperation) => {
+          if (!available()) throw new Error("offline");
+          if (operation.kind !== "checkoutRelease")
+            throw new Error("Unexpected request");
+          return {
+            value:
+              operation.operation.kind === "release"
+                ? "released"
+                : JSON.stringify({
+                    ownership: "owned",
+                    owner: "test-owner",
+                    borrowers: [],
+                    checkout: {
+                      path: "/runner/checkout",
+                      branch: "agent-work",
+                      stateId,
+                      unmerged: false,
+                      changedFiles: [],
+                      uncommittedFiles: [],
+                    },
+                  }),
+          };
+        }
+      );
       const remote = {
         available,
+        requestSession,
         isManagedWorkspace: available,
         originFor: () => "https://example.test",
       } as unknown as RemoteRunnerService;
@@ -286,8 +314,21 @@ describe("AgentManager", () => {
       expect(resumedRuntime.launch).toHaveBeenCalledWith(
         expect.objectContaining({ repository })
       );
-      await resumed.beginArchive(agent.id);
+      const observed = await resumed.checkWorktreeStatus(agent.id);
+      expect(observed).toMatchObject({
+        ownership: "owned",
+        checkoutState: stateId,
+      });
+      await resumed.beginArchive(agent.id, "auto", stateId);
+      // Simulate a row created before runner_managed was populated.
+      await pool.query(
+        "UPDATE agents SET runner_managed = false WHERE id = $1",
+        [agent.id]
+      );
       available.mockReturnValue(false);
+      await expect(resumed.checkWorktreeStatus(agent.id)).rejects.toMatchObject(
+        { statusCode: 503 }
+      );
       resumedRuntime.stop.mockRejectedValueOnce(new Error("offline"));
       await resumed.executeArchive(agent.id, {
         onPhaseChange: vi.fn(),
@@ -303,14 +344,29 @@ describe("AgentManager", () => {
         ).rows[0]?.runner_cleanup_pending;
       expect(await pending()).toBe(true);
       const placement = { runner: "runner-test", workspace: "@session" };
-      available.mockClear();
+      requestSession.mockClear();
       await resumed.reconcileAgentStatuses();
-      await vi.waitFor(() => expect(available).toHaveBeenCalledWith(placement));
-      expect(discard).not.toHaveBeenCalled();
+      await vi.waitFor(() =>
+        expect(requestSession).toHaveBeenCalledWith(placement, {
+          kind: "checkoutRelease",
+          agentId: agent.id,
+          operation: { kind: "observe" },
+        })
+      );
+      expect(await pending()).toBe(true);
+      const reconnected = new AgentManager(pool, noopLogger, testConfig, {
+        runtime: { ...createSpyRuntime(), discard },
+        remote,
+      });
       available.mockReturnValue(true);
-      await resumed.reconcileAgentStatuses();
+      await reconnected.reconcileAgentStatuses();
       await vi.waitFor(async () => expect(await pending()).toBe(false));
-      expect(discard).toHaveBeenCalledExactlyOnceWith(agent.id);
+      expect(requestSession).toHaveBeenLastCalledWith(placement, {
+        kind: "checkoutRelease",
+        agentId: agent.id,
+        operation: { kind: "release", expectedState: stateId },
+      });
+      expect(discard).not.toHaveBeenCalled();
     });
 
     it("records a runner selection only after acknowledgement and binds independent children to the selected origin", async () => {

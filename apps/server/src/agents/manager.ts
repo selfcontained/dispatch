@@ -25,7 +25,6 @@ import {
   GitWorktreeError,
   normalizeBaseBranch,
 } from "../shared/git/worktree.js";
-import { readWorktreeStatus } from "../shared/git/worktree-status.js";
 import { resolveFilesDir } from "../shared/files.js";
 import { getDirectoryIconPath } from "../shared/directory-icon-cache.js";
 import {
@@ -36,9 +35,15 @@ import { getActivePersonality } from "../db/personalities.js";
 import { errorMessage } from "../shared/lib/error-message.js";
 import {
   beginArchive as beginArchiveImpl,
+  cleanupAgentWorktree,
   executeArchive as executeArchiveImpl,
   type ArchiveDeps,
 } from "./archive.js";
+import {
+  observeArchiveCheckout,
+  releaseRemoteCheckout,
+  type ArchiveCheckoutAgent,
+} from "./archive-checkout.js";
 import { AgentError } from "./errors.js";
 import { type AgentEventBus, createAgentEventBus } from "./events.js";
 import { runLifecycleHook } from "./lifecycle-hooks.js";
@@ -2699,7 +2704,8 @@ export class AgentManager {
 
   async beginArchive(
     id: string,
-    cleanupWorktree: WorktreeCleanupMode = "auto"
+    cleanupWorktree: WorktreeCleanupMode = "auto",
+    checkoutState: string | null = null
   ): Promise<AgentRecord> {
     await this.cancelSchedules?.(id).catch((err) =>
       this.logger.warn(
@@ -2707,7 +2713,12 @@ export class AgentManager {
         "could not cancel scheduled messages"
       )
     );
-    return beginArchiveImpl(this.archiveDeps(), id, cleanupWorktree);
+    return beginArchiveImpl(
+      this.archiveDeps(),
+      id,
+      cleanupWorktree,
+      checkoutState
+    );
   }
 
   async executeArchive(
@@ -2724,19 +2735,34 @@ export class AgentManager {
   async checkWorktreeStatus(id: string): Promise<WorktreeStatus> {
     const agent = await this.getRequiredAgent(id);
 
-    if (!agent.worktreePath) {
-      return {
-        hasWorktree: false,
-        hasUnmergedCommits: false,
-        hasUncommittedChanges: false,
-        worktreePath: null,
-        branchName: null,
-        changedFiles: [],
-        uncommittedFiles: [],
-      };
+    let observation;
+    try {
+      observation = await observeArchiveCheckout(this.pool, agent, this.remote);
+    } catch {
+      throw new AgentError(
+        "Checkout status is unavailable on the owning runner.",
+        503
+      );
     }
-
-    return readWorktreeStatus(agent.worktreePath);
+    const { checkout, ownership, owner, borrowers } = observation;
+    if (ownership === "owned" && !checkout)
+      throw new AgentError(
+        "Checkout status is unavailable on the owning runner.",
+        503
+      );
+    return {
+      ownership,
+      owner,
+      borrowers,
+      checkoutState: checkout?.stateId,
+      hasWorktree: checkout !== null,
+      hasUnmergedCommits: checkout?.unmerged ?? false,
+      hasUncommittedChanges: Boolean(checkout?.uncommittedFiles.length),
+      worktreePath: checkout?.path ?? null,
+      branchName: checkout?.branch ?? null,
+      changedFiles: checkout?.changedFiles ?? [],
+      uncommittedFiles: checkout?.uncommittedFiles ?? [],
+    };
   }
 
   /** Run the existing recorder before DB startup as well as on reconcile ticks. */
@@ -2768,22 +2794,49 @@ export class AgentManager {
   private runnerCleanupRunning = false;
 
   private async retryRunnerCleanup(): Promise<void> {
-    if (!this.remote || this.runnerCleanupRunning) return;
+    if (this.runnerCleanupRunning) return;
     // Offline cleanup must never delay the status reconciliation loop.
     this.runnerCleanupRunning = true;
     try {
-      const { rows } = await this.pool.query<{ id: string; cwd: string }>(
-        "SELECT id, cwd FROM agents WHERE runner_cleanup_pending AND deleted_at IS NOT NULL ORDER BY id"
+      const { rows } = await this.pool.query<
+        ArchiveCheckoutAgent & {
+          mode: WorktreeCleanupMode | null;
+        }
+      >(
+        `SELECT id, cwd, worktree_path AS "worktreePath", base_branch AS "baseBranch",
+                worktree_branch AS "worktreeBranch", archive_cleanup_mode AS mode
+         FROM agents WHERE runner_cleanup_pending AND deleted_at IS NOT NULL ORDER BY id`
       );
-      for (const { id, cwd } of rows) {
-        const placement = remotePlacement(cwd);
-        if (!placement || !this.remote.isManagedWorkspace(placement)) continue;
+      for (const agent of rows) {
+        const { id, cwd, mode } = agent;
         try {
-          await this.runtime.stop(id, true);
-          await this.streamRecorder.settleStopped(id);
-          await this.runtime.discard(id);
+          if (remotePlacement(cwd)) {
+            if (!this.remote) continue;
+            await this.runtime.stop(id, true);
+            await this.streamRecorder.settleStopped(id);
+            await this.runtime.clearRemoteState?.(id);
+            if (
+              (await releaseRemoteCheckout(
+                this.pool,
+                agent,
+                mode ?? "auto",
+                this.remote
+              )) === "inUse"
+            )
+              continue;
+          } else if (
+            await cleanupAgentWorktree(
+              this.pool,
+              this.logger,
+              agent,
+              mode ?? "auto",
+              {}
+            )
+          ) {
+            continue;
+          }
           await this.pool.query(
-            "UPDATE agents SET runner_cleanup_pending = false WHERE id = $1",
+            "UPDATE agents SET runner_cleanup_pending = false, archive_cleanup_mode = NULL, archive_checkout_state = NULL WHERE id = $1",
             [id]
           );
         } catch (err) {
@@ -2969,6 +3022,7 @@ export class AgentManager {
       pool: this.pool,
       logger: this.logger,
       runtime: this.runtime,
+      remote: this.remote,
       diffStatsRefresher: this.diffStatsRefresher,
       getAgent: (id) => this.getAgent(id),
       getRequiredAgent: (id) => this.getRequiredAgent(id),

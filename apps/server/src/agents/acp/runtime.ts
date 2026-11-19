@@ -1334,6 +1334,10 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
 
     readLogTail,
 
+    async clearRemoteState(agentId) {
+      await rm(stateDir(agentId), { recursive: true, force: true });
+    },
+
     async discard(agentId) {
       const placement = await placementOf(agentId);
       const operation = { kind: "discard", agentId } as const;

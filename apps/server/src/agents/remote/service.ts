@@ -162,6 +162,7 @@ type Peer = {
   pullRequestEvidence: boolean;
   checkoutInspection: boolean;
   sessionCheckout: boolean;
+  checkoutRelease: boolean;
   checkoutViews: boolean;
   sharedWorktree: boolean;
   workspacePreparation: boolean;
@@ -690,6 +691,7 @@ export class RemoteRunnerService {
           githubManagement: ready.githubManagement === true,
           checkoutViews: ready.checkoutViews === true,
           sessionCheckout: ready.sessionCheckout === true,
+          checkoutRelease: ready.checkoutRelease === true,
           checkoutInspection: ready.checkoutInspection === true,
           sharedWorktree: ready.sharedWorktree === true,
           workspacePreparation: ready.workspacePreparation === true,
@@ -1550,6 +1552,10 @@ export class RemoteRunnerService {
     )
       throw new RunnerCapabilityUnavailable(
         "Update the runner to use these checkout options."
+      );
+    if (command.kind === "checkoutRelease" && !peer.checkoutRelease)
+      throw new RunnerCapabilityUnavailable(
+        "Update the runner to inspect and release a session checkout."
       );
     if (command.kind === "inspectCheckout" && !peer.checkoutInspection)
       throw new RunnerCapabilityUnavailable(

@@ -16,6 +16,9 @@ import { api } from "@/lib/api";
 
 type WorktreeStatus = {
   hasWorktree: boolean;
+  ownership?: "owned" | "borrowed" | "external" | "none";
+  borrowers?: string[];
+  checkoutState?: string;
   hasUnmergedCommits: boolean;
   hasUncommittedChanges: boolean;
   worktreePath: string | null;
@@ -33,7 +36,11 @@ type DeleteAgentDialogProps = {
   agents: Agent[];
   setOpen: (open: boolean) => void;
   setDeleteTarget: (agent: Agent | null) => void;
-  onDelete: (agent: Agent, cleanupWorktree?: string) => Promise<void>;
+  onDelete: (
+    agent: Agent,
+    cleanupWorktree?: string,
+    checkoutState?: string
+  ) => Promise<void>;
 };
 
 export function DeleteAgentDialog({
@@ -49,6 +56,7 @@ export function DeleteAgentDialog({
     null
   );
   const [loading, setLoading] = useState(false);
+  const [statusUnavailable, setStatusUnavailable] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
   // Archiving cascades to the target's sub agents, so the confirmation has to
@@ -65,18 +73,23 @@ export function DeleteAgentDialog({
         } archived too.`
       : "";
 
-  // Fetch worktree status when dialog opens for an agent with a worktree
+  const runnerCheckout = Boolean(
+    deleteTarget?.runnerManaged || deleteTarget?.cwd.startsWith("runner://")
+  );
+
+  // Remote checkout ownership is known only to the session runner.
   useEffect(() => {
+    setStatusUnavailable(false);
+    setWorktreeStatus(null);
     if (!open || !deleteTarget) {
       setStep("confirm");
-      setWorktreeStatus(null);
       setLoading(false);
       setDeleting(false);
       return;
     }
 
-    if (!deleteTarget.worktreePath) {
-      setWorktreeStatus(null);
+    if (!deleteTarget.worktreePath && !runnerCheckout) {
+      setLoading(false);
       return;
     }
 
@@ -91,7 +104,7 @@ export function DeleteAgentDialog({
       })
       .catch(() => {
         if (!cancelled) {
-          setWorktreeStatus(null);
+          setStatusUnavailable(true);
           setLoading(false);
         }
       });
@@ -99,7 +112,7 @@ export function DeleteAgentDialog({
     return () => {
       cancelled = true;
     };
-  }, [open, deleteTarget]);
+  }, [open, deleteTarget, runnerCheckout]);
 
   const handleConfirmDelete = useCallback(async () => {
     if (!deleteTarget) return;
@@ -107,6 +120,8 @@ export function DeleteAgentDialog({
     // If there's a worktree with unmerged commits or uncommitted changes, transition to choice step
     if (
       worktreeStatus?.hasWorktree &&
+      worktreeStatus.ownership !== "borrowed" &&
+      worktreeStatus.ownership !== "external" &&
       (worktreeStatus.hasUnmergedCommits ||
         worktreeStatus.hasUncommittedChanges)
     ) {
@@ -114,10 +129,12 @@ export function DeleteAgentDialog({
       return;
     }
 
-    // No worktree or no unmerged commits — standard delete with auto cleanup
+    // The server checks again before allowing automatic cleanup.
     setDeleting(true);
     try {
-      await onDelete(deleteTarget, "auto");
+      if (worktreeStatus?.checkoutState)
+        await onDelete(deleteTarget, "auto", worktreeStatus.checkoutState);
+      else await onDelete(deleteTarget, "auto");
       setOpen(false);
       setDeleteTarget(null);
     } finally {
@@ -131,14 +148,20 @@ export function DeleteAgentDialog({
 
       setDeleting(true);
       try {
-        await onDelete(deleteTarget, cleanupMode);
+        if (cleanupMode === "force" && worktreeStatus?.checkoutState)
+          await onDelete(
+            deleteTarget,
+            cleanupMode,
+            worktreeStatus.checkoutState
+          );
+        else await onDelete(deleteTarget, cleanupMode);
         setOpen(false);
         setDeleteTarget(null);
       } finally {
         setDeleting(false);
       }
     },
-    [deleteTarget, onDelete, setOpen, setDeleteTarget]
+    [deleteTarget, onDelete, setOpen, setDeleteTarget, worktreeStatus]
   );
 
   const close = useCallback(() => {
@@ -147,9 +170,7 @@ export function DeleteAgentDialog({
   }, [setOpen, setDeleteTarget]);
 
   if (step === "worktree-choice" && worktreeStatus) {
-    const hasUnmerged =
-      worktreeStatus.hasUnmergedCommits &&
-      worktreeStatus.changedFiles.length > 0;
+    const hasUnmerged = worktreeStatus.hasUnmergedCommits;
     const hasUncommitted =
       worktreeStatus.hasUncommittedChanges &&
       worktreeStatus.uncommittedFiles.length > 0;
@@ -167,11 +188,16 @@ export function DeleteAgentDialog({
                 <div className="flex items-start gap-2">
                   <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
                   <span>
-                    Branch{" "}
-                    <code className="rounded bg-muted px-1 py-0.5 text-xs">
-                      {worktreeStatus.branchName}
-                    </code>{" "}
-                    has commits not merged to origin.
+                    {worktreeStatus.branchName && (
+                      <>
+                        Branch{" "}
+                        <code className="rounded bg-muted px-1 py-0.5 text-xs">
+                          {worktreeStatus.branchName}
+                        </code>{" "}
+                      </>
+                    )}
+                    {worktreeStatus.branchName ? "has" : "This checkout has"}{" "}
+                    unmerged commits.
                   </span>
                 </div>
                 <div className="ml-6 max-h-40 overflow-y-auto rounded bg-muted/50 px-2 py-1.5 text-xs font-mono leading-relaxed text-muted-foreground">
@@ -198,6 +224,9 @@ export function DeleteAgentDialog({
 
             <p className="text-sm text-muted-foreground">
               The agent will be archived either way.
+              {worktreeStatus.borrowers?.length
+                ? " Removal waits until the other sessions release the worktree."
+                : ""}
               {cascadeNote}
             </p>
           </div>
@@ -243,11 +272,20 @@ export function DeleteAgentDialog({
         <DialogHeader>
           <DialogTitle>Archive Agent</DialogTitle>
           <DialogDescription>
-            {deleteTarget?.runnerManaged
-              ? `Archive "${deleteTarget.name}"? The runner will delete its session folder, including uncommitted files. If the runner is offline, cleanup happens when it reconnects.${cascadeNote}`
-              : deleteTarget
-                ? `Archive "${deleteTarget.name}"? This removes the agent record and all files.${cascadeNote}`
-                : "Archive this agent?"}
+            {deleteTarget
+              ? `Archive "${deleteTarget.name}"?${cascadeNote}`
+              : "Archive this agent?"}
+            {statusUnavailable
+              ? runnerCheckout
+                ? " Checkout status is unavailable. The runner will check it when available and keep it if it cannot verify that it is clean."
+                : " Checkout status is unavailable. Archive will keep it unless it can verify that it is clean."
+              : worktreeStatus?.ownership === "borrowed"
+                ? " The shared checkout belongs to another session."
+                : worktreeStatus?.borrowers?.length
+                  ? " Checkout removal waits until the other sessions release it."
+                  : worktreeStatus?.ownership === "owned"
+                    ? " Archive removes the checkout if it is still clean and unchanged."
+                    : ""}
           </DialogDescription>
         </DialogHeader>
         <div className="flex justify-end gap-2">

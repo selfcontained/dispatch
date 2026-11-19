@@ -22,6 +22,10 @@ import {
   isOpaqueId,
   isCheckoutPath,
   type SessionCheckout,
+  type CheckoutObservation,
+  type CheckoutRelease,
+  type CheckoutReleaseResult,
+  type CheckoutState,
   type SessionOperation,
   type Command,
   type LaunchProgress,
@@ -68,6 +72,7 @@ type SupervisorOptions = {
   workspaces: ReadonlySet<string>;
   hostCommand: () => string[];
   asWorkload: WorkloadCommand;
+  observeCheckout?: (cwd: string, scratch: boolean) => Promise<CheckoutState>;
   prepareDependencies?: (cwd: string) => Promise<boolean>;
 };
 
@@ -216,6 +221,7 @@ export async function createSessionSupervisor(
   }
 
   const readBinding = (key: string) => readOptional(path.join(bindings, key));
+  const releaseFile = (key: string) => path.join(bindings, `${key}.released`);
   const retireFile = (key: string) => path.join(bindings, `${key}.retired`);
   const repositoryFile = (key: string) =>
     path.join(bindings, `${key}.repository`);
@@ -433,19 +439,123 @@ export async function createSessionSupervisor(
     return { path: dir, moved: dir !== initial, origin };
   }
 
-  async function hasBorrowers(key: string) {
+  async function checkoutBorrowers(key: string) {
+    const borrowers: string[] = [];
     for (const entry of await readdir(bindings)) {
       if (
         storageKeyPattern.test(entry) &&
         checkoutOwner(await readBinding(entry)) === key
       )
-        return true;
+        borrowers.push(entry);
     }
-    return false;
+    return borrowers.sort();
+  }
+
+  async function describeOwnedState(key: string): Promise<CheckoutState> {
+    const dir = await managedDirectory(key);
+    if (!config.observeCheckout)
+      throw new Error("Checkout observation is unavailable.");
+    const scratch = (await readOptional(repositoryFile(key))) === "null";
+    return config.observeCheckout(dir, scratch);
+  }
+
+  async function observeRelease(
+    key: string,
+    workspace: string
+  ): Promise<CheckoutObservation> {
+    const binding = await readBinding(key);
+    if (binding === null) {
+      if (
+        managedTarget(workspace) &&
+        ((await lstat(path.join(sessions, key)).catch(missingPath)) ||
+          (await readOptional(repositoryFile(key))) !== null)
+      )
+        throw new Error("The runner session binding is unavailable.");
+      return { ownership: "none", owner: null, borrowers: [], checkout: null };
+    }
+    if (!matchesWorkspace(binding, workspace))
+      throw new Error("Agent is not bound to this workspace");
+    if (!managedTarget(workspace))
+      return {
+        ownership: "external",
+        owner: null,
+        borrowers: [],
+        checkout: null,
+      };
+    const owner = checkoutOwner(binding) ?? key;
+    return {
+      ownership: owner === key ? "owned" : "borrowed",
+      owner,
+      borrowers: await checkoutBorrowers(owner),
+      checkout: await describeOwnedState(owner).catch(() => null),
+    };
+  }
+
+  async function releaseCheckout(
+    key: string,
+    workspace: string,
+    expectedState: string | null
+  ): Promise<CheckoutReleaseResult> {
+    const binding = await readBinding(key);
+    const receipt = await readOptional(releaseFile(key));
+    if (receipt === "retained") return "retained";
+    if (binding === null) {
+      // Fence a delayed managed launch even if it never registered a binding.
+      if (managedTarget(workspace)) {
+        if (
+          (await lstat(path.join(sessions, key)).catch(missingPath)) ||
+          (await readOptional(repositoryFile(key))) !== null
+        )
+          throw new Error("The runner session binding is unavailable.");
+        await writePrivateState(retireFile(key), "");
+      }
+      return "released";
+    }
+    if (!matchesWorkspace(binding, workspace))
+      throw new Error("Agent is not bound to this workspace");
+    const identity = await readIdentity(key);
+    if (identity && processes.alive(identity))
+      throw new Error("Stop the guest host before releasing it");
+    const managed = managedTarget(workspace);
+    if (managed) await writePrivateState(retireFile(key), "");
+    const dir = path.join(hostRoot, key);
+    await cleanHost(key, identity);
+    checkUntrackedSocket(dir);
+    await cleanLegacyHost(key);
+    await removeGuestDirectory(dir);
+    if (managed) await rm(path.join(logs, key), { force: true });
+    if (binding === managedBinding) {
+      const session = path.join(sessions, key);
+      // Resume interrupted unregister after the checkout directory was removed.
+      const removed =
+        receipt === "removing" && !(await lstat(session).catch(missingPath));
+      if (!removed) {
+        const observed =
+          expectedState === null
+            ? null
+            : await describeOwnedState(key).catch(() => null);
+        if (observed?.stateId !== expectedState || expectedState === null) {
+          await writePrivateState(releaseFile(key), "retained");
+          return "retained";
+        }
+        if ((await checkoutBorrowers(key)).length > 0) return "inUse";
+        await writePrivateState(releaseFile(key), "removing");
+      }
+      await discardManagedCheckout(key);
+    }
+    for (const file of [
+      cwdFile(key),
+      selectedFile(key),
+      borrowedFile(key),
+      path.join(bindings, key),
+    ])
+      await rm(file, { force: true });
+    await syncBindings();
+    return "released";
   }
 
   async function discardManagedCheckout(key: string) {
-    if (await hasBorrowers(key))
+    if ((await checkoutBorrowers(key)).length > 0)
       throw new Error("Runner checkout is still in use by a borrower.");
     const session = path.join(sessions, key);
     const stored = await readOptional(repositoryFile(key));
@@ -764,6 +874,21 @@ export async function createSessionSupervisor(
         return launch(command, cwd, key, owner, progress);
       });
     },
+    async checkoutRelease(
+      agentId: string,
+      workspace: string,
+      operation: CheckoutRelease
+    ) {
+      const key = runnerStorageKey(agentId);
+      const owner = checkoutOwner(await readBinding(key)) ?? key;
+      return withLaunchLocks([key, owner], async () => {
+        if ((checkoutOwner(await readBinding(key)) ?? key) !== owner)
+          throw new Error("The checkout binding changed; retry the request.");
+        return operation.kind === "observe"
+          ? observeRelease(key, workspace)
+          : releaseCheckout(key, workspace, operation.expectedState);
+      });
+    },
     checkoutDirectory(
       agentId: string,
       workspace: string,
@@ -895,6 +1020,8 @@ export async function createSessionSupervisor(
     discard(agentId: string, workspace: string) {
       const key = runnerStorageKey(agentId);
       return serialize(key, async () => {
+        if ((await readOptional(releaseFile(key))) === "retained")
+          throw new Error("The checkout was retained.");
         const managed = managedTarget(workspace);
         if (!(await bound(key, workspace))) {
           if (managed && (await readBinding(key)) === null) {

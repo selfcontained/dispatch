@@ -1,6 +1,8 @@
 import { isCheckoutView, type CheckoutView } from "./checkout-view.js";
 import {
   isCheckoutQuery,
+  isCheckoutRelease,
+  type CheckoutRelease,
   isCheckoutPath,
   validBranch,
   type CheckoutQuery,
@@ -69,6 +71,7 @@ export type SessionOperation =
       kind: "sessionCheckout";
       operation: { kind: "describe" } | { kind: "select"; path: string | null };
     }
+  | { agentId: string; kind: "checkoutRelease"; operation: CheckoutRelease }
   | { agentId: string; kind: "repo" };
 
 export type RunnerOperation =
@@ -97,6 +100,7 @@ export type ReadyFrame = {
   sharedWorktree?: true;
   workspacePreparation?: true;
   sessionCheckout?: true;
+  checkoutRelease?: true;
 };
 
 /** Accept v1 extension fields and enable optional features only when explicitly true. */
@@ -122,6 +126,7 @@ export function parseReadyFrame(value: unknown): ReadyFrame | null {
     ...(frame.checkoutViews === true && { checkoutViews: true }),
     ...(frame.checkoutInspection === true && { checkoutInspection: true }),
     ...(frame.sharedWorktree === true && { sharedWorktree: true }),
+    ...(frame.checkoutRelease === true && { checkoutRelease: true }),
     ...(frame.sessionCheckout === true && { sessionCheckout: true }),
     ...(frame.workspacePreparation === true && { workspacePreparation: true }),
     ...(frame.health === true && { health: true }),
@@ -301,6 +306,8 @@ function isCommand(value: unknown): value is Command {
         (value.launch.useWorktreeOf === undefined ||
           value.agentId === value.launch.agentId)
       );
+    case "checkoutRelease":
+      return isCheckoutRelease(value.operation);
     case "sessionCheckout":
       return (
         isRecord(value.operation) &&

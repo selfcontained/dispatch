@@ -19,6 +19,7 @@ import {
   isOpaqueId,
   isCheckoutReply,
   isSessionCheckout,
+  isCheckoutObservation,
   parseGitHubPullRequestWatchEvent,
   isGitHubPullRequestDetails,
   isGitHubPullRequestDiff,
@@ -738,6 +739,7 @@ function fixtureRunner(current: boolean) {
       pullRequestEvidence: true,
       pullRequestWatch: true,
       sessionCheckout: true,
+      checkoutRelease: true,
     }),
   };
   const sample = {
@@ -768,6 +770,8 @@ function fixtureRunner(current: boolean) {
   const requests: ServiceFrame[] = [];
 
   let selectedCheckout = "/workload/launch";
+  const stateId = "b".repeat(64);
+  let released = false;
 
   function connect() {
     const service = new Duplex({
@@ -869,6 +873,34 @@ function fixtureRunner(current: boolean) {
             command.agentId !== agentId
           ) {
             reply({ type: "result", id, error: "Unknown session binding" });
+          } else if (command.kind === "checkoutRelease" && current) {
+            if (command.operation.kind === "observe") {
+              result(
+                JSON.stringify({
+                  ownership: released ? "none" : "owned",
+                  owner: released ? null : "machine/owner",
+                  borrowers: released ? [] : ["machine/borrower"],
+                  checkout: released
+                    ? null
+                    : {
+                        path: selectedCheckout,
+                        branch: "feature",
+                        stateId,
+                        unmerged: true,
+                        changedFiles: ["retained.txt"],
+                        uncommittedFiles: [],
+                      },
+                })
+              );
+            } else if (
+              !running &&
+              command.operation.expectedState === stateId
+            ) {
+              released = true;
+              result("released");
+            } else {
+              result("retained");
+            }
           } else if (command.kind === "sessionCheckout" && current && running) {
             if (command.operation.kind === "select")
               selectedCheckout = command.operation.path ?? "/workload/launch";
@@ -1033,6 +1065,56 @@ it("lets an independent host select a checkout by opaque session handle after ne
     resumed.close();
   }
 });
+
+it.each([true, false])(
+  "independent checkout release consumer negotiates capability: %s",
+  async (current) => {
+    const runner = fixtureRunner(current);
+    const peer = runner.connect();
+    try {
+      await vi.waitFor(() => expect(peer.reports[0]).toBeDefined());
+      const ready = parseReadyFrame(peer.reports[0]);
+      expect(ready?.checkoutRelease).toBe(current ? true : undefined);
+      if (!ready?.checkoutRelease) {
+        expect(runner.requests).toHaveLength(0);
+        return;
+      }
+      const observe = {
+        ...runner.session,
+        kind: "checkoutRelease",
+        operation: { kind: "observe" },
+      } as const;
+      const observation: unknown = JSON.parse(
+        String((await peer.connection.request(observe)).value)
+      );
+      expect(isCheckoutObservation(observation)).toBe(true);
+      if (!isCheckoutObservation(observation) || !observation.checkout)
+        throw new Error("Missing checkout observation");
+      expect(observation.borrowers).toEqual(["machine/borrower"]);
+      const release = {
+        ...observe,
+        operation: {
+          kind: "release",
+          expectedState: observation.checkout.stateId,
+        },
+      } as const;
+      expect(
+        parseServiceFrame({
+          type: "request",
+          id: "bad",
+          command: {
+            ...release,
+            operation: { kind: "release", expectedState: "../bad" },
+          },
+        })
+      ).toBeNull();
+      expect((await peer.connection.request(release)).value).toBe("released");
+      expect((await peer.connection.request(release)).value).toBe("released");
+    } finally {
+      peer.close();
+    }
+  }
+);
 
 it.each([true, false])(
   "independent service starts and resumes a runner session (current capabilities: %s)",

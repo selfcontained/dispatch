@@ -57,6 +57,18 @@ if (process.argv[2]?.startsWith("recovery-")) {
 } else if (process.argv[2] === "runner-view-checkout") {
   const { runCheckoutViewCli } = await import("./agents/checkout-view-cli.js");
   await runCheckoutViewCli(process.argv[3]!, process.argv[4] === "--managed");
+} else if (process.argv[2] === "runner-observe-checkout") {
+  const { observeGitCheckout, observeScratchCheckout } =
+    await import("./agents/checkout-inspection.js");
+  try {
+    const observe =
+      process.argv[4] === "--scratch"
+        ? observeScratchCheckout
+        : observeGitCheckout;
+    process.stdout.write(JSON.stringify(await observe(process.argv[3]!)));
+  } catch {
+    process.exitCode = 1;
+  }
 } else if (process.argv[2] === "runner-inspect-checkout") {
   const { runCheckoutInspectionCli } =
     await import("./agents/checkout-inspection.js");

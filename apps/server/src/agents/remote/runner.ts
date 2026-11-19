@@ -244,6 +244,19 @@ export async function runRemoteRunner(filename: string) {
     env,
     workspaces: new Set(configuredHandles),
     asWorkload,
+    async observeCheckout(cwd, scratch) {
+      const { stdout } = await execute(
+        setpriv,
+        [
+          ...childArgs,
+          ...selfCommand("runner-observe-checkout"),
+          cwd,
+          ...(scratch ? ["--scratch"] : []),
+        ],
+        { env, timeout: 90_000, maxBuffer: 4 * 1024 * 1024 }
+      );
+      return JSON.parse(stdout);
+    },
     async prepareDependencies(cwd) {
       await execute(
         setpriv,
@@ -447,6 +460,19 @@ export async function runRemoteRunner(filename: string) {
         }
         if (socket.destroyed) return;
         switch (command.kind) {
+          case "checkoutRelease": {
+            const observation = await supervisor.checkoutRelease(
+              agentId,
+              workspace,
+              command.operation
+            );
+            result(
+              typeof observation === "string"
+                ? observation
+                : JSON.stringify(observation)
+            );
+            break;
+          }
           case "sessionCheckout":
             result(
               JSON.stringify(
@@ -661,6 +687,7 @@ export async function runRemoteRunner(filename: string) {
           checkoutInspection: true,
           workspacePreparation: true,
           sessionCheckout: true,
+          checkoutRelease: true,
           checkoutViews: true,
           sharedWorktree: true,
         });

@@ -6,13 +6,15 @@ import {
   openLinuxDirectory,
 } from "../files/open-workspace-file.js";
 import { constants } from "node:fs";
-import { lstat, open, readlink, realpath } from "node:fs/promises";
+import { lstat, open, readdir, readlink, realpath } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 import {
   isCheckoutQuery,
   type CheckoutQuery,
   type CheckoutReply,
+  type CheckoutState,
+  validBranch,
 } from "@dispatch/runner-protocol";
 
 import {
@@ -326,6 +328,140 @@ async function inspectChanges(root: string, baseBranch: string | null) {
     head,
     files: ownerReviewPaths(changes),
     stateId,
+  };
+}
+
+export async function observeScratchCheckout(
+  dir: string
+): Promise<CheckoutState> {
+  const root = await realpath(dir);
+  const identity = await lstat(root);
+  const directories: string[] = [];
+  const files: string[] = [];
+  let entriesSeen = 0;
+  async function collect(relative: string): Promise<void> {
+    for (const entry of await readdir(path.join(root, relative), {
+      withFileTypes: true,
+    })) {
+      if (++entriesSeen > MAX_FINGERPRINT_FILES)
+        throw new Error("Too many scratch checkout entries to fingerprint");
+      const name = path.join(relative, entry.name);
+      if (entry.isDirectory()) {
+        directories.push(name);
+        await collect(name);
+      } else {
+        if (!entry.isFile() && !entry.isSymbolicLink())
+          throw new Error("Unsupported scratch checkout entry");
+        files.push(name);
+      }
+    }
+  }
+  await collect("");
+  const stateId = await fingerprintCheckout(
+    root,
+    JSON.stringify([root, identity.dev, identity.ino, directories.sort()]),
+    "",
+    "",
+    "",
+    [],
+    files
+  );
+  return {
+    path: root,
+    branch: null,
+    stateId,
+    unmerged: false,
+    changedFiles: [],
+    uncommittedFiles: [...directories, ...files].sort(),
+  };
+}
+
+/** Strict observation for deletion. Any Git or fingerprint failure is unknown. */
+export async function observeGitCheckout(
+  dir: string,
+  baseBranch: string | null = null
+): Promise<CheckoutState> {
+  if (baseBranch !== null && !validBranch(baseBranch))
+    throw new Error("Invalid checkout base branch");
+  const root = await realpath(dir);
+  const cwd = { cwd: root, trimOutput: false };
+  const top = await run("git", ["rev-parse", "--show-toplevel"], cwd);
+  if (top.stdout.replace(/\n$/, "") !== root)
+    throw new Error("The bound directory is not a Git checkout root");
+  const identity = await lstat(root);
+  baseBranch ??= await recordedReviewBase(root);
+  const options = {
+    runCommand: run,
+    allowUpstreamFallback: baseBranch === null,
+  };
+  await refreshRemoteBaseRef(root, baseBranch, options);
+  const baseRef = await resolveBaseRef(root, baseBranch, options);
+  if (
+    !baseRef ||
+    (baseBranch && baseRef !== baseBranch && baseRef !== `origin/${baseBranch}`)
+  )
+    throw new Error("Could not resolve the checkout base");
+  const [{ stdout: head }, { stdout: base }, branch] = await Promise.all([
+    run("git", ["rev-parse", "--verify", "HEAD"], { cwd: root }),
+    run("git", ["rev-parse", "--verify", `${baseRef}^{commit}`], { cwd: root }),
+    run("git", ["symbolic-ref", "--short", "--quiet", "HEAD"], {
+      cwd: root,
+      allowedExitCodes: [0, 1],
+    }),
+  ]);
+  const [changes, staged, conflicts, merge, baseTree] = await Promise.all([
+    collectOwnerReviewChanges(root, base, run, head),
+    run(
+      "git",
+      ["diff", "--cached", "--raw", "--no-abbrev", "-z", head, "--"],
+      cwd
+    ),
+    run("git", ["ls-files", "--unmerged", "-z"], cwd),
+    run("git", ["merge-tree", "--write-tree", base, head], {
+      cwd: root,
+      allowedExitCodes: [0, 1],
+    }),
+    run("git", ["rev-parse", "--verify", `${base}^{tree}`], { cwd: root }),
+  ]);
+  const unpublishedHistory =
+    changes.committed.length === 0 &&
+    (
+      await run("git", ["merge-base", "--is-ancestor", head, base], {
+        cwd: root,
+        allowedExitCodes: [0, 1],
+      })
+    ).exitCode === 1;
+  const unmerged =
+    unpublishedHistory ||
+    merge.exitCode !== 0 ||
+    merge.stdout.split("\n")[0] !== baseTree.stdout;
+  const state = await fingerprintCheckout(
+    root,
+    base,
+    head,
+    staged.stdout,
+    conflicts.stdout,
+    changes.unstaged,
+    changes.untracked
+  );
+  const stateId = createHash("sha256")
+    .update(
+      JSON.stringify([root, identity.dev, identity.ino, branch.stdout, state])
+    )
+    .digest("hex");
+  return {
+    path: root,
+    branch: branch.exitCode === 0 ? branch.stdout : null,
+    stateId,
+    unmerged,
+    changedFiles: unmerged ? changes.committed : [],
+    uncommittedFiles: [
+      ...new Set([
+        ...changes.staged,
+        ...changes.unstaged,
+        ...changes.untracked,
+      ]),
+    ].sort(),
   };
 }
 
