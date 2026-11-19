@@ -470,6 +470,8 @@ async function fetchPinnedCa(
   );
 }
 
+const MAX_ENROLLMENT_RESPONSE_BYTES = 64 * 1024;
+
 /**
  * One HTTPS request to the service. With `pin`, first confirms the pinned
  * CA over the runner listener's own wire-protocol bootstrap (see
@@ -506,10 +508,6 @@ async function requestJson(
       if (error) reject(error);
       else resolve(value);
     };
-    const timer = setTimeout(() => {
-      request.destroy();
-      finish(new Error("The request to the service timed out."));
-    }, timeoutMs);
     const request = https.request(
       {
         hostname,
@@ -534,11 +532,30 @@ async function requestJson(
           : { rejectUnauthorized: true }),
       },
       (response) => {
-        let data = "";
-        response.on("data", (chunk) => (data += chunk));
-        response.on("end", () => {
+        const chunks: Buffer[] = [];
+        let size = 0;
+        const interrupted = () =>
+          finish(new Error("The service interrupted its response."));
+        response.once("aborted", interrupted);
+        response.on("error", interrupted);
+        response.once("close", interrupted);
+        response.on("data", (chunk: Buffer) => {
+          if (settled) return;
+          size += chunk.length;
+          if (size > MAX_ENROLLMENT_RESPONSE_BYTES) {
+            finish(new Error("The service response is too large."));
+            request.destroy();
+            return;
+          }
+          chunks.push(chunk);
+        });
+        response.once("end", () => {
+          if (settled) return;
           let parsed: unknown;
           try {
+            const data = new TextDecoder("utf-8", { fatal: true }).decode(
+              Buffer.concat(chunks, size)
+            );
             parsed = data ? JSON.parse(data) : undefined;
           } catch {
             return finish(
@@ -560,7 +577,11 @@ async function requestJson(
         });
       }
     );
-    request.on("error", (error) => finish(error as Error));
+    const timer = setTimeout(() => {
+      finish(new Error("The request to the service timed out."));
+      request.destroy();
+    }, timeoutMs);
+    request.on("error", (error) => finish(error));
     // Bun starts the HTTPS request on end(). TLS verifies the endpoint
     // hostname and certificate chain against the selected CA before sending.
     request.end(payload);

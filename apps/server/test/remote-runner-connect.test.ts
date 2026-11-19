@@ -545,3 +545,103 @@ describe("connect command shell safety", () => {
     ).rejects.toThrow(/--approval-url must be an http\(s\) URL/);
   });
 });
+
+describe("connect HTTP response body", () => {
+  async function expectFailure(
+    respond: (socket: TLSSocket) => void,
+    message: string
+  ) {
+    const authority = issueAuthority("response fixture");
+    const leaf = issueServer(authority, [HOST]);
+    const sockets = new Set<TLSSocket>();
+    const server = createServer(
+      { cert: leaf.cert + authority.cert, key: leaf.key },
+      (socket) => {
+        sockets.add(socket);
+        socket.once("close", () => sockets.delete(socket));
+        socket.on("error", () => {});
+        let request = "";
+        const receive = (chunk: Buffer) => {
+          request += chunk.toString("utf8");
+          if (request.startsWith("{")) {
+            if (!request.includes("\n")) return;
+            socket.off("data", receive);
+            socket.end(
+              JSON.stringify({ type: "ca", ca: authority.cert }) + "\n"
+            );
+          } else if (request.includes("\r\n\r\n")) {
+            socket.off("data", receive);
+            respond(socket);
+          }
+        };
+        socket.on("data", receive);
+      }
+    );
+    const dir = await mkdtemp(path.join(tmpdir(), "connect-response-"));
+    try {
+      await new Promise<void>((resolve) => server.listen(0, HOST, resolve));
+      const { port } = server.address() as AddressInfo;
+      const pin = new X509Certificate(authority.cert).fingerprint256.replaceAll(
+        ":",
+        ""
+      );
+      await expect(
+        runRunnerConnect([
+          `https://${HOST}:${port}`,
+          "--ca-sha256",
+          pin,
+          "--dir",
+          dir,
+        ])
+      ).rejects.toThrow(message);
+      expect(await readdir(dir)).toEqual([]);
+    } finally {
+      for (const socket of sockets) socket.destroy();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+      await rm(dir, { force: true, recursive: true });
+    }
+  }
+
+  const chunked = (status: string) =>
+    `HTTP/1.1 ${status}\r\nContent-Type: application/json\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n`;
+
+  function writeChunk(socket: TLSSocket, chunk: Buffer) {
+    socket.write(chunk.length.toString(16) + "\r\n");
+    socket.write(chunk);
+    socket.write("\r\n");
+  }
+
+  it("rejects a response interrupted before the declared body is complete", async () => {
+    await expectFailure((socket) => {
+      const partial = JSON.stringify({
+        id: "fixture-id",
+        code: "TEST-CODE",
+        expiresAt: "2099-01-01T00:00:00Z",
+      });
+      socket.end(
+        `HTTP/1.1 201 Created\r\nContent-Length: ${Buffer.byteLength(partial) + 1}\r\nConnection: close\r\n\r\n${partial}`
+      );
+    }, "The service interrupted its response.");
+  }, 5_000);
+
+  it("rejects a chunked response once its total byte count exceeds 64 KiB", async () => {
+    await expectFailure((socket) => {
+      socket.write(chunked("201 Created"));
+      const chunk = Buffer.from("é".repeat(20 * 1024));
+      writeChunk(socket, chunk);
+      writeChunk(socket, chunk);
+      // Leave the response open so waiting for end would hang.
+    }, "The service response is too large.");
+  }, 5_000);
+
+  it("preserves a multibyte character split across response chunks", async () => {
+    await expectFailure((socket) => {
+      const body = Buffer.from(JSON.stringify({ error: "Service says 🧪" }));
+      const split = body.indexOf(Buffer.from("🧪")) + 2;
+      socket.write(chunked("400 Bad Request"));
+      writeChunk(socket, body.subarray(0, split));
+      writeChunk(socket, body.subarray(split));
+      socket.end("0\r\n\r\n");
+    }, "Service says 🧪");
+  });
+});
