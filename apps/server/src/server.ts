@@ -10,6 +10,7 @@ import { SteeringDecisions } from "./chat/steering-decisions.js";
 import { RoutingSettings } from "./chat/routing-settings.js";
 import { RoutingShadow, RoutingShadowStore } from "./chat/routing-shadow.js";
 import { registerRoutingShadowRoutes } from "./routes/routing-shadow.js";
+import { createRunnerPullRequestReader } from "./agents/pull-request-reader.js";
 import { PullRequestRefresher } from "./agents/pull-request-refresher.js";
 import { MergeRiskAssessor } from "./agents/merge-risk/assessor.js";
 import {
@@ -382,10 +383,7 @@ const pullRequests = new PullRequestRefresher({
       id: agent.id,
       runnerId: remotePlacement(agent.cwd)?.runner ?? null,
     })),
-  readRemote: async (runnerId, url, title) => {
-    if (!remoteRunner) throw new Error("Runner unavailable.");
-    return remoteRunner.readPullRequest(runnerId, url, title);
-  },
+  read: createRunnerPullRequestReader(remoteRunner),
   publish: (event) => uiEventBroker.publish(event),
   assess: (url, value, owners, onProgress) =>
     mergeRiskAssessor.assess(url, value, owners, onProgress),

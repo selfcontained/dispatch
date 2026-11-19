@@ -1,3 +1,4 @@
+import { createRunnerPullRequestReader } from "../src/agents/pull-request-reader.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Pool } from "pg";
 import type { AgentPullRequest, Block } from "@dispatch/shared";
@@ -77,8 +78,10 @@ describe("server PR orchestration", () => {
         { id: "b", runnerId: "beta" },
       ],
       publish: f.publish,
-      read: f.read,
-      readRemote,
+      read: createRunnerPullRequestReader(
+        { readPullRequest: readRemote },
+        f.read
+      ),
       assess,
       warn: vi.fn(),
     });

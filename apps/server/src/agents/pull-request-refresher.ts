@@ -2,10 +2,7 @@ import { checkChanges } from "./pull-request-check-notice.js";
 import type { AgentPullRequest, Block } from "@dispatch/shared";
 import type { Pool } from "pg";
 import type { PublishUiEvent } from "../server/ui-events.js";
-import {
-  createPullRequestReader,
-  githubPullRequestUrl,
-} from "./pull-request-reader.js";
+import { githubPullRequestUrl } from "./pull-request-reader.js";
 
 export type CommitPullRequestNotice = <T>(
   write: () => Promise<T>
@@ -15,11 +12,10 @@ type Options = {
   pool: Pool;
   listAgents: () => Promise<{ id: string; runnerId: string | null }[]>;
   publish: PublishUiEvent;
-  read?: (url: string, title: string) => Promise<AgentPullRequest>;
-  readRemote?: (
-    runnerId: string,
+  read: (
     url: string,
-    title: string
+    title: string,
+    runnerId: string | null
   ) => Promise<AgentPullRequest>;
   notify?: (
     agentId: string,
@@ -92,10 +88,7 @@ export class PullRequestRefresher {
   private flight?: Promise<void>;
   private stopped = false;
   private dirty = false;
-  private read: NonNullable<Options["read"]>;
-  constructor(private options: Options) {
-    this.read = options.read ?? createPullRequestReader();
-  }
+  constructor(private options: Options) {}
   get(agentId: string): AgentPullRequest[] {
     return this.snapshots.get(agentId) ?? [];
   }
@@ -432,10 +425,7 @@ export class PullRequestRefresher {
           this.attempts.push(Date.now());
           let value: AgentPullRequest;
           try {
-            if (runnerId === null) value = await this.read(url, title);
-            else if (this.options.readRemote)
-              value = await this.options.readRemote(runnerId, url, title);
-            else value = { url, title, status: "Unavailable" };
+            value = await this.options.read(url, title, runnerId);
           } catch {
             value = { url, title, status: "Unavailable" };
           }

@@ -16,6 +16,31 @@ export function githubPullRequestUrl(value: string): string | null {
   }
 }
 
+/** Bind the built-in and connected runner implementations at service startup.
+ * A missing remote peer is an unavailable read for that placement. */
+export function createRunnerPullRequestReader(
+  remote:
+    | {
+        readPullRequest(
+          runnerId: string,
+          url: string,
+          title: string
+        ): Promise<AgentPullRequest>;
+      }
+    | undefined,
+  readLocal = createPullRequestReader()
+) {
+  return async (
+    url: string,
+    title: string,
+    runnerId: string | null
+  ): Promise<AgentPullRequest> => {
+    if (runnerId === null) return readLocal(url, title);
+    if (!remote) return { url, title, status: "Unavailable" };
+    return remote.readPullRequest(runnerId, url, title);
+  };
+}
+
 /** TTL and in-flight coalescing collapse duplicate scheduler requests. */
 export function createPullRequestReader(run: CommandRunner = runCommand) {
   const cache = new Map<
