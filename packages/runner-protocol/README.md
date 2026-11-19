@@ -164,6 +164,32 @@ operations independently of session bindings. With `useWorktreeOf`, the
 value is the handle of a session with an existing checkout on the same runner
 and workspace. Omit `repository` for a borrowed checkout.
 
+Runners advertising `sessionCheckout: true` accept the bound
+`sessionCheckout` command with the ordinary `agentId` and `workspace`
+handles. `operation: {kind: "describe"}` reports the effective checkout.
+`operation: {kind: "select", path}` selects an existing absolute directory
+on that runner and resolves a Git subdirectory to its checkout root. Use a
+null path to return to the session's launch or borrowed checkout. The result
+is a JSON string validated by `isSessionCheckout`. It carries the canonical
+`path`, whether it is `moved` from the initial checkout, and its
+credential-free HTTPS `origin` when available.
+
+The runner checks directory access under the workload identity and durably
+records an accepted selection before responding. Checkout reads and future
+host starts use it. A running host keeps its current cwd. Retrying the same
+selection is safe, and a service can describe the effective checkout after a
+lost response. A selection cannot change the runner, transfer archive
+ownership, or access another managed session's storage. Configured
+workspaces additionally restrict selection to the configured directory.
+
+When a session borrows a checkout from a runner with this capability,
+`useWorktreeOf` captures the source session's effective checkout on the
+first launch. The borrower retains it across restarts and can make its own
+selection. For an independent managed Git checkout, describe the source
+session on that runner, then launch a different session with a new
+`repository` request using the returned origin. The new checkout uses refs
+from the origin.
+
 Negotiate again on each connection. Require an explicit `true` for optional
 capabilities and ignore unknown advertisements. For an absent capability,
 omit the command and report that the operation is unavailable. A configured

@@ -485,6 +485,90 @@ describe("runner session supervision", () => {
     await expect(stat(author)).rejects.toMatchObject({ code: "ENOENT" });
   });
 
+  it("persists moved and borrowed checkouts independently across restarts", async () => {
+    const workspace = MANAGED_WORKSPACE;
+    const nested = "agt_nested";
+    const independent = "agt_independent";
+    const asWorkload = async (bin: string, args: string[]) =>
+      bin === "realpath"
+        ? (await realpath(args.at(-1)!)) + "\n"
+        : execFileSync(bin, args, {
+            encoding: "utf8",
+            stdio: ["ignore", "pipe", "ignore"],
+          });
+    const runner = await start([], asWorkload);
+    const checkout = path.join(await realpath(root), "moved");
+    const subdir = path.join(checkout, "src");
+    await mkdir(subdir, { recursive: true });
+    await asWorkload("git", ["-C", checkout, "init"]);
+    await asWorkload("git", [
+      "-C",
+      checkout,
+      "config",
+      "remote.origin.url",
+      "https://secret@example.test/org/project.git",
+    ]);
+    await runner.launch(launch(workspace), undefined);
+    await expect(
+      runner.sessionCheckout(agentId, workspace, {
+        kind: "select",
+        path: subdir,
+      })
+    ).resolves.toEqual({
+      path: checkout,
+      moved: true,
+      origin: "https://example.test/org/project.git",
+    });
+    processes.spawn.mockResolvedValueOnce();
+    await runner.launch(sharedLaunch(), undefined);
+    processes.spawn.mockResolvedValueOnce();
+    await runner.launch(
+      { ...sharedLaunch(reviewerId), agentId: nested },
+      undefined
+    );
+    processes.spawn.mockResolvedValueOnce();
+    await runner.launch(
+      { ...launch(workspace), agentId: independent },
+      undefined
+    );
+    const independentDir = await runner.checkoutDirectory(
+      independent,
+      workspace
+    );
+    await expect(
+      runner.sessionCheckout(agentId, workspace, {
+        kind: "select",
+        path: independentDir,
+      })
+    ).rejects.toThrow("outside the bound runner checkout");
+
+    await runner.stop(agentId, workspace, false);
+    runner.close();
+    const recovered = await start([], asWorkload);
+    await recovered.launch(launch(workspace), undefined);
+    expect(processes.spawn.mock.calls.at(-1)?.[1]).toBe(checkout);
+    await expect(
+      recovered.checkoutDirectory(independent, workspace)
+    ).resolves.toBe(independentDir);
+    await recovered.sessionCheckout(agentId, workspace, {
+      kind: "select",
+      path: null,
+    });
+    expect(await recovered.checkoutDirectory(agentId, workspace)).not.toBe(
+      checkout
+    );
+    for (const borrower of [reviewerId, nested])
+      await expect(
+        recovered.checkoutDirectory(borrower, workspace)
+      ).resolves.toBe(checkout);
+    processes.spawn.mockResolvedValueOnce();
+    await recovered.launch(
+      { ...sharedLaunch(reviewerId), agentId: nested },
+      undefined
+    );
+    expect(processes.spawn.mock.calls.at(-1)?.[1]).toBe(checkout);
+  });
+
   it("shares a configured workspace with separate host state and no folder cleanup", async () => {
     const running = await start(["configured", "other"]);
     await running.launch(launch("configured"), root);

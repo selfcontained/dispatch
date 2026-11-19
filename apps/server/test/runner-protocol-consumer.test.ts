@@ -18,6 +18,7 @@ import {
   sessionCommandId,
   isOpaqueId,
   isCheckoutReply,
+  isSessionCheckout,
   parseGitHubPullRequestWatchEvent,
   isGitHubPullRequestDetails,
   isGitHubPullRequestDiff,
@@ -130,6 +131,7 @@ it("negotiates advertised v1 capabilities independently on each ready frame", ()
     checkoutInspection: true,
     checkoutViews: true,
     sharedWorktree: true,
+    sessionCheckout: true,
   };
   expect(parseReadyFrame(managed)).toEqual(managed);
 });
@@ -707,6 +709,7 @@ function fixtureRunner(current: boolean) {
       githubManagement: true,
       pullRequestEvidence: true,
       pullRequestWatch: true,
+      sessionCheckout: true,
     }),
   };
   const sample = {
@@ -735,6 +738,8 @@ function fixtureRunner(current: boolean) {
   let running = false;
   let resumed = false;
   const requests: ServiceFrame[] = [];
+
+  let selectedCheckout = "/workload/launch";
 
   function connect() {
     const service = new Duplex({
@@ -836,6 +841,16 @@ function fixtureRunner(current: boolean) {
             command.agentId !== agentId
           ) {
             reply({ type: "result", id, error: "Unknown session binding" });
+          } else if (command.kind === "sessionCheckout" && current && running) {
+            if (command.operation.kind === "select")
+              selectedCheckout = command.operation.path ?? "/workload/launch";
+            result(
+              JSON.stringify({
+                path: selectedCheckout,
+                moved: selectedCheckout !== "/workload/launch",
+                origin: "https://example.test/project.git",
+              })
+            );
           } else if (command.kind === "launch") {
             resumed = command.launch.resumeSessionId === sessionId;
             running = true;
@@ -924,6 +939,72 @@ function fixtureRunner(current: boolean) {
     journalId,
   };
 }
+
+it("lets an independent host select a checkout by opaque session handle after negotiation", async () => {
+  const runner = fixtureRunner(true);
+  const launch: RemoteLaunch = {
+    agentId: runner.session.agentId,
+    engine: "codex",
+    model: null,
+    systemPrompt: null,
+    resumeSessionId: null,
+  };
+  const initial = runner.connect();
+  try {
+    await vi.waitFor(() =>
+      expect(parseReadyFrame(initial.reports[0])?.sessionCheckout).toBe(true)
+    );
+    await initial.connection.request({
+      ...runner.session,
+      kind: "launch",
+      launch,
+    });
+    const move = {
+      ...runner.session,
+      kind: "sessionCheckout" as const,
+      operation: { kind: "select" as const, path: "/workload/moved" },
+    };
+    expect(
+      parseServiceFrame({
+        type: "request",
+        id: "relative",
+        command: {
+          ...move,
+          operation: { kind: "select", path: "runner://foreign/@session" },
+        },
+      })
+    ).toBeNull();
+    await expect(
+      initial.connection.request({ ...move, agentId: "another/host" })
+    ).rejects.toThrow("Unknown session binding");
+    const { value } = await initial.connection.request(move);
+    const selected = JSON.parse(String(value));
+    expect(isSessionCheckout(selected)).toBe(true);
+    expect(selected).toMatchObject({ path: "/workload/moved", moved: true });
+    expect(
+      isSessionCheckout({
+        ...selected,
+        origin: "https://user:token@example.test/repo",
+      })
+    ).toBe(false);
+  } finally {
+    initial.close();
+  }
+  const resumed = runner.connect();
+  try {
+    const { value } = await resumed.connection.request({
+      ...runner.session,
+      kind: "sessionCheckout",
+      operation: { kind: "describe" },
+    });
+    expect(JSON.parse(String(value))).toMatchObject({
+      path: "/workload/moved",
+      moved: true,
+    });
+  } finally {
+    resumed.close();
+  }
+});
 
 it.each([true, false])(
   "independent service starts and resumes a runner session (current capabilities: %s)",

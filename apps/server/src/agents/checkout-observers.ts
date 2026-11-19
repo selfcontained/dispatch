@@ -47,7 +47,9 @@ export class CheckoutObservers {
   observe(agent: WorkspaceTargetAgent & { id: string }) {
     const id = agent.id;
     const placement = agent.cwd && remotePlacement(agent.cwd);
-    const key = placement ? agent.cwd : agentWorkspaceDir(agent);
+    const key = placement
+      ? JSON.stringify([agent.cwd, agent.workspacePath])
+      : agentWorkspaceDir(agent);
     if (!key) return;
     const expires = Date.now() + 75_000;
     const prev = this.agents.get(id);

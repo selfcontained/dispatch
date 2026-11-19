@@ -160,6 +160,8 @@ describe("runner enrollment service", () => {
         port: (api.address() as AddressInfo).port,
         tls: false,
         validAgentToken: (token, agentId) => token === `agent-token:${agentId}`,
+        validJobToken: (token, runId, agentId) =>
+          token === `job-token:${runId}:${agentId}`,
       }
     );
     services.push(service);
@@ -730,7 +732,7 @@ describe("runner enrollment service", () => {
     });
   });
 
-  it("proxies only agent-token MCP routes with allow-listed headers", async () => {
+  it("proxies only session-scoped MCP routes with allow-listed headers", async () => {
     const service = makeService();
     const a = await enroll(service, "alpha");
     const origin = new URL(a.endpoint);
@@ -822,6 +824,20 @@ describe("runner enrollment service", () => {
       ).toBe(404);
     }
     expect(apiRequests).toHaveLength(0);
+    const runId = "50a552a3-9629-4bc5-8b16-d52351d6c9ab";
+    const jobRoute = `/api/mcp/jobs/${runId}/agt_abc`;
+    for (const token of ["agent-token:agt_abc", `job-token:${runId}:agt_other`])
+      expect(
+        (await get(jobRoute, { authorization: `Bearer ${token}` }, "POST"))
+          .status
+      ).toBe(404);
+    expect(
+      await get(
+        jobRoute,
+        { authorization: `Bearer job-token:${runId}:agt_abc` },
+        "POST"
+      )
+    ).toEqual({ status: 200, body: `api:${jobRoute}` });
     // /ping carries no credentials upstream.
     apiRequests.length = 0;
     await get("/ping", { authorization: "Bearer agent-token:agt_abc" });

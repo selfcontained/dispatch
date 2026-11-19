@@ -447,6 +447,18 @@ export async function runRemoteRunner(filename: string) {
         }
         if (socket.destroyed) return;
         switch (command.kind) {
+          case "sessionCheckout":
+            result(
+              JSON.stringify(
+                await supervisor.sessionCheckout(
+                  agentId,
+                  workspace,
+                  command.operation,
+                  target?.cwd
+                )
+              )
+            );
+            break;
           case "watchCheckout": {
             const cwd = await supervisor.checkoutDirectory(
               agentId,
@@ -648,6 +660,7 @@ export async function runRemoteRunner(filename: string) {
           pullRequestEvidence: true,
           checkoutInspection: true,
           workspacePreparation: true,
+          sessionCheckout: true,
           checkoutViews: true,
           sharedWorktree: true,
         });

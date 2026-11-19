@@ -450,7 +450,7 @@ test.describe("failure suite", () => {
   });
 });
 
-test("managed scratch launch reports health and archive removes the guest session folder", async ({
+test("managed scratch checkout selection persists across host start and preserves archive ownership", async ({
   page,
   request,
 }, testInfo) => {
@@ -513,6 +513,83 @@ test("managed scratch launch reports health and archive removes the guest sessio
     guest("scratch", `cat /var/lib/runner/hosts/${id}/host.pid`).trim()
   ).toBe(scratchPid);
 
+  const selected = "/tmp/dispatch-selected-checkout";
+  guest(
+    "scratch",
+    [
+      `mkdir -p ${selected}/src`,
+      `git init -q ${selected}`,
+      `echo "Selected on the enrolled runner" > ${selected}/selected-checkout.txt`,
+      `chown -R 1500:1500 ${selected}`,
+    ].join(" && ")
+  );
+  const workspaceRoute = `/api/v1/agents/${id}/workspace`;
+  const updateWorkspace = (path: string | null) =>
+    request.patch(workspaceRoute, {
+      headers: authHeaders(),
+      data: { path },
+    });
+  const foreign = await updateWorkspace("runner://another-runner/@session");
+  expect(foreign.status()).toBe(400);
+  const changed = await updateWorkspace(`${selected}/src`);
+  expect(changed.ok(), await changed.text()).toBe(true);
+  expect((await changed.json()).agent).toMatchObject({
+    cwd: `runner://${runnerId}/@session`,
+    workspacePath: selected,
+  });
+  for (const workspace of [`runner://${runnerId}/@session`, selected]) {
+    const files = await request.get(workspaceRoute, {
+      headers: authHeaders(),
+      params: { workspace, path: "" },
+    });
+    expect(files.ok(), await files.text()).toBe(true);
+    expect(await files.text()).toContain("selected-checkout.txt");
+  }
+  const stop = await request.post(`/api/v1/agents/${id}/stop`, {
+    headers: authHeaders(),
+  });
+  expect(stop.ok(), await stop.text()).toBe(true);
+  crashRunner("scratch");
+  await expect
+    .poll(async () => (await runnerRow(request, "scratch"))?.status)
+    .toBe("offline");
+  startRunner("scratch");
+  await expect
+    .poll(async () => (await runnerRow(request, "scratch"))?.status, {
+      timeout: 30_000,
+    })
+    .toBe("online");
+  const resume = await request.post(`/api/v1/agents/${id}/start`, {
+    headers: authHeaders(),
+  });
+  expect(resume.ok(), await resume.text()).toBe(true);
+  expect(
+    JSON.parse(guest("scratch", `cat /var/lib/runner/hosts/${id}/launch.json`))
+      .cwd
+  ).toBe(selected);
+  await newSettledTurn(
+    page,
+    "proof-count selected-cwd",
+    "Local or guest fixture turn completed."
+  );
+  expect(guest("scratch", `cat ${selected}/provider-invocations`).trim()).toBe(
+    "called"
+  );
+
+  const viewport = page.viewportSize()!;
+  for (const size of [viewport, { width: 390, height: 844 }]) {
+    await page.setViewportSize(size);
+    await page.goto(`/agents/${id}/files`, { waitUntil: "domcontentloaded" });
+    const files = page.getByTestId("files-pane");
+    await files.getByText("selected-checkout.txt", { exact: true }).click();
+    await expect(files).toContainText("Selected on the enrolled runner");
+    await testInfo.attach(`selected checkout files at ${size.width}px`, {
+      body: await page.screenshot(),
+      contentType: "image/png",
+    });
+  }
+  await page.setViewportSize(viewport);
+
   await page.goto("/settings/runners", { waitUntil: "domcontentloaded" });
   await page.getByTestId(`runner-select-${runnerId}`).click();
   const health = page.getByTestId("runner-detail").getByTestId("runner-health");
@@ -543,4 +620,7 @@ test("managed scratch launch reports health and archive removes the guest sessio
       timeout: 30_000,
     })
     .toBe(true);
+  expect(guestOk("scratch", `test -f ${selected}/selected-checkout.txt`)).toBe(
+    true
+  );
 });

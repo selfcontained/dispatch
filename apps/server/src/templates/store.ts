@@ -1,6 +1,6 @@
 import type { Effort } from "@dispatch/shared";
 import { randomUUID } from "node:crypto";
-import path from "node:path";
+import { resolveLaunchLocation } from "../agents/workspace-target.js";
 
 import type { Pool } from "pg";
 
@@ -103,7 +103,7 @@ export class TemplateStore {
         `,
         [
           id,
-          path.resolve(input.directory),
+          resolveLaunchLocation(input.directory),
           input.name,
           input.description,
           input.prompt,
@@ -146,7 +146,7 @@ export class TemplateStore {
   ): Promise<TemplateRecord | null> {
     const result = await this.pool.query(
       `SELECT ${this.columns()} FROM templates WHERE directory = $1 AND name = $2`,
-      [path.resolve(directory), name]
+      [resolveLaunchLocation(directory), name]
     );
     return result.rows[0] ? mapTemplate(result.rows[0]) : null;
   }
@@ -194,7 +194,7 @@ export class TemplateStore {
         "branchName"
       );
       const resolvedDir = input.directory
-        ? path.resolve(input.directory)
+        ? resolveLaunchLocation(input.directory)
         : undefined;
       const result = await this.pool.query(
         `

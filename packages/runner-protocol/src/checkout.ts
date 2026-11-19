@@ -70,3 +70,19 @@ export function isCheckoutReply(
     value.files.every(relativePath)
   );
 }
+
+/** A machine-local absolute directory, interpreted only by the bound runner. */
+export function isCheckoutPath(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    value.startsWith("/") &&
+    value.length <= 4096 &&
+    !/[\x00-\x1f\x7f]/.test(value)
+  );
+}
+
+export type SessionCheckout = {
+  path: string;
+  moved: boolean;
+  origin: string | null;
+};

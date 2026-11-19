@@ -44,3 +44,13 @@ Each observation needs an owning machine/account, freshness, a bounded payload, 
 ## Checkpoints
 
 Ship each capability through its normal local and remote entry points, test older peers, and update the inventory with evidence. Keep release/update policy changes separate until the restart and mixed-version tests establish what can safely coexist.
+
+Session checkout selection now runs on the owning runner. Dispatch preserves
+the machine binding and project membership and records the selected path
+after runner acknowledgement. Borrowers retain the effective directory
+captured at launch. Independent MCP worktrees use the effective checkout's
+HTTPS origin and a distinct repository preparation request. Project
+templates and scheduled jobs retain explicit runner locators, and task
+launches use the selected template placement. A new checkout uses a
+published base from its origin. Borrowing shares the existing files,
+including unpublished changes.

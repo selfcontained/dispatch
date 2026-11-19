@@ -27,12 +27,16 @@ export async function registerAgentWorkspaceRoutes(
     }
     const agent = await deps.agentManager.getAgent(id);
     if (!agent) return reply.code(404).send({ error: "Agent not found." });
-    const workspace = remotePlacement(agent.cwd)
-      ? agent.cwd
-      : agentWorkspaceDir(agent);
+    const placement = remotePlacement(agent.cwd);
+    const workspace = placement ? agent.cwd : agentWorkspaceDir(agent);
     if (!workspace)
       return reply.code(404).send({ error: "This agent has no workspace." });
-    if (query.workspace !== workspace)
+    // Older clients identify a runner checkout by its binding. Clients that
+    // use the confirmed effective path still read through the same binding.
+    if (
+      query.workspace !== workspace &&
+      !(placement && query.workspace === agent.workspacePath)
+    )
       return reply
         .code(409)
         .send({ error: "Workspace changed. Reopen Files to continue." });

@@ -77,10 +77,14 @@ import type {
   PromptImage,
 } from "./acp/prompt-source.js";
 import { type EngineBins, isAcpEngine } from "./acp/engine-spec.js";
+import { agentWorkspaceDir } from "./workspace-target.js";
 import { inspectAgentCheckout, reviewerWorkspace } from "./checkout-runner.js";
 import { RemoteEventInbox } from "./remote/event-inbox.js";
 import {
   MANAGED_WORKSPACE,
+  isCheckoutPath,
+  isSessionCheckout,
+  validBranch,
   remotePlacement,
   type RunnerRepository,
   type LaunchProgress,
@@ -1007,13 +1011,20 @@ export class AgentManager {
     const attached: string[] = [];
     const lost: string[] = [];
     const pending: string[] = [];
-    const result = await this.pool.query<{ id: string; cwd: string }>(
-      `SELECT id, COALESCE(workspace_path, cwd) AS cwd FROM agents
+    const result = await this.pool.query<{
+      id: string;
+      cwd: string;
+      workspacePath: string | null;
+    }>(
+      `SELECT id, cwd, workspace_path AS "workspacePath" FROM agents
         WHERE status IN ('running', 'creating') AND deleted_at IS NULL
         ORDER BY created_at`
     );
     for (const row of result.rows) {
-      this.streamRecorder.setCwd(row.id, row.cwd);
+      this.streamRecorder.setCwd(
+        row.id,
+        remotePlacement(row.cwd) ? row.cwd : (row.workspacePath ?? row.cwd)
+      );
       if (await this.runtime.attach(row.id)) {
         attached.push(row.id);
         continue;
@@ -1330,35 +1341,86 @@ export class AgentManager {
 
   /**
    * Point the agent's workspace at the directory it now works in, or back at
-   * its launch worktree/cwd with `path: null`. Everything that reads its
-   * files follows the workspace; the engine's cwd (resume) and the managed
-   * worktree (archive cleanup) are left as they were.
+   * its launch worktree/cwd with `path: null`. A remote runner confirms and
+   * journals the selection for checkout reads and future launches. Archive
+   * ownership remains tied to the original binding.
    */
   async setWorkspace(
     id: string,
     input: { path: string | null; baseBranch?: string | null }
   ): Promise<AgentRecord> {
-    const agent = await this.getRequiredAgent(id);
-    if (remotePlacement(agent.cwd))
-      throw new AgentError("Runner workspace is fixed for this agent.", 409);
-    const resolved = await this.localRunner.resolveWorkspace(agent, input);
+    return this.serializeLifecycle(id, async () => {
+      const agent = await this.getRequiredAgent(id);
+      const placement = remotePlacement(agent.cwd);
+      const resolved = placement
+        ? await this.selectRunnerCheckout(agent, input)
+        : await this.localRunner.resolveWorkspace(agent, input);
+      await this.pool.query(
+        `UPDATE agents
+         SET workspace_path = $2, workspace_base_branch = $3, updated_at = NOW()
+         WHERE id = $1`,
+        [id, resolved.path, resolved.baseBranch]
+      );
+      await this.populateGitContext(id);
+      this.diffStatsRefresher?.clear(id);
+      void this.diffStatsRefresher?.signal(id);
 
-    await this.pool.query(
-      `UPDATE agents
-       SET workspace_path = $2, workspace_base_branch = $3, updated_at = NOW()
-       WHERE id = $1`,
-      [id, resolved.path, resolved.baseBranch]
-    );
-    await this.populateGitContext(id);
-    this.diffStatsRefresher?.clear(id);
-    void this.diffStatsRefresher?.signal(id);
+      const updated = await this.getRequiredAgent(id);
+      this.streamRecorder.setCwd(id, agentWorkspaceDir(updated) ?? updated.cwd);
+      this.eventBus.publish(updated);
+      return updated;
+    });
+  }
 
-    // Read back rather than trusting `resolved`: an overlapping call may
-    // have landed after this one's UPDATE, and the recorder follows the row.
-    const updated = await this.getRequiredAgent(id);
-    this.streamRecorder.setCwd(id, updated.workspacePath ?? updated.cwd);
-    this.eventBus.publish(updated);
-    return updated;
+  private async runnerCheckout(
+    agent: AgentRecord,
+    operation: { kind: "describe" } | { kind: "select"; path: string | null }
+  ) {
+    const placement = remotePlacement(agent.cwd);
+    if (!placement || !this.remote)
+      throw new AgentError("The session runner is unavailable.", 409);
+    let value: unknown;
+    try {
+      ({ value } = await this.remote.requestSession(placement, {
+        agentId: agent.id,
+        kind: "sessionCheckout",
+        operation,
+      }));
+    } catch (error) {
+      throw new AgentError(
+        errorMessage(error),
+        error instanceof RunnerRevoked ? 403 : 409
+      );
+    }
+    let result: unknown;
+    try {
+      if (typeof value === "string") result = JSON.parse(value);
+    } catch {
+      // Treat malformed acknowledgements like missing results.
+    }
+    if (!isSessionCheckout(result))
+      throw new AgentError("Invalid runner checkout response.", 502);
+    return result;
+  }
+
+  private async selectRunnerCheckout(
+    agent: AgentRecord,
+    input: { path: string | null; baseBranch?: string | null }
+  ) {
+    const path = input.path?.trim() || null;
+    const baseBranch = input.baseBranch?.trim() || null;
+    if (path !== null && !isCheckoutPath(path))
+      throw new AgentError(
+        "Workspace path must be absolute on the bound runner.",
+        400
+      );
+    if (baseBranch !== null && !validBranch(baseBranch))
+      throw new AgentError("Invalid base branch.", 400);
+    const selected = await this.runnerCheckout(agent, { kind: "select", path });
+    return {
+      path: selected.moved || (path && baseBranch) ? selected.path : null,
+      baseBranch: path ? baseBranch : null,
+    };
   }
 
   viewCheckout(
@@ -1375,7 +1437,17 @@ export class AgentManager {
     query: CheckoutQuery
   ): Promise<CheckoutReply> {
     if (
+      query.kind === "changes" &&
+      query.baseBranch === null &&
+      agent.workspaceBaseBranch
+    )
+      query = { ...query, baseBranch: agent.workspaceBaseBranch };
+    const placement = remotePlacement(agent.cwd);
+    if (
       agent.runnerManaged &&
+      placement &&
+      !this.remote?.supportsSessionCheckout?.(placement) &&
+      !agent.workspacePath &&
       query.kind === "changes" &&
       query.baseBranch === null
     ) {
@@ -1407,13 +1479,31 @@ export class AgentManager {
       detachLaunch?: boolean;
       /** Trusted shared-checkout launch, never accepted from an HTTP launch payload. */
       useWorktreeOf?: string;
+      /** Trusted MCP launch with its own checkout on the caller's runner. */
+      independentCheckoutOf?: string;
       taskPersonaBody?: string;
       /** Commit owner state before the engine can discover tools or run a turn. */
       beforeLaunch?: (agentId: string) => Promise<void>;
     } = {}
   ): Promise<AgentRecord> {
     input = { ...input };
-    const { useWorktreeOf } = options;
+    const { useWorktreeOf, independentCheckoutOf } = options;
+    const independentSource = independentCheckoutOf
+      ? await this.getAgent(independentCheckoutOf)
+      : null;
+    if (
+      independentCheckoutOf &&
+      (!independentSource ||
+        !remotePlacement(independentSource.cwd) ||
+        input.cwd !== independentSource.cwd ||
+        input.launchedByAgentId !== independentSource.id ||
+        (input.parentAgentId && input.parentAgentId !== independentSource.id) ||
+        (input.fullAccess && !independentSource.fullAccess) ||
+        (input.persona && !options.taskPersonaBody) ||
+        useWorktreeOf)
+    )
+      throw new AgentError("Invalid independent runner checkout binding.", 400);
+    if (independentSource) input.projectId = independentSource.projectId;
     if (useWorktreeOf !== undefined) {
       const owner = await this.getAgent(useWorktreeOf);
       if (
@@ -1478,13 +1568,18 @@ export class AgentManager {
         );
       }
       if (
-        (!useWorktreeOf &&
-          (input.parentAgentId || (input.projectId && !managed))) ||
-        input.templateId ||
-        (input.persona && !useWorktreeOf) ||
-        input.jobRunId ||
-        input.initialFiles?.length ||
-        input.useWorktree
+        (!useWorktreeOf && !independentSource && input.parentAgentId) ||
+        (!managed &&
+          (input.projectId ||
+            input.templateId ||
+            input.jobRunId ||
+            input.useWorktree)) ||
+        (input.persona &&
+          !useWorktreeOf &&
+          !options.taskPersonaBody &&
+          !input.templateId &&
+          !input.jobRunId) ||
+        input.initialFiles?.length
       ) {
         throw new AgentError(
           "Runner launches require a standalone agent and runner-managed storage.",
@@ -1496,8 +1591,9 @@ export class AgentManager {
           "Update the runner to launch an agent in an existing checkout.",
           409
         );
-      input.useWorktree = false;
+      input.useWorktree = !repository && input.useWorktree === true;
     }
+    let projectRoot: string | undefined;
     if (input.templateId) {
       const template = (
         await this.pool.query("SELECT project_id FROM templates WHERE id=$1", [
@@ -1528,6 +1624,7 @@ export class AgentManager {
         ])
       ).rows[0];
       if (!project) throw new AgentError("Project not found.", 404);
+      projectRoot = project.repo_root;
       if (repository && !repository.url) {
         try {
           repository.url = await this.localRunner.inferRepositoryUrl(
@@ -1538,8 +1635,8 @@ export class AgentManager {
         }
       }
 
-      // A child can use its parent's worktree while retaining explicit membership.
-      if (!placement && !input.parentAgentId) {
+      // Project membership only supplies a location when none was selected.
+      if (!placement && !input.parentAgentId && !input.cwd) {
         input.cwd = project.repo_root;
       }
     }
@@ -1581,11 +1678,27 @@ export class AgentManager {
       if (matches.length === 1) input.projectId = matches[0]!.id;
     }
     const taskPersona = Boolean(input.persona && input.role !== "review");
+    const derivedRepositoryUrl =
+      placement && input.useWorktree
+        ? independentSource
+          ? (await this.runnerCheckout(independentSource, { kind: "describe" }))
+              .origin
+          : projectRoot
+            ? await this.localRunner
+                .inferRepositoryUrl(projectRoot)
+                .catch(() => null)
+            : null
+        : undefined;
+    if (derivedRepositoryUrl === null)
+      throw new AgentError(
+        "An independent runner worktree needs a repository with an HTTPS origin.",
+        400
+      );
     const taskPersonaBody = async () =>
       options.taskPersonaBody ??
       (
         await resolveLaunchPersona(
-          input.cwd,
+          placement ? (projectRoot ?? null) : input.cwd,
           input.persona!,
           "task",
           input.personaSource ?? "catalog"
@@ -1598,7 +1711,7 @@ export class AgentManager {
         agentArgs: [...(input.agentArgs ?? []), PERSONA_CONTEXT_ARG, body],
       };
     }
-    const runnerRepository = repository?.url
+    let runnerRepository = repository?.url
       ? { url: repository.url, checkout: repository.checkout }
       : null;
     if (repository && !runnerRepository)
@@ -1610,6 +1723,26 @@ export class AgentManager {
       input,
       directory?.cwd ?? input.cwd
     );
+    if (derivedRepositoryUrl && p.worktree) {
+      const { branch, baseBranch } = p.worktree;
+      runnerRepository = {
+        url: derivedRepositoryUrl,
+        checkout:
+          input.createNewBranch === false && input.worktreeBranch
+            ? { kind: "branch", branch }
+            : {
+                kind: "new",
+                branch,
+                ...(baseBranch ? { base: baseBranch } : {}),
+              },
+      };
+      try {
+        parseRepository(runnerRepository);
+      } catch (error) {
+        throw new AgentError(errorMessage(error), 400);
+      }
+    }
+    await mkdir(p.filesDir, { recursive: true });
     // Restart can see the row before persona and workspace preparation run.
     // Persist the native request first so restart never treats it as a direct launch.
     if (directory && p.worktree)
@@ -1875,8 +2008,6 @@ export class AgentManager {
         : (input.agentArgs ?? []);
     const name = input.name?.trim() || `agent-${id.slice(-6)}`;
     const filesDir = path.join(this.config.filesRoot, id);
-    await mkdir(filesDir, { recursive: true });
-
     const useWorktree = input.useWorktree !== false;
     const createNewBranch = input.createNewBranch ?? true;
 
@@ -2260,7 +2391,7 @@ export class AgentManager {
         "launching agent on engine CLI"
       );
     }
-    this.streamRecorder.setCwd(agent.id, agent.workspacePath ?? agent.cwd);
+    this.streamRecorder.setCwd(agent.id, agentWorkspaceDir(agent) ?? agent.cwd);
     // Rows a previous host left open (a crash mid-turn) settle first, so the
     // feed never shows a turn that can no longer finish.
     await this.streamRecorder.reconcile(agent.id);
@@ -2268,7 +2399,10 @@ export class AgentManager {
       ? this.remote?.originFor(placement)
       : undefined;
     const mcpUrl = placement
-      ? remoteMcpOrigin && `${remoteMcpOrigin}/api/mcp/${agent.id}`
+      ? remoteMcpOrigin &&
+        (opts.jobRunId
+          ? `${remoteMcpOrigin}/api/mcp/jobs/${opts.jobRunId}/${agent.id}`
+          : `${remoteMcpOrigin}/api/mcp/${agent.id}`)
       : dispatchMcpUrl(this.config, agent.id, opts.jobRunId);
     if (
       placement?.workspace === MANAGED_WORKSPACE &&

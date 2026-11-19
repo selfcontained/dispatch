@@ -1,6 +1,6 @@
 import type { Effort } from "@dispatch/shared";
 import { randomUUID } from "node:crypto";
-import path from "node:path";
+import { resolveLaunchLocation } from "../agents/workspace-target.js";
 
 import type { Pool } from "pg";
 
@@ -247,7 +247,7 @@ export class JobStore {
         `,
         [
           id,
-          path.resolve(input.directory),
+          resolveLaunchLocation(input.directory),
           input.name,
           input.schedule,
           input.timeoutMs,
@@ -959,7 +959,7 @@ export class JobStore {
   ): Promise<JobRecord | null> {
     const result = await this.pool.query(
       `SELECT ${this.jobColumns()} FROM jobs WHERE directory = $1 AND name = $2`,
-      [path.resolve(directory), name]
+      [resolveLaunchLocation(directory), name]
     );
     return result.rows[0] ? mapJob(result.rows[0]) : null;
   }
@@ -1072,7 +1072,7 @@ export class JobStore {
           input.persona ?? null,
           input.directory === undefined
             ? undefined
-            : path.resolve(input.directory),
+            : resolveLaunchLocation(input.directory),
           input.effort !== undefined,
           input.effort ?? null,
         ]

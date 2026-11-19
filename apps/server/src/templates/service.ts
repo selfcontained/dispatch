@@ -1,3 +1,4 @@
+import { remotePlacement } from "@dispatch/runner-protocol";
 import type { Effort } from "@dispatch/shared";
 import { validateAgentEffort } from "../shared/agent-effort.js";
 import { ProjectStore } from "../projects/store.js";
@@ -74,14 +75,19 @@ export class TemplateService {
   ): Promise<TemplateRecord> {
     if (input.agentType === "opencode") input = { ...input, fullAccess: true };
     assertAccessCeiling(input.fullAccess ?? false, callerFullAccess);
+    let projectRoot: string | undefined;
     if (input.projectId) {
       const project = await this.projects.get(input.projectId);
       if (!project) throw new Error("Project not found.");
-      input = { ...input, directory: project.repoRoot };
+      projectRoot = project.repoRoot;
+      if (!remotePlacement(input.directory))
+        input = { ...input, directory: project.repoRoot };
     }
     if (input.persona)
       await resolveLaunchPersona(
-        input.directory,
+        remotePlacement(input.directory)
+          ? (projectRoot ?? null)
+          : input.directory,
         input.persona,
         "task",
         "catalog"
@@ -144,10 +150,13 @@ export class TemplateService {
     );
     const projectId =
       input.projectId === undefined ? existing.projectId : input.projectId;
+    let projectRoot: string | undefined;
     if (projectId) {
       const project = await this.projects.get(projectId);
       if (!project) throw new Error("Project not found.");
-      input = { ...input, directory: project.repoRoot };
+      projectRoot = project.repoRoot;
+      if (!remotePlacement(input.directory ?? existing.directory))
+        input = { ...input, directory: project.repoRoot };
     }
     const persona =
       input.persona !== undefined ? input.persona : existing.persona;
@@ -158,7 +167,9 @@ export class TemplateService {
           input.directory !== existing.directory))
     )
       await resolveLaunchPersona(
-        input.directory ?? existing.directory,
+        remotePlacement(input.directory ?? existing.directory)
+          ? (projectRoot ?? null)
+          : (input.directory ?? existing.directory),
         persona,
         "task",
         "catalog"
@@ -289,7 +300,8 @@ export class TemplateService {
     if (
       template.projectId &&
       input.directory &&
-      input.directory !== template.directory
+      input.directory !== template.directory &&
+      !remotePlacement(input.directory)
     )
       throw new Error("Project template directory cannot be overridden.");
     const cwd = input.directory ?? template.directory;

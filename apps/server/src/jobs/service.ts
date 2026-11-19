@@ -1,3 +1,4 @@
+import { remotePlacement } from "@dispatch/runner-protocol";
 import { validateAgentEffort } from "../shared/agent-effort.js";
 import { ProjectStore } from "../projects/store.js";
 import { randomBytes, randomUUID } from "node:crypto";
@@ -522,14 +523,9 @@ export class JobService {
     const job = await this.store.getJob(run.jobId);
     if (!job?.continuationEnabled) return;
     const directory = destinationDirectory ?? run.config.directory;
-    let repoRoot: string;
-    try {
-      repoRoot = await resolveRepoRoot(directory);
-    } catch {
-      // Brain is scoped by a stable repository root when possible; plain
-      // directories are still valid job targets and use their normalized path.
-      repoRoot = normalizePath(directory);
-    }
+    const repoRoot = remotePlacement(directory)
+      ? directory
+      : await resolveRepoRoot(directory).catch(() => normalizePath(directory));
     const key = continuationBrainKey(job.id);
     const terminalStatus =
       run.continuation?.action === "finish"
@@ -634,14 +630,19 @@ export class JobService {
       continuationEnabled: input.continuationEnabled,
     });
 
+    let projectRoot: string | undefined;
     if (input.projectId) {
       const project = await new ProjectStore(this.pool).get(input.projectId);
       if (!project) throw new Error("Project not found.");
-      input = { ...input, directory: project.repoRoot };
+      projectRoot = project.repoRoot;
+      if (!remotePlacement(input.directory))
+        input = { ...input, directory: project.repoRoot };
     }
     if (input.persona)
       await resolveLaunchPersona(
-        input.directory,
+        remotePlacement(input.directory)
+          ? (projectRoot ?? null)
+          : input.directory,
         input.persona,
         "task",
         "catalog"
@@ -774,11 +775,13 @@ export class JobService {
     const name = input.name === undefined ? existing.name : input.name.trim();
     if (!name) throw new Error("Job name is required.");
     const previousDirectory = backingTemplate?.directory ?? existing.directory;
-    const directory =
-      projectDirectory ??
-      (input.directory === undefined
+    const requestedDirectory =
+      input.directory === undefined
         ? previousDirectory
-        : normalizeJobDirectory(input.directory));
+        : normalizeJobDirectory(input.directory);
+    const directory = remotePlacement(requestedDirectory)
+      ? requestedDirectory
+      : (projectDirectory ?? requestedDirectory);
     const branchName = normalizeNullableString(input.branchName);
     const baseBranch = normalizeNullableString(input.baseBranch);
     if (name !== existing.name || directory !== existing.directory) {
@@ -836,7 +839,12 @@ export class JobService {
       persona &&
       (persona !== previousPersona || directory !== previousDirectory)
     )
-      await resolveLaunchPersona(directory, persona, "task", "catalog");
+      await resolveLaunchPersona(
+        remotePlacement(directory) ? (projectDirectory ?? null) : directory,
+        persona,
+        "task",
+        "catalog"
+      );
     if (input.persona !== undefined) config.persona = input.persona;
     if (input.agentType !== undefined) config.agentType = input.agentType;
     if (nextModel !== existing.model || input.model !== undefined)
@@ -886,7 +894,7 @@ export class JobService {
         const templateUpdates: Record<string, unknown> = {};
         if (input.projectId !== undefined) {
           templateUpdates.projectId = input.projectId;
-          if (projectDirectory) templateUpdates.directory = projectDirectory;
+          if (projectDirectory) templateUpdates.directory = directory;
         }
         if (input.persona !== undefined)
           templateUpdates.persona = input.persona;
@@ -1480,5 +1488,8 @@ function normalizeNullableString(
 
 function normalizeJobDirectory(directory: string): string {
   if (!directory.trim()) throw new Error("Job directory is required.");
-  return normalizePath(resolveTilde(directory.trim()));
+  const trimmed = directory.trim();
+  return remotePlacement(trimmed)
+    ? trimmed
+    : normalizePath(resolveTilde(trimmed));
 }

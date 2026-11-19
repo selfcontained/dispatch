@@ -120,7 +120,14 @@ export async function readAgentView(
       const { value } = await remote.requestSession(placement, {
         kind: "viewCheckout",
         agentId: agent.id,
-        query: view,
+        query:
+          "baseBranch" in view
+            ? {
+                ...view,
+                baseBranch:
+                  view.baseBranch ?? agent.workspaceBaseBranch ?? null,
+              }
+            : view,
       });
       return decodeCheckoutView(value, view);
     } catch (error) {

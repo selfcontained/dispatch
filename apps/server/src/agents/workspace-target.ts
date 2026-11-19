@@ -1,4 +1,4 @@
-import { remotePlacement } from "./remote/protocol.js";
+import { remotePlacement, workspaceLocator } from "./remote/protocol.js";
 import { realpath, stat } from "node:fs/promises";
 import path from "node:path";
 
@@ -20,6 +20,8 @@ const WORKSPACE_PROBE_TIMEOUT_MS = 5_000;
  *
  * Deliberately separate from `cwd` (the engine spawns and resumes there) and
  * `worktreePath` (the worktree Dispatch created and archive may delete).
+ * For remote sessions, `cwd` is the machine binding and `workspacePath`
+ * is runner-confirmed display metadata. Checkout operations go to the runner.
  */
 export type WorkspaceTargetAgent = {
   cwd: string | null;
@@ -32,6 +34,15 @@ export type WorkspaceTargetAgent = {
     isWorktree: boolean;
   } | null;
 };
+
+/** Persist a native directory or a runner locator without treating the latter as a path. */
+export function resolveLaunchLocation(directory: string): string {
+  const placement = remotePlacement(directory);
+  if (placement) return workspaceLocator(placement);
+  if (directory.startsWith("runner://"))
+    throw new AgentError("Invalid runner workspace locator.", 400);
+  return path.resolve(directory);
+}
 
 const DEFAULT_WORKTREE_BASE_BRANCH = "main";
 

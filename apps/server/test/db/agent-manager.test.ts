@@ -1,3 +1,5 @@
+import { JobService } from "../../src/jobs/service.js";
+import { TemplateService } from "../../src/templates/service.js";
 import { personaCatalog } from "../../src/personas/catalog.js";
 import * as gitContext from "../../src/shared/git/git-context.js";
 import { upsertPersona } from "../../src/personas/authoring.js";
@@ -308,6 +310,166 @@ describe("AgentManager", () => {
       await resumed.reconcileAgentStatuses();
       await vi.waitFor(async () => expect(await pending()).toBe(false));
       expect(discard).toHaveBeenCalledExactlyOnceWith(agent.id);
+    });
+
+    it("records a runner selection only after acknowledgement and binds independent children to the selected origin", async () => {
+      const cwd = "runner://runner-test/@session";
+      const projectId = "managed-runner-project";
+      await pool.query(
+        "INSERT INTO projects (id, name, repo_root) VALUES ($1, 'Runner', '/tmp/remote-project') ON CONFLICT DO NOTHING",
+        [projectId]
+      );
+      const requestSession = vi.fn(async () => ({
+        value: JSON.stringify({
+          path: "/workload/moved",
+          moved: true,
+          origin: "https://example.test/moved.git",
+        }),
+      }));
+      const remote = {
+        available: () => true,
+        isManagedWorkspace: () => true,
+        requestSession,
+        originFor: () => "https://example.test",
+      } as unknown as RemoteRunnerService;
+      const first = new AgentManager(pool, noopLogger, testConfig, {
+        runtime,
+        remote,
+      });
+      const parent = await first.createAgent({ cwd, projectId });
+      expect(parent).toMatchObject({ cwd, projectId, workspacePath: null });
+      const move = { path: "/workload/moved/src", baseBranch: "develop" };
+      requestSession.mockRejectedValueOnce(new Error("runner offline"));
+      await expect(first.setWorkspace(parent.id, move)).rejects.toThrow(
+        "runner offline"
+      );
+      expect(await first.getAgent(parent.id)).toMatchObject({
+        workspacePath: null,
+      });
+      await expect(
+        first.setWorkspace(parent.id, { path: "runner://other/@session" })
+      ).rejects.toThrow("absolute on the bound runner");
+      expect(requestSession).toHaveBeenCalledTimes(1);
+      await expect(first.setWorkspace(parent.id, move)).resolves.toMatchObject({
+        cwd,
+        projectId,
+        workspacePath: "/workload/moved",
+        workspaceBaseBranch: "develop",
+      });
+      expect(requestSession).toHaveBeenLastCalledWith(
+        { runner: "runner-test", workspace: "@session" },
+        {
+          agentId: parent.id,
+          kind: "sessionCheckout",
+          operation: { kind: "select", path: move.path },
+        }
+      );
+
+      const childInput = {
+        cwd,
+        launchedByAgentId: parent.id,
+        parentAgentId: parent.id,
+        useWorktree: true,
+        baseBranch: "develop",
+      };
+      const binding = { independentCheckoutOf: parent.id };
+      await expect(
+        first.createAgent(
+          { ...childInput, cwd: "runner://other/@session" },
+          binding
+        )
+      ).rejects.toThrow("Invalid independent runner checkout binding");
+      const child = await first.createAgent(childInput, binding);
+      expect(child).toMatchObject({ cwd, projectId, parentAgentId: parent.id });
+      const launch = expect.objectContaining({
+        agentId: child.id,
+        repository: {
+          url: "https://example.test/moved.git",
+          checkout: {
+            kind: "new",
+            branch: expect.stringContaining(child.id),
+            base: "develop",
+          },
+        },
+      });
+      expect(runtime.launch).toHaveBeenLastCalledWith(launch);
+      expect(
+        runtime.launch.mock.calls.at(-1)?.[0].useWorktreeOf
+      ).toBeUndefined();
+      const restarted = new AgentManager(pool, noopLogger, testConfig, {
+        runtime,
+        remote,
+      });
+      await restarted.stopAgent(child.id);
+      await restarted.startAgent(child.id);
+      expect(runtime.launch).toHaveBeenLastCalledWith(launch);
+      expect(await restarted.getAgent(parent.id)).toMatchObject({
+        cwd,
+        projectId,
+        workspacePath: "/workload/moved",
+      });
+    });
+
+    it("places project templates and scheduled jobs on their saved runner", async () => {
+      const cwd = "runner://runner-test/@session";
+      const projectId = "managed-runner-project";
+      await pool.query(
+        "INSERT INTO projects (id, name, repo_root) VALUES ($1, 'Runner', '/tmp/remote-project') ON CONFLICT DO NOTHING",
+        [projectId]
+      );
+      const remote = {
+        available: () => true,
+        isManagedWorkspace: () => true,
+        originFor: () => "https://example.test",
+      } as unknown as RemoteRunnerService;
+      const manager = new AgentManager(pool, noopLogger, testConfig, {
+        runtime,
+        remote,
+      });
+      const templates = new TemplateService(pool, manager, noopLogger);
+      const template = await templates.addTemplate({
+        name: "Run remote template",
+        projectId,
+        directory: cwd,
+        prompt: "Work",
+        useWorktree: false,
+      });
+      const { agent } = await templates.launchTemplate({
+        templateId: template.id,
+      });
+      expect(agent).toMatchObject({ cwd, projectId, templateId: template.id });
+      const jobs = new JobService(pool, manager, noopLogger, testConfig);
+      try {
+        const job = await jobs.addJob({
+          name: "Run remote job",
+          projectId,
+          directory: cwd,
+          prompt: "Work on the schedule",
+          schedule: "0 * * * *",
+          enabled: true,
+          useWorktree: false,
+        });
+        const run = await jobs.runJob({
+          jobId: job.id,
+          triggerSource: "scheduled",
+          wait: false,
+        });
+        expect(await manager.getAgent(run.agentId!)).toMatchObject({
+          cwd,
+          projectId,
+        });
+        expect(runtime.launch).toHaveBeenLastCalledWith(
+          expect.objectContaining({
+            agentId: run.agentId,
+            placement: { runner: "runner-test", workspace: "@session" },
+            mcp: expect.objectContaining({
+              url: `https://example.test/api/mcp/jobs/${run.runId}/${run.agentId}`,
+            }),
+          })
+        );
+      } finally {
+        await jobs.shutdown();
+      }
     });
 
     it("persists the actual reviewer checkout owner on the same runner and reuses it on restart", async () => {

@@ -887,6 +887,51 @@ describe("createMcpHandlers", () => {
   });
 
   describe("launchAgent", () => {
+    it("keeps borrowed and independent launches on the caller runner", async () => {
+      const cwd = "runner://runner-test/@session";
+      deps.agentManager.getAgent.mockResolvedValue({
+        ...(await deps.agentManager.getAgent()),
+        cwd,
+      });
+      deps.templateService.getTemplate.mockResolvedValue(
+        templateRecord({
+          directory: "/native/project",
+          useWorktree: true,
+          baseBranch: "develop",
+        })
+      );
+      await handlers.launchAgent("agt_test1", {
+        name: "borrower",
+        prompt: "work",
+      });
+      expect(deps.agentManager.createAgent).toHaveBeenLastCalledWith(
+        expect.objectContaining({ cwd, parentAgentId: "agt_test1" }),
+        expect.objectContaining({ useWorktreeOf: "agt_test1" })
+      );
+      await handlers.launchAgent("agt_test1", {
+        name: "independent",
+        prompt: "work",
+        templateId: "tmpl_123",
+      });
+      expect(deps.agentManager.createAgent).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          cwd,
+          parentAgentId: "agt_test1",
+          useWorktree: true,
+          baseBranch: "develop",
+        }),
+        expect.objectContaining({ independentCheckoutOf: "agt_test1" })
+      );
+      await expect(
+        handlers.launchAgent("agt_test1", {
+          name: "foreign",
+          prompt: "work",
+          cwd: "runner://another/@session",
+        })
+      ).rejects.toThrow("another runner");
+      expect(deps.agentManager.createAgent).toHaveBeenCalledTimes(2);
+    });
+
     it("rejects a review persona from a different requested workspace", async () => {
       await expect(
         handlers.launchAgent("agt_test1", {

@@ -231,6 +231,8 @@ const remoteRunner = configuredRunner({
   // authToken is resolved at startup; read it per request.
   validAgentToken: (token, agentId) =>
     validateAgentMcpToken(config.authToken, token, agentId),
+  validJobToken: (token, runId, agentId) =>
+    validateJobMcpToken(config.authToken, token, runId, agentId),
 });
 const agentManager = new AgentManager(pool, app.log, config, {
   remote: remoteRunner,

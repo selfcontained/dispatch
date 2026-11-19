@@ -161,6 +161,7 @@ type Peer = {
   pullRequestWatch: boolean;
   pullRequestEvidence: boolean;
   checkoutInspection: boolean;
+  sessionCheckout: boolean;
   checkoutViews: boolean;
   sharedWorktree: boolean;
   workspacePreparation: boolean;
@@ -255,6 +256,7 @@ export function configuredRunner(input?: {
   apiPort: number;
   apiTls: boolean;
   validAgentToken?: (token: string, agentId: string) => boolean;
+  validJobToken?: (token: string, runId: string, agentId: string) => boolean;
 }) {
   const filename = process.env.DISPATCH_REMOTE_SERVICE_CONFIG;
   const legacy: LegacyConfig | undefined = filename
@@ -287,6 +289,7 @@ export function configuredRunner(input?: {
           port: input.apiPort,
           tls: input.apiTls,
           validAgentToken: input.validAgentToken,
+          validJobToken: input.validJobToken,
         }
       )
     : undefined;
@@ -325,8 +328,13 @@ export class RemoteRunnerService {
       host: string;
       port: number;
       tls: boolean;
-      /** Accept only agent-scoped MCP credentials through the proxy. */
+      /** Accept only session-scoped MCP credentials through the proxy. */
       validAgentToken?: (token: string, agentId: string) => boolean;
+      validJobToken?: (
+        token: string,
+        runId: string,
+        agentId: string
+      ) => boolean;
     }
   ) {
     if (legacy) {
@@ -681,6 +689,7 @@ export class RemoteRunnerService {
           pullRequestEvidence: ready.pullRequestEvidence === true,
           githubManagement: ready.githubManagement === true,
           checkoutViews: ready.checkoutViews === true,
+          sessionCheckout: ready.sessionCheckout === true,
           checkoutInspection: ready.checkoutInspection === true,
           sharedWorktree: ready.sharedWorktree === true,
           workspacePreparation: ready.workspacePreparation === true,
@@ -819,7 +828,7 @@ export class RemoteRunnerService {
   }
 
   /**
-   * Forward bearer-authenticated agent MCP calls, `/ping`, and the two
+   * Forward bearer-authenticated session MCP calls, `/ping`, and the two
    * runner-initiated ("connect") bootstrap calls to the local API. The
    * bootstrap calls carry no Dispatch credentials — none exist yet — so
    * they are allow-listed by path and method alone, exactly like `/ping`;
@@ -840,14 +849,17 @@ export class RemoteRunnerService {
       /^\/api\/(?:v1\/)?runners\/connect\/conn_[A-Za-z0-9_-]{24}$/.test(url) &&
       request.method === "GET";
     const agentId = /^\/api\/mcp\/(agt_[a-z0-9]+)$/.exec(url)?.[1];
+    const job = /^\/api\/mcp\/jobs\/([0-9a-f-]{36})\/(agt_[a-z0-9]+)$/.exec(
+      url
+    );
     const token = /^Bearer (\S+)$/.exec(
       request.headers.authorization ?? ""
     )?.[1];
     const mcp = Boolean(
-      agentId &&
       token &&
       ["GET", "POST", "DELETE"].includes(request.method ?? "") &&
-      target?.validAgentToken?.(token, agentId)
+      ((agentId && target?.validAgentToken?.(token, agentId)) ||
+        (job && target?.validJobToken?.(token, job[1]!, job[2]!)))
     );
     const allowed = ping || mcp || connectCreate || connectPoll;
     if (!allowed || !target) {
@@ -1472,6 +1484,13 @@ export class RemoteRunnerService {
     );
   }
 
+  supportsSessionCheckout(placement: Placement) {
+    return (
+      this.available(placement) &&
+      this.peers.get(placement.runner)?.sessionCheckout === true
+    );
+  }
+
   supportsSharedWorktree(placement: Placement) {
     return (
       this.available(placement) &&
@@ -1518,6 +1537,10 @@ export class RemoteRunnerService {
     )
       throw new RunnerCapabilityUnavailable(
         "Update this runner to open Files and Changes."
+      );
+    if (command.kind === "sessionCheckout" && !peer.sessionCheckout)
+      throw new RunnerCapabilityUnavailable(
+        "Update the runner to select or describe a session checkout."
       );
     if (command.kind === "inspectCheckout" && !peer.checkoutInspection)
       throw new RunnerCapabilityUnavailable(

@@ -20,11 +20,14 @@ import { hostFile, type HostLaunch } from "../acp/host-protocol.js";
 import {
   MANAGED_WORKSPACE,
   isOpaqueId,
+  isCheckoutPath,
+  type SessionCheckout,
+  type SessionOperation,
   type Command,
   type LaunchProgress,
   type RunnerRepository,
 } from "./protocol.js";
-import { parseRepository } from "./repository.js";
+import { parseRepository, repositoryUrl } from "./repository.js";
 import {
   createSessionProcesses,
   parseSessionIdentity,
@@ -49,6 +52,11 @@ export function runnerStorageKey(agentId: string): string {
 type LaunchCommand = Extract<Command, { kind: "launch" }> & {
   launch: { useWorktreeOf?: unknown };
 };
+
+type CheckoutOperation = Extract<
+  SessionOperation,
+  { kind: "sessionCheckout" }
+>["operation"];
 
 type SupervisorOptions = {
   state: string;
@@ -75,6 +83,10 @@ function checkoutOwner(binding: string | null) {
   if (!storageKeyPattern.test(key))
     throw new Error("Invalid runner checkout binding.");
   return key;
+}
+
+function containsDirectory(root: string, dir: string) {
+  return dir === root || dir.startsWith(root === "/" ? root : root + "/");
 }
 
 const logTailBytes = 2 * 1024;
@@ -211,6 +223,10 @@ export async function createSessionSupervisor(
   const dependenciesFile = (key: string) =>
     path.join(bindings, `${key}.dependencies`);
   const cwdFile = (key: string) => path.join(bindings, `${key}.cwd`);
+  const selectedFile = (key: string) =>
+    path.join(bindings, `${key}.selected-cwd`);
+  const borrowedFile = (key: string) =>
+    path.join(bindings, `${key}.borrowed-cwd`);
   const markerFile = (key: string) => path.join(bindings, `${key}.owner`);
   const identityFile = (key: string) => path.join(bindings, `${key}.host`);
   function managedTarget(workspace: string) {
@@ -313,6 +329,108 @@ export async function createSessionSupervisor(
     await chmod(session, 0o711);
     await checkedDirectory(checkout);
     return checkout;
+  }
+
+  async function initialDirectory(
+    key: string,
+    workspace: string,
+    configuredCwd?: string
+  ) {
+    const binding = await readBinding(key);
+    if (!matchesWorkspace(binding, workspace))
+      throw new Error("Agent is not bound to this workspace");
+    const managed = managedTarget(workspace);
+    const owner = checkoutOwner(binding);
+    if (managed && (await readOptional(retireFile(key))) !== null)
+      throw new Error("This runner session has been archived.");
+    if (owner && (await readBinding(owner)) !== managedBinding)
+      throw new Error("The author does not own a checkout on this runner.");
+    const launch = managed
+      ? await managedDirectory(owner ?? key)
+      : await configuredDirectory(key, configuredCwd);
+    const borrowed = await readOptional(borrowedFile(key));
+    return borrowed && borrowed !== launch
+      ? authorizedDirectory(borrowed, launch, managed, owner ?? key)
+      : launch;
+  }
+
+  async function authorizedDirectory(
+    requested: string,
+    launch: string,
+    managed: boolean,
+    owner: string
+  ) {
+    if (!isCheckoutPath(requested))
+      throw new Error("Invalid checkout directory.");
+    let dir: string;
+    try {
+      dir = (await asWorkload("realpath", ["-e", "--", requested])).replace(
+        /\n$/,
+        ""
+      );
+      if (!isCheckoutPath(dir)) throw new Error("Invalid checkout directory.");
+      await asWorkload("test", ["-d", dir]);
+      await asWorkload("test", ["-x", dir]);
+    } catch {
+      throw new Error(
+        "The checkout directory is unavailable to the runner workload."
+      );
+    }
+    // Configured workspaces are allowlisted. Managed sessions may select
+    // workload directories, but another session's storage needs a binding.
+    const allowed = managed
+      ? !containsDirectory(storage, dir) ||
+        containsDirectory(path.join(sessions, owner), dir)
+      : containsDirectory(launch, dir);
+    if (!allowed)
+      throw new Error("Directory is outside the bound runner checkout.");
+    await checkedDirectory(dir);
+    return dir;
+  }
+
+  async function selectedDirectory(
+    key: string,
+    workspace: string,
+    initial: string
+  ) {
+    const selected = await readOptional(selectedFile(key));
+    if (!selected) return initial;
+    return authorizedDirectory(
+      selected,
+      managedTarget(workspace) ? initial : await configuredDirectory(key),
+      managedTarget(workspace),
+      checkoutOwner(await readBinding(key)) ?? key
+    );
+  }
+
+  async function describeCheckout(
+    dir: string,
+    initial: string
+  ): Promise<SessionCheckout> {
+    const configured = await asWorkload(
+      "git",
+      [
+        "-C",
+        dir,
+        "config",
+        "--local",
+        "--no-includes",
+        "--null",
+        "--get-all",
+        "remote.origin.url",
+      ],
+      { git: true }
+    ).catch(() => "");
+    let origin: string | null = null;
+    const [url, end, ...extra] = configured.split("\0");
+    if (url && end === "" && extra.length === 0) {
+      try {
+        origin = repositoryUrl(url, true);
+      } catch {
+        // Only return a recognized, credential-free repository URL.
+      }
+    }
+    return { path: dir, moved: dir !== initial, origin };
   }
 
   async function hasBorrowers(key: string) {
@@ -457,6 +575,11 @@ export async function createSessionSupervisor(
       await checkedDirectory(cwd);
       await writePrivateState(cwdFile(key), cwd);
     }
+    cwd = await selectedDirectory(
+      key,
+      workspace,
+      await initialDirectory(key, workspace, managed ? undefined : cwd)
+    );
     progress?.({ phase: "ready" });
     const dir = path.join(hostRoot, key);
     const files = path.join(dir, "files");
@@ -596,6 +719,13 @@ export async function createSessionSupervisor(
             );
           if (cwd === undefined)
             throw new Error("Guest workspace is unavailable");
+          if (!(await readOptional(borrowedFile(key)))) {
+            const initial = await initialDirectory(author, workspace, cwd);
+            await writePrivateState(
+              borrowedFile(key),
+              await selectedDirectory(author, workspace, initial)
+            );
+          }
           return launch(
             command,
             await configuredDirectory(author, cwd),
@@ -615,6 +745,22 @@ export async function createSessionSupervisor(
             (await readOptional(retireFile(author))) !== null)
         )
           throw new Error("The author does not own a checkout on this runner.");
+        if (
+          (await readBinding(key)) === null &&
+          !(await readOptional(borrowedFile(key)))
+        ) {
+          if ((await readBinding(owner)) !== managedBinding)
+            throw new Error(
+              "The author does not own a checkout on this runner."
+            );
+          if ((await readOptional(retireFile(owner))) !== null)
+            throw new Error("The author checkout has been archived.");
+          const initial = await initialDirectory(author, workspace);
+          await writePrivateState(
+            borrowedFile(key),
+            await selectedDirectory(author, workspace, initial)
+          );
+        }
         return launch(command, cwd, key, owner, progress);
       });
     },
@@ -625,22 +771,57 @@ export async function createSessionSupervisor(
       configuredCwd?: string
     ): Promise<string> {
       const key = runnerStorageKey(agentId);
+      return serialize(key, async () =>
+        selectedDirectory(
+          key,
+          workspace,
+          await initialDirectory(key, workspace, configuredCwd)
+        )
+      );
+    },
+    sessionCheckout(
+      agentId: string,
+      workspace: string,
+      operation: CheckoutOperation,
+      configuredCwd?: string
+    ): Promise<SessionCheckout> {
+      const key = runnerStorageKey(agentId);
       return serialize(key, async () => {
-        const managed = managedTarget(workspace);
-        const binding = await readBinding(key);
-        if (!matchesWorkspace(binding, workspace))
-          throw new Error("Agent is not bound to this workspace");
-        if (managed) {
-          if ((await readOptional(retireFile(key))) !== null)
-            throw new Error("This runner session has been archived.");
-          const owner = checkoutOwner(binding);
-          if (owner && (await readBinding(owner)) !== managedBinding)
-            throw new Error(
-              "The author does not own a checkout on this runner."
+        const initial = await initialDirectory(key, workspace, configuredCwd);
+        if (operation.kind === "describe")
+          return describeCheckout(
+            await selectedDirectory(key, workspace, initial),
+            initial
+          );
+        let dir = initial;
+        if (operation.path !== null) {
+          const managed = managedTarget(workspace);
+          const owner = checkoutOwner(await readBinding(key)) ?? key;
+          const launch = managed
+            ? initial
+            : await configuredDirectory(key, configuredCwd);
+          dir = await authorizedDirectory(
+            operation.path,
+            launch,
+            managed,
+            owner
+          );
+          const root = await asWorkload(
+            "git",
+            ["-C", dir, "rev-parse", "--show-toplevel"],
+            { git: true }
+          ).catch(() => "");
+          if (root)
+            dir = await authorizedDirectory(
+              root.trimEnd(),
+              launch,
+              managed,
+              owner
             );
-          return managedDirectory(owner ?? key);
         }
-        return configuredDirectory(key, configuredCwd);
+        const result = await describeCheckout(dir, initial);
+        await writePrivateState(selectedFile(key), result.moved ? dir : "");
+        return result;
       });
     },
     async alive(agentId: string, workspace: string) {
@@ -738,6 +919,8 @@ export async function createSessionSupervisor(
           await rm(cwdFile(key), { force: true });
         }
         await removeGuestDirectory(dir);
+        await rm(selectedFile(key), { force: true });
+        await rm(borrowedFile(key), { force: true });
         await rm(path.join(bindings, key), { force: true });
         if (managed) await syncBindings();
       });

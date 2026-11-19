@@ -1,8 +1,10 @@
 import { isCheckoutView, type CheckoutView } from "./checkout-view.js";
 import {
   isCheckoutQuery,
+  isCheckoutPath,
   validBranch,
   type CheckoutQuery,
+  type SessionCheckout,
 } from "./checkout.js";
 import { MANAGED_WORKSPACE, isOpaqueId } from "./placement.js";
 import {
@@ -61,6 +63,11 @@ export type SessionOperation =
   | { agentId: string; kind: "watchCheckout" }
   | { agentId: string; kind: "viewCheckout"; query: CheckoutView }
   | { agentId: string; kind: "inspectCheckout"; query: CheckoutQuery }
+  | {
+      agentId: string;
+      kind: "sessionCheckout";
+      operation: { kind: "describe" } | { kind: "select"; path: string | null };
+    }
   | { agentId: string; kind: "repo" };
 
 export type RunnerOperation =
@@ -88,6 +95,7 @@ export type ReadyFrame = {
   checkoutViews?: true;
   sharedWorktree?: true;
   workspacePreparation?: true;
+  sessionCheckout?: true;
 };
 
 /** Accept v1 extension fields and enable optional features only when explicitly true. */
@@ -113,6 +121,7 @@ export function parseReadyFrame(value: unknown): ReadyFrame | null {
     ...(frame.checkoutViews === true && { checkoutViews: true }),
     ...(frame.checkoutInspection === true && { checkoutInspection: true }),
     ...(frame.sharedWorktree === true && { sharedWorktree: true }),
+    ...(frame.sessionCheckout === true && { sessionCheckout: true }),
     ...(frame.workspacePreparation === true && { workspacePreparation: true }),
     ...(frame.health === true && { health: true }),
     ...(frame.engineManagement === true && { engineManagement: true }),
@@ -208,6 +217,15 @@ export function parseRunnerRepositoryUrl(
   }
 }
 
+export function isSessionCheckout(value: unknown): value is SessionCheckout {
+  return (
+    isRecord(value) &&
+    isCheckoutPath(value.path) &&
+    typeof value.moved === "boolean" &&
+    (value.origin === null || parseRunnerRepositoryUrl(value.origin) !== null)
+  );
+}
+
 function isRepository(value: unknown): value is RunnerRepository {
   if (
     !isRecord(value) ||
@@ -278,6 +296,14 @@ function isCommand(value: unknown): value is Command {
         isRemoteLaunch(value.launch) &&
         (value.launch.useWorktreeOf === undefined ||
           value.agentId === value.launch.agentId)
+      );
+    case "sessionCheckout":
+      return (
+        isRecord(value.operation) &&
+        (value.operation.kind === "describe" ||
+          (value.operation.kind === "select" &&
+            (value.operation.path === null ||
+              isCheckoutPath(value.operation.path))))
       );
     case "watchCheckout":
       return true;

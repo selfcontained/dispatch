@@ -298,7 +298,7 @@ async function handleSetWorkspace(
 ): Promise<SetWorkspaceResult> {
   const agent = await deps.agentManager.setWorkspace(agentId, input);
   return {
-    workspacePath: agentWorkspaceDir(agent) ?? agent.cwd,
+    workspacePath: agent.workspacePath ?? agentWorkspaceDir(agent) ?? agent.cwd,
     moved: agent.workspacePath !== null,
     repoRoot: agent.gitContext?.repoRoot ?? null,
     branch: agent.gitContext?.branch ?? null,
@@ -362,18 +362,30 @@ async function handleLaunchAgent(
     throw new Error(`Template ${input.templateId} not found.`);
   }
   const parentCwd = agentWorkspaceDir(parent) ?? parent.cwd;
-  const cwd = input.cwd ?? template?.directory ?? parentCwd;
   const runnerParent = remotePlacement(parent.cwd);
-  if (runnerParent && cwd !== parent.cwd)
+  const templateRunner = template && remotePlacement(template.directory);
+  if (
+    (runnerParent &&
+      ((input.cwd !== undefined && input.cwd !== parent.cwd) ||
+        (templateRunner && template?.directory !== parent.cwd) ||
+        (template?.projectId && template.projectId !== parent.projectId))) ||
+    (!runnerParent && remotePlacement(input.cwd ?? template?.directory ?? ""))
+  ) {
     throw new AgentError(
-      "A runner agent must launch in its own runner workspace.",
+      "A child launch cannot select a checkout on another runner or outside the caller's project.",
       400
     );
-  const selectedPersona = input.persona
-    ? runnerParent
-      ? await resolveRunnerPersona(deps.agentManager, parent, input.persona)
-      : await resolveLaunchPersona(cwd, input.persona)
-    : null;
+  }
+  const cwd = runnerParent
+    ? parent.cwd
+    : (input.cwd ?? template?.directory ?? parentCwd);
+  const persona = input.persona ?? template?.persona ?? undefined;
+  const selectedPersona =
+    input.persona || (runnerParent && persona)
+      ? runnerParent
+        ? await resolveRunnerPersona(deps.agentManager, parent, persona!)
+        : await resolveLaunchPersona(cwd, persona!)
+      : null;
   if (selectedPersona && (selectedPersona.type ?? "review") === "review") {
     if (template)
       throw new Error(
@@ -517,7 +529,12 @@ async function handleLaunchAgent(
     unknownArgs = rendered.unknownArgs;
   }
 
-  if (template?.projectId && input.cwd && input.cwd !== template.directory) {
+  if (
+    !runnerParent &&
+    template?.projectId &&
+    input.cwd &&
+    input.cwd !== template.directory
+  ) {
     throw new Error("Project template directory cannot be overridden.");
   }
 
@@ -540,16 +557,17 @@ async function handleLaunchAgent(
     // template instructions or the launch header.
     launchContext: { prompt: input.prompt },
     templateId: input.templateId,
-    persona: input.persona ?? template?.persona ?? undefined,
+    persona,
     personaSource: "workspace",
   };
-  const agent =
-    child && runnerParent
-      ? await deps.agentManager.createAgent(launch, {
-          useWorktreeOf: parent.id,
-          taskPersonaBody: selectedPersona?.body,
-        })
-      : await deps.agentManager.createAgent(launch);
+  const agent = runnerParent
+    ? await deps.agentManager.createAgent(launch, {
+        ...(child && !useWorktree
+          ? { useWorktreeOf: parent.id }
+          : { independentCheckoutOf: parent.id }),
+        taskPersonaBody: selectedPersona?.body,
+      })
+    : await deps.agentManager.createAgent(launch);
 
   deps.publishUiEvent({
     type: "agent.upsert",

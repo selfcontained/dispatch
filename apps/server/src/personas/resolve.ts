@@ -37,18 +37,18 @@ export async function discoverPersonas(
 }
 
 export async function resolveLaunchPersona(
-  cwd: string,
+  cwd: string | null,
   slug: string,
   type?: "task" | "review",
   source: "catalog" | "workspace" = "workspace"
 ): Promise<PersonaDefinition> {
   if (slug.includes("/") || slug.includes("\\") || slug.includes(".."))
     throw new Error("Invalid persona slug.");
-  const root = await resolveWorktreeRoot(cwd).catch(() => cwd);
+  const root = cwd && (await resolveWorktreeRoot(cwd).catch(() => cwd));
   // A malformed local override must fail explicitly, not fall back to a remote copy.
   let persona =
-    source === "workspace" ? await loadPersonaBySlug(root, slug) : null;
-  if (!persona) {
+    root && source === "workspace" ? await loadPersonaBySlug(root, slug) : null;
+  if (root && !persona) {
     const catalog = await personaCatalog.get(root, true);
     persona = catalog.personas.find((p) => p.slug === slug) ?? null;
     if (!persona && catalog.refreshing)

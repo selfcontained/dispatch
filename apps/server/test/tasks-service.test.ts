@@ -1290,6 +1290,42 @@ describe("triggers", () => {
     }
   );
 
+  it("preserves a project template's runner through manual and triggered task launches", async () => {
+    const cwd = "runner://runner-test/@session";
+    const saved = template({
+      id: TEMPLATE_ID,
+      directory: cwd,
+      useWorktree: false,
+    });
+    const createAgent = vi.fn(async () => {
+      const id = `agt_launch_${++agentSeq}`;
+      await insertAgent(id, "running", "Builder");
+      return { id } as AgentRecord;
+    });
+    const templates = new TemplateService(
+      pool,
+      { createAgent } as never,
+      { info: vi.fn() } as never
+    );
+    service = build(filesRoot, {
+      getTemplate: async (id) => (id === TEMPLATE_ID ? saved : null),
+      launchTemplate: async (input) =>
+        (await templates.launchTemplate(input)).agent,
+    });
+    const ready = await withTrigger("ready", { assign: false });
+    const task = await service.createTask(
+      { projectId, title: "Run on the enrolled runner" },
+      USER
+    );
+    await service.updateTask(task.id, { columnId: ready }, USER);
+    await service.launchAgent(task.id, { templateId: TEMPLATE_ID }, USER);
+    expect(createAgent).toHaveBeenCalledTimes(2);
+    for (const args of createAgent.mock.calls)
+      expect(args).toEqual([
+        expect.objectContaining({ cwd, projectId, templateId: TEMPLATE_ID }),
+      ]);
+  });
+
   it("launches a prompt-less persona template with the briefing as its prompt", async () => {
     // This test isolates prompt composition; discovery is validated separately.
     const persona = vi
