@@ -27,6 +27,17 @@ import {
   type ManagedCommand,
 } from "./engine-runner-executor.js";
 
+/** Keep the first redial fast. Spread retries when many offline runners start together. */
+export function runnerReconnectDelay(random = Math.random) {
+  let windowMs = 1000;
+  return (connectedMs: number) => {
+    if (connectedMs >= 30_000) windowMs = 1000;
+    const delay = Math.round(windowMs * (0.5 + random() / 2));
+    windowMs = Math.min(windowMs * 2, 30_000);
+    return delay;
+  };
+}
+
 type RunnerConfig = {
   endpoint: string;
   ca: string;
@@ -212,11 +223,15 @@ export async function runRemoteRunner(filename: string) {
     hostCommand: () => [setpriv, ...childArgs, ...hostCommand()],
   });
 
+  const nextDelay = runnerReconnectDelay();
   while (true) {
-    await new Promise<void>((finished) => {
+    const connectedMs = await new Promise<number>((finished) => {
+      let connectedAt: number | undefined;
       const socket = connect({
         ...credentials,
         host,
+        keepAlive: true,
+        keepAliveInitialDelay: 30_000,
         port: Number(endpoint.port || 443),
         ...(isIP(host) ? {} : { servername: host }),
         rejectUnauthorized: true,
@@ -264,7 +279,9 @@ export async function runRemoteRunner(filename: string) {
         clearTimeout(timeout);
         clearInterval(healthInterval);
         for (const channel of channels.values()) channel.destroy();
-        finished();
+        finished(
+          connectedAt === undefined ? 0 : performance.now() - connectedAt
+        );
       });
       const safeSend = (frame: RunnerFrame) => {
         if (!socket.destroyed) {
@@ -425,6 +442,7 @@ export async function runRemoteRunner(filename: string) {
         else socket.destroy();
       });
       socket.once("secureConnect", () => {
+        connectedAt = performance.now();
         clearTimeout(timeout);
         safeSend({
           type: "ready",
@@ -441,6 +459,6 @@ export async function runRemoteRunner(filename: string) {
       supervisor.close();
       throw error;
     });
-    await new Promise((resolve) => setTimeout(resolve, 1000));
+    await new Promise((resolve) => setTimeout(resolve, nextDelay(connectedMs)));
   }
 }

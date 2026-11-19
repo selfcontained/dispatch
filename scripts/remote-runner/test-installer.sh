@@ -186,8 +186,15 @@ for (const [engine, pkg] of Object.entries(packages)) {
 }
 JS
 cp "$root/runtime/dispatch" "$root/original"
+# A verified upgrade migrates the exact managed prototype unit.
+sed 's/^KillMode=process$/KillMode=control-group/' "$root/dispatch-runner.service" > "$root/legacy-unit"
+cp "$root/legacy-unit" "$root/dispatch-runner.service"
 
 run update v1.0.1
+grep -qx 'KillMode=process' "$root/dispatch-runner.service"
+printf '# administrator setting\n' >> "$root/dispatch-runner.service"
+run update v1.0.1
+grep -qx '# administrator setting' "$root/dispatch-runner.service"
 grep -q 'release-new x64' "$root/runtime/dispatch"
 [[ ! -e "$root/running" && ! -e "$root/settings/key.pem" ]]
 

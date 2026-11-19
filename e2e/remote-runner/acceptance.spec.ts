@@ -4,6 +4,8 @@ import { authHeaders, cleanupE2EAgents } from "../helpers";
 import {
   agentInfo,
   chat,
+  crashRunner,
+  startRunner,
   enrollViaUi,
   revokeViaUi,
   guest,
@@ -206,6 +208,48 @@ test("permission decisions stay on their runner across a disconnect", async ({
   ).toBe(false);
 });
 
+test("runner supervisor restarts mid-turn and reattaches to the original host", async ({
+  request,
+}, testInfo) => {
+  const page = pages.beta!;
+  const pidFile = `/var/lib/runner/hosts/${agents.beta}/host.pid`;
+  const pid = guest("beta", `cat ${pidFile}`).trim();
+  expect(pid).toMatch(/^[1-9][0-9]*$/);
+  const before = invocations("beta");
+  const turns = await settledTurns(page).count();
+  await chat(page, "proof-delay:12000 proof-count supervisor-restart");
+  await expect(answers(page, "Guest turn waiting for reconnect.")).toBeVisible({
+    timeout: 30_000,
+  });
+  crashRunner("beta");
+  await expect
+    .poll(async () => (await runnerRow(request, "beta"))?.status)
+    .toBe("offline");
+  expect(guestOk("beta", `kill -0 ${pid}`)).toBe(true);
+  startRunner("beta");
+  await expect
+    .poll(async () => (await runnerRow(request, "beta"))?.status, {
+      timeout: 30_000,
+    })
+    .toBe("online");
+  await expect(settledTurns(page)).toHaveCount(turns + 1, { timeout: 60_000 });
+  await expect(
+    answers(page, "Guest turn completed after reconnect.")
+  ).toHaveCount(1);
+  expect(invocations("beta")).toBe(before + 1);
+  expect(guest("beta", `cat ${pidFile}`).trim()).toBe(pid);
+  await newSettledTurn(
+    page,
+    "proof-count after-supervisor-restart",
+    "Local or guest fixture turn completed."
+  );
+  expect(invocations("beta")).toBe(before + 2);
+  await testInfo.attach("runner supervisor recovered", {
+    body: await page.screenshot(),
+    contentType: "image/png",
+  });
+});
+
 test("disconnect alpha mid-turn: others continue; reconnect gives one invocation and one completion", async ({
   request,
 }, testInfo) => {
@@ -352,10 +396,12 @@ test.describe("failure suite", () => {
     request,
   }) => {
     const before = invocations("beta");
+    const previous = await settledTurns(pages.beta!).count();
     await chat(pages.beta!, "proof-delay:12000 proof-count flap");
     await expect(
       answers(pages.beta!, "Guest turn waiting for reconnect.").last()
     ).toBeVisible({ timeout: 30_000 });
+    await expect.poll(() => invocations("beta")).toBe(before + 1);
     for (let i = 0; i < 3; i++) {
       await lane("beta", "sever");
       await new Promise((r) => setTimeout(r, 1500));
@@ -368,6 +414,9 @@ test.describe("failure suite", () => {
     await expect(
       answers(pages.beta!, "Guest turn completed after reconnect.").last()
     ).toBeVisible({ timeout: 60_000 });
+    await expect(settledTurns(pages.beta!)).toHaveCount(previous + 1, {
+      timeout: 60_000,
+    });
     expect(invocations("beta")).toBe(before + 1);
   });
 
@@ -429,6 +478,30 @@ test("managed scratch launch reports health and archive removes the guest sessio
   expect(guest("scratch", `cat ${directory}/provider-invocations`).trim()).toBe(
     "called"
   );
+
+  const scratchPid = guest(
+    "scratch",
+    `cat /var/lib/runner/hosts/${id}/host.pid`
+  ).trim();
+  expect(scratchPid).toMatch(/^[1-9][0-9]*$/);
+  crashRunner("scratch");
+  await expect
+    .poll(async () => (await runnerRow(request, "scratch"))?.status)
+    .toBe("offline");
+  startRunner("scratch");
+  await expect
+    .poll(async () => (await runnerRow(request, "scratch"))?.status, {
+      timeout: 30_000,
+    })
+    .toBe("online");
+  await newSettledTurn(
+    page,
+    "proof-count after-scratch-recovery",
+    "Local or guest fixture turn completed."
+  );
+  expect(
+    guest("scratch", `cat /var/lib/runner/hosts/${id}/host.pid`).trim()
+  ).toBe(scratchPid);
 
   await page.goto("/settings/connections", { waitUntil: "domcontentloaded" });
   const health = page

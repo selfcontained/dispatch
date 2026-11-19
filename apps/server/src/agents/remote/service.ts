@@ -617,6 +617,7 @@ export class RemoteRunnerService {
   }
 
   private attachPeer(socket: TLSSocket, gate: Gate) {
+    socket.setKeepAlive(true, 30_000);
     const deadline = setTimeout(() => socket.destroy(), 5000);
     let peer: Peer | undefined;
     socket.on("close", () => {

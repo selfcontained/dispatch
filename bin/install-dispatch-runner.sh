@@ -90,6 +90,27 @@ CONFIG
   install -m 0600 "$stage/runner.json" "$config"
 }
 
+# Replace only the exact prototype unit. Administrator customizations and
+# drop-ins keep their usual systemd precedence.
+install_service_unit() {
+  local replacement
+  tar -xOzf "$stage/dispatch-server.tar.gz" bin/dispatch-runner.service > "$stage/$unit"
+  [[ -s "$stage/$unit" ]] || error "Missing systemd service template from $tag"
+  if [[ -e "$unit_path" ]]; then
+    cmp -s "$stage/$unit" "$unit_path" && return 0
+    sed 's/^KillMode=process$/KillMode=control-group/' "$stage/$unit" > "$stage/legacy-unit"
+    if ! cmp -s "$stage/legacy-unit" "$unit_path"; then
+      printf 'Keeping customized %s. Check its KillMode before testing daemon recovery.\n' "$unit_path" >&2
+      return 0
+    fi
+  fi
+  replacement=$(mktemp "${unit_path}.XXXXXX")
+  if ! install -m 0644 "$stage/$unit" "$replacement" || ! mv -fT "$replacement" "$unit_path"; then
+    rm -f -- "$replacement"
+    error "Could not install runner unit"
+  fi
+}
+
 install_runner() {
   local account_entry account_home account_shell
   if [[ -e "$command_path" || -L "$command_path" ]]; then
@@ -129,11 +150,7 @@ install_runner() {
     install -m 0755 "$stage/dispatch" "$stage/initial"
     mv -fT "$stage/initial" "$runtime/dispatch"
   fi
-  tar -xOzf "$stage/dispatch-server.tar.gz" bin/dispatch-runner.service > "$stage/$unit"
-  [[ -s "$stage/$unit" ]] || error "Missing systemd service template from $tag"
-  if [[ ! -f "$unit_path" ]]; then
-    install -m 0644 "$stage/$unit" "$unit_path"
-  fi
+  install_service_unit
   tar -xOzf "$stage/dispatch-server.tar.gz" bin/install-dispatch-runner.sh > "$stage/updater"
   [[ -s "$stage/updater" ]] || error "Missing updater from $tag"
   chmod 0755 "$stage/updater"
@@ -227,6 +244,8 @@ update_runner() {
   fi
   stage_release
   if cmp -s "$stage/dispatch" "$runtime/dispatch"; then
+    install_service_unit
+    systemctl daemon-reload
     printf 'Runner already has the requested release.\n'
     return
   fi
@@ -245,6 +264,8 @@ update_runner() {
   fi
   rm -f -- "$runtime/previous"
   sync -f "$runtime"
+  install_service_unit
+  systemctl daemon-reload
   printf 'Runner updated to %s.\n' "$tag"
 }
 

@@ -63,6 +63,7 @@ vi.mock("../src/agents/remote/session-processes.js", async (original) => ({
 import {
   runnerStorageKey,
   runRemoteRunner,
+  runnerReconnectDelay,
 } from "../src/agents/remote/runner.js";
 
 it("preserves prototype storage while keeping opaque wire IDs out of paths", () => {
@@ -283,4 +284,17 @@ describe("remote runner startup", () => {
     expect((await stat(path.join(state, "bindings"))).mode & 0o777).toBe(0o700);
     expect((await stat(key)).mode & 0o777).toBe(0o600);
   });
+});
+
+it("spreads failed dials, caps the delay and recovers quickly after a stable connection", () => {
+  for (const random of [0, 0.5, 1]) {
+    const next = runnerReconnectDelay(() => random);
+    const factor = (1 + random) / 2;
+    expect(Array.from({ length: 8 }, () => next(10))).toEqual(
+      [1000, 2000, 4000, 8000, 16000, 30000, 30000, 30000].map(
+        (window) => window * factor
+      )
+    );
+    expect(next(30_000)).toBe(1000 * factor);
+  }
 });

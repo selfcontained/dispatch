@@ -209,7 +209,20 @@ export function startRunner(name: GuestName) {
     state.runners[name].container,
     "sh",
     "-c",
-    "/opt/bin/dispatch-runner remote-runner /run/cfg/runner.json >/var/log/runner.log 2>&1"
+    "echo $$ > /run/runner-fixture.pid; exec /opt/bin/dispatch-runner remote-runner /run/cfg/runner.json >>/var/log/runner.log 2>&1"
+  );
+}
+
+/** Crash only the fixture supervisor. Its independent ACP process stays alive. */
+export function crashRunner(name: GuestName) {
+  guest(
+    name,
+    `set -eu
+    pid=$(cat /run/runner-fixture.pid)
+    test "$pid" -gt 1
+    test "$(readlink /proc/$pid/exe)" = /opt/bin/dispatch-runner
+    test "$(tr '\\000' ' ' </proc/$pid/cmdline)" = "/opt/bin/dispatch-runner remote-runner /run/cfg/runner.json "
+    kill -KILL "$pid"`
   );
 }
 

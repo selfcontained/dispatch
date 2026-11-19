@@ -74,6 +74,13 @@ dedicated non-login `dispatch-runner` account. The workload account owns
 under `/etc/dispatch-runner` are root-only. The CA certificate is readable
 by the workload for its scoped Dispatch requests.
 The service is enabled at boot and the supervisor reconnects to Dispatch.
+The managed service supervises connections. Its systemd unit signals only
+the runner daemon on stop or restart. Active agent hosts can keep working
+during that interval, and the next daemon reattaches to them. To shut down
+all work on a machine, stop the agents in Dispatch while the runner is online,
+then stop the unit. A machine reboot ends those processes. The updater still
+checks the whole service cgroup and defers while workload processes remain.
+
 Inspect startup logs with `sudo journalctl -u dispatch-runner.service`.
 For custom engine install paths, edit the `bins` object in
 `/etc/dispatch-runner/runner.json` as root and restart the service while idle.

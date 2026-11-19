@@ -9,7 +9,7 @@ ExecStart=/opt/dispatch-runner/dispatch remote-runner /etc/dispatch-runner/runne
 UMask=0077
 Restart=on-failure
 RestartSec=5s
-KillMode=control-group
+KillMode=process
 Delegate=no
 
 [Install]
