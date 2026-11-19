@@ -233,6 +233,8 @@ A service can inspect the checkout bound to an existing agent ID when the connec
 
 A service interprets checkout contents according to its own policy. Dispatch reads the ownership map and persona definitions and selects the reviewers. An independent consumer can use the same operations without implementing those concepts.
 
+The changes query honors Git’s standard ignore rules for untracked files. Dispatch can still read an ignored, untracked ownership map or persona definition by path. If that file changes during review planning, the two inspections can return the same state ID and the review can use the earlier contents. Tracking those files in Git puts their edits within the state check.
+
 With `sharedWorktree: true`, a launch can specify `useWorktreeOf`, an existing agent ID bound to the same runner and workspace. A launch supplies either that reference or a repository to provision. The new agent has its own host, identity, journal and credentials. Referencing a live worktree gives it access to the author's current files, including edits made after the review started. The state identifier lets the service compare what it inspected across requests. File write permissions depend on the workload and engine access policy. The checkout reference itself grants no read-only guarantee.
 
 The service checks advertised capabilities on each connection before sending a dependent command. A peer without the extension can continue its existing sessions. Callers receive an actionable unsupported error if they request checkout inspection or sharing. A failed remote inspection must never resolve the runner locator as a local path.
