@@ -174,6 +174,68 @@ describe("recordEngineModels", () => {
     expect(JSON.parse(stored[1]).models).toHaveLength(2);
   });
 
+  it("records an override's session model without learning its catalog", async () => {
+    const p = pool();
+    const catalog = getAgentModelOptions("codex");
+    const result = await recordEngineModels(
+      { pool: p as never, logger },
+      { id: "agt_1", type: "codex", model: null },
+      [
+        modelOption("default-model", [
+          { value: "default-model", name: "Fake" },
+        ]),
+      ],
+      false
+    );
+    expect(result).toEqual({ modelChanged: true, modelsChanged: false });
+    expect(p.query).toHaveBeenCalledExactlyOnceWith(
+      expect.stringContaining("UPDATE agents SET model"),
+      ["agt_1", "default-model"]
+    );
+    expect(getAgentModelOptions("codex")).toEqual(catalog);
+    expect(agentModelDefaults().codex).toBeUndefined();
+  });
+
+  it("ignores the old fake catalog at boot and replaces it on a real report", async () => {
+    const p = pool();
+    const catalog = getAgentModelOptions("codex");
+    const stored = {
+      defaultModel: "default-model",
+      models: [{ id: "default-model" }, { id: "other-model" }],
+    };
+    p.query.mockImplementation((_sql, args) =>
+      Promise.resolve({
+        rows:
+          args[0] === "agent_models:codex"
+            ? [{ value: JSON.stringify(stored) }]
+            : [],
+      })
+    );
+    await loadLearnedAgentModels(p as never);
+    expect(getAgentModelOptions("codex")).toEqual(catalog);
+    expect(agentModelDefaults().codex).toBeUndefined();
+
+    await recordEngineModels(
+      { pool: p as never, logger },
+      { id: "agt_real", type: "codex", model: null },
+      [
+        modelOption("gpt-6.1-sol", [
+          { value: "gpt-6.1-sol", name: "GPT-6.1 Sol" },
+        ]),
+      ]
+    );
+    expect(getAgentModelOptions("codex").map(({ id }) => id)).toEqual([
+      "gpt-6.1-sol",
+    ]);
+    expect(p.query).toHaveBeenCalledWith(
+      expect.stringContaining("INSERT INTO settings"),
+      [
+        "agent_models:codex",
+        expect.stringContaining('"defaultModel":"gpt-6.1-sol"'),
+      ]
+    );
+  });
+
   it("leaves the agent alone when the engine runs what it already says", async () => {
     const p = pool();
     const result = await recordEngineModels(

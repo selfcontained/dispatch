@@ -219,7 +219,11 @@ async function main(): Promise<void> {
   };
 
   driver.onEvent((event) => {
-    const entry = journal.append(event);
+    const entry = journal.append(
+      event.type === "config"
+        ? { ...event, catalogSource: bins.adapter ? "override" : "engine" }
+        : event
+    );
     if (event.type === "turn") {
       openTurn =
         event.state === "started"

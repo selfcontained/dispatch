@@ -1,12 +1,9 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import { engineSpecFor } from "../src/agents/acp/engine-spec.js";
 
-afterEach(() => vi.unstubAllEnvs());
-
 describe("engineSpecFor", () => {
   it("runs native OpenCode ACP and routes approvals through Dispatch", () => {
-    vi.stubEnv("DISPATCH_ACP_ADAPTER_COMMAND", "");
     const bins = { claudeBin: "", codexBin: null, opencodeBin: "/x/opencode" };
     const spec = engineSpecFor("opencode", bins, false);
     expect(spec).toMatchObject({
@@ -53,7 +50,6 @@ describe("engineSpecFor", () => {
     expect(engineSpecFor("opencode", bins).envDefaults).toBeUndefined();
   });
   it("always hands the adapter the launched engine's CLI as an absolute path", () => {
-    vi.stubEnv("DISPATCH_ACP_ADAPTER_COMMAND", "");
     const bins = {
       claudeBin: "/home/u/.local/bin/claude",
       codexBin: "/opt/homebrew/bin/codex",
@@ -67,7 +63,6 @@ describe("engineSpecFor", () => {
   });
 
   it("refuses a launch whose CLI it could not find, rather than letting the adapter pick its own", () => {
-    vi.stubEnv("DISPATCH_ACP_ADAPTER_COMMAND", "");
     // Unset, codex-acp falls back to the @openai/codex it depends on.
     expect(() =>
       engineSpecFor("codex", { claudeBin: "/x/claude", codexBin: null })
@@ -82,7 +77,6 @@ describe("engineSpecFor", () => {
   });
 
   it("needs no CLI for a fake adapter, which drives none", () => {
-    vi.stubEnv("DISPATCH_ACP_ADAPTER_COMMAND", "");
     expect(() =>
       engineSpecFor("codex", {
         claudeBin: "claude",

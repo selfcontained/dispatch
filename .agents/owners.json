@@ -30,6 +30,7 @@
         "apps/server/src/agents/acp/**",
         "docs/opencode-acp.md",
         "scripts/opencode-v2-smoke.mjs",
+        "scripts/stream-stress/**",
         "apps/server/src/agents/engine-*.ts",
         "apps/server/src/shared/mcp/agent-*.ts",
         "apps/server/src/routes/agents/**",
@@ -331,6 +332,7 @@
     {
       "paths": [
         "apps/server/src/auth.ts",
+        "apps/server/src/config.ts",
         "apps/server/src/browser-origin.ts",
         "apps/server/src/server-origin.ts",
         "apps/server/src/local-tls.ts",

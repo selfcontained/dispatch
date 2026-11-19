@@ -146,9 +146,6 @@ const ENV_DENY_EXACT = new Set([
   "TLS_CA",
 ]);
 
-/** The fake ACP adapter test seam must reach the detached host process. */
-const ENV_ALLOW_DISPATCH = new Set(["DISPATCH_ACP_ADAPTER_COMMAND"]);
-
 export function hostProcessEnv(base: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {};
   for (const [key, value] of Object.entries(base)) {
@@ -156,7 +153,6 @@ export function hostProcessEnv(base: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
     if (
       ENV_DENY_EXACT.has(key) ||
       (key.startsWith("DISPATCH_") &&
-        !ENV_ALLOW_DISPATCH.has(key) &&
         !/^DISPATCH_OWNED_[a-f0-9]{32}$/.test(key))
     )
       continue;
@@ -398,7 +394,10 @@ function sourceBlockIds(source?: PromptSource): string[] {
 
 export type AcpRuntimeDeps = {
   classifySteering?: ClassifySteering;
-  config: Pick<AppConfig, "agentStateRoot" | "agentRuntime" | "dispatchBinDir">;
+  config: Pick<
+    AppConfig,
+    "agentStateRoot" | "agentRuntime" | "dispatchBinDir" | "acpAdapter"
+  >;
   logger: FastifyBaseLogger;
   /** The journal position last applied for this agent. */
   hostSeq: (
@@ -932,7 +931,7 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
         agentId: input.agentId,
         cwd: input.cwd,
         engine: input.engine,
-        bins: input.bins,
+        bins: { ...input.bins, adapter: config.acpAdapter },
         model: input.model,
         effort: input.effort ?? null,
         fullAccess: input.fullAccess ?? true,

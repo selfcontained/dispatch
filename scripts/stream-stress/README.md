@@ -22,8 +22,8 @@ a model. `drive.mjs` refuses to start unless both checks pass:
    says. If it doesn't, that agent is deleted and nothing else is
    launched. At worst, one short turn ran on a real engine.
 
-`stress-host.sh` sets `DISPATCH_ACP_ADAPTER_COMMAND` inside the host. The
-driver verifies that this wrapper was selected before it launches agents.
+The dev stack exports the adapter command before starting the server. The
+driver verifies that configuration before it launches agents.
 
 ## Stack
 
@@ -31,6 +31,7 @@ Add this to the worktree's `.env` (read by `bin/dispatch-dev`, git-ignored):
 
 ```
 DISPATCH_AGENT_HOST_COMMAND=<worktree>/scripts/stream-stress/stress-host.sh
+DISPATCH_ACP_ADAPTER_COMMAND='["<worktree>/scripts/stream-stress/stress-acp-agent.mjs"]'
 ```
 
 Then start or restart the stack with `repo_dev_up` / `repo_dev_restart` and

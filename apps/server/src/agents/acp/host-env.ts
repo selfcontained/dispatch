@@ -13,6 +13,7 @@ export function buildHostEnv(
   shellEnv: NodeJS.ProcessEnv = process.env
 ): NodeJS.ProcessEnv {
   const env = { ...shellEnv, ...launch.env };
+  delete env.DISPATCH_ACP_ADAPTER_COMMAND;
   if (launch.effort != null) {
     delete env.CLAUDE_EFFORT;
     delete env.CLAUDE_CODE_EFFORT_LEVEL;

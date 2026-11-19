@@ -135,10 +135,13 @@ function assertStressHost() {
   const env = pid ? execSync(`ps eww -p ${pid} -o command=`).toString() : "";
   if (
     !/DISPATCH_AGENT_HOST_COMMAND=\S*stress-host\.sh/.test(env) ||
+    !/DISPATCH_ACP_ADAPTER_COMMAND=\["[^"]*\/stress-acp-agent\.mjs"\]/.test(
+      env
+    ) ||
     !/DISPATCH_AGENT_RUNTIME=acp/.test(env)
   ) {
     throw new Error(
-      `the API on :${port} does not run the stress host (DISPATCH_AGENT_HOST_COMMAND=…/stress-host.sh, live runtime); refusing to launch agents`
+      `the API on :${port} does not run the stress host (stress host, stress adapter command, live runtime); refusing to launch agents`
     );
   }
 }
