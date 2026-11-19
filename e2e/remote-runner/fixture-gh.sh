@@ -33,7 +33,7 @@ case "$1 ${2:-}" in
   'api user'|'api --hostname')
     test -s "$key"
     case " $* " in
-      *'/pulls/'*) printf '{"url":"https://github.com/%s/private.git","branch":"main"}\n' "$login" ;;
+      *'/pulls/'*) printf '{"url":"https://github.com/%s/private.git","branch":"review-topic"}\n' "$login" ;;
       *' user '*) printf '%s\n' "$login" ;;
       *) exit 1 ;;
     esac

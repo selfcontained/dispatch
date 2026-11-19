@@ -13,9 +13,13 @@ mkdir -p "$root/repos/fixture-scratch"
 git init -q -b main "$root/seed"
 git -C "$root/seed" config user.name Fixture
 git -C "$root/seed" config user.email fixture@example.test
-echo "private checkout on scratch" > "$root/seed/review-marker.txt"
+echo "default branch on scratch" > "$root/seed/review-marker.txt"
 git -C "$root/seed" add .
 git -C "$root/seed" commit -qm 'Seed private repository'
+git -C "$root/seed" switch -qc review-topic
+echo "private PR on scratch" > "$root/seed/review-marker.txt"
+git -C "$root/seed" commit -qam 'Add pull request marker'
+git -C "$root/seed" switch -q main
 git clone -q --bare "$root/seed" "$root/repos/fixture-scratch/private.git"
 git --git-dir="$root/repos/fixture-scratch/private.git" config http.receivepack true
 openssl req -newkey rsa:2048 -x509 -nodes -days 1 -subj '/CN=github.com' \

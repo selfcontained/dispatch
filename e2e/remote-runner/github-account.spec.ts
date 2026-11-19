@@ -93,7 +93,7 @@ test("GitHub sign-in, private checkout and sign-out belong to the selected runne
     await page.goto("/agents/" + agent.id, { waitUntil: "domcontentloaded" });
     await expect(
       settledTurns(page).getByTestId("harness-result")
-    ).toContainText("Checkout marker private checkout on scratch", {
+    ).toContainText("Checkout marker private PR on scratch", {
       timeout: 45000,
     });
     // Uses the ordinary workload user's installed helper, independent of the provisioning helper.
