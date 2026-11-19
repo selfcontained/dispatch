@@ -17,6 +17,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MANAGED_WORKSPACE } from "../src/agents/remote/protocol.js";
 import {
   parseProcessStat,
+  runnerStateLockError,
   type SessionIdentity,
   type SessionProcesses,
 } from "../src/agents/remote/session-processes.js";
@@ -42,6 +43,15 @@ const sharedLaunch = (
   ...launch(workspace),
   agentId: reviewerId,
   launch: { ...launch(workspace).launch, useWorktreeOf },
+});
+
+it("explains lock contention while retaining diagnostics for other flock failures", () => {
+  expect(runnerStateLockError(11).message).toMatch(
+    /Another runner daemon is already using this state directory.*Stop the other runner or configure a different state directory/
+  );
+  expect(runnerStateLockError(9).message).toBe(
+    "Cannot lock runner session state (errno 9)."
+  );
 });
 
 describe("runner session supervision", () => {
