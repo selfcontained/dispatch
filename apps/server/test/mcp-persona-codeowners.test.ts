@@ -162,7 +162,7 @@ describe("code owner launches through the checkout boundary", () => {
 
       const result = await handlers.launchOwnerReviews(parent.id, {
         context,
-        agentType: "opencode",
+        agentType: "codex",
       });
       expect(result).toEqual({
         ...preview,
@@ -184,7 +184,7 @@ describe("code owner launches through the checkout boundary", () => {
       expect(agentManager.createAgent).toHaveBeenCalledWith(
         expect.objectContaining({
           cwd,
-          type: "opencode",
+          type: "codex",
           persona: "owner-one",
           projectId: "project",
           parentAgentId: "launcher",
