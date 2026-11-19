@@ -10,6 +10,7 @@ import {
   wireFrames,
   type EngineOperationEvent,
   type Frame,
+  type GitHubOperation,
 } from "../src/agents/remote/protocol.js";
 import { RunnerRegistry } from "../src/agents/remote/registry.js";
 import { RemoteRunnerService } from "../src/agents/remote/service.js";
@@ -44,6 +45,7 @@ function dialEngineRunner(input: {
   key: string;
   workspaces: string[];
   engineManagement?: boolean;
+  onGitHub?: (operation: GitHubOperation) => unknown;
   onEngine?: (
     id: string,
     reply: (frame: Frame) => void,
@@ -68,6 +70,12 @@ function dialEngineRunner(input: {
     const send = wireFrames(socket, (frame) => {
       if (frame.type === "request" && frame.command.kind === "engine") {
         input.onEngine?.(frame.id, send, frame.command.operation);
+      } else if (frame.type === "request" && frame.command.kind === "github") {
+        send({
+          type: "result",
+          id: frame.id,
+          value: JSON.stringify(input.onGitHub?.(frame.command.operation)),
+        });
       }
     });
     socket.once("secureConnect", () => {
@@ -76,6 +84,7 @@ function dialEngineRunner(input: {
         version: 1,
         health: true,
         ...(input.engineManagement !== false ? { engineManagement: true } : {}),
+        ...(input.onGitHub && { githubManagement: true }),
         workspaces: input.workspaces,
       });
       resolve({
@@ -246,6 +255,77 @@ describe("engine wire integration", () => {
       unsupported: true,
     });
     expect(received).toBe(0);
+  });
+
+  it("routes GitHub operations to the chosen capable runner and drops access on revoke", async () => {
+    const service = makeService();
+    const alpha = await enroll(service, "alpha");
+    const beta = await enroll(service, "beta");
+    const operations: GitHubOperation[] = [];
+    const a = await dialEngineRunner({
+      ...alpha,
+      workspaces: ["proof"],
+      onGitHub(operation) {
+        operations.push(operation);
+        if (operation.type === "repositorySearch")
+          return {
+            repositories: [
+              { name: "org/project", url: "https://github.com/org/project" },
+              {
+                name: "org/reject",
+                url: "https://secret@github.com/org/reject",
+              },
+            ],
+          };
+        return {
+          status: "pending",
+          code: "ABCD-1234",
+          verificationUrl: "https://github.com/login/device",
+          token: "synthetic-token",
+        };
+      },
+    });
+    const b = await dialEngineRunner({ ...beta, workspaces: ["proof"] });
+    sockets.push(a.socket, b.socket);
+    await waitFor(() =>
+      [alpha, beta].every((peer) =>
+        service.available({ runner: peer.created.id, workspace: "proof" })
+      )
+    );
+    const list = await service.list();
+    expect(
+      list.find((entry) => entry.id === alpha.created.id)?.githubManagement
+    ).toBe(true);
+    expect(
+      list.find((entry) => entry.id === beta.created.id)?.githubManagement
+    ).toBe(false);
+    expect(JSON.stringify(list)).not.toContain("ABCD-1234");
+    expect(await service.githubAccount(alpha.created.id, "login")).toEqual({
+      status: "pending",
+      code: "ABCD-1234",
+      verificationUrl: "https://github.com/login/device",
+    });
+    expect(
+      await service.searchGitHubRepositories(alpha.created.id, "org/project")
+    ).toEqual({
+      repositories: [
+        { name: "org/project", url: "https://github.com/org/project" },
+      ],
+    });
+    expect(await service.githubAccount(beta.created.id, "login")).toMatchObject(
+      {
+        status: "unavailable",
+        message: expect.stringContaining("Update"),
+      }
+    );
+    await service.revoke(alpha.created.id);
+    expect(
+      await service.githubAccount(alpha.created.id, "status")
+    ).toMatchObject({ status: "unavailable" });
+    expect(operations).toEqual([
+      { type: "login" },
+      { type: "repositorySearch", query: "org/project" },
+    ]);
   });
 
   it("stores and validates a pushed engine inventory, exposed via list()", async () => {

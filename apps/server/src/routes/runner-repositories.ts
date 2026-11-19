@@ -1,104 +1,67 @@
 import type { FastifyInstance } from "fastify";
-import { runCommand, type CommandRunner } from "../shared/lib/run-command.js";
+import {
+  validGitHubRepoPart,
+  validRepositorySearch,
+} from "../agents/remote/protocol.js";
+import type { RemoteRunnerService } from "../agents/remote/service.js";
 
-/** Search with the service user's gh account. Only the repository address leaves the service. */
 export function registerRunnerRepositorySearch(
   app: FastifyInstance,
-  run: CommandRunner = runCommand
+  runners: Pick<
+    RemoteRunnerService,
+    "searchGitHubRepositories" | "lookupGitHubPullRequestHead"
+  >
 ) {
-  app.get<{ Querystring: { q?: string } }>(
-    "/api/v1/runners/repository-search",
+  const options = { config: { hostAuthenticationRequired: true } } as const;
+  app.get<{ Params: { id: string }; Querystring: { q?: string } }>(
+    "/api/v1/runners/:id/repository-search",
+    options,
     async (req, reply) => {
+      reply.header("Cache-Control", "no-store");
       const q = req.query.q;
-      if (
-        typeof q !== "string" ||
-        !/^[a-zA-Z0-9_.-][a-zA-Z0-9_./ -]{1,99}$/.test(q)
-      )
+      if (!validRepositorySearch(q))
         return reply
           .code(400)
           .send({ error: "Enter a repository name or owner/name." });
       try {
-        const { stdout } = await run(
-          "gh",
-          [
-            "search",
-            "repos",
-            "--match",
-            "name",
-            "--limit",
-            "12",
-            "--json",
-            "fullName,url",
-            "--",
-            q,
-          ],
-          {
-            timeoutMs: 8000,
-            env: { GH_PROMPT_DISABLED: "1" },
-          }
-        );
-        const rows: unknown = JSON.parse(stdout);
-        if (!Array.isArray(rows)) throw new Error("Invalid repository list");
-        const repositories = rows.flatMap((row) =>
-          typeof row?.fullName === "string" &&
-          typeof row.url === "string" &&
-          /^https:\/\//.test(row.url)
-            ? [{ name: row.fullName, url: row.url }]
-            : []
-        );
-        return { repositories };
+        return await runners.searchGitHubRepositories(req.params.id, q);
       } catch {
         return reply.code(503).send({
-          error: "GitHub search is unavailable. Paste an HTTPS repository URL.",
+          error:
+            "GitHub search is unavailable on this runner. Paste an HTTPS repository URL.",
         });
       }
     }
   );
-  app.get<{ Querystring: { url?: string } }>(
-    "/api/v1/runners/pull-request-head",
+  app.get<{ Params: { id: string }; Querystring: { url?: string } }>(
+    "/api/v1/runners/:id/pull-request-head",
+    options,
     async (req, reply) => {
+      reply.header("Cache-Control", "no-store");
       const match =
         typeof req.query.url === "string" &&
-        /^https:\/\/github\.com\/([a-zA-Z0-9_.-]+)\/([a-zA-Z0-9_.-]+)\/pull\/([1-9][0-9]{0,9})\/?$/.exec(
+        /^https:\/\/github\.com\/([^/]+)\/([^/]+)\/pull\/([1-9][0-9]{0,9})\/?$/.exec(
           req.query.url
         );
-      if (!match || [match[1], match[2]].some((v) => v === "." || v === ".."))
+      if (
+        !match ||
+        !validGitHubRepoPart(match[1]) ||
+        !validGitHubRepoPart(match[2])
+      )
         return reply
           .code(400)
           .send({ error: "Enter a GitHub pull request URL." });
       try {
-        // The pull ref in the base repo is read-only. Resolve the actual contributor branch.
-        const { stdout } = await run(
-          "gh",
-          [
-            "api",
-            "--hostname",
-            "github.com",
-            `repos/${match[1]}/${match[2]}/pulls/${match[3]}`,
-            "--jq",
-            "{url:.head.repo.clone_url,branch:.head.ref}",
-          ],
-          { timeoutMs: 8000, env: { GH_PROMPT_DISABLED: "1" } }
+        return await runners.lookupGitHubPullRequestHead(
+          req.params.id,
+          match[1],
+          match[2],
+          Number(match[3])
         );
-        const head: unknown = JSON.parse(stdout);
-        if (
-          !head ||
-          typeof head !== "object" ||
-          !("url" in head) ||
-          !("branch" in head) ||
-          typeof head.branch !== "string" ||
-          !head.branch ||
-          typeof head.url !== "string" ||
-          !/^https:\/\/github\.com\/[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+(?:\.git)?$/.test(
-            head.url
-          )
-        )
-          throw new Error("Unavailable head");
-        return { url: head.url, branch: head.branch };
       } catch {
         return reply.code(422).send({
           error:
-            "Could not resolve the PR’s source branch. Check GitHub access or enter the source repository and branch.",
+            "Could not resolve the PR’s source branch. Check GitHub access on this runner or enter the source repository and branch.",
         });
       }
     }

@@ -212,6 +212,7 @@ describe("runner enrollment service", () => {
         name: "alpha",
         status: "pending",
         engineManagement: false,
+        githubManagement: false,
         workspaces: [],
       },
     ]);
@@ -268,6 +269,7 @@ describe("runner enrollment service", () => {
         name: "alpha",
         status: "online",
         engineManagement: false,
+        githubManagement: false,
         workspaces: ["proof"],
       },
     ]);

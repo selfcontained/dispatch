@@ -108,10 +108,34 @@ it("negotiates advertised v1 capabilities independently on each ready frame", ()
     workspaces: ["@session"],
     health: true,
     engineManagement: true,
+    githubManagement: true,
     checkoutInspection: true,
     sharedWorktree: true,
   };
   expect(parseReadyFrame(managed)).toEqual(managed);
+});
+
+it("validates runner-scoped GitHub command payloads", () => {
+  const parse = (operation: unknown) =>
+    parseServiceFrame({
+      type: "request",
+      id: "request-1",
+      command: {
+        kind: "github",
+        workspace: "@session",
+        agentId: "@github",
+        operation,
+      },
+    });
+  expect(parse({ type: "login" })).not.toBeNull();
+  expect(parse({ type: "repositorySearch", query: "org/repo" })).not.toBeNull();
+  expect(parse({ type: "repositorySearch", query: "--help\n" })).toBeNull();
+  expect(
+    parse({ type: "pullRequestHead", owner: "..", repo: "repo", number: 1 })
+  ).toBeNull();
+  expect(
+    parse({ type: "pullRequestHead", owner: "org", repo: "repo", number: 1 })
+  ).not.toBeNull();
 });
 
 it("validates checkout queries, results and borrowed launches", () => {

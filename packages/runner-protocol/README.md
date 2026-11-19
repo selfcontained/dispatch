@@ -206,3 +206,25 @@ turn. CPU is a percentage over two samples (null until available), and memory
 is reported in bytes. Version identifies the runner build. Dispatch binds each
 report to its authenticated registration and stores the last snapshot with a
 service-side receipt time so stale measurements can be labeled after disconnect.
+
+### Optional GitHub account management
+
+Runners that advertise `githubManagement: true` in `ready` accept the
+runner-wide `github` command. As with other runner-wide commands, use a
+routable workspace and an opaque placeholder agent ID. The operation
+supports account status, device-login start, cancel, and logout, plus
+repository search and pull request source-branch lookup on github.com.
+Replies are JSON strings carried in `result.value`. Account replies have a
+`status` of `signed-out`, `signed-in`, `pending`, `unavailable`, or
+`failed`. Poll with `status` for the device code while pending and the
+account login after authorization. The consumer should expose a pending
+code only to the authenticated operator and should keep it out of logs,
+inventory, and durable state.
+
+The Linux implementation uses the runner's dedicated workload account.
+Headless GitHub CLI login stores its credential in the workload user's gh
+configuration file. Managed checkouts and agent HTTPS Git operations use
+the same account through the gh credential helper. A transport disconnect
+ends a pending login, and a completed credential remains with that
+workload account. Logout removes the active account locally. GitHub
+authorization can be revoked separately in GitHub settings.

@@ -29,6 +29,11 @@ import {
   parseEngineInventory,
   type Command,
   type RunnerOperation,
+  type GitHubOperation,
+  type GitHubStatus,
+  parseGitHubStatus,
+  githubPullRequestHead,
+  githubRepositoryResults,
   type SessionOperation,
   type EngineInventoryEntry,
   type Placement,
@@ -93,6 +98,7 @@ export type RunnerSummary = {
   healthReceivedAt?: string;
   /** Whether this (online) peer advertised support for engine management. */
   engineManagement: boolean;
+  githubManagement: boolean;
   /** Last pushed snapshot while online; absent offline or before the first push. */
   engines?: EngineInventoryEntry[];
   workspaces: string[];
@@ -136,6 +142,7 @@ type Peer = {
   reportsHealth?: boolean;
   /** Advertised in `ready`; whether this peer answers the `"engine"` command. */
   engineManagement: boolean;
+  githubManagement: boolean;
   checkoutInspection: boolean;
   sharedWorktree: boolean;
   /** Last pushed, validated engine inventory; absent until the runner first reports one. */
@@ -642,6 +649,7 @@ export class RemoteRunnerService {
           socket,
           reportsHealth: ready.health === true,
           engineManagement: ready.engineManagement === true,
+          githubManagement: ready.githubManagement === true,
           checkoutInspection: ready.checkoutInspection === true,
           sharedWorktree: ready.sharedWorktree === true,
           connection: new RunnerConnection(send),
@@ -864,6 +872,8 @@ export class RemoteRunnerService {
         name: this.legacy.id,
         engineManagement:
           peer?.gate.approved() === true && peer.engineManagement,
+        githubManagement:
+          peer?.gate.approved() === true && peer.githubManagement,
         ...(peer?.engines ? { engines: peer.engines } : {}),
         ...(peer?.health
           ? {
@@ -900,6 +910,7 @@ export class RemoteRunnerService {
               ? "online"
               : "offline",
         engineManagement: online && peer.engineManagement,
+        githubManagement: online && peer.githubManagement,
         ...(online && peer.engines ? { engines: peer.engines } : {}),
         ...(online && peer.health
           ? {
@@ -1175,9 +1186,15 @@ export class RemoteRunnerService {
     const peer = this.peers.get(runnerId);
     if (!peer?.gate.approved())
       throw new RunnerUnavailable("The runner is disconnected or unavailable.");
-    if (!peer.engineManagement)
+    if (
+      operation.kind === "engine"
+        ? !peer.engineManagement
+        : !peer.githubManagement
+    )
       throw new RunnerCapabilityUnavailable(
-        "This runner does not support engine management."
+        operation.kind === "engine"
+          ? "This runner does not support engine management."
+          : "Update the runner to manage its GitHub account."
       );
 
     // V1 requires a routable workspace and an id even for a runner-wide operation.
@@ -1185,11 +1202,87 @@ export class RemoteRunnerService {
       if (peer.gate.allows(workspace))
         return this.request(
           { runner: runnerId, workspace },
-          { ...operation, agentId: "@engine", workspace },
-          true
+          { ...operation, agentId: `@${operation.kind}`, workspace },
+          operation.kind === "engine"
         );
     }
     throw new RunnerUnavailable("The runner has no available workspace.");
+  }
+
+  private async requestGitHub(
+    runnerId: string,
+    operation: GitHubOperation
+  ): Promise<unknown> {
+    const { value } = await this.requestRunner(runnerId, {
+      kind: "github",
+      operation,
+    });
+    if (typeof value !== "string") throw new Error("Invalid GitHub reply.");
+    return JSON.parse(value);
+  }
+
+  async githubAccount(
+    runnerId: string,
+    type: "status" | "login" | "cancel" | "logout"
+  ): Promise<GitHubStatus> {
+    try {
+      const status = parseGitHubStatus(
+        await this.requestGitHub(runnerId, { type })
+      );
+      if (status.status === "failed")
+        return {
+          ...status,
+          message:
+            "GitHub sign-in or configuration failed. Try again on this runner.",
+        };
+      if (status.status === "unavailable")
+        return {
+          ...status,
+          message:
+            "GitHub is unavailable. Check that GitHub CLI is installed on the runner and it can reach github.com.",
+        };
+      return status;
+    } catch (error) {
+      if (
+        error instanceof RunnerCapabilityUnavailable ||
+        error instanceof RunnerUnavailable
+      )
+        return { status: "unavailable", message: error.message };
+      return {
+        status: "unavailable",
+        message: "The runner could not report its GitHub account.",
+      };
+    }
+  }
+
+  async searchGitHubRepositories(runnerId: string, query: string) {
+    const response = await this.requestGitHub(runnerId, {
+      type: "repositorySearch",
+      query,
+    });
+    if (
+      !response ||
+      typeof response !== "object" ||
+      !("repositories" in response)
+    )
+      throw new Error("Invalid GitHub repository reply.");
+    return githubRepositoryResults(response.repositories);
+  }
+
+  async lookupGitHubPullRequestHead(
+    runnerId: string,
+    owner: string,
+    repo: string,
+    number: number
+  ) {
+    return githubPullRequestHead(
+      await this.requestGitHub(runnerId, {
+        type: "pullRequestHead",
+        owner,
+        repo,
+        number,
+      })
+    );
   }
 
   supportsSharedWorktree(placement: Placement) {

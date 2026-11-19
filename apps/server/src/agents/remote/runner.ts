@@ -22,6 +22,7 @@ import {
   type RunnerFrame,
   type RunnerEngine,
 } from "./protocol.js";
+import { GitHubRunnerExecutor } from "./github-runner-executor.js";
 import {
   EngineRunnerExecutor,
   type ManagedCommand,
@@ -183,6 +184,10 @@ export async function runRemoteRunner(filename: string) {
     key: readFileSync(config.key),
   };
   const sampleHealth = runnerHealthSampler();
+  const github = new GitHubRunnerExecutor(env, (bin, args) => ({
+    bin: setpriv,
+    args: [...childArgs, bin, ...args],
+  }));
   const engineExecutor = new EngineRunnerExecutor({
     uid: config.uid,
     gid: config.gid,
@@ -227,6 +232,7 @@ export async function runRemoteRunner(filename: string) {
   while (true) {
     const connectedMs = await new Promise<number>((finished) => {
       let connectedAt: number | undefined;
+      const connection = new AbortController();
       const socket = connect({
         ...credentials,
         host,
@@ -276,6 +282,7 @@ export async function runRemoteRunner(filename: string) {
         console.error("Runner transport:", error.message)
       );
       socket.on("close", () => {
+        connection.abort();
         clearTimeout(timeout);
         clearInterval(healthInterval);
         for (const channel of channels.values()) channel.destroy();
@@ -313,6 +320,22 @@ export async function runRemoteRunner(filename: string) {
           );
           safeSend({ type: "result", id, value: JSON.stringify(ack) });
           if (command.operation.type !== "status") void reportEngineInventory();
+          return;
+        }
+        if (command.kind === "github") {
+          try {
+            const value = await github.handle(
+              command.operation,
+              connection.signal
+            );
+            safeSend({ type: "result", id, value: JSON.stringify(value) });
+          } catch {
+            safeSend({
+              type: "result",
+              id,
+              error: "Runner GitHub operation failed.",
+            });
+          }
           return;
         }
         const { agentId, workspace } = command;
@@ -488,6 +511,7 @@ export async function runRemoteRunner(filename: string) {
             : configuredHandles,
           ...(managedWorkspace ? { managedWorkspace: true } : {}),
           engineManagement: true,
+          githubManagement: true,
           checkoutInspection: true,
           sharedWorktree: true,
         });

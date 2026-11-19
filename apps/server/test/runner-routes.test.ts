@@ -22,6 +22,12 @@ describe("runner control API", () => {
       ["POST", "/api/runners"],
       ["DELETE", "/api/runners/rnr_x"],
       ["GET", "/api/v1/runners"],
+      ["GET", "/api/v1/runners/rnr_x/github"],
+      ["POST", "/api/v1/runners/rnr_x/github/login"],
+      ["DELETE", "/api/v1/runners/rnr_x/github/login"],
+      ["DELETE", "/api/v1/runners/rnr_x/github"],
+      ["GET", "/api/v1/runners/rnr_x/repository-search?q=org/repo"],
+      ["GET", "/api/v1/runners/rnr_x/pull-request-head"],
     ] as const) {
       const response = await ctx.app.inject({
         method,
@@ -30,6 +36,23 @@ describe("runner control API", () => {
       });
       expect(response.statusCode, `${method} ${url}`).toBe(401);
     }
+  });
+
+  it("rejects scoped MCP tokens and sets no-store on GitHub account replies", async () => {
+    const url = "/api/v1/runners/rnr_missing/github";
+    const hostToken = await ctx.auth.getOrCreateAuthToken(ctx.pool);
+    const scoped = ctx.auth.createAgentMcpToken(hostToken, "agt_fixture");
+    const denied = await ctx.app.inject({
+      url,
+      headers: { authorization: `Bearer ${scoped}` },
+    });
+    expect(denied.statusCode).toBe(401);
+    const permitted = await ctx.app.inject({
+      url,
+      headers: { authorization: `Bearer ${hostToken}` },
+    });
+    expect(permitted.headers["cache-control"]).toBe("no-store");
+    expect(permitted.json().status).toBe("unavailable");
   });
 
   it("creates, lists and revokes a registration", async () => {
@@ -76,6 +99,7 @@ describe("runner control API", () => {
           name: "lima",
           status: "pending",
           engineManagement: false,
+          githubManagement: false,
           workspaces: [],
         },
       ],

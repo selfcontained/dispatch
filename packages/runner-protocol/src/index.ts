@@ -4,3 +4,4 @@ export * from "./execution.js";
 export * from "./session.js";
 export * from "./health.js";
 export * from "./checkout.js";
+export * from "./github.js";

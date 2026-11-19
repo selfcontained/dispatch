@@ -126,6 +126,7 @@ import { registerMcpRoutes } from "./routes/mcp.js";
 import { registerPersonaRoutes } from "./routes/personas.js";
 import { registerPersonalityRoutes } from "./routes/personalities.js";
 import { registerQuickPhraseRoutes } from "./routes/quick-phrases.js";
+import { registerRunnerGitHub } from "./routes/runner-github.js";
 import { registerRunnerInstaller } from "./routes/runner-installer.js";
 import { registerRunnerRepositorySearch } from "./routes/runner-repositories.js";
 import { registerRunnerRoutes } from "./routes/runners.js";
@@ -947,8 +948,13 @@ async function registerRoutes() {
     if (request.routeOptions.config.runnerConnectBootstrap) return;
     // The recovery helper authenticates with its enrollment key, loopback-only.
     if (request.routeOptions.config.updateRecovery) return;
-    // If no password is set, all routes are open (first-run mode).
-    if (!(await authRuntime.isPasswordSetCached())) return;
+    // First-run mode permits general API use. Runner GitHub credentials
+    // and private repository lookups still require host authentication.
+    if (
+      !request.routeOptions.config.hostAuthenticationRequired &&
+      !(await authRuntime.isPasswordSetCached())
+    )
+      return;
 
     // Bearer token is accepted on all API routes (for MCP agents, scripts, etc.)
     const authHeader = request.headers.authorization;
@@ -1366,7 +1372,8 @@ async function registerRoutes() {
 
   await registerQuickPhraseRoutes(app, { pool });
   if (remoteRunner) {
-    registerRunnerRepositorySearch(app);
+    registerRunnerGitHub(app, remoteRunner);
+    registerRunnerRepositorySearch(app, remoteRunner);
     registerRunnerInstaller(app, pool);
   }
   await registerRunnerRoutes(app, { runners: remoteRunner });

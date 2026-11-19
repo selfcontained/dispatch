@@ -10,6 +10,7 @@ import {
   isEngineOperation,
   isRunnerEngine,
 } from "./engine-management.js";
+import { isGitHubOperation, type GitHubOperation } from "./github.js";
 import type { RunnerHealth } from "./health.js";
 import { isHttpUrl, isNullableString, isRecord } from "./validation.js";
 
@@ -53,7 +54,9 @@ export type SessionOperation = { agentId: string } & (
   | { kind: "stop"; force: boolean }
 );
 
-export type RunnerOperation = { kind: "engine"; operation: EngineOperation };
+export type RunnerOperation =
+  | { kind: "engine"; operation: EngineOperation }
+  | { kind: "github"; operation: GitHubOperation };
 
 /** V1 uses one envelope for both scopes. Runner operations ignore the agent id. */
 export type Command = { workspace: string } & (
@@ -68,6 +71,7 @@ export type ReadyFrame = {
   managedWorkspace?: true;
   /** Advertises support for the `"engine"` command and inventory push. */
   engineManagement?: true;
+  githubManagement?: true;
   checkoutInspection?: true;
   sharedWorktree?: true;
 };
@@ -96,6 +100,7 @@ export function parseReadyFrame(value: unknown): ReadyFrame | null {
     ...(frame.sharedWorktree === true && { sharedWorktree: true }),
     ...(frame.health === true && { health: true }),
     ...(frame.engineManagement === true && { engineManagement: true }),
+    ...(frame.githubManagement === true && { githubManagement: true }),
     ...(frame.managedWorkspace === true && { managedWorkspace: true }),
   };
 }
@@ -234,6 +239,8 @@ function isCommand(value: unknown): value is Command {
       return typeof value.force === "boolean";
     case "engine":
       return isEngineOperation(value.operation);
+    case "github":
+      return isGitHubOperation(value.operation);
     default:
       return false;
   }
