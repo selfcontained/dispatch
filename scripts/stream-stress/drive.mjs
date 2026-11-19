@@ -135,7 +135,9 @@ function assertStressHost() {
   const env = pid ? execSync(`ps eww -p ${pid} -o command=`).toString() : "";
   if (
     !/DISPATCH_AGENT_HOST_COMMAND=\S*stress-host\.sh/.test(env) ||
-    !/DISPATCH_ACP_ADAPTER_COMMAND=\["[^"]*\/stress-acp-agent\.mjs"\]/.test(env) ||
+    !/DISPATCH_ACP_ADAPTER_COMMAND=\["[^"]*\/stress-acp-agent\.mjs"\]/.test(
+      env
+    ) ||
     !/DISPATCH_AGENT_RUNTIME=acp/.test(env)
   ) {
     throw new Error(
