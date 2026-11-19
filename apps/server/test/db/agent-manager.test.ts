@@ -280,7 +280,7 @@ describe("AgentManager", () => {
          VALUES ($1, 'composer.txt', 'user', 13, 'text/plain') RETURNING id`,
         [agent.id]
       );
-      await chat.post(agent.id, {
+      await chat.sendUserPost(agent.id, {
         text: "Read the attachment",
         attachments: [{ type: "file", fileId: attachment.id }],
       });

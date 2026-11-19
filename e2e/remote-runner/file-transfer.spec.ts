@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { expect, test } from "@playwright/test";
 import { authHeaders, cleanupE2EAgents, trackAgent } from "../helpers";
-import { chat, enrollViaUi, settledTurns, state } from "./harness";
+import { agentInfo, chat, enrollViaUi, state } from "./harness";
 
 const png = readFileSync(
   new URL("../../apps/web/public/icons/teal/pwa-192.png", import.meta.url)
@@ -98,7 +98,11 @@ test("file transfer keeps local and remote posted bytes after archive", async ({
       };
       await shot("posted");
       if (lane === "local") {
-        await expect(settledTurns(session)).toHaveCount(2, { timeout: 30_000 });
+        await expect
+          .poll(async () => (await agentInfo(request, id)).activity, {
+            timeout: 30_000,
+          })
+          .toBe("idle");
         await fileInput.setInputFiles({
           name: "transfer-notes.txt",
           mimeType: "text/plain",
