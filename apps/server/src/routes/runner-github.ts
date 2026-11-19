@@ -3,8 +3,8 @@ import type { RemoteRunnerService } from "../agents/remote/service.js";
 
 declare module "fastify" {
   interface FastifyContextConfig {
-    /** Validate supplied bearer credentials even during passwordless setup. */
-    rejectInvalidBearer?: boolean;
+    /** Validate supplied authorization credentials even during passwordless setup. */
+    validateSuppliedAuthorization?: boolean;
   }
 }
 
@@ -23,7 +23,7 @@ export function registerRunnerGitHub(
     app.route<{ Params: { id: string } }>({
       method,
       url,
-      config: { rejectInvalidBearer: true },
+      config: { validateSuppliedAuthorization: true },
       async handler(req, reply) {
         reply.header("Cache-Control", "no-store");
         return runners.githubAccount(req.params.id, operation);

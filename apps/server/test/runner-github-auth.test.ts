@@ -36,6 +36,12 @@ it("lets passwordless operators use runner GitHub routes while rejecting scoped 
       headers: { authorization: `Bearer ${scoped}` },
     });
     expect(agent.statusCode, url).toBe(401);
+    const unsupportedScheme = await ctx.app.inject({
+      method,
+      url,
+      headers: { authorization: `bearer ${scoped}` },
+    });
+    expect(unsupportedScheme.statusCode, url).toBe(401);
 
     const bearer = await ctx.app.inject({
       method,

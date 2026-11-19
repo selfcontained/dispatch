@@ -949,16 +949,18 @@ async function registerRoutes() {
     // The recovery helper authenticates with its enrollment key, loopback-only.
     if (request.routeOptions.config.updateRecovery) return;
     const authHeader = request.headers.authorization;
-    const hasBearer = authHeader?.startsWith("Bearer ") === true;
     // Passwordless operator access follows the normal first-run policy.
-    // Routes with this flag still validate an explicitly supplied bearer.
+    // Routes with this flag still validate explicitly supplied credentials.
     if (
-      !(request.routeOptions.config.rejectInvalidBearer && hasBearer) &&
+      !(
+        request.routeOptions.config.validateSuppliedAuthorization &&
+        authHeader !== undefined
+      ) &&
       !(await authRuntime.isPasswordSetCached())
     )
       return;
 
-    if (hasBearer) {
+    if (authHeader?.startsWith("Bearer ")) {
       const token = authHeader.slice(7);
       if (shouldAcceptApiBearerToken(token, config.authToken)) {
         return;
