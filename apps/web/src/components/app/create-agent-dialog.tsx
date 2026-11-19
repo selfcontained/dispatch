@@ -195,8 +195,11 @@ function CreateAgentDialogContent({
                       </Select>
                     </div>
                   )}
-                  {form.managedSession && (
+                  {form.managedSession && form.runnerId && (
                     <RunnerRepositoryFields
+                      key={form.runnerId}
+                      runnerId={form.runnerId}
+                      canSearch={form.runnerGitHubAvailable}
                       repository={form.repository}
                       onRepository={form.chooseRepo}
                       mode={form.branchMode}

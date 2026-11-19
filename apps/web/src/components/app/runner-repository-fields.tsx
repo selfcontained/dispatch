@@ -30,6 +30,8 @@ export function isRepositoryUrl(value: string) {
 }
 
 export function RunnerRepositoryFields({
+  runnerId,
+  canSearch,
   repository,
   onRepository,
   mode,
@@ -39,6 +41,8 @@ export function RunnerRepositoryFields({
   loading,
   failed,
 }: {
+  runnerId: string;
+  canSearch: boolean;
   repository: string;
   onRepository: (value: string) => void;
   mode: RunnerBranchMode;
@@ -57,14 +61,15 @@ export function RunnerRepositoryFields({
     return () => clearTimeout(timeout);
   }, [text, searchable]);
   const matches = useQuery({
-    queryKey: ["runner-repository-search", search],
-    queryFn: () =>
+    queryKey: ["runner-repository-search", runnerId, search],
+    queryFn: ({ signal }) =>
       api<{ repositories: { name: string; url: string }[] }>(
-        `/api/v1/runners/repository-search?q=${encodeURIComponent(search)}`
+        `/api/v1/runners/${encodeURIComponent(runnerId)}/repository-search?q=${encodeURIComponent(search)}`,
+        { signal, cache: "no-store" }
       ),
-    enabled: Boolean(search && search === text && searchable),
+    enabled: canSearch && Boolean(search && search === text && searchable),
     retry: false,
-    staleTime: 60_000,
+    gcTime: 0,
   });
   return (
     <div className="space-y-3">
@@ -76,7 +81,11 @@ export function RunnerRepositoryFields({
           id={id}
           value={repository}
           onChange={(e) => onRepository(e.target.value)}
-          placeholder="Search GitHub or paste an HTTPS URL"
+          placeholder={
+            canSearch
+              ? "Search GitHub or paste an HTTPS URL"
+              : "Paste an HTTPS repository URL"
+          }
           autoComplete="off"
           data-testid="runner-repository"
           disabled={loading}
@@ -92,14 +101,15 @@ export function RunnerRepositoryFields({
             folder.
           </p>
         ) : null}
-        {search &&
+        {canSearch &&
+          search &&
           text === search &&
           searchable &&
           (matches.isLoading ? (
             <p className="text-xs text-muted-foreground">Searching GitHub…</p>
           ) : matches.isError ? (
             <p className="text-xs text-muted-foreground">
-              GitHub search is unavailable. Paste a repository URL.
+              Check this runner’s GitHub sign-in or paste a repository URL.
             </p>
           ) : matches.data?.repositories.length ? (
             <ul

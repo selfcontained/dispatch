@@ -91,6 +91,10 @@ export function useCreateAgentForm({
       ? runnerLocator(runner.id, runnerWorkspace)
       : "";
   const selectRunner = (id: string | null) => {
+    if (id === runnerId) return;
+    setChosenRepo(null);
+    setRunnerBranch("");
+    setBranchMode("new");
     setRunnerId(id);
     setRunnerWorkspace(null);
   };
@@ -377,6 +381,10 @@ export function useCreateAgentForm({
               },
             };
           } else if (branch.startsWith("https://")) {
+            if (!runnerId || !runner?.githubManagement)
+              throw new Error(
+                "Update this runner to open a pull request by URL, or enter a branch name."
+              );
             const pr = new URL(branch);
             const repo = new URL(repository.trim());
             if (
@@ -388,7 +396,7 @@ export function useCreateAgentForm({
                 "Choose a pull request from the selected repository."
               );
             const head = await api<{ url: string; branch: string }>(
-              `/api/v1/runners/pull-request-head?url=${encodeURIComponent(branch)}`
+              `/api/v1/runners/${encodeURIComponent(runnerId)}/pull-request-head?url=${encodeURIComponent(branch)}`
             );
             checkout = {
               url: head.url,
@@ -477,6 +485,8 @@ export function useCreateAgentForm({
     [
       createBaseBranch,
       managedSession,
+      runnerId,
+      runner?.githubManagement,
       repository,
       branchMode,
       runnerBranch,
@@ -509,6 +519,8 @@ export function useCreateAgentForm({
     runners,
     runnerId,
     runnerUnavailable,
+    runnerGitHubAvailable:
+      runner?.status === "online" && runner?.githubManagement === true,
     managedSession,
     repository,
     chooseRepo,
