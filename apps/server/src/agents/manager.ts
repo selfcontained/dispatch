@@ -1724,17 +1724,16 @@ export class AgentManager {
       directory?.cwd ?? input.cwd
     );
     if (derivedRepositoryUrl && p.worktree) {
-      const { branch, baseBranch } = p.worktree;
+      const { branch, baseBranch, createNewBranch } = p.worktree;
       runnerRepository = {
         url: derivedRepositoryUrl,
-        checkout:
-          input.createNewBranch === false && input.worktreeBranch
-            ? { kind: "branch", branch }
-            : {
-                kind: "new",
-                branch,
-                ...(baseBranch ? { base: baseBranch } : {}),
-              },
+        checkout: !createNewBranch
+          ? { kind: "branch", branch: baseBranch ?? "main", allowDefault: true }
+          : {
+              kind: "new",
+              branch,
+              ...(baseBranch ? { base: baseBranch } : {}),
+            },
       };
       try {
         parseRepository(runnerRepository);

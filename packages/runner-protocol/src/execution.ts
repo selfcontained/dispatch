@@ -30,7 +30,7 @@ export type ServiceMcp = {
 
 export type RepositoryCheckout =
   | { kind: "new"; branch: string; base?: string }
-  | { kind: "branch"; branch: string }
+  | { kind: "branch"; branch: string; allowDefault?: true }
   | { kind: "pr"; branch: string; number: number };
 
 export type RunnerRepository = { url: string; checkout: RepositoryCheckout };
@@ -239,7 +239,9 @@ function isRepository(value: unknown): value is RunnerRepository {
     case "new":
       return checkout.base === undefined || validBranch(checkout.base);
     case "branch":
-      return true;
+      return (
+        checkout.allowDefault === undefined || checkout.allowDefault === true
+      );
     case "pr":
       return (
         typeof checkout.number === "number" &&

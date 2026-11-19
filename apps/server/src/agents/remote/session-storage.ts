@@ -166,7 +166,10 @@ export class RunnerRepositories {
         throw new Error(
           "The remote repository has no unambiguous default branch."
         );
-      if (checkout.branch === defaultBranch)
+      if (
+        checkout.branch === defaultBranch &&
+        !(checkout.kind === "branch" && checkout.allowDefault)
+      )
         throw new Error(
           "The default branch cannot be used as a session branch."
         );

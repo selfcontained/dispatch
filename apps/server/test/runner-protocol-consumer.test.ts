@@ -343,6 +343,20 @@ it("validates checkout queries, results and borrowed launches", () => {
     useWorktreeOf: "author",
   };
   expect(parse({ ...command, launch })).not.toBeNull();
+  const existingDefault = (allowDefault: boolean) => ({
+    ...command,
+    launch: {
+      ...launch,
+      useWorktreeOf: undefined,
+      repository: {
+        url: "https://example.test/project.git",
+        checkout: { kind: "branch", branch: "main", allowDefault },
+      },
+    },
+  });
+  expect(parse(existingDefault(true))).not.toBeNull();
+  expect(parse(existingDefault(false))).toBeNull();
+
   expect(parse({ ...command, agentId: "other", launch })).toBeNull();
   expect(
     parse({ ...command, launch: { ...launch, useWorktreeOf: "reviewer" } })

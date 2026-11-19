@@ -1538,9 +1538,17 @@ export class RemoteRunnerService {
       throw new RunnerCapabilityUnavailable(
         "Update this runner to open Files and Changes."
       );
-    if (command.kind === "sessionCheckout" && !peer.sessionCheckout)
+    const checkout =
+      command.kind === "launch"
+        ? command.launch.repository?.checkout
+        : undefined;
+    if (
+      (command.kind === "sessionCheckout" ||
+        (checkout?.kind === "branch" && checkout.allowDefault)) &&
+      !peer.sessionCheckout
+    )
       throw new RunnerCapabilityUnavailable(
-        "Update the runner to select or describe a session checkout."
+        "Update the runner to use these checkout options."
       );
     if (command.kind === "inspectCheckout" && !peer.checkoutInspection)
       throw new RunnerCapabilityUnavailable(

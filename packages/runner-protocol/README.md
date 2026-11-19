@@ -106,6 +106,9 @@ workload account’s GitHub login for `https://github.com`:
 - `{ kind: "new", branch, base? }` creates a branch from the named or default
   remote branch.
 - `{ kind: "branch", branch }` checks out an existing non-default branch.
+  Runners advertising `sessionCheckout: true` also accept `allowDefault: true`
+  on this checkout kind to let the existing branch be the origin's default.
+  Git still rejects a branch held by another worktree.
 - `{ kind: "pr", branch, number }` fetches `refs/pull/<number>/head` and checks
   it out under the supplied branch name.
 
@@ -179,8 +182,9 @@ records an accepted selection before responding. Checkout reads and future
 host starts use it. A running host keeps its current cwd. Retrying the same
 selection is safe, and a service can describe the effective checkout after a
 lost response. A selection cannot change the runner, transfer archive
-ownership, or access another managed session's storage. Configured
-workspaces additionally restrict selection to the configured directory.
+ownership, or select a root that contains runner storage. Outside its own
+managed session directory, a checkout must be disjoint from runner storage.
+Configured workspaces additionally restrict selection to the configured directory.
 
 When a session borrows a checkout from a runner with this capability,
 `useWorktreeOf` captures the source session's effective checkout on the

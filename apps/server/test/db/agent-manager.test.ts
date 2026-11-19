@@ -1,3 +1,4 @@
+import { createMcpHandlers } from "../../src/server/mcp-handlers.js";
 import { JobService } from "../../src/jobs/service.js";
 import { TemplateService } from "../../src/templates/service.js";
 import { personaCatalog } from "../../src/personas/catalog.js";
@@ -408,6 +409,58 @@ describe("AgentManager", () => {
         projectId,
         workspacePath: "/workload/moved",
       });
+    });
+
+    it("carries the MCP existing-branch default to the runner launch request", async () => {
+      const remote = {
+        available: () => true,
+        isManagedWorkspace: () => true,
+        originFor: () => "https://example.test",
+        requestSession: vi.fn(async () => ({
+          value: JSON.stringify({
+            path: "/workload/source",
+            moved: false,
+            origin: "https://example.test/source.git",
+          }),
+        })),
+      } as unknown as RemoteRunnerService;
+      const manager = new AgentManager(pool, noopLogger, testConfig, {
+        runtime,
+        remote,
+      });
+      const parent = await manager.createAgent({
+        cwd: "runner://runner-test/@session",
+      });
+      const mcp = createMcpHandlers({
+        pool,
+        agentManager: manager,
+        publishUiEvent: vi.fn(),
+        withStreamFlag: (agent) => ({ ...agent, hasStream: false }),
+      } as Parameters<typeof createMcpHandlers>[0]);
+      const input = {
+        name: "existing",
+        prompt: "Work independently",
+        useWorktree: true,
+      };
+      for (const [refs, branch] of [
+        [{ baseBranch: "origin/feature/x" }, "feature/x"],
+        [
+          { baseBranch: "origin/feature/x", worktreeBranch: "ignored" },
+          "feature/x",
+        ],
+        [{}, "main"],
+      ] as const) {
+        const child = await mcp.launchAgent(parent.id, { ...input, ...refs });
+        expect(runtime.launch).toHaveBeenLastCalledWith(
+          expect.objectContaining({
+            agentId: child.agentId,
+            repository: {
+              url: "https://example.test/source.git",
+              checkout: { kind: "branch", branch, allowDefault: true },
+            },
+          })
+        );
+      }
     });
 
     it("places project templates and scheduled jobs on their saved runner", async () => {

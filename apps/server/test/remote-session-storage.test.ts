@@ -238,6 +238,19 @@ it("uses isolated worktrees, protects occupied and default branches, and keeps e
       prepare(c, spec({ kind: "new", branch: "topic" }))
     ).rejects.toThrow("already exists");
 
+    const defaultBranch = spec({
+      kind: "branch",
+      branch: "main",
+      allowDefault: true,
+    });
+    const defaultCheckout = await prepare(c, defaultBranch);
+    expect(
+      (await git("-C", defaultCheckout, "branch", "--show-current")).trim()
+    ).toBe("main");
+    const competing = await session("competing");
+    await expect(prepare(competing, defaultBranch)).rejects.toThrow("occupied");
+    await repositories.remove(c, defaultBranch);
+
     await repositories.remove(b, existing);
     await repositories.remove(b, existing);
     expect(

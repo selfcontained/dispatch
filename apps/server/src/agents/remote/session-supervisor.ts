@@ -377,10 +377,10 @@ export async function createSessionSupervisor(
       );
     }
     // Configured workspaces are allowlisted. Managed sessions may select
-    // workload directories, but another session's storage needs a binding.
+    // their owner's checkout or an external root disjoint from runner state.
     const allowed = managed
-      ? !containsDirectory(storage, dir) ||
-        containsDirectory(path.join(sessions, owner), dir)
+      ? containsDirectory(path.join(sessions, owner), dir) ||
+        (!containsDirectory(storage, dir) && !containsDirectory(dir, storage))
       : containsDirectory(launch, dir);
     if (!allowed)
       throw new Error("Directory is outside the bound runner checkout.");

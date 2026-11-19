@@ -509,6 +509,41 @@ describe("runner session supervision", () => {
       "https://secret@example.test/org/project.git",
     ]);
     await runner.launch(launch(workspace), undefined);
+    const select = (path: string) =>
+      runner.sessionCheckout(agentId, workspace, { kind: "select", path });
+    const owningDir = path.join(state, "sessions", agentId);
+    const owningSubdir = path.join(owningDir, "subdirectory");
+    await mkdir(owningSubdir);
+    await expect(select(owningSubdir)).resolves.toMatchObject({
+      path: owningSubdir,
+    });
+
+    const ancestor = path.dirname(state);
+    const alias = path.join(owningDir, "ancestor-link");
+    await symlink(ancestor, alias);
+    for (const forbidden of [
+      "/",
+      ancestor,
+      alias,
+      state,
+      path.join(state, "sessions"),
+    ])
+      await expect(select(forbidden)).rejects.toThrow(
+        "outside the bound runner checkout"
+      );
+
+    // A harmless-looking sibling of the storage can resolve to a Git root
+    // that contains it. Confirm authorization is repeated on that root.
+    const sibling = path.join(ancestor, "sibling");
+    await mkdir(sibling);
+    await asWorkload("git", ["-C", ancestor, "init"]);
+    await expect(select(sibling)).rejects.toThrow(
+      "outside the bound runner checkout"
+    );
+    await expect(runner.checkoutDirectory(agentId, workspace)).resolves.toBe(
+      owningSubdir
+    );
+
     await expect(
       runner.sessionCheckout(agentId, workspace, {
         kind: "select",

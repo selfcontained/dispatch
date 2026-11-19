@@ -50,8 +50,20 @@ export function parseRepository(input: unknown): RepositoryInput {
         throw new Error("The checkout base must be a valid branch name.");
       return { url, checkout: { kind: "new", branch, base } };
     }
-    case "branch":
-      return { url, checkout: { kind: "branch", branch } };
+    case "branch": {
+      const allowDefault =
+        "allowDefault" in checkout ? checkout.allowDefault : undefined;
+      if (allowDefault !== undefined && allowDefault !== true)
+        throw new Error("allowDefault must be true when provided.");
+      return {
+        url,
+        checkout: {
+          kind: "branch",
+          branch,
+          ...(allowDefault && { allowDefault }),
+        },
+      };
+    }
     case "pr": {
       const number = "number" in checkout ? checkout.number : undefined;
       if (
