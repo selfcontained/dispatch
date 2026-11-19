@@ -90,18 +90,18 @@ For custom engine install paths, edit the `bins` object in
 
 ## Private GitHub repositories
 
-For private checkouts, install GitHub CLI at `/usr/bin/gh` on the runner and
-sign in once as its workload account. Configure the Git credential helper so
-agents can also push over HTTPS from inside their worktrees.
+In **Settings → Connections**, select the runner and choose **Sign in to GitHub**.
+Open GitHub in your browser and enter the code shown for that runner. Once
+GitHub approves, the runner shows the account name and configures Git to use
+that login for HTTPS. The runner needs GitHub CLI at `/usr/bin/gh`.
 
-```sh
-sudo -u dispatch-runner -H /usr/bin/gh auth login --hostname github.com --git-protocol https --web
-sudo -u dispatch-runner -H /usr/bin/gh auth setup-git --hostname github.com
-```
+Every agent using that runner’s workload account gets the account’s repository
+access. The CLI stores the credential on that machine. Choose **Sign out** in
+the runner details to remove the login there. To revoke the authorization at
+GitHub, use your GitHub account settings.
 
-Sessions on this runner share that account’s repository access. Choose a
-repository in Create Agent as needed. Public HTTPS checkouts and scratch
-sessions work without a GitHub login.
+In **Create Agent**, select the runner to search its repositories or open a PR
+branch. A public HTTPS URL or an empty session folder works without signing in.
 
 ## Update or recover
 

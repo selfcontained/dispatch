@@ -124,7 +124,9 @@ async function connectCommand(page: Page) {
   await page.getByRole("button", { name: "Add runner", exact: true }).click();
   const command = page.getByTestId("runner-connect-command");
   await expect(command).toContainText("dispatch-runner connect");
-  return (await command.innerText()).trim();
+  const text = (await command.innerText()).trim();
+  await page.getByRole("button", { name: "Done", exact: true }).click();
+  return text;
 }
 
 export async function requestConnection(
@@ -251,8 +253,10 @@ export async function enrollViaUi(
 
 export async function revokeViaUi(page: Page, id: string) {
   await page.goto("/settings/connections", { waitUntil: "domcontentloaded" });
+  await page.getByTestId(`runner-select-${id}`).click();
   await page.getByTestId(`runner-revoke-${id}`).click();
   await page.getByTestId(`runner-revoke-confirm-${id}`).click();
+  await page.getByText(/^Revoked runners \(/).click();
   await expect(page.getByTestId(`runner-status-${id}`)).toHaveText("Revoked", {
     timeout: 15_000,
   });
@@ -266,6 +270,8 @@ export async function launchViaUi(
     cwd?: string;
     runnerId?: string;
     managedScratch?: boolean;
+    repository?: string;
+    pullRequest?: string;
     prompt: string;
     restricted?: boolean;
   }
@@ -284,11 +290,29 @@ export async function launchViaUi(
     await page
       .getByTestId(`create-agent-runner-option-${opts.runnerId}`)
       .click();
-    if (opts.managedScratch) {
+    if (opts.managedScratch || opts.repository) {
       await expect(
         page.getByTestId("create-agent-runner-workspace")
       ).toHaveCount(0);
-      await expect(page.getByTestId("runner-repository")).toHaveValue("");
+      const input = page.getByTestId("runner-repository");
+      await expect(input).toHaveValue("");
+      if (opts.repository) {
+        await input.fill(opts.repository);
+        await page
+          .getByRole("button", { name: opts.repository, exact: true })
+          .click();
+        if (opts.pullRequest) {
+          await page
+            .getByRole("combobox", { name: "Branch", exact: true })
+            .click();
+          await page
+            .getByRole("option", { name: "Use an existing branch or PR" })
+            .click();
+          await page
+            .getByLabel("Branch or pull request")
+            .fill(opts.pullRequest);
+        }
+      }
     } else {
       await page.getByTestId("create-agent-runner-workspace").click();
       await page

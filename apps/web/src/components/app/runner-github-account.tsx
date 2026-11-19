@@ -1,3 +1,4 @@
+import { githubDeviceUrl, type GitHubStatus } from "@dispatch/runner-protocol";
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ExternalLink, Github } from "lucide-react";
@@ -14,13 +15,6 @@ import {
 } from "@/components/ui/alert-dialog";
 import type { Runner } from "@/hooks/use-runners";
 import { api } from "@/lib/api";
-
-type GitHubAccount = {
-  status: "signed-out" | "signed-in" | "pending" | "unavailable" | "failed";
-  login?: string;
-  code?: string;
-  message?: string;
-};
 
 export function RunnerGitHubAccount({ runner }: { runner: Runner }) {
   if (runner.status === "revoked") return null;
@@ -47,6 +41,23 @@ function AccountHeading() {
   );
 }
 
+function accountSummary(account: GitHubStatus) {
+  switch (account.status) {
+    case "signed-in":
+      return `Signed in as @${account.login}`;
+    case "signed-out":
+      return "Sign in to use your repositories from agents on this runner.";
+    case "pending":
+      return account.code
+        ? "Waiting for GitHub approval"
+        : "Requesting a device code…";
+    case "failed":
+      return "Sign-in did not complete. Try again.";
+    case "unavailable":
+      return "Couldn’t reach GitHub from this runner. Check its connection and GitHub CLI installation.";
+  }
+}
+
 function ConnectedAccount({ runner }: { runner: Runner }) {
   const client = useQueryClient();
   const [confirmLogout, setConfirmLogout] = useState(false);
@@ -55,14 +66,15 @@ function ConnectedAccount({ runner }: { runner: Runner }) {
   const account = useQuery({
     queryKey: key,
     queryFn: ({ signal }) =>
-      api<GitHubAccount>(path, { signal, cache: "no-store" }),
+      api<GitHubStatus>(path, { signal, cache: "no-store" }),
     refetchInterval: (q) => (q.state.data?.status === "pending" ? 2000 : false),
     retry: false,
     gcTime: 0,
   });
   const action = useMutation({
+    gcTime: 0,
     mutationFn: (op: "login" | "logout" | "cancel") =>
-      api<GitHubAccount>(op === "logout" ? path : path + "/login", {
+      api<GitHubStatus>(op === "logout" ? path : path + "/login", {
         method: op === "login" ? "POST" : "DELETE",
       }),
     onMutate: () => client.cancelQueries({ queryKey: key }),
@@ -81,19 +93,9 @@ function ConnectedAccount({ runner }: { runner: Runner }) {
   const unavailable = state?.status === "unavailable";
   const statusText = account.isError
     ? "Couldn’t read the account."
-    : account.isPending
-      ? "Checking account…"
-      : signedIn
-        ? `Signed in as @${state.login}`
-        : unavailable
-          ? state.message || "GitHub CLI is unavailable on this runner."
-          : state?.status === "failed"
-            ? state.message || "Sign-in did not complete."
-            : pending
-              ? state.code
-                ? "Waiting for GitHub approval"
-                : "Requesting a device code…"
-              : "Signed out";
+    : state
+      ? accountSummary(state)
+      : "Checking account…";
   return (
     <div className="space-y-3" data-testid="runner-github">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -160,11 +162,7 @@ function ConnectedAccount({ runner }: { runner: Runner }) {
               <CopyButton text={state.code} label="Copy GitHub device code" />
             </div>
             <Button asChild size="sm" variant="primary">
-              <a
-                href="https://github.com/login/device"
-                target="_blank"
-                rel="noreferrer"
-              >
+              <a href={githubDeviceUrl} target="_blank" rel="noreferrer">
                 Open GitHub{" "}
                 <ExternalLink className="ml-1.5 size-3.5" aria-hidden="true" />
               </a>
@@ -183,9 +181,10 @@ function ConnectedAccount({ runner }: { runner: Runner }) {
             Sign out of GitHub on {runner.name}?
           </AlertDialogTitle>
           <AlertDialogDescription className="text-sm text-muted-foreground">
-            Agents on this runner will lose access through @{state?.login}. This
-            removes the saved login from this machine. You can revoke the token
-            separately on GitHub.
+            Agents on this runner will lose access through{" "}
+            {signedIn ? `@${state.login}` : "this account"}. This removes the
+            saved login from this machine. You can revoke the token separately
+            on GitHub.
           </AlertDialogDescription>
           <div className="flex justify-end gap-2">
             <AlertDialogCancel>Cancel</AlertDialogCancel>

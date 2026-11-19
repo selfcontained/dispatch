@@ -504,9 +504,8 @@ test("managed scratch launch reports health and archive removes the guest sessio
   ).toBe(scratchPid);
 
   await page.goto("/settings/connections", { waitUntil: "domcontentloaded" });
-  const health = page
-    .getByTestId(`runner-${runnerId}`)
-    .getByTestId("runner-health");
+  await page.getByTestId(`runner-select-${runnerId}`).click();
+  const health = page.getByTestId("runner-detail").getByTestId("runner-health");
   const summary = health.locator("summary");
   await expect(summary).toContainText("1 session", { timeout: 45_000 });
   await summary.click();
@@ -515,7 +514,7 @@ test("managed scratch launch reports health and archive removes the guest sessio
     health.getByText("Runner version", { exact: true })
   ).toBeVisible();
   await testInfo.attach("managed scratch health", {
-    body: await page.getByTestId(`runner-${runnerId}`).screenshot(),
+    body: await page.getByTestId("runner-detail").screenshot(),
     contentType: "image/png",
   });
 
