@@ -46,7 +46,7 @@ function accountSummary(account: GitHubStatus) {
     case "signed-in":
       return `Signed in as @${account.login}`;
     case "signed-out":
-      return "Sign in to use your repositories from agents on this runner.";
+      return "Signed out";
     case "pending":
       return account.code
         ? "Waiting for GitHub approval"
@@ -103,7 +103,7 @@ function ConnectedAccount({ runner }: { runner: Runner }) {
           <AccountHeading />
           <p
             role="status"
-            className="break-words text-sm text-muted-foreground"
+            className="break-words text-xs text-muted-foreground"
           >
             {statusText}
           </p>
@@ -142,9 +142,10 @@ function ConnectedAccount({ runner }: { runner: Runner }) {
               type="button"
               size="sm"
               disabled={action.isPending}
+              aria-label="Sign in to GitHub"
               onClick={() => action.mutate("login")}
             >
-              Sign in to GitHub
+              {action.isPending ? "Starting…" : "Sign in"}
             </Button>
           )
         )}
@@ -152,7 +153,8 @@ function ConnectedAccount({ runner }: { runner: Runner }) {
       {pending && state.code && !account.isError && (
         <div className="space-y-2 rounded-md border border-border bg-background/50 p-3">
           <p className="text-sm">
-            Enter this code on GitHub to authorize {runner.name}.
+            Enter this code on GitHub. Agents on {runner.name} will use the
+            account you approve.
           </p>
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-1">

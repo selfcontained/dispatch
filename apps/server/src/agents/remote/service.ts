@@ -1023,7 +1023,7 @@ export class RemoteRunnerService {
         host === "0.0.0.0" || host === "::" ? advertisedHost(undefined) : host;
       origin = `${tls ? "https" : "http"}://${formatHost(webHost)}:${port}`;
     }
-    return origin ? new URL("/settings/connections", origin).href : undefined;
+    return origin ? new URL("/settings/runners", origin).href : undefined;
   }
 
   async connectCommand(hostHint?: string) {

@@ -177,7 +177,7 @@ describe("runner-initiated connect enrollment", () => {
     expect(created.code).toMatch(/^[0-9A-Z]{4}-[0-9A-Z]{4}$/);
     expect(new Date(created.expiresAt).getTime()).toBeGreaterThan(Date.now());
     expect(created.approveUrl).toBe(
-      `http://${HOST}:${(api.address() as AddressInfo).port}/settings/connections`
+      `http://${HOST}:${(api.address() as AddressInfo).port}/settings/runners`
     );
 
     expect(await service.pollConnectRequest(created.id)).toEqual({
@@ -197,9 +197,7 @@ describe("runner-initiated connect enrollment", () => {
     const service = makeService("http://localhost:5173");
     const { publicKey } = generateRunnerKey();
     const created = await service.createConnectRequest(publicKey);
-    expect(created.approveUrl).toBe(
-      "http://localhost:5173/settings/connections"
-    );
+    expect(created.approveUrl).toBe("http://localhost:5173/settings/runners");
     const built = await service.connectCommand(HOST);
     expect(built.approveUrl).toBe(created.approveUrl);
     expect(built.command).not.toContain("localhost:5173");
@@ -418,7 +416,7 @@ describe("runner-initiated connect enrollment", () => {
     expect(printed.join("")).toContain(`Request: ${id!.slice(-8)}`);
 
     expect(printed.join("")).toContain(
-      `Approve at: http://${HOST}:${(api.address() as AddressInfo).port}/settings/connections`
+      `Approve at: http://${HOST}:${(api.address() as AddressInfo).port}/settings/runners`
     );
     await service.approveConnectRequest(id!, code!, "zeta", HOST);
     await connectPromise;

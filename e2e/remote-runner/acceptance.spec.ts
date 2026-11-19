@@ -503,7 +503,7 @@ test("managed scratch launch reports health and archive removes the guest sessio
     guest("scratch", `cat /var/lib/runner/hosts/${id}/host.pid`).trim()
   ).toBe(scratchPid);
 
-  await page.goto("/settings/connections", { waitUntil: "domcontentloaded" });
+  await page.goto("/settings/runners", { waitUntil: "domcontentloaded" });
   await page.getByTestId(`runner-select-${runnerId}`).click();
   const health = page.getByTestId("runner-detail").getByTestId("runner-health");
   const summary = health.locator("summary");

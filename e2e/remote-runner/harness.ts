@@ -120,7 +120,7 @@ export const runnerRow = async (request: APIRequestContext, name: string) =>
   (await runnerRows(request)).find((r) => r.name === name);
 
 async function connectCommand(page: Page) {
-  await page.goto("/settings/connections", { waitUntil: "domcontentloaded" });
+  await page.goto("/settings/runners", { waitUntil: "domcontentloaded" });
   await page.getByRole("button", { name: "Add runner", exact: true }).click();
   const command = page.getByTestId("runner-connect-command");
   await expect(command).toContainText("dispatch-runner connect");
@@ -188,7 +188,7 @@ export async function requestConnection(
     .toBeTruthy();
   const { code, reference } = approval()!;
   expect(output).toContain(
-    `Approve at: ${new URL("/settings/connections", page.url()).href}`
+    `Approve at: ${new URL("/settings/runners", page.url()).href}`
   );
   const form = page.getByTestId("runner-approval").filter({
     has: page.getByText(`Connection request · ${reference}`, { exact: true }),
@@ -252,7 +252,7 @@ export async function enrollViaUi(
 }
 
 export async function revokeViaUi(page: Page, id: string) {
-  await page.goto("/settings/connections", { waitUntil: "domcontentloaded" });
+  await page.goto("/settings/runners", { waitUntil: "domcontentloaded" });
   await page.getByTestId(`runner-select-${id}`).click();
   await page.getByTestId(`runner-revoke-${id}`).click();
   await page.getByTestId(`runner-revoke-confirm-${id}`).click();

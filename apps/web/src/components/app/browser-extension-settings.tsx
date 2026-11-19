@@ -1,5 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 
+import { ArrowRight } from "lucide-react";
+import { Link } from "react-router-dom";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { useCopyText } from "@/hooks/use-copy";
 
@@ -51,7 +54,15 @@ export function BrowserExtensionSettings(): JSX.Element {
       data-testid="browser-extension-settings"
     >
       <div>
-        <h2 className="text-xl font-semibold">Connections</h2>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h2 className="text-xl font-semibold">Connections</h2>
+          <Button asChild size="sm" variant="ghost">
+            <Link to="/settings/runners">
+              Manage runners{" "}
+              <ArrowRight className="size-3.5" aria-hidden="true" />
+            </Link>
+          </Button>
+        </div>
         <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
           Connect tools that can send work and context to your Dispatch agents.
         </p>

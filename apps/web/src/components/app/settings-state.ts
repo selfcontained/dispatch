@@ -7,6 +7,7 @@ import {
   Package,
   Gauge,
   Settings,
+  Server,
   Users,
   FolderGit2,
   Shield,
@@ -20,6 +21,7 @@ export type SettingsSection =
   | "workspace"
   | "security"
   | "connections"
+  | "runners"
   | "notifications"
   | "updates"
   | "resources"
@@ -37,6 +39,7 @@ const BASE_SECTIONS: Array<{
   { id: "security", label: "Security", icon: Shield },
   { id: "connections", label: "Connections", icon: Cable },
   { id: "notifications", label: "Notifications", icon: Bell },
+  { id: "runners", label: "Runners", icon: Server },
   { id: "resources", label: "Resources", icon: Gauge },
   { id: "updates", label: "Updates", icon: ArrowDownToLine },
 ];
@@ -58,6 +61,7 @@ const ALL_VALID_SECTIONS: SettingsSection[] = [
   "workspace",
   "security",
   "connections",
+  "runners",
   "notifications",
   "updates",
   "resources",

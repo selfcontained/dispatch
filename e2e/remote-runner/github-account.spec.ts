@@ -50,7 +50,7 @@ test("GitHub sign-in, private checkout and sign-out belong to the selected runne
     ids.set(name, row?.id ?? (await enrollViaUi(page, request, name)));
   }
   const openAccount = async (name: "scratch" | "beta") => {
-    await page.goto("/settings/connections", { waitUntil: "domcontentloaded" });
+    await page.goto("/settings/runners", { waitUntil: "domcontentloaded" });
     await page.getByTestId("runner-select-" + ids.get(name)).click();
     return page.getByTestId("runner-github");
   };

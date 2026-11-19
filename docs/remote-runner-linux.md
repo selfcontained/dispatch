@@ -10,7 +10,7 @@ The published binary bundles Bun and runs on glibc-based Linux. Session
 supervision requires a kernel with pidfd signaling (introduced in Linux 5.1).
 For manual source runs, use Bun.
 
-1. In Dispatch, open **Settings → Connections → Remote runners** and run
+1. In Dispatch, open **Settings → Runners → Add runner** and run
    the installation command for the available release. The installer
    prepares the workload account and configuration, and adds
    `dispatch-runner` to `/usr/local/bin`.
@@ -90,7 +90,7 @@ For custom engine install paths, edit the `bins` object in
 
 ## Private GitHub repositories
 
-In **Settings → Connections**, select the runner and choose **Sign in to GitHub**.
+In **Settings → Runners**, select the runner and choose **Sign in to GitHub**.
 Open GitHub in your browser and enter the code shown for that runner. Once
 GitHub approves, the runner shows the account name and configures Git to use
 that login for HTTPS. The runner needs GitHub CLI at `/usr/bin/gh`.

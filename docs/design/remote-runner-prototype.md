@@ -11,8 +11,8 @@ The instructions below describe the manual prototype path.
 1. Prepare the Linux runner binary, workload account, workspace and
    `/etc/dispatch-runner/runner.json` as described below. Configure the
    workload settings before pairing.
-2. In **Settings → Connections → Remote runners**, enter a name and choose
-   **Pair runner**. Run the displayed one-time command as root on the runner.
+2. In **Settings → Runners**, choose **Add runner**. Run the connect command
+   on the runner, then enter its pairing code and name in Dispatch.
    Dispatch issues the certificate. The private key is generated on the runner.
 3. Start the runner supervisor with its updated configuration. In Settings,
    wait for **Online** and check the advertised workspace list.
