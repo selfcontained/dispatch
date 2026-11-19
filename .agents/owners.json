@@ -26,6 +26,7 @@
         "apps/server/src/routes/runners.ts",
         "apps/server/src/routes/runner-*.ts",
         "apps/server/test/remote-*.test.ts",
+        "apps/server/test/checkout-inspection.test.ts",
         "apps/server/test/runner-*.test.ts",
         "apps/server/test/helpers/remote-acp-fixture.ts",
         "packages/runner-protocol/**",
