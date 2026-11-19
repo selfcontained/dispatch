@@ -1,8 +1,24 @@
 import { useState } from "react";
 import { RunnerCommand, useRunnerInstaller } from "./runner-onboarding";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import type { Runner } from "@/hooks/use-runners";
 import { isVersionNewer } from "@/lib/tips/version-compare";
 import { formatRelativeTime } from "@/lib/format";
+
+const reportDateTimeOptions: Intl.DateTimeFormatOptions = {
+  year: "numeric",
+  month: "short",
+  day: "numeric",
+  hour: "numeric",
+  minute: "2-digit",
+  second: "2-digit",
+  timeZoneName: "shortOffset",
+};
 
 const memory = (bytes: number) =>
   bytes < 1024 ** 3
@@ -51,9 +67,25 @@ export function RunnerHealthDetails({ runner }: { runner: Runner }) {
         <dd>{health.version}</dd>
         <dt>Last report</dt>
         <dd>
-          <time dateTime={healthReceivedAt}>
-            {formatRelativeTime(healthReceivedAt)}
-          </time>
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <time
+                  dateTime={healthReceivedAt}
+                  tabIndex={0}
+                  className="cursor-help rounded-sm underline decoration-dotted underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  {formatRelativeTime(healthReceivedAt)}
+                </time>
+              </TooltipTrigger>
+              <TooltipContent>
+                {new Date(healthReceivedAt).toLocaleString(
+                  undefined,
+                  reportDateTimeOptions
+                )}
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
         </dd>
       </dl>
       {update && (
