@@ -5,6 +5,7 @@ import { Button } from "./button";
 import { glassOverlay } from "@/lib/glass";
 
 const AlertDialog = Primitive.Root;
+const AlertDialogTrigger = Primitive.Trigger;
 const AlertDialogTitle = Primitive.Title;
 const AlertDialogDescription = Primitive.Description;
 const AlertDialogContent = React.forwardRef<
@@ -45,6 +46,7 @@ const AlertDialogCancel = React.forwardRef<
 AlertDialogCancel.displayName = "AlertDialogCancel";
 export {
   AlertDialog,
+  AlertDialogTrigger,
   AlertDialogContent,
   AlertDialogTitle,
   AlertDialogDescription,

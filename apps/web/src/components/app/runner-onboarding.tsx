@@ -1,8 +1,17 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Copy } from "lucide-react";
+import { Copy, Plus } from "lucide-react";
 import { useCopyText } from "@/hooks/use-copy";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { api } from "@/lib/api";
 import { runnersQueryKey } from "@/hooks/use-runners";
@@ -75,7 +84,7 @@ function ApproveRunner({ request }: { request: PairRequest }) {
   });
   return (
     <form
-      className="space-y-2 rounded-md border border-primary/40 p-3"
+      className="space-y-2 px-3 py-3"
       onSubmit={(e) => {
         e.preventDefault();
         if (
@@ -117,23 +126,28 @@ function ApproveRunner({ request }: { request: PairRequest }) {
           />
         </label>
       </div>
-      <Button
-        type="submit"
-        variant="primary"
-        disabled={
-          !name.trim() || !code.trim() || approve.isPending || dismiss.isPending
-        }
-      >
-        Approve runner
-      </Button>
-      <Button
-        type="button"
-        variant="ghost"
-        disabled={approve.isPending || dismiss.isPending}
-        onClick={() => dismiss.mutate()}
-      >
-        Deny request
-      </Button>
+      <div className="flex flex-wrap gap-2 pt-1">
+        <Button
+          type="submit"
+          variant="primary"
+          disabled={
+            !name.trim() ||
+            !code.trim() ||
+            approve.isPending ||
+            dismiss.isPending
+          }
+        >
+          {approve.isPending ? "Approving…" : "Approve runner"}
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          disabled={approve.isPending || dismiss.isPending}
+          onClick={() => dismiss.mutate()}
+        >
+          {dismiss.isPending ? "Denying…" : "Deny request"}
+        </Button>
+      </div>
       {(approve.error || dismiss.error) && (
         <p className="text-sm text-destructive" role="alert">
           {(approve.error ?? dismiss.error)?.message}
@@ -156,14 +170,49 @@ export function useRunnerInstaller(enabled: boolean) {
   });
 }
 
-export function RunnerOnboarding() {
-  const [opened, setOpened] = useState(false);
+export function RunnerPairingRequests() {
   const pending = useQuery({
     queryKey: ["runner-pairing-requests"],
     queryFn: () => api<{ requests: PairRequest[] }>("/api/v1/runners/connect"),
     refetchInterval: 5000,
     retry: false,
   });
+  if (pending.isError && !pending.data) {
+    return (
+      <div className="flex flex-wrap items-center gap-2">
+        <p role="alert" className="text-sm text-destructive">
+          Could not load pairing requests.
+        </p>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          onClick={() => void pending.refetch()}
+        >
+          Try again
+        </Button>
+      </div>
+    );
+  }
+
+  const requests = pending.data?.requests ?? [];
+  if (requests.length === 0) return null;
+  return (
+    <section aria-labelledby="runner-pairing-heading" className="space-y-2">
+      <h3 id="runner-pairing-heading" className="text-sm font-medium">
+        Pending approvals
+      </h3>
+      <div className="divide-y divide-border rounded-md bg-muted/40">
+        {requests.map((request) => (
+          <ApproveRunner key={request.id} request={request} />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+export function RunnerOnboarding() {
+  const [opened, setOpened] = useState(false);
   const instructions = useQuery({
     queryKey: ["runner-connect-instructions"],
     queryFn: () => api<{ command: string }>("/api/v1/runners/connect-command"),
@@ -172,19 +221,23 @@ export function RunnerOnboarding() {
   });
   const installer = useRunnerInstaller(opened);
   return (
-    <div className="space-y-3">
-      <Button
-        type="button"
-        variant={opened ? "ghost" : "primary"}
-        onClick={() => setOpened((v) => !v)}
-        aria-expanded={opened}
-      >
-        {opened ? "Hide setup instructions" : "Add runner"}
-      </Button>
-      {opened && (
-        <div className="space-y-4 rounded-md border p-3">
-          <section className="space-y-1">
-            <h4 className="text-sm font-medium">Install on Linux</h4>
+    <Dialog open={opened} onOpenChange={setOpened}>
+      <DialogTrigger asChild>
+        <Button type="button" variant="primary" className="shrink-0 gap-1.5">
+          <Plus className="size-4" aria-hidden="true" />
+          Add runner
+        </Button>
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Add runner</DialogTitle>
+          <DialogDescription>
+            Pair a Linux machine with this Dispatch instance.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="min-h-0 space-y-4 overflow-y-auto p-0.5">
+          <section className="space-y-2">
+            <h4 className="text-sm font-medium">1. Install on Linux</h4>
             <p className="text-xs text-muted-foreground">
               Use a Linux x86-64 or ARM64 machine with systemd, GitHub CLI, Git,
               and sudo access.
@@ -198,7 +251,9 @@ export function RunnerOnboarding() {
                 Retry release check
               </Button>
             ) : installer.isPending ? (
-              <p role="status">Checking release…</p>
+              <p role="status" className="text-sm text-muted-foreground">
+                Checking release…
+              </p>
             ) : installer.data?.command ? (
               <RunnerCommand value={installer.data.command} label="Install" />
             ) : (
@@ -208,11 +263,11 @@ export function RunnerOnboarding() {
               </p>
             )}
           </section>
-          <section className="space-y-1">
-            <h4 className="text-sm font-medium">Connect to Dispatch</h4>
+          <section className="space-y-2">
+            <h4 className="text-sm font-medium">2. Connect to Dispatch</h4>
             <p className="text-xs text-muted-foreground">
-              Run this on the machine. It will print a pairing code to enter
-              here.
+              Run this on the machine, then close this dialog and approve the
+              request using the pairing code printed in your terminal.
             </p>
             {instructions.data ? (
               <RunnerCommand
@@ -228,23 +283,20 @@ export function RunnerOnboarding() {
                 Retry connection instructions
               </Button>
             ) : (
-              <p role="status">Preparing command…</p>
+              <p role="status" className="text-sm text-muted-foreground">
+                Preparing command…
+              </p>
             )}
           </section>
         </div>
-      )}
-      {pending.data?.requests.map((request) => (
-        <ApproveRunner key={request.id} request={request} />
-      ))}
-      {pending.isError && (
-        <Button
-          type="button"
-          variant="ghost"
-          onClick={() => void pending.refetch()}
-        >
-          Retry loading approval requests
-        </Button>
-      )}
-    </div>
+        <div className="flex justify-end">
+          <DialogClose asChild>
+            <Button type="button" variant="ghost">
+              Done
+            </Button>
+          </DialogClose>
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }

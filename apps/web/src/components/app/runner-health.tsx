@@ -61,11 +61,11 @@ export function RunnerHealthDetails({ runner }: { runner: Runner }) {
   const installer = useRunnerInstaller(open);
   const tag = installer.data?.tag;
   if (!health || !healthReceivedAt)
-    return runner.status === "online" ? (
-      <p className="mt-1 text-xs text-muted-foreground">
+    return (
+      <p className="text-sm text-muted-foreground">
         No health report received.
       </p>
-    ) : null;
+    );
   const update =
     tag &&
     /^v?\d+\.\d+\.\d+$/.test(health.version) &&
@@ -75,16 +75,16 @@ export function RunnerHealthDetails({ runner }: { runner: Runner }) {
     Date.now() - Date.parse(healthReceivedAt) > 90_000;
   return (
     <details
-      className="mt-1 text-xs text-muted-foreground"
+      className="text-sm text-muted-foreground"
       onToggle={(event) => setOpen(event.currentTarget.open)}
       data-testid="runner-health"
     >
-      <summary className="w-fit cursor-pointer rounded py-1 text-foreground focus-visible:ring-2">
+      <summary className="w-fit cursor-pointer rounded-sm py-1 text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
         {stale && "Last report · "}
         {health.sessions} {health.sessions === 1 ? "session" : "sessions"} ·{" "}
         {health.working} working
       </summary>
-      <dl className="mt-1 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1">
+      <dl className="mt-2 grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1 text-xs [&>dd]:text-foreground">
         <dt>CPU</dt>
         <dd>
           {health.cpuPercent === null ? "Sampling…" : `${health.cpuPercent}%`}
@@ -101,10 +101,12 @@ export function RunnerHealthDetails({ runner }: { runner: Runner }) {
         </dd>
       </dl>
       {update && (
-        <div className="mt-2 space-y-1">
-          <p>
-            Update available · {tag}. Run this on {runner.name} when its
-            sessions are finished.
+        <div className="mt-3 space-y-2 text-xs">
+          <p className="font-medium text-foreground">
+            Update available · {tag}
+          </p>
+          <p className="break-words">
+            Run this on {runner.name} after its sessions finish.
           </p>
           <RunnerCommand
             value={`sudo /opt/dispatch-runner/install-dispatch-runner.sh update --tag ${tag}`}

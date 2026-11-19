@@ -46,7 +46,15 @@ export function RunnerEngines({ scope }: { scope: EngineScope }): JSX.Element {
   }
 
   return (
-    <div className="space-y-3" data-testid="runner-engines">
+    <div
+      className="divide-y divide-border rounded-md bg-muted/35 px-3"
+      data-testid="runner-engines"
+    >
+      {entries.length === 0 && (
+        <p className="py-3 text-sm text-muted-foreground">
+          No engines reported.
+        </p>
+      )}
       {entries.map((entry) => (
         <EngineRow
           key={entry.id}
@@ -127,11 +135,11 @@ function EngineRow({
 
   return (
     <div
-      className="space-y-2 rounded border border-border p-3"
+      className="min-w-0 space-y-2 py-3"
       data-testid={`runner-engine-${entry.id}`}
     >
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <span className="text-[13px] font-medium text-foreground">
             {entry.label}
           </span>
@@ -316,7 +324,7 @@ function LoginFlow({
       {login.userCode ? (
         <div className="space-y-1.5">
           <div className="flex min-w-0 items-start gap-1 rounded border border-border bg-background/60 p-2">
-            <code className="min-w-0 flex-1 select-all px-1 font-mono text-lg tracking-widest text-foreground">
+            <code className="min-w-0 flex-1 select-all break-all px-1 font-mono text-lg tracking-widest text-foreground">
               {login.userCode}
             </code>
             <CopyButton

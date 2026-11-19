@@ -82,6 +82,6 @@ it("preserves the no-sample state", () => {
   expect(screen.queryByText("Last report")).toBeNull();
 
   rerender(<RunnerHealthDetails runner={{ ...runner, status: "offline" }} />);
-  expect(screen.queryByText("No health report received.")).toBeNull();
+  expect(screen.getByText("No health report received.")).toBeTruthy();
   expect(screen.queryByText("Last report")).toBeNull();
 });
