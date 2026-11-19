@@ -250,7 +250,6 @@ export function createLocalRunner(
       }
       const hosted: string[] = [];
       for (const id of ids) {
-        if (!id.startsWith("agt_")) continue;
         const pid = await readPid(stateDir(id));
         if (pid && pidAlive(pid)) hosted.push(id);
       }

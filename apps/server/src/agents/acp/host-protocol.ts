@@ -1,16 +1,15 @@
-import type {
-  HostEvent,
-  HostWelcome,
-  JournalEntry as RunnerJournalEntry,
-  PromptReceipt,
-  RemoteLaunch,
-  ReplayComplete,
-  SessionCommand,
+import {
+  parseSessionCommand,
+  type HostWelcome,
+  type JournalEntry as RunnerJournalEntry,
+  type RemoteLaunch,
+  type SessionCommand,
+  type SessionReply,
 } from "@dispatch/runner-protocol";
 import type { BackgroundSnapshot } from "@dispatch/shared";
 import type { AgentMcpInventoryResponse } from "@dispatch/shared";
 import type { AgentPermissionRequest } from "@dispatch/shared";
-import type { PromptSource } from "./prompt-source.js";
+import { isPromptSource, type PromptSource } from "./prompt-source.js";
 import path from "node:path";
 import { StringDecoder } from "node:string_decoder";
 
@@ -59,42 +58,39 @@ export function hostFile(
 /** One journal line: an event with its position in the host's stream. */
 export type JournalEntry = RunnerJournalEntry<DriverEvent>;
 
-export type ClientMessage = SessionCommand;
+export type ClientMessage = SessionCommand<PromptSource>;
+
+export function parseClientMessage(value: unknown): ClientMessage | null {
+  const message = parseSessionCommand(value);
+  if (message?.type !== "prompt" && message?.type !== "steer") return message;
+  // Keep validating the legacy Dispatch source shape. Other services can
+  // omit it or use their own metadata with a host that understands it.
+  const { source, ...command } = message;
+  if (source === undefined) return command;
+  return isPromptSource(source) ? { ...command, source } : null;
+}
+
+type DispatchWelcome = HostWelcome & {
+  /** The open turn, if one is running. */
+  turn: { seq: number; startedAt: string; source?: PromptSource } | null;
+  /** Current ACP commands, including skills; refreshed on each reconnect. */
+  commands: AvailableCommand[];
+  /** The session's config options as they stand; absent from older hosts. */
+  configOptions?: SessionConfigOption[];
+  permissions?: AgentPermissionRequest[];
+};
 
 export type HostMessage =
-  | (HostWelcome & {
-      /** Absent on older hosts: keep queuing when they cannot steer. */
-      mcpInventorySupported?: boolean;
-      /** Host snapshot RPC, absent on older hosts. */
-      backgroundWorkSupported?: boolean;
-      steeringSupported?: boolean;
-      /** Targeted cancellation with an explicit completion response. */
-      interruptSupported?: boolean;
-      /** The open turn, if one is running. */
-      turn: { seq: number; startedAt: string; source?: PromptSource } | null;
-      /** Current ACP commands, including skills; refreshed on each reconnect. */
-      commands: AvailableCommand[];
-      /** The session's config options as they stand; absent from older hosts. */
-      configOptions?: SessionConfigOption[];
-      permissions?: AgentPermissionRequest[];
-    })
-  | HostEvent<DriverEvent>
-  | ReplayComplete
-  | PromptReceipt
-  | { type: "interrupt_result"; id: string }
-  | { type: "steer_result"; id: string; outcome: "injected" | "promptRequired" }
+  | SessionReply<DriverEvent, DispatchWelcome>
   /** A set_config took; the engine's options after it. */
   | { type: "config_set"; id: string; options: SessionConfigOption[] }
-  | { type: "error"; id?: string; message: string }
   | { type: "permissions"; requests: AgentPermissionRequest[] }
-  | { type: "permission_answered"; id: string }
   | {
       type: "mcp_inventory_result";
       id: string;
       result: AgentMcpInventoryResponse;
     }
-  | { type: "background_work_result"; id: string; result: BackgroundSnapshot }
-  | { type: "pong" };
+  | { type: "background_work_result"; id: string; result: BackgroundSnapshot };
 
 /**
  * Split a byte stream into newline-delimited JSON messages. Returns a

@@ -1,7 +1,4 @@
-import {
-  parseSessionCommand,
-  sessionCommandId,
-} from "@dispatch/runner-protocol";
+import { sessionCommandId } from "@dispatch/runner-protocol";
 import { applyLaunchEffort } from "../launch-effort.js";
 import { firstPromptContext } from "../persona-context.js";
 import type { PromptSource } from "../prompt-source.js";
@@ -42,6 +39,7 @@ import {
   hostFile,
   type JournalEntry,
   ndjsonDecoder,
+  parseClientMessage,
 } from "../host-protocol.js";
 
 /** How long a crashed engine's host stays up so the server can read the exit. */
@@ -302,7 +300,7 @@ async function main(): Promise<void> {
     const decode = ndjsonDecoder<unknown>(() => rejectCommand());
     socket.on("data", (chunk) => {
       for (const value of decode(chunk)) {
-        const message = parseSessionCommand(value);
+        const message = parseClientMessage(value);
         if (!message) {
           rejectCommand(sessionCommandId(value));
           continue;
@@ -403,7 +401,7 @@ async function main(): Promise<void> {
         }
         // A turn the engine started itself raced this prompt: hand it back
         // to the server's queue rather than hold it here unacknowledged.
-        if (openTurn?.source?.source === "engine") {
+        if (openTurn && driver.hasEngineInitiatedTurn(agentId)) {
           send(socket, { type: "prompt_deferred", id: message.id });
           return;
         }

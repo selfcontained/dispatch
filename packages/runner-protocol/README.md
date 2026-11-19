@@ -20,8 +20,9 @@ constructor takes a frame sender. Route incoming `result`, `data`, and
 `close` to `receive`. Call `close()` when the transport disconnects and
 create a fresh connection when the runner returns. Call
 `request(command, { openChannel: true })` to buffer channel data from the
-moment an attach or engine operation is sent. Dispatch owns the registration
-lookup, authorization, dashboard state, and durable journal storage.
+moment an attach or engine operation is sent. The service owns registration lookup, authorization and durable journal
+storage. Enrollment and attachment require no project, task board, review
+workflow, notification system or UI. Treat those as service concerns.
 
 To extend v1, define the message in its sending direction and document its
 receipt or failure semantics. For an optional operation, advertise support in
@@ -41,8 +42,14 @@ issued certificate and CA before saving credentials.
 
 Run the in-memory consumer tests from the repository root with
 `pnpm run test:runner-protocol`.
-They use the package's public exports and require no database, TLS certificates,
-agent process, or running Dispatch instance.
+The independent consumer uses only public package exports for the wire
+contract. It launches without MCP, reads prompt receipts and journal events,
+stops, reconnects, relaunches with an engine session handle, and resumes from
+a journal cursor. It also checks correlated failures and consumes health and
+inventory when offered. The deterministic in-memory peer runs with current
+and baseline v1 capabilities. Extend this fixture for new wire operations
+with both advertised and unsupported cases. It requires no database, TLS
+certificates, agent process or running Dispatch instance.
 
 For changes beyond the portable contract, the implementation tests in
 `apps/server/test/` exercise different boundaries:
@@ -64,8 +71,13 @@ Runner registration is a service-side identity bound to its authenticated
 connection. The runner's `ready` frame advertises version 1 and the workspace
 handles available on that connection. Route an operation by registration and
 workspace, then send the selected workspace and agent IDs in the command. A
-runner binds an agent to a workspace and checks the binding on later commands.
-The command's agent ID is authoritative for a launch.
+runner binds a session handle to a workspace and checks the binding on later
+commands. `agentId` is the legacy wire name for a caller-assigned session
+handle. It need not follow a product prefix. Send the same handle in the
+envelope and launch payload. The envelope is authoritative. The
+engine-assigned `sessionId` in `welcome` is separate. Send it as
+`resumeSessionId` to request an engine resume on a later launch and check
+`welcome.resumed` to confirm.
 
 Identifiers are case-sensitive strings of 1 to 128 UTF-16 code units and
 exclude control characters and unpaired surrogates. Treat them as opaque,
@@ -106,36 +118,75 @@ The optional launch field `mcp` supplies one service-scoped MCP endpoint
 using an HTTPS `url`, bearer `token`, and optional `name`. Absence starts the
 ACP session with an empty service MCP list. v1 launches with the original
 `{ url, token }` shape use the server name `dispatch`. Prototype runner
-binaries require that shape, so keep sending it when interoperating with
-those binaries.
+binaries require MCP in that shape. For modern runners, omit `mcp`
+if there is no endpoint. Use `name` to name a configured endpoint on hosts
+that support it. An older host can ignore the additive name and retain its
+legacy default. `systemPrompt` is optional in effect (`null` disables it).
+The legacy `personaContext` field is optional text for first-prompt context.
+The service prepares this text and any instructions it wants included.
 
 ## Commands and results
 
-| Command   | Successful `result.value`                             | Channel                                                                |
-| --------- | ----------------------------------------------------- | ---------------------------------------------------------------------- |
-| `launch`  | `true` after spawning the host                        | None                                                                   |
-| `attach`  | `true` after connecting to the host                   | Bidirectional host protocol until close                                |
-| `alive`   | Boolean indicating host presence                      | None                                                                   |
-| `stop`    | `true` after stopping the host                        | None                                                                   |
-| `discard` | `true` after retiring session state                   | None                                                                   |
-| `log`     | A short guest host diagnostic string                  | None                                                                   |
-| `repo`    | Standard output of the workspace's configured command | None                                                                   |
-| `engine`  | JSON-encoded `EngineOperationAck`                     | Newline-delimited `EngineOperationEvent` records in base64 data frames |
+| Command                          | Runner behavior and successful `result.value`                                                                                                      | Capability or configuration                                                                                           |
+| -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `launch`                         | Prepare machine-local state, start the host, return `true`. Wait for a running `welcome` before prompting.                                         | Advertised workspace. Use `managedWorkspace` for managed storage and `sharedWorktree` before sending `useWorktreeOf`. |
+| `attach`                         | Connect to a running host, return `true`, relay bytes until close.                                                                                 | Open a channel.                                                                                                       |
+| `alive`                          | Return a boolean for host presence.                                                                                                                | Baseline.                                                                                                             |
+| `stop`                           | Stop the host and return `true`. The caller chooses graceful or forced stop.                                                                       | Baseline.                                                                                                             |
+| `discard`                        | Retire stopped session state and return `true`.                                                                                                    | Baseline.                                                                                                             |
+| `log`                            | Return a short host diagnostic string.                                                                                                             | Baseline.                                                                                                             |
+| `repo`                           | Run the workspace's configured repository tool and return stdout.                                                                                  | Requires a workspace with a configured tool.                                                                          |
+| `inspectCheckout`                | Run a `CheckoutQuery` against the bound checkout and return a JSON-encoded `CheckoutReply`. Validate it with `isCheckoutReply`.                    | `checkoutInspection`.                                                                                                 |
+| `viewCheckout` / `watchCheckout` | Read a checkout view or subscribe to change pulses. See below.                                                                                     | `checkoutViews`.                                                                                                      |
+| `engine`                         | Run an `EngineOperation` and return a JSON-encoded `EngineOperationAck`. When progress is available, stream NDJSON `EngineOperationEvent` records. | `engineManagement`. Open a channel when consuming progress.                                                           |
+| `github`                         | Perform a `GitHubOperation` using the runner account and return its JSON reply. See below.                                                         | `githubManagement`, plus `pullRequestStatus` for current-head checks.                                                 |
 
-An agent command addresses its bound workspace. Engine management is
-runner-wide. Dispatch callers use `requestSession(placement, operation)` or
-`requestRunner(runnerId, operation)`. Only the v1 adapter fills in the routing
-fields for runner-wide operations. The engine command’s v1 envelope still carries an advertised workspace and an
-agent ID placeholder. Gate it on the runner's `engineManagement` capability.
+Use an advertised workspace and an opaque placeholder `agentId` for the
+runner-wide `engine` and `github` operations. The runner routes those
+operations independently of session bindings. With `useWorktreeOf`, the
+value is the handle of a session with an existing checkout on the same runner
+and workspace. Omit `repository` for a borrowed checkout.
+
+Negotiate again on each connection. Require an explicit `true` for optional
+capabilities and ignore unknown advertisements. For an absent capability,
+omit the command and report that the operation is unavailable. A configured
+workspace can support baseline lifecycle operations without managed storage.
+An unsupported wire version cannot establish a v1 connection.
 
 An execution error uses `result.error`. An attach to a known missing host
 also sets `result.code` to `host-gone`. Losing the connection before the
 result leaves the outcome unknown. The service can reattach using the
 durable cursor described below.
 
-The portable session types cover commands received by the host, journal replay,
-and prompt receipts. Dispatch-specific host replies and event payloads are
-defined in `apps/server/src/agents/acp/host-protocol.ts`.
+## Attached session operations
+
+`SessionCommand` and `SessionReply` describe the common host vocabulary.
+The public decoder preserves optional `source` on `prompt` and `steer` as
+opaque service metadata. The built-in Dispatch ACP host accepts commands
+with no `source`, and its adapter validates the legacy Dispatch shape when
+present. Omit `source` when connecting to that host from an independent
+service. Keep conversation, attribution and scheduling metadata in your
+service unless the attached host explicitly supports your schema. Prompt
+`images`, if used, must already be readable on the execution machine.
+Dispatch-specific event payloads and host reply extensions are in
+`apps/server/src/agents/acp/host-protocol.ts`.
+
+| Command                             | Host behavior and service handling                                                                                                                                                                               |
+| ----------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `hello`                             | Send `welcome`, journal entries after the supplied cursor, and `replay_complete` when requested. See Receipts and replay.                                                                                        |
+| `prompt`                            | Submit to the engine and send a receipt. Use journaled events to observe the turn outcome.                                                                                                                       |
+| `steer`                             | With `steeringSupported`, send `steer_result` with `injected` or `promptRequired`. Queue a normal prompt if steering is unavailable or a prompt is required.                                                     |
+| `interrupt`                         | With `interruptSupported`, cancel the named open turn and send `interrupt_result`. A stale turn sequence never cancels a later turn.                                                                             |
+| `cancel`                            | Cancel the current turn without a correlated acknowledgement. Use only when current-turn cancellation is intended.                                                                                               |
+| `answer_permission`                 | Answer the request using the advertised option ID, or `null` to decline. The host confirms with `permission_answered` or returns a correlated error.                                                             |
+| `set_config`                        | Set an advertised engine option. Dispatch replies with `config_set` and the current options or a correlated error. Omit this command when the host publishes no options.                                         |
+| `mcp_inventory` / `background_work` | With `mcpInventorySupported` / `backgroundWorkSupported`, query the current engine session ID. The built-in host replies with `mcp_inventory_result` / `background_work_result` and a Dispatch snapshot payload. |
+| `ping`                              | Reply with `pong`.                                                                                                                                                                                               |
+| `shutdown`                          | Ask the host to exit. Closure ends the channel.                                                                                                                                                                  |
+
+An older host may lack journal identity and the optional `welcome` flags.
+Use its supported baseline, keep such a cursor scoped to a known host
+incarnation and avoid automatic retries when a prompt's outcome is unknown.
 
 ### Files and Changes
 

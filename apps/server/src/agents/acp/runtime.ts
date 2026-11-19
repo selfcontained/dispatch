@@ -1309,7 +1309,9 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
       entry?.client.close();
     },
 
-    listHosted: local.listHosted,
+    async listHosted() {
+      return (await local.listHosted()).filter((id) => id.startsWith("agt_"));
+    },
     hostPid: local.hostPid,
 
     onEvent(listener) {

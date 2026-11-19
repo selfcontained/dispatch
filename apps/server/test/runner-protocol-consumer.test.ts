@@ -1,6 +1,10 @@
 import { Duplex } from "node:stream";
 import {
   type Frame,
+  type RemoteLaunch,
+  type RunnerFrame,
+  type SessionReply,
+  parseRunnerHealth,
   type ServiceFrame,
   type Command,
   parseReadyFrame,
@@ -16,6 +20,11 @@ import {
   remotePlacement,
   workspaceLocator,
 } from "@dispatch/runner-protocol";
+import {
+  parseEngineInventory,
+  type EngineInventoryEntry,
+  type EngineOperationAck,
+} from "@dispatch/runner-protocol/engine-management";
 import { hostChannel, wireFrames } from "@dispatch/runner-protocol/node";
 import {
   RunnerConnection,
@@ -457,6 +466,7 @@ it("decodes the host session vocabulary including legacy and extended prompts", 
     { type: "hello", fromSeq: 1, journalId: null, replayComplete: true },
     { type: "prompt", id: "legacy", text: "Hello" },
     prompt,
+    { ...prompt, source: { ticket: 42, tags: ["intake"] } },
     { type: "steer", id: "steer:1", text: "Follow-up", source },
     { type: "cancel" },
     { type: "interrupt", id: "interrupt:1", turnSeq: 2 },
@@ -481,8 +491,6 @@ it("decodes the host session vocabulary including legacy and extended prompts", 
     { type: "hello", fromSeq: 1.5 },
     { type: "hello", fromSeq: 0, replayComplete: "true" },
     { ...prompt, journalId: 7 },
-    { ...prompt, source: { ...source, conversation: { streamId: "stream" } } },
-    { ...prompt, source: { ...source, chatMessageIds: [null] } },
     { ...prompt, images: [{ path: "/fixture/image" }] },
     { type: "steer", id: "steer:1", text: 1 },
     { type: "interrupt", id: "interrupt:1", turnSeq: 2 ** 53 },
@@ -548,3 +556,367 @@ it("recognizes only supported enrollment replies and retains their extensions", 
     expect(parseConnectPoll(reply)).toBeNull();
   }
 });
+
+// Independent service and deterministic runner peer. Both sides speak NDJSON;
+// runner session state outlives the service's authenticated connection.
+function fixtureRunner(current: boolean) {
+  const workspace = current ? "@session" : "workload/β";
+  const agentId = "collector/requests%2F:42";
+  const session = { workspace, agentId };
+  const ready: RunnerFrame = {
+    type: "ready",
+    version: 1,
+    workspaces: [workspace],
+    ...(current && {
+      managedWorkspace: true,
+      health: true,
+      engineManagement: true,
+    }),
+  };
+  const sample = {
+    version: "fixture",
+    sessions: 1,
+    working: 0,
+    cpuPercent: null,
+    memoryUsed: 64,
+    memoryTotal: 128,
+  };
+  const inventory: EngineInventoryEntry[] = [
+    {
+      id: "codex",
+      label: "Codex",
+      installed: true,
+      signedIn: null,
+      version: null,
+      actions: [],
+    },
+  ];
+  const sessionId = "engine/session:42";
+  const journalId = "journal/42";
+  type Report = { text: string; context?: unknown };
+  type Event = Extract<SessionReply<Report>, { type: "event" }>;
+  const journal: Event[] = [];
+  let running = false;
+  let resumed = false;
+  const requests: ServiceFrame[] = [];
+
+  function connect() {
+    const service = new Duplex({
+      read() {},
+      write(chunk, _encoding, done) {
+        runner.push(chunk);
+        done();
+      },
+    });
+    const runner = new Duplex({
+      read() {},
+      write(chunk, _encoding, done) {
+        service.push(chunk);
+        done();
+      },
+    });
+    const channels = new Map<string, Duplex>();
+    const reports: RunnerFrame[] = [];
+    const send = wireFrames<RunnerFrame, ServiceFrame>(service, (frame) => {
+      switch (frame.type) {
+        case "result":
+        case "data":
+        case "close":
+          connection.receive(frame);
+          break;
+        default:
+          reports.push(frame);
+      }
+    });
+    const connection = new RunnerConnection(send);
+    service.once("close", () => connection.close());
+    const reply = wireFrames<unknown, RunnerFrame>(runner, (value) => {
+      const frame = parseServiceFrame(value);
+      if (!frame) throw new Error("Malformed fixture service frame");
+      requests.push(frame);
+      switch (frame.type) {
+        case "accept_health":
+          if (!current) throw new Error("Reports were not advertised");
+          reply({ type: "health", sample });
+          if (frame.engineInventory)
+            reply({ type: "engine_inventory", entries: inventory });
+          break;
+        case "data":
+          channels.get(frame.id)?.push(Buffer.from(frame.data, "base64"));
+          break;
+        case "close":
+          channels.get(frame.id)?.destroy();
+          break;
+        case "request": {
+          const { command, id } = frame;
+          const result = (value: boolean | string) =>
+            reply({ type: "result", id, value });
+          if (
+            current &&
+            command.kind === "engine" &&
+            command.workspace === workspace &&
+            command.operation.type === "status"
+          ) {
+            const ack: EngineOperationAck = { ok: true };
+            result(JSON.stringify(ack));
+          } else if (
+            command.workspace !== workspace ||
+            command.agentId !== agentId
+          ) {
+            reply({ type: "result", id, error: "Unknown session binding" });
+          } else if (command.kind === "launch") {
+            resumed = command.launch.resumeSessionId === sessionId;
+            running = true;
+            result(true);
+          } else if (command.kind === "stop") {
+            running = false;
+            result(true);
+          } else if (command.kind === "attach") {
+            if (!running) {
+              reply({ type: "result", id, code: "host-gone" });
+              break;
+            }
+            const channel = hostChannel(id, reply, () => channels.delete(id));
+            channels.set(id, channel);
+            const report = wireFrames<unknown, SessionReply<Report>>(
+              channel,
+              (raw) => {
+                const message = parseSessionCommand(raw);
+                if (message?.type === "hello") {
+                  report({
+                    type: "welcome",
+                    agentId,
+                    engine: "codex",
+                    sessionId,
+                    resumed,
+                    running,
+                    journalSeq: journal.length,
+                    journalId,
+                  });
+                  const cursor =
+                    message.journalId === journalId ? message.fromSeq : 0;
+                  for (const event of journal.slice(cursor)) report(event);
+                  if (message.replayComplete)
+                    report({ type: "replay_complete" });
+                } else if (
+                  message?.type === "prompt" &&
+                  message.journalId === journalId
+                ) {
+                  report({ type: "prompt_accepted", id: message.id });
+                  const event: Event = {
+                    type: "event",
+                    seq: journal.length + 1,
+                    journalId,
+                    at: "2030-01-01T00:00:00.000Z",
+                    event: { text: message.text, context: message.source },
+                  };
+                  journal.push(event);
+                  report(event);
+                } else {
+                  report({
+                    type: "error",
+                    id: sessionCommandId(raw),
+                    message: "Unsupported session request",
+                  });
+                }
+              }
+            );
+            result(true);
+          } else {
+            reply({ type: "result", id, error: "Unsupported runner request" });
+          }
+          break;
+        }
+      }
+    });
+    reply(ready);
+    return {
+      connection,
+      reports,
+      send,
+      close() {
+        for (const channel of channels.values()) channel.destroy();
+        connection.close();
+        service.destroy();
+        runner.destroy();
+      },
+    };
+  }
+  return {
+    connect,
+    session,
+    sample,
+    inventory,
+    requests,
+    sessionId,
+    journalId,
+  };
+}
+
+it.each([true, false])(
+  "independent service starts and resumes a runner session (current capabilities: %s)",
+  async (current) => {
+    const runner = fixtureRunner(current);
+    let peer = runner.connect();
+    const launch: RemoteLaunch = {
+      agentId: runner.session.agentId,
+      engine: "codex",
+      model: null,
+      systemPrompt: null,
+      resumeSessionId: null,
+    };
+    async function attach() {
+      const { channel } = await peer.connection.request(
+        { ...runner.session, kind: "attach" },
+        { openChannel: true }
+      );
+      if (!channel) throw new Error("Missing session channel");
+      const messages: SessionReply[] = [];
+      const send = wireFrames<SessionReply, unknown>(channel, (frame) =>
+        messages.push(frame)
+      );
+      const take = async () => {
+        await vi.waitFor(() => expect(messages.length).toBeGreaterThan(0));
+        return messages.shift();
+      };
+      return { send, take };
+    }
+
+    try {
+      await vi.waitFor(() => expect(peer.reports[0]).toBeDefined());
+      const ready = parseReadyFrame(peer.reports[0]);
+      expect(ready?.workspaces).toEqual([runner.session.workspace]);
+      if (ready?.health) {
+        peer.send({
+          type: "accept_health",
+          engineInventory: ready.engineManagement,
+        });
+        await vi.waitFor(() => expect(peer.reports).toHaveLength(3));
+        const [, health, inventory] = peer.reports;
+        expect(
+          health?.type === "health" && parseRunnerHealth(health.sample)
+        ).toEqual(runner.sample);
+        expect(
+          inventory?.type === "engine_inventory" &&
+            parseEngineInventory(inventory.entries)
+        ).toEqual(runner.inventory);
+      }
+
+      await expect(
+        peer.connection.request({ ...runner.session, kind: "attach" })
+      ).rejects.toBeInstanceOf(RunnerHostGone);
+      await expect(
+        peer.connection.request({
+          ...runner.session,
+          workspace: "unknown",
+          kind: "launch",
+          launch,
+        })
+      ).rejects.toThrow("Unknown session binding");
+      expect(
+        (
+          await peer.connection.request({
+            ...runner.session,
+            kind: "launch",
+            launch,
+          })
+        ).value
+      ).toBe(true);
+      const status = ready?.engineManagement
+        ? await peer.connection.request({
+            kind: "engine",
+            workspace: runner.session.workspace,
+            agentId: "service/status",
+            operation: { type: "status" },
+          })
+        : { unavailable: true };
+      expect(status).toMatchObject(
+        current
+          ? { value: JSON.stringify({ ok: true }) }
+          : { unavailable: true }
+      );
+
+      const first = await attach();
+      first.send({ type: "hello", fromSeq: 0, replayComplete: true });
+      const welcome = await first.take();
+      expect(welcome).toMatchObject({
+        type: "welcome",
+        sessionId: runner.sessionId,
+        resumed: false,
+        running: true,
+        journalId: runner.journalId,
+      });
+      expect(await first.take()).toEqual({ type: "replay_complete" });
+      first.send({ type: "future_request", id: "bad:1" });
+      expect(await first.take()).toMatchObject({ type: "error", id: "bad:1" });
+      if (welcome?.type !== "welcome") throw new Error("Missing host welcome");
+      const context = { ticket: 42 };
+      for (const [index, text] of ["first report", "second report"].entries()) {
+        const id = `operation/${index}`;
+        first.send({
+          type: "prompt",
+          id,
+          text,
+          journalId: welcome.journalId,
+          ...(current && { source: context }),
+        });
+        expect(await first.take()).toEqual({ type: "prompt_accepted", id });
+        expect(await first.take()).toMatchObject({
+          type: "event",
+          seq: index + 1,
+          event: current ? { text, context } : { text },
+        });
+      }
+
+      await peer.connection.request({
+        ...runner.session,
+        kind: "stop",
+        force: false,
+      });
+      peer.close();
+      peer = runner.connect();
+      await vi.waitFor(() =>
+        expect(parseReadyFrame(peer.reports[0])).not.toBeNull()
+      );
+      const resume = { ...launch, resumeSessionId: welcome.sessionId };
+      expect(
+        (
+          await peer.connection.request({
+            ...runner.session,
+            kind: "launch",
+            launch: resume,
+          })
+        ).value
+      ).toBe(true);
+      const second = await attach();
+      second.send({
+        type: "hello",
+        fromSeq: 1,
+        journalId: welcome.journalId,
+        replayComplete: true,
+      });
+      expect(await second.take()).toMatchObject({
+        type: "welcome",
+        sessionId: runner.sessionId,
+        resumed: true,
+        journalSeq: 2,
+      });
+      expect(await second.take()).toMatchObject({
+        type: "event",
+        seq: 2,
+        event: { text: "second report" },
+      });
+      expect(await second.take()).toEqual({ type: "replay_complete" });
+      expect(
+        runner.requests.filter((frame) => frame.type === "accept_health")
+      ).toHaveLength(current ? 1 : 0);
+      expect(
+        runner.requests.filter(
+          (frame) => frame.type === "request" && frame.command.kind === "engine"
+        )
+      ).toHaveLength(current ? 1 : 0);
+    } finally {
+      peer.close();
+    }
+  }
+);

@@ -1133,6 +1133,10 @@ export class AcpDriver {
     }
   }
 
+  hasEngineInitiatedTurn(agentId: string): boolean {
+    return Boolean(this.live.get(agentId)?.selfTurn);
+  }
+
   supportsSteering(agentId: string): boolean {
     return this.live.get(agentId)?.steeringSupported ?? false;
   }
