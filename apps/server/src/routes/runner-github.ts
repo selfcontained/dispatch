@@ -3,8 +3,8 @@ import type { RemoteRunnerService } from "../agents/remote/service.js";
 
 declare module "fastify" {
   interface FastifyContextConfig {
-    /** Require ordinary host credentials even during passwordless setup. */
-    hostAuthenticationRequired?: boolean;
+    /** Validate supplied bearer credentials even during passwordless setup. */
+    rejectInvalidBearer?: boolean;
   }
 }
 
@@ -23,7 +23,7 @@ export function registerRunnerGitHub(
     app.route<{ Params: { id: string } }>({
       method,
       url,
-      config: { hostAuthenticationRequired: true },
+      config: { rejectInvalidBearer: true },
       async handler(req, reply) {
         reply.header("Cache-Control", "no-store");
         return runners.githubAccount(req.params.id, operation);

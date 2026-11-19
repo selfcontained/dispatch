@@ -758,6 +758,24 @@ describe("runner enrollment service", () => {
       "origin",
     ])
       expect(forwarded[name], name).toBeUndefined();
+    apiRequests.length = 0;
+    for (const [method, path] of [
+      ["GET", `/api/v1/runners/${a.created.id}/github`],
+      ["POST", `/api/v1/runners/${a.created.id}/github/login`],
+      ["GET", `/api/v1/runners/${a.created.id}/repository-search?q=org/repo`],
+      ["GET", `/api/v1/runners/${a.created.id}/pull-request-head`],
+    ]) {
+      expect(
+        (
+          await get(
+            path,
+            { authorization: "Bearer agent-token:agt_abc" },
+            method
+          )
+        ).status
+      ).toBe(404);
+    }
+    expect(apiRequests).toHaveLength(0);
     // /ping carries no credentials upstream.
     apiRequests.length = 0;
     await get("/ping", { authorization: "Bearer agent-token:agt_abc" });

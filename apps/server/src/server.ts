@@ -948,17 +948,17 @@ async function registerRoutes() {
     if (request.routeOptions.config.runnerConnectBootstrap) return;
     // The recovery helper authenticates with its enrollment key, loopback-only.
     if (request.routeOptions.config.updateRecovery) return;
-    // First-run mode permits general API use. Runner GitHub credentials
-    // and private repository lookups still require host authentication.
+    const authHeader = request.headers.authorization;
+    const hasBearer = authHeader?.startsWith("Bearer ") === true;
+    // Passwordless operator access follows the normal first-run policy.
+    // Routes with this flag still validate an explicitly supplied bearer.
     if (
-      !request.routeOptions.config.hostAuthenticationRequired &&
+      !(request.routeOptions.config.rejectInvalidBearer && hasBearer) &&
       !(await authRuntime.isPasswordSetCached())
     )
       return;
 
-    // Bearer token is accepted on all API routes (for MCP agents, scripts, etc.)
-    const authHeader = request.headers.authorization;
-    if (authHeader?.startsWith("Bearer ")) {
+    if (hasBearer) {
       const token = authHeader.slice(7);
       if (shouldAcceptApiBearerToken(token, config.authToken)) {
         return;

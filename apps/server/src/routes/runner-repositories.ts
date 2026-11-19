@@ -12,7 +12,7 @@ export function registerRunnerRepositorySearch(
     "searchGitHubRepositories" | "lookupGitHubPullRequestHead"
   >
 ) {
-  const options = { config: { hostAuthenticationRequired: true } } as const;
+  const options = { config: { rejectInvalidBearer: true } } as const;
   app.get<{ Params: { id: string }; Querystring: { q?: string } }>(
     "/api/v1/runners/:id/repository-search",
     options,
