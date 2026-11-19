@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import {
   mkdir,
+  open,
   readFile,
   realpath,
   rename,
@@ -92,8 +93,15 @@ async function writeReceipt(dir: string, receipt: Receipt) {
     await writeFile(temporary, JSON.stringify(receipt), {
       mode: 0o600,
       flag: "wx",
+      flush: true,
     });
     await rename(temporary, path.join(dir, "workspace-preparation"));
+    const directory = await open(dir, "r");
+    try {
+      await directory.sync();
+    } finally {
+      await directory.close();
+    }
   } finally {
     await rm(temporary, { force: true });
   }
@@ -220,7 +228,49 @@ export function createWorkspacePreparation(logger: FastifyBaseLogger) {
     };
   }
 
+  async function bind(
+    dir: string,
+    directory: LaunchDirectory,
+    request: WorktreeRequest
+  ) {
+    const source = directory.canonicalPath;
+    const receipt = await readReceipt(dir);
+    if (receipt) {
+      if (
+        receipt.source !== source ||
+        JSON.stringify(receipt.request) !== JSON.stringify(request)
+      )
+        throw new GitWorktreeError(
+          "This launch already owns a different worktree.",
+          409
+        );
+      return receipt;
+    }
+    await mkdir(dir, { recursive: true, mode: 0o700 });
+    const intent = {
+      cwd: directory.cwd,
+      source,
+      sourceIdentity: await directoryIdentity(source),
+      request,
+    };
+    await writeReceipt(dir, intent);
+    const parent = await open(path.dirname(dir), "r");
+    try {
+      await parent.sync();
+    } finally {
+      await parent.close();
+    }
+    return intent;
+  }
+
   return {
+    async bind(
+      dir: string,
+      directory: LaunchDirectory,
+      request: WorktreeRequest
+    ) {
+      await serialize(dir, () => bind(dir, directory, request));
+    },
     async prepare(
       dir: string,
       directory: LaunchDirectory,
@@ -237,30 +287,9 @@ export function createWorkspacePreparation(logger: FastifyBaseLogger) {
           git: directory.git,
         };
       }
-      return serialize(dir, async () => {
-        const source = directory.canonicalPath;
-        const receipt = await readReceipt(dir);
-        if (receipt) {
-          if (
-            receipt.source !== source ||
-            JSON.stringify(receipt.request) !== JSON.stringify(request)
-          )
-            throw new GitWorktreeError(
-              "This launch already owns a different worktree.",
-              409
-            );
-          return finish(dir, receipt, progress);
-        }
-        await mkdir(dir, { recursive: true, mode: 0o700 });
-        const intent = {
-          cwd: directory.cwd,
-          source,
-          sourceIdentity: await directoryIdentity(source),
-          request,
-        };
-        await writeReceipt(dir, intent);
-        return finish(dir, intent, progress);
-      });
+      return serialize(dir, async () =>
+        finish(dir, await bind(dir, directory, request), progress)
+      );
     },
     resume(dir: string, progress: Progress) {
       return serialize(dir, async () => {

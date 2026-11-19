@@ -1610,6 +1610,10 @@ export class AgentManager {
       input,
       directory?.cwd ?? input.cwd
     );
+    // Restart can see the row before persona and workspace preparation run.
+    // Persist the native request first so restart never treats it as a direct launch.
+    if (directory && p.worktree)
+      await this.localRunner.bindWorkspace(p.id, directory, p.worktree);
     await this.insertAgentRecord(
       p,
       input,

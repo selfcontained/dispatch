@@ -1,7 +1,7 @@
 import { personaCatalog } from "../../src/personas/catalog.js";
 import * as gitContext from "../../src/shared/git/git-context.js";
 import { upsertPersona } from "../../src/personas/authoring.js";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -1360,6 +1360,77 @@ describe("AgentManager", () => {
         catalog.mockRestore();
         root.mockRestore();
         await rm(cwd, { recursive: true, force: true });
+      }
+    });
+
+    it("restarts a native worktree launch after persona setup fails before checkout preparation", async () => {
+      const root = await mkdtemp(
+        path.join(os.tmpdir(), "dispatch-worktree-intent-")
+      );
+      const cwd = path.join(root, "source");
+      const worktreePath = path.join(root, "worktree");
+      const config = {
+        ...testConfig,
+        agentStateRoot: path.join(root, "hosts"),
+        filesRoot: path.join(root, "files"),
+      };
+      const firstRuntime = createSpyRuntime();
+      const firstManager = new AgentManager(pool, noopLogger, config, {
+        runtime: firstRuntime,
+      });
+      const catalog = vi
+        .spyOn(personaCatalog, "get")
+        .mockRejectedValueOnce(new Error("Persona lookup interrupted"));
+      try {
+        await Promise.all([mkdir(cwd), mkdir(worktreePath)]);
+        const agent = await firstManager.createAgent(
+          {
+            cwd,
+            persona: "builder",
+            useWorktree: true,
+            baseBranch: "develop",
+            worktreeBranch: "session/retry",
+          },
+          { detachLaunch: true }
+        );
+        await vi.waitFor(async () =>
+          expect(await firstManager.getAgent(agent.id)).toMatchObject({
+            status: "error",
+            lastError: "Persona lookup interrupted",
+            cwd,
+            worktreePath: null,
+          })
+        );
+        expect(createGitWorktree).not.toHaveBeenCalled();
+        expect(firstRuntime.launch).not.toHaveBeenCalled();
+
+        vi.mocked(createGitWorktree).mockResolvedValueOnce({
+          worktreePath,
+          branchName: "session/retry",
+        } as never);
+        const retryRuntime = createSpyRuntime();
+        const restartedManager = new AgentManager(pool, noopLogger, config, {
+          runtime: retryRuntime,
+        });
+        expect(await restartedManager.startAgent(agent.id)).toMatchObject({
+          status: "running",
+          cwd: worktreePath,
+          worktreePath,
+          worktreeBranch: "session/retry",
+        });
+        expect(createGitWorktree).toHaveBeenCalledExactlyOnceWith(
+          expect.objectContaining({
+            cwd,
+            baseBranch: "develop",
+            branchName: "session/retry",
+          })
+        );
+        expect(retryRuntime.launch).toHaveBeenCalledExactlyOnceWith(
+          expect.objectContaining({ cwd: worktreePath })
+        );
+      } finally {
+        catalog.mockRestore();
+        await rm(root, { recursive: true, force: true });
       }
     });
 

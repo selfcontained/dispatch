@@ -256,6 +256,11 @@ export function createLocalRunner(
     resolveWorkspace,
     resolveProjectRoot,
     inferRepositoryUrl,
+    bindWorkspace: (
+      agentId: string,
+      directory: Parameters<typeof workspace.bind>[1],
+      request: Parameters<typeof workspace.bind>[2]
+    ) => workspace.bind(stateDir(agentId), directory, request),
     prepareWorkspace: (
       agentId: string,
       directory: Parameters<typeof workspace.prepare>[1],
