@@ -73,9 +73,12 @@ export function RunnerHealthDetails({ runner }: { runner: Runner }) {
   const tag = installer.data?.tag;
   if (!health || !healthReceivedAt)
     return (
-      <p className="text-sm text-muted-foreground">
-        No health report received.
-      </p>
+      <div className="space-y-1">
+        <h3 className="text-sm font-medium">Health</h3>
+        <p className="text-sm text-muted-foreground">
+          No health report received.
+        </p>
+      </div>
     );
   const update =
     tag &&
@@ -89,9 +92,12 @@ export function RunnerHealthDetails({ runner }: { runner: Runner }) {
       data-testid="runner-health"
     >
       <summary className="w-fit cursor-pointer rounded-sm py-1 text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-        {stale && "Last report · "}
-        {health.sessions} {health.sessions === 1 ? "session" : "sessions"} ·{" "}
-        {health.working} working
+        <span className="font-medium">Health</span>
+        <span className="ml-2 text-xs text-muted-foreground">
+          {stale && "Last report · "}
+          {health.sessions} {health.sessions === 1 ? "session" : "sessions"} ·{" "}
+          {health.working} working
+        </span>
       </summary>
       <dl className="mt-2 grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1 text-xs [&>dd]:text-foreground">
         <dt>CPU</dt>

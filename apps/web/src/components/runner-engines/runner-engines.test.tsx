@@ -69,7 +69,7 @@ it("renders each engine's installed/signed-in state and available actions", asyn
   expect(screen.getByTestId("runner-engine-claude-update")).toBeTruthy();
 
   expect(screen.getByTestId("runner-engine-codex").textContent).toContain(
-    "not installed"
+    "Not installed"
   );
   expect(screen.getByTestId("runner-engine-codex-install")).toBeTruthy();
 });

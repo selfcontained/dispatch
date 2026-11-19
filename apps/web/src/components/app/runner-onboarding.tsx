@@ -25,9 +25,9 @@ export function RunnerCommand({
 }) {
   const [copied, copy] = useCopyText();
   return (
-    <div className="space-y-1.5">
+    <div className="flex min-w-0 items-start gap-2 rounded-md border border-border p-2">
       <pre
-        className="max-h-40 overflow-auto whitespace-pre-wrap break-all rounded-md bg-background/70 p-2 text-xs"
+        className="max-h-40 min-w-0 flex-1 select-all overflow-auto whitespace-pre-wrap break-words p-1 text-xs"
         data-testid={label === "Connect" ? "runner-connect-command" : undefined}
       >
         {value}
@@ -36,12 +36,12 @@ export function RunnerCommand({
         type="button"
         size="sm"
         variant="ghost"
-        className="gap-1.5 border border-border"
+        className="shrink-0 gap-1.5"
         onClick={() => copy(value)}
-        aria-label={`Copy ${label.toLowerCase()} command`}
+        aria-label={`${copied ? "Copied" : "Copy"} ${label.toLowerCase()} command`}
       >
-        <Copy size={14} />
-        {copied ? "Copied" : "Copy command"}
+        <Copy size={14} aria-hidden="true" />
+        {copied ? "Copied" : "Copy"}
       </Button>
     </div>
   );
@@ -97,11 +97,9 @@ function ApproveRunner({ request }: { request: PairRequest }) {
       }}
       data-testid="runner-approval"
     >
-      <p className="text-sm font-medium">
-        Connection request · {request.id.slice(-8)}
-      </p>
+      <p className="text-sm font-medium">Request {request.id.slice(-8)}</p>
       <p className="text-xs text-muted-foreground">
-        Match the request reference and enter the code printed on the runner.
+        Enter the pairing code printed on the runner.
       </p>
       <div className="grid gap-2 sm:grid-cols-2">
         <label className="space-y-1 text-sm">
@@ -202,7 +200,7 @@ export function RunnerPairingRequests() {
       <h3 id="runner-pairing-heading" className="text-sm font-medium">
         Pending approvals
       </h3>
-      <div className="divide-y divide-border rounded-md bg-muted/40">
+      <div className="divide-y divide-border rounded-md border border-border">
         {requests.map((request) => (
           <ApproveRunner key={request.id} request={request} />
         ))}
@@ -232,15 +230,15 @@ export function RunnerOnboarding() {
         <DialogHeader>
           <DialogTitle>Add runner</DialogTitle>
           <DialogDescription>
-            Pair a Linux machine with this Dispatch instance.
+            Install and connect a Linux runner.
           </DialogDescription>
         </DialogHeader>
-        <div className="min-h-0 space-y-4 overflow-y-auto p-0.5">
-          <section className="space-y-2">
+        <div className="min-h-0 divide-y divide-border overflow-y-auto p-0.5">
+          <section className="space-y-2 pb-4">
             <h4 className="text-sm font-medium">1. Install on Linux</h4>
             <p className="text-xs text-muted-foreground">
-              Use a Linux x86-64 or ARM64 machine with systemd, GitHub CLI, Git,
-              and sudo access.
+              Requires Linux x86-64 or ARM64, systemd, Git, GitHub CLI, and
+              sudo.
             </p>
             {installer.isError ? (
               <Button
@@ -263,11 +261,11 @@ export function RunnerOnboarding() {
               </p>
             )}
           </section>
-          <section className="space-y-2">
+          <section className="space-y-2 pt-4">
             <h4 className="text-sm font-medium">2. Connect to Dispatch</h4>
             <p className="text-xs text-muted-foreground">
-              Run this on the machine, then close this dialog and approve the
-              request using the pairing code printed in your terminal.
+              Run this on the runner, then approve its pairing code from the
+              list.
             </p>
             {instructions.data ? (
               <RunnerCommand

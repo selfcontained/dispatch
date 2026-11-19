@@ -6,7 +6,6 @@ import type {
   EngineLoginView,
 } from "@dispatch/runner-protocol/engine-management";
 
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { CopyButton } from "@/components/ui/copy-button";
 import { Input } from "@/components/ui/input";
@@ -30,7 +29,10 @@ export function RunnerEngines({ scope }: { scope: EngineScope }): JSX.Element {
 
   if (inventory.isLoading) {
     return (
-      <p className="flex items-center gap-2 text-[12px] text-muted-foreground">
+      <p
+        role="status"
+        className="flex items-center gap-2 text-sm text-muted-foreground"
+      >
         <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
         Loading engines…
       </p>
@@ -39,15 +41,25 @@ export function RunnerEngines({ scope }: { scope: EngineScope }): JSX.Element {
 
   if (inventory.isError) {
     return (
-      <p role="alert" className="text-[12px] text-destructive">
-        Could not load engines for this scope.
-      </p>
+      <div className="flex flex-wrap items-center gap-2">
+        <p role="alert" className="text-sm text-destructive">
+          Could not load engines.
+        </p>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          onClick={() => void inventory.refetch()}
+        >
+          Try again
+        </Button>
+      </div>
     );
   }
 
   return (
     <div
-      className="divide-y divide-border rounded-md bg-muted/35 px-3"
+      className="divide-y divide-border rounded-md border border-border px-3"
       data-testid="runner-engines"
     >
       {entries.length === 0 && (
@@ -139,22 +151,20 @@ function EngineRow({
       data-testid={`runner-engine-${entry.id}`}
     >
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="text-[13px] font-medium text-foreground">
-            {entry.label}
-          </span>
-          {entry.installed ? (
-            <Badge variant="default">
-              {entry.version ? `v${entry.version}` : "installed"}
-            </Badge>
-          ) : (
-            <Badge variant="stopped">not installed</Badge>
-          )}
-          {entry.installed && entry.signedIn !== null && (
-            <Badge variant={entry.signedIn ? "running" : "stopped"}>
-              {entry.signedIn ? "signed in" : "signed out"}
-            </Badge>
-          )}
+        <div className="min-w-0">
+          <div className="text-sm font-medium">{entry.label}</div>
+          <p className="mt-0.5 break-words text-xs text-muted-foreground">
+            {entry.installed ? (
+              <>
+                {entry.version ? `v${entry.version}` : "Installed"}
+                {entry.signedIn === true && " · signed in"}
+                {entry.signedIn === false && " · signed out"}
+                {entry.detail && entry.signedIn && ` · ${entry.detail}`}
+              </>
+            ) : (
+              "Not installed"
+            )}
+          </p>
         </div>
         <div className="flex items-center gap-2">
           {canInstall && (
@@ -173,7 +183,6 @@ function EngineRow({
             <Button
               type="button"
               size="sm"
-              variant="ghost"
               className="h-7 text-xs"
               disabled={operation.isPending}
               onClick={() => run({ type: "update", engine: entry.id })}
@@ -198,10 +207,6 @@ function EngineRow({
             )}
         </div>
       </div>
-
-      {entry.detail && entry.signedIn && (
-        <p className="text-[11.5px] text-muted-foreground">{entry.detail}</p>
-      )}
 
       {entry.issue === "install-unavailable" && (
         <p className="text-[11.5px] text-muted-foreground">

@@ -8,6 +8,7 @@ import {
   waitFor,
   within,
 } from "@testing-library/react";
+import { MemoryRouter, useLocation } from "react-router-dom";
 import { afterEach, expect, it, vi } from "vitest";
 
 import type { Runner } from "@/hooks/use-runners";
@@ -40,13 +41,20 @@ afterEach(() => {
   vi.resetAllMocks();
 });
 
-function renderSettings() {
+function SearchValue() {
+  return <output data-testid="search">{useLocation().search}</output>;
+}
+
+function renderSettings(entry = "/settings/runners") {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
   return render(
     <QueryClientProvider client={queryClient}>
-      <RunnerSettings />
+      <MemoryRouter initialEntries={[entry]}>
+        <RunnerSettings />
+        <SearchValue />
+      </MemoryRouter>
     </QueryClientProvider>
   );
 }
@@ -60,6 +68,8 @@ it("scopes details and confirmation to the selected runner and records a revocat
       };
     }
     if (path === "/api/v1/runners/connect") return { requests: [] };
+    if (path.startsWith("/api/v1/engine-management/inventory"))
+      return { entries: [] };
     if (path === "/api/runners/build") {
       revoked = true;
       return {};
@@ -67,32 +77,49 @@ it("scopes details and confirmation to the selected runner and records a revocat
     throw new Error(`Unexpected endpoint ${path}`);
   });
 
-  renderSettings();
-  const selectBuild = await screen.findByTestId("runner-select-build");
+  renderSettings("/settings/runners?source=test");
+  await screen.findByTestId("runner-select-build");
   expect(screen.queryByTestId("runner-detail")).toBeNull();
 
   fireEvent.click(screen.getByTestId("runner-select-spare"));
-  expect(screen.getByText("GitHub for Spare machine")).toBeTruthy();
+  expect(await screen.findByText("GitHub for Spare machine")).toBeTruthy();
+  expect(screen.queryByTestId("runner-list")).toBeNull();
   expect(screen.queryByText("GitHub for Build machine")).toBeNull();
-  expect(screen.queryByRole("button", { name: "Manage engines" })).toBeNull();
+  expect(screen.queryByTestId("runner-engines")).toBeNull();
+  expect(screen.getByTestId("search").textContent).toBe(
+    "?source=test&runner=spare"
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Back to runners" }));
+  const selectBuild = await screen.findByTestId("runner-select-build");
+  expect(document.activeElement).toBe(
+    screen.getByTestId("runner-select-spare")
+  );
+  expect(screen.getByTestId("search").textContent).toBe("?source=test");
 
   fireEvent.click(selectBuild);
-  expect(document.activeElement).toBe(
-    screen.getByRole("heading", { name: "Build machine" })
-  );
-  expect(screen.getByRole("button", { name: "Manage engines" })).toBeTruthy();
-  const revoke = screen.getByTestId("runner-revoke-build");
-  fireEvent.click(revoke);
-  const confirmation = screen.getByRole("alertdialog", {
-    name: "Revoke access for Build machine?",
-  });
+  const title = await screen.findByRole("heading", { name: "Build machine" });
+  expect(document.activeElement).toBe(title);
+  expect(await screen.findByTestId("runner-engines")).toBeTruthy();
+  const actions = screen.getByTestId("runner-actions-build");
+
+  async function openRevoke() {
+    fireEvent.keyDown(actions, { key: "Enter" });
+    fireEvent.click(await screen.findByTestId("runner-revoke-build"));
+    return screen.findByRole("alertdialog", {
+      name: "Revoke access for Build machine?",
+    });
+  }
+
+  const confirmation = await openRevoke();
   fireEvent.click(within(confirmation).getByRole("button", { name: "Cancel" }));
   expect(api).not.toHaveBeenCalledWith("/api/runners/build", expect.anything());
+  await waitFor(() => expect(document.activeElement).toBe(actions));
 
-  fireEvent.click(revoke);
+  await openRevoke();
   fireEvent.click(screen.getByTestId("runner-revoke-confirm-build"));
   await screen.findByText("Access revoked for Build machine.");
   expect(screen.queryByTestId("runner-detail")).toBeNull();
+  expect(screen.getByTestId("search").textContent).toBe("?source=test");
   expect(screen.queryByTestId("runner-select-build")).toBeNull();
   expect(api).toHaveBeenCalledWith("/api/runners/build", { method: "DELETE" });
   const history = screen.getByText("Revoked runners (1)").closest("details");
@@ -203,4 +230,23 @@ it("shows reported activity only for online runners with fresh health", async ()
       within(roster).getByTestId(`runner-select-${id}`).textContent
     ).not.toContain(" · ");
   }
+});
+
+it("opens an opaque runner ID from a deep link and preserves unrelated query values", async () => {
+  const id = "runner/?opaque&remote";
+  vi.mocked(api).mockImplementation(async (path) => {
+    if (path === "/api/runners") return { runners: [{ ...offline, id }] };
+    if (path === "/api/v1/runners/connect") return { requests: [] };
+    throw new Error(`Unexpected endpoint ${path}`);
+  });
+
+  renderSettings(
+    `/settings/runners?runner=${encodeURIComponent(id)}&source=notice&source=pairing`
+  );
+  expect(await screen.findByText("GitHub for Spare machine")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Back to runners" }));
+  expect(await screen.findByTestId(`runner-select-${id}`)).toBeTruthy();
+  expect(screen.getByTestId("search").textContent).toBe(
+    "?source=notice&source=pairing"
+  );
 });

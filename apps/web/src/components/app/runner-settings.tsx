@@ -1,5 +1,11 @@
 import { useEffect, useRef, useState } from "react";
-import { ArrowLeft, ChevronRight, Server } from "lucide-react";
+import { ArrowLeft, ChevronRight, Ellipsis, Server } from "lucide-react";
+import {
+  Link,
+  useLocation,
+  useNavigate,
+  useSearchParams,
+} from "react-router-dom";
 
 import {
   AlertDialog,
@@ -7,9 +13,14 @@ import {
   AlertDialogContent,
   AlertDialogDescription,
   AlertDialogTitle,
-  AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { RunnerEngines } from "@/components/runner-engines/runner-engines";
 import {
   useRunnerMutations,
@@ -38,11 +49,9 @@ const STATUS_DOT: Record<RunnerStatus, string> = {
 
 function RunnerStatusLabel({
   runner,
-  inRoster,
   checkedAt,
 }: {
   runner: Runner;
-  inRoster?: boolean;
   checkedAt?: number;
 }) {
   const health =
@@ -59,7 +68,7 @@ function RunnerStatusLabel({
         aria-hidden="true"
       />
       <span>
-        <span data-testid={inRoster ? `runner-status-${runner.id}` : undefined}>
+        <span data-testid={`runner-status-${runner.id}`}>
           {STATUS_LABEL[runner.status]}
         </span>
         {health && (
@@ -77,58 +86,116 @@ function RunnerStatusLabel({
 
 export function RunnerSettings(): JSX.Element {
   const runners = useRunners({ poll: true });
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [params, setParams] = useSearchParams();
+  const location = useLocation();
+  const navigate = useNavigate();
   const [notice, setNotice] = useState("");
-  const rosterHeading = useRef<HTMLHeadingElement>(null);
-  const returnFocus = useRef<HTMLButtonElement | null>(null);
+  const heading = useRef<HTMLHeadingElement>(null);
+  const previousRunner = useRef<string | null>(null);
+  const selectedId = params.get("runner");
+  const inDetail = selectedId !== null;
+  const listParams = new URLSearchParams(params);
+  listParams.delete("runner");
+  const listSearch = listParams.toString();
   const roster = (runners.data ?? []).filter(
     (runner) => runner.status !== "revoked"
   );
   const history = (runners.data ?? []).filter(
     (runner) => runner.status === "revoked"
   );
-  // Recheck freshness after each poll, even if the roster data is unchanged.
-  const checkedAt = Math.max(runners.dataUpdatedAt, runners.errorUpdatedAt);
   const selected = roster.find((runner) => runner.id === selectedId);
+  const loading = runners.isPending;
+  const loadFailed = runners.isError && !runners.data;
+  const checkedAt = Math.max(runners.dataUpdatedAt, runners.errorUpdatedAt);
 
   useEffect(() => {
-    const row = returnFocus.current;
-    if (selectedId || !row) return;
-    (row.isConnected ? row : rosterHeading.current)?.focus();
-    returnFocus.current = null;
-  }, [selectedId]);
+    if (selectedId !== null) {
+      previousRunner.current = selectedId;
+      if (!loading) heading.current?.focus();
+    } else if (previousRunner.current !== null) {
+      const row = document.getElementById(
+        `runner-select-${encodeURIComponent(previousRunner.current)}`
+      );
+      (row ?? heading.current)?.focus();
+      previousRunner.current = null;
+    }
+  }, [selectedId, selected?.id, loading, loadFailed]);
+
+  function backToList() {
+    if (location.state?.runnerListSearch === listSearch) {
+      navigate(-1);
+    } else {
+      setParams(listParams, { replace: true });
+    }
+  }
+
+  function onRevoked(runner: Runner) {
+    setNotice(`Access revoked for ${runner.name}.`);
+    setParams(listParams, { replace: true });
+  }
 
   return (
     <section
-      aria-labelledby="remote-runners-heading"
+      aria-labelledby="runner-settings-heading"
       data-testid="runner-settings"
-      className="[container-type:inline-size] space-y-4 border-t border-border pt-6"
+      className="mx-auto w-full min-w-0 max-w-4xl space-y-4 p-4 md:p-6"
     >
-      <header className="flex items-center justify-between gap-3">
-        <div className="min-w-0">
-          <h2 id="remote-runners-heading" className="text-lg font-semibold">
-            Remote runners
+      {inDetail ? (
+        <Button
+          type="button"
+          size="sm"
+          variant="ghost"
+          className="-ml-2 gap-1.5"
+          onClick={backToList}
+        >
+          <ArrowLeft className="size-4" aria-hidden="true" />
+          Back to runners
+        </Button>
+      ) : (
+        <header className="flex items-center justify-between gap-3">
+          <h2
+            id="runner-settings-heading"
+            tabIndex={-1}
+            ref={heading}
+            className="text-xl font-semibold focus:outline-none"
+          >
+            Runners
           </h2>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Connect a machine to run agents there from Dispatch.
+          <RunnerOnboarding />
+        </header>
+      )}
+
+      {!inDetail && (
+        <>
+          <RunnerPairingRequests />
+          <p
+            role="status"
+            className={cn(
+              "text-sm text-muted-foreground",
+              !notice && "sr-only"
+            )}
+          >
+            {notice}
           </p>
-        </div>
-        <RunnerOnboarding />
-      </header>
+        </>
+      )}
 
-      <RunnerPairingRequests />
-      <p
-        role="status"
-        className={cn("text-sm text-muted-foreground", !notice && "sr-only")}
-      >
-        {notice}
-      </p>
+      {inDetail && !selected && (
+        <h2
+          id="runner-settings-heading"
+          tabIndex={-1}
+          ref={heading}
+          className="text-xl font-semibold focus:outline-none"
+        >
+          {loading || loadFailed ? "Runner details" : "Runner unavailable"}
+        </h2>
+      )}
 
-      {runners.isPending ? (
+      {loading ? (
         <p className="text-sm text-muted-foreground" role="status">
           Loading runners…
         </p>
-      ) : runners.isError && !runners.data ? (
+      ) : loadFailed ? (
         <div className="flex flex-wrap items-center gap-2">
           <p className="text-sm text-destructive" role="alert">
             Could not load runners.
@@ -142,113 +209,97 @@ export function RunnerSettings(): JSX.Element {
             Try again
           </Button>
         </div>
+      ) : inDetail ? (
+        selected ? (
+          <RunnerDetail
+            key={selected.id}
+            runner={selected}
+            heading={heading}
+            onRevoked={() => onRevoked(selected)}
+          />
+        ) : (
+          <p className="text-sm text-muted-foreground">
+            This runner is no longer connected.
+          </p>
+        )
       ) : (
-        <div
-          className={cn(
-            roster.length > 0 &&
-              "[@container(min-width:36rem)]:grid [@container(min-width:36rem)]:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] [@container(min-width:36rem)]:items-start [@container(min-width:36rem)]:gap-5"
-          )}
-        >
-          <div
-            className={cn(
-              "min-w-0 space-y-2",
-              selected && "hidden [@container(min-width:36rem)]:block"
-            )}
-          >
-            <h3
-              ref={rosterHeading}
-              tabIndex={-1}
-              className="text-sm font-medium focus:outline-none"
+        <>
+          {roster.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              No connected runners.
+            </p>
+          ) : (
+            <ul
+              className="divide-y divide-border rounded-md border border-border"
+              data-testid="runner-list"
             >
-              Runners
-            </h3>
-            {roster.length === 0 ? (
-              <p className="rounded-md bg-muted/35 px-3 py-4 text-sm text-muted-foreground">
-                No connected runners. Agents run on this machine by default.
-              </p>
-            ) : (
-              <ul className="space-y-1" data-testid="runner-list">
-                {roster.map((runner) => (
+              {roster.map((runner) => {
+                const next = new URLSearchParams(listParams);
+                next.set("runner", runner.id);
+                return (
                   <li
                     key={runner.id}
                     data-testid={`runner-${runner.id}`}
                     data-status={runner.status}
                   >
                     <Button
-                      type="button"
                       variant="ghost"
-                      data-testid={`runner-select-${runner.id}`}
-                      aria-current={selected?.id === runner.id || undefined}
-                      className={cn(
-                        "h-auto min-h-12 w-full justify-start gap-2.5 px-3 py-2 text-left text-foreground",
-                        selected?.id === runner.id && "bg-muted"
-                      )}
-                      onClick={(event) => {
-                        returnFocus.current = event.currentTarget;
-                        setNotice("");
-                        setSelectedId(runner.id);
-                      }}
+                      asChild
+                      className="h-auto min-h-12 w-full justify-start gap-3 px-3 py-2.5 text-left text-foreground"
                     >
-                      <Server
-                        className="size-4 shrink-0 text-muted-foreground"
-                        aria-hidden="true"
-                      />
-                      <span className="flex min-w-0 flex-1 flex-col items-start gap-0.5">
-                        <span className="max-w-full truncate">
-                          {runner.name}
-                        </span>
-                        <RunnerStatusLabel
-                          runner={runner}
-                          inRoster
-                          checkedAt={checkedAt}
+                      <Link
+                        id={`runner-select-${encodeURIComponent(runner.id)}`}
+                        data-testid={`runner-select-${runner.id}`}
+                        to={{ search: next.toString(), hash: location.hash }}
+                        state={{ runnerListSearch: listSearch }}
+                        onClick={() => setNotice("")}
+                      >
+                        <Server
+                          className="size-4 shrink-0 text-muted-foreground"
+                          aria-hidden="true"
                         />
-                      </span>
-                      <ChevronRight
-                        className="size-4 shrink-0 text-muted-foreground"
-                        aria-hidden="true"
-                      />
+                        <span className="flex min-w-0 flex-1 flex-col items-start gap-0.5">
+                          <span className="max-w-full truncate">
+                            {runner.name}
+                          </span>
+                          <RunnerStatusLabel
+                            runner={runner}
+                            checkedAt={checkedAt}
+                          />
+                        </span>
+                        <ChevronRight
+                          className="size-4 shrink-0 text-muted-foreground"
+                          aria-hidden="true"
+                        />
+                      </Link>
                     </Button>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+
+          {history.length > 0 && (
+            <details className="text-sm text-muted-foreground">
+              <summary className="w-fit cursor-pointer rounded-sm py-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                Revoked runners ({history.length})
+              </summary>
+              <ul className="mt-1 divide-y divide-border">
+                {history.map((runner) => (
+                  <li
+                    key={runner.id}
+                    className="flex items-center justify-between gap-2 px-3 py-2"
+                    data-testid={`runner-${runner.id}`}
+                    data-status="revoked"
+                  >
+                    <span className="min-w-0 break-words">{runner.name}</span>
+                    <RunnerStatusLabel runner={runner} />
                   </li>
                 ))}
               </ul>
-            )}
-            {history.length > 0 && (
-              <details className="border-t border-border pt-2 text-sm text-muted-foreground">
-                <summary className="w-fit cursor-pointer rounded-sm py-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-                  Revoked runners ({history.length})
-                </summary>
-                <ul className="mt-1 divide-y divide-border pl-3">
-                  {history.map((runner) => (
-                    <li
-                      key={runner.id}
-                      className="flex items-center justify-between gap-2 py-2"
-                      data-testid={`runner-${runner.id}`}
-                      data-status="revoked"
-                    >
-                      <span className="min-w-0 break-words">{runner.name}</span>
-                      <RunnerStatusLabel runner={runner} inRoster />
-                    </li>
-                  ))}
-                </ul>
-              </details>
-            )}
-          </div>
-          {selected ? (
-            <RunnerDetail
-              key={selected.id}
-              runner={selected}
-              onBack={() => setSelectedId(null)}
-              onRevoked={() => {
-                setNotice(`Access revoked for ${selected.name}.`);
-                setSelectedId(null);
-              }}
-            />
-          ) : roster.length > 0 ? (
-            <p className="hidden border-l border-border px-5 py-3 text-sm text-muted-foreground [@container(min-width:36rem)]:block">
-              Select a runner to view its details.
-            </p>
-          ) : null}
-        </div>
+            </details>
+          )}
+        </>
       )}
     </section>
   );
@@ -256,155 +307,149 @@ export function RunnerSettings(): JSX.Element {
 
 function RunnerDetail({
   runner,
-  onBack,
+  heading,
   onRevoked,
 }: {
   runner: Runner;
-  onBack: () => void;
+  heading: React.RefObject<HTMLHeadingElement>;
   onRevoked: () => void;
 }) {
-  const heading = useRef<HTMLHeadingElement>(null);
-  const [enginesOpen, setEnginesOpen] = useState(false);
-  const [confirmOpen, setConfirmOpen] = useState(false);
-  const { revoke } = useRunnerMutations();
-
-  useEffect(() => {
-    heading.current?.focus();
-  }, []);
-
   return (
-    <section
-      aria-labelledby="runner-detail-heading"
-      className="min-w-0 divide-y divide-border [@container(min-width:36rem)]:border-l [@container(min-width:36rem)]:pl-5"
-      data-testid="runner-detail"
-    >
-      <div className="space-y-2 pb-3">
-        <Button
-          type="button"
-          size="sm"
-          variant="ghost"
-          className="-ml-2 gap-1.5 [@container(min-width:36rem)]:hidden"
-          onClick={onBack}
-        >
-          <ArrowLeft className="size-4" aria-hidden="true" />
-          Back to runners
-        </Button>
-        <div>
-          <h3
-            id="runner-detail-heading"
+    <div className="min-w-0 divide-y divide-border" data-testid="runner-detail">
+      <header className="flex items-start justify-between gap-2 pb-4">
+        <div className="min-w-0">
+          <h2
+            id="runner-settings-heading"
             tabIndex={-1}
             ref={heading}
-            className="break-words text-base font-semibold focus:outline-none"
+            className="break-words text-xl font-semibold focus:outline-none"
           >
             {runner.name}
-          </h3>
+          </h2>
           <RunnerStatusLabel runner={runner} />
         </div>
+        <RunnerConnectionActions runner={runner} onRevoked={onRevoked} />
+      </header>
+
+      <div className="py-4">
+        <RunnerGitHubAccount runner={runner} />
+      </div>
+
+      <section className="space-y-2 py-4">
+        <h3 className="text-sm font-medium">Agent engines</h3>
+        {runner.status !== "online" ? (
+          <p className="text-sm text-muted-foreground">
+            Available when the runner is online.
+          </p>
+        ) : !runner.engineManagement ? (
+          <p className="text-sm text-muted-foreground">
+            Engine management isn’t supported on this runner.
+          </p>
+        ) : (
+          <RunnerEngines scope={{ kind: "runner", runnerId: runner.id }} />
+        )}
+      </section>
+
+      <div className="space-y-2 py-4">
+        <RunnerHealthDetails runner={runner} />
         {runner.workspaces.length > 0 && !runner.managedWorkspace && (
           <p className="break-words text-xs text-muted-foreground">
             Folders: {runner.workspaces.join(", ")}
           </p>
         )}
       </div>
+    </div>
+  );
+}
 
-      <section className="space-y-2 py-3">
-        <h4 className="text-sm font-medium">Health</h4>
-        <RunnerHealthDetails runner={runner} />
-      </section>
+function RunnerConnectionActions({
+  runner,
+  onRevoked,
+}: {
+  runner: Runner;
+  onRevoked: () => void;
+}) {
+  const trigger = useRef<HTMLButtonElement>(null);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const { revoke } = useRunnerMutations();
 
-      <div className="py-3">
-        <RunnerGitHubAccount runner={runner} />
-      </div>
-
-      <section className="space-y-2 py-3">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <h4 className="text-sm font-medium">Agent engines</h4>
-          {runner.status === "online" && runner.engineManagement && (
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              aria-expanded={enginesOpen}
-              aria-controls="runner-engine-management"
-              onClick={() => setEnginesOpen((open) => !open)}
-            >
-              {enginesOpen ? "Hide engines" : "Manage engines"}
-            </Button>
-          )}
-        </div>
-        {runner.status !== "online" ? (
-          <p className="text-sm text-muted-foreground">
-            Engine management is available when the runner is online.
-          </p>
-        ) : !runner.engineManagement ? (
-          <p className="text-sm text-muted-foreground">
-            This runner doesn’t support engine management.
-          </p>
-        ) : (
-          <div id="runner-engine-management" hidden={!enginesOpen}>
-            {enginesOpen && (
-              <RunnerEngines scope={{ kind: "runner", runnerId: runner.id }} />
-            )}
-          </div>
-        )}
-      </section>
-
-      <div className="py-2">
-        <AlertDialog
-          open={confirmOpen}
-          onOpenChange={(open) => {
-            if (revoke.isPending) return;
-            if (open) revoke.reset();
-            setConfirmOpen(open);
+  return (
+    <>
+      <DropdownMenu modal={false}>
+        <DropdownMenuTrigger asChild>
+          <Button
+            type="button"
+            size="icon"
+            variant="ghost"
+            aria-label="Runner actions"
+            ref={trigger}
+            data-testid={`runner-actions-${runner.id}`}
+          >
+            <Ellipsis className="size-4" aria-hidden="true" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent
+          align="end"
+          onCloseAutoFocus={(event) => {
+            if (confirmOpen) event.preventDefault();
           }}
         >
-          <AlertDialogContent>
-            <AlertDialogTitle className="break-words text-lg font-semibold">
-              Revoke access for {runner.name}?
-            </AlertDialogTitle>
-            <AlertDialogDescription className="text-sm text-muted-foreground">
-              This disconnects the runner from this Dispatch instance and blocks
-              new sessions on it. To reconnect it, pair it again.
-            </AlertDialogDescription>
-            {revoke.isError && (
-              <p className="text-sm text-destructive" role="alert">
-                {revoke.error.message}
-              </p>
-            )}
-            <div className="flex flex-wrap justify-end gap-2">
-              <AlertDialogCancel disabled={revoke.isPending}>
-                Cancel
-              </AlertDialogCancel>
-              <Button
-                type="button"
-                variant="destructive"
-                disabled={revoke.isPending}
-                aria-label={`Confirm revoke ${runner.name}`}
-                data-testid={`runner-revoke-confirm-${runner.id}`}
-                onClick={() =>
-                  void revoke.mutateAsync(runner.id).then(onRevoked, () => {
-                    // The mutation state displays the error in the dialog.
-                  })
-                }
-              >
-                {revoke.isPending ? "Revoking…" : "Revoke access"}
-              </Button>
-            </div>
-          </AlertDialogContent>
-          <AlertDialogTrigger asChild>
+          <DropdownMenuItem
+            data-testid={`runner-revoke-${runner.id}`}
+            onSelect={() => {
+              revoke.reset();
+              setConfirmOpen(true);
+            }}
+          >
+            Revoke connection
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+      <AlertDialog
+        open={confirmOpen}
+        onOpenChange={(open) => {
+          if (!revoke.isPending) setConfirmOpen(open);
+        }}
+      >
+        <AlertDialogContent
+          onCloseAutoFocus={(event) => {
+            event.preventDefault();
+            trigger.current?.focus();
+          }}
+        >
+          <AlertDialogTitle className="break-words text-base font-semibold">
+            Revoke access for {runner.name}?
+          </AlertDialogTitle>
+          <AlertDialogDescription className="text-sm text-muted-foreground">
+            This disconnects the runner and blocks new sessions on it. To
+            reconnect it, pair it again.
+          </AlertDialogDescription>
+          {revoke.isError && (
+            <p className="text-sm text-destructive" role="alert">
+              {revoke.error.message}
+            </p>
+          )}
+          <div className="flex flex-wrap justify-end gap-2">
+            <AlertDialogCancel disabled={revoke.isPending}>
+              Cancel
+            </AlertDialogCancel>
             <Button
               type="button"
-              variant="ghost"
-              size="sm"
-              className="-ml-2 hover:text-destructive"
-              aria-label={`Revoke ${runner.name}`}
-              data-testid={`runner-revoke-${runner.id}`}
+              variant="destructive"
+              disabled={revoke.isPending}
+              aria-label={`Confirm revoke ${runner.name}`}
+              data-testid={`runner-revoke-confirm-${runner.id}`}
+              onClick={() =>
+                void revoke.mutateAsync(runner.id).then(onRevoked, () => {
+                  // The dialog displays the mutation error.
+                })
+              }
             >
-              Revoke connection
+              {revoke.isPending ? "Revoking…" : "Revoke access"}
             </Button>
-          </AlertDialogTrigger>
-        </AlertDialog>
-      </div>
-    </section>
+          </div>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   );
 }
