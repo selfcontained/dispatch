@@ -109,6 +109,10 @@ workload account’s GitHub login for `https://github.com`:
   Runners advertising `sessionCheckout: true` also accept `allowDefault: true`
   on this checkout kind to let the existing branch be the origin's default.
   Git still rejects a branch held by another worktree.
+- `{ kind: "default" }` checks out the existing branch named by the origin's
+  HEAD symref. It requires `sessionCheckout: true`. The runner journals the
+  resolved branch before reserving the worktree, so recovery preserves the
+  branch even if the origin changes its default.
 - `{ kind: "pr", branch, number }` fetches `refs/pull/<number>/head` and checks
   it out under the supplied branch name.
 

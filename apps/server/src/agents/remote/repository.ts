@@ -34,13 +34,14 @@ export function parseRepository(input: unknown): RepositoryInput {
     url = repositoryUrl(input.url);
   }
   const checkout = input.checkout;
-  if (
-    !checkout ||
-    typeof checkout !== "object" ||
-    !("branch" in checkout) ||
-    !validBranch(checkout.branch) ||
-    !("kind" in checkout)
-  )
+  if (!checkout || typeof checkout !== "object" || !("kind" in checkout))
+    throw new Error("A valid checkout branch is required.");
+  if (checkout.kind === "default") {
+    if ("branch" in checkout && checkout.branch !== undefined)
+      throw new Error("A default checkout resolves its branch on the runner.");
+    return { url, checkout: { kind: "default" } };
+  }
+  if (!("branch" in checkout) || !validBranch(checkout.branch))
     throw new Error("A valid checkout branch is required.");
   const { branch } = checkout;
   switch (checkout.kind) {
@@ -75,7 +76,7 @@ export function parseRepository(input: unknown): RepositoryInput {
       return { url, checkout: { kind: "pr", branch, number } };
     }
     default:
-      throw new Error("Checkout kind must be new, branch, or pr.");
+      throw new Error("Checkout kind must be new, branch, default, or pr.");
   }
 }
 

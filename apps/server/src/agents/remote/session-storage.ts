@@ -33,6 +33,8 @@ function worktreePaths(list: string): string[] {
 }
 
 type CheckoutPlan = {
+  /** The runner's resolved branch for an implicit default checkout. */
+  branch?: string;
   commit: string;
   fastForward: boolean;
   reviewBase?: string;
@@ -93,8 +95,10 @@ export class RunnerRepositories {
       const git = (...args: string[]) =>
         this.git(`--git-dir=${cache}`, ...args);
       await this.git("init", "--quiet", "--bare", "--template=", cache);
-      const branch = checkout.branch;
-      const finish = async (plan: CheckoutPlan) => {
+      const pendingPlan = await journal.read();
+      const requestedBranch =
+        checkout.kind === "default" ? pendingPlan?.branch : checkout.branch;
+      const finish = async (branch: string, plan: CheckoutPlan) => {
         try {
           if (plan.fastForward)
             await this.git("-C", cwd, "merge", "--ff-only", "--", plan.commit);
@@ -131,8 +135,7 @@ export class RunnerRepositories {
           ).trimEnd() !== cwd
         )
           throw new Error("The runner session checkout is unavailable.");
-        const plan = await journal.read();
-        if (plan) {
+        if (pendingPlan) {
           const current = await this.git(
             "-C",
             cwd,
@@ -140,34 +143,43 @@ export class RunnerRepositories {
             "--short",
             "HEAD"
           );
-          if (current.trim() !== branch)
+          if (current.trim() !== requestedBranch || !requestedBranch)
             throw new Error(
               "The runner session checkout changed during preparation."
             );
-          await finish(plan);
+          await finish(requestedBranch, pendingPlan);
         }
         return cwd;
       }
 
-      const defaultRef = await git(
-        "ls-remote",
-        "--symref",
-        "--",
-        url,
-        "HEAD"
-      ).catch(() => {
-        throw new Error(
-          "Could not read the remote repository's default branch."
-        );
-      });
-      const match = /^ref: refs\/heads\/(.+)\tHEAD$/m.exec(defaultRef);
-      const defaultBranch = match?.[1];
+      const readDefaultBranch = async () => {
+        const defaultRef = await git(
+          "ls-remote",
+          "--symref",
+          "--",
+          url,
+          "HEAD"
+        ).catch(() => {
+          throw new Error(
+            "Could not read the remote repository's default branch."
+          );
+        });
+        return /^ref: refs\/heads\/(.+)\tHEAD$/m.exec(defaultRef)?.[1];
+      };
+      // A retry after reservation or a busy branch keeps the original choice
+      // even when the remote's HEAD starts pointing to a different branch.
+      const defaultBranch =
+        checkout.kind === "default" && requestedBranch
+          ? requestedBranch
+          : await readDefaultBranch();
       if (!validBranch(defaultBranch))
         throw new Error(
           "The remote repository has no unambiguous default branch."
         );
+      const branch = requestedBranch ?? defaultBranch;
       if (
-        checkout.branch === defaultBranch &&
+        branch === defaultBranch &&
+        checkout.kind !== "default" &&
         !(checkout.kind === "branch" && checkout.allowDefault)
       )
         throw new Error(
@@ -216,6 +228,7 @@ export class RunnerRepositories {
           );
           break;
         case "branch":
+        case "default":
           commit = remote;
           break;
         case "pr":
@@ -255,6 +268,7 @@ export class RunnerRepositories {
         ? ["--", cwd, branch]
         : ["--no-track", "-b", branch, "--", cwd, commit];
       const plan: CheckoutPlan = {
+        ...(checkout.kind === "default" && { branch }),
         commit,
         fastForward: needsFastForward,
         reviewBase:
@@ -269,7 +283,7 @@ export class RunnerRepositories {
           "Could not create the session checkout. The branch may already be occupied."
         );
       });
-      await finish(plan);
+      await finish(branch, plan);
       return cwd;
     });
   }

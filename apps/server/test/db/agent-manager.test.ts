@@ -442,13 +442,20 @@ describe("AgentManager", () => {
         prompt: "Work independently",
         useWorktree: true,
       };
-      for (const [refs, branch] of [
-        [{ baseBranch: "origin/feature/x" }, "feature/x"],
+      for (const [refs, checkout] of [
+        [
+          { baseBranch: "origin/feature/x" },
+          { kind: "branch", branch: "feature/x", allowDefault: true },
+        ],
         [
           { baseBranch: "origin/feature/x", worktreeBranch: "ignored" },
-          "feature/x",
+          { kind: "branch", branch: "feature/x", allowDefault: true },
         ],
-        [{}, "main"],
+        [
+          { baseBranch: "main" },
+          { kind: "branch", branch: "main", allowDefault: true },
+        ],
+        [{}, { kind: "default" }],
       ] as const) {
         const child = await mcp.launchAgent(parent.id, { ...input, ...refs });
         expect(runtime.launch).toHaveBeenLastCalledWith(
@@ -456,7 +463,7 @@ describe("AgentManager", () => {
             agentId: child.agentId,
             repository: {
               url: "https://example.test/source.git",
-              checkout: { kind: "branch", branch, allowDefault: true },
+              checkout,
             },
           })
         );

@@ -160,11 +160,9 @@ it("uses isolated worktrees, protects occupied and default branches, and keeps e
     const uid = process.getuid!();
     const gid = process.getgid!();
     let failReviewBase = false;
-    const repositories = new RunnerRepositories(
-      cache,
-      uid,
-      gid,
-      (bin, args) => {
+    let failTrunkTracking = false;
+    const makeRepositories = () =>
+      new RunnerRepositories(cache, uid, gid, (bin, args) => {
         expect(bin).toBe("git");
         if (
           failReviewBase &&
@@ -173,9 +171,18 @@ it("uses isolated worktrees, protects occupied and default branches, and keeps e
           failReviewBase = false;
           return Promise.reject(new Error("interrupted Git configuration"));
         }
+        if (
+          failTrunkTracking &&
+          args.includes("--set-upstream-to=refs/remotes/origin/trunk")
+        ) {
+          failTrunkTracking = false;
+          return Promise.reject(
+            new Error("interrupted tracking configuration")
+          );
+        }
         return git("-c", `url.file://${origin}.insteadOf=${url}`, ...args);
-      }
-    );
+      });
+    let repositories = makeRepositories();
     type Journal = Parameters<RunnerRepositories["prepare"]>[2];
     type Plan = Parameters<Journal["write"]>[0];
     const plans = new Map<string, Plan>();
@@ -309,6 +316,56 @@ it("uses isolated worktrees, protects occupied and default branches, and keeps e
         await git("-C", await prepare(c, selectedBase), "rev-parse", "HEAD")
       ).trim()
     ).toBe(divergent);
+
+    await git("-C", origin, "switch", "-c", "trunk");
+    const trunk = await commit("trunk differs from main");
+    const implicit = spec({ kind: "default" });
+    const implicitSession = await session("implicit");
+    const waitingSession = await session("waiting");
+    const mainSession = await session("explicit-main");
+    const currentBranch = async (cwd: string) =>
+      (await git("-C", cwd, "branch", "--show-current")).trim();
+    const implicitPath = path.join(implicitSession, "checkout");
+
+    failTrunkTracking = true;
+    await expect(prepare(implicitSession, implicit)).rejects.toThrow(
+      "Could not update"
+    );
+    expect(await currentBranch(implicitPath)).toBe("trunk");
+    expect((await git("-C", implicitPath, "rev-parse", "HEAD")).trim()).toBe(
+      trunk
+    );
+    await expect(prepare(waitingSession, implicit)).rejects.toThrow("occupied");
+    const mainPath = await prepare(mainSession, defaultBranch);
+    expect(await currentBranch(mainPath)).toBe("main");
+    expect((await git("-C", mainPath, "rev-parse", "HEAD")).trim()).toBe(
+      initial
+    );
+
+    await git("-C", origin, "switch", "main");
+    repositories = makeRepositories();
+    await expect(prepare(implicitSession, implicit)).resolves.toBe(
+      implicitPath
+    );
+    expect(
+      (
+        await git(
+          "-C",
+          implicitPath,
+          "rev-parse",
+          "--abbrev-ref",
+          "@{upstream}"
+        )
+      ).trim()
+    ).toBe("origin/trunk");
+    await expect(prepare(waitingSession, implicit)).rejects.toThrow("occupied");
+    await repositories.remove(implicitSession, implicit);
+    const recovered = await prepare(waitingSession, implicit);
+    expect(await currentBranch(recovered)).toBe("trunk");
+    expect((await git("-C", recovered, "rev-parse", "HEAD")).trim()).toBe(
+      trunk
+    );
+    await expect(prepare(waitingSession, implicit)).resolves.toBe(recovered);
   } finally {
     await rm(root, { force: true, recursive: true });
   }

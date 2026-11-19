@@ -356,6 +356,20 @@ it("validates checkout queries, results and borrowed launches", () => {
   });
   expect(parse(existingDefault(true))).not.toBeNull();
   expect(parse(existingDefault(false))).toBeNull();
+  const implicitDefault = {
+    ...command,
+    launch: {
+      ...launch,
+      useWorktreeOf: undefined,
+      repository: {
+        url: "https://example.test/project.git",
+        checkout: { kind: "default" },
+      },
+    },
+  };
+  expect(parse(implicitDefault)).toMatchObject({
+    command: { launch: { repository: { checkout: { kind: "default" } } } },
+  });
 
   expect(parse({ ...command, agentId: "other", launch })).toBeNull();
   expect(

@@ -1728,7 +1728,9 @@ export class AgentManager {
       runnerRepository = {
         url: derivedRepositoryUrl,
         checkout: !createNewBranch
-          ? { kind: "branch", branch: baseBranch ?? "main", allowDefault: true }
+          ? baseBranch
+            ? { kind: "branch", branch: baseBranch, allowDefault: true }
+            : { kind: "default" }
           : {
               kind: "new",
               branch,

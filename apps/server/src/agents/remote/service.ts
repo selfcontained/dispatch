@@ -1544,6 +1544,7 @@ export class RemoteRunnerService {
         : undefined;
     if (
       (command.kind === "sessionCheckout" ||
+        checkout?.kind === "default" ||
         (checkout?.kind === "branch" && checkout.allowDefault)) &&
       !peer.sessionCheckout
     )
