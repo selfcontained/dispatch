@@ -21,7 +21,12 @@ function readableHex(rgb: number[]) {
       const adjusted = rgb.map(
         (channel) => channel + (endpoint - channel) * mix
       );
-      if (relativeLuminance(adjusted) < target === (endpoint === 255)) {
+      const adjustedLuminance = relativeLuminance(adjusted);
+      const needsMoreMix =
+        endpoint === 255
+          ? adjustedLuminance < target
+          : adjustedLuminance > target;
+      if (needsMoreMix) {
         lower = mix;
       } else {
         upper = mix;
@@ -37,7 +42,7 @@ function readableHex(rgb: number[]) {
   );
 }
 
-export function prominentLogoColor({ data, width, height }: ImageData) {
+export function prominentLogoColors({ data, width, height }: ImageData) {
   const edgeColors = new Map<number, { offset: number; count: number }>();
   let edgeCount = 0;
   for (let y = 0; y < height; y++) {
@@ -106,29 +111,46 @@ export function prominentLogoColor({ data, width, height }: ImageData) {
     bucket.rgb[2]! += blue * alpha;
   }
 
-  const winner = hues.reduce((best, bucket) =>
-    bucket.weight > best.weight ? bucket : best
-  );
-  return winner.weight
-    ? readableHex(winner.rgb.map((sum) => sum / winner.weight))
-    : null;
+  const ranked = hues
+    .map((bucket, hue) => ({ ...bucket, hue }))
+    .sort((a, b) => b.weight - a.weight);
+  const minimumWeight = Math.max(1, ranked[0]!.weight * 0.02);
+  const selectedHues: number[] = [];
+  const colors: string[] = [];
+  for (const bucket of ranked) {
+    if (bucket.weight < minimumWeight || colors.length === 3) break;
+    // Adjacent buckets can represent shades of the same color, including red
+    // on either side of the hue wheel's wraparound.
+    if (
+      selectedHues.some((hue) => {
+        const distance = Math.abs(hue - bucket.hue);
+        return Math.min(distance, hues.length - distance) <= 1;
+      })
+    )
+      continue;
+    const color = readableHex(bucket.rgb.map((sum) => sum / bucket.weight));
+    if (colors.includes(color)) continue;
+    selectedHues.push(bucket.hue);
+    colors.push(color);
+  }
+  return colors;
 }
 
-export function readProjectLogoColor(img: HTMLImageElement) {
+export function readProjectLogoColors(img: HTMLImageElement) {
   const longestSide = Math.max(img.naturalWidth, img.naturalHeight);
-  if (longestSide === 0) return null;
+  if (longestSide === 0) return [];
   const scale = Math.min(1, SAMPLE_SIZE / longestSide);
   const canvas = document.createElement("canvas");
   canvas.width = Math.max(1, Math.round(img.naturalWidth * scale));
   canvas.height = Math.max(1, Math.round(img.naturalHeight * scale));
   const context = canvas.getContext("2d");
-  if (!context) return null;
+  if (!context) return [];
   try {
     context.drawImage(img, 0, 0, canvas.width, canvas.height);
-    return prominentLogoColor(
+    return prominentLogoColors(
       context.getImageData(0, 0, canvas.width, canvas.height)
     );
   } catch {
-    return null;
+    return [];
   }
 }

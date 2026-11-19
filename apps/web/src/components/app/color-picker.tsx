@@ -19,61 +19,56 @@ export function ColorPicker({
   onChange,
   disabled = false,
   label = "Color",
-  logoColor,
+  logoColors,
 }: {
   value: string;
   onChange: (value: string) => void;
   disabled?: boolean;
   label?: string;
-  logoColor?: string | null;
+  logoColors?: string[];
 }) {
   const valid = isHexColor(value);
+  const swatch = (color: string, name: string) => {
+    const selected = value.toLowerCase() === color;
+    return (
+      <Button
+        type="button"
+        key={color}
+        variant="ghost"
+        disabled={disabled}
+        aria-label={name}
+        aria-pressed={selected}
+        title={color}
+        className="h-7 w-7 shrink-0 rounded-full p-1"
+        onClick={() => onChange(color)}
+      >
+        <span
+          aria-hidden="true"
+          className="flex h-5 w-5 items-center justify-center rounded-full border border-black/10 text-black"
+          style={{ backgroundColor: color }}
+        >
+          {selected && <Check className="h-3 w-3" />}
+        </span>
+      </Button>
+    );
+  };
+
   return (
     <div className="space-y-1.5" role="group" aria-label={label}>
+      {!!logoColors?.length && (
+        <div
+          className="flex flex-wrap items-center gap-0.5"
+          role="group"
+          aria-label="Logo colors"
+        >
+          {logoColors.map((color) => swatch(color, `Logo color ${color}`))}
+          <span className="ml-1.5 text-xs text-muted-foreground">
+            Logo colors
+          </span>
+        </div>
+      )}
       <div className="flex flex-wrap gap-0.5">
-        {PROJECT_COLORS.map((color) => (
-          <Button
-            type="button"
-            key={color}
-            variant="ghost"
-            disabled={disabled}
-            aria-label={`Color ${color}`}
-            aria-pressed={value.toLowerCase() === color}
-            title={color}
-            className="h-7 w-7 shrink-0 rounded-full p-1"
-            onClick={() => onChange(color)}
-          >
-            <span
-              className="flex h-5 w-5 items-center justify-center rounded-full border border-black/10 text-black"
-              style={{ backgroundColor: color }}
-            >
-              {value.toLowerCase() === color && <Check className="h-3 w-3" />}
-            </span>
-          </Button>
-        ))}
-        {logoColor && (
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            disabled={disabled}
-            aria-pressed={value.toLowerCase() === logoColor}
-            title={logoColor}
-            className="h-7 gap-1.5 px-1.5 text-xs"
-            onClick={() => onChange(logoColor)}
-          >
-            <span
-              aria-hidden="true"
-              className="flex h-5 w-5 items-center justify-center rounded-full border border-black/10 text-black"
-              style={{ backgroundColor: logoColor }}
-            >
-              {value.toLowerCase() === logoColor && (
-                <Check className="h-3 w-3" />
-              )}
-            </span>
-            Use logo color
-          </Button>
-        )}
+        {PROJECT_COLORS.map((color) => swatch(color, `Color ${color}`))}
       </div>
       <div className="flex items-center gap-1.5">
         <Input
