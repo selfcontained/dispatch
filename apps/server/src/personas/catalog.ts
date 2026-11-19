@@ -216,7 +216,11 @@ export class PersonaCatalogCache {
     }
   }
 
-  async get(cwd: string, waitForRefresh = false): Promise<PersonaCatalog> {
+  async get(
+    cwd: string,
+    waitForRefresh = false,
+    includeFallback = true
+  ): Promise<PersonaCatalog> {
     const common = await this.git(cwd, [
       "rev-parse",
       "--path-format=absolute",
@@ -232,12 +236,14 @@ export class PersonaCatalogCache {
     if (!common || !remote) {
       const warnings: string[] = [];
       return {
-        personas: await loadPersonas(
-          common && path.basename(common) === ".git"
-            ? path.dirname(common)
-            : cwd,
-          warnings
-        ),
+        personas: includeFallback
+          ? await loadPersonas(
+              common && path.basename(common) === ".git"
+                ? path.dirname(common)
+                : cwd,
+              warnings
+            )
+          : [],
         warnings,
         refreshing: false,
         updatedAt: null,

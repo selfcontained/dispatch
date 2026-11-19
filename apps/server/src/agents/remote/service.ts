@@ -161,6 +161,8 @@ type Peer = {
   pullRequestWatch: boolean;
   pullRequestEvidence: boolean;
   checkoutInspection: boolean;
+  checkoutMetadata: boolean;
+  checkoutCommands: boolean;
   sessionCheckout: boolean;
   checkoutRelease: boolean;
   sessionFiles: boolean;
@@ -695,6 +697,8 @@ export class RemoteRunnerService {
           sessionCheckout: ready.sessionCheckout === true,
           checkoutRelease: ready.checkoutRelease === true,
           sessionFiles: ready.sessionFiles === true,
+          checkoutCommands: ready.checkoutCommands === true,
+          checkoutMetadata: ready.checkoutMetadata === true,
           checkoutInspection: ready.checkoutInspection === true,
           sharedWorktree: ready.sharedWorktree === true,
           workspacePreparation: ready.workspacePreparation === true,
@@ -1570,6 +1574,18 @@ export class RemoteRunnerService {
     if (command.kind === "checkoutRelease" && !peer.checkoutRelease)
       throw new RunnerCapabilityUnavailable(
         "Update the runner to inspect and release a session checkout."
+      );
+    if (command.kind === "runCheckout" && !peer.checkoutCommands)
+      throw new RunnerCapabilityUnavailable(
+        "Update the runner to run checkout commands."
+      );
+    if (
+      command.kind === "inspectCheckout" &&
+      (command.query.kind === "roots" || command.query.kind === "listFiles") &&
+      !peer.checkoutMetadata
+    )
+      throw new RunnerCapabilityUnavailable(
+        "Update the runner to discover checkout metadata."
       );
     if (command.kind === "inspectCheckout" && !peer.checkoutInspection)
       throw new RunnerCapabilityUnavailable(

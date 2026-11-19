@@ -38,7 +38,11 @@ import {
   registerPersonaInteractionTools,
   type LaunchPersonaAgentType,
 } from "./persona-interaction-tools.js";
-import { loadRepoTools, type RepoToolParam } from "./repo-tools.js";
+import {
+  loadRepoTools,
+  type RepoToolDefinition,
+  type RepoToolParam,
+} from "./repo-tools.js";
 import { jsonText } from "./response.js";
 import { toToolError } from "./tool-error.js";
 import { registerStreamTools } from "./stream-tools.js";
@@ -276,6 +280,9 @@ export type McpRequestContext = UsageCallbacks & {
   scheduledMessages?: ScheduledMessageService;
   agent: McpAgent | null;
   repoRoot: string | null;
+  discoverRepoTools?: () => Promise<RepoToolDefinition[]>;
+  toolsRoot?: string;
+  brainRepoRoot?: string | null;
   remoteRepoOperation?: () => Promise<string>;
   worktreeRoot: string | null;
   /**
@@ -320,6 +327,7 @@ export type McpRequestContext = UsageCallbacks & {
       personas?: string[];
     }
   ) => Promise<import("../../personas/codeowners.js").OwnerReviewResult>;
+  listSessionPersonas?: boolean;
   listPersonas?: (agentCwd: string) => Promise<
     | Array<{ slug: string; name: string; description: string }>
     | {
@@ -523,6 +531,7 @@ export async function createDispatchMcpServer(
       worktreeRoot: context.worktreeRoot,
       repoRoot: context.repoRoot,
       listPersonas: context.listPersonas,
+      listSessionPersonas: context.listSessionPersonas,
       launchOwnerReviews: context.launchOwnerReviews,
     });
   }
@@ -572,8 +581,11 @@ export async function createDispatchMcpServer(
   }
 
   // ── Brain tools (shared memory for agents) ────────────────────────
-  if (context.agent && context.repoRoot && context.brainStore) {
-    const brainRepoRoot = context.repoRoot;
+  const brainRepoRoot =
+    context.brainRepoRoot === undefined
+      ? context.repoRoot
+      : context.brainRepoRoot;
+  if (context.agent && brainRepoRoot && context.brainStore) {
     registerBrainTools(server, allowed, {
       repoRoot: brainRepoRoot,
       agentId: context.agent.id,
@@ -642,9 +654,11 @@ export async function createDispatchMcpServer(
       }
     );
   }
-  const toolsRoot = context.worktreeRoot ?? context.repoRoot;
+  const toolsRoot =
+    context.toolsRoot ?? context.worktreeRoot ?? context.repoRoot;
   if (context.agent && toolsRoot) {
-    const allRepoTools = await loadRepoTools(toolsRoot);
+    const allRepoTools = await (context.discoverRepoTools?.() ??
+      loadRepoTools(toolsRoot));
     const scope = context.toolScope ?? "agent";
     const repoTools = allRepoTools.filter(
       (tool) => !tool.scope || tool.scope.includes(scope)

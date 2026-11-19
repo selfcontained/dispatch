@@ -1,3 +1,4 @@
+import { remotePlacement } from "@dispatch/runner-protocol";
 import type { Effort } from "@dispatch/shared";
 import { validateAgentEffort } from "../shared/agent-effort.js";
 import { discoverPersonas } from "../personas/resolve.js";
@@ -8,6 +9,10 @@ import type { AgentManager } from "../agents/manager.js";
 import { StreamServiceError, type StreamService } from "../chat/service.js";
 import { CLI_AGENT_TYPES } from "../agent-type-settings.js";
 import { validateAgentModel } from "../shared/agent-models.js";
+import {
+  discoverSessionPersonas,
+  readSessionOwnerRules,
+} from "../server/mcp-persona-handlers.js";
 import { hasCodeowners } from "../personas/codeowners.js";
 import { supportsPersonaType } from "../personas/loader.js";
 import { resolveWorktreeRoot } from "../shared/git/git-context.js";
@@ -105,15 +110,41 @@ export async function registerPersonaRoutes(
   deps: PersonaRouteDeps
 ): Promise<void> {
   app.get("/api/v1/personas", async (request, reply) => {
-    const query = request.query as { cwd?: unknown; type?: unknown };
-    if (typeof query.cwd !== "string") {
-      return reply
-        .code(400)
-        .send({ error: "cwd query parameter is required." });
-    }
+    const query = request.query as {
+      agentId?: unknown;
+      cwd?: unknown;
+      type?: unknown;
+    };
+    const type = query.type === "task" ? "task" : "review";
     try {
-      const worktreeRoot = await resolveOptionalWorktreeRoot(query.cwd);
-      const type = query.type === "task" ? "task" : "review";
+      if (typeof query.agentId === "string") {
+        const agent = await deps.agentManager.getAgent(query.agentId);
+        if (!agent) return reply.code(404).send({ error: "Agent not found." });
+        const [catalog, owners] = await Promise.all([
+          discoverSessionPersonas(deps.agentManager, agent),
+          readSessionOwnerRules(deps.agentManager, agent).catch(() => null),
+        ]);
+        return {
+          ...catalog,
+          personas: catalog.personas
+            .filter((p) => supportsPersonaType(p, type))
+            .map(({ slug, name, description, type }) => ({
+              slug,
+              name,
+              description,
+              type,
+            })),
+          codeowners: owners !== null,
+        };
+      }
+      if (typeof query.cwd !== "string") {
+        return reply
+          .code(400)
+          .send({ error: "cwd query parameter is required." });
+      }
+      const worktreeRoot = remotePlacement(query.cwd)
+        ? null
+        : await resolveOptionalWorktreeRoot(query.cwd);
       const { personas, warnings, refreshing, updatedAt } =
         await discoverPersonas(
           query.cwd,

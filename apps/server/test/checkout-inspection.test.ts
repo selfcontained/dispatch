@@ -2,6 +2,7 @@ import { execFileSync, spawnSync } from "node:child_process";
 import {
   existsSync,
   mkdirSync,
+  realpathSync,
   mkdtempSync,
   rmSync,
   symlinkSync,
@@ -47,14 +48,18 @@ function put(root: string, file: string, content: string): void {
   writeFileSync(target, content);
 }
 
-function runCli(cwd: string, input: string) {
-  const result = spawnSync(process.execPath, [cli], {
-    cwd,
-    input,
-    encoding: "utf8",
-    timeout: 10_000,
-    maxBuffer: 5 * 1024 * 1024,
-  });
+function runCli(cwd: string, input: string, expectedRoot?: string) {
+  const result = spawnSync(
+    process.execPath,
+    expectedRoot ? [cli, expectedRoot] : [cli],
+    {
+      cwd,
+      input,
+      encoding: "utf8",
+      timeout: 10_000,
+      maxBuffer: 5 * 1024 * 1024,
+    }
+  );
   if (result.error) throw result.error;
   return result;
 }
@@ -73,8 +78,8 @@ function subprocess(cwd: string, query: CheckoutQuery): Promise<CheckoutReply> {
 }
 
 beforeAll(() => {
-  scratch = mkdtempSync(
-    path.join(os.tmpdir(), "dispatch-checkout-inspection-")
+  scratch = realpathSync(
+    mkdtempSync(path.join(os.tmpdir(), "dispatch-checkout-inspection-"))
   );
   cli = path.join(scratch, "inspect.mjs");
   const entry = path.join(scratch, "entry.ts");
@@ -83,7 +88,7 @@ beforeAll(() => {
   );
   writeFileSync(
     entry,
-    `import { runCheckoutInspectionCli } from ${JSON.stringify(implementation)};\nawait runCheckoutInspectionCli(process.cwd());\n`
+    `import { runCheckoutInspectionCli } from ${JSON.stringify(implementation)};\nawait runCheckoutInspectionCli(process.cwd(), process.argv[2]);\n`
   );
   execFileSync("bun", ["build", "--target=node", "--outfile", cli, entry], {
     stdio: "pipe",
@@ -125,10 +130,61 @@ afterEach(() => {
   rmSync(fixture, { recursive: true, force: true });
 });
 
+it("executes argv in the observed checkout and rejects a checkout mismatch", () => {
+  const command = JSON.stringify([
+    "sh",
+    "-c",
+    "pwd; printf diagnostic >&2; exit 7",
+  ]);
+  const result = runCli(checkout, command, checkout);
+  expect(result.status).toBe(0);
+  expect(JSON.parse(result.stdout)).toEqual({
+    stdout: checkout + "\n",
+    stderr: "diagnostic",
+    exitCode: 7,
+  });
+  const moved = runCli(checkout, command, repo);
+  expect(moved.status).toBe(1);
+  expect(moved.stdout).toBe("");
+  expect(moved.stderr).toContain("The session checkout changed");
+});
+
 describe.each([
   ["in process", inspectCheckout],
   ["CLI", subprocess],
 ] as const)("checkout inspection %s", (_name, inspect) => {
+  it("discovers ignored configuration and handles non-Git folders", async () => {
+    put(checkout, ".gitignore", ".config/\n");
+    put(checkout, ".config/profile.txt", "checkout profile");
+    git(checkout, "check-ignore", ".config/profile.txt");
+    expect(await inspect(checkout, { kind: "roots" })).toEqual({
+      kind: "roots",
+      checkoutRoot: checkout,
+      repositoryRoot: repo,
+    });
+    expect(
+      await inspect(checkout, { kind: "listFiles", path: ".config" })
+    ).toEqual({
+      kind: "listFiles",
+      names: ["profile.txt"],
+    });
+    expect(
+      await inspect(checkout, { kind: "readFile", path: ".config/missing.txt" })
+    ).toEqual({
+      kind: "readFile",
+      content: null,
+    });
+    expect(await inspect(bin, { kind: "roots" })).toEqual({
+      kind: "roots",
+      checkoutRoot: bin,
+      repositoryRoot: null,
+    });
+    expect(await inspect(bin, { kind: "listFiles", path: "missing" })).toEqual({
+      kind: "listFiles",
+      names: [],
+    });
+  });
+
   it("refreshes a base and reports committed, staged, unstaged, deleted, renamed and untracked paths", async () => {
     put(checkout, "committed.txt", "committed");
     git(checkout, "add", "committed.txt");

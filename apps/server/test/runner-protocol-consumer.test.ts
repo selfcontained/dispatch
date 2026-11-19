@@ -332,6 +332,24 @@ it("validates checkout queries, results and borrowed launches", () => {
     expect(parse({ ...request, query: { ...read, path } })).toBeNull();
   expect(isCheckoutReply({ kind: "changes", files: [] }, read)).toBe(false);
   expect(isCheckoutReply({ kind: "readFile", content: null }, read)).toBe(true);
+  const metadata = { kind: "listFiles", path: ".config/profiles" } as const;
+  expect(parse({ ...request, query: metadata })).not.toBeNull();
+  expect(parse({ ...request, query: { kind: "roots" } })).not.toBeNull();
+  expect(
+    isCheckoutReply({ kind: "listFiles", names: ["profile.txt"] }, metadata)
+  ).toBe(true);
+  expect(
+    isCheckoutReply({ kind: "listFiles", names: ["../profile.txt"] }, metadata)
+  ).toBe(false);
+  const execute = {
+    ...request,
+    kind: "runCheckout",
+    expectedRoot: "/work/checkout",
+    argv: ["printf", "%s", "hello"],
+  };
+  expect(parse(execute)).not.toBeNull();
+  expect(parse({ ...execute, argv: [] })).toBeNull();
+  expect(parse({ ...execute, expectedRoot: "../other" })).toBeNull();
   const command = {
     kind: "launch",
     workspace: "@session",

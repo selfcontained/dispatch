@@ -469,3 +469,32 @@ the acknowledgement was lost, repeat the whole request with the same name
 and bytes. Delivery replaces the named file atomically. Collection is
 read-only and retries re-read the current file. Commit each successful
 collection to service-owned storage before publishing a reference to it.
+
+### Checkout metadata and commands
+
+With both `checkoutInspection: true` and `checkoutMetadata: true`, the v1
+`inspectCheckout` request supports two additional queries:
+
+- `{kind: "roots"}` returns the effective checkout root and the common
+  repository root. A non-Git directory has a null repository root. Both
+  paths are meaningful only on the runner.
+- `{kind: "listFiles", path}` lists immediate regular filenames in the
+  checkout-relative directory, including ignored files. An absent directory
+  returns an empty list. The runner bounds enumeration and rejects traversal.
+  Read the selected filenames with the existing bounded `readFile` query.
+
+Share a checkout using the existing session handle. Moves update the
+effective binding. A host should reacquire metadata for each discovery
+instead of treating equal paths as equal checkouts across machines. Older
+v1 peers still accept the original inspection queries.
+
+With `checkoutCommands: true`, the host may send `runCheckout` with the
+bound session and workspace handles, the previously observed
+`expectedRoot`, and a bounded `argv` array. The runner uses the bound checkout
+and rejects a root mismatch. It executes the argument vector as the workload
+user with a timeout and bounded output. A successful protocol result contains
+a JSON string with `exitCode`, `stdout` and `stderr`, including ordinary
+nonzero process exits. Host services decide who can invoke commands and
+interpret any repository-specific formats. Dispatch requires a full-access
+session's scoped MCP token for manifest commands on enrolled runners.
+The original workspace-approved `repo` operation remains available.

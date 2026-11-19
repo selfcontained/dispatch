@@ -4,7 +4,8 @@ import { isRecord } from "./validation.js";
 /** Operations are relative to the bound session checkout. Paths never name host files. */
 export type CheckoutQuery =
   | { kind: "changes"; baseBranch: string | null }
-  | { kind: "readFile"; path: string };
+  | { kind: "readFile" | "listFiles"; path: string }
+  | { kind: "roots" };
 
 export type CheckoutReply =
   | {
@@ -14,7 +15,44 @@ export type CheckoutReply =
       stateId: string;
       files: string[];
     }
-  | { kind: "readFile"; content: string | null };
+  | { kind: "readFile"; content: string | null }
+  | { kind: "listFiles"; names: string[] }
+  | { kind: "roots"; checkoutRoot: string; repositoryRoot: string | null };
+
+export type CheckoutCommandResult = {
+  exitCode: number;
+  stdout: string;
+  stderr: string;
+};
+
+export function isCheckoutCommandResult(
+  value: unknown
+): value is CheckoutCommandResult {
+  return (
+    isRecord(value) &&
+    typeof value.exitCode === "number" &&
+    Number.isInteger(value.exitCode) &&
+    value.exitCode >= 0 &&
+    value.exitCode < 256 &&
+    typeof value.stdout === "string" &&
+    typeof value.stderr === "string"
+  );
+}
+
+export function isCheckoutArgv(value: unknown): value is string[] {
+  return (
+    Array.isArray(value) &&
+    value.length > 0 &&
+    value.length <= 256 &&
+    typeof value[0] === "string" &&
+    value[0].length > 0 &&
+    value.every(
+      (arg) =>
+        typeof arg === "string" && arg.length <= 4096 && !arg.includes("\0")
+    ) &&
+    new TextEncoder().encode(JSON.stringify(value)).length <= 16 * 1024
+  );
+}
 
 /** A full branch name, never a revision expression, option, or raw ref. */
 export function validBranch(value: unknown): value is string {
@@ -45,7 +83,9 @@ function relativePath(value: unknown): value is string {
 
 export function isCheckoutQuery(value: unknown): value is CheckoutQuery {
   if (!isRecord(value)) return false;
-  if (value.kind === "readFile") return relativePath(value.path);
+  if (value.kind === "roots") return true;
+  if (value.kind === "readFile" || value.kind === "listFiles")
+    return relativePath(value.path);
   return (
     value.kind === "changes" &&
     (value.baseBranch === null || validBranch(value.baseBranch))
@@ -58,7 +98,22 @@ export function isCheckoutReply(
 ): value is CheckoutReply {
   if (!isRecord(value) || value.kind !== query.kind) return false;
   if (value.kind === "readFile")
-    return value.content === null || typeof value.content === "string";
+    return (
+      value.content === null ||
+      (typeof value.content === "string" &&
+        new TextEncoder().encode(value.content).length <= 256 * 1024)
+    );
+  if (value.kind === "roots")
+    return (
+      isCheckoutPath(value.checkoutRoot) &&
+      (value.repositoryRoot === null || isCheckoutPath(value.repositoryRoot))
+    );
+  if (value.kind === "listFiles")
+    return (
+      Array.isArray(value.names) &&
+      value.names.length <= 1024 &&
+      value.names.every((name) => relativePath(name) && !/[\\/]/.test(name))
+    );
   return (
     typeof value.baseRef === "string" &&
     value.baseRef.length > 0 &&

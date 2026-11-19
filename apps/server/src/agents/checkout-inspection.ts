@@ -5,11 +5,14 @@ import {
   openRegularFile,
   openLinuxDirectory,
 } from "../files/open-workspace-file.js";
+import { openWorkspaceDirectory } from "../files/workspace-directory.js";
+import { resolveRepoRoot } from "../shared/git/git-context.js";
 import { constants } from "node:fs";
 import { lstat, open, readdir, readlink, realpath } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 import {
+  isCheckoutArgv,
   isCheckoutQuery,
   type CheckoutQuery,
   type CheckoutReply,
@@ -79,7 +82,11 @@ const run: CommandRunner = async (command, args, options = {}) => {
 };
 
 function parseQuery(input: unknown): CheckoutQuery {
-  if (isCheckoutQuery(input) && Object.keys(input).length === 2) return input;
+  if (
+    isCheckoutQuery(input) &&
+    Object.keys(input).length === (input.kind === "roots" ? 1 : 2)
+  )
+    return input;
   throw new Error("Invalid checkout inspection query");
 }
 
@@ -482,7 +489,7 @@ export async function inspectCheckout(
   const probe = await run("git", ["rev-parse", "--show-toplevel"], {
     cwd,
     trimOutput: false,
-    allowedExitCodes: validated.kind === "readFile" ? [0, 128] : [0],
+    allowedExitCodes: validated.kind === "changes" ? [0] : [0, 128],
   });
   if (probe.exitCode && !probe.stderr.startsWith("fatal: not a git repository"))
     throw new Error(
@@ -493,6 +500,45 @@ export async function inspectCheckout(
     : probe.stdout.replace(/\n$/, "");
   if (!path.isAbsolute(root))
     throw new Error("Could not resolve checkout root");
+  if (validated.kind === "roots")
+    return {
+      kind: "roots",
+      checkoutRoot: root,
+      repositoryRoot: probe.exitCode ? null : await resolveRepoRoot(root),
+    };
+  if (validated.kind === "listFiles") {
+    const canonicalRoot = await realpath(root);
+    const directoryPath = path.join(
+      canonicalRoot,
+      ...validateFilePath(validated.path)
+    );
+    try {
+      const { directory, verify } = await openWorkspaceDirectory(
+        canonicalRoot,
+        directoryPath
+      );
+      const names: string[] = [];
+      let scanned = 0;
+      for await (const entry of directory) {
+        if (++scanned > 1024)
+          throw new Error("Checkout directory contains too many entries");
+        if (
+          entry.isFile() &&
+          !entry.name.includes("\\") &&
+          entry.name.toLowerCase() !== ".git"
+        )
+          names.push(entry.name);
+      }
+      await verify();
+      const reply = { kind: "listFiles" as const, names: names.sort() };
+      encodeReply(reply);
+      return reply;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT")
+        return { kind: "listFiles", names: [] };
+      throw error;
+    }
+  }
   const reply: CheckoutReply =
     validated.kind === "changes"
       ? await inspectChanges(root, validated.baseBranch)
@@ -507,7 +553,10 @@ export async function inspectCheckout(
   return reply;
 }
 
-export async function runCheckoutInspectionCli(cwd: string): Promise<void> {
+export async function runCheckoutInspectionCli(
+  cwd: string,
+  expectedRoot?: string
+): Promise<void> {
   try {
     const chunks: Buffer[] = [];
     let size = 0;
@@ -518,9 +567,32 @@ export async function runCheckoutInspectionCli(cwd: string): Promise<void> {
         throw new Error("Checkout inspection query is too large");
       chunks.push(bytes);
     }
-    const query = parseQuery(
-      JSON.parse(Buffer.concat(chunks).toString("utf8"))
-    );
+    const input: unknown = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+    if (expectedRoot !== undefined) {
+      const roots = await inspectCheckout(cwd, { kind: "roots" });
+      if (roots.kind !== "roots" || roots.checkoutRoot !== expectedRoot)
+        throw new Error("The session checkout changed.");
+      if (!isCheckoutArgv(input)) throw new Error("Invalid command arguments.");
+      const output = await execFileAsync(input[0], input.slice(1), {
+        cwd: roots.checkoutRoot,
+        timeout: 15_000,
+        killSignal: "SIGKILL",
+        maxBuffer: 256 * 1024,
+      }).then(
+        (result) => ({ ...result, exitCode: 0 }),
+        (error) => {
+          if (typeof error.code !== "number") throw error;
+          return {
+            stdout: error.stdout,
+            stderr: error.stderr,
+            exitCode: error.code,
+          };
+        }
+      );
+      process.stdout.write(JSON.stringify(output));
+      return;
+    }
+    const query = parseQuery(input);
     const reply = await inspectCheckout(cwd, query);
     await new Promise<void>((resolve, reject) => {
       process.stdout.write(encodeReply(reply), (error) =>

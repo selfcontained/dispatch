@@ -1,7 +1,7 @@
 import { remotePlacement } from "@dispatch/runner-protocol";
 import type { Effort } from "@dispatch/shared";
 import { validateAgentEffort } from "../shared/agent-effort.js";
-import { discoverPersonas, resolveLaunchPersona } from "../personas/resolve.js";
+import { resolveLaunchPersona } from "../personas/resolve.js";
 import type { Pool } from "pg";
 
 import type { AgentManager, AgentRecord } from "../agents/manager.js";
@@ -11,13 +11,19 @@ import {
   getEnabledAgentTypes,
   isCliAgentType,
 } from "../agent-type-settings.js";
-import { getBuiltInPersona } from "../personas/built-in.js";
+import {
+  appendBuiltInPersonas,
+  BUILT_IN_PERSONAS,
+  getBuiltInPersona,
+} from "../personas/built-in.js";
 import {
   supportsPersonaType,
   assemblePersonaPrompt,
   buildStandardFeedbackGuidance,
   MAX_PERSONA_PROMPT_BYTES,
   loadPersonaFromCheckout,
+  loadCheckoutPersonas,
+  mergePersonasWithWorktreePrecedence,
   type PersonaDefinition,
 } from "../personas/loader.js";
 import {
@@ -30,6 +36,8 @@ import { LEGACY_OWNERS_PATH, OWNERS_PATH } from "../personas/paths.js";
 import { validateAgentModel } from "../shared/agent-models.js";
 import type { PublishUiEvent } from "./mcp-handler-types.js";
 
+import { personaCatalog } from "../personas/catalog.js";
+import { mcpCheckoutRoots, readAgentCheckoutFile } from "./mcp-checkout.js";
 import { PERSONA_CONTEXT_ARG } from "../agents/acp/persona-context.js";
 
 const CODEX_FULL_ACCESS_ARG = "--dangerously-bypass-approvals-and-sandbox";
@@ -42,18 +50,53 @@ export type CreatePersonaHandlersDeps = {
   withStreamFlag: (agent: AgentRecord) => AgentRecord & { hasStream: boolean };
 };
 
-async function readAgentCheckoutFile(
+export async function discoverSessionPersonas(
   manager: AgentManager,
-  agent: AgentRecord,
-  path: string
+  agent: AgentRecord
 ) {
-  const reply = await manager.inspectCheckout(agent, {
-    kind: "readFile",
-    path,
-  });
-  if (reply.kind !== "readFile")
-    throw new Error("Runner did not return the checkout file.");
-  return reply.content;
+  const warnings: string[] = [];
+  const local = await loadCheckoutPersonas(
+    async (path) => {
+      const reply = await manager.inspectCheckout(agent, {
+        kind: "listFiles",
+        path,
+      });
+      if (reply.kind !== "listFiles")
+        throw new Error("Runner did not return a file list.");
+      return reply.names;
+    },
+    (path) => readAgentCheckoutFile(manager, agent, path),
+    warnings
+  );
+  const root = remotePlacement(agent.cwd)
+    ? null
+    : (await mcpCheckoutRoots(manager, agent)).checkoutRoot;
+  const catalog = root ? await personaCatalog.get(root, false, false) : null;
+  warnings.push(...(catalog?.warnings ?? []));
+  const personas = appendBuiltInPersonas(
+    mergePersonasWithWorktreePrecedence({
+      worktreePersonas: local,
+      repoPersonas: catalog?.personas ?? [],
+    }),
+    BUILT_IN_PERSONAS
+  );
+  return {
+    personas,
+    warnings,
+    refreshing: catalog?.refreshing ?? false,
+    updatedAt: catalog?.updatedAt ?? null,
+  };
+}
+
+export async function readSessionOwnerRules(
+  manager: AgentManager,
+  agent: AgentRecord
+) {
+  for (const path of [OWNERS_PATH, LEGACY_OWNERS_PATH]) {
+    const content = await readAgentCheckoutFile(manager, agent, path);
+    if (content !== null) return { path, content };
+  }
+  return null;
 }
 
 export async function resolveRunnerPersona(
@@ -64,7 +107,15 @@ export async function resolveRunnerPersona(
   const persona =
     (await loadPersonaFromCheckout(slug, (path) =>
       readAgentCheckoutFile(manager, agent, path)
-    )) ?? getBuiltInPersona(slug);
+    )) ??
+    (remotePlacement(agent.cwd)
+      ? getBuiltInPersona(slug)
+      : await resolveLaunchPersona(
+          agentWorkspaceDir(agent),
+          slug,
+          undefined,
+          "catalog"
+        ));
   if (!persona)
     throw new Error(
       `Persona "${slug}" not found in this checkout or built-ins.`
@@ -121,7 +172,7 @@ export function createPersonaHandlers(deps: CreatePersonaHandlersDeps) {
       parent.fullAccess,
       () =>
         opts.resolvedPersona ??
-        resolveLaunchPersona(cwd, opts.persona, "review")
+        resolveRunnerPersona(agentManager, parent, opts.persona)
     );
   }
 
@@ -306,17 +357,12 @@ export function createPersonaHandlers(deps: CreatePersonaHandlersDeps) {
     const reviewedState = { head: changes.head, stateId: changes.stateId };
     const readCheckoutFile = (path: string) =>
       readAgentCheckoutFile(agentManager, parent, path);
-    let ownersPath = OWNERS_PATH;
-    let content = await readCheckoutFile(ownersPath);
-    if (content === null) {
-      ownersPath = LEGACY_OWNERS_PATH;
-      content = await readCheckoutFile(ownersPath);
-    }
-    if (content === null)
+    const owners = await readSessionOwnerRules(agentManager, parent);
+    if (!owners)
       throw new Error(
         `No ${OWNERS_PATH} found in this workspace. Add ownership rules before launching owner reviews.`
       );
-    const config = parseCodeowners(content, ownersPath);
+    const config = parseCodeowners(owners.content, owners.path);
     const resolvedPlan = resolveCodeowners(
       config,
       changes.files,
@@ -432,12 +478,14 @@ export function createPersonaHandlers(deps: CreatePersonaHandlersDeps) {
     return reply;
   }
 
-  async function listPersonas(agentCwd: string) {
+  async function listPersonas(agentId: string) {
+    const agent = await agentManager.getAgent(agentId);
+    if (!agent) throw new Error("Agent not found.");
     const {
       personas: loaded,
       warnings,
       refreshing,
-    } = await discoverPersonas(agentCwd, "workspace");
+    } = await discoverSessionPersonas(agentManager, agent);
     if (refreshing)
       warnings.push(
         "Default-branch persona catalog is refreshing in the background. This list contains currently available definitions; list again shortly for newly merged personas."

@@ -644,6 +644,35 @@ export async function runRemoteRunner(filename: string) {
           case "log":
             result(await supervisor.log(agentId, workspace));
             break;
+          case "runCheckout": {
+            const cwd = await supervisor.checkoutDirectory(
+              agentId,
+              workspace,
+              target?.cwd
+            );
+            const child = execute(
+              setpriv,
+              [
+                ...childArgs,
+                ...selfCommand("runner-inspect-checkout"),
+                cwd,
+                "--run-command",
+                command.expectedRoot,
+              ],
+              { env, timeout: 20_000, maxBuffer: 1024 * 1024 }
+            );
+            child.child.stdin?.on("error", () => {});
+            child.child.stdin?.end(JSON.stringify(command.argv));
+            try {
+              const { stdout } = await child;
+              result(stdout);
+            } catch {
+              throw new Error(
+                "The runner could not execute the checkout command."
+              );
+            }
+            break;
+          }
           case "repo": {
             if (!(await supervisor.isBound(agentId, workspace)))
               throw new Error("Agent is not bound to this workspace");
@@ -725,6 +754,8 @@ export async function runRemoteRunner(filename: string) {
           pullRequestWatch: true,
           pullRequestEvidence: true,
           checkoutInspection: true,
+          checkoutMetadata: true,
+          checkoutCommands: true,
           workspacePreparation: true,
           sessionCheckout: true,
           checkoutRelease: true,

@@ -127,6 +127,28 @@ function createMockDeps() {
         reviewAgentType: null,
         filesDir: null,
       })),
+      inspectCheckout: vi.fn(async (_agent, query) => {
+        if (query.kind === "roots")
+          return {
+            kind: "roots",
+            checkoutRoot: "/repo",
+            repositoryRoot: "/repo",
+          };
+        if (query.kind === "listFiles")
+          return {
+            kind: "listFiles",
+            names: query.path === ".agents/personas" ? ["security.md"] : [],
+          };
+        const persona = query.path.endsWith("/security.md")
+          ? await loadPersonaBySlug("/repo", "security")
+          : null;
+        return {
+          kind: "readFile",
+          content: persona
+            ? `---\ntype: ${persona.type ?? "review"}\nname: ${persona.name}\ndescription: ${persona.description ?? "Security review"}\n---\n${persona.body}`
+            : null,
+        };
+      }),
       listAgents: vi.fn(async () => []),
       createAgent: vi.fn(async (opts: any) => ({
         id: "agt_new1",
@@ -442,7 +464,7 @@ describe("createMcpHandlers", () => {
 
   describe("listPersonas", () => {
     it("returns personas mapped to slug/name/description", async () => {
-      const result = await handlers.listPersonas("/repo");
+      const result = await handlers.listPersonas("agt_test1");
       expect(result).toEqual({
         warnings: [],
         personas: [

@@ -2,7 +2,6 @@ import { createRiskReader } from "../shared/mcp/pull-request-risk-tools.js";
 import type { PullRequestRefresher } from "../agents/pull-request-refresher.js";
 import type { RedeemCodexReset } from "../agents/codex-reset.js";
 import type { ScheduledMessageService } from "../scheduled-messages/service.js";
-import path from "node:path";
 
 import type { FastifyInstance } from "fastify";
 import { isJSONRPCRequest } from "@modelcontextprotocol/sdk/types.js";
@@ -14,7 +13,10 @@ import { createProviderPlansReporter } from "../agents/provider-plans.js";
 import type { UsageCallbacks } from "../shared/mcp/usage-tools.js";
 import type { AgentManager } from "../agents/manager.js";
 import { remotePlacement } from "../agents/remote/protocol.js";
-import { agentWorkspaceDir } from "../agents/workspace-target.js";
+import {
+  agentWorkspaceDir,
+  resolveLaunchLocation,
+} from "../agents/workspace-target.js";
 import * as telemetry from "../agents/telemetry.js";
 import type { LoginLinkStore } from "../auth.js";
 import type { BrainStore } from "../brain/store.js";
@@ -22,10 +24,7 @@ import type { AddJobInput, JobService } from "../jobs/service.js";
 import type { UpdateJobInput } from "../jobs/store.js";
 import type { TemplateService } from "../templates/service.js";
 import type { AddTemplateInput } from "../templates/store.js";
-import {
-  resolveRepoRoot,
-  resolveWorktreeRoot,
-} from "../shared/git/git-context.js";
+import { discoverRepoTools, mcpCheckoutRoots } from "../server/mcp-checkout.js";
 import type { CrudToolCallbacks } from "../shared/mcp/crud-tools.js";
 import { handleMcpRequest } from "../shared/mcp/server.js";
 import type { StreamService } from "../chat/service.js";
@@ -58,6 +57,50 @@ function isOwnerReviewRequest(body: unknown): boolean {
         message.params?.name === "launch_owner_reviews"
     )
   );
+}
+
+async function checkoutContext(
+  deps: McpRouteDeps,
+  agent: NonNullable<Awaited<ReturnType<AgentManager["getAgent"]>>>,
+  body: unknown,
+  authorized: boolean
+) {
+  const placement = remotePlacement(agent.cwd);
+  const workspaceDir = agentWorkspaceDir(agent) ?? agent.cwd;
+  const ownerOnly = isOwnerReviewRequest(body);
+  const roots = ownerOnly
+    ? null
+    : await mcpCheckoutRoots(deps.agentManager, agent);
+  const repoRoot = placement ? null : (roots?.repositoryRoot ?? null);
+  const worktreeRoot = placement ? null : (roots?.checkoutRoot ?? null);
+  // The runner's machine-local paths never become host paths or Brain keys.
+  const brainRepoRoot =
+    placement && agent.projectId && roots?.repositoryRoot
+      ? ((
+          await deps.pool.query(
+            "SELECT repo_root FROM projects WHERE id = $1",
+            [agent.projectId]
+          )
+        ).rows[0]?.repo_root ?? null)
+      : repoRoot;
+  return {
+    workspaceDir,
+    repoRoot,
+    context: {
+      worktreeRoot,
+      brainRepoRoot,
+      toolsRoot: placement ? workspaceDir : (worktreeRoot ?? undefined),
+      discoverRepoTools: ownerOnly
+        ? async () => []
+        : () =>
+            discoverRepoTools(
+              deps.agentManager,
+              agent,
+              authorized,
+              roots?.checkoutRoot ?? null
+            ),
+    },
+  };
 }
 
 type McpRouteDeps = {
@@ -130,7 +173,7 @@ function buildCrudCallbacks(
     listJobs: async (directory) => {
       const jobs = await deps.jobService.listJobs();
       if (!directory) return jobs;
-      const resolved = path.resolve(directory);
+      const resolved = resolveLaunchLocation(directory);
       return jobs.filter((j) => j.directory === resolved);
     },
     getJobById: (jobId) => deps.jobService.getJobById(jobId),
@@ -150,7 +193,7 @@ function buildCrudCallbacks(
     listTemplates: async (directory) => {
       const templates = await deps.templateService.listTemplates();
       if (!directory) return templates;
-      const resolved = path.resolve(directory);
+      const resolved = resolveLaunchLocation(directory);
       return templates.filter((t) => t.directory === resolved);
     },
     getTemplateById: (templateId) =>
@@ -224,18 +267,13 @@ export async function registerMcpRoutes(
         .send({ error: "Token does not match the active job run." });
     }
 
-    let repoRoot: string | null = null;
-    let worktreeRoot: string | null = null;
-    // Repo tools, brain and job defaults follow a moved workspace.
-    const workspaceDir = agentWorkspaceDir(agent) ?? agent.cwd;
-    try {
-      // Owner review gets checkout facts through the runner. Keep the usual
-      // scope for other requests, including batches with repo-dependent tools.
-      if (!remotePlacement(agent.cwd) && !isOwnerReviewRequest(request.body)) {
-        repoRoot = await resolveRepoRoot(workspaceDir);
-        worktreeRoot = await resolveWorktreeRoot(workspaceDir);
-      }
-    } catch {}
+    const checkout = await checkoutContext(
+      deps,
+      agent,
+      request.body,
+      Boolean(bearerToken)
+    );
+    const { workspaceDir, repoRoot } = checkout;
 
     const jobTools = run
       ? {
@@ -294,7 +332,7 @@ export async function registerMcpRoutes(
         fullAccess: agent.fullAccess === true,
       },
       repoRoot,
-      worktreeRoot,
+      ...checkout.context,
       sendNotify: deps.mcpSendNotify,
       renameSession: deps.mcpRenameSession,
       setWorkspace: deps.mcpSetWorkspace,
@@ -302,6 +340,7 @@ export async function registerMcpRoutes(
       listFiles: deps.mcpListFiles,
       deleteFile: deps.mcpDeleteFile,
       listPersonas: deps.mcpListPersonas,
+      listSessionPersonas: true,
       launchOwnerReviews: deps.mcpLaunchOwnerReviews,
       listPersonalities: deps.mcpListPersonalities,
       createPersonality: deps.mcpCreatePersonality,
@@ -360,16 +399,13 @@ export async function registerMcpRoutes(
         .send({ error: "Job agents must use the job-scoped MCP route." });
     }
 
-    let repoRoot: string | null = null;
-    let worktreeRoot: string | null = null;
-    // Repo tools, brain and job defaults follow a moved workspace.
-    const workspaceDir = agentWorkspaceDir(agent) ?? agent.cwd;
-    try {
-      if (!remotePlacement(agent.cwd) && !isOwnerReviewRequest(request.body)) {
-        repoRoot = await resolveRepoRoot(workspaceDir);
-        worktreeRoot = await resolveWorktreeRoot(workspaceDir);
-      }
-    } catch {}
+    const checkout = await checkoutContext(
+      deps,
+      agent,
+      request.body,
+      Boolean(bearerToken)
+    );
+    const { workspaceDir, repoRoot } = checkout;
 
     reply.hijack();
     // Captured before the transport writes anything, so an archive that stops
@@ -406,7 +442,7 @@ export async function registerMcpRoutes(
         fullAccess: agent.fullAccess === true,
       },
       repoRoot,
-      worktreeRoot,
+      ...checkout.context,
       remoteRepoOperation:
         bearerToken && remotePlacement(agent.cwd)
           ? deps.agentManager.remoteRepoOperation(agent)
@@ -418,6 +454,7 @@ export async function registerMcpRoutes(
       listFiles: deps.mcpListFiles,
       deleteFile: deps.mcpDeleteFile,
       listPersonas: deps.mcpListPersonas,
+      listSessionPersonas: true,
       launchOwnerReviews: deps.mcpLaunchOwnerReviews,
       listPersonalities: deps.mcpListPersonalities,
       createPersonality: deps.mcpCreatePersonality,

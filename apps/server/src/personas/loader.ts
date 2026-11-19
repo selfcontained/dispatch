@@ -77,29 +77,53 @@ export async function loadPersonas(
   repoRoot: string,
   warnings: string[] = []
 ): Promise<PersonaDefinition[]> {
+  return loadCheckoutPersonas(
+    (dir) => readdir(path.join(repoRoot, dir)),
+    (file) => readFile(path.join(repoRoot, file), "utf8"),
+    warnings
+  );
+}
+
+export async function loadCheckoutPersonas(
+  listFiles: (dir: string) => Promise<string[]>,
+  readFile: (file: string) => Promise<string | null>,
+  warnings: string[]
+): Promise<PersonaDefinition[]> {
   const personas: PersonaDefinition[] = [];
   const seen = new Set<string>();
+  let bytes = 0;
 
-  for (const personasDir of PERSONA_DIRS) {
-    const dir = path.join(repoRoot, personasDir);
+  for (const directory of PERSONA_DIRS) {
     let entries: string[];
     try {
-      entries = await readdir(dir);
-    } catch {
+      entries = await listFiles(directory);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT")
+        warnings.push(
+          `Could not list personas in ${directory}: ${errorMessage(error)}`
+        );
       continue;
     }
 
-    const mdFiles = entries.filter((f) => f.endsWith(".md")).sort();
-    for (const file of mdFiles) {
-      const slug = file.replace(/\.md$/, "");
+    for (const file of entries.filter((name) => name.endsWith(".md")).sort()) {
+      const slug = file.slice(0, -3);
       if (seen.has(slug)) continue;
+      if (seen.size >= 100) {
+        warnings.push("Persona catalog exceeds the 100-file or 4 MiB limit.");
+        return personas;
+      }
       seen.add(slug);
       try {
-        const content = await readFile(path.join(dir, file), "utf-8");
-        personas.push(toPersonaDefinition(slug, content));
+        const content = await readFile(`${directory}/${file}`);
+        bytes += Buffer.byteLength(content ?? "");
+        if (bytes > 4 * 1024 * 1024) {
+          warnings.push("Persona catalog exceeds the 100-file or 4 MiB limit.");
+          return personas;
+        }
+        if (content !== null) personas.push(toPersonaDefinition(slug, content));
       } catch (error) {
         warnings.push(
-          `Could not load persona ${path.join(personasDir, file)}: ${errorMessage(error)}`
+          `Could not load persona ${directory}/${file}: ${errorMessage(error)}`
         );
       }
     }

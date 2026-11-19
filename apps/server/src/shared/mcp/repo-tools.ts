@@ -4,7 +4,7 @@ import { readFile, stat } from "node:fs/promises";
 import { repoCommandEnvironment } from "../lib/tool-environment.js";
 import { runCommand } from "../lib/run-command.js";
 
-const REPO_TOOL_MANIFEST_PATH = path.join(".dispatch", "tools.json");
+export const REPO_TOOL_MANIFEST_PATH = path.join(".dispatch", "tools.json");
 
 // Cache parsed hooks keyed by manifest path, invalidated by mtime.
 const hooksCache = new Map<string, { mtime: number; hooks: RepoHooks }>();
@@ -79,6 +79,21 @@ export async function loadRepoTools(
   const config = await readRepoToolFile(
     path.join(repoRoot, REPO_TOOL_MANIFEST_PATH)
   );
+  return parseRepoTools(config);
+}
+
+export function parseRepoTools(
+  config: RepoToolFile | null,
+  execute: (
+    command: string[],
+    cwd: string,
+    agentId: string
+  ) => Promise<{
+    exitCode: number;
+    stdout: string;
+    stderr: string;
+  }> = runLocalRepoCommand
+): RepoToolDefinition[] {
   const rawTools = Array.isArray(config?.tools) ? config.tools : [];
 
   return rawTools.map((rawTool, index) => {
@@ -109,13 +124,11 @@ export async function loadRepoTools(
           }
         }
 
-        const result = await runCommand(command, args, {
-          cwd: currentRepoRoot,
-          env: repoCommandEnvironment(agentId),
-          // Allow all exit codes — the agent decides how to handle failures.
-          // Throwing on non-zero hides useful diagnostic output (stderr, partial stdout).
-          allowedExitCodes: Array.from({ length: 256 }, (_, i) => i),
-        });
+        const result = await execute(
+          [command, ...args],
+          currentRepoRoot,
+          agentId
+        );
 
         return {
           agentId,
@@ -132,11 +145,32 @@ export async function loadRepoTools(
   });
 }
 
+function runLocalRepoCommand(
+  [command, ...args]: string[],
+  cwd: string,
+  agentId: string
+) {
+  return runCommand(command, args, {
+    cwd,
+    env: repoCommandEnvironment(agentId),
+    // Return output and exit status even on failure.
+    allowedExitCodes: Array.from({ length: 256 }, (_, i) => i),
+  });
+}
+
+export function parseRepoToolFile(content: string | null): RepoToolFile | null {
+  try {
+    return content === null ? null : JSON.parse(content);
+  } catch {
+    return null;
+  }
+}
+
 async function readRepoToolFile(
   filePath: string
 ): Promise<RepoToolFile | null> {
   try {
-    return JSON.parse(await readFile(filePath, "utf8")) as RepoToolFile;
+    return parseRepoToolFile(await readFile(filePath, "utf8"));
   } catch {
     return null;
   }

@@ -2,6 +2,7 @@ import {
   agentWorkspaceDir,
   type WorkspaceTargetAgent,
 } from "../agents/workspace-target.js";
+import { remotePlacement } from "@dispatch/runner-protocol";
 import { resolveRepoRoot } from "../shared/git/git-context.js";
 
 type ScopedAgent = WorkspaceTargetAgent & { projectId?: string | null };
@@ -34,7 +35,7 @@ export async function agentTaskProject(
   // Probed live, as the MCP routes do, never from cached git context.
   const workspaceDir = agentWorkspaceDir(agent) ?? agent.cwd;
   let repoRoot: string | null = null;
-  if (workspaceDir) {
+  if (workspaceDir && !remotePlacement(workspaceDir)) {
     try {
       repoRoot = await resolveRepoRoot(workspaceDir);
     } catch {}

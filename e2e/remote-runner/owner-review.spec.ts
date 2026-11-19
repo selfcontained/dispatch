@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type APIRequestContext } from "@playwright/test";
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -7,6 +7,7 @@ import path from "node:path";
 import { authHeaders, callMcpToolViaAPI, deleteAgentViaAPI } from "../helpers";
 import {
   enrollViaUi,
+  guest,
   lane,
   newSettledTurn,
   runnerRow,
@@ -37,7 +38,28 @@ function seed(directory: string, marker: string) {
       rules: [{ paths: ["*.txt"], personas: ["code-review"] }],
     })
   );
-  writeFileSync(path.join(directory, ".gitignore"), "provider-invocations\n");
+  writeFileSync(
+    path.join(directory, ".gitignore"),
+    "provider-invocations\n.dispatch/\n.agents/personas/ignored-review.md\n"
+  );
+  mkdirSync(path.join(directory, ".dispatch"), { recursive: true });
+  writeFileSync(
+    path.join(directory, ".dispatch/tools.json"),
+    JSON.stringify({
+      tools: [
+        {
+          name: "fixture",
+          description: marker,
+          command: ["printf", "%s", marker],
+        },
+      ],
+    })
+  );
+  writeFileSync(
+    path.join(directory, ".agents/personas/ignored-review.md"),
+    "---\nname: Ignored Review\n---\nReview the effective checkout."
+  );
+
   git("add", ".");
   git("commit", "-m", "base");
   git("switch", "-c", "unpublished");
@@ -45,6 +67,17 @@ function seed(directory: string, marker: string) {
   git("add", ".");
   git("commit", "-m", "change");
   writeFileSync(path.join(directory, "review-marker.txt"), marker);
+}
+
+async function listTools(request: APIRequestContext, id: string) {
+  const res = await request.post("/api/mcp/" + id, {
+    headers: { Accept: "application/json, text/event-stream" },
+    data: { jsonrpc: "2.0", id: 1, method: "tools/list" },
+  });
+  const text = await res.text();
+  const line = text.split("\n").find((line) => line.startsWith("data: "));
+  expect(line, text).toBeDefined();
+  return JSON.parse(line!.slice(6)).result.tools;
 }
 
 for (const placement of ["This Mac", "Linux runner"] as const) {
@@ -92,6 +125,76 @@ for (const placement of ["This Mac", "Linux runner"] as const) {
           "1500:1500",
           directory,
         ]);
+      }
+      await expect
+        .poll(() => listTools(request, author))
+        .toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({
+              name: "repo_fixture",
+              description: marker,
+            }),
+          ])
+        );
+      const catalog = await callMcpToolViaAPI(
+        request,
+        author,
+        "list_personas",
+        {}
+      );
+      expect(catalog.result).toMatchObject({
+        structuredContent: {
+          personas: expect.arrayContaining([
+            expect.objectContaining({ slug: "ignored-review" }),
+          ]),
+        },
+      });
+      const pickerCatalog = await request.get(
+        "/api/v1/personas?agentId=" + author,
+        {
+          headers: authHeaders(),
+        }
+      );
+      expect(pickerCatalog.ok(), await pickerCatalog.text()).toBe(true);
+      expect(await pickerCatalog.json()).toMatchObject({
+        codeowners: true,
+        personas: expect.arrayContaining([
+          expect.objectContaining({ slug: "ignored-review" }),
+        ]),
+      });
+      if (!remote) {
+        const desktopViewport = page.viewportSize()!;
+        for (const [label, width] of [
+          ["desktop", desktopViewport.width],
+          ["mobile", 390],
+        ] as const) {
+          await page.setViewportSize({ width, height: desktopViewport.height });
+          await page.goto(`/agents/${author}/changes`, {
+            waitUntil: "domcontentloaded",
+          });
+          await page
+            .getByTestId("changes-toolbar")
+            .getByTestId("launch-reviewer-button")
+            .click({ timeout: 15_000 });
+          const dialog = page
+            .getByRole("dialog")
+            .filter({ has: page.getByTestId("launch-reviewer-codeowners") });
+          await expect(
+            dialog.getByText("Ignored Review", { exact: true })
+          ).toBeVisible();
+          await expect(
+            dialog.getByTestId("launch-reviewer-codeowners")
+          ).toBeEnabled();
+          const path = testInfo.outputPath(`persona-picker-${label}.png`);
+          await page.screenshot({ path });
+          await testInfo.attach(`persona picker ${label}`, {
+            path,
+            contentType: "image/png",
+          });
+          await page.keyboard.press("Escape");
+          await expect(dialog).toBeHidden();
+        }
+        await page.setViewportSize(desktopViewport);
       }
       // Leave both views mounted. Mutate outside the agent so ACP turn events
       // and a navigation-triggered refetch cannot account for the update.
@@ -221,6 +324,33 @@ for (const placement of ["This Mac", "Linux runner"] as const) {
         path: screenshot,
         contentType: "image/png",
       });
+      const nested = await callMcpToolViaAPI(
+        request,
+        reviewer,
+        "launch_agent",
+        {
+          persona: "ignored-review",
+          name: "Nested checkout reviewer",
+          type: "claude",
+          prompt: "Review the same checkout.",
+        }
+      );
+      const nestedId = (
+        nested.result as { structuredContent: { agentId: string } }
+      ).structuredContent.agentId;
+      agents.push(nestedId);
+      await page.goto("/agents/" + nestedId, { waitUntil: "domcontentloaded" });
+      await expect(settledTurns(page)).toHaveCount(1, { timeout: 45_000 });
+      expect(await listTools(request, nestedId)).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            name: "repo_fixture",
+            description: marker,
+          }),
+        ])
+      );
+      await deleteAgentViaAPI(request, nestedId);
+      agents.pop();
       await deleteAgentViaAPI(request, reviewer);
       agents.pop();
       await page.goto("/agents/" + author, { waitUntil: "domcontentloaded" });
@@ -263,3 +393,56 @@ for (const placement of ["This Mac", "Linux runner"] as const) {
     }
   });
 }
+
+test("identical runner paths yield separate tool catalogs", async ({
+  page,
+  request,
+}) => {
+  const agents: string[] = [];
+  try {
+    expect(state.runners.alpha.workspaceDir).toBe(
+      state.runners.beta.workspaceDir
+    );
+    for (const name of ["alpha", "beta"] as const) {
+      const runner =
+        (await runnerRow(request, name))?.id ??
+        (await enrollViaUi(page, request, name));
+      const directory = state.runners[name].workspaceDir;
+      const writeManifest = (description: string) => {
+        const json = JSON.stringify({
+          tools: [{ name: "same_path", description, command: ["true"] }],
+        });
+        guest(
+          name,
+          `mkdir -p "${directory}/.dispatch" && printf '%s' '${json}' > "${directory}/.dispatch/tools.json"`
+        );
+      };
+      writeManifest(name);
+      const res = await request.post("/api/v1/agents", {
+        headers: authHeaders(),
+        data: {
+          name: `Catalog ${name}`,
+          type: "claude",
+          useWorktree: false,
+          cwd: `runner://${runner}/${state.workspace}`,
+          initialPrompt: "ready",
+        },
+      });
+      expect(res.ok(), await res.text()).toBe(true);
+      const id = (await res.json()).agent.id as string;
+      agents.push(id);
+      const listed = () => listTools(request, id);
+      const matching = (description: string) =>
+        expect.arrayContaining([
+          expect.objectContaining({ name: "repo_same_path", description }),
+        ]);
+      await expect.poll(listed).toEqual(matching(name));
+      writeManifest(`${name} edited`);
+      await expect.poll(listed).toEqual(matching(`${name} edited`));
+      guest(name, `rm "${directory}/.dispatch/tools.json"`);
+      await expect.poll(listed).not.toEqual(matching(`${name} edited`));
+    }
+  } finally {
+    for (const id of agents) await deleteAgentViaAPI(request, id);
+  }
+});

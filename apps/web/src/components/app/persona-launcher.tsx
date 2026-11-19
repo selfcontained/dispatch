@@ -78,20 +78,20 @@ export function PersonaLauncher({
     useAgentModelCatalog(selectedAgentType);
   const showModelSelect = modelCatalogLoading || modelOptions.length > 0;
 
-  const { data: personaCatalog } = useQuery<{
+  const { data: personaCatalog, refetch: refreshPersonas } = useQuery<{
     personas: PersonaSummary[];
     /** The checkout has a .agents/owners.json to route reviewers by. */
     codeowners: boolean;
     refreshing: boolean;
   }>({
-    queryKey: ["personas", cwd],
+    queryKey: ["personas", agent.id, cwd],
     refetchInterval: (query) => (query.state.data?.refreshing ? 2000 : false),
     queryFn: async () => {
       const result = await api<{
         personas: PersonaSummary[];
         codeowners?: boolean;
         refreshing?: boolean;
-      }>(`/api/v1/personas?cwd=${encodeURIComponent(cwd)}`);
+      }>(`/api/v1/personas?agentId=${encodeURIComponent(agent.id)}`);
       return {
         personas: result.personas,
         codeowners: result.codeowners === true,
@@ -169,6 +169,7 @@ export function PersonaLauncher({
     setNote("");
     launchMutation.reset();
     setTypeDropdownOpen(false);
+    void refreshPersonas();
     setDialogOpen(true);
   };
 

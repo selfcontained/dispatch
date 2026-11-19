@@ -1,3 +1,4 @@
+import { remotePlacement } from "@dispatch/runner-protocol";
 import {
   loadPersonaBySlug,
   loadPersonas,
@@ -18,6 +19,13 @@ export async function discoverPersonas(
   source: "catalog" | "workspace" = "workspace",
   waitForRefresh = false
 ) {
+  if (remotePlacement(cwd))
+    return {
+      personas: [...BUILT_IN_PERSONAS],
+      warnings: [],
+      refreshing: false,
+      updatedAt: null,
+    };
   const root = await resolveWorktreeRoot(cwd).catch(() => cwd);
   const catalog = await personaCatalog.get(root, waitForRefresh);
   const warnings = [...catalog.warnings];
@@ -44,7 +52,10 @@ export async function resolveLaunchPersona(
 ): Promise<PersonaDefinition> {
   if (slug.includes("/") || slug.includes("\\") || slug.includes(".."))
     throw new Error("Invalid persona slug.");
-  const root = cwd && (await resolveWorktreeRoot(cwd).catch(() => cwd));
+  const root =
+    cwd &&
+    !remotePlacement(cwd) &&
+    (await resolveWorktreeRoot(cwd).catch(() => cwd));
   // A malformed local override must fail explicitly, not fall back to a remote copy.
   let persona =
     root && source === "workspace" ? await loadPersonaBySlug(root, slug) : null;

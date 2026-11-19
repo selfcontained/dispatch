@@ -4,6 +4,7 @@ import {
 } from "./session-files.js";
 import { isCheckoutView, type CheckoutView } from "./checkout-view.js";
 import {
+  isCheckoutArgv,
   isCheckoutQuery,
   isCheckoutRelease,
   type CheckoutRelease,
@@ -77,6 +78,12 @@ export type SessionOperation =
       operation: { kind: "describe" } | { kind: "select"; path: string | null };
     }
   | { agentId: string; kind: "checkoutRelease"; operation: CheckoutRelease }
+  | {
+      agentId: string;
+      kind: "runCheckout";
+      expectedRoot: string;
+      argv: string[];
+    }
   | { agentId: string; kind: "repo" };
 
 export type RunnerOperation =
@@ -101,6 +108,8 @@ export type ReadyFrame = {
   pullRequestWatch?: true;
   pullRequestEvidence?: true;
   checkoutInspection?: true;
+  checkoutMetadata?: true;
+  checkoutCommands?: true;
   checkoutViews?: true;
   sharedWorktree?: true;
   workspacePreparation?: true;
@@ -130,6 +139,8 @@ export function parseReadyFrame(value: unknown): ReadyFrame | null {
     version: RUNNER_WIRE_VERSION,
     workspaces: frame.workspaces,
     ...(frame.checkoutViews === true && { checkoutViews: true }),
+    ...(frame.checkoutCommands === true && { checkoutCommands: true }),
+    ...(frame.checkoutMetadata === true && { checkoutMetadata: true }),
     ...(frame.checkoutInspection === true && { checkoutInspection: true }),
     ...(frame.sharedWorktree === true && { sharedWorktree: true }),
     ...(frame.sessionFiles === true && { sessionFiles: true }),
@@ -329,6 +340,8 @@ function isCommand(value: unknown): value is Command {
       return true;
     case "viewCheckout":
       return isCheckoutView(value.query);
+    case "runCheckout":
+      return isCheckoutPath(value.expectedRoot) && isCheckoutArgv(value.argv);
     case "inspectCheckout":
       return isCheckoutQuery(value.query);
     case "attach":

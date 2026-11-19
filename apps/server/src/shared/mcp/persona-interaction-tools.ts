@@ -30,6 +30,7 @@ export type PersonaInteractionCallbacks = {
   parentAgentId?: string | null;
   worktreeRoot?: string | null;
   repoRoot?: string | null;
+  listSessionPersonas?: boolean;
   listPersonas?: McpRequestContext["listPersonas"];
   launchOwnerReviews?: McpRequestContext["launchOwnerReviews"];
 };
@@ -218,7 +219,7 @@ export function registerPersonaInteractionTools(
           const warnings: string[] = [];
           const available = await resolvePersonaList(
             listPersonas,
-            worktreeRoot,
+            callbacks.listSessionPersonas ? agentId : worktreeRoot,
             repoRoot,
             warnings
           );

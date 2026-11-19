@@ -1,3 +1,4 @@
+import { inspectCheckout } from "../src/agents/checkout-inspection.js";
 import { createPersonaHandlers } from "../src/server/mcp-persona-handlers.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
@@ -147,10 +148,20 @@ describe("shared remote persona catalog", () => {
     const cache = new PersonaCatalogCache(delayed);
     const spy = vi
       .spyOn(personaCatalog, "get")
-      .mockImplementation((cwd, wait) => cache.get(cwd, wait));
-    const handlers = createPersonaHandlers({} as never);
+      .mockImplementation((cwd, wait, fallback) =>
+        cache.get(cwd, wait, fallback)
+      );
+    const handlers = createPersonaHandlers({
+      agentManager: {
+        getAgent: async () => ({ cwd: checkout }),
+        inspectCheckout: (
+          _agent: unknown,
+          query: Parameters<typeof inspectCheckout>[1]
+        ) => inspectCheckout(checkout, query),
+      },
+    } as never);
     try {
-      const result = await handlers.listPersonas(checkout);
+      const result = await handlers.listPersonas("author");
       expect(result.warnings.join()).toContain("refreshing in the background");
       expect(fetches).toBe(0);
     } finally {

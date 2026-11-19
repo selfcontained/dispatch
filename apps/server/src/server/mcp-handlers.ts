@@ -167,6 +167,7 @@ async function addressableAgents<
     workspacePath?: string | null;
     parentAgentId?: string | null;
     launchedByAgentId?: string | null;
+    projectId?: string | null;
   },
 >(
   all: T[],
@@ -195,6 +196,10 @@ async function addressableAgents<
     // whoever launched it — the same reason the parent ↔ child bypass exists.
     if (a.id === senderLauncherId || a.launchedByAgentId === agentId) {
       result.push(a);
+      continue;
+    }
+    if (remotePlacement(a.cwd) || (sender && remotePlacement(sender.cwd))) {
+      if (sender?.projectId && sender.projectId === a.projectId) result.push(a);
       continue;
     }
     try {
@@ -384,7 +389,9 @@ async function handleLaunchAgent(
     input.persona || (runnerParent && persona)
       ? runnerParent
         ? await resolveRunnerPersona(deps.agentManager, parent, persona!)
-        : await resolveLaunchPersona(cwd, persona!)
+        : cwd === parentCwd
+          ? await resolveRunnerPersona(deps.agentManager, parent, persona!)
+          : await resolveLaunchPersona(cwd, persona!)
       : null;
   if (selectedPersona && (selectedPersona.type ?? "review") === "review") {
     if (template)

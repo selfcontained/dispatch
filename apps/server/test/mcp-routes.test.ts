@@ -46,6 +46,17 @@ function createMockDeps() {
     // Only the chat-surface flag reads it from these routes.
     pool: { query: vi.fn(async () => ({ rows: [] })) } as never,
     agentManager: {
+      inspectCheckout: vi.fn(
+        async (
+          _record: { cwd: string },
+          _query: { kind: string }
+        ): Promise<unknown> => ({
+          kind: "roots",
+          checkoutRoot: "/repo",
+          repositoryRoot: "/repo",
+        })
+      ),
+      remoteRepoOperation: vi.fn(),
       permitsRemoteAgentMcp: vi.fn(() => false),
       getAgent: vi.fn(async () => ({
         id: "agt_test1",
@@ -131,6 +142,12 @@ afterAll(async () => {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  deps.agentManager.permitsRemoteAgentMcp.mockReturnValue(false);
+  deps.agentManager.inspectCheckout.mockResolvedValue({
+    kind: "roots",
+    checkoutRoot: "/repo",
+    repositoryRoot: "/repo",
+  });
   deps.agentManager.getAgent.mockResolvedValue({
     id: "agt_test1",
     cwd: "/tmp/test",
@@ -321,6 +338,62 @@ describe("usage callback wiring", () => {
   );
 });
 
+describe("runner-scoped manifests", () => {
+  it("keeps identical remote paths separate and reads edits on the next request", async () => {
+    deps.agentManager.permitsRemoteAgentMcp.mockReturnValue(true);
+    const agent = await deps.agentManager.getAgent();
+    const manifests = new Map([
+      ["runner://rnr_alpha/proof", "alpha"],
+      ["runner://rnr_beta/proof", "beta"],
+    ]);
+    deps.agentManager.inspectCheckout.mockImplementation(
+      async (record, query) => {
+        if (query.kind === "roots")
+          return {
+            kind: "roots",
+            checkoutRoot: "/work/repo",
+            repositoryRoot: "/work/repo",
+          };
+        const description = manifests.get(record.cwd);
+        return {
+          kind: "readFile",
+          content: description
+            ? JSON.stringify({
+                tools: [{ name: "proof", command: ["true"], description }],
+              })
+            : null,
+        };
+      }
+    );
+    const list = async (cwd: string) => {
+      deps.agentManager.getAgent.mockResolvedValue({ ...agent, cwd });
+      const res = await app.inject({
+        method: "POST",
+        url: "/api/mcp/agt_test1",
+        payload: {},
+      });
+      expect(res.statusCode).toBe(200);
+      const context = vi.mocked(handleMcpRequest).mock.calls.at(-1)?.[3];
+      expect(context).toMatchObject({ repoRoot: null, worktreeRoot: null });
+      return context?.discoverRepoTools?.();
+    };
+    await expect(list("runner://rnr_alpha/proof")).resolves.toMatchObject([
+      { name: "repo_proof", description: "alpha" },
+    ]);
+    await expect(list("runner://rnr_beta/proof")).resolves.toMatchObject([
+      { name: "repo_proof", description: "beta" },
+    ]);
+    manifests.set("runner://rnr_beta/proof", "updated");
+    await expect(list("runner://rnr_beta/proof")).resolves.toMatchObject([
+      { name: "repo_proof", description: "updated" },
+    ]);
+    manifests.delete("runner://rnr_beta/proof");
+    await expect(list("runner://rnr_beta/proof")).resolves.toEqual([]);
+    expect(resolveRepoRoot).not.toHaveBeenCalled();
+    expect(resolveWorktreeRoot).not.toHaveBeenCalled();
+  });
+});
+
 describe("owner review checkout boundary", () => {
   it.each(["/api/mcp/agt_test1", "/api/mcp/jobs/run_1/agt_test1"])(
     "skips host checkout discovery for owner calls on %s",
@@ -352,8 +425,12 @@ describe("owner review checkout boundary", () => {
         payload: [call, { ...call, id: 2, params: { name: "list_personas" } }],
       });
       expect(res.statusCode).toBe(200);
-      expect(resolveRepoRoot).toHaveBeenCalledWith("/tmp/test");
-      expect(resolveWorktreeRoot).toHaveBeenCalledWith("/tmp/test");
+      expect(deps.agentManager.inspectCheckout).toHaveBeenCalledWith(
+        expect.objectContaining({ cwd: "/tmp/test" }),
+        { kind: "roots" }
+      );
+      expect(resolveRepoRoot).not.toHaveBeenCalled();
+      expect(resolveWorktreeRoot).not.toHaveBeenCalled();
     }
   );
 });
