@@ -182,17 +182,59 @@ describe("agent host", () => {
     }
   }, 30_000);
 
+  it.each(["server startup", "direct config import"])(
+    "ignores dotenv's adapter during %s",
+    (mode) => {
+      const configUrl = pathToFileURL(
+        path.resolve(here, "../src/config.ts")
+      ).href;
+      const startupUrl = pathToFileURL(
+        path.resolve(here, "../src/startup/acp-adapter.ts")
+      ).href;
+      const dotenv = path.join(cwd, "server.env");
+      writeFileSync(
+        dotenv,
+        `DISPATCH_ACP_ADAPTER_COMMAND='${JSON.stringify([fakeAgent])}'\n`
+      );
+      const env: NodeJS.ProcessEnv = {
+        ...process.env,
+        DATABASE_URL: "postgres://unused",
+        DISPATCH_HOST: "127.0.0.1",
+        DOTENV_CONFIG_PATH: dotenv,
+      };
+      delete env.DISPATCH_ACP_ADAPTER_COMMAND;
+      const result = execFileSync(
+        "bun",
+        [
+          "--no-env-file",
+          "-e",
+          `const { captureStartupAcpAdapter } = await import(${JSON.stringify(startupUrl)});
+         if (${mode === "server startup"}) captureStartupAcpAdapter();
+         const { loadConfig } = await import(${JSON.stringify(configUrl)});
+         console.log(JSON.stringify([!!process.env.DISPATCH_ACP_ADAPTER_COMMAND, loadConfig().acpAdapter ?? null]));`,
+        ],
+        { cwd, env, encoding: "utf8" }
+      );
+      expect(JSON.parse(result)).toEqual([true, null]);
+    }
+  );
+
   it("uses the adapter exported before server startup", async () => {
     const id = "agt_server_adapter";
     const configUrl = pathToFileURL(
       path.resolve(here, "../src/config.ts")
+    ).href;
+    const startupUrl = pathToFileURL(
+      path.resolve(here, "../src/startup/acp-adapter.ts")
     ).href;
     const result = execFileSync(
       "bun",
       [
         "--no-env-file",
         "-e",
-        `const { loadConfig } = await import(${JSON.stringify(configUrl)});
+        `const { captureStartupAcpAdapter } = await import(${JSON.stringify(startupUrl)});
+         captureStartupAcpAdapter();
+         const { loadConfig } = await import(${JSON.stringify(configUrl)});
          console.log(JSON.stringify(loadConfig().acpAdapter));`,
       ],
       {

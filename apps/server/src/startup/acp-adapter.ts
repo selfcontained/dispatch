@@ -1,10 +1,12 @@
 import type { EngineBins } from "../agents/acp/engine-spec.js";
 
-// Imported before dotenv and login-shell restoration. The server launcher
-// must disable Bun's automatic dotenv loading before this module runs.
-export const startupAcpAdapter = parseAdapter(
-  process.env.DISPATCH_ACP_ADAPTER_COMMAND
-);
+export let startupAcpAdapter: EngineBins["adapter"];
+
+// Called by the server entry point before dotenv and login-shell restoration.
+// The server launcher disables Bun's automatic dotenv loading.
+export function captureStartupAcpAdapter(): void {
+  startupAcpAdapter = parseAdapter(process.env.DISPATCH_ACP_ADAPTER_COMMAND);
+}
 
 function parseAdapter(value: string | undefined): EngineBins["adapter"] {
   if (!value) return undefined;
