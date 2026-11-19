@@ -55,6 +55,17 @@ const memory = (bytes: number) =>
     ? `${Math.round(bytes / 1024 ** 2)} MiB`
     : `${(bytes / 1024 ** 3).toFixed(1)} GiB`;
 
+export function isRunnerHealthFresh(
+  { status, healthReceivedAt }: Runner,
+  now = Date.now()
+) {
+  return (
+    status === "online" &&
+    healthReceivedAt !== undefined &&
+    now - Date.parse(healthReceivedAt) <= 90_000
+  );
+}
+
 export function RunnerHealthDetails({ runner }: { runner: Runner }) {
   const { health, healthReceivedAt } = runner;
   const [open, setOpen] = useState(false);
@@ -70,9 +81,7 @@ export function RunnerHealthDetails({ runner }: { runner: Runner }) {
     tag &&
     /^v?\d+\.\d+\.\d+$/.test(health.version) &&
     isVersionNewer(tag, health.version);
-  const stale =
-    runner.status !== "online" ||
-    Date.now() - Date.parse(healthReceivedAt) > 90_000;
+  const stale = !isRunnerHealthFresh(runner);
   return (
     <details
       className="text-sm text-muted-foreground"

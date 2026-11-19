@@ -19,7 +19,7 @@ import {
 } from "@/hooks/use-runners";
 import { cn } from "@/lib/utils";
 import { RunnerGitHubAccount } from "./runner-github-account";
-import { RunnerHealthDetails } from "./runner-health";
+import { isRunnerHealthFresh, RunnerHealthDetails } from "./runner-health";
 import { RunnerOnboarding, RunnerPairingRequests } from "./runner-onboarding";
 
 const STATUS_LABEL: Record<RunnerStatus, string> = {
@@ -39,23 +39,38 @@ const STATUS_DOT: Record<RunnerStatus, string> = {
 function RunnerStatusLabel({
   runner,
   inRoster,
+  checkedAt,
 }: {
   runner: Runner;
   inRoster?: boolean;
+  checkedAt?: number;
 }) {
+  const health =
+    checkedAt !== undefined && isRunnerHealthFresh(runner, checkedAt)
+      ? runner.health
+      : undefined;
   return (
-    <span
-      className="inline-flex items-center gap-1.5 text-xs text-muted-foreground"
-      data-testid={inRoster ? `runner-status-${runner.id}` : undefined}
-    >
+    <span className="inline-flex max-w-full items-baseline gap-1.5 whitespace-normal text-xs text-muted-foreground">
       <span
         className={cn(
-          "size-1.5 shrink-0 rounded-full",
+          "size-1.5 shrink-0 self-start rounded-full mt-[5px]",
           STATUS_DOT[runner.status]
         )}
         aria-hidden="true"
       />
-      {STATUS_LABEL[runner.status]}
+      <span>
+        <span data-testid={inRoster ? `runner-status-${runner.id}` : undefined}>
+          {STATUS_LABEL[runner.status]}
+        </span>
+        {health && (
+          <span>
+            {" · "}
+            {health.working > 0
+              ? `${health.working} working`
+              : `${health.sessions} ${health.sessions === 1 ? "session" : "sessions"}`}
+          </span>
+        )}
+      </span>
     </span>
   );
 }
@@ -72,6 +87,8 @@ export function RunnerSettings(): JSX.Element {
   const history = (runners.data ?? []).filter(
     (runner) => runner.status === "revoked"
   );
+  // Recheck freshness after each poll, even if the roster data is unchanged.
+  const checkedAt = Math.max(runners.dataUpdatedAt, runners.errorUpdatedAt);
   const selected = roster.find((runner) => runner.id === selectedId);
 
   useEffect(() => {
@@ -180,7 +197,11 @@ export function RunnerSettings(): JSX.Element {
                         <span className="max-w-full truncate">
                           {runner.name}
                         </span>
-                        <RunnerStatusLabel runner={runner} inRoster />
+                        <RunnerStatusLabel
+                          runner={runner}
+                          inRoster
+                          checkedAt={checkedAt}
+                        />
                       </span>
                       <ChevronRight
                         className="size-4 shrink-0 text-muted-foreground"

@@ -159,3 +159,48 @@ it("leaves pairing approvals actionable after closing the Add runner dialog", as
     }
   );
 });
+
+it("shows reported activity only for online runners with fresh health", async () => {
+  const freshTime = new Date().toISOString();
+  const staleTime = new Date(Date.now() - 91_000).toISOString();
+  const health = {
+    version: "1.2.3",
+    sessions: 3,
+    working: 2,
+    cpuPercent: 10,
+    memoryUsed: 256,
+    memoryTotal: 1024,
+  };
+  vi.mocked(api).mockImplementation(async (path) => {
+    if (path === "/api/v1/runners/connect") return { requests: [] };
+    if (path !== "/api/runners") throw new Error(`Unexpected endpoint ${path}`);
+    return {
+      runners: [
+        { ...online, health, healthReceivedAt: freshTime },
+        { ...offline, health, healthReceivedAt: freshTime },
+        { ...online, id: "stale", health, healthReceivedAt: staleTime },
+        { ...online, id: "legacy" },
+        {
+          ...online,
+          id: "idle",
+          health: { ...health, sessions: 0, working: 0 },
+          healthReceivedAt: freshTime,
+        },
+      ],
+    };
+  });
+
+  renderSettings();
+  const roster = await screen.findByTestId("runner-list");
+  expect(
+    within(roster).getByTestId("runner-select-build").textContent
+  ).toContain("Online · 2 working");
+  expect(
+    within(roster).getByTestId("runner-select-idle").textContent
+  ).toContain("Online · 0 sessions");
+  for (const id of ["spare", "stale", "legacy"]) {
+    expect(
+      within(roster).getByTestId(`runner-select-${id}`).textContent
+    ).not.toContain(" · ");
+  }
+});
