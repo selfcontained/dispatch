@@ -4,7 +4,7 @@ import {
 } from "../../shared/process/owned-processes.js";
 import { preparePersonaContext } from "./persona-context.js";
 import { sameConversation, type PromptConversation } from "@dispatch/shared";
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { existsSync, openSync } from "node:fs";
 import {
   mkdir,
@@ -172,6 +172,23 @@ async function readPid(stateDir: string): Promise<number | null> {
     return Number.isInteger(pid) && pid > 0 ? pid : null;
   } catch {
     return null;
+  }
+}
+
+function hostPidMatches(pid: number, dir: string): boolean {
+  if (!pidAlive(pid)) return false;
+  try {
+    const command = execFileSync(
+      "/bin/ps",
+      ["-p", String(pid), "-o", "args="],
+      {
+        encoding: "utf8",
+        timeout: 2_000,
+      }
+    ).trim();
+    return command.endsWith(`agent-host --state ${dir}`);
+  } catch {
+    return false;
   }
 }
 
@@ -1353,7 +1370,7 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
           // Not connected; fall through to the signal.
         }
       }
-      if (pid && pidAlive(pid)) {
+      if (pid && hostPidMatches(pid, dir)) {
         const deadline = Date.now() + (force ? 0 : STOP_GRACE_MS);
         while (Date.now() < deadline && pidAlive(pid)) {
           await new Promise((resolve) => setTimeout(resolve, 200));
@@ -1379,6 +1396,46 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
       await unlink(hostFile(dir, "pid")).catch(() => {});
     },
 
+    async stopIdleHostForRecovery(agentId) {
+      if (runtime.isBusy(agentId)) return false;
+      const client = new HostClient({
+        agentId,
+        socketPath: hostFile(stateDir(agentId), "socket"),
+        logger,
+        fromSeq: () => Number.MAX_SAFE_INTEGER,
+        journalId: () => null,
+        onEvent: () => {},
+        onWelcome: () => {},
+        onGone: () => {},
+      });
+      try {
+        const welcome = await client.connect(ATTACH_TIMEOUT_MS);
+        if (
+          welcome.agentId !== agentId ||
+          welcome.turn ||
+          runtime.isBusy(agentId)
+        )
+          return false;
+        client.shutdown(false, true);
+        const deadline = Date.now() + STOP_GRACE_MS;
+        const pid = await readPid(stateDir(agentId));
+        while (
+          pid &&
+          hostPidMatches(pid, stateDir(agentId)) &&
+          Date.now() < deadline
+        ) {
+          await new Promise((resolve) => setTimeout(resolve, 100));
+        }
+        if (pid && hostPidMatches(pid, stateDir(agentId))) return false;
+        await runtime.stop(agentId, false);
+        return true;
+      } catch {
+        return false;
+      } finally {
+        client.close();
+      }
+    },
+
     async listHosted() {
       let ids: string[] = [];
       try {
@@ -1390,7 +1447,7 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
       for (const id of ids) {
         if (!id.startsWith("agt_")) continue;
         const pid = await readPid(stateDir(id));
-        if (pid && pidAlive(pid)) hosted.push(id);
+        if (pid && hostPidMatches(pid, stateDir(id))) hosted.push(id);
       }
       return hosted;
     },

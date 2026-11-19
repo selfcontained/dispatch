@@ -17,7 +17,7 @@ public struct RecoveryDeferral: LocalizedError, Equatable {
         if code == "ATTEMPT_CHANGED" {
             return "Dispatch postponed the update because its preparation state changed. It will retry automatically; no work was interrupted."
         }
-        return "Dispatch postponed the update because agents are still working\(reasons.isEmpty ? "" : " (\(reasons.prefix(3).joined(separator: ", ")))"). It will retry when they are idle; no work was interrupted."
+        return "Dispatch postponed the update because agents are still working\(reasons.isEmpty ? "" : " (\(reasons.joined(separator: ", ")))"). Wait for these agents to finish, then retry the update."
     }
 }
 

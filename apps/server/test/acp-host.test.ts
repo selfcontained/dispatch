@@ -150,6 +150,56 @@ describe("agent host", () => {
     rmSync(cwd, { recursive: true, force: true });
   });
 
+  it("stops an idle orphan without replay and resumes the same session for the next prompt", async () => {
+    const id = "agt_recovery_idle";
+    const first = runtimeWith(stateRoot, () => 0);
+    const session = await first.runtime.launch(launchFor(id, cwd));
+    await expectEcho(first.runtime, first.seen, id, "before update");
+    await until(() => !first.runtime.isBusy(id));
+    const probation = runtimeWith(stateRoot, () => 0);
+    try {
+      expect(await probation.runtime.listHosted()).toContain(id);
+      expect(await probation.runtime.stopIdleHostForRecovery!(id)).toBe(true);
+      expect(await probation.runtime.listHosted()).not.toContain(id);
+      expect(probation.seen).toEqual([]);
+      const next = await probation.runtime.launch({
+        ...launchFor(id, cwd),
+        resumeSessionId: session.sessionId,
+      });
+      expect(next.sessionId).toBe(session.sessionId);
+      expect(next.resumed).toBe(true);
+      await expectEcho(probation.runtime, probation.seen, id, "after update");
+    } finally {
+      await probation.runtime.stop(id, true);
+      await first.runtime.stop(id, true);
+    }
+  }, 30_000);
+
+  it("leaves an orphan host with an unsettled turn running", async () => {
+    const id = "agt_recovery_busy";
+    const first = runtimeWith(stateRoot, () => 0);
+    await first.runtime.launch(launchFor(id, cwd));
+    const active = first.runtime.prompt(id, "sleep:60000");
+    void active.settled.catch(() => {});
+    try {
+      await active.accepted;
+      const probation = runtimeWith(stateRoot, () => 0);
+      expect(await probation.runtime.stopIdleHostForRecovery!(id)).toBe(false);
+      expect(await probation.runtime.listHosted()).toContain(id);
+      expect(probation.seen).toEqual([]);
+    } finally {
+      await first.runtime.stop(id, true);
+    }
+  }, 30_000);
+
+  it("does not count a foreign reused PID as an agent host", async () => {
+    const id = "agt_foreign_pid";
+    mkdirSync(path.join(stateRoot, id), { recursive: true });
+    writeFileSync(path.join(stateRoot, id, "host.pid"), String(process.pid));
+    const { runtime } = runtimeWith(stateRoot, () => 0);
+    expect(await runtime.listHosted()).not.toContain(id);
+  });
+
   it.each(["graceful", "force", "early-exit"])(
     "cleans detached owned children through real runtime (%s)",
     async (mode) => {

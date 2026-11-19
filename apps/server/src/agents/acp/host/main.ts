@@ -432,6 +432,7 @@ async function main(): Promise<void> {
         return;
       }
       case "shutdown":
+        if (message.idleOnly && openTurn) return;
         await shutdown(message.force ? "SIGKILL" : "graceful");
         return;
     }
