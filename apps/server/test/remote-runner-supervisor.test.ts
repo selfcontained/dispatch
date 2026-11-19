@@ -403,7 +403,7 @@ describe("runner session supervision", () => {
     await expect(discarding).rejects.toThrow("still in use");
   });
 
-  it("rejects invalid, unbound and chained author references", async () => {
+  it("rejects invalid, unbound and indirect self references", async () => {
     const running = await start([]);
     await expect(
       running.launch(sharedLaunch(reviewerId), undefined)
@@ -418,26 +418,94 @@ describe("runner session supervision", () => {
     processes.spawn.mockResolvedValueOnce();
     await running.launch(sharedLaunch(), undefined);
     await expect(
-      running.launch(
-        { ...sharedLaunch(reviewerId), agentId: "agt_chain" },
-        undefined
-      )
-    ).rejects.toThrow("does not own");
+      running.launch({ ...sharedLaunch(reviewerId), agentId }, undefined)
+    ).rejects.toThrow("Invalid author");
     expect(processes.spawn).toHaveBeenCalledTimes(2);
   });
 
-  it("keeps named launches and rejects borrowing through a named workspace", async () => {
+  it("binds a nested managed reviewer directly to the durable checkout owner", async () => {
+    const workspace = MANAGED_WORKSPACE;
+    const nested = "agt_nested";
+    const running = await start([]);
+    await running.launch(launch(workspace), undefined);
+    await running.stop(agentId, workspace, true);
+    processes.spawn.mockResolvedValueOnce();
+    await running.launch(sharedLaunch(), undefined);
+    running.close();
+
+    const recovered = await start([]);
+    processes.spawn.mockResolvedValueOnce();
+    await recovered.launch(
+      { ...sharedLaunch(reviewerId), agentId: nested },
+      undefined
+    );
+    await recovered.discard(reviewerId, workspace);
+    const author = path.join(state, "sessions", agentId);
+    expect(await recovered.checkoutDirectory(nested, workspace)).toBe(author);
+    await expect(recovered.discard(agentId, workspace)).rejects.toThrow(
+      "still in use"
+    );
+    await recovered.discard(nested, workspace);
+    await recovered.discard(agentId, workspace);
+    await expect(stat(author)).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("shares a configured workspace with separate host state and no folder cleanup", async () => {
     const running = await start(["configured", "other"]);
     await running.launch(launch("configured"), root);
-    expect(await running.checkoutDirectory(agentId, "configured")).toBe(
-      await realpath(root)
+    const configured = await realpath(root);
+    const file = path.join(configured, "work.txt");
+    await writeFile(file, "configured work");
+    processes.spawn.mockResolvedValueOnce();
+    await running.launch(sharedLaunch(agentId, "configured"), root);
+    expect(processes.spawn.mock.calls.at(-1)?.[0].at(-1)).toBe(
+      path.join(state, "hosts", reviewerId)
     );
-    await expect(running.checkoutDirectory(agentId, "other")).rejects.toThrow(
-      "not bound"
+    expect(processes.spawn.mock.calls.at(-1)?.[1]).toBe(configured);
+    expect(await running.checkoutDirectory(reviewerId, "configured")).toBe(
+      configured
     );
     await expect(
       running.launch(sharedLaunch(agentId, "other"), root)
-    ).rejects.toThrow("Sharing requires a managed");
+    ).rejects.toThrow("not bound");
+    const alternate = path.join(configured, "alternate");
+    await mkdir(alternate);
+    const redirected = path.join(configured, "redirected");
+    await symlink(alternate, redirected);
+    await expect(
+      running.launch(sharedLaunch(agentId, "configured"), redirected)
+    ).rejects.toThrow("different configured directory");
+    await running.stop(agentId, "configured", true);
+    await running.discard(agentId, "configured");
+    expect(await running.checkoutDirectory(reviewerId, "configured")).toBe(
+      configured
+    );
+    await running.discard(reviewerId, "configured");
+    expect(await readFile(file, "utf8")).toBe("configured work");
+  });
+
+  it("recovers a pre-upgrade configured author's cwd from trusted configuration", async () => {
+    const workspace = "configured";
+    const running = await start([workspace]);
+    await writeFile(path.join(state, "bindings", agentId), workspace);
+    await expect(running.checkoutDirectory(agentId, workspace)).rejects.toThrow(
+      "unavailable"
+    );
+    const configured = await realpath(root);
+    processes.spawn.mockResolvedValueOnce();
+    await running.launch(sharedLaunch(agentId, workspace), root);
+    expect(await running.checkoutDirectory(agentId, workspace)).toBe(
+      configured
+    );
+    expect(await running.checkoutDirectory(reviewerId, workspace)).toBe(
+      configured
+    );
+
+    const legacyInspectId = "agt_legacyinspect";
+    await writeFile(path.join(state, "bindings", legacyInspectId), workspace);
+    expect(
+      await running.checkoutDirectory(legacyInspectId, workspace, root)
+    ).toBe(configured);
   });
 
   it("rejects symlink redirection of a legacy repository checkout", async () => {
