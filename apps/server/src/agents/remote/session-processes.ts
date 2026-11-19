@@ -42,8 +42,7 @@ function linuxKernel() {
   const errno = () => read.i32(symbols.__errno_location()!);
   return {
     lock(fd: number) {
-      if (symbols.flock(fd, 2 | 4) !== 0)
-        throw runnerStateLockError(errno());
+      if (symbols.flock(fd, 2 | 4) !== 0) throw runnerStateLockError(errno());
     },
     signal(fd: number, signal: number) {
       if (symbols.syscall(424, fd, signal, null, 0) === 0) return;

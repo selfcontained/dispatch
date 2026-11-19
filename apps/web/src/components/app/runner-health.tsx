@@ -40,7 +40,10 @@ function RunnerReportTime({ receivedAt }: { receivedAt: string }) {
           <time dateTime={receivedAt}>{relativeTime}</time>
         </TooltipTrigger>
         <TooltipContent>
-          {new Date(receivedAt).toLocaleString(undefined, reportDateTimeOptions)}
+          {new Date(receivedAt).toLocaleString(
+            undefined,
+            reportDateTimeOptions
+          )}
         </TooltipContent>
       </Tooltip>
     </TooltipProvider>
