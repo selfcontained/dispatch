@@ -51,6 +51,7 @@ For changes beyond the portable contract, the implementation tests in
 | -------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
 | Pair, approve, rotate or revoke                                | `remote-runner-connect` and `remote-runner-enrollment` use a test registry and local TLS peers.                               |
 | Start a workload, allocate a session or check out a repository | `remote-runner-startup`, `remote-session-storage` and `runner-repositories` cover host configuration and filesystem behavior. |
+| Reattach or stop a host after the runner daemon restarts       | `remote-runner-supervisor` tests binding, process identity, and cleanup independently of TLS.                                 |
 | Record and recover received events                             | `remote-event-inbox` exercises the durable cursor and payload together.                                                       |
 | Report health or manage an engine                              | `runner-health`, `engine-manager` and `engine-runner-executor` exercise sampling, routing and workload execution.             |
 
@@ -122,7 +123,9 @@ those binaries.
 | `engine`  | JSON-encoded `EngineOperationAck`                     | Newline-delimited `EngineOperationEvent` records in base64 data frames |
 
 An agent command addresses its bound workspace. Engine management is
-runner-wide. Its v1 envelope still carries an advertised workspace and an
+runner-wide. Dispatch callers use `requestSession(placement, operation)` or
+`requestRunner(runnerId, operation)`. Only the v1 adapter fills in the routing
+fields for runner-wide operations. The engine command’s v1 envelope still carries an advertised workspace and an
 agent ID placeholder. Gate it on the runner's `engineManagement` capability.
 
 An execution error uses `result.error`. An attach to a known missing host
@@ -133,6 +136,16 @@ durable cursor described below.
 The portable session types cover commands received by the host, journal replay,
 and prompt receipts. Dispatch-specific host replies and event payloads are
 defined in `apps/server/src/agents/acp/host-protocol.ts`.
+
+### Surviving a daemon restart
+
+On Linux, the runner's session supervisor records each new host's identity
+before allowing it to start the engine. That record belongs to the runner,
+survives its TLS connection, and identifies the process within its boot and
+PID namespace. A replacement daemon can attach to the same host and journal.
+A host that exited, or a machine that rebooted, follows the host-loss path.
+When a prompt's outcome is unknown, the service needs a receipt or journal
+evidence before deciding whether another delivery is safe.
 
 ## Receipts and replay
 

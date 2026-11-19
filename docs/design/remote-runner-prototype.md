@@ -267,9 +267,9 @@ The Lima slice supports bounded operations for launching, attaching, prompting,
 permissions, stopping, and invoking an approved repo tool. It supports trying the
 same Linux artifact on a second host. General scheduling, checkout provisioning,
 arbitrary repo tool manifests, file transfer and git views are still machine-local
-features outside this slice. The implementation supports one manually enrolled
-runner and pre-provisioned standalone workspaces. Full restart recovery of the
-runner daemon itself requires work beyond the service and network reconnect
-tested here. The guest connection uses Lima's host-loopback reachability and
+features outside this slice. This original Lima run used one manually enrolled runner and a pre-provisioned
+workspace. The current Linux runner also recovers live hosts across daemon
+restarts. The multi-runner acceptance suite kills the daemon during a turn
+and checks the host PID, provider invocation count and visible completion. The guest connection uses Lima's host-loopback reachability and
 establishes process and filesystem separation. Subsequent Cloudy and scoped Hangar runs are recorded in the
 [implementation handoff](remote-runner-handoff.md).
