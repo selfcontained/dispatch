@@ -22,7 +22,7 @@ The outer protocol already covers launch, attach, liveness, stop, discard, log t
 
 - Check a new branch, a direct existing branch, a busy branch, a missing package manager and a retry after partial setup. In the field test a valid checkout still lacked dependencies and the guest install exited 137. [Workspace preparation](../../apps/server/src/agents/workspace-prep.ts) · [File seeding](../../apps/server/src/agents/file-seed.ts) · [Runner Git](../../apps/server/src/agents/remote/repository.ts)
 
-**Track the effective checkout.** **Gap for shared managed worktrees.** Local sessions can report a moved workspace. A local child may share its parent’s current worktree or request a new one. Managed remote launch derives its directory from the new agent’s ID. Keep author identity, launching agent, display parent and checkout ownership distinct.
+**Track the effective checkout.** **Present for owner reviews.** A reviewer can borrow the author’s effective checkout by opaque agent ID on This Mac or on a capable Linux runner. Each reviewer has its own session. A managed runner retains the checkout until its owner and borrowers have released it. General child launches and workspace moves still need parity coverage.
 
 - Launch a child in the author’s current checkout and another in a separate checkout. Reviewers keep separate sessions and see the author’s uncommitted files. A cross-runner reference is rejected. [Workspace selection](../../apps/server/src/agents/workspace-target.ts) · [Child launch options](../../apps/server/src/shared/mcp/agent-launch-tools.ts) · [Runner supervisor](../../apps/server/src/agents/remote/session-supervisor.ts)
 
@@ -42,9 +42,9 @@ The outer protocol already covers launch, attach, liveness, stop, discard, log t
 
 ### Working with a checkout
 
-**Select and launch owner reviewers.** **Confirmed gap.** Dispatch currently runs Git in the parent cwd and loads checkout-local ownership rules and persona definitions. Dispatch should retain policy, reviewer selection, threads and findings. The runner supplies checkout facts and scoped file contents, then launches the reviewer in the author’s checkout.
+**Select and launch owner reviewers.** **Present.** Dispatch requests changed paths, HEAD, a checkout state identifier and bounded file reads from the author’s runner. Dispatch loads ownership rules, selects review personas, checks that the review state still matches, and launches a reviewer in the same checkout. Dispatch owns review threads and findings.
 
-- Both real agents called owner review and got Git exit 128 on a runner URL. Repeat on both placements with committed, staged, unstaged, renamed and untracked files. Verify matching owners, correct base and visible files. [Owner handler](../../apps/server/src/server/mcp-persona-handlers.ts) · [Changed-file collection](../../apps/server/src/personas/codeowners.ts) · [Review workflow](../code-owner-reviews.md)
+- The original field test failed when Dispatch passed a runner URL to local Git. The [placement parity test](../../e2e/remote-runner/owner-review.spec.ts) checks an unpublished commit and an untracked marker, reads it through each reviewer, archives the reviewer, and confirms the author retains access. Staged, unstaged and renamed path handling have [checkout-level tests](../../apps/server/test/checkout-inspection.test.ts). [Owner handler](../../apps/server/src/server/mcp-persona-handlers.ts) · [Changed-file collection](../../apps/server/src/personas/codeowners.ts) · [Review workflow](../code-owner-reviews.md)
 
 **Display Changes and worktree state.** **Gap.** Base/ref resolution, file lists, diff stats, individual hunks, image diffs, repo identity and dirty/unmerged state read the checkout. Dispatch owns diff comments, rendering and refresh timing. Background refreshers must use the same placement as foreground requests.
 
