@@ -30,7 +30,7 @@ attach from, or the owner-independent authenticated file-ID metadata lookup.
 ## Runner sessions
 
 Dispatch keeps the authoritative bytes and attachment records on the host.
-The built-in runner delivers startup files and prompt images by reusing their
+The built-in runner delivers startup files and prompt attachments by reusing their
 registered host paths. On remote runners that advertise session file transfer,
 startup files and prompt attachments are copied into the receiving workload's
 `DISPATCH_FILES_DIR`. Input paths in remote prompts refer to that directory.

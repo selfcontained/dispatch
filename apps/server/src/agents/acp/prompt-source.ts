@@ -3,6 +3,12 @@ import type { PromptImage as WirePromptImage } from "@dispatch/runner-protocol";
 /** Host-side attachment reference. A runner name marks an input to stage before ACP submission. */
 export type PromptImage = WirePromptImage & { runnerName?: string };
 
+export function isPromptImageMimeType(mimeType: string): boolean {
+  return ["image/png", "image/jpeg", "image/webp", "image/gif"].includes(
+    mimeType
+  );
+}
+
 /**
  * What a prompt sent to the harness was, for the prompt a turn entry
  * renders. The wire text is an envelope Dispatch built; the feed wants the

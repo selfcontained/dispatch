@@ -1,3 +1,4 @@
+import { isPromptImageMimeType } from "./acp/prompt-source.js";
 import { readSessionFile } from "../files/session-file.js";
 import { readAgentView } from "./checkout-runner.js";
 import type { CheckoutView } from "@dispatch/runner-protocol";
@@ -811,11 +812,7 @@ export class AgentManager {
         }
         delivered.set(source, destination);
       }
-      if (
-        ["image/png", "image/jpeg", "image/webp", "image/gif"].includes(
-          mimeType
-        )
-      )
+      if (isPromptImageMimeType(mimeType))
         prepared.push({ path: destination, mimeType });
     }
     return prepared;

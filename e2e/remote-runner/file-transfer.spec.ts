@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { expect, test } from "@playwright/test";
 import { authHeaders, cleanupE2EAgents, trackAgent } from "../helpers";
-import { chat, enrollViaUi, state } from "./harness";
+import { chat, enrollViaUi, settledTurns, state } from "./harness";
 
 const png = readFileSync(
   new URL("../../apps/web/public/icons/teal/pwa-192.png", import.meta.url)
@@ -97,6 +97,24 @@ test("file transfer keeps local and remote posted bytes after archive", async ({
           );
       };
       await shot("posted");
+      if (lane === "local") {
+        await expect(settledTurns(session)).toHaveCount(2, { timeout: 30_000 });
+        await fileInput.setInputFiles({
+          name: "transfer-notes.txt",
+          mimeType: "text/plain",
+          buffer: Buffer.from("native composer text"),
+        });
+        await expect(
+          session.getByTestId("chat-composer-attachments")
+        ).toBeVisible();
+        await chat(session, "proof-text-transfer");
+        await expect(
+          session.getByText("Read the native composer text file.", {
+            exact: true,
+          })
+        ).toBeVisible({ timeout: 30_000 });
+        await shot("composer-text");
+      }
       const archive = await request.delete(`/api/v1/agents/${id}`, {
         headers: authHeaders(),
       });

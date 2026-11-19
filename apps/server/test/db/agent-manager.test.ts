@@ -245,6 +245,56 @@ beforeEach(async () => {
 });
 
 describe("AgentManager", () => {
+  it("delivers a registered native composer text file through the built-in runner", async () => {
+    const agent = await manager.createAgent({
+      cwd: "/tmp",
+      useWorktree: false,
+    });
+    const file = path.join(agent.filesDir!, "composer.txt");
+    const deliver = vi.spyOn(manager["localRunner"], "deliverSessionFile");
+    const submitted = vi.fn();
+    const chat = new StreamService({
+      pool,
+      publishUiEvent: () => {},
+      getAgent: (id) => manager.getAgent(id),
+      filesRoot: testConfig.filesRoot,
+      delivery: {
+        access: async () => ({ mode: "live" }),
+        held: () => false,
+        activeTurn: () => false,
+        cancel: async () => {},
+        inject: async (id, text, opts) => {
+          submitted(
+            text,
+            await manager["preparePromptFiles"](id, opts?.images ?? [])
+          );
+        },
+      },
+    });
+    try {
+      await writeFile(file, "composer text");
+      const {
+        rows: [attachment],
+      } = await pool.query<{ id: number }>(
+        `INSERT INTO files (agent_id, file_name, source, size_bytes, mime_type)
+         VALUES ($1, 'composer.txt', 'user', 13, 'text/plain') RETURNING id`,
+        [agent.id]
+      );
+      await chat.post(agent.id, {
+        text: "Read the attachment",
+        attachments: [{ type: "file", fileId: attachment.id }],
+      });
+      await chat.waitForInFlightDeliveries(2_000);
+      expect(deliver).toHaveBeenCalledExactlyOnceWith(agent.id, file);
+      expect(submitted).toHaveBeenCalledExactlyOnceWith(
+        expect.stringContaining(`- file: ${file} (text/plain,`),
+        []
+      );
+    } finally {
+      await rm(file, { force: true });
+    }
+  });
+
   describe("createAgent", () => {
     it("persists managed placement across restart and retries archive when the original runner returns", async () => {
       const available = vi.fn(() => true);

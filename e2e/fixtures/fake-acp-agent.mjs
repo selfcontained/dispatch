@@ -259,6 +259,24 @@ const agent = {
       const cwd = cwdBySession.get(params.sessionId) ?? process.cwd();
       const emit = (update) =>
         conn.sessionUpdate({ sessionId: params.sessionId, update });
+      if (text.includes("proof-text-transfer")) {
+        const reference = /^- file: (.+) \(text\/plain,/m.exec(text)?.[1];
+        if (!reference || params.prompt.some((block) => block.type === "image"))
+          throw new Error(
+            "Expected a plain-text attachment path without an ACP image"
+          );
+        const contents = readFileSync(reference, "utf8");
+        if (contents !== "native composer text")
+          throw new Error("Unexpected text attachment contents");
+        await emit({
+          sessionUpdate: "agent_message_chunk",
+          content: {
+            type: "text",
+            text: "Read the native composer text file.",
+          },
+        });
+        return { stopReason: "end_turn" };
+      }
       if (text.includes("proof-reviewed-checkout")) {
         const marker = readFileSync(
           path.join(cwd, "review-marker.txt"),
