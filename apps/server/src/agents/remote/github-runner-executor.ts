@@ -111,9 +111,8 @@ export class GitHubRunnerExecutor {
       "--git-protocol",
       "https",
       "--web",
-      // Runner services have no desktop keyring. gh owns the file in the
-      // workload account's private config; no caller sees the credential.
-      "--insecure-storage",
+      // gh chooses the workload account's native store and falls back to
+      // its private config when running headless without a keyring.
     ]);
     connection.throwIfAborted();
     const child = spawn(command.bin, command.args, {
@@ -179,6 +178,24 @@ export class GitHubRunnerExecutor {
     this.failed = false;
   }
 
+  private async logout(login: string, signal: AbortSignal) {
+    try {
+      await this.run(["auth", "logout", ...hostArgs, "--user", login], signal);
+    } catch (error) {
+      const { stderr } = error as { stderr?: string };
+      if (stderr?.split("\n", 1)[0] !== "unknown flag: --user") throw error;
+      // Debian 12's gh only has one account per host. Its --hostname form
+      // removes that account. Limit the fallback to the verified version.
+      const version = await this.run(["--version"], signal);
+      if (
+        !/^gh version 2\.23\.0(?:\s|$)/.test(version) ||
+        (await this.configuredUser(signal)) !== login
+      )
+        throw error;
+      await this.run(["auth", "logout", ...hostArgs], signal);
+    }
+  }
+
   private async statusOperation(
     operation: GitHubOperation,
     signal: AbortSignal
@@ -211,11 +228,7 @@ export class GitHubRunnerExecutor {
         await this.stopLogin();
         this.failed = false;
         const login = await this.configuredUser(signal);
-        if (login)
-          await this.run(
-            ["auth", "logout", ...hostArgs, "--user", login],
-            signal
-          );
+        if (login) await this.logout(login, signal);
         return this.account(signal);
       }
       default:

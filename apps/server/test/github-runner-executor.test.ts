@@ -23,6 +23,10 @@ async function fixture(
       String.raw`#!/bin/sh
 set -eu
 cd "$HOME"
+if [ "$1" = '--version' ]; then
+  cat gh-version
+  exit 0
+fi
 case "$1 $2" in
   'config get')
     test "$*" = 'config get user --host github.com'
@@ -33,7 +37,7 @@ case "$1 $2" in
     ;;
   'auth login')
     test "$GH_PROMPT_DISABLED" = '1'
-    test "$*" = 'auth login --hostname github.com --git-protocol https --web --insecure-storage'
+    test "$*" = 'auth login --hostname github.com --git-protocol https --web'
     printf '! First copy your one-time code: ABCD-' >&2
     printf '1234\nOpen this URL to continue in your web browser: https://github.com/login/device\n' >&2
     until [ -f authorize ] || [ -f reject ]; do sleep .02; done
@@ -45,7 +49,15 @@ case "$1 $2" in
     git config --global credential.https://github.com.helper "!$0 auth git-credential"
     ;;
   'auth logout')
-    test "$*" = 'auth logout --hostname github.com --user fixture-user'
+    if [ -f gh-version ]; then
+      if [ "$#" = '6' ]; then
+        printf 'unknown flag: --user\n' >&2
+        exit 1
+      fi
+      test "$*" = 'auth logout --hostname github.com'
+    else
+      test "$*" = 'auth logout --hostname github.com --user fixture-user'
+    fi
     rm -f login
     ;;
   'auth git-credential')
@@ -181,5 +193,27 @@ it("clears pending device codes on cancel, disconnect and failed authorization",
     } finally {
       controller.abort();
     }
+  });
+});
+
+it("uses host-only logout only for the verified single-account CLI version", async () => {
+  await fixture(async ({ executor, root }) => {
+    const signal = new AbortController().signal;
+    await writeFile(path.join(root, "login"), "fixture-user");
+    await writeFile(path.join(root, "gh-version"), "gh version 2.24.0");
+    expect(await executor.handle({ type: "logout" }, signal)).toEqual({
+      status: "failed",
+    });
+    expect(await executor.handle({ type: "status" }, signal)).toEqual({
+      status: "signed-in",
+      login: "fixture-user",
+    });
+    await writeFile(
+      path.join(root, "gh-version"),
+      "gh version 2.23.0 (Debian)"
+    );
+    expect(await executor.handle({ type: "logout" }, signal)).toEqual({
+      status: "signed-out",
+    });
   });
 });

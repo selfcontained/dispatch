@@ -222,8 +222,9 @@ code only to the authenticated operator and should keep it out of logs,
 inventory, and durable state.
 
 The Linux implementation uses the runner's dedicated workload account.
-Headless GitHub CLI login stores its credential in the workload user's gh
-configuration file. Managed checkouts and agent HTTPS Git operations use
+GitHub CLI login uses the workload user's native credential store and falls
+back to the user's gh configuration file on headless systems without a
+keyring. Managed checkouts and agent HTTPS Git operations use
 the same account through the gh credential helper. A transport disconnect
 ends a pending login, and a completed credential remains with that
 workload account. Logout removes the active account locally. GitHub
