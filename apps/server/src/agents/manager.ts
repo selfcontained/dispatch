@@ -1,3 +1,8 @@
+import {
+  namingContext,
+  nameNewSession,
+  persistSessionName,
+} from "./session-naming.js";
 import { AttentionHistory } from "../notifications/attention-history.js";
 import { matchingProjects } from "../projects/matching.js";
 import { attentionPreview, type Effort } from "@dispatch/shared";
@@ -1207,10 +1212,7 @@ export class AgentManager {
     }
 
     await this.getRequiredAgent(id);
-    await this.pool.query(
-      `UPDATE agents SET name = $2, updated_at = NOW() WHERE id = $1`,
-      [id, trimmed]
-    );
+    await persistSessionName(this.pool, id, trimmed);
     return (await this.getAgent(id)) as AgentRecord;
   }
 
@@ -1462,6 +1464,14 @@ export class AgentManager {
         await rm(p.filesDir, { recursive: true, force: true }).catch(() => {});
         throw error;
       }
+    }
+    if (!input.name?.trim()) {
+      void nameNewSession(this.pool, p.id, namingContext(input), async () => {
+        const updated = await this.getAgent(p.id);
+        if (updated) this.eventBus.publish(updated);
+      }).catch(() => {
+        /* Naming must never affect launch. */
+      });
     }
     // The launch post is the first turn's envelope, so a launch that carries
     // a prompt waits for the post to be durable before the engine starts.

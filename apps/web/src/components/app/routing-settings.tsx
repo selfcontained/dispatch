@@ -20,6 +20,8 @@ type Status = {
   mode: "off" | "shadow" | "active";
   steeringPreference?: "off" | "active";
   mergeRiskPreference?: "off" | "active";
+  sessionNamingPreference?: "off" | "active";
+  sessionNamingMode?: "off" | "active";
   steeringMode: "off" | "active";
   mergeRiskMode?: "off" | "active";
   modeSource: string;
@@ -54,6 +56,7 @@ export function RoutingSettings(): JSX.Element {
       mode?: "off" | "active";
       steeringMode?: "off" | "active";
       mergeRiskMode?: "off" | "active";
+      sessionNamingMode?: "off" | "active";
       apiKey?: string;
       removeKey?: boolean;
     }) =>
@@ -318,7 +321,7 @@ export function RoutingSettings(): JSX.Element {
                       variant="ghost"
                       className="h-11 w-11 sm:h-8 sm:w-8 shrink-0 hover:text-destructive"
                       aria-label="Remove OpenAI API key"
-                      title="Remove key and turn off routing, steering, and merge risk"
+                      title="Remove key and turn off Dispatch AI features"
                       disabled={save.isPending || check.isPending}
                       onClick={() => save.mutate({ removeKey: true })}
                     >
@@ -399,6 +402,30 @@ export function RoutingSettings(): JSX.Element {
                 {data.configured
                   ? "Steer related messages. Queue new requests."
                   : "Add an OpenAI API key to enable steering."}
+              </p>
+            </div>
+          </label>
+          <label className="flex cursor-pointer items-center gap-3 rounded border border-border px-3 py-2.5 transition-colors hover:bg-muted/50">
+            <Checkbox
+              aria-label="Session naming"
+              checked={
+                data.configured &&
+                (data.sessionNamingPreference ?? data.sessionNamingMode) ===
+                  "active"
+              }
+              disabled={save.isPending || check.isPending || !data.configured}
+              onCheckedChange={(on) =>
+                save.mutate({
+                  sessionNamingMode: on === true ? "active" : "off",
+                })
+              }
+            />
+            <div className="min-w-0">
+              <div className="text-sm font-medium">Session naming</div>
+              <p className="text-xs text-muted-foreground">
+                {data.configured
+                  ? "Send launch text, links, and document excerpts to OpenAI for a topic name."
+                  : "Add an OpenAI API key to enable session naming."}
               </p>
             </div>
           </label>
