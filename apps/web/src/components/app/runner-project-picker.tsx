@@ -76,6 +76,8 @@ export function RunnerProjectPicker({
     setOpen(next);
     setInput("");
   };
+  // Keep the results inside the dialog's scroll lock and clipping boundary.
+  const dialog = trigger.current?.closest<HTMLElement>('[role="dialog"]');
   const hasSelection = Boolean(projectId || repository);
 
   return (
@@ -111,13 +113,15 @@ export function RunnerProjectPicker({
             </Button>
           </PopoverTrigger>
           <PopoverContent
+            container={dialog}
+            collisionBoundary={dialog}
             align="start"
             aria-label="Choose a project or repository"
-            className="w-[var(--radix-popover-trigger-width)] p-0"
+            className="flex w-[var(--radix-popover-trigger-width)] flex-col overflow-hidden p-0"
           >
             <Command
               shouldFilter={false}
-              className="border-0 bg-transparent shadow-none"
+              className="min-h-0 border-0 bg-transparent shadow-none"
             >
               <CommandInput
                 aria-label="Search projects or repositories"
@@ -134,7 +138,7 @@ export function RunnerProjectPicker({
                   Update this runner to search your GitHub repositories.
                 </p>
               )}
-              <CommandList>
+              <CommandList className="min-h-0 touch-pan-y overscroll-contain">
                 {projectMatches.length > 0 && (
                   <CommandGroup heading="Projects">
                     {projectMatches.map((item) => (
