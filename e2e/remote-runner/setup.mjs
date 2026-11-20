@@ -8,12 +8,12 @@ import { execFileSync, spawn } from "node:child_process";
 import {
   chmodSync,
   copyFileSync,
-  existsSync,
   mkdirSync,
   readFileSync,
+  rmdirSync,
+  rmSync,
   writeFileSync,
 } from "node:fs";
-import { createHash } from "node:crypto";
 import { createServer } from "node:net";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -23,10 +23,6 @@ const root = path.resolve(here, "../..");
 const RUNNERS = ["alpha", "beta", "scratch"];
 const WORKSPACE = "proof"; // identical handle on every runner, on purpose
 const WORKSPACE_DIR = "/opt/dispatch-guest-proof";
-// Colima/Docker Desktop share $HOME, not /tmp, with the VM; bind mounts must live here.
-export const base =
-  process.env.REMOTE_E2E_ROOT ??
-  path.join(process.env.HOME, ".cache", "dispatch-remote-e2e");
 // The supervisor uses procps to reap engine descendants during archive.
 const IMAGE = process.env.REMOTE_E2E_IMAGE ?? "node:22-bookworm";
 const sh = (cmd, args, opts = {}) =>
@@ -44,49 +40,21 @@ const freePort = () =>
     });
   });
 
-function artifacts(arch) {
-  const inputs = [
-    "apps/server/src",
-    "apps/server/test/helpers",
-    "e2e/fixtures/runner-file-transfer.mjs",
-    "packages/runner-protocol",
-    "pnpm-lock.yaml",
-  ];
-  const hash = createHash("sha256")
-    .update(sh("bun", ["--version"]))
-    .update(sh("git", ["ls-files", "-s", "--", ...inputs], { cwd: root }))
-    .update(sh("git", ["diff", "HEAD", "--", ...inputs], { cwd: root }))
-    .digest("hex")
-    .slice(0, 16);
-  const dir = path.join(base, `bin-${arch}-${hash}`);
+// All three containers share this pair for the lifetime of the run.
+function artifacts(arch, run) {
+  const dir = path.join(run, "compiled-runner");
+  mkdirSync(dir, { mode: 0o700 });
   const runner = path.join(dir, "dispatch-runner");
   const adapter = path.join(dir, "remote-acp-fixture");
-  if (!existsSync(runner) || !existsSync(adapter)) {
-    mkdirSync(dir, { recursive: true });
-    sh("bun", ["scripts/generate-server-runtime-assets.mjs"], { cwd: root });
-    const target = `bun-linux-${arch === "arm64" ? "arm64" : "x64"}`;
+  sh("bun", ["scripts/generate-server-runtime-assets.mjs"], { cwd: root });
+  const target = `bun-linux-${arch === "arm64" ? "arm64" : "x64"}`;
+  for (const [entry, outfile] of [
+    ["apps/server/src/main.ts", runner],
+    ["apps/server/test/helpers/remote-acp-fixture.ts", adapter],
+  ]) {
     sh(
       "bun",
-      [
-        "build",
-        "--compile",
-        `--target=${target}`,
-        "apps/server/src/main.ts",
-        "--outfile",
-        runner,
-      ],
-      { cwd: root }
-    );
-    sh(
-      "bun",
-      [
-        "build",
-        "--compile",
-        `--target=${target}`,
-        "apps/server/test/helpers/remote-acp-fixture.ts",
-        "--outfile",
-        adapter,
-      ],
+      ["build", "--compile", `--target=${target}`, entry, "--outfile", outfile],
       { cwd: root }
     );
   }
@@ -111,7 +79,7 @@ async function up(run) {
     sh("docker", ["version", "--format", "{{.Server.Arch}}"]).trim() === "arm64"
       ? "arm64"
       : "x64";
-  const bin = artifacts(arch);
+  const bin = artifacts(arch, run);
   const runnerPort = await freePort(); // DISPATCH_RUNNER_PORT: the service's enrolled-mode listener
   const controlPort = await freePort();
   const lanes = [];
@@ -222,6 +190,7 @@ async function up(run) {
 
 function down(run) {
   const id = path.basename(run);
+  let containersRemoved = false;
   try {
     const ids = sh("docker", [
       "ps",
@@ -232,6 +201,7 @@ function down(run) {
       .split(/\s+/)
       .filter(Boolean);
     if (ids.length) sh("docker", ["rm", "-f", ...ids]);
+    containersRemoved = true;
   } catch (e) {
     console.error("container cleanup:", e.message);
   }
@@ -242,7 +212,21 @@ function down(run) {
       try {
         process.kill(Number(pid), "SIGTERM");
       } catch {}
+    rmSync(path.join(run, "pids"), { force: true });
   } catch {}
+  if (!containersRemoved) {
+    process.exitCode = 1;
+    return;
+  }
+  const dir = path.join(run, "compiled-runner");
+  for (const binary of ["dispatch-runner", "remote-acp-fixture"]) {
+    rmSync(path.join(dir, binary), { force: true });
+  }
+  try {
+    rmdirSync(dir);
+  } catch (error) {
+    if (error.code !== "ENOENT") throw error;
+  }
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
