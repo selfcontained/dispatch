@@ -779,7 +779,7 @@ describe("createMcpHandlers", () => {
       expect(deps.agentManager.createAgent).not.toHaveBeenCalled();
     });
 
-    it("keeps a full-access reviewer inside the ordinary Dispatch launch ceiling", async () => {
+    it("honors a full-access reviewer's ordinary Dispatch launch ceiling", async () => {
       const reviewer = await deps.agentManager.getAgent("agt_test1");
       deps.agentManager.getAgent.mockResolvedValue({
         ...reviewer,
@@ -794,7 +794,7 @@ describe("createMcpHandlers", () => {
       });
       expect(deps.agentManager.createAgent.mock.calls[0]?.[0]).toMatchObject({
         name: "ordinary",
-        fullAccess: false,
+        fullAccess: true,
       });
     });
 

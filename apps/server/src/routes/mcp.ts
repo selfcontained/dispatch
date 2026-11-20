@@ -34,7 +34,6 @@ import type { CrudToolCallbacks } from "../shared/mcp/crud-tools.js";
 import { handleMcpRequest } from "../shared/mcp/server.js";
 import type { StreamService } from "../chat/service.js";
 import type { TaskService } from "../tasks/service.js";
-import { hasDispatchFullAccess } from "../shared/access-ceiling.js";
 
 /**
  * Resolves once the response has left the server — `finish` when it was
@@ -321,7 +320,6 @@ export async function registerMcpRoutes(
       Boolean(bearerToken && run)
     );
     const { workspaceDir, repoRoot } = checkout;
-    const callerFullAccess = hasDispatchFullAccess(agent);
 
     const jobTools = run
       ? {
@@ -382,7 +380,7 @@ export async function registerMcpRoutes(
         parentAgentId: agent.parentAgentId,
         baseBranch: agent.baseBranch,
         projectId: agent.projectId ?? null,
-        fullAccess: callerFullAccess,
+        fullAccess: agent.fullAccess === true,
       },
       repoRoot,
       ...checkout.context,
@@ -410,7 +408,7 @@ export async function registerMcpRoutes(
         >,
       toolScope: run ? "job" : "agent",
       jobTools,
-      crudTools: buildCrudCallbacks(deps, callerFullAccess),
+      crudTools: buildCrudCallbacks(deps, agent.fullAccess === true),
       brainStore: deps.brainStore,
       publishBrainChanged: deps.publishBrainChanged,
       taskService: deps.taskService,
@@ -459,7 +457,6 @@ export async function registerMcpRoutes(
       Boolean(bearerToken)
     );
     const { workspaceDir, repoRoot } = checkout;
-    const callerFullAccess = hasDispatchFullAccess(agent);
 
     reply.hijack();
     // Captured before the transport writes anything, so an archive that stops
@@ -498,7 +495,7 @@ export async function registerMcpRoutes(
         parentAgentId: agent.parentAgentId,
         baseBranch: agent.baseBranch,
         projectId: agent.projectId ?? null,
-        fullAccess: callerFullAccess,
+        fullAccess: agent.fullAccess === true,
       },
       repoRoot,
       ...checkout.context,
@@ -529,7 +526,7 @@ export async function registerMcpRoutes(
         telemetry.getFeedbackSummary(deps.pool, params as never) as Promise<
           Record<string, unknown>
         >,
-      crudTools: buildCrudCallbacks(deps, callerFullAccess),
+      crudTools: buildCrudCallbacks(deps, agent.fullAccess === true),
       brainStore: deps.brainStore,
       publishBrainChanged: deps.publishBrainChanged,
       taskService: deps.taskService,

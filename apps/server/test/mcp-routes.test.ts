@@ -447,7 +447,8 @@ describe("job access ceiling wiring", () => {
       (url) => [
         { url, role: null, fullAccess: false, callerAccess: false },
         { url, role: null, fullAccess: true, callerAccess: true },
-        { url, role: "review", fullAccess: true, callerAccess: false },
+        { url, role: "review", fullAccess: true, callerAccess: true },
+        { url, role: "review", fullAccess: false, callerAccess: false },
       ]
     ),
   ])(
