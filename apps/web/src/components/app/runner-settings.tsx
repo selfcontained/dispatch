@@ -1,5 +1,6 @@
 import { RunnerProviderUsage } from "@/components/runner-engines/runner-provider-usage";
 import { useEffect, useRef, useState } from "react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, ChevronRight, Ellipsis, Server } from "lucide-react";
 import {
   Link,
@@ -24,11 +25,13 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { RunnerEngines } from "@/components/runner-engines/runner-engines";
 import {
+  runnersQueryKey,
   useRunnerMutations,
   useRunners,
   type Runner,
   type RunnerStatus,
 } from "@/hooks/use-runners";
+import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { RunnerGitHubAccount } from "./runner-github-account";
 import { isRunnerHealthFresh, RunnerHealthDetails } from "./runner-health";
@@ -91,6 +94,19 @@ export function RunnerSettings(): JSX.Element {
   const location = useLocation();
   const navigate = useNavigate();
   const [notice, setNotice] = useState("");
+  const queryClient = useQueryClient();
+  const clearRevoked = useMutation({
+    mutationFn: (ids: string[]) =>
+      api<{ cleared: number }>("/api/runners/revoked/clear", {
+        method: "POST",
+        body: JSON.stringify({ ids }),
+      }),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: runnersQueryKey });
+      setNotice("Revoked runners cleared.");
+      heading.current?.focus();
+    },
+  });
   const heading = useRef<HTMLHeadingElement>(null);
   const previousRunner = useRef<string | null>(null);
   const selectedId = params.get("runner");
@@ -298,6 +314,24 @@ export function RunnerSettings(): JSX.Element {
                   </li>
                 ))}
               </ul>
+              <Button
+                type="button"
+                variant="default"
+                size="sm"
+                className="mt-2"
+                disabled={clearRevoked.isPending}
+                onClick={() => {
+                  setNotice("");
+                  clearRevoked.mutate(history.map((runner) => runner.id));
+                }}
+              >
+                {clearRevoked.isPending ? "Clearing…" : "Clear revoked runners"}
+              </Button>
+              {clearRevoked.isError && (
+                <p className="mt-2 text-sm text-destructive" role="alert">
+                  {clearRevoked.error.message}
+                </p>
+              )}
             </details>
           )}
         </>

@@ -209,16 +209,28 @@ export class RunnerRegistry {
   private async pruneExpired() {
     await this.pool.query(
       `DELETE FROM runner_registrations
-        WHERE enrolled_at IS NULL AND code_expires_at <= now()`
+        WHERE enrolled_at IS NULL AND revoked_at IS NULL AND code_expires_at <= now()`
     );
   }
 
-  async list(): Promise<Registration[]> {
+  async list(includeCleared = true): Promise<Registration[]> {
     await this.pruneExpired();
     const { rows } = await this.pool.query<Row>(
-      `SELECT * FROM runner_registrations ORDER BY created_at, id`
+      `SELECT * FROM runner_registrations
+        WHERE ($1 OR cleared_at IS NULL)
+        ORDER BY created_at, id`,
+      [includeCleared]
     );
     return rows.map(registration);
+  }
+
+  async clearRevoked(ids: string[]): Promise<number> {
+    const { rowCount } = await this.pool.query(
+      `UPDATE runner_registrations SET cleared_at = now()
+        WHERE id = ANY($1::text[]) AND revoked_at IS NOT NULL AND cleared_at IS NULL`,
+      [ids]
+    );
+    return rowCount ?? 0;
   }
 
   async active(): Promise<Registration[]> {

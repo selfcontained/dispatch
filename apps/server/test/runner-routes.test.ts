@@ -21,6 +21,7 @@ describe("runner control API", () => {
       ["GET", "/api/runners"],
       ["POST", "/api/runners"],
       ["DELETE", "/api/runners/rnr_x"],
+      ["POST", "/api/runners/revoked/clear"],
       ["GET", "/api/v1/runners"],
       ["GET", "/api/v1/runners/rnr_x/github"],
       ["POST", "/api/v1/runners/rnr_x/github/login"],
@@ -136,5 +137,70 @@ describe("runner control API", () => {
       headers: { cookie },
     });
     expect(missing.statusCode).toBe(404);
+  });
+
+  it("clears only selected revoked runners and keeps historical agent placement resolvable", async () => {
+    const cookie = await ctx.sessionCookie();
+    const revoked = "rnr_cleared_fixture";
+    const otherRevoked = "rnr_other_revoked_fixture";
+    const pending = "rnr_pending_fixture";
+    const offline = "rnr_offline_fixture";
+    const agentId = "agt_historical_fixture";
+    const cwd = `runner://${revoked}/@session`;
+    await ctx.pool.query(
+      `INSERT INTO runner_registrations
+        (id, name, endpoint_host, revoked_at, enrolled_at, code_expires_at)
+       VALUES ($1, 'History machine', 'localhost', now(), NULL, now() - interval '1 day'),
+              ($2, 'Other revoked machine', 'localhost', now(), now(), NULL),
+              ($3, 'Pending machine', 'localhost', NULL, NULL, now() + interval '1 day'),
+              ($4, 'Offline machine', 'localhost', NULL, now(), NULL)`,
+      [revoked, otherRevoked, pending, offline]
+    );
+    await ctx.pool.query(
+      `INSERT INTO agents (id, name, cwd, status)
+       VALUES ($1, 'Historical agent', $2, 'stopped')`,
+      [agentId, cwd]
+    );
+
+    const clear = () =>
+      ctx.app.inject({
+        method: "POST",
+        url: "/api/runners/revoked/clear",
+        headers: { cookie },
+        payload: { ids: [revoked, pending, offline, "rnr_missing"] },
+      });
+    const cleared = await clear();
+    expect(cleared.statusCode).toBe(200);
+    expect(cleared.json()).toEqual({ cleared: 1 });
+    expect((await clear()).json()).toEqual({ cleared: 0 });
+
+    const listed = await ctx.app.inject({
+      url: "/api/runners",
+      headers: { cookie },
+    });
+    const ids = listed.json().runners.map(({ id }: { id: string }) => id);
+    expect(ids).not.toContain(revoked);
+    expect(ids).toEqual(
+      expect.arrayContaining([otherRevoked, pending, offline])
+    );
+
+    const agent = await ctx.app.inject({
+      url: `/api/v1/agents/${agentId}`,
+      headers: { cookie },
+    });
+    expect(agent.statusCode).toBe(200);
+    expect(agent.json().agent.cwd).toBe(cwd);
+    const historical = await ctx.app.inject({
+      url: "/api/runners?includeCleared=true",
+      headers: { cookie },
+    });
+    const runnerId = new URL(agent.json().agent.cwd).hostname;
+    expect(historical.json().runners).toContainEqual(
+      expect.objectContaining({
+        id: runnerId,
+        name: "History machine",
+        status: "revoked",
+      })
+    );
   });
 });

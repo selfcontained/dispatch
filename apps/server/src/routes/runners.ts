@@ -41,9 +41,19 @@ export async function registerRunnerRoutes(
   deps: RunnerRouteDeps
 ): Promise<void> {
   for (const base of ["/api/runners", "/api/v1/runners"]) {
-    app.get(base, async () => ({
-      runners: (await deps.runners?.list()) ?? [],
-    }));
+    app.get(base, async (request) => {
+      const { includeCleared } = request.query as { includeCleared?: string };
+      return {
+        runners: (await deps.runners?.list(includeCleared === "true")) ?? [],
+      };
+    });
+
+    app.post(`${base}/revoked/clear`, async (request, reply) => {
+      const { ids } = (request.body ?? {}) as { ids?: unknown };
+      if (!Array.isArray(ids) || !ids.every((id) => typeof id === "string"))
+        return reply.code(400).send({ error: "Runner IDs are required." });
+      return { cleared: (await deps.runners?.clearRevoked(ids)) ?? 0 };
+    });
 
     app.post(base, async (request, reply) => {
       if (!deps.runners)

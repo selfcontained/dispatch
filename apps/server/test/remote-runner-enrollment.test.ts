@@ -542,7 +542,15 @@ describe("runner enrollment service", () => {
     expect(service.available(alphaPlace)).toBe(false);
     expect((await service.request(betaPlace, command)).value).toBe("beta");
 
-    // The revoked certificate cannot attach again.
+    expect((await service.list()).find((r) => r.id === a.id)?.status).toBe(
+      "revoked"
+    );
+    expect(await service.clearRevoked([a.id, b.id])).toBe(1);
+    expect((await service.list()).map((r) => [r.id, r.status])).toEqual([
+      [b.id, "online"],
+    ]);
+
+    // The cleared runner's revoked certificate cannot attach again.
     const again = await dialRunner({
       endpoint: a.endpoint,
       ca: a.ca,
@@ -556,10 +564,20 @@ describe("runner enrollment service", () => {
       await again.closed;
     }
     expect(service.available(alphaPlace)).toBe(false);
-    const listed = await service.list();
-    expect(listed.find((r) => r.id === a.id)?.status).toBe("revoked");
-    expect(listed.find((r) => r.id === b.id)?.status).toBe("online");
-    await expect(service.revoke("rnr_missing")).rejects.toMatchObject({
+    await expect(service.request(alphaPlace, command)).rejects.toBeInstanceOf(
+      RunnerRevoked
+    );
+    expect((await service.request(betaPlace, command)).value).toBe("beta");
+    // A fresh service rebuilds the roster from persisted registrations.
+    service.close();
+    const restarted = makeService();
+    expect((await restarted.list()).map((r) => [r.id, r.status])).toEqual([
+      [b.id, "offline"],
+    ]);
+    await expect(restarted.request(alphaPlace, command)).rejects.toBeInstanceOf(
+      RunnerRevoked
+    );
+    await expect(restarted.revoke("rnr_missing")).rejects.toMatchObject({
       status: 404,
     });
   });

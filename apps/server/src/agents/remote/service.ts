@@ -1073,7 +1073,7 @@ export class RemoteRunnerService {
   // Registration management (control API)
   // ---------------------------------------------------------------------------
 
-  async list(): Promise<RunnerSummary[]> {
+  async list(includeCleared = false): Promise<RunnerSummary[]> {
     const runners: RunnerSummary[] = [];
     if (this.legacy) {
       const peer = this.peers.get(this.legacy.id);
@@ -1108,7 +1108,9 @@ export class RemoteRunnerService {
       });
     }
     if (!this.enrollment) return runners;
-    for (const registration of await this.enrollment.registry.list()) {
+    for (const registration of await this.enrollment.registry.list(
+      includeCleared
+    )) {
       const peer = this.peers.get(registration.id);
       const online =
         !registration.revoked &&
@@ -1210,6 +1212,10 @@ export class RemoteRunnerService {
       }),
       expiresAt: issued.expiresAt.toISOString(),
     };
+  }
+
+  async clearRevoked(ids: string[]): Promise<number> {
+    return (await this.enrollment?.registry.clearRevoked(ids)) ?? 0;
   }
 
   /** Revoke a registration and drop its live connection immediately. */

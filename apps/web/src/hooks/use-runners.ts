@@ -29,15 +29,33 @@ export function runnerLocator(runnerId: string, workspace: string): string {
 }
 
 export function useRunners(
-  options: { poll?: boolean; enabled?: boolean } = {}
+  options: { poll?: boolean; enabled?: boolean; includeCleared?: boolean } = {}
 ) {
   return useQuery({
-    queryKey: runnersQueryKey,
+    queryKey: options.includeCleared
+      ? [...runnersQueryKey, "includeCleared"]
+      : runnersQueryKey,
     enabled: options.enabled,
     queryFn: async () =>
-      (await api<{ runners: Runner[] }>("/api/runners")).runners,
+      (
+        await api<{ runners: Runner[] }>(
+          options.includeCleared
+            ? "/api/runners?includeCleared=true"
+            : "/api/runners"
+        )
+      ).runners,
     refetchInterval: options.poll ? 5000 : false,
   });
+}
+
+export function useRunnerName(runnerId: string | undefined) {
+  const { data } = useRunners({
+    enabled: Boolean(runnerId),
+    includeCleared: true,
+  });
+  return runnerId
+    ? (data?.find((runner) => runner.id === runnerId)?.name ?? "Remote runner")
+    : undefined;
 }
 
 export function useRunnerMutations() {

@@ -305,3 +305,38 @@ it("opens an opaque runner ID from a deep link and preserves unrelated query val
     "?source=notice&source=pairing"
   );
 });
+
+it("clears the displayed revoked runners and shows the empty roster", async () => {
+  let cleared = false;
+  const history = [
+    { ...online, status: "revoked" },
+    { ...offline, status: "revoked" },
+  ];
+  vi.mocked(api).mockImplementation(async (path) => {
+    if (path === "/api/runners") return { runners: cleared ? [] : history };
+    if (path === "/api/v1/runners/connect") return { requests: [] };
+    if (path === "/api/runners/revoked/clear") {
+      cleared = true;
+      return { cleared: 2 };
+    }
+    throw new Error(`Unexpected endpoint ${path}`);
+  });
+
+  renderSettings();
+  const summary = await screen.findByText("Revoked runners (2)");
+  const details = summary.closest("details")!;
+  details.open = true;
+  fireEvent.click(
+    within(details).getByRole("button", { name: "Clear revoked runners" })
+  );
+  await screen.findByText("Revoked runners cleared.");
+  expect(api).toHaveBeenCalledWith("/api/runners/revoked/clear", {
+    method: "POST",
+    body: JSON.stringify({ ids: ["build", "spare"] }),
+  });
+  expect(screen.getByText("No connected runners.")).toBeTruthy();
+  expect(screen.queryByText("Revoked runners (2)")).toBeNull();
+  expect(
+    screen.queryByRole("button", { name: "Clear revoked runners" })
+  ).toBeNull();
+});

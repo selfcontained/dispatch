@@ -1,3 +1,4 @@
+import { remotePlacement } from "@dispatch/runner-protocol";
 import { ArchivedConversation } from "./archived-conversation";
 import { AgentSessionLink } from "./agent-session-link";
 import { ArrowLeft, Search } from "lucide-react";
@@ -10,6 +11,7 @@ import {
 import { AgentTypeIcon } from "@/components/app/agent-type-icon";
 import { StatCard } from "@/components/app/stat-card";
 import { useHistoryAgentDetail } from "@/hooks/use-agent-history";
+import { useRunnerName } from "@/hooks/use-runners";
 import { DetailTabs } from "@/components/app/agent-history-detail-tabs";
 
 function shortModelName(model: string): string {
@@ -24,6 +26,9 @@ export function AgentHistoryDetail({
   onBack: () => void;
 }) {
   const { data, isLoading, isError } = useHistoryAgentDetail(agentId);
+
+  const placement = data ? remotePlacement(data.agent.cwd) : undefined;
+  const runnerName = useRunnerName(placement?.runner);
 
   if (isLoading) {
     return (
@@ -109,6 +114,14 @@ export function AgentHistoryDetail({
 
         {/* Agent details */}
         <div className="mt-3 space-y-1 text-xs text-muted-foreground">
+          {runnerName && (
+            <div className="flex items-center gap-2">
+              <span className="w-16 shrink-0 text-[11px]">Runner</span>
+              <span className="break-all font-mono text-[11px]">
+                {runnerName}
+              </span>
+            </div>
+          )}
           {(agent.worktreeBranch || agent.gitContext?.branch) && (
             <div className="flex items-center gap-2">
               <span className="w-16 shrink-0 text-[11px]">Branch</span>

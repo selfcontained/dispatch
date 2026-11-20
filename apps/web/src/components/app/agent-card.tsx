@@ -1,5 +1,5 @@
 import { remotePlacement } from "@dispatch/runner-protocol";
-import { useRunners } from "@/hooks/use-runners";
+import { useRunnerName } from "@/hooks/use-runners";
 import React from "react";
 import { Pin, PinOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -110,10 +110,7 @@ function AgentCardImpl({
   const isExpanded = expandedAgentId === agent.id;
   const fullAccessEnabled = isFullAccessEnabled(agent);
   const placement = remotePlacement(agent.cwd);
-  const { data: runners } = useRunners({ enabled: Boolean(placement) });
-  const runnerName = placement
-    ? (runners?.find((r) => r.id === placement.runner)?.name ?? "Remote runner")
-    : undefined;
+  const runnerName = useRunnerName(placement?.runner);
   const remoteLocation =
     placement && runnerName && !agent.runnerManaged
       ? `${runnerName} · ${placement.workspace}`
