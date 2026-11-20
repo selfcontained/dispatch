@@ -734,6 +734,26 @@ describe("AgentManager", () => {
           query: { kind: "changes", baseBranch: "develop" },
         }
       );
+      // Changes and stats use the same launch base as review (old runner).
+      await resumed
+        .viewCheckout(child, {
+          kind: "stats",
+          baseBranch: null,
+          includeUncommitted: true,
+        })
+        .catch(() => null);
+      expect(requestSession).toHaveBeenLastCalledWith(
+        { runner: "runner-test", workspace: "@session" },
+        {
+          kind: "viewCheckout",
+          agentId: child.id,
+          query: {
+            kind: "stats",
+            baseBranch: "develop",
+            includeUncommitted: true,
+          },
+        }
+      );
     });
 
     it.each([null, "project-b"])(

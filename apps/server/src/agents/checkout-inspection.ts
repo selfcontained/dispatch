@@ -278,8 +278,12 @@ async function fingerprintCheckout(
   return hash.digest("hex");
 }
 
-async function inspectChanges(root: string, baseBranch: string | null) {
-  baseBranch ??= await recordedReviewBase(root);
+async function inspectChanges(
+  root: string,
+  baseBranch: string | null,
+  recordedBase: boolean
+) {
+  if (recordedBase) baseBranch ??= await recordedReviewBase(root);
   if (baseBranch === null) {
     try {
       baseBranch = (await getPrStatus({ cwd: root }, run)).baseRefName;
@@ -529,9 +533,19 @@ export async function readCheckoutCommandFile(
   return { root, content };
 }
 
+export type InspectCheckoutOptions = {
+  /**
+   * Consult the base a runner recorded in Git config when the service sent
+   * none. Runner checkouts keep it for older services and rows; the native
+   * executor always receives the service's base and skips it.
+   */
+  recordedBase?: boolean;
+};
+
 export async function inspectCheckout(
   cwd: string,
-  query: CheckoutQuery
+  query: CheckoutQuery,
+  { recordedBase = true }: InspectCheckoutOptions = {}
 ): Promise<CheckoutReply> {
   const validated = parseQuery(query);
   if (validated.kind === "defaultBranchFiles") {
@@ -588,7 +602,7 @@ export async function inspectCheckout(
   }
   const reply: CheckoutReply =
     validated.kind === "changes"
-      ? await inspectChanges(root, validated.baseBranch)
+      ? await inspectChanges(root, validated.baseBranch, recordedBase)
       : {
           kind: "readFile",
           content: await readWorktreeFile(

@@ -8,6 +8,7 @@ import {
   resolveRepoRoot,
 } from "../shared/git/git-context.js";
 import { runCommand, type CommandRunner } from "../shared/lib/run-command.js";
+import { agentComparisonBase } from "./effective-base.js";
 import { AgentError } from "./errors.js";
 
 const WORKSPACE_PROBE_TIMEOUT_MS = 5_000;
@@ -44,8 +45,6 @@ export function resolveLaunchLocation(directory: string): string {
   return path.resolve(directory);
 }
 
-const DEFAULT_WORKTREE_BASE_BRANCH = "main";
-
 export function agentWorkspaceDir(agent: WorkspaceTargetAgent): string | null {
   if (agent.cwd && remotePlacement(agent.cwd)) return null;
   return agent.workspacePath ?? agent.worktreePath ?? agent.cwd ?? null;
@@ -53,31 +52,23 @@ export function agentWorkspaceDir(agent: WorkspaceTargetAgent): string | null {
 
 /**
  * The directory and base branch a diff of the agent's work runs against.
- * A moved workspace diffs against the base recorded when it moved. Otherwise
- * managed worktrees (or older rows whose probed git context says worktree)
- * default to `main`, and plain checkouts leave the base to the resolver.
+ * The base comes from `agentComparisonBase`; plain checkouts with no base
+ * leave it to the resolver.
  */
 export function agentDiffTarget(
   agent: WorkspaceTargetAgent
 ): { path: string; baseRef: string | null } | null {
   if (agent.cwd && remotePlacement(agent.cwd)) return null;
-  if (agent.workspacePath) {
-    return {
-      path: agent.workspacePath,
-      baseRef: agent.workspaceBaseBranch ?? null,
-    };
-  }
   const gitContextWorktreePath = agent.gitContext?.isWorktree
     ? agent.gitContext.worktreePath
     : null;
-  const path = agent.worktreePath ?? gitContextWorktreePath ?? agent.cwd;
+  const path =
+    agent.workspacePath ??
+    agent.worktreePath ??
+    gitContextWorktreePath ??
+    agent.cwd;
   if (!path) return null;
-  const baseRef =
-    agent.baseBranch ??
-    (agent.worktreePath || gitContextWorktreePath
-      ? DEFAULT_WORKTREE_BASE_BRANCH
-      : null);
-  return { path, baseRef };
+  return { path, baseRef: agentComparisonBase(agent, "changes") };
 }
 
 /**

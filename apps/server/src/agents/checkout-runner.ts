@@ -21,10 +21,10 @@ import { AgentError } from "./errors.js";
 import { RunnerRevoked, type RemoteRunnerService } from "./remote/service.js";
 import type { AgentRecord } from "./types.js";
 import {
-  agentWorkspaceDir,
-  agentDiffTarget,
-  type WorkspaceTargetAgent,
-} from "./workspace-target.js";
+  agentComparisonBase,
+  type ComparisonBaseAgent,
+} from "./effective-base.js";
+import { agentWorkspaceDir, agentDiffTarget } from "./workspace-target.js";
 
 type Inspect = Extract<SessionOperation, { kind: "inspectCheckout" }>;
 
@@ -33,7 +33,9 @@ async function inspectLocalCheckout(agent: AgentRecord, operation: Inspect) {
   const cwd = agentWorkspaceDir(agent);
   if (!cwd || operation.agentId !== agent.id)
     throw new AgentError("The session checkout is unavailable.", 409);
-  return inspectCheckout(cwd, operation.query);
+  // The service already passed its explicit base; a native checkout never
+  // carries a runner-recorded one (as on main).
+  return inspectCheckout(cwd, operation.query, { recordedBase: false });
 }
 
 export async function inspectAgentCheckout(
@@ -105,14 +107,23 @@ export function decodeCheckoutView(raw: unknown, view: CheckoutView) {
   return value.data;
 }
 
-/** Resolve the selected session once for both foreground and background reads. */
+/**
+ * Resolve the selected session once for both foreground and background reads.
+ * `comparisonBase` is the service's effective base (`agentComparisonBase`);
+ * both executors receive it explicitly, and an explicit view base wins.
+ */
 export async function readAgentView(
-  agent: WorkspaceTargetAgent & { id: string },
+  agent: ComparisonBaseAgent & { id: string },
   view: CheckoutView,
-  remote?: RemoteRunnerService | null
+  remote?: RemoteRunnerService | null,
+  comparisonBase: string | null = agentComparisonBase(agent, "changes")
 ): Promise<unknown> {
   if (!isCheckoutView(view))
     throw new AgentError("Invalid workspace path or options.", 400);
+  const query =
+    "baseBranch" in view
+      ? { ...view, baseBranch: view.baseBranch ?? comparisonBase }
+      : view;
   const placement = agent.cwd && remotePlacement(agent.cwd);
   if (placement) {
     if (!remote) throw new AgentError("The runner is unavailable.", 503);
@@ -120,14 +131,7 @@ export async function readAgentView(
       const { value } = await remote.requestSession(placement, {
         kind: "viewCheckout",
         agentId: agent.id,
-        query:
-          "baseBranch" in view
-            ? {
-                ...view,
-                baseBranch:
-                  view.baseBranch ?? agent.workspaceBaseBranch ?? null,
-              }
-            : view,
+        query,
       });
       return decodeCheckoutView(value, view);
     } catch (error) {
@@ -140,31 +144,30 @@ export async function readAgentView(
       );
     }
   }
-  const target = agentDiffTarget(agent);
-  const cwd = "baseBranch" in view ? target?.path : agentWorkspaceDir(agent);
+  const cwd =
+    "baseBranch" in view
+      ? agentDiffTarget(agent)?.path
+      : agentWorkspaceDir(agent);
   if (!cwd) {
     if (view.kind === "stats") return null;
     throw new AgentError("This agent has no workspace.", 404);
   }
-  return readCheckoutView(
-    cwd,
-    "baseBranch" in view
-      ? { ...view, baseBranch: view.baseBranch ?? target?.baseRef ?? null }
-      : view
-  );
+  return readCheckoutView(cwd, query);
 }
 
 export async function readAgentStats(
   id: string,
-  agent: WorkspaceTargetAgent,
-  remote?: RemoteRunnerService | null
+  agent: ComparisonBaseAgent,
+  remote?: RemoteRunnerService | null,
+  comparisonBase: string | null = agentComparisonBase(agent, "changes")
 ): Promise<DiffStatsComputation> {
   const placement = agent.cwd && remotePlacement(agent.cwd);
   if (placement) {
     const stats = (await readAgentView(
       { ...agent, id },
       { kind: "stats", baseBranch: null, includeUncommitted: true },
-      remote
+      remote,
+      comparisonBase
     )) as DiffStats | null;
     return stats
       ? { kind: "success", stats }
@@ -172,6 +175,6 @@ export async function readAgentStats(
   }
   const target = agentDiffTarget(agent);
   return target
-    ? getDiffStatsComputation(target.path, target.baseRef)
+    ? getDiffStatsComputation(target.path, comparisonBase)
     : { kind: "no-data", stats: null };
 }

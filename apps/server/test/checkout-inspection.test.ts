@@ -24,6 +24,7 @@ import {
 } from "vitest";
 
 import { inspectCheckout } from "../src/agents/checkout-inspection.js";
+import { inspectAgentCheckout } from "../src/agents/checkout-runner.js";
 import { createLocalRunner } from "../src/agents/local-runner.js";
 import type { FastifyBaseLogger } from "fastify";
 
@@ -124,6 +125,34 @@ beforeEach(() => {
 afterEach(() => {
   vi.unstubAllEnvs();
   rmSync(fixture, { recursive: true, force: true });
+});
+
+describe("native executor base", () => {
+  const agent = () => ({
+    id: "agt_local",
+    cwd: checkout,
+    worktreePath: null,
+    baseBranch: null,
+    workspacePath: null,
+  });
+
+  it("ignores a recorded runner base and falls back like main", async () => {
+    git(repo, "branch", "trunk");
+    git(checkout, "fetch", "origin", "trunk");
+    git(checkout, "config", "branch.feature.dispatchReviewBase", "trunk");
+    const query = { kind: "changes", baseBranch: null } as const;
+    // A runner checkout still consults the recorded base when sent none.
+    expect(await inspectCheckout(checkout, query)).toMatchObject({
+      baseRef: "origin/trunk",
+    });
+    // No PR, no upstream: origin/main, as main's local owner review did.
+    expect(
+      await inspectCheckout(checkout, query, { recordedBase: false })
+    ).toMatchObject({ baseRef: "origin/main" });
+    expect(await inspectAgentCheckout(agent() as never, query)).toMatchObject({
+      baseRef: "origin/main",
+    });
+  });
 });
 
 describe.each([

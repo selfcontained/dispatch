@@ -447,15 +447,9 @@ export function createPersonaHandlers(deps: CreatePersonaHandlersDeps) {
   }
 
   async function inspectReviewChanges(agent: AgentRecord) {
-    const baseBranch = remotePlacement(agent.cwd)
-      ? null
-      : agent.workspacePath
-        ? (agent.workspaceBaseBranch ?? null)
-        : (agent.baseBranch ??
-          (agent.worktreePath && agent.worktreeBranch ? "main" : null));
     const reply = await agentManager.inspectCheckout(agent, {
       kind: "changes",
-      baseBranch,
+      baseBranch: await agentManager.comparisonBase(agent, "review"),
     });
     if (reply.kind !== "changes")
       throw new Error("Runner did not return checkout changes.");

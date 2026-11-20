@@ -426,7 +426,10 @@ const pullRequests = new PullRequestRefresher({
 remoteRunner?.onConnectionChange((id) => pullRequests.invalidateRunner(id));
 const diffStatsRefresher = new DiffStatsRefresher({
   getAgent: (id) => agentManager.getAgent(id),
-  computeAgentStats: (id, agent) => readAgentStats(id, agent, remoteRunner),
+  comparisonBase: (id, agent) =>
+    agentManager.comparisonBase({ ...agent, id }, "changes"),
+  computeAgentStats: (id, agent, base) =>
+    readAgentStats(id, agent, remoteRunner, base),
   publishEvent: (event) => uiEventBroker.publish(event),
   logger: app.log,
   tracker: gitRefreshTracker,

@@ -8,6 +8,7 @@ import {
   resolveWorktreeRoot,
 } from "../src/shared/git/git-context.js";
 import { getBuiltInPersona } from "../src/personas/built-in.js";
+import { agentComparisonBase } from "../src/agents/effective-base.js";
 import { runCommand } from "../src/shared/lib/run-command.js";
 
 vi.mock("node:fs/promises", async (importOriginal) => ({
@@ -84,6 +85,9 @@ function setup(parentChanges: Record<string, unknown> = {}) {
   };
   const agentManager = {
     getAgent: vi.fn(async (_id?: string) => parent),
+    comparisonBase: vi.fn(async (agent: typeof parent) =>
+      agentComparisonBase(agent, "review")
+    ),
     inspectCheckout: vi.fn(async (_agent: typeof parent, query: Query) => {
       if (query.kind === "changes")
         return {

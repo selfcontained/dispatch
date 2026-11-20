@@ -3,6 +3,11 @@ import { REPO_TOOL_MANIFEST_PATH } from "../shared/mcp/repo-tools.js";
 import { isPromptImageMimeType } from "./acp/prompt-source.js";
 import { readSessionFile } from "../files/session-file.js";
 import { readAgentView } from "./checkout-runner.js";
+import {
+  agentComparisonBase,
+  type ComparisonBaseAgent,
+  type ComparisonUse,
+} from "./effective-base.js";
 import type { CheckoutView } from "@dispatch/runner-protocol";
 import { AttentionHistory } from "../notifications/attention-history.js";
 import { matchProjectIdentity } from "../projects/matching.js";
@@ -1582,45 +1587,58 @@ export class AgentManager {
     };
   }
 
-  viewCheckout(
-    agent: AgentRecord,
-    query: Extract<CheckoutView, { kind: "fileDiff" }>
-  ): Promise<FileDiffResponse | null>;
-  viewCheckout(agent: AgentRecord, query: CheckoutView): Promise<unknown>;
-  viewCheckout(agent: AgentRecord, query: CheckoutView): Promise<unknown> {
-    return readAgentView(agent, query, this.remote);
-  }
-
-  async inspectCheckout(
-    agent: AgentRecord,
-    query: CheckoutQuery
-  ): Promise<CheckoutReply> {
-    if (
-      query.kind === "changes" &&
-      query.baseBranch === null &&
-      agent.workspaceBaseBranch
-    )
-      query = { ...query, baseBranch: agent.workspaceBaseBranch };
-    const placement = remotePlacement(agent.cwd);
+  /**
+   * The agent's effective comparison base (see `agentComparisonBase`), sent
+   * explicitly to the local and runner executors. Runner sessions read their
+   * launch checkout; a borrowed checkout inherits its owner's.
+   */
+  async comparisonBase(
+    agent: ComparisonBaseAgent & { id: string; runnerManaged?: boolean },
+    use: ComparisonUse
+  ): Promise<string | null> {
+    let launch: RunnerRepository["checkout"] | null = null;
     if (
       agent.runnerManaged &&
-      placement &&
-      !this.remote?.supportsSessionCheckout?.(placement) &&
-      !agent.workspacePath &&
-      query.kind === "changes" &&
-      query.baseBranch === null
+      agent.cwd &&
+      remotePlacement(agent.cwd) &&
+      !agent.workspacePath
     ) {
-      // The launch checkout can have an unpublished base. A borrowed checkout inherits it.
       const { rows } = await this.pool.query<{
         runner_repository: RunnerRepository | null;
       }>(
         "SELECT owner.runner_repository FROM agents a JOIN agents owner ON owner.id = COALESCE(a.runner_worktree_owner, a.id) WHERE a.id = $1",
         [agent.id]
       );
-      const checkout = rows[0]?.runner_repository?.checkout;
-      if (checkout?.kind === "new" && checkout.base)
-        query = { ...query, baseBranch: checkout.base };
+      launch = rows[0]?.runner_repository?.checkout ?? null;
     }
+    return agentComparisonBase(agent, use, launch);
+  }
+
+  viewCheckout(
+    agent: AgentRecord,
+    query: Extract<CheckoutView, { kind: "fileDiff" }>
+  ): Promise<FileDiffResponse | null>;
+  viewCheckout(agent: AgentRecord, query: CheckoutView): Promise<unknown>;
+  async viewCheckout(
+    agent: AgentRecord,
+    query: CheckoutView
+  ): Promise<unknown> {
+    const base =
+      "baseBranch" in query && query.baseBranch === null
+        ? await this.comparisonBase(agent, "changes")
+        : null;
+    return readAgentView(agent, query, this.remote, base);
+  }
+
+  async inspectCheckout(
+    agent: AgentRecord,
+    query: CheckoutQuery
+  ): Promise<CheckoutReply> {
+    if (query.kind === "changes" && query.baseBranch === null)
+      query = {
+        ...query,
+        baseBranch: await this.comparisonBase(agent, "review"),
+      };
     return inspectAgentCheckout(agent, query, this.remote);
   }
 

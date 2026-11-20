@@ -5,12 +5,10 @@ import {
   type GetDiffStatsOptions,
 } from "../shared/git/diff-stats.js";
 import type { SubsystemTracker } from "../observability/subsystem-tracker.js";
-import {
-  agentDiffTarget,
-  type WorkspaceTargetAgent,
-} from "./workspace-target.js";
+import type { ComparisonBaseAgent } from "./effective-base.js";
+import { agentDiffTarget } from "./workspace-target.js";
 
-export type DiffStatsAgent = WorkspaceTargetAgent;
+export type DiffStatsAgent = ComparisonBaseAgent & { runnerManaged?: boolean };
 
 export type DiffStatsChangedEvent = {
   type: "agent.diff_state_changed";
@@ -32,8 +30,14 @@ export type DiffStatsRefresherOptions = {
   publishEvent: (event: DiffStatsChangedEvent) => void;
   computeAgentStats?: (
     id: string,
-    agent: DiffStatsAgent
+    agent: DiffStatsAgent,
+    comparisonBase: string | null
   ) => Promise<DiffStatsComputation>;
+  /** The service's effective base; defaults to the agent's local rule. */
+  comparisonBase?: (
+    id: string,
+    agent: DiffStatsAgent
+  ) => Promise<string | null>;
   computeDiffStats?: ComputeDiffStats;
   /** Override Git command execution while retaining the default adapter. */
   runGitCommand?: GetDiffStatsOptions["runCommand"];
@@ -70,6 +74,7 @@ export class DiffStatsRefresher {
   ) => Promise<DiffStatsComputation>;
   private readonly freshnessMs: number;
   private readonly computeAgentStats: DiffStatsRefresherOptions["computeAgentStats"];
+  private readonly comparisonBase: DiffStatsRefresherOptions["comparisonBase"];
   private readonly logger: WarnLogger | null;
   private readonly tracker: SubsystemTracker | null;
   private signals = 0;
@@ -77,6 +82,7 @@ export class DiffStatsRefresher {
 
   constructor(options: DiffStatsRefresherOptions) {
     this.computeAgentStats = options.computeAgentStats;
+    this.comparisonBase = options.comparisonBase;
     this.getAgent = options.getAgent;
     this.publishEvent = options.publishEvent;
     const customComputeDiffStats = options.computeDiffStats;
@@ -167,9 +173,12 @@ export class DiffStatsRefresher {
       // `getDiffStats` returns null when the path isn't inside a repo.
       const target = agent ? agentDiffTarget(agent) : null;
       if (agent && (this.computeAgentStats || target)) {
+        const base = this.comparisonBase
+          ? await this.comparisonBase(agentId, agent)
+          : (target?.baseRef ?? null);
         computation = this.computeAgentStats
-          ? await this.computeAgentStats(agentId, agent)
-          : await this.computeDiffStats(target!.path, target!.baseRef);
+          ? await this.computeAgentStats(agentId, agent, base)
+          : await this.computeDiffStats(target!.path, base);
         if (computation.kind === "failure") throw computation.error;
         nextStats = computation.stats;
       }
