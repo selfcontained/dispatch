@@ -581,11 +581,34 @@ export async function runRemoteRunner(filename: string) {
               }
             );
             child.child.stdin?.on("error", () => {}); // execFile reports early child failure.
+            // The worker can publish a cached reply while it finishes a
+            // bounded background refresh under the workload identity.
+            let sent = false;
+            if (
+              command.kind === "inspectCheckout" &&
+              command.query.kind === "defaultBranchFiles" &&
+              !command.query.waitForRefresh
+            ) {
+              const chunks: Buffer[] = [];
+              let bytes = 0;
+              child.child.stdout?.on("data", (data: string | Buffer) => {
+                if (sent) return;
+                const chunk = Buffer.isBuffer(data) ? data : Buffer.from(data);
+                bytes += chunk.length;
+                if (bytes > 4 * 1024 * 1024) return;
+                chunks.push(chunk);
+                if (chunk[chunk.length - 1] === 10) {
+                  sent = true;
+                  result(Buffer.concat(chunks).toString("utf8").trimEnd());
+                }
+              });
+            }
             child.child.stdin?.end(JSON.stringify(command.query));
             try {
               const { stdout } = await child;
-              result(stdout.trimEnd());
+              if (!sent) result(stdout.trimEnd());
             } catch (error) {
+              if (sent) break;
               // execFile's default message includes the command and machine-local paths.
               const detail = (error as { stderr?: string }).stderr
                 ?.trim()
@@ -644,35 +667,6 @@ export async function runRemoteRunner(filename: string) {
           case "log":
             result(await supervisor.log(agentId, workspace));
             break;
-          case "runCheckout": {
-            const cwd = await supervisor.checkoutDirectory(
-              agentId,
-              workspace,
-              target?.cwd
-            );
-            const child = execute(
-              setpriv,
-              [
-                ...childArgs,
-                ...selfCommand("runner-inspect-checkout"),
-                cwd,
-                "--run-command",
-                command.expectedRoot,
-              ],
-              { env, timeout: 20_000, maxBuffer: 1024 * 1024 }
-            );
-            child.child.stdin?.on("error", () => {});
-            child.child.stdin?.end(JSON.stringify(command.argv));
-            try {
-              const { stdout } = await child;
-              result(stdout);
-            } catch {
-              throw new Error(
-                "The runner could not execute the checkout command."
-              );
-            }
-            break;
-          }
           case "repo": {
             if (!(await supervisor.isBound(agentId, workspace)))
               throw new Error("Agent is not bound to this workspace");
@@ -755,7 +749,7 @@ export async function runRemoteRunner(filename: string) {
           pullRequestEvidence: true,
           checkoutInspection: true,
           checkoutMetadata: true,
-          checkoutCommands: true,
+          defaultBranchFiles: true,
           workspacePreparation: true,
           sessionCheckout: true,
           checkoutRelease: true,

@@ -1,6 +1,5 @@
 import { access, readFile, readdir } from "node:fs/promises";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { personaCatalog } from "../src/personas/catalog.js";
 import { createPersonaHandlers } from "../src/server/mcp-persona-handlers.js";
 import {
   resolveRepoRoot,
@@ -74,6 +73,7 @@ function setup(parentChanges: Record<string, unknown> = {}) {
     baseRef: "origin/acp-runtime",
     head: "a".repeat(40),
     stateId: "1".repeat(64),
+    defaultFiles: [] as { path: string; content: string }[],
     content: new Map([
       [modernOwnersPath, ownersMap("owner-one", "owner-two")],
       [personaFile("owner-one"), "Verify subsystem contracts"],
@@ -82,20 +82,32 @@ function setup(parentChanges: Record<string, unknown> = {}) {
   };
   const agentManager = {
     getAgent: vi.fn(async (_id?: string) => parent),
-    inspectCheckout: vi.fn(async (_agent: typeof parent, query: Query) =>
-      query.kind === "changes"
-        ? {
-            kind: "changes" as const,
-            baseRef: checkout.baseRef,
-            head: checkout.head,
-            stateId: checkout.stateId,
-            files: checkout.files,
-          }
-        : {
-            kind: "readFile" as const,
-            content: checkout.content.get(query.path) ?? null,
-          }
-    ),
+    inspectCheckout: vi.fn(async (_agent: typeof parent, query: Query) => {
+      if (query.kind === "changes")
+        return {
+          kind: "changes" as const,
+          baseRef: checkout.baseRef,
+          head: checkout.head,
+          stateId: checkout.stateId,
+          files: checkout.files,
+        };
+      if (query.kind === "defaultBranchFiles")
+        return {
+          kind: "defaultBranchFiles" as const,
+          hasOrigin: true,
+          files: checkout.defaultFiles,
+          warnings: [],
+          refreshing: false,
+          updatedAt: null,
+          truncated: false,
+        };
+      if (query.kind !== "readFile")
+        throw new Error("Unexpected checkout query");
+      return {
+        kind: "readFile" as const,
+        content: checkout.content.get(query.path) ?? null,
+      };
+    }),
     createAgent: vi.fn(async (input: { name: string }) => ({
       id: `agent-${input.name}`,
       name: input.name,
@@ -440,51 +452,41 @@ describe("code owner launches through the checkout boundary", () => {
     });
     checkout.content.set(modernOwnersPath, ownersMap("code-review"));
     const builtin = getBuiltInPersona("code-review")!;
-    const override = {
-      ...builtin,
-      body: "Conflicting main checkout instructions",
-    };
-    const catalog = vi.spyOn(personaCatalog, "get").mockResolvedValueOnce({
-      personas: [override],
-      warnings: [],
-      refreshing: false,
-      updatedAt: null,
+    const instructions = "Conflicting default-branch instructions";
+    checkout.defaultFiles.push({
+      path: personaFile("code-review"),
+      content: instructions,
     });
-    try {
-      await handlers.launchOwnerReviews("parent", { context: "Review" });
-      expect(catalog).not.toHaveBeenCalled();
-      expect(agentManager.createAgent).toHaveBeenCalledWith(
-        expect.objectContaining({
-          fullAccess: false,
-          agentArgs: expect.arrayContaining([
-            expect.stringContaining(builtin.body.trimEnd()),
-          ]),
-        }),
-        { detachLaunch: true, useWorktreeOf: "parent" }
-      );
-      const absent = Object.assign(new Error("Persona file absent"), {
-        code: "ENOENT",
-      });
-      vi.mocked(readFile)
-        .mockRejectedValueOnce(absent)
-        .mockRejectedValueOnce(absent);
-      await handlers.launchPersonaAgent(parent.id, {
-        persona: "code-review",
-        context: "Manual review",
-      });
-      expect(agentManager.createAgent).toHaveBeenLastCalledWith(
-        expect.objectContaining({
-          fullAccess: true,
-          agentArgs: expect.arrayContaining([
-            "--dangerously-bypass-approvals-and-sandbox",
-            expect.stringContaining(override.body),
-          ]),
-        }),
-        { detachLaunch: true }
-      );
-    } finally {
-      catalog.mockRestore();
-    }
+    await handlers.launchOwnerReviews("parent", { context: "Review" });
+    expect(agentManager.inspectCheckout).not.toHaveBeenCalledWith(
+      parent,
+      expect.objectContaining({ kind: "defaultBranchFiles" })
+    );
+    expect(agentManager.createAgent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        fullAccess: false,
+        agentArgs: expect.arrayContaining([
+          expect.stringContaining(builtin.body.trimEnd()),
+        ]),
+      }),
+      { detachLaunch: true, useWorktreeOf: "parent" }
+    );
+    await handlers.launchPersonaAgent(parent.id, {
+      persona: "code-review",
+      context: "Manual review",
+    });
+    expect(agentManager.createAgent).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        fullAccess: true,
+        agentArgs: expect.arrayContaining([
+          "--dangerously-bypass-approvals-and-sandbox",
+          expect.stringContaining(instructions),
+        ]),
+      }),
+      { detachLaunch: true }
+    );
+    expect(readFile).not.toHaveBeenCalled();
+    expect(runCommand).not.toHaveBeenCalled();
   });
 
   it("reports a partial launch without hiding successful agents", async () => {

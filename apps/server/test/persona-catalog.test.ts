@@ -1,13 +1,27 @@
-import { inspectCheckout } from "../src/agents/checkout-inspection.js";
-import { createPersonaHandlers } from "../src/server/mcp-persona-handlers.js";
+import {
+  defaultBranchFiles,
+  inspectCheckout,
+} from "../src/agents/checkout-inspection.js";
+import {
+  createPersonaHandlers,
+  resolveRunnerPersona,
+} from "../src/server/mcp-persona-handlers.js";
+import { DefaultBranchFiles } from "../src/agents/default-branch-files.js";
+import { RunnerCapabilityUnavailable } from "../src/agents/remote/service.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  mkdtemp,
+  mkdir,
+  readdir,
+  readFile,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import {
   PersonaCatalogCache,
   PERSONA_REFRESH_MS,
-  personaCatalog,
 } from "../src/personas/catalog.js";
 import {
   runCommand,
@@ -145,11 +159,11 @@ describe("shared remote persona catalog", () => {
       if (args.includes("fetch")) await held;
       return runner(command, args, options);
     };
-    const cache = new PersonaCatalogCache(delayed);
+    const cache = new DefaultBranchFiles(delayed);
     const spy = vi
-      .spyOn(personaCatalog, "get")
-      .mockImplementation((cwd, wait, fallback) =>
-        cache.get(cwd, wait, fallback)
+      .spyOn(defaultBranchFiles, "get")
+      .mockImplementation((cwd, directories, wait) =>
+        cache.get(cwd, directories, wait)
       );
     const handlers = createPersonaHandlers({
       agentManager: {
@@ -166,10 +180,78 @@ describe("shared remote persona catalog", () => {
       expect(fetches).toBe(0);
     } finally {
       release();
-      await cache.get(checkout, true);
+      await cache.get(checkout, [".agents/personas"], true);
       spy.mockRestore();
     }
   });
+  it("lists and resolves a session's default-branch persona with checkout precedence", async () => {
+    await publish("default instructions");
+    const agent = { id: "author", cwd: worktree } as never;
+    const manager = {
+      getAgent: async () => agent,
+      inspectCheckout: (
+        _agent: unknown,
+        query: Parameters<typeof inspectCheckout>[1]
+      ) => inspectCheckout(worktree, query),
+    } as never;
+    const handlers = createPersonaHandlers({ agentManager: manager } as never);
+    expect((await resolveRunnerPersona(manager, agent, "builder")).body).toBe(
+      "default instructions"
+    );
+    expect((await handlers.listPersonas("author")).personas).toContainEqual(
+      expect.objectContaining({ slug: "builder", name: "builder" })
+    );
+    await mkdir(path.join(worktree, ".agents/personas"), { recursive: true });
+    await writeFile(
+      path.join(worktree, ".agents/personas/builder.md"),
+      "---\ntype: task\nname: Local Builder\n---\ncheckout instructions"
+    );
+    expect((await handlers.listPersonas("author")).personas).toContainEqual(
+      expect.objectContaining({ slug: "builder", name: "Local Builder" })
+    );
+    expect((await resolveRunnerPersona(manager, agent, "builder")).body).toBe(
+      "checkout instructions"
+    );
+  });
+
+  it("keeps checkout personas and built-ins available to an older runner", async () => {
+    const agent = { id: "author", cwd: "runner://rnr_old/proof" } as never;
+    const manager = {
+      getAgent: async () => agent,
+      inspectCheckout: async (
+        _agent: unknown,
+        query: { kind: string; path?: string }
+      ) => {
+        if (query.kind === "defaultBranchFiles")
+          throw new RunnerCapabilityUnavailable(
+            "Update the runner to read default-branch files."
+          );
+        if (query.kind === "listFiles")
+          return {
+            kind: "listFiles",
+            names: query.path === ".agents/personas" ? ["local.md"] : [],
+          };
+        return {
+          kind: "readFile",
+          content:
+            query.path === ".agents/personas/local.md"
+              ? "Checkout instructions"
+              : null,
+        };
+      },
+    } as never;
+    const handlers = createPersonaHandlers({ agentManager: manager } as never);
+    const list = await handlers.listPersonas("author");
+    expect(list.personas.map(({ slug }) => slug)).toEqual([
+      "local",
+      "code-review",
+    ]);
+    expect(list.warnings.join()).toContain("Update the runner");
+    expect(
+      (await resolveRunnerPersona(manager, agent, "code-review")).slug
+    ).toBe("code-review");
+  });
+
   it("does not reuse definitions after origin changes", async () => {
     await publish("first origin");
     const cache = new PersonaCatalogCache(runner, () => now);
@@ -201,6 +283,38 @@ describe("shared remote persona catalog", () => {
     await new PersonaCatalogCache(runner, () => now).get(checkout, true);
     expect(fetches).toBe(3);
   });
+  it("reuses a pinned snapshot from the legacy cache while offline", async () => {
+    await publish("retained from legacy cache");
+    const initial = new PersonaCatalogCache(runner, () => now);
+    await initial.get(checkout, true);
+    const base = path.join(checkout, ".git/dispatch");
+    const snapshotDir = path.join(base, "default-branch");
+    const legacyDir = path.join(base, "persona-catalog");
+    const [file] = await readdir(snapshotDir);
+    const metadata = JSON.parse(
+      await readFile(path.join(snapshotDir, file), "utf8")
+    );
+    await mkdir(legacyDir);
+    await writeFile(
+      path.join(legacyDir, file),
+      JSON.stringify({
+        ...metadata,
+        personas: [],
+        warnings: [],
+      })
+    );
+    await rm(snapshotDir, { recursive: true });
+    rejectFetch = true;
+    now += PERSONA_REFRESH_MS + 1;
+    const restarted = await new PersonaCatalogCache(runner, () => now).get(
+      worktree,
+      true
+    );
+    expect(restarted.personas[0].body).toBe("retained from legacy cache");
+    expect(restarted.warnings.join()).toContain("Could not refresh");
+    expect(fetches).toBe(2);
+  });
+
   it("drops deleted definitions after a successful refresh and retains other valid files", async () => {
     await publish("one");
     const cache = new PersonaCatalogCache(runner, () => now);

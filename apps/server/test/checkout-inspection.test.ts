@@ -48,18 +48,14 @@ function put(root: string, file: string, content: string): void {
   writeFileSync(target, content);
 }
 
-function runCli(cwd: string, input: string, expectedRoot?: string) {
-  const result = spawnSync(
-    process.execPath,
-    expectedRoot ? [cli, expectedRoot] : [cli],
-    {
-      cwd,
-      input,
-      encoding: "utf8",
-      timeout: 10_000,
-      maxBuffer: 5 * 1024 * 1024,
-    }
-  );
+function runCli(cwd: string, input: string) {
+  const result = spawnSync(process.execPath, [cli], {
+    cwd,
+    input,
+    encoding: "utf8",
+    timeout: 10_000,
+    maxBuffer: 5 * 1024 * 1024,
+  });
   if (result.error) throw result.error;
   return result;
 }
@@ -88,7 +84,7 @@ beforeAll(() => {
   );
   writeFileSync(
     entry,
-    `import { runCheckoutInspectionCli } from ${JSON.stringify(implementation)};\nawait runCheckoutInspectionCli(process.cwd(), process.argv[2]);\n`
+    `import { runCheckoutInspectionCli } from ${JSON.stringify(implementation)};\nawait runCheckoutInspectionCli(process.cwd());\n`
   );
   execFileSync("bun", ["build", "--target=node", "--outfile", cli, entry], {
     stdio: "pipe",
@@ -128,25 +124,6 @@ beforeEach(() => {
 afterEach(() => {
   vi.unstubAllEnvs();
   rmSync(fixture, { recursive: true, force: true });
-});
-
-it("executes argv in the observed checkout and rejects a checkout mismatch", () => {
-  const command = JSON.stringify([
-    "sh",
-    "-c",
-    "pwd; printf diagnostic >&2; exit 7",
-  ]);
-  const result = runCli(checkout, command, checkout);
-  expect(result.status).toBe(0);
-  expect(JSON.parse(result.stdout)).toEqual({
-    stdout: checkout + "\n",
-    stderr: "diagnostic",
-    exitCode: 7,
-  });
-  const moved = runCli(checkout, command, repo);
-  expect(moved.status).toBe(1);
-  expect(moved.stdout).toBe("");
-  expect(moved.stderr).toContain("The session checkout changed");
 });
 
 describe.each([

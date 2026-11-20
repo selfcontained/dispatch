@@ -60,6 +60,7 @@ function dialRunner(input: {
   managedWorkspace?: true;
   sharedWorktree?: true;
   checkoutInspection?: true;
+  defaultBranchFiles?: true;
   githubManagement?: true;
   pullRequestStatus?: true;
 }): Promise<FakeRunner> {
@@ -92,6 +93,7 @@ function dialRunner(input: {
         managedWorkspace: input.managedWorkspace,
         sharedWorktree: input.sharedWorktree,
         checkoutInspection: input.checkoutInspection,
+        defaultBranchFiles: input.defaultBranchFiles,
         githubManagement: input.githubManagement,
         pullRequestStatus: input.pullRequestStatus,
       });
@@ -606,6 +608,14 @@ describe("runner enrollment service", () => {
       agentId: "author",
       query: { kind: "changes", baseBranch: null },
     } as const;
+    const defaultFiles = {
+      ...query,
+      query: {
+        kind: "defaultBranchFiles" as const,
+        directories: [".config"],
+        waitForRefresh: false,
+      },
+    };
     const launch = {
       kind: "launch",
       agentId: "reviewer",
@@ -639,6 +649,12 @@ describe("runner enrollment service", () => {
     });
     try {
       await waitFor(() => service.supportsSharedWorktree(placement));
+      await expect(
+        service.requestSession(placement, defaultFiles)
+      ).rejects.toThrow("Update the runner to read default-branch files");
+      expect(
+        current.requests.filter((frame) => frame.type === "request")
+      ).toEqual([]);
       expect((await service.requestSession(placement, query)).value).toBe(
         "current"
       );
@@ -647,6 +663,28 @@ describe("runner enrollment service", () => {
       );
     } finally {
       current.socket.destroy();
+    }
+    await waitFor(() => !service.available(placement));
+    const extended = await dialRunner({
+      ...a,
+      label: "with default files",
+      workspaces: ["@session"],
+      checkoutInspection: true,
+      defaultBranchFiles: true,
+    });
+    try {
+      await waitFor(() => service.available(placement));
+      expect(
+        (await service.requestSession(placement, defaultFiles)).value
+      ).toBe("with default files");
+      expect(extended.requests).toContainEqual(
+        expect.objectContaining({
+          type: "request",
+          command: { ...defaultFiles, workspace: "@session" },
+        })
+      );
+    } finally {
+      extended.socket.destroy();
     }
   });
 

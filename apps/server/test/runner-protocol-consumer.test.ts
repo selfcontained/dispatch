@@ -341,15 +341,41 @@ it("validates checkout queries, results and borrowed launches", () => {
   expect(
     isCheckoutReply({ kind: "listFiles", names: ["../profile.txt"] }, metadata)
   ).toBe(false);
-  const execute = {
-    ...request,
-    kind: "runCheckout",
-    expectedRoot: "/work/checkout",
-    argv: ["printf", "%s", "hello"],
+  const defaultFiles = {
+    kind: "defaultBranchFiles",
+    directories: [".config/profiles"],
+    waitForRefresh: false,
+  } as const;
+  expect(parse({ ...request, query: defaultFiles })).not.toBeNull();
+  for (const directories of [
+    ["../profiles"],
+    [".git/config"],
+    ["/etc"],
+    ["a", "a"],
+  ])
+    expect(
+      parse({ ...request, query: { ...defaultFiles, directories } })
+    ).toBeNull();
+  const reply = {
+    kind: "defaultBranchFiles",
+    hasOrigin: true,
+    files: [{ path: ".config/profiles/settings.txt", content: "profile" }],
+    warnings: [],
+    refreshing: false,
+    updatedAt: null,
+    truncated: false,
   };
-  expect(parse(execute)).not.toBeNull();
-  expect(parse({ ...execute, argv: [] })).toBeNull();
-  expect(parse({ ...execute, expectedRoot: "../other" })).toBeNull();
+  const query = { ...defaultFiles, directories: [...defaultFiles.directories] };
+  expect(isCheckoutReply(reply, query)).toBe(true);
+  expect(
+    isCheckoutReply(
+      {
+        ...reply,
+        files: [{ path: ".config/other/settings.txt", content: "other" }],
+      },
+      query
+    )
+  ).toBe(false);
   const command = {
     kind: "launch",
     workspace: "@session",

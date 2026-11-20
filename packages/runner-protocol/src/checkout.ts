@@ -5,7 +5,12 @@ import { isRecord } from "./validation.js";
 export type CheckoutQuery =
   | { kind: "changes"; baseBranch: string | null }
   | { kind: "readFile" | "listFiles"; path: string }
-  | { kind: "roots" };
+  | { kind: "roots" }
+  | {
+      kind: "defaultBranchFiles";
+      directories: string[];
+      waitForRefresh: boolean;
+    };
 
 export type CheckoutReply =
   | {
@@ -17,42 +22,21 @@ export type CheckoutReply =
     }
   | { kind: "readFile"; content: string | null }
   | { kind: "listFiles"; names: string[] }
-  | { kind: "roots"; checkoutRoot: string; repositoryRoot: string | null };
+  | { kind: "roots"; checkoutRoot: string; repositoryRoot: string | null }
+  | DefaultBranchFilesReply;
 
-export type CheckoutCommandResult = {
-  exitCode: number;
-  stdout: string;
-  stderr: string;
+export const DEFAULT_BRANCH_FILE_LIMIT = 100;
+export const DEFAULT_BRANCH_REPLY_BYTES = 4 * 1024 * 1024;
+
+export type DefaultBranchFilesReply = {
+  kind: "defaultBranchFiles";
+  hasOrigin: boolean;
+  files: { path: string; content: string }[];
+  warnings: string[];
+  refreshing: boolean;
+  updatedAt: number | null;
+  truncated: boolean;
 };
-
-export function isCheckoutCommandResult(
-  value: unknown
-): value is CheckoutCommandResult {
-  return (
-    isRecord(value) &&
-    typeof value.exitCode === "number" &&
-    Number.isInteger(value.exitCode) &&
-    value.exitCode >= 0 &&
-    value.exitCode < 256 &&
-    typeof value.stdout === "string" &&
-    typeof value.stderr === "string"
-  );
-}
-
-export function isCheckoutArgv(value: unknown): value is string[] {
-  return (
-    Array.isArray(value) &&
-    value.length > 0 &&
-    value.length <= 256 &&
-    typeof value[0] === "string" &&
-    value[0].length > 0 &&
-    value.every(
-      (arg) =>
-        typeof arg === "string" && arg.length <= 4096 && !arg.includes("\0")
-    ) &&
-    new TextEncoder().encode(JSON.stringify(value)).length <= 16 * 1024
-  );
-}
 
 /** A full branch name, never a revision expression, option, or raw ref. */
 export function validBranch(value: unknown): value is string {
@@ -81,9 +65,30 @@ function relativePath(value: unknown): value is string {
   );
 }
 
+function safeCheckoutPath(value: unknown): value is string {
+  return (
+    relativePath(value) &&
+    !value.includes("\\") &&
+    !/^[a-z]:/i.test(value) &&
+    !value.split("/").some((part) => part.toLowerCase() === ".git")
+  );
+}
+
 export function isCheckoutQuery(value: unknown): value is CheckoutQuery {
   if (!isRecord(value)) return false;
   if (value.kind === "roots") return true;
+  if (value.kind === "defaultBranchFiles") {
+    return (
+      Array.isArray(value.directories) &&
+      value.directories.length > 0 &&
+      value.directories.length <= 8 &&
+      new Set(value.directories).size === value.directories.length &&
+      value.directories.every(
+        (dir) => safeCheckoutPath(dir) && dir.length <= 512
+      ) &&
+      typeof value.waitForRefresh === "boolean"
+    );
+  }
   if (value.kind === "readFile" || value.kind === "listFiles")
     return relativePath(value.path);
   return (
@@ -97,6 +102,36 @@ export function isCheckoutReply(
   query: CheckoutQuery
 ): value is CheckoutReply {
   if (!isRecord(value) || value.kind !== query.kind) return false;
+  if (value.kind === "defaultBranchFiles" && query.kind === value.kind) {
+    return (
+      typeof value.hasOrigin === "boolean" &&
+      typeof value.refreshing === "boolean" &&
+      typeof value.truncated === "boolean" &&
+      (value.updatedAt === null ||
+        (typeof value.updatedAt === "number" &&
+          Number.isFinite(value.updatedAt) &&
+          value.updatedAt >= 0)) &&
+      Array.isArray(value.warnings) &&
+      value.warnings.length <= 8 &&
+      value.warnings.every(
+        (warning) => typeof warning === "string" && warning.length <= 512
+      ) &&
+      Array.isArray(value.files) &&
+      value.files.length <= DEFAULT_BRANCH_FILE_LIMIT &&
+      value.files.every(
+        (file) =>
+          isRecord(file) &&
+          safeCheckoutPath(file.path) &&
+          query.directories.includes(
+            file.path.slice(0, file.path.lastIndexOf("/"))
+          ) &&
+          typeof file.content === "string" &&
+          new TextEncoder().encode(file.content).length <= 256 * 1024
+      ) &&
+      new TextEncoder().encode(JSON.stringify(value)).length <=
+        DEFAULT_BRANCH_REPLY_BYTES
+    );
+  }
   if (value.kind === "readFile")
     return (
       value.content === null ||

@@ -128,6 +128,16 @@ function createMockDeps() {
         filesDir: null,
       })),
       inspectCheckout: vi.fn(async (_agent, query) => {
+        if (query.kind === "defaultBranchFiles")
+          return {
+            kind: "defaultBranchFiles",
+            hasOrigin: false,
+            files: [],
+            warnings: [],
+            refreshing: false,
+            updatedAt: null,
+            truncated: false,
+          };
         if (query.kind === "roots")
           return {
             kind: "roots",

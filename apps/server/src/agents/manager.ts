@@ -1,4 +1,3 @@
-import { isCheckoutCommandResult } from "@dispatch/runner-protocol";
 import { isPromptImageMimeType } from "./acp/prompt-source.js";
 import { readSessionFile } from "../files/session-file.js";
 import { readAgentView } from "./checkout-runner.js";
@@ -3004,27 +3003,6 @@ export class AgentManager {
     placement: NonNullable<ReturnType<typeof remotePlacement>>
   ): boolean {
     return this.remote?.permitsAgentMcp(placement) ?? false;
-  }
-
-  async runCheckoutCommand(
-    agent: AgentRecord,
-    expectedRoot: string,
-    argv: string[]
-  ) {
-    const placement = remotePlacement(agent.cwd);
-    if (!placement || !this.remote || !agent.fullAccess)
-      throw new AgentError("Checkout command is unavailable.", 403);
-    const { value } = await this.remote.requestSession(placement, {
-      kind: "runCheckout",
-      agentId: agent.id,
-      expectedRoot,
-      argv,
-    });
-    const output: unknown =
-      typeof value === "string" ? JSON.parse(value) : null;
-    if (!isCheckoutCommandResult(output))
-      throw new AgentError("Invalid runner command response.", 502);
-    return output;
   }
 
   remoteRepoOperation(agent: AgentRecord): (() => Promise<string>) | undefined {

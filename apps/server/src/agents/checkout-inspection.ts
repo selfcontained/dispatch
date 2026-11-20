@@ -1,3 +1,4 @@
+import { DefaultBranchFiles } from "./default-branch-files.js";
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
@@ -12,7 +13,6 @@ import { lstat, open, readdir, readlink, realpath } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 import {
-  isCheckoutArgv,
   isCheckoutQuery,
   type CheckoutQuery,
   type CheckoutReply,
@@ -48,6 +48,7 @@ const run: CommandRunner = async (command, args, options = {}) => {
       LC_ALL: "C",
       GIT_TERMINAL_PROMPT: "0",
       GH_PROMPT_DISABLED: "1",
+      ...options.env,
     },
     maxBuffer: MAX_REPLY_BYTES,
     timeout: options.timeoutMs ?? 5_000,
@@ -81,10 +82,13 @@ const run: CommandRunner = async (command, args, options = {}) => {
   };
 };
 
+export const defaultBranchFiles = new DefaultBranchFiles(run);
+
 function parseQuery(input: unknown): CheckoutQuery {
   if (
     isCheckoutQuery(input) &&
-    Object.keys(input).length === (input.kind === "roots" ? 1 : 2)
+    Object.keys(input).length ===
+      (input.kind === "roots" ? 1 : input.kind === "defaultBranchFiles" ? 3 : 2)
   )
     return input;
   throw new Error("Invalid checkout inspection query");
@@ -485,6 +489,15 @@ export async function inspectCheckout(
   query: CheckoutQuery
 ): Promise<CheckoutReply> {
   const validated = parseQuery(query);
+  if (validated.kind === "defaultBranchFiles") {
+    const reply = await defaultBranchFiles.get(
+      cwd,
+      validated.directories,
+      validated.waitForRefresh
+    );
+    encodeReply(reply);
+    return reply;
+  }
   // Preserve whitespace in the root, removing only Git's terminating newline.
   const probe = await run("git", ["rev-parse", "--show-toplevel"], {
     cwd,
@@ -553,10 +566,7 @@ export async function inspectCheckout(
   return reply;
 }
 
-export async function runCheckoutInspectionCli(
-  cwd: string,
-  expectedRoot?: string
-): Promise<void> {
+export async function runCheckoutInspectionCli(cwd: string): Promise<void> {
   try {
     const chunks: Buffer[] = [];
     let size = 0;
@@ -568,30 +578,6 @@ export async function runCheckoutInspectionCli(
       chunks.push(bytes);
     }
     const input: unknown = JSON.parse(Buffer.concat(chunks).toString("utf8"));
-    if (expectedRoot !== undefined) {
-      const roots = await inspectCheckout(cwd, { kind: "roots" });
-      if (roots.kind !== "roots" || roots.checkoutRoot !== expectedRoot)
-        throw new Error("The session checkout changed.");
-      if (!isCheckoutArgv(input)) throw new Error("Invalid command arguments.");
-      const output = await execFileAsync(input[0], input.slice(1), {
-        cwd: roots.checkoutRoot,
-        timeout: 15_000,
-        killSignal: "SIGKILL",
-        maxBuffer: 256 * 1024,
-      }).then(
-        (result) => ({ ...result, exitCode: 0 }),
-        (error) => {
-          if (typeof error.code !== "number") throw error;
-          return {
-            stdout: error.stdout,
-            stderr: error.stderr,
-            exitCode: error.code,
-          };
-        }
-      );
-      process.stdout.write(JSON.stringify(output));
-      return;
-    }
     const query = parseQuery(input);
     const reply = await inspectCheckout(cwd, query);
     await new Promise<void>((resolve, reject) => {

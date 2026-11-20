@@ -76,10 +76,7 @@ if (process.argv[2]?.startsWith("recovery-")) {
 } else if (process.argv[2] === "runner-inspect-checkout") {
   const { runCheckoutInspectionCli } =
     await import("./agents/checkout-inspection.js");
-  await runCheckoutInspectionCli(
-    process.argv[3]!,
-    process.argv[4] === "--run-command" ? process.argv[5] : undefined
-  );
+  await runCheckoutInspectionCli(process.argv[3]!);
 } else if (process.argv[2] === "remote-runner") {
   const { runRemoteRunner } = await import("./agents/remote/runner.js");
   await runRemoteRunner(process.argv[3]!);

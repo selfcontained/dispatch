@@ -69,6 +69,36 @@ function seed(directory: string, marker: string) {
   writeFileSync(path.join(directory, "review-marker.txt"), marker);
 }
 
+function seedDefaultBranch(directory: string) {
+  const git = (...args: string[]) =>
+    execFileSync("git", ["-C", directory, ...args], { stdio: "pipe" });
+  git("init", "--bare", "--initial-branch=trunk", ".git/fixture-origin.git");
+  git("remote", "add", "origin", ".git/fixture-origin.git");
+  git("switch", "-c", "trunk", "main");
+  writeFileSync(
+    path.join(directory, ".agents/personas/default-review.md"),
+    "---\nname: Trunk Review\n---\nReview using instructions from the default branch."
+  );
+  git("add", ".agents/personas/default-review.md");
+  git("commit", "-m", "Default-branch reviewer");
+  git("push", "origin", "trunk");
+  git("switch", "unpublished");
+}
+
+function copyCheckoutToRunner(directory: string, agentId: string) {
+  const container = state.runners.scratch.container;
+  const target = "/var/lib/runner/sessions/" + agentId;
+  execFileSync("docker", ["cp", directory + "/.", container + ":" + target]);
+  execFileSync("docker", [
+    "exec",
+    container,
+    "chown",
+    "-R",
+    "1500:1500",
+    target,
+  ]);
+}
+
 async function listTools(request: APIRequestContext, id: string) {
   const res = await request.post("/api/mcp/" + id, {
     headers: { Accept: "application/json, text/event-stream" },
@@ -113,19 +143,7 @@ for (const placement of ["This Mac", "Linux runner"] as const) {
       agents.push(author);
       await page.goto("/agents/" + author, { waitUntil: "domcontentloaded" });
       await expect(settledTurns(page)).toHaveCount(1, { timeout: 45_000 });
-      if (remote) {
-        const container = state.runners.scratch.container;
-        const directory = "/var/lib/runner/sessions/" + author;
-        execFileSync("docker", ["cp", tmp + "/.", container + ":" + directory]);
-        execFileSync("docker", [
-          "exec",
-          container,
-          "chown",
-          "-R",
-          "1500:1500",
-          directory,
-        ]);
-      }
+      if (remote) copyCheckoutToRunner(tmp, author);
       await expect
         .poll(() => listTools(request, author))
         .toEqual(
@@ -387,6 +405,117 @@ for (const placement of ["This Mac", "Linux runner"] as const) {
         await deleteAgentViaAPI(request, agentId);
         agents.pop();
       }
+    } finally {
+      for (const id of agents.reverse()) await deleteAgentViaAPI(request, id);
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+}
+
+for (const placement of ["This Mac", "Linux runner"] as const) {
+  test(`lists and launches a trunk-only persona and checkout override on ${placement}`, async ({
+    page,
+    request,
+  }) => {
+    const tmp = mkdtempSync(path.join(os.tmpdir(), "dispatch-default-review-"));
+    const agents: string[] = [];
+    try {
+      seed(tmp, randomUUID());
+      seedDefaultBranch(tmp);
+      const remote = placement === "Linux runner";
+      const cwd = remote
+        ? `runner://${(await runnerRow(request, "scratch"))?.id ?? (await enrollViaUi(page, request, "scratch"))}/@session`
+        : tmp;
+      const created = await request.post("/api/v1/agents", {
+        headers: authHeaders(),
+        data: {
+          name: "Default-branch persona author",
+          type: "claude",
+          cwd,
+          useWorktree: false,
+          initialPrompt: "ready",
+        },
+      });
+      expect(created.ok(), await created.text()).toBe(true);
+      const author = (await created.json()).agent.id as string;
+      agents.push(author);
+      await page.goto("/agents/" + author, { waitUntil: "domcontentloaded" });
+      await expect(settledTurns(page)).toHaveCount(1, { timeout: 45_000 });
+      if (remote) copyCheckoutToRunner(tmp, author);
+      const personaNames = async (id: string) => {
+        const result = await callMcpToolViaAPI(
+          request,
+          id,
+          "list_personas",
+          {}
+        );
+        const { personas } = (
+          result.result as {
+            structuredContent: { personas: { slug: string; name: string }[] };
+          }
+        ).structuredContent;
+        return personas;
+      };
+      await expect
+        .poll(() => personaNames(author))
+        .toContainEqual(
+          expect.objectContaining({
+            slug: "default-review",
+            name: "Trunk Review",
+          })
+        );
+      const launchDefaultReviewer = async (id: string, name: string) => {
+        const result = await callMcpToolViaAPI(request, id, "launch_agent", {
+          persona: "default-review",
+          name,
+          type: "claude",
+          prompt: "Review the effective checkout.",
+        });
+        const reviewer = (
+          result.result as { structuredContent: { agentId: string } }
+        ).structuredContent.agentId;
+        agents.push(reviewer);
+        await page.goto("/agents/" + reviewer, {
+          waitUntil: "domcontentloaded",
+        });
+        await expect(settledTurns(page)).toHaveCount(1, { timeout: 45_000 });
+        await page.goto("/agents/" + id, { waitUntil: "domcontentloaded" });
+        await deleteAgentViaAPI(request, reviewer);
+        agents.pop();
+      };
+      await launchDefaultReviewer(author, "Trunk reviewer");
+      const override =
+        "---\nname: Checkout Review\n---\nUse the checkout's instructions.";
+      if (remote) {
+        execFileSync(
+          "docker",
+          [
+            "exec",
+            "-i",
+            "-u",
+            "1500:1500",
+            state.runners.scratch.container,
+            "tee",
+            "/var/lib/runner/sessions/" +
+              author +
+              "/.agents/personas/default-review.md",
+          ],
+          { input: override, stdio: ["pipe", "ignore", "pipe"] }
+        );
+      } else
+        writeFileSync(
+          path.join(tmp, ".agents/personas/default-review.md"),
+          override
+        );
+      await expect
+        .poll(() => personaNames(author))
+        .toContainEqual(
+          expect.objectContaining({
+            slug: "default-review",
+            name: "Checkout Review",
+          })
+        );
+      await launchDefaultReviewer(author, "Checkout override reviewer");
     } finally {
       for (const id of agents.reverse()) await deleteAgentViaAPI(request, id);
       rmSync(tmp, { recursive: true, force: true });

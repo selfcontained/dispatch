@@ -1,7 +1,6 @@
 import { remotePlacement } from "@dispatch/runner-protocol";
 import type { Effort } from "@dispatch/shared";
 import { validateAgentEffort } from "../shared/agent-effort.js";
-import { resolveLaunchPersona } from "../personas/resolve.js";
 import type { Pool } from "pg";
 
 import type { AgentManager, AgentRecord } from "../agents/manager.js";
@@ -32,12 +31,17 @@ import {
   resolveCodeowners,
   type OwnerReviewResult,
 } from "../personas/codeowners.js";
-import { LEGACY_OWNERS_PATH, OWNERS_PATH } from "../personas/paths.js";
+import {
+  LEGACY_OWNERS_PATH,
+  OWNERS_PATH,
+  PERSONA_DIRS,
+} from "../personas/paths.js";
 import { validateAgentModel } from "../shared/agent-models.js";
 import type { PublishUiEvent } from "./mcp-handler-types.js";
 
-import { personaCatalog } from "../personas/catalog.js";
-import { mcpCheckoutRoots, readAgentCheckoutFile } from "./mcp-checkout.js";
+import { parseDefaultBranchPersonas } from "../personas/catalog.js";
+import { RunnerCapabilityUnavailable } from "../agents/remote/service.js";
+import { readAgentCheckoutFile } from "./mcp-checkout.js";
 import { PERSONA_CONTEXT_ARG } from "../agents/acp/persona-context.js";
 
 const CODEX_FULL_ACCESS_ARG = "--dangerously-bypass-approvals-and-sandbox";
@@ -49,6 +53,31 @@ export type CreatePersonaHandlersDeps = {
   publishUiEvent: PublishUiEvent;
   withStreamFlag: (agent: AgentRecord) => AgentRecord & { hasStream: boolean };
 };
+
+async function sessionDefaultBranchPersonas(
+  manager: AgentManager,
+  agent: AgentRecord,
+  waitForRefresh: boolean
+) {
+  try {
+    const reply = await manager.inspectCheckout(agent, {
+      kind: "defaultBranchFiles",
+      directories: [...PERSONA_DIRS],
+      waitForRefresh,
+    });
+    if (reply.kind !== "defaultBranchFiles")
+      throw new Error("Runner did not return default-branch files.");
+    return parseDefaultBranchPersonas(reply);
+  } catch (error) {
+    if (!(error instanceof RunnerCapabilityUnavailable)) throw error;
+    return {
+      personas: [],
+      warnings: [error.message],
+      refreshing: false,
+      updatedAt: null,
+    };
+  }
+}
 
 export async function discoverSessionPersonas(
   manager: AgentManager,
@@ -68,23 +97,29 @@ export async function discoverSessionPersonas(
     (path) => readAgentCheckoutFile(manager, agent, path),
     warnings
   );
-  const root = remotePlacement(agent.cwd)
-    ? null
-    : (await mcpCheckoutRoots(manager, agent)).checkoutRoot;
-  const catalog = root ? await personaCatalog.get(root, false, false) : null;
-  warnings.push(...(catalog?.warnings ?? []));
+  const catalog = await sessionDefaultBranchPersonas(
+    manager,
+    agent,
+    false
+  ).catch(() => ({
+    personas: [],
+    warnings: ["Could not read default-branch files from the runner."],
+    refreshing: false,
+    updatedAt: null,
+  }));
+  warnings.push(...catalog.warnings);
   const personas = appendBuiltInPersonas(
     mergePersonasWithWorktreePrecedence({
       worktreePersonas: local,
-      repoPersonas: catalog?.personas ?? [],
+      repoPersonas: catalog.personas,
     }),
     BUILT_IN_PERSONAS
   );
   return {
     personas,
     warnings,
-    refreshing: catalog?.refreshing ?? false,
-    updatedAt: catalog?.updatedAt ?? null,
+    refreshing: catalog.refreshing,
+    updatedAt: catalog.updatedAt,
   };
 }
 
@@ -104,18 +139,19 @@ export async function resolveRunnerPersona(
   agent: AgentRecord,
   slug: string
 ) {
-  const persona =
-    (await loadPersonaFromCheckout(slug, (path) =>
-      readAgentCheckoutFile(manager, agent, path)
-    )) ??
-    (remotePlacement(agent.cwd)
-      ? getBuiltInPersona(slug)
-      : await resolveLaunchPersona(
-          agentWorkspaceDir(agent),
-          slug,
-          undefined,
-          "catalog"
-        ));
+  let persona = await loadPersonaFromCheckout(slug, (path) =>
+    readAgentCheckoutFile(manager, agent, path)
+  );
+  if (!persona) {
+    const catalog = await sessionDefaultBranchPersonas(manager, agent, true);
+    persona =
+      catalog.personas.find((candidate) => candidate.slug === slug) ??
+      getBuiltInPersona(slug);
+    if (!persona && catalog.refreshing)
+      throw new Error(
+        "Persona catalog is still refreshing. Try again shortly."
+      );
+  }
   if (!persona)
     throw new Error(
       `Persona "${slug}" not found in this checkout or built-ins.`

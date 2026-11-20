@@ -35,9 +35,7 @@ export async function mcpCheckoutRoots(
 
 export async function discoverRepoTools(
   manager: AgentManager,
-  agent: AgentRecord,
-  authorized: boolean,
-  checkoutRoot: string | null
+  agent: AgentRecord
 ) {
   let content: string | null;
   try {
@@ -53,16 +51,10 @@ export async function discoverRepoTools(
   return parseRepoTools(
     parseRepoToolFile(content),
     remote
-      ? (command) => {
-          if (!authorized || !agent.fullAccess || !checkoutRoot)
-            throw new Error(
-              "Repository commands require a full-access runner session and its scoped MCP token."
-            );
-          return manager.runCheckoutCommand(agent, checkoutRoot, [
-            "env",
-            `DISPATCH_AGENT_ID=${agent.id}`,
-            ...command,
-          ]);
+      ? async () => {
+          throw new Error(
+            "Checkout manifest commands are unavailable on enrolled runners."
+          );
         }
       : undefined
   );

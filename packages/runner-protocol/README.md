@@ -470,7 +470,7 @@ and bytes. Delivery replaces the named file atomically. Collection is
 read-only and retries re-read the current file. Commit each successful
 collection to service-owned storage before publishing a reference to it.
 
-### Checkout metadata and commands
+### Checkout metadata and default-branch files
 
 With both `checkoutInspection: true` and `checkoutMetadata: true`, the v1
 `inspectCheckout` request supports two additional queries:
@@ -488,13 +488,11 @@ effective binding. A host should reacquire metadata for each discovery
 instead of treating equal paths as equal checkouts across machines. Older
 v1 peers still accept the original inspection queries.
 
-With `checkoutCommands: true`, the host may send `runCheckout` with the
-bound session and workspace handles, the previously observed
-`expectedRoot`, and a bounded `argv` array. The runner uses the bound checkout
-and rejects a root mismatch. It executes the argument vector as the workload
-user with a timeout and bounded output. A successful protocol result contains
-a JSON string with `exitCode`, `stdout` and `stderr`, including ordinary
-nonzero process exits. Host services decide who can invoke commands and
-interpret any repository-specific formats. Dispatch requires a full-access
-session's scoped MCP token for manifest commands on enrolled runners.
-The original workspace-approved `repo` operation remains available.
+With both `checkoutInspection: true` and `defaultBranchFiles: true`, send
+`{kind: "defaultBranchFiles", directories, waitForRefresh}` for a bounded
+set of immediate regular files in selected checkout-relative directories.
+The runner observes the origin's default branch in a private Git ref, without
+changing the checkout. The reply includes raw UTF-8 files and refresh status.
+A caller can list cached files during refresh or wait for a cold snapshot.
+A checkout without an origin returns `hasOrigin: false`. Older peers continue
+to serve original queries and the workspace-approved `repo` operation.
