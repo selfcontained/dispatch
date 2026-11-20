@@ -123,6 +123,14 @@ install_service_unit() {
   fi
 }
 
+# The shared ancestor contains account directories. Their private files and
+# the separate settings directory keep their own access restrictions.
+repair_install_root() {
+  [[ -d "$state" && ! -L "$state" && -O "$state" ]] ||
+    error "Untrusted runner install state directory"
+  chmod 0755 "$state"
+}
+
 install_runner() {
   local account account_entry uid gid account_home account_shell
   if [[ -e "$command_path" || -L "$command_path" ]]; then
@@ -156,7 +164,7 @@ install_runner() {
     [[ "$uid" =~ ^[1-9][0-9]*$ && "$gid" =~ ^[1-9][0-9]*$ && "$account_home" == /* ]] ||
       error "Invalid workload account or home"
     : > "$runtime/managed-install"
-    install -d -m 0711 "$state"
+    install -d -m 0755 "$state"
     if [[ "$dedicated" == 1 ]]; then
       [[ "$account_home" == "$state/home" && "$account_shell" == /usr/sbin/nologin ]] ||
         error "Unexpected dedicated workload account configuration"
@@ -165,12 +173,13 @@ install_runner() {
       fi
     fi
     if [[ ! -d "$state/runner" ]]; then
-      install -d -m 0711 "$state/runner"
+      install -d -m 0751 -g "$gid" "$state/runner"
     fi
     # The workload needs traversal to ca.pem. Settings and private key stay 0600.
     install -d -m 0711 "$settings"
     write_config "$uid" "$gid" "$account_home"
   fi
+  repair_install_root
   if [[ ! -e "$runtime/dispatch" ]]; then
     install -m 0755 "$stage/dispatch" "$stage/initial"
     mv -fT "$stage/initial" "$runtime/dispatch"
@@ -332,6 +341,7 @@ update_runner() {
   fi
   maintenance_step=stage
   stage_release
+  repair_install_root
   if ! tar -xOzf "$stage/dispatch-server.tar.gz" bin/runner-handoff-v1.py > "$stage/handoff.py" 2>/dev/null; then
     : > "$stage/handoff.py"
   fi

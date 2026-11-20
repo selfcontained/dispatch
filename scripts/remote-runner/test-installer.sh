@@ -210,6 +210,13 @@ for fixture in invalid default explicit; do
       grep -Fq "\"home\": \"$fixture_root/alternate home\"" "$fixture_root/settings/runner.json"
       ;;
   esac
+  if [[ "$fixture" != invalid ]]; then
+    [[ -n "$(find "$fixture_root/state" -maxdepth 0 -perm 0755 -print)" ]]
+    [[ -n "$(find "$fixture_root/state/runner" -maxdepth 0 -perm 0751 -print)" ]]
+    chmod 0711 "$fixture_root/state"
+    run update v1.0.1
+    [[ -n "$(find "$fixture_root/state" -maxdepth 0 -perm 0755 -print)" ]]
+  fi
   [[ ! -e "$fixture_root/state/home" && ! -e "$fixture_root/account" ]]
   [[ -z "$(find "$fixture_root" -path '* home/*' -print)" ]]
 done
@@ -246,7 +253,12 @@ cp "$root/runtime/dispatch" "$root/original"
 sed 's/^KillMode=process$/KillMode=control-group/' "$root/dispatch-runner.service" > "$root/legacy-unit"
 cp "$root/legacy-unit" "$root/dispatch-runner.service"
 
+chmod 0711 "$root/state"
 run update v1.0.1
+[[ -n "$(find "$root/state" -maxdepth 0 -perm 0755 -print)" ]]
+[[ -n "$(find "$root/state/runner" -maxdepth 0 -perm 0751 -print)" ]]
+[[ -n "$(find "$root/state/home" -maxdepth 0 -perm 0700 -print)" ]]
+[[ -n "$(find "$root/settings" -maxdepth 0 -perm 0711 -print)" ]]
 grep -qx 'KillMode=process' "$root/dispatch-runner.service"
 printf '# administrator setting\n' >> "$root/dispatch-runner.service"
 run update v1.0.1

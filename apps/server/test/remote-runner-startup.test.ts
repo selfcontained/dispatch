@@ -1,5 +1,6 @@
 import { EventEmitter } from "node:events";
 import {
+  chown,
   mkdir,
   mkdtemp,
   readFile,
@@ -58,6 +59,11 @@ vi.mock("node:process", async (original) => {
     }),
   };
 });
+// Startup tests simulate a root supervisor without changing real ownership.
+vi.mock("node:fs/promises", async (original) => ({
+  ...(await original<typeof import("node:fs/promises")>()),
+  chown: vi.fn(async () => {}),
+}));
 vi.mock("node:child_process", async (original) => ({
   ...(await original<typeof import("node:child_process")>()),
   execFile: reportIdentity,
@@ -358,7 +364,9 @@ describe("remote runner startup", () => {
       expect.any(Object),
       expect.any(Function)
     );
-    expect((await stat(state)).mode & 0o777).toBe(0o711);
+    expect((await stat(state)).mode & 0o777).toBe(0o751);
+    expect((await stat(path.join(state, "sessions"))).mode & 0o777).toBe(0o751);
+    expect(chown).toHaveBeenCalledWith(state, process.getuid!(), 1001);
     expect((await stat(path.join(state, "hosts"))).mode & 0o777).toBe(0o711);
     expect((await stat(path.join(state, "bindings"))).mode & 0o777).toBe(0o700);
     expect((await stat(key)).mode & 0o777).toBe(0o600);

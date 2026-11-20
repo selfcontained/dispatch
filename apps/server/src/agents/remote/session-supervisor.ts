@@ -120,7 +120,7 @@ async function readLogTail(file: string) {
   }
 }
 
-async function ownedDirectory(dir: string, mode: number) {
+async function ownedDirectory(dir: string, mode: number, gid?: number) {
   const entry = await lstat(dir);
   if (
     !entry.isDirectory() ||
@@ -130,6 +130,7 @@ async function ownedDirectory(dir: string, mode: number) {
     throw new Error(
       "Runner state directories must be owned by the supervisor."
     );
+  if (gid !== undefined && entry.gid !== gid) await chown(dir, entry.uid, gid);
   await chmod(dir, mode);
 }
 
@@ -143,8 +144,17 @@ export async function createSessionSupervisor(
   const { asWorkload, env } = config;
   const managedWorkspace = config.workspaces.size === 0;
   await mkdir(config.state, { recursive: true, mode: 0o700 });
-  await ownedDirectory(config.state, 0o711);
+  // Tools such as Bun open checkout ancestors for reading. Keep them
+  // supervisor-owned and give the workload group read access.
+  const checkoutAncestorMode = 0o751;
+  await ownedDirectory(config.state, checkoutAncestorMode, config.gid);
   const storage = await realpath(config.state);
+  const installRoot = path.dirname(storage);
+  if (process.getuid?.() === 0 && installRoot === "/var/lib/dispatch-runner") {
+    // Upgrading with an older installer still repairs the shared Linux root
+    // when the new supervisor starts.
+    await ownedDirectory(installRoot, 0o755);
+  }
   const bindings = path.join(storage, "bindings");
   await mkdir(bindings, { mode: 0o700, recursive: true });
   await ownedDirectory(bindings, 0o700);
@@ -157,11 +167,29 @@ export async function createSessionSupervisor(
     for (const [root, mode] of [
       [logs, 0o700],
       [hostRoot, 0o711],
-      [sessions, 0o711],
+      [sessions, checkoutAncestorMode],
       [cache, 0o711],
     ] as const) {
       await mkdir(root, { mode, recursive: true });
-      await ownedDirectory(root, mode);
+      await ownedDirectory(
+        root,
+        mode,
+        root === sessions ? config.gid : undefined
+      );
+    }
+    // Idle hosts can survive an upgrade. Repair existing protected parents
+    // before those hosts resume work, leaving workload-owned scratch alone.
+    for (const key of await readdir(sessions)) {
+      if (!isOpaqueId(key)) continue;
+      const parent = path.join(sessions, key);
+      const entry = await lstat(parent);
+      if (
+        entry.isDirectory() &&
+        entry.uid === process.getuid?.() &&
+        (entry.mode & 0o777) === 0o711
+      ) {
+        await ownedDirectory(parent, checkoutAncestorMode, config.gid);
+      }
     }
   } catch (error) {
     release();
@@ -320,7 +348,8 @@ export async function createSessionSupervisor(
     return (
       entry !== null &&
       entry.uid === process.getuid?.() &&
-      (entry.mode & 0o777) === 0o711
+      entry.gid === config.gid &&
+      (entry.mode & 0o777) === checkoutAncestorMode
     );
   }
 
@@ -337,8 +366,8 @@ export async function createSessionSupervisor(
     // The parent of a Git checkout must be supervisor-owned so a workload
     // cannot swap the verified checkout for a symlink after it is resolved.
     // Legacy sessions get this protection when first inspected or borrowed.
-    await chown(session, process.getuid!(), process.getgid!());
-    await chmod(session, 0o711);
+    await chown(session, process.getuid!(), config.gid);
+    await chmod(session, checkoutAncestorMode);
     await checkedDirectory(checkout);
     return checkout;
   }

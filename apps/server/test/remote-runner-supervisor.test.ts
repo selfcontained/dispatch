@@ -166,6 +166,30 @@ describe("runner session supervision", () => {
     await rm(root, { recursive: true, force: true });
   });
 
+  it("makes checkout ancestors group-readable while retaining private state", async () => {
+    const sessions = path.join(state, "sessions");
+    const legacyParent = path.join(sessions, agentId);
+    const checkout = path.join(legacyParent, "checkout");
+    const scratch = path.join(sessions, reviewerId);
+    await mkdir(state, { mode: 0o711 });
+    await mkdir(sessions, { mode: 0o711 });
+    await mkdir(legacyParent, { mode: 0o711 });
+    await mkdir(checkout, { mode: 0o700 });
+    await mkdir(scratch, { mode: 0o700 });
+
+    await start([]);
+
+    for (const dir of [state, sessions, legacyParent]) {
+      const entry = await stat(dir);
+      expect(entry.mode & 0o777).toBe(0o751);
+      expect(entry.uid).toBe(process.getuid!());
+      expect(entry.gid).toBe(process.getgid!());
+    }
+    for (const dir of [checkout, scratch, path.join(state, "bindings")]) {
+      expect((await stat(dir)).mode & 0o777).toBe(0o700);
+    }
+  });
+
   it("prepares managed scratch and reports request-scoped progress before starting the host", async () => {
     const runner = await start([]);
     const progress = vi.fn();
@@ -1119,7 +1143,7 @@ describe("runner session supervision", () => {
     expect(await running.checkoutDirectory(reviewerId, workspace)).toBe(
       checkout
     );
-    expect((await stat(author)).mode & 0o777).toBe(0o711);
+    expect((await stat(author)).mode & 0o777).toBe(0o751);
     expect(workload).not.toHaveBeenCalled();
     const legacyHead = git("-C", checkout, "rev-parse", "HEAD").trim();
     git(`--git-dir=${cache}`, "update-ref", "refs/heads/main", legacyHead);
@@ -1211,6 +1235,7 @@ describe("runner session supervision", () => {
       };
       const steps = await startCheckout();
       const cwd = await running.checkoutDirectory(id, workspace);
+      expect((await stat(path.dirname(cwd))).mode & 0o777).toBe(0o751);
       expect(prepareDependencies).toHaveBeenLastCalledWith(cwd);
       if (base) {
         expect(steps).toContainEqual({
