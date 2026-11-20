@@ -215,7 +215,13 @@ stop_idle_runner() {
   done < "$stage/process-files"
   # systemctl stop thaws the unit. Queue the fatal signal before the thaw so
   # that the old supervisor gets no chance to dispatch a launch.
-  systemctl kill --kill-whom=main --signal=SIGKILL "$unit"
+  # Probe the option parser without signaling a unit. Older systemctl uses
+  # --kill-who, and an actual signal failure must abort the update.
+  local target=--kill-whom=main
+  if ! systemctl "$target" --version >/dev/null 2>&1; then
+    target=--kill-who=main
+  fi
+  systemctl kill "$target" --signal=SIGKILL "$unit"
   systemctl stop "$unit"
   frozen=0
 }

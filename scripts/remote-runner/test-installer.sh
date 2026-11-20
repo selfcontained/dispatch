@@ -84,7 +84,12 @@ systemctl() {
       fi
       ;;
     thaw) rm -rf "$cgroup_root/service/child" ;;
-    kill) [[ "$*" == 'kill --kill-whom=main --signal=SIGKILL dispatch-runner.service' ]];;
+    --kill-whom=main) [[ "$2" == --version && ! -e "$root/legacy-systemctl" ]];;
+    kill)
+      local target=--kill-whom=main
+      [[ ! -e "$root/legacy-systemctl" ]] || target=--kill-who=main
+      [[ "$*" == "kill $target --signal=SIGKILL dispatch-runner.service" ]]
+      ;;
     daemon-reload) ;;
     *) return 1 ;;
   esac
@@ -224,7 +229,9 @@ cmp "$root/original" "$root/runtime/dispatch"
 [[ ! -e "$root/runtime/previous" && -e "$root/running" ]]
 rm "$root/reject-new"
 
+: > "$root/legacy-systemctl"
 run update v1.0.1 arm64
+grep -Fxq 'kill --kill-who=main --signal=SIGKILL dispatch-runner.service' "$root/systemctl"
 grep -q 'release-new arm64' "$root/runtime/dispatch"
 [[ ! -e "$root/runtime/previous" ]]
 diff -r "$root/original-settings" "$root/settings"
