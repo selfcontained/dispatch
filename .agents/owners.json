@@ -41,6 +41,7 @@
         "docs/04-agent-lifecycle.md",
         "docs/design/remote-runner-handoff.md",
         "docs/design/runner-capability-inventory.md",
+        "docs/design/runner-preview-access.md",
         "docs/design/runner-parity-rollout.md",
         "scripts/e2e-remote-runners.sh",
         "scripts/remote-runner/codex-offline-preflight.sh",
