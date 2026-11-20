@@ -62,6 +62,8 @@ export class GitHubRunnerExecutor {
   private login?: Login;
   private failure?: string;
   private queue = Promise.resolve();
+  private accountChangesPending = 0;
+  private repositoryGeneration = 0;
   private repositories?: {
     at: number;
     rows: Promise<{ name: string; url: string }[]>;
@@ -393,7 +395,7 @@ export class GitHubRunnerExecutor {
         return this.account(signal).then((account) => {
           // The form asks for the account before anyone searches, so the
           // first search finds the listing already under way.
-          if (account.status === "signed-in")
+          if (account.status === "signed-in" && !this.accountChangesPending)
             void this.repositoryList().catch(() => {});
           return account;
         });
@@ -439,9 +441,14 @@ export class GitHubRunnerExecutor {
     signal.throwIfAborted();
     switch (operation.type) {
       case "repositorySearch": {
+        if (this.accountChangesPending || this.login)
+          throw new Error("GitHub account change is in progress.");
+        const generation = this.repositoryGeneration;
         const query = operation.query.toLowerCase();
         const rows = await this.repositoryList();
         signal.throwIfAborted();
+        if (generation !== this.repositoryGeneration)
+          throw new Error("GitHub account changed during repository search.");
         return githubRepositoryResults(
           rows.filter((row) => row.name.toLowerCase().includes(query))
         );
@@ -522,6 +529,12 @@ export class GitHubRunnerExecutor {
         return githubPullRequestHead(JSON.parse(head));
       }
       default: {
+        const changesAccount = operation.type !== "status";
+        if (changesAccount) {
+          this.accountChangesPending++;
+          this.repositoryGeneration++;
+          this.repositories = undefined;
+        }
         const result = this.queue.then(() =>
           this.statusOperation(operation, signal)
         );
@@ -546,6 +559,8 @@ export class GitHubRunnerExecutor {
                 : "failed",
             message,
           };
+        } finally {
+          if (changesAccount) this.accountChangesPending--;
         }
       }
     }

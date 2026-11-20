@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { access, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { expect, it, vi } from "vitest";
@@ -74,6 +74,10 @@ case "$1 $2" in
     else
       test "$*" = 'auth logout --hostname github.com --user fixture-user'
     fi
+    if [ -f hold-logout ]; then
+      touch logout-started
+      until [ -f release-logout ]; do sleep .02; done
+    fi
     rm -f login
     ;;
   'auth git-credential')
@@ -104,6 +108,10 @@ case "$1 $2" in
         test "$5 $6 $7 $8 $9" = "--method GET -f affiliation=owner,collaborator,organization_member -f"
         test "$GH_HOST" = 'github.com'
         test -f login
+        if [ -f hold-repositories ]; then
+          touch repository-search-started
+          until [ -f release-repositories ]; do sleep .02; done
+        fi
         printf '%s' '[{"name":"org/project","url":"https://github.com/org/project"},{"name":"unrelated/other","url":"https://github.com/unrelated/other"},{"name":"org/project-secret","url":"https://synthetic-token@github.com/org/project"}]'
         ;;
       user)
@@ -164,6 +172,35 @@ it("offers sign-in for an empty legacy gh account and preserves network failures
       status: "unavailable",
       message: "The runner could not connect to github.com.",
     });
+  });
+});
+
+it("invalidates in-flight repository searches and prevents cache refills during logout", async () => {
+  await fixture(async ({ executor, root }) => {
+    const signal = new AbortController().signal;
+    const flag = (name: string) => writeFile(path.join(root, name), "");
+    const waitForFlag = (name: string) =>
+      vi.waitFor(() => access(path.join(root, name)));
+    const search = () =>
+      executor.handle(
+        { type: "repositorySearch", query: "org/project" },
+        signal
+      );
+    await writeFile(path.join(root, "login"), "fixture-user\n");
+    await Promise.all([flag("hold-repositories"), flag("hold-logout")]);
+
+    const beforeLogout = search().catch((error: unknown) => error);
+    await waitForFlag("repository-search-started");
+    const logout = executor.handle({ type: "logout" }, signal);
+    await waitForFlag("logout-started");
+    const duringLogout = search().catch((error: unknown) => error);
+    await flag("release-repositories");
+    await flag("release-logout");
+
+    expect(await logout).toEqual({ status: "signed-out" });
+    expect(await beforeLogout).toBeInstanceOf(Error);
+    expect(await duringLogout).toBeInstanceOf(Error);
+    await expect(search()).rejects.toThrow();
   });
 });
 
