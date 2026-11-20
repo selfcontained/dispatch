@@ -19,6 +19,23 @@ network isolation. Workload credential switching alone cannot enforce this
 boundary. Built-in native sessions retain their existing published-link path
 and should advertise the new capability only if they meet the same boundary.
 
+Current enrollment authenticates a runner and permits it to launch multiple
+sessions. Configuring a workspace restricts checkout selection. It does not
+reserve the runner for one session or isolate its workload from the runner
+control process. The existing Docker acceptance harness isolates runner
+containers from one another and still allows multiple sessions inside each
+container. A deployable placement needs a provisioner that binds each session
+to its own workload network namespace, provides the runner a scoped dial path
+into that namespace and releases that path on session close. A deployment can
+supply that boundary externally if the runner can verify the binding and
+enforce exclusive session assignment. No current enrollment mode does so.
+
+A local Docker check ran two disposable containers with networking disabled
+apart from loopback. They served different bodies on port 4173, and the
+second remained reachable from inside its namespace after stopping the first.
+This checks the isolation primitive. The enrolled relay, browser origin,
+live reload and access revocation remain unverified.
+
 ## Proposed runner contract
 
 Advertise `previewPorts: true` in the authenticated ready frame only when the
@@ -32,12 +49,12 @@ identity comes from the authenticated connection. Session, endpoint and grant
 handles are opaque to the host. The protocol needs no project, browser,
 attachment, membership or review fields.
 
-| Operation         | Contract                                                                                                                                                                                                |
-| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Register endpoint | Bind an explicitly requested integer port from 1 through 65535 to a live session and return a session-local opaque endpoint handle. The dial destination is fixed loopback in that session's namespace. |
-| Grant access      | Bind a revocable opaque grant to the connection, active session and endpoint. Grants have a finite lifetime and are invalid on reconnect.                                                               |
-| Open connection   | Validate the grant and open one bidirectional byte stream. Validate the bindings before dialing and again before exposing the stream if the dial completed asynchronously.                              |
-| Revoke access     | Invalidate the grant and destroy every active stream for it. Repeating revocation succeeds.                                                                                                             |
+| Operation         | Contract                                                                                                                                                                                                                                                  |
+| ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Register endpoint | Explicitly publish an integer port from 1 through 65535. The runner must approve it for the live session’s verified workload before returning a session-local opaque endpoint handle. The dial destination is fixed loopback in that session's namespace. |
+| Grant access      | Bind a revocable opaque grant to the connection, active session and endpoint. Grants have a finite lifetime and are invalid on reconnect.                                                                                                                 |
+| Open connection   | Validate the grant and open one bidirectional byte stream. Validate the bindings before dialing and again before exposing the stream if the dial completed asynchronously.                                                                                |
+| Revoke access     | Invalidate the grant and destroy every active stream for it. Repeating revocation succeeds.                                                                                                                                                               |
 
 Closing a session, losing the authenticated connection or revoking runner
 enrollment invalidates its grants and closes affected streams, including
