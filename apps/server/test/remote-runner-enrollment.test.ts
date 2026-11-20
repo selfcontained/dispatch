@@ -5,7 +5,15 @@ import https from "node:https";
 import type { AddressInfo } from "node:net";
 import { connect, createServer, type TLSSocket } from "node:tls";
 import type { Pool } from "pg";
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 import { exchangeCode } from "../src/agents/remote/enrollment.js";
 import {
   wireFrames,
@@ -998,32 +1006,56 @@ describe("runner enrollment service", () => {
   });
 });
 
-it("releases the handshake slot for HTTP and closes the idle relay cleanly", async () => {
+it("closes each relayed HTTP connection after its entire response", async () => {
   const authority = issueAuthority("relay-test");
   const leaf = issueServer(authority, [HOST]);
   let requests = 0;
   const api = http.createServer((_request, response) => {
-    const delay = requests++ === 0 ? 0 : 150;
-    setTimeout(() => response.end("ok"), delay);
+    if (requests++ === 0) {
+      response.setHeader("Connection", "keep-alive");
+      response.end("ok");
+      return;
+    }
+    // Simulate both a silent tool call and a streamed response that stays open.
+    setTimeout(() => {
+      response.write("first ");
+      setTimeout(() => response.end("last"), 100);
+    }, 2_500);
   });
   api.listen(0, HOST);
   await once(api, "listening");
-  const service = new RemoteRunnerService(undefined, undefined, {
-    host: HOST,
-    port: (api.address() as AddressInfo).port,
-    tls: false,
-  });
-  const listener = createServer({ cert: leaf.cert, key: leaf.key }, (socket) =>
-    service["accept"](socket, "legacy")
+  const debug = vi.fn();
+  const service = new RemoteRunnerService(
+    undefined,
+    undefined,
+    { host: HOST, port: (api.address() as AddressInfo).port, tls: false },
+    { debug }
+  );
+  const listener = createServer(
+    {
+      cert: leaf.cert,
+      key: leaf.key,
+      requestCert: true,
+      rejectUnauthorized: false,
+    },
+    (socket) => service["accept"](socket, "legacy")
   );
   listener.listen(0, HOST);
   await once(listener, "listening");
-  const agent = new https.Agent({ keepAlive: true, ca: authority.cert });
+  const agent = new https.Agent({
+    keepAlive: true,
+    maxSockets: 1,
+    ca: authority.cert,
+  });
   try {
-    expect(service["proxyIdleTimeout"]).toBeGreaterThan(60_000);
-    Object.defineProperty(service, "proxyIdleTimeout", { value: 100 });
-    const ping = () =>
-      new Promise<TLSSocket>((resolve, reject) => {
+    function ping() {
+      return new Promise<{
+        socket: TLSSocket;
+        closed: Promise<boolean>;
+        status?: number;
+        connection?: string;
+        body: string;
+      }>((resolve, reject) => {
         const request = https.get(
           {
             host: HOST,
@@ -1032,27 +1064,63 @@ it("releases the handshake slot for HTTP and closes the idle relay cleanly", asy
             agent,
           },
           (response) => {
-            const connection = response.socket as TLSSocket;
-            response.resume();
-            response.once("end", () => resolve(connection));
+            const socket = response.socket as TLSSocket;
+            const closed = new Promise<boolean>((done) =>
+              socket.once("close", done)
+            );
+            let body = "";
+            response.setEncoding("utf8");
+            response.on("data", (chunk: string) => (body += chunk));
+            response.once("end", () =>
+              resolve({
+                socket,
+                closed,
+                status: response.statusCode,
+                connection: response.headers.connection,
+                body,
+              })
+            );
             response.once("error", reject);
           }
         );
         request.on("error", reject);
       });
-    const socket = await ping();
+    }
+    const first = await ping();
+    expect(first).toMatchObject({
+      status: 200,
+      connection: "close",
+      body: "ok",
+    });
     expect(service["unauthenticated"]).toBe(0);
-    expect(await ping()).toBe(socket);
-    expect(socket.destroyed).toBe(false);
-    const [hadError] = await once(socket, "close");
-    expect(hadError).toBe(false);
+    const second = await ping();
+    expect(second.socket).not.toBe(first.socket);
+    expect(second).toMatchObject({
+      status: 200,
+      connection: "close",
+      body: "first last",
+    });
+    expect(await first.closed).toBe(false);
+    expect(await second.closed).toBe(false);
+    expect(requests).toBe(2);
+    await vi.waitFor(() => expect(debug).toHaveBeenCalledTimes(2));
+    for (const call of debug.mock.calls) {
+      expect(call).toEqual([
+        expect.objectContaining({
+          ageMs: expect.any(Number),
+          requestsServed: 1,
+          closedBy: "proxy",
+        }),
+        "Runner HTTP relay closed",
+      ]);
+    }
   } finally {
     agent.destroy();
     service.close();
     listener.close();
     api.close();
   }
-});
+}, 10_000);
 
 describe("legacy runner config", () => {
   it("keeps its locator and gates MCP on the live approval file", async () => {

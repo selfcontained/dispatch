@@ -8,7 +8,7 @@ import { X509Certificate } from "node:crypto";
 import { readFileSync, watchFile, unwatchFile } from "node:fs";
 import http from "node:http";
 import https from "node:https";
-import { connect as connectTcp, isIP, type Socket } from "node:net";
+import { connect as connectTcp, isIP } from "node:net";
 import os from "node:os";
 import { createServer, type Server, type TLSSocket } from "node:tls";
 import {
@@ -20,6 +20,7 @@ export {
   RunnerHostGone,
 } from "@dispatch/runner-protocol/connection";
 import type { Pool } from "pg";
+import type { FastifyBaseLogger } from "fastify";
 import {
   parseRunnerHealth,
   type RunnerHealth,
@@ -183,7 +184,6 @@ type Peer = {
 };
 
 const MAX_UNAUTHENTICATED = 64;
-const PROXY_KEEP_ALIVE_TIMEOUT = 75_000;
 
 function validHost(host: string) {
   return (
@@ -269,6 +269,7 @@ export function configuredRunner(input?: {
   host: string;
   apiPort: number;
   apiTls: boolean;
+  logger?: Pick<FastifyBaseLogger, "debug">;
   validAgentToken?: (token: string, agentId: string) => boolean;
   validJobToken?: (token: string, runId: string, agentId: string) => boolean;
 }) {
@@ -304,7 +305,8 @@ export function configuredRunner(input?: {
           tls: input.apiTls,
           validAgentToken: input.validAgentToken,
           validJobToken: input.validJobToken,
-        }
+        },
+        input?.logger
       )
     : undefined;
 }
@@ -333,6 +335,10 @@ export class RemoteRunnerService {
   private port?: number;
   private readonly proxy: http.Server;
   private proxyPort?: Promise<number>;
+  private readonly proxyConnections = new Map<
+    number,
+    { release: () => void; requestStarted: boolean; requestsServed: number }
+  >();
 
   constructor(
     private readonly legacy?: LegacyConfig,
@@ -349,7 +355,8 @@ export class RemoteRunnerService {
         runId: string,
         agentId: string
       ) => boolean;
-    }
+    },
+    private readonly logger?: Pick<FastifyBaseLogger, "debug">
   ) {
     if (legacy) {
       httpsOrigin(legacy.mcpOrigin, "Runner MCP origin");
@@ -369,15 +376,29 @@ export class RemoteRunnerService {
         // MCP tool calls may legitimately run for a long time.
         requestTimeout: 0,
         headersTimeout: 30_000,
-        // Manage keep-alive below because Bun ignores this option.
-        keepAliveTimeout: 0,
       },
       (request, response) => {
-        const firstRequest = this.proxyFirstRequests.get(
+        const connection = this.proxyConnections.get(
           request.socket.remotePort!
         );
-        firstRequest?.();
-        this.trackProxyRequest(request.socket, response);
+        if (!connection) {
+          response.writeHead(400, { connection: "close" }).end();
+          return;
+        }
+        // Do not dispatch a second (pipelined) request while the first drains.
+        if (connection.requestStarted) return;
+        connection.requestStarted = true;
+        connection.release();
+        response.shouldKeepAlive = false;
+        response.setHeader("connection", "close");
+        response.once("finish", () => {
+          connection.requestsServed++;
+          // Bun can leave the loopback socket open despite the close header.
+          // Let the response finish flushing before ending the relay.
+          setImmediate(() => {
+            if (!request.socket.destroyed) request.socket.end();
+          });
+        });
         this.forward(request, response);
       }
     );
@@ -625,60 +646,50 @@ export class RemoteRunnerService {
    * http.Server) works the same under Node and Bun.
    */
   private async relay(socket: TLSSocket, head: Buffer, release: () => void) {
+    const started = performance.now();
+    const connection = { release, requestStarted: false, requestsServed: 0 };
+    let closedBy: "client" | "proxy" | undefined;
+    socket.once("end", () => (closedBy ??= "client"));
+    socket.once("error", () => (closedBy ??= "client"));
+    socket.once("close", () => {
+      this.logger?.debug(
+        {
+          ageMs: Math.round(performance.now() - started),
+          requestsServed: connection.requestsServed,
+          closedBy: closedBy ?? "proxy",
+        },
+        "Runner HTTP relay closed"
+      );
+    });
     socket.pause();
     try {
       const port = await this.ensureProxy();
       if (socket.destroyed) return;
       const upstream = connectTcp(port, "127.0.0.1");
-      upstream.on("error", () => socket.destroy());
+      upstream.once("end", () => (closedBy ??= "proxy"));
+      upstream.on("error", () => {
+        closedBy ??= "proxy";
+        socket.destroy();
+      });
       socket.on("close", () => upstream.destroy());
       upstream.on("close", () => {
-        if (!upstream.readableEnded) socket.destroy();
+        if (!upstream.readableEnded && !socket.destroyed) {
+          closedBy ??= "proxy";
+          socket.destroy();
+        }
       });
       upstream.once("connect", () => {
         const relayPort = upstream.localPort!;
-        this.proxyFirstRequests.set(relayPort, () => {
-          this.proxyFirstRequests.delete(relayPort);
-          release();
-        });
-        upstream.once("close", () => this.proxyFirstRequests.delete(relayPort));
+        this.proxyConnections.set(relayPort, connection);
+        upstream.once("close", () => this.proxyConnections.delete(relayPort));
         upstream.write(head);
         socket.pipe(upstream).pipe(socket);
         socket.resume();
       });
     } catch {
+      closedBy ??= "proxy";
       socket.destroy();
     }
-  }
-
-  private readonly proxyIdleTimeout = PROXY_KEEP_ALIVE_TIMEOUT;
-  private readonly proxyFirstRequests = new Map<number, () => void>();
-  private readonly proxyRequests = new WeakMap<
-    Socket,
-    { pending: number; idleTimer?: ReturnType<typeof setTimeout> }
-  >();
-
-  private trackProxyRequest(socket: Socket, response: http.ServerResponse) {
-    let entry = this.proxyRequests.get(socket);
-    if (!entry) {
-      const state: {
-        pending: number;
-        idleTimer?: ReturnType<typeof setTimeout>;
-      } = { pending: 0 };
-      socket.once("close", () => clearTimeout(state.idleTimer));
-      this.proxyRequests.set(socket, state);
-      entry = state;
-    }
-    clearTimeout(entry.idleTimer);
-    entry.pending++;
-    const state = entry;
-    response.once("finish", () => {
-      if (--state.pending === 0)
-        state.idleTimer = setTimeout(
-          () => socket.end(),
-          this.proxyIdleTimeout
-        ).unref();
-    });
   }
 
   private ensureProxy() {
