@@ -1,5 +1,4 @@
 import { RunnerProjectPicker } from "./runner-project-picker";
-import { RunnerRepositoryFields } from "./runner-repository-fields";
 import { taskAgentName } from "@dispatch/shared";
 import { ProjectLocation } from "./project-location";
 import { useProjectScope, useProjects } from "@/hooks/use-projects";
@@ -13,7 +12,10 @@ import { AgentEngineFields } from "@/components/app/agent-engine-fields";
 import { ContextPicker } from "@/components/app/context-picker";
 import { CONTEXT_PROMPT_ID } from "@/components/app/create-agent-dialog-utils";
 import { WorktreeSection } from "@/components/app/create-agent-worktree-section";
-import { RunnerPicker } from "@/components/app/runner-picker";
+import {
+  RunnerPicker,
+  RunnerWorkspacePicker,
+} from "@/components/app/runner-picker";
 import { PathInput } from "@/components/app/path-input";
 import { useCreateAgentForm } from "@/components/app/use-create-agent-form";
 import { ActivityBars } from "@/components/ui/activity-bars";
@@ -92,6 +94,7 @@ function CreateAgentDialogContent({
 
   return (
     <DialogContent
+      className="h-[min(42rem,80dvh)]"
       aria-describedby={
         form.step === "config" ? undefined : "create-agent-context-description"
       }
@@ -115,10 +118,10 @@ function CreateAgentDialogContent({
 
           <form
             data-testid="create-agent-form"
-            className="flex min-h-0 flex-col"
+            className="flex min-h-0 flex-1 flex-col"
             onSubmit={(event) => void form.handleSubmit(event)}
           >
-            <div className="min-h-0 flex-1 overflow-y-auto px-1">
+            <div className="min-h-0 flex-1 overflow-y-auto px-1 [scrollbar-gutter:stable]">
               <div className="space-y-3">
                 <RunnerPicker
                   runners={
@@ -129,8 +132,6 @@ function CreateAgentDialogContent({
                   runnerId={form.runnerId}
                   unavailable={form.runnerUnavailable}
                   onRunnerChange={form.selectRunner}
-                  workspace={form.runnerWorkspace}
-                  onWorkspaceChange={form.setRunnerWorkspace}
                 />
                 <AgentEngineFields
                   agentType={form.createType}
@@ -146,17 +147,15 @@ function CreateAgentDialogContent({
                   modelLoading={form.modelCatalogLoading}
                   onTypeOpenChange={setTypeDropdownOpen}
                   remote={Boolean(form.runnerId)}
+                  statusLine={
+                    form.runnerEngineBlocked
+                      ? "Set up this agent on the runner to create a session."
+                      : form.workloadCatalogUnavailable
+                        ? "Using the agent’s configured model."
+                        : ""
+                  }
                   workloadEffort={form.workloadEffort}
                 />
-                {(form.runnerEngineBlocked ||
-                  form.workloadCatalogUnavailable) && (
-                  <p className="text-xs text-muted-foreground" role="status">
-                    {form.runnerEngineBlocked
-                      ? "Install and sign in to this agent on the runner before creating a session."
-                      : "Model choices are unavailable. The agent will use its configured model."}
-                  </p>
-                )}
-
                 <div className="space-y-1">
                   <label className="text-sm text-muted-foreground">
                     Name{" "}
@@ -177,13 +176,29 @@ function CreateAgentDialogContent({
 
                 {task && <TaskContextCard task={task} />}
                 <div className="space-y-1">
+                  {form.runner &&
+                    !form.runnerUnavailable &&
+                    !form.managedSession && (
+                      <RunnerWorkspacePicker
+                        selected={form.runner}
+                        workspace={form.runnerWorkspace}
+                        onWorkspaceChange={form.setRunnerWorkspace}
+                      />
+                    )}
                   {form.managedSession && form.runnerId && (
                     <>
                       {!task && (
                         <RunnerProjectPicker
                           key={form.runnerId}
                           runnerId={form.runnerId}
-                          canSearch={form.runnerGitHubAvailable}
+                          canSearch={
+                            form.runnerGitHubAvailable &&
+                            Boolean(form.runner?.repositoryPicker)
+                          }
+                          updateNeeded={
+                            form.runnerGitHubAvailable &&
+                            !form.runner?.repositoryPicker
+                          }
                           projectId={form.createProjectId}
                           repository={form.repository}
                           onProject={form.setCreateProjectId}
@@ -207,11 +222,24 @@ function CreateAgentDialogContent({
                         </p>
                       )}
                       {form.repository && !form.repoStatus && (
-                        <RunnerRepositoryFields
-                          mode={form.branchMode}
-                          onMode={form.changeBranchMode}
-                          branch={form.runnerBranch}
-                          onBranch={form.setRunnerBranch}
+                        <WorktreeSection
+                          key={form.repository}
+                          runner={{
+                            id: form.runnerId,
+                            repository: form.repository,
+                            browse: !!form.runner?.repositoryPicker,
+                          }}
+                          cwd=""
+                          worktreeAvailable
+                          useWorktree
+                          baseBranch={form.runnerBranch}
+                          onBaseBranchChange={form.setRunnerBranch}
+                          worktreeBranch={form.runnerNewBranch}
+                          onWorktreeBranchChange={form.setRunnerNewBranch}
+                          createNewBranch={form.branchMode === "new"}
+                          onCreateNewBranchChange={(checked) =>
+                            form.setBranchMode(checked ? "new" : "existing")
+                          }
                         />
                       )}
                     </>

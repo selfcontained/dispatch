@@ -100,11 +100,11 @@ case "$1 $2" in
   'api --hostname')
     test "$3" = 'github.com'
     case "$4" in
-      search/repositories)
-        test "$5 $6 $7 $8 $9" = "--method GET -f q=org/project in:name -f"
+      user/repos)
+        test "$5 $6 $7 $8 $9" = "--method GET -f affiliation=owner,collaborator,organization_member -f"
         test "$GH_HOST" = 'github.com'
         test -f login
-        printf '%s' '[{"fullName":"org/project","url":"https://github.com/org/project"},{"fullName":"ignored/secret","url":"https://synthetic-token@github.com/org/project"}]'
+        printf '%s' '[{"name":"org/project","url":"https://github.com/org/project"},{"name":"unrelated/other","url":"https://github.com/unrelated/other"},{"name":"org/project-secret","url":"https://synthetic-token@github.com/org/project"}]'
         ;;
       user) if [ -f revoked ]; then printf '(HTTP 401)\n' >&2; exit 1; fi; cat login ;;
       repos/org/project/pulls/42)

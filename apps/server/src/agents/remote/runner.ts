@@ -1033,6 +1033,7 @@ export async function runRemoteRunner(filename: string) {
           engineManagement: true,
           engineCapabilities: true,
           githubManagement: true,
+          repositoryPicker: true,
           pullRequestStatus: true,
           pullRequestWatch: true,
           pullRequestEvidence: true,

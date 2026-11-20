@@ -51,6 +51,7 @@ export type GitHubOperation =
   | { type: "watchPullRequests"; targets: GitHubPullRequestTarget[] }
   | { type: "status" | "login" | "cancel" | "logout" }
   | { type: "repositorySearch"; query: string }
+  | { type: "repositoryBranches"; owner: string; repo: string }
   | (GitHubPullRequestTarget &
       (
         | { type: "pullRequestHead" | "pullRequestDetails" }
@@ -265,6 +266,10 @@ export function isGitHubOperation(value: unknown): value is GitHubOperation {
         value.targets.length > 0 &&
         value.targets.length <= MAX_PULL_REQUEST_WATCH_TARGETS &&
         value.targets.every(isGitHubPullRequestTarget)
+      );
+    case "repositoryBranches":
+      return (
+        validGitHubRepoPart(value.owner) && validGitHubRepoPart(value.repo)
       );
     case "repositorySearch":
       return validRepositorySearch(value.query);

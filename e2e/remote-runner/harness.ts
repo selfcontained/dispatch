@@ -310,15 +310,17 @@ export async function launchViaUi(
           .getByRole("option", { name: opts.repository, exact: true })
           .click();
         if (opts.pullRequest) {
+          await page.getByTestId("create-agent-new-branch").click();
+          await page.getByTestId("create-agent-base-branch").click();
           await page
-            .getByRole("combobox", { name: "Branch", exact: true })
-            .click();
-          await page
-            .getByRole("option", { name: "Use an existing branch or PR" })
-            .click();
-          await page
-            .getByLabel("Branch or pull request")
+            .getByPlaceholder("Branch name or GitHub PR URL")
             .fill(opts.pullRequest);
+          await page
+            .getByRole("option", {
+              name: `Use ${opts.pullRequest}`,
+              exact: true,
+            })
+            .click();
         }
       }
     } else {

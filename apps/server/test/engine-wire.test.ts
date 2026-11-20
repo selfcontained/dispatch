@@ -84,7 +84,10 @@ function dialEngineRunner(input: {
         version: 1,
         health: true,
         ...(input.engineManagement !== false ? { engineManagement: true } : {}),
-        ...(input.onGitHub && { githubManagement: true }),
+        ...(input.onGitHub && {
+          githubManagement: true,
+          repositoryPicker: true,
+        }),
         workspaces: input.workspaces,
       });
       resolve({

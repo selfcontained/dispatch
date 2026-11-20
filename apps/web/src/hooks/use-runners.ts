@@ -14,6 +14,7 @@ export type Runner = {
   engineManagement?: true;
   engineCapabilities?: true;
   githubManagement?: boolean;
+  repositoryPicker?: boolean;
   health?: RunnerHealth;
   healthReceivedAt?: string;
 };

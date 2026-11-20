@@ -14,9 +14,10 @@ import { cn } from "@/lib/utils";
 
 type WorktreeSectionProps = {
   cwd: string;
+  runner?: { id: string; repository: string; browse: boolean };
   worktreeAvailable: boolean;
   useWorktree: boolean;
-  onUseWorktreeChange: (value: boolean) => void;
+  onUseWorktreeChange?: (value: boolean) => void;
   baseBranch: string;
   onBaseBranchChange: (value: string) => void;
   worktreeBranch: string;
@@ -27,6 +28,7 @@ type WorktreeSectionProps = {
 
 export function WorktreeSection({
   cwd,
+  runner,
   worktreeAvailable,
   useWorktree,
   onUseWorktreeChange,
@@ -68,12 +70,16 @@ export function WorktreeSection({
         >
           <Checkbox
             checked={worktreeChecked}
-            onCheckedChange={(checked) => onUseWorktreeChange(checked === true)}
-            disabled={!worktreeAvailable}
+            onCheckedChange={(checked) =>
+              onUseWorktreeChange?.(checked === true)
+            }
+            disabled={!worktreeAvailable || !!runner}
             title={
-              worktreeAvailable
-                ? "Toggle managed git worktree"
-                : "Not a git repository"
+              runner
+                ? "Runner repositories use a managed worktree"
+                : worktreeAvailable
+                  ? "Toggle managed git worktree"
+                  : "Not a git repository"
             }
             data-testid="create-agent-worktree"
           />
@@ -126,6 +132,8 @@ export function WorktreeSection({
             <div className="ml-8 w-[calc(100%-2rem)]">
               <BranchSelect
                 cwd={cwd}
+                runner={runner}
+                allowPullRequest={!!runner && !createNewBranch}
                 baseBranch={baseBranch}
                 onBaseBranchChange={onBaseBranchChange}
                 worktreeBranch={worktreeBranch}
@@ -166,6 +174,12 @@ export function WorktreeSection({
                 />
               </div>
             </div>
+            {runner && (
+              <p className="ml-8 text-xs text-muted-foreground">
+                Archiving removes this worktree. Commit and push changes you
+                want to keep.
+              </p>
+            )}
           </div>
         </div>
       </div>

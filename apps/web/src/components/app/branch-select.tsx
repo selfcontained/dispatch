@@ -18,6 +18,8 @@ import { cn } from "@/lib/utils";
 
 export type BranchSelectProps = {
   cwd: string;
+  runner?: { id: string; repository: string; browse: boolean };
+  allowPullRequest?: boolean;
   baseBranch: string;
   /**
    * Fired when the user picks a branch. The component never overwrites
@@ -42,6 +44,8 @@ export type BranchSelectProps = {
 
 export function BranchSelect({
   cwd,
+  runner,
+  allowPullRequest = false,
   baseBranch,
   onBaseBranchChange,
   worktreeBranch,
@@ -53,6 +57,19 @@ export function BranchSelect({
   showNewBranchInput = true,
   disabled = false,
 }: BranchSelectProps): JSX.Element {
+  const [typed, setTyped] = useState("");
+  const githubRepo =
+    runner?.browse &&
+    /^https:\/\/github\.com\/([\w.-]+)\/([\w.-]+?)(?:\.git)?\/?$/.exec(
+      runner.repository
+    );
+  const endpoint = runner
+    ? githubRepo
+      ? `/api/v1/runners/${encodeURIComponent(runner.id)}/repositories/${githubRepo[1]}/${githubRepo[2]}/branches`
+      : ""
+    : cwd.trim()
+      ? `/api/v1/git/branches?cwd=${encodeURIComponent(cwd.trim())}`
+      : "";
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [remoteBranches, setRemoteBranches] = useState<string[]>([]);
   const [branchesLoading, setBranchesLoading] = useState(false);
@@ -66,14 +83,11 @@ export function BranchSelect({
   useClickOutside(cmdRef, dropdownOpen, closeDropdown);
 
   const fetchBranches = useCallback(async () => {
-    const trimmed = cwd.trim();
-    if (!trimmed || disabled) return;
+    if (!endpoint || disabled) return;
     setBranchesLoading(true);
     setFetchError(null);
     try {
-      const result = await api<{ branches: string[] }>(
-        `/api/v1/git/branches?cwd=${encodeURIComponent(trimmed)}`
-      );
+      const result = await api<{ branches: string[] }>(endpoint);
       setRemoteBranches(result.branches);
     } catch (error) {
       setRemoteBranches([]);
@@ -82,31 +96,34 @@ export function BranchSelect({
       );
     } finally {
       setBranchesLoading(false);
-      setFetchedForCwd(trimmed);
+      setFetchedForCwd(endpoint);
     }
-  }, [cwd, disabled]);
+  }, [endpoint, disabled]);
 
   const openDropdown = useCallback(() => {
     if (disabled) return;
+    setTyped("");
     setDropdownOpen(true);
-    if (fetchedForCwd !== cwd.trim()) {
+    if (fetchedForCwd !== endpoint) {
       void fetchBranches();
     }
     requestAnimationFrame(() => inputRef.current?.focus());
-  }, [disabled, fetchBranches, fetchedForCwd, cwd, setDropdownOpen]);
+  }, [disabled, fetchBranches, fetchedForCwd, endpoint, setDropdownOpen]);
 
   // Keep the saved baseBranch selectable even if the fetched list doesn't
   // include it (branch renamed/deleted upstream). We flag it visually in
   // the dropdown rather than silently overwrite it.
   const allBranches = useMemo(() => {
-    const base = remoteBranches.includes("main")
-      ? remoteBranches
-      : ["main", ...remoteBranches];
+    const base =
+      runner || remoteBranches.includes("main")
+        ? remoteBranches
+        : ["main", ...remoteBranches];
     if (baseBranch && !base.includes(baseBranch)) return [baseBranch, ...base];
     return base;
-  }, [remoteBranches, baseBranch]);
+  }, [remoteBranches, baseBranch, runner]);
 
   const savedBranchMissing =
+    !runner &&
     !branchesLoading &&
     !!baseBranch &&
     !!fetchedForCwd &&
@@ -125,6 +142,7 @@ export function BranchSelect({
           role="combobox"
           tabIndex={0}
           disabled={disabled}
+          aria-label={baseBranchLabel}
           aria-expanded={dropdownOpen}
           data-testid={`${testIdPrefix}-base-branch`}
           onClick={() =>
@@ -142,7 +160,12 @@ export function BranchSelect({
             disabled && "cursor-not-allowed opacity-60"
           )}
         >
-          {baseBranch}
+          <span className="truncate">
+            {baseBranch ||
+              (allowPullRequest
+                ? "Choose a branch or PR"
+                : "Repository default")}
+          </span>
           {branchesLoading ? (
             <ActivityBars size={14} className="ml-2 shrink-0" />
           ) : (
@@ -167,7 +190,15 @@ export function BranchSelect({
             >
               <CommandInput
                 ref={inputRef}
-                placeholder="Search branches..."
+                value={typed}
+                onValueChange={setTyped}
+                placeholder={
+                  runner
+                    ? allowPullRequest
+                      ? "Branch name or GitHub PR URL"
+                      : "Find or enter a branch"
+                    : "Search branches..."
+                }
                 className="font-mono text-xs"
               />
               <CommandList>
@@ -181,8 +212,35 @@ export function BranchSelect({
                 ) : null}
                 <CommandEmpty>No matching branches.</CommandEmpty>
                 <CommandGroup>
+                  {runner && !allowPullRequest && (
+                    <CommandItem
+                      value="Repository default"
+                      onSelect={() => {
+                        onBaseBranchChange("");
+                        closeDropdown();
+                        triggerRef.current?.focus();
+                      }}
+                    >
+                      Repository default
+                    </CommandItem>
+                  )}
+                  {runner &&
+                    typed.trim() &&
+                    !allBranches.includes(typed.trim()) && (
+                      <CommandItem
+                        value={typed.trim()}
+                        onSelect={() => {
+                          onBaseBranchChange(typed.trim());
+                          closeDropdown();
+                          triggerRef.current?.focus();
+                        }}
+                      >
+                        Use {typed.trim()}
+                      </CommandItem>
+                    )}
                   {allBranches.map((branch) => {
                     const isMissing =
+                      !runner &&
                       branch === baseBranch &&
                       remoteBranches.length > 0 &&
                       !remoteBranches.includes(branch);

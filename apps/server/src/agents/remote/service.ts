@@ -47,6 +47,7 @@ import {
   isGitHubPullRequestDiff,
   githubPullRequestHead,
   githubRepositoryResults,
+  validBranch,
   type SessionOperation,
   type LaunchProgress,
   parseLaunchProgress,
@@ -115,6 +116,7 @@ export type RunnerSummary = {
   engineManagement: boolean;
   engineCapabilities?: true;
   githubManagement: boolean;
+  repositoryPicker?: boolean;
   /** Last pushed snapshot while online; absent offline or before the first push. */
   engines?: EngineInventoryEntry[];
   workspaces: string[];
@@ -160,6 +162,7 @@ type Peer = {
   /** Advertised in `ready`; whether this peer answers the `"engine"` command. */
   engineManagement: boolean;
   githubManagement: boolean;
+  repositoryPicker?: boolean;
   pullRequestStatus: boolean;
   pullRequestWatch: boolean;
   pullRequestEvidence: boolean;
@@ -698,6 +701,7 @@ export class RemoteRunnerService {
           pullRequestStatus: ready.pullRequestStatus === true,
           pullRequestWatch: ready.pullRequestWatch === true,
           pullRequestEvidence: ready.pullRequestEvidence === true,
+          repositoryPicker: ready.repositoryPicker === true,
           githubManagement: ready.githubManagement === true,
           checkoutViews: ready.checkoutViews === true,
           sessionCheckout: ready.sessionCheckout === true,
@@ -943,6 +947,8 @@ export class RemoteRunnerService {
           peer?.gate.approved() === true && peer.engineManagement,
         ...(peer?.gate.approved() &&
           peer.engineCapabilities && { engineCapabilities: true as const }),
+        ...(peer?.gate.approved() &&
+          peer.repositoryPicker && { repositoryPicker: true }),
         githubManagement:
           peer?.gate.approved() === true && peer.githubManagement,
         ...(peer?.engines ? { engines: peer.engines } : {}),
@@ -983,6 +989,7 @@ export class RemoteRunnerService {
         engineManagement: online && peer.engineManagement,
         ...(online &&
           peer.engineCapabilities && { engineCapabilities: true as const }),
+        ...(online && peer.repositoryPicker && { repositoryPicker: true }),
         githubManagement: online && peer.githubManagement,
         ...(online && peer.engines ? { engines: peer.engines } : {}),
         ...(online && peer.health
@@ -1321,6 +1328,17 @@ export class RemoteRunnerService {
       );
     }
 
+    if (
+      operation.kind === "github" &&
+      (operation.operation.type === "repositorySearch" ||
+        operation.operation.type === "repositoryBranches") &&
+      !peer.repositoryPicker
+    ) {
+      throw new RunnerCapabilityUnavailable(
+        "Update the runner to browse your repositories."
+      );
+    }
+
     // V1 requires a routable workspace and an id even for a runner-wide operation.
     for (const workspace of peer.workspaces) {
       if (peer.gate.allows(workspace)) {
@@ -1389,6 +1407,24 @@ export class RemoteRunnerService {
         message: "The runner could not report its GitHub account.",
       };
     }
+  }
+
+  async listGitHubBranches(runnerId: string, owner: string, repo: string) {
+    const response = await this.requestGitHub(runnerId, {
+      type: "repositoryBranches",
+      owner,
+      repo,
+    });
+    if (
+      !response ||
+      typeof response !== "object" ||
+      !("branches" in response) ||
+      !Array.isArray(response.branches) ||
+      !response.branches.every(validBranch)
+    ) {
+      throw new Error("Invalid GitHub branches reply.");
+    }
+    return { branches: response.branches };
   }
 
   async searchGitHubRepositories(runnerId: string, query: string) {

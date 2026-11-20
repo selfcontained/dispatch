@@ -41,10 +41,11 @@ case "$1 ${2:-}" in
   'api user'|'api --hostname')
     test -s "$key"
     case " $* " in
+      *'/branches?per_page=100'*) printf '%s' '["main","review-topic"]' ;;
       *'/pulls/'*) printf '{"url":"https://github.com/%s/private.git","branch":"review-topic"}\n' "$login" ;;
-      *' search/repositories '*)
+      *' user/repos '*)
         test -s "$key"
-        printf '[{"fullName":"%s/private","url":"https://github.com/%s/private"}]\n' "$login" "$login"
+        printf '[{"name":"%s/private","url":"https://github.com/%s/private"}]\n' "$login" "$login"
         ;;
       *' user '*) printf '%s\n' "$login" ;;
       *) exit 1 ;;

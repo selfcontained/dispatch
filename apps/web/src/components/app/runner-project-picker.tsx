@@ -19,11 +19,12 @@ import {
 import { useProjects } from "@/hooks/use-projects";
 import { api } from "@/lib/api";
 import { ProjectIcon } from "./project-location";
-import { isRepositoryUrl } from "./runner-repository-fields";
+import { parseRunnerRepositoryUrl } from "@dispatch/runner-protocol";
 
 export function RunnerProjectPicker({
   runnerId,
   canSearch,
+  updateNeeded,
   projectId,
   repository,
   onProject,
@@ -31,6 +32,7 @@ export function RunnerProjectPicker({
 }: {
   runnerId: string;
   canSearch: boolean;
+  updateNeeded: boolean;
   projectId: string | null;
   repository: string;
   onProject: (id: string | null) => void;
@@ -45,7 +47,7 @@ export function RunnerProjectPicker({
   const project = projects.find((item) => item.id === projectId);
   const text = input.trim();
   const urlInput = /^(?:\w+:\/\/|git@)/i.test(text);
-  const validUrl = isRepositoryUrl(text);
+  const validUrl = Boolean(parseRunnerRepositoryUrl(text));
   const searchGitHub =
     open && canSearch && !urlInput && validRepositorySearch(text);
   useEffect(() => {
@@ -121,12 +123,17 @@ export function RunnerProjectPicker({
                 aria-label="Search projects or repositories"
                 placeholder={
                   canSearch
-                    ? "Search projects or GitHub, or paste a URL"
+                    ? "Search projects or your repos, or paste a URL"
                     : "Search projects or paste an HTTPS URL"
                 }
                 value={input}
                 onValueChange={setInput}
               />
+              {updateNeeded && (
+                <p className="px-3 py-2 text-xs text-muted-foreground">
+                  Update this runner to search your GitHub repositories.
+                </p>
+              )}
               <CommandList>
                 {projectMatches.length > 0 && (
                   <CommandGroup heading="Projects">
@@ -146,7 +153,7 @@ export function RunnerProjectPicker({
                   </CommandGroup>
                 )}
                 {repositories.length > 0 && (
-                  <CommandGroup heading="GitHub repositories">
+                  <CommandGroup heading="Your GitHub repositories">
                     {repositories.map((item) => (
                       <CommandItem
                         key={item.url}

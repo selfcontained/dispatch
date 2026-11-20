@@ -12,6 +12,7 @@ describe("runner repository selection", () => {
     });
     const search = vi.fn().mockRejectedValue(new Error("secret from upstream"));
     registerRunnerRepositorySearch(app, {
+      listGitHubBranches: vi.fn(),
       lookupGitHubPullRequestHead: lookup,
       searchGitHubRepositories: search,
     });

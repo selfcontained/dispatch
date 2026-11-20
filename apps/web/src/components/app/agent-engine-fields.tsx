@@ -27,6 +27,7 @@ type AgentEngineFieldsProps = {
   idPrefix?: string;
   /** Runs on a remote runner: this machine's CLI install state is irrelevant. */
   remote?: boolean;
+  statusLine?: string;
   workloadEffort?: import("@dispatch/shared").AgentConfigChoice[];
 };
 
@@ -51,6 +52,7 @@ export function AgentEngineFields({
   onTypeOpenChange,
   idPrefix,
   remote = false,
+  statusLine,
   workloadEffort,
 }: AgentEngineFieldsProps): JSX.Element {
   // Engines whose CLI this machine does not have: pickable, but the picker
@@ -68,7 +70,7 @@ export function AgentEngineFields({
       ),
     [engines]
   );
-  const engineLine = remote ? null : engineSummary(engines, agentType);
+  const engineLine = remote ? statusLine : engineSummary(engines, agentType);
   const showModelSelect =
     catalogDefault !== undefined || modelLoading || modelOptions.length > 0;
 
@@ -112,10 +114,10 @@ export function AgentEngineFields({
           />
         ) : null}
       </AgentConfigRow>
-      {engineLine ? (
+      {engineLine || statusLine !== undefined ? (
         <p
-          className="-mt-1 truncate text-xs text-muted-foreground/70"
-          title={engineLine}
+          className="-mt-1 min-h-4 truncate text-xs text-muted-foreground/70"
+          title={engineLine ?? undefined}
           data-testid={idPrefix ? `${idPrefix}-engine` : "create-agent-engine"}
         >
           {engineLine}

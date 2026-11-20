@@ -6,13 +6,12 @@ import { isLocalFolder } from "./path-input-utils";
 import { createClientId } from "@/lib/client-id";
 import {
   MANAGED_WORKSPACE,
+  parseRunnerRepositoryUrl,
+  validBranch,
   type GitHubStatus,
 } from "@dispatch/runner-protocol";
 import { useQuery } from "@tanstack/react-query";
-import {
-  isRepositoryUrl,
-  type RunnerBranchMode,
-} from "./runner-repository-fields";
+
 import type { Effort } from "@dispatch/shared";
 import { useAtom } from "jotai";
 import { useProjects } from "@/hooks/use-projects";
@@ -104,6 +103,7 @@ export function useCreateAgentForm({
     setCreateEffort(null);
     setChosenRepo(null);
     setRunnerProjectId(undefined);
+    setRunnerNewBranch("");
     setRunnerBranch("");
     setBranchMode("new");
     setRunnerId(id);
@@ -145,19 +145,17 @@ export function useCreateAgentForm({
     retry: false,
   });
   const [chosenRepo, setChosenRepo] = useState<string | null>(null);
-  const [branchMode, setBranchMode] = useState<RunnerBranchMode>("new");
+  const [branchMode, setBranchMode] = useState<"new" | "existing">("new");
+  const [runnerNewBranch, setRunnerNewBranch] = useState("");
   const [runnerBranch, setRunnerBranch] = useState("");
   const repository = chosenRepo ?? projectRepository.data?.url ?? "";
   const chooseRepo = (url: string) => {
-    if (task || !isRepositoryUrl(url)) return;
+    if (task || !parseRunnerRepositoryUrl(url)) return;
     setRunnerProjectId(null);
     setChosenRepo(url);
+    setRunnerNewBranch("");
     setRunnerBranch("");
     setBranchMode("new");
-  };
-  const changeBranchMode = (mode: RunnerBranchMode) => {
-    setBranchMode(mode);
-    setRunnerBranch("");
   };
   const repoStatus =
     !managedSession || !selectedProjectId
@@ -170,18 +168,26 @@ export function useCreateAgentForm({
             ? "This project is unavailable."
             : !repository && task
               ? null
-              : !isRepositoryUrl(repository)
+              : !parseRunnerRepositoryUrl(repository)
                 ? "This project has no supported HTTPS repository linked."
                 : null;
   const repoReady =
     !managedSession ||
     (!repoStatus &&
-      (!repository || branchMode === "new" || Boolean(runnerBranch.trim())));
+      (!repository ||
+        (branchMode === "new"
+          ? (!runnerBranch || validBranch(runnerBranch.trim())) &&
+            (!runnerNewBranch.trim() || validBranch(runnerNewBranch.trim()))
+          : validBranch(runnerBranch.trim()) ||
+            /^https:\/\/github\.com\/[^/]+\/[^/]+\/pull\/[1-9]\d*\/?$/.test(
+              runnerBranch.trim()
+            ))));
   const setCreateProjectId = (id: string | null) => {
     if (managedSession) {
       setRunnerProjectId(id);
       setChosenRepo(null);
       setBranchMode("new");
+      setRunnerNewBranch("");
       setRunnerBranch("");
       return;
     }
@@ -299,15 +305,12 @@ export function useCreateAgentForm({
   });
 
   const catalog = useRunnerModelCatalog(runnerId, createType, online);
-  const currentCatalog =
-    online && !catalog.isError && !catalog.isFetching
-      ? catalog.data
-      : undefined;
+  const currentCatalog = online && !catalog.isError ? catalog.data : undefined;
   const modelOptions = useMemo(
     () => (remote ? (currentCatalog?.models ?? []) : nativeOptions),
     [remote, currentCatalog, nativeOptions]
   );
-  const modelCatalogLoading = remote ? catalog.isFetching : nativeLoading;
+  const modelCatalogLoading = remote ? catalog.isLoading : nativeLoading;
   const reportedDefault = remote ? currentCatalog?.defaultModel : nativeDefault;
   const defaultModel = modelOptions.some(
     (option) => option.id === reportedDefault
@@ -328,7 +331,7 @@ export function useCreateAgentForm({
   );
   const effortCatalog =
     selectedModel && selectedModel !== currentCatalog?.defaultModel
-      ? !selectedEffortCatalog.isFetching && !selectedEffortCatalog.isError
+      ? !selectedEffortCatalog.isError
         ? selectedEffortCatalog.data
         : undefined
       : currentCatalog;
@@ -480,7 +483,7 @@ export function useCreateAgentForm({
               url: repository.trim(),
               checkout: {
                 kind: "new",
-                branch: `session/${createClientId()}`,
+                branch: runnerNewBranch.trim() || `session/${createClientId()}`,
                 base: branch || undefined,
               },
             };
@@ -598,6 +601,7 @@ export function useCreateAgentForm({
       repository,
       branchMode,
       runnerBranch,
+      runnerNewBranch,
       locationReady,
       runnerEngineBlocked,
       createCwd,
@@ -639,7 +643,10 @@ export function useCreateAgentForm({
     repository,
     chooseRepo,
     branchMode,
-    changeBranchMode,
+    setBranchMode,
+    runnerNewBranch,
+    setRunnerNewBranch,
+    runner,
     runnerBranch,
     setRunnerBranch,
     repoStatus,

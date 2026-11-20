@@ -16,22 +16,16 @@ export function RunnerPicker({
   runners,
   runnerId,
   onRunnerChange,
-  workspace,
-  onWorkspaceChange,
   unavailable,
 }: {
   runners: Runner[];
   runnerId: string | null;
   onRunnerChange: (id: string | null) => void;
-  workspace: string | null;
-  onWorkspaceChange: (workspace: string) => void;
   unavailable: boolean;
 }): JSX.Element | null {
   const runnerLabelId = useId();
-  const workspaceLabelId = useId();
   const usable = runners.filter((r) => r.status !== "revoked");
   if (usable.length === 0 && !runnerId) return null;
-  const selected = usable.find((r) => r.id === runnerId);
   return (
     <div className="space-y-2" data-testid="runner-picker">
       <div className="space-y-1">
@@ -82,42 +76,51 @@ export function RunnerPicker({
           to continue.
         </p>
       ) : null}
-      {selected && !unavailable && !selected.managedWorkspace ? (
-        <div className="space-y-1">
-          <label
-            id={workspaceLabelId}
-            className="text-sm text-muted-foreground"
+    </div>
+  );
+}
+
+export function RunnerWorkspacePicker({
+  selected,
+  workspace,
+  onWorkspaceChange,
+}: {
+  selected: Runner;
+  workspace: string | null;
+  onWorkspaceChange: (workspace: string) => void;
+}) {
+  const workspaceLabelId = useId();
+  return (
+    <div className="space-y-1">
+      <label id={workspaceLabelId} className="text-sm text-muted-foreground">
+        Workspace
+      </label>
+      {selected.workspaces.length === 0 ? (
+        <p className="text-sm text-muted-foreground">
+          This runner has not reported any workspaces.
+        </p>
+      ) : (
+        <Select
+          value={workspace ?? ""}
+          onValueChange={(next) => {
+            if (next) onWorkspaceChange(next);
+          }}
+        >
+          <SelectTrigger
+            aria-labelledby={workspaceLabelId}
+            data-testid="create-agent-runner-workspace"
           >
-            Workspace
-          </label>
-          {selected.workspaces.length === 0 ? (
-            <p className="text-sm text-muted-foreground">
-              This runner has not reported any workspaces.
-            </p>
-          ) : (
-            <Select
-              value={workspace ?? ""}
-              onValueChange={(next) => {
-                if (next) onWorkspaceChange(next);
-              }}
-            >
-              <SelectTrigger
-                aria-labelledby={workspaceLabelId}
-                data-testid="create-agent-runner-workspace"
-              >
-                <SelectValue placeholder="Choose a workspace" />
-              </SelectTrigger>
-              <SelectContent>
-                {selected.workspaces.map((name) => (
-                  <SelectItem key={name} value={name}>
-                    {name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          )}
-        </div>
-      ) : null}
+            <SelectValue placeholder="Choose a workspace" />
+          </SelectTrigger>
+          <SelectContent>
+            {selected.workspaces.map((name) => (
+              <SelectItem key={name} value={name}>
+                {name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      )}
     </div>
   );
 }

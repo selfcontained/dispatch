@@ -11,6 +11,7 @@ import {
   githubPullRequestHead,
   githubRepositoryResults,
   validGitHubLogin,
+  validBranch,
   type GitHubOperation,
   type GitHubStatus,
 } from "./protocol.js";
@@ -312,31 +313,60 @@ export class GitHubRunnerExecutor {
     signal.throwIfAborted();
     switch (operation.type) {
       case "repositorySearch": {
-        const rows = await this.run(
-          [
-            "api",
-            ...hostArgs,
-            "search/repositories",
-            "--method",
-            "GET",
-            "-f",
-            `q=${operation.query} in:name`,
-            "-f",
-            "per_page=12",
-            "--jq",
-            "[.items[] | {fullName: .full_name, url: .html_url}]",
-          ],
-          signal
+        const matches: { name: string; url: string }[] = [];
+        const query = operation.query.toLowerCase();
+        for (let page = 1; matches.length < 12; page++) {
+          const rows: unknown = JSON.parse(
+            await this.run(
+              [
+                "api",
+                ...hostArgs,
+                "user/repos",
+                "--method",
+                "GET",
+                "-f",
+                "affiliation=owner,collaborator,organization_member",
+                "-f",
+                "per_page=100",
+                "-f",
+                `page=${page}`,
+                "--jq",
+                "[.[] | {name: .full_name, url: .html_url}]",
+              ],
+              signal
+            )
+          );
+          if (!Array.isArray(rows))
+            throw new Error("Invalid GitHub repository list.");
+          matches.push(
+            ...githubRepositoryResults(
+              rows.filter(
+                (row) =>
+                  typeof row?.name === "string" &&
+                  row.name.toLowerCase().includes(query)
+              )
+            ).repositories
+          );
+          if (rows.length < 100) break;
+        }
+        return githubRepositoryResults(matches);
+      }
+      case "repositoryBranches": {
+        const rows: unknown = JSON.parse(
+          await this.run(
+            [
+              "api",
+              ...hostArgs,
+              `repos/${operation.owner}/${operation.repo}/branches?per_page=100`,
+              "--jq",
+              "[.[].name]",
+            ],
+            signal
+          )
         );
-        const value: unknown = JSON.parse(rows);
-        if (!Array.isArray(value))
-          throw new Error("Invalid GitHub repository list.");
-        return githubRepositoryResults(
-          value.map((row) => ({
-            name: row?.fullName,
-            url: row?.url,
-          }))
-        );
+        if (!Array.isArray(rows))
+          throw new Error("Invalid GitHub branch list.");
+        return { branches: rows.filter(validBranch) };
       }
       case "pullRequestDetails":
         return this.evidence.details(operation, signal);

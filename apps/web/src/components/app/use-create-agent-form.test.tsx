@@ -245,9 +245,18 @@ describe("launch location preference", () => {
       },
     });
     apiMock.mockClear();
+    act(() => result.current.setRunnerNewBranch("feature/custom"));
+    await act(async () => result.current.handleSubmit(submitEvent()));
+    expect(agentsPostJson()).toMatchObject({
+      repository: {
+        checkout: { kind: "new", base: "release", branch: "feature/custom" },
+      },
+    });
+
+    apiMock.mockClear();
     act(() => {
       result.current.chooseRepo("https://github.com/org/standalone");
-      result.current.changeBranchMode("existing");
+      result.current.setBranchMode("existing");
       result.current.setRunnerBranch("feature");
     });
     await act(async () => result.current.handleSubmit(submitEvent()));

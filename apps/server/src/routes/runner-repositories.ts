@@ -9,7 +9,9 @@ export function registerRunnerRepositorySearch(
   app: FastifyInstance,
   runners: Pick<
     RemoteRunnerService,
-    "searchGitHubRepositories" | "lookupGitHubPullRequestHead"
+    | "searchGitHubRepositories"
+    | "lookupGitHubPullRequestHead"
+    | "listGitHubBranches"
   >
 ) {
   const options = { config: { validateSuppliedAuthorization: true } } as const;
@@ -30,6 +32,23 @@ export function registerRunnerRepositorySearch(
           error:
             "GitHub search is unavailable on this runner. Paste an HTTPS repository URL.",
         });
+      }
+    }
+  );
+  app.get<{ Params: { id: string; owner: string; repo: string } }>(
+    "/api/v1/runners/:id/repositories/:owner/:repo/branches",
+    options,
+    async (req, reply) => {
+      reply.header("Cache-Control", "no-store");
+      const { id, owner, repo } = req.params;
+      if (!validGitHubRepoPart(owner) || !validGitHubRepoPart(repo))
+        return reply.code(400).send({ error: "Invalid repository." });
+      try {
+        return await runners.listGitHubBranches(id, owner, repo);
+      } catch {
+        return reply
+          .code(503)
+          .send({ error: "Couldn’t load branches from this runner." });
       }
     }
   );
