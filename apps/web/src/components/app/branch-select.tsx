@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { Check, ChevronDown } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
 
 import { ActivityBars } from "@/components/ui/activity-bars";
 import {
@@ -15,6 +16,8 @@ import { Input } from "@/components/ui/input";
 import { useClickOutside } from "@/hooks/use-click-outside";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
+
+const EMPTY_BRANCHES: string[] = [];
 
 export type BranchSelectProps = {
   cwd: string;
@@ -71,12 +74,6 @@ export function BranchSelect({
       ? `/api/v1/git/branches?cwd=${encodeURIComponent(cwd.trim())}`
       : "";
   const [dropdownOpen, setDropdownOpen] = useState(false);
-  const [remoteBranches, setRemoteBranches] = useState<string[]>([]);
-  // The runner repository's real default, when its peer reports one.
-  const [defaultBranch, setDefaultBranch] = useState("");
-  const [branchesLoading, setBranchesLoading] = useState(false);
-  const [fetchedForCwd, setFetchedForCwd] = useState<string | null>(null);
-  const [fetchError, setFetchError] = useState<string | null>(null);
   const cmdRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -84,44 +81,28 @@ export function BranchSelect({
   if (disabled && dropdownOpen) setDropdownOpen(false);
   useClickOutside(cmdRef, dropdownOpen, closeDropdown);
 
-  const fetchBranches = useCallback(async () => {
-    if (!endpoint || disabled) return;
-    setBranchesLoading(true);
-    setFetchError(null);
-    try {
-      const result = await api<{ branches: string[]; defaultBranch?: string }>(
-        endpoint
-      );
-      setRemoteBranches(result.branches);
-      setDefaultBranch(result.defaultBranch ?? "");
-    } catch (error) {
-      setRemoteBranches([]);
-      setDefaultBranch("");
-      setFetchError(
-        error instanceof Error ? error.message : "Couldn't load branches."
-      );
-    } finally {
-      setBranchesLoading(false);
-      setFetchedForCwd(endpoint);
-    }
-  }, [endpoint, disabled]);
-
-  // A runner repository names its default up front, so the closed control
-  // reads as the branch the session will start from.
-  const runnerEndpoint = runner ? endpoint : "";
-  useEffect(() => {
-    if (runnerEndpoint) void fetchBranches();
-  }, [runnerEndpoint, fetchBranches]);
+  // Load the runner's default for the closed control. Local branches are
+  // only needed when the menu opens.
+  const branches = useQuery({
+    queryKey: ["branch-select", endpoint],
+    queryFn: ({ signal }) =>
+      api<{ branches: string[]; defaultBranch?: string }>(endpoint, { signal }),
+    enabled:
+      !disabled && Boolean(endpoint) && (Boolean(runner) || dropdownOpen),
+    staleTime: 30_000,
+    retry: false,
+  });
+  const remoteBranches = branches.data?.branches ?? EMPTY_BRANCHES;
+  const defaultBranch = branches.data?.defaultBranch ?? "";
+  const branchesLoading = branches.isFetching;
+  const fetchError = branches.error?.message ?? null;
 
   const openDropdown = useCallback(() => {
     if (disabled) return;
     setTyped("");
     setDropdownOpen(true);
-    if (fetchedForCwd !== endpoint) {
-      void fetchBranches();
-    }
     requestAnimationFrame(() => inputRef.current?.focus());
-  }, [disabled, fetchBranches, fetchedForCwd, endpoint, setDropdownOpen]);
+  }, [disabled]);
 
   // Keep the saved baseBranch selectable even if the fetched list doesn't
   // include it (branch renamed/deleted upstream). We flag it visually in
@@ -145,7 +126,7 @@ export function BranchSelect({
     !runner &&
     !branchesLoading &&
     !!baseBranch &&
-    !!fetchedForCwd &&
+    branches.isSuccess &&
     remoteBranches.length > 0 &&
     !remoteBranches.includes(baseBranch);
 
@@ -312,7 +293,7 @@ export function BranchSelect({
           <span className="truncate">Couldn't load branches.</span>
           <button
             type="button"
-            onClick={() => void fetchBranches()}
+            onClick={() => void branches.refetch()}
             disabled={disabled}
             className="underline underline-offset-2 hover:no-underline"
           >
