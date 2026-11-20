@@ -74,11 +74,9 @@ export async function discoverRepoTools(
     return [];
   }
   return parseRepoTools(parseRepoToolFile(content), async () => {
-    throw (
-      unavailable ??
-      new Error(
-        "Checkout commands require the selected session's MCP credential."
-      )
-    );
+    const reason =
+      unavailable?.message ??
+      "Remote execution requires the selected session’s MCP credential or a credential for its active job run.";
+    throw new Error(`Repository tool unavailable. ${reason}`);
   });
 }

@@ -1,3 +1,4 @@
+import { checkoutCommandTimeoutMs } from "@dispatch/runner-protocol";
 import { EventEmitter } from "node:events";
 import {
   chown,
@@ -284,6 +285,66 @@ describe("remote runner startup", () => {
       }
     }
   );
+
+  it("uses the shared deadlines for runner checkout commands", async () => {
+    reportIdentity.mockImplementation((_command, _args, _options, callback) =>
+      callback(null, unprivilegedStatus, "")
+    );
+    const socket = Object.assign(new EventEmitter(), {
+      write: vi.fn(),
+      destroy: vi.fn(),
+      writableLength: 0,
+      destroyed: false,
+    });
+    const end = new Error("end simulated runner after reconnect");
+    dial.mockReturnValueOnce(socket).mockImplementation(() => {
+      throw end;
+    });
+    vi.useFakeTimers();
+    const running = runRemoteRunner(config).catch((error) => error);
+    const timer = vi.spyOn(globalThis, "setTimeout");
+    try {
+      await vi.waitFor(() => expect(dial).toHaveBeenCalledTimes(1));
+      socket.emit("secureConnect");
+      for (const checkout of ["effective", "launch", "moved"] as const) {
+        timer.mockClear();
+        socket.emit(
+          "data",
+          Buffer.from(
+            JSON.stringify({
+              type: "request",
+              id: checkout,
+              command: {
+                kind: "checkoutCommand",
+                agentId: "fixture",
+                workspace: "@session",
+                operation: {
+                  kind: "read",
+                  checkout,
+                  path: ".dispatch/tools.json",
+                },
+              },
+            }) + "\n"
+          )
+        );
+        expect(timer).toHaveBeenCalledWith(
+          expect.any(Function),
+          checkoutCommandTimeoutMs(checkout)
+        );
+        await vi.waitFor(() =>
+          expect(socket.write).toHaveBeenCalledWith(
+            expect.stringContaining(`"id":"${checkout}"`)
+          )
+        );
+      }
+    } finally {
+      socket.emit("close");
+      await vi.advanceTimersByTimeAsync(1000);
+      timer.mockRestore();
+      vi.useRealTimers();
+      await expect(running).resolves.toBe(end);
+    }
+  });
 
   it.each([
     ["/bin/sh", "/bin/sh"],

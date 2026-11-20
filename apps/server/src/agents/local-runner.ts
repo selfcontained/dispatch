@@ -17,7 +17,7 @@ import type { Duplex } from "node:stream";
 import { promisify } from "node:util";
 import type { FastifyBaseLogger } from "fastify";
 import {
-  CHECKOUT_COMMAND_TIMEOUT_MS,
+  checkoutCommandTimeoutMs,
   isCheckoutCommand,
   remotePlacement,
   type SessionOperation,
@@ -74,8 +74,6 @@ export type SessionResult = {
   launchExited?: () => boolean;
 };
 
-// Native tools can start or rebuild project services before returning.
-const NATIVE_REPO_TOOL_TIMEOUT_MS = 5 * 60_000;
 const STOP_GRACE_MS = 8_000;
 const KILL_GRACE_MS = 2_000;
 const LOG_TAIL_LINES = 20;
@@ -407,9 +405,7 @@ export function createLocalRunner(
         const deadline = new AbortController();
         const timer = setTimeout(
           () => deadline.abort(new Error("Checkout command timed out.")),
-          command.checkout === "effective"
-            ? NATIVE_REPO_TOOL_TIMEOUT_MS
-            : CHECKOUT_COMMAND_TIMEOUT_MS
+          checkoutCommandTimeoutMs(command.checkout)
         );
         try {
           return {

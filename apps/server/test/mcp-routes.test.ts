@@ -59,7 +59,7 @@ function createMockDeps() {
       ),
       readRepoManifest: vi.fn(async () => {
         throw new RunnerCapabilityUnavailable(
-          "Update the runner to execute checkout commands."
+          "This runner version does not support checkout commands."
         );
       }),
       remoteRepoOperation: vi.fn(),
@@ -345,6 +345,56 @@ describe("usage callback wiring", () => {
 });
 
 describe("runner-scoped manifests", () => {
+  it.each([
+    [true, /runner version does not support checkout commands/i],
+    [false, /session.* MCP credential or a credential for its active job run/i],
+  ])(
+    "explains why a listed runner tool cannot execute (session credential: %s)",
+    async (credential, reason) => {
+      deps.agentManager.permitsRemoteAgentMcp.mockReturnValue(true);
+      deps.getBearerToken.mockReturnValue(credential ? "bearer-token" : "");
+      deps.agentManager.getAgent.mockResolvedValue({
+        ...(await deps.agentManager.getAgent()),
+        cwd: "runner://rnr_alpha/proof",
+      });
+      deps.agentManager.inspectCheckout.mockImplementation(
+        async (_agent, query) =>
+          query.kind === "roots"
+            ? {
+                kind: "roots",
+                checkoutRoot: "/work/repo",
+                repositoryRoot: "/work/repo",
+              }
+            : {
+                kind: "readFile",
+                content: JSON.stringify({
+                  tools: [
+                    { name: "proof", description: "Proof", command: ["true"] },
+                  ],
+                }),
+              }
+      );
+      const result = await app.inject({
+        method: "POST",
+        url: "/api/mcp/agt_test1",
+        payload: {},
+      });
+      expect(result.statusCode).toBe(200);
+      const context = vi.mocked(handleMcpRequest).mock.calls.at(-1)?.[3];
+      const [tool] = (await context?.discoverRepoTools?.()) ?? [];
+      expect(tool?.name).toBe("repo_proof");
+      expect(deps.agentManager.readRepoManifest).toHaveBeenCalledTimes(
+        Number(credential)
+      );
+      const invocation = tool!.run({
+        agentId: "agt_test1",
+        repoRoot: "/work/repo",
+      });
+      await expect(invocation).rejects.toThrow(/repository tool unavailable/i);
+      await expect(invocation).rejects.toThrow(reason);
+    }
+  );
+
   it("keeps identical remote paths separate and reads edits on the next request", async () => {
     deps.agentManager.permitsRemoteAgentMcp.mockReturnValue(true);
     const agent = await deps.agentManager.getAgent();

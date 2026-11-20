@@ -4,6 +4,8 @@ import path from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { checkoutCommandTimeoutMs } from "@dispatch/runner-protocol";
+
 import { createLocalRunner } from "../src/agents/local-runner.js";
 import { runLifecycleHook } from "../src/agents/lifecycle-hooks.js";
 import type { RemoteRunnerService } from "../src/agents/remote/service.js";
@@ -36,6 +38,45 @@ describe("runLifecycleHook", () => {
   afterEach(async () => {
     await rm(root, { recursive: true, force: true });
   });
+
+  it.each(["effective", "launch", "moved"] as const)(
+    "uses the shared deadline for native %s checkout commands",
+    async (selection) => {
+      const checkout = {
+        id: "agt_hook",
+        cwd: root,
+        workspacePath: path.join(root, "moved"),
+        worktreePath: null,
+      };
+      const dir = selection === "launch" ? root : checkout.workspacePath;
+      await repoWithStopHook(dir);
+      const runner = createLocalRunner(root, logger);
+      const timer = vi.spyOn(globalThis, "setTimeout");
+      try {
+        const result = await runner.requestSession(
+          {
+            kind: "checkoutCommand",
+            agentId: checkout.id,
+            operation: {
+              kind: "read",
+              checkout: selection,
+              path: ".dispatch/tools.json",
+            },
+          },
+          { checkout }
+        );
+        expect(JSON.parse(String(result.value))).toMatchObject({
+          content: expect.stringContaining('"stop"'),
+        });
+        expect(timer).toHaveBeenCalledWith(
+          expect.any(Function),
+          checkoutCommandTimeoutMs(selection)
+        );
+      } finally {
+        timer.mockRestore();
+      }
+    }
+  );
 
   it("runs the stop hook in the launch checkout and the moved workspace", async () => {
     const launch = path.join(root, "launch");

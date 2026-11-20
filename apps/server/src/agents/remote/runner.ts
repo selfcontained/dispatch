@@ -29,7 +29,7 @@ import {
   MANAGED_WORKSPACE,
   RUNNER_WIRE_VERSION,
   MAX_CHECKOUT_VIEW_BYTES,
-  CHECKOUT_COMMAND_TIMEOUT_MS,
+  checkoutCommandTimeoutMs,
   MAX_CHECKOUT_COMMAND_REPLY_BYTES,
   wireFrames,
   parseServiceFrame,
@@ -666,9 +666,17 @@ export async function runRemoteRunner(filename: string) {
               );
             const controller = new AbortController();
             checkoutCommands.set(id, controller);
+            const timeoutMs = checkoutCommandTimeoutMs(
+              command.operation.checkout
+            );
             const deadline = setTimeout(
-              () => controller.abort(new Error("Checkout command timed out.")),
-              CHECKOUT_COMMAND_TIMEOUT_MS
+              () =>
+                controller.abort(
+                  new Error(
+                    `Runner checkout command timed out after ${timeoutMs / 1000} seconds.`
+                  )
+                ),
+              timeoutMs
             );
             const signal = AbortSignal.any([
               connection.signal,

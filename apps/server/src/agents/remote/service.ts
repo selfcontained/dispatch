@@ -1796,7 +1796,7 @@ export class RemoteRunnerService {
       );
     if (command.kind === "checkoutCommand" && !peer.checkoutCommands)
       throw new RunnerCapabilityUnavailable(
-        "Update the runner to execute checkout commands."
+        "This runner version does not support checkout commands. Update the runner to execute checkout commands."
       );
     if (command.kind === "sessionFile" && !peer.sessionFiles)
       throw new RunnerCapabilityUnavailable(

@@ -540,6 +540,39 @@ it("a timed-out request has an unknown outcome even if its receipt arrives late"
   }
 });
 
+it.each([
+  ["effective", 305_000],
+  ["launch", 20_000],
+  ["moved", 20_000],
+] as const)(
+  "allows the %s checkout command its execution budget plus reply time",
+  async (checkout, timeoutMs) => {
+    vi.useFakeTimers();
+    try {
+      const { connection, sent } = peer();
+      const request = connection.request({
+        kind: "checkoutCommand",
+        agentId: "agent",
+        workspace: "@session",
+        operation: { kind: "read", checkout, path: ".dispatch/tools.json" },
+      });
+      const timeout = expect(request).rejects.toThrow(
+        `No runner checkout command reply after ${timeoutMs / 1000} seconds`
+      );
+      await vi.advanceTimersByTimeAsync(timeoutMs - 1);
+      expect(sent).toHaveLength(1);
+      await vi.advanceTimersByTimeAsync(1);
+      await timeout;
+      expect(sent[1]).toEqual({
+        type: "cancel_checkout_command",
+        id: requestId(sent[0]),
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  }
+);
+
 const requestFrame = (command: object) => ({
   type: "request",
   id: "caller/request:1",

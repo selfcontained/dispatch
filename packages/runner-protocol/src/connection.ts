@@ -1,3 +1,4 @@
+import { checkoutCommandTimeoutMs } from "./checkout-command.js";
 import type { Duplex } from "node:stream";
 import type {
   ChannelFrame,
@@ -95,8 +96,14 @@ export class RunnerConnection {
     signal?: AbortSignal
   ): Promise<ResultFrame["value"]> {
     // Repository fetches and engine package installs can run for minutes.
+    // Let the runner enforce the command deadline and leave time for its reply.
+    const checkoutReplyTimeoutMs =
+      command.kind === "checkoutCommand"
+        ? checkoutCommandTimeoutMs(command.operation.checkout) + 5_000
+        : undefined;
     const timeoutMs =
-      command.kind === "sessionCheckout" ||
+      checkoutReplyTimeoutMs ??
+      (command.kind === "sessionCheckout" ||
       command.kind === "checkoutRelease" ||
       command.kind === "inspectCheckout" ||
       command.kind === "viewCheckout" ||
@@ -104,9 +111,9 @@ export class RunnerConnection {
       (command.kind === "launch" &&
         (command.launch.repository || command.launch.prepareWorkspace))
         ? 300_000
-        : 20_000;
+        : 20_000);
     return new Promise((resolve, reject) => {
-      const finish = (frame?: ResultFrame) => {
+      const finish = (frame?: ResultFrame, timeoutMessage?: string) => {
         clearTimeout(timer);
         signal?.removeEventListener("abort", cancel);
         this.pending.delete(id);
@@ -114,7 +121,8 @@ export class RunnerConnection {
         if (!frame)
           reject(
             new RunnerUnavailable(
-              "Runner acknowledgement was lost; execution is unknown."
+              timeoutMessage ??
+                "Runner acknowledgement was lost; execution is unknown."
             )
           );
         else if (frame.code === "host-gone")
@@ -139,7 +147,12 @@ export class RunnerConnection {
       };
       const timer = setTimeout(() => {
         if (command.kind === "checkoutCommand") requestCancel();
-        finish();
+        finish(
+          undefined,
+          checkoutReplyTimeoutMs === undefined
+            ? undefined
+            : `No runner checkout command reply after ${checkoutReplyTimeoutMs / 1000} seconds; execution is unknown.`
+        );
       }, timeoutMs);
       signal?.addEventListener("abort", cancel, { once: true });
       this.pending.set(id, finish);
