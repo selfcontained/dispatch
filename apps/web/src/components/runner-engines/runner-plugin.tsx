@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { Button } from "@/components/ui/button";
+import { LoadingButton } from "@/components/ui/button";
 import { runnerEngineCapability } from "@/hooks/use-runner-engines";
 
 export function RunnerPlugin({
@@ -65,19 +65,32 @@ export function RunnerPlugin({
             : "checking…"}
       </span>
       {offered && !status.isError && (
-        <Button
+        <LoadingButton
           size="sm"
           variant="default"
-          disabled={status.isFetching || change.isPending}
+          loading={change.isPending || status.isFetching}
           onClick={() => change.mutate(action)}
         >
-          {action === "install" ? "Install plugin" : "Update plugin"}
-        </Button>
+          {change.isPending
+            ? action === "install"
+              ? "Installing plugin…"
+              : "Updating plugin…"
+            : status.isFetching
+              ? "Checking plugin…"
+              : action === "install"
+                ? "Install plugin"
+                : "Update plugin"}
+        </LoadingButton>
       )}
       {status.isError && (
-        <Button size="sm" variant="ghost" onClick={() => void status.refetch()}>
+        <LoadingButton
+          size="sm"
+          variant="ghost"
+          loading={status.isFetching}
+          onClick={() => void status.refetch()}
+        >
           Retry plugin status
-        </Button>
+        </LoadingButton>
       )}
       {change.isError && <span role="alert">{change.error.message}</span>}
     </div>

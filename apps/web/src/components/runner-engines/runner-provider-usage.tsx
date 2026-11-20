@@ -11,7 +11,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { createClientId } from "@/lib/client-id";
-import { Button } from "@/components/ui/button";
+import { LoadingButton } from "@/components/ui/button";
 import {
   runnerEngineCapability,
   useRunnerProviderUsage,
@@ -68,15 +68,16 @@ export function RunnerProviderUsage({
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h4 className="font-medium">Plan limits</h4>
         {canReadUsage && (
-          <Button
+          <LoadingButton
             type="button"
             variant="ghost"
             size="sm"
-            disabled={usage.isFetching || redeem.isPending}
+            loading={usage.isFetching}
+            disabled={redeem.isPending}
             onClick={() => void usage.refetch()}
           >
             Refresh usage
-          </Button>
+          </LoadingButton>
         )}
       </div>
       {accountEntries && !canReadUsage && (
@@ -145,14 +146,15 @@ export function RunnerProviderUsage({
           }
         >
           <AlertDialogTrigger asChild>
-            <Button
+            <LoadingButton
               type="button"
               size="sm"
               variant="default"
+              loading={redeem.isPending}
               disabled={!canRedeem}
             >
               Use Codex reset credit
-            </Button>
+            </LoadingButton>
           </AlertDialogTrigger>
           <AlertDialogContent>
             <AlertDialogTitle>Use a Codex reset credit?</AlertDialogTitle>

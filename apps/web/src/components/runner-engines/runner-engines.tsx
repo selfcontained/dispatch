@@ -8,7 +8,7 @@ import type {
 } from "@dispatch/runner-protocol/engine-management";
 
 import { AgentTypeIcon } from "@/components/app/agent-type-icon";
-import { Button } from "@/components/ui/button";
+import { LoadingButton } from "@/components/ui/button";
 import { CopyButton } from "@/components/ui/copy-button";
 import { Input } from "@/components/ui/input";
 import {
@@ -53,14 +53,15 @@ export function RunnerEngines({
         <p role="alert" className="text-sm text-destructive">
           Could not load engines.
         </p>
-        <Button
+        <LoadingButton
           type="button"
           variant="ghost"
           size="sm"
+          loading={inventory.isFetching}
           onClick={() => void inventory.refetch()}
         >
           Try again
-        </Button>
+        </LoadingButton>
       </div>
     );
   }
@@ -141,7 +142,7 @@ function EngineRow({
     operation.mutate(op, {
       onSuccess: ({ ack }) => {
         if (ack.ok && ack.login) onLoginChange(ack.login);
-        if (op.type === "install" || op.type === "update") {
+        if (!ack.ok || op.type === "install" || op.type === "update") {
           setActionResult(
             ack.ok
               ? { kind: "success", message: ack.message ?? "Done." }
@@ -152,6 +153,9 @@ function EngineRow({
     });
   };
 
+  const pendingAction = operation.isPending
+    ? operation.variables?.type
+    : undefined;
   const canInstall = entry.actions.includes("install");
   const canUpdate = entry.actions.includes("update");
   const canLogin = entry.actions.includes("login");
@@ -189,42 +193,45 @@ function EngineRow({
         </div>
         <div className="flex items-center gap-2">
           {canInstall && (
-            <Button
+            <LoadingButton
               type="button"
               size="sm"
               className="h-7 text-xs"
               disabled={operation.isPending}
+              loading={pendingAction === "install"}
               onClick={() => run({ type: "install", engine: entry.id })}
               data-testid={`runner-engine-${entry.id}-install`}
             >
-              Install
-            </Button>
+              {pendingAction === "install" ? "Installing…" : "Install"}
+            </LoadingButton>
           )}
           {canUpdate && (
-            <Button
+            <LoadingButton
               type="button"
               size="sm"
               className="h-7 text-xs"
               disabled={operation.isPending}
+              loading={pendingAction === "update"}
               onClick={() => run({ type: "update", engine: entry.id })}
               data-testid={`runner-engine-${entry.id}-update`}
             >
-              Update
-            </Button>
+              {pendingAction === "update" ? "Updating…" : "Update"}
+            </LoadingButton>
           )}
           {canLogin &&
             entry.signedIn !== true &&
             !isLoginActive(activeLogin) && (
-              <Button
+              <LoadingButton
                 type="button"
                 size="sm"
                 className="h-7 text-xs"
                 disabled={operation.isPending}
+                loading={pendingAction === "login_start"}
                 onClick={() => run({ type: "login_start", engine: entry.id })}
                 data-testid={`runner-engine-${entry.id}-sign-in`}
               >
-                Sign in
-              </Button>
+                {pendingAction === "login_start" ? "Starting…" : "Sign in"}
+              </LoadingButton>
             )}
         </div>
       </div>
@@ -278,9 +285,9 @@ function EngineRow({
           }
           onCancel={() => {
             run({ type: "login_cancel", loginId: activeLogin.id });
-            onLoginChange(null);
           }}
-          submitting={operation.isPending}
+          submitting={pendingAction === "login_submit"}
+          cancelling={pendingAction === "login_cancel"}
         />
       )}
 
@@ -309,6 +316,7 @@ function LoginFlow({
   onSubmit,
   onCancel,
   submitting,
+  cancelling,
 }: {
   login: EngineLoginView;
   code: string;
@@ -316,6 +324,7 @@ function LoginFlow({
   onSubmit: () => void;
   onCancel: () => void;
   submitting: boolean;
+  cancelling: boolean;
 }): JSX.Element {
   if (login.status !== "waiting" || !login.url) {
     return (
@@ -326,26 +335,37 @@ function LoginFlow({
             ? "Checking the code…"
             : "Starting the sign-in…"}
         </p>
-        <Button
+        <LoadingButton
           type="button"
           size="sm"
           variant="ghost"
           className="h-7 text-xs"
+          loading={cancelling}
+          disabled={submitting}
           onClick={onCancel}
         >
           Cancel
-        </Button>
+        </LoadingButton>
       </div>
     );
   }
 
   return (
     <div className="min-w-0 space-y-2">
-      <div className="flex min-w-0 items-start gap-1 rounded border border-border bg-background/60 p-2">
-        <code className="min-w-0 flex-1 select-all break-all px-1 font-mono text-[11px] leading-relaxed text-foreground">
-          {login.url}
-        </code>
-        <CopyButton text={login.url} label="Copy" className="shrink-0" />
+      <div className="flex min-w-0 items-center gap-1">
+        <Input
+          type="text"
+          aria-label="Sign-in URL"
+          readOnly
+          value={login.url}
+          spellCheck={false}
+          className="h-8 min-w-0 flex-1 font-mono text-xs"
+        />
+        <CopyButton
+          text={login.url}
+          label="Copy sign-in URL"
+          className="shrink-0"
+        />
       </div>
       {login.userCode ? (
         <div className="space-y-1.5">
@@ -364,15 +384,17 @@ function LoginFlow({
               <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />
               Waiting for you to finish in the browser…
             </p>
-            <Button
+            <LoadingButton
               type="button"
               size="sm"
               variant="ghost"
               className="h-7 text-xs"
+              loading={cancelling}
+              disabled={submitting}
               onClick={onCancel}
             >
               Cancel
-            </Button>
+            </LoadingButton>
           </div>
         </div>
       ) : (
@@ -380,7 +402,7 @@ function LoginFlow({
           className="flex gap-2"
           onSubmit={(event) => {
             event.preventDefault();
-            if (code.trim()) onSubmit();
+            if (code.trim() && !submitting && !cancelling) onSubmit();
           }}
         >
           <Input
@@ -393,23 +415,26 @@ function LoginFlow({
             aria-label="Sign-in code"
             className="h-8 text-xs"
           />
-          <Button
+          <LoadingButton
             type="submit"
             size="sm"
             className="h-8 shrink-0 text-xs"
-            disabled={!code.trim() || submitting}
+            disabled={!code.trim() || cancelling}
+            loading={submitting}
           >
             Sign in
-          </Button>
-          <Button
+          </LoadingButton>
+          <LoadingButton
             type="button"
             size="sm"
             variant="ghost"
             className="h-8 shrink-0 text-xs"
+            loading={cancelling}
+            disabled={submitting}
             onClick={onCancel}
           >
             Cancel
-          </Button>
+          </LoadingButton>
         </form>
       )}
     </div>

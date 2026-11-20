@@ -129,7 +129,9 @@ it("walks a Codex-style device sign-in to the waiting state", async () => {
   fireEvent.click(screen.getByTestId("runner-engine-claude-sign-in"));
 
   await waitFor(() => expect(screen.getByText("ABCD-1234")).toBeTruthy());
-  expect(screen.getByText("https://auth.example.com/device")).toBeTruthy();
+  expect(
+    screen.getByDisplayValue("https://auth.example.com/device")
+  ).toBeTruthy();
 });
 
 it("surfaces a failed update instead of silently reporting success", async () => {

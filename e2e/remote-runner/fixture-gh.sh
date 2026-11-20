@@ -10,6 +10,7 @@ case "$1 ${2:-}" in
   'config get')
     if [ -s "$key" ]; then cat "$key"; else echo 'could not find key "user"' >&2; exit 1; fi
     ;;
+  'config set') test "$*" = 'config set git_protocol https --host github.com' ;;
   'auth login')
     printf '! First copy your one-time code: B123-C456\nOpen this URL to continue in your web browser: https://github.com/login/device\n' >&2
     while [ ! -f /tmp/github-fixture-approved ]; do sleep .1; done
@@ -41,13 +42,13 @@ case "$1 ${2:-}" in
     test -s "$key"
     case " $* " in
       *'/pulls/'*) printf '{"url":"https://github.com/%s/private.git","branch":"review-topic"}\n' "$login" ;;
+      *' search/repositories '*)
+        test -s "$key"
+        printf '[{"fullName":"%s/private","url":"https://github.com/%s/private"}]\n' "$login" "$login"
+        ;;
       *' user '*) printf '%s\n' "$login" ;;
       *) exit 1 ;;
     esac
-    ;;
-  'search repos')
-    test -s "$key"
-    printf '[{"fullName":"%s/private","url":"https://github.com/%s/private"}]\n' "$login" "$login"
     ;;
   *) [ "$1" = --version ] && echo 'gh version 2.86.0 (fixture)' ;;
 esac

@@ -8,7 +8,7 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ExternalLink, Github } from "lucide-react";
 
-import { Button } from "@/components/ui/button";
+import { Button, LoadingButton } from "@/components/ui/button";
 import { CopyButton } from "@/components/ui/copy-button";
 import {
   AlertDialog,
@@ -127,44 +127,48 @@ function ConnectedAccount({ runner }: { runner: Runner }) {
           </p>
         </div>
         {account.isError || missingCli ? (
-          <Button
+          <LoadingButton
             type="button"
             size="sm"
+            loading={account.isFetching}
             onClick={() => void account.refetch()}
           >
             Retry
-          </Button>
+          </LoadingButton>
         ) : signedIn ? (
-          <Button
+          <LoadingButton
             type="button"
             size="sm"
             variant="ghost"
             disabled={action.isPending}
+            loading={action.isPending && action.variables === "logout"}
             onClick={() => setConfirmLogout(true)}
           >
             Sign out
-          </Button>
+          </LoadingButton>
         ) : pending ? (
-          <Button
+          <LoadingButton
             type="button"
             size="sm"
             variant="ghost"
             disabled={action.isPending}
+            loading={action.isPending && action.variables === "cancel"}
             onClick={() => action.mutate("cancel")}
           >
             Cancel sign-in
-          </Button>
+          </LoadingButton>
         ) : (
           !account.isPending && (
-            <Button
+            <LoadingButton
               type="button"
               size="sm"
               disabled={action.isPending}
               aria-label="Sign in to GitHub"
+              loading={action.isPending && action.variables === "login"}
               onClick={() => action.mutate("login")}
             >
               {action.isPending ? "Starting…" : "Sign in"}
-            </Button>
+            </LoadingButton>
           )
         )}
       </div>

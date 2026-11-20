@@ -43,11 +43,15 @@ case "$1 $2" in
     fi
     exit 1
     ;;
+  'config set') test "$*" = 'config set git_protocol https --host github.com' ;;
   'auth login')
     test "$GH_PROMPT_DISABLED" = '1'
-    test "$*" = 'auth login --hostname github.com --git-protocol https --web'
+    test "$*" = 'auth login --hostname github.com --web'
     printf '! First copy your one-time code: ABCD-' >&2
-    printf '1234\nOpen this URL to continue in your web browser: https://github.com/login/device\n' >&2
+    printf '1234\n' >&2
+    if [ ! -f legacy ]; then
+      printf 'Open this URL to continue in your web browser: https://github.com/login/device\n' >&2
+    fi
     until [ -f authorize ] || [ -f reject ]; do sleep .02; done
     if [ -f reject ]; then printf 'synthetic-secret\n' >&2; exit 1; fi
     printf 'fixture-user\n' > login
@@ -96,6 +100,12 @@ case "$1 $2" in
   'api --hostname')
     test "$3" = 'github.com'
     case "$4" in
+      search/repositories)
+        test "$5 $6 $7 $8 $9" = "--method GET -f q=org/project in:name -f"
+        test "$GH_HOST" = 'github.com'
+        test -f login
+        printf '%s' '[{"fullName":"org/project","url":"https://github.com/org/project"},{"fullName":"ignored/secret","url":"https://synthetic-token@github.com/org/project"}]'
+        ;;
       user) if [ -f revoked ]; then printf '(HTTP 401)\n' >&2; exit 1; fi; cat login ;;
       repos/org/project/pulls/42)
         if [ "$6" = '.number' ]; then
@@ -111,11 +121,6 @@ case "$1 $2" in
         ;;
       *) exit 1 ;;
     esac
-    ;;
-  'search repos')
-    test "$GH_HOST" = 'github.com'
-    test -f login
-    printf '%s' '[{"fullName":"org/project","url":"https://github.com/org/project"},{"fullName":"ignored/secret","url":"https://synthetic-token@github.com/org/project"}]'
     ;;
   *) exit 1 ;;
 esac
@@ -368,6 +373,40 @@ it("clears pending device codes on cancel, disconnect and failed authorization",
       );
     } finally {
       controller.abort();
+    }
+  });
+});
+
+it("returns the device code and signs out with the Ubuntu 22.04 single-account CLI", async () => {
+  await fixture(async ({ executor, root }) => {
+    const connection = new AbortController();
+    try {
+      await writeFile(path.join(root, "legacy"), "");
+      await writeFile(
+        path.join(root, "gh-version"),
+        "gh version 2.4.0+dfsg1 (Ubuntu)"
+      );
+      await executor.handle({ type: "login" }, connection.signal);
+      await vi.waitFor(async () =>
+        expect(
+          await executor.handle({ type: "status" }, connection.signal)
+        ).toMatchObject({
+          status: "pending",
+          code: "ABCD-1234",
+          verificationUrl: "https://github.com/login/device",
+        })
+      );
+      await writeFile(path.join(root, "authorize"), "");
+      await vi.waitFor(async () =>
+        expect(
+          await executor.handle({ type: "status" }, connection.signal)
+        ).toMatchObject({ status: "signed-in" })
+      );
+      expect(
+        await executor.handle({ type: "logout" }, connection.signal)
+      ).toMatchObject({ status: "signed-out" });
+    } finally {
+      connection.abort();
     }
   });
 });

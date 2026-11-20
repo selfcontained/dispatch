@@ -157,8 +157,6 @@ export class GitHubRunnerExecutor {
       "auth",
       "login",
       ...hostArgs,
-      "--git-protocol",
-      "https",
       "--web",
       // gh chooses the workload account's native store and falls back to
       // its private config when running headless without a keyring.
@@ -190,7 +188,8 @@ export class GitHubRunnerExecutor {
       if (cancelled || session.code) return;
       tail = (tail + chunk).slice(-2048);
       const match = codePattern.exec(tail);
-      if (match?.[1] && tail.includes(githubDeviceUrl)) {
+      // The fixed github.com CLI flow can print the code before its browser hint.
+      if (match?.[1]) {
         codeReceived = true;
         session.code = match[1].toUpperCase();
         clearTimeout(codeDeadline);
@@ -208,7 +207,12 @@ export class GitHubRunnerExecutor {
       if (code === 0) {
         this.onLogin?.();
         try {
-          // gh's non-interactive login does not prompt to install this helper.
+          // Ubuntu 22.04's gh supports setting the protocol through config,
+          // but rejects --git-protocol on auth login before requesting a code.
+          await this.run(
+            ["config", "set", "git_protocol", "https", "--host", host],
+            AbortSignal.timeout(7000)
+          );
           await this.run(
             ["auth", "setup-git", ...hostArgs],
             AbortSignal.timeout(7000)
@@ -245,11 +249,12 @@ export class GitHubRunnerExecutor {
     } catch (error) {
       const { stderr } = error as { stderr?: string };
       if (stderr?.split("\n", 1)[0] !== "unknown flag: --user") throw error;
-      // Debian 12's gh only has one account per host. Its --hostname form
-      // removes that account. Limit the fallback to the verified version.
+      // These single-account packages remove the verified login by hostname.
       const version = await this.run(["--version"], signal);
       if (
-        !/^gh version 2\.23\.0(?:\s|$)/.test(version) ||
+        !/^gh version (?:2\.23\.0|2\.4\.0(?:\+dfsg\d+)?)(?:\s|$)/.test(
+          version
+        ) ||
         (await this.configuredUser(signal)) !== login
       )
         throw error;
@@ -309,16 +314,17 @@ export class GitHubRunnerExecutor {
       case "repositorySearch": {
         const rows = await this.run(
           [
-            "search",
-            "repos",
-            "--match",
-            "name",
-            "--limit",
-            "12",
-            "--json",
-            "fullName,url",
-            "--",
-            operation.query,
+            "api",
+            ...hostArgs,
+            "search/repositories",
+            "--method",
+            "GET",
+            "-f",
+            `q=${operation.query} in:name`,
+            "-f",
+            "per_page=12",
+            "--jq",
+            "[.items[] | {fullName: .full_name, url: .html_url}]",
           ],
           signal
         );
