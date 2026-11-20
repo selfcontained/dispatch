@@ -90,11 +90,16 @@ function CreateAgentDialogContent({
     onCreated,
   });
 
+  const hasRunnerChoice = form.runners.some(
+    (runner) => runner.status !== "revoked"
+  );
   useRadixPopoverZFix();
 
   return (
     <DialogContent
-      className="h-[min(42rem,80dvh)]"
+      className={
+        hasRunnerChoice || form.runnerId ? "h-[min(42rem,80dvh)]" : undefined
+      }
       aria-describedby={
         form.step === "config" ? undefined : "create-agent-context-description"
       }
@@ -152,7 +157,9 @@ function CreateAgentDialogContent({
                       ? "Set up this agent on the runner to create a session."
                       : form.workloadCatalogUnavailable
                         ? "Using the agent’s configured model."
-                        : ""
+                        : hasRunnerChoice
+                          ? ""
+                          : undefined
                   }
                   workloadEffort={form.workloadEffort}
                 />
