@@ -13,7 +13,7 @@ Usage:
 
 Run as root on Linux with systemd and unified cgroup v2.
 Install verifies the release and prepares the runner for the connect command.
-Update exits 75 if the runner has workload processes. Retry when idle.
+Update preserves idle sessions on compatible runners. Exit 75 means retry after the reported activity finishes.
 Recover restores the previous binary after an interrupted update.
 USAGE
 }
@@ -47,6 +47,10 @@ stable_start() {
 
 start_enabled_runner() {
   local enabled
+  if [[ -f "$runtime/previous" && -f "$runtime/previous-active" ]]; then
+    stable_start
+    return
+  fi
   enabled=$(systemctl is-enabled "$unit") || {
     [[ "$enabled" == disabled ]] && return 0
     return 1
@@ -170,7 +174,7 @@ install_runner() {
 }
 
 defer() {
-  printf 'Runner update deferred. Retry when the runner has no active sessions.\n' >&2
+  printf 'Runner update deferred: %s.\n' "${1:-could not verify the service is ready for an update}" >&2
   exit 75
 }
 
@@ -181,17 +185,54 @@ thaw() {
   fi
 }
 
+# A verified target opts into the v1 host-binding format by shipping the
+# checker. Keep a copy with the rollback record for interrupted maintenance.
+preserves_session_processes() {
+  local mode stop post
+  mode=$(systemctl show -p KillMode --value "$unit") &&
+    stop=$(systemctl show -p ExecStop --value "$unit") &&
+    post=$(systemctl show -p ExecStopPost --value "$unit") &&
+    [[ "$mode" == process && -z "$stop" && -z "$post" ]]
+}
+
+check_session_handoff() {
+  local pids=$1 main_pid=$2
+  [[ -s "$stage/handoff.py" ]] || defer "target release cannot reattach open sessions"
+  preserves_session_processes ||
+    defer "the service stop policy cannot preserve open sessions"
+  command -v python3 >/dev/null || defer "python3 is needed to verify open sessions"
+  python3 -I "$stage/handoff.py" "$config" "$pids" "$main_pid" ||
+    defer "retry after the reported activity finishes"
+}
+
+record_previous() {
+  install -m 0600 "$stage/handoff.py" "$runtime/previous-handoff.py"
+  ln "$runtime/dispatch" "$runtime/previous"
+  sync -f "$runtime"
+}
+
 # Once frozen, the supervisor cannot accept another launch or fork a child
 # between the process check and delivery of SIGKILL to its main process.
-stop_idle_runner() {
-  local cgroup main_pid process_file contents frozen_line
+stop_runner_for_update() {
+  local before_stop=${1:-:} cgroup main_pid process_file frozen_line
   if ! systemctl is-active --quiet "$unit"; then
+    if [[ -f "$runtime/previous" && -s "$runtime/previous-handoff.py" &&
+          "$(systemctl show -p SubState --value "$unit")" == auto-restart* ]] &&
+       preserves_session_processes; then
+      systemctl stop "$unit"
+    fi
     [[ "$(systemctl show -p ActiveState --value "$unit")" =~ ^(inactive|failed)$ ]] || defer
     cgroup=$(systemctl show -p ControlGroup --value "$unit")
     if [[ -n "$cgroup" && -d "$cgroup_root$cgroup" ]]; then
       frozen_line=$(<"$cgroup_root$cgroup/cgroup.events")
-      [[ $'\n'"$frozen_line"$'\n' == *$'\npopulated 0\n'* ]] || defer
+      if [[ $'\n'"$frozen_line"$'\n' != *$'\npopulated 0\n'* ]]; then
+        # KillMode=process leaves the original hosts here when a trial fails.
+        [[ -f "$runtime/previous" && -s "$stage/handoff.py" ]] || defer
+        # Already inactive. Leave the processes in place for the restored daemon.
+        return
+      fi
     fi
+    "$before_stop"
     systemctl stop "$unit"
     return
   fi
@@ -204,25 +245,32 @@ stop_idle_runner() {
   [[ $'\n'"$frozen_line"$'\n' == *$'\nfrozen 1\n'* ]] || defer
   [[ -r "$cgroup_root$cgroup/cgroup.procs" ]] || defer
   find "$cgroup_root$cgroup" -name cgroup.procs -print0 > "$stage/process-files"
+  : > "$stage/service-pids"
   while IFS= read -r -d '' process_file; do
-    # cgroup files can report a zero file size despite containing process IDs.
-    contents=$(<"$process_file")
-    if [[ "$process_file" == "$cgroup_root$cgroup/cgroup.procs" ]]; then
-      [[ "$contents" == "$main_pid" ]] || defer
-    else
-      [[ -z "$contents" ]] || defer
-    fi
+    cat "$process_file" >> "$stage/service-pids"
   done < "$stage/process-files"
-  # systemctl stop thaws the unit. Queue the fatal signal before the thaw so
-  # that the old supervisor gets no chance to dispatch a launch.
+  grep -Fxq "$main_pid" "$stage/service-pids" || defer
+  if [[ "$(<"$stage/service-pids")" != "$main_pid" ]]; then
+    check_session_handoff "$stage/service-pids" "$main_pid"
+  fi
+  # Keep the daemon stopped across the thaw. Some systemd releases refuse
+  # both stop and thaw after a frozen unit's main process has already exited.
   # Probe the option parser without signaling a unit. Older systemctl uses
   # --kill-who, and an actual signal failure must abort the update.
   local target=--kill-whom=main
   if ! systemctl "$target" --version >/dev/null 2>&1; then
     target=--kill-who=main
   fi
+  if [[ "$before_stop" == record_previous ]]; then
+    touch "$runtime/previous-active"
+  fi
+  "$before_stop"
   maintenance_step=signal
+  paused_target=$target
+  systemctl kill "$target" --signal=SIGSTOP "$unit"
+  thaw
   systemctl kill "$target" --signal=SIGKILL "$unit"
+  paused_target=
   maintenance_step=stop
   systemctl stop "$unit"
   frozen=0
@@ -232,14 +280,19 @@ recover_runner() {
   # A killed updater may have left its cgroup frozen.
   systemctl thaw "$unit" 2>/dev/null || true
   if [[ -f "$runtime/previous" ]]; then
-    stop_idle_runner
+    if [[ -s "$runtime/previous-handoff.py" ]]; then
+      cp "$runtime/previous-handoff.py" "$stage/handoff.py"
+    fi
+    stop_runner_for_update
     # Keep the recovery record until the restored service passes startup.
-    ln "$runtime/previous" "$stage/restore"
-    mv -fT "$stage/restore" "$runtime/dispatch"
+    if [[ ! "$runtime/previous" -ef "$runtime/dispatch" ]]; then
+      ln "$runtime/previous" "$stage/restore"
+      mv -fT "$stage/restore" "$runtime/dispatch"
+    fi
     sync -f "$runtime"
   fi
   start_enabled_runner || error "Runner recovery could not start. See journalctl -u $unit"
-  rm -f -- "$runtime/previous"
+  rm -f -- "$runtime/previous" "$runtime/previous-handoff.py" "$runtime/previous-active"
   sync -f "$runtime"
 }
 
@@ -258,6 +311,9 @@ update_runner() {
   fi
   maintenance_step=stage
   stage_release
+  if ! tar -xOzf "$stage/dispatch-server.tar.gz" bin/runner-handoff-v1.py > "$stage/handoff.py" 2>/dev/null; then
+    : > "$stage/handoff.py"
+  fi
   if cmp -s "$stage/dispatch" "$runtime/dispatch"; then
     maintenance_step=unit
     install_service_unit
@@ -270,10 +326,9 @@ update_runner() {
   # Create the record only after the idle check, so a deferred update leaves
   # no transaction to recover.
   maintenance_step=stop
-  stop_idle_runner
+  rm -f -- "$runtime/previous-active"
+  stop_runner_for_update record_previous
   maintenance_step=replace
-  ln "$runtime/dispatch" "$runtime/previous"
-  sync -f "$runtime"
   mv -fT "$stage/next" "$runtime/dispatch"
   sync -f "$runtime"
   maintenance_step=start
@@ -283,7 +338,7 @@ update_runner() {
     maintenance_step=start
     error "New runner failed to start. Restored the previous release"
   fi
-  rm -f -- "$runtime/previous"
+  rm -f -- "$runtime/previous" "$runtime/previous-handoff.py" "$runtime/previous-active"
   sync -f "$runtime"
   maintenance_step=unit
   install_service_unit
@@ -294,6 +349,9 @@ update_runner() {
 cleanup() {
   local status=$?
   thaw || printf 'Could not thaw %s. Run the recovery command.\n' "$unit" >&2
+  if [[ -n "${paused_target:-}" ]]; then
+    systemctl kill "$paused_target" --signal=SIGCONT "$unit" || :
+  fi
   if [[ "${action:-}" == update || "${action:-}" == recover ]]; then
     if [[ "$status" == 0 ]]; then
       rm -f -- "$runtime/last-maintenance-failure.json" || :

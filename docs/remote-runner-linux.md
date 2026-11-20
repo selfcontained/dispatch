@@ -112,17 +112,19 @@ sudo /opt/dispatch-runner/install-dispatch-runner.sh update --tag vX.Y.Z
 ```
 
 The updater stages and verifies the complete archive before it makes service
-changes. It briefly freezes the service cgroup to check for workload processes
-and exits with status 75 if the runner is busy. Retry after the sessions have
-ended. On an idle runner it retains the previous executable, atomically
-replaces the live executable, and checks that the replacement service survives
-startup. The runner's **Online** status in Settings confirms reconnection. If
-startup fails, the updater restores the previous executable and starts it.
-Updates preserve the enrollment, settings, configured workspace bindings and
-managed checkouts. Host recovery starts with sessions launched by a
-restart-aware supervisor. For a manual upgrade from an older runner, stop
-its sessions with the old supervisor before replacing it. Updating before
-connect keeps the service stopped.
+changes. On the managed systemd unit, compatible updates keep open, idle agents
+running and restart the supervisor. Dispatch reconnects to the existing host
+processes. You can continue the same conversation in its checkout.
+The updater briefly freezes the service and checks the recorded Linux process
+identities. It uses Python 3 for this check when workload processes are present.
+An active turn, an unrelated runner operation, an incompatible release, or a
+custom stop policy that could terminate agents defers the update with exit 75.
+Retry after the reported activity finishes.
+
+The updater retains the previous executable through startup and restores it
+if the replacement fails to start. Settings shows **Online** after reconnection.
+Enrollment, settings, workspace bindings, and managed checkouts are retained.
+Updating before connecting keeps the service stopped.
 
 If an update was interrupted, run:
 
@@ -130,8 +132,8 @@ If an update was interrupted, run:
 sudo /opt/dispatch-runner/install-dispatch-runner.sh recover
 ```
 
-Recovery can also defer while a workload is active. Once idle, it will restore
-the previous executable when a replacement is pending, or start the installed
+Recovery can also defer while a turn or runner operation is active. It restores
+the previous executable when a replacement is pending, or starts the installed
 executable otherwise.
 
 ## Validate installer changes

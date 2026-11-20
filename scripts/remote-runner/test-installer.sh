@@ -64,11 +64,14 @@ systemctl() {
       fi
       ;;
     stop)
+      [[ ! -e "$root/frozen" ]] || return 1
       rm -f "$root/running"
       printf 'populated 0\nfrozen 0\n' > "$cgroup_root/service/cgroup.events"
       ;;
     show)
       case "$3" in
+        KillMode) if [[ -e "$root/custom-kill" ]]; then echo control-group; else echo process; fi ;;
+        ExecStop|ExecStopPost|SubState) : ;;
         ActiveState) printf 'inactive\n' ;;
         MainPID) printf '101\n' ;;
         ControlGroup) printf '/service\n' ;;
@@ -76,6 +79,7 @@ systemctl() {
       esac
       ;;
     freeze)
+      : > "$root/frozen"
       printf 'populated 1\nfrozen 1\n' > "$cgroup_root/service/cgroup.events"
       printf '%s\n' 101 > "$cgroup_root/service/cgroup.procs"
       if [[ -e "$root/busy" ]]; then
@@ -83,16 +87,23 @@ systemctl() {
         printf '%s\n' 102 > "$cgroup_root/service/child/cgroup.procs"
       fi
       ;;
-    thaw) rm -rf "$cgroup_root/service/child" ;;
+    thaw) rm -f "$root/frozen"; rm -rf "$cgroup_root/service/child" ;;
     --kill-whom=main) [[ "$2" == --version && ! -e "$root/legacy-systemctl" ]];;
     kill)
       local target=--kill-whom=main
       [[ ! -e "$root/legacy-systemctl" ]] || target=--kill-who=main
-      [[ "$*" == "kill $target --signal=SIGKILL dispatch-runner.service" ]]
+      [[ "$*" == "kill $target --signal=SIGKILL dispatch-runner.service" || "$*" == "kill $target --signal=SIGSTOP dispatch-runner.service" ]]
       ;;
     daemon-reload) ;;
     *) return 1 ;;
   esac
+}
+python3() {
+  # Process identity checks run against real /proc in the Linux VM. Here the
+  # fixture models an open, recoverable host to exercise the installer gates.
+  [[ "$1" == -I && "$2" == "$stage/handoff.py" && "$3" == "$config" &&
+     "$5" == 101 && -f "$root/idle-host" ]] &&
+    cmp -s "$2" bin/runner-handoff-v1.py && grep -Fxq 102 "$4"
 }
 getent() {
   [[ -e "$root/account" ]] || return 2
@@ -132,7 +143,7 @@ HARNESS
 openssl genrsa -out "$root/private.pem" 2048 2>/dev/null
 openssl rsa -in "$root/private.pem" -pubout -out "$root/public.pem" 2>/dev/null
 mkdir -p "$root/archive/dist/bun" "$root/archive/bin"
-cp bin/{dispatch-runner,dispatch-runner.service,install-dispatch-runner.sh,pack-release} "$root/archive/bin/"
+cp bin/{dispatch-runner,dispatch-runner.service,install-dispatch-runner.sh,runner-handoff-v1.py,pack-release} "$root/archive/bin/"
 touch "$root/archive/README.md" "$root/archive/.env.example"
 for version in 1.0.0 1.0.1; do
   release="$root/releases/v$version"
@@ -221,7 +232,11 @@ cmp "$root/original" "$root/runtime/dispatch"
 [[ ! -e "$root/runtime/previous" ]]
 ! grep -q '^kill ' "$root/systemctl"
 grep -q '^thaw ' "$root/systemctl"
-rm "$root/busy"
+# Even a recoverable host must survive the effective unit's stop policy.
+touch "$root/idle-host" "$root/custom-kill"
+expect_status 75 update v1.0.1
+[[ ! -e "$root/runtime/previous" && ! -e "$root/frozen" ]]
+rm "$root/custom-kill"
 
 : > "$root/reject-new"
 expect_status 1 update v1.0.1 arm64
@@ -242,6 +257,8 @@ diff -r "$root/original-settings" "$root/settings"
 
 # A recovery record survives an interrupted swap.
 cp "$root/original" "$root/runtime/previous"
+expect_status 75 recover ""
+cp bin/runner-handoff-v1.py "$root/runtime/previous-handoff.py"
 run recover ""
 cmp "$root/original" "$root/runtime/dispatch"
 diff -r "$root/original-settings" "$root/settings"
