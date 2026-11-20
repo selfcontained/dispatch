@@ -255,32 +255,29 @@ export async function registerPersonaRoutes(
         error: `note must be at most ${MAX_LAUNCH_NOTE_LENGTH} characters.`,
       });
     }
-    // Validate the model against this runtime's catalog before launching.
-    let model: string | undefined;
-    let effort: Effort | null;
-    try {
-      model = validateAgentModel(
-        body.agentType as (typeof CLI_AGENT_TYPES)[number],
-        typeof body.model === "string" ? body.model : undefined
-      );
-      effort = validateAgentEffort(
-        body.agentType as (typeof CLI_AGENT_TYPES)[number],
-        body.effort,
-        model
-      );
-    } catch (error) {
-      return reply.code(400).send({
-        error: error instanceof Error ? error.message : "Invalid model.",
-      });
-    }
-
     try {
       const parent = await deps.agentManager.getAgent(agentId);
       if (!parent) return reply.code(404).send({ error: "Agent not found." });
+      const agentType = body.agentType as (typeof CLI_AGENT_TYPES)[number];
+      const workload = Boolean(remotePlacement(parent.cwd));
+      let model: string | undefined;
+      let effort: Effort | null;
+      try {
+        model = validateAgentModel(
+          agentType,
+          typeof body.model === "string" ? body.model : undefined,
+          workload
+        );
+        effort = validateAgentEffort(agentType, body.effort, model, workload);
+      } catch (error) {
+        return reply.code(400).send({
+          error: error instanceof Error ? error.message : "Invalid model.",
+        });
+      }
       const text = personaLaunchRequest({
         personas,
         codeowners,
-        agentType: body.agentType as string,
+        agentType,
         ...(model !== undefined ? { model } : {}),
         effort,
         ...(typeof body.note === "string" ? { note: body.note } : {}),

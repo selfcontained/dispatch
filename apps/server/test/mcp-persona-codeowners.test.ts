@@ -281,6 +281,35 @@ describe("code owner launches through the checkout boundary", () => {
     }
   );
 
+  it("creates direct and owner reviewers with a runner-only model and effort", async () => {
+    const { handlers, agentManager } = setup({
+      cwd: "runner://linux/@session",
+    });
+    const options = {
+      context: "Review",
+      agentType: "opencode" as const,
+      model: "runner-custom/review",
+      effort: "runner-effort",
+    };
+    await handlers.launchPersonaAgent("parent", {
+      ...options,
+      persona: "owner-one",
+    });
+    const review = await handlers.launchOwnerReviews("parent", {
+      ...options,
+      personas: ["owner-one"],
+    });
+    expect(review.failures).toEqual([]);
+    expect(agentManager.createAgent).toHaveBeenCalledTimes(2);
+    for (const [launch] of agentManager.createAgent.mock.calls) {
+      expect(launch).toMatchObject({
+        cwd: "runner://linux/@session",
+        model: options.model,
+        effort: options.effort,
+      });
+    }
+  });
+
   it("launches a saved OpenCode reviewer from a restricted author", async () => {
     const { handlers, agentManager } = setup({ reviewAgentType: "opencode" });
     await handlers.launchPersonaAgent("parent", {

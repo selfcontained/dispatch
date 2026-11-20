@@ -217,6 +217,28 @@ describe("POST /api/v1/agents/:id/launch-persona", () => {
     expect(response.statusCode).toBe(404);
   });
 
+  it("passes a runner-only reviewer model and effort to the kickoff", async () => {
+    deps.agentManager.getAgent.mockResolvedValueOnce({
+      id: "agt_parent",
+      cwd: "runner://linux/@session",
+    } as never);
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/v1/agents/agt_parent/launch-persona",
+      payload: {
+        personas: ["security-review"],
+        codeowners: true,
+        agentType: "opencode",
+        model: "runner-custom/review",
+        effort: "runner-effort",
+      },
+    });
+    expect(response.statusCode).toBe(200);
+    const [, input] = deps.streams.promptAgent.mock.calls[0]!;
+    expect(input.text).toContain('model: "runner-custom/review"');
+    expect(input.text).toContain('effort: "runner-effort"');
+  });
+
   it("asks the agent to launch the personas itself, with the user's note", async () => {
     const response = await app.inject({
       method: "POST",

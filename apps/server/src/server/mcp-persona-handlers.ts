@@ -230,8 +230,9 @@ export function createPersonaHandlers(deps: CreatePersonaHandlersDeps) {
     if (!enabledAgentTypes.includes(agentType)) {
       throw new Error(`${agentType} agents are disabled in settings.`);
     }
-    const model = validateAgentModel(agentType, opts.model);
-    const effort = validateAgentEffort(agentType, opts.effort, model);
+    const workload = Boolean(remotePlacement(parent.cwd));
+    const model = validateAgentModel(agentType, opts.model, workload);
+    const effort = validateAgentEffort(agentType, opts.effort, model, workload);
 
     const persona = await resolvePersona();
     if (!supportsPersonaType(persona, "review"))
