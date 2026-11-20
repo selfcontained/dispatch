@@ -1,119 +1,250 @@
 <!doctype html>
 <html lang="en">
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Stream motion · Dispatch</title>
-<link rel="icon" href="/icons/teal/favicon.png">
-<style>
-* { box-sizing:border-box }
-:root { color-scheme:dark; font:16px/1.5 Inter,system-ui,sans-serif; background:#141616; color:#eef1ee }
-body { max-width:760px; margin:auto; padding:clamp(20px,6vw,64px) 20px }
-header { color:#9ac7b5; font-weight:650; letter-spacing:.03em }
-h1 { margin:24px 0 16px; font-size:clamp(32px,6vw,54px); line-height:1.05; letter-spacing:-.055em }
-button,input { font:inherit }
-button { cursor:pointer; border:1px solid #424947; border-radius:8px; background:#252928; color:inherit; padding:8px 13px }
-button[aria-pressed=true],button[type=submit] { background:#bef0d8; color:#12261b; border-color:transparent }
-nav { display:flex; flex-wrap:wrap; gap:6px }
-#detail { color:#b7c0ba; min-height:3em }
-section { background:#1b1e1d; border:1px solid #39403c; border-radius:16px; overflow:hidden }
-aside,form { display:flex; align-items:center; gap:10px; padding:14px 18px }
-aside { justify-content:space-between; border-bottom:1px solid #343935 }
-#feed { height:clamp(240px,36vh,360px); overflow:auto; padding:0 20px; overflow-anchor:none }
-article { padding:16px 0 2px; overflow-wrap:anywhere }
-b { font-size:13px; color:#9bd7b9 }
-article.user b { color:#b6c7ed }
-form { margin-top:16px; border-top:1px solid #343935 }
-input { min-width:0; flex:1; padding:9px; background:#151716; color:inherit; border:1px solid #454c48; border-radius:7px }
-@keyframes fade { from {opacity:0} }
-@keyframes lift { from {opacity:0;transform:translateY(14px)} }
-@keyframes unfold { from {grid-template-rows:0fr;opacity:0} }
-.row { display:grid; grid-template-rows:1fr }
-.row > div { overflow:hidden }
-@media(prefers-reduced-motion:no-preference) {
-.fade { animation:fade 320ms ease-out }
-.lift { animation:lift 360ms cubic-bezier(.2,.8,.2,1) }
-.unfold { animation:unfold 420ms cubic-bezier(.22,.7,.25,1) }
-}
-</style>
-<header>Dispatch</header>
-<h1>Stream motion</h1>
-<nav aria-label="Arrival style"></nav>
-<p id="detail"></p>
-<section aria-label="Interactive stream preview">
-<aside><strong>Preview stream</strong><button id="replay">↻ Replay</button></aside>
-<div id="feed" role="log" aria-label="Preview messages"></div>
-<form><input aria-label="Message" placeholder="Try your own message…" required><button type="submit">Send</button></form>
-</section>
-<script type="module">
-const styles = [
-  ['fade','Fade','Messages fade into place with no travel.'],
-  ['lift','Soft lift','Each message rises a short distance and settles into place.'],
-  ['unfold','Make room','The stream opens space gradually as each message appears.']
-];
-const feed = document.querySelector('#feed');
-const input = document.querySelector('input');
-const timers = new Set();
-let selected = 'fade';
-function append(author, message, motion) {
-  const pinned = feed.scrollHeight - feed.scrollTop - feed.clientHeight < 24;
-  const row = document.createElement('div');
-  row.className = 'row ' + motion;
-  const clip = document.createElement('div');
-  const article = document.createElement('article');
-  article.className = author === 'You' ? 'user' : '';
-  const label = document.createElement('b');
-  label.textContent = author;
-  const body = document.createElement('div');
-  body.textContent = message;
-  article.append(label, body);
-  clip.append(article);
-  row.append(clip);
-  feed.append(row);
-  if (pinned) {
-    const follow = () => feed.scrollTo({top:feed.scrollHeight});
-    follow();
-    if (motion === 'unfold' && row.getAnimations().length) {
-      const observer = new ResizeObserver(follow);
-      observer.observe(row);
-      row.getAnimations()[0].finished.then(() => observer.disconnect(), () => observer.disconnect());
-      feed.addEventListener('wheel', () => observer.disconnect(), {once:true});
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Stream motion · Dispatch</title>
+  <link rel="icon" href="/icons/teal/favicon.png" />
+  <style>
+    * {
+      box-sizing: border-box;
     }
-  }
-}
-function exchange(message) {
-  append('You', message, selected);
-  const timer = setTimeout(() => {
-    append('Agent','Got it. I’ll take a look.',selected);
-    timers.delete(timer);
-  },180);
-  timers.add(timer);
-}
-function replay() {
-  timers.forEach(clearTimeout);
-  timers.clear();
-  feed.replaceChildren();
-  append('Agent','The first pass is ready for review.','');
-  exchange('Can you check the latest changes?');
-}
-for (const [id,name,detail] of styles) {
-  const button = document.createElement('button');
-  button.textContent = name;
-  button.onclick = () => {
-    selected = id;
-    for (const item of document.querySelectorAll('nav button')) item.setAttribute('aria-pressed', String(item === button));
-    document.querySelector('#detail').textContent = detail;
-    replay();
-  };
-  document.querySelector('nav').append(button);
-}
-document.querySelector('nav button').click();
-document.querySelector('#replay').onclick = replay;
-document.querySelector('form').onsubmit = event => {
-  event.preventDefault();
-  if (!input.value.trim()) return;
-  exchange(input.value.trim());
-  input.value = '';
-  input.focus();
-};
-</script>
+    :root {
+      color-scheme: dark;
+      font:
+        16px/1.5 Inter,
+        system-ui,
+        sans-serif;
+      background: #141616;
+      color: #eef1ee;
+    }
+    body {
+      max-width: 760px;
+      margin: auto;
+      padding: clamp(20px, 6vw, 64px) 20px;
+    }
+    header {
+      color: #9ac7b5;
+      font-weight: 650;
+      letter-spacing: 0.03em;
+    }
+    h1 {
+      margin: 24px 0 16px;
+      font-size: clamp(32px, 6vw, 54px);
+      line-height: 1.05;
+      letter-spacing: -0.055em;
+    }
+    button,
+    input {
+      font: inherit;
+    }
+    button {
+      cursor: pointer;
+      border: 1px solid #424947;
+      border-radius: 8px;
+      background: #252928;
+      color: inherit;
+      padding: 8px 13px;
+    }
+    button[aria-pressed="true"],
+    button[type="submit"] {
+      background: #bef0d8;
+      color: #12261b;
+      border-color: transparent;
+    }
+    nav {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+    #detail {
+      color: #b7c0ba;
+      min-height: 3em;
+    }
+    section {
+      background: #1b1e1d;
+      border: 1px solid #39403c;
+      border-radius: 16px;
+      overflow: hidden;
+    }
+    aside,
+    form {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 14px 18px;
+    }
+    aside {
+      justify-content: space-between;
+      border-bottom: 1px solid #343935;
+    }
+    #feed {
+      height: clamp(240px, 36vh, 360px);
+      overflow: auto;
+      padding: 0 20px;
+      overflow-anchor: none;
+    }
+    article {
+      padding: 16px 0 2px;
+      overflow-wrap: anywhere;
+    }
+    b {
+      font-size: 13px;
+      color: #9bd7b9;
+    }
+    article.user b {
+      color: #b6c7ed;
+    }
+    form {
+      margin-top: 16px;
+      border-top: 1px solid #343935;
+    }
+    input {
+      min-width: 0;
+      flex: 1;
+      padding: 9px;
+      background: #151716;
+      color: inherit;
+      border: 1px solid #454c48;
+      border-radius: 7px;
+    }
+    @keyframes fade {
+      from {
+        opacity: 0;
+      }
+    }
+    @keyframes lift {
+      from {
+        opacity: 0;
+        transform: translateY(14px);
+      }
+    }
+    @keyframes unfold {
+      from {
+        grid-template-rows: 0fr;
+        opacity: 0;
+      }
+    }
+    .row {
+      display: grid;
+      grid-template-rows: 1fr;
+    }
+    .row > div {
+      overflow: hidden;
+    }
+    @media (prefers-reduced-motion: no-preference) {
+      .fade {
+        animation: fade 320ms ease-out;
+      }
+      .lift {
+        animation: lift 360ms cubic-bezier(0.2, 0.8, 0.2, 1);
+      }
+      .unfold {
+        animation: unfold 420ms cubic-bezier(0.22, 0.7, 0.25, 1);
+      }
+    }
+  </style>
+  <header>Dispatch</header>
+  <h1>Stream motion</h1>
+  <nav aria-label="Arrival style"></nav>
+  <p id="detail"></p>
+  <section aria-label="Interactive stream preview">
+    <aside>
+      <strong>Preview stream</strong><button id="replay">↻ Replay</button>
+    </aside>
+    <div id="feed" role="log" aria-label="Preview messages"></div>
+    <form>
+      <input
+        aria-label="Message"
+        placeholder="Try your own message…"
+        required
+      /><button type="submit">Send</button>
+    </form>
+  </section>
+  <script type="module">
+    const styles = [
+      ["fade", "Fade", "Messages fade into place with no travel."],
+      [
+        "lift",
+        "Soft lift",
+        "Each message rises a short distance and settles into place.",
+      ],
+      [
+        "unfold",
+        "Make room",
+        "The stream opens space gradually as each message appears.",
+      ],
+    ];
+    const feed = document.querySelector("#feed");
+    const input = document.querySelector("input");
+    const timers = new Set();
+    let selected = "fade";
+    function append(author, message, motion) {
+      const pinned =
+        feed.scrollHeight - feed.scrollTop - feed.clientHeight < 24;
+      const row = document.createElement("div");
+      row.className = "row " + motion;
+      const clip = document.createElement("div");
+      const article = document.createElement("article");
+      article.className = author === "You" ? "user" : "";
+      const label = document.createElement("b");
+      label.textContent = author;
+      const body = document.createElement("div");
+      body.textContent = message;
+      article.append(label, body);
+      clip.append(article);
+      row.append(clip);
+      feed.append(row);
+      if (pinned) {
+        const follow = () => feed.scrollTo({ top: feed.scrollHeight });
+        follow();
+        if (motion === "unfold" && row.getAnimations().length) {
+          const observer = new ResizeObserver(follow);
+          observer.observe(row);
+          row.getAnimations()[0].finished.then(
+            () => observer.disconnect(),
+            () => observer.disconnect()
+          );
+          feed.addEventListener("wheel", () => observer.disconnect(), {
+            once: true,
+          });
+        }
+      }
+    }
+    function exchange(message) {
+      append("You", message, selected);
+      const timer = setTimeout(() => {
+        append("Agent", "Got it. I’ll take a look.", selected);
+        timers.delete(timer);
+      }, 180);
+      timers.add(timer);
+    }
+    function replay() {
+      timers.forEach(clearTimeout);
+      timers.clear();
+      feed.replaceChildren();
+      append("Agent", "The first pass is ready for review.", "");
+      exchange("Can you check the latest changes?");
+    }
+    for (const [id, name, detail] of styles) {
+      const button = document.createElement("button");
+      button.textContent = name;
+      button.onclick = () => {
+        selected = id;
+        for (const item of document.querySelectorAll("nav button"))
+          item.setAttribute("aria-pressed", String(item === button));
+        document.querySelector("#detail").textContent = detail;
+        replay();
+      };
+      document.querySelector("nav").append(button);
+    }
+    document.querySelector("nav button").click();
+    document.querySelector("#replay").onclick = replay;
+    document.querySelector("form").onsubmit = (event) => {
+      event.preventDefault();
+      if (!input.value.trim()) return;
+      exchange(input.value.trim());
+      input.value = "";
+      input.focus();
+    };
+  </script>
 </html>
