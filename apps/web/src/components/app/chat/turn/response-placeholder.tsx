@@ -271,7 +271,6 @@ export function ResponsePlaceholder({
   seed,
   steps,
   textLength = 0,
-  onShowProgress,
   lastProgressAt,
   animationPaused = false,
   turnStartedAt,
@@ -289,8 +288,6 @@ export function ResponsePlaceholder({
   turnStartedAt?: number;
   /** Characters of progress text the turn has written; every 250 is a piece. */
   textLength?: number;
-  /** Shows this turn's progress text in place of the card. */
-  onShowProgress?: () => void;
 }): JSX.Element {
   // Let the post fade and scroll into view before mounting the moving grid.
   // An already-running turn reopened from history is ready immediately.
@@ -425,7 +422,6 @@ export function ResponsePlaceholder({
       pieces={pieces}
       arrivalKeys={arrivalKeys}
       textLength={textLength}
-      onShowProgress={onShowProgress}
       summary={sum}
       reserveSummary={reserveSummary}
       reducedCells={reducedCells}

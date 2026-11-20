@@ -82,8 +82,11 @@ function ActivityBlockImpl({
   onShowProgress,
   onHideProgress,
   progressExpanded,
+  hasProgress,
 }: {
   trace: Trace;
+  /** The running reply has written something, hidden or not. */
+  hasProgress?: boolean;
   /** Opens the hidden progress text; set only while the setting hides it. */
   onShowProgress?: () => void;
   /** Closes it again; set while it is open. */
@@ -140,6 +143,7 @@ function ActivityBlockImpl({
           trace={trace}
           progressText={progressText}
           expanded={progressExpanded}
+          hasProgress={hasProgress}
           onShowProgress={onShowProgress}
           onHideProgress={onHideProgress}
         />
@@ -361,12 +365,14 @@ function ActivitySummary({
   trace,
   progressText,
   expanded,
+  hasProgress,
   onShowProgress,
   onHideProgress,
 }: {
   trace: Trace;
   progressText?: string;
   expanded?: boolean;
+  hasProgress?: boolean;
   onShowProgress?: () => void;
   onHideProgress?: () => void;
 }): JSX.Element | null {
@@ -380,7 +386,9 @@ function ActivitySummary({
   }
   const line = held.current ?? "";
   const toggle = expanded ? onHideProgress : onShowProgress;
-  if (!toggle || (!expanded && !line)) return null;
+  // The link shows whenever there is text to open, even before the agent
+  // has finished a sentence to preview.
+  if (!toggle || (!expanded && !line && !hasProgress)) return null;
   return (
     <div
       className="flex min-w-0 flex-col items-start gap-1 py-1.5 pl-5 pr-1 text-[12px] leading-snug"
@@ -388,7 +396,7 @@ function ActivitySummary({
     >
       {/* Muted, fading in; a new message crosses over from the last. */}
       <AnimatePresence initial mode="wait">
-        {!expanded ? (
+        {!expanded && line ? (
           <motion.span
             key={line}
             className="max-w-full truncate text-muted-foreground"
@@ -404,7 +412,7 @@ function ActivitySummary({
       <button
         type="button"
         onClick={toggle}
-        aria-label={expanded ? "Hide progress text" : "Show progress text"}
+        aria-expanded={!!expanded}
         data-testid={
           expanded
             ? "chat-response-hide-progress"

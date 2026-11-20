@@ -1,4 +1,6 @@
-import { useRef } from "react";
+import { useContext, useRef } from "react";
+
+import { ChatRowStateContext } from "../chat-row-state";
 
 import type { Step } from "./contracts";
 import { activitySteps } from "./activity-steps";
@@ -59,6 +61,12 @@ function unresolved(step: Step): boolean {
   return !input || typeof input !== "object";
 }
 
+type ActivityMemo = {
+  kinds: Map<string, ActivityCategory>;
+  failed: Set<string>;
+};
+const MEMO_KEY = "activity-sum";
+
 /**
  * The whole turn so far by kind of work: "6 reads · 2 edits · 3 checks ·
  * 1 failed". Each step is counted once, under the kind it had when it first
@@ -67,13 +75,16 @@ function unresolved(step: Step): boolean {
  * drops from view is still counted.
  */
 export function useActivitySum(steps: Step[]): string | undefined {
-  // Held for the life of the component, which is one turn's placeholder.
-  const seen = useRef<{
-    kinds: Map<string, ActivityCategory>;
-    failed: Set<string>;
-  } | null>(null);
-  seen.current ??= { kinds: new Map(), failed: new Set() };
-  const memo = seen.current;
+  // Kept in the row's state, which outlives the placeholder: it unmounts
+  // while the progress text is open and when the row scrolls away.
+  const row = useContext(ChatRowStateContext);
+  const local = useRef<ActivityMemo | null>(null);
+  let memo = (row?.get(MEMO_KEY) as ActivityMemo | undefined) ?? local.current;
+  if (!memo) {
+    memo = { kinds: new Map(), failed: new Set() };
+    local.current = memo;
+    row?.set(MEMO_KEY, memo);
+  }
   for (const step of activitySteps(steps)) {
     if (step.kind === "think" || step.kind === "note" || step.kind === "notice")
       continue;

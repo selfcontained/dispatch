@@ -123,7 +123,6 @@ describe("placeholder fill count", () => {
         seed={SEED}
         steps={steps(2 * count + 1)}
         textLength={600}
-        onShowProgress={() => undefined}
       />
     );
     const chip = view.getByTestId("chat-response-fill-count");

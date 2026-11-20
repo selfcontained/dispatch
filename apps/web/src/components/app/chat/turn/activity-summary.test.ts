@@ -4,6 +4,9 @@ import { afterEach, describe, expect, it } from "vitest";
 
 afterEach(cleanup);
 
+import { createElement, type ReactNode } from "react";
+
+import { ChatRowStateContext } from "../chat-row-state";
 import type { Step } from "./contracts";
 import { progressSummary, useActivitySum } from "./activity-summary";
 
@@ -60,6 +63,19 @@ describe("activity summary", () => {
     expect(result.current).toBe("1 edit");
     rerender({ steps: [] });
     expect(result.current).toBe("1 edit");
+  });
+
+  it("keeps its counts when the placeholder remounts in the same row", () => {
+    const row = new Map<string, unknown>();
+    const wrapper = ({ children }: { children: ReactNode }) =>
+      createElement(ChatRowStateContext.Provider, { value: row }, children);
+    const steps = [step({}), step({ kind: "edit", label: "Edit b.ts" })];
+    const first = renderHook(() => useActivitySum(steps), { wrapper });
+    expect(first.result.current).toBe("1 read · 1 edit");
+    first.unmount();
+    // Back after "Show less" or a scroll, with the read gone from the feed.
+    const again = renderHook(() => useActivitySum([steps[1]!]), { wrapper });
+    expect(again.result.current).toBe("1 read · 1 edit");
   });
 
   it("shows the newest complete sentence, never a half-written one", () => {

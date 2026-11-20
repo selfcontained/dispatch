@@ -658,7 +658,8 @@ describe("TurnEntryView", () => {
         // The control sits outside the status region, with a stable name.
         const show = screen.getByTestId("chat-response-show-progress");
         expect(screen.getByRole("status").contains(show)).toBe(false);
-        expect(show.getAttribute("aria-label")).toBe("Show progress text");
+        expect(show.textContent).toBe("Show more");
+        expect(show.getAttribute("aria-expanded")).toBe("false");
         fireEvent.click(show);
         // Each side eases out as the other eases in.
         await waitFor(() => expect(placeholder()).toBeNull());
@@ -670,6 +671,19 @@ describe("TurnEntryView", () => {
         await waitFor(() =>
           expect(screen.queryByTestId("chat-turn-live-text")).toBeNull()
         );
+      });
+
+      it("offers the peek before the agent has finished a sentence", () => {
+        renderTurn(
+          running([RUN_STEP], { text: "Running the suite", streaming: true }),
+          ctx,
+          { progressText: false }
+        );
+        const show = screen.getByTestId("chat-response-show-progress");
+        expect(show.textContent).toBe("Show more");
+        expect(
+          screen.getByTestId("harness-activity-explainer").textContent
+        ).toBe("Show more");
       });
 
       it("offers no peek before the turn has written anything", () => {

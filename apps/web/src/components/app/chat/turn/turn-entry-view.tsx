@@ -296,6 +296,7 @@ export function TurnAnswer({
               label={foldLabel}
               progressText={progressText}
               progressExpanded={peek}
+              hasProgress={(result.content?.length ?? 0) > 0}
               onShowProgress={
                 !showProgressText && !peek ? () => setPeek(true) : undefined
               }
