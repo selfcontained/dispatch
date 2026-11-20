@@ -1,6 +1,12 @@
 import { Duplex } from "node:stream";
 import {
   type Frame,
+  type TerminalControl,
+  type TerminalEvent,
+  MAX_TERMINAL_FRAME_LENGTH,
+  isTerminalInfo,
+  isTerminalControl,
+  isTerminalEvent,
   type RemoteLaunch,
   type RunnerFrame,
   type SessionReply,
@@ -1730,5 +1736,94 @@ it.each([true, false])(
     } finally {
       peer.close();
     }
+  }
+);
+
+it.each([true, false])(
+  "an independent service uses a terminal channel only when negotiated: %s",
+  async (terminals) => {
+    const ready = parseReadyFrame({
+      type: "ready",
+      version: 1,
+      workspaces: ["execution/β"],
+      ...(terminals && { terminals: true }),
+    });
+    const sent: ServiceFrame[] = [];
+    const connection = new RunnerConnection((frame) => sent.push(frame));
+    const open = () =>
+      ready?.terminals
+        ? connection.request(
+            {
+              kind: "openTerminal",
+              workspace: "execution/β",
+              agentId: "service/session-42",
+            },
+            { openChannel: true }
+          )
+        : null;
+    const opened = open();
+    if (!terminals) {
+      expect(opened).toBeNull();
+      expect(sent).toEqual([]);
+      return;
+    }
+
+    const request = parseServiceFrame(sent[0]);
+    expect(request).toMatchObject({
+      type: "request",
+      command: {
+        kind: "openTerminal",
+        workspace: "execution/β",
+        agentId: "service/session-42",
+      },
+    });
+    if (request?.type !== "request")
+      throw new Error("Missing terminal request");
+    const { id } = request;
+    const info = { cwd: "/execution/session", host: "guest", user: "workload" };
+    connection.receive({ type: "result", id, value: JSON.stringify(info) });
+    const { value, channel } = (await opened)!;
+    expect(isTerminalInfo(JSON.parse(String(value)))).toBe(true);
+    expect(JSON.parse(String(value))).toEqual(info);
+    const events: TerminalEvent[] = [];
+    const send = wireFrames<unknown, TerminalControl>(
+      channel!,
+      (value) => {
+        if (!isTerminalEvent(value)) throw new Error("Invalid terminal event");
+        events.push(value);
+      },
+      MAX_TERMINAL_FRAME_LENGTH
+    );
+    const controls: TerminalControl[] = [
+      { type: "resize", cols: 110, rows: 40 },
+      { type: "input", data: "cat marker.txt\r" },
+      { type: "detach" },
+      { type: "resume" },
+    ];
+    controls.forEach(send);
+    const decoded = sent.slice(1).map((frame) => {
+      if (frame.type !== "data" || frame.id !== id)
+        throw new Error("Wrong channel");
+      const value = JSON.parse(Buffer.from(frame.data, "base64").toString());
+      expect(isTerminalControl(value)).toBe(true);
+      return value;
+    });
+    expect(decoded).toEqual(controls);
+    expect(isTerminalControl({ type: "resize", cols: 501, rows: 10 })).toBe(
+      false
+    );
+
+    const output = {
+      type: "output",
+      data: Buffer.from([0, 255]).toString("base64"),
+    };
+    const record = Buffer.from(JSON.stringify(output) + "\n");
+    for (const part of [record.subarray(0, 6), record.subarray(6)]) {
+      connection.receive({ type: "data", id, data: part.toString("base64") });
+    }
+    await vi.waitFor(() => expect(events).toEqual([output]));
+    channel!.destroy();
+    expect(sent.at(-1)).toEqual({ type: "close", id });
+    connection.close();
   }
 );

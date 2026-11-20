@@ -166,6 +166,7 @@ type Peer = {
   checkoutInspection: boolean;
   checkoutMetadata: boolean;
   checkoutCommands: boolean;
+  terminals: boolean;
   defaultBranchFiles: boolean;
   sessionCheckout: boolean;
   checkoutRelease: boolean;
@@ -705,6 +706,7 @@ export class RemoteRunnerService {
           defaultBranchFiles: ready.defaultBranchFiles === true,
           checkoutMetadata: ready.checkoutMetadata === true,
           checkoutCommands: ready.checkoutCommands === true,
+          terminals: ready.terminals === true,
           checkoutInspection: ready.checkoutInspection === true,
           sharedWorktree: ready.sharedWorktree === true,
           workspacePreparation: ready.workspacePreparation === true,
@@ -1254,7 +1256,9 @@ export class RemoteRunnerService {
     return this.request(
       placement,
       { ...operation, workspace: placement.workspace },
-      operation.kind === "attach" || operation.kind === "watchCheckout",
+      operation.kind === "attach" ||
+        operation.kind === "watchCheckout" ||
+        operation.kind === "openTerminal",
       onProgress,
       signal
     );
@@ -1595,6 +1599,10 @@ export class RemoteRunnerService {
     )
       throw new RunnerCapabilityUnavailable(
         "Update the runner to use these checkout options."
+      );
+    if (command.kind === "openTerminal" && !peer.terminals)
+      throw new RunnerCapabilityUnavailable(
+        "Update this runner to open a terminal."
       );
     if (command.kind === "checkoutCommand" && !peer.checkoutCommands)
       throw new RunnerCapabilityUnavailable(

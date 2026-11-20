@@ -5,12 +5,8 @@ import { EventEmitter } from "node:events";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { WebSocket } from "ws";
 import type { Pool } from "pg";
-import {
-  HumanTerminalManager,
-  REPLAY_BYTES,
-  terminalEnvironment,
-  type PtyProcess,
-} from "../src/terminal/manager.js";
+import { HumanTerminalManager, REPLAY_BYTES } from "../src/terminal/manager.js";
+import { terminalEnvironment, type PtyProcess } from "../src/terminal/pty.js";
 import {
   registerHumanTerminalRoutes,
   terminalOriginAllowed,

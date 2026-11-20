@@ -22,7 +22,12 @@ import {
 } from "./engine-management.js";
 import { isGitHubOperation, type GitHubOperation } from "./github.js";
 import type { RunnerHealth } from "./health.js";
-import { isHttpUrl, isNullableString, isRecord } from "./validation.js";
+import {
+  isBase64,
+  isHttpUrl,
+  isNullableString,
+  isRecord,
+} from "./validation.js";
 
 export const RUNNER_WIRE_VERSION = 1;
 
@@ -70,6 +75,7 @@ export type SessionOperation =
   | SessionLifecycleOperation
   | { agentId: string; kind: "sessionFile"; operation: SessionFileOperation }
   | { agentId: string; kind: "watchCheckout" }
+  | { agentId: string; kind: "openTerminal" }
   | { agentId: string; kind: "viewCheckout"; query: CheckoutView }
   | { agentId: string; kind: "inspectCheckout"; query: CheckoutQuery }
   | {
@@ -106,6 +112,7 @@ export type ReadyFrame = {
   checkoutInspection?: true;
   checkoutMetadata?: true;
   checkoutCommands?: true;
+  terminals?: true;
   defaultBranchFiles?: true;
   checkoutViews?: true;
   sharedWorktree?: true;
@@ -138,6 +145,7 @@ export function parseReadyFrame(value: unknown): ReadyFrame | null {
     ...(frame.checkoutViews === true && { checkoutViews: true }),
     ...(frame.defaultBranchFiles === true && { defaultBranchFiles: true }),
     ...(frame.checkoutCommands === true && { checkoutCommands: true }),
+    ...(frame.terminals === true && { terminals: true }),
     ...(frame.checkoutMetadata === true && { checkoutMetadata: true }),
     ...(frame.checkoutInspection === true && { checkoutInspection: true }),
     ...(frame.sharedWorktree === true && { sharedWorktree: true }),
@@ -338,6 +346,7 @@ function isCommand(value: unknown): value is Command {
             (value.operation.path === null ||
               isCheckoutPath(value.operation.path))))
       );
+    case "openTerminal":
     case "watchCheckout":
       return true;
     case "viewCheckout":
@@ -366,16 +375,6 @@ export function runnerRequestId(value: unknown): string | undefined {
   return isRecord(value) && value.type === "request" && isOpaqueId(value.id)
     ? value.id
     : undefined;
-}
-
-function isBase64(value: unknown): value is string {
-  if (typeof value !== "string" || /[^A-Za-z0-9+/=]/u.test(value)) return false;
-  const paddingStart = value.indexOf("=");
-  if (paddingStart === -1) return value.length % 4 !== 1;
-  return (
-    value.length % 4 === 0 &&
-    (value.slice(paddingStart) === "=" || value.slice(paddingStart) === "==")
-  );
 }
 
 function isServiceFrame(value: unknown): value is ServiceFrame {

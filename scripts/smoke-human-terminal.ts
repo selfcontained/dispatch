@@ -1,6 +1,6 @@
 /** Run with Bun: real PTY smoke, never requests sudo or uses real credentials. */
 import assert from "node:assert/strict";
-import { spawnTerminal } from "../apps/server/src/terminal/manager.js";
+import { spawnTerminal } from "../apps/server/src/terminal/pty.js";
 let output = "";
 const decoder = new TextDecoder();
 const proc = spawnTerminal("/tmp", (data) => {

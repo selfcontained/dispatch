@@ -111,7 +111,7 @@ shares its reset coordinator across HTTP and MCP.
   client. Live provider sign-ins and paid account actions require separate
   acceptance evidence.
 
-**Human terminals and desktop integrations.** **Decision per capability.** A human PTY opened in the agent checkout needs machine-local process, resize, input, detach/resume and close. Desktop IDE, clipboard, browser and computer-use actions need an explicit target and OS permissions. Some belong to the operator’s desktop, even when the agent runs elsewhere.
+**Human terminals and desktop integrations.** The native and enrolled runner paths open the PTY in the selected checkout. Enrolled peers advertise the optional terminal channel. Desktop actions follow the [target and permissions table](../macos-app.md#session-terminals-and-desktop-actions).
 
 - Keep native Mac behavior. A remote terminal, if offered, opens in the correct guest with the correct identity. Never interpret a remote path as a request to open a Mac file. [Human terminal manager](../../apps/server/src/terminal/manager.ts) · [Clipboard behavior](../../apps/server/src/routes/files.ts) · [Mac integration](../macos-app.md)
 

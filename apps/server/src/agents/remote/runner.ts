@@ -7,6 +7,8 @@ import { createConnection, isIP } from "node:net";
 import path from "node:path";
 import process from "node:process";
 import { connect } from "node:tls";
+import { Duplex } from "node:stream";
+import { terminalEnvironment } from "../../terminal/pty.js";
 import { promisify } from "node:util";
 import type { HostLaunch } from "../acp/host-protocol.js";
 import type { WorkloadCommand } from "./session-storage.js";
@@ -15,6 +17,9 @@ export { runnerStorageKey } from "./session-supervisor.js";
 import { hostCommand, selfCommand } from "../acp/host-command.js";
 import {
   isOpaqueId,
+  isTerminalEvent,
+  isTerminalInfo,
+  MAX_TERMINAL_FRAME_LENGTH,
   isEngineCapabilityOperation,
   type EngineCapabilityOperation,
   type EngineOperationAck,
@@ -437,7 +442,8 @@ export async function runRemoteRunner(filename: string) {
           closed
         )
       );
-      const channels = new Map<string, ReturnType<typeof createConnection>>();
+      const channels = new Map<string, Duplex>();
+      const terminals = new Map<string, symbol>();
       const timeout = setTimeout(() => socket.destroy(), 5000);
       socket.on("error", (error: Error) =>
         console.error("Runner transport:", error.message)
@@ -448,6 +454,7 @@ export async function runRemoteRunner(filename: string) {
         watches.clear();
         clearTimeout(timeout);
         clearInterval(healthInterval);
+        terminals.clear();
         for (const channel of channels.values()) channel.destroy();
         finished(
           connectedAt === undefined ? 0 : performance.now() - connectedAt
@@ -689,6 +696,82 @@ export async function runRemoteRunner(filename: string) {
               )
             );
             break;
+          case "openTerminal": {
+            if (terminals.size >= 16 || terminals.has(id) || channels.has(id))
+              throw new Error(
+                "Runner terminal limit reached or duplicate channel."
+              );
+            const reservation = Symbol();
+            terminals.set(id, reservation);
+            try {
+              const cwd = await supervisor.checkoutDirectory(
+                agentId,
+                workspace,
+                target?.cwd
+              );
+              if (terminals.get(id) !== reservation || socket.destroyed) return;
+              const child = spawn(
+                setpriv,
+                [...childArgs, ...selfCommand("runner-terminal"), cwd],
+                {
+                  env: terminalEnvironment(env),
+                  stdio: ["pipe", "pipe", "ignore"],
+                }
+              );
+              child.on("error", () => channel.destroy());
+              const channel = Duplex.from({
+                readable: child.stdout,
+                writable: child.stdin,
+              });
+              channels.set(id, channel);
+              let ready = false;
+              channel.on("error", () => channel.destroy());
+              channel.once("close", () => {
+                child.kill();
+                terminals.delete(id);
+                channels.delete(id);
+                if (!ready)
+                  safeSend({
+                    type: "result",
+                    id,
+                    error:
+                      "The runner could not start a terminal in this checkout.",
+                  });
+                safeSend({ type: "close", id });
+              });
+              wireFrames<unknown>(
+                channel,
+                (event) => {
+                  if (
+                    !ready &&
+                    event &&
+                    typeof event === "object" &&
+                    "type" in event &&
+                    event.type === "ready" &&
+                    "info" in event &&
+                    isTerminalInfo(event.info)
+                  ) {
+                    ready = true;
+                    result(JSON.stringify(event.info));
+                  } else if (ready && isTerminalEvent(event)) {
+                    safeSend({
+                      type: "data",
+                      id,
+                      data: Buffer.from(JSON.stringify(event) + "\n").toString(
+                        "base64"
+                      ),
+                    });
+                  } else channel.destroy();
+                },
+                MAX_TERMINAL_FRAME_LENGTH
+              );
+            } catch (error) {
+              if (terminals.get(id) !== reservation) return;
+              terminals.delete(id);
+              throw error;
+            }
+            break;
+          }
           case "watchCheckout": {
             const cwd = await supervisor.checkoutDirectory(
               agentId,
@@ -890,13 +973,22 @@ export async function runRemoteRunner(filename: string) {
             ?.abort(new Error("Checkout command cancelled."));
         } else if (frame.type === "data") {
           const channel = channels.get(frame.id);
-          if (channel && channel.writableLength > 32 * 1024 * 1024)
+          if (
+            channel &&
+            terminals.has(frame.id) &&
+            (channel.writableLength > 128 * 1024 ||
+              frame.data.length > 256 * 1024)
+          )
+            channel.destroy();
+          else if (channel && channel.writableLength > 32 * 1024 * 1024)
             channel.destroy();
           else channel?.write(Buffer.from(frame.data, "base64"));
         } else if (frame.type === "close") {
           watches.get(frame.id)?.();
           watches.delete(frame.id);
-          channels.get(frame.id)?.destroy();
+          const channel = channels.get(frame.id);
+          if (channel) channel.destroy();
+          else terminals.delete(frame.id);
         } else socket.destroy();
       });
       socket.once("secureConnect", () => {
@@ -919,6 +1011,9 @@ export async function runRemoteRunner(filename: string) {
           checkoutInspection: true,
           checkoutMetadata: true,
           checkoutCommands: true,
+          ...(typeof Bun !== "undefined" && typeof Bun.Terminal === "function"
+            ? { terminals: true }
+            : {}),
           defaultBranchFiles: true,
           workspacePreparation: true,
           sessionCheckout: true,

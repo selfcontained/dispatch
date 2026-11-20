@@ -530,3 +530,36 @@ on success. There is no progress stream for these operations.
 Scope any host-side cache to the runner. A disconnected or older peer gives
 an unavailable result. Never substitute another runner's data or the host's
 own credentials, catalog or plugin state.
+
+### Session terminals
+
+The V1 `ready.terminals: true` flag opts into `openTerminal`. Services must
+check it before sending this request. Its absence means the peer cannot open a
+terminal. No protocol version change is required.
+
+Use the existing `request` envelope with a fresh channel ID and
+`{ kind: "openTerminal", agentId, workspace }`. The two target fields are
+opaque IDs obtained from the session's execution binding. The runner resolves
+the current checkout and starts the login shell with its workload identity.
+The successful result's string value contains JSON `{ cwd, host, user }`
+for display. These fields describe the execution machine.
+
+Open the channel when issuing the request. After the result, send newline-
+terminated JSON `TerminalControl` records on the channel. The runner sends
+newline-terminated JSON `TerminalEvent` records back. Channel data uses the
+existing base64 framing and records can span frames. An `output` record carries
+base64 PTY bytes, preserving binary output and partial UTF-8 sequences.
+Send `input` with a UTF-8 string (up to 16 KiB) and `resize` with integer
+`cols` (2–500) and `rows` (1–200).
+
+Send `detach` to suspend delivery and buffer the last 256 KiB of new output.
+Keep the runner channel open. Send `resume` on that channel to drain the
+buffer and continue live delivery. These controls are idempotent. The detached
+PTY ignores input and resize until resumed. Services can retain previously
+delivered output separately and control how long their frontend is allowed to
+reconnect. A runner transport disconnect ends its terminals.
+
+Destroy the channel or send a channel `close` to end the terminal and clean up
+the shell and its process session. The runner sends `exit` on shell exit or
+closes the channel if the worker is lost. Browser authentication, browser
+session IDs, tabs, and user interface state belong to the service.

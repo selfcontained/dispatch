@@ -43,6 +43,9 @@ if (process.argv[2]?.startsWith("recovery-")) {
 } else if (process.argv[2] === "connect") {
   const { runRunnerConnect } = await import("./agents/remote/enrollment.js");
   await runRunnerConnect(process.argv.slice(3));
+} else if (process.argv[2] === "runner-terminal") {
+  const { runTerminalWorker } = await import("./terminal/runner-worker.js");
+  await runTerminalWorker(process.argv[3]!);
 } else if (process.argv[2] === "runner-watch-checkout") {
   const { runCheckoutWatchCli } = await import("./agents/checkout-watch.js");
   runCheckoutWatchCli(process.argv[3]!);

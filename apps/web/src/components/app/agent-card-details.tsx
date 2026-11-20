@@ -207,8 +207,12 @@ export function AgentCardDetails({
 
       <div className="flex items-center justify-between gap-2 pt-1">
         <div className="flex items-center gap-2">
-          {!remoteLocation && workspaceDir ? (
-            <IdeLaunchButton path={workspaceDir} enabledIdes={enabledIdes} />
+          {workspaceDir ? (
+            <IdeLaunchButton
+              path={workspaceDir}
+              enabledIdes={enabledIdes}
+              runnerCheckout={agent.cwd?.startsWith("runner://")}
+            />
           ) : null}
           {!remoteLocation && <ChangeWorkspaceButton agent={agent} />}
           {!remoteLocation && agent.gitContext?.isWorktree && workspaceDir ? (

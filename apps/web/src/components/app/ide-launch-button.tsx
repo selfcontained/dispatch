@@ -73,9 +73,11 @@ const PILL_BASE =
 export function IdeLaunchButton({
   path,
   enabledIdes = [],
+  runnerCheckout = false,
 }: {
   path: string;
   enabledIdes?: IdeType[];
+  runnerCheckout?: boolean;
 }): JSX.Element {
   const [preferredIde, setPreferredIde] = useAtom(preferredIdeAtom);
   const onLoopback = isLoopbackHost();
@@ -83,7 +85,7 @@ export function IdeLaunchButton({
 
   // Empty-state CTA: when on loopback with no IDEs enabled, show a discoverable
   // pill that links into Settings → Workspace so users find the toggle.
-  if (onLoopback && orderedEnabled.length === 0) {
+  if (!runnerCheckout && onLoopback && orderedEnabled.length === 0) {
     return (
       <Tooltip>
         <TooltipTrigger asChild>
@@ -107,10 +109,11 @@ export function IdeLaunchButton({
     );
   }
 
-  // Remote (non-loopback): render a disabled button so the feature is
-  // discoverable but the URL handler isn't fired against a path that doesn't
-  // exist on the user's machine.
-  if (!onLoopback) {
+  // The browser invokes a URL handler on its own desktop.
+  if (runnerCheckout || !onLoopback) {
+    const reason = runnerCheckout
+      ? "Open in IDE is unavailable for runner checkouts"
+      : "Open in IDE does not work when accessing Dispatch remotely";
     const fallbackIde =
       orderedEnabled[0] ??
       (IDE_TYPES.includes(preferredIde) ? preferredIde : "vscode");
@@ -121,7 +124,11 @@ export function IdeLaunchButton({
             variant="ghost"
             size="sm"
             disabled
-            aria-label="Open in IDE (unavailable on remote access)"
+            aria-label={
+              runnerCheckout
+                ? reason
+                : "Open in IDE (unavailable on remote access)"
+            }
             data-testid="ide-launch-disabled"
             className={cn(
               "rounded-full disabled:opacity-50 disabled:pointer-events-auto",
@@ -129,11 +136,10 @@ export function IdeLaunchButton({
             )}
           >
             <IdeIcon ide={fallbackIde} className="h-3 w-3" />
+            {runnerCheckout && <span>IDE unavailable</span>}
           </Button>
         </TooltipTrigger>
-        <TooltipContent>
-          Open in IDE does not work when accessing Dispatch remotely
-        </TooltipContent>
+        <TooltipContent>{reason}</TooltipContent>
       </Tooltip>
     );
   }

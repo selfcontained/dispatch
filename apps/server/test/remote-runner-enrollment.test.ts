@@ -701,7 +701,7 @@ describe("runner enrollment service", () => {
     );
   });
 
-  it("gates worktree reuse and inspection before sending requests to older peers", async () => {
+  it("gates worktree reuse, inspection and terminals before sending requests to older peers", async () => {
     const service = makeService();
     const a = await enroll(service, "alpha");
     const placement = { runner: a.id, workspace: "@session" };
@@ -743,6 +743,12 @@ describe("runner enrollment service", () => {
       await expect(service.requestSession(placement, launch)).rejects.toThrow(
         "Update the runner"
       );
+      await expect(
+        service.requestSession(placement, {
+          kind: "openTerminal",
+          agentId: "author",
+        })
+      ).rejects.toThrow("Update this runner to open a terminal.");
       expect(legacy.requests.filter((f) => f.type === "request")).toEqual([]);
     } finally {
       legacy.socket.destroy();

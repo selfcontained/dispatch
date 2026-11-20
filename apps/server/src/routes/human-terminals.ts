@@ -2,6 +2,9 @@ import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { Pool } from "pg";
 import { realpath, stat } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
+import { remotePlacement } from "@dispatch/runner-protocol";
+import { remoteTerminal } from "../terminal/remote.js";
+import type { RemoteRunnerService } from "../agents/remote/service.js";
 import { isPasswordSet, validateSession } from "../auth.js";
 import { HumanTerminalManager, terminalOwner } from "../terminal/manager.js";
 
@@ -31,9 +34,12 @@ export function terminalOriginAllowed(
 type Deps = {
   pool: Pool;
   sessionCookie: string;
-  getAgent: (
-    id: string
-  ) => Promise<{ cwd: string; worktreePath: string | null } | null>;
+  getAgent: (id: string) => Promise<{
+    cwd: string;
+    worktreePath: string | null;
+    workspacePath?: string | null;
+  } | null>;
+  runner?: Pick<RemoteRunnerService, "requestSession"> | null;
   manager?: HumanTerminalManager;
 };
 
@@ -151,17 +157,28 @@ export async function registerHumanTerminalRoutes(
         if (!agent)
           return reply.code(404).send({ error: "Workspace not found." });
         try {
-          const cwd = await realpath(agent.worktreePath || agent.cwd);
+          const { agentId, clientId } = request.body;
+          const placement = remotePlacement(agent.cwd);
+          const unencrypted = request.protocol !== "https";
+          if (placement) {
+            if (!deps.runner)
+              throw new Error("The session runner is unavailable.");
+            const backend = remoteTerminal(deps.runner, placement, agentId);
+            return {
+              ...(await manager.openRemote(owner, clientId, agentId, backend)),
+              unencrypted,
+            };
+          }
+          if (agent.cwd.startsWith("runner://"))
+            throw new Error("The session runner location is invalid.");
+          const cwd = await realpath(
+            agent.workspacePath ?? agent.worktreePath ?? agent.cwd
+          );
           if (!(await stat(cwd)).isDirectory())
             throw new Error("Workspace directory is unavailable.");
           return {
-            ...manager.open(
-              owners.get(request)!.owner,
-              request.body.clientId,
-              request.body.agentId,
-              cwd
-            ),
-            unencrypted: request.protocol !== "https",
+            ...manager.open(owner, clientId, agentId, cwd),
+            unencrypted,
           };
         } catch (error) {
           return reply.code(409).send({

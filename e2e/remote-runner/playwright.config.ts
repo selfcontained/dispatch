@@ -20,6 +20,8 @@ export default defineConfig({
       env: {
         ...((base.webServer as { env?: Record<string, string> }).env ?? {}),
         DISPATCH_HOST: "127.0.0.1",
+        // Exercise the browser terminal cookie without changing shared auth.
+        DISPATCH_DEV_STACK: "1",
         DISPATCH_RUNNER_HOST: process.env.DISPATCH_RUNNER_HOST ?? "",
         DISPATCH_RUNNER_REPO_TOOL: process.env.DISPATCH_RUNNER_REPO_TOOL ?? "",
         DISPATCH_RUNNER_PORT: process.env.DISPATCH_RUNNER_PORT ?? "",

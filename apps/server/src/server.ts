@@ -1030,6 +1030,7 @@ async function registerRoutes() {
   await registerHumanTerminalRoutes(app, {
     pool,
     sessionCookie: SESSION_COOKIE,
+    runner: remoteRunner,
     getAgent: (id) => agentManager.getAgent(id),
   });
 

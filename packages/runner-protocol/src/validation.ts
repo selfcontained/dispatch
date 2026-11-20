@@ -20,3 +20,13 @@ export function isHttpUrl(value: unknown, allowHttp = false): value is string {
     return false;
   }
 }
+
+export function isBase64(value: unknown): value is string {
+  if (typeof value !== "string" || /[^A-Za-z0-9+/=]/u.test(value)) return false;
+  const paddingStart = value.indexOf("=");
+  if (paddingStart === -1) return value.length % 4 !== 1;
+  return (
+    value.length % 4 === 0 &&
+    (value.slice(paddingStart) === "=" || value.slice(paddingStart) === "==")
+  );
+}

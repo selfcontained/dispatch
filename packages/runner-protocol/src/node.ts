@@ -6,7 +6,8 @@ type Send<T> = (frame: T) => void;
 
 export function wireFrames<Incoming = Frame, Outgoing = Frame>(
   socket: Duplex,
-  receive: (frame: Incoming) => void
+  receive: (frame: Incoming) => void,
+  maxLineLength = 32 * 1024 * 1024
 ): Send<Outgoing> {
   const decoder = new StringDecoder("utf8");
   let pending = "";
@@ -14,7 +15,7 @@ export function wireFrames<Incoming = Frame, Outgoing = Frame>(
     pending += decoder.write(chunk);
     let newline: number;
     while ((newline = pending.indexOf("\n")) >= 0) {
-      if (newline > 32 * 1024 * 1024) return socket.destroy();
+      if (newline > maxLineLength) return socket.destroy();
       const line = pending.slice(0, newline);
       pending = pending.slice(newline + 1);
       try {
@@ -23,7 +24,7 @@ export function wireFrames<Incoming = Frame, Outgoing = Frame>(
         return socket.destroy();
       }
     }
-    if (pending.length > 32 * 1024 * 1024) socket.destroy();
+    if (pending.length > maxLineLength) socket.destroy();
   });
   return (frame) => {
     if (socket.destroyed || socket.writableLength > 32 * 1024 * 1024) {
