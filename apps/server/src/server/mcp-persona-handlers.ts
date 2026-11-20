@@ -183,6 +183,7 @@ export type PreparedPersonaLaunch = {
   effort: Effort | null;
   cwd: string;
   agentArgs: string[];
+  fullAccess: boolean;
 };
 
 /**
@@ -203,6 +204,7 @@ export function createPersonaHandlers(deps: CreatePersonaHandlersDeps) {
       parent,
       opts,
       cwd,
+      parent.fullAccess,
       () =>
         opts.resolvedPersona ??
         resolveRunnerPersona(agentManager, parent, opts.persona)
@@ -213,6 +215,7 @@ export function createPersonaHandlers(deps: CreatePersonaHandlersDeps) {
     parent: AgentRecord,
     opts: PersonaLaunchOptions,
     cwd: string,
+    fullAccess: boolean,
     resolvePersona: () => PersonaDefinition | Promise<PersonaDefinition>
   ): Promise<PreparedPersonaLaunch> {
     const fallbackReviewType = isCliAgentType(parent.reviewAgentType)
@@ -225,6 +228,16 @@ export function createPersonaHandlers(deps: CreatePersonaHandlersDeps) {
       opts.agentType ?? fallbackReviewType ?? fallbackParentType;
     if (!CLI_AGENT_TYPES.includes(agentType)) {
       throw new Error(`Unsupported agent type "${agentType}".`);
+    }
+    if (agentType === "opencode") {
+      if (!parent.fullAccess)
+        throw new Error(
+          "Permission denied: a restricted agent cannot launch full-access OpenCode agents."
+        );
+      if (!fullAccess)
+        throw new Error(
+          "OpenCode requires full access and cannot run a restricted owner review."
+        );
     }
     const enabledAgentTypes = await getEnabledAgentTypes(pool);
     if (!enabledAgentTypes.includes(agentType)) {
@@ -247,8 +260,10 @@ export function createPersonaHandlers(deps: CreatePersonaHandlersDeps) {
       PERSONA_CONTEXT_ARG,
       prompt,
     ];
-    if (agentType === "claude") agentArgs.push(CLAUDE_FULL_ACCESS_ARG);
-    if (agentType === "codex") agentArgs.push(CODEX_FULL_ACCESS_ARG);
+    if (fullAccess && agentType === "claude")
+      agentArgs.push(CLAUDE_FULL_ACCESS_ARG);
+    if (fullAccess && agentType === "codex")
+      agentArgs.push(CODEX_FULL_ACCESS_ARG);
     return {
       persona,
       prompt,
@@ -257,6 +272,7 @@ export function createPersonaHandlers(deps: CreatePersonaHandlersDeps) {
       effort,
       cwd,
       agentArgs,
+      fullAccess,
     };
   }
 
@@ -310,9 +326,7 @@ export function createPersonaHandlers(deps: CreatePersonaHandlersDeps) {
         model: prepared.model,
         effort: prepared.effort,
         agentArgs: prepared.agentArgs,
-        // Reviews must run unattended, including reviews requested by a
-        // restricted author. Ordinary child launches keep their access ceiling.
-        fullAccess: true,
+        fullAccess: prepared.fullAccess,
         useWorktree: false,
         persona: opts.persona,
         role: "review",
@@ -456,6 +470,7 @@ export function createPersonaHandlers(deps: CreatePersonaHandlersDeps) {
               author,
               launchOpts,
               author.cwd,
+              false,
               () => selectedPersonas.get(persona)!
             ),
           author.id

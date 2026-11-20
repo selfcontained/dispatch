@@ -202,7 +202,7 @@ describe("code owner launches through the checkout boundary", () => {
           parentAgentId: "launcher",
           launchedByAgentId: "parent",
           useWorktree: false,
-          fullAccess: true,
+          fullAccess: false,
           initialPrompt: expect.stringContaining('to: "parent"'),
           agentArgs: expect.arrayContaining([
             expect.stringContaining("Verify subsystem contracts"),
@@ -256,7 +256,7 @@ describe("code owner launches through the checkout boundary", () => {
   );
 
   it.each(["/checkout", "runner://linux/@session"])(
-    "launches Claude reviewers with full access from a restricted author in %s",
+    "keeps both Claude review paths restricted for a restricted author in %s",
     async (cwd) => {
       const { handlers, agentManager } = setup({ cwd, type: "claude" });
       await handlers.launchPersonaAgent("parent", {
@@ -274,9 +274,11 @@ describe("code owner launches through the checkout boundary", () => {
           cwd,
           type: "claude",
           role: "review",
-          fullAccess: true,
-          agentArgs: expect.arrayContaining(["--dangerously-skip-permissions"]),
+          fullAccess: false,
         });
+        expect(launch.agentArgs).not.toContain(
+          "--dangerously-skip-permissions"
+        );
       }
     }
   );
@@ -287,7 +289,7 @@ describe("code owner launches through the checkout boundary", () => {
     });
     const options = {
       context: "Review",
-      agentType: "opencode" as const,
+      agentType: "claude" as const,
       model: "runner-custom/review",
       effort: "runner-effort",
     };
@@ -310,17 +312,55 @@ describe("code owner launches through the checkout boundary", () => {
     }
   });
 
-  it("launches a saved OpenCode reviewer from a restricted author", async () => {
-    const { handlers, agentManager } = setup({ reviewAgentType: "opencode" });
-    await handlers.launchPersonaAgent("parent", {
-      persona: "owner-one",
-      context: "Review",
-    });
-    expect(agentManager.createAgent).toHaveBeenCalledWith(
-      expect.objectContaining({ type: "opencode", fullAccess: true }),
-      { detachLaunch: true }
-    );
-  });
+  it.each(["/checkout", "runner://linux/@session"])(
+    "inherits full engine access for direct reviews only in %s",
+    async (cwd) => {
+      const { handlers, agentManager } = setup({ cwd, fullAccess: true });
+      await handlers.launchPersonaAgent("parent", {
+        persona: "owner-one",
+        context: "Direct review",
+      });
+      await handlers.launchOwnerReviews("parent", {
+        context: "Owner review",
+        personas: ["owner-one"],
+      });
+      const [direct, owner] = agentManager.createAgent.mock.calls.map(
+        ([args]) => args
+      );
+      expect(direct?.fullAccess).toBe(true);
+      expect(direct?.agentArgs).toContain(
+        "--dangerously-bypass-approvals-and-sandbox"
+      );
+      expect(owner?.fullAccess).toBe(false);
+      expect(owner?.agentArgs).not.toContain(
+        "--dangerously-bypass-approvals-and-sandbox"
+      );
+    }
+  );
+
+  it.each(["/checkout", "runner://linux/@session"])(
+    "rejects a saved OpenCode reviewer that would elevate a restricted author in %s",
+    async (cwd) => {
+      const { handlers, agentManager } = setup({
+        cwd,
+        reviewAgentType: "opencode",
+      });
+      await expect(
+        handlers.launchPersonaAgent("parent", {
+          persona: "owner-one",
+          context: "Review",
+        })
+      ).rejects.toThrow(/restricted agent cannot launch full-access OpenCode/);
+      const result = await handlers.launchOwnerReviews("parent", {
+        context: "Review",
+        personas: ["owner-one"],
+      });
+      expect(result.failures[0]?.error).toMatch(
+        /restricted agent cannot launch full-access OpenCode/
+      );
+      expect(agentManager.createAgent).not.toHaveBeenCalled();
+    }
+  );
 
   it.each([false, true])(
     "selects and deduplicates a subset (dryRun=%s)",
@@ -488,7 +528,7 @@ describe("code owner launches through the checkout boundary", () => {
     );
     expect(agentManager.createAgent).toHaveBeenCalledWith(
       expect.objectContaining({
-        fullAccess: true,
+        fullAccess: false,
         agentArgs: expect.arrayContaining([
           expect.stringContaining(builtin.body.trimEnd()),
         ]),
@@ -557,7 +597,7 @@ describe("code owner launches through the checkout boundary", () => {
       expect.objectContaining({
         cwd: "runner://older/@session",
         type: "claude",
-        fullAccess: true,
+        fullAccess: false,
       }),
       { detachLaunch: true, useWorktreeOf: "parent" }
     );
