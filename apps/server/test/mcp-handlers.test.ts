@@ -789,6 +789,25 @@ describe("createMcpHandlers", () => {
       expect(deps.agentManager.createAgent).not.toHaveBeenCalled();
     });
 
+    it("keeps a full-access reviewer inside the ordinary Dispatch launch ceiling", async () => {
+      const reviewer = await deps.agentManager.getAgent("agt_test1");
+      deps.agentManager.getAgent.mockResolvedValue({
+        ...reviewer,
+        role: "review",
+        fullAccess: true,
+      } as never);
+      await handlers.launchAgent("agt_test1", {
+        name: "ordinary",
+        type: "codex",
+        child: false,
+        fullAccess: true,
+      });
+      expect(deps.agentManager.createAgent.mock.calls[0]?.[0]).toMatchObject({
+        name: "ordinary",
+        fullAccess: false,
+      });
+    });
+
     it("does not include full-access arg for opencode agents", async () => {
       vi.mocked(getEnabledAgentTypes).mockResolvedValue([
         "claude",

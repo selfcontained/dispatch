@@ -9,3 +9,11 @@ export function assertAccessCeiling(
     );
   }
 }
+
+/** The engine's approval mode does not elevate a reviewer's Dispatch tools. */
+export function hasDispatchFullAccess(agent: {
+  role?: string | null;
+  fullAccess?: boolean;
+}): boolean {
+  return agent.role !== "review" && agent.fullAccess === true;
+}

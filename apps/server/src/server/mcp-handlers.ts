@@ -1,3 +1,4 @@
+import { hasDispatchFullAccess } from "../shared/access-ceiling.js";
 import { validateAgentEffort } from "../shared/agent-effort.js";
 import path from "node:path";
 import { mkdir, unlink, writeFile } from "node:fs/promises";
@@ -487,14 +488,15 @@ async function handleLaunchAgent(
   const createNewBranch = input.createNewBranch ?? worktreeFromTemplate;
   const baseBranch = input.baseBranch ?? fromTemplate.baseBranch;
   const worktreeBranch = input.worktreeBranch ?? fromTemplate.worktreeBranch;
-  if (agentType === "opencode" && !parent.fullAccess) {
+  const callerFullAccess = hasDispatchFullAccess(parent);
+  if (agentType === "opencode" && !callerFullAccess) {
     throw new Error(
       "Permission denied: a restricted agent cannot launch full-access OpenCode agents."
     );
   }
   const fullAccess =
     agentType === "opencode" ||
-    (parent.fullAccess && (input.fullAccess ?? template?.fullAccess ?? true));
+    (callerFullAccess && (input.fullAccess ?? template?.fullAccess ?? true));
 
   // Placement is an instance-wide setting the web UI already honours; without
   // this the MCP path silently forced "sibling".
