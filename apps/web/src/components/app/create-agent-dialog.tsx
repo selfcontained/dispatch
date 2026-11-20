@@ -117,8 +117,18 @@ function CreateAgentDialogContent({
     >
       {form.step === "config" ? (
         <>
-          <DialogHeader>
-            <DialogTitle>Create Agent</DialogTitle>
+          <DialogHeader className="flex-row items-center justify-between gap-2 space-y-0">
+            <DialogTitle className="shrink-0">Create Agent</DialogTitle>
+            <RunnerPicker
+              runners={
+                task
+                  ? form.runners.filter((r) => r.managedWorkspace)
+                  : form.runners
+              }
+              runnerId={form.runnerId}
+              unavailable={form.runnerUnavailable}
+              onRunnerChange={form.selectRunner}
+            />
           </DialogHeader>
 
           <form
@@ -128,21 +138,22 @@ function CreateAgentDialogContent({
           >
             <div className="min-h-0 flex-1 overflow-y-auto px-1 [scrollbar-gutter:stable]">
               <div className="space-y-3">
-                <RunnerPicker
-                  runners={
-                    task
-                      ? form.runners.filter((r) => r.managedWorkspace)
-                      : form.runners
-                  }
-                  runnerId={form.runnerId}
-                  unavailable={form.runnerUnavailable}
-                  onRunnerChange={form.selectRunner}
-                />
+                {form.runnerUnavailable && (
+                  <p
+                    role="alert"
+                    className="text-sm text-destructive"
+                    data-testid="create-agent-runner-unavailable"
+                  >
+                    This runner is revoked or gone. Choose This computer or
+                    another runner to continue.
+                  </p>
+                )}
                 <AgentEngineFields
                   agentType={form.createType}
                   onAgentTypeChange={form.setCreateType}
                   agentTypes={form.agentTypes}
                   agentLabel="Agent"
+                  agentLoading={form.runnerEnginesLoading}
                   effort={form.createEffort}
                   onEffortChange={form.setCreateEffort}
                   model={form.createModel}
@@ -157,9 +168,7 @@ function CreateAgentDialogContent({
                       ? "Set up this agent on the runner to create a session."
                       : form.workloadCatalogUnavailable
                         ? "Using the agent’s configured model."
-                        : hasRunnerChoice
-                          ? ""
-                          : undefined
+                        : undefined
                   }
                   workloadEffort={form.workloadEffort}
                 />
@@ -182,7 +191,7 @@ function CreateAgentDialogContent({
                 </div>
 
                 {task && <TaskContextCard task={task} />}
-                <div className="space-y-1">
+                <div className="space-y-3">
                   {form.runner &&
                     !form.runnerUnavailable &&
                     !form.managedSession && (

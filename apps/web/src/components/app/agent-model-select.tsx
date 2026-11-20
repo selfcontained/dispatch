@@ -52,22 +52,22 @@ export function AgentModelSelect({
         <SelectTrigger
           id={id}
           data-testid={testId}
-          disabled={loading || options.length === 0}
+          aria-busy={loading || undefined}
+          disabled={!loading && options.length === 0}
         >
           <SelectValue>
-            {loading
-              ? "Loading models…"
-              : options.length === 0
-                ? "Default"
-                : undefined}
+            {options.some((option) => option.id === selectedValue)
+              ? undefined
+              : "Default"}
           </SelectValue>
         </SelectTrigger>
         <SelectContent className="max-h-[clamp(4rem,var(--radix-select-content-available-height),24rem)]">
           {!catalogDefault && (
-            <SelectItem value={DEFAULT_VALUE}>
-              {catalogDefault === null && options.length > 0
-                ? "Use engine setting"
-                : "Default"}
+            <SelectItem value={DEFAULT_VALUE}>Default</SelectItem>
+          )}
+          {loading && (
+            <SelectItem value="__loading__" disabled>
+              Loading models…
             </SelectItem>
           )}
           {options.map((option) => (

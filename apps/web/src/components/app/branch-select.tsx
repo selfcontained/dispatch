@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Check, ChevronDown } from "lucide-react";
 
 import { ActivityBars } from "@/components/ui/activity-bars";
@@ -72,6 +72,8 @@ export function BranchSelect({
       : "";
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [remoteBranches, setRemoteBranches] = useState<string[]>([]);
+  // The runner repository's real default, when its peer reports one.
+  const [defaultBranch, setDefaultBranch] = useState("");
   const [branchesLoading, setBranchesLoading] = useState(false);
   const [fetchedForCwd, setFetchedForCwd] = useState<string | null>(null);
   const [fetchError, setFetchError] = useState<string | null>(null);
@@ -87,10 +89,14 @@ export function BranchSelect({
     setBranchesLoading(true);
     setFetchError(null);
     try {
-      const result = await api<{ branches: string[] }>(endpoint);
+      const result = await api<{ branches: string[]; defaultBranch?: string }>(
+        endpoint
+      );
       setRemoteBranches(result.branches);
+      setDefaultBranch(result.defaultBranch ?? "");
     } catch (error) {
       setRemoteBranches([]);
+      setDefaultBranch("");
       setFetchError(
         error instanceof Error ? error.message : "Couldn't load branches."
       );
@@ -99,6 +105,13 @@ export function BranchSelect({
       setFetchedForCwd(endpoint);
     }
   }, [endpoint, disabled]);
+
+  // A runner repository names its default up front, so the closed control
+  // reads as the branch the session will start from.
+  const runnerEndpoint = runner ? endpoint : "";
+  useEffect(() => {
+    if (runnerEndpoint) void fetchBranches();
+  }, [runnerEndpoint, fetchBranches]);
 
   const openDropdown = useCallback(() => {
     if (disabled) return;
@@ -114,13 +127,19 @@ export function BranchSelect({
   // include it (branch renamed/deleted upstream). We flag it visually in
   // the dropdown rather than silently overwrite it.
   const allBranches = useMemo(() => {
-    const base =
-      runner || remoteBranches.includes("main")
+    // The default has its own row when starting a new branch; when opening
+    // an existing branch it leads the list, even past the list's cap.
+    const others = remoteBranches.filter((branch) => branch !== defaultBranch);
+    const base = runner
+      ? allowPullRequest && defaultBranch
+        ? [defaultBranch, ...others]
+        : others
+      : remoteBranches.includes("main")
         ? remoteBranches
         : ["main", ...remoteBranches];
     if (baseBranch && !base.includes(baseBranch)) return [baseBranch, ...base];
     return base;
-  }, [remoteBranches, baseBranch, runner]);
+  }, [remoteBranches, baseBranch, runner, defaultBranch, allowPullRequest]);
 
   const savedBranchMissing =
     !runner &&
@@ -164,7 +183,7 @@ export function BranchSelect({
             {baseBranch ||
               (allowPullRequest
                 ? "Choose a branch or PR"
-                : "Repository default")}
+                : defaultBranch || "Repository default")}
           </span>
           {branchesLoading ? (
             <ActivityBars size={14} className="ml-2 shrink-0" />
@@ -193,10 +212,8 @@ export function BranchSelect({
                 value={typed}
                 onValueChange={setTyped}
                 placeholder={
-                  runner
-                    ? allowPullRequest
-                      ? "Branch name or GitHub PR URL"
-                      : "Find or enter a branch"
+                  runner && allowPullRequest
+                    ? "Branch name or GitHub PR URL"
                     : "Search branches..."
                 }
                 className="font-mono text-xs"
@@ -214,18 +231,28 @@ export function BranchSelect({
                 <CommandGroup>
                   {runner && !allowPullRequest && (
                     <CommandItem
-                      value="Repository default"
+                      value={defaultBranch || "Repository default"}
+                      keywords={["default"]}
+                      data-testid={`${testIdPrefix}-base-branch-option`}
+                      className="font-mono"
                       onSelect={() => {
                         onBaseBranchChange("");
                         closeDropdown();
                         triggerRef.current?.focus();
                       }}
                     >
-                      Repository default
+                      <Check
+                        className={cn(
+                          "mr-2 h-3 w-3 shrink-0",
+                          baseBranch ? "opacity-0" : "opacity-100"
+                        )}
+                      />
+                      {defaultBranch || "Repository default"}
                     </CommandItem>
                   )}
                   {runner &&
                     typed.trim() &&
+                    (allowPullRequest || typed.trim() !== defaultBranch) &&
                     !allBranches.includes(typed.trim()) && (
                       <CommandItem
                         value={typed.trim()}
@@ -235,7 +262,8 @@ export function BranchSelect({
                           triggerRef.current?.focus();
                         }}
                       >
-                        Use {typed.trim()}
+                        <Check className="mr-2 h-3 w-3 shrink-0 opacity-0" />
+                        {typed.trim()}
                       </CommandItem>
                     )}
                   {allBranches.map((branch) => {

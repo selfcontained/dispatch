@@ -42,6 +42,7 @@ case "$1 ${2:-}" in
     test -s "$key"
     case " $* " in
       *'/branches?per_page=100'*) printf '%s' '["main","review-topic"]' ;;
+      *' .default_branch '*) printf 'trunk\n' ;;
       *'/pulls/'*) printf '{"url":"https://github.com/%s/private.git","branch":"review-topic"}\n' "$login" ;;
       *' user/repos '*)
         test -s "$key"

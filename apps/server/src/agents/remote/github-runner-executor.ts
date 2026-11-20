@@ -62,6 +62,65 @@ export class GitHubRunnerExecutor {
   private login?: Login;
   private failure?: string;
   private queue = Promise.resolve();
+  private repositories?: {
+    at: number;
+    rows: Promise<{ name: string; url: string }[]>;
+  };
+
+  /**
+   * Every repository the signed-in account can reach. Listing a large
+   * account takes several seconds, so searches typed in quick succession
+   * share one listing and reuse it for a few minutes.
+   */
+  private repositoryList() {
+    const cached = this.repositories;
+    if (cached && Date.now() - cached.at < 5 * 60_000) return cached.rows;
+    const signal = AbortSignal.timeout(60_000);
+    const rows = (async () => {
+      const all: { name: string; url: string }[] = [];
+      for (let page = 1; page <= 50; page++) {
+        const batch: unknown = JSON.parse(
+          await this.run(
+            [
+              "api",
+              ...hostArgs,
+              "user/repos",
+              "--method",
+              "GET",
+              "-f",
+              "affiliation=owner,collaborator,organization_member",
+              "-f",
+              "sort=pushed",
+              "-f",
+              "per_page=100",
+              "-f",
+              `page=${page}`,
+              "--jq",
+              "[.[] | {name: .full_name, url: .html_url}]",
+            ],
+            signal
+          )
+        );
+        if (!Array.isArray(batch))
+          throw new Error("Invalid GitHub repository list.");
+        all.push(
+          ...batch.filter(
+            (row) =>
+              typeof row?.name === "string" && typeof row?.url === "string"
+          )
+        );
+        if (batch.length < 100) break;
+      }
+      return all;
+    })();
+    const entry = { at: Date.now(), rows };
+    this.repositories = entry;
+    // A failed listing is retried by the next search.
+    rows.catch(() => {
+      if (this.repositories === entry) this.repositories = undefined;
+    });
+    return rows;
+  }
 
   constructor(
     env: NodeJS.ProcessEnv,
@@ -242,6 +301,7 @@ export class GitHubRunnerExecutor {
     session.child.kill("SIGKILL");
     await session.finished;
     this.failure = undefined;
+    this.repositories = undefined;
   }
 
   private async logout(login: string, signal: AbortSignal) {
@@ -278,6 +338,7 @@ export class GitHubRunnerExecutor {
         await this.login?.finished;
         signal.throwIfAborted();
         this.failure = undefined;
+        this.repositories = undefined;
         const account = await this.account(signal);
         if (account.status === "signed-out") {
           this.start(signal);
@@ -298,6 +359,7 @@ export class GitHubRunnerExecutor {
       case "logout": {
         await this.stopLogin();
         this.failure = undefined;
+        this.repositories = undefined;
         const login = await this.configuredUser(signal);
         if (login) await this.logout(login, signal);
         return this.account(signal);
@@ -313,60 +375,41 @@ export class GitHubRunnerExecutor {
     signal.throwIfAborted();
     switch (operation.type) {
       case "repositorySearch": {
-        const matches: { name: string; url: string }[] = [];
         const query = operation.query.toLowerCase();
-        for (let page = 1; matches.length < 12; page++) {
-          const rows: unknown = JSON.parse(
-            await this.run(
-              [
-                "api",
-                ...hostArgs,
-                "user/repos",
-                "--method",
-                "GET",
-                "-f",
-                "affiliation=owner,collaborator,organization_member",
-                "-f",
-                "per_page=100",
-                "-f",
-                `page=${page}`,
-                "--jq",
-                "[.[] | {name: .full_name, url: .html_url}]",
-              ],
-              signal
-            )
-          );
-          if (!Array.isArray(rows))
-            throw new Error("Invalid GitHub repository list.");
-          matches.push(
-            ...githubRepositoryResults(
-              rows.filter(
-                (row) =>
-                  typeof row?.name === "string" &&
-                  row.name.toLowerCase().includes(query)
-              )
-            ).repositories
-          );
-          if (rows.length < 100) break;
-        }
-        return githubRepositoryResults(matches);
+        const rows = await this.repositoryList();
+        signal.throwIfAborted();
+        return githubRepositoryResults(
+          rows.filter((row) => row.name.toLowerCase().includes(query))
+        );
       }
       case "repositoryBranches": {
-        const rows: unknown = JSON.parse(
-          await this.run(
+        const repository = `repos/${operation.owner}/${operation.repo}`;
+        // The list is capped and alphabetical, so the default is asked for
+        // by name. A failed lookup leaves the list usable without it.
+        const [list, named] = await Promise.all([
+          this.run(
             [
               "api",
               ...hostArgs,
-              `repos/${operation.owner}/${operation.repo}/branches?per_page=100`,
+              `${repository}/branches?per_page=100`,
               "--jq",
               "[.[].name]",
             ],
             signal
-          )
-        );
+          ),
+          this.run(
+            ["api", ...hostArgs, repository, "--jq", ".default_branch"],
+            signal
+          ).catch(() => ""),
+        ]);
+        const rows: unknown = JSON.parse(list);
         if (!Array.isArray(rows))
           throw new Error("Invalid GitHub branch list.");
-        return { branches: rows.filter(validBranch) };
+        const defaultBranch = named.trim();
+        return {
+          branches: rows.filter(validBranch),
+          ...(validBranch(defaultBranch) && { defaultBranch }),
+        };
       }
       case "pullRequestDetails":
         return this.evidence.details(operation, signal);

@@ -1,4 +1,5 @@
 import { useCallback, useMemo, useRef, useState } from "react";
+import { ActivityBars } from "@/components/ui/activity-bars";
 import { Check, ChevronDown } from "lucide-react";
 
 import {
@@ -21,6 +22,7 @@ type AgentTypeSelectProps = {
   agentTypes: AgentType[];
   onOpenChange?: (open: boolean) => void;
   label?: string;
+  loading?: boolean;
   /** Override when a page can render more than one of these, so ids stay
    * unique. */
   id?: string;
@@ -37,6 +39,7 @@ export function AgentTypeSelect({
   agentTypes,
   onOpenChange,
   label = "Type",
+  loading = false,
   id = "agent-type-select",
   missing,
 }: AgentTypeSelectProps): JSX.Element {
@@ -68,6 +71,7 @@ export function AgentTypeSelect({
         role="combobox"
         tabIndex={0}
         aria-expanded={open}
+        aria-busy={loading || undefined}
         onClick={() => updateOpen(!open)}
         onKeyDown={(e) => {
           if (e.key === "ArrowDown" || e.key === "Enter" || e.key === " ") {
@@ -81,12 +85,16 @@ export function AgentTypeSelect({
         )}
       >
         {AGENT_TYPE_LABELS[value]}
-        <ChevronDown
-          className={cn(
-            "h-4 w-4 shrink-0 text-muted-foreground transition-transform",
-            open && "rotate-180"
-          )}
-        />
+        {loading ? (
+          <ActivityBars size={14} className="shrink-0" />
+        ) : (
+          <ChevronDown
+            className={cn(
+              "h-4 w-4 shrink-0 text-muted-foreground transition-transform",
+              open && "rotate-180"
+            )}
+          />
+        )}
       </button>
       {open ? (
         <div className="absolute left-0 z-[80] min-w-48 w-max max-w-[calc(100vw-3rem)] mt-1 rounded-md border border-white/[0.2] bg-[hsl(var(--card))] shadow-[0_16px_64px_rgba(0,0,0,0.5),inset_0_1px_0_rgba(255,255,255,0.15)] backdrop-blur-2xl">
@@ -104,8 +112,17 @@ export function AgentTypeSelect({
             }}
           >
             <CommandList>
+              {loading ? (
+                <div
+                  role="status"
+                  className="flex items-center gap-2 px-2 py-3 text-xs text-muted-foreground"
+                >
+                  <ActivityBars size={12} />
+                  Loading agents…
+                </div>
+              ) : null}
               <CommandGroup>
-                {sortedTypes.map((agentType) => (
+                {(loading ? [] : sortedTypes).map((agentType) => (
                   <CommandItem
                     key={agentType}
                     value={agentType}

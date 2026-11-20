@@ -191,7 +191,6 @@ const engineBlock = () => {
   const block = type.parentElement!.parentElement!.parentElement!;
   return block.outerHTML
     .replace(">Agent</label>", ">Type</label>")
-    .replaceAll(">Use engine setting<", ">Default<")
     .replace(/task-trigger-type/g, "agent-type-select")
     .replace(/task-trigger-(model|engine|effort)/g, "create-agent-$1")
     .replace(/radix-[^"]*/g, "radix")
@@ -199,22 +198,22 @@ const engineBlock = () => {
     .replace(/:r[0-9a-z]+:/g, "id");
 };
 
-const settle = async (expectModel: boolean) => {
+const settle = async (expectModel: boolean, missing = false) => {
   await waitFor(() => {
-    expect(screen.queryByText(/Loading models/)).toBeNull();
+    expect(document.querySelector('[aria-busy="true"]')).toBeNull();
     expect(screen.queryAllByText("Model")).toHaveLength(expectModel ? 1 : 0);
   });
-  // Engines arrive on their own query: the summary line or the install hint.
-  await waitFor(() =>
-    expect(
-      screen.queryAllByTestId(/-engine$|^agent-type-missing-note$/)
-    ).not.toHaveLength(0)
-  );
+  // Engines arrive on their own query; only a missing one says anything.
+  if (missing) await screen.findByTestId("agent-type-missing-note");
 };
 
-const blockIn = async (host: "create" | "trigger", expectModel: boolean) => {
+const blockIn = async (
+  host: "create" | "trigger",
+  expectModel: boolean,
+  missing = false
+) => {
   renderHost(host);
-  await settle(expectModel);
+  await settle(expectModel, missing);
   const html = engineBlock();
   cleanup();
   return html;
@@ -224,7 +223,8 @@ it("renders the installed engine's block the same in both hosts", async () => {
   createType.value = templateType.value = "codex";
   renderHost("trigger");
   await settle(true);
-  await screen.findByText("Codex 0.155.1 · /opt/homebrew/bin/codex");
+  // The binary and its path stay out of the form rows.
+  expect(screen.queryByText(/\/opt\/homebrew\/bin\/codex/)).toBeNull();
   expect(screen.getByRole("combobox", { name: "Type" }).textContent).toContain(
     "Codex"
   );
@@ -242,15 +242,14 @@ it("renders the installed engine's block the same in both hosts", async () => {
 it("says what to install for a missing engine in both hosts", async () => {
   createType.value = templateType.value = "claude";
   renderHost("trigger");
-  await settle(true);
-  await screen.findByTestId("agent-type-missing-note");
+  await settle(true, true);
   expect(screen.getByTestId("agent-type-missing-note").textContent).toContain(
     "npm i -g @anthropic-ai/claude-code"
   );
   cleanup();
 
-  const create = await blockIn("create", true);
-  const trigger = await blockIn("trigger", true);
+  const create = await blockIn("create", true, true);
+  const trigger = await blockIn("trigger", true, true);
   expect(trigger).toBe(create);
 });
 
@@ -260,5 +259,5 @@ it("keeps the Model field in Create Agent without a catalog", async () => {
   const trigger = await blockIn("trigger", false);
   expect(create).toContain("create-agent-model");
   expect(trigger).toContain("grid-cols-[minmax(0,1fr)_4.75rem]");
-  expect(trigger).toContain("OpenCode · /usr/local/bin/opencode");
+  expect(trigger).not.toContain("/usr/local/bin/opencode");
 });

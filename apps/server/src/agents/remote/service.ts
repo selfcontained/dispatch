@@ -1424,7 +1424,15 @@ export class RemoteRunnerService {
     ) {
       throw new Error("Invalid GitHub branches reply.");
     }
-    return { branches: response.branches };
+    // Peers older than the default-branch lookup reply with names only.
+    const named =
+      "defaultBranch" in response && validBranch(response.defaultBranch)
+        ? response.defaultBranch
+        : undefined;
+    return {
+      branches: response.branches as string[],
+      ...(named && { defaultBranch: named }),
+    };
   }
 
   async searchGitHubRepositories(runnerId: string, query: string) {

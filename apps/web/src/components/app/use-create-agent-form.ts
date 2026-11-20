@@ -272,6 +272,9 @@ export function useCreateAgentForm({
     runnerId ? { kind: "runner", runnerId } : { kind: "local" },
     online && runner?.engineManagement === true
   );
+  const runnerEnginesLoading = Boolean(
+    remote && online && runner?.engineManagement && inventory.isLoading
+  );
   const entries =
     online && !inventory.isError ? inventory.data?.entries : undefined;
   const runnableTypes = entries
@@ -462,7 +465,8 @@ export function useCreateAgentForm({
     async (event: FormEvent<HTMLFormElement>) => {
       event.preventDefault();
       const cwd = createCwd.trim();
-      if (!cwd || !locationReady || runnerEngineBlocked) return;
+      if (!cwd || !locationReady || runnerEnginesLoading || runnerEngineBlocked)
+        return;
 
       setCreating(true);
       try {
@@ -604,6 +608,7 @@ export function useCreateAgentForm({
       runnerNewBranch,
       locationReady,
       runnerEngineBlocked,
+      runnerEnginesLoading,
       createCwd,
       remote,
       createProjectId,
@@ -633,6 +638,7 @@ export function useCreateAgentForm({
     agentTypes,
     runnerEngineBlocked,
     runnerId,
+    runnerEnginesLoading,
     runnerUnavailable,
     runnerGitHubAvailable:
       online &&
@@ -654,7 +660,8 @@ export function useCreateAgentForm({
     runnerWorkspace,
     setRunnerWorkspace,
     createProjectId,
-    locationReady: locationReady && !runnerEngineBlocked,
+    locationReady:
+      locationReady && !runnerEnginesLoading && !runnerEngineBlocked,
     lastProjectId: locationPref?.projectId,
     setCreateProjectId,
     step,

@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState } from "react";
-import { ChevronDown, GitFork, X } from "lucide-react";
+import { ChevronDown, GitFork } from "lucide-react";
 import { validRepositorySearch } from "@dispatch/runner-protocol";
 import { useQuery } from "@tanstack/react-query";
 
@@ -78,6 +78,8 @@ export function RunnerProjectPicker({
   };
   // Keep the results inside the dialog's scroll lock and clipping boundary.
   const dialog = trigger.current?.closest<HTMLElement>('[role="dialog"]');
+  const showNoRepository = "no repository".includes(text.toLowerCase());
+  const showUpdate = updateNeeded && !urlInput && validRepositorySearch(text);
   const hasSelection = Boolean(projectId || repository);
 
   return (
@@ -104,9 +106,7 @@ export function RunnerProjectPicker({
                 ) : null}
                 <span className="truncate" id={`${labelId}-value`}>
                   {project?.name ??
-                    (projectId
-                      ? "Project"
-                      : repository || "Choose a project or repository…")}
+                    (projectId ? "Project" : repository || "No repository")}
                 </span>
               </span>
               <ChevronDown className="size-4 shrink-0" />
@@ -133,12 +133,25 @@ export function RunnerProjectPicker({
                 value={input}
                 onValueChange={setInput}
               />
-              {updateNeeded && (
+              {showUpdate && (
                 <p className="px-3 py-2 text-xs text-muted-foreground">
                   Update this runner to search your GitHub repositories.
                 </p>
               )}
               <CommandList className="min-h-0 touch-pan-y overscroll-contain">
+                {showNoRepository && (
+                  <CommandGroup>
+                    <CommandItem
+                      value="No repository"
+                      onSelect={() => {
+                        onProject(null);
+                        changeOpen(false);
+                      }}
+                    >
+                      No repository
+                    </CommandItem>
+                  </CommandGroup>
+                )}
                 {projectMatches.length > 0 && (
                   <CommandGroup heading="Projects">
                     {projectMatches.map((item) => (
@@ -200,7 +213,9 @@ export function RunnerProjectPicker({
                       ? "GitHub search failed on this runner. You can paste a repository URL."
                       : !projectMatches.length &&
                           !repositories.length &&
-                          !validUrl
+                          !validUrl &&
+                          !showNoRepository &&
+                          !showUpdate
                         ? isLoading
                           ? "Loading projects…"
                           : isError
@@ -211,24 +226,10 @@ export function RunnerProjectPicker({
             </Command>
           </PopoverContent>
         </Popover>
-        {hasSelection && (
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            aria-label="Clear project or repository"
-            onClick={() => {
-              onProject(null);
-              trigger.current?.focus();
-            }}
-          >
-            <X className="size-4" />
-          </Button>
-        )}
       </div>
       {projectId && repository && (
         <p
-          className="truncate text-xs text-muted-foreground"
+          className="truncate pt-1 text-xs text-muted-foreground"
           title={repository}
         >
           {repository}
@@ -236,8 +237,7 @@ export function RunnerProjectPicker({
       )}
       {!hasSelection && (
         <p className="text-xs text-muted-foreground">
-          Leave empty to start in a fresh session directory. Archiving removes
-          it.
+          Starts in an empty directory. Archiving removes it.
         </p>
       )}
     </div>

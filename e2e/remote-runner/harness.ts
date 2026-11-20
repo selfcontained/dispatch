@@ -300,7 +300,7 @@ export async function launchViaUi(
         page.getByTestId("create-agent-runner-workspace")
       ).toHaveCount(0);
       const picker = page.getByTestId("runner-repository");
-      await expect(picker).toContainText("Choose a project or repository");
+      await expect(picker).toContainText("No repository");
       if (opts.repository) {
         await picker.click();
         await page

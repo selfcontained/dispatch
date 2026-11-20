@@ -6,7 +6,7 @@ import { useMemo } from "react";
 import { AgentModelSelect } from "@/components/app/agent-model-select";
 import { AgentTypeSelect } from "@/components/app/agent-type-select";
 import { type AgentModelOption } from "@/hooks/use-agent-model-catalog";
-import { engineSummary, useEngines } from "@/hooks/use-engines";
+import { useEngines } from "@/hooks/use-engines";
 import { type AgentType } from "@/lib/agent-types";
 
 type AgentEngineFieldsProps = {
@@ -14,6 +14,7 @@ type AgentEngineFieldsProps = {
   onAgentTypeChange: (type: AgentType) => void;
   agentTypes: AgentType[];
   agentLabel?: string;
+  agentLoading?: boolean;
   effort?: Effort | null;
   effortDefaultLabel?: string;
   onEffortChange?: (effort: Effort | null) => void;
@@ -41,6 +42,7 @@ export function AgentEngineFields({
   onAgentTypeChange,
   agentTypes,
   agentLabel,
+  agentLoading,
   model,
   effort,
   effortDefaultLabel,
@@ -70,7 +72,6 @@ export function AgentEngineFields({
       ),
     [engines]
   );
-  const engineLine = remote ? statusLine : engineSummary(engines, agentType);
   const showModelSelect =
     catalogDefault !== undefined || modelLoading || modelOptions.length > 0;
 
@@ -86,6 +87,7 @@ export function AgentEngineFields({
           onChange={onAgentTypeChange}
           agentTypes={agentTypes}
           label={agentLabel}
+          loading={agentLoading}
           onOpenChange={onTypeOpenChange}
           missing={remote ? undefined : missingEngines}
         />
@@ -114,13 +116,13 @@ export function AgentEngineFields({
           />
         ) : null}
       </AgentConfigRow>
-      {engineLine || statusLine !== undefined ? (
+      {statusLine ? (
         <p
-          className="-mt-1 min-h-4 truncate text-xs text-muted-foreground/70"
-          title={engineLine ?? undefined}
+          className="-mt-1 truncate text-xs text-muted-foreground/70"
+          title={statusLine}
           data-testid={idPrefix ? `${idPrefix}-engine` : "create-agent-engine"}
         >
-          {engineLine}
+          {statusLine}
         </p>
       ) : null}
     </div>
