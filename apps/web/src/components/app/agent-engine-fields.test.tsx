@@ -27,12 +27,14 @@ vi.mock("./use-create-agent-form", async () => {
       return {
         step: "config",
         createType: createType.value,
+        agentTypes: enabledAgentTypes,
         setCreateType: vi.fn(),
         createModel: null,
         createEffort: null,
         setCreateEffort: vi.fn(),
         setCreateModel: vi.fn(),
         modelOptions: models.options,
+        defaultModel: models.defaultModel,
         modelCatalogLoading: models.loading,
         createName: "",
         setCreateName: vi.fn(),
@@ -185,9 +187,11 @@ const renderHost = (host: "create" | "trigger") => {
  * adds a hidden native select only inside a <form>, which Create Agent is.
  */
 const engineBlock = () => {
-  const type = screen.getByRole("combobox", { name: "Type" });
+  const type = screen.getByRole("combobox", { name: /^(Agent|Type)$/ });
   const block = type.parentElement!.parentElement!.parentElement!;
   return block.outerHTML
+    .replace(">Agent</label>", ">Type</label>")
+    .replaceAll(">Use engine setting<", ">Default<")
     .replace(/task-trigger-type/g, "agent-type-select")
     .replace(/task-trigger-(model|engine|effort)/g, "create-agent-$1")
     .replace(/radix-[^"]*/g, "radix")
@@ -250,11 +254,11 @@ it("says what to install for a missing engine in both hosts", async () => {
   expect(trigger).toBe(create);
 });
 
-it("hides the model picker without a catalog in both hosts", async () => {
+it("keeps the Model field in Create Agent without a catalog", async () => {
   createType.value = templateType.value = "opencode";
-  const create = await blockIn("create", false);
+  const create = await blockIn("create", true);
   const trigger = await blockIn("trigger", false);
-  expect(trigger).toBe(create);
+  expect(create).toContain("create-agent-model");
   expect(trigger).toContain("grid-cols-[minmax(0,1fr)_4.75rem]");
   expect(trigger).toContain("OpenCode · /usr/local/bin/opencode");
 });

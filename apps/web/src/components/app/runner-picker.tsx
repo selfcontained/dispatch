@@ -9,9 +9,9 @@ import {
 } from "@/components/ui/select";
 import { type Runner } from "@/hooks/use-runners";
 
-const THIS_MAC = "__local__";
+const THIS_COMPUTER = "__local__";
 
-/** "Runs on" picker: This Mac by default, or a paired runner + workspace. */
+/** "Runs on" picker: This computer by default, or a paired runner + workspace. */
 export function RunnerPicker({
   runners,
   runnerId,
@@ -39,9 +39,9 @@ export function RunnerPicker({
           Runs on
         </label>
         <Select
-          value={runnerId ?? THIS_MAC}
+          value={runnerId ?? THIS_COMPUTER}
           onValueChange={(next) => {
-            if (next) onRunnerChange(next === THIS_MAC ? null : next);
+            if (next) onRunnerChange(next === THIS_COMPUTER ? null : next);
           }}
         >
           <SelectTrigger
@@ -51,7 +51,7 @@ export function RunnerPicker({
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value={THIS_MAC}>This Mac</SelectItem>
+            <SelectItem value={THIS_COMPUTER}>This computer</SelectItem>
             {unavailable && runnerId ? (
               <SelectItem value={runnerId} disabled>
                 {runners.find((r) => r.id === runnerId)?.name ?? "Runner"}{" "}
@@ -78,8 +78,8 @@ export function RunnerPicker({
           role="alert"
           data-testid="create-agent-runner-unavailable"
         >
-          This runner is revoked or gone. Choose This Mac or another runner to
-          continue.
+          This runner is revoked or gone. Choose This computer or another runner
+          to continue.
         </p>
       ) : null}
       {selected && !unavailable && !selected.managedWorkspace ? (

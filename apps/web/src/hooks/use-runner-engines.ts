@@ -49,9 +49,10 @@ function hasPendingWork(entries: EngineInventoryEntry[] | undefined): boolean {
   );
 }
 
-export function useRunnerEngineInventory(scope: EngineScope) {
+export function useRunnerEngineInventory(scope: EngineScope, enabled = true) {
   return useQuery<{ entries: EngineInventoryEntry[] }>({
     queryKey: runnerEnginesKey(scope),
+    enabled,
     queryFn: () =>
       api(`/api/v1/engine-management/inventory?${scopeQuery(scope)}`),
     refetchInterval: (query) =>

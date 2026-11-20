@@ -17,5 +17,15 @@ if [ "$NAME" != scratch ]; then
   echo "marker-$NAME-$(cat /proc/sys/kernel/random/uuid)" > "$WS/marker.txt"
   chown -R 1500:1500 "$WS"
 fi
+# Only the fixture runner advertises this synthetic CLI as ready.
+cat > /usr/local/bin/fixture-claude <<'EOF'
+#!/bin/sh
+case "$*" in
+  --version) echo '0.0.0-fixture' ;;
+  'auth status --json') echo '{"loggedIn":true}' ;;
+  *) exit 64 ;;
+esac
+EOF
+chmod 755 /usr/local/bin/fixture-claude
 chown 1500:1500 /home/guest
 exec sleep infinity

@@ -1,3 +1,4 @@
+import { RunnerProjectPicker } from "./runner-project-picker";
 import { RunnerRepositoryFields } from "./runner-repository-fields";
 import { taskAgentName } from "@dispatch/shared";
 import { ProjectLocation } from "./project-location";
@@ -25,13 +26,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { type Agent } from "@/components/app/types";
 import { useRadixPopoverZFix } from "@/hooks/use-radix-popover-z-fix";
@@ -126,24 +120,40 @@ function CreateAgentDialogContent({
           >
             <div className="min-h-0 flex-1 overflow-y-auto px-1">
               <div className="space-y-3">
+                <RunnerPicker
+                  runners={
+                    task
+                      ? form.runners.filter((r) => r.managedWorkspace)
+                      : form.runners
+                  }
+                  runnerId={form.runnerId}
+                  unavailable={form.runnerUnavailable}
+                  onRunnerChange={form.selectRunner}
+                  workspace={form.runnerWorkspace}
+                  onWorkspaceChange={form.setRunnerWorkspace}
+                />
                 <AgentEngineFields
                   agentType={form.createType}
                   onAgentTypeChange={form.setCreateType}
-                  agentTypes={enabledAgentTypes}
+                  agentTypes={form.agentTypes}
+                  agentLabel="Agent"
                   effort={form.createEffort}
                   onEffortChange={form.setCreateEffort}
                   model={form.createModel}
                   onModelChange={form.setCreateModel}
                   modelOptions={form.modelOptions}
+                  catalogDefault={form.defaultModel}
                   modelLoading={form.modelCatalogLoading}
                   onTypeOpenChange={setTypeDropdownOpen}
                   remote={Boolean(form.runnerId)}
                   workloadEffort={form.workloadEffort}
                 />
-                {form.workloadCatalogUnavailable && (
+                {(form.runnerEngineBlocked ||
+                  form.workloadCatalogUnavailable) && (
                   <p className="text-xs text-muted-foreground" role="status">
-                    Runner model choices are unavailable. Launches use the
-                    engine’s defaults.
+                    {form.runnerEngineBlocked
+                      ? "Install and sign in to this agent on the runner before creating a session."
+                      : "Model choices are unavailable. The agent will use its configured model."}
                   </p>
                 )}
 
@@ -167,55 +177,44 @@ function CreateAgentDialogContent({
 
                 {task && <TaskContextCard task={task} />}
                 <div className="space-y-1">
-                  <RunnerPicker
-                    runners={
-                      task
-                        ? form.runners.filter((r) => r.managedWorkspace)
-                        : form.runners
-                    }
-                    runnerId={form.runnerId}
-                    unavailable={form.runnerUnavailable}
-                    onRunnerChange={form.selectRunner}
-                    workspace={form.runnerWorkspace}
-                    onWorkspaceChange={form.setRunnerWorkspace}
-                  />
-                  {form.managedSession && !task && form.projects.length > 0 && (
-                    <div className="space-y-1 text-sm">
-                      <label id="runner-project-label">Dispatch project</label>
-                      <Select
-                        value={form.createProjectId ?? "__none__"}
-                        onValueChange={(id) =>
-                          form.setCreateProjectId(id === "__none__" ? null : id)
-                        }
-                      >
-                        <SelectTrigger aria-labelledby="runner-project-label">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="__none__">No project</SelectItem>
-                          {form.projects.map((project) => (
-                            <SelectItem key={project.id} value={project.id}>
-                              {project.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  )}
                   {form.managedSession && form.runnerId && (
-                    <RunnerRepositoryFields
-                      key={form.runnerId}
-                      runnerId={form.runnerId}
-                      canSearch={form.runnerGitHubAvailable}
-                      repository={form.repository}
-                      onRepository={form.chooseRepo}
-                      mode={form.branchMode}
-                      onMode={form.changeBranchMode}
-                      branch={form.runnerBranch}
-                      onBranch={form.setRunnerBranch}
-                      loading={form.repoLoading}
-                      failed={form.repoFailed}
-                    />
+                    <>
+                      {!task && (
+                        <RunnerProjectPicker
+                          key={form.runnerId}
+                          runnerId={form.runnerId}
+                          canSearch={form.runnerGitHubAvailable}
+                          projectId={form.createProjectId}
+                          repository={form.repository}
+                          onProject={form.setCreateProjectId}
+                          onRepository={form.chooseRepo}
+                        />
+                      )}
+                      {task && form.repository && (
+                        <p
+                          className="truncate text-xs text-muted-foreground"
+                          title={form.repository}
+                        >
+                          {form.repository}
+                        </p>
+                      )}
+                      {form.repoStatus && (
+                        <p
+                          role="status"
+                          className="text-xs text-muted-foreground"
+                        >
+                          {form.repoStatus}
+                        </p>
+                      )}
+                      {form.repository && !form.repoStatus && (
+                        <RunnerRepositoryFields
+                          mode={form.branchMode}
+                          onMode={form.changeBranchMode}
+                          branch={form.runnerBranch}
+                          onBranch={form.setRunnerBranch}
+                        />
+                      )}
+                    </>
                   )}
                   {form.runnerId || task ? null : (
                     <>
@@ -287,7 +286,7 @@ function CreateAgentDialogContent({
                 )}
               </div>
             </div>
-            <div className="flex justify-end gap-2 pt-3">
+            <div className="flex flex-wrap justify-end gap-2 pt-3 max-sm:gap-1 max-sm:[&_button]:px-2">
               <Button
                 type="button"
                 variant="ghost"

@@ -1,7 +1,13 @@
-import { useRunnerModelCatalog } from "@/hooks/use-runner-engines";
+import {
+  useRunnerEngineInventory,
+  useRunnerModelCatalog,
+} from "@/hooks/use-runner-engines";
 import { isLocalFolder } from "./path-input-utils";
 import { createClientId } from "@/lib/client-id";
-import { MANAGED_WORKSPACE } from "@dispatch/runner-protocol";
+import {
+  MANAGED_WORKSPACE,
+  type GitHubStatus,
+} from "@dispatch/runner-protocol";
 import { useQuery } from "@tanstack/react-query";
 import {
   isRepositoryUrl,
@@ -72,7 +78,7 @@ export function useCreateAgentForm({
   task = null,
   onCreated,
 }: UseCreateAgentFormOptions) {
-  // null runner = this Mac (the default). A runner swaps the folder for one
+  // null runner = this computer (the default). A runner swaps the folder for one
   // of its approved workspaces, addressed by a runner:// locator.
   const { data: runners = [] } = useRunners({ poll: true });
   const [runnerId, setRunnerId] = useState<string | null>(null);
@@ -97,6 +103,7 @@ export function useCreateAgentForm({
     if (id === runnerId) return;
     setCreateEffort(null);
     setChosenRepo(null);
+    setRunnerProjectId(undefined);
     setRunnerBranch("");
     setBranchMode("new");
     setRunnerId(id);
@@ -142,6 +149,8 @@ export function useCreateAgentForm({
   const [runnerBranch, setRunnerBranch] = useState("");
   const repository = chosenRepo ?? projectRepository.data?.url ?? "";
   const chooseRepo = (url: string) => {
+    if (task || !isRepositoryUrl(url)) return;
+    setRunnerProjectId(null);
     setChosenRepo(url);
     setRunnerBranch("");
     setBranchMode("new");
@@ -150,17 +159,24 @@ export function useCreateAgentForm({
     setBranchMode(mode);
     setRunnerBranch("");
   };
-  const repoLoading =
-    managedSession &&
-    Boolean(createProjectId) &&
-    projectRepository.isLoading &&
-    chosenRepo === null;
+  const repoStatus =
+    !managedSession || !selectedProjectId
+      ? null
+      : projectRepository.isError
+        ? "Couldn’t look up the project’s linked repository."
+        : !projectsLoaded || projectRepository.isLoading
+          ? "Checking the project’s linked repository…"
+          : !project
+            ? "This project is unavailable."
+            : !repository && task
+              ? null
+              : !isRepositoryUrl(repository)
+                ? "This project has no supported HTTPS repository linked."
+                : null;
   const repoReady =
     !managedSession ||
-    (!repoLoading &&
-      (!repository.trim() ||
-        (isRepositoryUrl(repository.trim()) &&
-          (branchMode === "new" || Boolean(runnerBranch.trim())))));
+    (!repoStatus &&
+      (!repository || branchMode === "new" || Boolean(runnerBranch.trim())));
   const setCreateProjectId = (id: string | null) => {
     if (managedSession) {
       setRunnerProjectId(id);
@@ -235,16 +251,53 @@ export function useCreateAgentForm({
     setBaseBranch: setCreateBaseBranch,
     createNewBranch,
     setCreateNewBranch,
-    model: createModel,
-    setModel: setCreateModel,
+    model: nativeModel,
+    setModel: setNativeModel,
   } = useCreateAgentPrefs(createCwd, createType);
   const createFullAccess = createType === "opencode" || savedCreateFullAccess;
   const {
     options: nativeOptions,
     loading: nativeLoading,
     loaded: nativeLoaded,
+    defaultModel: nativeDefault,
   } = useAgentModelCatalog(createType, !remote);
   const online = runner?.status === "online";
+  const inventory = useRunnerEngineInventory(
+    runnerId ? { kind: "runner", runnerId } : { kind: "local" },
+    online && runner?.engineManagement === true
+  );
+  const entries =
+    online && !inventory.isError ? inventory.data?.entries : undefined;
+  const runnableTypes = entries
+    ?.filter((entry) => entry.installed && entry.signedIn !== false)
+    .map((entry) => entry.id);
+  const agentTypes = remote
+    ? (runnableTypes ?? enabledAgentTypes)
+    : enabledAgentTypes;
+  const runnerEngineBlocked = Boolean(
+    remote && runnableTypes && !runnableTypes.includes(createType)
+  );
+  const [runnerModels, setRunnerModels] = useState<
+    Record<string, string | null>
+  >({});
+  const modelKey = JSON.stringify([runnerId, createType]);
+  const createModel = remote ? (runnerModels[modelKey] ?? null) : nativeModel;
+  const account = useQuery({
+    queryKey: ["runner-github-account", runnerId],
+    queryFn: ({ signal }) =>
+      api<GitHubStatus>(
+        `/api/v1/runners/${encodeURIComponent(runnerId!)}/github`,
+        {
+          signal,
+          cache: "no-store",
+        }
+      ),
+    enabled:
+      managedSession && online && runner?.githubManagement === true && !task,
+    retry: false,
+    gcTime: 0,
+  });
+
   const catalog = useRunnerModelCatalog(runnerId, createType, online);
   const currentCatalog =
     online && !catalog.isError && !catalog.isFetching
@@ -255,7 +308,12 @@ export function useCreateAgentForm({
     [remote, currentCatalog, nativeOptions]
   );
   const modelCatalogLoading = remote ? catalog.isFetching : nativeLoading;
-  const modelCatalogLoaded = remote ? Boolean(currentCatalog) : nativeLoaded;
+  const reportedDefault = remote ? currentCatalog?.defaultModel : nativeDefault;
+  const defaultModel = modelOptions.some(
+    (option) => option.id === reportedDefault
+  )
+    ? (reportedDefault ?? null)
+    : null;
   const selectedModel =
     createModel &&
     currentCatalog?.models.some((option) => option.id === createModel)
@@ -279,16 +337,23 @@ export function useCreateAgentForm({
   )?.effort;
 
   useEffect(() => {
-    if (!modelCatalogLoaded || modelOptions.length === 0) return;
+    if (remote || !nativeLoaded || nativeOptions.length === 0) return;
     // Anything stored that the catalog no longer offers (a retired id, or an
     // empty string persisted by an older build) resets to the CLI default.
     if (
       createModel !== null &&
       !modelOptions.some((option) => option.id === createModel)
     ) {
-      setCreateModel(null);
+      setNativeModel(null);
     }
-  }, [createModel, modelCatalogLoaded, modelOptions, setCreateModel]);
+  }, [
+    createModel,
+    remote,
+    nativeLoaded,
+    nativeOptions,
+    modelOptions,
+    setNativeModel,
+  ]);
 
   useEffect(() => {
     setCreateWorktreeBranch("");
@@ -307,9 +372,10 @@ export function useCreateAgentForm({
   }, [createCwdInitialized, systemDefaults, systemDefaultsError]);
 
   useEffect(() => {
-    if (enabledAgentTypes.includes(createType)) return;
-    setCreateType(enabledAgentTypes[0] ?? "claude");
-  }, [createType, enabledAgentTypes]);
+    if (agentTypes.includes(createType) || !agentTypes.length) return;
+    setCreateType(agentTypes[0]!);
+    setCreateEffort(null);
+  }, [createType, agentTypes]);
 
   useEffect(() => {
     if (step === "context") {
@@ -393,7 +459,7 @@ export function useCreateAgentForm({
     async (event: FormEvent<HTMLFormElement>) => {
       event.preventDefault();
       const cwd = createCwd.trim();
-      if (!cwd || !locationReady) return;
+      if (!cwd || !locationReady || runnerEngineBlocked) return;
 
       setCreating(true);
       try {
@@ -533,6 +599,7 @@ export function useCreateAgentForm({
       branchMode,
       runnerBranch,
       locationReady,
+      runnerEngineBlocked,
       createCwd,
       remote,
       createProjectId,
@@ -558,12 +625,16 @@ export function useCreateAgentForm({
   );
 
   return {
-    projects,
     runners,
+    agentTypes,
+    runnerEngineBlocked,
     runnerId,
     runnerUnavailable,
     runnerGitHubAvailable:
-      runner?.status === "online" && runner?.githubManagement === true,
+      online &&
+      runner?.githubManagement === true &&
+      !account.isError &&
+      account.data?.status === "signed-in",
     managedSession,
     repository,
     chooseRepo,
@@ -571,13 +642,12 @@ export function useCreateAgentForm({
     changeBranchMode,
     runnerBranch,
     setRunnerBranch,
-    repoLoading,
-    repoFailed: projectRepository.isError,
+    repoStatus,
     selectRunner,
     runnerWorkspace,
     setRunnerWorkspace,
     createProjectId,
-    locationReady,
+    locationReady: locationReady && !runnerEngineBlocked,
     lastProjectId: locationPref?.projectId,
     setCreateProjectId,
     step,
@@ -614,13 +684,17 @@ export function useCreateAgentForm({
     createEffort,
     setCreateEffort,
     setCreateModel: (model: string | null) => {
-      setCreateModel(model);
+      if (remote)
+        setRunnerModels((current) => ({ ...current, [modelKey]: model }));
+      else setNativeModel(model);
       setCreateEffort(null);
     },
     modelOptions,
+    defaultModel,
     modelCatalogLoading,
     workloadEffort,
-    workloadCatalogUnavailable: remote && (catalog.isError || !online),
+    workloadCatalogUnavailable:
+      remote && !modelCatalogLoading && !modelOptions.length,
     createBaseBranch,
     setCreateBaseBranch,
     createNewBranch,

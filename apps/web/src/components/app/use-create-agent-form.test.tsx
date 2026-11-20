@@ -207,7 +207,7 @@ describe("launch location preference", () => {
     queryClient.setQueryData(["projects"], projects);
   });
 
-  it("keeps the project when a runner session starts in scratch or a worktree", async () => {
+  it("submits project, standalone, and empty runner sessions with distinct locations", async () => {
     queryClient.setQueryDefaults(["runners"], { staleTime: Infinity });
     queryClient.setQueryData(
       ["runners"],
@@ -245,12 +245,28 @@ describe("launch location preference", () => {
       },
     });
     apiMock.mockClear();
-    act(() => result.current.chooseRepo(""));
+    act(() => {
+      result.current.chooseRepo("https://github.com/org/standalone");
+      result.current.changeBranchMode("existing");
+      result.current.setRunnerBranch("feature");
+    });
     await act(async () => result.current.handleSubmit(submitEvent()));
     expect(agentsPostJson()).toMatchObject({
-      projectId: "project-a",
+      cwd: "runner://rnr_lima/@session",
+      repository: {
+        url: "https://github.com/org/standalone",
+        checkout: { kind: "branch", branch: "feature" },
+      },
+    });
+    expect(agentsPostJson()).not.toHaveProperty("projectId");
+
+    apiMock.mockClear();
+    act(() => result.current.setCreateProjectId(null));
+    await act(async () => result.current.handleSubmit(submitEvent()));
+    expect(agentsPostJson()).toMatchObject({
       cwd: "runner://rnr_lima/@session",
     });
+    expect(agentsPostJson()).not.toHaveProperty("projectId");
     expect(agentsPostJson()).not.toHaveProperty("repository");
   });
   it("allows a folder choice but reopens with the latest concrete scope", async () => {

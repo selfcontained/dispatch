@@ -28,6 +28,7 @@ export function useAgentModelCatalog(
   enabled = true
 ): {
   options: AgentModelOption[];
+  defaultModel: string | null;
   loading: boolean;
   /** True only once a catalog has actually arrived — a failed fetch stays
    * false so callers don't mistake "no catalog" for "empty catalog". */
@@ -63,7 +64,13 @@ export function useAgentModelCatalog(
     [loaded, options]
   );
 
-  return { options, loading: isLoading, loaded, normalizeModel };
+  return {
+    options,
+    defaultModel: data?.defaults?.[agentType] ?? null,
+    loading: isLoading,
+    loaded,
+    normalizeModel,
+  };
 }
 
 /**

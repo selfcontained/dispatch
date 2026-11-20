@@ -139,7 +139,7 @@ async function up(run) {
         gid: 1500,
         home: "/home/guest",
         path: "/usr/local/bin:/usr/bin:/bin",
-        bins: { claudeBin: "/bin/false", codexBin: null },
+        bins: { claudeBin: "/usr/local/bin/fixture-claude", codexBin: null },
         adapter: ["/opt/bin/remote-acp-fixture"],
         workspaces:
           name === "scratch"

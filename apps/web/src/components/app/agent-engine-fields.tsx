@@ -13,12 +13,14 @@ type AgentEngineFieldsProps = {
   agentType: AgentType;
   onAgentTypeChange: (type: AgentType) => void;
   agentTypes: AgentType[];
+  agentLabel?: string;
   effort?: Effort | null;
   effortDefaultLabel?: string;
   onEffortChange?: (effort: Effort | null) => void;
   model: string | null;
   onModelChange: (model: string | null) => void;
   modelOptions: readonly AgentModelOption[];
+  catalogDefault?: string | null;
   modelLoading: boolean;
   onTypeOpenChange?: (open: boolean) => void;
   /** Overridden by dialogs other than Create Agent so ids stay unique. */
@@ -31,12 +33,13 @@ type AgentEngineFieldsProps = {
 /**
  * The type and model pickers side by side, with the engine Dispatch will
  * drive named underneath. Every dialog that launches an agent shows them the
- * same way. The model picker stays hidden for an engine with no catalog.
+ * same way. Create Agent keeps the model picker visible without a catalog.
  */
 export function AgentEngineFields({
   agentType,
   onAgentTypeChange,
   agentTypes,
+  agentLabel,
   model,
   effort,
   effortDefaultLabel,
@@ -44,6 +47,7 @@ export function AgentEngineFields({
   onModelChange,
   modelOptions,
   modelLoading,
+  catalogDefault,
   onTypeOpenChange,
   idPrefix,
   remote = false,
@@ -65,7 +69,8 @@ export function AgentEngineFields({
     [engines]
   );
   const engineLine = remote ? null : engineSummary(engines, agentType);
-  const showModelSelect = modelLoading || modelOptions.length > 0;
+  const showModelSelect =
+    catalogDefault !== undefined || modelLoading || modelOptions.length > 0;
 
   return (
     <div className="space-y-3">
@@ -78,6 +83,7 @@ export function AgentEngineFields({
           value={agentType}
           onChange={onAgentTypeChange}
           agentTypes={agentTypes}
+          label={agentLabel}
           onOpenChange={onTypeOpenChange}
           missing={remote ? undefined : missingEngines}
         />
@@ -88,6 +94,7 @@ export function AgentEngineFields({
             testId={idPrefix ? `${idPrefix}-model` : undefined}
             value={model}
             options={modelOptions}
+            catalogDefault={catalogDefault}
             onChange={onModelChange}
             loading={modelLoading}
           />

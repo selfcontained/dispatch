@@ -299,12 +299,15 @@ export async function launchViaUi(
       await expect(
         page.getByTestId("create-agent-runner-workspace")
       ).toHaveCount(0);
-      const input = page.getByTestId("runner-repository");
-      await expect(input).toHaveValue("");
+      const picker = page.getByTestId("runner-repository");
+      await expect(picker).toContainText("Choose a project or repository");
       if (opts.repository) {
-        await input.fill(opts.repository);
+        await picker.click();
         await page
-          .getByRole("button", { name: opts.repository, exact: true })
+          .getByRole("combobox", { name: "Search projects or repositories" })
+          .fill(opts.repository);
+        await page
+          .getByRole("option", { name: opts.repository, exact: true })
           .click();
         if (opts.pullRequest) {
           await page

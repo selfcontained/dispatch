@@ -11,6 +11,7 @@ type AgentModelOption = { id: string; label: string };
 type AgentModelSelectProps = {
   value: string | null;
   options: readonly AgentModelOption[];
+  catalogDefault?: string | null;
   onChange: (model: string | null) => void;
   loading?: boolean;
   /** Overridden by dialogs other than Create Agent so ids stay unique. */
@@ -23,18 +24,15 @@ const DEFAULT_VALUE = "__default__";
 export function AgentModelSelect({
   value,
   options,
+  catalogDefault,
   onChange,
   loading = false,
   id = "create-agent-model",
   testId = "create-agent-model",
 }: AgentModelSelectProps): JSX.Element {
-  // Radix renders an empty trigger whenever the selected value has no matching
-  // item, so anything unrecognized (a retired model id, a stray empty string)
-  // falls back to Default — which is what an unset model means anyway.
+  const fallback = catalogDefault ?? DEFAULT_VALUE;
   const selectedValue =
-    value && options.some((option) => option.id === value)
-      ? value
-      : DEFAULT_VALUE;
+    value && options.some((option) => option.id === value) ? value : fallback;
 
   return (
     <div className="space-y-1">
@@ -48,14 +46,30 @@ export function AgentModelSelect({
           // onValueChange when its native <option> set lags the rendered items.
           // Persisting that would leave the trigger permanently blank.
           if (!nextValue) return;
-          onChange(nextValue === DEFAULT_VALUE ? null : nextValue);
+          onChange(nextValue === fallback ? null : nextValue);
         }}
       >
-        <SelectTrigger id={id} data-testid={testId} disabled={loading}>
-          <SelectValue>{loading ? "Loading models…" : undefined}</SelectValue>
+        <SelectTrigger
+          id={id}
+          data-testid={testId}
+          disabled={loading || options.length === 0}
+        >
+          <SelectValue>
+            {loading
+              ? "Loading models…"
+              : options.length === 0
+                ? "Default"
+                : undefined}
+          </SelectValue>
         </SelectTrigger>
-        <SelectContent>
-          <SelectItem value={DEFAULT_VALUE}>Default</SelectItem>
+        <SelectContent className="max-h-[clamp(4rem,var(--radix-select-content-available-height),24rem)]">
+          {!catalogDefault && (
+            <SelectItem value={DEFAULT_VALUE}>
+              {catalogDefault === null && options.length > 0
+                ? "Use engine setting"
+                : "Default"}
+            </SelectItem>
+          )}
           {options.map((option) => (
             <SelectItem key={option.id} value={option.id}>
               {option.label}
