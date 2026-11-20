@@ -125,6 +125,20 @@ export type AgentRuntime = {
   cancel(agentId: string): Promise<void>;
   /** Shut the host down; `force` skips the graceful ACP close. */
   stop(agentId: string, force: boolean): Promise<void>;
+  /** Local recovery diagnostics. Capabilities are known only after hello. */
+  inspectNativeHost?(sessionHandle: string): Promise<{
+    sessionHandle: string;
+    processState: "live" | "gone" | "stale";
+    activity: "busy" | "idle" | "unknown";
+    attached: boolean;
+    capabilities: {
+      steering: boolean;
+      interrupt: boolean;
+      mcpInventory: boolean;
+      backgroundWork: boolean;
+    } | null;
+    cursor: { seq: number; journalId: string | null } | null;
+  }>;
   /** Agents with a live host, for the reconciler. */
   listHosted(): Promise<string[]>;
   /** The host's pid when it is alive; the root of the agent's process tree. */

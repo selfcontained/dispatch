@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { closeSync, openSync } from "node:fs";
 import {
   mkdir,
@@ -14,6 +14,7 @@ import net from "node:net";
 import { hostname, userInfo } from "node:os";
 import path from "node:path";
 import type { Duplex } from "node:stream";
+import { promisify } from "node:util";
 import type { FastifyBaseLogger } from "fastify";
 import {
   CHECKOUT_COMMAND_TIMEOUT_MS,
@@ -80,13 +81,46 @@ const KILL_GRACE_MS = 2_000;
 const LOG_TAIL_LINES = 20;
 const CONNECT_TIMEOUT_MS = 5_000;
 
-async function readPid(stateDir: string): Promise<number | null> {
+export type NativeHostProcess = {
+  sessionHandle: string;
+  processState: "live" | "gone" | "stale";
+};
+
+const processArgs = promisify(execFile);
+
+async function readHostPid(dir: string): Promise<number | null> {
+  const record = await readFile(hostFile(dir, "pid"), "utf8").catch(
+    (error: NodeJS.ErrnoException) => {
+      if (error.code === "ENOENT") return null;
+      throw error;
+    }
+  );
+  return record === null ? null : Number(record.trim());
+}
+
+async function inspectHostProcess(dir: string): Promise<{
+  processState: NativeHostProcess["processState"];
+  pid: number | null;
+}> {
+  const pid = await readHostPid(dir);
+  if (pid === null) return { processState: "gone", pid: null };
+  if (!Number.isSafeInteger(pid) || pid <= 0)
+    return { processState: "stale", pid: null };
+  if (!pidAlive(pid)) return { processState: "gone", pid: null };
+  if (await hostPidMatches(pid, dir)) return { processState: "live", pid };
+  return { processState: "stale", pid: null };
+}
+
+async function hostPidMatches(pid: number, dir: string): Promise<boolean> {
   try {
-    const text = await readFile(hostFile(stateDir, "pid"), "utf8");
-    const pid = Number(text.trim());
-    return Number.isInteger(pid) && pid > 0 ? pid : null;
+    const { stdout } = await processArgs(
+      "/bin/ps",
+      ["-p", String(pid), "-o", "args="],
+      { timeout: 2_000 }
+    );
+    return stdout.trimEnd().endsWith(` agent-host --state ${dir}`);
   } catch {
-    return null;
+    return false;
   }
 }
 
@@ -299,19 +333,19 @@ export function createLocalRunner(
   }
   async function stop(agentId: string, force: boolean) {
     const dir = stateDir(agentId);
-    const pid = await readPid(dir);
-    if (pid && pidAlive(pid)) {
+    const { pid } = await inspectHostProcess(dir);
+    if (pid) {
       const deadline = Date.now() + (force ? 0 : STOP_GRACE_MS);
       while (Date.now() < deadline && pidAlive(pid)) {
         await new Promise((resolve) => setTimeout(resolve, 200));
       }
-      if (pidAlive(pid)) {
+      if (await hostPidMatches(pid, dir)) {
         signalGroup(pid, "SIGTERM");
         const killAt = Date.now() + KILL_GRACE_MS;
         while (Date.now() < killAt && pidAlive(pid)) {
           await new Promise((resolve) => setTimeout(resolve, 200));
         }
-        if (pidAlive(pid)) signalGroup(pid, "SIGKILL");
+        if (await hostPidMatches(pid, dir)) signalGroup(pid, "SIGKILL");
       }
     }
     const marker = await readFile(path.join(dir, "ownership"), "utf8").catch(
@@ -417,8 +451,14 @@ export function createLocalRunner(
         return { channel };
       }
       case "alive": {
-        const pid = await readPid(dir);
-        return { value: pid !== null && pidAlive(pid) };
+        const pid = await readHostPid(dir);
+        return {
+          value:
+            pid !== null &&
+            Number.isSafeInteger(pid) &&
+            pid > 0 &&
+            pidAlive(pid),
+        };
       }
       case "stop":
         await stop(agentId, operation.force);
@@ -456,24 +496,31 @@ export function createLocalRunner(
       agentId: string,
       progress: Parameters<typeof workspace.resume>[1]
     ) => workspace.resume(stateDir(agentId), progress),
+    async inspectHost(sessionHandle: string): Promise<NativeHostProcess> {
+      const { processState } = await inspectHostProcess(
+        stateDir(sessionHandle)
+      );
+      return { sessionHandle, processState };
+    },
+
     async listHosted() {
-      let ids: string[] = [];
-      try {
-        ids = await readdir(agentStateRoot);
-      } catch {
-        return [];
-      }
+      const entries = await readdir(agentStateRoot, {
+        withFileTypes: true,
+      }).catch((error: NodeJS.ErrnoException) => {
+        if (error.code === "ENOENT") return [];
+        throw error;
+      });
       const hosted: string[] = [];
-      for (const id of ids) {
-        const pid = await readPid(stateDir(id));
-        if (pid && pidAlive(pid)) hosted.push(id);
+      for (const entry of entries) {
+        if (!entry.isDirectory()) continue;
+        const { processState } = await inspectHostProcess(stateDir(entry.name));
+        if (processState === "live") hosted.push(entry.name);
       }
       return hosted;
     },
 
     async hostPid(agentId: string) {
-      const pid = await readPid(stateDir(agentId));
-      return pid && pidAlive(pid) ? pid : null;
+      return (await inspectHostProcess(stateDir(agentId))).pid;
     },
   };
 }

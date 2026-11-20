@@ -1342,6 +1342,42 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
       entry?.client.close();
     },
 
+    async inspectNativeHost(agentId) {
+      const process = await local.inspectHost(agentId);
+      const entry = live.get(agentId);
+      const welcome =
+        process.processState === "live" &&
+        entry &&
+        !entry.remote &&
+        entry.client.isConnected()
+          ? entry.client.welcome
+          : null;
+      return {
+        ...process,
+        activity: welcome?.running
+          ? runtime.isBusy(agentId)
+            ? "busy"
+            : "idle"
+          : "unknown",
+        attached: welcome !== null,
+        capabilities: welcome
+          ? {
+              steering: welcome.steeringSupported === true,
+              interrupt: welcome.interruptSupported === true,
+              mcpInventory: welcome.mcpInventorySupported === true,
+              backgroundWork: welcome.backgroundWorkSupported === true,
+            }
+          : null,
+        cursor:
+          welcome && entry
+            ? {
+                seq: entry.lastSeq,
+                journalId: entry.journalId,
+              }
+            : null,
+      };
+    },
+
     async listHosted() {
       return (await local.listHosted()).filter((id) => id.startsWith("agt_"));
     },

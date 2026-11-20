@@ -81,3 +81,34 @@ ID for retries. The runner checks that state again under its checkout lock
 and defers removal while another session holds a borrower binding. Older
 runners keep their legacy protocol, and managed cleanup requested by a newer
 Dispatch waits for a runner that advertises conditional release.
+
+### Native recovery evidence
+
+The built-in runner discovers native processes using the session state
+directory and the host command line. Its inventory reports process state,
+attachment, observed activity, the capabilities from the existing hello
+exchange, and the last observed journal cursor. A live detached host has
+unknown activity. An invalid or recycled PID record is stale, and a missing
+record or dead process is gone. The Dispatch adapter records these observations
+during startup reconciliation. Enrolled runners still use their existing
+placement-based session requests and per-connection capability negotiation.
+
+A compatible controller restart can reattach to a surviving host with the same
+journal and an accepted turn. The native process fixture exits its controller
+with a permission request pending, reattaches at a saved sequence, answers the
+same request and observes one completion and one provider invocation. Two
+native sessions in the fixture use the same checkout. This exercises checkout
+retention at the host layer. Dispatch parent/child row restoration and mixed
+published binaries require separate service-level evidence.
+
+The installer fixture runs the enrolled runner install/update script with
+simulated systemd, including successful start, busy deferral and restoring the
+old runtime after a candidate fails to start. The protected server update
+coordinator tests exercise the backup, probation and rollback boundaries with
+injected dependencies. If probation fails before commit, recovery restores the
+previous release and its recovery point. If restore or previous-version
+readiness fails, admission stays fenced. Once committed, a later normal startup
+failure keeps the committed state. No update admission changes are proposed
+here. The controller handoff proof does not establish that an installer can
+admit an update with an active host or carry that turn through a database
+migration.

@@ -1137,7 +1137,19 @@ export class AgentManager {
         row.id,
         remotePlacement(row.cwd) ? row.cwd : (row.workspacePath ?? row.cwd)
       );
-      if (await this.runtime.attach(row.id)) {
+      const attachedToHost = await this.runtime.attach(row.id);
+      if (!remotePlacement(row.cwd) && this.runtime.inspectNativeHost) {
+        try {
+          const host = await this.runtime.inspectNativeHost(row.id);
+          this.logger.info({ host }, "Observed native host during recovery");
+        } catch (err) {
+          this.logger.warn(
+            { err, agentId: row.id },
+            "Native host inspection failed"
+          );
+        }
+      }
+      if (attachedToHost) {
         attached.push(row.id);
         continue;
       }

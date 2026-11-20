@@ -600,8 +600,10 @@ await import(${JSON.stringify(pathToFileURL(fakeAgent).href)});
 
   it("reattaches to an active native host after its controller exits", async () => {
     const id = "agt_native_handoff";
+    const parentId = "agt_native_parent";
     const folder = mkdtempSync(path.join(cwd, "session-"));
     const input = launchFor(id, folder);
+    input.fullAccess = false;
     input.bins.adapter = {
       bin: "bun",
       args: [path.join(here, "helpers/remote-acp-fixture.ts")],
@@ -619,16 +621,23 @@ await import(${JSON.stringify(pathToFileURL(fakeAgent).href)});
         hostSeq:async()=>({seq:0,journalId:null}), syncJournal:async()=>{}
       });
       const input = ${JSON.stringify(input)};
+      await runtime.launch({...input, agentId: ${JSON.stringify(parentId)}});
       const {sessionId}=await runtime.launch(input);
       const pid=await runtime.hostPid(input.agentId);
-      runtime.onEvent((_, event, seq)=>{
-        if(event.type==="update" && event.update.content?.text==="Guest turn waiting for reconnect.") {
-          console.log(JSON.stringify({sessionId,pid,seq}));
+      let cursor = 0;
+      runtime.onEvent((id, _, seq) => {
+        if (id === input.agentId) cursor = Math.max(cursor, seq);
+      });
+      const turn = runtime.prompt(input.agentId, "proof-count prove-permission");
+      await turn.accepted;
+      for (;;) {
+        const [permission] = runtime.getPermissions(input.agentId).requests;
+        if (permission && cursor > 0) {
+          console.log(JSON.stringify({sessionId, pid, seq: cursor, permissionId: permission.id}));
           process.exit(0);
         }
-      });
-      await runtime.prompt(input.agentId,"proof-delay:2500 proof-count").settled;
-      throw new Error("Controller never received the in-flight checkpoint");
+        await new Promise(resolve => setTimeout(resolve, 10));
+      }
     `
     );
     const result = execFileSync("bun", [controller], {
@@ -646,9 +655,28 @@ await import(${JSON.stringify(pathToFileURL(fakeAgent).href)});
       () => checkpoint.seq,
       journalId
     );
+    const parent = runtimeWith(stateRoot, () => 0);
     try {
+      expect(await runtime.listHosted()).toContain(id);
+      expect(await runtime.inspectNativeHost!(id)).toMatchObject({
+        sessionHandle: id,
+        processState: "live",
+        attached: false,
+        activity: "unknown",
+        capabilities: null,
+      });
       expect(await runtime.attach(id)).toBe(true);
+      expect(await runtime.inspectNativeHost!(id)).toMatchObject({
+        processState: "live",
+        attached: true,
+        activity: "busy",
+        cursor: { journalId },
+      });
       expect(await runtime.hostPid(id)).toBe(checkpoint.pid);
+      expect(runtime.getPermissions(id).requests[0]?.id).toBe(
+        checkpoint.permissionId
+      );
+      await runtime.answerPermission(id, checkpoint.permissionId, "allow");
       await until(() =>
         seen.some(
           ({ event }) => event.type === "turn" && event.state === "settled"
@@ -659,15 +687,25 @@ await import(${JSON.stringify(pathToFileURL(fakeAgent).href)});
           ({ event }) => event.type === "turn" && event.state === "settled"
         )
       ).toHaveLength(1);
-      expect(seen[0]?.seq).toBe(checkpoint.seq + 1);
+      expect(seen.find(({ seq }) => seq > 0)?.seq).toBe(checkpoint.seq + 1);
       expect(
         readFileSync(path.join(folder, "provider-invocations"), "utf8")
       ).toBe("called\n");
+      expect(await runtime.inspectNativeHost!(id)).toMatchObject({
+        processState: "live",
+        activity: "idle",
+        capabilities: { steering: expect.any(Boolean) },
+      });
       writeFileSync(path.join(folder, "review-marker.txt"), "native-handoff");
-      await runtime.prompt(id, "proof-reviewed-checkout").settled;
+      expect(readFileSync(path.join(folder, "protected-action"), "utf8")).toBe(
+        "allowed\n"
+      );
+      expect(await parent.runtime.attach(parentId)).toBe(true);
+      await parent.runtime.prompt(parentId, "proof-reviewed-checkout").settled;
       await until(() =>
-        seen.some(
-          ({ event }) =>
+        parent.seen.some(
+          ({ agentId, event }) =>
+            agentId === parentId &&
             event.type === "update" &&
             event.update.sessionUpdate === "agent_message_chunk" &&
             event.update.content.type === "text" &&
@@ -675,9 +713,22 @@ await import(${JSON.stringify(pathToFileURL(fakeAgent).href)});
         )
       );
     } finally {
+      await parent.runtime.stop(parentId, true);
+      await parent.runtime.discard(parentId);
       await runtime.stop(id, true);
       await runtime.discard(id);
     }
+    expect(await runtime.inspectNativeHost!(id)).toMatchObject({
+      processState: "gone",
+      attached: false,
+    });
+    mkdirSync(path.join(stateRoot, id));
+    writeFileSync(path.join(stateRoot, id, "host.pid"), String(process.pid));
+    expect(await runtime.inspectNativeHost!(id)).toMatchObject({
+      processState: "stale",
+      attached: false,
+    });
+    expect(await runtime.listHosted()).not.toContain(id);
     expect(readFileSync(path.join(folder, "review-marker.txt"), "utf8")).toBe(
       "native-handoff"
     );
