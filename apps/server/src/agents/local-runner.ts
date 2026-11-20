@@ -451,14 +451,8 @@ export function createLocalRunner(
         return { channel };
       }
       case "alive": {
-        const pid = await readHostPid(dir);
-        return {
-          value:
-            pid !== null &&
-            Number.isSafeInteger(pid) &&
-            pid > 0 &&
-            pidAlive(pid),
-        };
+        const { processState } = await inspectHostProcess(dir);
+        return { value: processState === "live" };
       }
       case "stop":
         await stop(agentId, operation.force);

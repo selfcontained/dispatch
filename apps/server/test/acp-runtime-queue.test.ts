@@ -2,6 +2,7 @@
  * The runtime's prompt queue against a scripted host on a real socket,
  * where the test decides how the host's messages are framed on the wire.
  */
+import { spawn } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { createLocalRunner } from "../src/agents/local-runner.js";
 import net from "node:net";
@@ -45,6 +46,21 @@ afterEach(() => {
   for (const run of cleanup.splice(0)) run();
 });
 
+// The scripted socket lives in the test worker. Give it a separate process
+// identity so native liveness follows the same path as it does for a real host.
+function recordFixtureHostPid(dir: string) {
+  const host = spawn(
+    process.execPath,
+    ["-e", "setTimeout(() => {}, 120000)", "--", "agent-host", "--state", dir],
+    { detached: true, stdio: "ignore" }
+  );
+  if (!host.pid) throw new Error("Could not spawn the fixture host process");
+  cleanup.push(() => {
+    host.kill();
+  });
+  writeFileSync(hostFile(dir, "pid"), String(host.pid));
+}
+
 /**
  * A host that answers every prompt with a turn that fails at once, its
  * ack and both turn events written to the socket in a single chunk.
@@ -56,7 +72,7 @@ async function fastFailingHost(): Promise<{
   const stateRoot = mkdtempSync(path.join(os.tmpdir(), "dispatch-queue-"));
   const dir = path.join(stateRoot, agentId);
   mkdirSync(dir, { recursive: true });
-  writeFileSync(hostFile(dir, "pid"), String(process.pid));
+  recordFixtureHostPid(dir);
   const prompts: string[] = [];
   let seq = 0;
   const event = (e: unknown): HostMessage =>
@@ -194,7 +210,7 @@ describe("AcpRuntime prompt queue", () => {
     const stateRoot = mkdtempSync(path.join(os.tmpdir(), "dispatch-queue-"));
     const dir = path.join(stateRoot, agentId);
     mkdirSync(dir, { recursive: true });
-    writeFileSync(hostFile(dir, "pid"), String(process.pid));
+    recordFixtureHostPid(dir);
     let seq = 0;
     const event = (e: unknown): HostMessage =>
       ({
@@ -299,7 +315,7 @@ describe("AcpRuntime user post priority", () => {
     const stateRoot = mkdtempSync(path.join(os.tmpdir(), "dispatch-queue-"));
     const dir = path.join(stateRoot, agentId);
     mkdirSync(dir, { recursive: true });
-    writeFileSync(hostFile(dir, "pid"), String(process.pid));
+    recordFixtureHostPid(dir);
     let seq = 0;
     const event = (e: unknown): HostMessage =>
       ({
@@ -414,7 +430,7 @@ describe("AcpRuntime legacy host replay", () => {
     const stateRoot = mkdtempSync(path.join(os.tmpdir(), "dispatch-legacy-"));
     const dir = path.join(stateRoot, agentId);
     mkdirSync(dir, { recursive: true });
-    writeFileSync(hostFile(dir, "pid"), String(process.pid));
+    recordFixtureHostPid(dir);
     const hellos: number[] = [];
     const entries: HostMessage[] = [
       {
@@ -525,7 +541,7 @@ async function heldTurnHost(
   const stateRoot = mkdtempSync(path.join(os.tmpdir(), "dispatch-queue-"));
   const dir = path.join(stateRoot, agentId);
   mkdirSync(dir, { recursive: true });
-  writeFileSync(hostFile(dir, "pid"), String(process.pid));
+  recordFixtureHostPid(dir);
   const prompts: Array<{
     text: string;
     source?: PromptSource;

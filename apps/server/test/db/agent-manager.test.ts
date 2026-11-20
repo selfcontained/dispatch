@@ -3164,6 +3164,38 @@ describe("AgentManager", () => {
       expect(lost!.lastError).toContain("not running when Dispatch restarted");
     });
 
+    it("stops a running row when its native host PID belongs to another process", async () => {
+      const agent = await manager.createAgent({
+        cwd: "/tmp",
+        useWorktree: false,
+      });
+      const agentStateRoot = await mkdtemp(
+        path.join(os.tmpdir(), "dispatch-stale-host-")
+      );
+      const dir = path.join(agentStateRoot, agent.id);
+      try {
+        await mkdir(dir);
+        await writeFile(path.join(dir, "host.pid"), String(process.pid));
+        const recovering = new AgentManager(pool, noopLogger, {
+          ...testConfig,
+          agentStateRoot,
+        });
+        await expect(recovering.restoreRunningAgents()).resolves.toEqual({
+          attached: [],
+          lost: [agent.id],
+          resumes: [],
+        });
+        expect(await recovering.getAgent(agent.id)).toMatchObject({
+          status: "stopped",
+          lastError: expect.stringContaining(
+            "not running when Dispatch restarted"
+          ),
+        });
+      } finally {
+        await rm(agentStateRoot, { recursive: true, force: true });
+      }
+    });
+
     it("does not lose, or let boot cleanup kill, a host that is alive but missed its first attach — and recovers once a later attach succeeds", async () => {
       // Models the real failure this closes: a host busy replaying its
       // journal (or plain boot contention) doesn't answer `hello` inside
