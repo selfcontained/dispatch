@@ -666,18 +666,24 @@ it("moves blocks to offsets measured against the grid, not the block's own box",
   const grid = view.getByRole("status");
   expect(grid.style.containerType).toBe("inline-size");
   const cells = [...grid.querySelectorAll<HTMLElement>("[data-defrag-cell]")];
-  const slots = [
-    ...grid.querySelectorAll<HTMLElement>(
-      "span.absolute:not([data-defrag-cell])"
-    ),
-  ].filter((slot) => slot.style.transform);
+  const tile = grid.querySelector<HTMLElement>("[style*='mask-size']")!;
+  expect(tile.style.maskSize).toBe("3.125% 8px");
   expect(cells.length).toBeGreaterThan(0);
-  const slotTransforms = new Set(slots.map((slot) => slot.style.transform));
-  for (const cell of [...cells, ...slots]) {
-    expect(cell.style.transform).not.toContain("%");
-  }
-  // Every block rests exactly on an empty slot's position.
   for (const cell of cells) {
-    expect(slotTransforms.has(cell.style.transform)).toBe(true);
+    // A 32-column grid and an 8px row pitch match the repeated background.
+    expect(cell.style.transform).toMatch(
+      /^translate\(calc\(\d+ \* 100cqw \/ 32\), (0|8|16|24)px\)$/
+    );
   }
+});
+
+it("reserves a new turn's grid before starting the activity animation", () => {
+  vi.useFakeTimers();
+  const view = render(
+    <ResponsePlaceholder seed="arrival" steps={[]} turnStartedAt={Date.now()} />
+  );
+  expect(view.getByRole("status")).toBeTruthy();
+  expect(view.container.querySelector("[data-defrag-cell]")).toBeNull();
+  act(() => vi.advanceTimersByTime(850));
+  expect(view.container.querySelector("[data-defrag-cell]")).toBeTruthy();
 });

@@ -163,8 +163,9 @@ export default {
       animation: {
         "mobile-toolbar-flash": "mobile-toolbar-flash 420ms ease-out forwards",
         // A feed entry arriving after the initial render (see ChatFeed).
-        "chat-enter": "chat-enter 450ms cubic-bezier(0.2, 0, 0, 1) both",
-        "message-in": "message-in 450ms cubic-bezier(0.2, 0, 0, 1) 120ms both",
+        "chat-enter": "chat-enter 850ms ease-in-out",
+        "activity-label": "chat-enter 320ms ease-out",
+        "message-in": "message-in 850ms ease-in-out",
         "reaction-picker-in": "reaction-picker-in 160ms ease-out both",
         "reaction-picker-out": "reaction-picker-out 100ms ease-in both",
         // No fill on the way in: once open, the box is unclipped again.

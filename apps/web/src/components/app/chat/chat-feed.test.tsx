@@ -2412,6 +2412,21 @@ describe("ChatFeed enter animation", () => {
     expect(enterOf(sidePosts()[0]!)).not.toBeNull();
   });
 
+  it("keeps the same fading row when the server timestamps a sent message", () => {
+    const { rerenderWith } = renderFeed([]);
+    const sent = block({
+      id: "sent",
+      author: { kind: "user" },
+      text: "hey",
+      createdAt: at("10:00"),
+    });
+    rerenderWith([blockEntry(sent)]);
+    const row = enterOf(screen.getByTestId("chat-message"));
+    expect(row?.className).toContain("animate-chat-enter");
+    rerenderWith([blockEntry({ ...sent, createdAt: at("10:01") })]);
+    expect(enterOf(screen.getByTestId("chat-message"))).toBe(row);
+  });
+
   it("fades a post edited in place in again", () => {
     const original = block({
       id: "a1",

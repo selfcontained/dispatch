@@ -1,5 +1,4 @@
 import {
-  memo,
   useEffect,
   useMemo,
   useRef,
@@ -251,26 +250,13 @@ const tint = (color: string, alpha: number) =>
   `color-mix(in srgb, ${color} ${alpha}%, transparent)`;
 const HEIGHT = ROWS * CELL_H + (ROWS - 1) * ROW_GAP;
 
-/** The empty grid under the blocks: drawn once, never changes. */
-const Slots = memo(function Slots(): JSX.Element {
-  return (
-    <>
-      {[...Array(SLOTS).keys()].map((slot) => (
-        <span
-          key={slot}
-          className="absolute left-0 top-0 pr-[2px]"
-          style={{
-            width: `${100 / COLS}%`,
-            height: CELL_H,
-            transform: place(slot),
-          }}
-        >
-          <span className="block h-full rounded-[1.5px] bg-muted/40" />
-        </span>
-      ))}
-    </>
-  );
-});
+// A tiled mask draws all 128 rounded slots in a single paint layer.
+const slotMask = `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100%25' height='100%25'%3E%3Crect style='width:calc(100%25 - 2px)' height='${CELL_H}' rx='1.5'/%3E%3C/svg%3E")`;
+const slotStyle: CSSProperties = {
+  maskImage: slotMask,
+  maskSize: `${100 / COLS}% ${CELL_H + ROW_GAP}px`,
+  maskRepeat: "repeat",
+};
 
 /**
  * The response placeholder while a turn runs with progress text off: a
@@ -286,6 +272,7 @@ export function ResponsePlaceholder({
   onShowProgress,
   lastProgressAt,
   animationPaused = false,
+  turnStartedAt,
 }: {
   /** Anything stable per turn: the turn's block id. */
   seed: string;
@@ -293,11 +280,25 @@ export function ResponsePlaceholder({
   lastProgressAt?: number;
   /** Design Lab playback control; real turns follow the engine's steps. */
   animationPaused?: boolean;
+  /** Wall-clock start of a live turn, used to leave its arrival quiet. */
+  turnStartedAt?: number;
   /** Characters of progress text the turn has written; every 250 is a piece. */
   textLength?: number;
   /** Shows this turn's progress text in place of the card. */
   onShowProgress?: () => void;
 }): JSX.Element {
+  // Let the post fade and scroll into view before mounting the moving grid.
+  // An already-running turn reopened from history is ready immediately.
+  const quietUntil = (turnStartedAt ?? 0) + 850;
+  const [quiet, setQuiet] = useState(() => quietUntil > Date.now());
+  useEffect(() => {
+    if (!quiet) return;
+    const timer = window.setTimeout(
+      () => setQuiet(false),
+      Math.min(850, Math.max(0, quietUntil - Date.now()))
+    );
+    return () => window.clearTimeout(timer);
+  }, [quiet, quietUntil]);
   const compactionId = activitySteps(steps).find(
     (step) => step.kind === "compaction" && step.status === "running"
   )?.id;
@@ -413,6 +414,7 @@ export function ResponsePlaceholder({
   return (
     <ResponsePlaceholderVisual
       cells={cells}
+      quiet={quiet}
       fills={fills}
       pieces={pieces}
       arrivalKeys={arrivalKeys}
@@ -427,6 +429,7 @@ export function ResponsePlaceholder({
 /** Shared presentation: the lab varies events, never the chat's frame or palette. */
 export function ResponsePlaceholderVisual({
   cells,
+  quiet = false,
   pieces,
   arrivalKeys,
   textLength = 0,
@@ -436,6 +439,7 @@ export function ResponsePlaceholderVisual({
   fills = [],
 }: {
   cells: DefragCell[];
+  quiet?: boolean;
   pieces: ResponsePiece[];
   arrivalKeys?: ReadonlySet<string>;
   textLength?: number;
@@ -509,7 +513,7 @@ export function ResponsePlaceholderVisual({
   return (
     <div
       data-testid="chat-response-placeholder"
-      className={`dispatch-placeholder-chase relative mt-3 w-full max-w-md rounded-lg border border-border/60 bg-muted/10 px-4 py-3.5 ${reducedCells ? "dispatch-defrag-reduced" : ""}`}
+      className={`dispatch-placeholder ${quiet ? "" : "dispatch-placeholder-chase"} relative mt-3 w-full max-w-md rounded-lg border border-border/60 bg-muted/10 px-4 py-3.5 ${reducedCells ? "dispatch-defrag-reduced" : ""}`}
     >
       {/* The status region holds only the picture; the peek control sits
           beside it, so its changing count is never announced. */}
@@ -551,55 +555,64 @@ export function ResponsePlaceholderVisual({
               />
             </TooltipTrigger>
             <div aria-hidden="true" className="absolute inset-0">
-              <Slots />
-              {cells.map((c) => {
-                const latest = c.step === newest;
-                const piece = c.step === undefined ? undefined : pieces[c.step];
-                return (
-                  <span
-                    key={c.id}
-                    data-defrag-cell=""
-                    data-testid={
-                      c.category ? "chat-response-placeholder-block" : undefined
-                    }
-                    data-category={c.category}
-                    data-compaction={piece?.compaction || undefined}
-                    className="absolute left-0 top-0 pr-[2px] transition-transform duration-[900ms] ease-in-out motion-reduce:transition-none"
-                    style={
-                      {
-                        width: `${100 / COLS}%`,
-                        height: CELL_H,
-                        transform: place(c.slot),
-                        // The newest block lights where it is first, then travels.
-                        transitionDelay: latest ? "450ms" : "0ms",
-                        zIndex: latest ? 2 : 1,
-                        "--defrag-packed-transform": reducedCells
-                          ? place(reducedCells[c.id]!.slot)
-                          : undefined,
-                        "--defrag-packed-color": reducedCells
-                          ? tint(
-                              ACTIVITY_COLORS[
-                                reducedCells[c.id]!.category ??
-                                  reducedCells[c.id]!.rest
-                              ],
-                              75
-                            )
-                          : undefined,
-                      } as CSSProperties
-                    }
-                  >
-                    <span
-                      key={c.step ?? "rest"}
-                      className={`block h-full rounded-[1.5px] transition-[background-color] duration-500 motion-reduce:transition-none ${piece && arrivalKeys?.has(piece.key) ? "dispatch-defrag-ack" : ""}`}
-                      style={{
-                        background: c.category
-                          ? tint(ACTIVITY_COLORS[c.category], latest ? 100 : 75)
-                          : `color-mix(in hsl, ${ACTIVITY_COLORS[c.rest]} 22%, hsl(var(--muted)))`,
-                      }}
-                    />
-                  </span>
-                );
-              })}
+              <div className="absolute inset-0 bg-muted/40" style={slotStyle} />
+              <div className="dispatch-placeholder-colors absolute inset-0">
+                {!quiet &&
+                  cells.map((c) => {
+                    const latest = c.step === newest;
+                    const piece =
+                      c.step === undefined ? undefined : pieces[c.step];
+                    return (
+                      <span
+                        key={c.id}
+                        data-defrag-cell=""
+                        data-testid={
+                          c.category
+                            ? "chat-response-placeholder-block"
+                            : undefined
+                        }
+                        data-category={c.category}
+                        data-compaction={piece?.compaction || undefined}
+                        className="absolute left-0 top-0 pr-[2px] transition-transform duration-[900ms] ease-in-out motion-reduce:transition-none"
+                        style={
+                          {
+                            width: `${100 / COLS}%`,
+                            height: CELL_H,
+                            transform: place(c.slot),
+                            // The newest block lights where it is first, then travels.
+                            transitionDelay: latest ? "450ms" : "0ms",
+                            zIndex: latest ? 2 : 1,
+                            "--defrag-packed-transform": reducedCells
+                              ? place(reducedCells[c.id]!.slot)
+                              : undefined,
+                            "--defrag-packed-color": reducedCells
+                              ? tint(
+                                  ACTIVITY_COLORS[
+                                    reducedCells[c.id]!.category ??
+                                      reducedCells[c.id]!.rest
+                                  ],
+                                  75
+                                )
+                              : undefined,
+                          } as CSSProperties
+                        }
+                      >
+                        <span
+                          key={c.step ?? "rest"}
+                          className={`block h-full rounded-[1.5px] transition-[background-color] duration-500 motion-reduce:transition-none ${piece && arrivalKeys?.has(piece.key) ? "dispatch-defrag-ack" : ""}`}
+                          style={{
+                            background: c.category
+                              ? tint(
+                                  ACTIVITY_COLORS[c.category],
+                                  latest ? 100 : 75
+                                )
+                              : `color-mix(in hsl, ${ACTIVITY_COLORS[c.rest]} 22%, hsl(var(--muted)))`,
+                          }}
+                        />
+                      </span>
+                    );
+                  })}
+              </div>
             </div>
           </div>
           {label && (

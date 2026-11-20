@@ -20,7 +20,6 @@ import { cn } from "@/lib/utils";
 
 import { ActivityBlock } from "./activity-block";
 import { turnAnswerText } from "./answer-text";
-import { AutoHeight } from "./auto-height";
 import type { Trace, Turn } from "./contracts";
 import { turnLabelFromSteps } from "./registry";
 import { turnTrace } from "./trace";
@@ -201,10 +200,7 @@ export function TurnAnswer({
       data-turn-id={block.id}
       data-settled={turn.settled ? "true" : undefined}
     >
-      {/* One measured body for the steps and the answer: every size change
-          inside it eases instead of snapping, so the feed above glides
-          rather than jumps while it follows the bottom. */}
-      <AutoHeight data-testid="chat-turn-body">
+      <div data-testid="chat-turn-body">
         {turn.settled ? (
           <ResultTurn
             turn={result}
@@ -223,6 +219,7 @@ export function TurnAnswer({
         ) : !showProgressText && !peek ? (
           <ResponsePlaceholder
             seed={block.id}
+            turnStartedAt={trace.startedAt}
             steps={trace.steps}
             lastProgressAt={trace.lastProgressAt}
             textLength={result.content?.length ?? 0}
@@ -275,7 +272,7 @@ export function TurnAnswer({
             />
           </div>
         ) : null}
-      </AutoHeight>
+      </div>
     </div>
   );
 }
@@ -325,7 +322,7 @@ export function PendingTurnLine({
   );
   return (
     <div
-      className="mt-1 flex min-w-0 max-w-full gap-3 px-4 py-1 animate-chat-enter motion-reduce:animate-none"
+      className="mt-1 flex min-w-0 max-w-full gap-3 px-4 py-1"
       data-testid="chat-pending-turn"
       data-block-id={block.id}
       data-turn-id={block.id}

@@ -1,3 +1,4 @@
+import { liveIdentityFields } from "./use-agent-tree";
 import { isUserInputBlock, isFailedParentInput } from "@dispatch/shared";
 import { useEffect } from "react";
 import type {
@@ -583,7 +584,11 @@ export function useSSE(authState: AuthState): void {
             ["agent-identity", payload.agent.id],
             (old) =>
               old
-                ? { ...old, ...payload.agent, archived: false, seat: old.seat }
+                ? {
+                    ...old,
+                    ...liveIdentityFields(payload.agent),
+                    archived: false,
+                  }
                 : old
           );
           queryClient.setQueryData<Agent[]>(["agents"], (old) =>
