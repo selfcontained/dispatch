@@ -91,7 +91,8 @@ export function ChatFiltersButton(): JSX.Element {
               Show progress text
             </span>
             <span className="block text-xs text-muted-foreground">
-              Read updates as the agent works.
+              Read updates as the agent works. Off shows a short summary
+              instead.
             </span>
           </span>
           <Switch

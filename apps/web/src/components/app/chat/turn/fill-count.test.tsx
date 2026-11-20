@@ -117,7 +117,7 @@ describe("placeholder fill count", () => {
     expect(view.queryByTestId("chat-response-fill-count")).toBeNull();
   });
 
-  it("shows the laps first on the row, before Show progress", () => {
+  it("shows the laps first on the row, before the activity counts", () => {
     const view = render(
       <ResponsePlaceholder
         seed={SEED}
@@ -133,7 +133,7 @@ describe("placeholder fill count", () => {
     );
     expect(chip.parentElement!.firstElementChild).toBe(chip);
     expect(chip.parentElement!.lastElementChild).toBe(
-      view.getByTestId("chat-response-show-progress")
+      view.getByTestId("chat-response-activity-counts")
     );
   });
 });

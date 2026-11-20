@@ -1,7 +1,13 @@
 // @vitest-environment jsdom
 import type { ChatTurnEntry, StreamBlockEntry } from "@dispatch/shared";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { MotionConfig } from "framer-motion";
 import { createStore, Provider } from "jotai";
 import { MemoryRouter } from "react-router-dom";
@@ -644,7 +650,7 @@ describe("TurnEntryView", () => {
         });
       }
 
-      it("shows one turn's progress text on request, and hides it again", () => {
+      it("shows one turn's progress text on request, and hides it again", async () => {
         renderTurn(STATES["streaming lead text"]!(), ctx, {
           progressText: false,
         });
@@ -654,13 +660,16 @@ describe("TurnEntryView", () => {
         expect(screen.getByRole("status").contains(show)).toBe(false);
         expect(show.getAttribute("aria-label")).toBe("Show progress text");
         fireEvent.click(show);
-        expect(placeholder()).toBeNull();
+        // Each side eases out as the other eases in.
+        await waitFor(() => expect(placeholder()).toBeNull());
         expect(screen.getByTestId("chat-turn-live-text").textContent).toContain(
           "Looking at the tests."
         );
         fireEvent.click(screen.getByTestId("chat-response-hide-progress"));
         expect(placeholder()).toBeTruthy();
-        expect(screen.queryByTestId("chat-turn-live-text")).toBeNull();
+        await waitFor(() =>
+          expect(screen.queryByTestId("chat-turn-live-text")).toBeNull()
+        );
       });
 
       it("offers no peek before the turn has written anything", () => {
