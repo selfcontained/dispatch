@@ -14,6 +14,8 @@ import {
 } from "@/components/ui/tooltip";
 
 import { useChatRowState } from "../chat-row-state";
+import { cn } from "@/lib/utils";
+import { useActivitySum } from "./activity-summary";
 
 import type { Step } from "./contracts";
 import { activitySteps } from "./activity-steps";
@@ -269,11 +271,13 @@ export function ResponsePlaceholder({
   seed,
   steps,
   textLength = 0,
-  onShowProgress,
   lastProgressAt,
   animationPaused = false,
   turnStartedAt,
+  reserveSummary = false,
 }: {
+  /** Hold the activity-counts line's room before there is anything to count. */
+  reserveSummary?: boolean;
   /** Anything stable per turn: the turn's block id. */
   seed: string;
   steps: Step[];
@@ -284,8 +288,6 @@ export function ResponsePlaceholder({
   turnStartedAt?: number;
   /** Characters of progress text the turn has written; every 250 is a piece. */
   textLength?: number;
-  /** Shows this turn's progress text in place of the card. */
-  onShowProgress?: () => void;
 }): JSX.Element {
   // Let the post fade and scroll into view before mounting the moving grid.
   // An already-running turn reopened from history is ready immediately.
@@ -411,6 +413,7 @@ export function ResponsePlaceholder({
         : undefined,
     [seed, compactionId]
   );
+  const sum = useActivitySum(steps);
   return (
     <ResponsePlaceholderVisual
       cells={cells}
@@ -419,7 +422,8 @@ export function ResponsePlaceholder({
       pieces={pieces}
       arrivalKeys={arrivalKeys}
       textLength={textLength}
-      onShowProgress={onShowProgress}
+      summary={sum}
+      reserveSummary={reserveSummary}
       reducedCells={reducedCells}
       statusLabel={compactionId ? "Compacting context" : "Preparing response"}
     />
@@ -434,10 +438,15 @@ export function ResponsePlaceholderVisual({
   arrivalKeys,
   textLength = 0,
   onShowProgress,
+  summary,
+  reserveSummary = false,
   reducedCells,
   statusLabel = "Preparing response",
   fills = [],
 }: {
+  /** What the turn has done so far, in place of the progress link. */
+  summary?: string;
+  reserveSummary?: boolean;
   cells: DefragCell[];
   quiet?: boolean;
   pieces: ResponsePiece[];
@@ -629,10 +638,26 @@ export function ResponsePlaceholderVisual({
           )}
         </Tooltip>
       </TooltipProvider>
-      {(onShowProgress && textLength > 0) || fills.length > 0 ? (
-        <div className="relative mt-2.5 flex items-center gap-2">
+      {(onShowProgress && textLength > 0) ||
+      summary ||
+      reserveSummary ||
+      fills.length > 0 ? (
+        <div className="relative mt-2.5 flex min-h-[14px] items-center gap-2">
           {fills.length > 0 && <FillCount fills={fills} />}
-          {onShowProgress && textLength > 0 && (
+          {summary || reserveSummary ? (
+            // The line's room is held from the start, so the counts fading in
+            // move nothing.
+            <span
+              className={cn(
+                "ml-auto min-w-0 truncate text-[11px] tabular-nums text-muted-foreground transition-opacity duration-300 motion-reduce:transition-none",
+                !summary && "opacity-0"
+              )}
+              data-testid="chat-response-activity-counts"
+            >
+              {summary || "\u00a0"}
+            </span>
+          ) : null}
+          {!summary && onShowProgress && textLength > 0 && (
             <button
               type="button"
               onClick={onShowProgress}

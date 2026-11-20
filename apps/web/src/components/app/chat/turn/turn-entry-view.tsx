@@ -1,5 +1,6 @@
 import { useAtomValue } from "jotai";
 import { chatShowProgressTextAtom } from "@/lib/store";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { memo, type ReactNode, useMemo } from "react";
 import {
   AUTHENTICATION_REQUIRED,
@@ -22,6 +23,7 @@ import { ActivityBlock } from "./activity-block";
 import { turnAnswerText } from "./answer-text";
 import type { Trace, Turn } from "./contracts";
 import { turnLabelFromSteps } from "./registry";
+import { arrive } from "./motion";
 import { turnTrace } from "./trace";
 import {
   type ResultRetry,
@@ -31,6 +33,7 @@ import {
 } from "./result-turn";
 import { useChatRowState } from "../chat-row-state";
 import { ResponsePlaceholder } from "./response-placeholder";
+import { progressSummary } from "./activity-summary";
 import { type FoldedEntry, TurnAttachments } from "./turn-attachments";
 
 /** A turn prompt is never a question, so its post never offers an answer. */
@@ -132,8 +135,20 @@ export function TurnAnswer({
     () => turnLabelFromSteps(trace.steps),
     [trace.steps]
   );
+  // The newest finished message of a running reply, for the activity summary.
+  const progressText = useMemo(
+    () =>
+      turn.settled
+        ? undefined
+        : progressSummary(
+            turn.result?.text ?? "",
+            turn.result?.streaming === true
+          ),
+    [turn.settled, turn.result?.text, turn.result?.streaming]
+  );
   // One turn's progress text, shown on request while the setting hides it.
   const [peek, setPeek] = useChatRowState<boolean>("progress-peek", false);
+  const reduced = useReducedMotion();
   const onRetryTurn = ctx.onRetryTurn;
   const retryPending = ctx.retrying?.has(block.id) ?? false;
   const retry = useMemo<ResultRetry | undefined>(
@@ -216,54 +231,78 @@ export function TurnAnswer({
               />
             )}
           />
-        ) : !showProgressText && !peek ? (
-          <ResponsePlaceholder
-            seed={block.id}
-            turnStartedAt={trace.startedAt}
-            steps={trace.steps}
-            lastProgressAt={trace.lastProgressAt}
-            textLength={result.content?.length ?? 0}
-            onShowProgress={() => setPeek(true)}
-          />
-        ) : result.content ? (
-          // The reply as it is being written: the agent's own words, in the
-          // quiet tone of something still in progress, so a long turn reads
-          // as it happens rather than landing whole at the end. It takes its
-          // final styling when the turn settles and this becomes the answer.
-          <div data-testid="chat-turn-live-text">
-            {peek && !showProgressText ? (
-              <div className="mb-1 flex justify-end">
-                <button
-                  type="button"
-                  onClick={() => setPeek(false)}
-                  data-testid="chat-response-hide-progress"
-                  className="rounded-sm text-[11px] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                >
-                  Hide progress
-                </button>
-              </div>
-            ) : null}
-            <ResultText
-              content={result.content}
-              muted
-              streaming
-              renderText={(text) => (
-                <MentionText
-                  spans={mentionSpans(
-                    text,
-                    historicalMentionablesOf(block, ctx)
+        ) : (
+          <AnimatePresence initial={false}>
+            {!showProgressText && !peek ? (
+              <motion.div
+                key="placeholder"
+                initial={reduced ? false : { height: 0, opacity: 0 }}
+                animate={{ height: "auto", opacity: 1 }}
+                exit={reduced ? { opacity: 0 } : { height: 0, opacity: 0 }}
+                transition={reduced ? { duration: 0 } : arrive()}
+                style={{ overflow: "hidden" }}
+              >
+                <ResponsePlaceholder
+                  seed={block.id}
+                  turnStartedAt={trace.startedAt}
+                  steps={trace.steps}
+                  lastProgressAt={trace.lastProgressAt}
+                  textLength={result.content?.length ?? 0}
+                  reserveSummary
+                />
+              </motion.div>
+            ) : result.content ? (
+              // The reply as it is being written: the agent's own words, in
+              // the quiet tone of something still in progress, so a long turn
+              // reads as it happens rather than landing whole at the end. It
+              // takes its final styling when the turn settles and this
+              // becomes the answer. Opened from "Show more" it eases in, and
+              // "Show less" eases it back out.
+              <motion.div
+                key="live"
+                data-testid="chat-turn-live-text"
+                initial={
+                  peek && !showProgressText && !reduced
+                    ? { height: 0, opacity: 0 }
+                    : false
+                }
+                animate={{ height: "auto", opacity: 1 }}
+                exit={reduced ? { opacity: 0 } : { height: 0, opacity: 0 }}
+                transition={reduced ? { duration: 0 } : arrive()}
+                style={{ overflow: "hidden" }}
+              >
+                <ResultText
+                  content={result.content}
+                  muted
+                  streaming
+                  renderText={(text) => (
+                    <MentionText
+                      spans={mentionSpans(
+                        text,
+                        historicalMentionablesOf(block, ctx)
+                      )}
+                    />
                   )}
                 />
-              )}
-            />
-          </div>
-        ) : null}
+              </motion.div>
+            ) : null}
+          </AnimatePresence>
+        )}
         <TurnAttachments items={folded} ctx={ctx} />
         {showsActivityLine(trace, result) || !turn.settled ? (
           <div className={cn(result.content && "mt-2")}>
             <ActivityBlock
               trace={trace}
               label={foldLabel}
+              progressText={progressText}
+              progressExpanded={peek}
+              hasProgress={(result.content?.length ?? 0) > 0}
+              onShowProgress={
+                !showProgressText && !peek ? () => setPeek(true) : undefined
+              }
+              onHideProgress={
+                !showProgressText && peek ? () => setPeek(false) : undefined
+              }
               details={
                 turn.trace.detailsOmitted && ctx.rootId
                   ? { rootId: ctx.rootId, blockId: block.id }

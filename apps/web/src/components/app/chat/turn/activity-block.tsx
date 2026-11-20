@@ -7,9 +7,10 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
-import { motion, useReducedMotion } from "framer-motion";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { ChevronDown, ChevronRight, Clock, Square, X } from "lucide-react";
 
 import { cn } from "@/lib/utils";
@@ -77,8 +78,22 @@ function ActivityBlockImpl({
   trace,
   label,
   details,
+  progressText,
+  onShowProgress,
+  onHideProgress,
+  progressExpanded,
+  hasProgress,
 }: {
   trace: Trace;
+  /** The running reply has written something, hidden or not. */
+  hasProgress?: boolean;
+  /** Opens the hidden progress text; set only while the setting hides it. */
+  onShowProgress?: () => void;
+  /** Closes it again; set while it is open. */
+  onHideProgress?: () => void;
+  progressExpanded?: boolean;
+  /** The newest complete sentence of the running reply, if any. */
+  progressText?: string;
   /** Verb for the summary row, derived from the steps; "done" by default. */
   label?: string;
   /** A settled turn whose large edit diffs were omitted from the feed. */
@@ -123,6 +138,14 @@ function ActivityBlockImpl({
           label={label}
           open={open}
           onToggle={() => setBlockOverride(!open)}
+        />
+        <ActivitySummary
+          trace={trace}
+          progressText={progressText}
+          expanded={progressExpanded}
+          hasProgress={hasProgress}
+          onShowProgress={onShowProgress}
+          onHideProgress={onHideProgress}
         />
         <motion.div
           initial={false}
@@ -329,6 +352,78 @@ export function turnSummary(
     failed,
     interrupted,
   };
+}
+
+/**
+ * What a running turn says while the "Show progress text" setting hides its
+ * text: the newest complete sentence the agent has written, held until the
+ * next one is complete, and a "Show more" link to read it all. Opened, the
+ * same spot reads "Show less". The counts of what the turn has done sit in
+ * the response placeholder above.
+ */
+function ActivitySummary({
+  trace,
+  progressText,
+  expanded,
+  hasProgress,
+  onShowProgress,
+  onHideProgress,
+}: {
+  trace: Trace;
+  progressText?: string;
+  expanded?: boolean;
+  hasProgress?: boolean;
+  onShowProgress?: () => void;
+  onHideProgress?: () => void;
+}): JSX.Element | null {
+  const reduced = useReducedMotion();
+  const held = useRef<string | undefined>(undefined);
+  // The newest complete sentence, kept until a newer one is complete.
+  if (progressText) held.current = progressText;
+  if (trace.endedAt != null) {
+    held.current = undefined;
+    return null;
+  }
+  const line = held.current ?? "";
+  const toggle = expanded ? onHideProgress : onShowProgress;
+  // The link shows whenever there is text to open, even before the agent
+  // has finished a sentence to preview.
+  if (!toggle || (!expanded && !line && !hasProgress)) return null;
+  return (
+    <div
+      className="flex min-w-0 flex-col items-start gap-1 py-1.5 pl-5 pr-1 text-[12px] leading-snug"
+      data-testid="harness-activity-explainer"
+    >
+      {/* Muted, fading in; a new message crosses over from the last. */}
+      <AnimatePresence initial mode="wait">
+        {!expanded && line ? (
+          <motion.span
+            key={line}
+            className="max-w-full truncate text-muted-foreground"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={reduced ? { duration: 0 } : arrive()}
+          >
+            {line}
+          </motion.span>
+        ) : null}
+      </AnimatePresence>
+      <button
+        type="button"
+        onClick={toggle}
+        aria-expanded={!!expanded}
+        data-testid={
+          expanded
+            ? "chat-response-hide-progress"
+            : "chat-response-show-progress"
+        }
+        className="shrink-0 whitespace-nowrap rounded-sm text-[12px] text-foreground underline underline-offset-2 hover:no-underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+      >
+        {expanded ? "Show less" : "Show more"}
+      </button>
+    </div>
+  );
 }
 
 /** The same braille spinner a running step shows in the step list, on the shared tick. */
