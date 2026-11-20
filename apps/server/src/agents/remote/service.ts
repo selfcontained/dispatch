@@ -611,13 +611,15 @@ export class RemoteRunnerService {
     // Unauthenticated peers may pair once or reach the scoped MCP proxy.
     if (this.unauthenticated >= MAX_UNAUTHENTICATED) return socket.destroy();
     this.unauthenticated++;
-    const deadline = setTimeout(
+    let deadline: ReturnType<typeof setTimeout> | undefined = setTimeout(
       () => socket.destroy(),
       UNAUTHENTICATED_TIMEOUT
     );
     const release = () => {
+      if (deadline === undefined) return;
       socket.removeListener("close", release);
       clearTimeout(deadline);
+      deadline = undefined;
       this.unauthenticated--;
     };
     socket.once("close", release);

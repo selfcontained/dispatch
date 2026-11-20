@@ -1230,6 +1230,9 @@ describe("runner listener request prefixes", () => {
       );
       await vi.waitFor(() => expect(bootstrapStarted).toBe(true));
       expect(service["proxyRelays"].size).toBe(1);
+      const release = service["proxyRelays"].values().next()
+        .value?.releaseHandshake;
+      expect(release).toBeTypeOf("function");
       expect(service["unauthenticated"]).toBe(1);
       expect(service["activeHttpRelays"]).toBe(1);
       expect(await exchange(["GET /" + rest], 0)).toBe("");
@@ -1248,6 +1251,9 @@ describe("runner listener request prefixes", () => {
         expect(service["unauthenticated"]).toBe(0);
         expect(service["activeHttpRelays"]).toBe(0);
       });
+      // A buffered proxy request can arrive after the TLS close callback.
+      release?.();
+      expect(service["unauthenticated"]).toBe(0);
     } finally {
       socket.destroy();
       Object.defineProperty(service, "maxHttpRelays", { value: relayLimit });
