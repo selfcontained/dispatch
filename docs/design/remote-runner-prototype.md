@@ -70,6 +70,16 @@ provisions that account's tools, access and groups. Updates retain the
 configured account. Use test credentials, disable VM
 mounts and SSH-agent forwarding, and keep the VM and dev data disposable.
 
+The installer installs and upgrades no packages. It prints each dependency it
+found, with its path, and stops naming any that are missing. Release
+verification uses root's `gh`, or else the invoking `SUDO_USER`'s own `gh`
+from their login shell, and must support `gh attestation verify`; an older
+`gh` is reported, not replaced. The runner runs `gh` and `git` from the
+workload account's login environment (the same login shell and
+`~/.dispatch/env` its sessions use), looked up once per runner process and
+again after a resolved path stops working. `/usr/bin/gh` and `/usr/bin/git`
+are used only when that lookup finds nothing.
+
 ## Registration and networking
 
 Enrollment replaces the manual certificates and approval file. On first use

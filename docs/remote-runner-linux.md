@@ -4,6 +4,9 @@ Use a supported Dispatch release and a Linux x86-64 or ARM64 host with systemd,
 the unified cgroup v2 hierarchy, and systemd's `freeze` and `thaw` commands.
 Install Git, GNU grep, procps (ps), findutils, Bash, curl, tar, util-linux (including `/usr/bin/setpriv` and `flock`),
 `useradd`, GNU coreutils, and a GitHub CLI with `gh attestation verify --bundle`.
+The installer uses the tools already there and installs nothing; it lists
+what it found and names anything missing. The runner uses the workload
+account's own `gh` and `git` from its login shell PATH.
 GitHub CLI verifies the published bundles without a GitHub login.
 The runner must be able to reach the HTTPS address in the pairing command.
 The published binary bundles Bun and runs on glibc-based Linux. Session

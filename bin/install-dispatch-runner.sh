@@ -24,9 +24,73 @@ release_fetch() {
   local asset="$1" base="https://github.com/selfcontained/dispatch/releases/download/$tag"
   curl -qfsSL --proto '=https' --proto-redir '=https' "$base/$asset" -o "$stage/$asset"
   curl -qfsSL --proto '=https' --proto-redir '=https' "$base/$asset.sigstore.json" -o "$stage/$asset.sigstore.json"
-  gh attestation verify "$stage/$asset" --hostname github.com \
+  "${gh_bin:-gh}" attestation verify "$stage/$asset" --hostname github.com \
     --bundle "$stage/$asset.sigstore.json" --repo selfcontained/dispatch \
     --signer-workflow selfcontained/dispatch/.github/workflows/release.yml
+}
+
+# Where an account's login shell finds a tool: the same profile and
+# ~/.dispatch/env the runner's agent sessions load. Prints nothing if absent.
+account_tool() {
+  local account=$1 uid=$2 gid=$3 home=$4 shell=$5 tool=$6
+  case "${shell##*/}" in
+    bash|zsh|sh|dash) [[ -x "$shell" ]] || shell=/bin/bash ;;
+    *) shell=/bin/bash ;;
+  esac
+  setpriv --reuid="$uid" --regid="$gid" --init-groups \
+    env -i HOME="$home" USER="$account" LOGNAME="$account" PATH="${account_base_path:-/usr/local/bin:/usr/bin:/bin}" \
+    "$shell" -lc '[ -f "$HOME/.dispatch/env" ] && . "$HOME/.dispatch/env"; export PATH="${PATH:+$PATH:}$HOME/.local/bin"; command -v "$1"' \
+    dispatch-tool-lookup "$tool" < /dev/null 2> /dev/null | grep '^/' | tail -n 1 || :
+}
+
+# Report each dependency the installer itself uses. Nothing is installed or
+# upgraded here: a present tool is used as it is, a missing one is named.
+check_dependencies() {
+  local command found missing=() sudo_entry uid gid home shell
+  for command in curl tar ps find; do
+    if found=$(command -v "$command"); then
+      printf 'Found %s: %s\n' "$command" "$found"
+    else
+      printf 'Missing %s\n' "$command"
+      missing+=("$command")
+    fi
+  done
+  gh_bin=$(command -v gh) || gh_bin=
+  # sudo's secure PATH often hides the invoking user's own GitHub CLI. That
+  # user already runs this script as root, so their gh is trusted here too.
+  if [[ -z "$gh_bin" && -n "${SUDO_USER:-}" && "$SUDO_USER" != root ]] &&
+    sudo_entry=$(getent -- passwd "$SUDO_USER"); then
+    IFS=: read -r _ _ uid gid _ home shell <<< "$sudo_entry"
+    if [[ "$uid" =~ ^[1-9][0-9]*$ && "$gid" =~ ^[1-9][0-9]*$ && "$home" == /* ]]; then
+      gh_bin=$(account_tool "$SUDO_USER" "$uid" "$gid" "$home" "$shell" gh)
+    fi
+  fi
+  if [[ -n "$gh_bin" ]]; then
+    printf 'Found gh: %s\n' "$gh_bin"
+  else
+    printf 'Missing gh\n'
+    missing+=(gh)
+  fi
+  [[ ${#missing[@]} -eq 0 ]] || error "Install ${missing[*]}. The installer does not install or upgrade packages"
+  "$gh_bin" attestation verify --help > /dev/null 2>&1 ||
+    error "GitHub CLI at $gh_bin cannot verify release attestations (needs gh 2.49 or newer). Update that gh; the installer will not install another one"
+}
+
+# Report the workload account's own git and gh, which the runner uses.
+check_workload_tools() {
+  local account=$1 uid=$2 gid=$3 home=$4 shell=$5 tool found
+  for tool in git gh; do
+    found=$(account_tool "$account" "$uid" "$gid" "$home" "$shell" "$tool")
+    if [[ -n "$found" ]]; then
+      printf 'Found %s for %s: %s\n' "$tool" "$account" "$found"
+    elif [[ -x "/usr/bin/$tool" ]]; then
+      printf 'Found %s for %s: /usr/bin/%s\n' "$tool" "$account" "$tool"
+    elif [[ "$tool" == git ]]; then
+      error "Install git for $account. The installer does not install or upgrade packages"
+    else
+      printf 'Missing gh for %s. GitHub sign-in on this runner needs it\n' "$account"
+    fi
+  done
 }
 
 stage_release() {
@@ -163,6 +227,7 @@ install_runner() {
     IFS=: read -r _ _ uid gid _ account_home account_shell <<< "$account_entry"
     [[ "$uid" =~ ^[1-9][0-9]*$ && "$gid" =~ ^[1-9][0-9]*$ && "$account_home" == /* ]] ||
       error "Invalid workload account or home"
+    check_workload_tools "$account" "$uid" "$gid" "$account_home" "$account_shell"
     : > "$runtime/managed-install"
     install -d -m 0755 "$state"
     if [[ "$dedicated" == 1 ]]; then
@@ -452,9 +517,7 @@ main() {
     error "The managed runner needs systemd and cgroup v2"
   [[ -x /usr/bin/setpriv ]] || error "Install util-linux with /usr/bin/setpriv"
   if [[ "$action" != recover ]]; then
-    for command in curl gh tar ps find git; do
-      command -v "$command" >/dev/null || error "Install $command"
-    done
+    check_dependencies
   fi
   umask 077
   unit=dispatch-runner.service

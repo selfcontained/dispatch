@@ -134,9 +134,24 @@ mv() {
 sleep() { :; }
 sync() { :; }
 flock() { [[ "$*" == '-n 9' ]]; }
+# Run the account lookup as this fixture user; record any package install.
+setpriv() {
+  while [[ "$1" == --* ]]; do shift; done
+  "$@"
+}
+apt-get() { printf 'apt-get %s\n' "$*" >> "$root/package-installs"; }
+apt() { printf 'apt %s\n' "$*" >> "$root/package-installs"; }
 
 case "$action" in
   install) parse_install_options "${@:5}"; stage_release; install_runner ;;
+  deps)
+    (
+      unset -f gh curl
+      PATH="$root/rootbin"
+      check_dependencies
+      check_workload_tools installer 1000 1001 "$root/installer home" /bin/bash
+    )
+    ;;
   connect)
     export root settings
     export -f systemctl flock
@@ -220,6 +235,44 @@ for fixture in invalid default explicit; do
   [[ ! -e "$fixture_root/state/home" && ! -e "$fixture_root/account" ]]
   [[ -z "$(find "$fixture_root" -path '* home/*' -print)" ]]
 done
+unset fixture_root
+
+# Dependencies: tools already present are reported and left alone; a missing
+# one is named and nothing is installed. sudo's PATH may lack the invoking
+# user's own gh, so it is found through their login profile.
+deps="$root/deps"
+mkdir -p "$deps/rootbin" "$deps/installer home/tools/bin"
+for tool in curl tar ps find grep tail env; do
+  ln -s "$(command -v "$tool")" "$deps/rootbin/$tool"
+done
+printf '#!/bin/sh\n[ "$1 $2 $3" = "attestation verify --help" ]\n' > "$deps/rootbin/gh"
+cp "$deps/rootbin/gh" "$deps/installer home/tools/bin/gh"
+ln -s "$(command -v git)" "$deps/installer home/tools/bin/git"
+chmod 0755 "$deps/rootbin/gh" "$deps/installer home/tools/bin/gh"
+printf 'PATH="$HOME/tools/bin:/usr/bin:/bin"\n' > "$deps/installer home/.bash_profile"
+fixture_root=$deps
+SUDO_USER=installer run deps "" > "$deps/out"
+for tool in curl tar ps find; do
+  grep -Fxq "Found $tool: $deps/rootbin/$tool" "$deps/out"
+done
+grep -Fxq "Found gh: $deps/rootbin/gh" "$deps/out"
+grep -Fxq "Found git for installer: $deps/installer home/tools/bin/git" "$deps/out"
+grep -Fxq "Found gh for installer: $deps/installer home/tools/bin/gh" "$deps/out"
+[[ ! -e "$deps/package-installs" ]]
+
+rm "$deps/rootbin/tar" "$deps/rootbin/gh"
+SUDO_USER=installer expect_status 1 deps "" > "$deps/out" 2> "$deps/err"
+grep -Fxq "Missing tar" "$deps/out"
+grep -Fxq "Found curl: $deps/rootbin/curl" "$deps/out"
+grep -Fxq "Found gh: $deps/installer home/tools/bin/gh" "$deps/out"
+grep -Fxq "error: Install tar. The installer does not install or upgrade packages" "$deps/err"
+[[ ! -e "$deps/package-installs" ]]
+
+ln -s "$(command -v tar)" "$deps/rootbin/tar"
+printf '#!/bin/sh\nexit 1\n' > "$deps/installer home/tools/bin/gh"
+SUDO_USER=installer expect_status 1 deps "" > /dev/null 2> "$deps/err"
+grep -Fq "cannot verify release attestations" "$deps/err"
+[[ ! -e "$deps/package-installs" ]]
 unset fixture_root
 
 run install v1.0.0 x64 --dedicated-user
