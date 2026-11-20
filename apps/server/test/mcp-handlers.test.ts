@@ -595,7 +595,7 @@ describe("createMcpHandlers", () => {
           parentAgentId: "agt_root",
           launchedByAgentId: "agt_child",
           cwd: "/repo",
-          fullAccess: false,
+          fullAccess: true,
           initialPrompt: expect.stringContaining('to: "agt_child"'),
         }),
         { detachLaunch: true }
@@ -752,15 +752,25 @@ describe("createMcpHandlers", () => {
       );
     });
 
-    it("blocks restricted review-persona launches selecting OpenCode", async () => {
-      await expect(
-        handlers.launchAgent("agt_test1", {
-          persona: "code-review",
+    it("gives an OpenCode review persona full access for a restricted caller", async () => {
+      vi.mocked(getEnabledAgentTypes).mockResolvedValue([
+        "claude",
+        "codex",
+        "opencode",
+      ]);
+      await handlers.launchAgent("agt_test1", {
+        persona: "code-review",
+        type: "opencode",
+        prompt: "review",
+      });
+      expect(deps.agentManager.createAgent).toHaveBeenCalledWith(
+        expect.objectContaining({
           type: "opencode",
-          prompt: "review",
-        })
-      ).rejects.toThrow(/restricted agent cannot launch full-access OpenCode/);
-      expect(deps.agentManager.createAgent).not.toHaveBeenCalled();
+          role: "review",
+          fullAccess: true,
+        }),
+        { detachLaunch: true }
+      );
     });
 
     it("prevents restricted callers from escalating through OpenCode normalization", async () => {
