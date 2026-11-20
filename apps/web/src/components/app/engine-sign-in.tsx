@@ -4,7 +4,7 @@ import { CheckCircle2, Loader2 } from "lucide-react";
 import type { EngineLogin, EngineLoginEngine } from "@dispatch/shared";
 
 import { Button } from "@/components/ui/button";
-import { CopyButton } from "@/components/ui/copy-button";
+import { CommandBlock } from "@/components/ui/command-block";
 import { Input } from "@/components/ui/input";
 import { isLoginActive, useEngineLogin } from "@/hooks/use-engine-login";
 
@@ -153,17 +153,21 @@ export function EngineSignIn({
         <p className="text-[12px] text-foreground">
           1. Copy this link and open it in a browser.
         </p>
-        <CopyBlock text={login.url} testId="engine-sign-in-url" />
+        <CommandBlock
+          text={login.url}
+          testId="engine-sign-in-url"
+          textClassName="break-all"
+        />
       </div>
       {login.userCode ? (
         <div className="space-y-1.5">
           <p className="text-[12px] text-foreground">
             2. Sign in, then enter this code when asked.
           </p>
-          <CopyBlock
+          <CommandBlock
             text={login.userCode}
             testId="engine-sign-in-user-code"
-            large
+            textClassName="text-lg leading-7 tracking-widest"
           />
           <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="flex items-center gap-2 text-[11.5px] text-muted-foreground">
@@ -209,38 +213,6 @@ export function EngineSignIn({
           <div className="flex justify-end">{cancel}</div>
         </div>
       )}
-    </div>
-  );
-}
-
-/** Text to copy, as plain monospace (not a link), with its copy button. */
-function CopyBlock({
-  text,
-  testId,
-  large,
-}: {
-  text: string;
-  testId: string;
-  large?: boolean;
-}): JSX.Element {
-  return (
-    <div className="flex min-w-0 items-start gap-1 rounded border border-border bg-background/60 p-2">
-      <code
-        className={
-          large
-            ? "min-w-0 flex-1 select-all px-1 font-mono text-lg tracking-widest text-foreground"
-            : "min-w-0 flex-1 select-all break-all px-1 font-mono text-[11px] leading-relaxed text-foreground"
-        }
-        data-testid={testId}
-      >
-        {text}
-      </code>
-      <CopyButton
-        text={text}
-        label="Copy"
-        className="shrink-0"
-        data-testid={`${testId}-copy`}
-      />
     </div>
   );
 }

@@ -194,6 +194,54 @@ it("leaves pairing approvals actionable after closing the Add runner dialog", as
   );
 });
 
+it("copies the exact install and connect commands and closes from the footer", async () => {
+  const install =
+    "curl -fsSL https://example.test/install.sh -o /tmp/install.sh \\\n  && sudo bash /tmp/install.sh install";
+  const connect = "sudo dispatch-runner connect https://dispatch.example";
+  vi.mocked(api).mockImplementation(async (path) => {
+    if (path === "/api/runners") return { runners: [] };
+    if (path === "/api/v1/runners/connect") return { requests: [] };
+    if (path === "/api/v1/runners/installer")
+      return { command: install, tag: "v1.2.3" };
+    if (path === "/api/v1/runners/connect-command") return { command: connect };
+    throw new Error(`Unexpected endpoint ${path}`);
+  });
+  const writeText = vi.fn().mockResolvedValue(undefined);
+  Object.defineProperty(navigator, "clipboard", {
+    configurable: true,
+    value: { writeText },
+  });
+
+  try {
+    renderSettings();
+    fireEvent.click(await screen.findByRole("button", { name: "Add runner" }));
+    const dialog = screen.getByRole("dialog", { name: "Add runner" });
+    expect(
+      (await within(dialog).findByTestId("runner-install-command")).textContent
+    ).toBe(install);
+    await within(dialog).findByTestId("runner-connect-command");
+
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: "Copy install command" })
+    );
+    await within(dialog).findByRole("button", {
+      name: "Copied install command",
+    });
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: "Copy connect command" })
+    );
+    await within(dialog).findByRole("button", {
+      name: "Copied connect command",
+    });
+    expect(writeText.mock.calls).toEqual([[install], [connect]]);
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "Done" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+  } finally {
+    delete (navigator as { clipboard?: unknown }).clipboard;
+  }
+});
+
 it("shows reported activity only for online runners with fresh health", async () => {
   const freshTime = new Date().toISOString();
   const staleTime = new Date(Date.now() - 91_000).toISOString();

@@ -9,6 +9,7 @@ import type {
 
 import { AgentTypeIcon } from "@/components/app/agent-type-icon";
 import { LoadingButton } from "@/components/ui/button";
+import { CommandBlock } from "@/components/ui/command-block";
 import { CopyButton } from "@/components/ui/copy-button";
 import { Input } from "@/components/ui/input";
 import {
@@ -369,16 +370,10 @@ function LoginFlow({
       </div>
       {login.userCode ? (
         <div className="space-y-1.5">
-          <div className="flex min-w-0 items-start gap-1 rounded border border-border bg-background/60 p-2">
-            <code className="min-w-0 flex-1 select-all break-all px-1 font-mono text-lg tracking-widest text-foreground">
-              {login.userCode}
-            </code>
-            <CopyButton
-              text={login.userCode}
-              label="Copy"
-              className="shrink-0"
-            />
-          </div>
+          <CommandBlock
+            text={login.userCode}
+            textClassName="break-all text-lg leading-7 tracking-widest"
+          />
           <div className="flex items-center justify-between gap-2">
             <p className="flex items-center gap-2 text-[11.5px] text-muted-foreground">
               <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />

@@ -1,13 +1,14 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Copy, Plus, X } from "lucide-react";
-import { useCopyText } from "@/hooks/use-copy";
+import { Plus, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { CommandBlock } from "@/components/ui/command-block";
 import {
   Dialog,
   DialogClose,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
@@ -23,27 +24,14 @@ export function RunnerCommand({
   value: string;
   label: string;
 }) {
-  const [copied, copy] = useCopyText();
+  const name = label.toLowerCase();
   return (
-    <div className="flex min-w-0 items-start gap-2 rounded-md border border-border p-2">
-      <pre
-        className="max-h-40 min-w-0 flex-1 select-all overflow-auto whitespace-pre-wrap break-words p-1 text-xs"
-        data-testid={label === "Connect" ? "runner-connect-command" : undefined}
-      >
-        {value}
-      </pre>
-      <Button
-        type="button"
-        size="sm"
-        variant="ghost"
-        className="shrink-0 gap-1.5"
-        onClick={() => copy(value)}
-        aria-label={`${copied ? "Copied" : "Copy"} ${label.toLowerCase()} command`}
-      >
-        <Copy size={14} aria-hidden="true" />
-        {copied ? "Copied" : "Copy"}
-      </Button>
-    </div>
+    <CommandBlock
+      text={value}
+      label={`Copy ${name} command`}
+      copiedLabel={`Copied ${name} command`}
+      testId={`runner-${name.replace(/\s+/g, "-")}-command`}
+    />
   );
 }
 
@@ -323,13 +311,11 @@ export function RunnerOnboarding() {
             )}
           </section>
         </div>
-        <div className="flex justify-end">
+        <DialogFooter>
           <DialogClose asChild>
-            <Button type="button" variant="ghost">
-              Done
-            </Button>
+            <Button type="button">Done</Button>
           </DialogClose>
-        </div>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );
