@@ -205,12 +205,17 @@ export class RunnerRegistry {
     );
   }
 
-  /** Never-redeemed codes stop holding their name once they expire. */
+  /** Prune expired codes while preserving cleared runners used in agent history. */
   private async pruneExpired() {
     await this.pool.query(
-      `DELETE FROM runner_registrations
+      `DELETE FROM runner_registrations AS registration
         WHERE enrolled_at IS NULL AND code_expires_at <= now()
-          AND (revoked_at IS NULL OR cleared_at IS NOT NULL)`
+          AND (revoked_at IS NULL OR (
+            cleared_at IS NOT NULL AND NOT EXISTS (
+              SELECT 1 FROM agents
+              WHERE starts_with(cwd, 'runner://' || registration.id || '/')
+            )
+          ))`
     );
   }
 
