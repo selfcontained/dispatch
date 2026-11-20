@@ -13,7 +13,7 @@ import type {
   RoutingPending,
 } from "@dispatch/shared";
 import type { Agent } from "@/components/app/types";
-import type { Runner } from "@/hooks/use-runners";
+import { useRunners } from "@/hooks/use-runners";
 import {
   AlertTriangle,
   Check,
@@ -73,29 +73,27 @@ function useRoutingReceipt(block: Block): boolean {
 
 /**
  * Held recipients that are not mid-turn but sit on a remote runner that is
- * offline: their message waits for the runner, not for a turn. Reads only
- * what the app already cached; it never fetches.
+ * offline: their message waits for the runner, not for a turn.
  */
 function useWaitingOnRunner(held: readonly string[]): boolean {
   const { data: agents } = useQuery<Agent[]>({
     queryKey: ["agents"],
     queryFn: skipToken,
   });
-  const { data: runners } = useQuery<Runner[]>({
-    queryKey: ["runners"],
-    queryFn: skipToken,
-  });
-  if (!held.length || !agents || !runners) return false;
-  return held.every((id) => {
-    const agent = agents.find((entry) => entry.id === id);
+  const runnerIds = held.map((id) => {
+    const agent = agents?.find((entry) => entry.id === id);
     if (!agent || agent.currentTurn || agent.activity === "working")
-      return false;
-    const runnerId = remotePlacement(agent.cwd)?.runner;
-    return (
-      !!runnerId &&
-      runners.find((runner) => runner.id === runnerId)?.status === "offline"
-    );
+      return undefined;
+    return remotePlacement(agent.cwd)?.runner;
   });
+  const eligible = runnerIds.length > 0 && runnerIds.every(Boolean);
+  const { data: runners } = useRunners({ enabled: eligible, poll: eligible });
+  return (
+    eligible &&
+    runnerIds.every(
+      (id) => runners?.find((runner) => runner.id === id)?.status === "offline"
+    )
+  );
 }
 
 /** The recipients of a post in one of the states worth reporting. */
@@ -141,15 +139,15 @@ function DeliveryStatus({
   onRetryDelivery,
 }: DeliveryMetaProps): JSX.Element | null {
   const held = inState(block, "held");
-  const waitingOnRunner = useWaitingOnRunner(held);
+  const interrupt =
+    block.kind === "text" && block.data?.delivery === "interrupt";
+  const waitingOnRunner = useWaitingOnRunner(interrupt ? [] : held);
   if (block.toAgentId === null || !block.delivery?.length) return null;
   if (
     (block.data as { scheduledMessageId?: string } | null)?.scheduledMessageId
   )
     return null;
   const several = block.delivery.length > 1;
-  const interrupt =
-    block.kind === "text" && block.data?.delivery === "interrupt";
   const skipped = inState(block, "not_attempted");
   const failed = inState(block, "failed");
 

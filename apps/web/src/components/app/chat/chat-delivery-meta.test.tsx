@@ -14,6 +14,9 @@ import { workspaceLocator } from "@dispatch/runner-protocol";
 import { block } from "@/test-utils/blocks";
 import { DeliveryIndicator, DeliveryMeta } from "./chat-delivery-meta";
 
+const { api } = vi.hoisted(() => ({ api: vi.fn() }));
+vi.mock("@/lib/api", () => ({ api }));
+
 const clients: QueryClient[] = [];
 function render(ui: ReactNode) {
   const client = new QueryClient({
@@ -41,14 +44,15 @@ function receipt(delivery: BlockDelivery[]) {
 }
 function renderHeld(
   agent: { cwd: string; activity: string; currentTurn: unknown },
-  runnerStatus: string
+  runnerStatus?: string
 ) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: Infinity } },
   });
   clients.push(client);
   client.setQueryData(["agents"], [{ id: "agt_1", ...agent }]);
-  client.setQueryData(["runners"], [{ id: "run_1", status: runnerStatus }]);
+  if (runnerStatus)
+    client.setQueryData(["runners"], [{ id: "run_1", status: runnerStatus }]);
   return testingRender(
     <DeliveryMeta
       block={receipt([{ agentId: "agt_1", state: "held" }])}
@@ -73,9 +77,30 @@ function ui(delivery: BlockDelivery[]) {
 afterEach(() => {
   cleanup();
   for (const client of clients.splice(0)) client.clear();
+  api.mockReset();
   vi.useRealTimers();
 });
 describe("held label reason", () => {
+  it("fetches runner status in chat and updates the label after reconnect", async () => {
+    vi.useFakeTimers();
+    api
+      .mockResolvedValueOnce({ runners: [{ id: "run_1", status: "offline" }] })
+      .mockResolvedValueOnce({ runners: [{ id: "run_1", status: "online" }] });
+    renderHeld({ cwd: remoteCwd, activity: "idle", currentTurn: null });
+
+    await act(() => vi.advanceTimersByTimeAsync(10));
+    expect(api).toHaveBeenCalledWith("/api/runners");
+    expect(screen.getByTestId("chat-held-hint").textContent).toBe(
+      "Queued until the runner reconnects"
+    );
+
+    await act(() => vi.advanceTimersByTimeAsync(5_000));
+    expect(api).toHaveBeenCalledTimes(2);
+    expect(screen.getByTestId("chat-held-hint").textContent).toBe(
+      "Queued until the turn ends"
+    );
+  });
+
   it("says the runner when an idle remote agent's runner is offline", () => {
     renderHeld(
       { cwd: remoteCwd, activity: "idle", currentTurn: null },
