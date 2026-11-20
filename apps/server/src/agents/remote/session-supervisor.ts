@@ -696,6 +696,10 @@ export async function createSessionSupervisor(
     progress?.({ phase: "ready" });
     const dir = path.join(hostRoot, key);
     const files = path.join(dir, "files");
+    const mcpCaPath = path.join(dir, "service-mcp-ca.pem");
+    // The enrollment CA may live under a root-only directory. Publish just
+    // the certificate into the private workload state before starting the host.
+    const mcpCa = mcp ? await readFile(config.ca) : undefined;
     const {
       repository: _repository,
       useWorktreeOf: _owner,
@@ -710,8 +714,12 @@ export async function createSessionSupervisor(
       env: {
         DISPATCH_AGENT_ID: agentId,
         DISPATCH_FILES_DIR: files,
-        ...(mcpUrl ? { DISPATCH_API_URL: mcpUrl.origin } : {}),
-        NODE_EXTRA_CA_CERTS: config.ca,
+        ...(mcpUrl
+          ? {
+              DISPATCH_API_URL: mcpUrl.origin,
+              DISPATCH_LOCAL_CA_CERTIFICATE: mcpCaPath,
+            }
+          : { NODE_EXTRA_CA_CERTS: config.ca }),
       },
       pathPrefix: [],
       reportTurnActivity: true,
@@ -722,6 +730,10 @@ export async function createSessionSupervisor(
     await mkdir(dir, { mode: 0o700 });
     await mkdir(files, { mode: 0o700 });
     await chown(files, config.uid, config.gid);
+    if (mcpCa) {
+      await writeFile(mcpCaPath, mcpCa, { mode: 0o600 });
+      await chown(mcpCaPath, config.uid, config.gid);
+    }
     await writeFile(hostFile(dir, "launch"), JSON.stringify(launch), {
       mode: 0o600,
     });
@@ -735,7 +747,9 @@ export async function createSessionSupervisor(
       await processes.spawn(
         [...host, "--state", dir],
         cwd,
-        env,
+        mcpCa && env.NODE_EXTRA_CA_CERTS === config.ca
+          ? { ...env, NODE_EXTRA_CA_CERTS: undefined }
+          : env,
         log,
         (identity) =>
           writePrivateState(identityFile(key), JSON.stringify(identity)),

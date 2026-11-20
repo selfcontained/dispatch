@@ -90,11 +90,15 @@ it("merges shell-provided trust after ~/.dispatch/env and isolates agents and co
       ...shellEnv,
       CODEX_CA_CERTIFICATE: undefined,
       CURL_CA_BUNDLE: undefined,
+      NODE_EXTRA_CA_CERTS: undefined,
     });
     expect(readFileSync(fallback.CODEX_CA_CERTIFICATE!, "utf8")).toContain(
       `${agent} SSL_CERT_FILE corporate root`
     );
     expect(readFileSync(fallback.CURL_CA_BUNDLE!, "utf8")).toContain(
+      `${agent} SSL_CERT_FILE corporate root`
+    );
+    expect(readFileSync(fallback.NODE_EXTRA_CA_CERTS!, "utf8")).toContain(
       `${agent} SSL_CERT_FILE corporate root`
     );
   }

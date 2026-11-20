@@ -488,6 +488,36 @@ it("disconnect settles only its own requests and a missing host has a distinct r
   await expect(pending).rejects.toBeInstanceOf(RunnerHostGone);
 });
 
+it("reattaches by opaque session handle after losing an MCP launch acknowledgement", async () => {
+  const first = peer();
+  const token = "one-session-fixture-bearer";
+  const launch = first.connection.request({
+    ...attach,
+    kind: "launch",
+    launch: {
+      agentId: attach.agentId,
+      engine: "codex",
+      model: null,
+      systemPrompt: null,
+      resumeSessionId: null,
+      mcp: { name: "tool-service", url: "https://service.example/mcp", token },
+    },
+  });
+  const lost = expect(launch).rejects.toThrow(/acknowledgement was lost/);
+  first.connection.close();
+  await lost;
+
+  const reconnected = peer();
+  const attached = reconnected.connection.request(attach, {
+    openChannel: true,
+  });
+  const id = requestId(reconnected.sent[0]);
+  reconnected.connection.receive({ type: "result", id, value: true });
+  (await attached).channel!.destroy();
+  expect(reconnected.sent[0]).toEqual({ type: "request", id, command: attach });
+  expect(JSON.stringify(reconnected.sent)).not.toContain(token);
+});
+
 it("a timed-out request has an unknown outcome even if its receipt arrives late", async () => {
   vi.useFakeTimers();
   try {

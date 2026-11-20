@@ -1,4 +1,4 @@
-import { execFileSync } from "node:child_process";
+import { execFile, execFileSync, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
   link,
@@ -14,6 +14,15 @@ import {
 } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { createInterface } from "node:readline";
+import { promisify } from "node:util";
+import Fastify from "fastify";
+import { buildHostEnv } from "../src/agents/acp/host-env.js";
+import type { HostLaunch } from "../src/agents/acp/host-protocol.js";
+import { issueAuthority, issueServer } from "../src/agents/remote/x509.js";
+import { createAgentMcpToken, validateAgentMcpToken } from "../src/auth.js";
+import { registerMcpRoutes } from "../src/routes/mcp.js";
+import { assertAccessCeiling } from "../src/shared/access-ceiling.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   MANAGED_WORKSPACE,
@@ -64,6 +73,73 @@ it("explains lock contention while retaining diagnostics for other flock failure
   );
 });
 
+// Drive the actual CLI's MCP client directly, with no provider account or model turn.
+async function callCodexMcp(
+  bin: string,
+  env: NodeJS.ProcessEnv,
+  launch: HostLaunch
+): Promise<string> {
+  const child = spawn(bin, ["app-server", "--listen", "stdio://"], {
+    cwd: launch.cwd,
+    env,
+    stdio: ["pipe", "pipe", "ignore"],
+  });
+  const responses = createInterface({ input: child.stdout })[
+    Symbol.asyncIterator
+  ]();
+  let id = 0;
+  async function request(method: string, params: object) {
+    const requestId = ++id;
+    child.stdin.write(
+      JSON.stringify({ jsonrpc: "2.0", id: requestId, method, params }) + "\n"
+    );
+    while (true) {
+      const line = await responses.next();
+      if (line.done) throw new Error(method + " closed without a response");
+      const message = JSON.parse(line.value);
+      if (message.id !== requestId) continue;
+      if (message.error)
+        throw new Error(method + " failed: " + message.error.code);
+      return message.result;
+    }
+  }
+  const timeout = setTimeout(() => child.kill(), 15_000);
+  try {
+    const mcp = launch.mcp!;
+    await request("initialize", {
+      clientInfo: { name: "dispatch-first-launch", version: "1" },
+      capabilities: { experimentalApi: true },
+    });
+    child.stdin.write('{"jsonrpc":"2.0","method":"initialized"}\n');
+    const { thread } = await request("thread/start", {
+      cwd: launch.cwd,
+      ephemeral: true,
+      sandbox: "read-only",
+      approvalPolicy: "never",
+      config: {
+        mcp_servers: {
+          [mcp.name!]: {
+            url: mcp.url,
+            http_headers: { Authorization: "Bearer " + mcp.token },
+          },
+        },
+      },
+    });
+    return JSON.stringify(
+      await request("mcpServer/tool/call", {
+        threadId: thread.id,
+        server: mcp.name,
+        tool: "create_template",
+        arguments: { name: "first launch", fullAccess: false },
+      })
+    );
+  } finally {
+    clearTimeout(timeout);
+    child.stdin.end();
+    child.kill();
+  }
+}
+
 describe("runner session supervision", () => {
   let root: string;
   let state: string;
@@ -113,7 +189,7 @@ describe("runner session supervision", () => {
         state,
         uid: process.getuid!(),
         gid: process.getgid!(),
-        ca: "ca",
+        ca: path.join(state, "runner-ca.pem"),
         bins: { claudeBin: "", codexBin: "" },
         env: {},
         workspaces: new Set(workspaces),
@@ -411,6 +487,149 @@ describe("runner session supervision", () => {
     await expect(stat(record)).rejects.toMatchObject({ code: "ENOENT" });
   });
 
+  async function proveServiceMcp(codex?: string) {
+    const running = await start([]);
+    const ca = issueAuthority("First launch fixture");
+    const leaf = issueServer(ca, ["127.0.0.1"]);
+    await writeFile(path.join(state, "runner-ca.pem"), ca.cert);
+    const app = Fastify({ https: { cert: leaf.cert, key: leaf.key } });
+    const secret = "isolated first launch fixture";
+    const token = createAgentMcpToken(secret, reviewerId);
+    let active = true;
+    const addTemplate = vi.fn(
+      async (
+        input: { name: string; fullAccess: boolean },
+        callerFullAccess: boolean
+      ) => {
+        assertAccessCeiling(input.fullAccess, callerFullAccess);
+        return { id: "fixture-template", name: input.name };
+      }
+    );
+    await registerMcpRoutes(app, {
+      config: { authToken: secret },
+      providerPlans: async () => ({}),
+      getBearerToken: (request) =>
+        /^Bearer (.+)$/.exec(request.headers.authorization ?? "")?.[1] ?? null,
+      validateAgentMcpToken,
+      agentManager: {
+        getAgent: async (id: string) => ({
+          id,
+          cwd: "runner://fixture/proof",
+          parentAgentId: agentId,
+          fullAccess: false,
+        }),
+        permitsRemoteAgentMcp: () => active,
+        remoteRepoOperation: () => undefined,
+      },
+      jobService: { getActiveRunForAgent: async () => null },
+      templateService: { addTemplate },
+      mcpMethodNotAllowed: () => ({}),
+    } as Parameters<typeof registerMcpRoutes>[1]);
+    const origin = await app.listen({ host: "127.0.0.1", port: 0 });
+    try {
+      // The author starts with MCP omitted. The restricted child gets its own
+      // endpoint and credential even though it borrows the author's checkout.
+      await running.launch(launch(MANAGED_WORKSPACE), undefined);
+      processes.spawn.mockImplementationOnce(
+        async (_cmd, _cwd, _env, _log, save) => {
+          kernelReviewer = { ...identity, pid: 101 };
+          await save(kernelReviewer);
+        }
+      );
+      const child = sharedLaunch();
+      const mcp = {
+        name: "service",
+        url: origin + "/api/mcp/" + reviewerId,
+        token,
+      };
+      await running.launch(
+        {
+          ...child,
+          launch: { ...child.launch, mcp, fullAccess: false },
+        },
+        undefined
+      );
+      const dir = path.join(state, "hosts", reviewerId);
+      const payload: HostLaunch = JSON.parse(
+        await readFile(path.join(dir, "launch.json"), "utf8")
+      );
+      expect(payload.mcp).toEqual(mcp);
+      expect(payload.fullAccess).toBe(false);
+      expect(payload.env.DISPATCH_API_URL).toBe(origin);
+      const caPath = payload.env.DISPATCH_LOCAL_CA_CERTIFICATE!;
+      expect(await readFile(caPath, "utf8")).toBe(ca.cert);
+      expect((await stat(caPath)).mode & 0o777).toBe(0o600);
+      const env = buildHostEnv(payload, dir, {
+        HOME: root,
+        CODEX_HOME: root,
+        PATH: process.env.PATH,
+      });
+      if (codex) {
+        const output = await callCodexMcp(codex, env, payload);
+        expect(output).toContain("fixture-template");
+        expect(output).not.toContain(token);
+      } else {
+        const request = async (url: string, fullAccess: boolean) => {
+          const { stdout } = await promisify(execFile)(
+            process.execPath,
+            [
+              "--input-type=module",
+              "-e",
+              `
+              const [url, fullAccess] = process.argv.slice(1);
+              const response = await fetch(url, {
+                method: "POST",
+                headers: {
+                  authorization: "Bearer " + process.env.FIXTURE_TOKEN,
+                  accept: "application/json, text/event-stream",
+                  "content-type": "application/json",
+                },
+                body: JSON.stringify({
+                  jsonrpc: "2.0", id: 1, method: "tools/call",
+                  params: { name: "create_template", arguments: {
+                    name: "first launch", fullAccess: fullAccess === "true"
+                  }},
+                }),
+              });
+              console.log(response.status, await response.text());
+            `,
+              url,
+              String(fullAccess),
+            ],
+            { env: { ...env, FIXTURE_TOKEN: token }, timeout: 5000 }
+          );
+          expect(stdout).not.toContain(token);
+          return stdout;
+        };
+        expect(await request(mcp.url, false)).toContain("fixture-template");
+        expect(await request(mcp.url, true)).toContain("restricted agent");
+        expect(await request(origin + "/api/mcp/" + agentId, false)).toMatch(
+          /^403 /
+        );
+        active = false;
+        expect(await request(mcp.url, false)).toMatch(/^403 /);
+      }
+      expect(addTemplate).toHaveBeenCalledWith(
+        expect.objectContaining({ name: "first launch", fullAccess: false }),
+        false
+      );
+    } finally {
+      await app.close();
+    }
+  }
+
+  it("uses workload trust for a session-bound TLS tool and denies escalation and revocation", async () => {
+    await proveServiceMcp();
+  }, 15_000);
+
+  it.runIf(Boolean(process.env.DISPATCH_TEST_CODEX_BIN))(
+    "calls the TLS tool on a fresh real Codex app-server thread",
+    async () => {
+      await proveServiceMcp(process.env.DISPATCH_TEST_CODEX_BIN);
+    },
+    25_000
+  );
+
   it("starts the reviewer in the author's checkout with independent state", async () => {
     const running = await start([]);
     const author = path.join(state, "sessions", agentId);
@@ -443,6 +662,10 @@ describe("runner session supervision", () => {
       env: { DISPATCH_FILES_DIR: path.join(reviewerHost, "files") },
     });
     expect(payload).not.toHaveProperty("useWorktreeOf");
+    expect(payload).not.toHaveProperty("mcp");
+    await expect(
+      stat(path.join(reviewerHost, "service-mcp-ca.pem"))
+    ).rejects.toMatchObject({ code: "ENOENT" });
     await expect(
       stat(path.join(state, "sessions", reviewerId))
     ).rejects.toMatchObject({ code: "ENOENT" });

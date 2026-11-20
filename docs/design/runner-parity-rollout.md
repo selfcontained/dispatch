@@ -45,6 +45,21 @@ Each observation needs an owning machine/account, freshness, a bounded payload, 
 
 Ship each capability through its normal local and remote entry points, test older peers, and update the inventory with evidence. Keep release/update policy changes separate until the restart and mixed-version tests establish what can safely coexist.
 
+A launch with service MCP uses the HTTPS URL as seen from the workload.
+The runner stages its enrollment CA in the private host directory and the
+host adds it to the engine's TLS bundles before spawning the adapter. For
+an endpoint on a separate private CA, the runner operator can configure
+`trustBundle` with the additional roots. The v1 launch shape and optional
+`mcp` field are unchanged. An attach after disconnect uses the opaque
+session handle and reuses the running host without resending its bearer.
+The service validates the bearer against the intended session and owns
+revocation and child access policy.
+
+The supervisor regression exercises the host's TLS bundles against the
+Dispatch MCP route with a loopback client. To repeat the offline tool call
+with a real Codex app-server on a fresh thread, run
+`DISPATCH_TEST_CODEX_BIN="$(command -v codex)" pnpm --filter @dispatch/server exec vitest run test/remote-runner-supervisor.test.ts -t 'fresh real Codex'`.
+
 Session checkout selection now runs on the owning runner. Dispatch preserves
 the machine binding and project membership and records the selected path
 after runner acknowledgement. Borrowers retain the effective directory

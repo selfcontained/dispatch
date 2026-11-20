@@ -687,7 +687,8 @@ await import(${JSON.stringify(pathToFileURL(fakeAgent).href)});
     const id = "agt_host_receipt";
     const { runtime } = runtimeWith(stateRoot, () => 0);
     const launch = launchFor(id, cwd);
-    delete launch.mcp;
+    const token = "reauthentication-is-not-required-on-attach";
+    launch.mcp = { url: "https://127.0.0.1:1/service", token };
     launch.bins.adapter = {
       bin: "bun",
       args: [path.join(here, "helpers/remote-acp-fixture.ts")],
@@ -778,6 +779,7 @@ await import(${JSON.stringify(pathToFileURL(fakeAgent).href)});
           : []
       );
       expect(turns).toEqual(["started", "settled"]);
+      expect(JSON.stringify(second.messages)).not.toContain(token);
     } finally {
       second.socket.destroy();
       await runtime.stop(id, true);

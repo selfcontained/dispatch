@@ -24,7 +24,7 @@ export function buildHostEnv(
     // or tool must never replace another agent's or tool's trust configuration.
     env.NODE_EXTRA_CA_CERTS = localAgentCaBundle(
       ca,
-      env.NODE_EXTRA_CA_CERTS,
+      env.NODE_EXTRA_CA_CERTS || env.SSL_CERT_FILE,
       path.join(stateDir, "node-ca.pem")
     );
     if (launch.engine === "codex") {
