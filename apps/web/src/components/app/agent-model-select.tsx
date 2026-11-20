@@ -31,8 +31,9 @@ export function AgentModelSelect({
   testId = "create-agent-model",
 }: AgentModelSelectProps): JSX.Element {
   const fallback = catalogDefault ?? DEFAULT_VALUE;
-  const selectedValue =
-    value && options.some((option) => option.id === value) ? value : fallback;
+  const selected =
+    options.find((option) => option.id === value) ??
+    options.find((option) => option.id === fallback);
 
   return (
     <div className="space-y-1">
@@ -40,7 +41,7 @@ export function AgentModelSelect({
         Model
       </label>
       <Select
-        value={selectedValue}
+        value={selected?.id ?? fallback}
         onValueChange={(nextValue) => {
           // Radix's hidden form input echoes an empty value back through
           // onValueChange when its native <option> set lags the rendered items.
@@ -55,11 +56,7 @@ export function AgentModelSelect({
           aria-busy={loading || undefined}
           disabled={!loading && options.length === 0}
         >
-          <SelectValue>
-            {options.some((option) => option.id === selectedValue)
-              ? undefined
-              : "Default"}
-          </SelectValue>
+          <SelectValue>{selected?.label ?? "Default"}</SelectValue>
         </SelectTrigger>
         <SelectContent className="max-h-[clamp(4rem,var(--radix-select-content-available-height),24rem)]">
           {!catalogDefault && (

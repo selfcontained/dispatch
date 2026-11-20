@@ -91,7 +91,11 @@ async function renderDialog(template: Template) {
   );
   // The launch payload only carries a model once the catalog has arrived, so
   // every test starts from the settled state the user actually sees.
-  await waitFor(() => expect(modelSelect().disabled).toBe(false));
+  await waitFor(() => {
+    const trigger = modelSelect();
+    expect(trigger.disabled).toBe(false);
+    expect(trigger.hasAttribute("aria-busy")).toBe(false);
+  });
   return { onOpenChange };
 }
 
