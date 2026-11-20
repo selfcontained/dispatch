@@ -1007,7 +1007,7 @@ describe("runner enrollment service", () => {
   });
 });
 
-it("relays complete HTTP responses on a resumed connection without a client certificate", async () => {
+it("relays on an anonymous socket with a simulated Bun authorization flag", async () => {
   const authority = issueAuthority("relay-test");
   const leaf = issueServer(authority, [HOST]);
   const requests: string[] = [];
@@ -1147,8 +1147,14 @@ describe("runner listener request prefixes", () => {
       caPem: authority.cert,
       serverCert: leaf.cert,
     };
-    listener = createServer({ cert: leaf.cert, key: leaf.key }, (socket) =>
-      service["accept"](socket, "enrolled")
+    listener = createServer(
+      {
+        cert: leaf.cert,
+        key: leaf.key,
+        requestCert: true,
+        rejectUnauthorized: false,
+      },
+      (socket) => service["accept"](socket, "enrolled")
     );
     listener.listen(0, HOST);
     await once(listener, "listening");
@@ -1160,11 +1166,13 @@ describe("runner listener request prefixes", () => {
     api.close();
   });
 
-  async function dial() {
+  async function dial(session?: Buffer) {
     const socket = connect({
       host: HOST,
       port: (listener.address() as AddressInfo).port,
       ca: authority.cert,
+      maxVersion: "TLSv1.2",
+      session,
     });
     await once(socket, "secureConnect");
     return socket;
@@ -1190,6 +1198,30 @@ describe("runner listener request prefixes", () => {
   }
 
   const rest = "ping HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n";
+  it("relays HTTP after establishing a second TLS connection with a saved session", async () => {
+    const first = await dial();
+    const session = first.getSession();
+    const firstClosed = once(first, "close");
+    first.end();
+    await firstClosed;
+    expect(session).toBeDefined();
+
+    const resumed = await dial(session);
+    try {
+      expect(resumed.isSessionReused()).toBe(true);
+      let response = "";
+      resumed.setEncoding("utf8");
+      resumed.on("data", (chunk) => (response += chunk));
+      const closed = once(resumed, "close");
+      resumed.write("GET /" + rest);
+      await closed;
+      expect(response).toContain("HTTP/1.1 200 OK");
+      expect(response).toContain("ping ok");
+    } finally {
+      resumed.destroy();
+    }
+  });
+
   it.each([
     { chunks: ["GE", "T /" + rest], interval: 150 },
     { chunks: [..."GET /", rest], interval: 20 },
