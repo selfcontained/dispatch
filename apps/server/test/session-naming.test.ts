@@ -44,6 +44,47 @@ describe("launch naming", () => {
     expect(mixed.startsWith("p".repeat(4000) + "\n\nxxx")).toBe(true);
     expect(namingContext({})).toBe("");
   });
+  it("strips whole sensitive URL components with apostrophes and parentheses", () => {
+    for (const url of [
+      "https://example.com/report?token=abc'def-secret",
+      "https://example.com/report?token=abc)def-secret",
+      "https://user:abc'def)secret@example.com/report#private)",
+    ]) {
+      expect(namingContext({ launchContext: { links: [url] } })).toBe(
+        "https://example.com/report"
+      );
+      expect(namingContext({ initialPrompt: `Read ${url} next` })).toBe(
+        "Read https://example.com/report next"
+      );
+      expect(
+        namingContext({
+          initialFiles: [
+            {
+              fileName: "notes.txt",
+              source: "text",
+              mimeType: "text/plain",
+              buffer: Buffer.from(`Read ${url} next`),
+            },
+          ],
+        })
+      ).toBe("Read https://example.com/report next");
+    }
+    const buffer = Buffer.from(
+      "https://" + "credential".repeat(1000) + "@example.com/report"
+    );
+    expect(
+      namingContext({
+        initialFiles: [
+          {
+            fileName: "notes.txt",
+            source: "text",
+            mimeType: "text/plain",
+            buffer,
+          },
+        ],
+      })
+    ).toBe("[truncated URL]");
+  });
   it("sends data separately from instructions and accepts a usable title", async () => {
     const transport = vi.fn<typeof fetch>().mockResolvedValue(response());
     expect(

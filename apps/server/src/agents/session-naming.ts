@@ -14,17 +14,22 @@ export function namingContext(input: {
     remaining -= value.length;
     return value;
   };
-  // Strip URL credentials, queries and fragments even in prompts/documents.
+  const safeUrl = (raw: string) => {
+    try {
+      const u = new URL(raw);
+      return u.protocol === "https:" || u.protocol === "http:"
+        ? `${u.protocol}//${u.host}${u.pathname}`
+        : "[URL]";
+    } catch {
+      return "[URL]";
+    }
+  };
+  // Consume complete non-whitespace URL tokens, including legal apostrophes
+  // and parentheses in userinfo/query values. Conservative punctuation loss is
+  // preferable to submitting a private suffix outside a partial URL match.
   const clean = (text: string) =>
     text
-      .replace(/https?:\/\/[^\s<>"')]+/gi, (raw) => {
-        try {
-          const u = new URL(raw);
-          return `${u.protocol}//${u.host}${u.pathname}`;
-        } catch {
-          return "[URL]";
-        }
-      })
+      .replace(/https?:\/\/\S+/gi, safeUrl)
       .replace(/[\u0000-\u0008\u000b-\u001f]/g, "");
   const parts = [
     take(
@@ -33,12 +38,14 @@ export function namingContext(input: {
     ),
   ];
   for (const link of input.launchContext?.links ?? [])
-    parts.push(take(clean(link), 500));
+    parts.push(take(safeUrl(link), 500));
   for (const file of input.initialFiles ?? []) {
     if (file.source !== "text") continue;
-    parts.push(
-      take(clean(file.buffer.subarray(0, 8000).toString("utf8")).trim(), 2000)
-    );
+    let excerpt = file.buffer.subarray(0, 8000).toString("utf8");
+    // A byte cut inside userinfo could otherwise turn credentials into a host.
+    if (file.buffer.length > 8000)
+      excerpt = excerpt.replace(/https?:\/\/\S*$/gi, "[truncated URL]");
+    parts.push(take(clean(excerpt).trim(), 2000));
   }
   return parts.filter(Boolean).join("\n\n");
 }
