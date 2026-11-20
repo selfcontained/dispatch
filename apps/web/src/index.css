@@ -905,14 +905,14 @@ html[data-theme="matrix"] [role="button"] {
 /* Response placeholder: a quieter take on the review agents' chasing border
    (thinner, slower, dimmer), sharing their angle property and spin. The
    defrag grid inside is utilities on its elements. */
-.dispatch-placeholder-chase::before {
+.dispatch-placeholder::before {
   content: "";
   position: absolute;
   inset: 0;
   border-radius: inherit;
   padding: 1px;
   pointer-events: none;
-  opacity: 0.45;
+  opacity: 0;
   background: conic-gradient(
     from var(--child-agent-chase-angle, 0deg),
     transparent 0deg,
@@ -928,6 +928,21 @@ html[data-theme="matrix"] [role="button"] {
     linear-gradient(#fff 0 0);
   -webkit-mask-composite: xor;
   mask-composite: exclude;
+}
+.dispatch-placeholder-colors {
+  opacity: 0;
+}
+.dispatch-placeholder-chase .dispatch-placeholder-colors {
+  opacity: 1;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .dispatch-placeholder::before,
+  .dispatch-placeholder-colors {
+    transition: opacity 750ms ease-in-out;
+  }
+}
+.dispatch-placeholder-chase::before {
+  opacity: 0.45;
   animation: child-agent-review-chase-spin 7s linear infinite;
 }
 @media (prefers-reduced-motion: reduce) {

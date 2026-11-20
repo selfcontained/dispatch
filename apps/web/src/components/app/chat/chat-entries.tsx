@@ -20,6 +20,7 @@ import { UserAvatar } from "@/components/app/user-avatar/user-avatar";
 import { DeliveryIndicator, DeliveryMeta } from "./chat-delivery-meta";
 import { QueuedMessageActions } from "./queued-message-actions";
 import { lazy, Suspense, memo, type ReactNode } from "react";
+import { TurnSettlement } from "./turn/turn-settlement";
 
 const VisualizationBlock = lazy(() =>
   import("./visualization-block").then((module) => ({
@@ -1690,7 +1691,18 @@ function LaunchCard({
   );
 }
 
-export const BlockView = memo(function BlockView({
+export const BlockView = memo(function BlockView(props: BlockViewProps) {
+  const content = <BlockContents {...props} />;
+  return props.block.turn ? (
+    <TurnSettlement key={props.block.id} settled={props.block.turn.settled}>
+      {content}
+    </TurnSettlement>
+  ) : (
+    content
+  );
+});
+
+function BlockContents({
   block,
   grouped,
   rule = false,
@@ -2165,7 +2177,7 @@ export const BlockView = memo(function BlockView({
       {threadLine}
     </Post>
   );
-});
+}
 
 function ResponseBacklink({
   agentId,

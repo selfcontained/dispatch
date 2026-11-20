@@ -452,6 +452,10 @@
       "personas": ["code-review"]
     },
     {
+      "paths": ["apps/web/public/stream-motion.html"],
+      "personas": ["code-review"]
+    },
+    {
       "paths": ["apps/site/**"],
       "personas": ["code-review"]
     },

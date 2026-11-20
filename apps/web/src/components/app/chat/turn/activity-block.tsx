@@ -425,7 +425,7 @@ function SummaryRow({
         <span
           key={verb}
           className={cn(
-            "block truncate animate-chat-enter motion-reduce:animate-none",
+            "block truncate animate-activity-label motion-reduce:animate-none",
             !done && "text-status-working"
           )}
           title={verb}

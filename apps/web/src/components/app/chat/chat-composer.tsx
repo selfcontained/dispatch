@@ -146,6 +146,7 @@ export type ChatComposerProps = {
   waitReason?: string | null;
   /** An external send is in flight; the input stays usable, the button waits. */
   sending?: boolean;
+  feedTailId?: string | null;
   placeholder?: string;
   /**
    * Focus the field on mount, and again whenever this turns true — the
@@ -300,6 +301,7 @@ export function ChatComposer({
   disabledReason,
   waitReason = null,
   sending = false,
+  feedTailId,
   placeholder = "Message the agent…",
   autoFocus = false,
   action,
@@ -1497,6 +1499,8 @@ export function ChatComposer({
               />
             ) : null}
             <ComposerInput
+              submitting={inFlight}
+              feedTailId={feedTailId}
               ref={textareaRef}
               value={text}
               mentionables={mentionables ?? []}

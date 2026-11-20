@@ -590,6 +590,50 @@ export function ChatPane({
     [updateFollowing]
   );
 
+  // Give the browser the destination so the compositor can keep scrolling
+  // while React handles the delivery and turn-start events on the main thread.
+  const tailTarget = useRef<number | null>(null);
+  const cancelTail = useCallback(() => {
+    if (tailTarget.current === null) return;
+    tailTarget.current = null;
+    const el = scrollRef.current;
+    if (el) el.scrollTo({ top: el.scrollTop, behavior: "instant" });
+  }, []);
+  const followBottom = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    if (
+      !restoredRef.current ||
+      !window.matchMedia?.("(prefers-reduced-motion: no-preference)").matches
+    ) {
+      scrollToBottom();
+      return;
+    }
+    const bottom = el.scrollHeight - el.clientHeight;
+    if (bottom - el.scrollTop <= 1) {
+      tailTarget.current = null;
+      return;
+    }
+    if (
+      tailTarget.current !== null &&
+      Math.abs(bottom - tailTarget.current) < 32 &&
+      Math.abs(el.scrollTop - tailTarget.current) > 1
+    )
+      return;
+    tailTarget.current = bottom;
+    el.scrollTo({ top: bottom, behavior: "smooth" });
+  }, [scrollToBottom]);
+  useEffect(() => {
+    const el = scrollRef.current;
+    for (const type of JUMP_INTERRUPTS)
+      el?.addEventListener(type, cancelTail, { passive: true });
+    return () => {
+      cancelTail();
+      for (const type of JUMP_INTERRUPTS)
+        el?.removeEventListener(type, cancelTail);
+    };
+  }, [cancelTail]);
+
   // While following, the bottom stays in view through every change in the
   // content's height, not only the ones the layout effect below can name: a
   // turn's body easing open over a few frames, a streamed line landing, an
@@ -609,13 +653,16 @@ export function ChatPane({
     return Boolean(
       el &&
       anchoredRef.current === 0 &&
-      knownHeightRef.current - el.clientHeight - el.scrollTop <= TAIL_BUFFER_PX
+      (tailTarget.current !== null ||
+        knownHeightRef.current - el.clientHeight - el.scrollTop <=
+          TAIL_BUFFER_PX)
     );
   }, []);
   // Windowing also checks after commits that only changed the composer.
   // An idle reader inside the buffer stays put until the content changes;
   // an exact bottom remains pinned through windowing's own measurements.
   const isFollowingContentChange = useCallback(() => {
+    if (tailTarget.current !== null) return anchoredRef.current === 0;
     const el = scrollRef.current;
     if (!el) return false;
     const changed = el.scrollHeight !== knownHeightRef.current;
@@ -651,16 +698,18 @@ export function ChatPane({
           knownHeightRef.current = scrollRef.current.scrollHeight;
         return;
       }
-      const tailing = contentChanged ? isFollowing() : wasAtBottom;
+      const tailing =
+        tailTarget.current !== null ||
+        (contentChanged ? isFollowing() : wasAtBottom);
       updateFollowing(tailing);
-      if (tailing) scrollToBottom();
+      if (tailing) followBottom();
       if (scrollRef.current)
         knownHeightRef.current = scrollRef.current.scrollHeight;
     });
     observer.observe(el);
     if (scrollRef.current) observer.observe(scrollRef.current);
     return () => observer.disconnect();
-  }, [isFollowing, scrollToBottom, updateFollowing]);
+  }, [isFollowing, followBottom, updateFollowing]);
 
   // Reading every row's rect is too much to do on each scroll event, so
   // this is throttled rather than called from the handler directly.
@@ -668,9 +717,13 @@ export function ChatPane({
     const el = scrollRef.current;
     if (!el || !agentId) return;
     rememberedAtRef.current = Date.now();
+    const followingTail = isFollowing();
+    // Restoring a following pane uses only the bottom, so avoid measuring
+    // and persisting individual rows on every few frames of an arrival.
+    if (followingTail && readChatScrollPosition(agentId)?.following) return;
     rememberChatScrollPosition(agentId, {
-      following: isFollowing(),
-      anchors: visibleAnchors(el),
+      following: followingTail,
+      anchors: followingTail ? [] : visibleAnchors(el),
     });
   }, [agentId, isFollowing]);
 
@@ -705,6 +758,7 @@ export function ChatPane({
   const onScroll = useCallback(() => {
     const el = scrollRef.current;
     if (!el) return;
+    if (tailTarget.current !== null) followBottom();
     // A shrink may clamp the browser before the observer runs. Adopt the
     // shorter bottom now; growth must keep the previous bottom until pinned.
     knownHeightRef.current = Math.min(
@@ -712,7 +766,7 @@ export function ChatPane({
       el.scrollHeight
     );
     const distance = knownHeightRef.current - el.scrollTop - el.clientHeight;
-    const atBottom = distance <= TAIL_BUFFER_PX;
+    const atBottom = tailTarget.current !== null || distance <= TAIL_BUFFER_PX;
     setFarFromBottom(distance > JUMP_BUTTON_PX);
     if (atBottom && Date.now() - anchoredRef.current < ANCHOR_HOLD_MS) {
       rememberSoon();
@@ -722,7 +776,7 @@ export function ChatPane({
     updateFollowing(atBottom);
     if (atBottom) setPendingBelow(false);
     rememberSoon();
-  }, [rememberSoon, updateFollowing]);
+  }, [followBottom, rememberSoon, updateFollowing]);
 
   const { loadOlder: fetchOlder } = feed;
   /** The windowed feed's own hold on the reader's place (see ChatFeed). */
@@ -898,6 +952,7 @@ export function ChatPane({
     // the bottom. A reply that fits under the fold pins the bottom as usual.
     if (tailing && landed) {
       if (replyStartIfTall(el, landed.id) !== null) {
+        cancelTail();
         anchoredRef.current = Date.now();
         anchorTurnRef.current = landed.id;
         updateFollowing(false);
@@ -908,7 +963,9 @@ export function ChatPane({
       }
     }
     if (tailing) {
-      scrollToBottom();
+      updateFollowing(true);
+      setPendingBelow(false);
+      followBottom();
     } else {
       updateFollowing(false);
       if (appended) setPendingBelow(true);
@@ -918,6 +975,8 @@ export function ChatPane({
     isFollowing,
     updateFollowing,
     scrollToBottom,
+    followBottom,
+    cancelTail,
     seekSaved,
     entries,
     visibleEntries,
@@ -959,6 +1018,7 @@ export function ChatPane({
   useBlockJump(
     scrollRef,
     () => {
+      cancelTail();
       anchoredRef.current = Date.now();
       anchorTurnRef.current = null;
       updateFollowing(false);
@@ -1099,7 +1159,8 @@ export function ChatPane({
       anchorTurnRef.current = null;
       updateFollowing(true);
       setPendingBelow(false);
-      scrollToBottom();
+      if (isFollowing()) followBottom();
+      else scrollToBottom();
       await sendAsync({
         text,
         attachments,
@@ -1108,7 +1169,15 @@ export function ChatPane({
         ...(options?.task ? { task: options.task } : {}),
       });
     },
-    [onDispatchCommand, postTo, scrollToBottom, sendAsync, updateFollowing]
+    [
+      followBottom,
+      isFollowing,
+      onDispatchCommand,
+      postTo,
+      scrollToBottom,
+      sendAsync,
+      updateFollowing,
+    ]
   );
 
   const uploadFile = useCallback(
@@ -1327,7 +1396,7 @@ export function ChatPane({
               // Images in the feed size themselves after they load; keep the
               // bottom pinned when that happens while following.
               onLoadCapture={() => {
-                if (isFollowing()) scrollToBottom();
+                if (isFollowing()) followBottom();
               }}
               className="stream-surfaces-flat h-full min-w-0 max-w-full overflow-x-hidden overflow-y-auto overscroll-contain py-2 [overflow-anchor:none]"
             >
@@ -1382,7 +1451,8 @@ export function ChatPane({
                     <div>Select an agent to start chatting.</div>
                   </div>
                 ) : null}
-                {visibleEntries.length > 0 ? (
+                {visibleEntries.length > 0 ||
+                (agentId && !feed.isLoading && !feed.error) ? (
                   <ChatFeed
                     entries={visibleEntries}
                     ctx={ctx}
@@ -1395,6 +1465,7 @@ export function ChatPane({
                     scrollRef={scrollRef}
                     pinnedIds={pinnedIds}
                     isFollowing={isFollowingContentChange}
+                    followBottom={followBottom}
                     placeRef={placeRef}
                   />
                 ) : null}
@@ -1469,6 +1540,7 @@ export function ChatPane({
             <ChatComposer
               agentId={agentId}
               onSend={onSend}
+              feedTailId={visibleEntries.at(-1)?.id ?? null}
               uploadFile={uploadFile}
               disabledReason={disabledReason}
               waitReason={waitReason}

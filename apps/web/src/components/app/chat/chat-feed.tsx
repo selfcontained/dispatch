@@ -2,6 +2,7 @@ import {
   type MutableRefObject,
   type ReactNode,
   type RefObject,
+  memo,
   useEffect,
   useMemo,
   useRef,
@@ -67,6 +68,8 @@ export function entryVersion(entry: StreamEntry): string {
   // Only an agent edits a post; a user's post changes just its delivery
   // and read marks, which are not a new version to fade in. A turn's block
   // is written when the turn settles; that landing is not an edit either.
+  // The server can stamp a different creation time on the optimistic post.
+  if (entry.block.author.kind === "user") return entry.id;
   return entry.block.author.kind === "agent" && !entry.block.turn
     ? entry.block.updatedAt
     : entry.block.createdAt;
@@ -389,6 +392,7 @@ export type ChatFeedProps = {
   pinnedIds?: ReadonlySet<string>;
   /** True while the pane keeps its bottom in view. */
   isFollowing?: () => boolean;
+  followBottom?: () => void;
   /** Filled with the feed's hold on the reader's place, for the pane's own scrolls. */
   placeRef?: MutableRefObject<FeedPlace | null>;
 };
@@ -403,7 +407,7 @@ function isEntryRowKey(key: string): boolean {
   return !key.startsWith("day:");
 }
 
-export function ChatFeed({
+export const ChatFeed = memo(function ChatFeed({
   entries,
   ctx,
   answeringBlockId,
@@ -413,6 +417,7 @@ export function ChatFeed({
   scrollRef,
   pinnedIds,
   isFollowing,
+  followBottom,
   placeRef,
 }: ChatFeedProps): JSX.Element {
   const rows = useMemo(() => layoutFeed(entries, ctx), [entries, ctx]);
@@ -427,6 +432,7 @@ export function ChatFeed({
     align: "end",
     pinned: pinnedIds,
     isFollowing,
+    followBottom,
     cacheKey: ctx.agentId ? `feed:${ctx.agentId}` : null,
     enabled: scrollRef !== undefined,
     anchorable: isEntryRowKey,
@@ -509,4 +515,4 @@ export function ChatFeed({
       )}
     </div>
   );
-}
+});

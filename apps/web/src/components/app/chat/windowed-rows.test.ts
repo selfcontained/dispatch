@@ -62,7 +62,19 @@ describe("placeDrift", () => {
 describe("shownRange", () => {
   const keys = ["o1", "o2", "a", "b", "c"];
   // Set when "a" was the first row; two older rows have since landed above.
-  const range = { from: 0, to: 2, first: "a" };
+  const range = { from: 0, to: 2, first: "a", atEnd: false };
+
+  it("renders arrivals immediately when the window covered the tail", () => {
+    expect(
+      shownRange({
+        windowing: true,
+        laidOut: true,
+        range: { ...range, atEnd: true },
+        keys: ["a", "b", "new"],
+        align: "end",
+      })
+    ).toEqual({ from: 0, to: 3 });
+  });
 
   it("finds the range again by its first row after rows land above", () => {
     expect(

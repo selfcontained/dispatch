@@ -94,6 +94,8 @@ export interface ComposerInputHandle {
 }
 
 export interface ComposerInputProps {
+  submitting?: boolean;
+  feedTailId?: string | null;
   value: string;
   mentionables: readonly Mentionable[];
   disabled: boolean;
@@ -114,6 +116,9 @@ export const ComposerInput = forwardRef<
 >(function ComposerInput(props, ref) {
   const host = useRef<HTMLDivElement>(null);
   const editor = useRef<EditorView | null>(null);
+  const heldSize = useRef<{ height: number; tail?: string | null } | null>(
+    null
+  );
   const current = useRef(props);
   const [cursor, setCursor] = useState({ text: props.value, caret: 0, end: 0 });
   const [dismissed, setDismissed] = useState("");
@@ -396,10 +401,25 @@ export const ComposerInput = forwardRef<
   }, [listId]);
 
   useLayoutEffect(() => {
+    const previousTail = current.current.feedTailId;
     current.current = props;
     const view = editor.current;
     if (!view) return;
     if (plainText(view.state.doc) !== props.value) {
+      // Clearing a tall editor can clamp the feed's scroll position before
+      // the optimistic row mounts. Keep that space across the DOM update,
+      // then let the editor contract as the sent message arrives.
+      const wrapper = host.current;
+      const easeClear =
+        props.submitting &&
+        !props.value &&
+        wrapper?.animate &&
+        window.matchMedia?.("(prefers-reduced-motion: no-preference)").matches;
+      const before = easeClear ? view.dom.getBoundingClientRect().height : 0;
+      if (wrapper && before) {
+        wrapper.style.minHeight = before + "px";
+        heldSize.current = { height: before, tail: previousTail };
+      }
       const from = textOffset(view.state.doc, view.state.selection.from);
       const to = textOffset(view.state.doc, view.state.selection.to);
       const transaction = closeHistory(view.state.tr).replaceWith(
@@ -415,6 +435,29 @@ export const ComposerInput = forwardRef<
         )
       );
       view.dispatch(transaction.setMeta("external", true));
+    }
+    const held = heldSize.current;
+    const wrapper = host.current;
+    if (
+      held &&
+      wrapper &&
+      (!props.submitting ||
+        props.value ||
+        props.feedTailId === undefined ||
+        props.feedTailId !== held.tail)
+    ) {
+      const after = view.dom.getBoundingClientRect().height;
+      if (held.height > after) {
+        wrapper.animate(
+          [{ minHeight: held.height + "px" }, { minHeight: after + "px" }],
+          {
+            duration: 360,
+            easing: "ease-in-out",
+          }
+        );
+      }
+      wrapper.style.minHeight = "";
+      heldSize.current = null;
     }
     view.setProps({});
   }, [props]);

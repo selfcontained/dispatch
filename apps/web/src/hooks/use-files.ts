@@ -2,6 +2,7 @@ import {
   type RefObject,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -140,7 +141,10 @@ export function useFiles(
     [subAgents, subAgentQueries]
   );
   const allFiles = useMemo(
-    () => [...files, ...subAgentFiles.flatMap((group) => group.files)],
+    () =>
+      subAgentFiles.length
+        ? [...files, ...subAgentFiles.flatMap((group) => group.files)]
+        : files,
     [files, subAgentFiles]
   );
 
@@ -309,6 +313,13 @@ export function useFiles(
     [allFiles]
   );
 
+  // Every visible chat post holds this click handler. Read the gallery
+  // state at click time so agent updates don't rerender the entire feed.
+  const galleryAtClick = useRef({ lightboxFileId, ownerFileIds });
+  useLayoutEffect(() => {
+    galleryAtClick.current = { lightboxFileId, ownerFileIds };
+  }, [lightboxFileId, ownerFileIds]);
+
   // Content resolves by stable file ID without waiting for the owner list.
   // Gallery selection also retains occurrence position: one file can appear
   // more than once in the same post, with a different caption each time.
@@ -326,13 +337,14 @@ export function useFiles(
       // not when navigating. The list is sorted by updated_at DESC, so leaving
       // this live would reshuffle prev/next and n/N under the reader every time
       // any file in the list updates.
+      const { lightboxFileId, ownerFileIds } = galleryAtClick.current;
       if (lightboxFileId === null) {
         const ownerIds = ownerFileIds(fileId);
         setLightboxOrderSnapshot(ownerIds.length > 0 ? ownerIds : null);
       }
       setLightboxFileIdState(fileId);
     },
-    [lightboxFileId, ownerFileIds]
+    []
   );
 
   // Chat can open an ID before its owner-scoped list has loaded. Take the
