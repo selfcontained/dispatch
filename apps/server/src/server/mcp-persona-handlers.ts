@@ -183,7 +183,6 @@ export type PreparedPersonaLaunch = {
   effort: Effort | null;
   cwd: string;
   agentArgs: string[];
-  fullAccess: boolean;
 };
 
 /**
@@ -200,24 +199,6 @@ export function createPersonaHandlers(deps: CreatePersonaHandlersDeps) {
     const cwd = remotePlacement(parent.cwd)
       ? parent.cwd
       : (agentWorkspaceDir(parent) ?? parent.cwd);
-    return prepareReviewLaunch(
-      parent,
-      opts,
-      cwd,
-      parent.fullAccess,
-      () =>
-        opts.resolvedPersona ??
-        resolveRunnerPersona(agentManager, parent, opts.persona)
-    );
-  }
-
-  async function prepareReviewLaunch(
-    parent: AgentRecord,
-    opts: PersonaLaunchOptions,
-    cwd: string,
-    fullAccess: boolean,
-    resolvePersona: () => PersonaDefinition | Promise<PersonaDefinition>
-  ): Promise<PreparedPersonaLaunch> {
     const fallbackReviewType = isCliAgentType(parent.reviewAgentType)
       ? parent.reviewAgentType
       : null;
@@ -229,16 +210,10 @@ export function createPersonaHandlers(deps: CreatePersonaHandlersDeps) {
     if (!CLI_AGENT_TYPES.includes(agentType)) {
       throw new Error(`Unsupported agent type "${agentType}".`);
     }
-    if (agentType === "opencode") {
-      if (!parent.fullAccess)
-        throw new Error(
-          "Permission denied: a restricted agent cannot launch full-access OpenCode agents."
-        );
-      if (!fullAccess)
-        throw new Error(
-          "OpenCode requires full access and cannot run a restricted owner review."
-        );
-    }
+    if (agentType === "opencode" && !parent.fullAccess)
+      throw new Error(
+        "Permission denied: a restricted agent cannot launch full-access OpenCode agents."
+      );
     const enabledAgentTypes = await getEnabledAgentTypes(pool);
     if (!enabledAgentTypes.includes(agentType)) {
       throw new Error(`${agentType} agents are disabled in settings.`);
@@ -247,7 +222,9 @@ export function createPersonaHandlers(deps: CreatePersonaHandlersDeps) {
     const model = validateAgentModel(agentType, opts.model, workload);
     const effort = validateAgentEffort(agentType, opts.effort, model, workload);
 
-    const persona = await resolvePersona();
+    const persona =
+      opts.resolvedPersona ??
+      (await resolveRunnerPersona(agentManager, parent, opts.persona));
     if (!supportsPersonaType(persona, "review"))
       throw new Error(
         `Persona "${opts.persona}" is not available for review launches.`
@@ -260,9 +237,9 @@ export function createPersonaHandlers(deps: CreatePersonaHandlersDeps) {
       PERSONA_CONTEXT_ARG,
       prompt,
     ];
-    if (fullAccess && agentType === "claude")
+    if (parent.fullAccess && agentType === "claude")
       agentArgs.push(CLAUDE_FULL_ACCESS_ARG);
-    if (fullAccess && agentType === "codex")
+    if (parent.fullAccess && agentType === "codex")
       agentArgs.push(CODEX_FULL_ACCESS_ARG);
     return {
       persona,
@@ -272,7 +249,6 @@ export function createPersonaHandlers(deps: CreatePersonaHandlersDeps) {
       effort,
       cwd,
       agentArgs,
-      fullAccess,
     };
   }
 
@@ -290,7 +266,6 @@ export function createPersonaHandlers(deps: CreatePersonaHandlersDeps) {
     return launchReviewer(
       parent,
       opts,
-      () => preparePersonaLaunch(parent, opts),
       remotePlacement(parent.cwd) ? parent.id : undefined
     );
   }
@@ -298,7 +273,6 @@ export function createPersonaHandlers(deps: CreatePersonaHandlersDeps) {
   async function launchReviewer(
     parent: AgentRecord,
     opts: PersonaLaunchOptions,
-    prepare: () => Promise<PreparedPersonaLaunch>,
     useWorktreeOf?: string
   ): Promise<{
     agentId: string;
@@ -317,7 +291,7 @@ export function createPersonaHandlers(deps: CreatePersonaHandlersDeps) {
           "Review display parent must belong to the requester's project."
         );
     }
-    const prepared = await prepare();
+    const prepared = await preparePersonaLaunch(parent, opts);
     const agent = await agentManager.createAgent(
       {
         name: opts.name ?? `${opts.persona}-${parentId.slice(-6)}`,
@@ -326,7 +300,7 @@ export function createPersonaHandlers(deps: CreatePersonaHandlersDeps) {
         model: prepared.model,
         effort: prepared.effort,
         agentArgs: prepared.agentArgs,
-        fullAccess: prepared.fullAccess,
+        fullAccess: parent.fullAccess,
         useWorktree: false,
         persona: opts.persona,
         role: "review",
@@ -455,24 +429,16 @@ export function createPersonaHandlers(deps: CreatePersonaHandlersDeps) {
       plan,
       opts.context,
       (persona, context) => {
-        const launchOpts = {
-          persona,
-          context: `Inspect the shared checkout without modifying it. Report findings to the launcher.\nCheckout recorded during review planning: HEAD ${reviewedState.head}, state ID ${reviewedState.stateId}.\n\n${context}`,
-          agentType: opts.agentType,
-          model: opts.model,
-          effort: opts.effort,
-        };
         return launchReviewer(
           author,
-          launchOpts,
-          () =>
-            prepareReviewLaunch(
-              author,
-              launchOpts,
-              author.cwd,
-              false,
-              () => selectedPersonas.get(persona)!
-            ),
+          {
+            persona,
+            context: `Inspect the shared checkout without modifying it. Report findings to the launcher.\nCheckout recorded during review planning: HEAD ${reviewedState.head}, state ID ${reviewedState.stateId}.\n\n${context}`,
+            agentType: opts.agentType,
+            model: opts.model,
+            effort: opts.effort,
+            resolvedPersona: selectedPersonas.get(persona)!,
+          },
           author.id
         );
       }

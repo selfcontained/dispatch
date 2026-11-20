@@ -1,5 +1,7 @@
 import { access, readFile, readdir } from "node:fs/promises";
+import Fastify from "fastify";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { registerPersonaRoutes } from "../src/routes/personas.js";
 import { createPersonaHandlers } from "../src/server/mcp-persona-handlers.js";
 import {
   resolveRepoRoot,
@@ -108,10 +110,16 @@ function setup(parentChanges: Record<string, unknown> = {}) {
         content: checkout.content.get(query.path) ?? null,
       };
     }),
-    createAgent: vi.fn(async (input: { name: string }) => ({
-      id: `agent-${input.name}`,
-      name: input.name,
-    })),
+    createAgent: vi.fn(
+      async (
+        input: Parameters<
+          import("../src/agents/manager.js").AgentManager["createAgent"]
+        >[0]
+      ) => ({
+        id: `agent-${input.name}`,
+        name: input.name,
+      })
+    ),
   };
   const handlers = createPersonaHandlers({
     pool: {} as any,
@@ -202,7 +210,7 @@ describe("code owner launches through the checkout boundary", () => {
           parentAgentId: "launcher",
           launchedByAgentId: "parent",
           useWorktree: false,
-          fullAccess: false,
+          fullAccess: true,
           initialPrompt: expect.stringContaining('to: "parent"'),
           agentArgs: expect.arrayContaining([
             expect.stringContaining("Verify subsystem contracts"),
@@ -313,7 +321,7 @@ describe("code owner launches through the checkout boundary", () => {
   });
 
   it.each(["/checkout", "runner://linux/@session"])(
-    "inherits full engine access for direct reviews only in %s",
+    "inherits full engine access for direct and owner reviews in %s",
     async (cwd) => {
       const { handlers, agentManager } = setup({ cwd, fullAccess: true });
       await handlers.launchPersonaAgent("parent", {
@@ -331,10 +339,69 @@ describe("code owner launches through the checkout boundary", () => {
       expect(direct?.agentArgs).toContain(
         "--dangerously-bypass-approvals-and-sandbox"
       );
-      expect(owner?.fullAccess).toBe(false);
-      expect(owner?.agentArgs).not.toContain(
+      expect(owner?.fullAccess).toBe(true);
+      expect(owner?.agentArgs).toContain(
         "--dangerously-bypass-approvals-and-sandbox"
       );
+    }
+  );
+
+  it.each([
+    { cwd: "/checkout", fullAccess: false },
+    { cwd: "/checkout", fullAccess: true },
+    { cwd: "runner://ubu/@session", fullAccess: false },
+    { cwd: "runner://ubu/@session", fullAccess: true },
+  ])(
+    "produces the same launch config for UI kickoff and tool requests (%j)",
+    async (author) => {
+      const { checkout, handlers, agentManager } = setup(author);
+      checkout.content.set(modernOwnersPath, ownersMap("owner-one"));
+      const options = { agentType: "codex" as const, context: "Review" };
+      const launchDirect = (id: string) =>
+        handlers.launchPersonaAgent(id, { ...options, persona: "owner-one" });
+      const launchOwners = (id: string) =>
+        handlers.launchOwnerReviews(id, options);
+      // The UI enqueues a kickoff. Substitute a deterministic tool caller for
+      // the author engine so the route and review service run without launching it.
+      const app = Fastify();
+      await registerPersonaRoutes(app, {
+        agentManager: agentManager as never,
+        streams: {
+          async promptAgent(id, { text }) {
+            if (text.includes('launch_owner_reviews({ agentType: "codex"')) {
+              await launchOwners(id);
+            } else {
+              expect(text).toContain(
+                'launch_agent({ persona: "owner-one", type: "codex"'
+              );
+              await launchDirect(id);
+            }
+            return { held: false } as never;
+          },
+        },
+        handleAgentError: (reply) => reply.code(500).send(),
+      });
+      try {
+        for (const [payload, callTool] of [
+          [{ personas: ["owner-one"] }, launchDirect],
+          [{ codeowners: true }, launchOwners],
+        ] as const) {
+          const response = await app.inject({
+            method: "POST",
+            url: "/api/v1/agents/parent/launch-persona",
+            payload: { ...payload, agentType: "codex" },
+          });
+          expect(response.statusCode).toBe(200);
+          const ui = agentManager.createAgent.mock.calls.at(-1)?.[0];
+          await callTool("parent");
+          const tool = agentManager.createAgent.mock.calls.at(-1)?.[0];
+          expect(tool).toBeDefined();
+          expect(ui).toEqual(tool);
+          expect(tool?.fullAccess).toBe(author.fullAccess);
+        }
+      } finally {
+        await app.close();
+      }
     }
   );
 
@@ -528,7 +595,7 @@ describe("code owner launches through the checkout boundary", () => {
     );
     expect(agentManager.createAgent).toHaveBeenCalledWith(
       expect.objectContaining({
-        fullAccess: false,
+        fullAccess: true,
         agentArgs: expect.arrayContaining([
           expect.stringContaining(builtin.body.trimEnd()),
         ]),
