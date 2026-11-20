@@ -1367,7 +1367,8 @@ export class RemoteRunnerService {
         return {
           ...status,
           message:
-            "GitHub sign-in or configuration failed. Try again on this runner.",
+            status.message ??
+            "The runner reported a GitHub failure without a more specific reason.",
         };
       if (status.status === "unavailable")
         return {

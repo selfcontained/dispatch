@@ -1,8 +1,8 @@
 import os from "node:os";
 import path from "node:path";
 import { readFile, lstat } from "node:fs/promises";
-import { packageVersion } from "../../generated/runtime-assets.js";
-import type { RunnerHealth } from "./protocol.js";
+import { gitSha, packageVersion } from "../../generated/runtime-assets.js";
+import { parseMaintenanceFailure, type RunnerHealth } from "./protocol.js";
 
 async function readMetric(file: string) {
   return (await readFile(file, "utf8").catch(() => "")).trim();
@@ -90,8 +90,21 @@ export function runnerHealthSampler() {
       Number(memMax) > 0 && Number(memMax) <= hostTotal && !!memCurrent;
     const memoryTotal = limited ? Number(memMax) : hostTotal;
     const memoryUsed = limited ? Number(memCurrent) : hostTotal - os.freemem();
+    let maintenanceFailure;
+    const diagnostic = await readMetric(
+      "/opt/dispatch-runner/last-maintenance-failure.json"
+    );
+    if (diagnostic) {
+      try {
+        maintenanceFailure = parseMaintenanceFailure(JSON.parse(diagnostic));
+      } catch {
+        /* Health remains available if the local record is invalid. */
+      }
+    }
     return {
       version: packageVersion,
+      ...(gitSha ? { revision: gitSha } : {}),
+      ...(maintenanceFailure ? { maintenanceFailure } : {}),
       sessions: liveHostDirs.length,
       working: working.filter(Boolean).length,
       cpuPercent,

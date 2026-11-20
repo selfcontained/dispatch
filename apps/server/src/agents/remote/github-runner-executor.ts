@@ -7,7 +7,7 @@ import { execFile, spawn, type ChildProcess } from "node:child_process";
 import { promisify } from "node:util";
 import {
   githubDeviceUrl,
-  githubCliMissing,
+  githubAccountIssues,
   githubPullRequestHead,
   githubRepositoryResults,
   validGitHubLogin,
@@ -20,6 +20,24 @@ const gh = "/usr/bin/gh";
 const hostArgs = ["--hostname", host];
 const execute = promisify(execFile);
 const codePattern = /one-time code: ([A-Z0-9]{4}-[A-Z0-9]{4})\r?\n/i;
+
+function cliIssue(error: unknown, fallback: string) {
+  const { code, stderr } = error as { code?: string | number; stderr?: string };
+  if (
+    code === "ENOENT" ||
+    /failed to execute \/usr\/bin\/gh: No such file or directory/.test(
+      stderr ?? ""
+    )
+  )
+    return githubAccountIssues.missing;
+  if (
+    /network is unreachable|no such host|could not resolve host|connection refused|error connecting to (?:api\.)?github\.com/i.test(
+      stderr ?? ""
+    )
+  )
+    return githubAccountIssues.network;
+  return fallback;
+}
 
 type Login = {
   connection: AbortSignal;
@@ -41,7 +59,7 @@ export class GitHubRunnerExecutor {
   private readonly evidence: GitHubPullRequestEvidence;
   private readonly env: NodeJS.ProcessEnv;
   private login?: Login;
-  private failed = false;
+  private failure?: string;
   private queue = Promise.resolve();
 
   constructor(
@@ -119,8 +137,12 @@ export class GitHubRunnerExecutor {
       const { code, stderr } = error as { code?: number; stderr?: string };
       if (code === 4 || /HTTP 401\b/.test(stderr ?? ""))
         return { status: "signed-out" };
+      return {
+        status: "unavailable",
+        message: cliIssue(error, githubAccountIssues.verify),
+      };
     }
-    return { status: "unavailable" };
+    return { status: "unavailable", message: githubAccountIssues.verify };
   }
 
   private currentLogin(): GitHubStatus {
@@ -150,14 +172,18 @@ export class GitHubRunnerExecutor {
     this.login = session;
     let tail = "";
     let cancelled = false;
-    let setupFailed = false;
+    let failure: string | undefined;
+    let codeReceived = false;
     const cancel = () => {
       cancelled = true;
       session.code = undefined;
       child.kill("SIGKILL");
     };
     connection.addEventListener("abort", cancel, { once: true });
-    const codeDeadline = setTimeout(() => child.kill("SIGKILL"), 30_000);
+    const codeDeadline = setTimeout(() => {
+      failure = githubAccountIssues.timeout;
+      child.kill("SIGKILL");
+    }, 30_000);
     const timeout = setTimeout(() => child.kill("SIGKILL"), 15 * 60_000);
     child.stderr?.setEncoding("utf8");
     child.stderr?.on("data", (chunk: string) => {
@@ -165,6 +191,7 @@ export class GitHubRunnerExecutor {
       tail = (tail + chunk).slice(-2048);
       const match = codePattern.exec(tail);
       if (match?.[1] && tail.includes(githubDeviceUrl)) {
+        codeReceived = true;
         session.code = match[1].toUpperCase();
         clearTimeout(codeDeadline);
         tail = "";
@@ -187,12 +214,18 @@ export class GitHubRunnerExecutor {
             AbortSignal.timeout(7000)
           );
         } catch {
-          setupFailed = true;
+          failure = githubAccountIssues.helper;
         }
       }
       connection.removeEventListener("abort", cancel);
-      this.failed =
-        setupFailed || (!cancelled && !connection.aborted && code !== 0);
+      if (code !== 0 && !failure)
+        failure = cliIssue(
+          { stderr: tail },
+          codeReceived
+            ? githubAccountIssues.authorization
+            : githubAccountIssues.device
+        );
+      this.failure = cancelled || connection.aborted ? undefined : failure;
       this.login = undefined;
     });
   }
@@ -203,7 +236,7 @@ export class GitHubRunnerExecutor {
     session.code = undefined;
     session.child.kill("SIGKILL");
     await session.finished;
-    this.failed = false;
+    this.failure = undefined;
   }
 
   private async logout(login: string, signal: AbortSignal) {
@@ -232,20 +265,24 @@ export class GitHubRunnerExecutor {
     switch (operation.type) {
       case "status":
         if (this.login) return this.currentLogin();
-        if (this.failed) return { status: "failed" };
+        if (this.failure) return { status: "failed", message: this.failure };
         return this.account(signal);
       case "login": {
         if (this.login?.connection === signal) return this.currentLogin();
         await this.login?.finished;
         signal.throwIfAborted();
-        this.failed = false;
+        this.failure = undefined;
         const account = await this.account(signal);
         if (account.status === "signed-out") {
           this.start(signal);
           return this.currentLogin();
         }
         if (account.status === "signed-in") {
-          await this.run(["auth", "setup-git", ...hostArgs], signal);
+          try {
+            await this.run(["auth", "setup-git", ...hostArgs], signal);
+          } catch {
+            return { status: "failed", message: githubAccountIssues.helper };
+          }
         }
         return account;
       }
@@ -254,7 +291,7 @@ export class GitHubRunnerExecutor {
         return this.account(signal);
       case "logout": {
         await this.stopLogin();
-        this.failed = false;
+        this.failure = undefined;
         const login = await this.configuredUser(signal);
         if (login) await this.logout(login, signal);
         return this.account(signal);
@@ -352,19 +389,19 @@ export class GitHubRunnerExecutor {
         try {
           return await result;
         } catch (error) {
-          const { code, stderr } = error as {
-            code?: string | number;
-            stderr?: string;
-          };
-          if (
-            code === "ENOENT" ||
-            /failed to execute \/usr\/bin\/gh: No such file or directory/.test(
-              stderr ?? ""
-            )
-          )
-            return { status: "unavailable", message: githubCliMissing };
+          const message = cliIssue(
+            error,
+            operation.type === "logout"
+              ? githubAccountIssues.logout
+              : githubAccountIssues.account
+          );
           return {
-            status: operation.type === "status" ? "unavailable" : "failed",
+            status:
+              operation.type === "status" ||
+              message === githubAccountIssues.missing
+                ? "unavailable"
+                : "failed",
+            message,
           };
         }
       }

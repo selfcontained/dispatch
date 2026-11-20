@@ -229,9 +229,13 @@ cmp "$root/original" "$root/runtime/dispatch"
 [[ ! -e "$root/runtime/previous" && -e "$root/running" ]]
 rm "$root/reject-new"
 
+grep -Fq "New runner failed to start" "$root/runtime/last-maintenance.log"
+[[ -n "$(find "$root/runtime/last-maintenance.log" -perm 0600 -print)" ]]
+grep -Fq '"step":"start","exitCode":1' "$root/runtime/last-maintenance-failure.json"
 : > "$root/legacy-systemctl"
 run update v1.0.1 arm64
 grep -Fxq 'kill --kill-who=main --signal=SIGKILL dispatch-runner.service' "$root/systemctl"
+[[ ! -e "$root/runtime/last-maintenance-failure.json" ]]
 grep -q 'release-new arm64' "$root/runtime/dispatch"
 [[ ! -e "$root/runtime/previous" ]]
 diff -r "$root/original-settings" "$root/settings"

@@ -209,14 +209,23 @@ export class EngineRunnerExecutor {
    * error — setpriv starts fine and the shell it execs into exits 127.
    * Both failure shapes must be checked.
    */
-  private async commandUsable(command: ManagedCommand): Promise<boolean> {
+  private async installerFailure(
+    command: ManagedCommand
+  ): Promise<string | undefined> {
     const { spawnError, code } = await this.run(
       command.executable,
       ["--version"],
       { ...this.config.env, ...command.env },
       5_000
     );
-    return spawnError === undefined && code === 0;
+    if (code === 0 && !spawnError) return;
+    if (spawnError === "ENOENT" || code === 127)
+      return "Installer executable not found";
+    if (spawnError === "EACCES" || code === 126)
+      return "Runner account cannot execute the installer";
+    return code === null
+      ? "Installer version check did not finish"
+      : `Installer version check exited with code ${code}`;
   }
 
   private canUseSharedBin(engine: RunnerEngine): boolean {
@@ -307,17 +316,11 @@ export class EngineRunnerExecutor {
         const actions: EngineSupportedAction[] = [];
         let issue: string | undefined;
         if (!installed && cfg?.install) {
-          if (
-            await this.commandUsable(
-              this.bundledCommand(engine, cfg.install) ?? cfg.install
-            )
-          )
-            actions.push("install");
-          else
-            issue =
-              cfg.install.executable === "npm"
-                ? "node-npm-unavailable"
-                : "install-unavailable";
+          detail = await this.installerFailure(
+            this.bundledCommand(engine, cfg.install) ?? cfg.install
+          );
+          if (detail) issue = "install-unavailable";
+          else actions.push("install");
         }
         if (installed && cfg?.update && bin === cfg.bin) actions.push("update");
         if (installed && isLoginEngine(engine))

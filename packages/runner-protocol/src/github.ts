@@ -184,6 +184,29 @@ export function isGitHubPullRequestObservation(
 
 export const githubCliMissing = "GitHub CLI is missing on this runner.";
 
+// Only these diagnostics may pass from the runner into Settings. CLI output
+// can contain an account token or a one-time device code.
+export const githubAccountIssues = {
+  missing: githubCliMissing,
+  account:
+    "GitHub CLI could not read the account for the runner’s workload user.",
+  verify: "GitHub CLI could not verify the saved account with github.com.",
+  network: "The runner could not connect to github.com.",
+  device: "GitHub CLI exited before it returned a device code.",
+  timeout: "GitHub CLI timed out waiting for a device code.",
+  authorization:
+    "GitHub device authorization did not finish. Start sign-in again.",
+  helper:
+    "GitHub sign-in succeeded, but configuring Git’s credential helper failed.",
+  logout: "GitHub CLI could not sign out the workload account.",
+} as const;
+
+export function isGitHubAccountIssue(value: unknown): value is string {
+  return Object.values(githubAccountIssues).some(
+    (message) => message === value
+  );
+}
+
 export type GitHubStatus =
   | { status: "signed-in"; login: string }
   | { status: "pending"; code?: string; verificationUrl?: string }
@@ -321,11 +344,13 @@ export function parseGitHubStatus(value: unknown): GitHubStatus {
       case "signed-out":
         return { status: "signed-out" };
       case "unavailable":
-        return value.message === githubCliMissing
-          ? { status: "unavailable", message: githubCliMissing }
-          : { status: "unavailable" };
       case "failed":
-        return { status: "failed" };
+        return {
+          status: value.status,
+          ...(isGitHubAccountIssue(value.message)
+            ? { message: value.message }
+            : {}),
+        };
     }
   }
   throw new Error("Invalid GitHub status.");

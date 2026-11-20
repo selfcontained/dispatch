@@ -142,6 +142,7 @@ it("offers sign-in for an empty legacy gh account and preserves network failures
     await writeFile(path.join(root, "network-down"), "");
     expect(await executor.handle({ type: "status" }, signal)).toEqual({
       status: "unavailable",
+      message: "The runner could not connect to github.com.",
     });
   });
 });
@@ -359,7 +360,11 @@ it("clears pending device codes on cancel, disconnect and failed authorization",
       await pending();
       await writeFile(path.join(root, "reject"), "");
       await vi.waitFor(async () =>
-        expect(await handle("status")).toEqual({ status: "failed" })
+        expect(await handle("status")).toEqual({
+          status: "failed",
+          message:
+            "GitHub device authorization did not finish. Start sign-in again.",
+        })
       );
     } finally {
       controller.abort();
@@ -374,6 +379,7 @@ it("uses host-only logout only for the verified single-account CLI version", asy
     await writeFile(path.join(root, "gh-version"), "gh version 2.24.0");
     expect(await executor.handle({ type: "logout" }, signal)).toEqual({
       status: "failed",
+      message: "GitHub CLI could not sign out the workload account.",
     });
     expect(await executor.handle({ type: "status" }, signal)).toEqual({
       status: "signed-in",

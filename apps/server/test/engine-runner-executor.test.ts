@@ -101,7 +101,8 @@ if (args === "--version") {
       (await executor.inventory()).find((entry) => entry.id === "claude")
     ).toMatchObject({
       installed: false,
-      issue: "node-npm-unavailable",
+      issue: "install-unavailable",
+      detail: "Installer executable not found",
     });
     accessible = true;
     const pinned = new EngineRunnerExecutor({

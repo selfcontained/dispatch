@@ -66,6 +66,17 @@ export function isRunnerHealthFresh(
   );
 }
 
+const maintenanceSteps = {
+  prepare: "preparing the update",
+  stage: "downloading or verifying the release",
+  stop: "stopping the idle service",
+  signal: "signaling the runner’s main process",
+  replace: "replacing the runner binary",
+  start: "starting the updated service",
+  restore: "restoring the previous service",
+  unit: "refreshing the systemd service",
+};
+
 export function RunnerHealthDetails({ runner }: { runner: Runner }) {
   const { health, healthReceivedAt } = runner;
   const [open, setOpen] = useState(false);
@@ -97,6 +108,10 @@ export function RunnerHealthDetails({ runner }: { runner: Runner }) {
           {stale && "Last report · "}
           {health.sessions} {health.sessions === 1 ? "session" : "sessions"} ·{" "}
           {health.working} working
+          {health.maintenanceFailure &&
+            (health.maintenanceFailure.exitCode === 75
+              ? " · Update deferred"
+              : " · Update failed")}
         </span>
       </summary>
       <dl className="mt-2 grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1 text-xs [&>dd]:text-foreground">
@@ -109,12 +124,38 @@ export function RunnerHealthDetails({ runner }: { runner: Runner }) {
           {memory(health.memoryUsed)} of {memory(health.memoryTotal)}
         </dd>
         <dt>Runner version</dt>
-        <dd>{health.version}</dd>
+        <dd>
+          {health.version}
+          {health.revision && (
+            <span className="ml-2 font-mono">{health.revision}</span>
+          )}
+        </dd>
+        {health.maintenanceFailure && (
+          <>
+            <dt>Last update attempt</dt>
+            <dd>
+              {health.maintenanceFailure.exitCode === 75
+                ? "Deferred while the runner was busy"
+                : `Failed while ${maintenanceSteps[health.maintenanceFailure.step]}`}{" "}
+              (exit {health.maintenanceFailure.exitCode}) ·{" "}
+              <RunnerReportTime receivedAt={health.maintenanceFailure.at} />
+            </dd>
+          </>
+        )}
         <dt>Last report</dt>
         <dd>
           <RunnerReportTime receivedAt={healthReceivedAt} />
         </dd>
       </dl>
+      {health.maintenanceFailure && (
+        <div className="mt-2 text-xs">
+          <p>Read the updater’s error output on {runner.name}.</p>
+          <RunnerCommand
+            value="sudo cat /opt/dispatch-runner/last-maintenance.log"
+            label="Update log"
+          />
+        </div>
+      )}
       {update && (
         <div className="mt-3 space-y-2 text-xs">
           <p className="font-medium text-foreground">

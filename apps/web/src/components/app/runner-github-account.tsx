@@ -1,5 +1,6 @@
 import {
   githubCliMissing,
+  isGitHubAccountIssue,
   githubDeviceUrl,
   type GitHubStatus,
 } from "@dispatch/runner-protocol";
@@ -56,10 +57,10 @@ function accountSummary(account: GitHubStatus) {
         ? "Waiting for GitHub approval"
         : "Requesting a device code…";
     case "failed":
-      return "Sign-in did not complete. Try again.";
+      return account.message ?? "Sign-in did not complete. Try again.";
     case "unavailable":
-      return account.message === githubCliMissing
-        ? githubCliMissing
+      return isGitHubAccountIssue(account.message)
+        ? account.message
         : "Connect GitHub to use private repositories.";
   }
 }

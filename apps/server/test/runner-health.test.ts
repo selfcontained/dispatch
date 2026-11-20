@@ -21,6 +21,25 @@ describe("runner health samples", () => {
       memoryTotal: 10,
     };
     expect(parseRunnerHealth({ ...sample, arbitrary: true })).toEqual(sample);
+    const maintenanceFailure = {
+      step: "signal",
+      exitCode: 1,
+      at: "2026-01-10T12:00:00Z",
+    };
+    expect(
+      parseRunnerHealth({
+        ...sample,
+        revision: "0123abcd",
+        maintenanceFailure: { ...maintenanceFailure, stderr: "private" },
+      })
+    ).toEqual({ ...sample, revision: "0123abcd", maintenanceFailure });
+    expect(
+      parseRunnerHealth({
+        ...sample,
+        revision: "untrusted text",
+        maintenanceFailure: { ...maintenanceFailure, step: "private" },
+      })
+    ).toEqual(sample);
     for (const update of [
       { sessions: -1 },
       { working: 3 },

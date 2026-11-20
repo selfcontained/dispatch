@@ -180,7 +180,7 @@ function EngineRow({
                   {entry.detail && entry.signedIn && ` · ${entry.detail}`}
                 </>
               ) : entry.issue === "install-unavailable" ? (
-                "Install unavailable"
+                (entry.detail ?? "Install unavailable")
               ) : (
                 "Not installed"
               )}

@@ -221,7 +221,9 @@ stop_idle_runner() {
   if ! systemctl "$target" --version >/dev/null 2>&1; then
     target=--kill-who=main
   fi
+  maintenance_step=signal
   systemctl kill "$target" --signal=SIGKILL "$unit"
+  maintenance_step=stop
   systemctl stop "$unit"
   frozen=0
 }
@@ -242,14 +244,22 @@ recover_runner() {
 }
 
 update_runner() {
+  maintenance_step=prepare
+  # Keep the original tool error on the runner. Only the bounded status record
+  # goes to Dispatch. The lock serializes writers, and tee must not inherit it.
+  install -m 0600 /dev/null "$runtime/last-maintenance.log"
+  exec 2> >(exec 9>&-; tee "$runtime/last-maintenance.log" >&2)
   [[ -f "$runtime/managed-install" && -x "$runtime/dispatch" && -f "$config" ]] ||
     error "No managed Dispatch runner is installed"
   if [[ "$action" == recover || -f "$runtime/previous" ]]; then
+    maintenance_step=restore
     recover_runner
     [[ "$action" != recover ]] || return 0
   fi
+  maintenance_step=stage
   stage_release
   if cmp -s "$stage/dispatch" "$runtime/dispatch"; then
+    maintenance_step=unit
     install_service_unit
     systemctl daemon-reload
     printf 'Runner already has the requested release.\n'
@@ -259,17 +269,23 @@ update_runner() {
   # Record the old inode before any change that could interrupt the service.
   # Create the record only after the idle check, so a deferred update leaves
   # no transaction to recover.
+  maintenance_step=stop
   stop_idle_runner
+  maintenance_step=replace
   ln "$runtime/dispatch" "$runtime/previous"
   sync -f "$runtime"
   mv -fT "$stage/next" "$runtime/dispatch"
   sync -f "$runtime"
+  maintenance_step=start
   if ! start_enabled_runner; then
+    maintenance_step=restore
     recover_runner
+    maintenance_step=start
     error "New runner failed to start. Restored the previous release"
   fi
   rm -f -- "$runtime/previous"
   sync -f "$runtime"
+  maintenance_step=unit
   install_service_unit
   systemctl daemon-reload
   printf 'Runner updated to %s.\n' "$tag"
@@ -278,6 +294,18 @@ update_runner() {
 cleanup() {
   local status=$?
   thaw || printf 'Could not thaw %s. Run the recovery command.\n' "$unit" >&2
+  if [[ "${action:-}" == update || "${action:-}" == recover ]]; then
+    if [[ "$status" == 0 ]]; then
+      rm -f -- "$runtime/last-maintenance-failure.json" || :
+    else
+      # Persist only the failed step and exit status. Command output can contain
+      # credentials. The lock is held until after this atomic replacement.
+      if printf '{"step":"%s","exitCode":%d,"at":"%s"}\n' "${maintenance_step:-prepare}" "$status" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$stage/failure.json"; then
+        mv -fT "$stage/failure.json" "$runtime/last-maintenance-failure.json" || :
+      fi
+      printf 'Runner maintenance stopped at step %s (exit %d).\n' "${maintenance_step:-prepare}" "$status" >&2
+    fi
+  fi
   rm -rf -- "$stage"
   return "$status"
 }
