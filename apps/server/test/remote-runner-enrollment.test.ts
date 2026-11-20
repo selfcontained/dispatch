@@ -1006,13 +1006,28 @@ describe("runner enrollment service", () => {
   });
 });
 
-it("releases the handshake slot for HTTP and closes the idle relay cleanly", async () => {
+it("relays complete HTTP responses on a resumed connection without a client certificate", async () => {
   const authority = issueAuthority("relay-test");
   const leaf = issueServer(authority, [HOST]);
-  let requests = 0;
-  const api = http.createServer((_request, response) => {
-    const delay = requests++ === 0 ? 0 : 150;
-    setTimeout(() => response.end("ok"), delay);
+  const requests: string[] = [];
+  const api = http.createServer((request, response) => {
+    requests.push(request.method ?? "");
+    const status = request.method === "POST" ? 400 : 405;
+    const body = JSON.stringify({
+      error:
+        status === 400 ? "Unsupported protocol version" : "Method not allowed",
+    });
+    setTimeout(
+      () => {
+        response.writeHead(status, {
+          "Content-Type": "application/json",
+          "Content-Length": Buffer.byteLength(body),
+          Connection: "close",
+        });
+        response.end(body);
+      },
+      status === 400 ? 0 : 150
+    );
   });
   api.listen(0, HOST);
   await once(api, "listening");
@@ -1020,11 +1035,27 @@ it("releases the handshake slot for HTTP and closes the idle relay cleanly", asy
   const service = new RemoteRunnerService(
     undefined,
     undefined,
-    { host: HOST, port: (api.address() as AddressInfo).port, tls: false },
+    {
+      host: HOST,
+      port: (api.address() as AddressInfo).port,
+      tls: false,
+      validAgentToken: (token, id) =>
+        token === "agent-token" && id === "agt_probe",
+    },
     { debug }
   );
-  const listener = createServer({ cert: leaf.cert, key: leaf.key }, (socket) =>
-    service["accept"](socket, "legacy")
+  const listener = createServer(
+    {
+      cert: leaf.cert,
+      key: leaf.key,
+      requestCert: true,
+      rejectUnauthorized: false,
+    },
+    (socket) => {
+      // Bun reports an anonymous TLS resumption as authorized without a cert.
+      socket.authorized = true;
+      service["accept"](socket, "legacy");
+    }
   );
   listener.listen(0, HOST);
   await once(listener, "listening");
@@ -1032,30 +1063,48 @@ it("releases the handshake slot for HTTP and closes the idle relay cleanly", asy
   try {
     expect(service["proxyIdleTimeout"]).toBeGreaterThan(60_000);
     Object.defineProperty(service, "proxyIdleTimeout", { value: 100 });
-    const ping = () =>
-      new Promise<TLSSocket>((resolve, reject) => {
-        const request = https.get(
+    const call = (method: string) =>
+      new Promise<{
+        socket: TLSSocket;
+        status: number | undefined;
+        body: string;
+      }>((resolve, reject) => {
+        const request = https.request(
           {
             host: HOST,
             port: (listener.address() as AddressInfo).port,
-            path: "/ping",
+            path: "/api/mcp/agt_probe",
+            method,
+            headers: { Authorization: "Bearer agent-token" },
             agent,
           },
           (response) => {
-            const connection = response.socket as TLSSocket;
-            response.resume();
-            response.once("end", () => resolve(connection));
+            const socket = response.socket as TLSSocket;
+            let body = "";
+            response.setEncoding("utf8");
+            response.on("data", (chunk: string) => (body += chunk));
+            response.once("end", () =>
+              resolve({ socket, status: response.statusCode, body })
+            );
             response.once("error", reject);
           }
         );
         request.on("error", reject);
+        request.end();
       });
-    const socket = await ping();
+    const first = await call("POST");
+    expect(first.status).toBe(400);
+    expect(JSON.parse(first.body)).toEqual({
+      error: "Unsupported protocol version",
+    });
     expect(service["unauthenticated"]).toBe(0);
-    expect(await ping()).toBe(socket);
-    expect(socket.destroyed).toBe(false);
-    const [hadError] = await once(socket, "close");
-    expect(hadError).toBe(false);
+    const close = once(first.socket, "close");
+    const second = await call("GET");
+    expect(second.socket).toBe(first.socket);
+    expect(second.status).toBe(405);
+    expect(JSON.parse(second.body)).toEqual({ error: "Method not allowed" });
+    expect(requests).toEqual(["POST", "GET"]);
+    expect(await close).toEqual([false]);
     await vi.waitFor(() =>
       expect(debug).toHaveBeenCalledExactlyOnceWith(
         { ageMs: expect.any(Number), requestsServed: 2, closedBy: "proxy" },

@@ -597,7 +597,9 @@ export class RemoteRunnerService {
     socket.on("error", () => socket.destroy());
     this.sockets.add(socket);
     socket.on("close", () => this.sockets.delete(socket));
-    if (socket.authorized) {
+    // Bun can mark a resumed TLS session authorized even when the client
+    // never presented a certificate. Only certificate peers use runner RPC.
+    if (socket.authorized && socket.getPeerCertificate()?.fingerprint256) {
       const gate = this.gateFor(socket, kind);
       return gate ? this.attachPeer(socket, gate) : socket.destroy();
     }
