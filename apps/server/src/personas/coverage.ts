@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { childProcessEnv } from "../shared/process/child-environment.js";
 
 import { getBuiltInPersona } from "./built-in.js";
 import { parseCodeowners, resolveCodeowners } from "./codeowners.js";
@@ -19,6 +20,7 @@ export function checkOwnerCoverage(input: {
     input.git ??
     ((args) =>
       execFileSync("git", args, {
+        env: childProcessEnv(),
         cwd: input.cwd,
         encoding: "utf8",
         maxBuffer: 64 * 1024 * 1024,

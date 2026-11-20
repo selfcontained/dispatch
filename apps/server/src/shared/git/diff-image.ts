@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { constants } from "node:fs";
 import { lstat, open, type FileHandle } from "node:fs/promises";
 import path from "node:path";
+import { childProcessEnv } from "../process/child-environment.js";
 
 import { DIFF_IMAGE_MAX_BYTES, type DiffImageInfo } from "@dispatch/shared";
 
@@ -221,6 +222,7 @@ function gitShowBinary(
 ): Promise<Buffer | null | "too-large"> {
   return new Promise((resolve) => {
     const child = spawn("git", ["-C", worktreePath, "show", spec], {
+      env: childProcessEnv(),
       stdio: ["ignore", "pipe", "ignore"],
     });
     const chunks: Buffer[] = [];

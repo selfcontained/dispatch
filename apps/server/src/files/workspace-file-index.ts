@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { openWorkspaceDirectory } from "./workspace-directory.js";
 import path from "node:path";
+import { childProcessEnv } from "../shared/process/child-environment.js";
 
 export type WorkspaceFileIndex = {
   paths: string[];
@@ -26,7 +27,7 @@ function gitIndex(root: string): Promise<WorkspaceFileIndex | null> {
     const child = spawn(
       "git",
       ["ls-files", "--cached", "--others", "--exclude-standard", "-z"],
-      { cwd: root, stdio: ["ignore", "pipe", "ignore"] }
+      { cwd: root, env: childProcessEnv(), stdio: ["ignore", "pipe", "ignore"] }
     );
     const names = new Set<string>();
     let bytes = 0;

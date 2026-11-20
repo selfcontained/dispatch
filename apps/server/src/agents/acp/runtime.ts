@@ -15,6 +15,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import path from "node:path";
+import { childProcessEnv } from "../../shared/process/child-environment.js";
 
 import type { FastifyBaseLogger } from "fastify";
 import type {
@@ -128,39 +129,6 @@ export function loginShellCommand(
   };
 }
 
-/** What the host must not inherit from the server process. */
-const ENV_DENY_EXACT = new Set([
-  "ANTHROPIC_API_KEY",
-  "OPENAI_API_KEY",
-  "CODEX_API_KEY",
-  "DATABASE_URL",
-  "TEST_DATABASE_URL",
-  "PGPASSWORD",
-  "PGUSER",
-  "PGHOST",
-  "PGPORT",
-  "PGDATABASE",
-  "DISPATCH_FILES_ROOT",
-  "TLS_CERT",
-  "TLS_KEY",
-  "TLS_CA",
-]);
-
-export function hostProcessEnv(base: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = {};
-  for (const [key, value] of Object.entries(base)) {
-    if (value === undefined) continue;
-    if (
-      ENV_DENY_EXACT.has(key) ||
-      (key.startsWith("DISPATCH_") &&
-        !/^DISPATCH_OWNED_[a-f0-9]{32}$/.test(key))
-    )
-      continue;
-    env[key] = value;
-  }
-  return env;
-}
-
 async function readPid(stateDir: string): Promise<number | null> {
   try {
     const text = await readFile(hostFile(stateDir, "pid"), "utf8");
@@ -178,6 +146,7 @@ function hostPidMatches(pid: number, dir: string): boolean {
       "/bin/ps",
       ["-p", String(pid), "-o", "args="],
       {
+        env: childProcessEnv(),
         encoding: "utf8",
         timeout: 2_000,
       }
@@ -958,7 +927,7 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
         "--state",
         dir,
       ]);
-      const owned = ownedEnvironment(hostProcessEnv(process.env));
+      const owned = ownedEnvironment(childProcessEnv());
       await writeFile(path.join(dir, "ownership"), owned.marker, {
         mode: 0o600,
       });

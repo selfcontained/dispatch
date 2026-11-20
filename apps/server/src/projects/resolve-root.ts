@@ -2,6 +2,7 @@ import { realpath, stat } from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { resolveTilde } from "../shared/lib/resolve-tilde.js";
+import { childProcessEnv } from "../shared/process/child-environment.js";
 
 export async function resolveProjectRoot(input: string): Promise<string> {
   const cwd = await realpath(resolveTilde(input));
@@ -9,7 +10,7 @@ export async function resolveProjectRoot(input: string): Promise<string> {
   const git = async (...args: string[]) =>
     (
       await promisify(execFile)("git", ["-C", cwd, ...args], {
-        env: { ...process.env, LC_ALL: "C" },
+        env: { ...childProcessEnv(), LC_ALL: "C" },
       })
     ).stdout.trim();
   // A plain folder (no Git) is its own project root. Any other Git failure

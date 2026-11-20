@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { open, readdir, readFile, stat } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { childProcessEnv } from "../shared/process/child-environment.js";
 
 import type {
   PlanLimitResets,
@@ -750,7 +751,7 @@ function readMacKeychain(): Promise<string> {
     execFile(
       "/usr/bin/security",
       ["find-generic-password", "-s", CLAUDE_KEYCHAIN_SERVICE, "-w"],
-      { timeout: 5_000, maxBuffer: 64 * 1024 },
+      { env: childProcessEnv(), timeout: 5_000, maxBuffer: 64 * 1024 },
       (error, stdout) => {
         if (error) reject(new Error("keychain read failed"));
         else resolve(stdout);

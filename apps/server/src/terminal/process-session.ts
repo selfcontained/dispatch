@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
+import { childProcessEnv } from "../shared/process/child-environment.js";
 
 let darwinGetSid: ((pid: number) => number) | undefined;
 
@@ -40,6 +41,7 @@ function getSessionId(pid: number): number {
 
 function ps(args: string[]): string {
   return execFileSync("/bin/ps", args, {
+    env: childProcessEnv(),
     encoding: "utf8",
     timeout: 2000,
     maxBuffer: 4 * 1024 * 1024,

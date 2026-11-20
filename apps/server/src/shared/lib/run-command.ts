@@ -1,7 +1,9 @@
 import { spawn } from "node:child_process";
+import { childProcessEnv } from "../process/child-environment.js";
 
 type RunCommandOptions = {
   cwd?: string;
+  /** Explicit overrides for the filtered inherited environment. */
   env?: NodeJS.ProcessEnv;
   allowedExitCodes?: number[];
   timeoutMs?: number;
@@ -36,7 +38,7 @@ export async function runCommand(
   return await new Promise<RunCommandResult>((resolve, reject) => {
     const child = spawn(command, args, {
       cwd: options.cwd,
-      env: options.env ? { ...process.env, ...options.env } : process.env,
+      env: { ...childProcessEnv(), ...options.env },
       stdio: ["ignore", "pipe", "pipe"],
     });
 
