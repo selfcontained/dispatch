@@ -46,6 +46,12 @@ import {
 import { GitHubPullRequestWatches } from "./github-pull-request-watches.js";
 import { GitHubRunnerExecutor } from "./github-runner-executor.js";
 import {
+  WorkloadTools,
+  missingExecutable,
+  systemTools,
+  workloadToolLookup,
+} from "./workload-tools.js";
+import {
   EngineRunnerExecutor,
   type ManagedCommand,
 } from "./engine-runner-executor.js";
@@ -87,7 +93,13 @@ type RunnerConfig = {
   >;
 };
 
-export const runnerGitArgs = [
+/** Git's credential helper runs through a shell; quote unusual paths. */
+function credentialHelper(gh: string) {
+  const bin = /^[\w./+-]+$/.test(gh) ? gh : `'${gh.replaceAll("'", `'\\''`)}'`;
+  return `credential.https://github.com.helper=!${bin} auth git-credential`;
+}
+
+export const runnerGitArgsFor = (gh: string) => [
   "-c",
   "protocol.allow=never",
   "-c",
@@ -97,10 +109,12 @@ export const runnerGitArgs = [
   "-c",
   "credential.helper=",
   "-c",
-  "credential.https://github.com.helper=!/usr/bin/gh auth git-credential",
+  credentialHelper(gh),
   "-c",
   "core.hooksPath=/dev/null",
 ];
+
+export const runnerGitArgs = runnerGitArgsFor(systemTools.gh);
 
 const execute = promisify(execFile);
 
@@ -258,13 +272,25 @@ export async function runRemoteRunner(filename: string) {
     key: readFileSync(config.key),
   };
   const sampleHealth = runnerHealthSampler();
+  // gh and git come from the workload account's own login environment, the
+  // one its agent sessions get, not from whatever the system package put in
+  // /usr/bin. Looked up once; a missing resolved path triggers a new lookup.
+  const tools = new WorkloadTools(async () => {
+    const { stdout } = await execute(
+      setpriv,
+      [...childArgs, ...workloadToolLookup(shell, config.home, config.path)],
+      { env, cwd: config.home, timeout: 15_000, maxBuffer: 64 * 1024 }
+    );
+    return stdout;
+  });
   const github = new GitHubRunnerExecutor(
     env,
     (bin, args) => ({
       bin: setpriv,
       args: [...childArgs, bin, ...args],
     }),
-    credentials.key
+    credentials.key,
+    tools
   );
   const pullRequests = new GitHubPullRequestWatches(async (target, signal) => {
     const result = await github.handle(
@@ -367,9 +393,13 @@ export async function runRemoteRunner(filename: string) {
     }
   }
   const asWorkload: WorkloadCommand = async (bin, args, opts) => {
+    const resolved = bin === "git" ? await tools.resolve("git") : bin;
+    const gitArgs = opts?.git
+      ? runnerGitArgsFor(await tools.resolve("gh"))
+      : [];
     const { stdout } = await execute(
       setpriv,
-      [...childArgs, bin, ...(opts?.git ? runnerGitArgs : []), ...args],
+      [...childArgs, resolved, ...gitArgs, ...args],
       {
         env: {
           ...env,
@@ -382,7 +412,10 @@ export async function runRemoteRunner(filename: string) {
         timeout: opts?.git ? 90_000 : 20_000,
         maxBuffer: 512 * 1024,
       }
-    );
+    ).catch((error: unknown) => {
+      if (resolved !== bin && missingExecutable(error)) tools.invalidate();
+      throw error;
+    });
     return stdout;
   };
   const supervisor = await createSessionSupervisor({

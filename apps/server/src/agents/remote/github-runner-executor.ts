@@ -15,22 +15,21 @@ import {
   type GitHubOperation,
   type GitHubStatus,
 } from "./protocol.js";
+import {
+  fixedWorkloadTools,
+  missingExecutable,
+  type WorkloadTool,
+  type WorkloadToolResolver,
+} from "./workload-tools.js";
 
 const host = "github.com";
-const gh = "/usr/bin/gh";
 const hostArgs = ["--hostname", host];
 const execute = promisify(execFile);
 const codePattern = /one-time code: ([A-Z0-9]{4}-[A-Z0-9]{4})\r?\n/i;
 
 function cliIssue(error: unknown, fallback: string) {
-  const { code, stderr } = error as { code?: string | number; stderr?: string };
-  if (
-    code === "ENOENT" ||
-    /failed to execute \/usr\/bin\/gh: No such file or directory/.test(
-      stderr ?? ""
-    )
-  )
-    return githubAccountIssues.missing;
+  const { stderr } = error as { stderr?: string };
+  if (missingExecutable(error)) return githubAccountIssues.missing;
   if (
     /network is unreachable|no such host|could not resolve host|connection refused|error connecting to (?:api\.)?github\.com/i.test(
       stderr ?? ""
@@ -164,7 +163,8 @@ export class GitHubRunnerExecutor {
   constructor(
     env: NodeJS.ProcessEnv,
     private readonly wrap: CommandWrapper,
-    credentialKey?: Buffer
+    credentialKey?: Buffer,
+    private readonly tools: WorkloadToolResolver = fixedWorkloadTools
   ) {
     this.env = {
       ...env,
@@ -182,24 +182,29 @@ export class GitHubRunnerExecutor {
   }
 
   private run(args: string[], signal: AbortSignal, token?: string) {
-    return this.runCommand(gh, args, signal, token);
+    return this.runCommand("gh", args, signal, token);
   }
 
   private async runCommand(
-    bin: string,
+    tool: WorkloadTool,
     args: string[],
     signal: AbortSignal,
     token?: string
   ) {
-    const command = this.wrap(bin, args);
-    const { stdout } = await execute(command.bin, command.args, {
-      env: token ? { ...this.env, GH_TOKEN: token } : this.env,
-      signal,
-      killSignal: "SIGKILL",
-      timeout: 7_000,
-      maxBuffer: 128 * 1024,
-    });
-    return stdout.trim();
+    const command = this.wrap(await this.tools.resolve(tool), args);
+    try {
+      const { stdout } = await execute(command.bin, command.args, {
+        env: token ? { ...this.env, GH_TOKEN: token } : this.env,
+        signal,
+        killSignal: "SIGKILL",
+        timeout: 7_000,
+        maxBuffer: 128 * 1024,
+      });
+      return stdout.trim();
+    } catch (error) {
+      if (missingExecutable(error)) this.tools.invalidate();
+      throw error;
+    }
   }
 
   private async configureGitIdentity(
@@ -207,7 +212,7 @@ export class GitHubRunnerExecutor {
     signal: AbortSignal
   ) {
     const config = (args: string[]) =>
-      this.runCommand("/usr/bin/git", ["config", "--global", ...args], signal);
+      this.runCommand("git", ["config", "--global", ...args], signal);
     const name = typeof profile.name === "string" ? profile.name.trim() : "";
     for (const [key, value] of [
       ["user.name", name || profile.login],
@@ -303,7 +308,7 @@ export class GitHubRunnerExecutor {
       : { status: "pending" };
   }
 
-  private start(connection: AbortSignal) {
+  private start(connection: AbortSignal, gh: string) {
     const command = this.wrap(gh, [
       "auth",
       "login",
@@ -376,6 +381,8 @@ export class GitHubRunnerExecutor {
         }
       }
       connection.removeEventListener("abort", cancel);
+      if (code !== 0 && missingExecutable({ stderr: tail }))
+        this.tools.invalidate();
       if (code !== 0 && !failure)
         failure = cliIssue(
           { stderr: tail },
@@ -441,7 +448,9 @@ export class GitHubRunnerExecutor {
         this.repositories = undefined;
         const account = await this.account(signal);
         if (account.status === "signed-out") {
-          this.start(signal);
+          const gh = await this.tools.resolve("gh");
+          signal.throwIfAborted();
+          this.start(signal, gh);
           return this.currentLogin();
         }
         if (account.status === "signed-in") {
