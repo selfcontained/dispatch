@@ -395,6 +395,16 @@ export async function createSessionSupervisor(
       : launch;
   }
 
+  /** Whether `dir` is inside a session's protected `checkout` subtree. */
+  async function isSessionCheckout(dir: string) {
+    const [key, name] = path.relative(sessions, dir).split(path.sep);
+    if (name !== "checkout" || !key || !storageKeyPattern.test(key))
+      return false;
+    // A workload-writable parent could swap the checkout for a symlink.
+    const parent = await lstat(path.join(sessions, key)).catch(missingPath);
+    return checkoutParentIsProtected(parent);
+  }
+
   async function authorizedDirectory(
     requested: string,
     launch: string,
@@ -418,9 +428,11 @@ export async function createSessionSupervisor(
       );
     }
     // Configured workspaces are allowlisted. Managed sessions may select
-    // their owner's checkout or an external root disjoint from runner state.
+    // their owner's checkout, another session's checkout (local allows any
+    // directory), or an external root disjoint from runner state.
     const allowed = managed
       ? containsDirectory(path.join(sessions, owner), dir) ||
+        (await isSessionCheckout(dir)) ||
         (!containsDirectory(storage, dir) && !containsDirectory(dir, storage))
       : containsDirectory(launch, dir);
     if (!allowed)

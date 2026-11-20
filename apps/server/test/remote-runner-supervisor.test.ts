@@ -2,6 +2,7 @@ import { execFile, execFileSync, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { once } from "node:events";
 import {
+  chmod,
   link,
   mkdir,
   mkdtemp,
@@ -1003,6 +1004,60 @@ describe("runner session supervision", () => {
       undefined
     );
     expect(processes.spawn.mock.calls.at(-1)?.[1]).toBe(checkout);
+  });
+
+  it("lets a managed session select another session's checkout like local", async () => {
+    const workspace = MANAGED_WORKSPACE;
+    const asWorkload = async (bin: string, args: string[]) =>
+      bin === "realpath"
+        ? (await realpath(args.at(-1)!)) + "\n"
+        : execFileSync(bin, args, {
+            encoding: "utf8",
+            stdio: ["ignore", "pipe", "ignore"],
+          });
+    const runner = await start([], asWorkload);
+    await runner.launch(launch(workspace), undefined);
+    const select = (path: string) =>
+      runner.sessionCheckout(agentId, workspace, { kind: "select", path });
+    const sessions = path.join(state, "sessions");
+    const parent = path.join(sessions, "agt_sibling");
+    const checkout = path.join(parent, "checkout");
+    const nested = path.join(checkout, "src");
+    const privateDir = path.join(parent, "private");
+    await mkdir(parent, { mode: 0o751 });
+    await chmod(parent, 0o751);
+    await mkdir(nested, { recursive: true });
+    await mkdir(privateDir);
+    await symlink(path.join(state, "bindings"), path.join(checkout, "escape"));
+    // A workload-writable parent could swap the checkout for a symlink.
+    const loose = path.join(sessions, "agt_loose", "checkout");
+    await mkdir(loose, { recursive: true });
+    await chmod(path.dirname(loose), 0o755);
+    const badKey = path.join(sessions, "not-a-key", "checkout");
+    await mkdir(badKey, { recursive: true });
+
+    await expect(select(checkout)).resolves.toEqual({
+      path: checkout,
+      moved: true,
+      origin: null,
+    });
+    await expect(select(nested)).resolves.toMatchObject({ path: nested });
+    for (const forbidden of [
+      parent,
+      privateDir,
+      path.join(checkout, "escape"),
+      loose,
+      badKey,
+      path.join(state, "bindings"),
+      sessions,
+      state,
+    ])
+      await expect(select(forbidden)).rejects.toThrow(
+        "outside the bound runner checkout"
+      );
+    await expect(runner.checkoutDirectory(agentId, workspace)).resolves.toBe(
+      nested
+    );
   });
 
   it("shares a configured workspace with separate host state and no folder cleanup", async () => {
