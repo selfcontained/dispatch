@@ -184,6 +184,8 @@ type Peer = {
 };
 
 const MAX_UNAUTHENTICATED = 64;
+const MAX_HTTP_RELAYS = 256;
+const UNAUTHENTICATED_TIMEOUT = 10_000;
 const PROXY_KEEP_ALIVE_TIMEOUT = 75_000;
 
 function validHost(host: string) {
@@ -325,6 +327,8 @@ export class RemoteRunnerService {
   private readonly legacySockets = new Set<TLSSocket>();
   private readonly sockets = new Set<TLSSocket>();
   private unauthenticated = 0;
+  private activeHttpRelays = 0;
+  private readonly maxHttpRelays = MAX_HTTP_RELAYS;
   private legacyListener?: Server;
   private listener?: Server;
   private listening?: Promise<void>;
@@ -379,12 +383,13 @@ export class RemoteRunnerService {
       (request, response) => {
         const relay = this.proxyRelays.get(request.socket.remotePort!);
         if (relay) {
-          relay.firstRequest?.();
-          relay.firstRequest = undefined;
           response.once("finish", () => relay.requestsServed++);
         }
         this.trackProxyRequest(request.socket, response);
-        this.forward(request, response);
+        this.forward(request, response, () => {
+          relay?.releaseHandshake?.();
+          if (relay) relay.releaseHandshake = undefined;
+        });
       }
     );
   }
@@ -606,7 +611,10 @@ export class RemoteRunnerService {
     // Unauthenticated peers may pair once or reach the scoped MCP proxy.
     if (this.unauthenticated >= MAX_UNAUTHENTICATED) return socket.destroy();
     this.unauthenticated++;
-    const deadline = setTimeout(() => socket.destroy(), 10_000);
+    const deadline = setTimeout(
+      () => socket.destroy(),
+      UNAUTHENTICATED_TIMEOUT
+    );
     const release = () => {
       socket.removeListener("close", release);
       clearTimeout(deadline);
@@ -647,15 +655,21 @@ export class RemoteRunnerService {
    * http.Server) works the same under Node and Bun.
    */
   private async relay(socket: TLSSocket, head: Buffer, release: () => void) {
+    if (this.activeHttpRelays >= this.maxHttpRelays) {
+      socket.destroy();
+      return;
+    }
+    this.activeHttpRelays++;
     const started = performance.now();
-    const relay: { firstRequest?: () => void; requestsServed: number } = {
-      firstRequest: release,
+    const relay: { releaseHandshake?: () => void; requestsServed: number } = {
+      releaseHandshake: release,
       requestsServed: 0,
     };
     let closedBy: "client" | "proxy" | undefined;
     socket.once("end", () => (closedBy ??= "client"));
     socket.once("error", () => (closedBy ??= "client"));
     socket.once("close", () => {
+      this.activeHttpRelays--;
       this.logger?.debug(
         {
           ageMs: Math.round(performance.now() - started),
@@ -698,7 +712,7 @@ export class RemoteRunnerService {
   private readonly proxyIdleTimeout = PROXY_KEEP_ALIVE_TIMEOUT;
   private readonly proxyRelays = new Map<
     number,
-    { firstRequest?: () => void; requestsServed: number }
+    { releaseHandshake?: () => void; requestsServed: number }
   >();
   private readonly proxyRequests = new WeakMap<
     Socket,
@@ -961,7 +975,8 @@ export class RemoteRunnerService {
    */
   private forward(
     request: http.IncomingMessage,
-    response: http.ServerResponse
+    response: http.ServerResponse,
+    onAuthenticated: () => void
   ) {
     const url = request.url ?? "";
     const target = this.api;
@@ -985,6 +1000,21 @@ export class RemoteRunnerService {
       ((agentId && target?.validAgentToken?.(token, agentId)) ||
         (job && target?.validJobToken?.(token, job[1]!, job[2]!)))
     );
+    if (mcp) {
+      onAuthenticated();
+    } else {
+      // Public and rejected requests do not need a keep-alive connection.
+      response.setHeader("Connection", "close");
+      if (connectCreate && !request.complete) {
+        // Also bound the body on a previously authenticated keep-alive socket.
+        const timeout = setTimeout(
+          () => request.destroy(),
+          UNAUTHENTICATED_TIMEOUT
+        ).unref();
+        request.once("end", () => clearTimeout(timeout));
+        response.once("close", () => clearTimeout(timeout));
+      }
+    }
     const allowed = ping || mcp || connectCreate || connectPoll;
     if (!allowed || !target) {
       response.writeHead(allowed ? 503 : 404).end();

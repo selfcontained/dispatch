@@ -1125,9 +1125,14 @@ describe("runner listener request prefixes", () => {
   let api: http.Server;
   let listener: ReturnType<typeof createServer>;
   let service: RemoteRunnerService;
+  let bootstrapStarted = false;
 
   beforeAll(async () => {
-    api = http.createServer((_request, response) => response.end("ping ok"));
+    api = http.createServer((request, response) => {
+      if (request.url === "/api/v1/runners/connect") bootstrapStarted = true;
+      request.resume();
+      request.once("end", () => response.end("ping ok"));
+    });
     api.listen(0, HOST);
     await once(api, "listening");
     service = new RemoteRunnerService(undefined, undefined, {
@@ -1213,6 +1218,40 @@ describe("runner listener request prefixes", () => {
       50
     );
     expect(JSON.parse(reply)).toEqual({ type: "ca", ca: authority.cert });
+  });
+
+  it("keeps an unfinished bootstrap request in the handshake and relay budgets", async () => {
+    const socket = await dial();
+    const relayLimit = service["maxHttpRelays"];
+    Object.defineProperty(service, "maxHttpRelays", { value: 1 });
+    try {
+      socket.write(
+        "POST /api/v1/runners/connect HTTP/1.1\r\nHost: localhost\r\nContent-Length: 2\r\n\r\n{"
+      );
+      await vi.waitFor(() => expect(bootstrapStarted).toBe(true));
+      expect(service["proxyRelays"].size).toBe(1);
+      expect(service["unauthenticated"]).toBe(1);
+      expect(service["activeHttpRelays"]).toBe(1);
+      expect(await exchange(["GET /" + rest], 0)).toBe("");
+      const ca = await exchange(['{"type":"ca_request","version":1}\n'], 0);
+      expect(JSON.parse(ca)).toEqual({ type: "ca", ca: authority.cert });
+      const closed = once(socket, "close");
+      let response = "";
+      socket.setEncoding("utf8");
+      socket.on("data", (chunk) => (response += chunk));
+      socket.write("}");
+      await closed;
+      expect(response).toContain("HTTP/1.1 200 OK");
+      expect(response).toMatch(/connection: close/i);
+      await vi.waitFor(() => {
+        expect(service["proxyRelays"].size).toBe(0);
+        expect(service["unauthenticated"]).toBe(0);
+        expect(service["activeHttpRelays"]).toBe(0);
+      });
+    } finally {
+      socket.destroy();
+      Object.defineProperty(service, "maxHttpRelays", { value: relayLimit });
+    }
   });
 });
 
