@@ -76,40 +76,52 @@ export class GitHubRunnerExecutor {
     const cached = this.repositories;
     if (cached && Date.now() - cached.at < 5 * 60_000) return cached.rows;
     const signal = AbortSignal.timeout(60_000);
+    const page = async (number: number) => {
+      const batch: unknown = JSON.parse(
+        await this.run(
+          [
+            "api",
+            ...hostArgs,
+            "user/repos",
+            "--method",
+            "GET",
+            "-f",
+            "affiliation=owner,collaborator,organization_member",
+            "-f",
+            "sort=pushed",
+            "-f",
+            "per_page=100",
+            "-f",
+            `page=${number}`,
+            "--jq",
+            "[.[] | {name: .full_name, url: .html_url}]",
+          ],
+          signal
+        )
+      );
+      if (!Array.isArray(batch))
+        throw new Error("Invalid GitHub repository list.");
+      return batch as { name?: unknown; url?: unknown }[];
+    };
     const rows = (async () => {
       const all: { name: string; url: string }[] = [];
-      for (let page = 1; page <= 50; page++) {
-        const batch: unknown = JSON.parse(
-          await this.run(
-            [
-              "api",
-              ...hostArgs,
-              "user/repos",
-              "--method",
-              "GET",
-              "-f",
-              "affiliation=owner,collaborator,organization_member",
-              "-f",
-              "sort=pushed",
-              "-f",
-              "per_page=100",
-              "-f",
-              `page=${page}`,
-              "--jq",
-              "[.[] | {name: .full_name, url: .html_url}]",
-            ],
-            signal
-          )
+      const seen = new Set<string>();
+      // Pages are fetched a few at a time; a short page ends the listing.
+      for (let first = 1; first <= 48; first += 4) {
+        const batches = await Promise.all(
+          [0, 1, 2, 3].map((offset) => page(first + offset))
         );
-        if (!Array.isArray(batch))
-          throw new Error("Invalid GitHub repository list.");
-        all.push(
-          ...batch.filter(
-            (row) =>
-              typeof row?.name === "string" && typeof row?.url === "string"
-          )
-        );
-        if (batch.length < 100) break;
+        for (const batch of batches)
+          for (const row of batch)
+            if (
+              typeof row?.name === "string" &&
+              typeof row?.url === "string" &&
+              !seen.has(row.url)
+            ) {
+              seen.add(row.url);
+              all.push({ name: row.name, url: row.url });
+            }
+        if (batches.some((batch) => batch.length < 100)) break;
       }
       return all;
     })();
@@ -332,7 +344,13 @@ export class GitHubRunnerExecutor {
       case "status":
         if (this.login) return this.currentLogin();
         if (this.failure) return { status: "failed", message: this.failure };
-        return this.account(signal);
+        return this.account(signal).then((account) => {
+          // The form asks for the account before anyone searches, so the
+          // first search finds the listing already under way.
+          if (account.status === "signed-in")
+            void this.repositoryList().catch(() => {});
+          return account;
+        });
       case "login": {
         if (this.login?.connection === signal) return this.currentLogin();
         await this.login?.finished;
