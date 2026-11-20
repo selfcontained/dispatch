@@ -1,3 +1,4 @@
+import type { CheckoutCommand } from "@dispatch/runner-protocol";
 import { createHash, randomUUID } from "node:crypto";
 import { closeSync, constants, fstatSync, openSync, type Stats } from "node:fs";
 import {
@@ -940,6 +941,33 @@ export async function createSessionSupervisor(
         return operation.kind === "observe"
           ? observeRelease(key, workspace)
           : releaseCheckout(key, workspace, operation.expectedState);
+      });
+    },
+    async withCommandCheckout<T>(
+      agentId: string,
+      workspace: string,
+      checkout: CheckoutCommand["checkout"],
+      configuredCwd: string | undefined,
+      signal: AbortSignal,
+      run: (cwd: string, configuredRoot?: string) => Promise<T>
+    ): Promise<T | null> {
+      const key = runnerStorageKey(agentId);
+      const owner = checkoutOwner(await readBinding(key)) ?? key;
+      return withLaunchLocks([key, owner], async () => {
+        signal.throwIfAborted();
+        if ((checkoutOwner(await readBinding(key)) ?? key) !== owner)
+          throw new Error("The checkout binding changed; retry the request.");
+        const initial = await initialDirectory(key, workspace, configuredCwd);
+        const cwd =
+          checkout === "launch"
+            ? initial
+            : await selectedDirectory(key, workspace, initial);
+        signal.throwIfAborted();
+        if (checkout === "moved" && cwd === initial) return null;
+        const configuredRoot = managedTarget(workspace)
+          ? undefined
+          : await configuredDirectory(key, configuredCwd);
+        return run(cwd, configuredRoot);
       });
     },
     checkoutDirectory(

@@ -2,9 +2,10 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { runLifecycleHook } from "../src/agents/lifecycle-hooks.js";
+import type { RemoteRunnerService } from "../src/agents/remote/service.js";
 import type { AgentRecord } from "../src/agents/types.js";
 
 const logger = {
@@ -85,4 +86,56 @@ describe("runLifecycleHook", () => {
       "x\n"
     );
   });
+});
+
+it("reports a runner hook failure and still runs the moved checkout on each teardown attempt", async () => {
+  const warn = vi.fn();
+  const call = vi.fn(async (_placement, { operation }) => {
+    const content = JSON.stringify({
+      hooks: { stop: { command: ["cleanup", operation.checkout] } },
+    });
+    return {
+      value: JSON.stringify(
+        operation.kind === "read"
+          ? { content, state: "a".repeat(64) }
+          : {
+              exitCode: operation.checkout === "launch" ? 23 : 0,
+              stderr: "cleanup failed",
+              stdout: "",
+              truncated: false,
+            }
+      ),
+    };
+  });
+  const remote = { requestSession: call } as unknown as RemoteRunnerService;
+  const agent = { id: "session", cwd: "runner://machine/work" } as AgentRecord;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    await expect(
+      runLifecycleHook("stop", agent, { ...logger, warn }, remote)
+    ).resolves.toBeUndefined();
+  }
+  expect(
+    call.mock.calls.map(([, { operation }]) => [
+      operation.checkout,
+      operation.kind,
+    ])
+  ).toEqual([
+    ["launch", "read"],
+    ["launch", "run"],
+    ["moved", "read"],
+    ["moved", "run"],
+    ["launch", "read"],
+    ["launch", "run"],
+    ["moved", "read"],
+    ["moved", "run"],
+  ]);
+  expect(warn).toHaveBeenCalledTimes(2);
+  expect(warn).toHaveBeenCalledWith(
+    expect.objectContaining({
+      checkout: "launch",
+      exitCode: 23,
+      stderr: "cleanup failed",
+    }),
+    expect.any(String)
+  );
 });

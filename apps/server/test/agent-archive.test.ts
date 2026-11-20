@@ -613,7 +613,8 @@ describe("executeArchive", () => {
       expect(runLifecycleHook).toHaveBeenCalledWith(
         "stop",
         agent,
-        expect.anything()
+        expect.anything(),
+        undefined
       );
     });
 

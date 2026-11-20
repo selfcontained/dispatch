@@ -1,3 +1,4 @@
+import { isCheckoutCommand, type CheckoutCommand } from "./checkout-command.js";
 import {
   isSessionFileOperation,
   type SessionFileOperation,
@@ -76,6 +77,7 @@ export type SessionOperation =
       kind: "sessionCheckout";
       operation: { kind: "describe" } | { kind: "select"; path: string | null };
     }
+  | { agentId: string; kind: "checkoutCommand"; operation: CheckoutCommand }
   | { agentId: string; kind: "checkoutRelease"; operation: CheckoutRelease }
   | { agentId: string; kind: "repo" };
 
@@ -102,6 +104,7 @@ export type ReadyFrame = {
   pullRequestEvidence?: true;
   checkoutInspection?: true;
   checkoutMetadata?: true;
+  checkoutCommands?: true;
   defaultBranchFiles?: true;
   checkoutViews?: true;
   sharedWorktree?: true;
@@ -133,6 +136,7 @@ export function parseReadyFrame(value: unknown): ReadyFrame | null {
     workspaces: frame.workspaces,
     ...(frame.checkoutViews === true && { checkoutViews: true }),
     ...(frame.defaultBranchFiles === true && { defaultBranchFiles: true }),
+    ...(frame.checkoutCommands === true && { checkoutCommands: true }),
     ...(frame.checkoutMetadata === true && { checkoutMetadata: true }),
     ...(frame.checkoutInspection === true && { checkoutInspection: true }),
     ...(frame.sharedWorktree === true && { sharedWorktree: true }),
@@ -157,6 +161,7 @@ export type ChannelFrame =
 export type ServiceFrame =
   | { type: "accept_health"; engineInventory?: true }
   | { type: "request"; id: string; command: Command }
+  | { type: "cancel_checkout_command"; id: string }
   | ChannelFrame;
 
 export type ResultFrame = {
@@ -319,6 +324,8 @@ function isCommand(value: unknown): value is Command {
       );
     case "sessionFile":
       return isSessionFileOperation(value.operation);
+    case "checkoutCommand":
+      return isCheckoutCommand(value.operation);
     case "checkoutRelease":
       return isCheckoutRelease(value.operation);
     case "sessionCheckout":
@@ -378,6 +385,7 @@ function isServiceFrame(value: unknown): value is ServiceFrame {
       );
     case "request":
       return isOpaqueId(value.id) && isCommand(value.command);
+    case "cancel_checkout_command":
     case "close":
       return isOpaqueId(value.id);
     case "data":

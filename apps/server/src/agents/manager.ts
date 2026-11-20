@@ -1,3 +1,5 @@
+import { requestCheckoutCommand } from "./checkout-commands.js";
+import { REPO_TOOL_MANIFEST_PATH } from "../shared/mcp/repo-tools.js";
 import { isPromptImageMimeType } from "./acp/prompt-source.js";
 import { readSessionFile } from "../files/session-file.js";
 import { readAgentView } from "./checkout-runner.js";
@@ -2815,11 +2817,12 @@ export class AgentManager {
     await this.setAgentStatus(id, "stopping", null);
 
     // Run repo-defined stop hook (best-effort, non-blocking)
-    await runLifecycleHook("stop", agent, this.logger).catch((err) =>
-      this.logger.warn(
-        { err, agentId: id },
-        "Stop hook failed; continuing shutdown"
-      )
+    await runLifecycleHook("stop", agent, this.logger, this.remote).catch(
+      (err) =>
+        this.logger.warn(
+          { err, agentId: id },
+          "Stop hook failed; continuing shutdown"
+        )
     );
 
     try {
@@ -3017,6 +3020,34 @@ export class AgentManager {
           })
         ).value ?? ""
       );
+  }
+
+  readRemoteRepoManifest(agent: AgentRecord) {
+    return requestCheckoutCommand(this.remote, agent, {
+      kind: "read",
+      checkout: "effective",
+      path: REPO_TOOL_MANIFEST_PATH,
+    });
+  }
+
+  runRemoteRepoCommand(
+    agent: AgentRecord,
+    state: string,
+    argv: string[],
+    signal?: AbortSignal
+  ) {
+    return requestCheckoutCommand(
+      this.remote,
+      agent,
+      {
+        kind: "run",
+        checkout: "effective",
+        path: REPO_TOOL_MANIFEST_PATH,
+        state,
+        argv,
+      },
+      signal
+    );
   }
 
   /** The agent's working directory: the worktree when it has one. */

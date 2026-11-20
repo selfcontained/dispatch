@@ -248,6 +248,37 @@ describe("runner enrollment service", () => {
     ).toHaveLength(1);
   });
 
+  it("rejects checkout commands on an older peer while preserving the workspace operation", async () => {
+    const service = makeService(true);
+    const enrolled = await enroll(service, "legacy-checkout");
+    const placement = { runner: enrolled.created.id, workspace: "work" };
+    const peer = await dialRunner({
+      ...enrolled,
+      workspaces: ["work"],
+      label: "approved",
+    });
+    runners.push(peer);
+    await waitFor(() => service.available(placement));
+
+    await expect(
+      service.requestSession(placement, {
+        kind: "checkoutCommand",
+        agentId: "session",
+        operation: { kind: "read", checkout: "effective", path: "tools.json" },
+      })
+    ).rejects.toThrow(/update.*checkout commands/i);
+    expect(service.repoToolFor(placement)).toBe(true);
+    await expect(
+      service.requestSession(placement, {
+        kind: "repo",
+        agentId: "session",
+      })
+    ).resolves.toMatchObject({ value: "approved" });
+    expect(
+      peer.requests.filter((frame) => frame.type === "request")
+    ).toHaveLength(1);
+  });
+
   it("pairs with a one-time code over a pinned CA and lists the runner", async () => {
     const service = makeService();
     const created = await service.createRegistration("alpha");

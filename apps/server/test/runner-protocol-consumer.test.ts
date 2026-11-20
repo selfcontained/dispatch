@@ -26,6 +26,8 @@ import {
   isGitHubPullRequestDetails,
   isGitHubPullRequestDiff,
   isCheckoutViewData,
+  isCheckoutCommandFile,
+  isCheckoutCommandResult,
   remotePlacement,
   workspaceLocator,
 } from "@dispatch/runner-protocol";
@@ -786,6 +788,7 @@ function fixtureRunner(current: boolean) {
       pullRequestWatch: true,
       sessionCheckout: true,
       checkoutRelease: true,
+      checkoutCommands: true,
       sessionFiles: true,
     }),
   };
@@ -872,6 +875,8 @@ function fixtureRunner(current: boolean) {
         case "close":
           channels.get(frame.id)?.destroy();
           break;
+        case "cancel_checkout_command":
+          break;
         case "request": {
           const { command, id } = frame;
           const result = (value: boolean | string) =>
@@ -925,6 +930,27 @@ function fixtureRunner(current: boolean) {
             command.agentId !== agentId
           ) {
             reply({ type: "result", id, error: "Unknown session binding" });
+          } else if (command.kind === "checkoutCommand" && current && running) {
+            const operation = command.operation;
+            if (operation.kind === "read") {
+              result(
+                JSON.stringify({
+                  content: "independent policy data",
+                  state: stateId,
+                })
+              );
+            } else if (operation.state !== stateId) {
+              reply({ type: "result", id, error: "Stale command state" });
+            } else if (operation.argv[0] !== "wait") {
+              result(
+                JSON.stringify({
+                  exitCode: 0,
+                  stdout: operation.argv[1],
+                  stderr: "",
+                  truncated: false,
+                })
+              );
+            }
           } else if (command.kind === "sessionFile" && current && running) {
             const operation = command.operation;
             const root = "/workload/files/";
@@ -1528,3 +1554,105 @@ it("bounds decoded session files and rejects unsafe paths at the wire boundary",
     ).toBeNull();
   }
 });
+
+it.each([true, false])(
+  "independent host negotiates checkout execution and cancels by request ID: %s",
+  async (current) => {
+    const runner = fixtureRunner(current);
+    const peer = runner.connect();
+    try {
+      await vi.waitFor(() => expect(peer.reports[0]).toBeDefined());
+      const ready = parseReadyFrame(peer.reports[0]);
+      expect(ready?.checkoutCommands).toBe(current ? true : undefined);
+      if (!ready?.checkoutCommands) {
+        expect(runner.requests).toHaveLength(0);
+        return;
+      }
+      await peer.connection.request({
+        ...runner.session,
+        kind: "launch",
+        launch: {
+          agentId: runner.session.agentId,
+          engine: "codex",
+          model: null,
+          systemPrompt: null,
+          resumeSessionId: null,
+        },
+      });
+      const route = { ...runner.session, kind: "checkoutCommand" } as const;
+      const file = { checkout: "effective", path: "config/commands" } as const;
+      const read = await peer.connection.request({
+        ...route,
+        operation: { ...file, kind: "read" },
+      });
+      const observed: unknown = JSON.parse(String(read.value));
+      if (!isCheckoutCommandFile(observed) || !observed)
+        throw new Error("Expected checkout file");
+      expect(observed.content).toBe("independent policy data");
+      const operation = {
+        ...file,
+        kind: "run" as const,
+        state: observed.state,
+        argv: ["printf", "one literal argument"],
+      };
+      const wire = (overrides: Record<string, unknown>) =>
+        parseServiceFrame({
+          type: "request",
+          id: "id",
+          command: { ...route, operation: { ...operation, ...overrides } },
+        });
+      expect(wire({})).not.toBeNull();
+      for (const invalid of [
+        { path: "../commands" },
+        { argv: [] },
+        { argv: ["bad\0arg"] },
+        { argv: ["x".repeat(16 * 1024 + 1)] },
+        { checkout: "/workload" },
+        { state: "x" },
+      ])
+        expect(wire(invalid)).toBeNull();
+      const reply = await peer.connection.request({ ...route, operation });
+      const value = JSON.parse(String(reply.value));
+      expect(isCheckoutCommandResult(value)).toBe(true);
+      expect(value.stdout).toBe(operation.argv[1]);
+      expect(
+        isCheckoutCommandResult({ ...value, stdout: "x".repeat(65537) })
+      ).toBe(false);
+      await expect(
+        peer.connection.request({
+          ...route,
+          operation: { ...operation, state: "a".repeat(64) },
+        })
+      ).rejects.toThrow("Stale");
+      await expect(
+        peer.connection.request({
+          ...route,
+          agentId: "foreign/session",
+          operation,
+        })
+      ).rejects.toThrow("Unknown session binding");
+
+      const abort = new AbortController();
+      const waiting = peer.connection.request(
+        { ...route, operation: { ...operation, argv: ["wait"] } },
+        { signal: abort.signal }
+      );
+      await vi.waitFor(() =>
+        expect(runner.requests.at(-1)).toMatchObject({
+          command: { operation: { argv: ["wait"] } },
+        })
+      );
+      const id = requestId(runner.requests.at(-1));
+      abort.abort();
+      await expect(waiting).rejects.toThrow(/cancelled/i);
+      await vi.waitFor(() =>
+        expect(runner.requests.at(-1)).toEqual({
+          type: "cancel_checkout_command",
+          id,
+        })
+      );
+    } finally {
+      peer.close();
+    }
+  }
+);

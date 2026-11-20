@@ -215,7 +215,7 @@ export async function executeArchive(
     // Phase: stopping — tear down session without changing agent status
     const t = Date.now();
     try {
-      await runLifecycleHook("stop", agent, logger).catch((err) =>
+      await runLifecycleHook("stop", agent, logger, deps.remote).catch((err) =>
         logger.warn(
           { err, agentId: id },
           "Stop hook failed during archive; continuing"
@@ -355,7 +355,7 @@ export async function deleteAgentDirect(
     // Not stopAgent: it writes `stopping`/`stopped`, releasing the claim above
     // and letting a fresh archive take this agent mid-teardown.
     try {
-      await runLifecycleHook("stop", agent, logger).catch((err) =>
+      await runLifecycleHook("stop", agent, logger, deps.remote).catch((err) =>
         logger.warn(
           { err, agentId: id },
           "Stop hook failed during delete; continuing"

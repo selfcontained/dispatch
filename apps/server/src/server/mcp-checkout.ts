@@ -1,4 +1,5 @@
 import { remotePlacement } from "@dispatch/runner-protocol";
+import { RunnerCapabilityUnavailable } from "../agents/remote/service.js";
 import type { AgentManager, AgentRecord } from "../agents/manager.js";
 import {
   parseRepoToolFile,
@@ -35,8 +36,30 @@ export async function mcpCheckoutRoots(
 
 export async function discoverRepoTools(
   manager: AgentManager,
-  agent: AgentRecord
+  agent: AgentRecord,
+  allowRemoteCommands: boolean
 ) {
+  const remote = remotePlacement(agent.cwd);
+  let unavailable: RunnerCapabilityUnavailable | undefined;
+  if (remote && allowRemoteCommands) {
+    let file;
+    try {
+      file = await manager.readRemoteRepoManifest(agent);
+    } catch (error) {
+      if (!(error instanceof RunnerCapabilityUnavailable)) return [];
+      // Keep discovery on older peers and surface their capability error on call.
+      unavailable = error;
+    }
+    if (file) {
+      return parseRepoTools(
+        parseRepoToolFile(file.content),
+        (argv, _cwd, _id, signal) =>
+          manager.runRemoteRepoCommand(agent, file.state, argv, signal)
+      );
+    }
+    if (!unavailable) return [];
+  }
+
   let content: string | null;
   try {
     content = await readAgentCheckoutFile(
@@ -47,13 +70,15 @@ export async function discoverRepoTools(
   } catch {
     return [];
   }
-  const remote = remotePlacement(agent.cwd);
   return parseRepoTools(
     parseRepoToolFile(content),
     remote
       ? async () => {
-          throw new Error(
-            "Checkout manifest commands are unavailable on enrolled runners."
+          throw (
+            unavailable ??
+            new Error(
+              "Checkout commands require the selected session's MCP credential."
+            )
           );
         }
       : undefined

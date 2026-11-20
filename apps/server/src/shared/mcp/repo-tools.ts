@@ -56,6 +56,7 @@ export type RepoToolResult = {
   repoRoot: string;
   command: string[];
   exitCode: number;
+  truncated?: boolean;
   stdout: string;
   stderr: string;
   message: string;
@@ -70,6 +71,7 @@ export type RepoToolDefinition = {
     agentId: string;
     repoRoot: string;
     params?: Record<string, unknown>;
+    signal?: AbortSignal;
   }) => Promise<RepoToolResult>;
 };
 
@@ -87,9 +89,11 @@ export function parseRepoTools(
   execute: (
     command: string[],
     cwd: string,
-    agentId: string
+    agentId: string,
+    signal?: AbortSignal
   ) => Promise<{
     exitCode: number;
+    truncated?: boolean;
     stdout: string;
     stderr: string;
   }> = runLocalRepoCommand
@@ -104,7 +108,7 @@ export function parseRepoTools(
       description: tool.description,
       params: tool.params,
       scope: tool.scope,
-      run: async ({ agentId, repoRoot: currentRepoRoot, params }) => {
+      run: async ({ agentId, repoRoot: currentRepoRoot, params, signal }) => {
         const [command, ...args] = tool.command;
 
         // Append CLI flags from params
@@ -127,7 +131,8 @@ export function parseRepoTools(
         const result = await execute(
           [command, ...args],
           currentRepoRoot,
-          agentId
+          agentId,
+          signal
         );
 
         return {
@@ -135,6 +140,9 @@ export function parseRepoTools(
           repoRoot: currentRepoRoot,
           command: tool.command,
           exitCode: result.exitCode,
+          ...(result.truncated !== undefined && {
+            truncated: result.truncated,
+          }),
           stdout: result.stdout,
           stderr: result.stderr,
           message:
@@ -234,25 +242,21 @@ export async function loadRepoHooks(repoRoot: string): Promise<RepoHooks> {
   }
 
   const config = await readRepoToolFile(manifestPath);
+  const hooks = parseRepoHooks(config);
+  hooksCache.set(manifestPath, { mtime, hooks });
+  return hooks;
+}
+
+export function parseRepoHooks(config: RepoToolFile | null): RepoHooks {
   if (
     !config?.hooks ||
     typeof config.hooks !== "object" ||
     Array.isArray(config.hooks)
-  ) {
-    const empty = {};
-    hooksCache.set(manifestPath, { mtime, hooks: empty });
-    return empty;
-  }
+  )
+    return {};
 
-  const hooks: RepoHooks = {};
   const raw = config.hooks as Record<string, unknown>;
-
-  if (raw.stop) {
-    hooks.stop = parseHookDefinition(raw.stop, "stop");
-  }
-
-  hooksCache.set(manifestPath, { mtime, hooks });
-  return hooks;
+  return raw.stop ? { stop: parseHookDefinition(raw.stop, "stop") } : {};
 }
 
 function parseHookDefinition(value: unknown, name: string): RepoHookDefinition {

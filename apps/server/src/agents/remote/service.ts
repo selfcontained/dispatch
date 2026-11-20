@@ -162,6 +162,7 @@ type Peer = {
   pullRequestEvidence: boolean;
   checkoutInspection: boolean;
   checkoutMetadata: boolean;
+  checkoutCommands: boolean;
   defaultBranchFiles: boolean;
   sessionCheckout: boolean;
   checkoutRelease: boolean;
@@ -699,6 +700,7 @@ export class RemoteRunnerService {
           sessionFiles: ready.sessionFiles === true,
           defaultBranchFiles: ready.defaultBranchFiles === true,
           checkoutMetadata: ready.checkoutMetadata === true,
+          checkoutCommands: ready.checkoutCommands === true,
           checkoutInspection: ready.checkoutInspection === true,
           sharedWorktree: ready.sharedWorktree === true,
           workspacePreparation: ready.workspacePreparation === true,
@@ -1238,13 +1240,15 @@ export class RemoteRunnerService {
   requestSession(
     placement: Placement,
     operation: SessionOperation,
-    onProgress?: (progress: LaunchProgress) => void
+    onProgress?: (progress: LaunchProgress) => void,
+    signal?: AbortSignal
   ) {
     return this.request(
       placement,
       { ...operation, workspace: placement.workspace },
       operation.kind === "attach" || operation.kind === "watchCheckout",
-      onProgress
+      onProgress,
+      signal
     );
   }
 
@@ -1528,7 +1532,8 @@ export class RemoteRunnerService {
     placement: Placement,
     command: Command,
     open = false,
-    onProgress?: (progress: LaunchProgress) => void
+    onProgress?: (progress: LaunchProgress) => void,
+    signal?: AbortSignal
   ) {
     const peer = this.peers.get(placement.runner);
     if (
@@ -1566,6 +1571,10 @@ export class RemoteRunnerService {
     )
       throw new RunnerCapabilityUnavailable(
         "Update the runner to use these checkout options."
+      );
+    if (command.kind === "checkoutCommand" && !peer.checkoutCommands)
+      throw new RunnerCapabilityUnavailable(
+        "Update the runner to execute checkout commands."
       );
     if (command.kind === "sessionFile" && !peer.sessionFiles)
       throw new RunnerCapabilityUnavailable(
@@ -1628,7 +1637,11 @@ export class RemoteRunnerService {
         if (peer.sessionFileTail === transfer) peer.sessionFileTail = undefined;
       }
     }
-    return peer.connection.request(command, { openChannel: open, onProgress });
+    return peer.connection.request(command, {
+      openChannel: open,
+      onProgress,
+      signal,
+    });
   }
 
   close() {

@@ -19,6 +19,8 @@ import {
   MANAGED_WORKSPACE,
   RUNNER_WIRE_VERSION,
   MAX_CHECKOUT_VIEW_BYTES,
+  CHECKOUT_COMMAND_TIMEOUT_MS,
+  MAX_CHECKOUT_COMMAND_REPLY_BYTES,
   wireFrames,
   parseServiceFrame,
   runnerRequestId,
@@ -106,6 +108,53 @@ function executionArgs(uid: number, gid: number) {
     "--bounding-set=-all",
     "--",
   ];
+}
+
+function runCheckoutWorker(
+  args: string[],
+  env: NodeJS.ProcessEnv,
+  input: string,
+  signal: AbortSignal
+): Promise<string> {
+  signal.throwIfAborted();
+  const child = spawn(setpriv, args, { detached: true, env });
+  const kill = () => {
+    if (!child.pid) return;
+    try {
+      process.kill(-child.pid, "SIGKILL");
+    } catch {
+      // The process group may already have exited.
+    }
+  };
+  return new Promise((resolve, reject) => {
+    const stdout: Buffer[] = [];
+    let bytes = 0;
+    let stderr = "";
+    signal.addEventListener("abort", kill, { once: true });
+    child.stdout.on("data", (chunk: Buffer) => {
+      bytes += chunk.length;
+      if (bytes > MAX_CHECKOUT_COMMAND_REPLY_BYTES) kill();
+      else stdout.push(chunk);
+    });
+    child.stderr.on("data", (chunk: Buffer) => {
+      if (stderr.length < 1024)
+        stderr = (stderr + chunk.toString()).slice(0, 1024);
+    });
+    child.stdin.on("error", () => {});
+    child.stdin.end(input);
+    child.once("error", () =>
+      reject(new Error("Could not start checkout worker."))
+    );
+    child.once("close", (code) => {
+      signal.removeEventListener("abort", kill);
+      if (signal.aborted) reject(signal.reason);
+      else if (bytes > MAX_CHECKOUT_COMMAND_REPLY_BYTES)
+        reject(new Error("Checkout command reply exceeded its output limit."));
+      else if (code !== 0)
+        reject(new Error(stderr || "Checkout worker failed."));
+      else resolve(Buffer.concat(stdout).toString("utf8"));
+    });
+  });
 }
 
 async function verifyExecutionIdentity(
@@ -321,6 +370,7 @@ export async function runRemoteRunner(filename: string) {
           samplingEngines = false;
         }
       };
+      const checkoutCommands = new Map<string, AbortController>();
       const watches = new Map<string, () => void>();
       const sharedWatches = new SharedCheckoutWatches((cwd, changed, closed) =>
         childWatch(
@@ -461,6 +511,51 @@ export async function runRemoteRunner(filename: string) {
         }
         if (socket.destroyed) return;
         switch (command.kind) {
+          case "checkoutCommand": {
+            if (checkoutCommands.has(id) || checkoutCommands.size >= 32)
+              throw new Error(
+                "Too many checkout commands or duplicate request ID."
+              );
+            const controller = new AbortController();
+            checkoutCommands.set(id, controller);
+            const deadline = setTimeout(
+              () => controller.abort(new Error("Checkout command timed out.")),
+              CHECKOUT_COMMAND_TIMEOUT_MS
+            );
+            const signal = AbortSignal.any([
+              connection.signal,
+              controller.signal,
+            ]);
+            try {
+              const value = await supervisor.withCommandCheckout(
+                agentId,
+                workspace,
+                command.operation.checkout,
+                target?.cwd,
+                signal,
+                (cwd, configuredRoot) =>
+                  runCheckoutWorker(
+                    [
+                      ...childArgs,
+                      ...selfCommand("runner-checkout-command"),
+                      cwd,
+                      agentId,
+                      ...(configuredRoot ? [configuredRoot] : []),
+                    ],
+                    env,
+                    JSON.stringify(command.operation),
+                    signal
+                  )
+              );
+              if (value === null && command.operation.kind === "run")
+                throw new Error("The moved checkout is no longer selected.");
+              result(value ?? "null");
+            } finally {
+              clearTimeout(deadline);
+              checkoutCommands.delete(id);
+            }
+            break;
+          }
           case "sessionFile":
             result(
               await supervisor.sessionFile(
@@ -720,6 +815,10 @@ export async function runRemoteRunner(filename: string) {
                   : "Runner command failed",
             })
           );
+        } else if (frame.type === "cancel_checkout_command") {
+          checkoutCommands
+            .get(frame.id)
+            ?.abort(new Error("Checkout command cancelled."));
         } else if (frame.type === "data") {
           const channel = channels.get(frame.id);
           if (channel && channel.writableLength > 32 * 1024 * 1024)
@@ -749,6 +848,7 @@ export async function runRemoteRunner(filename: string) {
           pullRequestEvidence: true,
           checkoutInspection: true,
           checkoutMetadata: true,
+          checkoutCommands: true,
           defaultBranchFiles: true,
           workspacePreparation: true,
           sessionCheckout: true,

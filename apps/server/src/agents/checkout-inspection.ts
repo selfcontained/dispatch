@@ -484,6 +484,46 @@ function encodeReply(reply: CheckoutReply): string {
   return encoded;
 }
 
+async function inspectionRoot(cwd: string, requireGit: boolean) {
+  // Preserve whitespace in the root, removing only Git's terminating newline.
+  const probe = await run("git", ["rev-parse", "--show-toplevel"], {
+    cwd,
+    trimOutput: false,
+    allowedExitCodes: requireGit ? [0] : [0, 128],
+  });
+  if (probe.exitCode && !probe.stderr.startsWith("fatal: not a git repository"))
+    throw new Error(
+      `Could not resolve checkout root: ${probe.stderr.slice(0, MAX_ERROR_BYTES)}`
+    );
+  const root = probe.exitCode
+    ? await realpath(cwd)
+    : probe.stdout.replace(/\n$/, "");
+  if (!path.isAbsolute(root))
+    throw new Error("Could not resolve checkout root");
+  return { root, hasGit: probe.exitCode === 0 };
+}
+
+export async function readCheckoutCommandFile(
+  cwd: string,
+  file: string,
+  configuredRoot?: string
+) {
+  const { root } = await inspectionRoot(cwd, false);
+  if (configuredRoot) {
+    const relative = path.relative(configuredRoot, root);
+    if (
+      relative === ".." ||
+      relative.startsWith(".." + path.sep) ||
+      path.isAbsolute(relative)
+    )
+      throw new Error(
+        "Repository root is outside the configured runner checkout."
+      );
+  }
+  const content = await readWorktreeFile(root, validateFilePath(file));
+  return { root, content };
+}
+
 export async function inspectCheckout(
   cwd: string,
   query: CheckoutQuery
@@ -498,26 +538,15 @@ export async function inspectCheckout(
     encodeReply(reply);
     return reply;
   }
-  // Preserve whitespace in the root, removing only Git's terminating newline.
-  const probe = await run("git", ["rev-parse", "--show-toplevel"], {
+  const { root, hasGit } = await inspectionRoot(
     cwd,
-    trimOutput: false,
-    allowedExitCodes: validated.kind === "changes" ? [0] : [0, 128],
-  });
-  if (probe.exitCode && !probe.stderr.startsWith("fatal: not a git repository"))
-    throw new Error(
-      `Could not resolve checkout root: ${probe.stderr.slice(0, MAX_ERROR_BYTES)}`
-    );
-  const root = probe.exitCode
-    ? await realpath(cwd)
-    : probe.stdout.replace(/\n$/, "");
-  if (!path.isAbsolute(root))
-    throw new Error("Could not resolve checkout root");
+    validated.kind === "changes"
+  );
   if (validated.kind === "roots")
     return {
       kind: "roots",
       checkoutRoot: root,
-      repositoryRoot: probe.exitCode ? null : await resolveRepoRoot(root),
+      repositoryRoot: hasGit ? await resolveRepoRoot(root) : null,
     };
   if (validated.kind === "listFiles") {
     const canonicalRoot = await realpath(root);

@@ -53,13 +53,16 @@ export class RunnerConnection {
     {
       openChannel = false,
       onProgress,
+      signal,
     }: {
       openChannel?: boolean;
+      signal?: AbortSignal;
       onProgress?: (progress: LaunchProgress) => void;
     } = {}
   ) {
     if (this.closed)
       throw new RunnerUnavailable("The runner connection is closed.");
+    if (command.kind === "checkoutCommand") signal?.throwIfAborted();
     const id = crypto.randomUUID();
     const channel = openChannel
       ? hostChannel(id, this.send, () => this.channels.delete(id))
@@ -74,7 +77,11 @@ export class RunnerConnection {
     )
       this.progress.set(id, onProgress);
     try {
-      const value = await this.sendRequest(id, command);
+      const value = await this.sendRequest(
+        id,
+        command,
+        command.kind === "checkoutCommand" ? signal : undefined
+      );
       return { value, channel };
     } catch (error) {
       channel?.destroy();
@@ -84,7 +91,8 @@ export class RunnerConnection {
 
   private sendRequest(
     id: string,
-    command: Command
+    command: Command,
+    signal?: AbortSignal
   ): Promise<ResultFrame["value"]> {
     // Repository fetches and engine package installs can run for minutes.
     const timeoutMs =
@@ -100,6 +108,7 @@ export class RunnerConnection {
     return new Promise((resolve, reject) => {
       const finish = (frame?: ResultFrame) => {
         clearTimeout(timer);
+        signal?.removeEventListener("abort", cancel);
         this.pending.delete(id);
         this.progress.delete(id);
         if (!frame)
@@ -113,7 +122,26 @@ export class RunnerConnection {
         else if (frame.error) reject(new Error(frame.error));
         else resolve(frame.value);
       };
-      const timer = setTimeout(finish, timeoutMs);
+      const requestCancel = () => {
+        try {
+          this.send({ type: "cancel_checkout_command", id });
+        } catch {
+          // The connection may already have failed.
+        }
+      };
+      const cancel = () => {
+        requestCancel();
+        finish({
+          type: "result",
+          id,
+          error: "Checkout command cancelled.",
+        });
+      };
+      const timer = setTimeout(() => {
+        if (command.kind === "checkoutCommand") requestCancel();
+        finish();
+      }, timeoutMs);
+      signal?.addEventListener("abort", cancel, { once: true });
       this.pending.set(id, finish);
       try {
         this.send({ type: "request", id, command });

@@ -62,7 +62,8 @@ function isOwnerReviewRequest(body: unknown): boolean {
 async function checkoutContext(
   deps: McpRouteDeps,
   agent: NonNullable<Awaited<ReturnType<AgentManager["getAgent"]>>>,
-  body: unknown
+  body: unknown,
+  allowRemoteCommands: boolean
 ) {
   const placement = remotePlacement(agent.cwd);
   const workspaceDir = agentWorkspaceDir(agent) ?? agent.cwd;
@@ -91,7 +92,8 @@ async function checkoutContext(
       toolsRoot: placement ? workspaceDir : (worktreeRoot ?? undefined),
       discoverRepoTools: ownerOnly
         ? async () => []
-        : () => discoverRepoTools(deps.agentManager, agent),
+        : () =>
+            discoverRepoTools(deps.agentManager, agent, allowRemoteCommands),
     },
   };
 }
@@ -260,7 +262,12 @@ export async function registerMcpRoutes(
         .send({ error: "Token does not match the active job run." });
     }
 
-    const checkout = await checkoutContext(deps, agent, request.body);
+    const checkout = await checkoutContext(
+      deps,
+      agent,
+      request.body,
+      Boolean(bearerToken && run)
+    );
     const { workspaceDir, repoRoot } = checkout;
 
     const jobTools = run
@@ -387,7 +394,12 @@ export async function registerMcpRoutes(
         .send({ error: "Job agents must use the job-scoped MCP route." });
     }
 
-    const checkout = await checkoutContext(deps, agent, request.body);
+    const checkout = await checkoutContext(
+      deps,
+      agent,
+      request.body,
+      Boolean(bearerToken)
+    );
     const { workspaceDir, repoRoot } = checkout;
 
     reply.hijack();

@@ -73,6 +73,14 @@ if (process.argv[2]?.startsWith("recovery-")) {
   } catch {
     process.exitCode = 1;
   }
+} else if (process.argv[2] === "runner-checkout-command") {
+  const { runCheckoutCommandCli } =
+    await import("./agents/remote/checkout-command.js");
+  await runCheckoutCommandCli(
+    process.argv[3]!,
+    process.argv[4]!,
+    process.argv[5]
+  );
 } else if (process.argv[2] === "runner-inspect-checkout") {
   const { runCheckoutInspectionCli } =
     await import("./agents/checkout-inspection.js");

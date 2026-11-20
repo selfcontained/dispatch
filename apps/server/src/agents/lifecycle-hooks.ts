@@ -3,7 +3,14 @@ import type { FastifyBaseLogger } from "fastify";
 
 import { repoCommandEnvironment } from "../shared/lib/tool-environment.js";
 import { runCommand } from "../shared/lib/run-command.js";
-import { loadRepoHooks } from "../shared/mcp/repo-tools.js";
+import { requestCheckoutCommand } from "./checkout-commands.js";
+import type { RemoteRunnerService } from "./remote/service.js";
+import {
+  loadRepoHooks,
+  parseRepoHooks,
+  parseRepoToolFile,
+  REPO_TOOL_MANIFEST_PATH,
+} from "../shared/mcp/repo-tools.js";
 
 import type { AgentRecord } from "./types.js";
 
@@ -35,9 +42,48 @@ export type LifecycleHookName = "stop";
 export async function runLifecycleHook(
   hookName: LifecycleHookName,
   agent: AgentRecord,
-  logger: FastifyBaseLogger
+  logger: FastifyBaseLogger,
+  remote?: RemoteRunnerService
 ): Promise<void> {
-  if (remotePlacement(agent.cwd)) return;
+  if (remotePlacement(agent.cwd)) {
+    for (const checkout of ["launch", "moved"] as const) {
+      try {
+        const target = { checkout, path: REPO_TOOL_MANIFEST_PATH };
+        const file = await requestCheckoutCommand(remote, agent, {
+          ...target,
+          kind: "read",
+        });
+        const hook =
+          file && parseRepoHooks(parseRepoToolFile(file.content))[hookName];
+        if (!hook) continue;
+        const result = await requestCheckoutCommand(remote, agent, {
+          ...target,
+          kind: "run",
+          state: file.state,
+          argv: hook.command,
+        });
+        if (result.exitCode !== 0) {
+          logger.warn(
+            {
+              agentId: agent.id,
+              hook: hookName,
+              checkout,
+              exitCode: result.exitCode,
+              stderr: result.stderr,
+              truncated: result.truncated,
+            },
+            "Lifecycle hook exited with non-zero code"
+          );
+        }
+      } catch (err) {
+        logger.warn(
+          { err, agentId: agent.id, hook: hookName, checkout },
+          "Runner lifecycle hook failed; continuing shutdown"
+        );
+      }
+    }
+    return;
+  }
   // An agent that moved runs the hook in both places: what it started in
   // the launch checkout and what it started in its workspace (a dev stack,
   // say) each belong to that checkout's own hook.

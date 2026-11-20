@@ -243,6 +243,36 @@ With `sharedWorktree: true`, a launch can specify `useWorktreeOf`, an existing a
 
 The service checks advertised capabilities on each connection before sending a dependent command. A peer without the extension can continue its existing sessions. Callers receive an actionable unsupported error if they request checkout inspection or sharing. A failed remote inspection must never resolve the runner locator as a local path.
 
+### Executing commands in a bound checkout
+
+V1 peers advertising `checkoutCommands: true` accept the session-scoped
+`checkoutCommand` request. It uses the usual opaque workspace and session
+handles. The operation includes a checkout selector (`effective`, `launch`
+or `moved`) and a relative file path. `read` returns a JSON string containing
+`{content,state}`, or JSON null for an absent file or a missing moved
+selection. The returned state is opaque to consumers and binds the read to
+the directory and text observed by the runner. `run` takes that state and the
+authorized argv. A changed file or checkout produces an error before spawn.
+The service decides what the file means and which argv to authorize. A
+companion command can change independently of the read file, so the consumer
+must trust commands in the selected checkout.
+
+The runner executes argv directly in the checkout as the workload user and
+exports the opaque session ID in `DISPATCH_AGENT_ID`. It returns a JSON string
+containing `{exitCode,stdout,stderr,truncated}`, with at most 64 KiB of UTF-8
+per stream. A signal exit uses 128 plus the signal number. Each operation has
+a 15-second runner deadline. The service may send
+`{type:"cancel_checkout_command",id}` on the same connection. Cancellation,
+deadline and disconnect terminate the worker process group. Commands that
+deliberately leave the process group own their own cleanup. A lost reply can
+leave side effects, so consumers should reconcile them before retrying. Older
+peers keep the existing inspection and configured workspace operations.
+
+Dispatch interprets the repository manifest and applies its MCP tool scope and
+argument rules. Executing a remote manifest tool requires the credential for the
+selected session or its active job run. Dispatch checks the runner registration
+before routing the request.
+
 ## Observed traces
 
 The initial fake-agent turn ran as `agt_4643ddec746a`. The UI showed

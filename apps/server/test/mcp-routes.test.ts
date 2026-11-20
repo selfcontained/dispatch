@@ -9,6 +9,7 @@ import {
 } from "vitest";
 import Fastify, { type FastifyInstance } from "fastify";
 
+import { RunnerCapabilityUnavailable } from "../src/agents/remote/service.js";
 import { registerMcpRoutes } from "../src/routes/mcp.js";
 import { handleMcpRequest } from "../src/shared/mcp/server.js";
 import {
@@ -56,6 +57,11 @@ function createMockDeps() {
           repositoryRoot: "/repo",
         })
       ),
+      readRemoteRepoManifest: vi.fn(async () => {
+        throw new RunnerCapabilityUnavailable(
+          "Update the runner to execute checkout commands."
+        );
+      }),
       remoteRepoOperation: vi.fn(),
       permitsRemoteAgentMcp: vi.fn(() => false),
       getAgent: vi.fn(async () => ({

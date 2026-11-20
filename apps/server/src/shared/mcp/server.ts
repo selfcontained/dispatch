@@ -661,7 +661,10 @@ export async function createDispatchMcpServer(
       loadRepoTools(toolsRoot));
     const scope = context.toolScope ?? "agent";
     const repoTools = allRepoTools.filter(
-      (tool) => !tool.scope || tool.scope.includes(scope)
+      (tool) =>
+        (tool.name !== "repo_runner_workspace" ||
+          !context.remoteRepoOperation) &&
+        (!tool.scope || tool.scope.includes(scope))
     );
     for (const tool of repoTools) {
       const inputSchema = buildParamSchema(tool.params);
@@ -671,12 +674,13 @@ export async function createDispatchMcpServer(
           description: tool.description,
           inputSchema,
         },
-        async (args) => {
+        async (args, { signal }) => {
           try {
             const result = await tool.run({
               agentId: context.agent!.id,
               repoRoot: toolsRoot,
               params: args as Record<string, unknown>,
+              signal,
             });
             // `message` is the command's stdout, which is already the text
             // content — carrying it in the structured payload too sent every
