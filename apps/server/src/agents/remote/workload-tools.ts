@@ -12,18 +12,32 @@ export const systemTools: Record<WorkloadTool, string> = {
 const marker = "dispatch-tool:";
 const lookupScript = `for tool do p=$(command -v "$tool" 2>/dev/null) && [ -x "$p" ] && case $p in /*) printf '${marker}%s=%s\\n' "$tool" "$p";; esac; done; exit 0`;
 
-/**
- * One command that prints where the workload account's login environment
- * finds each tool. It is the same login shell an agent session starts
- * through, with the same tool-search fallbacks appended after its PATH.
+/** Start with a normal Linux login PATH so the profile sees ordinary defaults.
+ * The runner's configured directories are only added once the profile has run.
  */
-export function workloadToolLookup(
+export function workloadLoginCommand(
+  command: string[],
   shell: string,
   home: string,
   fallbackPath: string
 ): string[] {
   const { PATH } = withToolSearchPath({ HOME: home, PATH: fallbackPath });
-  const login = loginShellCommand(
+  const login = loginShellCommand(command, shell, PATH);
+  return [
+    "/usr/bin/env",
+    "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+    login.bin,
+    ...login.args,
+  ];
+}
+
+/** One command prints both paths from the same login environment as a session. */
+export function workloadToolLookup(
+  shell: string,
+  home: string,
+  fallbackPath: string
+): string[] {
+  return workloadLoginCommand(
     [
       "/bin/sh",
       "-c",
@@ -32,9 +46,9 @@ export function workloadToolLookup(
       ...(Object.keys(systemTools) as WorkloadTool[]),
     ],
     shell,
-    PATH
+    home,
+    fallbackPath
   );
-  return [login.bin, ...login.args];
 }
 
 /** Profile scripts may print their own output; only marked lines count. */

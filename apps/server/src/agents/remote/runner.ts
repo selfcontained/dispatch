@@ -15,11 +15,7 @@ import type { HostLaunch } from "../acp/host-protocol.js";
 import type { WorkloadCommand } from "./session-storage.js";
 import { createSessionSupervisor } from "./session-supervisor.js";
 export { runnerStorageKey } from "./session-supervisor.js";
-import {
-  hostCommand,
-  loginShellCommand,
-  selfCommand,
-} from "../acp/host-command.js";
+import { hostCommand, selfCommand } from "../acp/host-command.js";
 import {
   isOpaqueId,
   isTerminalEvent,
@@ -49,6 +45,7 @@ import {
   WorkloadTools,
   missingExecutable,
   systemTools,
+  workloadLoginCommand,
   workloadToolLookup,
 } from "./workload-tools.js";
 import {
@@ -248,10 +245,10 @@ export async function runRemoteRunner(filename: string) {
     existsSync(passwdShell)
       ? passwdShell
       : "/bin/bash";
-  const workloadLogin = (command: string[]) => {
-    const login = loginShellCommand(command, shell, config.path);
-    return [...childArgs, login.bin, ...login.args];
-  };
+  const workloadLogin = (command: string[]) => [
+    ...childArgs,
+    ...workloadLoginCommand(command, shell, config.home, config.path),
+  ];
   const env = {
     HOME: config.home,
     PATH: config.path,

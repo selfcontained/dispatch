@@ -8,6 +8,7 @@ import { GitHubRunnerExecutor } from "../src/agents/remote/github-runner-executo
 import { runnerGitArgsFor } from "../src/agents/remote/runner.js";
 import {
   WorkloadTools,
+  workloadLoginCommand,
   parseWorkloadTools,
   workloadToolLookup,
 } from "../src/agents/remote/workload-tools.js";
@@ -47,6 +48,32 @@ it("finds gh through the account's login profile before the fixed path", async (
     env: { HOME: home, PATH: "/usr/bin:/bin" },
   });
   expect(parseWorkloadTools(fallback.stdout).gh).toBe(path.join(system, "gh"));
+});
+
+it("does not expose the configured fallback PATH to the login profile", async () => {
+  const home = path.join(root, "home");
+  const fallback = path.join(home, ".local", "bin");
+  await tool(path.join(fallback, "gh"));
+  const own = await tool(path.join(home, "tools", "gh"));
+  await writeFile(
+    path.join(home, ".bash_profile"),
+    'case ":$PATH:" in *":$HOME/.local/bin:"*) PATH="$HOME/.local/bin:$HOME/tools";; *) PATH="$HOME/tools";; esac\n'
+  );
+  const env = { HOME: home, PATH: fallback };
+  const [bin, ...args] = workloadToolLookup("/bin/bash", home, fallback);
+  expect(
+    parseWorkloadTools((await execute(bin!, args, { env })).stdout).gh
+  ).toBe(own);
+
+  const [session, ...sessionArgs] = workloadLoginCommand(
+    ["/bin/sh", "-c", "command -v gh"],
+    "/bin/bash",
+    home,
+    fallback
+  );
+  expect((await execute(session!, sessionArgs, { env })).stdout.trim()).toBe(
+    own
+  );
 });
 
 it("falls back to the system path when the lookup finds nothing", async () => {
