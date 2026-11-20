@@ -19,6 +19,8 @@ import { createConnection } from "node:net";
 import path from "node:path";
 import { hostFile, type HostLaunch } from "../acp/host-protocol.js";
 import { observeBoundCheckout } from "../checkout-observation.js";
+import { probeGitContext } from "../../shared/git/git-context.js";
+import type { CommandRunner } from "../../shared/lib/run-command.js";
 import {
   MANAGED_WORKSPACE,
   isOpaqueId,
@@ -202,6 +204,23 @@ export async function createSessionSupervisor(
     asWorkload
   );
   const operations = new Map<string, Promise<unknown>>();
+  // Workload commands throw on failure; report an allowed non-zero exit
+  // instead so shared git probes can take their fallback paths.
+  const workloadRunner: CommandRunner = async (command, args, options) => {
+    try {
+      const stdout =
+        (await asWorkload(command, args, { git: command === "git" })) ?? "";
+      return {
+        exitCode: 0,
+        stdout: options?.trimOutput === false ? stdout : stdout.trim(),
+        stderr: "",
+      };
+    } catch (error) {
+      const exitCode = options?.allowedExitCodes?.find((code) => code !== 0);
+      if (exitCode === undefined) throw error;
+      return { exitCode, stdout: "", stderr: "" };
+    }
+  };
 
   function serialize<T>(key: string, operation: () => Promise<T>): Promise<T> {
     const pending = (operations.get(key) ?? Promise.resolve())
@@ -483,7 +502,19 @@ export async function createSessionSupervisor(
         // Only return a recognized, credential-free repository URL.
       }
     }
-    return { path: dir, moved: dir !== initial, origin };
+    // Probe like local, as the workload; icons stay on the runner.
+    const git = await probeGitContext(dir, {
+      commandRunner: workloadRunner,
+      repoIcon: false,
+    });
+    const context = git.status === "ok" ? git.value : null;
+    return {
+      path: dir,
+      moved: dir !== initial,
+      origin,
+      repositoryRoot: context?.repoRoot ?? null,
+      branch: context?.branch || null,
+    };
   }
 
   async function checkoutBorrowers(key: string) {

@@ -33,6 +33,7 @@ import { resolveFilesDir } from "../shared/files.js";
 import { getDirectoryIconPath } from "../shared/directory-icon-cache.js";
 import {
   buildGitContextForWorktree,
+  gitContextFrom,
   probeGitContext,
 } from "../shared/git/git-context.js";
 import { getActivePersonality } from "../db/personalities.js";
@@ -1485,16 +1486,31 @@ export class AgentManager {
     return this.serializeLifecycle(id, async () => {
       const agent = await this.getRequiredAgent(id);
       const placement = remotePlacement(agent.cwd);
-      const resolved = placement
-        ? await this.selectRunnerCheckout(agent, input)
-        : await this.localRunner.resolveWorkspace(agent, input);
-      await this.pool.query(
-        `UPDATE agents
-         SET workspace_path = $2, workspace_base_branch = $3, updated_at = NOW()
-         WHERE id = $1`,
-        [id, resolved.path, resolved.baseBranch]
-      );
-      await this.populateGitContext(id);
+      if (placement) {
+        const resolved = await this.selectRunnerCheckout(agent, input);
+        await this.pool.query(
+          `UPDATE agents
+           SET workspace_path = $2, workspace_base_branch = $3,
+             git_context = $4::jsonb, git_context_stale = false,
+             git_context_updated_at = NOW(), updated_at = NOW()
+           WHERE id = $1`,
+          [
+            id,
+            resolved.path,
+            resolved.baseBranch,
+            resolved.gitContext && JSON.stringify(resolved.gitContext),
+          ]
+        );
+      } else {
+        const resolved = await this.localRunner.resolveWorkspace(agent, input);
+        await this.pool.query(
+          `UPDATE agents
+           SET workspace_path = $2, workspace_base_branch = $3, updated_at = NOW()
+           WHERE id = $1`,
+          [id, resolved.path, resolved.baseBranch]
+        );
+        await this.populateGitContext(id);
+      }
       this.diffStatsRefresher?.clear(id);
       void this.diffStatsRefresher?.signal(id);
 
@@ -1553,6 +1569,16 @@ export class AgentManager {
     return {
       path: selected.moved || (path && baseBranch) ? selected.path : null,
       baseBranch: path ? baseBranch : null,
+      // The runner probes like populateGitContext; older runners omit it.
+      gitContext:
+        selected.repositoryRoot && selected.branch
+          ? gitContextFrom({
+              repoRoot: selected.repositoryRoot,
+              branch: selected.branch,
+              worktreePath: selected.path,
+              repoIconPath: null,
+            })
+          : null,
     };
   }
 

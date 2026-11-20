@@ -902,7 +902,7 @@ describe("runner session supervision", () => {
     const checkout = path.join(await realpath(root), "moved");
     const subdir = path.join(checkout, "src");
     await mkdir(subdir, { recursive: true });
-    await asWorkload("git", ["-C", checkout, "init"]);
+    await asWorkload("git", ["-C", checkout, "init", "-b", "main"]);
     await asWorkload("git", [
       "-C",
       checkout,
@@ -955,6 +955,8 @@ describe("runner session supervision", () => {
       path: checkout,
       moved: true,
       origin: "https://example.test/org/project.git",
+      repositoryRoot: checkout,
+      branch: "main",
     });
     processes.spawn.mockResolvedValueOnce();
     await runner.launch(sharedLaunch(), undefined);
@@ -1040,6 +1042,8 @@ describe("runner session supervision", () => {
       path: checkout,
       moved: true,
       origin: null,
+      repositoryRoot: null,
+      branch: null,
     });
     await expect(select(nested)).resolves.toMatchObject({ path: nested });
     for (const forbidden of [

@@ -1200,6 +1200,26 @@ it("lets an independent host select a checkout by opaque session handle after ne
         origin: "https://user:token@example.test/repo",
       })
     ).toBe(false);
+    // Older runners omit the git fields; newer ones send validated values.
+    const legacy = { path: "/workload/moved", moved: true, origin: null };
+    expect(isSessionCheckout(legacy)).toBe(true);
+    expect(
+      isSessionCheckout({
+        ...legacy,
+        repositoryRoot: "/workload/repo",
+        branch: "feature/x",
+      })
+    ).toBe(true);
+    expect(
+      isSessionCheckout({ ...legacy, repositoryRoot: null, branch: null })
+    ).toBe(true);
+    for (const invalid of [
+      { repositoryRoot: "relative/repo" },
+      { branch: "" },
+      { branch: "line\nbreak" },
+      { branch: 7 },
+    ])
+      expect(isSessionCheckout({ ...legacy, ...invalid })).toBe(false);
   } finally {
     initial.close();
   }

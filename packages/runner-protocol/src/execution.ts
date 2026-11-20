@@ -256,7 +256,17 @@ export function isSessionCheckout(value: unknown): value is SessionCheckout {
     isRecord(value) &&
     isCheckoutPath(value.path) &&
     typeof value.moved === "boolean" &&
-    (value.origin === null || parseRunnerRepositoryUrl(value.origin) !== null)
+    (value.origin === null ||
+      parseRunnerRepositoryUrl(value.origin) !== null) &&
+    (value.repositoryRoot === undefined ||
+      value.repositoryRoot === null ||
+      isCheckoutPath(value.repositoryRoot)) &&
+    (value.branch === undefined ||
+      value.branch === null ||
+      (typeof value.branch === "string" &&
+        value.branch.length > 0 &&
+        value.branch.length <= 255 &&
+        !/[\0-\x1f\x7f]/.test(value.branch)))
   );
 }
 

@@ -1,12 +1,19 @@
 import path from "node:path";
 
 import type { AgentGitContext } from "../../agents/types.js";
-import { runCommand, type CommandRunner } from "../lib/run-command.js";
+import {
+  runCommand as defaultRunCommand,
+  type CommandRunner,
+} from "../lib/run-command.js";
 import { detectRepoIcon } from "../repo-icon.js";
 
 const DEFAULT_PROBE_TIMEOUT_MS = 800;
 
-export type ProbeOptions = { timeoutMs?: number };
+export type ProbeOptions = {
+  timeoutMs?: number;
+  /** Runs git elsewhere, such as as a runner's workload identity. */
+  commandRunner?: CommandRunner;
+};
 
 export type ProbeResult =
   | { status: "ok"; value: AgentGitContext | null }
@@ -23,6 +30,7 @@ export async function resolveRepoRoot(
   opts: ProbeOptions = {}
 ): Promise<string> {
   const timeoutMs = opts.timeoutMs ?? DEFAULT_PROBE_TIMEOUT_MS;
+  const runCommand = opts.commandRunner ?? defaultRunCommand;
 
   const commonDirResult = await runCommand(
     "git",
@@ -73,7 +81,7 @@ export async function resolveRepoRoot(
  */
 export async function resolveCheckoutRoot(
   cwd: string,
-  commandRunner: CommandRunner = runCommand,
+  commandRunner: CommandRunner = defaultRunCommand,
   opts: ProbeOptions = {}
 ): Promise<string> {
   return normalizePath(
@@ -109,7 +117,7 @@ export async function resolveWorktreeRoot(
   cwd: string,
   opts: ProbeOptions = {}
 ): Promise<string> {
-  return await resolveCheckoutRoot(cwd, runCommand, {
+  return await resolveCheckoutRoot(cwd, defaultRunCommand, {
     timeoutMs: opts.timeoutMs ?? DEFAULT_PROBE_TIMEOUT_MS,
   });
 }
@@ -120,7 +128,7 @@ export async function resolveWorktreeRoot(
  */
 export async function resolveCurrentBranch(
   cwd: string,
-  commandRunner: CommandRunner = runCommand,
+  commandRunner: CommandRunner = defaultRunCommand,
   opts: ProbeOptions = {}
 ): Promise<string | null> {
   const result = await commandRunner(
@@ -130,6 +138,23 @@ export async function resolveCurrentBranch(
   );
 
   return result.exitCode === 0 && result.stdout ? result.stdout : null;
+}
+
+/** Compose a gitContext from a checkout's probed roots and branch. */
+export function gitContextFrom(input: {
+  repoRoot: string;
+  branch: string;
+  worktreePath: string;
+  repoIconPath: string | null;
+}): AgentGitContext {
+  return {
+    repoRoot: input.repoRoot,
+    branch: input.branch,
+    worktreePath: input.worktreePath,
+    worktreeName: path.basename(input.worktreePath),
+    isWorktree: input.worktreePath !== input.repoRoot,
+    repoIconPath: input.repoIconPath,
+  };
 }
 
 /**
@@ -142,9 +167,10 @@ export async function resolveCurrentBranch(
  */
 export async function probeGitContext(
   cwd: string,
-  opts: ProbeOptions = {}
+  opts: ProbeOptions & { repoIcon?: boolean } = {}
 ): Promise<ProbeResult> {
   const timeoutMs = opts.timeoutMs ?? DEFAULT_PROBE_TIMEOUT_MS;
+  const runCommand = opts.commandRunner ?? defaultRunCommand;
   try {
     const inside = await runCommand(
       "git",
@@ -155,7 +181,10 @@ export async function probeGitContext(
       return { status: "ok", value: null };
     }
 
-    const repoRoot = await resolveRepoRoot(cwd, { timeoutMs });
+    const repoRoot = await resolveRepoRoot(cwd, {
+      timeoutMs,
+      commandRunner: runCommand,
+    });
     const checkoutRoot = await resolveCheckoutRoot(cwd, runCommand, {
       timeoutMs,
     });
@@ -171,18 +200,17 @@ export async function probeGitContext(
       ).stdout;
     }
 
-    const repoIconPath = await detectRepoIcon(checkoutRoot);
+    const repoIconPath =
+      opts.repoIcon === false ? null : await detectRepoIcon(checkoutRoot);
 
     return {
       status: "ok",
-      value: {
+      value: gitContextFrom({
         repoRoot,
         branch,
         worktreePath: checkoutRoot,
-        worktreeName: path.basename(checkoutRoot),
-        isWorktree: checkoutRoot !== repoRoot,
         repoIconPath,
-      },
+      }),
     };
   } catch {
     return { status: "error" };
@@ -205,19 +233,17 @@ export async function buildGitContextForWorktree(input: {
     const repoRoot = await resolveRepoRoot(worktreePath, opts);
     const normalizedWorktreePath = normalizePath(worktreePath);
     const repoIconPath = await detectRepoIcon(normalizedWorktreePath);
-    const liveBranch = await resolveCurrentBranch(worktreePath, runCommand, {
+    const liveBranch = await resolveCurrentBranch(worktreePath, undefined, {
       timeoutMs: opts?.timeoutMs ?? DEFAULT_PROBE_TIMEOUT_MS,
     }).catch(() => null);
     return {
       status: "ok",
-      value: {
+      value: gitContextFrom({
         repoRoot,
         branch: liveBranch ?? worktreeBranch,
         worktreePath: normalizedWorktreePath,
-        worktreeName: path.basename(normalizedWorktreePath),
-        isWorktree: normalizedWorktreePath !== repoRoot,
         repoIconPath,
-      },
+      }),
     };
   } catch {
     return { status: "error" };

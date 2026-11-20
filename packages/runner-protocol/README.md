@@ -179,7 +179,10 @@ on that runner and resolves a Git subdirectory to its checkout root. Use a
 null path to return to the session's launch or borrowed checkout. The result
 is a JSON string validated by `isSessionCheckout`. It carries the canonical
 `path`, whether it is `moved` from the initial checkout, and its
-credential-free HTTPS `origin` when available.
+credential-free HTTPS `origin` when available. Newer runners also report the
+common `repositoryRoot` and the checked-out `branch` (the short commit when
+HEAD is detached), or null outside Git. Older runners omit both fields, and
+services treat a missing field as null.
 
 The runner checks directory access under the workload identity and durably
 records an accepted selection before responding. Checkout reads and future
@@ -187,7 +190,8 @@ host starts use it. A running host keeps its current cwd. Retrying the same
 selection is safe, and a service can describe the effective checkout after a
 lost response. A selection cannot change the runner, transfer archive
 ownership, or select a root that contains runner storage. Outside its own
-managed session directory, a checkout must be disjoint from runner storage.
+managed session directory and other sessions' protected `checkout` subtrees,
+a checkout must be disjoint from runner storage.
 Configured workspaces additionally restrict selection to the configured directory.
 
 When a session borrows a checkout from a runner with this capability,

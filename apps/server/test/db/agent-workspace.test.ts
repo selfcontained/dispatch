@@ -64,6 +64,7 @@ vi.mock("../../src/shared/git/git-context.js", async () => {
 });
 
 const { AgentManager } = await import("../../src/agents/manager.js");
+const { createMcpHandlers } = await import("../../src/server/mcp-handlers.js");
 
 const noopLogger = {
   info: () => {},
@@ -251,6 +252,62 @@ describe("setWorkspace", () => {
       manager.setWorkspace("agt_a", { path: path.join(root, "missing") })
     ).rejects.toMatchObject({ statusCode: 400 });
     expect((await manager.getAgent("agt_a"))?.workspacePath).toBeNull();
+  });
+});
+
+describe("set_workspace parity", () => {
+  it("returns the same result shape for a local and a runner session", async () => {
+    // A runner reply as the supervisor builds it with the shared git probe.
+    const runnerReply = (body: Record<string, unknown>) => ({
+      value: JSON.stringify({
+        path: otherRepo,
+        moved: true,
+        origin: null,
+        ...body,
+      }),
+    });
+    const requestSession = vi.fn(async () =>
+      runnerReply({ repositoryRoot: otherRepo, branch: "fix/wrong-repo" })
+    );
+    const remote = {
+      requestSession,
+    } as unknown as import("../../src/agents/remote/service.js").RemoteRunnerService;
+    const runnerManager = new AgentManager(pool, noopLogger, inertConfig, {
+      remote,
+    });
+    await insertWorktreeAgent("agt_local", launchWorktree, "agt/launch");
+    await pool.query(
+      `INSERT INTO agents (id, name, status, cwd) VALUES ($1, $1, 'stopped', $2)`,
+      ["agt_runner", "runner://runner-test/@session"]
+    );
+    const handlers = (agentManager: InstanceType<typeof AgentManager>) =>
+      createMcpHandlers({
+        agentManager,
+      } as unknown as Parameters<typeof createMcpHandlers>[0]);
+    const move = { path: otherRepo, baseBranch: "main" };
+
+    const local = await handlers(manager).setWorkspace("agt_local", move);
+    const runner = await handlers(runnerManager).setWorkspace(
+      "agt_runner",
+      move
+    );
+    expect(local).toEqual({
+      workspacePath: otherRepo,
+      moved: true,
+      repoRoot: otherRepo,
+      branch: "fix/wrong-repo",
+      baseBranch: "main",
+    });
+    expect(runner).toEqual(local);
+
+    // An older runner omits the git fields and the result keeps its shape.
+    requestSession.mockResolvedValueOnce(runnerReply({}));
+    const legacy = await handlers(runnerManager).setWorkspace(
+      "agt_runner",
+      move
+    );
+    expect(Object.keys(legacy).sort()).toEqual(Object.keys(local).sort());
+    expect(legacy).toMatchObject({ repoRoot: null, branch: null });
   });
 });
 

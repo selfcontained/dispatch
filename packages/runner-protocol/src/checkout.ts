@@ -176,6 +176,10 @@ export type SessionCheckout = {
   path: string;
   moved: boolean;
   origin: string | null;
+  /** Common repository root; null or absent outside Git or from older runners. */
+  repositoryRoot?: string | null;
+  /** Checked-out branch, or the short commit when HEAD is detached. */
+  branch?: string | null;
 };
 
 /** Observe the bound checkout, or finalize the session with a conditional removal. */
