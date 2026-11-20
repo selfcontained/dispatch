@@ -3789,6 +3789,19 @@ describe("AgentManager", () => {
           ownership: "owned",
           borrowers: [borrower.id],
         });
+        const failed = await pool.query<{ id: string }>(
+          "SELECT id FROM agents WHERE parent_agent_id = $1 AND id <> $2",
+          [owner.id, borrower.id]
+        );
+        const failedId = failed.rows[0].id;
+        await manager.setWorkspace(failedId, {
+          path: checkoutPath,
+          baseBranch: "main",
+        });
+        expect(await manager.checkWorktreeStatus(owner.id)).toMatchObject({
+          ownership: "owned",
+          borrowers: [borrower.id, failedId].sort(),
+        });
       } finally {
         await rm(root, { recursive: true, force: true });
       }

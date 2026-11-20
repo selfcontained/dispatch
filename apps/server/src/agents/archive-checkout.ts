@@ -29,23 +29,30 @@ export async function nativeBorrowers(
 ) {
   const path = agent.worktreePath;
   if (!path) return [];
+  const checkoutPaths = new Set([path, canonicalPath]);
   const { rows } = await pool.query<{
     id: string;
     worktreePath: string | null;
+    workspacePath: string | null;
   }>(
-    `SELECT id, worktree_path AS "worktreePath" FROM agents
+    `SELECT id, worktree_path AS "worktreePath", workspace_path AS "workspacePath"
+       FROM agents
        WHERE deleted_at IS NULL AND id <> $1
          AND (worktree_path = ANY($2::text[])
            OR workspace_path = ANY($2::text[])
            OR cwd = ANY($2::text[])) ORDER BY id`,
-    [agent.id, [...new Set([path, canonicalPath])]]
+    [agent.id, [...checkoutPaths]]
   );
   const borrowers: string[] = [];
   for (const row of rows) {
     // A launch that asked for its own worktree but never got one only kept
     // its launch cwd; like a runner session that never bound, it borrows
     // nothing.
-    if (!row.worktreePath && (await localRunner.requestedWorktree(row.id)))
+    if (
+      !row.worktreePath &&
+      (!row.workspacePath || !checkoutPaths.has(row.workspacePath)) &&
+      (await localRunner.requestedWorktree(row.id))
+    )
       continue;
     borrowers.push(row.id);
   }
