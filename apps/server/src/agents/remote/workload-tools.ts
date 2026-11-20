@@ -9,6 +9,14 @@ export const systemTools: Record<WorkloadTool, string> = {
   git: "/usr/bin/git",
 };
 
+export const githubCredentialKey = "credential.https://github.com.helper";
+
+/** Git runs credential helpers through a shell. */
+export function githubCredentialHelper(gh: string): string {
+  const bin = /^[\w./+-]+$/.test(gh) ? gh : `'${gh.replaceAll("'", `'\\''`)}'`;
+  return `!${bin} auth git-credential`;
+}
+
 const marker = "dispatch-tool:";
 const lookupScript = `for tool do p=$(command -v "$tool" 2>/dev/null) && [ -x "$p" ] && case $p in /*) printf '${marker}%s=%s\\n' "$tool" "$p";; esac; done; exit 0`;
 

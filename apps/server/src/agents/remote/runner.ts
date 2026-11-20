@@ -43,6 +43,8 @@ import { GitHubPullRequestWatches } from "./github-pull-request-watches.js";
 import { GitHubRunnerExecutor } from "./github-runner-executor.js";
 import {
   WorkloadTools,
+  githubCredentialHelper,
+  githubCredentialKey,
   missingExecutable,
   systemTools,
   workloadLoginCommand,
@@ -90,12 +92,6 @@ type RunnerConfig = {
   >;
 };
 
-/** Git's credential helper runs through a shell; quote unusual paths. */
-function credentialHelper(gh: string) {
-  const bin = /^[\w./+-]+$/.test(gh) ? gh : `'${gh.replaceAll("'", `'\\''`)}'`;
-  return `credential.https://github.com.helper=!${bin} auth git-credential`;
-}
-
 export const runnerGitArgsFor = (gh: string) => [
   "-c",
   "protocol.allow=never",
@@ -106,7 +102,7 @@ export const runnerGitArgsFor = (gh: string) => [
   "-c",
   "credential.helper=",
   "-c",
-  credentialHelper(gh),
+  `${githubCredentialKey}=${githubCredentialHelper(gh)}`,
   "-c",
   "core.hooksPath=/dev/null",
 ];
@@ -287,7 +283,10 @@ export async function runRemoteRunner(filename: string) {
       args: [...childArgs, bin, ...args],
     }),
     credentials.key,
-    tools
+    tools,
+    username === "dispatch-runner" &&
+      config.home === "/var/lib/dispatch-runner/home" &&
+      passwdShell === "/usr/sbin/nologin"
   );
   const pullRequests = new GitHubPullRequestWatches(async (target, signal) => {
     const result = await github.handle(
@@ -421,6 +420,8 @@ export async function runRemoteRunner(filename: string) {
     env,
     workspaces: new Set(configuredHandles),
     asWorkload,
+    githubCredentialHelper: async () =>
+      githubCredentialHelper(await tools.resolve("gh")),
     async observeCheckout(cwd, scratch) {
       const { stdout } = await execute(
         setpriv,

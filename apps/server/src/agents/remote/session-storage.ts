@@ -3,6 +3,7 @@ import { chown, lstat, mkdir } from "node:fs/promises";
 import path from "node:path";
 import type { RunnerRepository } from "./protocol.js";
 import { validBranch } from "./repository.js";
+import { githubCredentialKey } from "./workload-tools.js";
 
 /** The supervisor-owned parent prevents workloads from replacing session roots. */
 export async function prepareScratchSession(
@@ -55,7 +56,8 @@ export class RunnerRepositories {
     private readonly cacheRoot: string,
     private readonly uid: number,
     private readonly gid: number,
-    private readonly execute: WorkloadCommand
+    private readonly execute: WorkloadCommand,
+    private readonly githubCredentialHelper?: () => Promise<string>
   ) {}
 
   private async inCache<T>(
@@ -95,6 +97,16 @@ export class RunnerRepositories {
       const git = (...args: string[]) =>
         this.git(`--git-dir=${cache}`, ...args);
       await this.git("init", "--quiet", "--bare", "--template=", cache);
+      // The bare repository config is shared by its managed worktrees. Leave
+      // the workload user's global configuration and helper chain intact.
+      if (this.githubCredentialHelper)
+        await git(
+          "config",
+          "--local",
+          "--replace-all",
+          githubCredentialKey,
+          await this.githubCredentialHelper()
+        );
       const pendingPlan = await journal.read();
       const requestedBranch =
         checkout.kind === "default" ? pendingPlan?.branch : checkout.branch;

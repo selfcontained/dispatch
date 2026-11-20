@@ -1,5 +1,12 @@
 import { execFileSync } from "node:child_process";
-import { access, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import {
+  access,
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
@@ -13,7 +20,8 @@ async function fixture(
     root: string;
     gh: string;
     env: NodeJS.ProcessEnv;
-  }) => Promise<void>
+  }) => Promise<void>,
+  privateHome = true
 ) {
   const root = await mkdtemp(path.join(os.tmpdir(), "dispatch-gh-fixture-"));
   const gh = path.join(root, "gh");
@@ -174,11 +182,17 @@ esac
 `,
       { mode: 0o700 }
     );
-    const executor = new GitHubRunnerExecutor(env, (bin, args) => {
-      if (bin === "/usr/bin/git") return { bin, args };
-      expect(bin).toBe("/usr/bin/gh");
-      return { bin: gh, args };
-    });
+    const executor = new GitHubRunnerExecutor(
+      env,
+      (bin, args) => {
+        if (bin === "/usr/bin/git") return { bin, args };
+        expect(bin).toBe("/usr/bin/gh");
+        return { bin: gh, args };
+      },
+      undefined,
+      undefined,
+      privateHome
+    );
     await run({ executor, root, gh, env });
   } finally {
     await rm(root, { recursive: true, force: true });
@@ -310,7 +324,7 @@ it("keeps a verified GitHub account usable if global Git identity setup fails", 
   });
 });
 
-it("completes a device login and configures the same credential helper for an agent and managed checkout", async () => {
+it("completes a device login without setting a global credential helper", async () => {
   await fixture(async ({ executor, root, env, gh }) => {
     const connection = new AbortController();
     const handle = (type: "status" | "login" | "logout") =>
@@ -336,18 +350,17 @@ it("completes a device login and configures the same credential helper for an ag
           login: "fixture-user",
         })
       );
-      for (const args of [
-        [],
-        runnerGitArgs.map((arg) => arg.replace("/usr/bin/gh", gh)),
-      ]) {
-        const result = execFileSync("git", [...args, "credential", "fill"], {
-          cwd: root,
-          env: { ...env, GIT_TERMINAL_PROMPT: "0" },
-          input: "protocol=https\nhost=github.com\n\n",
-          encoding: "utf8",
-        });
-        expect(result).toContain("username=fixture-user");
-      }
+      expect(
+        await readFile(path.join(root, ".gitconfig"), "utf8")
+      ).not.toContain("credential");
+      const args = runnerGitArgs.map((arg) => arg.replace("/usr/bin/gh", gh));
+      const result = execFileSync("git", [...args, "credential", "fill"], {
+        cwd: root,
+        env: { ...env, GIT_TERMINAL_PROMPT: "0" },
+        input: "protocol=https\nhost=github.com\n\n",
+        encoding: "utf8",
+      });
+      expect(result).toContain("username=fixture-user");
       expect(gitConfig(env, "user.name")).toBe("Fixture User");
       expect(gitConfig(env, "user.email")).toBe(
         "1234+fixture-user@users.noreply.github.com"
@@ -439,6 +452,23 @@ it("fills missing Git identity for an existing login and preserves custom values
     expect(gitConfig(env, "user.name")).toBe("Custom Name");
     expect(gitConfig(env, "user.email")).toBe("custom@example.com");
   });
+});
+
+it("leaves an existing user's Git configuration byte-identical on status and login", async () => {
+  await fixture(async ({ executor, root, env }) => {
+    const signal = new AbortController().signal;
+    await writeFile(path.join(root, "login"), "fixture-user");
+    gitConfig(env, "user.email", "custom@example.com");
+    const config = path.join(root, ".gitconfig");
+    const before = await readFile(config);
+    for (const type of ["status", "login"] as const)
+      expect(await executor.handle({ type }, signal)).toEqual({
+        status: "signed-in",
+        login: "fixture-user",
+        gitIdentityUnavailable: true,
+      });
+    expect(await readFile(config)).toEqual(before);
+  }, false);
 });
 
 it("binds bounded PR details and an assessed diff to the workload credential", async () => {

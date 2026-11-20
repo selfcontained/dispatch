@@ -80,6 +80,7 @@ type SupervisorOptions = {
   workspaces: ReadonlySet<string>;
   hostCommand: (dir: string) => string[];
   asWorkload: WorkloadCommand;
+  githubCredentialHelper?: () => Promise<string>;
   observeCheckout?: (cwd: string, scratch: boolean) => Promise<CheckoutState>;
   prepareDependencies?: (cwd: string) => Promise<boolean>;
 };
@@ -201,7 +202,8 @@ export async function createSessionSupervisor(
     cache,
     config.uid,
     config.gid,
-    asWorkload
+    asWorkload,
+    config.githubCredentialHelper
   );
   const operations = new Map<string, Promise<unknown>>();
   // Workload commands throw on failure; report an allowed non-zero exit

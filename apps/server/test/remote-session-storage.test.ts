@@ -159,29 +159,41 @@ it("uses isolated worktrees, protects occupied and default branches, and keeps e
     const sessions = path.join(root, "sessions");
     const uid = process.getuid!();
     const gid = process.getgid!();
+    const gh = path.join(root, "fixture gh");
+    await writeFile(
+      gh,
+      "#!/bin/sh\ncat >/dev/null\nprintf 'username=checkout-user\\npassword=fixture\\n'\n",
+      { mode: 0o700 }
+    );
     let failReviewBase = false;
     let failTrunkTracking = false;
     const makeRepositories = () =>
-      new RunnerRepositories(cache, uid, gid, (bin, args) => {
-        expect(bin).toBe("git");
-        if (
-          failReviewBase &&
-          args.some((arg) => arg.endsWith(".dispatchReviewBase"))
-        ) {
-          failReviewBase = false;
-          return Promise.reject(new Error("interrupted Git configuration"));
-        }
-        if (
-          failTrunkTracking &&
-          args.includes("--set-upstream-to=refs/remotes/origin/trunk")
-        ) {
-          failTrunkTracking = false;
-          return Promise.reject(
-            new Error("interrupted tracking configuration")
-          );
-        }
-        return git("-c", `url.file://${origin}.insteadOf=${url}`, ...args);
-      });
+      new RunnerRepositories(
+        cache,
+        uid,
+        gid,
+        (bin, args) => {
+          expect(bin).toBe("git");
+          if (
+            failReviewBase &&
+            args.some((arg) => arg.endsWith(".dispatchReviewBase"))
+          ) {
+            failReviewBase = false;
+            return Promise.reject(new Error("interrupted Git configuration"));
+          }
+          if (
+            failTrunkTracking &&
+            args.includes("--set-upstream-to=refs/remotes/origin/trunk")
+          ) {
+            failTrunkTracking = false;
+            return Promise.reject(
+              new Error("interrupted tracking configuration")
+            );
+          }
+          return git("-c", `url.file://${origin}.insteadOf=${url}`, ...args);
+        },
+        async () => `!'${gh}' auth git-credential`
+      );
     let repositories = makeRepositories();
     type Journal = Parameters<RunnerRepositories["prepare"]>[2];
     type Plan = Parameters<Journal["write"]>[0];
@@ -228,6 +240,37 @@ it("uses isolated worktrees, protects occupied and default branches, and keeps e
       prepare(a, newBranch),
       prepare(b, existing),
     ]);
+    const fill = (cwd: string, host: string) =>
+      new Promise<string>((resolve, reject) => {
+        const child = execFile(
+          "git",
+          ["-C", cwd, "credential", "fill"],
+          {
+            env: {
+              PATH: process.env.PATH,
+              HOME: root,
+              GIT_CONFIG_GLOBAL: "/dev/null",
+              GIT_CONFIG_NOSYSTEM: "1",
+              GIT_TERMINAL_PROMPT: "0",
+            },
+          },
+          (error, stdout) => (error ? reject(error) : resolve(stdout))
+        );
+        child.stdin!.end(`protocol=https\nhost=${host}\n\n`);
+      });
+    await expect(fill(first, "github.com")).resolves.toContain(
+      "username=checkout-user"
+    );
+    await expect(fill(second, "github.com")).resolves.toContain(
+      "username=checkout-user"
+    );
+    await expect(fill(first, "example.test")).rejects.toThrow(
+      "terminal prompts disabled"
+    );
+    await expect(fill(origin, "github.com")).rejects.toThrow(
+      "terminal prompts disabled"
+    );
+
     expect((await git("-C", first, "rev-parse", "HEAD")).trim()).toBe(initial);
     expect((await git("-C", first, "branch", "--show-current")).trim()).toBe(
       "work"

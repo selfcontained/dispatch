@@ -56,7 +56,7 @@ type CommandWrapper = (
   args: string[];
 };
 
-/** Commands run with the same dedicated workload HOME as checkout and agents. */
+/** Commands run with the same workload HOME as checkout and agents. */
 export class GitHubRunnerExecutor {
   private readonly evidence: GitHubPullRequestEvidence;
   private readonly env: NodeJS.ProcessEnv;
@@ -164,7 +164,8 @@ export class GitHubRunnerExecutor {
     env: NodeJS.ProcessEnv,
     private readonly wrap: CommandWrapper,
     credentialKey?: Buffer,
-    private readonly tools: WorkloadToolResolver = fixedWorkloadTools
+    private readonly tools: WorkloadToolResolver = fixedWorkloadTools,
+    private readonly managePrivateGitIdentity = false
   ) {
     this.env = {
       ...env,
@@ -221,7 +222,11 @@ export class GitHubRunnerExecutor {
       try {
         await config(["--get", key]);
       } catch (error) {
-        if ((error as { code?: number }).code !== 1) throw error;
+        if (
+          !this.managePrivateGitIdentity ||
+          (error as { code?: number }).code !== 1
+        )
+          throw error;
         await config([key, value]);
       }
     }
@@ -363,21 +368,11 @@ export class GitHubRunnerExecutor {
       if (code === 0) {
         this.onLogin?.();
         try {
-          // Ubuntu 22.04's gh supports setting the protocol through config,
-          // but rejects --git-protocol on auth login before requesting a code.
-          await this.run(
-            ["config", "set", "git_protocol", "https", "--host", host],
-            AbortSignal.timeout(7000)
-          );
-          await this.run(
-            ["auth", "setup-git", ...hostArgs],
-            AbortSignal.timeout(7000)
-          );
           const account = await this.account(AbortSignal.timeout(7000));
           if (account.status !== "signed-in")
             failure = githubAccountIssues.verify;
         } catch {
-          failure = githubAccountIssues.helper;
+          failure = githubAccountIssues.verify;
         }
       }
       connection.removeEventListener("abort", cancel);
@@ -452,13 +447,6 @@ export class GitHubRunnerExecutor {
           signal.throwIfAborted();
           this.start(signal, gh);
           return this.currentLogin();
-        }
-        if (account.status === "signed-in") {
-          try {
-            await this.run(["auth", "setup-git", ...hostArgs], signal);
-          } catch {
-            return { status: "failed", message: githubAccountIssues.helper };
-          }
         }
         return account;
       }
