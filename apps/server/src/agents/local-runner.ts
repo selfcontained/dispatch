@@ -486,6 +486,8 @@ export function createLocalRunner(
       request: Parameters<typeof workspace.prepare>[2],
       progress: Parameters<typeof workspace.prepare>[3]
     ) => workspace.prepare(stateDir(agentId), directory, request, progress),
+    requestedWorktree: (agentId: string) =>
+      workspace.requested(stateDir(agentId)),
     resumeWorkspace: (
       agentId: string,
       progress: Parameters<typeof workspace.resume>[1]

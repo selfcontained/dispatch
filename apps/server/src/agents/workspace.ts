@@ -291,6 +291,10 @@ export function createWorkspacePreparation(logger: FastifyBaseLogger) {
         finish(dir, await bind(dir, directory, request), progress)
       );
     },
+    /** True once a launch asked for its own worktree in this state dir. */
+    async requested(dir: string) {
+      return (await readReceipt(dir)) !== null;
+    },
     resume(dir: string, progress: Progress) {
       return serialize(dir, async () => {
         const receipt = await readReceipt(dir);

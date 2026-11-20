@@ -18,25 +18,38 @@ export type ArchiveCheckoutAgent = Pick<
 
 export type LocalArchiveRunner = Pick<
   ReturnType<typeof createLocalRunner>,
-  "checkoutRelease"
+  "checkoutRelease" | "requestedWorktree"
 >;
 
 export async function nativeBorrowers(
   pool: Pool,
   agent: ArchiveCheckoutAgent,
-  canonicalPath: string
+  canonicalPath: string,
+  localRunner: Pick<LocalArchiveRunner, "requestedWorktree">
 ) {
   const path = agent.worktreePath;
   if (!path) return [];
-  const { rows } = await pool.query<{ id: string }>(
-    `SELECT id FROM agents
+  const { rows } = await pool.query<{
+    id: string;
+    worktreePath: string | null;
+  }>(
+    `SELECT id, worktree_path AS "worktreePath" FROM agents
        WHERE deleted_at IS NULL AND id <> $1
          AND (worktree_path = ANY($2::text[])
            OR workspace_path = ANY($2::text[])
            OR cwd = ANY($2::text[])) ORDER BY id`,
     [agent.id, [...new Set([path, canonicalPath])]]
   );
-  return rows.map(({ id }) => id);
+  const borrowers: string[] = [];
+  for (const row of rows) {
+    // A launch that asked for its own worktree but never got one only kept
+    // its launch cwd; like a runner session that never bound, it borrows
+    // nothing.
+    if (!row.worktreePath && (await localRunner.requestedWorktree(row.id)))
+      continue;
+    borrowers.push(row.id);
+  }
+  return borrowers;
 }
 
 export async function observeArchiveCheckout(
@@ -75,7 +88,7 @@ export async function observeArchiveCheckout(
   return observeBoundCheckout(
     agent.id,
     binding.id,
-    await nativeBorrowers(pool, binding, checkoutPath),
+    await nativeBorrowers(pool, binding, checkoutPath, localRunner),
     observed.checkout
   );
 }

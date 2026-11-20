@@ -3740,6 +3740,60 @@ describe("AgentManager", () => {
       }
     });
 
+    it("does not count a child whose own worktree was never created as a borrower", async () => {
+      const root = await mkdtemp(path.join(os.tmpdir(), "failed-borrower-"));
+      try {
+        const checkoutPath = await realpath(root);
+        execFileSync("git", ["init", "-b", "main"], { cwd: checkoutPath });
+        execFileSync(
+          "git",
+          [
+            "-c",
+            "user.name=Dispatch Test",
+            "-c",
+            "user.email=test@example.test",
+            "commit",
+            "--allow-empty",
+            "-m",
+            "Initial",
+          ],
+          { cwd: checkoutPath }
+        );
+        vi.mocked(createGitWorktree).mockResolvedValueOnce({
+          worktreePath: checkoutPath,
+          branchName: "main",
+        } as never);
+        const owner = await manager.createAgent({
+          cwd: checkoutPath,
+          useWorktree: true,
+          baseBranch: "main",
+        });
+        vi.mocked(createGitWorktree).mockRejectedValueOnce(
+          new GitWorktreeError("branch is already checked out", 409)
+        );
+        await expect(
+          manager.createAgent({
+            cwd: checkoutPath,
+            parentAgentId: owner.id,
+            worktreeBranch: "feat/x",
+          })
+        ).rejects.toMatchObject({ statusCode: 409 });
+        const borrower = await manager.createAgent({
+          cwd: checkoutPath,
+          parentAgentId: owner.id,
+          useWorktree: false,
+        });
+        await manager.stopAgent(borrower.id);
+
+        expect(await manager.checkWorktreeStatus(owner.id)).toMatchObject({
+          ownership: "owned",
+          borrowers: [borrower.id],
+        });
+      } finally {
+        await rm(root, { recursive: true, force: true });
+      }
+    });
+
     it("should return hasWorktree false for agents without a worktree", async () => {
       const agent = await manager.createAgent({
         cwd: "/tmp",

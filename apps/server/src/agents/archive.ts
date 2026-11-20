@@ -105,7 +105,9 @@ export async function cleanupAgentWorktree(
       return true;
     }
     await onCleanupStart?.();
-    if ((await nativeBorrowers(pool, agent, checkout.path)).length) {
+    if (
+      (await nativeBorrowers(pool, agent, checkout.path, localRunner)).length
+    ) {
       await rememberArchiveCheckoutState(pool, id, checkout.stateId);
       return true;
     }
