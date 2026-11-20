@@ -1,8 +1,9 @@
 import { X509Certificate } from "node:crypto";
+import { once } from "node:events";
 import http from "node:http";
 import https from "node:https";
 import type { AddressInfo } from "node:net";
-import { connect, type TLSSocket } from "node:tls";
+import { connect, createServer, type TLSSocket } from "node:tls";
 import type { Pool } from "pg";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { exchangeCode } from "../src/agents/remote/enrollment.js";
@@ -995,6 +996,62 @@ describe("runner enrollment service", () => {
     await get("/ping", { authorization: "Bearer agent-token:agt_abc" });
     expect(apiRequests[0]?.headers.authorization).toBeUndefined();
   });
+});
+
+it("releases the handshake slot for HTTP and closes the idle relay cleanly", async () => {
+  const authority = issueAuthority("relay-test");
+  const leaf = issueServer(authority, [HOST]);
+  let requests = 0;
+  const api = http.createServer((_request, response) => {
+    const delay = requests++ === 0 ? 0 : 150;
+    setTimeout(() => response.end("ok"), delay);
+  });
+  api.listen(0, HOST);
+  await once(api, "listening");
+  const service = new RemoteRunnerService(undefined, undefined, {
+    host: HOST,
+    port: (api.address() as AddressInfo).port,
+    tls: false,
+  });
+  const listener = createServer({ cert: leaf.cert, key: leaf.key }, (socket) =>
+    service["accept"](socket, "legacy")
+  );
+  listener.listen(0, HOST);
+  await once(listener, "listening");
+  const agent = new https.Agent({ keepAlive: true, ca: authority.cert });
+  try {
+    expect(service["proxyIdleTimeout"]).toBeGreaterThan(60_000);
+    Object.defineProperty(service, "proxyIdleTimeout", { value: 100 });
+    const ping = () =>
+      new Promise<TLSSocket>((resolve, reject) => {
+        const request = https.get(
+          {
+            host: HOST,
+            port: (listener.address() as AddressInfo).port,
+            path: "/ping",
+            agent,
+          },
+          (response) => {
+            const connection = response.socket as TLSSocket;
+            response.resume();
+            response.once("end", () => resolve(connection));
+            response.once("error", reject);
+          }
+        );
+        request.on("error", reject);
+      });
+    const socket = await ping();
+    expect(service["unauthenticated"]).toBe(0);
+    expect(await ping()).toBe(socket);
+    expect(socket.destroyed).toBe(false);
+    const [hadError] = await once(socket, "close");
+    expect(hadError).toBe(false);
+  } finally {
+    agent.destroy();
+    service.close();
+    listener.close();
+    api.close();
+  }
 });
 
 describe("legacy runner config", () => {

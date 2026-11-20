@@ -8,7 +8,7 @@ import { X509Certificate } from "node:crypto";
 import { readFileSync, watchFile, unwatchFile } from "node:fs";
 import http from "node:http";
 import https from "node:https";
-import { connect as connectTcp, isIP } from "node:net";
+import { connect as connectTcp, isIP, type Socket } from "node:net";
 import os from "node:os";
 import { createServer, type Server, type TLSSocket } from "node:tls";
 import {
@@ -183,6 +183,7 @@ type Peer = {
 };
 
 const MAX_UNAUTHENTICATED = 64;
+const PROXY_KEEP_ALIVE_TIMEOUT = 75_000;
 
 function validHost(host: string) {
   return (
@@ -363,12 +364,23 @@ export class RemoteRunnerService {
       if (enrollment.endpointHost && !validHost(enrollment.endpointHost))
         throw new Error("DISPATCH_RUNNER_ENDPOINT_HOST is not a valid host");
     }
-    this.proxy = http.createServer((request, response) =>
-      this.forward(request, response)
+    this.proxy = http.createServer(
+      {
+        // MCP tool calls may legitimately run for a long time.
+        requestTimeout: 0,
+        headersTimeout: 30_000,
+        // Manage keep-alive below because Bun ignores this option.
+        keepAliveTimeout: 0,
+      },
+      (request, response) => {
+        const firstRequest = this.proxyFirstRequests.get(
+          request.socket.remotePort!
+        );
+        firstRequest?.();
+        this.trackProxyRequest(request.socket, response);
+        this.forward(request, response);
+      }
     );
-    // MCP tool calls may legitimately run for a long time.
-    this.proxy.requestTimeout = 0;
-    this.proxy.headersTimeout = 30_000;
   }
 
   /** Origin for an agent's MCP URL as seen from the runner it is placed on. */
@@ -586,10 +598,14 @@ export class RemoteRunnerService {
     // Unauthenticated peers may pair once or reach the scoped MCP proxy.
     if (this.unauthenticated >= MAX_UNAUTHENTICATED) return socket.destroy();
     this.unauthenticated++;
-    socket.once("close", () => this.unauthenticated--);
     const deadline = setTimeout(() => socket.destroy(), 10_000);
-    socket.once("data", (chunk: Buffer) => {
+    const release = () => {
+      socket.removeListener("close", release);
       clearTimeout(deadline);
+      this.unauthenticated--;
+    };
+    socket.once("close", release);
+    socket.once("data", (chunk: Buffer) => {
       if (chunk[0] === 0x7b && kind === "enrolled") {
         socket.pause();
         socket.unshift(chunk);
@@ -598,7 +614,7 @@ export class RemoteRunnerService {
       } else if (
         /^[A-Z]{3,7} \//.test(chunk.subarray(0, 9).toString("latin1"))
       ) {
-        void this.relay(socket, chunk);
+        void this.relay(socket, chunk, release);
       } else socket.destroy();
     });
   }
@@ -608,7 +624,7 @@ export class RemoteRunnerService {
    * request on it. Piping (rather than emitting the TLS socket into an
    * http.Server) works the same under Node and Bun.
    */
-  private async relay(socket: TLSSocket, head: Buffer) {
+  private async relay(socket: TLSSocket, head: Buffer, release: () => void) {
     socket.pause();
     try {
       const port = await this.ensureProxy();
@@ -616,13 +632,53 @@ export class RemoteRunnerService {
       const upstream = connectTcp(port, "127.0.0.1");
       upstream.on("error", () => socket.destroy());
       socket.on("close", () => upstream.destroy());
-      upstream.on("close", () => socket.destroy());
-      upstream.write(head);
-      socket.pipe(upstream).pipe(socket);
-      socket.resume();
+      upstream.on("close", () => {
+        if (!upstream.readableEnded) socket.destroy();
+      });
+      upstream.once("connect", () => {
+        const relayPort = upstream.localPort!;
+        this.proxyFirstRequests.set(relayPort, () => {
+          this.proxyFirstRequests.delete(relayPort);
+          release();
+        });
+        upstream.once("close", () => this.proxyFirstRequests.delete(relayPort));
+        upstream.write(head);
+        socket.pipe(upstream).pipe(socket);
+        socket.resume();
+      });
     } catch {
       socket.destroy();
     }
+  }
+
+  private readonly proxyIdleTimeout = PROXY_KEEP_ALIVE_TIMEOUT;
+  private readonly proxyFirstRequests = new Map<number, () => void>();
+  private readonly proxyRequests = new WeakMap<
+    Socket,
+    { pending: number; idleTimer?: ReturnType<typeof setTimeout> }
+  >();
+
+  private trackProxyRequest(socket: Socket, response: http.ServerResponse) {
+    let entry = this.proxyRequests.get(socket);
+    if (!entry) {
+      const state: {
+        pending: number;
+        idleTimer?: ReturnType<typeof setTimeout>;
+      } = { pending: 0 };
+      socket.once("close", () => clearTimeout(state.idleTimer));
+      this.proxyRequests.set(socket, state);
+      entry = state;
+    }
+    clearTimeout(entry.idleTimer);
+    entry.pending++;
+    const state = entry;
+    response.once("finish", () => {
+      if (--state.pending === 0)
+        state.idleTimer = setTimeout(
+          () => socket.end(),
+          this.proxyIdleTimeout
+        ).unref();
+    });
   }
 
   private ensureProxy() {
@@ -919,7 +975,10 @@ export class RemoteRunnerService {
         rejectUnauthorized: false,
       },
       (reply) => {
-        response.writeHead(reply.statusCode ?? 502, reply.headers);
+        const headers = { ...reply.headers };
+        delete headers.connection;
+        delete headers["keep-alive"];
+        response.writeHead(reply.statusCode ?? 502, headers);
         reply.pipe(response);
       }
     );
