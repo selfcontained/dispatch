@@ -30,6 +30,12 @@ import { EngineLogins, isLoginEngine, loginScript } from "../engine-login.js";
  * as the workload identity, never as this (root) process.
  */
 
+const MANAGED_PACKAGES: Record<RunnerEngine, string> = {
+  claude: "@anthropic-ai/claude-code",
+  codex: "@openai/codex",
+  opencode: "opencode-ai",
+};
+
 const LABELS: Record<RunnerEngine, string> = {
   claude: "Claude Code",
   codex: "Codex",
@@ -104,13 +110,14 @@ function sanitizeVersion(output: string): string | null {
 }
 
 export class EngineRunnerExecutor {
+  private nodeSetup?: Promise<boolean>;
   private readonly logins: EngineLogins;
   private readonly wrap: NonNullable<EngineRunnerExecutorConfig["wrap"]>;
 
   constructor(private readonly config: EngineRunnerExecutorConfig) {
     this.wrap = config.wrap ?? setprivWrap(config.uid, config.gid);
     this.logins = new EngineLogins({
-      resolveBin: async (engine) => config.engines[engine]?.bin ?? null,
+      resolveBin: async (engine) => (await this.resolveEngine(engine)).bin,
       // loginScript's own argv already starts with "/bin/sh"; wrap that
       // whole command behind the same privilege drop every runner exec uses.
       command: (bin, args, opts) => {
@@ -210,16 +217,68 @@ export class EngineRunnerExecutor {
     return spawnError === undefined && code === 0;
   }
 
+  private canUseSharedBin(engine: RunnerEngine): boolean {
+    const cfg = this.config.engines[engine];
+    const home = this.config.env.HOME;
+    return Boolean(
+      cfg?.install &&
+      home &&
+      cfg.bin === path.join(home, ".local", "bin", engine)
+    );
+  }
+
+  // Only installer defaults can fall back. An operator pin is authoritative.
+  private async resolveEngine(engine: RunnerEngine) {
+    const cfg = this.config.engines[engine];
+    const bin = cfg?.bin ?? null;
+    const result = bin
+      ? await this.probe(bin)
+      : { installed: false, version: null };
+    if (!result.installed && this.canUseSharedBin(engine)) {
+      for (const dir of new Set(this.config.env.PATH?.split(path.delimiter))) {
+        if (!path.isAbsolute(dir)) continue;
+        const shared = path.join(dir, engine);
+        if (shared === bin) continue;
+        const probed = await this.probe(shared);
+        if (probed.installed) return { bin: shared, ...probed };
+      }
+    }
+    return { bin, ...result };
+  }
+
+  async resolveBin(engine: RunnerEngine): Promise<string | null> {
+    if (!this.canUseSharedBin(engine))
+      return this.config.engines[engine]?.bin ?? null;
+    return (await this.resolveEngine(engine)).bin;
+  }
+
+  private ensureManagedNode(prefix: string): Promise<boolean> {
+    return (this.nodeSetup ??= (async () => {
+      const node = await this.probe("node");
+      if (Number(node.version?.split(".")[0]) >= 22) return true;
+
+      // Ubuntu may provide a working npm backed by an older Node. Bootstrap
+      // Node into the same workload-owned prefix used for engine binaries.
+      const install = await this.run(
+        "npm",
+        ["install", "--global", "--prefix", prefix, "node@22"],
+        this.config.env,
+        90_000
+      );
+      if (install.code !== 0) return false;
+      const installed = await this.probe("node");
+      return Number(installed.version?.split(".")[0]) >= 22;
+    })().finally(() => {
+      this.nodeSetup = undefined;
+    }));
+  }
+
   /** The scope-aware engine list and supported actions, for a snapshot view. */
   async inventory(): Promise<EngineInventoryEntry[]> {
     return Promise.all(
       RUNNER_ENGINES.map(async (engine) => {
         const cfg = this.config.engines[engine];
-        const bin = cfg?.bin ?? null;
-        const probed = bin
-          ? await this.probe(bin)
-          : { installed: false, version: null };
-        const { installed, version } = probed;
+        const { bin, installed, version } = await this.resolveEngine(engine);
         let signedIn: boolean | null = null;
         let detail: string | undefined;
         if (installed && isLoginEngine(engine)) {
@@ -231,9 +290,13 @@ export class EngineRunnerExecutor {
         let issue: string | undefined;
         if (!installed && cfg?.install) {
           if (await this.commandUsable(cfg.install)) actions.push("install");
-          else issue = "install-unavailable";
+          else
+            issue =
+              cfg.install.executable === "npm"
+                ? "node-npm-unavailable"
+                : "install-unavailable";
         }
-        if (installed && cfg?.update) actions.push("update");
+        if (installed && cfg?.update && bin === cfg.bin) actions.push("update");
         if (installed && isLoginEngine(engine))
           actions.push("login", "login_cancel");
         return {
@@ -319,6 +382,13 @@ export class EngineRunnerExecutor {
         error: `No managed ${kind} command is configured for ${LABELS[engine]} on this runner.`,
       };
     }
+    const current = await this.resolveEngine(engine);
+    if (current.installed && current.bin !== cfg?.bin) {
+      return {
+        ok: false,
+        error: "This engine is maintained by the runner administrator.",
+      };
+    }
     const operationId = randomUUID();
     onEvent?.({
       type: "operation_progress",
@@ -327,7 +397,34 @@ export class EngineRunnerExecutor {
       phase: kind,
       message: kind === "install" ? "Installing…" : "Updating…",
     });
-    const before = cfg?.bin ? (await this.probe(cfg.bin)).version : null;
+    const prefix = path.join(this.config.env.HOME ?? "", ".local");
+    const defaultInstallArgs = [
+      "install",
+      "--global",
+      "--prefix",
+      prefix,
+      `${MANAGED_PACKAGES[engine]}@latest`,
+    ];
+    if (
+      this.canUseSharedBin(engine) &&
+      step.executable === "npm" &&
+      !step.env &&
+      step.args.length === defaultInstallArgs.length &&
+      step.args.every((arg, index) => arg === defaultInstallArgs[index]) &&
+      !(await this.ensureManagedNode(prefix))
+    ) {
+      const message =
+        "Could not set up Node.js 22 for managed engine installs. Check npm and registry access on this runner.";
+      onEvent?.({
+        type: "operation_complete",
+        operationId,
+        engine,
+        success: false,
+        message,
+      });
+      return { ok: false, error: message };
+    }
+    const before = current.version;
     const result = await this.run(
       step.executable,
       step.args,

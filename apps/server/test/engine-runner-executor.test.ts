@@ -57,6 +57,116 @@ if (args === "--version") {
   afterAll(() => rmSync(dir, { recursive: true, force: true }));
   afterEach(() => executor?.close());
 
+  it("discovers an executable shared Claude only for the default managed path", async () => {
+    const managed = path.join(dir, ".local", "bin", "claude");
+    const custom = path.join(dir, "custom-claude");
+    const shared = "/usr/local/bin/claude";
+    let accessible = true;
+    const install = { executable: "npm", args: [] };
+    const config = {
+      uid: 1000,
+      gid: 1000,
+      env: {
+        ...process.env,
+        HOME: dir,
+        PATH: `/usr/local/bin:${process.env.PATH ?? ""}`,
+      },
+      wrap: (bin: string, args: string[]) => {
+        if (accessible && bin === "/bin/sh")
+          return {
+            bin,
+            args: args.map((arg) => (arg === shared ? fake : arg)),
+          };
+        return {
+          bin: bin === shared && accessible ? fake : "/nonexistent",
+          args,
+        };
+      },
+    };
+    executor = new EngineRunnerExecutor({
+      ...config,
+      engines: { claude: { bin: managed, install, update: install } },
+    });
+    expect(await executor.resolveBin("claude")).toBe(shared);
+    expect(
+      (await executor.inventory()).find((entry) => entry.id === "claude")
+    ).toMatchObject({
+      installed: true,
+      signedIn: true,
+      actions: ["login", "login_cancel"],
+    });
+    accessible = false;
+    expect(await executor.resolveBin("claude")).toBe(managed);
+    expect(
+      (await executor.inventory()).find((entry) => entry.id === "claude")
+    ).toMatchObject({
+      installed: false,
+      issue: "node-npm-unavailable",
+    });
+    accessible = true;
+    const pinned = new EngineRunnerExecutor({
+      ...config,
+      engines: { claude: { bin: custom, install } },
+    });
+    expect(await pinned.resolveBin("claude")).toBe(custom);
+    expect(
+      (await pinned.inventory()).find((entry) => entry.id === "claude")
+        ?.installed
+    ).toBe(false);
+  });
+
+  it("bootstraps Node into the workload prefix before running a default npm install", async () => {
+    const prefix = path.join(dir, ".local");
+    const managed = path.join(prefix, "bin", "claude");
+    const args = [
+      "install",
+      "--global",
+      "--prefix",
+      prefix,
+      "@anthropic-ai/claude-code@latest",
+    ];
+    const npmPackages: string[] = [];
+    executor = new EngineRunnerExecutor({
+      uid: 1000,
+      gid: 1000,
+      env: { ...process.env, HOME: dir },
+      engines: {
+        claude: { bin: managed, install: { executable: "npm", args } },
+      },
+      wrap(bin, args) {
+        if (bin === "node")
+          return {
+            bin: "/bin/echo",
+            args: [npmPackages.length ? "v22.0.0" : "v18.0.0"],
+          };
+        if (bin === "npm") {
+          expect(args.slice(0, 4)).toEqual([
+            "install",
+            "--global",
+            "--prefix",
+            prefix,
+          ]);
+          npmPackages.push(args[4]!);
+          return { bin: "/bin/sh", args: ["-c", "exit 0"] };
+        }
+        const installed = npmPackages.includes(
+          "@anthropic-ai/claude-code@latest"
+        );
+        return {
+          bin: installed && bin === managed ? fake : "/nonexistent",
+          args,
+        };
+      },
+    });
+    await expect(
+      executor.handle({ type: "install", engine: "claude" })
+    ).resolves.toMatchObject({ ok: true });
+    expect(npmPackages).toEqual([
+      "node@22",
+      "@anthropic-ai/claude-code@latest",
+    ]);
+  });
+
   it("reports an installed engine's version and sign-in status", async () => {
     executor = new EngineRunnerExecutor({
       uid: 1000,

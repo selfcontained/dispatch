@@ -33,6 +33,7 @@ import {
   type Command,
   type LaunchProgress,
   type RunnerRepository,
+  type RunnerEngine,
 } from "./protocol.js";
 import { parseRepository, repositoryUrl } from "./repository.js";
 import {
@@ -71,6 +72,7 @@ type SupervisorOptions = {
   gid: number;
   ca: string;
   bins: HostLaunch["bins"];
+  resolveBins?: (engine: RunnerEngine) => Promise<HostLaunch["bins"]>;
   env: NodeJS.ProcessEnv;
   workspaces: ReadonlySet<string>;
   hostCommand: () => string[];
@@ -710,7 +712,9 @@ export async function createSessionSupervisor(
       ...launchOptions,
       agentId,
       cwd,
-      bins: config.bins,
+      bins: config.resolveBins
+        ? await config.resolveBins(launchOptions.engine)
+        : config.bins,
       env: {
         DISPATCH_AGENT_ID: agentId,
         DISPATCH_FILES_DIR: files,

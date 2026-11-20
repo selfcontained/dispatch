@@ -648,7 +648,11 @@ async function loadCodexLivePlan(
         failure.reason === "login_expired" ||
         failure.reason === "login_rejected"
           ? CODEX_RENEW_LOGIN
-          : CODEX_COULD_NOT_REFRESH,
+          : options.liveOnly
+            ? failure.reason === "no_usage_reported"
+              ? NO_CODEX_REPORT
+              : "Could not refresh Codex plan usage. Try again."
+            : CODEX_COULD_NOT_REFRESH,
     };
   }
 }
@@ -910,7 +914,10 @@ async function loadClaudePlan(
     );
     return {
       ...claude,
-      unavailableReason: REFRESH_FAILURE_TEXT[failure.reason],
+      unavailableReason:
+        options.liveOnly && failure.reason === "no_usage_reported"
+          ? NO_CLAUDE_REPORT
+          : REFRESH_FAILURE_TEXT[failure.reason],
     };
   }
 }

@@ -182,6 +182,8 @@ export function isGitHubPullRequestObservation(
   );
 }
 
+export const githubCliMissing = "GitHub CLI is missing on this runner.";
+
 export type GitHubStatus =
   | { status: "signed-in"; login: string }
   | { status: "pending"; code?: string; verificationUrl?: string }
@@ -319,7 +321,9 @@ export function parseGitHubStatus(value: unknown): GitHubStatus {
       case "signed-out":
         return { status: "signed-out" };
       case "unavailable":
-        return { status: "unavailable" };
+        return value.message === githubCliMissing
+          ? { status: "unavailable", message: githubCliMissing }
+          : { status: "unavailable" };
       case "failed":
         return { status: "failed" };
     }

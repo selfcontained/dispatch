@@ -1373,7 +1373,8 @@ export class RemoteRunnerService {
         return {
           ...status,
           message:
-            "GitHub is unavailable. Check that GitHub CLI is installed on the runner and it can reach github.com.",
+            status.message ??
+            "Could not verify the GitHub account. Check the runner’s connection to github.com and retry.",
         };
       return status;
     } catch (error) {

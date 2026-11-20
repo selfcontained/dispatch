@@ -111,6 +111,20 @@ install_service_unit() {
   fi
 }
 
+install_engine_prerequisites() {
+  if command -v node >/dev/null && command -v npm >/dev/null; then
+    return
+  fi
+  if [[ -r /etc/os-release ]] && (
+    . /etc/os-release
+    [[ "${ID:-}" == ubuntu ]]
+  ); then
+    if ! /usr/bin/apt-get update || ! /usr/bin/apt-get install -y nodejs npm; then
+      printf 'Could not install Node.js and npm. Install them before using managed engine setup.\n' >&2
+    fi
+  fi
+}
+
 install_runner() {
   local account_entry account_home account_shell
   if [[ -e "$command_path" || -L "$command_path" ]]; then
@@ -324,6 +338,7 @@ main() {
   trap 'exit 143' TERM
   if [[ "$action" == install ]]; then
     stage_release
+    install_engine_prerequisites
     install_runner
   else
     update_runner

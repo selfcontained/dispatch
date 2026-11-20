@@ -15,6 +15,7 @@ import { Button } from "@/components/ui/button";
 import {
   runnerEngineCapability,
   useRunnerProviderUsage,
+  useRunnerEngineInventory,
 } from "@/hooks/use-runner-engines";
 
 export function RunnerProviderUsage({
@@ -24,7 +25,15 @@ export function RunnerProviderUsage({
   runnerId: string;
   allowReset?: boolean;
 }) {
-  const usage = useRunnerProviderUsage(runnerId, true);
+  const inventory = useRunnerEngineInventory({ kind: "runner", runnerId });
+  const accountEntries = inventory.data?.entries.filter(
+    (entry) => entry.id === "claude" || entry.id === "codex"
+  );
+  const canReadUsage =
+    accountEntries?.some(
+      (entry) => entry.installed && entry.signedIn !== false
+    ) ?? false;
+  const usage = useRunnerProviderUsage(runnerId, canReadUsage);
   const [confirmation, setConfirmation] = useState<string | null>(null);
   const redeem = useMutation({
     mutationFn: (account: string) =>
@@ -35,10 +44,16 @@ export function RunnerProviderUsage({
       ),
     onSettled: () => usage.refetch(),
   });
-  const report = usage.data;
+  const report = canReadUsage ? usage.data : undefined;
+  const providers = report?.providers.filter((plan) =>
+    accountEntries?.some(
+      (entry) =>
+        entry.id === plan.engine && entry.installed && entry.signedIn !== false
+    )
+  );
   const account = report?.codexResetAccount;
   const resetCount =
-    report?.providers.find((plan) => plan.engine === "codex")?.limitResets
+    providers?.find((plan) => plan.engine === "codex")?.limitResets
       ?.available ?? 0;
   const canRedeem =
     allowReset &&
@@ -52,25 +67,37 @@ export function RunnerProviderUsage({
     <section aria-label="Runner plan limits" className="space-y-2 text-xs">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h4 className="font-medium">Plan limits</h4>
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          disabled={usage.isFetching || redeem.isPending}
-          onClick={() => void usage.refetch()}
-        >
-          Refresh usage
-        </Button>
+        {canReadUsage && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            disabled={usage.isFetching || redeem.isPending}
+            onClick={() => void usage.refetch()}
+          >
+            Refresh usage
+          </Button>
+        )}
       </div>
-      {usage.isPending && <p role="status">Reading runner usage…</p>}
-      {usage.isError && (
+      {accountEntries && !canReadUsage && (
+        <p className="text-muted-foreground">
+          <a className="underline" href="#runner-agent-engines">
+            Set up Claude or Codex
+          </a>{" "}
+          to see usage here.
+        </p>
+      )}
+      {canReadUsage && usage.isPending && (
+        <p role="status">Reading runner usage…</p>
+      )}
+      {canReadUsage && usage.isError && (
         <p role="status">
           {report
             ? "Showing the last report. Refresh failed."
             : usage.error.message}
         </p>
       )}
-      {report?.providers.map((plan) => (
+      {providers?.map((plan) => (
         <div key={plan.engine} className="space-y-1">
           <p className="font-medium">
             {plan.engine === "codex" ? "Codex" : "Claude"}
@@ -111,7 +138,7 @@ export function RunnerProviderUsage({
           available
         </p>
       )}
-      {allowReset && (
+      {allowReset && account && resetCount > 0 && (
         <AlertDialog
           onOpenChange={(open) =>
             setConfirmation(open ? (account ?? null) : null)

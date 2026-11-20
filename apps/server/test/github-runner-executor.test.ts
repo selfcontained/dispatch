@@ -30,10 +30,18 @@ fi
 case "$1 $2" in
   'config get')
     test "$*" = 'config get user --host github.com'
-    if [ -f login ]; then cat login; else
+    if [ -f login ]; then cat login; elif [ -f legacy ]; then exit 0; else
       printf 'could not find key "user"\n' >&2
       exit 1
     fi
+    ;;
+  'auth status')
+    if [ -f network-down ]; then
+      printf 'dial tcp: network is unreachable\n' >&2
+    else
+      printf 'You are not logged into any GitHub hosts. Run gh auth login to authenticate.\n' >&2
+    fi
+    exit 1
     ;;
   'auth login')
     test "$GH_PROMPT_DISABLED" = '1'
@@ -123,6 +131,32 @@ esac
     await rm(root, { recursive: true, force: true });
   }
 }
+
+it("offers sign-in for an empty legacy gh account and preserves network failures", async () => {
+  await fixture(async ({ executor, root }) => {
+    const { signal } = new AbortController();
+    await writeFile(path.join(root, "legacy"), "");
+    expect(await executor.handle({ type: "status" }, signal)).toEqual({
+      status: "signed-out",
+    });
+    await writeFile(path.join(root, "network-down"), "");
+    expect(await executor.handle({ type: "status" }, signal)).toEqual({
+      status: "unavailable",
+    });
+  });
+});
+
+it("reports a missing CLI separately from a signed-out account", async () => {
+  await fixture(async ({ executor, gh }) => {
+    await rm(gh);
+    expect(
+      await executor.handle({ type: "status" }, new AbortController().signal)
+    ).toMatchObject({
+      status: "unavailable",
+      message: "GitHub CLI is missing on this runner.",
+    });
+  });
+});
 
 it("completes a device login and configures the same credential helper for an agent and managed checkout", async () => {
   await fixture(async ({ executor, root, env, gh }) => {

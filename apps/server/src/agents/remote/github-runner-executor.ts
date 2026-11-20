@@ -7,6 +7,7 @@ import { execFile, spawn, type ChildProcess } from "node:child_process";
 import { promisify } from "node:util";
 import {
   githubDeviceUrl,
+  githubCliMissing,
   githubPullRequestHead,
   githubRepositoryResults,
   validGitHubLogin,
@@ -81,14 +82,29 @@ export class GitHubRunnerExecutor {
         ["config", "get", "user", "--host", host],
         signal
       );
-      if (!validGitHubLogin(login))
-        throw new Error("Invalid configured GitHub user.");
-      return login;
+      if (validGitHubLogin(login)) return login;
+      if (login) throw new Error("Invalid configured GitHub user.");
+      // Older packaged gh can return success with an empty value.
     } catch (error) {
-      const { stderr } = error as { stderr?: string };
+      const { code, stderr } = error as { code?: number; stderr?: string };
+      if (code !== 1) throw error;
       if (stderr?.trim() === 'could not find key "user"') return undefined;
+    }
+
+    try {
+      await this.run(["auth", "status", ...hostArgs], signal);
+    } catch (error) {
+      const { code, stderr } = error as { code?: number; stderr?: string };
+      if (
+        code === 1 &&
+        /^You are not logged into any GitHub hosts\.(?: To log in, run: gh auth login| Run gh auth login to authenticate\.)?$/.test(
+          stderr?.trim() ?? ""
+        )
+      )
+        return undefined;
       throw error;
     }
+    throw new Error("GitHub CLI did not identify the configured user.");
   }
 
   private async account(signal: AbortSignal): Promise<GitHubStatus> {
@@ -336,9 +352,17 @@ export class GitHubRunnerExecutor {
         try {
           return await result;
         } catch (error) {
-          const { stderr } = error as { stderr?: string };
-          if (stderr?.includes("No such file or directory"))
-            return { status: "unavailable" };
+          const { code, stderr } = error as {
+            code?: string | number;
+            stderr?: string;
+          };
+          if (
+            code === "ENOENT" ||
+            /failed to execute \/usr\/bin\/gh: No such file or directory/.test(
+              stderr ?? ""
+            )
+          )
+            return { status: "unavailable", message: githubCliMissing };
           return {
             status: operation.type === "status" ? "unavailable" : "failed",
           };

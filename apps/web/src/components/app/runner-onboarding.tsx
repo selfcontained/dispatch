@@ -272,8 +272,9 @@ export function RunnerOnboarding() {
           <section className="space-y-2 pb-4">
             <h4 className="text-sm font-medium">1. Install on Linux</h4>
             <p className="text-xs text-muted-foreground">
-              Requires Linux x86-64 or ARM64, systemd, Git, GitHub CLI, and
-              sudo.
+              Requires Linux x86-64 or ARM64, systemd, Git, sudo, and a GitHub
+              CLI with attestation support. Check with{" "}
+              <code>gh attestation verify --help</code>.
             </p>
             {installer.isError ? (
               <Button

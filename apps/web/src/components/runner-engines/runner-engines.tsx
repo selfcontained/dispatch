@@ -17,6 +17,9 @@ import {
 } from "@/hooks/use-runner-engines";
 import type { EngineScope } from "@dispatch/runner-protocol/engine-management";
 
+const ubuntuNodeSetup =
+  "sudo apt-get update && sudo apt-get install nodejs npm";
+
 /**
  * Engine install/update/sign-in for one scope: this machine, or a named
  * runner workspace. Self-contained — the caller only supplies `scope`
@@ -73,6 +76,21 @@ export function RunnerEngines({
         <p className="py-3 text-sm text-muted-foreground">
           No engines reported.
         </p>
+      )}
+      {entries.some((entry) => entry.issue === "node-npm-unavailable") && (
+        <div className="space-y-2 py-3 text-xs text-muted-foreground">
+          <p>
+            Managed engine installs need working Node.js and npm. Run this on
+            the Ubuntu runner. Install buttons appear once setup is detected.
+          </p>
+          <div className="flex items-center gap-2">
+            <code className="min-w-0 break-words">{ubuntuNodeSetup}</code>
+            <CopyButton
+              text={ubuntuNodeSetup}
+              label="Copy Node.js and npm setup command"
+            />
+          </div>
+        </div>
       )}
       {entries.map((entry) => (
         <EngineRow
@@ -227,8 +245,8 @@ function EngineRow({
 
       {entry.issue === "install-unavailable" && (
         <p className="text-[11.5px] text-muted-foreground">
-          Install isn't available on this runner — its install command couldn't
-          run (likely missing npm/node for this engine).
+          The configured install command could not run. Ask the runner
+          administrator to check it.
         </p>
       )}
 

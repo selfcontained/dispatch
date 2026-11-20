@@ -279,6 +279,29 @@ export async function runRemoteRunner(filename: string) {
       },
     },
   });
+  async function resolveBins(
+    engine?: RunnerEngine
+  ): Promise<HostLaunch["bins"]> {
+    switch (engine) {
+      case "claude":
+        return {
+          ...config.bins,
+          claudeBin: (await engineExecutor.resolveBin(engine)) ?? "",
+        };
+      case "codex":
+        return {
+          ...config.bins,
+          codexBin: await engineExecutor.resolveBin(engine),
+        };
+      case "opencode":
+        return {
+          ...config.bins,
+          opencodeBin: await engineExecutor.resolveBin(engine),
+        };
+      default:
+        return config.bins;
+    }
+  }
   const engineAccountSecret = randomBytes(32).toString("base64url");
   const capabilityRequests = new Set<string>();
   async function engineCapability(
@@ -300,6 +323,9 @@ export async function runRemoteRunner(filename: string) {
     }
     capabilityRequests.add(key);
     try {
+      const bins = await resolveBins(
+        "engine" in operation ? operation.engine : undefined
+      );
       const child = execute(
         setpriv,
         [...childArgs, ...selfCommand("runner-engine-capability")],
@@ -315,7 +341,7 @@ export async function runRemoteRunner(filename: string) {
       child.child.stdin?.end(
         JSON.stringify({
           operation,
-          bins: config.bins,
+          bins,
           secret: engineAccountSecret,
         })
       );
@@ -350,6 +376,7 @@ export async function runRemoteRunner(filename: string) {
   };
   const supervisor = await createSessionSupervisor({
     ...config,
+    resolveBins,
     env,
     workspaces: new Set(configuredHandles),
     asWorkload,

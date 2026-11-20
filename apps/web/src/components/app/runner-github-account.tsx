@@ -46,7 +46,7 @@ function accountSummary(account: GitHubStatus) {
     case "signed-in":
       return `Signed in as @${account.login}`;
     case "signed-out":
-      return "Signed out";
+      return "Signed out · optional for GitHub access";
     case "pending":
       return account.code
         ? "Waiting for GitHub approval"
@@ -54,7 +54,10 @@ function accountSummary(account: GitHubStatus) {
     case "failed":
       return "Sign-in did not complete. Try again.";
     case "unavailable":
-      return "Couldn’t reach GitHub from this runner. Check its connection and GitHub CLI installation.";
+      return (
+        account.message ??
+        "Couldn’t verify the GitHub account from this runner. Check its connection and retry."
+      );
   }
 }
 

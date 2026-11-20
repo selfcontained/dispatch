@@ -336,8 +336,14 @@ function RunnerDetail({
         <RunnerGitHubAccount runner={runner} />
       </div>
 
-      <section className="space-y-2 py-4">
+      <section id="runner-agent-engines" className="space-y-2 py-4">
         <h3 className="text-sm font-medium">Agent engines</h3>
+        {runner.status === "online" && runner.engineCapabilities && (
+          <p className="text-xs text-muted-foreground">
+            Install and sign in to Claude or Codex here to see its plan limits
+            below.
+          </p>
+        )}
         {runner.status !== "online" ? (
           <p className="text-sm text-muted-foreground">
             Available when the runner is online.
