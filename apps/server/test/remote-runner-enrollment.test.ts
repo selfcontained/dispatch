@@ -4,6 +4,7 @@ import http from "node:http";
 import https from "node:https";
 import type { AddressInfo } from "node:net";
 import { connect, createServer, type TLSSocket } from "node:tls";
+import { setTimeout as delay } from "node:timers/promises";
 import type { Pool } from "pg";
 import {
   afterAll,
@@ -1117,6 +1118,102 @@ it("relays complete HTTP responses on a resumed connection without a client cert
     listener.close();
     api.close();
   }
+});
+
+describe("runner listener request prefixes", () => {
+  const authority = issueAuthority("prefix-test");
+  let api: http.Server;
+  let listener: ReturnType<typeof createServer>;
+  let service: RemoteRunnerService;
+
+  beforeAll(async () => {
+    api = http.createServer((_request, response) => response.end("ping ok"));
+    api.listen(0, HOST);
+    await once(api, "listening");
+    service = new RemoteRunnerService(undefined, undefined, {
+      host: HOST,
+      port: (api.address() as AddressInfo).port,
+      tls: false,
+      validAgentToken: () => false,
+    });
+    const leaf = issueServer(authority, [HOST]);
+    service["authority"] = {
+      caFingerprint: new X509Certificate(authority.cert).fingerprint256,
+      caPem: authority.cert,
+      serverCert: leaf.cert,
+    };
+    listener = createServer({ cert: leaf.cert, key: leaf.key }, (socket) =>
+      service["accept"](socket, "enrolled")
+    );
+    listener.listen(0, HOST);
+    await once(listener, "listening");
+  });
+
+  afterAll(() => {
+    service.close();
+    listener.close();
+    api.close();
+  });
+
+  async function dial() {
+    const socket = connect({
+      host: HOST,
+      port: (listener.address() as AddressInfo).port,
+      ca: authority.cert,
+    });
+    await once(socket, "secureConnect");
+    return socket;
+  }
+
+  async function exchange(chunks: string[], interval: number) {
+    const socket = await dial();
+    let response = "";
+    socket.setEncoding("utf8");
+    socket.on("data", (chunk) => (response += chunk));
+    const closed = once(socket, "close");
+    try {
+      for (const [index, chunk] of chunks.entries()) {
+        if (index > 0) await delay(interval);
+        if (socket.destroyed) break;
+        socket.write(chunk);
+      }
+      await closed;
+      return response;
+    } finally {
+      socket.destroy();
+    }
+  }
+
+  const rest = "ping HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n";
+  it.each([
+    { chunks: ["GE", "T /" + rest], interval: 150 },
+    { chunks: [..."GET /", rest], interval: 20 },
+  ])("relays a fragmented HTTP request (%j)", async ({ chunks, interval }) => {
+    expect(await exchange(chunks, interval)).toMatch(
+      /^HTTP\/1\.1 200 OK[\s\S]*\r\n\r\nping ok$/
+    );
+  });
+
+  it.each(["nope", "G ", "ABCDEFGH", "GET x"])(
+    "drops a prefix that cannot become an HTTP request (%s)",
+    async (prefix) => {
+      expect(await exchange([prefix], 0)).toBe("");
+    }
+  );
+
+  it("drops an idle incomplete prefix at the original deadline", async () => {
+    const started = performance.now();
+    expect(await exchange(["G", "E"], 150)).toBe("");
+    expect(performance.now() - started).toBeGreaterThanOrEqual(9_500);
+  }, 15_000);
+
+  it("reads a pairing frame split after its leading brace", async () => {
+    const reply = await exchange(
+      ["{", '"type":"ca_request","version":1}\n'],
+      50
+    );
+    expect(JSON.parse(reply)).toEqual({ type: "ca", ca: authority.cert });
+  });
 });
 
 describe("legacy runner config", () => {

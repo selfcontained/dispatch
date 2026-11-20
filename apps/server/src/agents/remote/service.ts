@@ -613,18 +613,32 @@ export class RemoteRunnerService {
       this.unauthenticated--;
     };
     socket.once("close", release);
-    socket.once("data", (chunk: Buffer) => {
-      if (chunk[0] === 0x7b && kind === "enrolled") {
+    let prefix = "";
+    const classify = (chunk: Buffer) => {
+      if (!prefix && chunk[0] === 0x7b && kind === "enrolled") {
+        socket.off("data", classify);
         socket.pause();
         socket.unshift(chunk);
         this.pair(socket);
         socket.resume();
-      } else if (
-        /^[A-Z]{3,7} \//.test(chunk.subarray(0, 9).toString("latin1"))
-      ) {
-        void this.relay(socket, chunk, release);
-      } else socket.destroy();
-    });
+        return;
+      }
+      // Inspect at most seven method letters, a space and a slash. Keep only
+      // a prefix that could become valid, with the original deadline running.
+      const candidate = prefix + chunk.toString("latin1", 0, 9 - prefix.length);
+      if (/^[A-Z]{3,7} \//.test(candidate)) {
+        socket.off("data", classify);
+        const head = prefix
+          ? Buffer.concat([Buffer.from(prefix, "latin1"), chunk])
+          : chunk;
+        void this.relay(socket, head, release);
+      } else if (/^(?:[A-Z]{1,7}|[A-Z]{3,7} )$/.test(candidate)) {
+        prefix = candidate;
+      } else {
+        socket.destroy();
+      }
+    };
+    socket.on("data", classify);
   }
 
   /**
