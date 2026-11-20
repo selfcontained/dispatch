@@ -5,9 +5,13 @@ The normal fallback remains usable immediately. Historical sessions and ongoing
 turns are never submitted. Explicit template, task and caller names are preserved.
 
 The existing Dispatch AI master switch and saved routing API key apply. Routing,
-steering and merge-risk feature switches do not disable naming independently.
+steering and merge-risk feature switches are independent of the Session naming
+checkbox. Session naming must be enabled; existing installations with no saved
+choice start off. First API-key setup enables it alongside the other features.
+Turning Dispatch AI off or removing the key suspends naming while retaining its
+saved preference.
 With AI disabled or no saved key there is no request. Each eligible launch has
-at most one Responses request, with no retries, using gpt-6.1-terra, store:false,
+at most one Responses request, with no retries, using gpt-6-luna, store:false,
 no tools, low reasoning effort and at most 128 output tokens. This is a separately
 billed API call, not CLI subscription usage; cost depends on input and returned
 tokens and the provider's current model rates. No provider response or launch

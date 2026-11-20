@@ -99,6 +99,7 @@ export async function registerRoutingShadowRoutes(
             aiEnabled: z.boolean().optional(),
             steeringMode: z.enum(["off", "active"]).optional(),
             mergeRiskMode: z.enum(["off", "active"]).optional(),
+            sessionNamingMode: z.enum(["off", "active"]).optional(),
             apiKey: z
               .string()
               .trim()

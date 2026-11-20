@@ -686,6 +686,48 @@ describe("optional routing shadow", () => {
     expect((await store.summary()).activeRouting.n).toBe(1);
     expect(transport).not.toHaveBeenCalled();
   });
+  it("persists independent session naming choices with first-setup and master gating", async () => {
+    const settings = new RoutingSettings(
+      pool,
+      {},
+      async () => new Response("{}")
+    );
+    expect(await settings.status()).toMatchObject({
+      sessionNamingPreference: "off",
+      sessionNamingMode: "off",
+    });
+    await settings.save({ apiKey: "synthetic-naming-key" });
+    expect(await settings.status()).toMatchObject({
+      sessionNamingPreference: "active",
+      sessionNamingMode: "active",
+    });
+    await settings.save({ sessionNamingMode: "off" });
+    await settings.save({ aiEnabled: false });
+    await settings.save({ apiKey: "synthetic-naming-replacement" });
+    await settings.save({ aiEnabled: true });
+    expect(await new RoutingSettings(pool, {}).status()).toMatchObject({
+      sessionNamingPreference: "off",
+      sessionNamingMode: "off",
+    });
+    await settings.save({ sessionNamingMode: "active", aiEnabled: false });
+    expect(await settings.status()).toMatchObject({
+      sessionNamingPreference: "active",
+      sessionNamingMode: "off",
+    });
+    await settings.save({ removeKey: true });
+    expect(await settings.status()).toMatchObject({
+      sessionNamingPreference: "active",
+      sessionNamingMode: "off",
+    });
+    await settings.save({
+      apiKey: "synthetic-naming-restored",
+      aiEnabled: true,
+    });
+    expect(await settings.status()).toMatchObject({
+      sessionNamingPreference: "active",
+      sessionNamingMode: "active",
+    });
+  });
   it("gates all AI while retaining choices across disable, replacement, removal and reload", async () => {
     const transport = vi.fn(async () => new Response("{}"));
     const settings = new RoutingSettings(pool, {}, transport);
@@ -903,7 +945,11 @@ describe("optional routing shadow", () => {
     const saved = await app.inject({
       method: "PUT",
       url: "/api/v1/experiments/routing/settings",
-      payload: { mode: "active", apiKey: "secret-product-key" },
+      payload: {
+        mode: "active",
+        sessionNamingMode: "off",
+        apiKey: "secret-product-key",
+      },
     });
     expect(saved.statusCode).toBe(200);
     expect(saved.body).not.toContain("secret-product-key");
@@ -911,6 +957,8 @@ describe("optional routing shadow", () => {
       url: "/api/v1/experiments/routing/settings",
     });
     expect(read.json()).toMatchObject({
+      sessionNamingPreference: "off",
+      sessionNamingMode: "off",
       mode: "active",
       configured: true,
       storedKey: true,

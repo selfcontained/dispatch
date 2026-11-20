@@ -17,7 +17,7 @@ it("uses the real claim and normal same-name rename to defeat a late title", asy
     "INSERT INTO agents(id,name,status,cwd) VALUES('naming-race','Fallback','stopped','/tmp')"
   );
   await pool.query(
-    "INSERT INTO settings(key,value) VALUES('routing_api_key','mock-key'),('dispatch_ai_enabled','true') ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value"
+    "INSERT INTO settings(key,value) VALUES('routing_api_key','mock-key'),('dispatch_ai_enabled','true'),('session_naming_mode','active') ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value"
   );
   const manager = new AgentManager(pool, pino({ level: "silent" }), {
     host: "127.0.0.1",

@@ -46,6 +46,12 @@ beforeEach(() => {
         ...(body.mode ? { mode: body.mode } : {}),
         ...(body.steeringMode ? { steeringMode: body.steeringMode } : {}),
         ...(body.mergeRiskMode ? { mergeRiskMode: body.mergeRiskMode } : {}),
+        ...(body.sessionNamingMode
+          ? {
+              sessionNamingMode: body.sessionNamingMode,
+              sessionNamingPreference: body.sessionNamingMode,
+            }
+          : {}),
         ...(body.apiKey ? { configured: true, storedKey: true } : {}),
         ...(body.removeKey
           ? { configured: false, storedKey: false, keySource: "none" }
@@ -373,4 +379,33 @@ it("removes a saved key while AI stays off without enabling any features", async
       .getAttribute("aria-checked")
   ).toBe("false");
   expect(screen.queryByRole("checkbox")).toBeNull();
+});
+
+it("saves session naming independently and retains it across master disable and remount", async () => {
+  await show();
+  const naming = () => screen.getByRole("checkbox", { name: "Session naming" });
+  expect(naming().getAttribute("aria-checked")).toBe("false");
+  fireEvent.click(naming());
+  await waitFor(() =>
+    expect(naming().getAttribute("aria-checked")).toBe("true")
+  );
+  expect(writes().at(-1)).toEqual({ sessionNamingMode: "active" });
+  fireEvent.click(screen.getByRole("switch", { name: "Enable Dispatch AI" }));
+  await waitFor(() =>
+    expect(
+      screen.queryByRole("checkbox", { name: "Session naming" })
+    ).toBeNull()
+  );
+  fireEvent.click(screen.getByRole("switch", { name: "Enable Dispatch AI" }));
+  await waitFor(() =>
+    expect(naming().getAttribute("aria-checked")).toBe("true")
+  );
+  cleanup();
+  await show();
+  expect(naming().getAttribute("aria-checked")).toBe("true");
+  fireEvent.click(naming());
+  await waitFor(() =>
+    expect(naming().getAttribute("aria-checked")).toBe("false")
+  );
+  expect(writes().at(-1)).toEqual({ sessionNamingMode: "off" });
 });

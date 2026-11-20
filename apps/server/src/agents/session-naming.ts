@@ -65,7 +65,7 @@ export async function requestSessionName(
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "gpt-6.1-terra",
+        model: "gpt-6-luna",
         store: false,
         tools: [],
         max_output_tokens: 128,
@@ -141,12 +141,17 @@ export async function nameNewSession(
 ): Promise<void> {
   if (!context) return;
   const settings = await pool.query(
-    "SELECT key, value FROM settings WHERE key IN ('dispatch_ai_enabled','routing_api_key')"
+    "SELECT key, value FROM settings WHERE key IN ('dispatch_ai_enabled','routing_api_key','session_naming_mode')"
   );
   const saved = Object.fromEntries(
     settings.rows.map((row) => [row.key, row.value])
   );
-  if (saved.dispatch_ai_enabled === "false" || !saved.routing_api_key) return;
+  if (
+    saved.dispatch_ai_enabled === "false" ||
+    !saved.routing_api_key ||
+    saved.session_naming_mode !== "active"
+  )
+    return;
   const claimed = await pool.query(
     "UPDATE agents SET naming_requested=true WHERE id=$1 AND naming_requested=false AND name_revision=0 RETURNING id",
     [id]
