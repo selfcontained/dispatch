@@ -100,7 +100,10 @@
         "e2e/*project*",
         "apps/web/src/components/app/project-*",
         "apps/web/src/hooks/use-projects*",
-        "apps/server/test/launch-guidance.test.ts"
+        "apps/server/test/launch-guidance.test.ts",
+        "apps/server/test/session-naming.test.ts",
+        "apps/server/test/db/session-naming.test.ts",
+        "docs/session-naming.md"
       ],
       "personas": ["agent-runtime-owner"]
     },
