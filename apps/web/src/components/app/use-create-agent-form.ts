@@ -150,12 +150,13 @@ export function useCreateAgentForm({
   const createFullAccess = createType === "opencode" || savedCreateFullAccess;
   const {
     options: modelOptions,
+    defaultModel,
     loading: modelCatalogLoading,
     loaded: modelCatalogLoaded,
   } = useAgentModelCatalog(createType);
 
   useEffect(() => {
-    if (!modelCatalogLoaded) return;
+    if (!modelCatalogLoaded || modelOptions.length === 0) return;
     // Anything stored that the catalog no longer offers (a retired id, or an
     // empty string persisted by an older build) resets to the CLI default.
     if (
@@ -416,6 +417,7 @@ export function useCreateAgentForm({
       setCreateEffort(null);
     },
     modelOptions,
+    defaultModel,
     modelCatalogLoading,
     createBaseBranch,
     setCreateBaseBranch,

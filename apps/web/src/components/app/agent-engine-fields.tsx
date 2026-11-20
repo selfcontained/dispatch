@@ -19,6 +19,8 @@ type AgentEngineFieldsProps = {
   model: string | null;
   onModelChange: (model: string | null) => void;
   modelOptions: readonly AgentModelOption[];
+  /** Pass null to show the engine setting when there is no known default. */
+  catalogDefault?: string | null;
   modelLoading: boolean;
   onTypeOpenChange?: (open: boolean) => void;
   /** Overridden by dialogs other than Create Agent so ids stay unique. */
@@ -28,7 +30,7 @@ type AgentEngineFieldsProps = {
 /**
  * The type and model pickers side by side, with the engine Dispatch will
  * drive named underneath. Every dialog that launches an agent shows them the
- * same way. The model picker stays hidden for an engine with no catalog.
+ * same way. Create Agent also shows the fallback when a catalog is missing.
  */
 export function AgentEngineFields({
   agentType,
@@ -40,6 +42,7 @@ export function AgentEngineFields({
   onEffortChange,
   onModelChange,
   modelOptions,
+  catalogDefault,
   modelLoading,
   onTypeOpenChange,
   idPrefix,
@@ -60,7 +63,8 @@ export function AgentEngineFields({
     [engines]
   );
   const engineLine = engineSummary(engines, agentType);
-  const showModelSelect = modelLoading || modelOptions.length > 0;
+  const showModelSelect =
+    catalogDefault !== undefined || modelLoading || modelOptions.length > 0;
 
   return (
     <div className="space-y-3">
@@ -83,6 +87,7 @@ export function AgentEngineFields({
             testId={idPrefix ? `${idPrefix}-model` : undefined}
             value={model}
             options={modelOptions}
+            catalogDefault={catalogDefault}
             onChange={onModelChange}
             loading={modelLoading}
           />

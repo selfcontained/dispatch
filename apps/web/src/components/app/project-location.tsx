@@ -125,7 +125,7 @@ export function ProjectLocation({
             </DropdownMenuTrigger>
             <DropdownMenuContent
               align="start"
-              className="max-h-[min(18rem,var(--radix-dropdown-menu-content-available-height))] w-[var(--radix-dropdown-menu-trigger-width)] min-w-0 overflow-y-auto"
+              className="max-h-[clamp(4rem,var(--radix-dropdown-menu-content-available-height),18rem)] w-[var(--radix-dropdown-menu-trigger-width)] min-w-0 overflow-y-auto"
             >
               {projects.map((p) => (
                 <DropdownMenuItem
