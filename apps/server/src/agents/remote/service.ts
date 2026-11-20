@@ -20,6 +20,7 @@ export {
   RunnerHostGone,
 } from "@dispatch/runner-protocol/connection";
 import type { Pool } from "pg";
+import type { FastifyBaseLogger } from "fastify";
 import {
   parseRunnerHealth,
   type RunnerHealth,
@@ -269,6 +270,7 @@ export function configuredRunner(input?: {
   host: string;
   apiPort: number;
   apiTls: boolean;
+  logger?: Pick<FastifyBaseLogger, "debug">;
   validAgentToken?: (token: string, agentId: string) => boolean;
   validJobToken?: (token: string, runId: string, agentId: string) => boolean;
 }) {
@@ -304,7 +306,8 @@ export function configuredRunner(input?: {
           tls: input.apiTls,
           validAgentToken: input.validAgentToken,
           validJobToken: input.validJobToken,
-        }
+        },
+        input?.logger
       )
     : undefined;
 }
@@ -349,7 +352,8 @@ export class RemoteRunnerService {
         runId: string,
         agentId: string
       ) => boolean;
-    }
+    },
+    private readonly logger?: Pick<FastifyBaseLogger, "debug">
   ) {
     if (legacy) {
       httpsOrigin(legacy.mcpOrigin, "Runner MCP origin");
@@ -373,10 +377,12 @@ export class RemoteRunnerService {
         keepAliveTimeout: 0,
       },
       (request, response) => {
-        const firstRequest = this.proxyFirstRequests.get(
-          request.socket.remotePort!
-        );
-        firstRequest?.();
+        const relay = this.proxyRelays.get(request.socket.remotePort!);
+        if (relay) {
+          relay.firstRequest?.();
+          relay.firstRequest = undefined;
+          response.once("finish", () => relay.requestsServed++);
+        }
         this.trackProxyRequest(request.socket, response);
         this.forward(request, response);
       }
@@ -625,23 +631,45 @@ export class RemoteRunnerService {
    * http.Server) works the same under Node and Bun.
    */
   private async relay(socket: TLSSocket, head: Buffer, release: () => void) {
+    const started = performance.now();
+    const relay: { firstRequest?: () => void; requestsServed: number } = {
+      firstRequest: release,
+      requestsServed: 0,
+    };
+    let closedBy: "client" | "proxy" | undefined;
+    socket.once("end", () => (closedBy ??= "client"));
+    socket.once("error", () => (closedBy ??= "client"));
+    socket.once("close", () => {
+      this.logger?.debug(
+        {
+          ageMs: Math.round(performance.now() - started),
+          requestsServed: relay.requestsServed,
+          closedBy: closedBy ?? "proxy",
+        },
+        "Runner HTTP relay closed"
+      );
+    });
     socket.pause();
     try {
       const port = await this.ensureProxy();
       if (socket.destroyed) return;
       const upstream = connectTcp(port, "127.0.0.1");
-      upstream.on("error", () => socket.destroy());
+      upstream.once("end", () => (closedBy ??= "proxy"));
+      upstream.on("error", () => {
+        closedBy ??= "proxy";
+        socket.destroy();
+      });
       socket.on("close", () => upstream.destroy());
       upstream.on("close", () => {
-        if (!upstream.readableEnded) socket.destroy();
+        if (!upstream.readableEnded && !socket.destroyed) {
+          closedBy ??= "proxy";
+          socket.destroy();
+        }
       });
       upstream.once("connect", () => {
         const relayPort = upstream.localPort!;
-        this.proxyFirstRequests.set(relayPort, () => {
-          this.proxyFirstRequests.delete(relayPort);
-          release();
-        });
-        upstream.once("close", () => this.proxyFirstRequests.delete(relayPort));
+        this.proxyRelays.set(relayPort, relay);
+        upstream.once("close", () => this.proxyRelays.delete(relayPort));
         upstream.write(head);
         socket.pipe(upstream).pipe(socket);
         socket.resume();
@@ -652,7 +680,10 @@ export class RemoteRunnerService {
   }
 
   private readonly proxyIdleTimeout = PROXY_KEEP_ALIVE_TIMEOUT;
-  private readonly proxyFirstRequests = new Map<number, () => void>();
+  private readonly proxyRelays = new Map<
+    number,
+    { firstRequest?: () => void; requestsServed: number }
+  >();
   private readonly proxyRequests = new WeakMap<
     Socket,
     { pending: number; idleTimer?: ReturnType<typeof setTimeout> }

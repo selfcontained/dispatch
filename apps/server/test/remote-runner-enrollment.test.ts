@@ -5,7 +5,15 @@ import https from "node:https";
 import type { AddressInfo } from "node:net";
 import { connect, createServer, type TLSSocket } from "node:tls";
 import type { Pool } from "pg";
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 import { exchangeCode } from "../src/agents/remote/enrollment.js";
 import {
   wireFrames,
@@ -1008,11 +1016,13 @@ it("releases the handshake slot for HTTP and closes the idle relay cleanly", asy
   });
   api.listen(0, HOST);
   await once(api, "listening");
-  const service = new RemoteRunnerService(undefined, undefined, {
-    host: HOST,
-    port: (api.address() as AddressInfo).port,
-    tls: false,
-  });
+  const debug = vi.fn();
+  const service = new RemoteRunnerService(
+    undefined,
+    undefined,
+    { host: HOST, port: (api.address() as AddressInfo).port, tls: false },
+    { debug }
+  );
   const listener = createServer({ cert: leaf.cert, key: leaf.key }, (socket) =>
     service["accept"](socket, "legacy")
   );
@@ -1046,6 +1056,12 @@ it("releases the handshake slot for HTTP and closes the idle relay cleanly", asy
     expect(socket.destroyed).toBe(false);
     const [hadError] = await once(socket, "close");
     expect(hadError).toBe(false);
+    await vi.waitFor(() =>
+      expect(debug).toHaveBeenCalledExactlyOnceWith(
+        { ageMs: expect.any(Number), requestsServed: 2, closedBy: "proxy" },
+        "Runner HTTP relay closed"
+      )
+    );
   } finally {
     agent.destroy();
     service.close();
