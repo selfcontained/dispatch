@@ -1,3 +1,7 @@
+import {
+  createLocalEngineRunner,
+  type LocalEngineRunner,
+} from "../agents/local-runner-engine.js";
 import type { RunnerEngineTransport } from "../agents/remote/engine-manager.js";
 import { createRiskReader } from "../shared/mcp/pull-request-risk-tools.js";
 import type { PullRequestRefresher } from "../agents/pull-request-refresher.js";
@@ -106,6 +110,10 @@ type McpRouteDeps = {
   usageWatches?: UsageCallbacks["usageWatches"];
   providerPlans?: ReturnType<typeof createProviderPlansReporter>;
   runnerEngines?: RunnerEngineTransport;
+  localEngines?: Pick<
+    LocalEngineRunner,
+    "readProviderPlans" | "readModelOptions"
+  >;
   config: {
     authToken: string;
   };
@@ -217,8 +225,14 @@ export async function registerMcpRoutes(
   app: FastifyInstance,
   deps: McpRouteDeps
 ): Promise<void> {
+  const localEngines =
+    deps.localEngines ?? createLocalEngineRunner({ logger: app.log });
   const providerPlans =
-    deps.providerPlans ?? createProviderPlansReporter({ log: app.log });
+    deps.providerPlans ??
+    createProviderPlansReporter({
+      load: localEngines.readProviderPlans,
+      log: app.log,
+    });
 
   function usageForRunner(runnerId: string): UsageCallbacks {
     return {
@@ -351,6 +365,7 @@ export async function registerMcpRoutes(
         ? usageForRunner(placement.runner)
         : {
             providerPlans,
+            modelOptions: localEngines.readModelOptions,
             usageWatches: deps.usageWatches,
             redeemCodexReset: bearerToken ? deps.redeemCodexReset : undefined,
           }),
@@ -465,6 +480,7 @@ export async function registerMcpRoutes(
         ? usageForRunner(placement.runner)
         : {
             providerPlans,
+            modelOptions: localEngines.readModelOptions,
             usageWatches: deps.usageWatches,
             redeemCodexReset: bearerToken ? deps.redeemCodexReset : undefined,
           }),

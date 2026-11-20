@@ -1,7 +1,7 @@
 import Fastify from "fastify";
 import type { Pool } from "pg";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { AppConfig } from "../src/config.js";
+import { createLocalEngineRunner } from "../src/agents/local-runner-engine.js";
 import { registerPluginRoutes } from "../src/routes/plugin.js";
 
 const mocks = vi.hoisted(() => ({
@@ -37,8 +37,7 @@ async function request(body: unknown) {
   try {
     await registerPluginRoutes(app, {
       pool: {} as Pool,
-      config: {} as AppConfig,
-      appLog: app.log,
+      plugins: createLocalEngineRunner({ logger: app.log }).plugins,
     });
     return await app.inject({
       method: "POST",
@@ -98,8 +97,10 @@ describe("plugin CLI resolution", () => {
     const app = Fastify();
     await registerPluginRoutes(app, {
       pool: {} as Pool,
-      config: { claudeBin: "claude", codexBin: "codex" } as AppConfig,
-      appLog: app.log,
+      plugins: createLocalEngineRunner({
+        bins: { claude: "claude", codex: "codex" },
+        logger: app.log,
+      }).plugins,
     });
     await app.close();
     mocks.findEngineBin.mockImplementation(async (bin: string) =>

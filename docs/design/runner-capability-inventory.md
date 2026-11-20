@@ -88,8 +88,12 @@ redemption. The runner performs these reads and actions as the workload
 identity. Create Agent reads the selected runner's catalog. Runner settings
 and the session usage popover read that runner's plan limits. Enrolled ACP
 reports still update their own sessions without changing the native catalog.
-Native picks use the shipped catalog until a local session republishes its
-options if the only saved catalog was from an earlier build without scope.
+The built-in runner serves native model observations, provider usage and
+reset execution, and plugin reads and actions in process under the native OS
+identity. Native picks use the shipped catalog until a local session
+republishes its options if the only saved catalog was from an earlier build
+without scope. The service keeps the original native settings responses and
+shares its reset coordinator across HTTP and MCP.
 
 - Runner-side provider reads discard CLI cache snapshots whose account cannot
   be established. Dispatch can show its last report for that same runner with

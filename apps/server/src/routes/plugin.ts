@@ -1,11 +1,8 @@
-import type { FastifyBaseLogger, FastifyInstance } from "fastify";
+import type { FastifyInstance } from "fastify";
 import type { Pool } from "pg";
 
 import { getEnabledAgentTypes } from "../agent-type-settings.js";
-import { findEngineBin } from "../agents/engine-availability.js";
-import type { AppConfig } from "../config.js";
 import {
-  createPluginStatusChecker,
   isPluginAgentType,
   PLUGIN_AGENT_TYPES,
   type PluginStatusChecker,
@@ -13,25 +10,13 @@ import {
 
 type PluginRouteDeps = {
   pool: Pool;
-  config: AppConfig;
-  appLog: FastifyBaseLogger;
+  plugins: PluginStatusChecker;
 };
 
 export async function registerPluginRoutes(
   app: FastifyInstance,
   deps: PluginRouteDeps
 ): Promise<void> {
-  const checker: PluginStatusChecker = createPluginStatusChecker({
-    // Find the CLI the way agent launches do: a service's PATH (the Mac
-    // app's especially) rarely has ~/.local/bin, where claude installs.
-    binFor: async (agentType) => {
-      const configured =
-        agentType === "claude" ? deps.config.claudeBin : deps.config.codexBin;
-      return (await findEngineBin(configured)) ?? configured;
-    },
-    logger: deps.appLog,
-  });
-
   app.get("/api/v1/plugin/status", async (request) => {
     const query = request.query as { refresh?: unknown };
     const forceRefresh = query?.refresh === "true" || query?.refresh === "1";
@@ -43,7 +28,7 @@ export async function registerPluginRoutes(
 
     const statuses = await Promise.all(
       applicableTypes.map((agentType) =>
-        checker.getStatus(agentType, { forceRefresh })
+        deps.plugins.getStatus(agentType, { forceRefresh })
       )
     );
 
@@ -67,7 +52,7 @@ export async function registerPluginRoutes(
           .send({ error: `${agentType} is not an enabled agent type.` });
       }
 
-      const result = await checker[action](agentType);
+      const result = await deps.plugins[action](agentType);
 
       if (result.error) {
         // ranCommands are subcommands only (no bin path, no absolute paths) —

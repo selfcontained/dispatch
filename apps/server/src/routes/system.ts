@@ -29,9 +29,9 @@ import { IDE_TYPES, getEnabledIdes, setEnabledIdes } from "../ide-settings.js";
 import { SlackNotifier, slackDelayError } from "../notifications/slack.js";
 import { resolveTilde } from "../shared/lib/resolve-tilde.js";
 import {
-  agentModelCatalog,
-  agentModelDefaults,
-} from "../shared/agent-models.js";
+  createLocalEngineRunner,
+  type LocalEngineRunner,
+} from "../agents/local-runner-engine.js";
 import {
   engineStatuses,
   withEngineVersions,
@@ -58,6 +58,7 @@ import { ACP_ENGINE_IDS, type AcpEngineId } from "../agents/acp/engine-spec.js";
 const INSTANCE_NAME_KEY = "instance_name";
 
 type SystemRouteDeps = {
+  localEngines?: Pick<LocalEngineRunner, "readModelCatalog">;
   runnerWorkspaceAvailable?: (placement: Placement) => boolean;
   notificationLinkOrigins?: () => Promise<SlackLinkOrigins>;
   slackAnswers?: Pick<
@@ -188,9 +189,8 @@ export async function registerSystemRoutes(
     }
   });
 
-  app.get("/api/v1/agent-models", async () => {
-    return { models: agentModelCatalog(), defaults: agentModelDefaults() };
-  });
+  const localEngines = deps.localEngines ?? createLocalEngineRunner();
+  app.get("/api/v1/agent-models", async () => localEngines.readModelCatalog());
 
   app.get("/api/v1/system/path-info", async (request, reply) => {
     const query = request.query as { path?: unknown };

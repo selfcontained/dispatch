@@ -279,7 +279,7 @@ export function useCreateAgentForm({
   )?.effort;
 
   useEffect(() => {
-    if (!modelCatalogLoaded) return;
+    if (!modelCatalogLoaded || modelOptions.length === 0) return;
     // Anything stored that the catalog no longer offers (a retired id, or an
     // empty string persisted by an older build) resets to the CLI default.
     if (

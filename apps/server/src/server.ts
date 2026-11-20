@@ -19,7 +19,7 @@ import {
 } from "./routes/portfolio.js";
 import { installRequestLifecycle } from "./server/request-lifecycle.js";
 import { createCodexResetCoordinator } from "./agents/codex-reset.js";
-import { consumeCodexLimitReset } from "./agents/provider-plans.js";
+import { createLocalEngineRunner } from "./agents/local-runner-engine.js";
 import { TaskWatchNotifier } from "./tasks/watch-notifier.js";
 import { UsageWatchService } from "./agents/usage-watches.js";
 import { registerHumanTerminalRoutes } from "./routes/human-terminals.js";
@@ -1058,10 +1058,17 @@ async function registerRoutes() {
     withStreamFlag,
   });
 
-  const providerPlans = createProviderPlansReporter({ log: app.log });
+  const localEngines = createLocalEngineRunner({
+    bins: { claude: config.claudeBin, codex: config.codexBin },
+    logger: app.log,
+  });
+  const providerPlans = createProviderPlansReporter({
+    load: localEngines.readProviderPlans,
+    log: app.log,
+  });
   const redeemCodexReset = createCodexResetCoordinator({
     providerPlans,
-    consume: (requestId) => consumeCodexLimitReset({ log: app.log, requestId }),
+    consume: localEngines.consumeCodexReset,
   });
   // One evaluator for every agent's usage watches, fed by every refresh of
   // the shared reporter plus its own bounded tick while live watches exist.
@@ -1092,6 +1099,7 @@ async function registerRoutes() {
     usageWatches.dispose();
   });
   await registerMcpRoutes(app, {
+    localEngines,
     runnerEngines: remoteRunner
       ? remoteEngineTransport(remoteRunner)
       : undefined,
@@ -1161,6 +1169,7 @@ async function registerRoutes() {
       app.log.error({ err: error }, "Engine update persistence failed"),
   });
   await registerSystemRoutes(app, {
+    localEngines,
     engineUpdates,
     runnerWorkspaceAvailable: (placement) =>
       remoteRunner?.available(placement) ?? false,
@@ -1201,6 +1210,7 @@ async function registerRoutes() {
     new EngineManager({
       local: {
         logins: engineLogins,
+        capabilities: localEngines,
         updates: engineUpdates,
         overrides: {
           claude: config.claudeBin,
@@ -1264,7 +1274,7 @@ async function registerRoutes() {
     clearInterval(shadowRetention);
   });
 
-  await registerPluginRoutes(app, { pool, config, appLog: app.log });
+  await registerPluginRoutes(app, { pool, plugins: localEngines.plugins });
 
   await registerBrainRoutes(app, {
     brainStore,
@@ -1344,6 +1354,7 @@ async function registerRoutes() {
   });
 
   await registerAgentRoutes(app, {
+    localEngines,
     providerPlans,
     redeemCodexReset,
     tasks: {

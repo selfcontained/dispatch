@@ -787,6 +787,22 @@ describe("handleSubmit", () => {
     expect(agentsPostJson().model).toBeUndefined();
   });
 
+  it("retains the stored model through an empty catalog and restores it when it returns", async () => {
+    const pref = createAgentModelPrefAtom("claude:/repo/app");
+    jotaiStore.set(pref, "saved-model");
+    queryClient.setQueryData(["agent-models"], { models: { claude: [] } });
+    const { result } = await setup({ initialAgentType: "claude" });
+    expect(jotaiStore.get(pref)).toBe("saved-model");
+    act(() => {
+      queryClient.setQueryData(["agent-models"], {
+        models: { claude: [{ id: "saved-model", label: "Saved model" }] },
+      });
+    });
+    await waitFor(() => expect(result.current.modelOptions).toHaveLength(1));
+    await act(async () => result.current.handleSubmit(submitEvent()));
+    expect(agentsPostJson().model).toBe("saved-model");
+  });
+
   it("records last-used values and hands the created agent to onCreated", async () => {
     const { result, onCreated } = await setup({
       initialAgentType: "codex",

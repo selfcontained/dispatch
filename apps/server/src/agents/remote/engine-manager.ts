@@ -1,3 +1,7 @@
+import {
+  createLocalEngineRunner,
+  type LocalEngineRunner,
+} from "../local-runner-engine.js";
 import { EventEmitter } from "node:events";
 
 import type { RunnerEngine } from "@dispatch/runner-protocol";
@@ -59,6 +63,7 @@ export interface RunnerEngineTransport {
 export type LocalEngineDeps = {
   logins: EngineLogins;
   updates: EngineUpdateOperations;
+  capabilities?: Pick<LocalEngineRunner, "handle">;
   overrides?: Partial<Record<AcpEngineId, string>>;
 };
 
@@ -74,13 +79,23 @@ export type EngineManagerChangeListener = (
 
 export class EngineManager {
   private readonly events = new EventEmitter();
+  private readonly localCapabilities: Pick<LocalEngineRunner, "handle">;
 
   constructor(
     private readonly deps: {
       local: LocalEngineDeps;
       remote: RunnerEngineTransport;
     }
-  ) {}
+  ) {
+    this.localCapabilities =
+      deps.local.capabilities ??
+      createLocalEngineRunner({
+        bins: {
+          claude: deps.local.overrides?.claude ?? "claude",
+          codex: deps.local.overrides?.codex ?? "codex",
+        },
+      });
+  }
 
   /** Subscribe to inventory changes for one scope; call the returned function to stop. */
   onChanged(
@@ -207,11 +222,7 @@ export class EngineManager {
   ): Promise<EngineOperationAck> {
     const { logins, updates, overrides } = this.deps.local;
     if (isEngineCapabilityOperation(operation)) {
-      return {
-        ok: false,
-        unsupported: true,
-        error: "Use this machine’s engine settings.",
-      };
+      return this.localCapabilities.handle(operation);
     }
     switch (operation.type) {
       case "status":

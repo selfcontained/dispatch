@@ -1,3 +1,4 @@
+import type { LocalEngineRunner } from "../../agents/local-runner-engine.js";
 import type { RedeemCodexReset } from "../../agents/codex-reset.js";
 import type { ProviderPlansResponse } from "@dispatch/shared";
 import type { FastifyBaseLogger, FastifyReply } from "fastify";
@@ -60,6 +61,10 @@ export type AgentRouteDeps = {
    * message; see `routes/agents/prompt-routes.ts`.
    */
   chat: StreamService;
+  localEngines?: Pick<
+    LocalEngineRunner,
+    "readProviderPlans" | "consumeCodexReset"
+  >;
   /** Subscription plan usage; tests inject one so nothing reads a real login. */
   providerPlans?: ((request?: {
     force?: boolean;

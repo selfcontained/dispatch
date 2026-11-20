@@ -1,4 +1,6 @@
-import { writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import Fastify from "fastify";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -11,6 +13,10 @@ import {
   validateAgentMcpToken,
   validateJobMcpToken,
 } from "../src/auth.js";
+import { createLocalEngineRunner } from "../src/agents/local-runner-engine.js";
+import { createProviderPlansReporter } from "../src/agents/provider-plans.js";
+import { registerPluginRoutes } from "../src/routes/plugin.js";
+import { registerSystemRoutes } from "../src/routes/system.js";
 import { createCodexResetCoordinator } from "../src/agents/codex-reset.js";
 import { registerMcpRoutes } from "../src/routes/mcp.js";
 import { registerAgentUsageRoutes } from "../src/routes/agents/usage-routes.js";
@@ -137,13 +143,91 @@ describe("authenticated Codex reset MCP HTTP transport (mock provider only)", ()
 
   it("lists/calls through real scoped-token HTTP, shares UI replay, denies wrong scopes and public access", async () => {
     const app = Fastify();
-    const consume = vi.fn(async (_requestId: string) => outcome);
-    const providerPlans = Object.assign(
-      vi.fn(async () => report),
-      { invalidate: vi.fn() }
+    const home = await mkdtemp(
+      path.join(os.tmpdir(), "native-engine-boundary-")
     );
+    const codexBin = path.join(home, "codex");
+    await mkdir(path.join(home, ".codex"));
+    await writeFile(
+      path.join(home, ".codex", "auth.json"),
+      JSON.stringify({
+        tokens: {
+          account_id: "native-fixture-account",
+          access_token: "native-fixture-token",
+        },
+      })
+    );
+    await writeFile(
+      codexBin,
+      `#!/bin/sh
+cd "$(dirname "$0")"
+case "$*" in
+  "plugin list --json")
+    if test -f installed; then
+      echo '{"installed":[{"pluginId":"dispatch@dispatch","version":"1.2.3","enabled":true}]}'
+    else
+      echo '{"installed":[]}'
+    fi ;;
+  "plugin marketplace list --json")
+    printf '{"marketplaces":[{"name":"dispatch","root":"%s"}]}\n' "$PWD" ;;
+  "plugin marketplace upgrade dispatch --json") ;;
+  "plugin add dispatch@dispatch") touch installed ;;
+  *) exit 2 ;;
+esac
+`,
+      { mode: 0o755 }
+    );
+    const consume = vi.fn();
+    const fetchUsage = vi.fn(
+      async (url: string | URL | Request, init?: RequestInit) => {
+        const headers = new Headers(init?.headers);
+        expect(headers.get("Authorization")).toBe(
+          "Bearer native-fixture-token"
+        );
+        expect(headers.get("ChatGPT-Account-Id")).toBe(
+          "native-fixture-account"
+        );
+        if (String(url).endsWith("/consume")) {
+          consume(JSON.parse(String(init?.body)).redeem_request_id);
+          return Response.json({
+            code: outcome.code,
+            windows_reset: outcome.windowsReset,
+            credit: { id: outcome.credit.id, title: outcome.credit.title },
+          });
+        }
+        if (String(url).endsWith("/usage")) {
+          return Response.json({
+            plan_type: "plus",
+            rate_limit: {
+              primary_window: {
+                used_percent: 25,
+                limit_window_seconds: 604800,
+              },
+            },
+          });
+        }
+        return Response.json({
+          available_count: 3,
+          applicable_available_count: 0,
+        });
+      }
+    );
+    const localEngines = createLocalEngineRunner({
+      bins: { codex: codexBin, claude: codexBin },
+      providerOptions: {
+        homeDir: home,
+        env: {},
+        platform: "linux",
+        fetchUsage,
+      },
+    });
+    const readModels = vi.spyOn(localEngines, "readModelCatalog");
+    const readChoices = vi.spyOn(localEngines, "readModelOptions");
+    const providerPlans = createProviderPlansReporter({
+      load: localEngines.readProviderPlans,
+    });
     const redeemCodexReset = createCodexResetCoordinator({
-      consume,
+      consume: localEngines.consumeCodexReset,
       providerPlans,
     });
     const agentManager = {
@@ -155,6 +239,7 @@ describe("authenticated Codex reset MCP HTTP transport (mock provider only)", ()
       listAgents: async () => [],
     };
     const deps = {
+      localEngines,
       config: { authToken: secret },
       providerPlans,
       redeemCodexReset,
@@ -176,14 +261,55 @@ describe("authenticated Codex reset MCP HTTP transport (mock provider only)", ()
     };
     await registerMcpRoutes(app, deps as never);
     await registerAgentUsageRoutes(app, { ...deps, appLog: app.log } as never);
+    await registerPluginRoutes(app, {
+      pool: deps.pool as never,
+      plugins: localEngines.plugins,
+    });
+    await registerSystemRoutes(app, { pool: deps.pool, localEngines } as never);
     const address = await app.listen({ host: "127.0.0.1", port: 0 });
     const transcript: unknown[] = [
       {
         safety:
-          "Ephemeral loopback Fastify, real MCP HTTP transport and HMAC token validation; reset provider and usage mocked, no real account credentials or provider calls.",
+          "Loopback HTTP with scoped MCP tokens and the native runner. A real temporary home supplies fixture credentials, a real CLI subprocess implements plugin changes, and provider HTTP is stubbed.",
       },
     ];
     try {
+      const models = await app.inject({
+        method: "GET",
+        url: "/api/v1/agent-models",
+      });
+      expect(models.json()).toHaveProperty("models.codex");
+      expect(readModels).toHaveBeenCalledOnce();
+      const plan = await app.inject({
+        method: "GET",
+        url: "/api/v1/usage/plans",
+      });
+      expect(plan.json()).toMatchObject({
+        providers: expect.arrayContaining([
+          expect.objectContaining({
+            engine: "codex",
+            plan: "Plus",
+            source: "live",
+          }),
+        ]),
+      });
+      const pluginBefore = await app.inject({
+        method: "GET",
+        url: "/api/v1/plugin/status",
+      });
+      expect(pluginBefore.json()).toMatchObject({
+        statuses: expect.arrayContaining([
+          expect.objectContaining({ agentType: "codex", installed: false }),
+        ]),
+      });
+      const plugin = await app.inject({
+        method: "POST",
+        url: "/api/v1/plugin/install",
+        payload: { agentType: "codex" },
+      });
+      expect(plugin.json()).toMatchObject({
+        status: { installed: true, currentVersion: "1.2.3" },
+      });
       for (const [route, token] of [
         ["/api/mcp/agent-test", createAgentMcpToken(secret, "agent-test")],
         [
@@ -212,6 +338,20 @@ describe("authenticated Codex reset MCP HTTP transport (mock provider only)", ()
             tools.find((tool) => tool.name === "get_usage")?.annotations
               ?.readOnlyHint
           ).toBe(true);
+          const usage = await client.callTool({
+            name: "get_usage",
+            arguments: { type: "codex" },
+          });
+          expect(usage.structuredContent).toMatchObject({
+            providers: [
+              {
+                engine: "codex",
+                plan: "Plus",
+                models: expect.any(Array),
+              },
+            ],
+          });
+          expect(readChoices).toHaveBeenCalledWith("codex");
           const invalid = await client.callTool({
             name: "redeem_codex_reset",
             arguments: { idempotencyKey: "not-a-uuid" },
@@ -221,12 +361,20 @@ describe("authenticated Codex reset MCP HTTP transport (mock provider only)", ()
             name: "redeem_codex_reset",
             arguments: { idempotencyKey: key },
           });
-          expect(result.structuredContent).toEqual({
+          expect(result.structuredContent).toMatchObject({
             outcome,
             error: null,
-            usage: agentReport,
+            usage: {
+              providers: expect.arrayContaining([
+                expect.objectContaining({
+                  engine: "codex",
+                  limitResets: expect.objectContaining({ available: 3 }),
+                }),
+              ]),
+            },
             refreshError: null,
           });
+          expect(JSON.stringify(result)).not.toContain('"applicable"');
           transcript.push({
             route,
             listedTool: reset,
@@ -321,6 +469,7 @@ describe("authenticated Codex reset MCP HTTP transport (mock provider only)", ()
         );
     } finally {
       await app.close();
+      await rm(home, { recursive: true, force: true });
     }
   });
 });

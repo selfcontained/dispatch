@@ -1,3 +1,4 @@
+import { createLocalEngineRunner } from "../../agents/local-runner-engine.js";
 import { createCodexResetCoordinator } from "../../agents/codex-reset.js";
 import * as z from "zod/v4";
 import type {
@@ -6,10 +7,7 @@ import type {
 } from "@dispatch/shared";
 import type { FastifyInstance } from "fastify";
 
-import {
-  consumeCodexLimitReset,
-  createProviderPlansReporter,
-} from "../../agents/provider-plans.js";
+import { createProviderPlansReporter } from "../../agents/provider-plans.js";
 import {
   loadAgentUsage,
   toAgentConfigOptions,
@@ -26,8 +24,14 @@ export async function registerAgentUsageRoutes(
   app: FastifyInstance,
   deps: AgentRouteDeps
 ): Promise<void> {
+  const localEngines =
+    deps.localEngines ?? createLocalEngineRunner({ logger: deps.appLog });
   const providerPlans =
-    deps.providerPlans ?? createProviderPlansReporter({ log: deps.appLog });
+    deps.providerPlans ??
+    createProviderPlansReporter({
+      load: localEngines.readProviderPlans,
+      log: deps.appLog,
+    });
 
   app.get("/api/v1/agents/:id/config", async (request, reply) => {
     const id = (request.params as { id?: string }).id ?? "";
@@ -85,10 +89,7 @@ export async function registerAgentUsageRoutes(
   const redeem =
     deps.redeemCodexReset ??
     createCodexResetCoordinator({
-      consume:
-        deps.consumeCodexReset ??
-        ((requestId) =>
-          consumeCodexLimitReset({ log: deps.appLog, requestId })),
+      consume: deps.consumeCodexReset ?? localEngines.consumeCodexReset,
       providerPlans,
     });
   app.post("/api/v1/usage/codex/resets/consume", async (request, reply) => {

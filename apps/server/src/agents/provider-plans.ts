@@ -996,9 +996,12 @@ export type ProviderPlansReporter = ((request?: {
 };
 
 export function createProviderPlansReporter(
-  options: Omit<ProviderPlanOptions, "now"> = {},
+  options: Omit<ProviderPlanOptions, "now"> & {
+    load?: () => Promise<ProviderPlansResponse>;
+  } = {},
   cacheMs = 60_000
 ): ProviderPlansReporter {
+  const read = options.load ?? (() => loadProviderPlans(options));
   let cached: { loadedAt: number; report: ProviderPlansResponse } | null = null;
   let pending: Promise<ProviderPlansResponse> | null = null;
   // Bumped by invalidate(): a load begun before it may still finish, but it
@@ -1016,7 +1019,7 @@ export function createProviderPlansReporter(
     }
     if (pending) return pending;
     const started = generation;
-    const load = loadProviderPlans(options)
+    const load = read()
       .then((report) => {
         if (started !== generation) return report;
         report.providers = report.providers.map((plan) => {
