@@ -1,6 +1,7 @@
 import {
   githubPullRequestTargetKey,
   MAX_PULL_REQUEST_WATCH_TARGETS,
+  PULL_REQUEST_ACTIVE_REFRESH_MS,
   type GitHubPullRequestObservation,
   type GitHubPullRequestTarget,
   type GitHubPullRequestWatchEvent,
@@ -18,7 +19,6 @@ type Entry = {
   flight?: Promise<Sample>;
 };
 
-const activeInterval = 30_000;
 const deliveryInterval = 60_000;
 const minute = 60_000;
 const hour = 60 * minute;
@@ -27,7 +27,7 @@ function readDelay(sample: Sample, failures: number) {
   if (failures) return Math.min(4 * hour, 15 * minute * 2 ** (failures - 1));
   if (sample.observation?.state === "MERGED") return Infinity;
   if (sample.observation?.state === "CLOSED") return 6 * hour;
-  return activeInterval;
+  return PULL_REQUEST_ACTIVE_REFRESH_MS;
 }
 
 /** One bounded queue per workload account, including across transport reconnects. */

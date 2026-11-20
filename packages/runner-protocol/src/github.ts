@@ -10,6 +10,8 @@ export type GitHubPullRequestTarget = {
 };
 
 export const MAX_PULL_REQUEST_WATCH_TARGETS = 64;
+/** How often an open pull request is re-read, on local and runner placements. */
+export const PULL_REQUEST_ACTIVE_REFRESH_MS = 5 * 60_000;
 export const MAX_PULL_REQUEST_WATCH_EVENT_BYTES = 1024 * 1024;
 
 export type GitHubPullRequestWatchEvent =

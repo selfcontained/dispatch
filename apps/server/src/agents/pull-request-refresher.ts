@@ -1,5 +1,6 @@
 import { checkChanges } from "./pull-request-check-notice.js";
 import type { AgentPullRequest, Block } from "@dispatch/shared";
+import { PULL_REQUEST_ACTIVE_REFRESH_MS } from "@dispatch/runner-protocol";
 import type { Pool } from "pg";
 import type { PublishUiEvent } from "../server/ui-events.js";
 import { PullRequestObservations } from "./pull-request-observations.js";
@@ -633,7 +634,7 @@ export class PullRequestRefresher {
                 ? Math.min(4 * 60 * 60_000, 15 * 60_000 * 2 ** (failures - 1))
                 : value.status === "Closed"
                   ? 6 * 60 * 60_000
-                  : 5 * 60_000;
+                  : PULL_REQUEST_ACTIVE_REFRESH_MS;
           const lifecycle = ["Draft", "Open", "Closed", "Merged"].includes(
             value.status
           )

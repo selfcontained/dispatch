@@ -1,6 +1,9 @@
 import { createRunnerPullRequestReader } from "../src/agents/pull-request-reader.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { GitHubPullRequestWatchEvent } from "@dispatch/runner-protocol";
+import {
+  PULL_REQUEST_ACTIVE_REFRESH_MS,
+  type GitHubPullRequestWatchEvent,
+} from "@dispatch/runner-protocol";
 import type { Pool } from "pg";
 import type { AgentPullRequest, Block } from "@dispatch/shared";
 import { PullRequestRefresher } from "../src/agents/pull-request-refresher.js";
@@ -458,6 +461,19 @@ describe("server PR orchestration", () => {
     }));
     await restarted.service.refresh();
     expect(restarted.notify).not.toHaveBeenCalled();
+  });
+  it("re-reads open pull requests on the interval shared with runner watches", async () => {
+    vi.useFakeTimers();
+    const f = fixture();
+    await f.service.refresh();
+    const reads = f.read.mock.calls.length;
+    expect(reads).toBeGreaterThan(0);
+    vi.setSystemTime(Date.now() + PULL_REQUEST_ACTIVE_REFRESH_MS - 1);
+    await f.service.refresh();
+    expect(f.read).toHaveBeenCalledTimes(reads);
+    vi.setSystemTime(Date.now() + 1);
+    await f.service.refresh();
+    expect(f.read).toHaveBeenCalledTimes(reads * 2);
   });
   it("publishes cache updates despite recipient failures and ignores unchanged polls", async () => {
     vi.useFakeTimers();

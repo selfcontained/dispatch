@@ -1,6 +1,9 @@
 import { expect, it, vi } from "vitest";
 import { GitHubPullRequestWatches } from "../src/agents/remote/github-pull-request-watches.js";
-import type { GitHubPullRequestObservation } from "@dispatch/runner-protocol";
+import {
+  PULL_REQUEST_ACTIVE_REFRESH_MS,
+  type GitHubPullRequestObservation,
+} from "@dispatch/runner-protocol";
 
 const target = { owner: "owner", repo: "repo", number: 42 };
 const observation: GitHubPullRequestObservation = {
@@ -33,12 +36,12 @@ it("shares samples, repairs a missed update with a full observation, and stops a
     expect(second).toHaveBeenLastCalledWith(first.mock.lastCall![0]);
 
     title = "Changed";
-    await vi.advanceTimersByTimeAsync(30_000);
+    await vi.advanceTimersByTimeAsync(PULL_REQUEST_ACTIVE_REFRESH_MS);
     expect(first).toHaveBeenLastCalledWith(
       expect.objectContaining(event(title))
     );
     second.mockClear(); // Simulate a host missing the change.
-    await vi.advanceTimersByTimeAsync(30_000);
+    await vi.advanceTimersByTimeAsync(PULL_REQUEST_ACTIVE_REFRESH_MS);
     expect(second).toHaveBeenLastCalledWith(
       expect.objectContaining({
         ...event(title),
@@ -140,9 +143,9 @@ it("keeps open PRs responsive while replaying merged snapshots without provider 
     // The first minute is at capacity. Merged PRs no longer contend for
     // provider work after that window, and their original snapshot replays.
     receive.mockClear();
-    await vi.advanceTimersByTimeAsync(120_000);
+    await vi.advanceTimersByTimeAsync(2 * PULL_REQUEST_ACTIVE_REFRESH_MS);
     const newReads = read.mock.calls.slice(12);
-    expect(newReads.length).toBeGreaterThanOrEqual(3);
+    expect(newReads.length).toBeGreaterThanOrEqual(2);
     expect(newReads.every(([pr]) => pr.number === open.number)).toBe(true);
     expect(receive).toHaveBeenCalledWith(cached);
     const replacement = vi.fn();
@@ -190,8 +193,26 @@ it("backs off repeated failed lifecycle reads while replaying the original failu
     expect(receive.mock.lastCall![0].observation).toEqual(observation);
 
     // A successful read clears the backoff and restores the open cadence.
-    await vi.advanceTimersByTimeAsync(30_000);
+    await vi.advanceTimersByTimeAsync(PULL_REQUEST_ACTIVE_REFRESH_MS);
     expect(read).toHaveBeenCalledTimes(4);
+    close();
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it("re-reads an open pull request on the interval shared with local refreshes", async () => {
+  vi.useFakeTimers();
+  try {
+    const read = vi.fn(async () => observation);
+    const watches = new GitHubPullRequestWatches(read);
+    const close = watches.subscribe([target], vi.fn());
+    await vi.advanceTimersByTimeAsync(1);
+    expect(read).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(PULL_REQUEST_ACTIVE_REFRESH_MS - 2);
+    expect(read).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(2);
+    expect(read).toHaveBeenCalledTimes(2);
     close();
   } finally {
     vi.useRealTimers();
