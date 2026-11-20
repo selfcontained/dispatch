@@ -75,7 +75,7 @@ jobs:
       - name: Set up GitHub CLI
         run: |
           set -euo pipefail
-          if command -v gh >/dev/null 2>&1; then
+          if command -v gh >/dev/null 2>&1 && gh release create --help 2>/dev/null | grep -q -- --verify-tag; then
             exit 0
           fi
           GH_VERSION="2.102.1"
@@ -787,7 +787,7 @@ jobs:
       - name: Set up GitHub CLI
         run: |
           set -euo pipefail
-          if command -v gh >/dev/null 2>&1; then
+          if command -v gh >/dev/null 2>&1 && gh release create --help 2>/dev/null | grep -q -- --verify-tag; then
             exit 0
           fi
           GH_VERSION="2.102.1"
