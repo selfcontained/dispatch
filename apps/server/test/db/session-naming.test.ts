@@ -57,7 +57,12 @@ it("uses the real claim and normal same-name rename to defeat a late title", asy
         output: [
           {
             type: "message",
-            content: [{ type: "output_text", text: "Generated topic" }],
+            content: [
+              {
+                type: "output_text",
+                text: JSON.stringify({ title: "Generated session topic" }),
+              },
+            ],
           },
         ],
       })

@@ -41,3 +41,10 @@ Normal and automatic naming share title persistence; generated names publish
 through the existing agent event bus. Errors, timeouts, disabled configuration
 and invalid/empty output leave the fallback untouched. There is no background
 retry or recovery on restart.
+
+Names use strict JSON Schema structured output: only a required `title` string,
+3–5 words separated by single spaces, at most 40 Unicode characters including
+spaces. The prompt aims for 32 characters or fewer. Application validation
+independently enforces that shape, word count and character cap; overlong or
+malformed results leave the fallback unchanged instead of being truncated.
+The 128-token API output budget includes reasoning and JSON, not just title text.
