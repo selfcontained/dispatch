@@ -106,7 +106,21 @@ case "$1 $2" in
         test -f login
         printf '%s' '[{"name":"org/project","url":"https://github.com/org/project"},{"name":"unrelated/other","url":"https://github.com/unrelated/other"},{"name":"org/project-secret","url":"https://synthetic-token@github.com/org/project"}]'
         ;;
-      user) if [ -f revoked ]; then printf '(HTTP 401)\n' >&2; exit 1; fi; cat login ;;
+      user)
+        if [ -f revoked ]; then printf '(HTTP 401)\n' >&2; exit 1; fi
+        test -s login
+        case "$6" in
+          .login) cat login ;;
+          '{login,id,name}')
+            if [ -f no-profile-name ]; then
+              printf '{"login":"fixture-user","id":1234,"name":null}'
+            else
+              printf '{"login":"fixture-user","id":1234,"name":"Fixture User"}'
+            fi
+            ;;
+          *) exit 1 ;;
+        esac
+        ;;
       repos/org/project/pulls/42)
         if [ "$6" = '.number' ]; then
           test "$GH_TOKEN" = 'approved-token'
@@ -128,6 +142,7 @@ esac
       { mode: 0o700 }
     );
     const executor = new GitHubRunnerExecutor(env, (bin, args) => {
+      if (bin === "/usr/bin/git") return { bin, args };
       expect(bin).toBe("/usr/bin/gh");
       return { bin: gh, args };
     });
@@ -202,6 +217,10 @@ it("completes a device login and configures the same credential helper for an ag
         });
         expect(result).toContain("username=fixture-user");
       }
+      expect(gitConfig(env, "user.name")).toBe("Fixture User");
+      expect(gitConfig(env, "user.email")).toBe(
+        "1234+fixture-user@users.noreply.github.com"
+      );
       expect(
         await executor.handle(
           { type: "repositorySearch", query: "org/project" },
@@ -261,6 +280,33 @@ it("completes a device login and configures the same credential helper for an ag
     } finally {
       connection.abort();
     }
+  });
+});
+
+function gitConfig(env: NodeJS.ProcessEnv, key: string, value?: string) {
+  return execFileSync(
+    "git",
+    ["config", "--global", key, ...(value === undefined ? [] : [value])],
+    { env, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }
+  ).trim();
+}
+
+it("fills missing Git identity for an existing login and preserves custom values", async () => {
+  await fixture(async ({ executor, root, env }) => {
+    const signal = new AbortController().signal;
+    await writeFile(path.join(root, "login"), "fixture-user");
+    await writeFile(path.join(root, "no-profile-name"), "");
+    gitConfig(env, "user.email", "custom@example.com");
+    expect(await executor.handle({ type: "status" }, signal)).toEqual({
+      status: "signed-in",
+      login: "fixture-user",
+    });
+    expect(gitConfig(env, "user.name")).toBe("fixture-user");
+    expect(gitConfig(env, "user.email")).toBe("custom@example.com");
+    gitConfig(env, "user.name", "Custom Name");
+    await executor.handle({ type: "login" }, signal);
+    expect(gitConfig(env, "user.name")).toBe("Custom Name");
+    expect(gitConfig(env, "user.email")).toBe("custom@example.com");
   });
 });
 

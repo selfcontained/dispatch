@@ -154,8 +154,17 @@ export class GitHubRunnerExecutor {
     );
   }
 
-  private async run(args: string[], signal: AbortSignal, token?: string) {
-    const command = this.wrap(gh, args);
+  private run(args: string[], signal: AbortSignal, token?: string) {
+    return this.runCommand(gh, args, signal, token);
+  }
+
+  private async runCommand(
+    bin: string,
+    args: string[],
+    signal: AbortSignal,
+    token?: string
+  ) {
+    const command = this.wrap(bin, args);
     const { stdout } = await execute(command.bin, command.args, {
       env: token ? { ...this.env, GH_TOKEN: token } : this.env,
       signal,
@@ -164,6 +173,26 @@ export class GitHubRunnerExecutor {
       maxBuffer: 128 * 1024,
     });
     return stdout.trim();
+  }
+
+  private async configureGitIdentity(
+    profile: { login: string; id: number; name?: unknown },
+    signal: AbortSignal
+  ) {
+    const config = (args: string[]) =>
+      this.runCommand("/usr/bin/git", ["config", "--global", ...args], signal);
+    const name = typeof profile.name === "string" ? profile.name.trim() : "";
+    for (const [key, value] of [
+      ["user.name", name || profile.login],
+      ["user.email", `${profile.id}+${profile.login}@users.noreply.github.com`],
+    ]) {
+      try {
+        await config(["--get", key]);
+      } catch (error) {
+        if ((error as { code?: number }).code !== 1) throw error;
+        await config([key, value]);
+      }
+    }
   }
 
   private async configuredUser(signal: AbortSignal) {
@@ -199,12 +228,14 @@ export class GitHubRunnerExecutor {
 
   private async account(signal: AbortSignal): Promise<GitHubStatus> {
     if (!(await this.configuredUser(signal))) return { status: "signed-out" };
+    let profile: { login?: unknown; id?: unknown; name?: unknown } | null;
     try {
-      const login = await this.run(
-        ["api", ...hostArgs, "user", "--jq", ".login"],
-        signal
+      profile = JSON.parse(
+        await this.run(
+          ["api", ...hostArgs, "user", "--jq", "{login,id,name}"],
+          signal
+        )
       );
-      if (validGitHubLogin(login)) return { status: "signed-in", login };
     } catch (error) {
       const { code, stderr } = error as { code?: number; stderr?: string };
       if (code === 4 || /HTTP 401\b/.test(stderr ?? ""))
@@ -213,6 +244,18 @@ export class GitHubRunnerExecutor {
         status: "unavailable",
         message: cliIssue(error, githubAccountIssues.verify),
       };
+    }
+    if (
+      validGitHubLogin(profile?.login) &&
+      typeof profile.id === "number" &&
+      Number.isSafeInteger(profile.id) &&
+      profile.id > 0
+    ) {
+      await this.configureGitIdentity(
+        { login: profile.login, id: profile.id, name: profile.name },
+        signal
+      );
+      return { status: "signed-in", login: profile.login };
     }
     return { status: "unavailable", message: githubAccountIssues.verify };
   }
@@ -289,6 +332,9 @@ export class GitHubRunnerExecutor {
             ["auth", "setup-git", ...hostArgs],
             AbortSignal.timeout(7000)
           );
+          const account = await this.account(AbortSignal.timeout(7000));
+          if (account.status !== "signed-in")
+            failure = githubAccountIssues.verify;
         } catch {
           failure = githubAccountIssues.helper;
         }

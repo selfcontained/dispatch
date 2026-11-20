@@ -48,6 +48,7 @@ case "$1 ${2:-}" in
         test -s "$key"
         printf '[{"name":"%s/private","url":"https://github.com/%s/private"}]\n' "$login" "$login"
         ;;
+      *' {login,id,name} '*) printf '{"login":"%s","id":1234,"name":null}\n' "$login" ;;
       *' user '*) printf '%s\n' "$login" ;;
       *) exit 1 ;;
     esac
