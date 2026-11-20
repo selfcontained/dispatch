@@ -209,7 +209,7 @@ export function isGitHubAccountIssue(value: unknown): value is string {
 }
 
 export type GitHubStatus =
-  | { status: "signed-in"; login: string }
+  | { status: "signed-in"; login: string; gitIdentityUnavailable?: true }
   | { status: "pending"; code?: string; verificationUrl?: string }
   | { status: "signed-out" }
   | { status: "unavailable" | "failed"; message?: string };
@@ -335,7 +335,13 @@ export function parseGitHubStatus(value: unknown): GitHubStatus {
     switch (value.status) {
       case "signed-in":
         if (validGitHubLogin(value.login))
-          return { status: "signed-in", login: value.login };
+          return {
+            status: "signed-in",
+            login: value.login,
+            ...(value.gitIdentityUnavailable === true && {
+              gitIdentityUnavailable: true,
+            }),
+          };
         break;
       case "pending":
         return value.verificationUrl === githubDeviceUrl &&

@@ -278,10 +278,19 @@ export class GitHubRunnerExecutor {
       Number.isSafeInteger(profile.id) &&
       profile.id > 0
     ) {
-      await this.configureGitIdentity(
-        { login: profile.login, id: profile.id, name: profile.name },
-        signal
-      );
+      try {
+        await this.configureGitIdentity(
+          { login: profile.login, id: profile.id, name: profile.name },
+          signal
+        );
+      } catch {
+        signal.throwIfAborted();
+        return {
+          status: "signed-in",
+          login: profile.login,
+          gitIdentityUnavailable: true,
+        };
+      }
       return { status: "signed-in", login: profile.login };
     }
     return { status: "unavailable", message: githubAccountIssues.verify };

@@ -194,6 +194,12 @@ function ConnectedAccount({ runner }: { runner: Runner }) {
           </div>
         </div>
       )}
+      {signedIn && state.gitIdentityUnavailable && (
+        <p role="alert" className="text-sm text-destructive">
+          Git could not configure the author identity. Set user.name and
+          user.email in the runner workload account’s Git config.
+        </p>
+      )}
       {action.isError && (
         <p role="alert" className="text-sm text-destructive">
           {action.error.message}

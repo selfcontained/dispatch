@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { access, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
@@ -283,6 +283,29 @@ it("reports a missing CLI separately from a signed-out account", async () => {
     ).toMatchObject({
       status: "unavailable",
       message: "GitHub CLI is missing on this runner.",
+    });
+  });
+});
+
+it("keeps a verified GitHub account usable if global Git identity setup fails", async () => {
+  await fixture(async ({ executor, root }) => {
+    const signal = new AbortController().signal;
+    await writeFile(path.join(root, "login"), "fixture-user\n");
+    await mkdir(path.join(root, ".gitconfig"));
+    expect(await executor.handle({ type: "status" }, signal)).toEqual({
+      status: "signed-in",
+      login: "fixture-user",
+      gitIdentityUnavailable: true,
+    });
+    expect(
+      await executor.handle(
+        { type: "repositorySearch", query: "org/project" },
+        signal
+      )
+    ).toEqual({
+      repositories: [
+        { name: "org/project", url: "https://github.com/org/project" },
+      ],
     });
   });
 });
