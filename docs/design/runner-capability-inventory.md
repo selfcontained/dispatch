@@ -115,7 +115,7 @@ shares its reset coordinator across HTTP and MCP.
 
 - Keep native Mac behavior. A remote terminal, if offered, opens in the correct guest with the correct identity. Never interpret a remote path as a request to open a Mac file. [Human terminal manager](../../apps/server/src/terminal/manager.ts) · [Clipboard behavior](../../apps/server/src/routes/files.ts) · [Mac integration](../macos-app.md)
 
-**Serve previews.** **Deferred.** An agent can publish a preview link. Reaching a server bound inside a remote execution environment is a separate capability. Dispatch owns the browser-facing URL and access policy.
+**Serve previews.** **Deferred.** An agent can publish a preview link. Reaching a server bound inside a remote execution environment is a separate capability. Dispatch owns the browser-facing URL and access policy. See the [preview reachability boundary and proposed negotiation](runner-preview-access.md).
 
 - When implemented, two runners can independently serve the same guest port. Access and live reload end for the revoked runner. [Preview acceptance in handoff](remote-runner-handoff.md)
 
