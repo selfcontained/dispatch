@@ -1703,10 +1703,11 @@ export class AgentManager {
       if (
         (!useWorktreeOf && !independentSource && input.parentAgentId) ||
         (!managed &&
-          (input.projectId ||
-            input.templateId ||
-            input.jobRunId ||
-            input.useWorktree)) ||
+          (input.jobRunId ||
+            input.useWorktree ||
+            // A project template selects an existing configured workspace.
+            // Project membership is validated below and remains host state.
+            Boolean(input.projectId) !== Boolean(input.templateId))) ||
         (input.persona &&
           !useWorktreeOf &&
           !options.taskPersonaBody &&

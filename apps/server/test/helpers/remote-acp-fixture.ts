@@ -1,5 +1,6 @@
 import { proveFileTransfer } from "../../../../e2e/fixtures/runner-file-transfer.mjs";
 // A standalone deterministic ACP provider for the isolated runner proof.
+import { execFileSync } from "node:child_process";
 import { appendFile, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -34,6 +35,13 @@ const fake = createFakeAcpAgent({
         path.join(session.cwd, "provider-invocations"),
         "called\n"
       );
+    }
+    if (prompt.includes("proof-launch-branch")) {
+      const branch = execFileSync("git", ["branch", "--show-current"], {
+        cwd: session.cwd,
+        encoding: "utf8",
+      }).trim();
+      await report("Launch branch " + branch + "\n");
     }
     if (prompt.includes("proof-reviewed-checkout")) {
       const marker = (
