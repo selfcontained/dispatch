@@ -18,12 +18,14 @@ import os from "node:os";
 import path from "node:path";
 import { rootCertificates } from "node:tls";
 import type { TlsConfig } from "./config.js";
+import { childProcessEnv } from "./shared/process/child-environment.js";
 
 const month = 30 * 24 * 60 * 60 * 1000;
 const openssl = "/usr/bin/openssl";
 
 function run(args: string[]): Buffer {
   return execFileSync(openssl, args, {
+    env: childProcessEnv(),
     stdio: ["ignore", "pipe", "pipe"],
     timeout: 30_000,
   });

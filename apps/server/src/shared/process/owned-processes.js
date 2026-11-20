@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
+import { childProcessEnv } from "./child-environment.js";
 
 /** An inherited capability, unique to one launch (nested launches retain it). */
 export function ownedEnvironment(env) {
@@ -22,6 +23,7 @@ function members(marker, pid) {
           ? ["axeww", "-o", "pid=,command="]
           : ["eww", "-axo", "pid=,command="],
       {
+        env: childProcessEnv(),
         encoding: "utf8",
         maxBuffer: 32 * 1024 * 1024,
         timeout: 2000,

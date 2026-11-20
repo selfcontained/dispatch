@@ -44,10 +44,15 @@ printf '%s\\n' "${tool} $*" >> "$FIXTURE_CALLS"
 if [ "${tool}" = docker ]; then
   case " $* " in
     *' compose version '*|*' down '*) exit 0 ;;
+    *' up '*)
+      if [ -f ./allow-compose ]; then
+        printf '%s\\n' "$DISPATCH_DB_PORT" > ./compose-port
+        exit 0
+      fi ;;
   esac
 fi
 if [ "${tool} $*" = "pnpm run dev" ]; then
-  node -e 'const keys = ["DISPATCH_HOST", "DISPATCH_AGENT_RUNTIME", "DISPATCH_LOCAL_TLS", "DISPATCH_UPDATE_OWNER", "DISPATCH_MAC_INSTANCE_ID", "DISPATCH_LISTEN_HOSTS"]; console.log(JSON.stringify(Object.fromEntries(keys.map(k => [k, process.env[k] ?? null]))))'
+  node -e 'const keys = ["DISPATCH_HOST", "DISPATCH_AGENT_RUNTIME", "DISPATCH_LOCAL_TLS", "DISPATCH_UPDATE_OWNER", "DISPATCH_MAC_INSTANCE_ID", "DISPATCH_LISTEN_HOSTS", "DATABASE_URL", "TEST_DATABASE_URL", "PGSERVICE"]; console.log(JSON.stringify(Object.fromEntries(keys.map(k => [k, process.env[k] ?? null]))))'
 fi
 echo 'fixture: service startup forbidden' >&2
 exit 42
@@ -65,6 +70,9 @@ exit 42
         PATH: `${tools}:${process.env.PATH}`,
         FIXTURE_CALLS: calls,
         DISPATCH_AGENT_ID: "",
+        DATABASE_URL: "postgres://inherited.invalid/parent",
+        TEST_DATABASE_URL: "postgres://inherited.invalid/test",
+        PGSERVICE: "parent",
         RESTART_API_PORT: "",
         RESTART_DB_PORT: "",
         RESTART_VITE_PORT: "",
@@ -152,8 +160,12 @@ describe("dispatch-dev isolated CLI contracts", () => {
     "passes checkout host %s and strips installed-app settings",
     (host) => {
       const f = fixture();
-      writeFileSync(path.join(f.dir, ".env"), `DISPATCH_HOST=${host}\n`);
-      const result = f.run("up", "--no-db", "--no-seed");
+      writeFileSync(path.join(f.dir, "allow-compose"), "");
+      writeFileSync(
+        path.join(f.dir, ".env"),
+        `DISPATCH_HOST=${host}\nDATABASE_URL=postgres://checkout.invalid/dev\nTEST_DATABASE_URL=postgres://checkout.invalid/test\n`
+      );
+      const result = f.run("up", "--no-seed");
       expect(result.status).not.toBe(0);
       const log = readFileSync(path.join(f.logs, "api.log"), "utf8");
       expect(JSON.parse(log.split("\n")[0]!)).toEqual({
@@ -163,9 +175,12 @@ describe("dispatch-dev isolated CLI contracts", () => {
         DISPATCH_UPDATE_OWNER: null,
         DISPATCH_MAC_INSTANCE_ID: null,
         DISPATCH_LISTEN_HOSTS: null,
+        DATABASE_URL: `postgres://dispatch:dispatch@127.0.0.1:${readFileSync(path.join(f.dir, "compose-port"), "utf8").trim()}/dispatch_${path.basename(f.dir)}`,
+        TEST_DATABASE_URL: null,
+        PGSERVICE: null,
       });
       expect(log).toContain("fixture: service startup forbidden");
-      expect(readFileSync(f.calls, "utf8").trim()).toBe("pnpm run dev");
+      expect(readFileSync(f.calls, "utf8")).toContain("pnpm run dev\n");
     }
   );
 });

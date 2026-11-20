@@ -1,3 +1,4 @@
+import { childProcessEnv } from "../src/shared/process/child-environment.js";
 import { execFileSync } from "node:child_process";
 import {
   mkdirSync,
@@ -11,10 +12,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { buildLaunchEnv } from "../src/agents/acp/launch-env.js";
 import { buildHostEnv } from "../src/agents/acp/host-env.js";
-import {
-  hostProcessEnv,
-  loginShellCommand,
-} from "../src/agents/acp/runtime.js";
+import { loginShellCommand } from "../src/agents/acp/runtime.js";
 
 const roots: string[] = [];
 afterEach(() => {
@@ -124,7 +122,7 @@ it("preserves the shell trust configuration without managed local TLS", () => {
 describe("ACP host environment", () => {
   it("withholds the adapter command, server settings and credentials", () => {
     expect(
-      hostProcessEnv({
+      childProcessEnv({
         PATH: "/usr/bin",
         DISPATCH_ACP_ADAPTER_COMMAND: '["/tmp/fake-acp-agent"]',
         DISPATCH_AGENT_HOST_COMMAND: '["/tmp/host"]',

@@ -25,6 +25,9 @@
         "apps/server/src/agents/**",
         "apps/server/src/main.ts",
         "apps/server/src/shared/process/**",
+        "apps/server/src/shared/lib/run-command.ts",
+        "apps/server/src/shared/lib/tool-environment.ts",
+        "apps/server/src/terminal/process-session.ts",
         "apps/server/src/server/agent-*.ts",
         "apps/server/src/shared/git/**",
         "apps/server/src/agents/acp/**",
@@ -190,6 +193,7 @@
         "apps/server/src/server.ts",
         "plugins/dispatch/**",
         "apps/server/test/*mcp*",
+        "apps/server/test/repo-tool-environment.test.ts",
         "apps/server/test/tasks-service.test.ts",
         "packages/shared/src/mcp-inventory-types.ts",
         "apps/server/src/agents/acp/mcp-inventory.ts"
@@ -367,6 +371,7 @@
         "apps/server/src/routes/files.ts",
         "apps/server/src/shared/files.ts",
         "apps/server/src/shared/file-types.ts",
+        "apps/server/src/shared/lib/clipboard-write.ts",
         "apps/web/src/components/app/file-*",
         "apps/web/src/components/app/files-*",
         "apps/web/src/hooks/use-files*",
@@ -415,6 +420,7 @@
     {
       "paths": [
         "apps/server/src/diagnostics.ts",
+        "apps/server/src/observability/artifact-storage.ts",
         "apps/server/test/diagnostics-helpers.test.ts",
         "docs/10-operations-runbook.md",
         "apps/server/test/process-tree-fixture.test.ts"

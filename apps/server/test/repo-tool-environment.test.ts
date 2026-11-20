@@ -70,6 +70,45 @@ printf '%s:%s:%s\\n' "$1" "$DISPATCH_AGENT_ID" "$PWD"
 }
 
 describe("repo command environment", () => {
+  it("keeps server secrets out of repo tools and stop hooks", async () => {
+    const { root } = await fixture();
+    const secrets = [
+      "DATABASE_URL",
+      "TEST_DATABASE_URL",
+      "PGSERVICEFILE",
+      "TLS_EXTRA",
+      "OPENAI_API_KEY",
+      "DISPATCH_MAC_APP_TOKEN",
+    ];
+    for (const key of secrets) vi.stubEnv(key, "server-only-sentinel");
+    const command = [
+      process.execPath,
+      "-e",
+      `const leaked = ${JSON.stringify(secrets)}.filter(key => key in process.env);
+       if (leaked.length) { console.error(leaked.join(",")); process.exit(1); }
+       console.log(process.env.DISPATCH_AGENT_ID);`,
+    ];
+    await writeFile(
+      path.join(root, ".dispatch", "tools.json"),
+      JSON.stringify({
+        tools: [{ name: "probe", description: "Check environment", command }],
+        hooks: { stop: { command } },
+      })
+    );
+    const [tool] = await loadRepoTools(root);
+    const result = await tool.run({ agentId: "agt_probe", repoRoot: root });
+    expect(result.stderr).toBe("");
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toBe("agt_probe");
+    await expect(
+      runLifecycleHook(
+        "stop",
+        { id: "agt_probe", cwd: root } as AgentRecord,
+        { info: vi.fn() } as unknown as import("fastify").FastifyBaseLogger
+      )
+    ).resolves.toBeUndefined();
+  });
+
   it("discovers nvm runtimes for every dev tool under a restricted service PATH", async () => {
     const { root } = await fixture();
     const tools = await loadRepoTools(root);

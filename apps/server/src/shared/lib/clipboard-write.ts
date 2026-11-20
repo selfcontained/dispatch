@@ -2,6 +2,7 @@ import os from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { childProcessEnv } from "../process/child-environment.js";
 
 import { runCommand } from "./run-command.js";
 
@@ -18,7 +19,7 @@ async function waitForClipboardSelection(
       "xclip",
       ["-selection", "clipboard", "-o", "-t", "TARGETS"],
       {
-        env: { ...process.env, DISPLAY: display },
+        env: { ...childProcessEnv(), DISPLAY: display },
         timeoutMs: 1_000,
         allowedExitCodes: [0, 1],
       }
@@ -53,10 +54,14 @@ export async function writeImageToClipboard(
       await writeFile(tmpPath, buffer);
       const pasteboardClass = ext === "jpg" ? "JPEG" : "PNGf";
       await new Promise<void>((resolve, reject) => {
-        const proc = spawn("osascript", [
-          "-e",
-          `set the clipboard to (read (POSIX file "${tmpPath}") as «class ${pasteboardClass}»)`,
-        ]);
+        const proc = spawn(
+          "osascript",
+          [
+            "-e",
+            `set the clipboard to (read (POSIX file "${tmpPath}") as «class ${pasteboardClass}»)`,
+          ],
+          { env: childProcessEnv() }
+        );
         proc.on("close", (code) =>
           code === 0 ? resolve() : reject(new Error(`osascript exited ${code}`))
         );
@@ -78,7 +83,7 @@ export async function writeImageToClipboard(
   }
   await new Promise<void>((resolve, reject) => {
     const proc = spawn("xclip", ["-selection", "clipboard", "-t", mime], {
-      env: { ...process.env, DISPLAY: display },
+      env: { ...childProcessEnv(), DISPLAY: display },
       stdio: ["pipe", "ignore", "pipe"],
       detached: true,
     });

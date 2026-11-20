@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { childProcessEnv } from "../shared/process/child-environment.js";
 
 /** One bounded Git request per opened folder, never one process per entry.
  * Git handles nested/global ignore rules, negations and tracked exceptions. */
@@ -12,6 +13,7 @@ export function ignoredWorkspacePaths(
       "git",
       ["check-ignore", "--stdin", "-z"],
       {
+        env: childProcessEnv(),
         cwd: root,
         timeout: 2000,
         maxBuffer: 1_048_576,

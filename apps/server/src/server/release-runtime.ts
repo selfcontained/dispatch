@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { lstat } from "node:fs/promises";
 import { isMacAppManaged, MAC_APP_UPDATE_MESSAGE } from "../update-owner.js";
 import { packageVersionTag } from "../release-store.js";
+import { childProcessEnv } from "../shared/process/child-environment.js";
 
 import type { ReleaseLogStreamProcessor } from "../release-log-stream.js";
 import {
@@ -157,6 +158,7 @@ export function createReleaseRuntime(deps: CreateReleaseRuntimeDeps) {
         spawn("systemctl", ["--user", "restart", name], {
           detached: true,
           stdio: "ignore",
+          env: childProcessEnv(),
         }).unref();
         return;
       }
@@ -164,6 +166,7 @@ export function createReleaseRuntime(deps: CreateReleaseRuntimeDeps) {
       spawn("launchctl", ["kickstart", "-k", `gui/${uid}/${name}`], {
         detached: true,
         stdio: "ignore",
+        env: childProcessEnv(),
       }).unref();
     };
   }
@@ -286,7 +289,7 @@ export function createReleaseRuntime(deps: CreateReleaseRuntimeDeps) {
     return new Promise((resolve, reject) => {
       const child = spawn(command, args, {
         cwd: options.cwd,
-        env: { ...process.env, ...options.env },
+        env: { ...childProcessEnv(), ...options.env },
         stdio: ["ignore", "pipe", "pipe"],
       });
 
