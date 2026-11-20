@@ -1,4 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
+import { mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { authHeaders, cleanupE2EAgents, createAgentViaAPI } from "../helpers";
 import {
@@ -23,7 +25,10 @@ async function openTerminal(page: Page) {
     await page.getByTestId("toggle-drawer").click();
   await tab.click();
   const panel = page.getByRole("region", { name: "Terminal", exact: true });
-  await expect(panel.getByRole("status")).toHaveText("Connected");
+  // Runner opens can wait for checkout resolution and a worker acknowledgement.
+  await expect(panel.getByRole("status")).toHaveText("Connected", {
+    timeout: 25_000,
+  });
   return panel;
 }
 
@@ -61,6 +66,7 @@ for (const lane of ["native", "runner", "managed"] as const) {
         : { width: 1440, height: 900 },
       deviceScaleFactor: 2,
     });
+    let nativeFixture: string | undefined;
     try {
       await expect
         .poll(async () => (await agentInfo(request, agent.id)).status, {
@@ -76,6 +82,15 @@ for (const lane of ["native", "runner", "managed"] as const) {
           guestName,
           `install -d -o 1500 -g 1500 '${target}' && printf '%s\n' '${expectedMarker}' >'${target}/marker.txt'`
         );
+      } else if (lane === "native") {
+        nativeFixture = await mkdtemp(
+          join(tmpdir(), "dispatch-native-terminal-")
+        );
+        target = await realpath(nativeFixture);
+        expectedMarker = `native-marker-${agent.id}`;
+        await writeFile(join(target, "marker.txt"), expectedMarker + "\n");
+      }
+      if (lane !== "runner") {
         const moved = await request.patch(
           `/api/v1/agents/${agent.id}/workspace`,
           {
@@ -96,6 +111,7 @@ for (const lane of ["native", "runner", "managed"] as const) {
         await testInfo.attach(name, { path, contentType: "image/png" });
       };
       let output = "";
+      let submitted = "";
       let resize: { cols: number; rows: number } | undefined;
       session.on("websocket", (socket) => {
         if (!socket.url().includes("/human-terminals/")) return;
@@ -106,6 +122,7 @@ for (const lane of ["native", "runner", "managed"] as const) {
           if (typeof payload !== "string") return;
           const message = JSON.parse(payload);
           if (message.type === "resize") resize = message;
+          if (message.type === "input") submitted += message.data;
         });
       });
 
@@ -137,10 +154,7 @@ for (const lane of ["native", "runner", "managed"] as const) {
         const action = session.getByTestId("ide-launch-button");
         await action.scrollIntoViewIfNeeded();
         await expect(action).toBeInViewport({ ratio: 0.8 });
-        await expect(action).toHaveAttribute(
-          "href",
-          /^vscode:\/\/file\/(private\/)?tmp$/
-        );
+        await expect(action).toHaveAttribute("href", `vscode://file${target}`);
       }
       await screenshot("ide");
       if (remote)
@@ -156,21 +170,33 @@ for (const lane of ["native", "runner", "managed"] as const) {
       );
       expect(open).toBeTruthy();
       await expect.poll(() => resize).toBeTruthy();
-      const input = session.getByLabel("Host terminal").locator("textarea");
       const type = async (command: string) => {
-        await input.pressSequentially(command);
-        await input.press("Enter");
+        const from = submitted.length;
+        if (remote) {
+          await session
+            .getByRole("button", { name: "Open text input" })
+            .click();
+          await session
+            .getByRole("textbox", { name: "Terminal input text" })
+            .fill(command);
+          await session
+            .getByRole("button", { name: "Submit", exact: true })
+            .click();
+        } else {
+          const input = session.getByLabel("Host terminal").locator("textarea");
+          await input.pressSequentially(command);
+          await input.press("Enter");
+        }
+        await expect.poll(() => submitted.slice(from)).toContain(command);
       };
       await type(
         remote
           ? `cat marker.txt; stty size; printf 'PTY_PID_%s\\n' $$; printf 'PTY_UID_%s\\n' "$(id -u)"`
-          : "stty size; printf 'PTY_PID_%s\\n' $$"
+          : "cat marker.txt; stty size; printf 'PTY_PID_%s\\n' $$"
       );
-      if (remote) {
-        await expect(panel.getByText(target, { exact: true })).toBeVisible();
-        await expect.poll(() => output).toContain(expectedMarker);
-        await expect.poll(() => output).toContain("PTY_UID_1500");
-      }
+      await expect(panel.getByText(target, { exact: true })).toBeVisible();
+      await expect.poll(() => output).toContain(expectedMarker);
+      if (remote) await expect.poll(() => output).toContain("PTY_UID_1500");
       const initialSize = resize!;
       await expect
         .poll(() => output)
@@ -203,6 +229,8 @@ for (const lane of ["native", "runner", "managed"] as const) {
       await screenshot("ended");
     } finally {
       await context.close();
+      if (nativeFixture)
+        await rm(nativeFixture, { recursive: true, force: true });
       await request.post(ideSettings, { headers, data: previousIdes });
     }
   });

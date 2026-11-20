@@ -1,6 +1,8 @@
 import Fastify from "fastify";
 import cookie from "@fastify/cookie";
 import websocket from "@fastify/websocket";
+import { realpath } from "node:fs/promises";
+import { createLocalRunner } from "../src/agents/local-runner.js";
 import { EventEmitter } from "node:events";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { WebSocket } from "ws";
@@ -35,9 +37,22 @@ function harness(grace = 60_000) {
     output = callback;
     return process;
   });
-  const manager = new HumanTerminalManager(spawn, grace);
+  const manager = new HumanTerminalManager(grace);
+  const runner = createLocalRunner(
+    "/tmp",
+    Fastify({ logger: false }).log,
+    spawn
+  );
+  const backend = (workspacePath: string | null = null) =>
+    runner.terminalBackend({
+      id: "agent",
+      cwd: "/tmp",
+      worktreePath: null,
+      workspacePath,
+    });
   return {
     manager,
+    backend,
     process,
     spawn,
     output: (text: string) => output(Buffer.from(text)),
@@ -58,11 +73,13 @@ afterEach(() => {
 });
 
 describe("human terminal lifecycle", () => {
-  it("keeps one per owner/tab/workspace, rejects foreign owners, replays bounded bytes and expires disconnected processes", () => {
+  it("keeps one per owner/tab/workspace, rejects foreign owners, replays bounded bytes and expires disconnected processes", async () => {
     vi.useFakeTimers();
     const h = harness();
-    const first = h.manager.open("a", "tab", "agent", "/tmp");
-    expect(h.manager.open("a", "tab", "agent", "/other")).toEqual(first);
+    const first = await h.manager.open("a", "tab", "agent", h.backend());
+    expect(
+      await h.manager.open("a", "tab", "agent", h.backend("/other"))
+    ).toEqual(first);
     expect(h.spawn).toHaveBeenCalledTimes(1);
     expect(h.manager.resume(first.id, "b", "tab", "agent")).toBeNull();
     expect(h.manager.resume(first.id, "a", "other", "agent")).toBeNull();
@@ -84,9 +101,9 @@ describe("human terminal lifecycle", () => {
     expect(h.process.kill).toHaveBeenCalledOnce();
     expect(h.manager.owns(first.id, "a")).toBe(false);
   });
-  it("limits input, validates dimensions, ends only for its owner and cleans shutdown", () => {
+  it("limits input, validates dimensions, ends only for its owner and cleans shutdown", async () => {
     const h = harness();
-    const { id } = h.manager.open("a", "tab", "agent", "/tmp");
+    const { id } = await h.manager.open("a", "tab", "agent", h.backend());
     const ws = socket();
     h.manager.attach(id, "a", ws);
     ws.emit(
@@ -141,7 +158,7 @@ describe("terminal browser security", () => {
     await registerHumanTerminalRoutes(app, {
       pool: {} as Pool,
       sessionCookie: "session",
-      getAgent: async () => ({ cwd: "/tmp", worktreePath: null }),
+      getBackend: async () => h.backend(),
       manager: h.manager,
     });
     await app.ready();
@@ -220,11 +237,12 @@ describe("terminal browser security", () => {
           secret: name + "-cookie-secret-at-least-32bytes",
         });
         await app.register(websocket);
+        const h = harness();
         await registerHumanTerminalRoutes(app, {
           pool: {} as Pool,
           sessionCookie: name,
-          getAgent: async () => ({ cwd: "/tmp", worktreePath: null }),
-          manager: harness().manager,
+          getBackend: async () => h.backend(),
+          manager: h.manager,
         });
         await app.ready();
       }
@@ -303,7 +321,7 @@ describe("terminal browser security", () => {
       )
     ).toBe(true);
   });
-  it("rejects first-run, bearer-only, bad cookies and cross-owner REST/WS, uses server cwd", async () => {
+  it("rejects first-run, bearer-only, bad cookies and cross-owner REST/WS, uses the moved native checkout", async () => {
     const app = Fastify();
     await app.register(cookie, {
       secret: "terminal-test-cookie-secret-32bytes",
@@ -313,8 +331,8 @@ describe("terminal browser security", () => {
     await registerHumanTerminalRoutes(app, {
       pool: {} as Pool,
       sessionCookie: "session",
-      getAgent: async (id) =>
-        id === "agent" ? { cwd: "/tmp", worktreePath: null } : null,
+      getBackend: async (id) =>
+        id === "agent" ? h.backend(process.cwd()) : null,
       manager: h.manager,
     });
     await app.ready();
@@ -367,7 +385,7 @@ describe("terminal browser security", () => {
         ).statusCode
       ).toBe(200); // Fastify strips extra fields; never forwards them.
       expect(h.spawn).toHaveBeenCalledWith(
-        await import("node:fs/promises").then((fs) => fs.realpath("/tmp")),
+        await realpath(process.cwd()),
         expect.any(Function)
       );
       const result = await create({ cookie: signed("browser-a") });

@@ -1,12 +1,12 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { Pool } from "pg";
-import { realpath, stat } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
-import { remotePlacement } from "@dispatch/runner-protocol";
-import { remoteTerminal } from "../terminal/remote.js";
-import type { RemoteRunnerService } from "../agents/remote/service.js";
 import { isPasswordSet, validateSession } from "../auth.js";
-import { HumanTerminalManager, terminalOwner } from "../terminal/manager.js";
+import {
+  HumanTerminalManager,
+  terminalOwner,
+  type TerminalBackend,
+} from "../terminal/manager.js";
 
 export function terminalOriginAllowed(
   origin: string | undefined,
@@ -34,12 +34,7 @@ export function terminalOriginAllowed(
 type Deps = {
   pool: Pool;
   sessionCookie: string;
-  getAgent: (id: string) => Promise<{
-    cwd: string;
-    worktreePath: string | null;
-    workspacePath?: string | null;
-  } | null>;
-  runner?: Pick<RemoteRunnerService, "requestSession"> | null;
+  getBackend: (id: string) => Promise<TerminalBackend | null>;
   manager?: HumanTerminalManager;
 };
 
@@ -153,32 +148,14 @@ export async function registerHumanTerminalRoutes(
             });
           return { ...resumed, unencrypted: request.protocol !== "https" };
         }
-        const agent = await deps.getAgent(request.body.agentId);
-        if (!agent)
-          return reply.code(404).send({ error: "Workspace not found." });
         try {
           const { agentId, clientId } = request.body;
-          const placement = remotePlacement(agent.cwd);
-          const unencrypted = request.protocol !== "https";
-          if (placement) {
-            if (!deps.runner)
-              throw new Error("The session runner is unavailable.");
-            const backend = remoteTerminal(deps.runner, placement, agentId);
-            return {
-              ...(await manager.openRemote(owner, clientId, agentId, backend)),
-              unencrypted,
-            };
-          }
-          if (agent.cwd.startsWith("runner://"))
-            throw new Error("The session runner location is invalid.");
-          const cwd = await realpath(
-            agent.workspacePath ?? agent.worktreePath ?? agent.cwd
-          );
-          if (!(await stat(cwd)).isDirectory())
-            throw new Error("Workspace directory is unavailable.");
+          const backend = await deps.getBackend(agentId);
+          if (!backend)
+            return reply.code(404).send({ error: "Workspace not found." });
           return {
-            ...manager.open(owner, clientId, agentId, cwd),
-            unencrypted,
+            ...(await manager.open(owner, clientId, agentId, backend)),
+            unencrypted: request.protocol !== "https",
           };
         } catch (error) {
           return reply.code(409).send({

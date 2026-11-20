@@ -1,6 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { hostname, userInfo } from "node:os";
-import { spawnTerminal, type PtyProcess, type SpawnTerminal } from "./pty.js";
+import type { PtyProcess } from "./pty.js";
 import type { WebSocket } from "ws";
 import {
   isTerminalControl,
@@ -39,10 +38,7 @@ type TerminalSession = {
 
 export class HumanTerminalManager {
   private sessions = new Map<string, TerminalSession>();
-  constructor(
-    private spawn: SpawnTerminal = spawnTerminal,
-    private graceMs = DISCONNECT_GRACE_MS
-  ) {}
+  constructor(private graceMs = DISCONNECT_GRACE_MS) {}
 
   private pending = new Map<
     string,
@@ -91,19 +87,7 @@ export class HumanTerminalManager {
     return { session, output };
   }
 
-  open(owner: string, clientId: string, agentId: string, cwd: string) {
-    const existing = this.existing(owner, clientId, agentId);
-    if (existing) return this.describe(existing);
-    const { session, output } = this.reserve(owner, clientId, agentId);
-    return this.activate(session, {
-      ...this.spawn(cwd, output),
-      cwd,
-      host: hostname(),
-      user: userInfo().username,
-    });
-  }
-
-  async openRemote(
+  async open(
     owner: string,
     clientId: string,
     agentId: string,

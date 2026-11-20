@@ -72,6 +72,8 @@ import {
   type ChatLaunchPost,
   shouldSuggestSessionRename,
 } from "./launch-guidance.js";
+import type { TerminalBackend } from "../terminal/manager.js";
+import { remoteTerminal } from "../terminal/remote.js";
 import { createLocalRunner } from "./local-runner.js";
 import type { LaunchDirectory, WorktreeRequest } from "./workspace.js";
 import { createAgentMcpToken, createJobMcpToken } from "../auth.js";
@@ -1287,6 +1289,15 @@ export class AgentManager {
     return (result.rows as AgentRecord[]).map((row) =>
       this.withLiveActivity(row)
     );
+  }
+
+  async terminalBackend(id: string): Promise<TerminalBackend | null> {
+    const agent = await this.getAgent(id);
+    if (!agent) return null;
+    const placement = remotePlacement(agent.cwd);
+    if (!placement) return this.localRunner.terminalBackend(agent);
+    if (!this.remote) throw new Error("The session runner is unavailable.");
+    return remoteTerminal(this.remote, placement, agent.id);
   }
 
   async getAgent(id: string): Promise<AgentRecord | null> {
