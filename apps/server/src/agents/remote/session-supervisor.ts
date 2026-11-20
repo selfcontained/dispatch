@@ -18,6 +18,7 @@ import {
 import { createConnection } from "node:net";
 import path from "node:path";
 import { hostFile, type HostLaunch } from "../acp/host-protocol.js";
+import { observeBoundCheckout } from "../checkout-observation.js";
 import {
   MANAGED_WORKSPACE,
   isOpaqueId,
@@ -488,12 +489,12 @@ export async function createSessionSupervisor(
         checkout: null,
       };
     const owner = checkoutOwner(binding) ?? key;
-    return {
-      ownership: owner === key ? "owned" : "borrowed",
+    return observeBoundCheckout(
+      key,
       owner,
-      borrowers: await checkoutBorrowers(owner),
-      checkout: await describeOwnedState(owner).catch(() => null),
-    };
+      await checkoutBorrowers(owner),
+      await describeOwnedState(owner).catch(() => null)
+    );
   }
 
   async function releaseCheckout(

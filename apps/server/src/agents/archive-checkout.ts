@@ -6,6 +6,7 @@ import {
 } from "@dispatch/runner-protocol";
 import type { Pool } from "pg";
 import type { createLocalRunner } from "./local-runner.js";
+import { observeBoundCheckout } from "./checkout-observation.js";
 import { AgentError } from "./errors.js";
 import type { RemoteRunnerService } from "./remote/service.js";
 import type { AgentRecord, WorktreeCleanupMode } from "./types.js";
@@ -50,14 +51,33 @@ export async function observeArchiveCheckout(
       throw new AgentError("The session runner is unavailable.", 503);
     return observeRemoteCheckout(agent, remote, placement);
   }
-  const observed = await localRunner.checkoutRelease(agent, {
+  let binding = agent;
+  if (!agent.worktreePath) {
+    // A local borrower launches in the owner's worktree but has no worktree
+    // path of its own. A deleted owner can still be holding it for borrowers.
+    const { rows } = await pool.query<ArchiveCheckoutAgent>(
+      `SELECT id, cwd, worktree_path AS "worktreePath", base_branch AS "baseBranch",
+              worktree_branch AS "worktreeBranch"
+       FROM agents
+       WHERE worktree_path = $1 AND (deleted_at IS NULL OR runner_cleanup_pending)
+       ORDER BY deleted_at NULLS FIRST, id LIMIT 1`,
+      [agent.cwd]
+    );
+    binding = rows[0] ?? agent;
+  }
+  const observed = await localRunner.checkoutRelease(binding, {
     kind: "observe",
   });
-  if (observed.ownership !== "owned" || !observed.checkout) return observed;
-  return {
-    ...observed,
-    borrowers: await nativeBorrowers(pool, agent, observed.checkout.path),
-  };
+  const checkoutPath =
+    observed.checkout?.path ??
+    (binding.id !== agent.id ? binding.worktreePath : null);
+  if (observed.ownership !== "owned" || !checkoutPath) return observed;
+  return observeBoundCheckout(
+    agent.id,
+    binding.id,
+    await nativeBorrowers(pool, binding, checkoutPath),
+    observed.checkout
+  );
 }
 
 async function observeRemoteCheckout(

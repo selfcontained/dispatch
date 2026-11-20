@@ -4,7 +4,16 @@ import { TemplateService } from "../../src/templates/service.js";
 import { personaCatalog } from "../../src/personas/catalog.js";
 import * as gitContext from "../../src/shared/git/git-context.js";
 import { upsertPersona } from "../../src/personas/authoring.js";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { execFileSync } from "node:child_process";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  realpath,
+  rm,
+  writeFile,
+} from "node:fs/promises";
+import { observeGitCheckout } from "../../src/agents/checkout-inspection.js";
 import os from "node:os";
 import path from "node:path";
 
@@ -3655,6 +3664,82 @@ describe("AgentManager", () => {
   });
 
   describe("checkWorktreeStatus", () => {
+    it("reports the same worktree status for local and runner borrowers", async () => {
+      const root = await mkdtemp(path.join(os.tmpdir(), "shared-checkout-"));
+      try {
+        const checkoutPath = await realpath(root);
+        const git = (...args: string[]) =>
+          execFileSync("git", args, { cwd: checkoutPath });
+        git("init", "-b", "main");
+        git(
+          "-c",
+          "user.name=Dispatch Test",
+          "-c",
+          "user.email=test@example.test",
+          "commit",
+          "--allow-empty",
+          "-m",
+          "Initial"
+        );
+        await writeFile(path.join(checkoutPath, "dirty.txt"), "uncommitted\n");
+
+        vi.mocked(createGitWorktree).mockResolvedValueOnce({
+          worktreePath: checkoutPath,
+          branchName: "main",
+        } as never);
+        const owner = await manager.createAgent({
+          cwd: checkoutPath,
+          useWorktree: true,
+          baseBranch: "main",
+        });
+        const child = await manager.createAgent({
+          cwd: checkoutPath,
+          parentAgentId: owner.id,
+          useWorktree: false,
+        });
+        const ownerStatus = await manager.checkWorktreeStatus(owner.id);
+        expect(ownerStatus).toMatchObject({
+          ownership: "owned",
+          borrowers: [child.id],
+          checkoutState: expect.stringMatching(/^[0-9a-f]{64}$/),
+          uncommittedFiles: ["dirty.txt"],
+        });
+
+        const runnerCwd = "runner://runner-test/@session";
+        const checkout = await observeGitCheckout(checkoutPath, "main");
+        const requestSession = vi.fn(async () => ({
+          value: JSON.stringify({
+            ownership: "borrowed",
+            owner: owner.id,
+            borrowers: [child.id],
+            checkout,
+          }),
+        }));
+        const runnerManager = new AgentManager(pool, noopLogger, testConfig, {
+          runtime,
+          remote: { requestSession } as unknown as RemoteRunnerService,
+        });
+        const localStatus = await manager.checkWorktreeStatus(child.id);
+        await pool.query("UPDATE agents SET cwd = $2 WHERE id = $1", [
+          child.id,
+          runnerCwd,
+        ]);
+        const runnerStatus = await runnerManager.checkWorktreeStatus(child.id);
+        expect(requestSession).toHaveBeenCalledWith(
+          { runner: "runner-test", workspace: "@session" },
+          {
+            kind: "checkoutRelease",
+            agentId: child.id,
+            operation: { kind: "observe" },
+          }
+        );
+        expect(runnerStatus).toEqual({ ...ownerStatus, ownership: "borrowed" });
+        expect(localStatus).toEqual(runnerStatus);
+      } finally {
+        await rm(root, { recursive: true, force: true });
+      }
+    });
+
     it("should return hasWorktree false for agents without a worktree", async () => {
       const agent = await manager.createAgent({
         cwd: "/tmp",
