@@ -243,6 +243,8 @@ install_runner() {
     # The workload needs traversal to ca.pem. Settings and private key stay 0600.
     install -d -m 0711 "$settings"
     write_config "$uid" "$gid" "$account_home"
+  elif [[ "$dedicated" == 1 || -n "$requested_user" ]]; then
+    printf 'Keeping the configured workload account. Account options apply only to the first install.\n' >&2
   fi
   repair_install_root
   if [[ ! -e "$runtime/dispatch" ]]; then

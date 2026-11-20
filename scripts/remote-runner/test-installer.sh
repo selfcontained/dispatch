@@ -215,6 +215,8 @@ for fixture in invalid default explicit; do
     default)
       mkdir "$fixture_root/installer home"
       SUDO_USER=installer run install v1.0.0
+      SUDO_USER=installer run install v1.0.0 x64 --user alternate 2> "$fixture_root/reinstall"
+      grep -Fq 'Keeping the configured workload account.' "$fixture_root/reinstall"
       grep -Fq '"uid": 1000' "$fixture_root/settings/runner.json"
       grep -Fq "\"home\": \"$fixture_root/installer home\"" "$fixture_root/settings/runner.json"
       ;;
