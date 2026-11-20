@@ -228,7 +228,6 @@ const remoteRunner = configuredRunner({
   host: config.listenHosts?.[0] ?? config.host,
   apiPort: config.port,
   apiTls: Boolean(config.tls),
-  logger: app.log,
   // authToken is resolved at startup; read it per request.
   validAgentToken: (token, agentId) =>
     validateAgentMcpToken(config.authToken, token, agentId),
