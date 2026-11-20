@@ -56,9 +56,13 @@ The service validates the bearer against the intended session and owns
 revocation and child access policy.
 
 The supervisor regression exercises the host's TLS bundles against the
-Dispatch MCP route with a loopback client. To repeat the offline tool call
-with a real Codex app-server on a fresh thread, run
-`DISPATCH_TEST_CODEX_BIN="$(command -v codex)" pnpm --filter @dispatch/server exec vitest run test/remote-runner-supervisor.test.ts -t 'fresh real Codex'`.
+Dispatch MCP route with a loopback client. The opt-in Codex test launches
+the real agent host and bundled ACP adapter from a fresh supervisor
+session. A stdio probe forwards the adapter's configuration unchanged and
+asks the real Codex app-server to call the tool once its thread starts.
+This runs offline with a temporary Codex home and the test user's UID.
+To repeat it, run
+`DISPATCH_TEST_CODEX_BIN="$(command -v codex)" pnpm --filter @dispatch/server exec vitest run test/remote-runner-supervisor.test.ts -t 'production Codex adapter'`.
 
 Session checkout selection now runs on the owning runner. Dispatch preserves
 the machine binding and project membership and records the selected path

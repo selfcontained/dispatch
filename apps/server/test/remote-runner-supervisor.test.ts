@@ -1,5 +1,6 @@
 import { execFile, execFileSync, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
+import { once } from "node:events";
 import {
   link,
   mkdir,
@@ -12,9 +13,8 @@ import {
   symlink,
   writeFile,
 } from "node:fs/promises";
-import os from "node:os";
 import path from "node:path";
-import { createInterface } from "node:readline";
+import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import Fastify from "fastify";
 import { buildHostEnv } from "../src/agents/acp/host-env.js";
@@ -73,73 +73,6 @@ it("explains lock contention while retaining diagnostics for other flock failure
   );
 });
 
-// Drive the actual CLI's MCP client directly, with no provider account or model turn.
-async function callCodexMcp(
-  bin: string,
-  env: NodeJS.ProcessEnv,
-  launch: HostLaunch
-): Promise<string> {
-  const child = spawn(bin, ["app-server", "--listen", "stdio://"], {
-    cwd: launch.cwd,
-    env,
-    stdio: ["pipe", "pipe", "ignore"],
-  });
-  const responses = createInterface({ input: child.stdout })[
-    Symbol.asyncIterator
-  ]();
-  let id = 0;
-  async function request(method: string, params: object) {
-    const requestId = ++id;
-    child.stdin.write(
-      JSON.stringify({ jsonrpc: "2.0", id: requestId, method, params }) + "\n"
-    );
-    while (true) {
-      const line = await responses.next();
-      if (line.done) throw new Error(method + " closed without a response");
-      const message = JSON.parse(line.value);
-      if (message.id !== requestId) continue;
-      if (message.error)
-        throw new Error(method + " failed: " + message.error.code);
-      return message.result;
-    }
-  }
-  const timeout = setTimeout(() => child.kill(), 15_000);
-  try {
-    const mcp = launch.mcp!;
-    await request("initialize", {
-      clientInfo: { name: "dispatch-first-launch", version: "1" },
-      capabilities: { experimentalApi: true },
-    });
-    child.stdin.write('{"jsonrpc":"2.0","method":"initialized"}\n');
-    const { thread } = await request("thread/start", {
-      cwd: launch.cwd,
-      ephemeral: true,
-      sandbox: "read-only",
-      approvalPolicy: "never",
-      config: {
-        mcp_servers: {
-          [mcp.name!]: {
-            url: mcp.url,
-            http_headers: { Authorization: "Bearer " + mcp.token },
-          },
-        },
-      },
-    });
-    return JSON.stringify(
-      await request("mcpServer/tool/call", {
-        threadId: thread.id,
-        server: mcp.name,
-        tool: "create_template",
-        arguments: { name: "first launch", fullAccess: false },
-      })
-    );
-  } finally {
-    clearTimeout(timeout);
-    child.stdin.end();
-    child.kill();
-  }
-}
-
 describe("runner session supervision", () => {
   let root: string;
   let state: string;
@@ -182,7 +115,11 @@ describe("runner session supervision", () => {
     asWorkload: Parameters<
       typeof createSessionSupervisor
     >[0]["asWorkload"] = vi.fn(),
-    prepareDependencies?: (cwd: string) => Promise<boolean>
+    prepareDependencies?: (cwd: string) => Promise<boolean>,
+    workload?: Pick<
+      Parameters<typeof createSessionSupervisor>[0],
+      "env" | "bins" | "hostCommand"
+    >
   ) {
     supervisor = await createSessionSupervisor(
       {
@@ -198,6 +135,7 @@ describe("runner session supervision", () => {
         observeCheckout: (dir, scratch) =>
           scratch ? observeScratchCheckout(dir) : observeGitCheckout(dir),
         prepareDependencies,
+        ...workload,
       },
       processes
     );
@@ -217,7 +155,7 @@ describe("runner session supervision", () => {
     kernelHost = undefined;
     kernelReviewer = undefined;
     locked = false;
-    root = await mkdtemp(path.join(os.tmpdir(), "runner-supervisor-"));
+    root = await mkdtemp("/tmp/runner-supervisor-");
     state = path.join(await realpath(root), "state");
     record = path.join(state, "bindings", agentId + ".host");
   });
@@ -488,7 +426,40 @@ describe("runner session supervision", () => {
   });
 
   async function proveServiceMcp(codex?: string) {
-    const running = await start([]);
+    const probeResult = path.join(root, "codex-probe-result");
+    let workload: Parameters<typeof start>[3];
+    if (codex) {
+      const probe = path.join(root, "codex-mcp-probe.mjs");
+      const fixture = await readFile(
+        new URL("./helpers/codex-mcp-probe.mjs", import.meta.url),
+        "utf8"
+      );
+      await writeFile(probe, "#!/usr/bin/env node\n" + fixture, {
+        mode: 0o700,
+      });
+      // Let the adapter initialize offline without an OpenAI login. The
+      // probe only issues an app-server tool call, so no model turn is sent.
+      await writeFile(
+        path.join(root, "config.toml"),
+        'model_provider = "fixture"\n' +
+          "[model_providers.fixture]\n" +
+          'name = "Offline fixture"\n' +
+          'base_url = "http://127.0.0.1:1/v1"\n'
+      );
+      const main = fileURLToPath(new URL("../src/main.ts", import.meta.url));
+      workload = {
+        bins: { claudeBin: "", codexBin: probe },
+        hostCommand: () => ["bun", main, "agent-host"],
+        env: {
+          HOME: root,
+          CODEX_HOME: root,
+          PATH: process.env.PATH,
+          FIXTURE_CODEX_BIN: codex,
+          FIXTURE_PROBE_RESULT: probeResult,
+        },
+      };
+    }
+    const running = await start([], undefined, undefined, workload);
     const ca = issueAuthority("First launch fixture");
     const leaf = issueServer(ca, ["127.0.0.1"]);
     await writeFile(path.join(state, "runner-ca.pem"), ca.cert);
@@ -526,13 +497,22 @@ describe("runner session supervision", () => {
       mcpMethodNotAllowed: () => ({}),
     } as Parameters<typeof registerMcpRoutes>[1]);
     const origin = await app.listen({ host: "127.0.0.1", port: 0 });
+    let host: ReturnType<typeof spawn> | undefined;
     try {
       // The author starts with MCP omitted. The restricted child gets its own
       // endpoint and credential even though it borrows the author's checkout.
       await running.launch(launch(MANAGED_WORKSPACE), undefined);
       processes.spawn.mockImplementationOnce(
-        async (_cmd, _cwd, _env, _log, save) => {
-          kernelReviewer = { ...identity, pid: 101 };
+        async ([bin, ...args], cwd, env, log, save) => {
+          if (codex) {
+            host = spawn(bin!, args, {
+              cwd,
+              env,
+              stdio: ["ignore", log, log],
+            });
+            await once(host, "spawn");
+          }
+          kernelReviewer = { ...identity, pid: host?.pid ?? 101 };
           await save(kernelReviewer);
         }
       );
@@ -559,16 +539,31 @@ describe("runner session supervision", () => {
       const caPath = payload.env.DISPATCH_LOCAL_CA_CERTIFICATE!;
       expect(await readFile(caPath, "utf8")).toBe(ca.cert);
       expect((await stat(caPath)).mode & 0o777).toBe(0o600);
-      const env = buildHostEnv(payload, dir, {
-        HOME: root,
-        CODEX_HOME: root,
-        PATH: process.env.PATH,
-      });
       if (codex) {
-        const output = await callCodexMcp(codex, env, payload);
-        expect(output).toContain("fixture-template");
-        expect(output).not.toContain(token);
+        // Check that the tool returned and the real host completed its
+        // session/new handoff with the adapter.
+        await vi
+          .waitFor(
+            async () => {
+              expect(await readFile(probeResult, "utf8")).toBe("ok");
+              const session = JSON.parse(
+                await readFile(path.join(dir, "session.json"), "utf8")
+              );
+              expect(session.sessionId).toEqual(expect.any(String));
+            },
+            { timeout: 15_000, interval: 50 }
+          )
+          .catch(async (error) => {
+            const log = await running.log(reviewerId, MANAGED_WORKSPACE);
+            throw new Error(log.replaceAll(token, "[fixture bearer]"), {
+              cause: error,
+            });
+          });
       } else {
+        const env = buildHostEnv(payload, dir, {
+          HOME: root,
+          PATH: process.env.PATH,
+        });
         const request = async (url: string, fullAccess: boolean) => {
           const { stdout } = await promisify(execFile)(
             process.execPath,
@@ -614,6 +609,16 @@ describe("runner session supervision", () => {
         false
       );
     } finally {
+      if (host?.pid && host.exitCode === null && host.signalCode === null) {
+        const exited = once(host, "exit");
+        const force = setTimeout(() => host?.kill("SIGKILL"), 3_000);
+        host.kill("SIGTERM");
+        try {
+          await exited;
+        } finally {
+          clearTimeout(force);
+        }
+      }
       await app.close();
     }
   }
@@ -623,7 +628,7 @@ describe("runner session supervision", () => {
   }, 15_000);
 
   it.runIf(Boolean(process.env.DISPATCH_TEST_CODEX_BIN))(
-    "calls the TLS tool on a fresh real Codex app-server thread",
+    "calls the TLS tool on first launch through the production Codex adapter",
     async () => {
       await proveServiceMcp(process.env.DISPATCH_TEST_CODEX_BIN);
     },
