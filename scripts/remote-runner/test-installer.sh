@@ -169,7 +169,7 @@ run install v1.0.0
 ! grep -Eq '^(start|enable) ' "$root/systemctl"
 [[ "$(find "$root/settings/runner.json" -perm 0600 -print)" == "$root/settings/runner.json" ]]
 grep -q '"workspaces": {}' "$root/settings/runner.json"
-node - "$root/settings/runner.json" <<'JS'
+node - "$root/settings/runner.json" "$root/runtime/dispatch" <<'JS'
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const config = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
@@ -179,8 +179,9 @@ for (const [engine, pkg] of Object.entries(packages)) {
   assert.equal(config.bins[engine + "Bin"], prefix + "/bin/" + engine);
   for (const action of ["install", "update"]) {
     assert.deepEqual(config.engines[engine][action], {
-      executable: "npm",
-      args: ["install", "--global", "--prefix", prefix, pkg + "@latest"]
+      executable: process.argv[3],
+      args: ["add", "--global", "--trust", pkg + "@latest"],
+      env: {BUN_BE_BUN: "1", BUN_INSTALL: prefix}
     });
   }
 }

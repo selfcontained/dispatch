@@ -1,4 +1,8 @@
-import { githubDeviceUrl, type GitHubStatus } from "@dispatch/runner-protocol";
+import {
+  githubCliMissing,
+  githubDeviceUrl,
+  type GitHubStatus,
+} from "@dispatch/runner-protocol";
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ExternalLink, Github } from "lucide-react";
@@ -46,7 +50,7 @@ function accountSummary(account: GitHubStatus) {
     case "signed-in":
       return `Signed in as @${account.login}`;
     case "signed-out":
-      return "Signed out · optional for GitHub access";
+      return "Connect GitHub to use private repositories.";
     case "pending":
       return account.code
         ? "Waiting for GitHub approval"
@@ -54,10 +58,9 @@ function accountSummary(account: GitHubStatus) {
     case "failed":
       return "Sign-in did not complete. Try again.";
     case "unavailable":
-      return (
-        account.message ??
-        "Couldn’t verify the GitHub account from this runner. Check its connection and retry."
-      );
+      return account.message === githubCliMissing
+        ? githubCliMissing
+        : "Connect GitHub to use private repositories.";
   }
 }
 
@@ -76,10 +79,20 @@ function ConnectedAccount({ runner }: { runner: Runner }) {
   });
   const action = useMutation({
     gcTime: 0,
-    mutationFn: (op: "login" | "logout" | "cancel") =>
-      api<GitHubStatus>(op === "logout" ? path : path + "/login", {
-        method: op === "login" ? "POST" : "DELETE",
-      }),
+    mutationFn: async (op: "login" | "logout" | "cancel") => {
+      const result = await api<GitHubStatus>(
+        op === "logout" ? path : path + "/login",
+        {
+          method: op === "login" ? "POST" : "DELETE",
+        }
+      );
+      if (result.status === "unavailable" || result.status === "failed") {
+        throw new Error(
+          result.message ?? "Couldn’t complete the GitHub request."
+        );
+      }
+      return result;
+    },
     onMutate: () => client.cancelQueries({ queryKey: key }),
     onSuccess: async (value) => {
       client.setQueryData(key, value);
@@ -93,7 +106,8 @@ function ConnectedAccount({ runner }: { runner: Runner }) {
   const state = account.data;
   const pending = state?.status === "pending";
   const signedIn = state?.status === "signed-in";
-  const unavailable = state?.status === "unavailable";
+  const missingCli =
+    state?.status === "unavailable" && state.message === githubCliMissing;
   const statusText = account.isError
     ? "Couldn’t read the account."
     : state
@@ -111,7 +125,7 @@ function ConnectedAccount({ runner }: { runner: Runner }) {
             {statusText}
           </p>
         </div>
-        {account.isError || unavailable ? (
+        {account.isError || missingCli ? (
           <Button
             type="button"
             size="sm"

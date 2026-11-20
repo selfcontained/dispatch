@@ -8,7 +8,6 @@ import type {
 } from "@dispatch/runner-protocol/engine-management";
 
 import { AgentTypeIcon } from "@/components/app/agent-type-icon";
-import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { CopyButton } from "@/components/ui/copy-button";
 import { Input } from "@/components/ui/input";
@@ -18,15 +17,6 @@ import {
   useRunnerEngineOperation,
 } from "@/hooks/use-runner-engines";
 import type { EngineScope } from "@dispatch/runner-protocol/engine-management";
-
-const engineIconColors = {
-  claude: "border-orange-500/25 bg-orange-500/10 text-orange-500",
-  codex: "border-sky-500/25 bg-sky-500/10 text-sky-500",
-  opencode: "border-violet-500/25 bg-violet-500/10 text-violet-500",
-};
-
-const ubuntuNodeSetup =
-  "sudo apt-get update && sudo apt-get install nodejs npm";
 
 /**
  * Engine install/update/sign-in for one scope: this machine, or a named
@@ -85,21 +75,6 @@ export function RunnerEngines({
           No engines reported.
         </p>
       )}
-      {entries.some((entry) => entry.issue === "node-npm-unavailable") && (
-        <div className="space-y-2 py-3 text-xs text-muted-foreground">
-          <p>
-            Managed engine installs need working Node.js and npm. Run this on
-            the Ubuntu runner. Install buttons appear once setup is detected.
-          </p>
-          <div className="flex items-center gap-2">
-            <code className="min-w-0 break-words">{ubuntuNodeSetup}</code>
-            <CopyButton
-              text={ubuntuNodeSetup}
-              label="Copy Node.js and npm setup command"
-            />
-          </div>
-        </div>
-      )}
       {entries.map((entry) => (
         <EngineRow
           key={entry.id}
@@ -112,12 +87,6 @@ export function RunnerEngines({
           }
         />
       ))}
-      {entries.some((entry) => entry.issue === "install-unavailable") && (
-        <p className="py-2.5 text-xs text-muted-foreground">
-          For engines marked “Install unavailable”, check the configured install
-          command on the runner.
-        </p>
-      )}
     </div>
   );
 }
@@ -197,10 +166,7 @@ function EngineRow({
           <span aria-hidden="true">
             <AgentTypeIcon
               type={entry.id}
-              className={cn(
-                "size-9 rounded-lg [&_svg]:size-5",
-                engineIconColors[entry.id]
-              )}
+              className="size-9 rounded-lg [&_svg]:size-5"
             />
           </span>
           <div className="min-w-0">

@@ -26,10 +26,9 @@ For manual source runs, use Bun.
    Settings.
 
 3. Select the runner in **Settings → Runners**. Under **Agent engines**, choose **Install** for
-   the engine you want, then **Sign in** for Codex or Claude. The runner uses
-   Node.js and npm from its workload PATH to install engine binaries under
-   `/var/lib/dispatch-runner/home/.local/bin`. Install Node.js and npm on
-   the Linux host to enable managed engine installs and updates. Credentials
+   the engine you want, then **Sign in** for Codex or Claude. The runner uses its
+   bundled package manager and installs any required Node runtime under
+   `/var/lib/dispatch-runner/home/.local`. Credentials
    belong to that runner's workload account.
 4. In **Create Agent**, choose the runner. A Dispatch project can supply the
    repository. Select a base branch for a new worktree, use an existing branch,

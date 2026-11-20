@@ -115,7 +115,7 @@ if (args === "--version") {
     ).toBe(false);
   });
 
-  it("bootstraps Node into the workload prefix before running a default npm install", async () => {
+  it("uses the bundled runtime for a legacy managed install with no system npm", async () => {
     const prefix = path.join(dir, ".local");
     const managed = path.join(prefix, "bin", "claude");
     const args = [
@@ -125,8 +125,9 @@ if (args === "--version") {
       prefix,
       "@anthropic-ai/claude-code@latest",
     ];
-    const npmPackages: string[] = [];
+    const packages: string[] = [];
     executor = new EngineRunnerExecutor({
+      bundledRuntime: "/opt/dispatch-runner/dispatch",
       uid: 1000,
       gid: 1000,
       env: { ...process.env, HOME: dir },
@@ -137,32 +138,28 @@ if (args === "--version") {
         if (bin === "node")
           return {
             bin: "/bin/echo",
-            args: [npmPackages.length ? "v22.0.0" : "v18.0.0"],
+            args: [packages.length ? "v22.0.0" : "v18.0.0"],
           };
-        if (bin === "npm") {
-          expect(args.slice(0, 4)).toEqual([
-            "install",
-            "--global",
-            "--prefix",
-            prefix,
-          ]);
-          npmPackages.push(args[4]!);
+        if (bin === "/opt/dispatch-runner/dispatch") {
+          if (args[0] === "--version")
+            return { bin: "/bin/echo", args: ["1.3.13"] };
+          expect(args.slice(0, 2)).toEqual(["add", "--global"]);
+          packages.push(args.at(-1)!);
           return { bin: "/bin/sh", args: ["-c", "exit 0"] };
         }
-        const installed = npmPackages.includes(
-          "@anthropic-ai/claude-code@latest"
-        );
+        const installed = packages.includes("@anthropic-ai/claude-code@latest");
         return {
           bin: installed && bin === managed ? fake : "/nonexistent",
           args,
         };
       },
     });
+    expect((await executor.inventory())[0]?.actions).toContain("install");
     await expect(
       executor.handle({ type: "install", engine: "claude" })
     ).resolves.toMatchObject({ ok: true });
-    expect(npmPackages).toEqual([
-      "node@22",
+    expect(packages).toEqual([
+      `node-linux-${process.arch}@22`,
       "@anthropic-ai/claude-code@latest",
     ]);
   });

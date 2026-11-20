@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { isDeepStrictEqual } from "node:util";
 import { randomUUID } from "node:crypto";
 import { chown, mkdtemp } from "node:fs/promises";
 import os from "node:os";
@@ -64,6 +65,7 @@ export type RunnerEngineConfig = {
 export type EngineRunnerExecutorConfig = {
   uid: number;
   gid: number;
+  bundledRuntime?: string;
   /** Merged into every spawned process's environment (HOME, PATH, CA, …). */
   env: NodeJS.ProcessEnv;
   engines: Partial<Record<RunnerEngine, RunnerEngineConfig>>;
@@ -110,7 +112,7 @@ function sanitizeVersion(output: string): string | null {
 }
 
 export class EngineRunnerExecutor {
-  private nodeSetup?: Promise<boolean>;
+  private installingBundledPackage = false;
   private readonly logins: EngineLogins;
   private readonly wrap: NonNullable<EngineRunnerExecutorConfig["wrap"]>;
 
@@ -252,25 +254,41 @@ export class EngineRunnerExecutor {
     return (await this.resolveEngine(engine)).bin;
   }
 
-  private ensureManagedNode(prefix: string): Promise<boolean> {
-    return (this.nodeSetup ??= (async () => {
-      const node = await this.probe("node");
-      if (Number(node.version?.split(".")[0]) >= 22) return true;
+  private bundledCommand(
+    engine: RunnerEngine,
+    step: ManagedCommand
+  ): ManagedCommand | null {
+    const runtime = this.config.bundledRuntime;
+    if (!runtime || !this.canUseSharedBin(engine)) return null;
+    const prefix = path.join(this.config.env.HOME!, ".local");
+    const pkg = MANAGED_PACKAGES[engine] + "@latest";
+    const bundled = {
+      executable: runtime,
+      args: ["add", "--global", "--trust", pkg],
+      env: { BUN_BE_BUN: "1", BUN_INSTALL: prefix },
+    };
+    // Earlier managed installs wrote npm commands to runner.json. Recognize
+    // exactly those defaults so existing pairings can use the bundled runtime.
+    const legacy = {
+      executable: "npm",
+      args: ["install", "--global", "--prefix", prefix, pkg],
+    };
+    return isDeepStrictEqual(step, legacy) || isDeepStrictEqual(step, bundled)
+      ? bundled
+      : null;
+  }
 
-      // Ubuntu may provide a working npm backed by an older Node. Bootstrap
-      // Node into the same workload-owned prefix used for engine binaries.
-      const install = await this.run(
-        "npm",
-        ["install", "--global", "--prefix", prefix, "node@22"],
-        this.config.env,
-        90_000
-      );
-      if (install.code !== 0) return false;
-      const installed = await this.probe("node");
-      return Number(installed.version?.split(".")[0]) >= 22;
-    })().finally(() => {
-      this.nodeSetup = undefined;
-    }));
+  private async ensureManagedNode(command: ManagedCommand): Promise<boolean> {
+    const usable = async () =>
+      Number((await this.probe("node")).version?.split(".")[0]) >= 22;
+    if (await usable()) return true;
+    const result = await this.run(
+      command.executable,
+      ["add", "--global", `node-linux-${process.arch}@22`],
+      { ...this.config.env, ...command.env },
+      90_000
+    );
+    return result.code === 0 && (await usable());
   }
 
   /** The scope-aware engine list and supported actions, for a snapshot view. */
@@ -289,7 +307,12 @@ export class EngineRunnerExecutor {
         const actions: EngineSupportedAction[] = [];
         let issue: string | undefined;
         if (!installed && cfg?.install) {
-          if (await this.commandUsable(cfg.install)) actions.push("install");
+          if (
+            await this.commandUsable(
+              this.bundledCommand(engine, cfg.install) ?? cfg.install
+            )
+          )
+            actions.push("install");
           else
             issue =
               cfg.install.executable === "npm"
@@ -382,6 +405,31 @@ export class EngineRunnerExecutor {
         error: `No managed ${kind} command is configured for ${LABELS[engine]} on this runner.`,
       };
     }
+    const bundled = this.bundledCommand(engine, step);
+    if (!bundled)
+      return this.executeManaged(engine, kind, step, false, onEvent);
+    if (this.installingBundledPackage)
+      return {
+        ok: false,
+        error:
+          "Another engine installation is in progress. Try again when it finishes.",
+      };
+    this.installingBundledPackage = true;
+    try {
+      return await this.executeManaged(engine, kind, bundled, true, onEvent);
+    } finally {
+      this.installingBundledPackage = false;
+    }
+  }
+
+  private async executeManaged(
+    engine: RunnerEngine,
+    kind: "install" | "update",
+    step: ManagedCommand,
+    bundled: boolean,
+    onEvent?: (event: EngineOperationEvent) => void
+  ): Promise<EngineOperationAck> {
+    const cfg = this.config.engines[engine];
     const current = await this.resolveEngine(engine);
     if (current.installed && current.bin !== cfg?.bin) {
       return {
@@ -397,24 +445,9 @@ export class EngineRunnerExecutor {
       phase: kind,
       message: kind === "install" ? "Installing…" : "Updating…",
     });
-    const prefix = path.join(this.config.env.HOME ?? "", ".local");
-    const defaultInstallArgs = [
-      "install",
-      "--global",
-      "--prefix",
-      prefix,
-      `${MANAGED_PACKAGES[engine]}@latest`,
-    ];
-    if (
-      this.canUseSharedBin(engine) &&
-      step.executable === "npm" &&
-      !step.env &&
-      step.args.length === defaultInstallArgs.length &&
-      step.args.every((arg, index) => arg === defaultInstallArgs[index]) &&
-      !(await this.ensureManagedNode(prefix))
-    ) {
+    if (bundled && !(await this.ensureManagedNode(step))) {
       const message =
-        "Could not set up Node.js 22 for managed engine installs. Check npm and registry access on this runner.";
+        "Could not install the engine runtime. Check this runner’s access to the package registry.";
       onEvent?.({
         type: "operation_complete",
         operationId,

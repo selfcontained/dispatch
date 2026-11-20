@@ -267,6 +267,7 @@ export async function runRemoteRunner(filename: string) {
   });
   github.onLogin = () => pullRequests.reset();
   const engineExecutor = new EngineRunnerExecutor({
+    bundledRuntime: process.versions.bun ? process.execPath : undefined,
     uid: config.uid,
     gid: config.gid,
     env,

@@ -54,11 +54,11 @@ start_enabled_runner() {
   stable_start
 }
 
-# npm's global prefix has a bin/ directory that the workload owns and uses for launch.
+# The standalone runner doubles as Bun's package installer under the workload UID.
 engine_commands() {
   local package="$1" command
-  printf -v command '{"executable":"npm","args":["install","--global","--prefix","%s","%s@latest"]}' \
-    "$state/home/.local" "$package"
+  printf -v command '{"executable":"%s/dispatch","args":["add","--global","--trust","%s@latest"],"env":{"BUN_BE_BUN":"1","BUN_INSTALL":"%s/home/.local"}}' \
+    "$runtime" "$package" "$state"
   printf '{"install":%s,"update":%s}' "$command" "$command"
 }
 
@@ -108,20 +108,6 @@ install_service_unit() {
   if ! install -m 0644 "$stage/$unit" "$replacement" || ! mv -fT "$replacement" "$unit_path"; then
     rm -f -- "$replacement"
     error "Could not install runner unit"
-  fi
-}
-
-install_engine_prerequisites() {
-  if command -v node >/dev/null && command -v npm >/dev/null; then
-    return
-  fi
-  if [[ -r /etc/os-release ]] && (
-    . /etc/os-release
-    [[ "${ID:-}" == ubuntu ]]
-  ); then
-    if ! /usr/bin/apt-get update || ! /usr/bin/apt-get install -y nodejs npm; then
-      printf 'Could not install Node.js and npm. Install them before using managed engine setup.\n' >&2
-    fi
   fi
 }
 
@@ -338,7 +324,6 @@ main() {
   trap 'exit 143' TERM
   if [[ "$action" == install ]]; then
     stage_release
-    install_engine_prerequisites
     install_runner
   else
     update_runner
