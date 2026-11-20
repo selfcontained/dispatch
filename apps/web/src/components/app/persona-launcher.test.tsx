@@ -58,20 +58,73 @@ function launchRequestBody(): Record<string, unknown> {
   return JSON.parse(call![1].body);
 }
 
-function renderLauncher() {
+function renderLauncher(parent = agent) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
   render(
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
-        <PersonaLauncher agent={agent} enabledAgentTypes={["claude"]} />
+        <PersonaLauncher agent={parent} enabledAgentTypes={["claude"]} />
       </TooltipProvider>
     </QueryClientProvider>
   );
 }
 
 describe("PersonaLauncher", () => {
+  it("offers and submits models from the parent agent's runner", async ({
+    onTestFinished,
+  }) => {
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+      value: vi.fn(),
+      configurable: true,
+    });
+    onTestFinished(() => {
+      Reflect.deleteProperty(HTMLElement.prototype, "scrollIntoView");
+    });
+    const runnerId = "rnr_test";
+    const model = { id: "claude-haiku-5-5", label: "Haiku 5.5" };
+    api.mockImplementation(async (path: string, init?: RequestInit) => {
+      if (path === "/api/runners")
+        return { runners: [{ id: runnerId, status: "online" }] };
+      if (path === "/api/v1/engine-management/operations") {
+        expect(JSON.parse(String(init?.body))).toEqual({
+          scope: { kind: "runner", runnerId },
+          operation: { type: "model_catalog", engine: "claude" },
+        });
+        return {
+          ack: {
+            ok: true,
+            capability: { type: "model_catalog", catalog: { models: [model] } },
+          },
+        };
+      }
+      if (path.startsWith("/api/v1/personas")) return { personas: PERSONAS };
+      if (path.includes("/launch-persona"))
+        return { ok: true, block: { id: "blk_1" } };
+      return { models: { claude: [{ id: "opus", label: "Opus" }] } };
+    });
+    renderLauncher({
+      ...agent,
+      cwd: `runner://${runnerId}/@session`,
+      workspacePath: "/remote/repo",
+      reviewAgentType: "claude",
+    });
+
+    fireEvent.click(await screen.findByTestId("launch-reviewer-button"));
+    fireEvent.keyDown(await screen.findByTestId("launch-reviewer-model"), {
+      key: "Enter",
+    });
+    const option = await screen.findByRole("option", { name: model.label });
+    expect(screen.queryByRole("option", { name: "Opus" })).toBeNull();
+    fireEvent.click(option);
+    fireEvent.click(screen.getByTestId("launch-reviewer-persona-ux-review"));
+    fireEvent.click(screen.getByTestId("launch-reviewer-submit"));
+    await vi.waitFor(() => {
+      expect(launchRequestBody()).toMatchObject({ model: model.id });
+    });
+  });
+
   it("holds the launch button disabled while the model catalog loads", async () => {
     // The catalog never settles: launching now would send model: null and
     // silently drop the preference the select is about to show.

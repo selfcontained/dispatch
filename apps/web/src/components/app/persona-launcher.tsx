@@ -1,4 +1,5 @@
 import { ChevronDown } from "lucide-react";
+import { remotePlacement } from "@dispatch/runner-protocol";
 import { useAtom } from "jotai";
 import { useCallback, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -20,6 +21,8 @@ import {
 } from "@/components/ui/tooltip";
 import { useAgentModelCatalog } from "@/hooks/use-agent-model-catalog";
 import { useClickOutside } from "@/hooks/use-click-outside";
+import { useRunnerModelCatalog } from "@/hooks/use-runner-engines";
+import { useRunners } from "@/hooks/use-runners";
 import { api } from "@/lib/api";
 import {
   AGENT_TYPE_LABELS,
@@ -55,6 +58,7 @@ export function PersonaLauncher({
 }): JSX.Element {
   const queryClient = useQueryClient();
   const cwd = agent.workspacePath ?? agent.worktreePath ?? agent.cwd;
+  const runnerId = remotePlacement(agent.cwd)?.runner ?? null;
   const reviewerTypes = enabledAgentTypes.filter(isCliAgentType);
   const showReviewAgentTypePicker = reviewerTypes.length > 1;
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -69,13 +73,33 @@ export function PersonaLauncher({
   const typeTriggerRef = useRef<HTMLButtonElement>(null);
 
   const modelAtom = useMemo(
-    () => reviewAgentModelPrefAtom(`${selectedAgentType}:${cwd}`),
-    [selectedAgentType, cwd]
+    () =>
+      reviewAgentModelPrefAtom(
+        runnerId
+          ? `runner://${encodeURIComponent(runnerId)}:${selectedAgentType}:${cwd}`
+          : `${selectedAgentType}:${cwd}`
+      ),
+    [selectedAgentType, cwd, runnerId]
   );
   const [selectedModel, setSelectedModel] = useAtom(modelAtom);
 
-  const { options: modelOptions, loading: modelCatalogLoading } =
-    useAgentModelCatalog(selectedAgentType);
+  const localCatalog = useAgentModelCatalog(selectedAgentType, !runnerId);
+  const runners = useRunners({ enabled: dialogOpen && Boolean(runnerId) });
+  const online =
+    runners.data?.find((runner) => runner.id === runnerId)?.status === "online";
+  const runnerCatalog = useRunnerModelCatalog(
+    runnerId,
+    selectedAgentType,
+    dialogOpen && online
+  );
+  const modelOptions = runnerId
+    ? online && !runnerCatalog.isError
+      ? (runnerCatalog.data?.models ?? [])
+      : []
+    : localCatalog.options;
+  const modelCatalogLoading = runnerId
+    ? runners.isLoading || runnerCatalog.isLoading
+    : localCatalog.loading;
   const showModelSelect = modelCatalogLoading || modelOptions.length > 0;
 
   const { data: personaCatalog, refetch: refreshPersonas } = useQuery<{
