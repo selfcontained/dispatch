@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 import { access, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 import { expect, it, vi } from "vitest";
 import { GitHubRunnerExecutor } from "../src/agents/remote/github-runner-executor.js";
 import { runnerGitArgs } from "../src/agents/remote/runner.js";
@@ -108,6 +109,30 @@ case "$1 $2" in
         test "$5 $6 $7 $8 $9" = "--method GET -f affiliation=owner,collaborator,organization_member -f"
         test "$GH_HOST" = 'github.com'
         test -f login
+        for arg in "$@"; do
+          case "$arg" in page=*) page=$(printf '%s' "$arg" | cut -d= -f2) ;; esac
+        done
+        if [ -f long-pagination ]; then
+          if [ "$page" = 2 ] && [ -f hold-page-two ]; then
+            touch page-two-started
+            until [ -f release-page-two ]; do sleep .02; done
+          fi
+          if [ "$page" -lt 49 ]; then
+            awk -v page="$page" 'BEGIN {
+              printf "["
+              for (i=1; i<=100; i++) {
+                if (i>1) printf ","
+                printf "{\"name\":\"fixture/page-%d-item-%d\",\"url\":\"https://github.com/fixture/page-%d-item-%d\"}", page,i,page,i
+              }
+              printf "]"
+            }'
+          elif [ "$page" = 49 ]; then
+            printf '%s' '[{"name":"fixture/older-repo","url":"https://github.com/fixture/older-repo"}]'
+          else
+            printf '[]'
+          fi
+          exit 0
+        fi
         if [ -f hold-repositories ]; then
           touch repository-search-started
           until [ -f release-repositories ]; do sleep .02; done
@@ -201,6 +226,52 @@ it("invalidates in-flight repository searches and prevents cache refills during 
     expect(await beforeLogout).toBeInstanceOf(Error);
     expect(await duringLogout).toBeInstanceOf(Error);
     await expect(search()).rejects.toThrow();
+  });
+});
+
+it("returns the first twelve matches while a later repository page is pending", async () => {
+  await fixture(async ({ executor, root }) => {
+    const flag = (name: string) => writeFile(path.join(root, name), "");
+    await writeFile(path.join(root, "login"), "fixture-user\n");
+    await Promise.all([flag("long-pagination"), flag("hold-page-two")]);
+    const search = executor.handle(
+      { type: "repositorySearch", query: "fixture/page-1-" },
+      new AbortController().signal
+    );
+    try {
+      const result = await Promise.race([search, delay(1500, null)]);
+      expect(result).toMatchObject({
+        repositories: expect.arrayContaining([
+          {
+            name: "fixture/page-1-item-12",
+            url: "https://github.com/fixture/page-1-item-12",
+          },
+        ]),
+      });
+    } finally {
+      await flag("release-page-two");
+      await search;
+    }
+  });
+});
+
+it("finds repositories after the prefetched page window", async () => {
+  await fixture(async ({ executor, root }) => {
+    await writeFile(path.join(root, "login"), "fixture-user\n");
+    await writeFile(path.join(root, "long-pagination"), "");
+    expect(
+      await executor.handle(
+        { type: "repositorySearch", query: "fixture/older-repo" },
+        new AbortController().signal
+      )
+    ).toEqual({
+      repositories: [
+        {
+          name: "fixture/older-repo",
+          url: "https://github.com/fixture/older-repo",
+        },
+      ],
+    });
   });
 });
 

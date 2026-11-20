@@ -47,6 +47,8 @@ type Login = {
   code?: string;
 };
 
+type RepositoryRows = { name?: unknown; url?: unknown }[];
+
 type CommandWrapper = (
   bin: string,
   args: string[]
@@ -66,74 +68,97 @@ export class GitHubRunnerExecutor {
   private repositoryGeneration = 0;
   private repositories?: {
     at: number;
-    rows: Promise<{ name: string; url: string }[]>;
+    pages: Map<number, Promise<RepositoryRows>>;
   };
 
-  /**
-   * Every repository the signed-in account can reach. Listing a large
-   * account takes several seconds, so searches typed in quick succession
-   * share one listing and reuse it for a few minutes.
-   */
-  private repositoryList() {
-    const cached = this.repositories;
-    if (cached && Date.now() - cached.at < 5 * 60_000) return cached.rows;
-    const signal = AbortSignal.timeout(60_000);
-    const page = async (number: number) => {
-      const batch: unknown = JSON.parse(
-        await this.run(
-          [
-            "api",
-            ...hostArgs,
-            "user/repos",
-            "--method",
-            "GET",
-            "-f",
-            "affiliation=owner,collaborator,organization_member",
-            "-f",
-            "sort=pushed",
-            "-f",
-            "per_page=100",
-            "-f",
-            `page=${number}`,
-            "--jq",
-            "[.[] | {name: .full_name, url: .html_url}]",
-          ],
-          signal
-        )
-      );
-      if (!Array.isArray(batch))
+  private repositoryPage(page: number) {
+    if (!this.repositories || Date.now() - this.repositories.at >= 5 * 60_000)
+      this.repositories = { at: Date.now(), pages: new Map() };
+    const { pages } = this.repositories;
+    const cached = pages.get(page);
+    if (cached) return cached;
+
+    const pending = this.run(
+      [
+        "api",
+        ...hostArgs,
+        "user/repos",
+        "--method",
+        "GET",
+        "-f",
+        "affiliation=owner,collaborator,organization_member",
+        "-f",
+        "sort=pushed",
+        "-f",
+        "per_page=100",
+        "-f",
+        `page=${page}`,
+        "--jq",
+        "[.[] | {name: .full_name, url: .html_url}]",
+      ],
+      AbortSignal.timeout(7_000)
+    ).then((result) => {
+      const rows: unknown = JSON.parse(result);
+      if (!Array.isArray(rows))
         throw new Error("Invalid GitHub repository list.");
-      return batch as { name?: unknown; url?: unknown }[];
-    };
-    const rows = (async () => {
-      const all: { name: string; url: string }[] = [];
-      const seen = new Set<string>();
-      // Pages are fetched a few at a time; a short page ends the listing.
-      for (let first = 1; first <= 48; first += 4) {
-        const batches = await Promise.all(
-          [0, 1, 2, 3].map((offset) => page(first + offset))
-        );
-        for (const batch of batches)
-          for (const row of batch)
-            if (
-              typeof row?.name === "string" &&
-              typeof row?.url === "string" &&
-              !seen.has(row.url)
-            ) {
-              seen.add(row.url);
-              all.push({ name: row.name, url: row.url });
-            }
-        if (batches.some((batch) => batch.length < 100)) break;
-      }
-      return all;
-    })();
-    const entry = { at: Date.now(), rows };
-    this.repositories = entry;
-    // A failed listing is retried by the next search.
-    rows.catch(() => {
-      if (this.repositories === entry) this.repositories = undefined;
+      return rows as RepositoryRows;
     });
-    return rows;
+    pages.set(page, pending);
+    void pending.catch(() => pages.delete(page));
+    return pending;
+  }
+
+  private async searchRepositories(query: string, signal: AbortSignal) {
+    if (this.accountChangesPending || this.login)
+      throw new Error("GitHub account change is in progress.");
+    const generation = this.repositoryGeneration;
+    const deadline = AbortSignal.any([signal, AbortSignal.timeout(18_000)]);
+    const checkAccount = () => {
+      deadline.throwIfAborted();
+      if (generation !== this.repositoryGeneration)
+        throw new Error("GitHub account changed during repository search.");
+    };
+
+    const { promise: aborted, reject } = Promise.withResolvers<never>();
+    const onAbort = () => reject(deadline.reason);
+    deadline.addEventListener("abort", onAbort, { once: true });
+    try {
+      const repositories: { name: string; url: string }[] = [];
+      const seen = new Set<string>();
+      for (let first = 1; ; first += 4) {
+        checkAccount();
+        // Reuse the cached pages, but consume each in order so page two cannot
+        // delay returning a complete first page of matches.
+        const batch = [0, 1, 2, 3].map((offset) =>
+          this.repositoryPage(first + offset)
+        );
+        for (const pending of batch) {
+          const rows = await Promise.race([pending, aborted]).catch(
+            (error: unknown) => {
+              checkAccount();
+              if (repositories.length) return [];
+              throw error;
+            }
+          );
+          checkAccount();
+          for (const row of rows) {
+            if (
+              typeof row?.name !== "string" ||
+              !row.name.toLowerCase().includes(query)
+            )
+              continue;
+            const [repository] = githubRepositoryResults([row]).repositories;
+            if (!repository || seen.has(repository.url)) continue;
+            seen.add(repository.url);
+            repositories.push(repository);
+            if (repositories.length === 12) return { repositories };
+          }
+          if (rows.length < 100) return { repositories };
+        }
+      }
+    } finally {
+      deadline.removeEventListener("abort", onAbort);
+    }
   }
 
   constructor(
@@ -396,7 +421,7 @@ export class GitHubRunnerExecutor {
           // The form asks for the account before anyone searches, so the
           // first search finds the listing already under way.
           if (account.status === "signed-in" && !this.accountChangesPending)
-            void this.repositoryList().catch(() => {});
+            void this.repositoryPage(1).catch(() => {});
           return account;
         });
       case "login": {
@@ -440,19 +465,8 @@ export class GitHubRunnerExecutor {
   async handle(operation: GitHubOperation, signal: AbortSignal) {
     signal.throwIfAborted();
     switch (operation.type) {
-      case "repositorySearch": {
-        if (this.accountChangesPending || this.login)
-          throw new Error("GitHub account change is in progress.");
-        const generation = this.repositoryGeneration;
-        const query = operation.query.toLowerCase();
-        const rows = await this.repositoryList();
-        signal.throwIfAborted();
-        if (generation !== this.repositoryGeneration)
-          throw new Error("GitHub account changed during repository search.");
-        return githubRepositoryResults(
-          rows.filter((row) => row.name.toLowerCase().includes(query))
-        );
-      }
+      case "repositorySearch":
+        return this.searchRepositories(operation.query.toLowerCase(), signal);
       case "repositoryBranches": {
         const repository = `repos/${operation.owner}/${operation.repo}`;
         // The list is capped and alphabetical, so the default is asked for
