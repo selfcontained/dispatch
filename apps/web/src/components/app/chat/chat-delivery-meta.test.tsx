@@ -10,6 +10,7 @@ import {
 } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { BlockDelivery } from "@dispatch/shared";
+import { workspaceLocator } from "@dispatch/runner-protocol";
 import { block } from "@/test-utils/blocks";
 import { DeliveryIndicator, DeliveryMeta } from "./chat-delivery-meta";
 
@@ -38,6 +39,29 @@ const name = (id: string) => id;
 function receipt(delivery: BlockDelivery[]) {
   return block({ id: "receipt", authorKind: "user", delivery });
 }
+function renderHeld(
+  agent: { cwd: string; activity: string; currentTurn: unknown },
+  runnerStatus: string
+) {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false, gcTime: Infinity } },
+  });
+  clients.push(client);
+  client.setQueryData(["agents"], [{ id: "agt_1", ...agent }]);
+  client.setQueryData(["runners"], [{ id: "run_1", status: runnerStatus }]);
+  return testingRender(
+    <DeliveryMeta
+      block={receipt([{ agentId: "agt_1", state: "held" }])}
+      recipientName={name}
+    />,
+    {
+      wrapper: ({ children }) => (
+        <QueryClientProvider client={client}>{children}</QueryClientProvider>
+      ),
+    }
+  );
+}
+const remoteCwd = workspaceLocator({ runner: "run_1", workspace: "/w" });
 function ui(delivery: BlockDelivery[]) {
   return (
     <>
@@ -50,6 +74,43 @@ afterEach(() => {
   cleanup();
   for (const client of clients.splice(0)) client.clear();
   vi.useRealTimers();
+});
+describe("held label reason", () => {
+  it("says the runner when an idle remote agent's runner is offline", () => {
+    renderHeld(
+      { cwd: remoteCwd, activity: "idle", currentTurn: null },
+      "offline"
+    );
+    expect(screen.getByTestId("chat-held-hint").textContent).toBe(
+      "Queued until the runner reconnects"
+    );
+  });
+  it("keeps the turn wording while a turn runs, even on an offline runner", () => {
+    renderHeld(
+      { cwd: remoteCwd, activity: "working", currentTurn: { blockId: "b" } },
+      "offline"
+    );
+    expect(screen.getByTestId("chat-held-hint").textContent).toBe(
+      "Queued until the turn ends"
+    );
+  });
+  it("keeps the turn wording for a local agent and an online runner", () => {
+    renderHeld(
+      { cwd: "/repo", activity: "idle", currentTurn: null },
+      "offline"
+    );
+    expect(screen.getByTestId("chat-held-hint").textContent).toBe(
+      "Queued until the turn ends"
+    );
+    cleanup();
+    renderHeld(
+      { cwd: remoteCwd, activity: "idle", currentTurn: null },
+      "online"
+    );
+    expect(screen.getByTestId("chat-held-hint").textContent).toBe(
+      "Queued until the turn ends"
+    );
+  });
 });
 describe("quiet delivery status", () => {
   it("distinguishes requested interruption from confirmation and offers explicit retry on failure", () => {
