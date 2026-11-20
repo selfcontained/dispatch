@@ -169,10 +169,10 @@ Force stop (`force: true` on `POST /agents/:id/stop`) skips the graceful ACP clo
 
 The repo's `stop` lifecycle hook (configured under `.dispatch/tools.json`) runs best-effort before the teardown.
 
-For an enrolled runner with checkout command support, Dispatch reads the
-`stop` hook from the launch checkout, then from the selected workspace if it
-differs. The runner invokes each command under its workload identity before
-teardown. Dispatch logs nonzero exits and execution errors and continues
+For the built-in runner and enrolled runners with checkout command support,
+Dispatch reads the `stop` hook from the launch checkout, then from the selected
+workspace if it differs. The session runner invokes each command under its
+workload identity before teardown. Dispatch logs nonzero exits and execution errors and continues
 stopping the session. Selecting a workspace only changes the checkout
 selection, so retrying the selection cannot invoke a hook. A retry after
 failed teardown can invoke both hooks again. Stop on an already stopped

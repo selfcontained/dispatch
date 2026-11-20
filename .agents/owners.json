@@ -205,6 +205,7 @@
         "apps/server/src/server.ts",
         "plugins/dispatch/**",
         "apps/server/test/*mcp*",
+        "apps/server/test/repo-tool-environment.test.ts",
         "apps/server/test/tasks-service.test.ts",
         "packages/shared/src/mcp-inventory-types.ts",
         "apps/server/src/agents/acp/mcp-inventory.ts"

@@ -614,7 +614,7 @@ describe("executeArchive", () => {
         "stop",
         agent,
         expect.anything(),
-        undefined
+        { local: deps.localRunner, remote: undefined }
       );
     });
 

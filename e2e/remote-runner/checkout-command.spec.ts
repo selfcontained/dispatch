@@ -1,6 +1,7 @@
 import { expect, test, type APIRequestContext } from "@playwright/test";
 import {
   mkdtempSync,
+  readFileSync,
   mkdirSync,
   realpathSync,
   rmSync,
@@ -261,7 +262,7 @@ test("dispatches authenticated repo tools and stop hooks to the bound checkout",
     mkdirSync(path.join(native, ".dispatch"));
     writeFileSync(
       path.join(native, ".dispatch/tools.json"),
-      manifest("native")
+      manifest("native", 23)
     );
     const localId = await start(native);
     await verify(
@@ -271,6 +272,61 @@ test("dispatches authenticated repo tools and stop hooks to the bound checkout",
       native,
       `${process.getuid!()}:${process.getgid!()}`
     );
+
+    const nativeMoved = path.join(native, "moved");
+    mkdirSync(path.join(nativeMoved, ".dispatch"), { recursive: true });
+    writeFileSync(
+      path.join(nativeMoved, ".dispatch/tools.json"),
+      manifest("native moved")
+    );
+    const selected = await request.patch(
+      `/api/v1/agents/${localId}/workspace`,
+      {
+        headers: authHeaders(),
+        data: { path: nativeMoved },
+      }
+    );
+    expect(selected.ok(), await selected.text()).toBe(true);
+    const nativeIdentity = `${process.getuid!()}:${process.getgid!()}`;
+    await verify(
+      localId,
+      undefined,
+      "native moved",
+      nativeMoved,
+      nativeIdentity
+    );
+
+    const nativeHook = (dir: string) => `${dir}|${nativeIdentity}|${localId}\n`;
+    await stop(localId);
+    await stop(localId);
+    for (const dir of [native, nativeMoved])
+      expect(readFileSync(path.join(dir, "hook.log"), "utf8")).toBe(
+        nativeHook(dir)
+      );
+
+    const restarted = await request.post(`/api/v1/agents/${localId}/start`, {
+      headers: authHeaders(),
+    });
+    expect(restarted.ok(), await restarted.text()).toBe(true);
+    const archive = await request.delete(
+      `/api/v1/agents/${localId}?force=true&cleanupWorktree=keep`,
+      { headers: authHeaders() }
+    );
+    expect(archive.ok(), await archive.text()).toBe(true);
+    await expect
+      .poll(async () =>
+        (
+          await request.get(`/api/v1/agents/${localId}`, {
+            headers: authHeaders(),
+          })
+        ).status()
+      )
+      .toBe(404);
+    agents.splice(agents.indexOf(localId), 1);
+    for (const dir of [native, nativeMoved])
+      expect(readFileSync(path.join(dir, "hook.log"), "utf8")).toBe(
+        nativeHook(dir).repeat(2)
+      );
 
     const revoked = await request.delete(`${RUNNERS_API}/${alpha}`, {
       headers: authHeaders(),

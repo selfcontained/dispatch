@@ -14,6 +14,10 @@ import path from "node:path";
 import type { Duplex } from "node:stream";
 import type { FastifyBaseLogger } from "fastify";
 import {
+  CHECKOUT_COMMAND_TIMEOUT_MS,
+  isCheckoutCommand,
+  remotePlacement,
+  type SessionOperation,
   isSessionFileName,
   isSessionFilePath,
   type SessionLifecycleOperation,
@@ -41,18 +45,32 @@ import {
 import { resolveWorkspace } from "./workspace-target.js";
 import { resolveProjectRoot } from "../projects/resolve-root.js";
 import { localCheckoutRelease } from "./local-runner-checkout.js";
+import { executeCheckoutCommand } from "./checkout-command-executor.js";
+import { readCheckoutCommandFile } from "./checkout-inspection.js";
+import type { AgentRecord } from "./types.js";
 import { inferRepositoryUrl } from "./remote/repository.js";
 
 export type LocalLaunchSettings = Pick<
   HostLaunch,
   "cwd" | "env" | "bins" | "pathPrefix"
 >;
+type CheckoutCommandOperation = Extract<
+  SessionOperation,
+  { kind: "checkoutCommand" }
+>;
+type LocalCheckoutSettings = {
+  checkout: Pick<AgentRecord, "id" | "cwd" | "worktreePath" | "workspacePath">;
+  signal?: AbortSignal;
+};
+
 export type SessionResult = {
   value?: string | boolean;
   channel?: Duplex;
   launchExited?: () => boolean;
 };
 
+// Native tools can start or rebuild project services before returning.
+const NATIVE_REPO_TOOL_TIMEOUT_MS = 5 * 60_000;
 const STOP_GRACE_MS = 8_000;
 const KILL_GRACE_MS = 2_000;
 const LOG_TAIL_LINES = 20;
@@ -293,16 +311,67 @@ export function createLocalRunner(
   }
 
   async function requestSession(
-    operation: SessionLifecycleOperation,
-    settings?: LocalLaunchSettings
+    operation: SessionLifecycleOperation | CheckoutCommandOperation,
+    settings?: LocalLaunchSettings | LocalCheckoutSettings
   ): Promise<SessionResult> {
     const { agentId } = operation;
     const dir = stateDir(agentId);
     switch (operation.kind) {
       case "launch":
-        if (!settings || operation.launch.agentId !== agentId)
+        if (
+          !settings ||
+          !("cwd" in settings) ||
+          operation.launch.agentId !== agentId
+        )
           throw new Error("Missing or mismatched native launch settings");
         return launch({ ...operation.launch, ...settings });
+      case "checkoutCommand": {
+        if (
+          !settings ||
+          !("checkout" in settings) ||
+          settings.checkout.id !== agentId ||
+          remotePlacement(settings.checkout.cwd) ||
+          !isCheckoutCommand(operation.operation)
+        )
+          throw new Error("Invalid native checkout command binding.");
+        const { checkout, signal } = settings;
+        const { operation: command } = operation;
+        const launch = checkout.worktreePath ?? checkout.cwd;
+        const moved = checkout.workspacePath;
+        const cwd = command.checkout === "launch" ? launch : (moved ?? launch);
+        if (command.checkout === "moved" && (!moved || moved === launch)) {
+          if (command.kind === "run")
+            throw new Error("The moved checkout is no longer selected.");
+          return { value: "null" };
+        }
+        const deadline = new AbortController();
+        const timer = setTimeout(
+          () => deadline.abort(new Error("Checkout command timed out.")),
+          command.checkout === "effective"
+            ? NATIVE_REPO_TOOL_TIMEOUT_MS
+            : CHECKOUT_COMMAND_TIMEOUT_MS
+        );
+        try {
+          return {
+            value: JSON.stringify(
+              await executeCheckoutCommand(
+                cwd,
+                agentId,
+                command,
+                (file) =>
+                  readCheckoutCommandFile(cwd, file, {
+                    exact: command.checkout !== "effective",
+                  }),
+                signal
+                  ? AbortSignal.any([signal, deadline.signal])
+                  : deadline.signal
+              )
+            ),
+          };
+        } finally {
+          clearTimeout(timer);
+        }
+      }
       case "attach": {
         const channel = await new Promise<net.Socket>((resolve, reject) => {
           const socket = net.createConnection(hostFile(dir, "socket"));

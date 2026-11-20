@@ -12,6 +12,7 @@ import {
   type LocalArchiveRunner,
 } from "./archive-checkout.js";
 import type { RemoteRunnerService } from "./remote/service.js";
+import type { CheckoutCommandRunners } from "./checkout-commands.js";
 import { runLifecycleHook } from "./lifecycle-hooks.js";
 import { AgentError } from "./errors.js";
 import type { AgentRuntime } from "./runtime.js";
@@ -26,7 +27,7 @@ export type ArchiveDeps = {
   pool: Pool;
   logger: FastifyBaseLogger;
   runtime: AgentRuntime;
-  localRunner: LocalArchiveRunner;
+  localRunner: LocalArchiveRunner & CheckoutCommandRunners["local"];
   remote?: RemoteRunnerService;
   diffStatsRefresher: { clear(agentId: string): void } | null;
   getAgent: (id: string) => Promise<AgentRecord | null>;
@@ -215,7 +216,10 @@ export async function executeArchive(
     // Phase: stopping — tear down session without changing agent status
     const t = Date.now();
     try {
-      await runLifecycleHook("stop", agent, logger, deps.remote).catch((err) =>
+      await runLifecycleHook("stop", agent, logger, {
+        local: deps.localRunner,
+        remote: deps.remote,
+      }).catch((err) =>
         logger.warn(
           { err, agentId: id },
           "Stop hook failed during archive; continuing"
@@ -355,7 +359,10 @@ export async function deleteAgentDirect(
     // Not stopAgent: it writes `stopping`/`stopped`, releasing the claim above
     // and letting a fresh archive take this agent mid-teardown.
     try {
-      await runLifecycleHook("stop", agent, logger, deps.remote).catch((err) =>
+      await runLifecycleHook("stop", agent, logger, {
+        local: deps.localRunner,
+        remote: deps.remote,
+      }).catch((err) =>
         logger.warn(
           { err, agentId: id },
           "Stop hook failed during delete; continuing"

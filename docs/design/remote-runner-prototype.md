@@ -271,7 +271,13 @@ peers keep the existing inspection and configured workspace operations.
 Dispatch interprets the repository manifest and applies its MCP tool scope and
 argument rules. Executing a remote manifest tool requires the credential for the
 selected session or its active job run. Dispatch checks the runner registration
-before routing the request.
+before routing the request. Native manifest reads and execution use the same
+session operation in the built-in runner. Local tool calls retain the native
+command environment and honor cancellation delivered by the MCP transport.
+Bun’s Node HTTP compatibility layer may leave a disconnected streaming request
+running until the runner deadline if it does not report the disconnect.
+Native manifest tool calls have a five-minute deadline to accommodate project
+setup commands. Native stop hooks keep their 15-second deadline.
 
 ## Observed traces
 

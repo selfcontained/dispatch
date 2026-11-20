@@ -57,7 +57,7 @@ function createMockDeps() {
           repositoryRoot: "/repo",
         })
       ),
-      readRemoteRepoManifest: vi.fn(async () => {
+      readRepoManifest: vi.fn(async () => {
         throw new RunnerCapabilityUnavailable(
           "Update the runner to execute checkout commands."
         );

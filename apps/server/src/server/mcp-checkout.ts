@@ -8,7 +8,7 @@ import {
 } from "../shared/mcp/repo-tools.js";
 
 export async function readAgentCheckoutFile(
-  manager: AgentManager,
+  manager: Pick<AgentManager, "inspectCheckout">,
   agent: AgentRecord,
   path: string
 ) {
@@ -35,18 +35,21 @@ export async function mcpCheckoutRoots(
 }
 
 export async function discoverRepoTools(
-  manager: AgentManager,
+  manager: Pick<
+    AgentManager,
+    "inspectCheckout" | "readRepoManifest" | "runRepoCommand"
+  >,
   agent: AgentRecord,
   allowRemoteCommands: boolean
 ) {
   const remote = remotePlacement(agent.cwd);
   let unavailable: RunnerCapabilityUnavailable | undefined;
-  if (remote && allowRemoteCommands) {
+  if (!remote || allowRemoteCommands) {
     let file;
     try {
-      file = await manager.readRemoteRepoManifest(agent);
+      file = await manager.readRepoManifest(agent);
     } catch (error) {
-      if (!(error instanceof RunnerCapabilityUnavailable)) return [];
+      if (!remote || !(error instanceof RunnerCapabilityUnavailable)) return [];
       // Keep discovery on older peers and surface their capability error on call.
       unavailable = error;
     }
@@ -54,7 +57,7 @@ export async function discoverRepoTools(
       return parseRepoTools(
         parseRepoToolFile(file.content),
         (argv, _cwd, _id, signal) =>
-          manager.runRemoteRepoCommand(agent, file.state, argv, signal)
+          manager.runRepoCommand(agent, file.state, argv, signal)
       );
     }
     if (!unavailable) return [];
@@ -70,17 +73,12 @@ export async function discoverRepoTools(
   } catch {
     return [];
   }
-  return parseRepoTools(
-    parseRepoToolFile(content),
-    remote
-      ? async () => {
-          throw (
-            unavailable ??
-            new Error(
-              "Checkout commands require the selected session's MCP credential."
-            )
-          );
-        }
-      : undefined
-  );
+  return parseRepoTools(parseRepoToolFile(content), async () => {
+    throw (
+      unavailable ??
+      new Error(
+        "Checkout commands require the selected session's MCP credential."
+      )
+    );
+  });
 }

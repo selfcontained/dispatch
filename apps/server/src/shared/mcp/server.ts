@@ -38,11 +38,7 @@ import {
   registerPersonaInteractionTools,
   type LaunchPersonaAgentType,
 } from "./persona-interaction-tools.js";
-import {
-  loadRepoTools,
-  type RepoToolDefinition,
-  type RepoToolParam,
-} from "./repo-tools.js";
+import { type RepoToolDefinition, type RepoToolParam } from "./repo-tools.js";
 import { jsonText } from "./response.js";
 import { toToolError } from "./tool-error.js";
 import { registerStreamTools } from "./stream-tools.js";
@@ -656,9 +652,8 @@ export async function createDispatchMcpServer(
   }
   const toolsRoot =
     context.toolsRoot ?? context.worktreeRoot ?? context.repoRoot;
-  if (context.agent && toolsRoot) {
-    const allRepoTools = await (context.discoverRepoTools?.() ??
-      loadRepoTools(toolsRoot));
+  if (context.agent && toolsRoot && context.discoverRepoTools) {
+    const allRepoTools = await context.discoverRepoTools();
     const scope = context.toolScope ?? "agent";
     const repoTools = allRepoTools.filter(
       (tool) =>

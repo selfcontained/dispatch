@@ -2817,12 +2817,14 @@ export class AgentManager {
     await this.setAgentStatus(id, "stopping", null);
 
     // Run repo-defined stop hook (best-effort, non-blocking)
-    await runLifecycleHook("stop", agent, this.logger, this.remote).catch(
-      (err) =>
-        this.logger.warn(
-          { err, agentId: id },
-          "Stop hook failed; continuing shutdown"
-        )
+    await runLifecycleHook("stop", agent, this.logger, {
+      local: this.localRunner,
+      remote: this.remote,
+    }).catch((err) =>
+      this.logger.warn(
+        { err, agentId: id },
+        "Stop hook failed; continuing shutdown"
+      )
     );
 
     try {
@@ -3022,22 +3024,26 @@ export class AgentManager {
       );
   }
 
-  readRemoteRepoManifest(agent: AgentRecord) {
-    return requestCheckoutCommand(this.remote, agent, {
-      kind: "read",
-      checkout: "effective",
-      path: REPO_TOOL_MANIFEST_PATH,
-    });
+  readRepoManifest(agent: AgentRecord) {
+    return requestCheckoutCommand(
+      { local: this.localRunner, remote: this.remote },
+      agent,
+      {
+        kind: "read",
+        checkout: "effective",
+        path: REPO_TOOL_MANIFEST_PATH,
+      }
+    );
   }
 
-  runRemoteRepoCommand(
+  runRepoCommand(
     agent: AgentRecord,
     state: string,
     argv: string[],
     signal?: AbortSignal
   ) {
     return requestCheckoutCommand(
-      this.remote,
+      { local: this.localRunner, remote: this.remote },
       agent,
       {
         kind: "run",

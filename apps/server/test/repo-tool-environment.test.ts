@@ -11,6 +11,7 @@ import path from "node:path";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { createLocalRunner } from "../src/agents/local-runner.js";
 import { runLifecycleHook } from "../src/agents/lifecycle-hooks.js";
 import type { AgentRecord } from "../src/agents/types.js";
 import { repoCommandEnvironment } from "../src/shared/lib/tool-environment.js";
@@ -155,7 +156,10 @@ describe("repo command environment", () => {
 
   it("gives the stop hook the same discovery environment", async () => {
     const { root } = await fixture();
-    const logger = { info: vi.fn(), warn: vi.fn() };
+    const logger = {
+      info: vi.fn(),
+      warn: vi.fn(),
+    } as unknown as import("fastify").FastifyBaseLogger;
     await expect(
       runLifecycleHook(
         "stop",
@@ -165,7 +169,8 @@ describe("repo command environment", () => {
           worktreePath: null,
           workspacePath: null,
         } as AgentRecord,
-        logger as unknown as import("fastify").FastifyBaseLogger
+        logger,
+        { local: createLocalRunner(root, logger) }
       )
     ).resolves.toBeUndefined();
     expect(logger.info).toHaveBeenCalled();

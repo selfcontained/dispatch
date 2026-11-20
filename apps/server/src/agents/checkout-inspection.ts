@@ -506,9 +506,14 @@ async function inspectionRoot(cwd: string, requireGit: boolean) {
 export async function readCheckoutCommandFile(
   cwd: string,
   file: string,
-  configuredRoot?: string
+  {
+    configuredRoot,
+    exact = false,
+  }: { configuredRoot?: string; exact?: boolean } = {}
 ) {
-  const { root } = await inspectionRoot(cwd, false);
+  const root = exact
+    ? await realpath(cwd)
+    : (await inspectionRoot(cwd, false)).root;
   if (configuredRoot) {
     const relative = path.relative(configuredRoot, root);
     if (

@@ -4,6 +4,7 @@ import path from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { createLocalRunner } from "../src/agents/local-runner.js";
 import { runLifecycleHook } from "../src/agents/lifecycle-hooks.js";
 import type { RemoteRunnerService } from "../src/agents/remote/service.js";
 import type { AgentRecord } from "../src/agents/types.js";
@@ -50,7 +51,8 @@ describe("runLifecycleHook", () => {
         worktreePath: launch,
         workspacePath: moved,
       } as AgentRecord,
-      logger
+      logger,
+      { local: createLocalRunner(root, logger) }
     );
 
     await expect(readFile(path.join(launch, "stopped"), "utf8")).resolves.toBe(
@@ -79,7 +81,8 @@ describe("runLifecycleHook", () => {
         worktreePath: null,
         workspacePath: null,
       } as AgentRecord,
-      logger
+      logger,
+      { local: createLocalRunner(root, logger) }
     );
 
     await expect(readFile(path.join(launch, "stopped"), "utf8")).resolves.toBe(
@@ -111,7 +114,12 @@ it("reports a runner hook failure and still runs the moved checkout on each tear
   const agent = { id: "session", cwd: "runner://machine/work" } as AgentRecord;
   for (let attempt = 0; attempt < 2; attempt++) {
     await expect(
-      runLifecycleHook("stop", agent, { ...logger, warn }, remote)
+      runLifecycleHook(
+        "stop",
+        agent,
+        { ...logger, warn },
+        { local: createLocalRunner("/tmp/runner-hooks-unused", logger), remote }
+      )
     ).resolves.toBeUndefined();
   }
   expect(
