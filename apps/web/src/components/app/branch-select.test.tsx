@@ -1,6 +1,13 @@
 // @vitest-environment jsdom
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 
 import { api } from "@/lib/api";
@@ -11,6 +18,42 @@ vi.mock("@/lib/api", () => ({ api: vi.fn() }));
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
+});
+
+it("shows one selected default when starting a new branch from the explicit default", async () => {
+  globalThis.ResizeObserver ??= class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  };
+  Element.prototype.scrollIntoView ??= () => {};
+  vi.mocked(api).mockResolvedValue({
+    branches: ["trunk", "topic"],
+    defaultBranch: "trunk",
+  } as never);
+  const runner = {
+    id: "runner-a",
+    repository: "https://github.com/example/first",
+    browse: true,
+  };
+  const { rerender } = render(
+    <BranchSelect
+      {...props}
+      runner={runner}
+      baseBranch="trunk"
+      allowPullRequest
+    />,
+    { wrapper: wrapper() }
+  );
+  const control = screen.getByRole("combobox", { name: "Base branch" });
+  fireEvent.click(control);
+  await screen.findByRole("option", { name: "topic" });
+  rerender(<BranchSelect {...props} runner={runner} baseBranch="trunk" />);
+  const defaultRows = screen.getAllByRole("option", { name: "trunk" });
+  expect(defaultRows).toHaveLength(1);
+  expect(defaultRows[0]?.querySelector("svg")?.classList).toContain(
+    "opacity-100"
+  );
 });
 
 const props = {

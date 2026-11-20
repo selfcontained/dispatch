@@ -118,7 +118,10 @@ export function BranchSelect({
       : remoteBranches.includes("main")
         ? remoteBranches
         : ["main", ...remoteBranches];
-    if (baseBranch && !base.includes(baseBranch)) return [baseBranch, ...base];
+    const hasDefaultRow =
+      runner && !allowPullRequest && baseBranch === defaultBranch;
+    if (baseBranch && !hasDefaultRow && !base.includes(baseBranch))
+      return [baseBranch, ...base];
     return base;
   }, [remoteBranches, baseBranch, runner, defaultBranch, allowPullRequest]);
 
@@ -225,7 +228,9 @@ export function BranchSelect({
                       <Check
                         className={cn(
                           "mr-2 h-3 w-3 shrink-0",
-                          baseBranch ? "opacity-0" : "opacity-100"
+                          !baseBranch || baseBranch === defaultBranch
+                            ? "opacity-100"
+                            : "opacity-0"
                         )}
                       />
                       {defaultBranch || "Repository default"}
