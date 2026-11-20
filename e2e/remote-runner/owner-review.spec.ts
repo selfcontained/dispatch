@@ -118,6 +118,9 @@ for (const placement of ["This Mac", "Linux runner"] as const) {
     const tmp = mkdtempSync(path.join(os.tmpdir(), "dispatch-review-"));
     const marker = randomUUID();
     const agents: string[] = [];
+    const headers = authHeaders();
+    let projectId: string | undefined;
+    let templateId: string | undefined;
     try {
       seed(tmp, marker);
       const remote = placement === "Linux runner";
@@ -128,15 +131,34 @@ for (const placement of ["This Mac", "Linux runner"] as const) {
           row?.id ?? (await enrollViaUi(page, request, "scratch"));
         cwd = `runner://${runnerId}/@session`;
       }
-      const created = await request.post("/api/v1/agents", {
-        headers: authHeaders(),
+      const project = await request.post("/api/v1/projects", {
+        headers,
+        data: { name: "Runner parity task", repoRoot: tmp, color: "#7c6ee6" },
+      });
+      expect(project.ok(), await project.text()).toBe(true);
+      projectId = (await project.json()).id;
+      const template = await request.post("/api/v1/templates", {
+        headers,
         data: {
-          name: "Field review author",
-          type: "claude",
-          cwd,
+          name: "Runner parity builder",
+          projectId,
+          agentType: "claude",
+          directory: cwd,
           useWorktree: false,
-          initialPrompt: "ready",
+          prompt: "ready",
         },
+      });
+      expect(template.ok(), await template.text()).toBe(true);
+      templateId = (await template.json()).id;
+      const task = await request.post("/api/v1/tasks", {
+        headers,
+        data: { projectId, title: "Review an unpublished checkout" },
+      });
+      expect(task.ok(), await task.text()).toBe(true);
+      const { id: taskId } = await task.json();
+      const created = await request.post(`/api/v1/tasks/${taskId}/launch`, {
+        headers,
+        data: { templateId },
       });
       expect(created.ok(), await created.text()).toBe(true);
       const author = (await created.json()).agent.id as string;
@@ -407,6 +429,10 @@ for (const placement of ["This Mac", "Linux runner"] as const) {
       }
     } finally {
       for (const id of agents.reverse()) await deleteAgentViaAPI(request, id);
+      if (templateId)
+        await request.delete(`/api/v1/templates/${templateId}`, { headers });
+      if (projectId)
+        await request.delete(`/api/v1/projects/${projectId}`, { headers });
       rmSync(tmp, { recursive: true, force: true });
     }
   });

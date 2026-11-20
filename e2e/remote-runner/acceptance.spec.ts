@@ -122,7 +122,9 @@ test("UI launches local, alpha and beta; each answer comes from its own side", a
     });
     await expect(text(pages[r]!)).not.toContainText(marker(other));
     expect(invocations(r)).toBe(1);
-    // The approved repo operation ran in this runner's workspace only.
+    await expect(answers(pages[r]!, "Approved repo operation:")).toBeVisible({
+      timeout: 15_000,
+    });
     expect(guestOk(r, `test -f ${state.runners[r].workspaceDir}/repo-op`)).toBe(
       true
     );
