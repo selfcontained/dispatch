@@ -221,6 +221,20 @@ describe("runner enrollment service", () => {
     await teardownTestDb();
   });
 
+  it("prunes expired unclaimed registrations after they are cleared", async () => {
+    const registry = new RunnerRegistry(pool);
+    const { id } = await registry.create("unused", HOST);
+    await registry.revoke(id);
+    await pool.query(
+      "UPDATE runner_registrations SET code_expires_at = now() WHERE id = $1",
+      [id]
+    );
+
+    expect(await registry.list()).toMatchObject([{ id }]);
+    expect(await registry.clearRevoked([id])).toBe(1);
+    expect(await registry.list()).toEqual([]);
+  });
+
   it("keeps PR status enabled on a peer without the evidence capability", async () => {
     const service = makeService();
     const enrolled = await enroll(service, "legacy-github");

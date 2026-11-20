@@ -209,7 +209,8 @@ export class RunnerRegistry {
   private async pruneExpired() {
     await this.pool.query(
       `DELETE FROM runner_registrations
-        WHERE enrolled_at IS NULL AND revoked_at IS NULL AND code_expires_at <= now()`
+        WHERE enrolled_at IS NULL AND code_expires_at <= now()
+          AND (revoked_at IS NULL OR cleared_at IS NOT NULL)`
     );
   }
 
