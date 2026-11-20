@@ -956,6 +956,7 @@ describe("runner session supervision", () => {
       moved: true,
       origin: "https://example.test/org/project.git",
       repositoryRoot: checkout,
+      checkoutRoot: checkout,
       branch: "main",
     });
     processes.spawn.mockResolvedValueOnce();
@@ -1043,6 +1044,7 @@ describe("runner session supervision", () => {
       moved: true,
       origin: null,
       repositoryRoot: null,
+      checkoutRoot: null,
       branch: null,
     });
     await expect(select(nested)).resolves.toMatchObject({ path: nested });

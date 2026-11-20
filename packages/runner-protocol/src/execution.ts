@@ -261,6 +261,9 @@ export function isSessionCheckout(value: unknown): value is SessionCheckout {
     (value.repositoryRoot === undefined ||
       value.repositoryRoot === null ||
       isCheckoutPath(value.repositoryRoot)) &&
+    (value.checkoutRoot === undefined ||
+      value.checkoutRoot === null ||
+      isCheckoutPath(value.checkoutRoot)) &&
     (value.branch === undefined ||
       value.branch === null ||
       (typeof value.branch === "string" &&

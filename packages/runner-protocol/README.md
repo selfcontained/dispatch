@@ -180,9 +180,9 @@ null path to return to the session's launch or borrowed checkout. The result
 is a JSON string validated by `isSessionCheckout`. It carries the canonical
 `path`, whether it is `moved` from the initial checkout, and its
 credential-free HTTPS `origin` when available. Newer runners also report the
-common `repositoryRoot` and the checked-out `branch` (the short commit when
-HEAD is detached), or null outside Git. Older runners omit both fields, and
-services treat a missing field as null.
+common `repositoryRoot`, the Git `checkoutRoot`, and the checked-out `branch`
+(the short commit when HEAD is detached), or null outside Git. Older runners
+can omit these fields, and services treat a missing field as null.
 
 The runner checks directory access under the workload identity and durably
 records an accepted selection before responding. Checkout reads and future

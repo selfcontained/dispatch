@@ -515,6 +515,7 @@ export async function createSessionSupervisor(
       moved: dir !== initial,
       origin,
       repositoryRoot: context?.repoRoot ?? null,
+      checkoutRoot: context?.worktreePath ?? null,
       branch: context?.branch || null,
     };
   }

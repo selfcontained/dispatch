@@ -1207,6 +1207,7 @@ it("lets an independent host select a checkout by opaque session handle after ne
       isSessionCheckout({
         ...legacy,
         repositoryRoot: "/workload/repo",
+        checkoutRoot: "/workload/worktree",
         branch: "feature/x",
       })
     ).toBe(true);
@@ -1215,6 +1216,7 @@ it("lets an independent host select a checkout by opaque session handle after ne
     ).toBe(true);
     for (const invalid of [
       { repositoryRoot: "relative/repo" },
+      { checkoutRoot: "relative/worktree" },
       { branch: "" },
       { branch: "line\nbreak" },
       { branch: 7 },

@@ -267,7 +267,11 @@ describe("set_workspace parity", () => {
       }),
     });
     const requestSession = vi.fn(async () =>
-      runnerReply({ repositoryRoot: otherRepo, branch: "fix/wrong-repo" })
+      runnerReply({
+        repositoryRoot: otherRepo,
+        checkoutRoot: otherRepo,
+        branch: "fix/wrong-repo",
+      })
     );
     const remote = {
       requestSession,
@@ -299,6 +303,21 @@ describe("set_workspace parity", () => {
       baseBranch: "main",
     });
     expect(runner).toEqual(local);
+    requestSession.mockResolvedValueOnce(
+      runnerReply({
+        path: path.join(otherRepo, "nested"),
+        repositoryRoot: otherRepo,
+        checkoutRoot: otherRepo,
+        branch: "fix/wrong-repo",
+      })
+    );
+    const reset = await runnerManager.setWorkspace("agt_runner", {
+      path: null,
+    });
+    expect(reset.gitContext).toMatchObject({
+      worktreePath: otherRepo,
+      isWorktree: false,
+    });
 
     // An older runner omits the git fields and the result keeps its shape.
     requestSession.mockResolvedValueOnce(runnerReply({}));

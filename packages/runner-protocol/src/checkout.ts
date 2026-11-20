@@ -178,6 +178,8 @@ export type SessionCheckout = {
   origin: string | null;
   /** Common repository root; null or absent outside Git or from older runners. */
   repositoryRoot?: string | null;
+  /** Git checkout root, which can differ from the selected directory. */
+  checkoutRoot?: string | null;
   /** Checked-out branch, or the short commit when HEAD is detached. */
   branch?: string | null;
 };

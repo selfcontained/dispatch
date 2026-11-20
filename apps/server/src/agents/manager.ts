@@ -1571,11 +1571,11 @@ export class AgentManager {
       baseBranch: path ? baseBranch : null,
       // The runner probes like populateGitContext; older runners omit it.
       gitContext:
-        selected.repositoryRoot && selected.branch
+        selected.repositoryRoot && selected.checkoutRoot && selected.branch
           ? gitContextFrom({
               repoRoot: selected.repositoryRoot,
               branch: selected.branch,
-              worktreePath: selected.path,
+              worktreePath: selected.checkoutRoot,
               repoIconPath: null,
             })
           : null,
