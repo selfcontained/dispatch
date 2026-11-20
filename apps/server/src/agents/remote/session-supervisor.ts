@@ -75,7 +75,7 @@ type SupervisorOptions = {
   resolveBins?: (engine: RunnerEngine) => Promise<HostLaunch["bins"]>;
   env: NodeJS.ProcessEnv;
   workspaces: ReadonlySet<string>;
-  hostCommand: () => string[];
+  hostCommand: (dir: string) => string[];
   asWorkload: WorkloadCommand;
   observeCheckout?: (cwd: string, scratch: boolean) => Promise<CheckoutState>;
   prepareDependencies?: (cwd: string) => Promise<boolean>;
@@ -746,10 +746,10 @@ export async function createSessionSupervisor(
 
     const log = openSync(path.join(logs, key), "a", 0o600);
     try {
-      const host = config.hostCommand();
+      const host = config.hostCommand(dir);
       if (!host[0]) throw new Error("Runner host executable is missing");
       await processes.spawn(
-        [...host, "--state", dir],
+        host,
         cwd,
         mcpCa && env.NODE_EXTRA_CA_CERTS === config.ca
           ? { ...env, NODE_EXTRA_CA_CERTS: undefined }

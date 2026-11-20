@@ -1,3 +1,4 @@
+import { loginShellCommand } from "./acp/host-command.js";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { constants } from "node:os";
@@ -37,7 +38,8 @@ export async function executeCheckoutCommand(
   session: string,
   operation: CheckoutCommand,
   read: (path: string) => Promise<{ root: string; content: string | null }>,
-  cancellation?: AbortSignal
+  cancellation?: AbortSignal,
+  loginShell?: string
 ): Promise<CheckoutCommandFile | CheckoutCommandResult | null> {
   cancellation?.throwIfAborted();
   const { root, content } = await read(operation.path);
@@ -62,10 +64,14 @@ export async function executeCheckoutCommand(
     );
 
   const [command, ...args] = operation.argv;
-  const child = spawn(command!, args, {
+  const env = repoCommandEnvironment(session);
+  const launch = loginShell
+    ? loginShellCommand(operation.argv, loginShell, env.PATH)
+    : { bin: command!, args };
+  const child = spawn(launch.bin, launch.args, {
     cwd: root,
     detached: cancellation !== undefined,
-    env: repoCommandEnvironment(session),
+    env,
     stdio: ["ignore", "pipe", "pipe"],
   });
   const stdout = capture(child.stdout);

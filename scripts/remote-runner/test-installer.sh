@@ -16,7 +16,8 @@ stage="$root/stage"
 settings="$root/settings"
 config="$settings/runner.json"
 state="$root/state"
-account=dispatch-runner
+dedicated=0
+requested_user=
 unit=dispatch-runner.service
 unit_path="$root/$unit"
 command_path="$root/bin/dispatch-runner"
@@ -106,13 +107,18 @@ python3() {
     cmp -s "$2" bin/runner-handoff-v1.py && grep -Fxq 102 "$4"
 }
 getent() {
-  [[ -e "$root/account" ]] || return 2
-  printf 'dispatch-runner:x:103:104::%s:/usr/sbin/nologin\n' "$state/home"
+  case "${@: -1}" in
+    dispatch-runner)
+      [[ -e "$root/account" ]] || return 2
+      printf 'dispatch-runner:x:103:104::%s:/usr/sbin/nologin\n' "$state/home"
+      ;;
+    installer) printf 'installer:x:1000:1001::%s:/bin/bash\n' "$root/installer home" ;;
+    alternate) printf 'alternate:x:2000:2001::%s:/bin/zsh\n' "$root/alternate home" ;;
+    root) printf 'root:x:0:0::/root:/bin/bash\n' ;;
+    *) return 2 ;;
+  esac
 }
 useradd() { : > "$root/account"; }
-id() {
-  case "$1" in -u) printf '103\n';; -g) printf '104\n';; *) return 1;; esac
-}
 install() {
   # Skip ownership changes in the unprivileged fixture.
   local args=()
@@ -130,7 +136,7 @@ sync() { :; }
 flock() { [[ "$*" == '-n 9' ]]; }
 
 case "$action" in
-  install) stage_release; install_runner ;;
+  install) parse_install_options "${@:5}"; stage_release; install_runner ;;
   connect)
     export root settings
     export -f systemctl flock
@@ -167,7 +173,7 @@ RUNNER
     "$release/dispatch-server.tar.gz"
 done
 
-run() { bash "$root/run" "$root" "$@"; }
+run() { bash "$root/run" "${fixture_root:-$root}" "$@"; }
 expect_status() {
   local expected="$1" status=0
   shift
@@ -178,8 +184,41 @@ expect_status() {
   fi
 }
 
-run install v1.0.0
-run install v1.0.0
+for fixture in invalid default explicit; do
+  fixture_root="$root/$fixture"
+  mkdir -p "$fixture_root"
+  ln -s "$root/releases" "$fixture_root/releases"
+  ln -s "$root/public.pem" "$fixture_root/public.pem"
+  case "$fixture" in
+    invalid)
+      SUDO_USER= expect_status 1 install v1.0.0
+      SUDO_USER=root expect_status 1 install v1.0.0
+      SUDO_USER=installer expect_status 1 install v1.0.0 x64 --user unknown
+      SUDO_USER=installer expect_status 1 install v1.0.0 x64 --user alternate --dedicated-user
+      [[ ! -e "$fixture_root/settings/runner.json" && ! -e "$fixture_root/account" ]]
+      ;;
+    default)
+      mkdir "$fixture_root/installer home"
+      SUDO_USER=installer run install v1.0.0
+      grep -Fq '"uid": 1000' "$fixture_root/settings/runner.json"
+      grep -Fq "\"home\": \"$fixture_root/installer home\"" "$fixture_root/settings/runner.json"
+      ;;
+    explicit)
+      mkdir "$fixture_root/alternate home"
+      SUDO_USER=installer run install v1.0.0 x64 --user alternate
+      grep -Fq '"uid": 2000' "$fixture_root/settings/runner.json"
+      grep -Fq "\"home\": \"$fixture_root/alternate home\"" "$fixture_root/settings/runner.json"
+      ;;
+  esac
+  [[ ! -e "$fixture_root/state/home" && ! -e "$fixture_root/account" ]]
+  [[ -z "$(find "$fixture_root" -path '* home/*' -print)" ]]
+done
+unset fixture_root
+
+run install v1.0.0 x64 --dedicated-user
+run install v1.0.0 x64 --dedicated-user
+[[ -e "$root/account" && -d "$root/state/home" ]]
+grep -Fq '"uid": 103' "$root/settings/runner.json"
 [[ "$(readlink "$root/bin/dispatch-runner")" == "$root/runtime/runner-cli" ]]
 [[ ! -e "$root/running" && ! -e "$root/settings/key.pem" ]]
 ! grep -Eq '^(start|enable) ' "$root/systemctl"

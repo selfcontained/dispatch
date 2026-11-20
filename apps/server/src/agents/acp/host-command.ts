@@ -41,32 +41,43 @@ export function selfCommand(mode: string): string[] {
  */
 export function loginShellCommand(
   command: string[],
-  shell = process.env.SHELL || "/bin/bash"
+  shell = process.env.SHELL || "/bin/bash",
+  fallbackPath?: string
 ): { bin: string; args: string[] } {
   const base = path.basename(shell);
   // ~/.dispatch/env is the documented place for agent-session overrides;
   // it is read after the profile so it wins.
-  const posix =
-    '[ -f "$HOME/.dispatch/env" ] && . "$HOME/.dispatch/env"; exec "$@"';
+  const posixProfile =
+    '[ -f "$HOME/.dispatch/env" ] && . "$HOME/.dispatch/env"; ';
+  const fishProfile =
+    'test -f "$HOME/.dispatch/env"; and source "$HOME/.dispatch/env"; ';
+  const extraArgs = fallbackPath ? [fallbackPath] : [];
   if (base === "fish") {
+    const appendPath = fallbackPath
+      ? 'set -gx PATH $PATH (string split : -- "$argv[1]"); set -e argv[1]; '
+      : "";
     return {
       bin: shell,
       args: [
         "-lc",
-        'test -f "$HOME/.dispatch/env"; and source "$HOME/.dispatch/env"; exec $argv',
+        fishProfile + appendPath + "exec $argv",
+        ...extraArgs,
         ...command,
       ],
     };
   }
-  if (base === "bash" || base === "zsh" || base === "sh") {
-    return {
-      bin: shell,
-      args: ["-lc", posix, "dispatch-agent-host", ...command],
-    };
-  }
+  const appendPath = fallbackPath
+    ? 'export PATH="${PATH:+$PATH:}$1"; shift; '
+    : "";
   return {
-    bin: "/bin/bash",
-    args: ["-lc", posix, "dispatch-agent-host", ...command],
+    bin: ["bash", "zsh", "sh"].includes(base) ? shell : "/bin/bash",
+    args: [
+      "-lc",
+      posixProfile + appendPath + 'exec "$@"',
+      "dispatch-agent-host",
+      ...extraArgs,
+      ...command,
+    ],
   };
 }
 

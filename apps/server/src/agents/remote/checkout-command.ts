@@ -24,8 +24,13 @@ export async function runCheckoutCommandCli(
       throw new Error("Invalid checkout command.");
     process.stdout.write(
       JSON.stringify(
-        await executeCheckoutCommand(cwd, session, operation, (file) =>
-          readCheckoutCommandFile(cwd, file, { configuredRoot })
+        await executeCheckoutCommand(
+          cwd,
+          session,
+          operation,
+          (file) => readCheckoutCommandFile(cwd, file, { configuredRoot }),
+          undefined,
+          process.env.SHELL || "/bin/bash"
         )
       )
     );

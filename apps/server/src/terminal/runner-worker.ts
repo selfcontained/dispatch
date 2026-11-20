@@ -73,20 +73,24 @@ export async function runTerminalWorker(cwd: string) {
   io.on("finish", close);
   io.once("close", cleanup);
   try {
-    pty = spawnTerminal(cwd, (data) => {
-      const bytes = Buffer.from(data);
-      if (detached) {
-        replay = Buffer.concat([replay, bytes]).subarray(
-          -TERMINAL_REPLAY_BYTES
-        );
-      } else if (!io.destroyed) {
-        try {
-          send({ type: "output", data: bytes.toString("base64") });
-        } catch {
-          io.destroy();
+    pty = spawnTerminal(
+      cwd,
+      (data) => {
+        const bytes = Buffer.from(data);
+        if (detached) {
+          replay = Buffer.concat([replay, bytes]).subarray(
+            -TERMINAL_REPLAY_BYTES
+          );
+        } else if (!io.destroyed) {
+          try {
+            send({ type: "output", data: bytes.toString("base64") });
+          } catch {
+            io.destroy();
+          }
         }
-      }
-    });
+      },
+      process.env.SHELL || "/bin/bash"
+    );
   } catch (error) {
     close();
     throw error;

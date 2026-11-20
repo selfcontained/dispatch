@@ -56,12 +56,18 @@ util-linux `/usr/bin/setpriv` and permission to change identity and remove
 capabilities (`CAP_SETUID`, `CAP_SETGID`, and `CAP_SETPCAP`). Install `procps`
 to provide `ps` on the supervisor’s PATH for stopping agents and cleaning up
 their processes during archive. Before accepting execution commands,
-the runner verifies the kernel-reported non-root UID/GID, empty supplementary
+the runner verifies the kernel-reported non-root UID/GID, the workload account’s supplementary
 groups, zero capabilities, and `no_new_privs` through the same wrapper used
 for both the ACP host and repo operations. The runner grants traversal on its
 root and host-state parent even when the supervisor uses umask `0077`.
 Bindings and logs remain private. The child receives its scoped MCP credential
-and guest paths through a constructed environment. Use test credentials, disable VM
+and guest paths through a constructed environment. ACP, repo commands and
+runner terminals load the workload user's login profile and `~/.dispatch/env`.
+The installer defaults to the invoking non-root user (`SUDO_USER`) and their
+existing home. Use `--user USER` for a different existing user or
+`--dedicated-user` for a dedicated `dispatch-runner` account. The operator
+provisions that account's tools, access and groups. Updates retain the
+configured account. Use test credentials, disable VM
 mounts and SSH-agent forwarding, and keep the VM and dev data disposable.
 
 ## Registration and networking

@@ -130,7 +130,7 @@ describe("runner session supervision", () => {
         bins: { claudeBin: "", codexBin: "" },
         env: {},
         workspaces: new Set(workspaces),
-        hostCommand: () => ["/test-host"],
+        hostCommand: (dir) => ["/test-host", "--state", dir],
         asWorkload,
         observeCheckout: (dir, scratch) =>
           scratch ? observeScratchCheckout(dir) : observeGitCheckout(dir),
@@ -449,7 +449,7 @@ describe("runner session supervision", () => {
       const main = fileURLToPath(new URL("../src/main.ts", import.meta.url));
       workload = {
         bins: { claudeBin: "", codexBin: probe },
-        hostCommand: () => ["bun", main, "agent-host"],
+        hostCommand: (dir) => ["bun", main, "agent-host", "--state", dir],
         env: {
           HOME: root,
           CODEX_HOME: root,

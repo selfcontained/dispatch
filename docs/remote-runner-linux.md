@@ -12,7 +12,7 @@ For manual source runs, use Bun.
 
 1. In Dispatch, open **Settings → Runners → Add runner** and run
    the installation command for the available release. The installer
-   prepares the workload account and configuration, and adds
+   configures the installing user as the workload account and adds
    `dispatch-runner` to `/usr/local/bin`.
 2. Run the separate connect command on Linux. Copy the service URL from Dispatch Settings:
 
@@ -28,7 +28,7 @@ For manual source runs, use Bun.
 3. Select the runner in **Settings → Runners**. Under **Agent engines**, choose **Install** for
    the engine you want, then **Sign in** for Codex or Claude. The runner uses its
    bundled package manager and installs any required Node runtime under
-   `/var/lib/dispatch-runner/home/.local`. Credentials
+   `~/.local` in the workload user’s home. Credentials
    belong to that runner's workload account.
 4. In **Create Agent**, choose the runner. A Dispatch project can supply the
    repository. Select a base branch for a new worktree, use an existing branch,
@@ -69,10 +69,14 @@ The response's `assets[].name` values must include
 Inspect the exact tag rather than GitHub's latest-release alias so the runner
 matches the Dispatch protocol bundled with that release.
 
-The service runs the supervisor as root and starts engine processes as the
-dedicated non-login `dispatch-runner` account. The workload account owns
-`/var/lib/dispatch-runner/home`. The supervisor keeps its state under
-`/var/lib/dispatch-runner/runner`. The settings and private enrollment key
+The service runs the supervisor as root. Sessions run as the non-root user who
+invokes `sudo`, with their home, login profile, `~/.dispatch/env`, and supplementary
+groups. Add `--user USER` to the install command to select another existing
+account. Add `--dedicated-user` to create the non-login `dispatch-runner`
+account with home at `/var/lib/dispatch-runner/home`. The operator provisions
+the dedicated account’s tools and access. Updates keep the configured account.
+The supervisor keeps runner state under `/var/lib/dispatch-runner/runner`.
+The settings and private enrollment key
 under `/etc/dispatch-runner` are root-only. The CA certificate is readable
 by the workload for its scoped Dispatch requests.
 The service is enabled at boot and the supervisor reconnects to Dispatch.

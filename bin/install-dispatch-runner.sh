@@ -7,12 +7,14 @@ error() { printf 'error: %s\n' "$*" >&2; exit 1; }
 usage() {
   cat <<'USAGE'
 Usage:
-  install-dispatch-runner.sh install --tag vX.Y.Z
+  install-dispatch-runner.sh install --tag vX.Y.Z [--user USER | --dedicated-user]
   install-dispatch-runner.sh update --tag vX.Y.Z
   install-dispatch-runner.sh recover
 
 Run as root on Linux with systemd and unified cgroup v2.
 Install verifies the release and prepares the runner for the connect command.
+The workload uses SUDO_USER by default. Use --user for another existing
+non-root account, or --dedicated-user to create the dispatch-runner account.
 Update preserves idle sessions on compatible runners. Exit 75 means retry after the reported activity finishes.
 Recover restores the previous binary after an interrupted update.
 USAGE
@@ -58,30 +60,36 @@ start_enabled_runner() {
   stable_start
 }
 
+# HOME comes from passwd and is inserted into JSON strings.
+json_path() {
+  local value=$1
+  [[ "$value" != *[[:cntrl:]]* ]] || error "Invalid workload home"
+  value=${value//\\/\\\\}
+  printf '%s' "${value//\"/\\\"}"
+}
+
 # The standalone runner doubles as Bun's package installer under the workload UID.
 engine_commands() {
   local package="$1" command
-  printf -v command '{"executable":"%s/dispatch","args":["add","--global","--trust","%s@latest"],"env":{"BUN_BE_BUN":"1","BUN_INSTALL":"%s/home/.local"}}' \
-    "$runtime" "$package" "$state"
+  printf -v command '{"executable":"%s/dispatch","args":["add","--global","--trust","%s@latest"],"env":{"BUN_BE_BUN":"1","BUN_INSTALL":"%s/.local"}}' \
+    "$runtime" "$package" "$home_json"
   printf '{"install":%s,"update":%s}' "$command" "$command"
 }
 
 write_config() {
-  local uid gid
-  uid=$(id -u "$account")
-  gid=$(id -g "$account")
-  [[ "$uid" =~ ^[1-9][0-9]*$ && "$gid" =~ ^[1-9][0-9]*$ ]] || error "Invalid workload account"
+  local uid=$1 gid=$2 home_json
+  home_json=$(json_path "$3")
   cat > "$stage/runner.json" <<CONFIG
 {
   "state": "$state/runner",
   "uid": $uid,
   "gid": $gid,
-  "home": "$state/home",
-  "path": "$state/home/.local/bin:/usr/local/bin:/usr/bin:/bin",
+  "home": "$home_json",
+  "path": "$home_json/.local/bin:/usr/local/bin:/usr/bin:/bin",
   "bins": {
-    "claudeBin": "$state/home/.local/bin/claude",
-    "codexBin": "$state/home/.local/bin/codex",
-    "opencodeBin": "$state/home/.local/bin/opencode"
+    "claudeBin": "$home_json/.local/bin/claude",
+    "codexBin": "$home_json/.local/bin/codex",
+    "opencodeBin": "$home_json/.local/bin/opencode"
   },
   "engines": {
     "claude": $(engine_commands @anthropic-ai/claude-code),
@@ -116,7 +124,7 @@ install_service_unit() {
 }
 
 install_runner() {
-  local account_entry account_home account_shell
+  local account account_entry uid gid account_home account_shell
   if [[ -e "$command_path" || -L "$command_path" ]]; then
     [[ -L "$command_path" && "$(readlink "$command_path")" == "$runtime/runner-cli" ]] ||
       error "Another dispatch-runner command already occupies $command_path"
@@ -124,31 +132,44 @@ install_runner() {
   if [[ ! -f "$runtime/managed-install" ]]; then
     [[ ! -e "$config" && ! -e "$unit_path" && ! -e "$runtime/dispatch" ]] ||
       error "An unmanaged runner already occupies the install paths"
-    ! getent passwd "$account" >/dev/null || error "Workload account $account already exists"
-    : > "$runtime/managed-install"
+    if [[ "$dedicated" == 1 ]] && getent passwd dispatch-runner >/dev/null; then
+      error "Workload account dispatch-runner already exists. Use --user dispatch-runner to select it."
+    fi
   fi
   if [[ -e "$runtime/dispatch" ]]; then
     cmp -s "$stage/dispatch" "$runtime/dispatch" || error "Use update to change the installed release"
   fi
-  if ! getent passwd "$account" >/dev/null; then
-    useradd --system --user-group --no-create-home --home-dir "$state/home" \
-      --shell /usr/sbin/nologin "$account"
-  fi
-  account_entry=$(getent passwd "$account")
-  IFS=: read -r _ _ _ _ _ account_home account_shell <<< "$account_entry"
-  [[ "$account_home" == "$state/home" && "$account_shell" == /usr/sbin/nologin ]] ||
-    error "Unexpected workload account configuration"
-  install -d -m 0711 "$state"
-  if [[ ! -d "$state/home" ]]; then
-    install -d -m 0700 -o "$account" -g "$account" "$state/home"
-  fi
-  if [[ ! -d "$state/runner" ]]; then
-    install -d -m 0711 "$state/runner"
-  fi
-  # The workload needs traversal to ca.pem, while settings and private key stay 0600.
-  install -d -m 0711 "$settings"
   if [[ ! -f "$config" ]]; then
-    write_config
+    if [[ "$dedicated" == 1 ]]; then
+      account=dispatch-runner
+      : > "$runtime/managed-install"
+      if ! getent passwd "$account" >/dev/null; then
+        useradd --system --user-group --no-create-home --home-dir "$state/home" \
+          --shell /usr/sbin/nologin "$account"
+      fi
+    else
+      account=${requested_user:-${SUDO_USER:-}}
+      [[ -n "$account" ]] || error "Use sudo as the installing user, or supply --user or --dedicated-user"
+    fi
+    account_entry=$(getent -- passwd "$account") || error "Workload account $account does not exist"
+    IFS=: read -r _ _ uid gid _ account_home account_shell <<< "$account_entry"
+    [[ "$uid" =~ ^[1-9][0-9]*$ && "$gid" =~ ^[1-9][0-9]*$ && "$account_home" == /* ]] ||
+      error "Invalid workload account or home"
+    : > "$runtime/managed-install"
+    install -d -m 0711 "$state"
+    if [[ "$dedicated" == 1 ]]; then
+      [[ "$account_home" == "$state/home" && "$account_shell" == /usr/sbin/nologin ]] ||
+        error "Unexpected dedicated workload account configuration"
+      if [[ ! -d "$account_home" ]]; then
+        install -d -m 0700 -o "$uid" -g "$gid" "$account_home"
+      fi
+    fi
+    if [[ ! -d "$state/runner" ]]; then
+      install -d -m 0711 "$state/runner"
+    fi
+    # The workload needs traversal to ca.pem. Settings and private key stay 0600.
+    install -d -m 0711 "$settings"
+    write_config "$uid" "$gid" "$account_home"
   fi
   if [[ ! -e "$runtime/dispatch" ]]; then
     install -m 0755 "$stage/dispatch" "$stage/initial"
@@ -368,7 +389,29 @@ cleanup() {
   return "$status"
 }
 
+parse_install_options() {
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --user)
+        [[ "$dedicated" == 0 && -z "$requested_user" && -n "${2:-}" && "$2" != -* ]] ||
+          error "Supply one workload account with --user or --dedicated-user"
+        requested_user=$2
+        shift 2
+        ;;
+      --dedicated-user)
+        [[ "$dedicated" == 0 && -z "$requested_user" ]] ||
+          error "Supply one workload account with --user or --dedicated-user"
+        dedicated=1
+        shift
+        ;;
+      *) error "Unknown install option: $1" ;;
+    esac
+  done
+}
+
 main() {
+  dedicated=0
+  requested_user=
   action=${1:-}
   case "$action" in
     -h|--help) usage; return ;;
@@ -378,8 +421,14 @@ main() {
   if [[ "$action" == recover ]]; then
     [[ $# -eq 0 ]] || error "Recover takes no options"
   else
-    [[ $# -eq 2 && "$1" == --tag ]] || error "Supply --tag vX.Y.Z"
+    [[ $# -ge 2 && "$1" == --tag ]] || error "Supply --tag vX.Y.Z"
     tag=$2
+    shift 2
+    if [[ "$action" == install ]]; then
+      parse_install_options "$@"
+    else
+      [[ $# -eq 0 ]] || error "Update takes only --tag vX.Y.Z"
+    fi
     [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || error "Use an exact release tag (vX.Y.Z)"
   fi
   [[ "$EUID" == 0 && "$(uname -s)" == Linux ]] || error "Run as root on Linux"
@@ -405,7 +454,6 @@ main() {
   settings=/etc/dispatch-runner
   config="$settings/runner.json"
   state=/var/lib/dispatch-runner
-  account=dispatch-runner
   install -d -m 0755 "$runtime"
   exec 9>"$runtime/install.lock"
   flock -n 9 || error "Another runner install or update is running"

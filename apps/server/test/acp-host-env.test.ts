@@ -8,7 +8,7 @@ import {
 } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildLaunchEnv } from "../src/agents/acp/launch-env.js";
 import { buildHostEnv } from "../src/agents/acp/host-env.js";
 import {
@@ -20,6 +20,51 @@ const roots: string[] = [];
 afterEach(() => {
   for (const dir of roots.splice(0))
     rmSync(dir, { recursive: true, force: true });
+});
+
+it("preserves the local ACP launch command and its argument boundaries", () => {
+  vi.stubEnv("SHELL", "/bin/zsh");
+  try {
+    expect(
+      loginShellCommand([
+        "/local/dispatch",
+        "agent-host",
+        "--state",
+        "/local/state dir",
+      ])
+    ).toEqual({
+      bin: "/bin/zsh",
+      args: [
+        "-lc",
+        '[ -f "$HOME/.dispatch/env" ] && . "$HOME/.dispatch/env"; exec "$@"',
+        "dispatch-agent-host",
+        "/local/dispatch",
+        "agent-host",
+        "--state",
+        "/local/state dir",
+      ],
+    });
+  } finally {
+    vi.unstubAllEnvs();
+  }
+});
+
+it("keeps the configured PATH behind the workload profile PATH", () => {
+  const home = mkdtempSync(path.join(os.tmpdir(), "dispatch-runner-path-"));
+  roots.push(home);
+  mkdirSync(path.join(home, ".dispatch"));
+  writeFileSync(path.join(home, ".dispatch/env"), "export PATH=/profile/bin\n");
+  const command = loginShellCommand(
+    ["/usr/bin/printenv", "PATH"],
+    "/bin/sh",
+    "/fallback with spaces/bin:/usr/bin:/bin"
+  );
+  expect(
+    execFileSync(command.bin, command.args, {
+      env: { HOME: home, PATH: "/usr/bin:/bin" },
+      encoding: "utf8",
+    }).trim()
+  ).toBe("/profile/bin:/fallback with spaces/bin:/usr/bin:/bin");
 });
 
 it("merges shell-provided trust after ~/.dispatch/env and isolates agents and consumers", () => {

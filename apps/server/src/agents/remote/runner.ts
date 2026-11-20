@@ -1,8 +1,9 @@
+import { executionArgs, setpriv } from "./workload-identity.js";
 import { runnerHealthSampler } from "./health.js";
 import { SharedCheckoutWatches, childWatch } from "../checkout-watch.js";
 import { execFile, spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { createConnection, isIP } from "node:net";
 import path from "node:path";
 import process from "node:process";
@@ -14,7 +15,11 @@ import type { HostLaunch } from "../acp/host-protocol.js";
 import type { WorkloadCommand } from "./session-storage.js";
 import { createSessionSupervisor } from "./session-supervisor.js";
 export { runnerStorageKey } from "./session-supervisor.js";
-import { hostCommand, selfCommand } from "../acp/host-command.js";
+import {
+  hostCommand,
+  loginShellCommand,
+  selfCommand,
+} from "../acp/host-command.js";
 import {
   isOpaqueId,
   isTerminalEvent,
@@ -98,25 +103,9 @@ export const runnerGitArgs = [
 ];
 
 const execute = promisify(execFile);
-const setpriv = "/usr/bin/setpriv";
 
 function validExecutionId(value: number) {
   return Number.isInteger(value) && value > 0 && value < 0xffffffff;
-}
-
-// Bun versions disagree on whether spawn and execFile apply uid/gid. Make
-// the kernel privilege transition the same for the ACP host and repo tools.
-function executionArgs(uid: number, gid: number) {
-  return [
-    `--reuid=${uid}`,
-    `--regid=${gid}`,
-    "--clear-groups",
-    "--no-new-privs",
-    "--inh-caps=-all",
-    "--ambient-caps=-all",
-    "--bounding-set=-all",
-    "--",
-  ];
 }
 
 function runCheckoutWorker(
@@ -190,11 +179,13 @@ async function verifyExecutionIdentity(
     const matchesId = (key: string, expected: number) =>
       fields.get(key)?.split(/\s+/).join(" ") ===
       Array(4).fill(expected).join(" ");
+    const groups = fields.get("Groups")?.split(/\s+/);
     const capabilityFields = ["CapInh", "CapPrm", "CapEff", "CapBnd", "CapAmb"];
     if (
       !matchesId("Uid", uid) ||
       !matchesId("Gid", gid) ||
-      fields.get("Groups") !== "" ||
+      !groups?.includes(String(gid)) ||
+      !groups.every((group) => validExecutionId(Number(group))) ||
       fields.get("NoNewPrivs") !== "1" ||
       !capabilityFields.every((key) => /^0+$/.test(fields.get(key) ?? ""))
     ) {
@@ -230,10 +221,29 @@ export async function runRemoteRunner(filename: string) {
   if (!configuredHandles.every(isOpaqueId))
     throw new Error("Runner workspace IDs must be valid opaque identifiers.");
   const managedWorkspace = configuredHandles.length === 0;
+  const { stdout: account } = await execute(
+    "/usr/bin/getent",
+    ["passwd", String(config.uid)],
+    { timeout: 5000 }
+  );
+  const [username, , , , , , passwdShell] = account.trimEnd().split(":");
+  const shell =
+    passwdShell &&
+    path.isAbsolute(passwdShell) &&
+    !["nologin", "false"].includes(path.basename(passwdShell)) &&
+    existsSync(passwdShell)
+      ? passwdShell
+      : "/bin/bash";
+  const workloadLogin = (command: string[]) => {
+    const login = loginShellCommand(command, shell, config.path);
+    return [...childArgs, login.bin, ...login.args];
+  };
   const env = {
     HOME: config.home,
     PATH: config.path,
-    SHELL: "/bin/bash",
+    SHELL: shell,
+    USER: username,
+    LOGNAME: username,
     NODE_EXTRA_CA_CERTS: config.ca,
     ...(config.trustBundle ? { SSL_CERT_FILE: config.trustBundle } : {}),
     ...(config.adapter
@@ -397,7 +407,7 @@ export async function runRemoteRunner(filename: string) {
     async prepareDependencies(cwd) {
       await execute(
         setpriv,
-        [...childArgs, ...selfCommand("runner-prepare-dependencies"), cwd],
+        workloadLogin([...selfCommand("runner-prepare-dependencies"), cwd]),
         {
           env: { ...env, GIT_TERMINAL_PROMPT: "0", GH_PROMPT_DISABLED: "1" },
           timeout: 135_000,
@@ -406,7 +416,10 @@ export async function runRemoteRunner(filename: string) {
       );
       return true;
     },
-    hostCommand: () => [setpriv, ...childArgs, ...hostCommand()],
+    hostCommand: (dir) => [
+      setpriv,
+      ...workloadLogin([...hostCommand(), "--state", dir]),
+    ],
   });
 
   const nextDelay = runnerReconnectDelay();
@@ -952,7 +965,7 @@ export async function runRemoteRunner(filename: string) {
               );
             const { stdout } = await execute(
               setpriv,
-              [...childArgs, bin, ...args],
+              workloadLogin([bin, ...args]),
               {
                 cwd: target?.cwd,
                 env,

@@ -11,27 +11,41 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { reportIdentity, dial } = vi.hoisted(() => {
-  const reportIdentity = vi.fn();
-  // Preserve execFile's custom promisify return shape.
-  Object.defineProperty(
-    reportIdentity,
-    Symbol.for("nodejs.util.promisify.custom"),
-    {
-      value: (...args: unknown[]) =>
-        new Promise((resolve, reject) => {
-          reportIdentity(
-            ...args,
-            (error: Error | null, stdout: string, stderr: string) => {
-              if (error) reject(error);
-              else resolve({ stdout, stderr });
+const { reportIdentity, dial, supervisorConfig, passwdShell } = vi.hoisted(
+  () => {
+    const reportIdentity = vi.fn();
+    // Preserve execFile's custom promisify return shape.
+    Object.defineProperty(
+      reportIdentity,
+      Symbol.for("nodejs.util.promisify.custom"),
+      {
+        value: (...args: unknown[]) =>
+          new Promise((resolve, reject) => {
+            if (args[0] === "/usr/bin/getent") {
+              resolve({
+                stdout: `fixture:x:1000:1001::/fixture:${passwdShell.value}\n`,
+              });
+              return;
             }
-          );
-        }),
-    }
-  );
-  return { reportIdentity, dial: vi.fn() };
-});
+            reportIdentity(
+              ...args,
+              (error: Error | null, stdout: string, stderr: string) => {
+                if (error) reject(error);
+                else resolve({ stdout, stderr });
+              }
+            );
+          }),
+      }
+    );
+    const passwdShell = { value: "/bin/sh" };
+    return {
+      reportIdentity,
+      dial: vi.fn(),
+      supervisorConfig: vi.fn(),
+      passwdShell,
+    };
+  }
+);
 
 // Exercise the real runner startup on every test platform. The kernel probe
 // and TLS dial are mocked along with the Linux session primitives.
@@ -60,6 +74,22 @@ vi.mock("../src/agents/remote/session-processes.js", async (original) => ({
   createSessionProcesses: () => ({ acquire: () => () => {} }),
 }));
 
+vi.mock("../src/agents/remote/session-supervisor.js", async (original) => {
+  const real =
+    await original<
+      typeof import("../src/agents/remote/session-supervisor.js")
+    >();
+  return {
+    ...real,
+    createSessionSupervisor: (
+      config: Parameters<typeof real.createSessionSupervisor>[0]
+    ) => {
+      supervisorConfig(config);
+      return real.createSessionSupervisor(config);
+    },
+  };
+});
+
 import {
   runnerStorageKey,
   runRemoteRunner,
@@ -78,7 +108,7 @@ it("preserves prototype storage while keeping opaque wire IDs out of paths", () 
 const unprivilegedStatus = [
   "Uid:\t1000\t1000\t1000\t1000",
   "Gid:\t1001\t1001\t1001\t1001",
-  "Groups:\t ",
+  "Groups:\t1001 2000",
   "CapInh:\t0000000000000000",
   "CapPrm:\t0000000000000000",
   "CapEff:\t0000000000000000",
@@ -95,6 +125,7 @@ describe("remote runner startup", () => {
 
   beforeEach(async () => {
     vi.resetAllMocks();
+    passwdShell.value = "/bin/sh";
     root = await mkdtemp(path.join(os.tmpdir(), "dispatch-runner-startup-"));
     config = path.join(root, "runner.json");
     state = path.join(root, "state");
@@ -119,13 +150,15 @@ describe("remote runner startup", () => {
   });
 
   afterEach(async () => {
+    vi.unstubAllEnvs();
     await rm(root, { recursive: true, force: true });
   });
 
   it.each([
     ["root UID", "Uid:\t1000\t1000\t1000\t1000", "Uid:\t0\t0\t0\t0"],
     ["root GID", "Gid:\t1001\t1001\t1001\t1001", "Gid:\t0\t0\t0\t0"],
-    ["supplementary root group", "Groups:\t ", "Groups:\t0"],
+    ["cleared groups", "Groups:\t1001 2000", "Groups:\t"],
+    ["supplementary root group", "Groups:\t1001 2000", "Groups:\t0 1001 2000"],
     [
       "retained capability",
       "CapBnd:\t0000000000000000",
@@ -246,6 +279,52 @@ describe("remote runner startup", () => {
     }
   );
 
+  it.each([
+    ["/bin/sh", "/bin/sh"],
+    ["/usr/sbin/nologin", "/bin/bash"],
+    ["/bin/false", "/bin/bash"],
+    ["", "/bin/bash"],
+    ["/nonexistent/dispatch-fixture/bash", "/bin/bash"],
+  ])(
+    "launches ACP through the workload login shell for %s",
+    async (shell, expected) => {
+      passwdShell.value = shell;
+      vi.stubEnv(
+        "DISPATCH_AGENT_HOST_COMMAND",
+        '["/fixture/dispatch","agent-host"]'
+      );
+      reportIdentity.mockImplementation((_command, _args, _options, callback) =>
+        callback(null, unprivilegedStatus, "")
+      );
+      const stopAtDial = new Error("end simulated runner");
+      dial.mockImplementation(() => {
+        throw stopAtDial;
+      });
+
+      await expect(runRemoteRunner(config)).rejects.toBe(stopAtDial);
+      const supervisor = supervisorConfig.mock.calls[0]![0];
+      expect(supervisor.env).toMatchObject({
+        HOME: root,
+        USER: "fixture",
+        LOGNAME: "fixture",
+        SHELL: expected,
+      });
+      expect(supervisor.hostCommand("/state/host")).toEqual([
+        "/usr/bin/setpriv",
+        ...reportIdentity.mock.calls[0]![1].slice(0, -2),
+        expected,
+        "-lc",
+        '[ -f "$HOME/.dispatch/env" ] && . "$HOME/.dispatch/env"; export PATH="${PATH:+$PATH:}$1"; shift; exec "$@"',
+        "dispatch-agent-host",
+        "/usr/bin:/bin",
+        "/fixture/dispatch",
+        "agent-host",
+        "--state",
+        "/state/host",
+      ]);
+    }
+  );
+
   it("leaves the host parent traversable and keeps enrollment state private", async () => {
     // A retained host directory created with umask 0077 has mode 0700.
     await mkdir(path.join(state, "hosts"), { recursive: true, mode: 0o700 });
@@ -267,7 +346,7 @@ describe("remote runner startup", () => {
       [
         "--reuid=1000",
         "--regid=1001",
-        "--clear-groups",
+        "--init-groups",
         "--no-new-privs",
         "--inh-caps=-all",
         "--ambient-caps=-all",

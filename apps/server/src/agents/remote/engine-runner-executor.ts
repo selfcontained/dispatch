@@ -1,3 +1,4 @@
+import { executionArgs, setpriv } from "./workload-identity.js";
 import { spawn } from "node:child_process";
 import { isDeepStrictEqual } from "node:util";
 import { randomUUID } from "node:crypto";
@@ -81,18 +82,9 @@ function setprivWrap(
   uid: number,
   gid: number
 ): (bin: string, args: string[]) => { bin: string; args: string[] } {
-  const privArgs = [
-    `--reuid=${uid}`,
-    `--regid=${gid}`,
-    "--clear-groups",
-    "--no-new-privs",
-    "--inh-caps=-all",
-    "--ambient-caps=-all",
-    "--bounding-set=-all",
-    "--",
-  ];
+  const privArgs = executionArgs(uid, gid);
   return (bin, args) => ({
-    bin: "/usr/bin/setpriv",
+    bin: setpriv,
     args: [...privArgs, bin, ...args],
   });
 }

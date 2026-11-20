@@ -1,3 +1,5 @@
+import { loginShellCommand } from "../agents/acp/host-command.js";
+import { withToolSearchPath } from "../shared/lib/tool-environment.js";
 import { userInfo } from "node:os";
 import { captureTerminalSession } from "./process-session.js";
 
@@ -41,7 +43,11 @@ export type SpawnTerminal = (
   output: (data: Uint8Array) => void
 ) => PtyProcess;
 
-export const spawnTerminal: SpawnTerminal = (cwd, output) => {
+export function spawnTerminal(
+  cwd: string,
+  output: (data: Uint8Array) => void,
+  workloadShell?: string
+): PtyProcess {
   if (
     typeof Bun === "undefined" ||
     typeof Bun.Terminal !== "function" ||
@@ -55,10 +61,18 @@ export const spawnTerminal: SpawnTerminal = (cwd, output) => {
     throw new Error(
       "Human terminals require Dispatch to run as an ordinary OS user."
     );
-  const shell = userInfo().shell || "/bin/sh";
-  const proc = Bun.spawn([shell, "-l"], {
+  const shell = workloadShell ?? (userInfo().shell || "/bin/sh");
+  const env = terminalEnvironment();
+  const login = workloadShell
+    ? loginShellCommand(
+        [workloadShell, "-i"],
+        workloadShell,
+        withToolSearchPath(env).PATH
+      )
+    : { bin: shell, args: ["-l"] };
+  const proc = Bun.spawn([login.bin, ...login.args], {
     cwd,
-    env: terminalEnvironment(),
+    env,
     terminal: { cols: 80, rows: 24, data: (_terminal, data) => output(data) },
   });
   let cleanup: () => void;
@@ -81,4 +95,4 @@ export const spawnTerminal: SpawnTerminal = (cwd, output) => {
       }
     },
   };
-};
+}
