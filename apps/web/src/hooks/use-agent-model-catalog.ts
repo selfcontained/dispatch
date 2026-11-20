@@ -25,6 +25,7 @@ export type AgentModelCatalog = Partial<Record<AgentType, AgentModelOption[]>>;
  */
 export function useAgentModelCatalog(agentType: AgentType): {
   options: AgentModelOption[];
+  defaultModel: string | null;
   loading: boolean;
   /** True only once a catalog has actually arrived — a failed fetch stays
    * false so callers don't mistake "no catalog" for "empty catalog". */
@@ -59,7 +60,12 @@ export function useAgentModelCatalog(agentType: AgentType): {
     [loaded, options]
   );
 
-  return { options, loading: isLoading, loaded, normalizeModel };
+  const reportedDefault = data?.defaults?.[agentType];
+  const defaultModel = options.some((option) => option.id === reportedDefault)
+    ? (reportedDefault ?? null)
+    : null;
+
+  return { options, defaultModel, loading: isLoading, loaded, normalizeModel };
 }
 
 /**
