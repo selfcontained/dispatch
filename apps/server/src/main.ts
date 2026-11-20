@@ -85,6 +85,10 @@ if (process.argv[2]?.startsWith("recovery-")) {
   const { runCheckoutInspectionCli } =
     await import("./agents/checkout-inspection.js");
   await runCheckoutInspectionCli(process.argv[3]!);
+} else if (process.argv[2] === "runner-engine-capability") {
+  const { runEngineCapabilityWorker } =
+    await import("./agents/remote/engine-capability-worker.js");
+  await runEngineCapabilityWorker();
 } else if (process.argv[2] === "remote-runner") {
   const { runRemoteRunner } = await import("./agents/remote/runner.js");
   await runRemoteRunner(process.argv[3]!);

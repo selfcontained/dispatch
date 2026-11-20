@@ -12,6 +12,7 @@ export type Runner = {
   workspaces: string[];
   managedWorkspace?: true;
   engineManagement?: true;
+  engineCapabilities?: true;
   githubManagement?: boolean;
   health?: RunnerHealth;
   healthReceivedAt?: string;

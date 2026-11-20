@@ -1,3 +1,4 @@
+import { RunnerPlugin } from "./runner-plugin";
 import { useEffect, useState } from "react";
 import { CheckCircle2, Loader2 } from "lucide-react";
 
@@ -22,7 +23,13 @@ import type { EngineScope } from "@dispatch/runner-protocol/engine-management";
  * (and, for a runner, the surrounding "which runner/workspace" picker).
  * See `use-runner-engines.ts` for the HTTP contract this expects.
  */
-export function RunnerEngines({ scope }: { scope: EngineScope }): JSX.Element {
+export function RunnerEngines({
+  scope,
+  capabilities = false,
+}: {
+  scope: EngineScope;
+  capabilities?: boolean;
+}): JSX.Element {
   const inventory = useRunnerEngineInventory(scope);
   const entries = inventory.data?.entries ?? [];
   const [activeLogin, setActiveLogin] = useState<EngineLoginView | null>(null);
@@ -72,6 +79,7 @@ export function RunnerEngines({ scope }: { scope: EngineScope }): JSX.Element {
           key={entry.id}
           scope={scope}
           entry={entry}
+          capabilities={capabilities}
           activeLogin={activeLogin?.engine === entry.id ? activeLogin : null}
           onLoginChange={(login) =>
             setActiveLogin(login && login.engine === entry.id ? login : null)
@@ -93,11 +101,13 @@ function isLoginActive(login: EngineLoginView | null): boolean {
 function EngineRow({
   scope,
   entry,
+  capabilities,
   activeLogin,
   onLoginChange,
 }: {
   scope: EngineScope;
   entry: EngineInventoryEntry;
+  capabilities: boolean;
   activeLogin: EngineLoginView | null;
   onLoginChange: (login: EngineLoginView | null) => void;
 }): JSX.Element {
@@ -207,6 +217,13 @@ function EngineRow({
             )}
         </div>
       </div>
+
+      {capabilities &&
+        scope.kind === "runner" &&
+        entry.installed &&
+        entry.id !== "opencode" && (
+          <RunnerPlugin runnerId={scope.runnerId} engine={entry.id} />
+        )}
 
       {entry.issue === "install-unavailable" && (
         <p className="text-[11.5px] text-muted-foreground">

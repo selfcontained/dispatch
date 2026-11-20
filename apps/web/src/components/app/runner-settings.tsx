@@ -1,3 +1,4 @@
+import { RunnerProviderUsage } from "@/components/runner-engines/runner-provider-usage";
 import { useEffect, useRef, useState } from "react";
 import { ArrowLeft, ChevronRight, Ellipsis, Server } from "lucide-react";
 import {
@@ -346,7 +347,23 @@ function RunnerDetail({
             Engine management isn’t supported on this runner.
           </p>
         ) : (
-          <RunnerEngines scope={{ kind: "runner", runnerId: runner.id }} />
+          <>
+            <RunnerEngines
+              scope={{ kind: "runner", runnerId: runner.id }}
+              capabilities={runner.engineCapabilities}
+            />
+            {runner.engineCapabilities ? (
+              <RunnerProviderUsage
+                key={runner.id}
+                runnerId={runner.id}
+                allowReset
+              />
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                Update this runner to read plan limits and plugins.
+              </p>
+            )}
+          </>
         )}
       </section>
 

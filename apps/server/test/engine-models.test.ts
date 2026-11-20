@@ -170,8 +170,30 @@ describe("recordEngineModels", () => {
     const stored = p.query.mock.calls.find((c) =>
       String(c[0]).includes("INSERT INTO settings")
     )?.[1] as [string, string];
-    expect(stored[0]).toBe("agent_models:claude");
+    expect(stored[0]).toBe("agent_models:local:claude");
     expect(JSON.parse(stored[1]).models).toHaveLength(2);
+  });
+
+  it("records a workload session model without learning it as a native option", async () => {
+    const p = pool();
+    const before = getAgentModelOptions("claude");
+    const result = await recordEngineModels(
+      { pool: p as never, logger },
+      { id: "agt_remote", type: "claude", model: null },
+      [
+        modelOption("runner/model", [
+          { value: "runner/model", name: "Runner model" },
+        ]),
+      ],
+      { learn: false }
+    );
+    expect(result).toEqual({ modelChanged: true, modelsChanged: false });
+    expect(getAgentModelOptions("claude")).toEqual(before);
+    expect(p.query).toHaveBeenCalledTimes(1);
+    expect(p.query).toHaveBeenCalledWith(
+      expect.stringContaining("UPDATE agents"),
+      ["agt_remote", "runner/model"]
+    );
   });
 
   it("leaves the agent alone when the engine runs what it already says", async () => {
@@ -269,7 +291,8 @@ describe("recordEngineModels", () => {
     const reload = {
       query: vi.fn().mockImplementation((_sql, args) =>
         Promise.resolve({
-          rows: args[0] === "agent_models:codex" ? [{ value: stored }] : [],
+          rows:
+            args[0] === "agent_models:local:codex" ? [{ value: stored }] : [],
         })
       ),
     };

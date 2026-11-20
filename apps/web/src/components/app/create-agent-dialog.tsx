@@ -138,7 +138,14 @@ function CreateAgentDialogContent({
                   modelLoading={form.modelCatalogLoading}
                   onTypeOpenChange={setTypeDropdownOpen}
                   remote={Boolean(form.runnerId)}
+                  workloadEffort={form.workloadEffort}
                 />
+                {form.workloadCatalogUnavailable && (
+                  <p className="text-xs text-muted-foreground" role="status">
+                    Runner model choices are unavailable. Launches use the
+                    engine’s defaults.
+                  </p>
+                )}
 
                 <div className="space-y-1">
                   <label className="text-sm text-muted-foreground">

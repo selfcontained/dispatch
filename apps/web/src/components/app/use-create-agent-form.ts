@@ -1,3 +1,4 @@
+import { useRunnerModelCatalog } from "@/hooks/use-runner-engines";
 import { isLocalFolder } from "./path-input-utils";
 import { createClientId } from "@/lib/client-id";
 import { MANAGED_WORKSPACE } from "@dispatch/runner-protocol";
@@ -16,6 +17,7 @@ import {
   type FormEvent,
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -93,6 +95,7 @@ export function useCreateAgentForm({
       : "";
   const selectRunner = (id: string | null) => {
     if (id === runnerId) return;
+    setCreateEffort(null);
     setChosenRepo(null);
     setRunnerBranch("");
     setBranchMode("new");
@@ -237,10 +240,43 @@ export function useCreateAgentForm({
   } = useCreateAgentPrefs(createCwd, createType);
   const createFullAccess = createType === "opencode" || savedCreateFullAccess;
   const {
-    options: modelOptions,
-    loading: modelCatalogLoading,
-    loaded: modelCatalogLoaded,
-  } = useAgentModelCatalog(createType);
+    options: nativeOptions,
+    loading: nativeLoading,
+    loaded: nativeLoaded,
+  } = useAgentModelCatalog(createType, !remote);
+  const online = runner?.status === "online";
+  const catalog = useRunnerModelCatalog(runnerId, createType, online);
+  const currentCatalog =
+    online && !catalog.isError && !catalog.isFetching
+      ? catalog.data
+      : undefined;
+  const modelOptions = useMemo(
+    () => (remote ? (currentCatalog?.models ?? []) : nativeOptions),
+    [remote, currentCatalog, nativeOptions]
+  );
+  const modelCatalogLoading = remote ? catalog.isFetching : nativeLoading;
+  const modelCatalogLoaded = remote ? Boolean(currentCatalog) : nativeLoaded;
+  const selectedModel =
+    createModel &&
+    currentCatalog?.models.some((option) => option.id === createModel)
+      ? createModel
+      : undefined;
+  const selectedEffortCatalog = useRunnerModelCatalog(
+    runnerId,
+    createType,
+    online &&
+      Boolean(selectedModel && selectedModel !== currentCatalog?.defaultModel),
+    selectedModel
+  );
+  const effortCatalog =
+    selectedModel && selectedModel !== currentCatalog?.defaultModel
+      ? !selectedEffortCatalog.isFetching && !selectedEffortCatalog.isError
+        ? selectedEffortCatalog.data
+        : undefined
+      : currentCatalog;
+  const workloadEffort = effortCatalog?.models.find(
+    (option) => option.id === (selectedModel ?? currentCatalog?.defaultModel)
+  )?.effort;
 
   useEffect(() => {
     if (!modelCatalogLoaded) return;
@@ -421,7 +457,11 @@ export function useCreateAgentForm({
           model: modelOptions.some((option) => option.id === createModel)
             ? createModel
             : undefined,
-          effort: createEffort ?? undefined,
+          effort:
+            !remote ||
+            workloadEffort?.some((choice) => choice.value === createEffort)
+              ? (createEffort ?? undefined)
+              : undefined,
           fullAccess: createFullAccess,
           useWorktree: submitUseWorktree,
           createNewBranch: submitUseWorktree
@@ -513,6 +553,7 @@ export function useCreateAgentForm({
       startupLinks,
       step,
       modelOptions,
+      workloadEffort,
     ]
   );
 
@@ -578,6 +619,8 @@ export function useCreateAgentForm({
     },
     modelOptions,
     modelCatalogLoading,
+    workloadEffort,
+    workloadCatalogUnavailable: remote && (catalog.isError || !online),
     createBaseBranch,
     setCreateBaseBranch,
     createNewBranch,

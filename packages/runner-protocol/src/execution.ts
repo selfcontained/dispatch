@@ -98,6 +98,7 @@ export type ReadyFrame = {
   managedWorkspace?: true;
   /** Advertises support for the `"engine"` command and inventory push. */
   engineManagement?: true;
+  engineCapabilities?: true;
   githubManagement?: true;
   pullRequestStatus?: true;
   pullRequestWatch?: true;
@@ -146,6 +147,7 @@ export function parseReadyFrame(value: unknown): ReadyFrame | null {
     ...(frame.workspacePreparation === true && { workspacePreparation: true }),
     ...(frame.health === true && { health: true }),
     ...(frame.engineManagement === true && { engineManagement: true }),
+    ...(frame.engineCapabilities === true && { engineCapabilities: true }),
     ...(frame.pullRequestEvidence === true && { pullRequestEvidence: true }),
     ...(frame.pullRequestWatch === true && { pullRequestWatch: true }),
     ...(frame.pullRequestStatus === true && { pullRequestStatus: true }),

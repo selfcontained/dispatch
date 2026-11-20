@@ -1,8 +1,11 @@
+import type { RunnerEngine } from "@dispatch/runner-protocol";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
   engineScopeKey,
   type EngineInventoryEntry,
+  type EngineCapabilityOperation,
+  type EngineCapabilityResult,
   type EngineLoginView,
   type EngineOperation,
   type EngineOperationAck,
@@ -106,5 +109,65 @@ export function useRunnerEngineLoginStatus(
       const ack = query.state.data?.ack;
       return ack?.ok && isLoginActive(ack.login) ? 1_500 : false;
     },
+  });
+}
+
+export async function runnerEngineCapability<
+  T extends EngineCapabilityResult["type"],
+>(
+  runnerId: string,
+  operation: EngineCapabilityOperation,
+  type: T
+): Promise<Extract<EngineCapabilityResult, { type: T }>> {
+  const { ack } = await api<{ ack: EngineOperationAck }>(
+    "/api/v1/engine-management/operations",
+    {
+      method: "POST",
+      body: JSON.stringify({ scope: { kind: "runner", runnerId }, operation }),
+    }
+  );
+  if (!ack.ok) throw new Error(ack.error);
+  if (ack.capability?.type !== type)
+    throw new Error("The runner did not return the requested engine data.");
+  return ack.capability as Extract<EngineCapabilityResult, { type: T }>;
+}
+
+export function useRunnerModelCatalog(
+  runnerId: string | null,
+  engine: RunnerEngine,
+  online: boolean,
+  model?: string
+) {
+  return useQuery({
+    queryKey: ["runner-engine-catalog", runnerId, engine, model],
+    enabled: Boolean(runnerId && online),
+    retry: false,
+    queryFn: async () =>
+      (
+        await runnerEngineCapability(
+          runnerId!,
+          { type: "model_catalog", engine, ...(model ? { model } : {}) },
+          "model_catalog"
+        )
+      ).catalog,
+  });
+}
+
+export function useRunnerProviderUsage(
+  runnerId: string | null,
+  enabled: boolean
+) {
+  return useQuery({
+    queryKey: ["runner-provider-usage", runnerId],
+    enabled: Boolean(runnerId && enabled),
+    retry: false,
+    queryFn: async () =>
+      (
+        await runnerEngineCapability(
+          runnerId!,
+          { type: "provider_usage" },
+          "provider_usage"
+        )
+      ).usage,
   });
 }

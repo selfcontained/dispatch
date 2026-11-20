@@ -80,9 +80,32 @@ A native host can complete an accepted turn while its controller is down. A repl
 
 ### Machine capabilities and integrations
 
-**Manage engines and credentials.** **Partial.** Inventory, versions, supported actions, install/update, and Codex/Claude login are runner-scoped. Model and effort catalogs, plugin install/status, provider usage, account reset and quota probes also need explicit machine/account scope. Dispatch can aggregate sanitized results.
+**Manage engines and credentials.** Inventory, versions, install/update and
+Codex/Claude login are runner-scoped. The optional v1
+`engineCapabilities` flag adds model and effort catalogs, plugin status and
+actions, provider subscription usage, and account-checked Codex reset
+redemption. The runner performs these reads and actions as the workload
+identity. Create Agent reads the selected runner's catalog. Runner settings
+and the session usage popover read that runner's plan limits. Enrolled ACP
+reports still update their own sessions without changing the native catalog.
+Native picks use the shipped catalog until a local session republishes its
+options if the only saved catalog was from an earlier build without scope.
 
-- Compare two runners signed into different accounts. Verify first login, cancel, async completion, update, unavailable actions, selected model/effort and version-compatible OpenCode resume. [Engine operations](../../packages/runner-protocol/src/engine-management.ts) · [Model discovery](../../apps/server/src/agents/engine-models.ts) · [Provider plans](../../apps/server/src/agents/provider-plans.ts) · [Plugin routes](../../apps/server/src/routes/plugin.ts)
+- Runner-side provider reads discard CLI cache snapshots whose account cannot
+  be established. Dispatch can show its last report for that same runner with
+  its observation time when a refresh fails. Reset is disabled for a failed
+  read and bound to the original credential if it changes before redemption.
+- Native settings and MCP usage watches retain their local scope. Enrolled
+  sessions' `get_usage` reads their runner. Enrolled usage watches and
+  agent-initiated redemption are unavailable. An operator can redeem from
+  runner settings.
+- The model probe opens an ACP session in the workload home without prompting
+  or enabling tools. Repository-specific settings can still affect launch.
+  OpenCode does not provide subscription limits through this integration.
+- Fixture coverage compares distinct workload homes and exercises account
+  replacement, provider failure, plugin installation, and a public protocol
+  client. Live provider sign-ins and paid account actions require separate
+  acceptance evidence.
 
 **Human terminals and desktop integrations.** **Decision per capability.** A human PTY opened in the agent checkout needs machine-local process, resize, input, detach/resume and close. Desktop IDE, clipboard, browser and computer-use actions need an explicit target and OS permissions. Some belong to the operator’s desktop, even when the agent runs elsewhere.
 

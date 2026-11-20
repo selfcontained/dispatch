@@ -154,11 +154,16 @@ export function describeAgentModelCatalog(
 
 export function validateAgentModel(
   agentType: AgentType,
-  model: string | undefined
+  model: string | undefined,
+  workload = false
 ): string | undefined {
   const normalizedModel = model?.trim() || undefined;
   if (normalizedModel === undefined) return undefined;
+  // An enrolled engine owns its catalog and validates the override in ACP.
+  if (workload && /^[\w./:@+\[\]-]{1,160}$/.test(normalizedModel))
+    return normalizedModel;
   if (
+    !workload &&
     getAgentModelOptions(agentType).some(
       (option) => option.id === normalizedModel
     )

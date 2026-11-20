@@ -11,8 +11,8 @@ import {
 } from "../shared/agent-models.js";
 import { AGENT_TYPES, type AgentType } from "../shared/agent-types.js";
 
-/** The settings key an engine's learned list lives under. */
-const settingKey = (agentType: AgentType) => `agent_models:${agentType}`;
+/** Old catalog keys could contain enrolled observations without provenance. */
+const settingKey = (agentType: AgentType) => `agent_models:local:${agentType}`;
 
 type StoredEngineModels = {
   models: AgentModelOption[];
@@ -100,28 +100,13 @@ export async function loadLearnedAgentModels(pool: Pool): Promise<void> {
 export async function recordEngineModels(
   deps: { pool: Pool; logger: FastifyBaseLogger },
   agent: { id: string; type: AgentType; model: string | null },
-  options: readonly SessionConfigOption[]
+  options: readonly SessionConfigOption[],
+  { learn = true } = {}
 ): Promise<{ modelChanged: boolean; modelsChanged: boolean }> {
   const report = modelOptionOf(options);
   if (!report) return { modelChanged: false, modelsChanged: false };
   const previous = getAgentModelOptions(agent.type);
-  const effortOption = options.find(
-    (o) =>
-      o.type === "select" &&
-      (o.category === "thought_level" ||
-        /effort|reasoning|thinking/i.test(o.id))
-  );
-  const effort =
-    effortOption?.type === "select"
-      ? effortOption.options
-          .flatMap((entry) => ("options" in entry ? entry.options : [entry]))
-          .filter((choice) => choice.value !== "default")
-          .map((choice) => ({
-            value: choice.value,
-            name: choice.name,
-            ...(choice.description ? { description: choice.description } : {}),
-          }))
-      : [];
+  const effort = engineEffortOption(options);
   report.choices = report.choices.map((choice) => {
     const known =
       choice.id === report.current
@@ -132,10 +117,11 @@ export async function recordEngineModels(
   const defaultModel =
     agent.model === null ? report.current : agentModelDefaults()[agent.type];
   const modelsChanged =
+    learn &&
     report.choices.length > 0 &&
     (!sameModels(previous, report.choices) ||
       defaultModel !== agentModelDefaults()[agent.type]);
-  if (report.choices.length > 0) {
+  if (learn && report.choices.length > 0) {
     setLearnedAgentModels(agent.type, report.choices, defaultModel);
     const stored: StoredEngineModels = {
       models: report.choices,
@@ -170,6 +156,25 @@ function sameModels(
         JSON.stringify(o.effort) === JSON.stringify(b[i]?.effort)
     )
   );
+}
+
+export function engineEffortOption(options: readonly SessionConfigOption[]) {
+  const effortOption = options.find(
+    (o) =>
+      o.type === "select" &&
+      (o.category === "thought_level" ||
+        /effort|reasoning|thinking/i.test(o.id))
+  );
+  return effortOption?.type === "select"
+    ? effortOption.options
+        .flatMap((entry) => ("options" in entry ? entry.options : [entry]))
+        .filter((choice) => choice.value !== "default")
+        .map((choice) => ({
+          value: choice.value,
+          name: choice.name,
+          ...(choice.description ? { description: choice.description } : {}),
+        }))
+    : [];
 }
 
 /** Persist the live session's effort, including removal when a model has no option. */

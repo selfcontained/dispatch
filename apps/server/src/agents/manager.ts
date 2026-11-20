@@ -617,7 +617,8 @@ export class AgentManager {
     const { modelChanged, modelsChanged } = await recordEngineModels(
       { pool: this.pool, logger: this.logger },
       { id: agent.id, type: agent.type, model: agent.model ?? null },
-      options
+      options,
+      { learn: !remotePlacement(agent.cwd) }
     );
     const effortChanged = await recordEngineEffort(this.pool, agent, options);
     if (modelChanged || effortChanged)
@@ -2110,7 +2111,12 @@ export class AgentManager {
     if (!placement) await getDirectoryIconPath(this.pool, originalCwd);
     const id = this.newAgentId();
     const type: AgentType = input.type ?? "claude";
-    const effort = validateAgentEffort(type, input.effort, input.model);
+    const effort = validateAgentEffort(
+      type,
+      input.effort,
+      input.model,
+      Boolean(placement)
+    );
     const role: AgentRole = input.role ?? "standard";
     const fullAccess = type === "opencode" || (input.fullAccess ?? false);
     const fullAccessArg =

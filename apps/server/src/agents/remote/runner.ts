@@ -1,6 +1,7 @@
 import { runnerHealthSampler } from "./health.js";
 import { SharedCheckoutWatches, childWatch } from "../checkout-watch.js";
 import { execFile, spawn } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { createConnection, isIP } from "node:net";
 import path from "node:path";
@@ -14,6 +15,9 @@ export { runnerStorageKey } from "./session-supervisor.js";
 import { hostCommand, selfCommand } from "../acp/host-command.js";
 import {
   isOpaqueId,
+  isEngineCapabilityOperation,
+  type EngineCapabilityOperation,
+  type EngineOperationAck,
   isGitHubPullRequestObservation,
   MAX_PULL_REQUEST_WATCH_EVENT_BYTES,
   MANAGED_WORKSPACE,
@@ -270,6 +274,56 @@ export async function runRemoteRunner(filename: string) {
       },
     },
   });
+  const engineAccountSecret = randomBytes(32).toString("base64url");
+  const capabilityRequests = new Set<string>();
+  async function engineCapability(
+    operation: EngineCapabilityOperation,
+    signal: AbortSignal
+  ): Promise<EngineOperationAck> {
+    const key =
+      operation.type.startsWith("plugin_") && "engine" in operation
+        ? `plugin:${operation.engine}`
+        : JSON.stringify(
+            operation.type === "codex_reset" ? operation.type : operation
+          );
+    if (capabilityRequests.has(key) || capabilityRequests.size >= 8) {
+      return {
+        ok: false,
+        error:
+          "An engine capability request is already in progress. Try again shortly.",
+      };
+    }
+    capabilityRequests.add(key);
+    try {
+      const child = execute(
+        setpriv,
+        [...childArgs, ...selfCommand("runner-engine-capability")],
+        {
+          env,
+          cwd: config.home,
+          timeout: operation.type.startsWith("plugin_") ? 160_000 : 20_000,
+          maxBuffer: 192 * 1024,
+          signal,
+        }
+      );
+      child.child.stdin?.on("error", () => {});
+      child.child.stdin?.end(
+        JSON.stringify({
+          operation,
+          bins: config.bins,
+          secret: engineAccountSecret,
+        })
+      );
+      return JSON.parse((await child).stdout);
+    } catch {
+      return {
+        ok: false,
+        error: "Engine capability is unavailable on this runner.",
+      };
+    } finally {
+      capabilityRequests.delete(key);
+    }
+  }
   const asWorkload: WorkloadCommand = async (bin, args, opts) => {
     const { stdout } = await execute(
       setpriv,
@@ -413,6 +467,21 @@ export async function runRemoteRunner(filename: string) {
         if (!isOpaqueId(id)) throw new Error("Invalid runner request ID");
         if (socket.destroyed) return;
         if (command.kind === "engine") {
+          if (isEngineCapabilityOperation(command.operation)) {
+            if (
+              !(managedWorkspace
+                ? command.workspace === MANAGED_WORKSPACE
+                : configuredHandles.includes(command.workspace))
+            ) {
+              throw new Error("Unknown runner workspace.");
+            }
+            const ack = await engineCapability(
+              command.operation,
+              connection.signal
+            );
+            safeSend({ type: "result", id, value: JSON.stringify(ack) });
+            return;
+          }
           const ack = await engineExecutor.handle(
             command.operation,
             (event) => {
@@ -842,6 +911,7 @@ export async function runRemoteRunner(filename: string) {
             : configuredHandles,
           ...(managedWorkspace ? { managedWorkspace: true } : {}),
           engineManagement: true,
+          engineCapabilities: true,
           githubManagement: true,
           pullRequestStatus: true,
           pullRequestWatch: true,

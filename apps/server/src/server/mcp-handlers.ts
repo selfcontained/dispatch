@@ -506,7 +506,8 @@ async function handleLaunchAgent(
       ? input.model
       : template?.agentType === agentType
         ? template.model
-        : undefined) ?? undefined
+        : undefined) ?? undefined,
+    Boolean(runnerParent)
   );
   const effort = validateAgentEffort(
     agentType as (typeof CLI_AGENT_TYPES)[number],
@@ -516,7 +517,8 @@ async function handleLaunchAgent(
           (template.model ?? undefined) === model
         ? template.effort
         : null,
-    model
+    model,
+    Boolean(runnerParent)
   );
 
   // Launching a template is a request for the template's own instructions —

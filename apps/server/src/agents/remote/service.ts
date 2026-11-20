@@ -1,3 +1,4 @@
+import { isEngineCapabilityOperation } from "@dispatch/runner-protocol/engine-management";
 import {
   githubPullRequestUrl,
   githubPullRequestTarget,
@@ -112,6 +113,7 @@ export type RunnerSummary = {
   healthReceivedAt?: string;
   /** Whether this (online) peer advertised support for engine management. */
   engineManagement: boolean;
+  engineCapabilities?: true;
   githubManagement: boolean;
   /** Last pushed snapshot while online; absent offline or before the first push. */
   engines?: EngineInventoryEntry[];
@@ -154,6 +156,7 @@ type Peer = {
   gate: Gate;
   health?: { sample: RunnerHealth; receivedAt: Date };
   reportsHealth?: boolean;
+  engineCapabilities: boolean;
   /** Advertised in `ready`; whether this peer answers the `"engine"` command. */
   engineManagement: boolean;
   githubManagement: boolean;
@@ -690,6 +693,7 @@ export class RemoteRunnerService {
           socket,
           reportsHealth: ready.health === true,
           engineManagement: ready.engineManagement === true,
+          engineCapabilities: ready.engineCapabilities === true,
           pullRequestStatus: ready.pullRequestStatus === true,
           pullRequestWatch: ready.pullRequestWatch === true,
           pullRequestEvidence: ready.pullRequestEvidence === true,
@@ -935,6 +939,8 @@ export class RemoteRunnerService {
         name: this.legacy.id,
         engineManagement:
           peer?.gate.approved() === true && peer.engineManagement,
+        ...(peer?.gate.approved() &&
+          peer.engineCapabilities && { engineCapabilities: true as const }),
         githubManagement:
           peer?.gate.approved() === true && peer.githubManagement,
         ...(peer?.engines ? { engines: peer.engines } : {}),
@@ -973,6 +979,8 @@ export class RemoteRunnerService {
               ? "online"
               : "offline",
         engineManagement: online && peer.engineManagement,
+        ...(online &&
+          peer.engineCapabilities && { engineCapabilities: true as const }),
         githubManagement: online && peer.githubManagement,
         ...(online && peer.engines ? { engines: peer.engines } : {}),
         ...(online && peer.health
@@ -1299,15 +1307,31 @@ export class RemoteRunnerService {
         "Runner does not support PR watches."
       );
 
+    if (
+      operation.kind === "engine" &&
+      isEngineCapabilityOperation(operation.operation) &&
+      !peer.engineCapabilities
+    ) {
+      throw new RunnerCapabilityUnavailable(
+        "Update the runner to read engine capabilities."
+      );
+    }
+
     // V1 requires a routable workspace and an id even for a runner-wide operation.
     for (const workspace of peer.workspaces) {
-      if (peer.gate.allows(workspace))
-        return this.request(
+      if (peer.gate.allows(workspace)) {
+        const result = await this.request(
           { runner: runnerId, workspace },
           { ...operation, agentId: `@${operation.kind}`, workspace },
           operation.kind === "engine" ||
             operation.operation.type === "watchPullRequests"
         );
+        if (this.peers.get(runnerId) !== peer || !peer.gate.approved()) {
+          result.channel?.destroy();
+          throw new RunnerUnavailable("The runner connection changed.");
+        }
+        return result;
+      }
     }
     throw new RunnerUnavailable("The runner has no available workspace.");
   }

@@ -23,7 +23,10 @@ export type AgentModelCatalog = Partial<Record<AgentType, AgentModelOption[]>>;
  * the cache. A list an engine publishes later reaches an open picker through
  * the `agent_models.changed` event, which invalidates this key (use-sse.ts).
  */
-export function useAgentModelCatalog(agentType: AgentType): {
+export function useAgentModelCatalog(
+  agentType: AgentType,
+  enabled = true
+): {
   options: AgentModelOption[];
   loading: boolean;
   /** True only once a catalog has actually arrived — a failed fetch stays
@@ -40,6 +43,7 @@ export function useAgentModelCatalog(agentType: AgentType): {
 } {
   const { data, isLoading } = useQuery<CatalogResponse>({
     queryKey: ["agent-models"],
+    enabled,
     queryFn: () => api("/api/v1/agent-models"),
     staleTime: 5 * 60 * 1000,
     gcTime: Infinity,
@@ -88,9 +92,10 @@ export function useAgentModelCatalogData(): AgentModelCatalog | undefined {
 }
 
 /** Shares the model catalog cache: no separate hardcoded effort list. */
-export function useAgentEffortCatalog() {
+export function useAgentEffortCatalog(enabled = true) {
   const { data } = useQuery<CatalogResponse>({
     queryKey: ["agent-models"],
+    enabled,
     queryFn: () => api("/api/v1/agent-models"),
     staleTime: 5 * 60 * 1000,
     gcTime: Infinity,
@@ -104,7 +109,8 @@ export function useAgentEffortCatalog() {
 
 export function useAgentEffortChoices(
   agentType: AgentType,
-  model: string | null
+  model: string | null,
+  enabled = true
 ) {
-  return useAgentEffortCatalog()(agentType, model);
+  return useAgentEffortCatalog(enabled)(agentType, model);
 }

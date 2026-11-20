@@ -56,7 +56,82 @@ export type EngineLoginView = {
   finishedAt?: string;
 };
 
+/** Optional runner-wide operations negotiated with engineCapabilities. */
+export type EngineCapabilityOperation =
+  | { type: "model_catalog"; engine: RunnerEngine; model?: string }
+  | { type: "provider_usage" }
+  | { type: "codex_reset"; account: string; requestId: string }
+  | {
+      type: "plugin_status" | "plugin_install" | "plugin_update";
+      engine: "claude" | "codex";
+      /** An operator-provisioned plugin identifier. */
+      plugin: string;
+    };
+
+export type EngineChoice = { value: string; name: string };
+export type EngineModelCatalog = {
+  defaultModel: string | null;
+  models: Array<{ id: string; label: string; effort?: EngineChoice[] }>;
+};
+
+export type EngineProviderUsage = {
+  checkedAt: string;
+  providers: Array<{
+    engine: "claude" | "codex";
+    plan: string | null;
+    observedAt: string | null;
+    source?: "live" | "local";
+    windows: Array<{
+      id: string;
+      label: string;
+      usedPercent: number;
+      resetsAt: string | null;
+    }>;
+    limitReached?: boolean;
+    spend?: {
+      used: number;
+      limit: number;
+      currency: string;
+      enabled?: boolean;
+    };
+    credits?: { balance: number | null; unlimited: boolean };
+    limitResets?: { available: number; applicable: number };
+    unavailableReason?: string;
+  }>;
+  /** Opaque precondition for redeeming against the reported Codex login. */
+  codexResetAccount?: string;
+};
+
+export type EnginePluginStatus = {
+  installed: boolean;
+  enabled: boolean;
+  currentVersion: string | null;
+  latestVersion: string | null;
+  updateAvailable: boolean;
+  actions: Array<"install" | "update">;
+};
+
+export type EngineCapabilityResult =
+  | { type: "model_catalog"; catalog: EngineModelCatalog }
+  | { type: "provider_usage"; usage: EngineProviderUsage }
+  | { type: "codex_reset"; code: string; windowsReset: number }
+  | { type: "plugin_status"; status: EnginePluginStatus };
+
+export function isEngineCapabilityOperation(
+  operation: EngineOperation
+): operation is EngineCapabilityOperation {
+  return (
+    operation.type === "model_catalog" ||
+    operation.type === "provider_usage" ||
+    operation.type === "codex_reset" ||
+    operation.type === "plugin_status" ||
+    operation.type === "plugin_install" ||
+    operation.type === "plugin_update"
+  );
+}
+
 export type EngineOperation =
+  | EngineCapabilityOperation
   | { type: "status" }
   | { type: "install"; engine: RunnerEngine }
   | { type: "update"; engine: RunnerEngine }
@@ -100,11 +175,17 @@ export type EngineOperationAck =
   | {
       ok: true;
       operationId?: string;
+      capability?: EngineCapabilityResult;
       login?: EngineLoginView;
       /** e.g. "Already up to date (version 1.2.3)." — never raw CLI output. */
       message?: string;
     }
-  | { ok: false; error: string; unsupported?: boolean };
+  | {
+      ok: false;
+      error: string;
+      unsupported?: boolean;
+      reason?: "account_changed";
+    };
 
 export const RUNNER_ENGINES: readonly RunnerEngine[] = [
   "claude",
@@ -134,7 +215,30 @@ export function isEngineOperation(value: unknown): value is EngineOperation {
   if (!isRecord(value)) return false;
   switch (value.type) {
     case "status":
+    case "provider_usage":
       return true;
+    case "model_catalog":
+      return (
+        isRunnerEngine(value.engine) &&
+        (value.model === undefined ||
+          (typeof value.model === "string" &&
+            /^[\w./:@+\[\]-]{1,160}$/.test(value.model)))
+      );
+    case "codex_reset":
+      return (
+        typeof value.account === "string" &&
+        /^[A-Za-z0-9_-]{1,128}$/.test(value.account) &&
+        typeof value.requestId === "string" &&
+        /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(value.requestId)
+      );
+    case "plugin_status":
+    case "plugin_install":
+    case "plugin_update":
+      return (
+        (value.engine === "claude" || value.engine === "codex") &&
+        typeof value.plugin === "string" &&
+        /^[\w-]{1,48}@[\w-]{1,48}$/.test(value.plugin)
+      );
     case "install":
     case "update":
       return isRunnerEngine(value.engine);

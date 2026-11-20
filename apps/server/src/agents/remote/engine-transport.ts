@@ -1,6 +1,9 @@
+import { isEngineCapabilityOperation } from "@dispatch/runner-protocol/engine-management";
+import { parseEngineCapabilityResult } from "./engine-capability-result.js";
 import type { EngineOperationAck, EngineOperationEvent } from "./protocol.js";
 import {
   RunnerCapabilityUnavailable,
+  RunnerUnavailable,
   type RemoteRunnerService,
 } from "./service.js";
 import type { RunnerEngineTransport } from "./engine-manager.js";
@@ -13,6 +16,7 @@ export function remoteEngineTransport(
       return service.engineInventorySnapshot(runnerId);
     },
     async send(runnerId, operation, onEvent) {
+      const scoped = isEngineCapabilityOperation(operation);
       try {
         const { value, channel } = await service.requestRunner(runnerId, {
           kind: "engine",
@@ -49,13 +53,56 @@ export function remoteEngineTransport(
           return { ok: false, error: "No response from the runner." };
         }
         try {
-          return JSON.parse(value) as EngineOperationAck;
+          const ack = JSON.parse(value) as EngineOperationAck;
+          if (!scoped) return ack;
+          if (ack.ok === true) {
+            const capability = parseEngineCapabilityResult(
+              operation,
+              ack.capability
+            );
+            if (capability) return { ok: true, capability };
+          }
+          if (ack.ok === false && ack.unsupported === true) {
+            return {
+              ok: false,
+              unsupported: true,
+              error: "This engine action is unavailable on the runner.",
+            };
+          }
+          if (operation.type === "codex_reset") {
+            if (ack.ok === false && ack.reason === "account_changed") {
+              return {
+                ok: false,
+                reason: "account_changed",
+                error:
+                  "The Codex account changed. Refresh usage before trying again.",
+              };
+            }
+            return {
+              ok: false,
+              error:
+                "The runner did not confirm the reset. Refresh usage before trying again.",
+            };
+          }
+          return {
+            ok: false,
+            error: "Could not complete the engine request on this runner.",
+          };
         } catch {
           return { ok: false, error: "Malformed response from the runner." };
         }
       } catch (error) {
         if (error instanceof RunnerCapabilityUnavailable) {
           return { ok: false, error: error.message, unsupported: true };
+        }
+        if (scoped) {
+          return {
+            ok: false,
+            error:
+              error instanceof RunnerUnavailable
+                ? "The runner is disconnected or unavailable."
+                : "Could not complete the engine request on this runner.",
+          };
         }
         return {
           ok: false,

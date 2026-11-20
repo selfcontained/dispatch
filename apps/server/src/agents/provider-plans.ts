@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { randomUUID } from "node:crypto";
+import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import { open, readdir, readFile, stat } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -30,6 +30,9 @@ type JsonObject = Record<string, unknown>;
 
 export type ProviderPlanOptions = {
   now?: Date;
+  /** Workload reads require a live account-bound report. CLI caches have no
+   * reliable account attribution across sign-ins. */
+  liveOnly?: boolean;
   homeDir?: string;
   env?: NodeJS.ProcessEnv;
   platform?: NodeJS.Platform;
@@ -397,6 +400,7 @@ const CLAUDE_USAGE_URL = "https://api.anthropic.com/api/oauth/usage";
 const CLAUDE_KEYCHAIN_SERVICE = "Claude Code-credentials";
 
 type RefreshFailureReason =
+  | "account_changed"
   | "not_signed_in"
   | "login_expired"
   | "login_rejected"
@@ -411,6 +415,8 @@ const RENEW_LOGIN =
   "Claude Code's login on this machine has expired, so plan usage cannot be refreshed. It renews the next time Claude Code runs.";
 
 const REFRESH_FAILURE_TEXT: Record<RefreshFailureReason, string> = {
+  account_changed:
+    "The provider account changed. Refresh usage before trying again.",
   not_signed_in:
     "Claude Code is not signed in with a subscription on this machine.",
   login_expired: RENEW_LOGIN,
@@ -597,10 +603,17 @@ async function loadCodexLivePlan(
   options: ProviderPlanOptions,
   env: NodeJS.ProcessEnv,
   homeDir: string,
-  now: Date
+  now: Date,
+  loginOverride?: CodexLogin | null
 ): Promise<ProviderPlan> {
-  const fallback = () => loadCodexPlan(options, env, homeDir);
-  const login = await readCodexLogin(options, env, homeDir);
+  const fallback = () =>
+    options.liveOnly
+      ? Promise.resolve(parseCodexRollout(""))
+      : loadCodexPlan(options, env, homeDir);
+  const login =
+    loginOverride === undefined
+      ? await readCodexLogin(options, env, homeDir)
+      : loginOverride;
   if (!login) return fallback();
   try {
     if (codexTokenExpired(login.token, now))
@@ -658,6 +671,8 @@ export class CodexResetError extends Error {
 }
 
 const CODEX_RESET_FAILURE_TEXT: Record<RefreshFailureReason, string> = {
+  account_changed:
+    "The Codex account changed. Refresh usage before trying again.",
   not_signed_in:
     "Codex is not signed in with a ChatGPT plan on this machine, so no reset can be used.",
   login_expired: CODEX_RENEW_LOGIN,
@@ -681,12 +696,29 @@ const CODEX_RESET_FAILURE_TEXT: Record<RefreshFailureReason, string> = {
  * second spend. Called only for an explicit UI or authenticated agent action.
  */
 export async function consumeCodexLimitReset(
-  options: ProviderPlanOptions & { requestId?: string } = {}
+  options: ProviderPlanOptions & {
+    requestId?: string;
+    account?: { handle: string; secret: string };
+  } = {}
 ): Promise<CodexResetOutcome> {
   const now = options.now ?? new Date();
   const env = options.env ?? process.env;
   const homeDir = options.homeDir ?? os.homedir();
   const login = await readCodexLogin(options, env, homeDir);
+  if (options.account) {
+    const actual = login && codexAccountHandle(login, options.account.secret);
+    const expected = options.account.handle;
+    if (
+      !actual ||
+      actual.length !== expected.length ||
+      !timingSafeEqual(Buffer.from(actual), Buffer.from(expected))
+    ) {
+      throw new CodexResetError(
+        "account_changed",
+        CODEX_RESET_FAILURE_TEXT.account_changed
+      );
+    }
+  }
   if (!login) {
     throw new CodexResetError(
       "not_signed_in",
@@ -810,7 +842,9 @@ async function loadClaudePlan(
   const read = options.read ?? ((file: string) => readFile(file, "utf8"));
   let claude: ProviderPlan;
   try {
-    claude = parseClaudeCache(await read(claudeConfigPath(homeDir, env)));
+    claude = parseClaudeCache(
+      options.liveOnly ? "" : await read(claudeConfigPath(homeDir, env))
+    );
   } catch {
     claude = parseClaudeCache("");
   }
@@ -854,6 +888,13 @@ async function loadClaudePlan(
     if (!live.windows.length && !live.spend) {
       throw new RefreshFailure("no_usage_reported");
     }
+    if (options.liveOnly) {
+      const current = await readClaudeLogin(options, read, homeDir, env).catch(
+        () => null
+      );
+      if (login.token !== current?.token)
+        throw new RefreshFailure("account_changed");
+    }
     return live;
   } catch (error) {
     const failure =
@@ -872,6 +913,50 @@ async function loadClaudePlan(
       unavailableReason: REFRESH_FAILURE_TEXT[failure.reason],
     };
   }
+}
+
+function codexAccountHandle(login: CodexLogin, secret: string): string {
+  return createHmac("sha256", secret)
+    .update(JSON.stringify([login.accountId, login.token]))
+    .digest("base64url");
+}
+
+export async function loadWorkloadProviderPlans(
+  secret: string,
+  options: ProviderPlanOptions = {}
+): Promise<ProviderPlansResponse & { codexResetAccount?: string }> {
+  const scoped = { ...options, liveOnly: true };
+  const now = scoped.now ?? new Date();
+  const env = scoped.env ?? process.env;
+  const home = scoped.homeDir ?? os.homedir();
+  const login = await readCodexLogin(scoped, env, home);
+  const [claude, codex] = await Promise.all([
+    loadClaudePlan(scoped, env, home, now),
+    loadCodexLivePlan(scoped, env, home, now, login),
+  ]);
+  const current = await readCodexLogin(scoped, env, home);
+  if (
+    login?.token !== current?.token ||
+    login?.accountId !== current?.accountId
+  ) {
+    return {
+      checkedAt: now.toISOString(),
+      providers: [
+        claude,
+        {
+          ...parseCodexRollout(""),
+          unavailableReason: CODEX_RESET_FAILURE_TEXT.account_changed,
+        },
+      ],
+    };
+  }
+  return {
+    checkedAt: now.toISOString(),
+    providers: [claude, codex],
+    ...(login && codex.source === "live" && codex.limitResets
+      ? { codexResetAccount: codexAccountHandle(login, secret) }
+      : {}),
+  };
 }
 
 export async function loadProviderPlans(

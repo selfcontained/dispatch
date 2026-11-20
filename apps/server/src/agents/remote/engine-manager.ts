@@ -4,6 +4,7 @@ import type { RunnerEngine } from "@dispatch/runner-protocol";
 import {
   RUNNER_ENGINES,
   engineScopeKey,
+  isEngineCapabilityOperation,
   type EngineInventoryEntry,
   type EngineOperation,
   type EngineOperationAck,
@@ -121,7 +122,11 @@ export class EngineManager {
     // own pushed-cache update can lag its ack by a round trip, so force a
     // live read here rather than risk handing back what the cache held
     // before the operation ran.
-    if (operation.type !== "status" && operation.type !== "login_status") {
+    if (
+      !isEngineCapabilityOperation(operation) &&
+      operation.type !== "status" &&
+      operation.type !== "login_status"
+    ) {
       const entries =
         scope.kind === "local"
           ? await this.localInventory().catch(() => null)
@@ -201,6 +206,13 @@ export class EngineManager {
     operation: EngineOperation
   ): Promise<EngineOperationAck> {
     const { logins, updates, overrides } = this.deps.local;
+    if (isEngineCapabilityOperation(operation)) {
+      return {
+        ok: false,
+        unsupported: true,
+        error: "Use this machine’s engine settings.",
+      };
+    }
     switch (operation.type) {
       case "status":
         return { ok: true };

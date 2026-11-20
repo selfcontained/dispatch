@@ -25,6 +25,7 @@ type AgentEngineFieldsProps = {
   idPrefix?: string;
   /** Runs on a remote runner: this machine's CLI install state is irrelevant. */
   remote?: boolean;
+  workloadEffort?: import("@dispatch/shared").AgentConfigChoice[];
 };
 
 /**
@@ -46,10 +47,11 @@ export function AgentEngineFields({
   onTypeOpenChange,
   idPrefix,
   remote = false,
+  workloadEffort,
 }: AgentEngineFieldsProps): JSX.Element {
   // Engines whose CLI this machine does not have: pickable, but the picker
   // says what to install rather than letting the launch fail.
-  const { engines } = useEngines();
+  const { engines } = useEngines(!remote);
   const missingEngines = useMemo(
     () =>
       Object.fromEntries(
@@ -93,6 +95,8 @@ export function AgentEngineFields({
         {onEffortChange ? (
           <AgentEffortSelect
             model={model}
+            workload={remote}
+            workloadChoices={workloadEffort}
             inheritLabel={effortDefaultLabel}
             value={effort ?? null}
             onChange={onEffortChange}

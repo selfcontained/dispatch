@@ -1,3 +1,7 @@
+import {
+  isEngineCapabilityOperation,
+  isEngineOperation,
+} from "@dispatch/runner-protocol/engine-management";
 import type { FastifyInstance } from "fastify";
 import * as z from "zod/v4";
 
@@ -78,6 +82,20 @@ export async function registerEngineManagementRoutes(
   });
 
   app.post("/api/v1/engine-management/operations", async (request, reply) => {
+    const candidate = (request.body ?? {}) as Record<string, unknown>;
+    const operation = candidate.operation;
+    if (
+      isEngineOperation(operation) &&
+      isEngineCapabilityOperation(operation)
+    ) {
+      const scope = scopeSchema.safeParse(candidate.scope);
+      if (!scope.success || scope.data.kind !== "runner") {
+        return reply
+          .code(400)
+          .send({ error: "Choose a runner for this operation." });
+      }
+      return { ack: await manager.rpc(scope.data, operation) };
+    }
     const body = operationBodySchema.safeParse(request.body);
     if (!body.success) {
       return reply.code(400).send({ error: "Invalid scope or operation." });

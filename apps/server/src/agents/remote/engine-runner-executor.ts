@@ -7,6 +7,7 @@ import path from "node:path";
 import type { RunnerEngine } from "@dispatch/runner-protocol";
 import {
   RUNNER_ENGINES,
+  isEngineCapabilityOperation,
   type EngineInventoryEntry,
   type EngineLoginView,
   type EngineOperation,
@@ -254,6 +255,13 @@ export class EngineRunnerExecutor {
     operation: EngineOperation,
     onEvent?: (event: EngineOperationEvent) => void
   ): Promise<EngineOperationAck> {
+    if (isEngineCapabilityOperation(operation)) {
+      return {
+        ok: false,
+        unsupported: true,
+        error: "Engine capabilities require a workload worker.",
+      };
+    }
     switch (operation.type) {
       case "status": {
         const entries = await this.inventory();

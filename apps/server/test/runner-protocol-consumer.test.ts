@@ -813,6 +813,7 @@ function fixtureRunner(current: boolean) {
       managedWorkspace: true,
       health: true,
       engineManagement: true,
+      engineCapabilities: true,
       githubManagement: true,
       pullRequestEvidence: true,
       pullRequestWatch: true,
@@ -918,6 +919,29 @@ function fixtureRunner(current: boolean) {
             command.operation.type === "status"
           ) {
             const ack: EngineOperationAck = { ok: true };
+            result(JSON.stringify(ack));
+          } else if (
+            current &&
+            command.kind === "engine" &&
+            command.workspace === workspace &&
+            command.operation.type === "model_catalog"
+          ) {
+            const ack: EngineOperationAck = {
+              ok: true,
+              capability: {
+                type: "model_catalog",
+                catalog: {
+                  defaultModel: "workload/model",
+                  models: [
+                    {
+                      id: "workload/model",
+                      label: "Workload model",
+                      effort: [{ value: "high", name: "High" }],
+                    },
+                  ],
+                },
+              },
+            };
             result(JSON.stringify(ack));
           } else if (
             current &&
@@ -1322,6 +1346,28 @@ it.each([true, false])(
           : { unavailable: true }
       );
 
+      if (ready?.engineManagement && ready.engineCapabilities) {
+        const { value } = await peer.connection.request({
+          kind: "engine",
+          workspace: runner.session.workspace,
+          agentId: "collector/catalog",
+          operation: { type: "model_catalog", engine: "codex" },
+        });
+        const ack: EngineOperationAck = JSON.parse(String(value));
+        expect(ack).toMatchObject({
+          ok: true,
+          capability: {
+            type: "model_catalog",
+            catalog: {
+              defaultModel: "workload/model",
+              models: [{ id: "workload/model", effort: [{ value: "high" }] }],
+            },
+          },
+        });
+      } else {
+        expect(ready?.engineCapabilities).toBeUndefined();
+      }
+
       if (ready?.githubManagement && ready.pullRequestWatch) {
         const { value, channel } = await peer.connection.request(
           {
@@ -1476,7 +1522,7 @@ it.each([true, false])(
         runner.requests.filter(
           (frame) => frame.type === "request" && frame.command.kind === "engine"
         )
-      ).toHaveLength(current ? 1 : 0);
+      ).toHaveLength(current ? 2 : 0);
     } finally {
       peer.close();
     }

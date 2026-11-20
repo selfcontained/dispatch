@@ -1092,6 +1092,9 @@ async function registerRoutes() {
     usageWatches.dispose();
   });
   await registerMcpRoutes(app, {
+    runnerEngines: remoteRunner
+      ? remoteEngineTransport(remoteRunner)
+      : undefined,
     usageWatches,
     providerPlans,
     redeemCodexReset,

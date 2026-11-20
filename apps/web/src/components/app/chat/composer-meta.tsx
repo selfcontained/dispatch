@@ -1,3 +1,5 @@
+import { remotePlacement } from "@dispatch/runner-protocol";
+import { RunnerProviderUsage } from "@/components/runner-engines/runner-provider-usage";
 import type {
   AgentConfigOption,
   AgentUsageResponse,
@@ -327,13 +329,16 @@ function UsageChip({
   const [open, setOpen] = useState(false);
   // Read once on mount (including a closed chip), then use the shared cache.
   // No network polling: the local clock alone keeps expiry reminders current.
-  const plans = useProviderPlans(true);
+  const runnerId = agent ? remotePlacement(agent.cwd)?.runner : undefined;
+  const plans = useProviderPlans(!runnerId);
   const { isStale, refetch } = plans;
   const now = useNow(true);
-  const expiring = (plans.data?.providers ?? []).some(
-    (plan) =>
-      plan.engine === "codex" && hasExpiringResets(plan.limitResets, now)
-  );
+  const expiring =
+    !runnerId &&
+    (plans.data?.providers ?? []).some(
+      (plan) =>
+        plan.engine === "codex" && hasExpiringResets(plan.limitResets, now)
+    );
   const percent = contextRemainingPercent(usage);
   const usageLabel = percent === null ? "Usage" : `Context: ${percent}% left`;
   return (
@@ -342,7 +347,7 @@ function UsageChip({
       onOpenChange={(next) => {
         setOpen(next);
         // Preserve the old open-time stale refresh without forcing a provider read.
-        if (next && isStale) void refetch();
+        if (next && !runnerId && isStale) void refetch();
       }}
     >
       <PopoverTrigger asChild>
@@ -396,7 +401,11 @@ function UsageChip({
         {agent ? (
           <UsageDetails usage={usage} agentType={agent.type ?? null} />
         ) : null}
-        <PlanLimits enabled={open} plans={plans} now={now} />
+        {runnerId ? (
+          <RunnerProviderUsage key={runnerId} runnerId={runnerId} />
+        ) : (
+          <PlanLimits enabled={open} plans={plans} now={now} />
+        )}
       </PopoverContent>
     </Popover>
   );

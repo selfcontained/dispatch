@@ -12,6 +12,7 @@ import {
   type EnrollmentRequest,
   type EnrollmentReply,
 } from "../src/agents/remote/protocol.js";
+import { remoteEngineTransport } from "../src/agents/remote/engine-transport.js";
 import { RunnerRegistry } from "../src/agents/remote/registry.js";
 import {
   advertisedHost,
@@ -62,6 +63,8 @@ function dialRunner(input: {
   checkoutInspection?: true;
   defaultBranchFiles?: true;
   githubManagement?: true;
+  engineManagement?: true;
+  engineCapabilities?: true;
   pullRequestStatus?: true;
 }): Promise<FakeRunner> {
   const url = new URL(input.endpoint);
@@ -95,6 +98,8 @@ function dialRunner(input: {
         checkoutInspection: input.checkoutInspection,
         defaultBranchFiles: input.defaultBranchFiles,
         githubManagement: input.githubManagement,
+        engineManagement: input.engineManagement,
+        engineCapabilities: input.engineCapabilities,
         pullRequestStatus: input.pullRequestStatus,
       });
       resolve({ socket, closed, requests });
@@ -246,6 +251,78 @@ describe("runner enrollment service", () => {
     expect(
       peer.requests.filter((frame) => frame.type === "request")
     ).toHaveLength(1);
+  });
+
+  it("negotiates workload capabilities per enrolled peer and fails closed offline", async () => {
+    const service = makeService();
+    const current = await enroll(service, "current-engine");
+    const older = await enroll(service, "older-engine");
+    const currentPeer = await dialRunner({
+      ...current,
+      workspaces: ["work"],
+      engineManagement: true,
+      engineCapabilities: true,
+      label: JSON.stringify({
+        ok: true,
+        capability: {
+          type: "model_catalog",
+          catalog: {
+            defaultModel: "runner/model",
+            models: [
+              {
+                id: "runner/model",
+                label: "Runner model",
+                hostPath: "/private/home",
+              },
+            ],
+          },
+        },
+      }),
+    });
+    const olderPeer = await dialRunner({
+      ...older,
+      workspaces: ["work"],
+      engineManagement: true,
+      label: JSON.stringify({ ok: true }),
+    });
+    runners.push(currentPeer, olderPeer);
+    const currentId = current.created.id;
+    const olderId = older.created.id;
+    await waitFor(() =>
+      [currentId, olderId].every((runner) =>
+        service.available({ runner, workspace: "work" })
+      )
+    );
+    const transport = remoteEngineTransport(service);
+    const operation = { type: "model_catalog", engine: "codex" } as const;
+    await expect(transport.send(currentId, operation)).resolves.toEqual({
+      ok: true,
+      capability: {
+        type: "model_catalog",
+        catalog: {
+          defaultModel: "runner/model",
+          models: [{ id: "runner/model", label: "Runner model" }],
+        },
+      },
+    });
+    await expect(transport.send(olderId, operation)).resolves.toMatchObject({
+      ok: false,
+      unsupported: true,
+    });
+    expect(
+      olderPeer.requests.filter((frame) => frame.type === "request")
+    ).toHaveLength(0);
+    await expect(transport.send(olderId, { type: "status" })).resolves.toEqual({
+      ok: true,
+    });
+
+    currentPeer.socket.destroy();
+    await waitFor(
+      () => !service.available({ runner: currentId, workspace: "work" })
+    );
+    await expect(transport.send(currentId, operation)).resolves.toMatchObject({
+      ok: false,
+    });
   });
 
   it("rejects checkout commands on an older peer while preserving the workspace operation", async () => {

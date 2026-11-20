@@ -1,3 +1,4 @@
+import type { RunnerEngine } from "@dispatch/runner-protocol";
 import type { RedeemCodexReset } from "../../agents/codex-reset.js";
 import type { ProviderPlan, ProviderPlansResponse } from "@dispatch/shared";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -27,6 +28,9 @@ function agentPlan(plan: ProviderPlan) {
 
 export type UsageCallbacks = {
   redeemCodexReset?: RedeemCodexReset;
+  modelOptions?: (
+    engine: RunnerEngine
+  ) => Promise<ReturnType<typeof getAgentModelOptions>>;
   providerPlans?: (request?: {
     force?: boolean;
   }) => Promise<ProviderPlansResponse>;
@@ -259,40 +263,47 @@ export function registerUsageTools(
           providerPlans({ force }),
           callbacks.enabledAgentTypes?.() ?? CLI_AGENT_TYPES,
         ]);
-        const providers = CLI_AGENT_TYPES.filter(
-          (engine) => !type || type === engine
-        ).map((engine) => {
-          const plan = report.providers.find(
-            (provider) => provider.engine === engine
-          );
-          const windows = withRemaining(plan?.windows ?? []);
-          return {
-            ...(plan
-              ? agentPlan(plan)
-              : {
-                  engine,
-                  plan: null,
-                  observedAt: null,
-                  unavailableReason:
-                    engine === "opencode"
-                      ? "OpenCode ACP reports session usage, but does not expose provider subscription limits."
-                      : "No usage report available.",
-                }),
-            type: engine,
-            enabled: enabled.includes(engine),
-            ...verdict(plan, windows),
-            models: getAgentModelOptions(engine),
-            windows,
-            ...(plan?.spend
-              ? {
-                  spend: {
-                    ...plan.spend,
-                    remaining: Math.max(0, plan.spend.limit - plan.spend.used),
-                  },
-                }
-              : {}),
-          };
-        });
+        const providers = await Promise.all(
+          CLI_AGENT_TYPES.filter((engine) => !type || type === engine).map(
+            async (engine) => {
+              const plan = report.providers.find(
+                (provider) => provider.engine === engine
+              );
+              const windows = withRemaining(plan?.windows ?? []);
+              return {
+                ...(plan
+                  ? agentPlan(plan)
+                  : {
+                      engine,
+                      plan: null,
+                      observedAt: null,
+                      unavailableReason:
+                        engine === "opencode"
+                          ? "OpenCode ACP reports session usage, but does not expose provider subscription limits."
+                          : "No usage report available.",
+                    }),
+                type: engine,
+                enabled: enabled.includes(engine),
+                ...verdict(plan, windows),
+                models: callbacks.modelOptions
+                  ? await callbacks.modelOptions(engine)
+                  : getAgentModelOptions(engine),
+                windows,
+                ...(plan?.spend
+                  ? {
+                      spend: {
+                        ...plan.spend,
+                        remaining: Math.max(
+                          0,
+                          plan.spend.limit - plan.spend.used
+                        ),
+                      },
+                    }
+                  : {}),
+              };
+            }
+          )
+        );
         const result = {
           checkedAt: report.checkedAt,
           ...summarizeUsage(providers, report.checkedAt),

@@ -44,13 +44,14 @@ export type EngineStatus = {
   };
 };
 
-export function useEngines(): {
+export function useEngines(enabled = true): {
   engines: EngineStatus[];
   /** Absent while the check is in flight, so nothing reads as missing yet. */
   loaded: boolean;
 } {
   const { data } = useQuery<{ engines: EngineStatus[] }>({
     queryKey: ["system-engines"],
+    enabled,
     queryFn: () => api("/api/v1/system/engines"),
     staleTime: 60_000,
   });

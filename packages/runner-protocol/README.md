@@ -496,3 +496,37 @@ changing the checkout. The reply includes raw UTF-8 files and refresh status.
 A caller can list cached files during refresh or wait for a cold snapshot.
 A checkout without an origin returns `hasOrigin: false`. Older peers continue
 to serve original queries and the workspace-approved `repo` operation.
+
+### Workload model, usage and plugin operations
+
+A peer that advertises both `engineManagement: true` and
+`engineCapabilities: true` in its v1 `ready` accepts the following optional
+`engine` operations. They use the existing runner-wide routing convention
+with a permitted workspace and an opaque caller-supplied request owner.
+Clients send these operations only when both flags are present. Existing
+inventory, install, update and login clients continue using `engineManagement`
+alone. Replies use the existing JSON-encoded ack with a typed `capability`
+on success. There is no progress stream for these operations.
+
+- `model_catalog` reads the engine's model choices in the workload's home.
+  The optional `model` asks for the effort choices for that model. Other
+  models may omit effort, which indicates no observation for those models.
+- `provider_usage` returns bounded subscription windows and observation
+  times. A provider that could not be read can report empty windows and
+  an unavailable reason. The built-in runner uses a fresh read because
+  on-disk usage snapshots lack reliable account attribution after sign-in.
+- `codex_reset` requires a UUID request ID and the opaque
+  `codexResetAccount` from the usage reply. The runner checks it against
+  the credential it will use for redemption. A missing handle means the
+  action is unavailable. Handles can change when credentials rotate or
+  the runner restarts. Reuse the UUID for a retry of the same operation
+  and refresh usage after an uncertain result.
+- `plugin_status`, `plugin_install` and `plugin_update` refer to a configured
+  `name@marketplace` identifier. A runner chooses which plugins and actions
+  it supports and how to resolve them. The built-in runner supports its
+  Dispatch plugin and rejects other identifiers. Plugin replies publish
+  status, versions and available actions without plugin paths or CLI output.
+
+Scope any host-side cache to the runner. A disconnected or older peer gives
+an unavailable result. Never substitute another runner's data or the host's
+own credentials, catalog or plugin state.

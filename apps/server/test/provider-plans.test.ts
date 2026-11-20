@@ -8,6 +8,7 @@ import {
   consumeCodexLimitReset,
   createProviderPlansReporter,
   loadProviderPlans,
+  loadWorkloadProviderPlans,
   parseClaudeCache,
   parseClaudeUtilization,
   parseCodexRollout,
@@ -570,6 +571,79 @@ describe("loadProviderPlans", () => {
       }
       return new Response(JSON.stringify(claudeUtilization));
     });
+
+  it("reads each workload login and rejects reset after account replacement", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "workload-usage-"));
+    try {
+      const homes = [path.join(root, "first"), path.join(root, "second")];
+      const writeLogin = async (home: string, account: string) => {
+        await mkdir(path.join(home, ".codex"), { recursive: true });
+        await writeFile(
+          path.join(home, ".codex/auth.json"),
+          JSON.stringify({
+            tokens: { access_token: `fixture-${account}`, account_id: account },
+          })
+        );
+      };
+      await Promise.all(
+        homes.map((home, index) => writeLogin(home, `account-${index}`))
+      );
+      const fetchUsage = vi.fn(async (url: string, init?: RequestInit) => {
+        if (url.endsWith("/consume"))
+          return Response.json({ code: "ok", windows_reset: 1 });
+        const account = new Headers(init?.headers).get("ChatGPT-Account-Id");
+        if (url.endsWith("/usage"))
+          return Response.json({
+            ...codexUsage,
+            plan_type: account === "account-0" ? "pro" : "plus",
+          });
+        return Response.json(codexResets);
+      });
+      const scoped = (homeDir: string) => ({
+        homeDir,
+        env: {},
+        platform: "linux" as const,
+        fetchUsage: fetchUsage as unknown as typeof fetch,
+      });
+      const [first, second] = await Promise.all(
+        homes.map((home) =>
+          loadWorkloadProviderPlans("fixture-secret", scoped(home))
+        )
+      );
+      expect(first.providers[1]?.plan).toBe("Pro");
+      expect(second.providers[1]?.plan).toBe("Plus");
+      expect(first.codexResetAccount).toBeDefined();
+      expect(second.codexResetAccount).toBeDefined();
+      expect(first.codexResetAccount).not.toBe(second.codexResetAccount);
+      const account = {
+        secret: "fixture-secret",
+        handle: first.codexResetAccount!,
+      };
+      await writeLogin(homes[0]!, "replacement");
+      await expect(
+        consumeCodexLimitReset({ ...scoped(homes[0]!), account })
+      ).rejects.toMatchObject({ reason: "account_changed" });
+      expect(
+        fetchUsage.mock.calls.some(([url]) => url.endsWith("/consume"))
+      ).toBe(false);
+      const readRollouts = vi.fn(async () => ["/old-account"]);
+      const offline = await loadWorkloadProviderPlans("fixture-secret", {
+        ...scoped(homes[0]!),
+        codexFiles: readRollouts,
+        fetchUsage: async () => {
+          throw new Error("offline");
+        },
+      });
+      expect(offline.codexResetAccount).toBeUndefined();
+      expect(offline.providers[1]).toMatchObject({
+        windows: [],
+        observedAt: null,
+      });
+      expect(readRollouts).not.toHaveBeenCalled();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
 
   it("lists the account's resets, oldest first, beside the live report", async () => {
     const fetchUsage = codexFetch();

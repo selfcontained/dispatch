@@ -5,7 +5,8 @@ import { getAgentModelOptions, agentModelDefaults } from "./agent-models.js";
 export function validateAgentEffort(
   type: AgentType,
   effort: unknown,
-  model?: string | null
+  model?: string | null,
+  workload = false
 ): Effort | null {
   if (effort == null) return null;
   if (typeof effort !== "string" || !effort.trim() || effort.length > 128) {
@@ -13,6 +14,7 @@ export function validateAgentEffort(
       "Invalid effort. Choose an engine-reported level or null to inherit."
     );
   }
+  if (workload) return effort;
   model ??= agentModelDefaults()[type];
   const choices = model
     ? getAgentModelOptions(type).find((option) => option.id === model)?.effort
