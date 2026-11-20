@@ -7,6 +7,8 @@ import type {
   EngineLoginView,
 } from "@dispatch/runner-protocol/engine-management";
 
+import { AgentTypeIcon } from "@/components/app/agent-type-icon";
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { CopyButton } from "@/components/ui/copy-button";
 import { Input } from "@/components/ui/input";
@@ -16,6 +18,12 @@ import {
   useRunnerEngineOperation,
 } from "@/hooks/use-runner-engines";
 import type { EngineScope } from "@dispatch/runner-protocol/engine-management";
+
+const engineIconColors = {
+  claude: "border-orange-500/25 bg-orange-500/10 text-orange-500",
+  codex: "border-sky-500/25 bg-sky-500/10 text-sky-500",
+  opencode: "border-violet-500/25 bg-violet-500/10 text-violet-500",
+};
 
 const ubuntuNodeSetup =
   "sudo apt-get update && sudo apt-get install nodejs npm";
@@ -104,6 +112,12 @@ export function RunnerEngines({
           }
         />
       ))}
+      {entries.some((entry) => entry.issue === "install-unavailable") && (
+        <p className="py-2.5 text-xs text-muted-foreground">
+          For engines marked “Install unavailable”, check the configured install
+          command on the runner.
+        </p>
+      )}
     </div>
   );
 }
@@ -179,20 +193,33 @@ function EngineRow({
       data-testid={`runner-engine-${entry.id}`}
     >
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="min-w-0">
-          <div className="text-sm font-medium">{entry.label}</div>
-          <p className="mt-0.5 break-words text-xs text-muted-foreground">
-            {entry.installed ? (
-              <>
-                {entry.version ? `v${entry.version}` : "Installed"}
-                {entry.signedIn === true && " · signed in"}
-                {entry.signedIn === false && " · signed out"}
-                {entry.detail && entry.signedIn && ` · ${entry.detail}`}
-              </>
-            ) : (
-              "Not installed"
-            )}
-          </p>
+        <div className="flex min-w-0 items-center gap-3">
+          <span aria-hidden="true">
+            <AgentTypeIcon
+              type={entry.id}
+              className={cn(
+                "size-9 rounded-lg [&_svg]:size-5",
+                engineIconColors[entry.id]
+              )}
+            />
+          </span>
+          <div className="min-w-0">
+            <div className="text-sm font-medium">{entry.label}</div>
+            <p className="mt-0.5 break-words text-xs text-muted-foreground">
+              {entry.installed ? (
+                <>
+                  {entry.version ? `v${entry.version}` : "Installed"}
+                  {entry.signedIn === true && " · signed in"}
+                  {entry.signedIn === false && " · signed out"}
+                  {entry.detail && entry.signedIn && ` · ${entry.detail}`}
+                </>
+              ) : entry.issue === "install-unavailable" ? (
+                "Install unavailable"
+              ) : (
+                "Not installed"
+              )}
+            </p>
+          </div>
         </div>
         <div className="flex items-center gap-2">
           {canInstall && (
@@ -242,13 +269,6 @@ function EngineRow({
         entry.id !== "opencode" && (
           <RunnerPlugin runnerId={scope.runnerId} engine={entry.id} />
         )}
-
-      {entry.issue === "install-unavailable" && (
-        <p className="text-[11.5px] text-muted-foreground">
-          The configured install command could not run. Ask the runner
-          administrator to check it.
-        </p>
-      )}
 
       {operation.isError && (
         <p role="alert" className="text-[12px] text-destructive">
