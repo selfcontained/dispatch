@@ -1,5 +1,7 @@
 import {
   validBranch,
+  isGitHubPullRequestTarget,
+  validGitHubRepoPart,
   type RepositoryCheckout,
 } from "@dispatch/runner-protocol";
 import { localDefaultBranch } from "../shared/git/default-branch.js";
@@ -42,7 +44,11 @@ export function githubRepository(
   const match =
     url &&
     /^https:\/\/github\.com\/([\w.-]+)\/([\w.-]+?)(?:\.git)?\/?$/i.exec(url);
-  return match ? { owner: match[1]!, repo: match[2]! } : null;
+  if (!match) return null;
+  const [, owner, repo] = match;
+  return validGitHubRepoPart(owner) && validGitHubRepoPart(repo)
+    ? { owner, repo }
+    : null;
 }
 
 function sameRepository(
@@ -72,9 +78,9 @@ export function pullRequestTarget(
     /^https:\/\/github\.com\/([\w.-]+)\/([\w.-]+)\/pull\/([1-9][0-9]{0,9})\/?$/i.exec(
       value
     );
-  if (!url)
+  const target = url && { owner: url[1], repo: url[2], number: Number(url[3]) };
+  if (!isGitHubPullRequestTarget(target))
     throw new CheckoutIntentError("Enter a GitHub pull request URL or number.");
-  const target = { owner: url[1]!, repo: url[2]!, number: Number(url[3]) };
   if (!sameRepository(target, repo))
     throw new CheckoutIntentError(
       "Choose a pull request from the selected repository."

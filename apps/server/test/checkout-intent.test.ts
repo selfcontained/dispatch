@@ -237,8 +237,64 @@ it.each([
   }
 );
 
+it("creates a local worktree from the current branch when there is no detectable default", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "dispatch-local-base-"));
+  try {
+    git(root, "init", "-b", "trunk", "repo");
+    const cwd = path.join(root, "repo");
+    git(cwd, "commit", "--allow-empty", "-m", "initial");
+
+    const { checkout } = await resolveCheckoutIntent(
+      {},
+      {
+        ...context,
+        defaultBranch: () => localDefaultBranch(cwd),
+      }
+    );
+    expect(checkout?.base).toBe("trunk");
+    if (!checkout?.createNewBranch)
+      throw new Error("Expected a new worktree branch");
+
+    const worktreePath = path.join(root, "worktree");
+    await createGitWorktree({
+      cwd,
+      name: context.name,
+      worktreePath,
+      branchName: checkout.branch,
+      createNewBranch: true,
+      baseBranch: checkout.base,
+    });
+    expect(git(worktreePath, "rev-parse", "HEAD")).toBe(
+      git(cwd, "rev-parse", "trunk")
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 describe("pull request intent", () => {
   const repository = async () => "https://github.com/owner/repo";
+  it.each([
+    ["https://github.com/../repo", "#12"],
+    ["https://github.com/owner/.", "#12"],
+    ["https://github.com/owner/repo", "https://github.com/owner/../pull/12"],
+  ])(
+    "rejects dot segments before looking up a PR (%s, %s)",
+    async (url, pullRequest) => {
+      const pullRequestHead = vi.fn();
+      await expect(
+        resolveCheckoutIntent(
+          { pullRequest },
+          {
+            ...context,
+            repository: async () => url,
+            pullRequestHead,
+          }
+        )
+      ).rejects.toThrow(/GitHub (repository|pull request URL or number)/);
+      expect(pullRequestHead).not.toHaveBeenCalled();
+    }
+  );
   const heads = {
     sameRepo: { url: "https://github.com/owner/repo.git", branch: "topic" },
     fork: { url: "https://github.com/someone/repo.git", branch: "fix" },

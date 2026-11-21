@@ -1,4 +1,5 @@
 import { runCommand, type CommandRunner } from "../lib/run-command.js";
+import { resolveCurrentBranch } from "./git-context.js";
 
 /**
  * The repo's default branch: origin/HEAD when the clone recorded it,
@@ -38,5 +39,9 @@ export async function detectDefaultBranch(
 }
 
 export async function localDefaultBranch(cwd: string): Promise<string> {
-  return (await detectDefaultBranch(cwd)) ?? "main";
+  return (
+    (await detectDefaultBranch(cwd)) ??
+    (await resolveCurrentBranch(cwd).catch(() => null)) ??
+    "main"
+  );
 }
