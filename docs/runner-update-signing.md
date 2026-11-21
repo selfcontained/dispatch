@@ -45,6 +45,13 @@ upgrade window trust B. Then update the Actions secret and variable together
 before cutting the first release signed by B. The verifier accepts a valid
 signature from either trusted key. Retire A after the supported skew window.
 
+## Signature lifetime and key retirement
+
+Runner update signatures do not expire and cannot be revoked. A compromised
+controller can move a runner forward to any previously signed higher version.
+The persisted version floor only stops downgrades. To retire a signing key,
+remove its public key in a later runner release.
+
 ## Sign development artifacts
 
 Compile the Linux binaries with the explicit development trust switch.
