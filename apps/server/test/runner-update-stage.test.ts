@@ -221,12 +221,18 @@ describe("runner update request", () => {
 
   it("orders versions by SemVer precedence", () => {
     const ordered = [
+      "1.0.0-9",
+      "1.0.0-2a",
       "1.0.0-alpha",
       "1.0.0-alpha.1",
       "1.0.0-alpha.beta",
       "1.0.0-beta.2",
       "1.0.0-beta.11",
       "1.0.0-rc.1",
+      "1.0.0-rc.2",
+      "1.0.0-rc-10",
+      "1.0.0-rc-2",
+      "1.0.0-rc-9",
       "1.0.0",
       "1.0.9",
       "1.0.10",

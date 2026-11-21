@@ -121,7 +121,7 @@ export function compareRunnerVersions(left: string, right: string) {
       ? { core: value.split("."), pre: [] as string[] }
       : {
           core: value.slice(0, dash).split("."),
-          pre: value.slice(dash + 1).split(/[.-]/),
+          pre: value.slice(dash + 1).split("."),
         };
   };
   const a = split(left);
