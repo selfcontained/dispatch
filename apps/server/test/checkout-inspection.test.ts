@@ -34,6 +34,10 @@ import type { AgentRecord } from "../src/agents/types.js";
 import type { DiffResponse } from "@dispatch/shared";
 import { createLocalRunner } from "../src/agents/local-runner.js";
 import type { FastifyBaseLogger } from "fastify";
+import type { Pool } from "pg";
+import { releaseRemoteCheckout } from "../src/agents/archive-checkout.js";
+import { cleanupAgentWorktree } from "../src/agents/archive.js";
+import type { RemoteRunnerService } from "../src/agents/remote/service.js";
 
 let scratch: string;
 let cli: string;
@@ -624,4 +628,77 @@ describe("native runner checkout release", () => {
     expect(existsSync(path.join(checkout, "draft.txt"))).toBe(true);
     expect(git(repo, "branch", "--list", "feature")).toContain("feature");
   });
+});
+
+describe("archive checkout parity", () => {
+  it.each(
+    (["auto", "keep", "force"] as const).flatMap((mode) =>
+      (["clean", "dirty", "unmerged", "changed"] as const).flatMap((state) =>
+        (["local", "runner"] as const).map((placement) => ({
+          mode,
+          state,
+          placement,
+        }))
+      )
+    )
+  )(
+    "$placement $mode with a $state checkout",
+    async ({ mode, state, placement }) => {
+      const logger = { warn: vi.fn() } as unknown as FastifyBaseLogger;
+      const local = createLocalRunner(path.join(fixture, "hosts"), logger);
+      const agent = {
+        id: "agent/fixture",
+        cwd: repo,
+        worktreePath: checkout,
+        worktreeBranch: "feature",
+        baseBranch: "main",
+      };
+      if (state !== "clean") put(checkout, "draft.txt", state);
+      if (state === "unmerged") {
+        git(checkout, "add", "draft.txt");
+        git(checkout, "commit", "-m", "Unmerged change");
+      }
+      const observation = await local.checkoutRelease(agent, {
+        kind: "observe",
+      });
+      expect(observation.checkout).toBeTruthy();
+      let expectedState = state === "changed" ? "1".repeat(64) : null;
+      const pool = {
+        query: async (sql: string, params: unknown[]) => {
+          if (sql.includes("SELECT archive_checkout_state"))
+            return { rows: [{ archive_checkout_state: expectedState }] };
+          if (sql.includes("SET archive_checkout_state"))
+            expectedState = params[1] as string;
+          return { rows: [] };
+        },
+      } as unknown as Pool;
+      const shouldRelease =
+        state !== "changed" &&
+        (mode === "force" || (mode === "auto" && state === "clean"));
+      if (placement === "local") {
+        await cleanupAgentWorktree(pool, logger, local, agent, mode, {});
+      } else {
+        const remote = {
+          requestSession: async (
+            _placement: unknown,
+            request: { operation: Parameters<typeof local.checkoutRelease>[1] }
+          ) => ({
+            value:
+              request.operation.kind === "observe"
+                ? JSON.stringify(observation)
+                : await local.checkoutRelease(agent, request.operation),
+          }),
+        } as unknown as RemoteRunnerService;
+        expect(
+          await releaseRemoteCheckout(
+            pool,
+            { ...agent, cwd: "runner://test/@session" },
+            mode,
+            remote
+          )
+        ).toBe(shouldRelease ? "released" : "retained");
+      }
+      expect(existsSync(checkout)).toBe(!shouldRelease);
+    }
+  );
 });

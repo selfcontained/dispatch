@@ -4,6 +4,7 @@ import type { Pool } from "pg";
 import { MANAGED_WORKSPACE, remotePlacement } from "@dispatch/runner-protocol";
 import {
   archiveCheckoutState,
+  archiveReleaseState,
   nativeBorrowers,
   observeArchiveCheckout,
   releaseRemoteCheckout,
@@ -92,30 +93,25 @@ export async function cleanupAgentWorktree(
       agent,
       localRunner
     );
-    if (
-      !checkout ||
-      (expectedState !== null && checkout.stateId !== expectedState) ||
-      (mode === "auto" &&
-        (checkout.unmerged || checkout.uncommittedFiles.length))
-    )
-      return false;
+    const releaseState = archiveReleaseState(mode, checkout, expectedState);
+    if (!checkout || releaseState === null) return false;
     durations.outstandingChangesCheck = Date.now() - started;
     if (borrowers.length) {
-      await rememberArchiveCheckoutState(pool, id, checkout.stateId);
+      await rememberArchiveCheckoutState(pool, id, releaseState);
       return true;
     }
     await onCleanupStart?.();
     if (
       (await nativeBorrowers(pool, agent, checkout.path, localRunner)).length
     ) {
-      await rememberArchiveCheckoutState(pool, id, checkout.stateId);
+      await rememberArchiveCheckoutState(pool, id, releaseState);
       return true;
     }
 
     const cleanupStarted = Date.now();
     await localRunner.checkoutRelease(agent, {
       kind: "release",
-      expectedState: checkout.stateId,
+      expectedState: releaseState,
     });
     durations.worktreeCleanup = Date.now() - cleanupStarted;
     return false;

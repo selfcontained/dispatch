@@ -136,6 +136,22 @@ export async function rememberArchiveCheckoutState(
   );
 }
 
+/** The snapshot to release, or null when the archive should keep the checkout. */
+export function archiveReleaseState(
+  mode: WorktreeCleanupMode,
+  checkout: CheckoutObservation["checkout"],
+  expectedState: string | null
+): string | null {
+  if (!checkout || mode === "keep") return null;
+  if (expectedState !== null && checkout.stateId !== expectedState) return null;
+  if (
+    mode === "auto" &&
+    (checkout.unmerged || checkout.uncommittedFiles.length)
+  )
+    return null;
+  return checkout.stateId;
+}
+
 export async function releaseRemoteCheckout(
   pool: Pool,
   agent: ArchiveCheckoutAgent,
@@ -146,25 +162,20 @@ export async function releaseRemoteCheckout(
   if (!placement) throw new Error("Missing remote runner placement.");
   let expectedState =
     mode === "keep" ? null : await archiveCheckoutState(pool, agent.id);
-  if (mode === "auto") {
+  if (mode === "auto" || (mode === "force" && expectedState === null)) {
     const { checkout, ownership } = await observeRemoteCheckout(
       agent,
       remote,
       placement
     );
-    if (
-      ownership === "owned" &&
-      checkout &&
-      !checkout.unmerged &&
-      !checkout.uncommittedFiles.length &&
-      (expectedState === null || expectedState === checkout.stateId)
-    ) {
-      expectedState = checkout.stateId;
+    if (ownership === "owned") {
+      expectedState = archiveReleaseState(mode, checkout, expectedState);
+    }
+    if (ownership === "owned" && expectedState !== null) {
       // Record the observation before sending a request that can outlive
       // the connection or be deferred while a borrower still holds it.
       await rememberArchiveCheckoutState(pool, agent.id, expectedState);
     } else if (ownership === "owned") {
-      expectedState = null;
       // Persist the keep decision across a lost reply or server restart.
       await pool.query(
         "UPDATE agents SET archive_cleanup_mode = 'keep' WHERE id = $1",
