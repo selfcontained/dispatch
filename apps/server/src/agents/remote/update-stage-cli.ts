@@ -6,6 +6,7 @@ import {
   compiledRunnerDevKey,
   compiledRunnerUpdateKeys,
 } from "./update-keys.js";
+import { probeStagedRunner } from "./update-probe.js";
 import {
   RUNNER_UPDATE_LAYOUT,
   RunnerUpdateRefused,
@@ -93,7 +94,14 @@ export async function runRunnerUpdateStage(argv: string[]) {
       installedVersion: packageVersion,
       trustedUid,
     });
-    const summary = { outcome: result.outcome, target: result.target };
+    const compatibility = result.candidate
+      ? await probeStagedRunner(layout, result.target).catch(() => null)
+      : null;
+    const summary = {
+      outcome: result.outcome,
+      target: result.target,
+      compatibility,
+    };
     console.log(JSON.stringify(summary));
     await recordResult(layout.state, trustedUid, summary);
     process.exitCode = STAGE_EXIT.ok;

@@ -1,6 +1,6 @@
 import type { CheckoutCommand } from "@dispatch/runner-protocol";
 import { createHash, randomUUID } from "node:crypto";
-import { closeSync, constants, fstatSync, openSync, type Stats } from "node:fs";
+import { closeSync, constants, openSync, type Stats } from "node:fs";
 import {
   chmod,
   chown,
@@ -17,6 +17,7 @@ import {
 } from "node:fs/promises";
 import { createConnection } from "node:net";
 import path from "node:path";
+import type { BuildIdentity } from "../build-identity.js";
 import { hostFile, type HostLaunch } from "../acp/host-protocol.js";
 import { observeBoundCheckout } from "../checkout-observation.js";
 import { probeGitContext } from "../../shared/git/git-context.js";
@@ -40,8 +41,11 @@ import {
 } from "./protocol.js";
 import { parseRepository, repositoryUrl } from "./repository.js";
 import {
+  classifySessionIdentity,
   createSessionProcesses,
+  openHostSocket,
   parseSessionIdentity,
+  type CurrentSessionIdentity,
   type SessionIdentity,
   type SessionProcesses,
 } from "./session-processes.js";
@@ -51,6 +55,13 @@ import {
   RunnerRepositories,
   type WorkloadCommand,
 } from "./session-storage.js";
+
+import {
+  requiresQuiescence,
+  runnerHandoff,
+  type HandoffFormats,
+  type RetainedHost,
+} from "./update-handoff.js";
 
 // Use the old storage name for existing prototype bindings. Other wire IDs
 // never enter a filesystem path, even when they look like a relative path.
@@ -70,6 +81,7 @@ type CheckoutOperation = Extract<
 >["operation"];
 
 type SupervisorOptions = {
+  build: BuildIdentity;
   state: string;
   uid: number;
   gid: number;
@@ -302,6 +314,9 @@ export async function createSessionSupervisor(
     return record === null ? null : parseSessionIdentity(record);
   }
 
+  const socketPath = (key: string) =>
+    hostFile(path.join(hostRoot, key), "socket");
+
   async function cleanHost(key: string, identity: SessionIdentity | null) {
     if (identity) {
       await processes.cleanup(identity);
@@ -318,13 +333,17 @@ export async function createSessionSupervisor(
     }
   }
 
-  function checkUntrackedSocket(dir: string) {
+  function hasNamedSocket(dir: string) {
     const originalPath = path.join(config.state, "hosts", path.basename(dir));
-    if (
+    return (
       processes.socketInUse(hostFile(dir, "socket")) ||
       (originalPath !== dir &&
         processes.socketInUse(hostFile(originalPath, "socket")))
-    )
+    );
+  }
+
+  function checkUntrackedSocket(dir: string) {
+    if (hasNamedSocket(dir))
       throw new Error(
         "Runner cannot verify ownership of the existing guest host."
       );
@@ -784,6 +803,12 @@ export async function createSessionSupervisor(
       prepareWorkspace: _preparation,
       ...launchOptions
     } = command.launch;
+    const hostIdentity: CurrentSessionIdentity = {
+      handoffFormat: runnerHandoff.writes,
+      sessionId: agentId,
+      hostBuild: config.build,
+      hostInstanceId: randomUUID(),
+    };
     const launch: HostLaunch = {
       ...launchOptions,
       agentId,
@@ -803,6 +828,7 @@ export async function createSessionSupervisor(
       },
       pathPrefix: [],
       reportTurnActivity: true,
+      hostInstanceId: hostIdentity.hostInstanceId,
     };
     // Write only into a fresh directory: a previous CLI account could have
     // replaced anything under its old host directory with symlinks.
@@ -832,7 +858,10 @@ export async function createSessionSupervisor(
           : env,
         log,
         (identity) =>
-          writePrivateState(identityFile(key), JSON.stringify(identity)),
+          writePrivateState(
+            identityFile(key),
+            JSON.stringify({ ...identity, ...hostIdentity })
+          ),
         (identity) => {
           void serialize(key, async () => {
             const current = await readIdentity(key);
@@ -872,6 +901,67 @@ export async function createSessionSupervisor(
         /^(agt_[a-z0-9]+|opaque-[A-Za-z0-9_-]{43})\.host$/.test(file)
       )
       .map((file) => file.slice(0, -5));
+  }
+
+  async function inspectHost(key: string): Promise<
+    | { format: number; host: RetainedHost }
+    | null // No live host at this binding.
+    | undefined // A possible live host could not be verified.
+  > {
+    try {
+      // Private state is authoritative. In particular, never read identity
+      // fields or session IDs back from a workload-writable launch file.
+      const handle = await open(
+        identityFile(key),
+        constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK
+      ).catch(missingPath);
+      if (!handle) {
+        return hasNamedSocket(path.join(hostRoot, key)) ||
+          (await lstat(markerFile(key)).catch(missingPath))
+          ? undefined
+          : null;
+      }
+      let identity;
+      try {
+        const stat = await handle.stat();
+        if (
+          !stat.isFile() ||
+          stat.uid !== process.getuid?.() ||
+          stat.mode & 0o077 ||
+          stat.size > 4096
+        )
+          return undefined;
+        identity = parseSessionIdentity(await handle.readFile("utf8"));
+      } finally {
+        await handle.close();
+      }
+      if (!processes.alive(identity))
+        return hasNamedSocket(path.join(hostRoot, key)) ? undefined : null;
+      const binding = await readBinding(key);
+      if (
+        binding === null ||
+        !(managedWorkspace
+          ? binding === managedBinding || checkoutOwner(binding) !== null
+          : config.workspaces.has(binding))
+      )
+        return undefined;
+      const classified = classifySessionIdentity(identity);
+      // Legacy format 1 is the shape already used by attach(). It has no
+      // known build or stable instance to confirm after a supervisor trial.
+      if (classified.kind !== "current") return undefined;
+      const { handoffFormat, sessionId, hostBuild, hostInstanceId } =
+        classified.record;
+      if (runnerStorageKey(sessionId) !== key || hostBuild.revision === null)
+        return undefined;
+      if (!processes.socketMatchesHost(socketPath(key), identity))
+        return undefined;
+      return {
+        format: handoffFormat,
+        host: { sessionId, instanceId: hostInstanceId, build: hostBuild },
+      };
+    } catch {
+      return undefined;
+    }
   }
 
   // Recovered hosts have no ChildProcess exit event. Keep descendant cleanup
@@ -1140,23 +1230,13 @@ export async function createSessionSupervisor(
         const identity = await readIdentity(key);
         if (!identity || !processes.alive(identity)) return null;
 
-        // Open the socket inode without following a workload-created symlink.
-        // Linux connect through /proc/self/fd pins the checked inode, even if
-        // the workload replaces the pathname before connect completes.
-        const linuxOpenPath = 0x200000; // O_PATH is not exposed by Node.
         let fd: number;
         try {
-          fd = openSync(
-            hostFile(path.join(hostRoot, key), "socket"),
-            linuxOpenPath | constants.O_NOFOLLOW
-          );
+          fd = openHostSocket(socketPath(key), config.uid);
         } catch (error) {
           throw new Error("Guest host socket is unavailable", { cause: error });
         }
         try {
-          const socket = fstatSync(fd);
-          if (!socket.isSocket() || socket.uid !== config.uid)
-            throw new Error("Guest host socket is unavailable");
           if (!processes.alive(identity)) {
             closeSync(fd);
             return null;
@@ -1238,6 +1318,39 @@ export async function createSessionSupervisor(
     },
     async isBound(agentId: string, workspace: string) {
       return bound(runnerStorageKey(agentId), workspace);
+    },
+    // A snapshot only. Call again at the future admission fence before
+    // activation to account for work admitted during this inspection.
+    async inspectHandoff(candidate: HandoffFormats | null) {
+      const keys = new Set([
+        ...(await trackedKeys()),
+        ...(await readdir(hostRoot)).filter((key) =>
+          storageKeyPattern.test(key)
+        ),
+        ...(await readdir(bindings))
+          .filter(
+            (entry) =>
+              entry.endsWith(".owner") &&
+              storageKeyPattern.test(entry.slice(0, -6))
+          )
+          .map((entry) => entry.slice(0, -6)),
+      ]);
+      const formats: (number | null)[] = [];
+      const retained: RetainedHost[] = [];
+      for (const key of [...keys].sort()) {
+        const inspected = await serialize(key, () => inspectHost(key));
+        if (inspected === null) continue;
+        formats.push(inspected?.format ?? null);
+        if (inspected) retained.push(inspected.host);
+      }
+      return {
+        retained,
+        requiresQuiescence: requiresQuiescence(
+          formats,
+          runnerHandoff,
+          candidate
+        ),
+      };
     },
     async liveDirectories() {
       const dirs = await Promise.all(

@@ -1,5 +1,6 @@
 import { execFile, execFileSync, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
+import { createServer } from "node:net";
 import { once } from "node:events";
 import {
   chmod,
@@ -30,7 +31,9 @@ import {
   MAX_SESSION_FILE_BYTES,
 } from "../src/agents/remote/protocol.js";
 import {
+  classifySessionIdentity,
   parseProcessStat,
+  parseSessionIdentity,
   runnerStateLockError,
   type SessionIdentity,
   type SessionProcesses,
@@ -48,6 +51,15 @@ type Supervisor = Awaited<ReturnType<typeof createSessionSupervisor>>;
 const marker = "DISPATCH_OWNED_00000000000000000000000000000000=1";
 const identity = { pid: 100, start: "500", scope: "boot:namespace", marker };
 const agentId = "agt_fixture";
+const build = { version: "1.7.28", revision: "a".repeat(40) };
+const instanceId = "01234567-89ab-4cde-8fab-0123456789ab";
+const currentIdentity = {
+  ...identity,
+  handoffFormat: 2,
+  sessionId: agentId,
+  hostBuild: build,
+  hostInstanceId: instanceId,
+};
 const reviewerId = "agt_reviewer";
 const launch = (workspace: string) =>
   ({
@@ -73,6 +85,70 @@ it("explains lock contention while retaining diagnostics for other flock failure
     "Cannot lock runner session state (errno 9)."
   );
 });
+
+it.skipIf(process.platform !== "linux")(
+  "verifies real kernel credentials for a pinned host socket",
+  async () => {
+    const dir = await mkdtemp("/tmp/runner-peer-");
+    const module = fileURLToPath(
+      new URL("../src/agents/remote/session-processes.ts", import.meta.url)
+    );
+    try {
+      const { stdout } = await promisify(execFile)(
+        "bun",
+        [
+          "-e",
+          `
+import { strict as assert } from "node:assert";
+import { spawn } from "node:child_process";
+import { once } from "node:events";
+import { createServer } from "node:net";
+import { readFileSync, readlinkSync, symlinkSync } from "node:fs";
+import { createSessionProcesses, parseProcessStat } from ${JSON.stringify(module)};
+const root = ${JSON.stringify(dir)};
+const hostSocket = root + "/host.sock";
+const child = spawn(process.execPath, ["-e", \`
+  require("node:net").createServer((socket) => socket.end())
+    .listen(\${JSON.stringify(hostSocket)}, () => console.log("ready"));
+\`], { detached: true, stdio: ["ignore", "pipe", "inherit"] });
+const exited = once(child, "exit");
+try {
+  await once(child.stdout, "data");
+  const { start } = parseProcessStat(readFileSync("/proc/" + child.pid + "/stat", "utf8"));
+  const scope = readFileSync("/proc/sys/kernel/random/boot_id", "utf8").trim() + ":" + readlinkSync("/proc/self/ns/pid");
+  const identity = { scope, pid: child.pid, start, marker: ${JSON.stringify(marker)} };
+  const processes = createSessionProcesses(process.getuid(), async () => "");
+  assert.equal(processes.socketMatchesHost(hostSocket, identity), true);
+  assert.equal(processes.socketMatchesHost(hostSocket, { ...identity, start: "0" }), false);
+  assert.equal(processes.socketMatchesHost(hostSocket, { ...identity, scope: "stale" }), false);
+
+  const other = createServer((socket) => socket.end());
+  other.listen(root + "/spoof.sock");
+  await once(other, "listening");
+  try {
+    assert.equal(processes.socketMatchesHost(root + "/spoof.sock", identity), false);
+    symlinkSync(hostSocket, root + "/link.sock");
+    assert.throws(() => processes.socketMatchesHost(root + "/link.sock", identity));
+    const otherUid = createSessionProcesses(process.getuid() + 1, async () => "");
+    assert.equal(otherUid.socketMatchesHost(hostSocket, identity), false);
+  } finally {
+    other.close();
+  }
+  console.log("credentials verified");
+} finally {
+  child.kill("SIGKILL");
+  await exited;
+}
+`,
+        ],
+        { timeout: 10_000 }
+      );
+      expect(stdout.trim()).toBe("credentials verified");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  }
+);
 
 describe("runner session supervision", () => {
   let root: string;
@@ -108,6 +184,7 @@ describe("runner session supervision", () => {
     cleanup: vi.fn(async (_identity: SessionIdentity) => {}),
     cleanupLegacy: vi.fn(async (_marker: string) => {}),
     socketInUse: vi.fn(() => false),
+    socketMatchesHost: vi.fn(() => true),
     spawn: vi.fn<SessionProcesses["spawn"]>(),
   } satisfies SessionProcesses;
 
@@ -125,6 +202,7 @@ describe("runner session supervision", () => {
     supervisor = await createSessionSupervisor(
       {
         state,
+        build,
         uid: process.getuid!(),
         gid: process.getgid!(),
         ca: path.join(state, "runner-ca.pem"),
@@ -146,10 +224,13 @@ describe("runner session supervision", () => {
   beforeEach(async () => {
     vi.clearAllMocks();
     processes.socketInUse.mockReturnValue(false);
+    processes.socketMatchesHost.mockReturnValue(true);
     processes.spawn.mockImplementation(
       async (_command, _cwd, _env, _log, save) => {
         await save(identity);
-        expect(JSON.parse(await readFile(record, "utf8"))).toEqual(identity);
+        expect(JSON.parse(await readFile(record, "utf8"))).toMatchObject(
+          identity
+        );
         kernelHost = identity;
       }
     );
@@ -165,6 +246,110 @@ describe("runner session supervision", () => {
     supervisor?.close();
     supervisor = undefined;
     await rm(root, { recursive: true, force: true });
+  });
+
+  it("recovers the golden legacy binding but defers live handoff", async () => {
+    const runner = await start([]);
+    await runner.launch(launch(MANAGED_WORKSPACE), root);
+    const written = JSON.parse(await readFile(record, "utf8"));
+    const hostDir = path.join(state, "hosts", agentId);
+    const options = JSON.parse(
+      await readFile(path.join(hostDir, "launch.json"), "utf8")
+    );
+    expect(written).toEqual({
+      ...currentIdentity,
+      hostInstanceId: options.hostInstanceId,
+    });
+    expect(
+      classifySessionIdentity(parseSessionIdentity(JSON.stringify(identity)))
+    ).toEqual({
+      kind: "legacy",
+      format: 1,
+    });
+
+    await writeFile(record, JSON.stringify(identity));
+    runner.close();
+    const recovered = await start([]);
+    expect(await recovered.alive(agentId, MANAGED_WORKSPACE)).toBe(true);
+    expect(
+      await recovered.inspectHandoff({ reads: [1, 2], writes: 2 })
+    ).toEqual({
+      retained: [],
+      requiresQuiescence: true,
+    });
+    expect(processes.socketMatchesHost).not.toHaveBeenCalled();
+  });
+
+  it("recovers the golden current tree and fails closed on stale or spoofed identity", async () => {
+    const runner = await start([]);
+    await runner.launch(launch(MANAGED_WORKSPACE), root);
+    await writeFile(record, JSON.stringify(currentIdentity));
+    runner.close();
+    const recovered = await start([]);
+    const socketPath = path.join(state, "hosts", agentId, "host.sock");
+    const socket = createServer();
+    socket.listen(socketPath);
+    await once(socket, "listening");
+    const inspect = () => recovered.inspectHandoff({ reads: [2], writes: 2 });
+    try {
+      expect(await inspect()).toEqual({
+        retained: [{ sessionId: agentId, instanceId, build }],
+        requiresQuiescence: false,
+      });
+      expect(
+        await recovered.inspectHandoff({ reads: [1], writes: 1 })
+      ).toMatchObject({
+        requiresQuiescence: true,
+      });
+      await writeFile(
+        record,
+        JSON.stringify({ ...currentIdentity, sessionId: "other" })
+      );
+      expect(await inspect()).toEqual({
+        retained: [],
+        requiresQuiescence: true,
+      });
+
+      await writeFile(
+        record,
+        JSON.stringify({ ...currentIdentity, handoffFormat: 91 })
+      );
+      expect(await inspect()).toEqual({
+        retained: [],
+        requiresQuiescence: true,
+      });
+
+      await writeFile(
+        record,
+        JSON.stringify({ ...currentIdentity, start: "501" })
+      );
+      processes.socketInUse.mockReturnValue(true);
+      expect(await inspect()).toEqual({
+        retained: [],
+        requiresQuiescence: true,
+      });
+      processes.socketInUse.mockReturnValue(false);
+      expect(await inspect()).toEqual({
+        retained: [],
+        requiresQuiescence: false,
+      });
+
+      await writeFile(record, JSON.stringify(currentIdentity));
+      processes.socketMatchesHost.mockReturnValue(false);
+      expect(await inspect()).toEqual({
+        retained: [],
+        requiresQuiescence: true,
+      });
+
+      processes.socketMatchesHost.mockReturnValue(true);
+      await chmod(record, 0o666);
+      expect(await inspect()).toEqual({
+        retained: [],
+        requiresQuiescence: true,
+      });
+    } finally {
+      await new Promise<void>((resolve) => socket.close(() => resolve()));
+    }
   });
 
   it("makes checkout ancestors group-readable while retaining private state", async () => {
@@ -249,8 +434,13 @@ describe("runner session supervision", () => {
 
       await writeFile(path.join(state, "hosts", agentId, "host.pid"), "666\n");
       await recovered.stop(agentId, workspace, true);
-      expect(processes.stop).toHaveBeenCalledExactlyOnceWith(identity, true);
-      expect(processes.cleanup).toHaveBeenCalledExactlyOnceWith(identity);
+      expect(processes.stop).toHaveBeenCalledExactlyOnceWith(
+        expect.objectContaining(identity),
+        true
+      );
+      expect(processes.cleanup).toHaveBeenCalledExactlyOnceWith(
+        expect.objectContaining(identity)
+      );
       expect(await recovered.liveDirectories()).toEqual([]);
       await recovered.discard(agentId, workspace);
       await expect(
@@ -294,7 +484,10 @@ describe("runner session supervision", () => {
     await first;
     await stopped;
     expect(processes.spawn).toHaveBeenCalledTimes(1);
-    expect(processes.stop).toHaveBeenCalledExactlyOnceWith(identity, false);
+    expect(processes.stop).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining(identity),
+      false
+    );
   });
 
   it("bounds collection and rejects symlinks and hard links on disk", async () => {

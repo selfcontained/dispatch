@@ -30,6 +30,7 @@ import {
 import { openCodeInstructionsEnv } from "../opencode-instructions.js";
 import { buildHostEnv } from "../host-env.js";
 import { engineSpecFor } from "../engine-spec.js";
+import { embeddedBuild, isHostInstanceId } from "../../build-identity.js";
 import { engineVersion } from "../../engine-availability.js";
 import {
   type ClientMessage,
@@ -165,6 +166,9 @@ async function main(): Promise<void> {
     await readFile(hostFile(stateDir, "launch"), "utf8")
   ) as HostLaunch;
   const { agentId } = launch;
+  const hostIdentity = isHostInstanceId(launch.hostInstanceId)
+    ? { hostInstanceId: launch.hostInstanceId, hostBuild: embeddedBuild }
+    : undefined;
   await writeFile(hostFile(stateDir, "pid"), `${process.pid}\n`);
   const journal = new Journal(
     hostFile(stateDir, "journal"),
@@ -293,8 +297,14 @@ async function main(): Promise<void> {
   const socketPath = hostFile(stateDir, "socket");
   await unlink(socketPath).catch(() => {});
   const server = net.createServer((socket) => {
-    if (client && client !== socket) client.destroy();
-    client = socket;
+    const claim = () => {
+      if (client && client !== socket) client.destroy();
+      client = socket;
+    };
+    // Runner inventory connects only to read kernel peer credentials.
+    // Keep the existing client until the new connection sends a command.
+    let claimed = !hostIdentity;
+    if (claimed) claim();
     const rejectCommand = (id?: string) =>
       send(socket, { type: "error", id, message: "Invalid host command." });
     const decode = ndjsonDecoder<unknown>(() => rejectCommand());
@@ -304,6 +314,10 @@ async function main(): Promise<void> {
         if (!message) {
           rejectCommand(sessionCommandId(value));
           continue;
+        }
+        if (!claimed) {
+          claim();
+          claimed = true;
         }
         void handle(socket, message).catch((err) => {
           logger.warn({ err: String(err) }, "host: message handler failed");
@@ -323,6 +337,7 @@ async function main(): Promise<void> {
       case "hello": {
         send(socket, {
           type: "welcome",
+          ...hostIdentity,
           agentId,
           engine: launch.engine,
           sessionId,
@@ -622,6 +637,7 @@ async function main(): Promise<void> {
     // A client that connected before the engine was up gets the session.
     send(client, {
       type: "welcome",
+      ...hostIdentity,
       agentId,
       engine: launch.engine,
       sessionId,

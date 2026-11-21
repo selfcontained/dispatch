@@ -27,6 +27,7 @@ import {
   ndjsonDecoder,
   type HostMessage,
 } from "../src/agents/acp/host-protocol.js";
+import { embeddedBuild } from "../src/agents/build-identity.js";
 import type { DriverEvent } from "../src/agents/acp/driver.js";
 import { createAcpRuntime } from "../src/agents/acp/runtime.js";
 import { buildSystemPrompt } from "../src/agents/acp/system-prompt.js";
@@ -734,6 +735,72 @@ await import(${JSON.stringify(pathToFileURL(fakeAgent).href)});
     );
   }, 40_000);
 
+  it("keeps a runner attachment across a passive inventory connection", async () => {
+    const dir = mkdtempSync("/tmp/dispatch-acp-inventory-");
+    const instanceId = "01234567-89ab-4cde-8fab-0123456789ab";
+    writeFileSync(
+      path.join(dir, "launch.json"),
+      JSON.stringify({
+        ...launchFor("agt_inventory", cwd),
+        hostInstanceId: instanceId,
+      })
+    );
+    const host = spawn("bun", [mainTs, "agent-host", "--state", dir], {
+      stdio: "ignore",
+    });
+    const closed = once(host, "exit");
+    const socketPath = path.join(dir, "host.sock");
+    const clients: net.Socket[] = [];
+    async function attach() {
+      const messages: HostMessage[] = [];
+      const socket = net.createConnection(socketPath);
+      clients.push(socket);
+      const decode = ndjsonDecoder<HostMessage>();
+      socket.on("data", (chunk) => messages.push(...decode(chunk)));
+      await once(socket, "connect");
+      socket.write(encodeMessage({ type: "hello", fromSeq: 0 }));
+      await until(() =>
+        messages.some(
+          (message) => message.type === "welcome" && message.running
+        )
+      );
+      return { socket, messages };
+    }
+    try {
+      await until(() => {
+        try {
+          readFileSync(path.join(dir, "session.json"));
+          return true;
+        } catch {
+          return false;
+        }
+      });
+      const first = await attach();
+      const passive = net.createConnection(socketPath);
+      clients.push(passive);
+      await once(passive, "connect");
+      passive.end();
+      await once(passive, "close");
+
+      first.socket.write(encodeMessage({ type: "hello", fromSeq: 0 }));
+      await until(
+        () => first.messages.filter((m) => m.type === "welcome").length === 2
+      );
+
+      const second = await attach();
+      for (const message of [...first.messages, ...second.messages]) {
+        if (message.type !== "welcome") continue;
+        expect(message.hostInstanceId).toBe(instanceId);
+        expect(message.hostBuild).toEqual(embeddedBuild);
+      }
+    } finally {
+      for (const client of clients) client.destroy();
+      host.kill();
+      await closed;
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("replays a remote prompt receipt after a lost acknowledgement without invoking the provider again", async () => {
     const id = "agt_host_receipt";
     const { runtime } = runtimeWith(stateRoot, () => 0);
@@ -764,6 +831,8 @@ await import(${JSON.stringify(pathToFileURL(fakeAgent).href)});
     const welcome = first.messages.find(
       (message) => message.type === "welcome"
     )!;
+    expect(welcome.hostBuild).toBeUndefined();
+    expect(welcome.hostInstanceId).toBeUndefined();
     for (const [id, fields] of [
       ["malformed-image", { images: [{ path: true, mimeType: "image/png" }] }],
       [

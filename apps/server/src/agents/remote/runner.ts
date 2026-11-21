@@ -1,3 +1,4 @@
+import { embeddedBuild } from "../build-identity.js";
 import { executionArgs, setpriv } from "./workload-identity.js";
 import { runnerHealthSampler } from "./health.js";
 import { SharedCheckoutWatches, childWatch } from "../checkout-watch.js";
@@ -416,6 +417,7 @@ export async function runRemoteRunner(filename: string) {
   };
   const supervisor = await createSessionSupervisor({
     ...config,
+    build: embeddedBuild,
     resolveBins,
     env,
     workspaces: new Set(configuredHandles),

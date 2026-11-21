@@ -92,6 +92,15 @@ if (process.argv[2]?.startsWith("recovery-")) {
   const { runEngineCapabilityWorker } =
     await import("./agents/remote/engine-capability-worker.js");
   await runEngineCapabilityWorker();
+} else if (process.argv[2] === "runner-update-compatibility") {
+  const { embeddedBuild } = await import("./agents/build-identity.js");
+  const { runnerHandoff } = await import("./agents/remote/update-handoff.js");
+  if (process.argv.length !== 3 || !embeddedBuild.revision)
+    process.exitCode = 2;
+  else
+    process.stdout.write(
+      JSON.stringify({ ...embeddedBuild, handoff: runnerHandoff }) + "\n"
+    );
 } else if (process.argv[2] === "runner-update-stage") {
   const { runRunnerUpdateStage } =
     await import("./agents/remote/update-stage-cli.js");

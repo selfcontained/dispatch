@@ -11,6 +11,12 @@ import {
 import { createRequire } from "node:module";
 import { setTimeout as delay } from "node:timers/promises";
 import { ownedEnvironment } from "../../shared/process/owned-processes.js";
+import {
+  isBuildIdentity,
+  isHostInstanceId,
+  type BuildIdentity,
+} from "../build-identity.js";
+import { isOpaqueId } from "./protocol.js";
 import type { WorkloadCommand } from "./session-storage.js";
 
 type Kernel = ReturnType<typeof linuxKernel>;
@@ -37,10 +43,41 @@ function linuxKernel() {
   const { symbols } = dlopen("libc.so.6", {
     flock: { args: ["i32", "i32"], returns: "i32" },
     syscall: { args: ["i32", "i32", "i32", "ptr", "i32"], returns: "i32" },
+    socket: { args: ["i32", "i32", "i32"], returns: "i32" },
+    connect: { args: ["i32", "ptr", "u32"], returns: "i32" },
+    getsockopt: {
+      args: ["i32", "i32", "i32", "ptr", "ptr"],
+      returns: "i32",
+    },
     __errno_location: { args: [], returns: "ptr" },
   });
   const errno = () => read.i32(symbols.__errno_location()!);
   return {
+    socketPeer(socket: string) {
+      // AF_UNIX, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC.
+      const fd = symbols.socket(1, 0x80801, 0);
+      if (fd < 0) return null;
+      try {
+        const address = Buffer.alloc(110);
+        address.writeUInt16LE(1);
+        address.write(socket, 2);
+        if (symbols.connect(fd, address, 3 + Buffer.byteLength(socket)) !== 0)
+          return null;
+        const credential = Buffer.alloc(12);
+        const length = Buffer.alloc(4);
+        length.writeUInt32LE(credential.length);
+        // SOL_SOCKET / SO_PEERCRED returns the connecting peer's signed PID
+        // and unsigned UID/GID from the kernel, not the socket pathname.
+        if (symbols.getsockopt(fd, 1, 17, credential, length) !== 0)
+          return null;
+        return {
+          pid: credential.readInt32LE(),
+          uid: credential.readUInt32LE(4),
+        };
+      } finally {
+        closeSync(fd);
+      }
+    },
     lock(fd: number) {
       if (symbols.flock(fd, 2 | 4) !== 0) throw runnerStateLockError(errno());
     },
@@ -110,14 +147,53 @@ export type SessionIdentity = {
   marker: string;
 };
 
+export type CurrentSessionIdentity = {
+  handoffFormat: 2;
+  sessionId: string;
+  hostBuild: BuildIdentity;
+  hostInstanceId: string;
+};
+
+export type RecordedSessionIdentity = SessionIdentity &
+  Partial<Omit<CurrentSessionIdentity, "handoffFormat">> & {
+    handoffFormat?: number;
+  };
+
+export function classifySessionIdentity(
+  identity: RecordedSessionIdentity
+):
+  | { kind: "legacy"; format: 1 }
+  | { kind: "current"; record: CurrentSessionIdentity }
+  | { kind: "unknown" } {
+  if (
+    !("handoffFormat" in identity) &&
+    !("sessionId" in identity) &&
+    !("hostBuild" in identity) &&
+    !("hostInstanceId" in identity)
+  )
+    return { kind: "legacy", format: 1 };
+  const { handoffFormat, sessionId, hostBuild, hostInstanceId } = identity;
+  if (
+    handoffFormat === 2 &&
+    isOpaqueId(sessionId) &&
+    isBuildIdentity(hostBuild) &&
+    isHostInstanceId(hostInstanceId)
+  )
+    return {
+      kind: "current",
+      record: { handoffFormat, sessionId, hostBuild, hostInstanceId },
+    };
+  return { kind: "unknown" };
+}
+
 export function validMarker(marker: unknown): marker is string {
   return (
     typeof marker === "string" && /^DISPATCH_OWNED_[a-f0-9]{32}=1$/.test(marker)
   );
 }
 
-export function parseSessionIdentity(raw: string): SessionIdentity {
-  const identity = JSON.parse(raw) as SessionIdentity | null;
+export function parseSessionIdentity(raw: string): RecordedSessionIdentity {
+  const identity = JSON.parse(raw) as RecordedSessionIdentity | null;
   if (
     !identity ||
     typeof identity.scope !== "string" ||
@@ -129,6 +205,21 @@ export function parseSessionIdentity(raw: string): SessionIdentity {
   )
     throw new Error("Invalid runner host identity.");
   return identity;
+}
+
+export function openHostSocket(socketPath: string, uid: number) {
+  // Pin the socket inode without following a workload-created symlink.
+  const linuxOpenPath = 0x200000;
+  const fd = openSync(socketPath, linuxOpenPath | constants.O_NOFOLLOW);
+  try {
+    const socket = fstatSync(fd);
+    if (!socket.isSocket() || socket.uid !== uid)
+      throw new Error("Guest host socket is unavailable");
+    return fd;
+  } catch (error) {
+    closeSync(fd);
+    throw error;
+  }
 }
 
 export type SessionProcesses = ReturnType<typeof createSessionProcesses>;
@@ -237,6 +328,24 @@ export function createSessionProcesses(
       }
     },
     alive,
+    socketMatchesHost(socketPath: string, identity: SessionIdentity) {
+      return (
+        withHost(identity, (fd, proc) => {
+          if (fstatSync(fd).uid !== uid) return false;
+          const socketFd = openHostSocket(socketPath, uid);
+          try {
+            const peer = kernel.socketPeer(`/proc/self/fd/${socketFd}`);
+            return (
+              peer?.pid === identity.pid &&
+              peer.uid === uid &&
+              statProcess(proc)?.dead === false
+            );
+          } finally {
+            closeSync(socketFd);
+          }
+        }) === true
+      );
+    },
     async spawn(
       command: string[],
       cwd: string,

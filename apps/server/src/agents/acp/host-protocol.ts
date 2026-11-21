@@ -13,6 +13,7 @@ import { isPromptSource, type PromptSource } from "./prompt-source.js";
 import path from "node:path";
 import { StringDecoder } from "node:string_decoder";
 
+import type { BuildIdentity } from "../build-identity.js";
 import type { DriverEvent } from "./driver.js";
 import type {
   AvailableCommand,
@@ -30,6 +31,7 @@ export type HostLaunch = RemoteLaunch & {
   cwd: string;
   /** A supervised runner samples the lifetime of active turns. */
   reportTurnActivity?: boolean;
+  hostInstanceId?: string;
   bins: EngineBins;
   /** Environment the engine child gets on top of the host's own. */
   env: Record<string, string>;
@@ -71,6 +73,8 @@ export function parseClientMessage(value: unknown): ClientMessage | null {
 }
 
 type DispatchWelcome = HostWelcome & {
+  hostBuild?: BuildIdentity;
+  hostInstanceId?: string;
   /** The open turn, if one is running. */
   turn: { seq: number; startedAt: string; source?: PromptSource } | null;
   /** Current ACP commands, including skills; refreshed on each reconnect. */
