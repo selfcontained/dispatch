@@ -10,6 +10,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import os from "node:os";
+import { gunzipSync } from "node:zlib";
 import path from "node:path";
 import Fastify, { type FastifyInstance } from "fastify";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -74,6 +75,7 @@ async function buildFixture(options?: {
   for (const helper of [
     "bin/dispatch-runner",
     "bin/dispatch-runner.service",
+    "bin/dispatch-runner-update@.service",
     "bin/runner-handoff-v1.py",
   ]) {
     await writeFile(path.join(source, helper), "fixture");
@@ -675,6 +677,36 @@ describe("runner update artifacts", () => {
       manifestUrl.replace(sha256, "a".repeat(64)),
       manifestUrl.replace("manifest.json", "manifest%2ejson"),
       manifestUrl + "?alias",
+    ])
+      expect((await app.inject(invalid)).statusCode, invalid).toBe(404);
+  });
+
+  it("serves the root updater's revision-free route and a gzip body", async () => {
+    await buildFixture();
+    const envelope = await signFixture(inputs, keys.RUNNER_UPDATE_DEV_KEY_ID);
+    dev();
+    const bare = `/api/v1/runner-artifacts/update/${version}/linux/x64/${sha256}`;
+    expect((await app.inject(`${bare}/manifest.json`)).json()).toEqual(
+      envelope
+    );
+    expect((await app.inject(`${bare}/dispatch-runner`)).body).toBe("x64");
+    for (const base of [bare, update]) {
+      const compressed = await app.inject(`${base}/dispatch-runner.gz`);
+      expect(compressed.statusCode).toBe(200);
+      expect(compressed.headers["content-type"]).toBe("application/gzip");
+      expect(compressed.headers["content-encoding"]).toBeUndefined();
+      expect(gunzipSync(compressed.rawPayload).toString()).toBe("x64");
+      const head = await app.inject({
+        method: "HEAD",
+        url: `${base}/dispatch-runner.gz`,
+      });
+      expect([head.statusCode, head.rawPayload.length]).toEqual([200, 0]);
+    }
+    for (const invalid of [
+      `${bare.replace(version, "9.9.9")}/dispatch-runner.gz`,
+      `${bare.replace(sha256, "a".repeat(64))}/dispatch-runner.gz`,
+      `${bare}/dispatch-runner.tar.gz`,
+      `${bare}/dispatch-runner.gz?alias`,
     ])
       expect((await app.inject(invalid)).statusCode, invalid).toBe(404);
   });

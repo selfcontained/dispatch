@@ -202,6 +202,7 @@ export async function verifyRunnerArchive(input: {
     bootstrapMember,
     "bin/dispatch-runner",
     "bin/dispatch-runner.service",
+    "bin/dispatch-runner-update@.service",
     "bin/runner-handoff-v1.py",
     runnerExecutableMember(version, platform === "linux/x64" ? "x64" : "arm64"),
   ];

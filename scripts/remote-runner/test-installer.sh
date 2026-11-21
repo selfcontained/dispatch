@@ -25,6 +25,7 @@ allow_dev=0
 allow_downgrade=0
 unit=dispatch-runner.service
 unit_path="$root/$unit"
+update_unit=dispatch-runner-update@.service
 command_path="$root/bin/dispatch-runner"
 cgroup_root="$root/cgroups"
 frozen=0
@@ -209,7 +210,7 @@ HARNESS
 openssl genrsa -out "$root/private.pem" 2048 2>/dev/null
 openssl rsa -in "$root/private.pem" -pubout -out "$root/public.pem" 2>/dev/null
 mkdir -p "$root/archive/dist/bun" "$root/archive/bin"
-cp bin/{dispatch-runner,dispatch-runner.service,install-dispatch-runner.sh,runner-handoff-v1.py,pack-release} "$root/archive/bin/"
+cp bin/{dispatch-runner,dispatch-runner.service,dispatch-runner-update@.service,install-dispatch-runner.sh,runner-handoff-v1.py,pack-release} "$root/archive/bin/"
 touch "$root/archive/README.md" "$root/archive/.env.example"
 if "$root/archive/bin/pack-release" --runner-arch riscv64 > "$root/pack-error" 2>&1; then exit 1; fi
 grep -Fq 'expects x64 or arm64' "$root/pack-error"
@@ -339,6 +340,14 @@ grep -Fq '"uid": 103' "$root/settings/runner.json"
 ! grep -Eq '^(start|enable) ' "$root/systemctl"
 [[ "$(find "$root/settings/runner.json" -perm 0600 -print)" == "$root/settings/runner.json" ]]
 grep -q '"workspaces": {}' "$root/settings/runner.json"
+# The fixed staging unit and its private directories come with the release.
+# macOS bash 3.2 does not exit on a failed [[ ]], so these exit explicitly.
+cmp 'bin/dispatch-runner-update@.service' "$root/dispatch-runner-update@.service"
+[[ -n "$(find "$root/dispatch-runner-update@.service" -perm 0644 -print)" ]] || exit 1
+[[ $(find "$root/runtime/update" "$root/state/update" -maxdepth 0 -type d -perm 0700 -print | wc -l) -eq 2 ]] || exit 1
+grep -Fxq 'ExecStart=/usr/bin/flock --nonblock --conflict-exit-code 75 /var/lib/dispatch-runner/update/stage.lock /opt/dispatch-runner/dispatch runner-update-stage %i' \
+  "$root/dispatch-runner-update@.service"
+grep -Fxq 'ReadWritePaths=/opt/dispatch-runner/update /var/lib/dispatch-runner/update' "$root/dispatch-runner-update@.service"
 node - "$root/settings/runner.json" "$root/runtime/dispatch" <<'JS'
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
@@ -362,7 +371,12 @@ sed 's/^KillMode=process$/KillMode=control-group/' "$root/dispatch-runner.servic
 cp "$root/legacy-unit" "$root/dispatch-runner.service"
 
 chmod 0711 "$root/state"
+printf '[Service]\nExecStart=/bin/sh -c %%i\n' > "$root/dispatch-runner-update@.service"
+chmod 0755 "$root/runtime/update"
 run update v1.0.1
+# An update restores the release's unit and the directory modes.
+cmp 'bin/dispatch-runner-update@.service' "$root/dispatch-runner-update@.service"
+[[ -n "$(find "$root/runtime/update" -maxdepth 0 -perm 0700 -print)" ]] || exit 1
 [[ -n "$(find "$root/state" -maxdepth 0 -perm 0755 -print)" ]]
 [[ -n "$(find "$root/state/runner" -maxdepth 0 -perm 0751 -print)" ]]
 [[ -n "$(find "$root/state/home" -maxdepth 0 -perm 0700 -print)" ]]

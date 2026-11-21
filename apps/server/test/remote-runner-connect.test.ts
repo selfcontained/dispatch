@@ -514,8 +514,12 @@ describe("runner-initiated connect enrollment", () => {
       200
     );
     const update = `/api/v1/runner-artifacts/abc1234/update/1.2.3/linux/arm64/${"a".repeat(64)}`;
-    for (const file of ["manifest.json", "dispatch-runner"]) {
-      const resource = `${origin}${update}/${file}`;
+    for (const resource of [
+      ...["manifest.json", "dispatch-runner", "dispatch-runner.gz"].map(
+        (file) => `${origin}${update}/${file}`
+      ),
+      `${origin}${update.replace("/abc1234/", "/")}/dispatch-runner.gz`,
+    ]) {
       expect((await get(resource, pinned)).status).toBe(200);
       expect((await get(resource, { ...pinned, method: "HEAD" })).status).toBe(
         200
@@ -530,6 +534,8 @@ describe("runner-initiated connect enrollment", () => {
       `${update}/package.json`,
       `${update}/manifest%2ejson`,
       `${update}/manifest.json?alias`,
+      `${update}/dispatch-runner.tgz`,
+      `${update.replace("/abc1234/", "//")}/dispatch-runner.gz`,
       `${update.replace("/arm64/", "/amd64/")}/dispatch-runner`,
       `${update.slice(0, -1)}/dispatch-runner`,
     ])

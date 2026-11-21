@@ -92,6 +92,10 @@ if (process.argv[2]?.startsWith("recovery-")) {
   const { runEngineCapabilityWorker } =
     await import("./agents/remote/engine-capability-worker.js");
   await runEngineCapabilityWorker();
+} else if (process.argv[2] === "runner-update-stage") {
+  const { runRunnerUpdateStage } =
+    await import("./agents/remote/update-stage-cli.js");
+  await runRunnerUpdateStage(process.argv.slice(3));
 } else if (process.argv[2] === "remote-runner") {
   const { runRemoteRunner } = await import("./agents/remote/runner.js");
   await runRemoteRunner(process.argv[3]!);

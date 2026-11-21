@@ -186,6 +186,27 @@ Recovery can also defer while a turn or runner operation is active. It restores
 the previous executable when a replacement is pending, or starts the installed
 executable otherwise.
 
+## Update staging unit
+
+The installer also installs `/etc/systemd/system/dispatch-runner-update@.service`
+(root, 0644) from the verified archive and creates the root-only directories
+`/opt/dispatch-runner/update` and `/var/lib/dispatch-runner/update` (0700).
+Each update replaces the unit with the release's copy. The unit stages one
+signed build and never touches the running service. Its instance is
+`VERSION_linux_ARCH_SHA256`; nothing else is accepted. It runs the installed
+executable as `dispatch runner-update-stage`, which reads the enrolled
+endpoint and CA from `/etc/dispatch-runner/runner.json`, refuses a build lower
+than the installed version or the recorded floor, verifies the Ed25519
+manifest against the keys built into the installed runner, and checks the
+downloaded bytes against the signed digest before writing
+`/opt/dispatch-runner/update/dispatch-<sha256>`. Nothing starts it
+automatically yet. To stage by hand:
+
+```sh
+sudo systemctl start 'dispatch-runner-update@1.2.3_linux_x64_<sha256>.service'
+sudo cat /var/lib/dispatch-runner/update/last-stage.json
+```
+
 ## Validate installer changes
 
 Run `bash scripts/remote-runner/test-installer.sh` from the worktree root.

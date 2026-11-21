@@ -1,5 +1,6 @@
 import { Readable } from "node:stream";
-import type { FastifyInstance, FastifyReply } from "fastify";
+import { createGzip } from "node:zlib";
+import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import {
   resolveRunnerUpdatePath,
   RUNNER_UPDATE_PREFIX,
@@ -49,6 +50,27 @@ async function streamArtifact(
     return reply.send(Readable.from([]));
   }
   return reply.send(handle.createReadStream());
+}
+
+/**
+ * The executable compresses to about a third of its size. The updater checks
+ * the signed digest of the decompressed bytes, so the encoding adds no trust.
+ */
+async function streamCompressed(
+  reply: FastifyReply,
+  artifact: Parameters<typeof openRunnerArtifact>[0],
+  method: string
+) {
+  const handle = await openRunnerArtifact(artifact);
+  reply
+    .type("application/gzip")
+    .header("Content-Disposition", 'attachment; filename="dispatch-runner.gz"')
+    .header("X-Content-Type-Options", "nosniff");
+  if (method === "HEAD") {
+    await handle.close();
+    return reply.send(Readable.from([]));
+  }
+  return reply.send(handle.createReadStream().pipe(createGzip()));
 }
 
 export function registerRunnerArtifacts(
@@ -109,48 +131,61 @@ export function registerRunnerArtifacts(
       }
     }
   );
+  const serveUpdate = async (request: FastifyRequest, reply: FastifyReply) => {
+    reply.header("Cache-Control", "no-store");
+    const update = resolveRunnerUpdatePath(request.url);
+    if (
+      !update ||
+      (update.revision !== undefined && update.revision !== revision) ||
+      update.version !== version
+    )
+      return reply.code(404).send({
+        error: "Invalid runner update path for this controller build.",
+      });
+
+    try {
+      const { manifest, envelope, executable } = await source.getUpdate(
+        update.arch
+      );
+      if (manifest.sha256 !== update.sha256)
+        return reply
+          .code(404)
+          .send({ error: "Runner update digest is unavailable." });
+      if (update.file === "manifest.json") {
+        return reply
+          .type("application/json")
+          .header("Content-Length", envelope.bytes.length)
+          .header("X-Content-Type-Options", "nosniff")
+          .send(envelope.bytes);
+      }
+      if (update.file === "dispatch-runner.gz")
+        return await streamCompressed(reply, executable, request.method);
+      return await streamArtifact(
+        reply,
+        executable,
+        update.file,
+        request.method
+      );
+    } catch (err) {
+      if (err instanceof RunnerPayloadUnavailable)
+        return reply.code(404).send({ error: err.message });
+      request.log.error({ err }, "Could not prepare runner update");
+      return reply.code(503).send({
+        error:
+          "Runner update could not be prepared or verified. Check the controller logs.",
+      });
+    }
+  };
+  const route = { config: { publicRunnerArtifact: true } };
   app.get(
     `${PREFIX}/:revision/update/:version/linux/:arch/:sha256/:file`,
-    { config: { publicRunnerArtifact: true } },
-    async (request, reply) => {
-      reply.header("Cache-Control", "no-store");
-      const update = resolveRunnerUpdatePath(request.url);
-      if (!update || update.revision !== revision || update.version !== version)
-        return reply.code(404).send({
-          error: "Invalid runner update path for this controller build.",
-        });
-
-      try {
-        const { manifest, envelope, executable } = await source.getUpdate(
-          update.arch
-        );
-        if (manifest.sha256 !== update.sha256)
-          return reply
-            .code(404)
-            .send({ error: "Runner update digest is unavailable." });
-        if (update.file === "manifest.json") {
-          return reply
-            .type("application/json")
-            .header("Content-Length", envelope.bytes.length)
-            .header("X-Content-Type-Options", "nosniff")
-            .send(envelope.bytes);
-        }
-        return await streamArtifact(
-          reply,
-          executable,
-          update.file,
-          request.method
-        );
-      } catch (err) {
-        if (err instanceof RunnerPayloadUnavailable)
-          return reply.code(404).send({ error: err.message });
-        request.log.error({ err }, "Could not prepare runner update");
-        return reply.code(503).send({
-          error:
-            "Runner update could not be prepared or verified. Check the controller logs.",
-        });
-      }
-    }
+    route,
+    serveUpdate
+  );
+  app.get(
+    `${PREFIX}/update/:version/linux/:arch/:sha256/:file`,
+    route,
+    serveUpdate
   );
   return source;
 }

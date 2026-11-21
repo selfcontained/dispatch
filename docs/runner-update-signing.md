@@ -76,7 +76,11 @@ done
 
 Both the web origin and runner listener use
 `/api/v1/runner-artifacts/<revision>/update/<version>/linux/<arch>/<sha256>/`
-with `manifest.json` and `dispatch-runner` as filenames. The signed bytes are
+with `manifest.json`, `dispatch-runner` and `dispatch-runner.gz` as filenames.
+The same files are served without the `<revision>/` segment for the root
+updater, which knows only the signed version, platform and digest.
+`dispatch-runner.gz` is the executable as a gzip body, about a third of its
+size; the updater checks the signed digest of the decompressed bytes. The signed bytes are
 the UTF-8 JSON representation of the manifest object, with `version`, `os`,
 `arch`, and `sha256` in that order, without whitespace or a trailing newline.
 The signature is standard padded Base64 over the 64-byte Ed25519 signature.

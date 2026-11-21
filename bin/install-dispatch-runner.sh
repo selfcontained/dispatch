@@ -282,6 +282,26 @@ install_service_unit() {
   fi
 }
 
+# The root updater stages signed builds through this fixed template unit. It
+# always matches the installed release: replaced from the verified archive,
+# removed when that release has none. Its two private directories hold the
+# candidate on the executable's filesystem and the updater's own state.
+install_update_unit() {
+  local replacement path="${unit_path%/*}/$update_unit"
+  install -d -m 0700 "$runtime/update" "$state/update"
+  if ! tar -xOzf "$stage/dispatch-runner-linux-$arch.tar.gz" "bin/$update_unit" > "$stage/$update_unit" 2>/dev/null ||
+     [[ ! -s "$stage/$update_unit" ]]; then
+    rm -f -- "$path"
+    return 0
+  fi
+  cmp -s "$stage/$update_unit" "$path" && return 0
+  replacement=$(mktemp "${path}.XXXXXX")
+  if ! install -m 0644 "$stage/$update_unit" "$replacement" || ! mv -fT "$replacement" "$path"; then
+    rm -f -- "$replacement"
+    error "Could not install the runner update unit"
+  fi
+}
+
 # The shared ancestor contains account directories. Their private files and
 # the separate settings directory keep their own access restrictions.
 repair_install_root() {
@@ -348,6 +368,7 @@ install_runner() {
     mv -fT "$stage/initial" "$runtime/dispatch"
   fi
   install_service_unit
+  install_update_unit
   install_managed_tools
   if [[ ! -L "$command_path" ]]; then
     if [[ ! -d "$(dirname "$command_path")" ]]; then
@@ -573,6 +594,7 @@ update_runner() {
     record_release "$runtime/dispatch"
     maintenance_step=unit
     install_service_unit
+    install_update_unit
     install_managed_tools
     systemctl daemon-reload
     printf 'Runner already has the requested release.\n'
@@ -600,6 +622,7 @@ update_runner() {
   sync -f "$runtime"
   maintenance_step=unit
   install_service_unit
+  install_update_unit
   install_managed_tools
   systemctl daemon-reload
   printf 'Runner updated to %s.\n' "$tag"
@@ -730,6 +753,7 @@ main() {
   umask 077
   unit=dispatch-runner.service
   unit_path="/etc/systemd/system/$unit"
+  update_unit=dispatch-runner-update@.service
   command_path=/usr/local/bin/dispatch-runner
   runtime=/opt/dispatch-runner
   settings=/etc/dispatch-runner
