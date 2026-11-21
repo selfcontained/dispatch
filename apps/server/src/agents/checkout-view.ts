@@ -1,4 +1,7 @@
-import type { CheckoutView } from "@dispatch/runner-protocol";
+import type {
+  CheckoutStatsOutcome,
+  CheckoutView,
+} from "@dispatch/runner-protocol";
 import { readWorkspaceView, WorkspaceError } from "../files/workspace-view.js";
 import { getAgentDiff, getAgentFileDiff } from "../shared/git/agent-diff.js";
 import { getAgentDiffImage } from "../shared/git/diff-image.js";
@@ -18,7 +21,9 @@ export async function readCheckoutView(
       const computation = await getDiffStatsComputation(cwd, base, view);
       if (computation.kind === "failure")
         throw new Error("Git status unavailable.");
-      return computation.stats;
+      if (!computation.stats) return null;
+      const outcome: CheckoutStatsOutcome = computation.kind;
+      return { ...computation.stats, outcome };
     }
     case "diff":
       return (

@@ -63,6 +63,8 @@ export function isCheckoutView(value: unknown): value is CheckoutView {
   }
 }
 
+export type CheckoutStatsOutcome = "success" | "partial";
+
 export const MAX_CHECKOUT_VIEW_BYTES = 16 * 1024 * 1024;
 function count(value: unknown) {
   return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
@@ -96,7 +98,10 @@ export function isCheckoutViewData(view: CheckoutView, data: unknown) {
         (isRecord(data) &&
           totals(data) &&
           totals(data.excludingTests) &&
-          count(data.computedAt))
+          count(data.computedAt) &&
+          (data.outcome === undefined ||
+            data.outcome === "success" ||
+            data.outcome === "partial"))
       );
     case "image":
       return (

@@ -9,6 +9,7 @@ import {
   isCheckoutViewData,
   MAX_CHECKOUT_VIEW_BYTES,
   type CheckoutView,
+  type CheckoutStatsOutcome,
   isCheckoutQuery,
   isCheckoutReply,
   remotePlacement,
@@ -118,6 +119,27 @@ export async function readAgentView(
   remote?: RemoteRunnerService | null,
   comparisonBase: string | null = agentComparisonBase(agent, "changes")
 ): Promise<unknown> {
+  const data = await readAgentViewData(agent, view, remote, comparisonBase);
+  if (view.kind === "stats" && data !== null) return decodeStats(data).stats;
+  return data;
+}
+
+function decodeStats(data: unknown): DiffStatsComputation {
+  if (data === null) return { kind: "no-data", stats: null };
+  const { outcome, ...stats } = data as DiffStats & {
+    outcome?: CheckoutStatsOutcome;
+  };
+  return outcome === "partial"
+    ? { kind: "partial", stats, error: new Error("Runner Git probe failed") }
+    : { kind: "success", stats };
+}
+
+async function readAgentViewData(
+  agent: ComparisonBaseAgent & { id: string },
+  view: CheckoutView,
+  remote: RemoteRunnerService | null | undefined,
+  comparisonBase: string | null
+): Promise<unknown> {
   if (!isCheckoutView(view))
     throw new AgentError("Invalid workspace path or options.", 400);
   const query =
@@ -163,15 +185,13 @@ export async function readAgentStats(
 ): Promise<DiffStatsComputation> {
   const placement = agent.cwd && remotePlacement(agent.cwd);
   if (placement) {
-    const stats = (await readAgentView(
+    const data = await readAgentViewData(
       { ...agent, id },
       { kind: "stats", baseBranch: null, includeUncommitted: true },
       remote,
       comparisonBase
-    )) as DiffStats | null;
-    return stats
-      ? { kind: "success", stats }
-      : { kind: "no-data", stats: null };
+    );
+    return decodeStats(data);
   }
   const target = agentDiffTarget(agent);
   return target
