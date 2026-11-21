@@ -95,6 +95,8 @@ type SupervisorOptions = {
   githubCredentialHelper?: () => Promise<string>;
   observeCheckout?: (cwd: string, scratch: boolean) => Promise<CheckoutState>;
   prepareDependencies?: (cwd: string) => Promise<boolean>;
+  /** False while the update fence holds process admission closed. */
+  mayStartProcess?: () => boolean;
 };
 
 const managedBinding = "\0managed";
@@ -968,7 +970,8 @@ export async function createSessionSupervisor(
   // independent of the service connection and isolate failures by session.
   let sweeping = false;
   const sweep = setInterval(() => {
-    if (sweeping) return;
+    // Cleanup runs workload processes; it waits while the update fence holds.
+    if (sweeping || config.mayStartProcess?.() === false) return;
     sweeping = true;
     void trackedKeys()
       .then((keys) =>
@@ -1319,8 +1322,8 @@ export async function createSessionSupervisor(
     async isBound(agentId: string, workspace: string) {
       return bound(runnerStorageKey(agentId), workspace);
     },
-    // A snapshot only. Call again at the future admission fence before
-    // activation to account for work admitted during this inspection.
+    // A snapshot. The update fence calls it again once admission is closed
+    // and admitted work has drained, for the authoritative retained set.
     async inspectHandoff(candidate: HandoffFormats | null) {
       const keys = new Set([
         ...(await trackedKeys()),
@@ -1345,6 +1348,8 @@ export async function createSessionSupervisor(
       }
       return {
         retained,
+        /** Live hosts, verified or not. */
+        live: formats.length,
         requiresQuiescence: requiresQuiescence(
           formats,
           runnerHandoff,

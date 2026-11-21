@@ -19,6 +19,7 @@ import {
 export {
   RunnerUnavailable,
   RunnerHostGone,
+  RunnerUpdateFenced,
 } from "@dispatch/runner-protocol/connection";
 import type { Pool } from "pg";
 import type { FastifyBaseLogger } from "fastify";
@@ -55,6 +56,13 @@ import {
   parseLaunchProgress,
   type EngineInventoryEntry,
   type Placement,
+  parseUpdateServiceFrame,
+  parseUpdateStatus,
+  type RunnerUpdateCancelReason,
+  type RunnerUpdateTarget,
+  type SelfUpdateAdvert,
+  type UpdateServiceFrame,
+  type UpdateStatusFrame,
 } from "./protocol.js";
 import {
   connectCliCommand,
@@ -154,9 +162,22 @@ type Gate = {
   ready?(workspaces: string[], managedWorkspace: boolean): void;
 };
 
+/** One runner status frame and the connection that carried it. */
+export type RunnerUpdateEvent = {
+  runnerId: string;
+  /** Changes on every accepted connection for the runner. */
+  epoch: number;
+  status: UpdateStatusFrame;
+};
+
 type Peer = {
   socket: TLSSocket;
   connection: RunnerConnection;
+  /** The raw frame sender for this connection. */
+  send: (frame: ServiceFrame) => void;
+  epoch: number;
+  /** Advertised self-update support; update frames go only to such a peer. */
+  selfUpdate?: SelfUpdateAdvert;
   workspaces: Set<string>;
   managedWorkspace: boolean;
   gate: Gate;
@@ -345,6 +366,10 @@ export class RemoteRunnerService {
     return () => this.connectionListeners.delete(listener);
   }
   private readonly peers = new Map<string, Peer>();
+  private peerEpoch = 0;
+  private readonly updateListeners = new Set<
+    (event: RunnerUpdateEvent) => void
+  >();
   /** Enrolled, unrevoked registrations by client certificate fingerprint. */
   private readonly enrolled = new Map<string, Registration>();
   private readonly legacySockets = new Set<TLSSocket>();
@@ -954,6 +979,9 @@ export class RemoteRunnerService {
           sharedWorktree: ready.sharedWorktree === true,
           workspacePreparation: ready.workspacePreparation === true,
           connection: new RunnerConnection(send),
+          send,
+          epoch: ++this.peerEpoch,
+          ...(ready.selfUpdate && { selfUpdate: ready.selfUpdate }),
           workspaces: new Set(ready.workspaces),
           managedWorkspace: ready.managedWorkspace === true,
           gate,
@@ -1008,6 +1036,20 @@ export class RemoteRunnerService {
         const progress = parseLaunchProgress(frame);
         if (!progress) return socket.destroy();
         peer.connection.receive(progress);
+      } else if (frame.type === "update_status" && peer.selfUpdate) {
+        const status = parseUpdateStatus(frame);
+        if (!status) return socket.destroy();
+        const event = { runnerId: gate.key, epoch: peer.epoch, status };
+        for (const listener of this.updateListeners) {
+          try {
+            listener(event);
+          } catch (error) {
+            (this.enrollment?.log ?? console).warn(
+              "Runner update listener failed",
+              error
+            );
+          }
+        }
       } else if (
         frame.type === "result" ||
         frame.type === "data" ||
@@ -1605,6 +1647,104 @@ export class RemoteRunnerService {
         operation.kind === "openTerminal",
       onProgress,
       signal
+    );
+  }
+
+  /** Status frames from runners that advertised self-update support. */
+  onUpdateStatus(listener: (event: RunnerUpdateEvent) => void) {
+    this.updateListeners.add(listener);
+    return () => this.updateListeners.delete(listener);
+  }
+
+  /** The current connection's self-update advertisement, if any. */
+  selfUpdate(
+    runnerId: string
+  ): { advert: SelfUpdateAdvert; epoch: number } | undefined {
+    const peer = this.peers.get(runnerId);
+    return peer?.gate.approved() && peer.selfUpdate
+      ? { advert: peer.selfUpdate, epoch: peer.epoch }
+      : undefined;
+  }
+
+  /**
+   * Send one validated update frame on the runner's current connection.
+   * With `epoch`, refuse if the connection changed since it was read.
+   * Replies arrive through `onUpdateStatus`.
+   */
+  sendUpdate(runnerId: string, frame: UpdateServiceFrame, epoch?: number) {
+    const peer = this.peers.get(runnerId);
+    if (!peer?.gate.approved())
+      throw new RunnerUnavailable("The runner is disconnected or unavailable.");
+    if (!peer.selfUpdate)
+      throw new RunnerCapabilityUnavailable(
+        "This runner does not support supervisor updates."
+      );
+    if (epoch !== undefined && epoch !== peer.epoch)
+      throw new RunnerUnavailable("The runner connection changed.");
+    const parsed = parseUpdateServiceFrame(frame);
+    if (!parsed) throw new TypeError("Invalid runner update frame.");
+    peer.send(parsed);
+    return { epoch: peer.epoch };
+  }
+
+  offerUpdate(
+    runnerId: string,
+    attemptId: string,
+    target: RunnerUpdateTarget,
+    retry = false,
+    epoch?: number
+  ) {
+    return this.sendUpdate(
+      runnerId,
+      { type: "update_offer", attemptId, target, retry },
+      epoch
+    );
+  }
+
+  fenceUpdate(
+    runnerId: string,
+    attemptId: string,
+    retainSessions: boolean,
+    epoch?: number
+  ) {
+    return this.sendUpdate(
+      runnerId,
+      { type: "update_fence", attemptId, retainSessions },
+      epoch
+    );
+  }
+
+  activateUpdate(runnerId: string, attemptId: string, epoch?: number) {
+    return this.sendUpdate(
+      runnerId,
+      { type: "update_activate", attemptId },
+      epoch
+    );
+  }
+
+  confirmUpdate(
+    runnerId: string,
+    attemptId: string,
+    observed: { revision: string; sha256: string },
+    epoch?: number
+  ) {
+    return this.sendUpdate(
+      runnerId,
+      { type: "update_confirm", attemptId, ...observed },
+      epoch
+    );
+  }
+
+  cancelUpdate(
+    runnerId: string,
+    attemptId: string,
+    reason: RunnerUpdateCancelReason,
+    epoch?: number
+  ) {
+    return this.sendUpdate(
+      runnerId,
+      { type: "update_cancel", attemptId, reason },
+      epoch
     );
   }
 

@@ -56,6 +56,7 @@ type FakeRunner = {
   socket: TLSSocket;
   closed: Promise<void>;
   requests: Frame[];
+  send: (frame: unknown) => void;
 };
 
 /** A minimal runner peer: mTLS, `ready`, and replies naming itself. */
@@ -76,6 +77,7 @@ function dialRunner(input: {
   engineManagement?: true;
   engineCapabilities?: true;
   pullRequestStatus?: true;
+  selfUpdate?: object;
 }): Promise<FakeRunner> {
   const url = new URL(input.endpoint);
   return new Promise((resolve, reject) => {
@@ -90,7 +92,7 @@ function dialRunner(input: {
     });
     const closed = new Promise<void>((done) => socket.on("close", done));
     socket.on("error", reject);
-    const send = wireFrames(socket, (frame) => {
+    const send = wireFrames<Frame, unknown>(socket, (frame) => {
       requests.push(frame);
       if (frame.type === "accept_health" && input.health)
         send({ type: "health", sample: input.health });
@@ -111,8 +113,9 @@ function dialRunner(input: {
         engineManagement: input.engineManagement,
         engineCapabilities: input.engineCapabilities,
         pullRequestStatus: input.pullRequestStatus,
+        ...(input.selfUpdate ? { selfUpdate: input.selfUpdate } : {}),
       });
-      resolve({ socket, closed, requests });
+      resolve({ socket, closed, requests, send });
     });
   });
 }
@@ -347,6 +350,100 @@ describe("runner enrollment service", () => {
     await expect(transport.send(currentId, operation)).resolves.toMatchObject({
       ok: false,
     });
+  });
+
+  it("negotiates supervisor update frames only with an advertising peer", async () => {
+    const service = makeService();
+    const revision = "b".repeat(40);
+    const advert = {
+      protocol: 1,
+      os: "linux",
+      arch: "x64",
+      version: "1.7.28",
+      revision,
+      installedSha256: "c".repeat(64),
+      handoff: { reads: [1, 2], writes: 2 },
+    };
+    const current = await enroll(service, "updatable");
+    const older = await enroll(service, "older");
+    const currentPeer = await dialRunner({
+      ...current,
+      workspaces: ["work"],
+      label: "current",
+      selfUpdate: advert,
+    });
+    const olderPeer = await dialRunner({
+      ...older,
+      workspaces: ["work"],
+      label: "older",
+    });
+    runners.push(currentPeer, olderPeer);
+    const currentId = current.created.id;
+    const olderId = older.created.id;
+    await waitFor(() =>
+      [currentId, olderId].every((runner) =>
+        service.available({ runner, workspace: "work" })
+      )
+    );
+    const attemptId = "6f1c1d1e-2a3b-4c5d-8e9f-0a1b2c3d4e5f";
+    const target = {
+      version: "1.7.29",
+      os: "linux" as const,
+      arch: "x64" as const,
+      sha256: "a".repeat(64),
+      revision: "d".repeat(40),
+    };
+
+    // An old runner sees exactly the old handshake and nothing new.
+    expect(service.selfUpdate(olderId)).toBeUndefined();
+    expect(() => service.offerUpdate(olderId, attemptId, target)).toThrow(
+      /does not support supervisor updates/
+    );
+    expect(olderPeer.requests).toEqual([]);
+
+    const { advert: seen, epoch } = service.selfUpdate(currentId)!;
+    expect(seen).toEqual(advert);
+    const events: unknown[] = [];
+    const stop = service.onUpdateStatus((event) => events.push(event));
+    expect(
+      service.offerUpdate(currentId, attemptId, target, false, epoch)
+    ).toEqual({ epoch });
+    expect(() =>
+      service.fenceUpdate(currentId, attemptId, true, epoch + 1)
+    ).toThrow(RunnerUnavailable);
+    expect(() =>
+      service.sendUpdate(currentId, {
+        type: "update_cancel",
+        attemptId,
+        reason: "because",
+      } as never)
+    ).toThrow(TypeError);
+    await waitFor(() => currentPeer.requests.length === 1);
+    expect(currentPeer.requests[0]).toEqual({
+      type: "update_offer",
+      attemptId,
+      target,
+      retry: false,
+    });
+
+    const status = {
+      type: "update_status",
+      attemptId,
+      phase: "deferred",
+      reason: "staging",
+      installed: { version: "1.7.28", revision, sha256: "c".repeat(64) },
+    };
+    currentPeer.send({ ...status, path: "/opt/dispatch-runner" });
+    await waitFor(() => events.length === 1);
+    expect(events[0]).toEqual({ runnerId: currentId, epoch, status });
+    stop();
+
+    // A malformed status ends the connection; so does one from a peer
+    // that never advertised the capability.
+    currentPeer.send({ ...status, phase: "renaming" });
+    olderPeer.send(status);
+    await Promise.all([currentPeer.closed, olderPeer.closed]);
+    expect(events).toHaveLength(1);
   });
 
   it("rejects checkout commands on an older peer while preserving the workspace operation", async () => {

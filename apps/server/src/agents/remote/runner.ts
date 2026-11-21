@@ -17,6 +17,25 @@ import type { WorkloadCommand } from "./session-storage.js";
 import { createSessionSupervisor } from "./session-supervisor.js";
 export { runnerStorageKey } from "./session-supervisor.js";
 import { hostCommand, selfCommand } from "../acp/host-command.js";
+import { runnerReplyTimeoutMs } from "@dispatch/runner-protocol/connection";
+import {
+  TERMINAL_UPDATE_MESSAGE,
+  UPDATE_FENCED_MESSAGE,
+  UpdateAdmission,
+  type FenceStore,
+} from "./update-admission.js";
+import {
+  createRunnerUpdateAgent,
+  detectSelfUpdate,
+  systemdRunnerUpdater,
+  type RunnerUpdater,
+  type UpdateIdentity,
+} from "./update-agent.js";
+import { fileFenceStore } from "./update-fence-store.js";
+import {
+  RUNNER_UPDATE_LAYOUT,
+  type RunnerUpdateLayout,
+} from "./update-verify.js";
 import {
   isOpaqueId,
   isTerminalEvent,
@@ -35,6 +54,7 @@ import {
   wireFrames,
   parseServiceFrame,
   runnerRequestId,
+  UPDATE_SERVICE_FRAME_TYPES,
   type Command,
   MAX_SESSION_FILE_BASE64,
   type RunnerFrame,
@@ -209,7 +229,23 @@ async function verifyExecutionIdentity(
   }
 }
 
-export async function runRemoteRunner(filename: string) {
+/** Host attach and inspection stay available behind the update fence. */
+const FENCE_EXEMPT = new Set<Command["kind"]>(["attach", "alive", "log"]);
+
+/** Test seams. Production uses the installed root updater layout. */
+export type RunnerUpdateOptions = {
+  updateLayout?: RunnerUpdateLayout;
+  fenceStore?: FenceStore;
+  updater?: RunnerUpdater;
+  /** Undefined detects the installed identity; null disables the capability. */
+  updateIdentity?: UpdateIdentity | null;
+  terminalGraceMs?: number;
+};
+
+export async function runRemoteRunner(
+  filename: string,
+  updateOptions: RunnerUpdateOptions = {}
+) {
   const config: RunnerConfig = JSON.parse(readFileSync(filename, "utf8"));
   const endpoint = new URL(config.endpoint);
   const host = endpoint.hostname.replace(/^\[|\]$/g, "");
@@ -260,6 +296,22 @@ export async function runRemoteRunner(filename: string) {
   };
   const childArgs = executionArgs(config.uid, config.gid);
   await verifyExecutionIdentity(config.uid, config.gid, childArgs, env);
+  // Read a persisted fence before anything can be admitted, so a restarted
+  // supervisor or a candidate build in its trial starts fenced.
+  const updateLayout = updateOptions.updateLayout ?? RUNNER_UPDATE_LAYOUT;
+  const admission = await UpdateAdmission.load(
+    updateOptions.fenceStore ?? fileFenceStore(updateLayout.state),
+    {
+      terminalGraceMs: updateOptions.terminalGraceMs,
+      log: (message) => console.warn(message),
+    }
+  );
+  // Every self-spawn goes through here. Once the fence has drained nothing
+  // new starts: after a rename these paths would run the new build.
+  const self = (mode: string) => {
+    admission.assertMayStartProcess();
+    return selfCommand(mode);
+  };
   const credentials = {
     ca: readFileSync(config.ca),
     cert: readFileSync(config.cert),
@@ -362,7 +414,7 @@ export async function runRemoteRunner(filename: string) {
       );
       const child = execute(
         setpriv,
-        [...childArgs, ...selfCommand("runner-engine-capability")],
+        [...childArgs, ...self("runner-engine-capability")],
         {
           env,
           cwd: config.home,
@@ -429,7 +481,7 @@ export async function runRemoteRunner(filename: string) {
         setpriv,
         [
           ...childArgs,
-          ...selfCommand("runner-observe-checkout"),
+          ...self("runner-observe-checkout"),
           cwd,
           ...(scratch ? ["--scratch"] : []),
         ],
@@ -440,7 +492,7 @@ export async function runRemoteRunner(filename: string) {
     async prepareDependencies(cwd) {
       await execute(
         setpriv,
-        workloadLogin([...selfCommand("runner-prepare-dependencies"), cwd]),
+        workloadLogin([...self("runner-prepare-dependencies"), cwd]),
         {
           env: { ...env, GIT_TERMINAL_PROMPT: "0", GH_PROMPT_DISABLED: "1" },
           timeout: 135_000,
@@ -449,10 +501,20 @@ export async function runRemoteRunner(filename: string) {
       );
       return true;
     },
-    hostCommand: (dir) => [
-      setpriv,
-      ...workloadLogin([...hostCommand(), "--state", dir]),
-    ],
+    hostCommand: (dir) => {
+      admission.assertMayStartProcess();
+      return [setpriv, ...workloadLogin([...hostCommand(), "--state", dir])];
+    },
+    mayStartProcess: () => admission.mayStartProcess(),
+  });
+  const updates = createRunnerUpdateAgent({
+    identity:
+      updateOptions.updateIdentity === undefined
+        ? await detectSelfUpdate(updateLayout)
+        : updateOptions.updateIdentity,
+    admission,
+    updater: updateOptions.updater ?? systemdRunnerUpdater(updateLayout),
+    inspect: (candidate) => supervisor.inspectHandoff(candidate),
   });
 
   const nextDelay = runnerReconnectDelay();
@@ -490,6 +552,9 @@ export async function runRemoteRunner(filename: string) {
       let samplingEngines = false;
       const reportEngineInventory = async () => {
         if (!acceptsInventory || samplingEngines || socket.destroyed) return;
+        // Engine probes start CLIs; skip them while the update fence holds.
+        const ticket = admission.admit(60_000);
+        if (!ticket) return;
         samplingEngines = true;
         try {
           const entries = await engineExecutor.inventory();
@@ -501,6 +566,7 @@ export async function runRemoteRunner(filename: string) {
           );
         } finally {
           samplingEngines = false;
+          ticket.release();
         }
       };
       const checkoutCommands = new Map<string, AbortController>();
@@ -509,7 +575,7 @@ export async function runRemoteRunner(filename: string) {
         childWatch(
           spawn(
             setpriv,
-            [...childArgs, ...selfCommand("runner-watch-checkout"), cwd],
+            [...childArgs, ...self("runner-watch-checkout"), cwd],
             { env, stdio: ["pipe", "pipe", "pipe"] }
           ),
           changed,
@@ -524,6 +590,10 @@ export async function runRemoteRunner(filename: string) {
       );
       socket.on("close", () => {
         connection.abort();
+        updateConnection.close();
+        // No reply can flush now; admitted work still counts until it settles.
+        for (const flushed of [...awaitingReply.values()]) flushed();
+        awaitingReply.clear();
         for (const close of watches.values()) close();
         watches.clear();
         clearTimeout(timeout);
@@ -534,15 +604,59 @@ export async function runRemoteRunner(filename: string) {
           connectedAt === undefined ? 0 : performance.now() - connectedAt
         );
       });
+      // Admitted requests keep the update fence waiting until their first
+      // reply has been handed to the transport.
+      const awaitingReply = new Map<string, () => void>();
+      const replied = new Set<string>();
       const safeSend = (frame: RunnerFrame) => {
+        const flushed =
+          frame.type === "result" ? awaitingReply.get(frame.id) : undefined;
+        if (frame.type === "result" && flushed) {
+          awaitingReply.delete(frame.id);
+          replied.add(frame.id);
+        }
         if (!socket.destroyed) {
           try {
-            send(frame);
+            send(frame, flushed && (() => flushed()));
+            return;
           } catch {
             socket.destroy();
           }
         }
+        flushed?.();
       };
+      function admitted(id: string, command: Command) {
+        if (FENCE_EXEMPT.has(command.kind)) return () => {};
+        const ticket = admission.admit(runnerReplyTimeoutMs(command));
+        if (!ticket) return null;
+        let settled = false;
+        let flushed = false;
+        const done = () => {
+          if (settled && flushed) {
+            replied.delete(id);
+            ticket.release();
+          }
+        };
+        awaitingReply.set(id, () => {
+          flushed = true;
+          done();
+        });
+        return () => {
+          settled = true;
+          // A request that ended without replying (its channel was closed
+          // first) has nothing to flush, unless a terminal will still reply.
+          if (
+            !replied.has(id) &&
+            awaitingReply.has(id) &&
+            !(command.kind === "openTerminal" && channels.has(id))
+          ) {
+            awaitingReply.delete(id);
+            flushed = true;
+          }
+          done();
+        };
+      }
+      const updateConnection = updates.connect((frame) => safeSend(frame));
 
       async function request(id: string, command: Command) {
         if (!isOpaqueId(id)) throw new Error("Invalid runner request ID");
@@ -695,7 +809,7 @@ export async function runRemoteRunner(filename: string) {
                   runCheckoutWorker(
                     [
                       ...childArgs,
-                      ...selfCommand("runner-checkout-command"),
+                      ...self("runner-checkout-command"),
                       cwd,
                       agentId,
                       ...(configuredRoot ? [configuredRoot] : []),
@@ -725,7 +839,7 @@ export async function runRemoteRunner(filename: string) {
                     setpriv,
                     [
                       ...childArgs,
-                      ...selfCommand("runner-session-file"),
+                      ...self("runner-session-file"),
                       kind,
                       root,
                       name,
@@ -794,7 +908,7 @@ export async function runRemoteRunner(filename: string) {
               if (terminals.get(id) !== reservation || socket.destroyed) return;
               const child = spawn(
                 setpriv,
-                [...childArgs, ...selfCommand("runner-terminal"), cwd],
+                [...childArgs, ...self("runner-terminal"), cwd],
                 {
                   env: terminalEnvironment(env),
                   stdio: ["pipe", "pipe", "ignore"],
@@ -808,7 +922,24 @@ export async function runRemoteRunner(filename: string) {
               channels.set(id, channel);
               let ready = false;
               channel.on("error", () => channel.destroy());
+              // The update fence closes terminals with an explicit reason.
+              const unfenced = admission.onTerminal(() => {
+                if (ready)
+                  safeSend({
+                    type: "data",
+                    id,
+                    data: Buffer.from(
+                      JSON.stringify({
+                        type: "error",
+                        message: TERMINAL_UPDATE_MESSAGE,
+                        reason: "update",
+                      }) + "\n"
+                    ).toString("base64"),
+                  });
+                channel.destroy();
+              });
               channel.once("close", () => {
+                unfenced();
                 child.kill();
                 terminals.delete(id);
                 channels.delete(id);
@@ -888,7 +1019,7 @@ export async function runRemoteRunner(filename: string) {
               setpriv,
               [
                 ...childArgs,
-                ...selfCommand(
+                ...self(
                   command.kind === "viewCheckout"
                     ? "runner-view-checkout"
                     : "runner-inspect-checkout"
@@ -1039,15 +1170,34 @@ export async function runRemoteRunner(filename: string) {
             void reportEngineInventory();
           }, 30_000);
         } else if (frame.type === "request") {
-          void request(frame.id, frame.command).catch((error) =>
+          // Admission is decided synchronously, in frame order.
+          const settled = admitted(frame.id, frame.command);
+          if (!settled) {
             safeSend({
               type: "result",
               id: frame.id,
-              error:
-                error instanceof Error
-                  ? error.message
-                  : "Runner command failed",
-            })
+              code: "update-fenced",
+              error: UPDATE_FENCED_MESSAGE,
+            });
+            return;
+          }
+          void request(frame.id, frame.command)
+            .catch((error) =>
+              safeSend({
+                type: "result",
+                id: frame.id,
+                error:
+                  error instanceof Error
+                    ? error.message
+                    : "Runner command failed",
+              })
+            )
+            .finally(settled);
+        } else if (UPDATE_SERVICE_FRAME_TYPES.has(frame.type)) {
+          // Only a runner that advertised the capability accepts these.
+          if (!advert) return socket.destroy();
+          void updateConnection.receive(
+            frame as Parameters<typeof updateConnection.receive>[0]
           );
         } else if (frame.type === "cancel_checkout_command") {
           checkoutCommands
@@ -1073,6 +1223,7 @@ export async function runRemoteRunner(filename: string) {
           else terminals.delete(frame.id);
         } else socket.destroy();
       });
+      const advert = updates.advert();
       socket.once("secureConnect", () => {
         connectedAt = performance.now();
         clearTimeout(timeout);
@@ -1104,6 +1255,7 @@ export async function runRemoteRunner(filename: string) {
           sessionFiles: true,
           checkoutViews: true,
           sharedWorktree: true,
+          ...(advert ? { selfUpdate: advert } : {}),
         });
       });
     }).catch((error) => {

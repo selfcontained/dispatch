@@ -8,6 +8,7 @@ import {
 } from "./update-keys.js";
 import { probeStagedRunner } from "./update-probe.js";
 import {
+  parseRunnerUpdateInstance,
   RUNNER_UPDATE_LAYOUT,
   RunnerUpdateRefused,
   stageRunnerUpdate,
@@ -111,10 +112,18 @@ export async function runRunnerUpdateStage(argv: string[]) {
     console.error(
       `Runner update staging refused (${reason}): ${(error as Error).message}`
     );
-    // Only a parsed request is echoed into the record.
+    // Only a parsed request is echoed into the record, so the supervisor
+    // can bind a refusal to the digest it offered.
+    let target: object | undefined;
+    try {
+      target = parseRunnerUpdateInstance(argv[0]);
+    } catch {
+      target = undefined;
+    }
     await recordResult(layout.state, trustedUid, {
       outcome: "refused",
       reason,
+      ...(target && { target }),
     });
     process.exitCode = refused ? STAGE_EXIT.refused : STAGE_EXIT.failed;
   }

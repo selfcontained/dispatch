@@ -17,7 +17,7 @@ export const RUNNER_COMPATIBILITY_MODE = "runner-update-compatibility";
 const probeTimeoutMs = 5_000;
 const probeOutputLimit = 4096;
 
-function parseCompatibility(
+export function parseCompatibility(
   stdout: string,
   expectedVersion: string
 ): RunnerCompatibility {

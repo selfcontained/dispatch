@@ -196,7 +196,7 @@ describe("runner session supervision", () => {
     prepareDependencies?: (cwd: string) => Promise<boolean>,
     workload?: Pick<
       Parameters<typeof createSessionSupervisor>[0],
-      "env" | "bins" | "hostCommand"
+      "env" | "bins" | "hostCommand" | "mayStartProcess"
     >
   ) {
     supervisor = await createSessionSupervisor(
@@ -248,6 +248,30 @@ describe("runner session supervision", () => {
     await rm(root, { recursive: true, force: true });
   });
 
+  it("pauses exited-host cleanup while the update fence holds admission", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    try {
+      let admitting = true;
+      const runner = await start([], vi.fn(), undefined, {
+        env: {},
+        bins: { claudeBin: "", codexBin: "" },
+        hostCommand: (dir) => ["/test-host", "--state", dir],
+        mayStartProcess: () => admitting,
+      });
+      await runner.launch(launch(MANAGED_WORKSPACE), root);
+      kernelHost = undefined;
+      admitting = false;
+      await vi.advanceTimersByTimeAsync(15_000);
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(processes.cleanup).not.toHaveBeenCalled();
+      admitting = true;
+      await vi.advanceTimersByTimeAsync(5_000);
+      await vi.waitFor(() => expect(processes.cleanup).toHaveBeenCalled());
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("recovers the golden legacy binding but defers live handoff", async () => {
     const runner = await start([]);
     await runner.launch(launch(MANAGED_WORKSPACE), root);
@@ -276,6 +300,7 @@ describe("runner session supervision", () => {
     ).toEqual({
       retained: [],
       requiresQuiescence: true,
+      live: 1,
     });
     expect(processes.socketMatchesHost).not.toHaveBeenCalled();
   });
@@ -295,6 +320,7 @@ describe("runner session supervision", () => {
       expect(await inspect()).toEqual({
         retained: [{ sessionId: agentId, instanceId, build }],
         requiresQuiescence: false,
+        live: 1,
       });
       expect(
         await recovered.inspectHandoff({ reads: [1], writes: 1 })
@@ -308,6 +334,7 @@ describe("runner session supervision", () => {
       expect(await inspect()).toEqual({
         retained: [],
         requiresQuiescence: true,
+        live: 1,
       });
 
       await writeFile(
@@ -317,6 +344,7 @@ describe("runner session supervision", () => {
       expect(await inspect()).toEqual({
         retained: [],
         requiresQuiescence: true,
+        live: 1,
       });
 
       await writeFile(
@@ -327,11 +355,13 @@ describe("runner session supervision", () => {
       expect(await inspect()).toEqual({
         retained: [],
         requiresQuiescence: true,
+        live: 1,
       });
       processes.socketInUse.mockReturnValue(false);
       expect(await inspect()).toEqual({
         retained: [],
         requiresQuiescence: false,
+        live: 0,
       });
 
       await writeFile(record, JSON.stringify(currentIdentity));
@@ -339,6 +369,7 @@ describe("runner session supervision", () => {
       expect(await inspect()).toEqual({
         retained: [],
         requiresQuiescence: true,
+        live: 1,
       });
 
       processes.socketMatchesHost.mockReturnValue(true);
@@ -346,6 +377,7 @@ describe("runner session supervision", () => {
       expect(await inspect()).toEqual({
         retained: [],
         requiresQuiescence: true,
+        live: 1,
       });
     } finally {
       await new Promise<void>((resolve) => socket.close(() => resolve()));

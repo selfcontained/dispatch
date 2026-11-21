@@ -249,7 +249,7 @@ async function enrolledController(
   return { origin, ca };
 }
 
-async function sha256File(file: string) {
+export async function sha256File(file: string) {
   const hash = createHash("sha256");
   for await (const chunk of createReadStream(file)) hash.update(chunk);
   return hash.digest("hex");

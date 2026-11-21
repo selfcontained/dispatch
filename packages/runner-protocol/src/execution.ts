@@ -23,6 +23,14 @@ import {
 import { isGitHubOperation, type GitHubOperation } from "./github.js";
 import type { RunnerHealth } from "./health.js";
 import {
+  parseSelfUpdateAdvert,
+  parseUpdateServiceFrame,
+  UPDATE_SERVICE_FRAME_TYPES,
+  type SelfUpdateAdvert,
+  type UpdateServiceFrame,
+  type UpdateStatusFrame,
+} from "./update.js";
+import {
   isBase64,
   isHttpUrl,
   isNullableString,
@@ -121,6 +129,8 @@ export type ReadyFrame = {
   sessionCheckout?: true;
   checkoutRelease?: true;
   sessionFiles?: true;
+  /** Supervisor self-update support and the installed identity. */
+  selfUpdate?: SelfUpdateAdvert;
 };
 
 /** Accept v1 extension fields and enable optional features only when explicitly true. */
@@ -139,6 +149,10 @@ export function parseReadyFrame(value: unknown): ReadyFrame | null {
         frame.workspaces[0] !== MANAGED_WORKSPACE))
   )
     return null;
+  const selfUpdate =
+    frame.selfUpdate === undefined
+      ? null
+      : parseSelfUpdateAdvert(frame.selfUpdate);
   return {
     type: "ready",
     version: RUNNER_WIRE_VERSION,
@@ -163,6 +177,7 @@ export function parseReadyFrame(value: unknown): ReadyFrame | null {
     ...(frame.repositoryPicker === true && { repositoryPicker: true }),
     ...(frame.githubManagement === true && { githubManagement: true }),
     ...(frame.managedWorkspace === true && { managedWorkspace: true }),
+    ...(selfUpdate && { selfUpdate }),
   };
 }
 
@@ -174,6 +189,7 @@ export type ServiceFrame =
   | { type: "accept_health"; engineInventory?: true }
   | { type: "request"; id: string; command: Command }
   | { type: "cancel_checkout_command"; id: string }
+  | UpdateServiceFrame
   | ChannelFrame;
 
 export type ResultFrame = {
@@ -181,7 +197,8 @@ export type ResultFrame = {
   id: string;
   value?: boolean | string;
   error?: string;
-  code?: "host-gone";
+  /** `update-fenced`: refused by the update fence; it never started. */
+  code?: "host-gone" | "update-fenced";
 };
 
 export type LaunchProgress =
@@ -221,6 +238,7 @@ export type RunnerFrame =
   | { type: "engine_inventory"; entries: EngineInventoryEntry[] }
   | ResultFrame
   | LaunchProgressFrame
+  | UpdateStatusFrame
   | ChannelFrame;
 
 export type Frame = ServiceFrame | RunnerFrame;
@@ -411,7 +429,10 @@ function isServiceFrame(value: unknown): value is ServiceFrame {
   }
 }
 
-/** Validate known v1 fields while preserving any additive fields from peers. */
+/** Validate known v1 fields while preserving any additive fields from peers.
+ * Update frames are rebuilt from their known fields. */
 export function parseServiceFrame(value: unknown): ServiceFrame | null {
+  if (isRecord(value) && UPDATE_SERVICE_FRAME_TYPES.has(value.type as string))
+    return parseUpdateServiceFrame(value);
   return isServiceFrame(value) ? value : null;
 }

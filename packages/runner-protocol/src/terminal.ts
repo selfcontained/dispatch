@@ -12,7 +12,8 @@ export type TerminalControl =
 export type TerminalEvent =
   | { type: "output"; data: string }
   | { type: "exit"; code: number }
-  | { type: "error"; message: string };
+  /** `reason: "update"`: the runner closed it for a supervisor update. */
+  | { type: "error"; message: string; reason?: "update" };
 
 const utf8 = new TextEncoder();
 
@@ -65,7 +66,11 @@ export function isTerminalEvent(value: unknown): value is TerminalEvent {
     case "exit":
       return typeof value.code === "number" && Number.isInteger(value.code);
     case "error":
-      return typeof value.message === "string" && value.message.length <= 1024;
+      return (
+        typeof value.message === "string" &&
+        value.message.length <= 1024 &&
+        (value.reason === undefined || value.reason === "update")
+      );
     default:
       return false;
   }

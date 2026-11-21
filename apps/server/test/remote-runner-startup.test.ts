@@ -332,9 +332,11 @@ describe("remote runner startup", () => {
           checkoutCommandTimeoutMs(checkout)
         );
         await vi.waitFor(() =>
-          expect(socket.write).toHaveBeenCalledWith(
-            expect.stringContaining(`"id":"${checkout}"`)
-          )
+          expect(
+            socket.write.mock.calls.some(([line]) =>
+              String(line).includes(`"id":"${checkout}"`)
+            )
+          ).toBe(true)
         );
       }
     } finally {

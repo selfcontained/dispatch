@@ -2,7 +2,9 @@ import { Duplex } from "node:stream";
 import { StringDecoder } from "node:string_decoder";
 import type { Frame, ChannelFrame } from "./index.js";
 
-type Send<T> = (frame: T) => void;
+/** `flushed` runs once the frame has been handed to the transport, or with
+ * an error if the transport closed first. */
+type Send<T> = (frame: T, flushed?: (error?: Error | null) => void) => void;
 
 export function wireFrames<Incoming = Frame, Outgoing = Frame>(
   socket: Duplex,
@@ -26,12 +28,15 @@ export function wireFrames<Incoming = Frame, Outgoing = Frame>(
     }
     if (pending.length > maxLineLength) socket.destroy();
   });
-  return (frame) => {
+  return (frame, flushed) => {
     if (socket.destroyed || socket.writableLength > 32 * 1024 * 1024) {
       socket.destroy();
       throw new Error("Runner connection is unavailable");
     }
-    socket.write(JSON.stringify(frame) + "\n");
+    const line = JSON.stringify(frame) + "\n";
+    // Callers may pass `send` to forEach, which supplies an index.
+    if (typeof flushed === "function") socket.write(line, flushed);
+    else socket.write(line);
   };
 }
 

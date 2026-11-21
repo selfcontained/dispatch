@@ -12,6 +12,26 @@ import { hostChannel } from "./node.js";
 
 export class RunnerUnavailable extends Error {}
 export class RunnerHostGone extends Error {}
+/** The runner's update fence refused the request before it started. */
+export class RunnerUpdateFenced extends Error {}
+
+/** How long the service waits for a reply. The runner's update fence uses
+ * the same bound as the deadline of an already-admitted operation. */
+export function runnerReplyTimeoutMs(command: Command): number {
+  // Repository fetches and engine package installs can run for minutes.
+  // Let the runner enforce the command deadline and leave time for its reply.
+  if (command.kind === "checkoutCommand")
+    return checkoutCommandTimeoutMs(command.operation.checkout) + 5_000;
+  return command.kind === "sessionCheckout" ||
+    command.kind === "checkoutRelease" ||
+    command.kind === "inspectCheckout" ||
+    command.kind === "viewCheckout" ||
+    command.kind === "engine" ||
+    (command.kind === "launch" &&
+      (command.launch.repository || command.launch.prepareWorkspace))
+    ? 300_000
+    : 20_000;
+}
 
 /** Service side of one authenticated runner connection. Request IDs and channels are local to it. */
 export class RunnerConnection {
@@ -95,23 +115,9 @@ export class RunnerConnection {
     command: Command,
     signal?: AbortSignal
   ): Promise<ResultFrame["value"]> {
-    // Repository fetches and engine package installs can run for minutes.
-    // Let the runner enforce the command deadline and leave time for its reply.
+    const timeoutMs = runnerReplyTimeoutMs(command);
     const checkoutReplyTimeoutMs =
-      command.kind === "checkoutCommand"
-        ? checkoutCommandTimeoutMs(command.operation.checkout) + 5_000
-        : undefined;
-    const timeoutMs =
-      checkoutReplyTimeoutMs ??
-      (command.kind === "sessionCheckout" ||
-      command.kind === "checkoutRelease" ||
-      command.kind === "inspectCheckout" ||
-      command.kind === "viewCheckout" ||
-      command.kind === "engine" ||
-      (command.kind === "launch" &&
-        (command.launch.repository || command.launch.prepareWorkspace))
-        ? 300_000
-        : 20_000);
+      command.kind === "checkoutCommand" ? timeoutMs : undefined;
     return new Promise((resolve, reject) => {
       const finish = (frame?: ResultFrame, timeoutMessage?: string) => {
         clearTimeout(timer);
@@ -127,6 +133,8 @@ export class RunnerConnection {
           );
         else if (frame.code === "host-gone")
           reject(new RunnerHostGone(frame.error));
+        else if (frame.code === "update-fenced")
+          reject(new RunnerUpdateFenced(frame.error));
         else if (frame.error) reject(new Error(frame.error));
         else resolve(frame.value);
       };
