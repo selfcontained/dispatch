@@ -13,8 +13,8 @@ The published binary bundles Bun and runs on glibc-based Linux. Session
 supervision requires a kernel with pidfd signaling (introduced in Linux 5.1).
 For manual source runs, use Bun.
 
-1. In Dispatch, open **Settings → Runners → Add runner** and run
-   the installation command for the available release. The installer
+1. In Dispatch, open **Settings → Runners → Add runner**, copy the
+   installation command, and run it on the Linux host. The installer
    configures the installing user as the workload account and adds
    `dispatch-runner` to `/usr/local/bin`.
 2. Run the separate connect command on Linux. Copy the service URL from Dispatch Settings:
@@ -38,13 +38,25 @@ For manual source runs, use Bun.
    or clear the repository for a scratch session. The runner creates the
    session directory and removes it when the agent is archived.
 
-The command downloads the bootstrap from the selected GitHub release and
-verifies its signed build provenance against
+The copied command downloads the bootstrap and runner archive from the
+controller for its own build revision. Over the HTTPS runner listener, it
+checks the controller CA fingerprint from Settings before downloading the
+artifacts. For a release build, the command verifies the bootstrap's signed
+build provenance against
 `selfcontained/dispatch/.github/workflows/release.yml` before passing it to
 sudo. The installer verifies the existing `dispatch-server.tar.gz` with the
 same policy and extracts the Linux binary for the host's architecture and
 release tag. The published `.sigstore.json` sidecars carry the attestations.
-This path requires a release that includes those assets.
+The installer accepts `--source URL` for the controller's revision-specific
+artifact endpoint and `--cacert FILE` for an HTTPS source. The copied command
+supplies these options as needed.
+
+If the controller serves a dev build, the copied command defines
+`dispatch_runner_install` and refuses to proceed until you rerun it in the same
+shell as `dispatch_runner_install --allow-unverified-dev-build`. Dev builds
+use SHA-256 checks for the bootstrap and archive instead of release
+attestations. When invoking the installer directly, the dev flag requires
+both `--source URL` and `--sha256 HEX` for the archive digest.
 
 For a manual installation, set `tag` to the exact published release:
 
@@ -64,18 +76,11 @@ For a manual installation, set `tag` to the exact published release:
 )
 ```
 
-Settings can check availability using
-`GET https://api.github.com/repos/selfcontained/dispatch/releases/tags/<tag>`.
-The response's `assets[].name` values must include
-`install-dispatch-runner.sh`, `install-dispatch-runner.sh.sigstore.json`,
-`dispatch-server.tar.gz`, and `dispatch-server.tar.gz.sigstore.json`.
-Inspect the exact tag rather than GitHub's latest-release alias so the runner
-matches the Dispatch protocol bundled with that release.
-
 The service runs the supervisor as root. Sessions run as the non-root user who
 invokes `sudo`, with their home, login profile, `~/.dispatch/env`, and supplementary
-groups. Add `--user USER` to the install command to select another existing
-account. Add `--dedicated-user` to create the non-login `dispatch-runner`
+groups. To select another existing account, rerun the copied command's
+function as `dispatch_runner_install --user USER`. Use
+`dispatch_runner_install --dedicated-user` to create the non-login `dispatch-runner`
 account with home at `/var/lib/dispatch-runner/home`. The operator provisions
 the dedicated account’s tools and access. Updates keep the configured account.
 The supervisor keeps runner state under `/var/lib/dispatch-runner/runner`.
@@ -111,8 +116,14 @@ branch. A public HTTPS URL or an empty session folder works without signing in.
 
 ## Update or recover
 
-Run the installed updater with the exact target release tag. The tag must
-have published Linux build provenance.
+When **Health** shows **Update available** in the runner's Settings, copy its
+update command and run it on the Linux host. It updates the existing managed
+installation to the controller's build and keeps its enrollment and workload
+account. Running it again on the same build exits successfully without
+restarting the service.
+
+For a manual update from GitHub, run the installed updater with the exact
+target release tag. The tag must have published Linux build provenance.
 
 ```sh
 sudo /opt/dispatch-runner/install-dispatch-runner.sh update --tag vX.Y.Z
