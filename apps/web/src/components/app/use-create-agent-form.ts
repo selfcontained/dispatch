@@ -254,12 +254,16 @@ export function useCreateAgentForm({
   // A managed repository checkout always uses a worktree.
   const worktreeOptional = !managedSession;
   const createUseWorktree = worktreeOptional ? savedUseWorktree : true;
-  const createBaseBranch = worktreeOptional
+  const selectedBaseBranch = worktreeOptional
     ? savedBaseBranch
     : repositoryChoice.baseBranch;
   const createNewBranch = worktreeOptional
     ? savedCreateNewBranch
     : repositoryChoice.createNewBranch;
+  const createBaseBranch =
+    createNewBranch && isPullRequestUrl(selectedBaseBranch)
+      ? ""
+      : selectedBaseBranch;
   const setCreateBaseBranch = (baseBranch: string) =>
     worktreeOptional
       ? setSavedBaseBranch(baseBranch)

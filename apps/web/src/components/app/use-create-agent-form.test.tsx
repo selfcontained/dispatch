@@ -390,6 +390,18 @@ describe("launch location preference", () => {
           String(url).includes("pull-request-head")
         )
       ).toBe(false);
+
+      act(() => result.current.setCreateNewBranch(true));
+      expect(result.current.createBaseBranch).toBe("");
+      expect(result.current.locationReady).toBe(true);
+      apiMock.mockClear();
+      await act(async () => result.current.handleSubmit(submitEvent()));
+      const newBranch = agentsPostJson();
+      expect(newBranch.createNewBranch).toBe(true);
+      expect(newBranch.baseBranch).toBeUndefined();
+      expect(newBranch.pullRequest).toBeUndefined();
+      act(() => result.current.setCreateNewBranch(false));
+      expect(result.current.createBaseBranch).toBe(pr);
     }
     expect(submitted).toEqual(
       Array(2).fill({

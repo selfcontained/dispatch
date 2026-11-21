@@ -274,7 +274,7 @@ function CreateAgentDialogContent({
                 )}
                 {form.checkoutVisible && (
                   <WorktreeSection
-                    key={form.branchSource?.repository}
+                    key={form.branchSource?.repository ?? form.createCwd.trim()}
                     cwd={form.branchSource ? "" : form.createCwd}
                     branchSource={form.branchSource}
                     pullRequests={form.pullRequests}
