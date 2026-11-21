@@ -283,6 +283,8 @@ export function createRunnerUpdateAgent(options: {
         requiresQuiescence: inventory.requiresQuiescence,
       });
     }
+    await admission.closeTerminals();
+    if (admission.current !== fence) return;
     try {
       await admission.advance("fenced", retained);
     } catch (error) {

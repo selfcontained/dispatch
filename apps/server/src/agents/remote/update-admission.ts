@@ -159,19 +159,6 @@ export class UpdateAdmission {
     const generation = ++this.generation;
     this.record = { ...record, phase: "fencing", retained: [] };
     this.terminalsClosed = false;
-    this.terminalTimer = setTimeout(() => {
-      this.terminalTimer = undefined;
-      this.terminalsClosed = true;
-      this.terminalsSettled?.();
-      for (const close of [...this.terminals]) {
-        this.terminals.delete(close);
-        try {
-          close();
-        } catch {
-          // A terminal that is already closing needs nothing more.
-        }
-      }
-    }, this.terminalGraceMs);
     try {
       await this.store.write(this.record);
     } catch {
@@ -180,18 +167,7 @@ export class UpdateAdmission {
     }
     while (true) {
       if (generation !== this.generation) return "cancelled";
-      if (this.admitted.size === 0) {
-        // Open terminals get their grace period and update notice before
-        // the boundary is reported, so activation never cuts them silently.
-        if (this.terminals.size > 0 && this.terminalTimer) {
-          await new Promise<void>((resolve) => {
-            this.terminalsSettled = resolve;
-          });
-          this.terminalsSettled = undefined;
-          continue;
-        }
-        return "drained";
-      }
+      if (this.admitted.size === 0) return "drained";
       const deadline =
         Math.max(...[...this.admitted].map((entry) => entry.deadlineAt)) +
         FENCE_FLUSH_MARGIN_MS;
@@ -212,6 +188,32 @@ export class UpdateAdmission {
         };
       });
     }
+  }
+
+  /** Close terminals only after the drain and handoff checks have passed. */
+  async closeTerminals() {
+    if (this.terminalsClosed) return;
+    if (!this.terminals.size) {
+      this.terminalsClosed = true;
+      return;
+    }
+    await new Promise<void>((resolve) => {
+      this.terminalsSettled = resolve;
+      this.terminalTimer = setTimeout(() => {
+        this.terminalsClosed = true;
+        for (const close of [...this.terminals]) {
+          this.terminals.delete(close);
+          try {
+            close();
+          } catch {
+            // A terminal that is already closing needs nothing more.
+          }
+        }
+        resolve();
+      }, this.terminalGraceMs);
+    });
+    this.terminalsSettled = undefined;
+    this.terminalTimer = undefined;
   }
 
   /** Advance the persisted phase of the current fence. */

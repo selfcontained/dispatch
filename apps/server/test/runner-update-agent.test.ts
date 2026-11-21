@@ -210,10 +210,26 @@ describe("runner update agent", () => {
     expect(s.agent.advert()?.pendingAttemptId).toBe(attemptId);
   });
 
-  it("reopens and asks for quiescence when live handoff is unsafe", async () => {
+  it("leaves terminals open when admitted operations time out", async () => {
+    const s = await setup();
+    await staged(s);
+    vi.useFakeTimers();
+    const terminal = vi.fn();
+    s.admission.onTerminal(terminal);
+    s.admission.admit(1_000);
+    const pending = s.receive(fence());
+    await vi.advanceTimersByTimeAsync(6_001);
+    await pending;
+    expect(s.last()?.reason).toBe("operations_pending");
+    expect(terminal).not.toHaveBeenCalled();
+  });
+
+  it("keeps terminals open, reopens and asks for quiescence when live handoff is unsafe", async () => {
     const s = await setup({
       inventory: { retained: [host], requiresQuiescence: true, live: 2 },
     });
+    const terminal = vi.fn();
+    s.admission.onTerminal(terminal);
     await staged(s);
     await s.receive(fence());
     expect(s.last()).toMatchObject({
@@ -222,6 +238,7 @@ describe("runner update agent", () => {
     });
     expect(s.admission.closed).toBe(false);
     expect(s.store.record).toBeNull();
+    expect(terminal).not.toHaveBeenCalled();
   });
 
   it("uses no candidate formats when the probe failed", async () => {
