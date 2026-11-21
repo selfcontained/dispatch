@@ -1,5 +1,4 @@
 import { Readable } from "node:stream";
-import { createGzip } from "node:zlib";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import {
   resolveRunnerUpdatePath,
@@ -49,28 +48,9 @@ async function streamArtifact(
     // Fastify's automatic HEAD hook preserves a stream's declared length.
     return reply.send(Readable.from([]));
   }
+  // Fastify destroys this file stream on response close, which closes the
+  // handle. There is no intermediate gzip stream to detach on abort.
   return reply.send(handle.createReadStream());
-}
-
-/**
- * The executable compresses to about a third of its size. The updater checks
- * the signed digest of the decompressed bytes, so the encoding adds no trust.
- */
-async function streamCompressed(
-  reply: FastifyReply,
-  artifact: Parameters<typeof openRunnerArtifact>[0],
-  method: string
-) {
-  const handle = await openRunnerArtifact(artifact);
-  reply
-    .type("application/gzip")
-    .header("Content-Disposition", 'attachment; filename="dispatch-runner.gz"')
-    .header("X-Content-Type-Options", "nosniff");
-  if (method === "HEAD") {
-    await handle.close();
-    return reply.send(Readable.from([]));
-  }
-  return reply.send(handle.createReadStream().pipe(createGzip()));
 }
 
 export function registerRunnerArtifacts(
@@ -144,9 +124,8 @@ export function registerRunnerArtifacts(
       });
 
     try {
-      const { manifest, envelope, executable } = await source.getUpdate(
-        update.arch
-      );
+      const artifacts = await source.getUpdate(update.arch);
+      const { manifest, envelope, executable } = artifacts;
       if (manifest.sha256 !== update.sha256)
         return reply
           .code(404)
@@ -158,11 +137,11 @@ export function registerRunnerArtifacts(
           .header("X-Content-Type-Options", "nosniff")
           .send(envelope.bytes);
       }
-      if (update.file === "dispatch-runner.gz")
-        return await streamCompressed(reply, executable, request.method);
       return await streamArtifact(
         reply,
-        executable,
+        update.file === "dispatch-runner.gz"
+          ? await source.getCompressedUpdate(artifacts)
+          : executable,
         update.file,
         request.method
       );

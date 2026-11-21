@@ -1,4 +1,11 @@
-import { createHash, generateKeyPairSync, sign } from "node:crypto";
+import { get } from "node:http";
+import * as fs from "node:fs/promises";
+import {
+  createHash,
+  generateKeyPairSync,
+  randomBytes,
+  sign,
+} from "node:crypto";
 import {
   lstat,
   copyFile,
@@ -26,6 +33,8 @@ import { registerRunnerInstaller } from "../src/routes/runner-installer.js";
 import * as releases from "../src/server/release-helpers.js";
 import * as commands from "../src/shared/lib/run-command.js";
 import * as files from "../src/update-recovery/files.js";
+
+vi.mock("node:fs/promises", { spy: true });
 
 const revision = "123456abcdef";
 const version = "1.2.3";
@@ -57,7 +66,7 @@ async function buildFixture(options?: {
   revision?: string;
   includeArm64?: boolean;
   wrongArch?: boolean;
-  binary?: string;
+  binary?: string | Buffer;
 }) {
   await mkdir(path.join(source, "dist/bun"), { recursive: true });
   await mkdir(path.join(source, "bin"), { recursive: true });
@@ -724,6 +733,22 @@ describe("runner update artifacts", () => {
       envelope
     );
     expect((await app.inject(`${bare}/dispatch-runner`)).body).toBe("x64");
+    const cached = path.join(inputs, `runner-${revision}-x64-${sha256}.gz`);
+    await expect(lstat(cached)).rejects.toMatchObject({ code: "ENOENT" });
+    const gzipRequests = await Promise.all(
+      [bare, update].map((base) => app.inject(`${base}/dispatch-runner.gz`))
+    );
+    expect(
+      vi
+        .mocked(fs.mkdtemp)
+        .mock.calls.filter(([prefix]) =>
+          String(prefix).endsWith(".runner-gzip-")
+        )
+    ).toHaveLength(1);
+    const first = await lstat(cached);
+    for (const response of gzipRequests) {
+      expect(response.headers["content-length"]).toBe(String(first.size));
+    }
     for (const base of [bare, update]) {
       const compressed = await app.inject(`${base}/dispatch-runner.gz`);
       expect(compressed.statusCode).toBe(200);
@@ -735,6 +760,8 @@ describe("runner update artifacts", () => {
         url: `${base}/dispatch-runner.gz`,
       });
       expect([head.statusCode, head.rawPayload.length]).toEqual([200, 0]);
+      expect(head.headers["content-length"]).toBe(String(first.size));
+      expect((await lstat(cached)).ino).toBe(first.ino);
     }
     for (const invalid of [
       `${bare.replace(version, "9.9.9")}/dispatch-runner.gz`,
@@ -745,16 +772,55 @@ describe("runner update artifacts", () => {
       expect((await app.inject(invalid)).statusCode, invalid).toBe(404);
   });
 
+  it("closes the gzip file handle when an HTTP client aborts", async () => {
+    const binary = randomBytes(8 * 1024 * 1024);
+    const sha256 = digest(binary);
+    await buildFixture({ binary });
+    await signFixture(inputs, keys.RUNNER_UPDATE_DEV_KEY_ID, { sha256 });
+    dev();
+    const gzipUrl = `${update.replace(digest("x64"), sha256)}/dispatch-runner.gz`;
+    expect(
+      (await app.inject({ method: "HEAD", url: gzipUrl })).statusCode
+    ).toBe(200);
+
+    const { open: original } =
+      await vi.importActual<typeof fs>("node:fs/promises");
+    let served: Awaited<ReturnType<typeof original>> | undefined;
+    vi.spyOn(fs, "open").mockImplementation(async (...args) => {
+      const handle = await original(...args);
+      if (String(args[0]).endsWith(".gz")) served = handle;
+      return handle;
+    });
+    const address = await app.listen({ host: "127.0.0.1", port: 0 });
+    await new Promise<void>((resolve, reject) => {
+      get(address + gzipUrl, (response) => {
+        if (response.statusCode !== 200) {
+          response.resume();
+          reject(new Error(`Unexpected HTTP status ${response.statusCode}`));
+          return;
+        }
+        response.once("data", () => {
+          response.destroy();
+          resolve();
+        });
+      }).once("error", reject);
+    });
+    await vi.waitFor(() => expect(served?.fd).toBe(-1));
+  });
+
   it("rejects a changed cached executable before serving either file", async () => {
     await buildFixture();
     await signFixture(inputs, keys.RUNNER_UPDATE_DEV_KEY_ID);
     dev();
-    expect((await app.inject(executableUrl)).statusCode).toBe(200);
-    await writeFile(
-      path.join(inputs, `runner-${revision}-x64-${sha256}`),
-      "x65"
+    expect((await app.inject(`${update}/dispatch-runner.gz`)).statusCode).toBe(
+      200
     );
+    const executable = path.join(inputs, `runner-${revision}-x64-${sha256}`);
+    await writeFile(executable, "x65");
     expect((await app.inject(manifestUrl)).statusCode).toBe(503);
     expect((await app.inject(executableUrl)).statusCode).toBe(503);
+    await expect(lstat(executable + ".gz")).rejects.toMatchObject({
+      code: "ENOENT",
+    });
   });
 });

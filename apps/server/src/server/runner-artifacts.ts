@@ -1,4 +1,6 @@
-import { constants, type Stats } from "node:fs";
+import { pipeline } from "node:stream/promises";
+import { createGzip } from "node:zlib";
+import { constants, createWriteStream, type Stats } from "node:fs";
 import { lstat, mkdtemp, open, rename, rm } from "node:fs/promises";
 import path from "node:path";
 import {
@@ -159,6 +161,7 @@ export function createRunnerArtifactSource(
     RunnerArch,
     {
       loaded?: Promise<RunnerUpdateArtifactSet>;
+      evicting?: Promise<void>;
       failure?: { error: unknown; retryAt: number };
     }
   >();
@@ -439,22 +442,77 @@ export function createRunnerArtifactSource(
     }
   }
 
+  async function compressUpdate(executable: ArtifactFile<"dispatch-runner">) {
+    const staging = await mkdtemp(path.join(directory, ".runner-gzip-"));
+    try {
+      const candidate = path.join(staging, "dispatch-runner.gz");
+      const handle = await openRunnerArtifact(executable);
+      try {
+        await pipeline(
+          handle.createReadStream(),
+          createGzip(),
+          createWriteStream(candidate, { flags: "wx", mode: 0o600 })
+        );
+      } finally {
+        await handle.close();
+      }
+      const sha256 = await hashRegular(candidate);
+      const stat = await lstat(candidate);
+      const destination = executable.path + ".gz";
+      await rename(candidate, destination);
+      // A rename can change ctime. Record the published identity.
+      const published = await regularFile(destination);
+      if (
+        !published ||
+        published.dev !== stat.dev ||
+        published.ino !== stat.ino
+      )
+        throw new Error("Compressed runner executable was replaced");
+      return { path: destination, stat: published, sha256 };
+    } finally {
+      await rm(staging, { recursive: true, force: true });
+    }
+  }
+
+  async function getCompressedUpdate(artifacts: RunnerUpdateArtifactSet) {
+    const pending = (artifacts.compressed ??= compressUpdate(
+      artifacts.executable
+    ));
+    try {
+      const compressed = await pending;
+      const stat = await regularFile(compressed.path);
+      if (!stat || !unchanged(stat, compressed.stat))
+        throw new Error(
+          "Compressed runner executable changed after verification"
+        );
+      return compressed;
+    } catch (error) {
+      if (artifacts.compressed === pending) artifacts.compressed = undefined;
+      throw error;
+    }
+  }
+
   async function getUpdate(arch: RunnerArch) {
     if (!updateEnabled)
       throw new RunnerPayloadUnavailable(
         "Runner updates are disabled for this build."
       );
-    const { files } = await get(arch);
     let state = updateStates.get(arch);
     if (!state) {
       state = {};
       updateStates.set(arch, state);
     }
+    await state.evicting;
     if (state.failure && now() < state.failure.retryAt)
       throw state.failure.error;
-    const pending = (state.loaded ??= loadUpdate(arch, files[0]!));
+    // Revalidate the underlying archive even when an update is already loaded.
+    const pending = (state.loaded ??= get(arch).then(({ files }) =>
+      loadUpdate(arch, files[0]!)
+    ));
+    let artifacts: RunnerUpdateArtifactSet | undefined;
     try {
-      const artifacts = await pending;
+      artifacts = await pending;
+      const { files } = await get(arch);
       if (artifacts.archive !== files[0])
         throw new Error("Runner archive changed after update verification");
       for (const file of [artifacts.envelope, artifacts.executable]) {
@@ -465,8 +523,21 @@ export function createRunnerArtifactSource(
       return artifacts;
     } catch (error) {
       if (state.loaded === pending) {
-        state.failure = { error, retryAt: now() + PREPARATION_RETRY_MS };
         state.loaded = undefined;
+        state.failure = { error, retryAt: now() + PREPARATION_RETRY_MS };
+        const stale = artifacts;
+        if (stale) {
+          state.evicting = (async () => {
+            await stale.compressed?.catch(() => {});
+            await Promise.allSettled(
+              [stale.executable.path, stale.executable.path + ".gz"].map(
+                (file) => rm(file, { force: true })
+              )
+            );
+          })();
+          await state.evicting;
+          state.evicting = undefined;
+        }
       }
       throw error;
     }
@@ -478,6 +549,7 @@ export function createRunnerArtifactSource(
     preparationFailed,
     get,
     getUpdate,
+    getCompressedUpdate,
   };
 }
 
@@ -486,6 +558,7 @@ type RunnerUpdateArtifactSet = {
   manifest: ReturnType<typeof verifyRunnerUpdateEnvelope>;
   envelope: { path: string; stat: Stats; bytes: Buffer };
   executable: ArtifactFile<"dispatch-runner">;
+  compressed?: Promise<Omit<ArtifactFile<string>, "name">>;
 };
 
 export type RunnerArtifactSource = ReturnType<
