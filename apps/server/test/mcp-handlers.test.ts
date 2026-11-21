@@ -975,6 +975,23 @@ describe("createMcpHandlers", () => {
         }),
         expect.objectContaining({ independentCheckoutOf: "agt_test1" })
       );
+      await handlers.launchAgent("agt_test1", {
+        name: "independent borrower",
+        prompt: "work",
+        child: false,
+      });
+      const [independent, binding] =
+        deps.agentManager.createAgent.mock.calls.at(-1)!;
+      expect(independent).toMatchObject({
+        cwd,
+        launchedByAgentId: "agt_test1",
+        useWorktree: false,
+      });
+      expect(independent.parentAgentId).toBeUndefined();
+      expect(binding).toEqual(
+        expect.objectContaining({ useWorktreeOf: "agt_test1" })
+      );
+      expect(binding.independentCheckoutOf).toBeUndefined();
       await expect(
         handlers.launchAgent("agt_test1", {
           name: "foreign",
@@ -982,7 +999,7 @@ describe("createMcpHandlers", () => {
           cwd: "runner://another/@session",
         })
       ).rejects.toThrow("another runner");
-      expect(deps.agentManager.createAgent).toHaveBeenCalledTimes(2);
+      expect(deps.agentManager.createAgent).toHaveBeenCalledTimes(3);
     });
 
     it("rejects a review persona from a different requested workspace", async () => {

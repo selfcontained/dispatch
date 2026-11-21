@@ -128,7 +128,7 @@ function reject(
 
 type ApiAdmission = Admission<{ projectId?: string }>;
 type McpAdmission = Admission<{ cwd: string }>;
-type SharedAdmission = Admission<{ owner: AgentRecord; parentId: string }>;
+type SharedAdmission = Admission<{ owner: AgentRecord; parentId?: string }>;
 
 type ManagerAdmission = Admission<{
   repository?: RepositoryTarget;
@@ -220,10 +220,13 @@ export function admitLaunch(
     }
     case "sharedBinding": {
       const { input, owner, ownerWorkdir, hasPersonaBody } = request;
+      // A child or reviewer borrows its parent's checkout. An independent
+      // agent without its own worktree borrows its launcher's, as it runs in
+      // the launcher's folder locally; it stays outside the parent lineage.
       if (
         !owner ||
         input.launchedByAgentId !== owner.id ||
-        !input.parentAgentId ||
+        (!input.parentAgentId && input.role === "review") ||
         input.repository ||
         input.useWorktree ||
         (input.cwd !== owner.cwd && input.cwd !== ownerWorkdir) ||
@@ -233,7 +236,8 @@ export function admitLaunch(
       if (input.role === "review") {
         if (!input.persona) return reject("reviewerPersona");
       } else if (
-        input.parentAgentId !== owner.id ||
+        (input.parentAgentId !== undefined &&
+          input.parentAgentId !== owner.id) ||
         !remotePlacement(owner.cwd) ||
         (input.fullAccess && !owner.fullAccess) ||
         (input.persona && !hasPersonaBody)

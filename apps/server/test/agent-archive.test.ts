@@ -967,6 +967,107 @@ describe("executeArchive", () => {
       }
     );
 
+    it("keeps a runner launcher's checkout pending for its live child:false borrower, which never releases it", async () => {
+      const cwd = "runner://runner/@session";
+      const launcher = makeAgent("launcher", {
+        cwd,
+        runnerManaged: true,
+        archiveCleanupMode: "force",
+      });
+      // child:false without a worktree: borrows the launcher's checkout but
+      // only launched_by_agent_id points back.
+      const independent = makeAgent("independent", {
+        cwd,
+        runnerManaged: true,
+        parentAgentId: null,
+        launchedByAgentId: launcher.id,
+        archiveCleanupMode: "force",
+        status: "running",
+      });
+      const lookup = makeAgentLookup([launcher, independent]);
+      const requestSession = vi.fn(
+        async (_placement, { agentId, operation }) => {
+          if (operation.kind === "release")
+            return {
+              value:
+                operation.expectedState === null
+                  ? "retained"
+                  : agentId === launcher.id
+                    ? "inUse"
+                    : "released",
+            };
+          return {
+            value: JSON.stringify(
+              agentId === launcher.id
+                ? {
+                    ownership: "owned",
+                    owner: launcher.id,
+                    borrowers: [independent.id],
+                    checkout: cleanCheckout,
+                  }
+                : {
+                    ownership: "borrowed",
+                    owner: launcher.id,
+                    borrowers: [independent.id],
+                    checkout: cleanCheckout,
+                  }
+            ),
+          };
+        }
+      );
+      const archive = async (id: string) => {
+        const pool = makeChildQueryPool([
+          {
+            id: independent.id,
+            parentAgentId: null,
+            launchedByAgentId: launcher.id,
+          },
+        ]);
+        const callbacks = makeCallbacks();
+        await executeArchive(
+          makeDeps({
+            pool: pool as never,
+            getRequiredAgent: lookup,
+            getAgent: lookup,
+            remote: { requestSession } as never,
+          }),
+          id,
+          callbacks
+        );
+        return { pool, callbacks };
+      };
+      const releases = () =>
+        requestSession.mock.calls
+          .filter(([, request]) => request.operation.kind === "release")
+          .map(([, request]) => [request.agentId, request.operation]);
+
+      const owner = await archive(launcher.id);
+      // Not a child: the cascade leaves it running in the checkout.
+      expect(owner.callbacks.onComplete).toHaveBeenCalledWith([launcher.id]);
+      expect(deletedAgentIds(owner.pool)).not.toContain(independent.id);
+      expect(releases()).toEqual([
+        [
+          launcher.id,
+          { kind: "release", expectedState: cleanCheckout.stateId },
+        ],
+      ]);
+      expect(owner.pool.query).toHaveBeenCalledWith(
+        expect.stringContaining("runner_cleanup_pending = $2"),
+        [launcher.id, true]
+      );
+
+      requestSession.mockClear();
+      const borrower = await archive(independent.id);
+      // A borrower never authorizes removal of a checkout it doesn't own.
+      expect(releases()).toEqual([
+        [independent.id, { kind: "release", expectedState: null }],
+      ]);
+      expect(borrower.pool.query).toHaveBeenCalledWith(
+        expect.stringContaining("runner_cleanup_pending = $2"),
+        [independent.id, false]
+      );
+    });
+
     it("clears child worktrees even when the parent's own is kept", async () => {
       // "keep" is an answer about the parent's own worktree.
       const parent = makeAgent("parent", {

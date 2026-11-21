@@ -1715,7 +1715,9 @@ export class AgentManager {
         throw new AgentError(decision.message, decision.statusCode);
       const { owner, parentId } = decision;
       const displayParent =
-        parentId === owner.id ? owner : await this.getAgent(parentId);
+        parentId === undefined || parentId === owner.id
+          ? owner
+          : await this.getAgent(parentId);
       if (!displayParent || displayParent.projectId !== owner.projectId)
         throw new AgentError(
           "Display parent must belong to the requester's project.",

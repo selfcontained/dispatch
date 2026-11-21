@@ -565,7 +565,9 @@ async function handleLaunchAgent(
   };
   const agent = runnerParent
     ? await deps.agentManager.createAgent(launch, {
-        ...(child && !useWorktree
+        // Without its own worktree a launch borrows the launcher's checkout,
+        // child or not, as it runs in the launcher's folder locally.
+        ...(!useWorktree
           ? { useWorktreeOf: parent.id }
           : { independentCheckoutOf: parent.id }),
         taskPersonaBody: selectedPersona?.body,

@@ -47,7 +47,8 @@ const callers: {
     caller: "MCP independent",
     input: { launchedByAgentId: ownerId, useWorktree: false },
     options: { independentCheckoutOf: ownerId },
-    expected: [null, null, null, shared],
+    // Borrows the launcher's checkout, as it runs in the launcher's folder locally.
+    expected: [null, null, null, null],
   },
   {
     caller: "task with template",
@@ -180,6 +181,35 @@ describe("launch admission compatibility", () => {
       input: { parentAgentId: ownerId, launchedByAgentId: ownerId },
       options: { useWorktreeOf: ownerId },
       expected: childBinding,
+    },
+    {
+      cwd: managed,
+      input: { launchedByAgentId: ownerId },
+      options: { useWorktreeOf: ownerId },
+      flags: { sharedWorktree: false },
+      expected: "Update the runner to launch an agent in an existing checkout.",
+    },
+    {
+      cwd: folder,
+      input: { launchedByAgentId: ownerId },
+      options: { useWorktreeOf: ownerId },
+      expected: childBinding,
+    },
+    {
+      cwd: managed,
+      input: { launchedByAgentId: ownerId, fullAccess: true },
+      options: { useWorktreeOf: ownerId },
+      expected: childBinding,
+    },
+    {
+      cwd: managed,
+      input: {
+        launchedByAgentId: ownerId,
+        role: "review" as const,
+        persona: "code-review",
+      },
+      options: { useWorktreeOf: ownerId },
+      expected: shared,
     },
   ])(
     "preserves rejection $expected",

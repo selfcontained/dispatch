@@ -883,6 +883,71 @@ describe("AgentManager", () => {
       );
     });
 
+    it("binds a child:false launch without a worktree to its launcher's runner checkout", async () => {
+      const supportsSharedWorktree = vi.fn(() => true);
+      const remote = {
+        available: () => true,
+        isManagedWorkspace: () => true,
+        supportsSharedWorktree,
+        requestSession: vi.fn(),
+        originFor: () => "https://example.test",
+      } as unknown as RemoteRunnerService;
+      const first = new AgentManager(pool, noopLogger, testConfig, {
+        runtime,
+        remote,
+      });
+      const cwd = "runner://runner-test/@session";
+      const launcher = await first.createAgent({
+        cwd,
+        repository: {
+          url: "https://example.test/r.git",
+          checkout: { kind: "new", branch: "topic", base: "develop" },
+        },
+      });
+      // What MCP launch_agent sends for child:false with no worktree.
+      const launch = {
+        cwd,
+        launchedByAgentId: launcher.id,
+        useWorktree: false,
+      };
+      supportsSharedWorktree.mockReturnValueOnce(false);
+      await expect(
+        first.createAgent(launch, { useWorktreeOf: launcher.id })
+      ).rejects.toThrow(
+        "Update the runner to launch an agent in an existing checkout."
+      );
+      const independent = await first.createAgent(launch, {
+        useWorktreeOf: launcher.id,
+      });
+      expect(independent).toMatchObject({
+        cwd,
+        parentAgentId: null,
+        launchedByAgentId: launcher.id,
+      });
+      const expected = expect.objectContaining({
+        agentId: independent.id,
+        useWorktreeOf: launcher.id,
+        placement: { runner: "runner-test", workspace: "@session" },
+      });
+      expect(runtime.launch).toHaveBeenLastCalledWith(expected);
+      expect(runtime.launch.mock.calls.at(-1)?.[0].repository).toBeUndefined();
+      const { rows } = await pool.query(
+        "SELECT runner_worktree_owner, runner_repository FROM agents WHERE id = $1",
+        [independent.id]
+      );
+      expect(rows[0]).toEqual({
+        runner_worktree_owner: launcher.id,
+        runner_repository: null,
+      });
+      await first.stopAgent(independent.id);
+      const resumed = new AgentManager(pool, noopLogger, testConfig, {
+        runtime,
+        remote,
+      });
+      await resumed.startAgent(independent.id);
+      expect(runtime.launch).toHaveBeenLastCalledWith(expected);
+    });
+
     it.each([null, "project-b"])(
       "inherits parent membership with template project %s",
       async (templateProject) => {
