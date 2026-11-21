@@ -303,6 +303,36 @@ describe("set_workspace parity", () => {
       baseBranch: "main",
     });
     expect(runner).toEqual(local);
+    for (const baseBranch of [" release/2026.11 ", "refs/heads/main", "HEAD"]) {
+      const input = { ...move, baseBranch };
+      const nativeMove = await handlers(manager).setWorkspace(
+        "agt_local",
+        input
+      );
+      expect(nativeMove.baseBranch).toBe(baseBranch.trim());
+      await expect(
+        handlers(runnerManager).setWorkspace("agt_runner", input)
+      ).resolves.toEqual(nativeMove);
+    }
+
+    requestSession.mockClear();
+    for (const baseBranch of ["--all", "has space", "topic..main"]) {
+      const input = { ...move, baseBranch };
+      await expect(
+        handlers(manager).setWorkspace("agt_local", input)
+      ).rejects.toMatchObject({ statusCode: 400 });
+      await expect(
+        handlers(runnerManager).setWorkspace("agt_runner", input)
+      ).rejects.toMatchObject({ statusCode: 400 });
+    }
+    expect(requestSession).not.toHaveBeenCalled();
+    expect((await manager.getAgent("agt_local"))?.workspaceBaseBranch).toBe(
+      "HEAD"
+    );
+    expect(
+      (await runnerManager.getAgent("agt_runner"))?.workspaceBaseBranch
+    ).toBe("HEAD");
+
     requestSession.mockResolvedValueOnce(
       runnerReply({
         path: path.join(otherRepo, "nested"),

@@ -171,7 +171,7 @@ export async function detectDefaultBranch(
   return null;
 }
 
-function isSafeBranchName(name: string): boolean {
+export function isSafeBranchName(name: string): boolean {
   return !name.startsWith("-") && !/\s/.test(name) && !name.includes("..");
 }
 

@@ -90,7 +90,7 @@ import type {
   PromptImage,
 } from "./acp/prompt-source.js";
 import { type EngineBins, isAcpEngine } from "./acp/engine-spec.js";
-import { agentWorkspaceDir } from "./workspace-target.js";
+import { agentWorkspaceDir, isSafeBranchName } from "./workspace-target.js";
 import { inspectAgentCheckout, reviewerWorkspace } from "./checkout-runner.js";
 import {
   resolveCheckoutIntent,
@@ -103,7 +103,6 @@ import {
   MANAGED_WORKSPACE,
   isCheckoutPath,
   isSessionCheckout,
-  validBranch,
   remotePlacement,
   isSessionFileData,
   isSessionFilePath,
@@ -1570,7 +1569,7 @@ export class AgentManager {
         "Workspace path must be absolute on the bound runner.",
         400
       );
-    if (baseBranch !== null && !validBranch(baseBranch))
+    if (baseBranch !== null && !isSafeBranchName(baseBranch))
       throw new AgentError("Invalid base branch.", 400);
     const selected = await this.runnerCheckout(agent, { kind: "select", path });
     return {
