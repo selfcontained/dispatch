@@ -4,6 +4,12 @@
 set -euo pipefail
 root=$(mktemp -d)
 trap 'rm -rf -- "$root"' EXIT
+# set -e never fires for a failed `! cmd`, nor for a failed [[ ]] on macOS
+# bash 3.2, so every [[ ]] and negated check ends in `|| fail`.
+fail() {
+  printf 'Assertion failed at %s line %s\n' "$0" "${BASH_LINENO[0]}" >&2
+  exit 1
+}
 
 cat > "$root/run" <<'HARNESS'
 source bin/install-dispatch-runner.sh
@@ -264,7 +270,7 @@ for fixture in invalid default explicit; do
       SUDO_USER=root expect_status 1 install v1.0.0
       SUDO_USER=installer expect_status 1 install v1.0.0 x64 --user unknown
       SUDO_USER=installer expect_status 1 install v1.0.0 x64 --user alternate --dedicated-user
-      [[ ! -e "$fixture_root/settings/runner.json" && ! -e "$fixture_root/account" ]]
+      [[ ! -e "$fixture_root/settings/runner.json" && ! -e "$fixture_root/account" ]] || fail
       ;;
     default)
       mkdir "$fixture_root/installer home"
@@ -282,14 +288,14 @@ for fixture in invalid default explicit; do
       ;;
   esac
   if [[ "$fixture" != invalid ]]; then
-    [[ -n "$(find "$fixture_root/state" -maxdepth 0 -perm 0755 -print)" ]]
-    [[ -n "$(find "$fixture_root/state/runner" -maxdepth 0 -perm 0751 -print)" ]]
+    [[ -n "$(find "$fixture_root/state" -maxdepth 0 -perm 0755 -print)" ]] || fail
+    [[ -n "$(find "$fixture_root/state/runner" -maxdepth 0 -perm 0751 -print)" ]] || fail
     chmod 0711 "$fixture_root/state"
     run update v1.0.1
-    [[ -n "$(find "$fixture_root/state" -maxdepth 0 -perm 0755 -print)" ]]
+    [[ -n "$(find "$fixture_root/state" -maxdepth 0 -perm 0755 -print)" ]] || fail
   fi
-  [[ ! -e "$fixture_root/state/home" && ! -e "$fixture_root/account" ]]
-  [[ -z "$(find "$fixture_root" -path '* home/*' -print)" ]]
+  [[ ! -e "$fixture_root/state/home" && ! -e "$fixture_root/account" ]] || fail
+  [[ -z "$(find "$fixture_root" -path '* home/*' -print)" ]] || fail
 done
 unset fixture_root
 
@@ -314,7 +320,7 @@ done
 grep -Fxq "Found gh: $deps/installer home/tools/bin/gh" "$deps/out"
 grep -Fxq "Found git for installer: $deps/installer home/tools/bin/git" "$deps/out"
 grep -Fxq "Found gh for installer: $deps/installer home/tools/bin/gh" "$deps/out"
-[[ ! -e "$deps/package-installs" ]]
+[[ ! -e "$deps/package-installs" ]] || fail
 
 rm "$deps/rootbin/tar" "$deps/rootbin/gh"
 SUDO_USER=installer expect_status 1 deps "" > "$deps/out" 2> "$deps/err"
@@ -322,29 +328,28 @@ grep -Fxq "Missing tar" "$deps/out"
 grep -Fxq "Found curl: $deps/rootbin/curl" "$deps/out"
 grep -Fxq "Found gh: $deps/installer home/tools/bin/gh" "$deps/out"
 grep -Fxq "error: Install tar. The installer does not install or upgrade packages" "$deps/err"
-[[ ! -e "$deps/package-installs" ]]
+[[ ! -e "$deps/package-installs" ]] || fail
 
 ln -s "$(command -v tar)" "$deps/rootbin/tar"
 printf '#!/bin/sh\nexit 1\n' > "$deps/installer home/tools/bin/gh"
 SUDO_USER=installer expect_status 1 deps "" > /dev/null 2> "$deps/err"
 grep -Fq "cannot verify release attestations" "$deps/err"
-[[ ! -e "$deps/package-installs" ]]
+[[ ! -e "$deps/package-installs" ]] || fail
 unset fixture_root
 
 run install v1.0.0 x64 --dedicated-user
 run install v1.0.0 x64 --dedicated-user
-[[ -e "$root/account" && -d "$root/state/home" ]]
+[[ -e "$root/account" && -d "$root/state/home" ]] || fail
 grep -Fq '"uid": 103' "$root/settings/runner.json"
-[[ "$(readlink "$root/bin/dispatch-runner")" == "$root/runtime/runner-cli" ]]
-[[ ! -e "$root/running" && ! -e "$root/settings/key.pem" ]]
-! grep -Eq '^(start|enable) ' "$root/systemctl"
-[[ "$(find "$root/settings/runner.json" -perm 0600 -print)" == "$root/settings/runner.json" ]]
+[[ "$(readlink "$root/bin/dispatch-runner")" == "$root/runtime/runner-cli" ]] || fail
+[[ ! -e "$root/running" && ! -e "$root/settings/key.pem" ]] || fail
+! grep -Eq '^(start|enable) ' "$root/systemctl" || fail
+[[ "$(find "$root/settings/runner.json" -perm 0600 -print)" == "$root/settings/runner.json" ]] || fail
 grep -q '"workspaces": {}' "$root/settings/runner.json"
 # The fixed staging unit and its private directories come with the release.
-# macOS bash 3.2 does not exit on a failed [[ ]], so these exit explicitly.
 cmp 'bin/dispatch-runner-update@.service' "$root/dispatch-runner-update@.service"
-[[ -n "$(find "$root/dispatch-runner-update@.service" -perm 0644 -print)" ]] || exit 1
-[[ $(find "$root/runtime/update" "$root/state/update" -maxdepth 0 -type d -perm 0700 -print | wc -l) -eq 2 ]] || exit 1
+[[ -n "$(find "$root/dispatch-runner-update@.service" -perm 0644 -print)" ]] || fail
+[[ $(find "$root/runtime/update" "$root/state/update" -maxdepth 0 -type d -perm 0700 -print | wc -l) -eq 2 ]] || fail
 grep -Fxq 'ExecStart=/usr/bin/flock --nonblock --conflict-exit-code 75 /var/lib/dispatch-runner/update/stage.lock /opt/dispatch-runner/dispatch runner-update-stage %i' \
   "$root/dispatch-runner-update@.service"
 grep -Fxq 'ReadWritePaths=/opt/dispatch-runner/update /var/lib/dispatch-runner/update' "$root/dispatch-runner-update@.service"
@@ -376,27 +381,27 @@ chmod 0755 "$root/runtime/update"
 run update v1.0.1
 # An update restores the release's unit and the directory modes.
 cmp 'bin/dispatch-runner-update@.service' "$root/dispatch-runner-update@.service"
-[[ -n "$(find "$root/runtime/update" -maxdepth 0 -perm 0700 -print)" ]] || exit 1
-[[ -n "$(find "$root/state" -maxdepth 0 -perm 0755 -print)" ]]
-[[ -n "$(find "$root/state/runner" -maxdepth 0 -perm 0751 -print)" ]]
-[[ -n "$(find "$root/state/home" -maxdepth 0 -perm 0700 -print)" ]]
-[[ -n "$(find "$root/settings" -maxdepth 0 -perm 0711 -print)" ]]
+[[ -n "$(find "$root/runtime/update" -maxdepth 0 -perm 0700 -print)" ]] || fail
+[[ -n "$(find "$root/state" -maxdepth 0 -perm 0755 -print)" ]] || fail
+[[ -n "$(find "$root/state/runner" -maxdepth 0 -perm 0751 -print)" ]] || fail
+[[ -n "$(find "$root/state/home" -maxdepth 0 -perm 0700 -print)" ]] || fail
+[[ -n "$(find "$root/settings" -maxdepth 0 -perm 0711 -print)" ]] || fail
 grep -qx 'KillMode=process' "$root/dispatch-runner.service"
 printf '# administrator setting\n' >> "$root/dispatch-runner.service"
 run update v1.0.1
 grep -qx '# administrator setting' "$root/dispatch-runner.service"
 grep -q 'release-new x64' "$root/runtime/dispatch"
-[[ ! -e "$root/running" && ! -e "$root/settings/key.pem" ]]
+[[ ! -e "$root/running" && ! -e "$root/settings/key.pem" ]] || fail
 
 # Verify the wrapper starts the service only after a successful connect.
 cp "$root/original" "$root/runtime/dispatch"
 expect_status 1 connect https://unapproved.example
-[[ ! -e "$root/running" && ! -e "$root/enabled" ]]
+[[ ! -e "$root/running" && ! -e "$root/enabled" ]] || fail
 run connect https://dispatch.example
-[[ $(grep -c '^enable --now ' "$root/systemctl") == 1 ]]
-[[ -e "$root/running" && -e "$root/enabled" ]]
+[[ $(grep -c '^enable --now ' "$root/systemctl") == 1 ]] || fail
+[[ -e "$root/running" && -e "$root/enabled" ]] || fail
 run install v1.0.0
-[[ $(grep -c '^enable --now ' "$root/systemctl") == 1 ]]
+[[ $(grep -c '^enable --now ' "$root/systemctl") == 1 ]] || fail
 cp -R "$root/settings" "$root/original-settings"
 
 # A deferred update leaves the on-host maintenance tools as they were.
@@ -407,34 +412,34 @@ expect_status 75 update v1.0.1
 cmp "$root/original" "$root/runtime/dispatch"
 grep -Fxq '# stale updater' "$root/runtime/install-dispatch-runner.sh"
 grep -Fxq '# stale cli' "$root/runtime/runner-cli"
-[[ ! -e "$root/runtime/previous" ]]
-! grep -q '^kill ' "$root/systemctl"
+[[ ! -e "$root/runtime/previous" ]] || fail
+! grep -q '^kill ' "$root/systemctl" || fail
 grep -q '^thaw ' "$root/systemctl"
 # Even a recoverable host must survive the effective unit's stop policy.
 touch "$root/idle-host" "$root/custom-kill"
 expect_status 75 update v1.0.1
-[[ ! -e "$root/runtime/previous" && ! -e "$root/frozen" ]]
+[[ ! -e "$root/runtime/previous" && ! -e "$root/frozen" ]] || fail
 rm "$root/custom-kill"
 
 : > "$root/reject-new"
 expect_status 1 update v1.0.1 arm64
 cmp "$root/original" "$root/runtime/dispatch"
-[[ ! -e "$root/runtime/previous" && -e "$root/running" ]]
+[[ ! -e "$root/runtime/previous" && -e "$root/running" ]] || fail
 rm "$root/reject-new"
 
 grep -Fq "New runner failed to start" "$root/runtime/last-maintenance.log"
-[[ -n "$(find "$root/runtime/last-maintenance.log" -perm 0600 -print)" ]]
+[[ -n "$(find "$root/runtime/last-maintenance.log" -perm 0600 -print)" ]] || fail
 grep -Fq '"step":"start","exitCode":1' "$root/runtime/last-maintenance-failure.json"
 : > "$root/legacy-systemctl"
 run update v1.0.1 arm64
 grep -Fxq 'kill --kill-who=main --signal=SIGKILL dispatch-runner.service' "$root/systemctl"
-[[ ! -e "$root/runtime/last-maintenance-failure.json" ]]
+[[ ! -e "$root/runtime/last-maintenance-failure.json" ]] || fail
 grep -q 'release-new arm64' "$root/runtime/dispatch"
-[[ ! -e "$root/runtime/previous" ]]
+[[ ! -e "$root/runtime/previous" ]] || fail
 # A successful update refreshes them from the verified archive.
 cmp bin/install-dispatch-runner.sh "$root/runtime/install-dispatch-runner.sh"
 cmp bin/dispatch-runner "$root/runtime/runner-cli"
-[[ -x "$root/runtime/install-dispatch-runner.sh" && -x "$root/runtime/runner-cli" ]]
+[[ -x "$root/runtime/install-dispatch-runner.sh" && -x "$root/runtime/runner-cli" ]] || fail
 diff -r "$root/original-settings" "$root/settings"
 
 # A recovery record survives an interrupted swap.
@@ -481,7 +486,7 @@ serve v1.0.0
 SUDO_USER=installer run apply v1.0.0 x64 --source "$https_source" --cacert "$hosted/ca.pem"
 grep -q 'release-new' "$hosted/runtime/dispatch" && exit 1
 grep -Fq '"uid": 1000' "$hosted/settings/runner.json"
-! grep -q github.com "$hosted/curl"
+! grep -q github.com "$hosted/curl" || fail
 grep -Fq "$https_source/dispatch-runner-linux-x64.tar.gz.sigstore.json" "$hosted/curl"
 grep -Fxq installer "$hosted/gh-users"
 if grep -Fq dispatch-runner-linux-arm64 "$hosted/curl"; then exit 1; fi
@@ -498,7 +503,7 @@ grep -Fq 'Keeping the configured workload account.' "$hosted/err"
 grep -q 'release-new x64' "$hosted/runtime/dispatch"
 grep -Fq '"uid": 1000' "$hosted/settings/runner.json"
 grep -Fxq enrolled "$hosted/settings/cert.pem"
-[[ ! -e "$hosted/runtime/previous" ]]
+[[ ! -e "$hosted/runtime/previous" ]] || fail
 cp "$hosted/runtime/dispatch" "$hosted/current"
 # The same build still brings stale maintenance tools up to date.
 printf '# stale updater\n' > "$hosted/runtime/install-dispatch-runner.sh"
@@ -555,7 +560,7 @@ grep -Fq 'does not match the copied digest' "$hosted/err"
 cmp "$hosted/current" "$hosted/runtime/dispatch"
 SUDO_USER=installer run apply v1.0.0 x64 --source "$http_source" --allow-unverified-dev-build --allow-downgrade --sha256 "$digest" 2> "$hosted/err"
 grep -Fq 'WARNING: This is an unverified dev build of Dispatch' "$hosted/err"
-! grep -q 'release-new' "$hosted/runtime/dispatch"
+! grep -q 'release-new' "$hosted/runtime/dispatch" || fail
 for bad in ftp://controller.test/api/v1/runner-artifacts/abc1234 "$http_source/../x" https://controller.test/other; do
   SUDO_USER=installer expect_status 1 apply v1.0.0 x64 --source "$bad"
 done
