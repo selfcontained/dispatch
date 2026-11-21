@@ -44,6 +44,9 @@ jobs:
           for asset in dispatch-runner-linux-{x64,arm64}.tar.gz{,.sigstore.json}; do
             grep -qxF "$asset" assets.txt || echo "::warning::$TAG has no $asset; runner installs from this release will be refused."
           done
+          for asset in dispatch-runner-linux-{x64,arm64}.manifest.json; do
+            grep -qxF "$asset" assets.txt || echo "::warning::$TAG has no $asset; runner updates from this release will be refused."
+          done
 
       - uses: pnpm/action-setup@v6
         with:
