@@ -35,14 +35,9 @@ export type ArchiveOutcome =
 
 export type ArchivePlacement = "local" | "runner";
 
-/**
- * The cleanup mode a cascaded child gets when its parent is archived. The
- * parent's confirmation is the one answer for the whole cascade. Local keeps
- * the legacy force policy; runner-managed children use automatic cleanup.
- * One switch so the rule can be unified after the owner decides it.
- */
-export function cascadeMode(placement: ArchivePlacement): WorktreeCleanupMode {
-  return placement === "runner" ? "auto" : "force";
+/** A parent's archive authorizes cleanup of all of its children's checkouts. */
+export function cascadeMode(): WorktreeCleanupMode {
+  return "force";
 }
 
 /** Placement-specific steps of the one archive sequence. */

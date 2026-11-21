@@ -22,7 +22,6 @@ import {
   type ArchiveDeps,
 } from "../src/agents/archive.js";
 import { releaseRemoteCheckout } from "../src/agents/archive-checkout.js";
-import { cascadeMode } from "../src/agents/archive-policy.js";
 import { createLocalRunner } from "../src/agents/local-runner.js";
 import type { RemoteRunnerService } from "../src/agents/remote/service.js";
 import type { AgentRecord, WorktreeCleanupMode } from "../src/agents/types.js";
@@ -449,12 +448,5 @@ describe("pending release retry", () => {
       expect((await retry(free, { ...row, placement })).kind).toBe("kept");
       expect(existsSync(checkout)).toBe(true);
     }
-  });
-});
-
-describe("cascadeMode", () => {
-  it("keeps each placement's current cascade rule", () => {
-    expect(cascadeMode("local")).toBe("force");
-    expect(cascadeMode("runner")).toBe("auto");
   });
 });

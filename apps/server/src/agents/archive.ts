@@ -293,7 +293,7 @@ export async function deleteAgentDirect(
   const durations: Record<string, number> = {};
   const agent = await deps.getRequiredAgent(id);
 
-  const mode = cascadeMode(managedCheckout(agent) ? "runner" : "local");
+  const mode = cascadeMode();
   // Claim before any teardown — an agent's own archive and an ancestor's
   // cascade can reach it at once. Same CAS `beginArchive` takes.
   const claimed = await pool.query(

@@ -900,6 +900,73 @@ describe("executeArchive", () => {
       );
     });
 
+    it.each([
+      { state: "owned", expected: cleanCheckout.stateId, pending: false },
+      { state: "inUse", expected: cleanCheckout.stateId, pending: true },
+      { state: "offline", expected: undefined, pending: true },
+      { state: "borrowed", expected: null, pending: false },
+    ])(
+      "archives a dirty runner child with checkout state $state",
+      async ({ state, expected, pending }) => {
+        const parent = makeAgent("parent");
+        const child = makeAgent("child", {
+          parentAgentId: parent.id,
+          cwd: "runner://runner/@session",
+          runnerManaged: true,
+        });
+        const pool = makeChildQueryPool([
+          { id: child.id, parentAgentId: parent.id },
+        ]);
+        const lookup = makeAgentLookup([parent, child]);
+        const requestSession = vi.fn(async (_placement, { operation }) => {
+          if (state === "offline") throw new Error("Runner is offline");
+          if (operation.kind === "release")
+            return {
+              value:
+                operation.expectedState === null
+                  ? "retained"
+                  : state === "inUse"
+                    ? "inUse"
+                    : "released",
+            };
+          return {
+            value: JSON.stringify({
+              ownership: state === "borrowed" ? "borrowed" : "owned",
+              owner: state === "borrowed" ? parent.id : child.id,
+              borrowers: state === "inUse" ? ["independent"] : [],
+              checkout: { ...cleanCheckout, uncommittedFiles: ["src/wip.ts"] },
+            }),
+          };
+        });
+        const deps = makeDeps({
+          pool: pool as never,
+          getRequiredAgent: lookup,
+          getAgent: lookup,
+          remote: { requestSession } as never,
+        });
+        const callbacks = makeCallbacks();
+
+        await executeArchive(deps, parent.id, callbacks);
+
+        const releases = requestSession.mock.calls
+          .map(([, request]) => request.operation)
+          .filter((operation) => operation.kind === "release");
+        expect(releases).toEqual(
+          expected === undefined
+            ? []
+            : [{ kind: "release", expectedState: expected }]
+        );
+        expect(pool.query).toHaveBeenCalledWith(
+          expect.stringContaining("runner_cleanup_pending = $2"),
+          [child.id, pending]
+        );
+        expect(callbacks.onComplete).toHaveBeenCalledWith([
+          parent.id,
+          child.id,
+        ]);
+      }
+    );
+
     it("clears child worktrees even when the parent's own is kept", async () => {
       // "keep" is an answer about the parent's own worktree.
       const parent = makeAgent("parent", {
