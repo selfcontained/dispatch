@@ -68,6 +68,7 @@ import {
   RunnerRegistry,
   type Registration,
 } from "./registry.js";
+import { publicKeyPin } from "./x509.js";
 
 /** The single manually approved registration of the original prototype. */
 export type LegacyConfig = {
@@ -188,7 +189,12 @@ const MAX_HTTP_RELAYS = 256;
 const UNAUTHENTICATED_TIMEOUT = 10_000;
 /** A runner release download may outlast the handshake bound on a slow link. */
 const ARTIFACT_DOWNLOAD_TIMEOUT = 30 * 60_000;
-const RUNNER_CA_PATH = "/api/v1/runner-artifacts/ca.pem";
+/** Where the web origin serves the runner install script. */
+export const RUNNER_INSTALL_PATH = "/api/v1/runner-artifacts/install";
+/** The runner listener's short alias for that script. */
+export const RUNNER_LISTENER_INSTALL_PATH = "/install";
+/** Set only by the listener's relay: the origin its client connected to. */
+export const RUNNER_LISTENER_ORIGIN_HEADER = "x-dispatch-runner-listener";
 const RUNNER_ARTIFACT_PATH =
   /^\/api\/v1\/runner-artifacts\/[a-f0-9]{7,40}\/(?:descriptor\.json|install-dispatch-runner\.sh(?:\.sigstore\.json)?|dispatch-server\.tar\.gz(?:\.sigstore\.json)?)$/;
 const PROXY_KEEP_ALIVE_TIMEOUT = 75_000;
@@ -1001,8 +1007,9 @@ export class RemoteRunnerService {
    * credentials — none exist yet — so they are allow-listed by path and
    * method alone, exactly like `/ping`; this is what lets a clean runner
    * reach them through this listener's own pinned CA even when the ordinary
-   * API is loopback-only or plain HTTP. The listener answers for its own CA,
-   * which the copied install command checks against its pin.
+   * API is loopback-only or plain HTTP. `/install` relays the install
+   * script, which the copied command fetches with this listener's key pinned,
+   * and names the origin the client used so the script downloads from it.
    */
   private forward(
     request: http.IncomingMessage,
@@ -1012,17 +1019,9 @@ export class RemoteRunnerService {
   ) {
     const url = request.url ?? "";
     const target = this.api;
-    if (url === RUNNER_CA_PATH && request.method === "GET") {
-      response.setHeader("Connection", "close");
-      if (!this.authority) return void response.writeHead(503).end();
-      response
-        .writeHead(200, {
-          "content-type": "application/x-pem-file",
-          "cache-control": "no-store",
-        })
-        .end(this.authority.caPem);
-      return;
-    }
+    const install =
+      url === RUNNER_LISTENER_INSTALL_PATH &&
+      (request.method === "GET" || request.method === "HEAD");
     const artifact =
       RUNNER_ARTIFACT_PATH.test(url) &&
       (request.method === "GET" || request.method === "HEAD");
@@ -1061,7 +1060,8 @@ export class RemoteRunnerService {
         response.once("close", () => clearTimeout(timeout));
       }
     }
-    const allowed = ping || mcp || connectCreate || connectPoll || artifact;
+    const allowed =
+      ping || mcp || connectCreate || connectPoll || artifact || install;
     if (!allowed || !target) {
       response.writeHead(allowed ? 503 : 404).end();
       return;
@@ -1088,12 +1088,16 @@ export class RemoteRunnerService {
     ])
       if (request.headers[name] !== undefined)
         headers[name] = request.headers[name];
+    if (install)
+      headers[RUNNER_LISTENER_ORIGIN_HEADER] = this.listenerOrigin(
+        request.headers.host
+      );
     const upstream = (target.tls ? https : http).request(
       {
         host,
         port: target.port,
         method: request.method,
-        path: url,
+        path: install ? RUNNER_INSTALL_PATH : url,
         headers: { ...headers, host: `${formatHost(host)}:${target.port}` },
         // The API is on this machine; its certificate names its LAN hosts.
         rejectUnauthorized: false,
@@ -1295,15 +1299,44 @@ export class RemoteRunnerService {
     return origin ? new URL("/settings/runners", origin).href : undefined;
   }
 
-  /** Where a runner fetches this controller's release, and the CA to pin. */
+  /**
+   * Where a runner fetches this controller's install script, and the pin of
+   * the listener key that authenticates it. The key changes whenever the
+   * listener certificate is reissued, so the command is composed per copy.
+   */
   async artifactEndpoint(hostHint?: string) {
     if (!this.enrollment)
       throw new RunnerRequestError(409, "Runner enrollment is disabled.");
     const host = await this.prepareEndpoint(hostHint);
     return {
       origin: `https://${formatHost(host)}:${this.port!}`,
-      caFingerprint: this.authority!.caFingerprint,
+      pin: publicKeyPin(this.authority!.serverCert),
     };
+  }
+
+  /** The running listener's CA and key pin, for the script it relays. */
+  listenerInstall() {
+    if (!this.listener || !this.authority) return undefined;
+    return {
+      caPem: this.authority.caPem,
+      pin: publicKeyPin(this.authority.serverCert),
+    };
+  }
+
+  /**
+   * The listener origin as its client addressed it, which the install
+   * script then downloads from; the CA it embeds verifies that host name.
+   */
+  private listenerOrigin(hostHeader: string | undefined) {
+    const match = /^(?:\[([0-9A-Fa-f:.]+)\]|([^:[\]]+))(?::\d{1,5})?$/.exec(
+      hostHeader ?? ""
+    );
+    const requested = match?.[1] ?? match?.[2];
+    const host =
+      requested && validHost(requested)
+        ? requested
+        : (this.enrollment?.endpointHost ?? advertisedHost(undefined));
+    return `https://${formatHost(host)}:${this.port!}`;
   }
 
   async connectCommand(hostHint?: string) {

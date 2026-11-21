@@ -38,25 +38,35 @@ For manual source runs, use Bun.
    or clear the repository for a scratch session. The runner creates the
    session directory and removes it when the agent is archived.
 
-The copied command downloads the bootstrap and runner archive from the
-controller for its own build revision. Over the HTTPS runner listener, it
-checks the controller CA fingerprint from Settings before downloading the
-artifacts. For a release build, the command verifies the bootstrap's signed
-build provenance against
-`selfcontained/dispatch/.github/workflows/release.yml` before passing it to
-sudo. The installer verifies the existing `dispatch-server.tar.gz` with the
-same policy and extracts the Linux binary for the host's architecture and
-release tag. The published `.sigstore.json` sidecars carry the attestations.
-The installer accepts `--source URL` for the controller's revision-specific
-artifact endpoint and `--cacert FILE` for an HTTPS source. The copied command
-supplies these options as needed.
+The copied command is one line. Over the HTTPS runner listener it is:
 
-If the controller serves a dev build, the copied command defines
-`dispatch_runner_install` and refuses to proceed until you rerun it in the same
-shell as `dispatch_runner_install --allow-unverified-dev-build`. Dev builds
-use SHA-256 checks for the bootstrap and archive instead of release
-attestations. When invoking the installer directly, the dev flag requires
-both `--source URL` and `--sha256 HEX` for the archive digest.
+```sh
+curl -fsSk --pinnedpubkey 'sha256//<key hash>' https://<host>:<port>/install | sudo bash
+```
+
+curl accepts only the listener key named by the pin, so the script it fetches
+comes from this controller. When runner enrollment is disabled, Settings
+copies `curl -fsSL http://<dispatch origin>/api/v1/runner-artifacts/install | sudo bash`
+instead. The pin changes when the controller reissues its listener
+certificate, so copy the command again rather than reusing an old one.
+
+The script downloads the bootstrap and runner archive from the controller
+for its own build revision. Over the listener, every download trusts only
+the runner CA that the pinned script carries. For a release build, the
+script verifies the bootstrap's signed build provenance against
+`selfcontained/dispatch/.github/workflows/release.yml` before running it.
+The installer verifies `dispatch-server.tar.gz` with the same policy and
+extracts the Linux binary for the host's architecture and release tag. The
+published `.sigstore.json` sidecars carry the attestations. The installer
+accepts `--source URL` for the controller's revision-specific artifact
+endpoint and `--cacert FILE` for an HTTPS source; the script supplies them.
+
+To pass installer options, end the command with `| sudo bash -s -- OPTIONS`.
+If the controller serves a dev build, the script refuses and prints the same
+command with `-s -- --allow-unverified-dev-build`. Dev builds use SHA-256
+checks for the bootstrap and archive instead of release attestations. When
+invoking the installer directly, the dev flag requires both `--source URL`
+and `--sha256 HEX` for the archive digest.
 
 For a manual installation, set `tag` to the exact published release:
 
@@ -78,10 +88,9 @@ For a manual installation, set `tag` to the exact published release:
 
 The service runs the supervisor as root. Sessions run as the non-root user who
 invokes `sudo`, with their home, login profile, `~/.dispatch/env`, and supplementary
-groups. To select another existing account, rerun the copied command's
-function as `dispatch_runner_install --user USER`. Use
-`dispatch_runner_install --dedicated-user` to create the non-login `dispatch-runner`
-account with home at `/var/lib/dispatch-runner/home`. The operator provisions
+groups. To select another existing account, end the copied command with
+`| sudo bash -s -- --user USER`. Use `| sudo bash -s -- --dedicated-user` to
+create the non-login `dispatch-runner` account with home at `/var/lib/dispatch-runner/home`. The operator provisions
 the dedicated account’s tools and access. Updates keep the configured account.
 The supervisor keeps runner state under `/var/lib/dispatch-runner/runner`.
 The settings and private enrollment key
@@ -119,8 +128,11 @@ branch. A public HTTPS URL or an empty session folder works without signing in.
 When **Health** shows **Update available** in the runner's Settings, copy its
 update command and run it on the Linux host. It updates the existing managed
 installation to the controller's build and keeps its enrollment and workload
-account. Running it again on the same build exits successfully without
-restarting the service.
+account. A successful update also refreshes
+`/opt/dispatch-runner/install-dispatch-runner.sh` and the `dispatch-runner`
+command from the verified archive. Running it again on the same build exits
+successfully without restarting the service. Exit status 75 means the update
+was deferred while agents were working; run it again once they finish.
 
 For a manual update from GitHub, run the installed updater with the exact
 target release tag. The tag must have published Linux build provenance.

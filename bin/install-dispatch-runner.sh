@@ -319,14 +319,7 @@ install_runner() {
     mv -fT "$stage/initial" "$runtime/dispatch"
   fi
   install_service_unit
-  tar -xOzf "$stage/dispatch-server.tar.gz" bin/install-dispatch-runner.sh > "$stage/updater"
-  [[ -s "$stage/updater" ]] || error "Missing updater from $tag"
-  chmod 0755 "$stage/updater"
-  mv -fT "$stage/updater" "$runtime/install-dispatch-runner.sh"
-  tar -xOzf "$stage/dispatch-server.tar.gz" bin/dispatch-runner > "$stage/runner-cli"
-  [[ -s "$stage/runner-cli" ]] || error "Missing runner command from $tag"
-  chmod 0755 "$stage/runner-cli"
-  mv -fT "$stage/runner-cli" "$runtime/runner-cli"
+  install_managed_tools
   if [[ ! -L "$command_path" ]]; then
     if [[ ! -d "$(dirname "$command_path")" ]]; then
       install -d -m 0755 "$(dirname "$command_path")"
@@ -335,6 +328,18 @@ install_runner() {
   fi
   systemctl daemon-reload
   printf 'Runner installed. Use the connect command from Dispatch Settings to enroll.\n'
+}
+
+# On-host maintenance runs these copies, so they follow the verified release.
+install_managed_tools() {
+  tar -xOzf "$stage/dispatch-server.tar.gz" bin/install-dispatch-runner.sh > "$stage/updater"
+  [[ -s "$stage/updater" ]] || error "Missing updater from $tag"
+  chmod 0755 "$stage/updater"
+  mv -fT "$stage/updater" "$runtime/install-dispatch-runner.sh"
+  tar -xOzf "$stage/dispatch-server.tar.gz" bin/dispatch-runner > "$stage/runner-cli"
+  [[ -s "$stage/runner-cli" ]] || error "Missing runner command from $tag"
+  chmod 0755 "$stage/runner-cli"
+  mv -fT "$stage/runner-cli" "$runtime/runner-cli"
 }
 
 defer() {
@@ -482,6 +487,7 @@ update_runner() {
   if cmp -s "$stage/dispatch" "$runtime/dispatch"; then
     maintenance_step=unit
     install_service_unit
+    install_managed_tools
     systemctl daemon-reload
     printf 'Runner already has the requested release.\n'
     return
@@ -507,6 +513,7 @@ update_runner() {
   sync -f "$runtime"
   maintenance_step=unit
   install_service_unit
+  install_managed_tools
   systemctl daemon-reload
   printf 'Runner updated to %s.\n' "$tag"
 }

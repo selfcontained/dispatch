@@ -196,7 +196,7 @@ it("leaves pairing approvals actionable after closing the Add runner dialog", as
 
 it("copies the exact install and connect commands and closes from the footer", async () => {
   const install =
-    'dispatch_runner_install() (\n  sudo bash "$dir/install-dispatch-runner.sh" install\n)\ndispatch_runner_install';
+    "curl -fsSk --pinnedpubkey 'sha256//AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=' https://dispatch.example:7443/install | sudo bash";
   const connect = "sudo dispatch-runner connect https://dispatch.example";
   vi.mocked(api).mockImplementation(async (path) => {
     if (path === "/api/runners") return { runners: [] };

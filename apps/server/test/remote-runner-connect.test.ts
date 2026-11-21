@@ -1,4 +1,4 @@
-import { X509Certificate } from "node:crypto";
+import { createHash, X509Certificate } from "node:crypto";
 import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import http from "node:http";
 import https from "node:https";
@@ -150,6 +150,12 @@ describe("runner-initiated connect enrollment", () => {
               error: (error as Error).message,
             })
           );
+        return;
+      }
+      if (url === "/api/v1/runner-artifacts/install") {
+        response.end(
+          `script for ${request.headers["x-dispatch-runner-listener"] ?? "web"}`
+        );
         return;
       }
       if (url.startsWith("/api/v1/runner-artifacts/")) {
@@ -396,35 +402,79 @@ describe("runner-initiated connect enrollment", () => {
     }
   });
 
-  it("serves its CA for pinning and relays release downloads past the handshake bound", async () => {
+  it("relays the install script under its pinned key and release downloads past the handshake bound", async () => {
     const service = makeService();
     Object.defineProperty(service, "handshakeTimeout", { value: 200 });
-    const { origin, caFingerprint } = await service.artifactEndpoint(HOST);
+    const { origin, pin } = await service.artifactEndpoint(HOST);
     const get = (
       url: string,
       options: https.RequestOptions
-    ): Promise<{ status: number; body: string }> =>
+    ): Promise<{ status: number; body: string; pin?: string }> =>
       new Promise((resolve, reject) => {
         https
-          .request(url, options, (response) => {
+          .request(url, { agent: false, ...options }, (response) => {
+            const peer = (response.socket as TLSSocket).getPeerCertificate();
             let body = "";
             response.on("data", (chunk) => (body += chunk));
             response.on("end", () =>
-              resolve({ status: response.statusCode ?? 0, body })
+              resolve({
+                status: response.statusCode ?? 0,
+                body,
+                pin: peer.raw
+                  ? createHash("sha256")
+                      .update(
+                        new X509Certificate(peer.raw).publicKey.export({
+                          type: "spki",
+                          format: "der",
+                        })
+                      )
+                      .digest("base64")
+                  : undefined,
+              })
             );
           })
           .on("error", reject)
           .end();
       });
-    const ca = await get(`${origin}/api/v1/runner-artifacts/ca.pem`, {
+    // What curl --pinnedpubkey checks: the leaf's SubjectPublicKeyInfo.
+    const script = await get(`${origin}/install`, {
       rejectUnauthorized: false,
+      headers: { "x-dispatch-runner-listener": "https://attacker.test:1" },
     });
-    expect(ca.status).toBe(200);
-    expect(new X509Certificate(ca.body).fingerprint256).toBe(caFingerprint);
+    expect(script).toEqual({
+      status: 200,
+      body: `script for ${origin}`,
+      pin,
+    });
+    const via = await get(`${origin}/install`, {
+      rejectUnauthorized: false,
+      headers: { host: `other.test:${new URL(origin).port}` },
+    });
+    expect(via.body).toBe(
+      `script for https://other.test:${new URL(origin).port}`
+    );
+    const listener = service.listenerInstall()!;
+    expect(listener.pin).toBe(pin);
+    // The CA no longer has a route of its own; the pinned script carries it.
+    expect(
+      (
+        await get(`${origin}/api/v1/runner-artifacts/ca.pem`, {
+          rejectUnauthorized: false,
+        })
+      ).status
+    ).toBe(404);
+    expect(
+      (
+        await get(`${origin}/install`, {
+          rejectUnauthorized: false,
+          method: "POST",
+        })
+      ).status
+    ).toBe(404);
 
-    const pinned = { ca: ca.body, rejectUnauthorized: true };
+    const pinned = { ca: listener.caPem, rejectUnauthorized: true };
     const archive = `${origin}/api/v1/runner-artifacts/abc1234/dispatch-server.tar.gz`;
-    expect(await get(archive, pinned)).toEqual({
+    expect(await get(archive, pinned)).toMatchObject({
       status: 200,
       body: "archive",
     });

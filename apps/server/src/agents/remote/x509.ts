@@ -254,6 +254,18 @@ export function generateRunnerKey() {
   };
 }
 
+/**
+ * curl's `--pinnedpubkey sha256//…` form: the base64 SHA-256 of a leaf
+ * certificate's DER SubjectPublicKeyInfo.
+ */
+export function publicKeyPin(certPem: string) {
+  const spki = new X509Certificate(certPem).publicKey.export({
+    type: "spki",
+    format: "der",
+  });
+  return createHash("sha256").update(spki).digest("base64");
+}
+
 /** Normalize `AB:CD:…` and bare hex to the colon form Node reports. */
 export function normalizeFingerprint(value: string) {
   const hex = value.replace(/[^a-fA-F0-9]/g, "").toUpperCase();

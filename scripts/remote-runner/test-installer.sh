@@ -361,9 +361,14 @@ run install v1.0.0
 [[ $(grep -c '^enable --now ' "$root/systemctl") == 1 ]]
 cp -R "$root/settings" "$root/original-settings"
 
+# A deferred update leaves the on-host maintenance tools as they were.
+printf '# stale updater\n' > "$root/runtime/install-dispatch-runner.sh"
+printf '# stale cli\n' > "$root/runtime/runner-cli"
 : > "$root/busy"
 expect_status 75 update v1.0.1
 cmp "$root/original" "$root/runtime/dispatch"
+grep -Fxq '# stale updater' "$root/runtime/install-dispatch-runner.sh"
+grep -Fxq '# stale cli' "$root/runtime/runner-cli"
 [[ ! -e "$root/runtime/previous" ]]
 ! grep -q '^kill ' "$root/systemctl"
 grep -q '^thaw ' "$root/systemctl"
@@ -388,6 +393,10 @@ grep -Fxq 'kill --kill-who=main --signal=SIGKILL dispatch-runner.service' "$root
 [[ ! -e "$root/runtime/last-maintenance-failure.json" ]]
 grep -q 'release-new arm64' "$root/runtime/dispatch"
 [[ ! -e "$root/runtime/previous" ]]
+# A successful update refreshes them from the verified archive.
+cmp bin/install-dispatch-runner.sh "$root/runtime/install-dispatch-runner.sh"
+cmp bin/dispatch-runner "$root/runtime/runner-cli"
+[[ -x "$root/runtime/install-dispatch-runner.sh" && -x "$root/runtime/runner-cli" ]]
 diff -r "$root/original-settings" "$root/settings"
 
 # A recovery record survives an interrupted swap.
@@ -430,8 +439,13 @@ grep -Fq '"uid": 1000' "$hosted/settings/runner.json"
 grep -Fxq enrolled "$hosted/settings/cert.pem"
 [[ ! -e "$hosted/runtime/previous" ]]
 cp "$hosted/runtime/dispatch" "$hosted/current"
+# The same build still brings stale maintenance tools up to date.
+printf '# stale updater\n' > "$hosted/runtime/install-dispatch-runner.sh"
+printf '# stale cli\n' > "$hosted/runtime/runner-cli"
 SUDO_USER=installer run apply v1.0.1 x64 --source "$http_source" > "$hosted/out"
 grep -Fxq 'Runner already has the requested release.' "$hosted/out"
+cmp bin/install-dispatch-runner.sh "$hosted/runtime/install-dispatch-runner.sh"
+cmp bin/dispatch-runner "$hosted/runtime/runner-cli"
 # Bytes the controller serves still need the release signature.
 printf 'tampered\n' >> "$hosted/served/dispatch-server.tar.gz"
 SUDO_USER=installer expect_status 1 apply v1.0.1 x64 --source "$http_source"

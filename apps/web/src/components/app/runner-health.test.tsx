@@ -102,7 +102,7 @@ it("preserves the no-sample state", () => {
 
 describe("update command", () => {
   const command =
-    "dispatch_runner_install() (\n  true\n)\ndispatch_runner_install";
+    "curl -fsSk --pinnedpubkey 'sha256//AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=' https://dispatch.example:7443/install | sudo bash";
   const health = (revision?: string) => ({
     ...runner,
     healthReceivedAt: receivedAt,
