@@ -259,13 +259,15 @@ export function useCreateAgentForm({
   const worktreeOptional = !managedSession;
   const createUseWorktree = worktreeOptional ? savedUseWorktree : true;
   const selectedBaseBranch = worktreeOptional
-    ? savedBaseBranch
+    ? remote
+      ? savedBaseBranch
+      : savedBaseBranch || "main"
     : repositoryChoice.baseBranch;
   const createNewBranch = worktreeOptional
     ? savedCreateNewBranch
     : repositoryChoice.createNewBranch;
   const createBaseBranch =
-    createNewBranch && isPullRequestUrl(selectedBaseBranch)
+    managedSession && createNewBranch && isPullRequestUrl(selectedBaseBranch)
       ? ""
       : selectedBaseBranch;
   const setCreateBaseBranch = (baseBranch: string) =>
@@ -506,7 +508,8 @@ export function useCreateAgentForm({
         const repositoryUrl = managedSession ? repository.trim() : "";
         const base = createBaseBranch.trim();
         // A pull request URL opens its source branch; the server resolves it.
-        const pullRequest = !createNewBranch && isPullRequestUrl(base);
+        const pullRequest =
+          managedSession && !createNewBranch && isPullRequestUrl(base);
         const submitUseWorktree = repositoryUrl
           ? true
           : !remote &&

@@ -36,7 +36,10 @@ async function inspectLocalCheckout(agent: AgentRecord, operation: Inspect) {
     throw new AgentError("The session checkout is unavailable.", 409);
   // The service already passed its explicit base; a native checkout never
   // carries a runner-recorded one (as on main).
-  return inspectCheckout(cwd, operation.query, { recordedBase: false });
+  return inspectCheckout(cwd, operation.query, {
+    recordedBase: false,
+    unresolvedBase: "origin/main",
+  });
 }
 
 export async function inspectAgentCheckout(

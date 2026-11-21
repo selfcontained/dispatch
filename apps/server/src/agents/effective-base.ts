@@ -41,6 +41,12 @@ export async function agentComparisonBase(
   const storedBase = !isRunner || existingBranch ? agent.baseBranch : null;
   const launchBase =
     launch?.kind === "new" ? launch.base : (storedBase ?? existingBranch);
+  if (!isRunner && use === "review") {
+    return (
+      agent.baseBranch ??
+      (agent.worktreePath && agent.worktreeBranch ? "main" : null)
+    );
+  }
   if (launchBase) return launchBase;
 
   const managed =

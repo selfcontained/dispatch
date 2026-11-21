@@ -139,7 +139,7 @@ export function createWorkspacePreparation(logger: FastifyBaseLogger) {
         "The launch directory was moved or replaced.",
         409
       );
-    const { base, branch } = await resolveLocalCheckout(cwd, request);
+    const { base, branch } = resolveLocalCheckout(request);
     const worktreePath =
       request.location === "nested"
         ? path.join(

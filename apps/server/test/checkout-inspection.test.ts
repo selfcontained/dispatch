@@ -24,6 +24,7 @@ import {
 } from "vitest";
 
 import { inspectCheckout } from "../src/agents/checkout-inspection.js";
+import * as baseRefHelpers from "../src/shared/git/base-ref.js";
 import {
   inspectAgentCheckout,
   readAgentStats,
@@ -280,6 +281,26 @@ describe("native executor base", () => {
     worktreePath: null,
     baseBranch: null,
     workspacePath: null,
+  });
+
+  it("attempts origin/main for a native owner review if base probes cannot resolve a ref", async () => {
+    git(checkout, "fetch", "origin", "main");
+    const resolve = vi
+      .spyOn(baseRefHelpers, "resolveBaseRef")
+      .mockResolvedValue(null);
+    const query = { kind: "changes", baseBranch: "unlisted" } as const;
+    try {
+      await expect(
+        inspectAgentCheckout(agent() as AgentRecord, query)
+      ).resolves.toMatchObject({
+        baseRef: "origin/main",
+      });
+      await expect(inspectCheckout(checkout, query)).rejects.toThrow(
+        "Could not resolve checkout base"
+      );
+    } finally {
+      resolve.mockRestore();
+    }
   });
 
   it("ignores a recorded runner base and falls back like main", async () => {

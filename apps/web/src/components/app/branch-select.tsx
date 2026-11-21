@@ -34,7 +34,7 @@ export type BranchSelectProps = {
   allowPullRequest?: boolean;
   baseBranch: string;
   /**
-   * Fired when the user picks a branch; "" selects the repository default.
+   * Fired when the user picks a branch; runners use "" for the repository default.
    * The component never overwrites `baseBranch` on its own — a saved branch
    * missing from the fetched list stays selectable with a visible flag.
    */
@@ -82,7 +82,7 @@ export type BranchRow = {
 };
 
 /**
- * One row model for every source: the repository default, then a typed
+ * Runner rows: the repository default, then a typed
  * branch or PR URL, then a saved branch that is no longer listed, then the
  * rest of the list.
  */
@@ -168,52 +168,107 @@ export function BranchSelect({
   const allowPullRequest = Boolean(runner) && allowPullRequestInput;
   const typedBranch = runner ? typed : "";
   const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [localList, setLocalList] = useState<{
+    endpoint: string;
+    branches?: string[];
+    error?: string;
+  }>();
   const triggerRef = useRef<HTMLButtonElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   if (disabled && dropdownOpen) setDropdownOpen(false);
 
-  // Load eagerly so the closed control names the repository default.
+  // Runners load eagerly so the closed control names the repository default.
   const branches = useQuery({
     queryKey: ["branch-select", endpoint],
     queryFn: ({ signal }) =>
       api<{ branches: string[]; defaultBranch?: string }>(endpoint, { signal }),
-    enabled: !disabled && Boolean(endpoint),
+    enabled: Boolean(runner && !disabled && endpoint),
     staleTime: 30_000,
     retry: false,
   });
-  const listedBranches = branches.data?.branches ?? EMPTY_BRANCHES;
-  const defaultBranch = branches.data?.defaultBranch ?? "";
-  const branchesLoading = branches.isFetching;
-  const fetchError = branches.error?.message ?? null;
+  const localResult = localList?.endpoint === endpoint ? localList : undefined;
+  const listedBranches =
+    (runner ? branches.data?.branches : localResult?.branches) ??
+    EMPTY_BRANCHES;
+  const defaultBranch = runner ? (branches.data?.defaultBranch ?? "") : "";
+  const branchesLoading = runner
+    ? branches.isFetching
+    : Boolean(localResult && !localResult.branches && !localResult.error);
+  const fetchError = runner ? branches.error?.message : localResult?.error;
+
+  const fetchLocalBranches = async () => {
+    if (!endpoint || disabled) return;
+    const pending = { endpoint };
+    setLocalList(pending);
+    try {
+      const result = await api<{ branches: string[] }>(endpoint);
+      setLocalList((current) =>
+        current === pending ? { endpoint, branches: result.branches } : current
+      );
+    } catch (error) {
+      setLocalList((current) =>
+        current === pending
+          ? {
+              endpoint,
+              error:
+                error instanceof Error
+                  ? error.message
+                  : "Couldn't load branches.",
+            }
+          : current
+      );
+    }
+  };
 
   const changeOpen = (next: boolean) => {
     if (next && disabled) return;
-    if (next) setTyped("");
+    if (next) {
+      setTyped("");
+      if (!runner && !localResult) void fetchLocalBranches();
+    }
     setDropdownOpen(next);
   };
 
-  const rows = useMemo(
-    () =>
-      branchRows({
-        branches: listedBranches,
-        defaultBranch,
-        baseBranch,
-        typed: typedBranch,
-        allowPullRequest,
-        listed: branches.isSuccess && !branchesLoading,
-        entered,
-      }),
-    [
-      listedBranches,
+  const localBase = baseBranch || "main";
+  const rows = useMemo(() => {
+    if (!runner) {
+      const others = listedBranches.filter(
+        (branch) => branch && branch !== "main"
+      );
+      if (localBase !== "main" && !others.includes(localBase)) {
+        others.unshift(localBase);
+      }
+      return ["main", ...others].map((branch) => ({
+        value: branch,
+        label: branch,
+        selected: branch === localBase,
+        missing:
+          branch === localBase &&
+          listedBranches.length > 0 &&
+          !listedBranches.includes(branch),
+      }));
+    }
+    return branchRows({
+      branches: listedBranches,
       defaultBranch,
       baseBranch,
-      typedBranch,
+      typed: typedBranch,
       allowPullRequest,
-      branches.isSuccess,
-      branchesLoading,
+      listed: branches.isSuccess && !branchesLoading,
       entered,
-    ]
-  );
+    });
+  }, [
+    runner,
+    localBase,
+    listedBranches,
+    defaultBranch,
+    baseBranch,
+    typedBranch,
+    allowPullRequest,
+    branches.isSuccess,
+    branchesLoading,
+    entered,
+  ]);
   const savedBranchMissing = rows.some((row) => row.missing);
   const choose = (value: string) => {
     if (value && value === typedBranch.trim()) setEntered(value);
@@ -252,7 +307,9 @@ export function BranchSelect({
               )}
             >
               <span className="truncate">
-                {baseBranch || defaultBranch || "Repository default"}
+                {runner
+                  ? baseBranch || defaultBranch || "Repository default"
+                  : localBase}
               </span>
               {branchesLoading ? (
                 <ActivityBars size={14} className="ml-2 shrink-0" />
@@ -336,7 +393,9 @@ export function BranchSelect({
           <span className="truncate">Couldn't load branches.</span>
           <button
             type="button"
-            onClick={() => void branches.refetch()}
+            onClick={() =>
+              void (runner ? branches.refetch() : fetchLocalBranches())
+            }
             disabled={disabled}
             className="underline underline-offset-2 hover:no-underline"
           >
@@ -345,8 +404,9 @@ export function BranchSelect({
         </div>
       ) : savedBranchMissing ? (
         <div className="text-xs text-status-waiting">
-          Saved branch <span className="font-mono">{baseBranch}</span> no longer
-          exists on the remote — pick a new one.
+          Saved branch{" "}
+          <span className="font-mono">{runner ? baseBranch : localBase}</span>{" "}
+          no longer exists on the remote — pick a new one.
         </div>
       ) : baseBranchHelper ? (
         <p className="text-xs text-muted-foreground">{baseBranchHelper}</p>

@@ -364,7 +364,7 @@ describe("launch location preference", () => {
     ]);
   });
 
-  it("submits a pull request URL for the server to resolve on both placements", async () => {
+  it("submits a pull request URL for the runner to resolve", async () => {
     queryClient.setQueryDefaults(["runners"], { staleTime: Infinity });
     queryClient.setQueryData(
       ["runners"],
@@ -381,52 +381,52 @@ describe("launch location preference", () => {
     );
     const { result } = await setup();
     const pr = "https://github.com/org/repo/pull/12";
-    const submitted: Record<string, unknown>[] = [];
-    for (const runner of [null, "rnr_lima"]) {
-      act(() => result.current.selectRunner(runner));
-      if (runner)
-        act(() => result.current.chooseRepo("https://github.com/org/repo"));
-      else act(() => result.current.handlePathInfoChange(REPO_INFO));
-      act(() => {
-        result.current.setCreateNewBranch(false);
-        result.current.setCreateBaseBranch(pr);
-      });
-      apiMock.mockClear();
-      await act(async () => result.current.handleSubmit(submitEvent()));
-      const body = agentsPostJson();
-      submitted.push(
-        Object.fromEntries(
-          ["useWorktree", "createNewBranch", "baseBranch", "pullRequest"].map(
-            (key) => [key, body[key]]
-          )
-        )
-      );
-      expect(
-        apiMock.mock.calls.some(([url]) =>
-          String(url).includes("pull-request-head")
-        )
-      ).toBe(false);
+    act(() => result.current.selectRunner("rnr_lima"));
+    act(() => result.current.chooseRepo("https://github.com/org/repo"));
+    act(() => {
+      result.current.setCreateNewBranch(false);
+      result.current.setCreateBaseBranch(pr);
+    });
+    apiMock.mockClear();
+    await act(async () => result.current.handleSubmit(submitEvent()));
+    const body = agentsPostJson();
+    expect(body).toMatchObject({
+      useWorktree: true,
+      createNewBranch: false,
+      pullRequest: pr,
+    });
+    expect(body.baseBranch).toBeUndefined();
+    expect(
+      apiMock.mock.calls.some(([url]) =>
+        String(url).includes("pull-request-head")
+      )
+    ).toBe(false);
 
-      act(() => result.current.setCreateNewBranch(true));
-      expect(result.current.createBaseBranch).toBe("");
-      expect(result.current.locationReady).toBe(true);
-      apiMock.mockClear();
-      await act(async () => result.current.handleSubmit(submitEvent()));
-      const newBranch = agentsPostJson();
-      expect(newBranch.createNewBranch).toBe(true);
-      expect(newBranch.baseBranch).toBeUndefined();
-      expect(newBranch.pullRequest).toBeUndefined();
-      act(() => result.current.setCreateNewBranch(false));
-      expect(result.current.createBaseBranch).toBe(pr);
-    }
-    expect(submitted).toEqual(
-      Array(2).fill({
-        useWorktree: true,
-        createNewBranch: false,
-        baseBranch: undefined,
-        pullRequest: pr,
-      })
-    );
+    act(() => result.current.setCreateNewBranch(true));
+    expect(result.current.createBaseBranch).toBe("");
+    expect(result.current.locationReady).toBe(true);
+    apiMock.mockClear();
+    await act(async () => result.current.handleSubmit(submitEvent()));
+    const newBranch = agentsPostJson();
+    expect(newBranch.createNewBranch).toBe(true);
+    expect(newBranch.baseBranch).toBeUndefined();
+    expect(newBranch.pullRequest).toBeUndefined();
+    act(() => result.current.setCreateNewBranch(false));
+    expect(result.current.createBaseBranch).toBe(pr);
+  });
+
+  it("does not reinterpret a local saved branch as a pull request", async () => {
+    const { result } = await setup();
+    const saved = "https://github.com/org/repo/pull/12";
+    act(() => {
+      result.current.handlePathInfoChange(REPO_INFO);
+      result.current.setCreateBaseBranch(saved);
+    });
+    expect(result.current.createBaseBranch).toBe(saved);
+    act(() => result.current.setCreateNewBranch(false));
+    await act(async () => result.current.handleSubmit(submitEvent()));
+    expect(agentsPostJson().baseBranch).toBe(saved);
+    expect(agentsPostJson().pullRequest).toBeUndefined();
   });
 
   it("starts each runner repository fresh without touching the folder's saved choice", async () => {
@@ -568,7 +568,7 @@ describe("launch location preference", () => {
     act(() => result.current.setCreateProjectId("project-b"));
     expect(result.current.createCwd).toBe("/repo/b");
     expect(result.current.createPersona).toBeNull();
-    expect(result.current.createBaseBranch).toBe("");
+    expect(result.current.createBaseBranch).toBe("main");
   });
 
   it("preserves a manual choice made before project data and preferences arrive", async () => {
@@ -884,6 +884,7 @@ describe("handleSubmit", () => {
     expect(agentsPostJson()).toEqual({
       name: "my agent",
       cwd: "/repo/app",
+      baseBranch: "main",
       type: "claude",
       fullAccess: true,
       useWorktree: true,
@@ -905,15 +906,17 @@ describe("handleSubmit", () => {
     expect(body).not.toHaveProperty("baseBranch");
   });
 
-  it.each(["", "main"])(
-    "submits the selected base %j without assuming main is the default",
+  it.each([undefined, "", "main"])(
+    "submits main for the local base preference %j",
     async (base) => {
       const { result } = await setup();
       act(() => result.current.handlePathInfoChange(REPO_INFO));
-      act(() => result.current.setCreateBaseBranch(base));
+      if (base !== undefined)
+        act(() => result.current.setCreateBaseBranch(base));
+      expect(result.current.createBaseBranch).toBe("main");
 
       await act(async () => result.current.handleSubmit(submitEvent()));
-      expect(agentsPostJson().baseBranch).toBe(base || undefined);
+      expect(agentsPostJson().baseBranch).toBe("main");
     }
   );
 
@@ -979,7 +982,7 @@ describe("handleSubmit", () => {
     expect(body.get("useWorktree")).toBe("true");
     expect(body.get("createNewBranch")).toBe("true");
     expect(body.get("worktreeBranch")).toBeNull();
-    expect(body.get("baseBranch")).toBeNull();
+    expect(body.get("baseBranch")).toBe("main");
     expect(body.get("cwd")).toBe("/repo/app");
     expect(body.get("initialPrompt")).toBe("look at these");
     expect(body.get("startupLinks")).toBe(

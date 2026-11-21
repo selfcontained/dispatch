@@ -281,7 +281,8 @@ async function fingerprintCheckout(
 async function inspectChanges(
   root: string,
   baseBranch: string | null,
-  recordedBase: boolean
+  recordedBase: boolean,
+  unresolvedBase?: string
 ) {
   if (recordedBase) baseBranch ??= await recordedReviewBase(root);
   if (baseBranch === null) {
@@ -296,8 +297,9 @@ async function inspectChanges(
     allowUpstreamFallback: baseBranch === null,
   };
   await refreshRemoteBaseRef(root, baseBranch, options);
-  const baseRef = await resolveBaseRef(root, baseBranch, options);
-  if (baseRef === null)
+  const baseRef =
+    (await resolveBaseRef(root, baseBranch, options)) ?? unresolvedBase;
+  if (!baseRef)
     throw new Error("Could not resolve checkout base (origin/main fallback)");
   const [{ stdout: head }, { stdout: base }] = await Promise.all([
     run("git", ["rev-parse", "--verify", "HEAD"], { cwd: root }),
@@ -540,12 +542,14 @@ export type InspectCheckoutOptions = {
    * executor always receives the service's base and skips it.
    */
   recordedBase?: boolean;
+  /** Native owner reviews attempt this ref if the usual Git probes fail. */
+  unresolvedBase?: string;
 };
 
 export async function inspectCheckout(
   cwd: string,
   query: CheckoutQuery,
-  { recordedBase = true }: InspectCheckoutOptions = {}
+  { recordedBase = true, unresolvedBase }: InspectCheckoutOptions = {}
 ): Promise<CheckoutReply> {
   const validated = parseQuery(query);
   if (validated.kind === "defaultBranchFiles") {
@@ -602,7 +606,12 @@ export async function inspectCheckout(
   }
   const reply: CheckoutReply =
     validated.kind === "changes"
-      ? await inspectChanges(root, validated.baseBranch, recordedBase)
+      ? await inspectChanges(
+          root,
+          validated.baseBranch,
+          recordedBase,
+          unresolvedBase
+        )
       : {
           kind: "readFile",
           content: await readWorktreeFile(

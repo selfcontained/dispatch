@@ -4,7 +4,6 @@ import {
   validGitHubRepoPart,
   type RepositoryCheckout,
 } from "@dispatch/runner-protocol";
-import { localDefaultBranch } from "../shared/git/default-branch.js";
 import {
   assertSafeRefName,
   normalizeBaseBranch,
@@ -245,11 +244,10 @@ export function toLocalWorktreeRequest(
   };
 }
 
-export async function resolveLocalCheckout(
-  cwd: string,
+export function resolveLocalCheckout(
   request: Pick<WorktreeRequest, "branch" | "baseBranch" | "createNewBranch">
-): Promise<{ branch: string; base: string }> {
-  const base = request.baseBranch ?? (await localDefaultBranch(cwd));
+): { branch: string; base: string } {
+  const base = request.baseBranch ?? "main";
   return { base, branch: request.createNewBranch ? request.branch : base };
 }
 

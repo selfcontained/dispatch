@@ -76,6 +76,13 @@ describe("WorktreeSection", () => {
     expect(screen.queryByText(/Archiving removes this worktree/)).toBeNull();
   });
 
+  it("keeps the local starting branch label when opening an existing branch", () => {
+    render(<WorktreeSection {...defaultProps} createNewBranch={false} />);
+    expect(screen.getByRole("combobox", { name: "Starting branch" })).toBe(
+      baseBranch()
+    );
+  });
+
   it("renders saved true values unchecked and collapses branch controls outside a git repo", () => {
     render(<WorktreeSection {...defaultProps} worktreeAvailable={false} />);
 
@@ -150,10 +157,19 @@ describe("WorktreeSection", () => {
     );
   });
 
-  it("labels the picker for the branch it will check out", () => {
-    const { rerender } = render(<WorktreeSection {...defaultProps} />);
+  it("labels the runner picker for the branch it will check out", () => {
+    const branchSource = { id: "runner", repository: "", browse: false };
+    const { rerender } = render(
+      <WorktreeSection {...defaultProps} branchSource={branchSource} />
+    );
     expect(baseBranch().getAttribute("aria-label")).toBe("Starting branch");
-    rerender(<WorktreeSection {...defaultProps} createNewBranch={false} />);
+    rerender(
+      <WorktreeSection
+        {...defaultProps}
+        branchSource={branchSource}
+        createNewBranch={false}
+      />
+    );
     expect(baseBranch().getAttribute("aria-label")).toBe("Existing branch");
     expect(screen.getByText("Existing branch")).toBeTruthy();
   });

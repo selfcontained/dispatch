@@ -29,7 +29,6 @@ import {
   createDiagnosticsRecorder,
   type DiagnosticsRecorder,
 } from "../diagnostics.js";
-import { localDefaultBranch } from "../shared/git/default-branch.js";
 import { getPullRequestHead } from "../shared/github/pr.js";
 import { GitWorktreeError } from "../shared/git/worktree.js";
 import { resolveFilesDir } from "../shared/files.js";
@@ -1917,7 +1916,7 @@ export class AgentManager {
       directory?.cwd ?? input.cwd,
       localGit
         ? {
-            defaultBranch: () => localDefaultBranch(localGit),
+            defaultBranch: async () => "main",
             repository: () =>
               this.localRunner
                 .inferRepositoryUrl(localGit)

@@ -8,7 +8,7 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 
 import { api } from "@/lib/api";
 import { BranchSelect, branchRows } from "./branch-select";
@@ -56,15 +56,29 @@ it("shows one selected default when starting a new branch from the explicit defa
   );
 });
 
-it("offers the local repository default and keeps main selectable on a trunk repo", async () => {
-  globalThis.ResizeObserver ??= class {
-    observe() {}
-    unobserve() {}
-    disconnect() {}
-  };
-  Element.prototype.scrollIntoView ??= () => {};
+it("loads local branches on first open and reuses the list on reopen", async () => {
+  stubLayout();
+  vi.mocked(api).mockResolvedValue({ branches: ["trunk"] });
+  render(<BranchSelect {...props} cwd="/repo" baseBranch="main" />, {
+    wrapper: wrapper(),
+  });
+  const control = screen.getByRole("combobox", { name: "Base branch" });
+  expect(api).not.toHaveBeenCalled();
+  fireEvent.click(control);
+  await screen.findByRole("option", { name: "trunk" });
+  expect(vi.mocked(api).mock.calls).toEqual([
+    ["/api/v1/git/branches?cwd=%2Frepo"],
+  ]);
+  fireEvent.click(control);
+  fireEvent.click(control);
+  await screen.findByRole("option", { name: "trunk" });
+  expect(api).toHaveBeenCalledTimes(1);
+});
+
+it("pins literal main first and never emits an empty local base", async () => {
+  stubLayout();
   vi.mocked(api).mockResolvedValue({
-    branches: ["main", "trunk"],
+    branches: ["trunk", "main"],
     defaultBranch: "trunk",
   });
   const onBaseBranchChange = vi.fn();
@@ -77,11 +91,17 @@ it("offers the local repository default and keeps main selectable on a trunk rep
     />,
     { wrapper: wrapper() }
   );
-  fireEvent.click(screen.getByRole("combobox", { name: "Base branch" }));
-  const trunk = await screen.findByRole("option", { name: "trunk" });
-  expect(screen.getByRole("option", { name: "main" })).toBeTruthy();
-  fireEvent.click(trunk);
-  expect(onBaseBranchChange).toHaveBeenCalledWith("");
+  const control = screen.getByRole("combobox", { name: "Base branch" });
+  fireEvent.click(control);
+  await screen.findByRole("option", { name: "trunk" });
+  expect(screen.getAllByRole("option").map((row) => row.textContent)).toEqual([
+    "main",
+    "trunk",
+  ]);
+  fireEvent.click(screen.getByRole("option", { name: "trunk" }));
+  fireEvent.click(control);
+  fireEvent.click(screen.getByRole("option", { name: "main" }));
+  expect(onBaseBranchChange.mock.calls).toEqual([["trunk"], ["main"]]);
 });
 
 const props = {
@@ -141,7 +161,6 @@ it.each([
   }
 );
 
-// One picker model for both sources: equivalent data renders identical rows.
 const sources = {
   local: { cwd: "/repo" },
   runner: {
@@ -175,11 +194,12 @@ async function openRows(
     wrapper: wrapper(),
   });
   const control = screen.getByRole("combobox", { name: "Base branch" });
-  // Both sources load before the menu opens and name the default.
-  await waitFor(() =>
-    expect(control.textContent).toContain(extra.baseBranch || "trunk")
-  );
-  expect(api).toHaveBeenCalledTimes(1);
+  if (source === "runner") {
+    await waitFor(() =>
+      expect(control.textContent).toContain(extra.baseBranch || "trunk")
+    );
+    expect(api).toHaveBeenCalledTimes(1);
+  }
   fireEvent.click(control);
   await screen.findByRole("option", { name: "feature/a" });
   return () =>
@@ -189,21 +209,31 @@ async function openRows(
     }));
 }
 
-describe.each(["local", "runner"] as const)("%s branch picker", (source) => {
-  it("lists the default first, then the branches", async () => {
-    const rows = await openRows(source);
-    expect(rows()).toEqual([
-      { text: "trunk", selected: true },
-      { text: "feature/a", selected: false },
-      { text: "feature/b", selected: false },
-    ]);
-  });
+it("lists the runner default first and emits the repository default value", async () => {
+  const onBaseBranchChange = vi.fn();
+  const rows = await openRows("runner", { onBaseBranchChange });
+  expect(rows()).toEqual([
+    { text: "trunk", selected: true },
+    { text: "feature/a", selected: false },
+    { text: "feature/b", selected: false },
+  ]);
+  fireEvent.click(screen.getByRole("option", { name: "trunk" }));
+  expect(onBaseBranchChange).toHaveBeenCalledWith("");
+});
 
-  it("flags a saved branch that is no longer listed", async () => {
+it.each(["local", "runner"] as const)(
+  "%s keeps and flags an unlisted saved branch",
+  async (source) => {
     const rows = await openRows(source, { baseBranch: "gone" });
+    expect(rows()[0]?.text).toBe(source === "local" ? "main" : "trunk");
     expect(rows()[1]).toEqual({ text: "gonenot found", selected: true });
     expect(screen.getByText(/no longer exists on the remote/)).toBeTruthy();
-  });
+  }
+);
+
+it("keeps a missing local main selected and flagged", async () => {
+  const rows = await openRows("local", { baseBranch: "main" });
+  expect(rows()[0]).toEqual({ text: "mainnot found", selected: true });
 });
 
 it("accepts a typed branch and a pull request URL", async () => {
@@ -248,7 +278,7 @@ it("only offers listed branches when searching locally", async () => {
   expect(search.getAttribute("placeholder")).toBe("Search branches...");
 });
 
-it("builds the same rows for any source and offers PR URLs only when allowed", () => {
+it("builds runner rows and offers PR URLs only when allowed", () => {
   const data = {
     branches: ["trunk", "a"],
     defaultBranch: "trunk",
@@ -293,7 +323,7 @@ it("opens the list above a scrolling dialog body and returns focus on close", as
     { wrapper: wrapper() }
   );
   const control = screen.getByRole("combobox", { name: "Base branch" });
-  await waitFor(() => expect(control.textContent).toContain("trunk"));
+  expect(control.textContent).toContain("main");
   control.focus();
   fireEvent.keyDown(control, { key: "ArrowDown" });
   const option = await screen.findByRole("option", { name: "feature/a" });

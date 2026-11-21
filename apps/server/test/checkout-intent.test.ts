@@ -14,6 +14,7 @@ import {
   toRunnerCheckout,
   type CheckoutIntent,
 } from "../src/agents/checkout-intent.js";
+import { AgentManager } from "../src/agents/manager.js";
 import { localDefaultBranch } from "../src/shared/git/default-branch.js";
 import { agentComparisonBase } from "../src/agents/effective-base.js";
 import { readAgentView } from "../src/agents/checkout-runner.js";
@@ -78,7 +79,7 @@ describe("checkout intent", () => {
       if (!checkout) throw new Error("Expected a worktree intent");
       const request = toLocalWorktreeRequest(checkout, context.name, "nested");
       expect(request.location).toBe("nested");
-      await expect(resolveLocalCheckout("/repo", request)).resolves.toEqual({
+      expect(resolveLocalCheckout(request)).toEqual({
         branch,
         base,
       });
@@ -211,7 +212,7 @@ it.each([
         ).toBe(branch);
         expect(
           await agentComparisonBase({ ...agent, baseBranch: null }, use)
-        ).toBe(branch);
+        ).toBe(use === "review" ? "main" : branch);
       }
       const changes = await readAgentView(agent, {
         kind: "diff",
@@ -237,39 +238,58 @@ it.each([
   }
 );
 
-it("creates a local worktree from the current branch when there is no detectable default", async () => {
-  const root = await mkdtemp(path.join(tmpdir(), "dispatch-local-base-"));
+it("defaults a native Create Agent request to main even when the Git default is trunk", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "dispatch-native-base-"));
   try {
     git(root, "init", "-b", "trunk", "repo");
     const cwd = path.join(root, "repo");
     git(cwd, "commit", "--allow-empty", "-m", "initial");
-
-    const { checkout } = await resolveCheckoutIntent(
-      {},
-      {
-        ...context,
-        defaultBranch: () => localDefaultBranch(cwd),
+    const prepared = new Error("Checkout intent prepared");
+    const prepareCreateInputs = vi.fn(
+      async (
+        input: CheckoutIntent,
+        _cwd: string,
+        options: { defaultBranch: () => Promise<string> }
+      ) => {
+        const intent = await resolveCheckoutIntent(input, {
+          ...context,
+          ...options,
+        });
+        expect(intent.normalizedBaseBranch).toBe("main");
+        throw prepared;
       }
     );
-    expect(checkout?.base).toBe("trunk");
-    if (!checkout?.createNewBranch)
-      throw new Error("Expected a new worktree branch");
-
-    const worktreePath = path.join(root, "worktree");
-    await createGitWorktree({
-      cwd,
-      name: context.name,
-      worktreePath,
-      branchName: checkout.branch,
-      createNewBranch: true,
-      baseBranch: checkout.base,
-    });
-    expect(git(worktreePath, "rev-parse", "HEAD")).toBe(
-      git(cwd, "rev-parse", "trunk")
-    );
+    const manager = {
+      config: { agentRuntime: "acp" },
+      pool: { query: vi.fn().mockResolvedValue({ rows: [] }) },
+      localRunner: {
+        resolveLaunchDirectory: vi.fn().mockResolvedValue({
+          cwd,
+          canonicalPath: cwd,
+          git: { status: "ok", value: {} },
+        }),
+      },
+      prepareCreateInputs,
+    } as unknown as AgentManager;
+    await expect(
+      AgentManager.prototype.createAgent.call(manager, { cwd })
+    ).rejects.toBe(prepared);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
+});
+
+it("uses main for a native worktree request with no recorded base", () => {
+  expect(
+    resolveLocalCheckout({ branch: "feature", createNewBranch: true })
+  ).toEqual({
+    branch: "feature",
+    base: "main",
+  });
+  expect(resolveLocalCheckout({ branch: "", createNewBranch: false })).toEqual({
+    branch: "main",
+    base: "main",
+  });
 });
 
 describe("pull request intent", () => {
@@ -366,7 +386,7 @@ describe("pull request intent", () => {
       createNewBranch: false,
       baseBranch: "topic",
     });
-    await expect(resolveLocalCheckout("/repo", request)).resolves.toEqual({
+    expect(resolveLocalCheckout(request)).toEqual({
       branch: "topic",
       base: "topic",
     });
