@@ -509,15 +509,23 @@ serve v1.0.1
 SUDO_USER=installer run apply v1.0.1 arm64 --source "$http_source"
 grep -q 'release-new arm64' "$hosted/runtime/dispatch"
 cp "$hosted/runtime/dispatch" "$hosted/current"
-# A runner installed before version records can be identified by a
-# byte-identical verified release. Until then replacements need the flag.
+# A runner installed before version records predates the guard, so it updates
+# without the flag and gains a record.
 rm "$hosted/runtime/installed-release"
-SUDO_USER=installer expect_status 1 apply v1.0.1 x64 --source "$http_source" 2> "$hosted/err"
+SUDO_USER=installer run apply v1.0.1 x64 --source "$http_source" > "$hosted/out"
+grep -Fxq 'Installed runner version is unknown. Replacing it with v1.0.1.' "$hosted/out"
+grep -q 'release-new x64' "$hosted/runtime/dispatch"
+grep -Fq ' v1.0.1' "$hosted/runtime/installed-release"
+cp "$hosted/runtime/dispatch" "$hosted/current"
+# A record that cannot be read still needs the flag, until a byte-identical
+# verified release identifies the runner.
+printf 'unreadable\n' > "$hosted/runtime/installed-release"
+SUDO_USER=installer expect_status 1 apply v1.0.1 arm64 --source "$http_source" 2> "$hosted/err"
 grep -Fq 'Cannot determine the installed Dispatch runner version' "$hosted/err"
 cmp "$hosted/current" "$hosted/runtime/dispatch"
-SUDO_USER=installer run apply v1.0.1 arm64 --source "$http_source" > "$hosted/out"
+SUDO_USER=installer run apply v1.0.1 x64 --source "$http_source" > "$hosted/out"
 grep -Fxq 'Runner already has the requested release.' "$hosted/out"
-[[ -s "$hosted/runtime/installed-release" ]]
+grep -Fq ' v1.0.1' "$hosted/runtime/installed-release"
 # A dev build has no signature. It is refused unless the operator accepts it,
 # and then only bytes that match the copied digest are used.
 serve v1.0.0 dev

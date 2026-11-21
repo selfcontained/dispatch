@@ -559,7 +559,11 @@ update_runner() {
   maintenance_step=stage
   stage_release
   if [[ -z "$installed" && "${allow_downgrade:-0}" != 1 ]] && ! cmp -s "$stage/dispatch" "$runtime/dispatch"; then
-    error "Cannot determine the installed Dispatch runner version. Use --allow-downgrade to replace this runner"
+    # Every installer with this guard writes the record, so a missing one
+    # means the runner predates it and is older than any offered build.
+    [[ ! -e "$runtime/installed-release" ]] ||
+      error "Cannot determine the installed Dispatch runner version. Use --allow-downgrade to replace this runner"
+    printf 'Installed runner version is unknown. Replacing it with %s.\n' "$tag"
   fi
   repair_install_root
   if ! tar -xOzf "$stage/dispatch-runner-linux-$arch.tar.gz" bin/runner-handoff-v1.py > "$stage/handoff.py" 2>/dev/null; then
