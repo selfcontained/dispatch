@@ -112,9 +112,11 @@ describe("PersonaLauncher", () => {
     });
 
     fireEvent.click(await screen.findByTestId("launch-reviewer-button"));
-    fireEvent.keyDown(await screen.findByTestId("launch-reviewer-model"), {
-      key: "Enter",
-    });
+    const trigger = await screen.findByTestId("launch-reviewer-model");
+    await vi.waitFor(() =>
+      expect(trigger.hasAttribute("disabled")).toBe(false)
+    );
+    fireEvent.keyDown(trigger, { key: "Enter" });
     const option = await screen.findByRole("option", { name: model.label });
     expect(screen.queryByRole("option", { name: "Opus" })).toBeNull();
     fireEvent.click(option);

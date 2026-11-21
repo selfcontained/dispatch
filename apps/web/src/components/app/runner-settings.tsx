@@ -89,10 +89,8 @@ function RunnerStatusLabel({
 }
 
 export function RunnerSettings(): JSX.Element {
+  const runners = useRunners({ poll: true });
   const [params, setParams] = useSearchParams();
-  const selectedId = params.get("runner");
-  const inDetail = selectedId !== null;
-  const runners = useRunners({ poll: true, pollInBackground: inDetail });
   const location = useLocation();
   const navigate = useNavigate();
   const [notice, setNotice] = useState("");
@@ -111,6 +109,8 @@ export function RunnerSettings(): JSX.Element {
   });
   const heading = useRef<HTMLHeadingElement>(null);
   const previousRunner = useRef<string | null>(null);
+  const selectedId = params.get("runner");
+  const inDetail = selectedId !== null;
   const listParams = new URLSearchParams(params);
   listParams.delete("runner");
   const listSearch = listParams.toString();

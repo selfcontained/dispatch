@@ -264,6 +264,9 @@ export function createRunnerArtifactSource(
     return { source, files };
   }
 
+  // Only the bootstrap gates the install command: /install cannot know the
+  // host's architecture, so a failing arch payload surfaces as a 503 when the
+  // installer fetches it.
   function preparationFailed() {
     const failure = states.get(undefined)?.failure;
     return failure !== undefined && now() < failure.retryAt;

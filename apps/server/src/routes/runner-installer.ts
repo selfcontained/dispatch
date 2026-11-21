@@ -152,8 +152,10 @@ export function runnerInstallScript(input: RunnerInstallScript) {
             .join(" ")} > "$dir/ca.pem"`,
         ]
       : []),
-    `  fetch() { curl -qfsSL --proto '=${scheme}' --proto-redir '=${scheme}'${cacert} "$base/$1" -o "$dir/\${2:-$1}" < /dev/null; }`,
-    `  fetch "install-dispatch-runner-linux-$arch.sh" ${BOOTSTRAP}${dev ? "" : ` || ${fail(`error: Could not download the release installer for ${build}. The controller must publish attested native runner payloads.`)}`}`,
+    `  fetch() { http=$(curl -qfsSL --proto '=${scheme}' --proto-redir '=${scheme}'${cacert} -w '%{http_code}' "$base/$1" -o "$dir/\${2:-$1}" < /dev/null); }`,
+    // 503: this release has the payload but the controller could not fetch
+    // or verify it; anything else keeps the old-release explanation.
+    `  fetch "install-dispatch-runner-linux-$arch.sh" ${BOOTSTRAP}${dev ? "" : ` || { [ "$http" != 503 ] || { echo ${quote("error: The controller could not fetch or verify the Linux ")}"$arch"${quote(` runner payload for ${build}. Check the controller logs.`)} >&2; exit 1; }; ${fail(`error: Could not download the release installer for ${build}. The controller must publish attested native runner payloads.`)}; }`}`,
     ...(dev
       ? [
           `  [ "$(sha256sum < "$dir/${BOOTSTRAP}" | cut -c1-64)" = '${dev.bootstrapSha256}' ] || ${fail(

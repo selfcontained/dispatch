@@ -304,6 +304,9 @@ jobs:
     permissions:
       contents: read
 
+    outputs:
+      runner_native: ${{ steps.pack.outputs.runner_native }}
+
     steps:
       - uses: actions/checkout@v6
         with:
@@ -395,13 +398,17 @@ jobs:
           DISPATCH_NOTARY_KEYCHAIN_PROFILE: dispatch-release-notary
 
       - name: Pack release artifact
+        id: pack
         run: |
           bin/pack-release --output dispatch-server.tar.gz
           # A recovery run may build a tag that predates native runner assets.
-          if bin/pack-release --help | grep -q -- --runner-arch; then
+          # Only a pack-release without --runner-arch may skip them.
+          if grep -q -- --runner-arch bin/pack-release; then
             for arch in x64 arm64; do
               bin/pack-release --runner-arch "$arch" --output "dispatch-runner-linux-$arch.tar.gz"
+              test -s "dispatch-runner-linux-$arch.tar.gz"
             done
+            echo "runner_native=true" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Upload release bundle
@@ -828,6 +835,8 @@ jobs:
 
       - name: Extract runner bootstrap from the tested bundle
         id: runner-bootstrap
+        env:
+          RUNNER_NATIVE: ${{ needs.build-binaries.outputs.runner_native }}
         run: |
           set -euo pipefail
           # Recovery may publish a tag created before runner installation existed.
@@ -837,7 +846,7 @@ jobs:
             test -s install-dispatch-runner.sh
             echo "present=true" >> "$GITHUB_OUTPUT"
           fi
-          if [ -f dispatch-runner-linux-x64.tar.gz ] || [ -f dispatch-runner-linux-arm64.tar.gz ]; then
+          if [ "$RUNNER_NATIVE" = true ] || [ -f dispatch-runner-linux-x64.tar.gz ] || [ -f dispatch-runner-linux-arm64.tar.gz ]; then
             test -s dispatch-runner-linux-x64.tar.gz
             test -s dispatch-runner-linux-arm64.tar.gz
             test -s install-dispatch-runner.sh

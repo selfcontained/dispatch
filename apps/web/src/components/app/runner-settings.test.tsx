@@ -297,7 +297,7 @@ it("shows reported activity only for online runners with fresh health", async ()
   }
 });
 
-it("refreshes the update attempt and reported build while runner details are in a background tab", async () => {
+it("refreshes the update attempt and reported build on a visible runner detail and on refocus", async () => {
   const at = new Date().toISOString();
   let health: Runner["health"] = {
     version: "1.2.3",
@@ -323,7 +323,6 @@ it("refreshes the update attempt and reported build while runner details are in 
     await act(() => vi.advanceTimersByTimeAsync(10));
     const panel = within(screen.getByTestId("runner-health"));
     expect(panel.getByText("1234567")).toBeTruthy();
-    focusManager.setFocused(false);
 
     health = {
       ...health,
@@ -336,6 +335,15 @@ it("refreshes the update attempt and reported build while runner details are in 
     await act(() => vi.advanceTimersByTimeAsync(5_010));
     expect(panel.getByText("7654321")).toBeTruthy();
     expect(panel.queryByText("Last update attempt")).toBeNull();
+
+    act(() => focusManager.setFocused(false));
+    health = { ...health, revision: "abcdef0" };
+    await act(() => vi.advanceTimersByTimeAsync(60_000));
+    expect(panel.getByText("7654321")).toBeTruthy();
+
+    act(() => focusManager.setFocused(true));
+    await act(() => vi.advanceTimersByTimeAsync(10));
+    expect(panel.getByText("abcdef0")).toBeTruthy();
   } finally {
     cleanup();
     focusManager.setFocused(undefined);

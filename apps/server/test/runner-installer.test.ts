@@ -74,6 +74,7 @@ name=\${url##*/}
 case "$name" in
   install-dispatch-runner-linux-*.sh*) name=install-dispatch-runner.sh\${name#*.sh} ;;
 esac
+if [ -n "\${STUB_HTTP:-}" ]; then printf %s "$STUB_HTTP"; exit 22; fi
 cp "$SERVED/$name" "$arg"`,
     gh: `#!/bin/sh\nprintf 'gh %s\\n' "$*" >> "$LOG"\n[ ! -e "$SERVED/reject" ]`,
     uname: `#!/bin/sh\ncase "$1" in -s) echo "\${STUB_OS:-Linux}" ;; -m) echo "\${STUB_ARCH:-x86_64}" ;; esac`,
@@ -175,7 +176,7 @@ describe.each(["sh", "bash", "dash"])(
       expect(code).toBe(0);
       for (const line of log.slice(0, 2))
         expect(line).toMatch(
-          /^curl -qfsSL --proto =https --proto-redir =https --cacert \S+\/ca\.pem https:\/\//
+          /^curl -qfsSL --proto =https --proto-redir =https --cacert \S+\/ca\.pem -w %\{http_code\} https:\/\//
         );
       expect(await readFile(path.join(temp, "trusted-ca.pem"), "utf8")).toBe(
         caPem.trim() + "\n"
@@ -214,6 +215,31 @@ describe.each(["sh", "bash", "dash"])(
       expect(await leftovers()).toEqual([]);
     });
 
+    it("tells an old release apart from a payload the controller could not prepare", async () => {
+      const release404 = await pipe(runnerInstallScript(release), [], {
+        shell,
+        env: { STUB_HTTP: "404" },
+      });
+      expect(release404.code).toBe(1);
+      expect(release404.stderr).toContain(
+        "must publish attested native runner payloads"
+      );
+      const failed = await pipe(runnerInstallScript(release), [], {
+        shell,
+        env: { STUB_HTTP: "503", STUB_ARCH: "aarch64" },
+      });
+      expect(failed.code).toBe(1);
+      expect(failed.stderr).toContain(
+        "could not fetch or verify the Linux arm64 runner payload"
+      );
+      expect(failed.stderr).toContain("Check the controller logs.");
+      expect(failed.stderr).not.toContain("must publish");
+      expect(failed.log.some((line) => line.startsWith("installer"))).toBe(
+        false
+      );
+      expect(await leftovers()).toEqual([]);
+    });
+
     it("exits with the installer's status, including 75 for a deferred update", async () => {
       for (const status of [0, 1, 75]) {
         const { code } = await pipe(runnerInstallScript(release), [], {
@@ -249,7 +275,9 @@ describe.each(["sh", "bash", "dash"])(
       expect(script).not.toContain("ca.pem");
       const { code, log } = await pipe(script, [], { shell });
       expect(code).toBe(0);
-      expect(log[0]).toContain("--proto =http --proto-redir =http http://");
+      expect(log[0]).toContain(
+        "--proto =http --proto-redir =http -w %{http_code} http://"
+      );
       expect(log[2]).toMatch(/^gh attestation verify /);
       expect(log[3]).toBe(
         `installer install --tag v1.7.28 --source ${webOrigin}/api/v1/runner-artifacts/${revision}`
