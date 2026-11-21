@@ -51,14 +51,14 @@ fetch_asset() {
 
 release_fetch() {
   local asset="$1" digest
-  fetch_asset "$asset"
+  fetch_asset "$asset" || error "Could not download $asset for $tag. Releases without native runner payloads are unsupported"
   if [[ "${allow_dev:-0}" == 1 ]]; then
     digest=$(sha256sum "$stage/$asset")
     [[ "${digest%% *}" == "$dev_sha256" ]] ||
       error "The dev build from $source_url does not match the copied digest. Copy the command again"
     return
   fi
-  fetch_asset "$asset.sigstore.json"
+  fetch_asset "$asset.sigstore.json" || error "Could not download the attestation for $asset ($tag)"
   if [[ ${#release_account[@]} -gt 0 ]]; then
     chmod 0711 "$stage"
     chmod 0644 "$stage/$asset" "$stage/$asset.sigstore.json"
@@ -186,7 +186,7 @@ check_workload_tools() {
 }
 
 stage_release() {
-  local archive=dispatch-server.tar.gz member="dist/bun/dispatch-${tag#v}-bun-linux-$arch"
+  local archive="dispatch-runner-linux-$arch.tar.gz" member="dist/bun/dispatch-${tag#v}-bun-linux-$arch"
   if [[ -n "${source_ca:-}" && ! -s "$stage/ca.pem" ]]; then
     cp -- "$source_ca" "$stage/ca.pem"
   fi
@@ -265,7 +265,7 @@ CONFIG
 # drop-ins keep their usual systemd precedence.
 install_service_unit() {
   local replacement
-  tar -xOzf "$stage/dispatch-server.tar.gz" bin/dispatch-runner.service > "$stage/$unit"
+  tar -xOzf "$stage/dispatch-runner-linux-$arch.tar.gz" bin/dispatch-runner.service > "$stage/$unit"
   [[ -s "$stage/$unit" ]] || error "Missing systemd service template from $tag"
   if [[ -e "$unit_path" ]]; then
     cmp -s "$stage/$unit" "$unit_path" && return 0
@@ -361,11 +361,11 @@ install_runner() {
 
 # On-host maintenance runs these copies, so they follow the verified release.
 install_managed_tools() {
-  tar -xOzf "$stage/dispatch-server.tar.gz" bin/install-dispatch-runner.sh > "$stage/updater"
+  tar -xOzf "$stage/dispatch-runner-linux-$arch.tar.gz" bin/install-dispatch-runner.sh > "$stage/updater"
   [[ -s "$stage/updater" ]] || error "Missing updater from $tag"
   chmod 0755 "$stage/updater"
   mv -fT "$stage/updater" "$runtime/install-dispatch-runner.sh"
-  tar -xOzf "$stage/dispatch-server.tar.gz" bin/dispatch-runner > "$stage/runner-cli"
+  tar -xOzf "$stage/dispatch-runner-linux-$arch.tar.gz" bin/dispatch-runner > "$stage/runner-cli"
   [[ -s "$stage/runner-cli" ]] || error "Missing runner command from $tag"
   chmod 0755 "$stage/runner-cli"
   mv -fT "$stage/runner-cli" "$runtime/runner-cli"
@@ -562,7 +562,7 @@ update_runner() {
     error "Cannot determine the installed Dispatch runner version. Use --allow-downgrade to replace this runner"
   fi
   repair_install_root
-  if ! tar -xOzf "$stage/dispatch-server.tar.gz" bin/runner-handoff-v1.py > "$stage/handoff.py" 2>/dev/null; then
+  if ! tar -xOzf "$stage/dispatch-runner-linux-$arch.tar.gz" bin/runner-handoff-v1.py > "$stage/handoff.py" 2>/dev/null; then
     : > "$stage/handoff.py"
   fi
   if cmp -s "$stage/dispatch" "$runtime/dispatch"; then

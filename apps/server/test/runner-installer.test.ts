@@ -34,7 +34,10 @@ const base = `${listenerOrigin}/api/v1/runner-artifacts/${revision}`;
 const bootstrap =
   '#!/bin/bash\nprintf \'installer %s\\n\' "$*" >> "$LOG"\nexit "${INSTALL_EXIT:-0}"\n';
 const archive = "archive bytes";
-const dev = { bootstrapSha256: sha(bootstrap), archiveSha256: sha(archive) };
+const dev = {
+  bootstrapSha256: sha(bootstrap),
+  archiveSha256: { x64: sha(archive), arm64: sha("arm archive") },
+};
 const release = {
   origin: listenerOrigin,
   revision,
@@ -67,8 +70,13 @@ for arg; do
   prev=$arg
 done
 eval "url=\\\${$(($# - 2))}"
-cp "$SERVED/\${url##*/}" "$arg"`,
+name=\${url##*/}
+case "$name" in
+  install-dispatch-runner-linux-*.sh*) name=install-dispatch-runner.sh\${name#*.sh} ;;
+esac
+cp "$SERVED/$name" "$arg"`,
     gh: `#!/bin/sh\nprintf 'gh %s\\n' "$*" >> "$LOG"\n[ ! -e "$SERVED/reject" ]`,
+    uname: `#!/bin/sh\ncase "$1" in -s) echo "\${STUB_OS:-Linux}" ;; -m) echo "\${STUB_ARCH:-x86_64}" ;; esac`,
     id: `#!/bin/sh\necho "\${STUB_UID:-0}"`,
     getent: `#!/bin/sh\nprintf 'build:x:1000:1001::%s:/bin/sh\\n' "$SERVED/../home"`,
     setpriv: `#!/bin/sh
@@ -275,7 +283,7 @@ describe.each(["sh", "bash", "dash"])(
       expect(accepted.log.some((line) => line.startsWith("gh"))).toBe(false);
       expect(accepted.log.at(-1)).toMatch(
         new RegExp(
-          `--cacert \\S+/ca\\.pem --sha256 ${dev.archiveSha256} --allow-unverified-dev-build --dedicated-user$`
+          `--cacert \\S+/ca\\.pem --sha256 ${dev.archiveSha256.x64} --allow-unverified-dev-build --dedicated-user$`
         )
       );
     });
@@ -322,6 +330,47 @@ it.each(["sh", "bash", "dash"])(
   120_000
 );
 
+it.each([
+  ["Linux", "riscv64"],
+  ["Darwin", "x86_64"],
+])("rejects unsupported host %s/%s before downloading", async (os, arch) => {
+  const result = await pipe(runnerInstallScript(release), [], {
+    env: { STUB_OS: os, STUB_ARCH: arch },
+  });
+  expect(result.code).toBe(1);
+  expect(result.stderr).toContain("Dispatch runners require Linux");
+  expect(result.log).toEqual([]);
+});
+
+it("passes only the arm64 digest to a native arm64 dev install", async () => {
+  const result = await pipe(
+    runnerInstallScript({ ...release, dev }),
+    ["--allow-unverified-dev-build"],
+    {
+      env: { STUB_ARCH: "aarch64" },
+    }
+  );
+  expect(result.code).toBe(0);
+  expect(result.log.at(-1)).toContain(`--sha256 ${dev.archiveSha256.arm64} `);
+  expect(result.log.at(-1)).not.toContain(dev.archiveSha256.x64);
+});
+
+it("reports when the dev controller has no payload for the host", async () => {
+  const result = await pipe(
+    runnerInstallScript({
+      ...release,
+      dev: { ...dev, archiveSha256: { x64: dev.archiveSha256.x64 } },
+    }),
+    ["--allow-unverified-dev-build"],
+    {
+      env: { STUB_ARCH: "aarch64" },
+    }
+  );
+  expect(result.code).toBe(1);
+  expect(result.stderr).toContain("No dev runner payload");
+  expect(result.log).toEqual([]);
+});
+
 describe("runner install script validation", () => {
   it.each([
     [{ revision: "main" }, "symbolic revision"],
@@ -329,9 +378,10 @@ describe("runner install script validation", () => {
     [{ caPem: "-----BEGIN CERTIFICATE-----\n'$(x)'\n" }, "bad CA"],
     [{ origin: webOrigin }, "CA over http"],
     [
-      { dev: { bootstrapSha256: "x", archiveSha256: sha(archive) } },
+      { dev: { bootstrapSha256: "x", archiveSha256: { x64: sha(archive) } } },
       "bad digest",
     ],
+    [{ dev: { ...dev, archiveSha256: { arm64: "bad" } } }, "bad arm64 digest"],
   ])("rejects %o (%s)", (change) => {
     expect(() =>
       runnerInstallScript({ ...release, ...change } as typeof release)
@@ -342,7 +392,11 @@ describe("runner install script validation", () => {
 describe("runner installer routes", () => {
   const files = [
     { name: "install-dispatch-runner.sh", sha256: dev.bootstrapSha256 },
-    { name: "dispatch-server.tar.gz", sha256: dev.archiveSha256 },
+    { name: "dispatch-runner-linux-x64.tar.gz", sha256: dev.archiveSha256.x64 },
+    {
+      name: "dispatch-runner-linux-arm64.tar.gz",
+      sha256: dev.archiveSha256.arm64,
+    },
   ];
 
   async function serve(

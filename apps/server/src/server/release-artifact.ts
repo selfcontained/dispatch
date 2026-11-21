@@ -185,22 +185,26 @@ export async function verifyRunnerArchive(input: {
   archive: string;
   version: string;
   revision: string;
+  platform: (typeof RUNNER_PLATFORMS)[number];
   bootstrapSha256: string;
   runCommand: RunCommand;
 }): Promise<void> {
-  const { archive, version, revision, bootstrapSha256, runCommand } = input;
+  const { archive, version, revision, platform, bootstrapSha256, runCommand } =
+    input;
   const identityMember = "dist/bun/BUILD_IDENTITY.json";
   const bootstrapMember = "bin/install-dispatch-runner.sh";
   const members = [
     identityMember,
     bootstrapMember,
-    ...RUNNER_PLATFORMS.map(
-      (platform) =>
-        `dist/bun/dispatch-${version}-bun-${platform.replace("/", "-")}`
-    ),
+    "bin/dispatch-runner",
+    "bin/dispatch-runner.service",
+    "bin/runner-handoff-v1.py",
+    `dist/bun/dispatch-${version}-bun-${platform.replace("/", "-")}`,
   ];
-  const { stdout } = await runCommand("tar", ["tvf", archive, ...members]);
-  const entries = stdout.split("\n");
+  const { stdout } = await runCommand("tar", ["tvf", archive]);
+  const entries = stdout.trimEnd().split("\n");
+  if (entries.length !== members.length)
+    throw new Error("Runner archive contains unexpected members");
   for (const member of members) {
     const matches = entries.filter((entry) => entry.endsWith(` ${member}`));
     if (matches.length !== 1 || !matches[0]?.startsWith("-"))

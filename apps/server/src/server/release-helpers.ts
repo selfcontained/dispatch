@@ -24,6 +24,7 @@ export type GitHubReleaseMetadata = {
   url: string;
   body?: string | null;
   artifactSha256?: string;
+  assets?: Array<{ name: string; digest?: string }>;
 };
 
 export type GitHubReleaseListItem = {
@@ -201,7 +202,8 @@ export function createCheckIsAdmin(
 }
 
 export async function fetchReleaseMetadata(
-  tag: string
+  tag: string,
+  includeAssets = false
 ): Promise<GitHubReleaseMetadata | null> {
   try {
     const repo = await getGitHubRepo();
@@ -219,6 +221,7 @@ export async function fetchReleaseMetadata(
     )?.digest;
     return {
       tag: data.tag_name,
+      ...(includeAssets ? { assets: data.assets ?? [] } : {}),
       publishedAt: data.published_at,
       url: data.html_url,
       body: typeof data.body === "string" ? data.body.trim() : null,

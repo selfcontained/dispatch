@@ -164,7 +164,7 @@ describe("runner-initiated connect enrollment", () => {
         response.writeHead(status, {
           "content-type": "application/gzip",
           "content-disposition":
-            'attachment; filename="dispatch-server.tar.gz"',
+            'attachment; filename="dispatch-runner-linux-x64.tar.gz"',
         });
         response.flushHeaders();
         if (url.includes("/feed123/")) {
@@ -498,7 +498,14 @@ describe("runner-initiated connect enrollment", () => {
     ).toBe(404);
 
     const pinned = { ca: listener.caPem, rejectUnauthorized: true };
-    const archive = `${origin}/api/v1/runner-artifacts/abc1234/dispatch-server.tar.gz`;
+    const archive = `${origin}/api/v1/runner-artifacts/abc1234/dispatch-runner-linux-x64.tar.gz`;
+    for (const file of [
+      "install-dispatch-runner-linux-arm64.sh",
+      "install-dispatch-runner-linux-arm64.sh.sigstore.json",
+    ]) {
+      const bootstrap = `${origin}/api/v1/runner-artifacts/abc1234/${file}`;
+      expect((await get(bootstrap, pinned)).status).toBe(200);
+    }
     expect(await get(archive, pinned)).toMatchObject({
       status: 200,
       body: "archive",
@@ -519,7 +526,7 @@ describe("runner-initiated connect enrollment", () => {
   function artifactRequest(origin: string, revision: string) {
     const options = { agent: false as const, rejectUnauthorized: false };
     const request = https.get(
-      `${origin}/api/v1/runner-artifacts/${revision}/dispatch-server.tar.gz`,
+      `${origin}/api/v1/runner-artifacts/${revision}/dispatch-runner-linux-x64.tar.gz`,
       options
     );
     const response = new Promise<http.IncomingMessage>((resolve, reject) => {

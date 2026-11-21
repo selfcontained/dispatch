@@ -5,11 +5,15 @@ import {
   RUNNER_LISTENER_ORIGIN_HEADER,
   RunnerRequestError,
 } from "../agents/remote/service.js";
-import type { RunnerArtifactSource } from "../server/runner-artifacts.js";
+import {
+  RUNNER_ARCHES,
+  runnerArchiveName,
+  type RunnerArch,
+  type RunnerArtifactSource,
+} from "../server/runner-artifacts.js";
 import { hostHint } from "./runners.js";
 
 const BOOTSTRAP = "install-dispatch-runner.sh";
-const ARCHIVE = "dispatch-server.tar.gz";
 const DEV_FLAG = "--allow-unverified-dev-build";
 const ORIGIN =
   /^https?:\/\/(?:[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?|\[[0-9A-Fa-f:.]+\])(?::\d{1,5})?$/;
@@ -53,7 +57,10 @@ export type RunnerInstallScript = {
   /** The one-liner that fetched this script, quoted in the dev refusal. */
   command: string;
   /** Present only for an unverified dev build: digests to check instead. */
-  dev?: { bootstrapSha256: string; archiveSha256: string };
+  dev?: {
+    bootstrapSha256: string;
+    archiveSha256: Partial<Record<RunnerArch, string>>;
+  };
 };
 
 /**
@@ -74,7 +81,14 @@ export function runnerInstallScript(input: RunnerInstallScript) {
     throw new Error("Invalid runner version");
   if (
     dev &&
-    !(SHA256.test(dev.bootstrapSha256) && SHA256.test(dev.archiveSha256))
+    !(
+      SHA256.test(dev.bootstrapSha256) &&
+      RUNNER_ARCHES.every(
+        (arch) =>
+          dev.archiveSha256[arch] === undefined ||
+          SHA256.test(dev.archiveSha256[arch]!)
+      )
+    )
   )
     throw new Error("Invalid runner digest");
   const https = origin.startsWith("https://");
@@ -109,6 +123,23 @@ export function runnerInstallScript(input: RunnerInstallScript) {
           "  fi",
         ]
       : []),
+    `  [ "$(uname -s)" = Linux ] || ${fail("error: Dispatch runners require Linux.")}`,
+    '  case "$(uname -m)" in',
+    "    x86_64) arch=x64 ;;",
+    "    aarch64|arm64) arch=arm64 ;;",
+    `    *) ${fail("error: Dispatch runners require Linux on x64 or arm64.")} ;;`,
+    "  esac",
+    ...(dev
+      ? [
+          '  case "$arch" in',
+          ...RUNNER_ARCHES.map(
+            (arch) =>
+              `    ${arch}) digest=${quote(dev.archiveSha256[arch] ?? "")} ;;`
+          ),
+          "  esac",
+          `  [ -n "$digest" ] || ${fail("error: No dev runner payload is available for this architecture. Check the controller logs.")}`,
+        ]
+      : []),
     `  base=${quote(`${origin}/api/v1/runner-artifacts/${revision}`)}`,
     "  dir=$(mktemp -d)",
     "  trap 'rm -rf -- \"$dir\"' EXIT",
@@ -121,8 +152,8 @@ export function runnerInstallScript(input: RunnerInstallScript) {
             .join(" ")} > "$dir/ca.pem"`,
         ]
       : []),
-    `  fetch() { curl -qfsSL --proto '=${scheme}' --proto-redir '=${scheme}'${cacert} "$base/$1" -o "$dir/$1" < /dev/null; }`,
-    `  fetch ${BOOTSTRAP}`,
+    `  fetch() { curl -qfsSL --proto '=${scheme}' --proto-redir '=${scheme}'${cacert} "$base/$1" -o "$dir/\${2:-$1}" < /dev/null; }`,
+    `  fetch "install-dispatch-runner-linux-$arch.sh" ${BOOTSTRAP}${dev ? "" : ` || ${fail(`error: Could not download the release installer for ${build}. The controller must publish attested native runner payloads.`)}`}`,
     ...(dev
       ? [
           `  [ "$(sha256sum < "$dir/${BOOTSTRAP}" | cut -c1-64)" = '${dev.bootstrapSha256}' ] || ${fail(
@@ -131,7 +162,7 @@ export function runnerInstallScript(input: RunnerInstallScript) {
           `  echo ${quote(`warning: Installing an unverified dev build of ${build}. Only its SHA-256 digests are checked.`)} >&2`,
         ]
       : [
-          `  fetch ${BOOTSTRAP}.sigstore.json`,
+          `  fetch "install-dispatch-runner-linux-$arch.sh.sigstore.json" ${BOOTSTRAP}.sigstore.json`,
           // Match account_command in the installer when loading the user's gh.
           '  if [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != root ]; then',
           `    entry=$(getent -- passwd "$SUDO_USER") || ${fail("error: Cannot look up the invoking account for release verification.")}`,
@@ -155,7 +186,7 @@ export function runnerInstallScript(input: RunnerInstallScript) {
           `  run_gh attestation verify "$dir/${BOOTSTRAP}" --hostname github.com --bundle "$dir/${BOOTSTRAP}.sigstore.json" --repo selfcontained/dispatch --signer-workflow selfcontained/dispatch/.github/workflows/release.yml < /dev/null`,
         ]),
     `  bash "$dir/${BOOTSTRAP}" install --tag v${version} --source "$base"${cacert}${
-      dev ? ` --sha256 '${dev.archiveSha256}'` : ""
+      dev ? ' --sha256 "$digest"' : ""
     } "$@" < /dev/null`,
     ")",
     'dispatch_runner_install "$@"',
@@ -250,16 +281,29 @@ export function registerRunnerInstaller(
       let dev: RunnerInstallScript["dev"];
       if (artifacts.kind === "dev") {
         try {
-          const files = new Map(
-            (await artifacts.get()).files.map((file) => [
-              file.name,
-              file.sha256,
-            ])
+          const bootstrap = (await artifacts.get()).files.find(
+            (file) => file.name === BOOTSTRAP
           );
-          dev = {
-            bootstrapSha256: files.get(BOOTSTRAP)!,
-            archiveSha256: files.get(ARCHIVE)!,
-          };
+          if (!bootstrap)
+            throw new Error("The dev runner bootstrap is missing");
+          const archiveSha256: Partial<Record<RunnerArch, string>> = {};
+          await Promise.all(
+            RUNNER_ARCHES.map(async (arch) => {
+              try {
+                const { files } = await artifacts.get(arch);
+                const archive = files.find(
+                  (file) => file.name === runnerArchiveName(arch)
+                );
+                if (archive) archiveSha256[arch] = archive.sha256;
+              } catch (err) {
+                request.log.error(
+                  { err, arch },
+                  "Could not prepare runner dev payload"
+                );
+              }
+            })
+          );
+          dev = { bootstrapSha256: bootstrap.sha256, archiveSha256 };
         } catch (err) {
           request.log.error({ err }, "Could not prepare runner dev artifacts");
           return unavailableScript(

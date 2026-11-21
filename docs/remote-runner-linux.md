@@ -55,9 +55,14 @@ for its own build revision. Over the listener, every download trusts only
 the runner CA that the pinned script carries. For a release build, the
 script verifies the bootstrap's signed build provenance against
 `selfcontained/dispatch/.github/workflows/release.yml` before running it.
-The installer verifies `dispatch-server.tar.gz` with the same policy and
-extracts the Linux binary for the host's architecture and release tag. The
-published `.sigstore.json` sidecars carry the attestations. The installer
+The installer selects `dispatch-runner-linux-x64.tar.gz` or
+`dispatch-runner-linux-arm64.tar.gz` on the runner, verifies it with the
+same policy, and extracts the native binary. Each published asset has its
+own `.sigstore.json` attestation. Upgrade a controller whose release
+predates native payloads before installing from it. To preseed an offline
+controller, place the bootstrap, the payload for each architecture you
+use, and their attestation sidecars in `runner-vX.Y.Z/` under the
+Dispatch release cache. The installer
 accepts `--source URL` for the controller's revision-specific artifact
 endpoint and `--cacert FILE` for an HTTPS source; the script supplies them.
 
@@ -67,6 +72,21 @@ command with `-s -- --allow-unverified-dev-build`. Dev builds use SHA-256
 checks for the bootstrap and archive instead of release attestations. When
 invoking the installer directly, the dev flag requires both `--source URL`
 and `--sha256 HEX` for the archive digest.
+
+To prepare a development controller, build the Linux targets from the same
+checkout and revision as the controller. Put the bootstrap and the desired
+native payloads in the directory specified by
+`DISPATCH_RUNNER_ARTIFACT_DEV_DIR`:
+
+```sh
+DISPATCH_BUN_TARGETS=bun-linux-x64,bun-linux-arm64 pnpm run build:bun
+mkdir -p "$DISPATCH_RUNNER_ARTIFACT_DEV_DIR"
+cp bin/install-dispatch-runner.sh "$DISPATCH_RUNNER_ARTIFACT_DEV_DIR/"
+for arch in x64 arm64; do
+  bin/pack-release --runner-arch "$arch" \
+    --output "$DISPATCH_RUNNER_ARTIFACT_DEV_DIR/dispatch-runner-linux-$arch.tar.gz"
+done
+```
 
 For a manual installation, set `tag` to the exact published release:
 

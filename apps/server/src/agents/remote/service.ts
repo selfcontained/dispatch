@@ -199,7 +199,7 @@ export const RUNNER_LISTENER_INSTALL_PATH = "/install";
 /** Set only by the listener's relay: the origin its client connected to. */
 export const RUNNER_LISTENER_ORIGIN_HEADER = "x-dispatch-runner-listener";
 const RUNNER_ARTIFACT_PATH =
-  /^\/api\/v1\/runner-artifacts\/[a-f0-9]{7,40}\/(?:descriptor\.json|install-dispatch-runner\.sh(?:\.sigstore\.json)?|dispatch-server\.tar\.gz(?:\.sigstore\.json)?)$/;
+  /^\/api\/v1\/runner-artifacts\/[a-f0-9]{7,40}\/(?:descriptor-linux-(?:x64|arm64)\.json|install-dispatch-runner-linux-(?:x64|arm64)\.sh(?:\.sigstore\.json)?|dispatch-runner-linux-(?:x64|arm64)\.tar\.gz(?:\.sigstore\.json)?)$/;
 const PROXY_KEEP_ALIVE_TIMEOUT = 75_000;
 
 function validHost(host: string) {

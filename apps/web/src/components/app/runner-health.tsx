@@ -99,16 +99,29 @@ export function RunnerHealthDetails({ runner }: { runner: Runner }) {
         </p>
       </div>
     );
-  const update =
-    target?.command &&
-    /^v?\d+\.\d+\.\d+$/.test(health.version) &&
-    (isVersionNewer(target.version, health.version) ||
-      (target.version === health.version.replace(/^v/, "") &&
+  const reportedVersion = health.version.replace(/^v/, "");
+  const sameBuild =
+    target?.version === reportedVersion &&
+    target.revision &&
+    health.revision &&
+    sameRevision(health.revision, target.revision);
+  const comparable = target && /^\d+\.\d+\.\d+$/.test(reportedVersion);
+  const ahead = comparable && isVersionNewer(reportedVersion, target.version);
+  const updateAvailable =
+    comparable &&
+    (isVersionNewer(target.version, reportedVersion) ||
+      (target.version === reportedVersion &&
         target.revision &&
         health.revision &&
-        !sameRevision(health.revision, target.revision)))
-      ? { command: target.command, version: target.version }
-      : undefined;
+        !sameBuild));
+  const buildStatus = sameBuild
+    ? "Up to date"
+    : updateAvailable
+      ? "Update available"
+      : ahead
+        ? "Runner is newer"
+        : "Unknown";
+  const failure = health.maintenanceFailure;
   const stale = !isRunnerHealthFresh(runner);
   return (
     <details
@@ -122,8 +135,8 @@ export function RunnerHealthDetails({ runner }: { runner: Runner }) {
           {stale && "Last report · "}
           {health.sessions} {health.sessions === 1 ? "session" : "sessions"} ·{" "}
           {health.working} working
-          {health.maintenanceFailure &&
-            (health.maintenanceFailure.exitCode === 75
+          {failure &&
+            (failure.exitCode === 75
               ? " · Update deferred"
               : " · Update failed")}
         </span>
@@ -141,18 +154,33 @@ export function RunnerHealthDetails({ runner }: { runner: Runner }) {
         <dd>
           {health.version}
           {health.revision && (
-            <span className="ml-2 font-mono">{health.revision}</span>
+            <span className="ml-2 break-all font-mono">{health.revision}</span>
           )}
         </dd>
-        {health.maintenanceFailure && (
+        {target && (
+          <>
+            <dt>Wanted build</dt>
+            <dd>
+              {target.version}
+              {target.revision && (
+                <span className="ml-2 break-all font-mono">
+                  {target.revision}
+                </span>
+              )}
+            </dd>
+            <dt>Build status</dt>
+            <dd>{buildStatus}</dd>
+          </>
+        )}
+        {failure && (
           <>
             <dt>Last update attempt</dt>
             <dd>
-              {health.maintenanceFailure.exitCode === 75
-                ? "Deferred while the runner was busy"
-                : `Failed while ${maintenanceSteps[health.maintenanceFailure.step]}`}{" "}
-              (exit {health.maintenanceFailure.exitCode}) ·{" "}
-              <RunnerReportTime receivedAt={health.maintenanceFailure.at} />
+              {failure.exitCode === 75
+                ? "Deferred while an agent was working"
+                : `Failed while ${maintenanceSteps[failure.step]}`}{" "}
+              (exit {failure.exitCode}) ·{" "}
+              <RunnerReportTime receivedAt={failure.at} />
             </dd>
           </>
         )}
@@ -161,7 +189,7 @@ export function RunnerHealthDetails({ runner }: { runner: Runner }) {
           <RunnerReportTime receivedAt={healthReceivedAt} />
         </dd>
       </dl>
-      {health.maintenanceFailure && (
+      {failure && (
         <div className="mt-2 text-xs">
           <p>Read the updater’s error output on {runner.name}.</p>
           <RunnerCommand
@@ -170,18 +198,9 @@ export function RunnerHealthDetails({ runner }: { runner: Runner }) {
           />
         </div>
       )}
-      {update && (
-        <div className="mt-3 space-y-2 text-xs">
-          <p className="font-medium text-foreground">
-            Update available · {update.version}
-            <span className="ml-2 font-mono font-normal text-muted-foreground">
-              {target!.revision}
-            </span>
-          </p>
-          <p className="break-words">
-            Run this on {runner.name} after its sessions finish.
-          </p>
-          <RunnerCommand value={update.command} label="Update" />
+      {updateAvailable && target.command && (
+        <div className="mt-3 text-xs">
+          <RunnerCommand value={target.command} label="Update" />
         </div>
       )}
     </details>

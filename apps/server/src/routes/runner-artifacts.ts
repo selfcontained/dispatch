@@ -4,7 +4,8 @@ import {
   createRunnerArtifactSource,
   describeRunnerArtifacts,
   openRunnerArtifact,
-  RUNNER_ARTIFACT_FILES,
+  resolveRunnerArtifact,
+  RunnerPayloadUnavailable,
 } from "../server/runner-artifacts.js";
 
 declare module "fastify" {
@@ -14,9 +15,7 @@ declare module "fastify" {
 }
 
 const PREFIX = "/api/v1/runner-artifacts";
-const DESCRIPTOR = "descriptor.json";
 const REVISION = /^[a-f0-9]{7,40}$/;
-const FILE_NAMES = new Set<string>(RUNNER_ARTIFACT_FILES);
 
 export function registerRunnerArtifacts(
   app: FastifyInstance,
@@ -37,9 +36,10 @@ export function registerRunnerArtifacts(
     async (request, reply) => {
       reply.header("Cache-Control", "no-store");
       const { revision: requested, file: name } = request.params;
+      const artifactRoute = resolveRunnerArtifact(name);
       if (
         !REVISION.test(requested) ||
-        (name !== DESCRIPTOR && !FILE_NAMES.has(name)) ||
+        !artifactRoute ||
         request.url.split("?")[0] !== `${PREFIX}/${requested}/${name}`
       )
         return reply.code(404).send({ error: "Invalid runner artifact path." });
@@ -54,10 +54,11 @@ export function registerRunnerArtifacts(
         });
 
       try {
-        const artifacts = await source.get();
-        if (name === DESCRIPTOR)
-          return describeRunnerArtifacts(revision, version, artifacts);
-        const artifact = artifacts.files.find((file) => file.name === name);
+        const { arch, asset } = artifactRoute;
+        const artifacts = await source.get(arch);
+        if (!asset)
+          return describeRunnerArtifacts(revision, version, artifacts, arch);
+        const artifact = artifacts.files.find((file) => file.name === asset);
         if (!artifact)
           return reply
             .code(404)
@@ -85,6 +86,8 @@ export function registerRunnerArtifacts(
         }
         return reply.send(handle.createReadStream());
       } catch (err) {
+        if (err instanceof RunnerPayloadUnavailable)
+          return reply.code(404).send({ error: err.message });
         request.log.error({ err }, "Could not prepare runner artifacts");
         return reply.code(503).send({
           error:

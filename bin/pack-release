@@ -4,7 +4,7 @@ set -euo pipefail
 # Packs a release tarball containing the compiled Bun binaries and the helper
 # scripts used to install and manage them on a host machine.
 #
-# Usage: bin/pack-release [--output <path>]
+# Usage: bin/pack-release [--output <path>] [--runner-arch x64|arm64]
 #
 # The tarball includes:
 #   - Pre-built Bun binaries + checksums
@@ -16,28 +16,40 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUTPUT=""
+RUNNER_ARCH=""
 
 usage() {
   cat <<USAGE
-Usage: bin/pack-release [--output <path>]
+Usage: bin/pack-release [--output <path>] [--runner-arch x64|arm64]
 
 Packs a release tarball from the already-built Bun binaries.
 Requires that 'pnpm run build:bun' has already been run.
 
 Options:
-  --output <path>  Output tarball path (default: dispatch-server.tar.gz in repo root)
+  --output <path>       Output tarball path
+  --runner-arch <arch>  Pack only the native Linux runner (x64 or arm64)
 USAGE
 }
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --output) OUTPUT="$2"; shift 2 ;;
+    --runner-arch)
+      case "${2:-}" in
+        x64|arm64) RUNNER_ARCH="$2"; shift 2 ;;
+        *) echo "error: --runner-arch expects x64 or arm64" >&2; exit 1 ;;
+      esac
+      ;;
     --help|-h) usage; exit 0 ;;
     *) echo "error: unknown argument: $1" >&2; usage; exit 1 ;;
   esac
 done
 
-OUTPUT="${OUTPUT:-$ROOT_DIR/dispatch-server.tar.gz}"
+DEFAULT_NAME=dispatch-server.tar.gz
+if [[ -n "$RUNNER_ARCH" ]]; then
+  DEFAULT_NAME="dispatch-runner-linux-$RUNNER_ARCH.tar.gz"
+fi
+OUTPUT="${OUTPUT:-$ROOT_DIR/$DEFAULT_NAME}"
 
 # Validate that builds exist
 missing=()
@@ -58,21 +70,32 @@ trap 'rm -f "$MANIFEST"' EXIT
 
 # If you add a new runtime dependency (file, directory, config), add it to
 # this manifest AND to the pack-release.test.ts assertions.
-cat > "$MANIFEST" <<'LIST'
+if [[ -n "$RUNNER_ARCH" ]]; then
+  binaries=(dist/bun/dispatch-*-bun-linux-"$RUNNER_ARCH")
+  if [[ ${#binaries[@]} != 1 || ! -s "${binaries[0]}" || ! -s dist/bun/BUILD_IDENTITY.json ]]; then
+    echo "error: expected one Linux $RUNNER_ARCH runner and a build identity in dist/bun" >&2
+    exit 1
+  fi
+  printf '%s\n' "${binaries[0]}" dist/bun/BUILD_IDENTITY.json \
+    bin/install-dispatch-runner.sh bin/dispatch-runner bin/dispatch-runner.service \
+    bin/runner-handoff-v1.py > "$MANIFEST"
+else
+  cat > "$MANIFEST" <<'LIST'
 dist/bun
 README.md
 .env.example
 bin
 LIST
 
-# Conditionally include migrations if they exist
-if [[ -d "apps/server/src/db/migrations" ]]; then
-  echo "apps/server/src/db/migrations" >> "$MANIFEST"
-fi
+  # Conditionally include migrations if they exist
+  if [[ -d "apps/server/src/db/migrations" ]]; then
+    echo "apps/server/src/db/migrations" >> "$MANIFEST"
+  fi
 
-# Conditionally include release notes if they exist
-if [[ -f "release-notes/current.md" ]]; then
-  echo "release-notes/current.md" >> "$MANIFEST"
+  # Conditionally include release notes if they exist
+  if [[ -f "release-notes/current.md" ]]; then
+    echo "release-notes/current.md" >> "$MANIFEST"
+  fi
 fi
 
 # BSD tar on macOS otherwise stores Finder/xattr metadata (e.g. the

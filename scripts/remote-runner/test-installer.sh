@@ -211,6 +211,10 @@ openssl rsa -in "$root/private.pem" -pubout -out "$root/public.pem" 2>/dev/null
 mkdir -p "$root/archive/dist/bun" "$root/archive/bin"
 cp bin/{dispatch-runner,dispatch-runner.service,install-dispatch-runner.sh,runner-handoff-v1.py,pack-release} "$root/archive/bin/"
 touch "$root/archive/README.md" "$root/archive/.env.example"
+if "$root/archive/bin/pack-release" --runner-arch riscv64 > "$root/pack-error" 2>&1; then exit 1; fi
+grep -Fq 'expects x64 or arm64' "$root/pack-error"
+if "$root/archive/bin/pack-release" --runner-arch x64 > "$root/pack-error" 2>&1; then exit 1; fi
+grep -Fq 'expected one Linux x64 runner and a build identity' "$root/pack-error"
 for version in 1.0.0 1.0.1; do
   release="$root/releases/v$version"
   mkdir -p "$release"
@@ -226,11 +230,15 @@ RUNNER
       printf '# release-new %s\n' "$arch" >> "$root/archive/dist/bun/dispatch-$version-bun-linux-$arch"
     fi
   done
-  "$root/archive/bin/pack-release" --output "$release/dispatch-server.tar.gz" > /dev/null
-  tar -xOzf "$release/dispatch-server.tar.gz" bin/install-dispatch-runner.sh > "$release/bootstrap"
-  cmp bin/install-dispatch-runner.sh "$release/bootstrap"
-  openssl dgst -sha256 -sign "$root/private.pem" -out "$release/dispatch-server.tar.gz.sigstore.json" \
-    "$release/dispatch-server.tar.gz"
+  printf '{"version":"%s","revision":"abc1234"}\n' "$version" > "$root/archive/dist/bun/BUILD_IDENTITY.json"
+  for arch in x64 arm64; do
+    asset="$release/dispatch-runner-linux-$arch.tar.gz"
+    "$root/archive/bin/pack-release" --runner-arch "$arch" --output "$asset" > /dev/null
+    tar -xOzf "$asset" bin/install-dispatch-runner.sh > "$release/bootstrap"
+    cmp bin/install-dispatch-runner.sh "$release/bootstrap"
+    openssl dgst -sha256 -sign "$root/private.pem" -out "$asset.sigstore.json" "$asset"
+    rm "$root/archive/dist/bun/dispatch-$version-bun-linux-$arch"
+  done
 done
 
 run() { bash "$root/run" "${fixture_root:-$root}" "$@"; }
@@ -447,9 +455,9 @@ ln -s "$root/public.pem" "$hosted/public.pem"
 printf 'fixture-ca\n' > "$hosted/ca.pem"
 serve() {
   rm -f "$hosted/served/"*
-  cp "$root/releases/$1/dispatch-server.tar.gz" "$hosted/served/"
+  cp "$root/releases/$1/dispatch-runner-linux-"*.tar.gz "$hosted/served/"
   if [[ "${2:-}" != dev ]]; then
-    cp "$root/releases/$1/dispatch-server.tar.gz.sigstore.json" "$hosted/served/"
+    cp "$root/releases/$1/dispatch-runner-linux-"*.sigstore.json "$hosted/served/"
   fi
 }
 https_source=https://controller.test:7443/api/v1/runner-artifacts/abc1234
@@ -460,8 +468,14 @@ SUDO_USER=installer run apply v1.0.0 x64 --source "$https_source" --cacert "$hos
 grep -q 'release-new' "$hosted/runtime/dispatch" && exit 1
 grep -Fq '"uid": 1000' "$hosted/settings/runner.json"
 ! grep -q github.com "$hosted/curl"
-grep -Fq "$https_source/dispatch-server.tar.gz.sigstore.json" "$hosted/curl"
+grep -Fq "$https_source/dispatch-runner-linux-x64.tar.gz.sigstore.json" "$hosted/curl"
 grep -Fxq installer "$hosted/gh-users"
+if grep -Fq dispatch-runner-linux-arm64 "$hosted/curl"; then exit 1; fi
+# An old controller with only an aggregate must fail without requesting it.
+mv "$hosted/served/dispatch-runner-linux-x64.tar.gz" "$hosted/served/dispatch-server.tar.gz"
+SUDO_USER=installer expect_status 1 apply v1.0.0 x64 --source "$http_source" 2> "$hosted/err"
+grep -Fq 'Releases without native runner payloads are unsupported' "$hosted/err"
+if grep -Fq dispatch-server.tar.gz "$hosted/curl"; then exit 1; fi
 # An enrolled runner keeps its credentials and account across the update.
 printf 'enrolled\n' > "$hosted/settings/cert.pem"
 serve v1.0.1
@@ -480,7 +494,7 @@ grep -Fxq 'Runner already has the requested release.' "$hosted/out"
 cmp bin/install-dispatch-runner.sh "$hosted/runtime/install-dispatch-runner.sh"
 cmp bin/dispatch-runner "$hosted/runtime/runner-cli"
 # Bytes the controller serves still need the release signature.
-printf 'tampered\n' >> "$hosted/served/dispatch-server.tar.gz"
+printf 'tampered\n' >> "$hosted/served/dispatch-runner-linux-x64.tar.gz"
 SUDO_USER=installer expect_status 1 apply v1.0.1 x64 --source "$http_source"
 cmp "$hosted/current" "$hosted/runtime/dispatch"
 # Refuse a downgrade through both entry points, before fetching or stopping.
@@ -507,10 +521,10 @@ grep -Fxq 'Runner already has the requested release.' "$hosted/out"
 # A dev build has no signature. It is refused unless the operator accepts it,
 # and then only bytes that match the copied digest are used.
 serve v1.0.0 dev
-SUDO_USER=installer expect_status 22 apply v1.0.0 x64 --source "$http_source" --allow-downgrade
+SUDO_USER=installer expect_status 1 apply v1.0.0 x64 --source "$http_source" --allow-downgrade
 cmp "$hosted/current" "$hosted/runtime/dispatch"
 SUDO_USER=installer expect_status 1 apply v1.0.0 x64 --source "$http_source" --sha256 "$(printf '0%.0s' {1..64})"
-digest=$(sha256sum "$hosted/served/dispatch-server.tar.gz")
+digest=$(sha256sum "$hosted/served/dispatch-runner-linux-x64.tar.gz")
 digest=${digest%% *}
 SUDO_USER=installer expect_status 1 apply v1.0.0 x64 --allow-unverified-dev-build --sha256 "$digest"
 SUDO_USER=installer expect_status 1 apply v1.0.0 x64 --source "$http_source" --allow-unverified-dev-build \
@@ -526,7 +540,7 @@ done
 SUDO_USER=installer expect_status 1 apply v1.0.0 x64 --source "$http_source" --cacert "$hosted/ca.pem"
 unset fixture_root
 
-printf 'tampered\n' >> "$root/releases/v1.0.1/dispatch-server.tar.gz"
+printf 'tampered\n' >> "$root/releases/v1.0.1/dispatch-runner-linux-x64.tar.gz"
 expect_status 1 update v1.0.1
 cmp "$root/original" "$root/runtime/dispatch"
 printf 'Runner installer fixtures passed.\n'

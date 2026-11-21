@@ -24,14 +24,22 @@ const revision = "123456abcdef";
 const version = "1.2.3";
 const tag = `v${version}`;
 const url = `/api/v1/runner-artifacts/${revision}`;
-const descriptor = `${url}/descriptor.json`;
+const descriptor = `${url}/descriptor-linux-x64.json`;
 const bootstrapName = "install-dispatch-runner.sh";
-const archiveName = cache.RELEASE_ARTIFACT_NAME;
+const bootstrapRoute = "install-dispatch-runner-linux-x64.sh";
+const bootstrapBundleRoute = `${bootstrapRoute}.sigstore.json`;
+const archiveName = "dispatch-runner-linux-x64.tar.gz";
 const archiveBundle = `${archiveName}.sigstore.json`;
 const bootstrapBundle = `${bootstrapName}.sigstore.json`;
 const bootstrap = "#!/bin/bash\necho runner fixture\n";
 const digest = (data: Buffer | string) =>
   createHash("sha256").update(data).digest("hex");
+
+function releaseAssets(sha256: string) {
+  return [bootstrapName, bootstrapBundle, archiveName, archiveBundle].map(
+    (name) => ({ name, digest: `sha256:${sha256}` })
+  );
+}
 
 let temp: string;
 let inputs: string;
@@ -40,7 +48,8 @@ let app: FastifyInstance;
 
 async function buildFixture(options?: {
   revision?: string;
-  omitArm64?: boolean;
+  includeArm64?: boolean;
+  wrongArch?: boolean;
 }) {
   await mkdir(path.join(source, "dist/bun"), { recursive: true });
   await mkdir(path.join(source, "bin"), { recursive: true });
@@ -54,18 +63,26 @@ async function buildFixture(options?: {
       version,
     })
   );
-  for (const arch of options?.omitArm64 ? ["x64"] : ["x64", "arm64"]) {
-    await writeFile(
-      path.join(source, "dist/bun", `dispatch-${version}-bun-linux-${arch}`),
-      arch
-    );
+  const members = [`bin/${bootstrapName}`, "dist/bun/BUILD_IDENTITY.json"];
+  for (const helper of [
+    "bin/dispatch-runner",
+    "bin/dispatch-runner.service",
+    "bin/runner-handoff-v1.py",
+  ]) {
+    await writeFile(path.join(source, helper), "fixture");
+    members.push(helper);
+  }
+  for (const arch of options?.includeArm64
+    ? ["x64", "arm64"]
+    : [options?.wrongArch ? "arm64" : "x64"]) {
+    const binary = `dist/bun/dispatch-${version}-bun-linux-${arch}`;
+    await writeFile(path.join(source, binary), arch);
+    members.push(binary);
   }
   await commands.runCommand(
     "tar",
-    ["czf", path.join(inputs, archiveName), "dist", "bin"],
-    {
-      cwd: source,
-    }
+    ["czf", path.join(inputs, archiveName), ...members],
+    { cwd: source }
   );
 }
 
@@ -77,7 +94,10 @@ async function seedRelease() {
   const archive = cache.cachedTarballPath(tag);
   const companions = path.join(path.dirname(archive), `runner-${tag}`);
   await mkdir(companions, { recursive: true });
-  await copyFile(path.join(inputs, archiveName), archive);
+  await copyFile(
+    path.join(inputs, archiveName),
+    path.join(companions, archiveName)
+  );
   await copyFile(
     path.join(inputs, bootstrapName),
     path.join(companions, bootstrapName)
@@ -124,7 +144,7 @@ describe("runner artifact routes", () => {
     expect(response.json().error).toContain("disabled");
   });
 
-  it("describes dev files and streams the aggregate with its length and digest", async () => {
+  it("describes dev files and streams the requested native payload with its length and digest", async () => {
     await buildFixture();
     vi.stubEnv("DISPATCH_RUNNER_ARTIFACT_DEV_DIR", inputs);
     start();
@@ -156,16 +176,16 @@ describe("runner artifact routes", () => {
       version,
       source: "dev",
       verified: false,
-      platforms: ["linux/x64", "linux/arm64"],
+      platforms: ["linux/x64"],
       files: {
-        [bootstrapName]: {
+        [bootstrapRoute]: {
           size: Buffer.byteLength(bootstrap),
           sha256: digest(bootstrap),
         },
         [archiveName]: { size, sha256 },
       },
     });
-    expect((await app.inject(`${url}/${bootstrapName}`)).body).toBe(bootstrap);
+    expect((await app.inject(`${url}/${bootstrapRoute}`)).body).toBe(bootstrap);
     expect((await app.inject(`${url}/${archiveBundle}`)).statusCode).toBe(404);
   });
 
@@ -174,7 +194,7 @@ describe("runner artifact routes", () => {
     vi.stubEnv("DISPATCH_RUNNER_ARTIFACT_DEV_DIR", inputs);
     start();
     const response = await app.inject(
-      "/api/v1/runner-artifacts/deadbeef/descriptor.json"
+      "/api/v1/runner-artifacts/deadbeef/descriptor-linux-x64.json"
     );
     expect(response.statusCode).toBe(404);
     expect(response.json().error).toContain("running revision");
@@ -182,10 +202,10 @@ describe("runner artifact routes", () => {
 
   it.each([
     [`${url}/package.json`, "unknown file"],
-    [`${url}/descriptor%2ejson`, "percent-encoded alias"],
+    [`${url}/descriptor-linux-x64%2ejson`, "percent-encoded alias"],
     [`${url}/..%2fpackage.json`, "encoded traversal"],
     [
-      `/api/v1/runner-artifacts/${revision.toUpperCase()}/descriptor.json`,
+      `/api/v1/runner-artifacts/${revision.toUpperCase()}/descriptor-linux-x64.json`,
       "uppercase revision",
     ],
     [`${url}/linux/arm64/${archiveName}`, "extra path components"],
@@ -212,8 +232,15 @@ describe("runner artifact routes", () => {
     expect((await lstat(file)).isSymbolicLink()).toBe(true);
   });
 
-  it("rejects an aggregate missing one of the advertised platforms", async () => {
-    await buildFixture({ omitArm64: true });
+  it("rejects a payload containing a second platform", async () => {
+    await buildFixture({ includeArm64: true });
+    vi.stubEnv("DISPATCH_RUNNER_ARTIFACT_DEV_DIR", inputs);
+    start();
+    expect((await app.inject(descriptor)).statusCode).toBe(503);
+  });
+
+  it("rejects an arm64 binary in an x64 payload", async () => {
+    await buildFixture({ wrongArch: true });
     vi.stubEnv("DISPATCH_RUNNER_ARTIFACT_DEV_DIR", inputs);
     start();
     expect((await app.inject(descriptor)).statusCode).toBe(503);
@@ -247,9 +274,9 @@ describe("runner artifact routes", () => {
       version,
     });
     expect(Object.keys(result.json().files).sort()).toEqual(
-      [bootstrapName, bootstrapBundle, archiveName, archiveBundle].sort()
+      [bootstrapRoute, bootstrapBundleRoute, archiveName, archiveBundle].sort()
     );
-    for (const bundle of [bootstrapBundle, archiveBundle]) {
+    for (const bundle of [bootstrapBundleRoute, archiveBundle]) {
       const response = await app.inject(`${url}/${bundle}`);
       expect(response.statusCode).toBe(200);
       expect(response.body).toBe("{}\n");
@@ -283,47 +310,49 @@ describe("runner artifact routes", () => {
       .spyOn(releases, "fetchReleaseMetadata")
       .mockResolvedValue({
         tag,
-        artifactSha256: archiveSha256,
+        assets: releaseAssets(archiveSha256),
         url: "",
         publishedAt: "",
       });
-    const archive = vi
-      .spyOn(cache, "ensureCachedTarball")
-      .mockImplementation(async () => {
-        const file = cache.cachedTarballPath(tag);
-        await mkdir(path.dirname(file), { recursive: true });
-        await copyFile(path.join(inputs, archiveName), file);
-        return { tag, path: file, bytes: 1 };
-      });
+    const archive = vi.spyOn(cache, "ensureCachedTarball");
     const companion = vi
       .spyOn(cache, "downloadReleaseCompanion")
       .mockImplementation(async ({ name, destination }) => {
         await mkdir(path.dirname(destination), { recursive: true });
-        await writeFile(
-          destination,
-          name === bootstrapName ? bootstrap : "{}\n"
-        );
+        if (name === archiveName)
+          await copyFile(path.join(inputs, name), destination);
+        else
+          await writeFile(
+            destination,
+            name === bootstrapName ? bootstrap : "{}\n"
+          );
       });
     start(true);
     const pending = await Promise.all(
-      [descriptor, `${url}/${archiveName}`, `${url}/${bootstrapName}`].map(
+      [descriptor, `${url}/${archiveName}`, `${url}/${bootstrapRoute}`].map(
         (path) => app.inject(path)
       )
     );
     expect(pending.map((response) => response.statusCode)).toEqual([
       200, 200, 200,
     ]);
-    expect(metadata).toHaveBeenCalledTimes(1);
-    expect(archive).toHaveBeenCalledTimes(1);
+    expect(metadata).toHaveBeenCalledTimes(2);
+    expect(archive).not.toHaveBeenCalled();
     expect(companion.mock.calls.map(([asset]) => asset.name).sort()).toEqual(
-      [bootstrapName, bootstrapBundle, archiveBundle].sort()
+      [bootstrapName, bootstrapBundle, archiveName, archiveBundle].sort()
     );
   });
 
   it("serves no artifact when provenance verification fails", async () => {
     await buildFixture();
     await seedRelease();
-    mockAttestations("signature verification failed");
+    const gh = mockAttestations();
+    const verify = gh.getMockImplementation()!;
+    gh.mockImplementation((cmd, args, options) =>
+      cmd === "gh" && args[2]?.endsWith(archiveName)
+        ? Promise.reject(new Error("signature verification failed"))
+        : verify(cmd, args, options)
+    );
     start(true);
     for (const target of [descriptor, `${url}/${archiveName}`]) {
       const response = await app.inject(target);
@@ -333,21 +362,25 @@ describe("runner artifact routes", () => {
     const archive = cache.cachedTarballPath(tag);
     const companions = path.join(path.dirname(archive), `runner-${tag}`);
     await expect(
-      lstat(path.join(companions, bootstrapName))
+      lstat(path.join(companions, archiveName))
     ).rejects.toMatchObject({ code: "ENOENT" });
     await expect(
-      lstat(path.join(companions, bootstrapBundle))
+      lstat(path.join(companions, archiveBundle))
     ).rejects.toMatchObject({ code: "ENOENT" });
   });
 
   it("keeps rejecting a cache fill whose archive differs from the published digest", async () => {
     await buildFixture();
     await seedRelease();
-    const archive = cache.cachedTarballPath(tag);
-    await rm(path.join(path.dirname(archive), `runner-${tag}`, archiveBundle));
+    const archive = path.join(
+      path.dirname(cache.cachedTarballPath(tag)),
+      `runner-${tag}`,
+      archiveName
+    );
+    await rm(path.join(path.dirname(archive), archiveBundle));
     vi.spyOn(releases, "fetchReleaseMetadata").mockResolvedValue({
       tag,
-      artifactSha256: digest("other bytes"),
+      assets: releaseAssets(digest("other bytes")),
       url: "",
       publishedAt: "",
     });
@@ -363,27 +396,29 @@ describe("runner artifact routes", () => {
     await expect(lstat(archive)).rejects.toMatchObject({ code: "ENOENT" });
   });
 
-  it("suppresses installer offers and refetches a malformed cache entry after 60 seconds", async () => {
+  it("keeps an architecture-specific failure from disabling the shared installer and retries after 60 seconds", async () => {
     let now = 0;
     await buildFixture();
     await seedRelease();
-    const archive = cache.cachedTarballPath(tag);
-    const companions = path.join(path.dirname(archive), `runner-${tag}`);
+    const companions = path.join(
+      path.dirname(cache.cachedTarballPath(tag)),
+      `runner-${tag}`
+    );
     const malformed = path.join(companions, archiveBundle);
     await rm(malformed);
     const outside = path.join(inputs, "keep");
     await writeFile(outside, "{}");
     await symlink(outside, malformed);
-    const archiveSha256 = await files.hashRegular(archive);
+    const archiveSha256 = await files.hashRegular(
+      path.join(companions, archiveName)
+    );
     mockAttestations();
-    const metadata = vi
-      .spyOn(releases, "fetchReleaseMetadata")
-      .mockResolvedValue({
-        tag,
-        artifactSha256: archiveSha256,
-        url: "",
-        publishedAt: "",
-      });
+    vi.spyOn(releases, "fetchReleaseMetadata").mockResolvedValue({
+      tag,
+      assets: releaseAssets(archiveSha256),
+      url: "",
+      publishedAt: "",
+    });
     const download = vi
       .spyOn(cache, "downloadReleaseCompanion")
       .mockImplementation(async ({ destination }) => {
@@ -401,23 +436,60 @@ describe("runner artifact routes", () => {
         listenerInstall: () => undefined,
       },
     });
-    const offer = async () =>
-      (await app.inject("/api/v1/runners/installer")).json().command;
-    expect(await offer()).toBeTruthy();
     expect((await app.inject(descriptor)).statusCode).toBe(503);
     await expect(lstat(malformed)).rejects.toMatchObject({ code: "ENOENT" });
     expect((await lstat(outside)).isFile()).toBe(true);
+    expect(
+      (await app.inject("/api/v1/runners/installer")).json().command
+    ).toBeTruthy();
     now = 59_999;
-    expect(await offer()).toBeNull();
     expect((await app.inject(descriptor)).statusCode).toBe(503);
-    expect(metadata).not.toHaveBeenCalled();
+    expect(download).not.toHaveBeenCalled();
     now = 60_000;
     expect((await app.inject(descriptor)).statusCode).toBe(200);
     expect(download).toHaveBeenCalledOnce();
     expect(download).toHaveBeenCalledWith(
       expect.objectContaining({ destination: malformed })
     );
-    expect(await offer()).toBeTruthy();
+  });
+
+  it("refuses to download a native release payload with no published digest", async () => {
+    vi.spyOn(releases, "fetchReleaseMetadata").mockResolvedValue({
+      tag,
+      assets: releaseAssets(digest("native")).map(({ name }) => ({ name })),
+      url: "",
+      publishedAt: "",
+    });
+    const download = vi
+      .spyOn(cache, "downloadReleaseCompanion")
+      .mockRejectedValue(new Error("unexpected download"));
+    start(true);
+    expect((await app.inject(`${url}/${archiveName}`)).statusCode).toBe(503);
+    expect(download).not.toHaveBeenCalled();
+  });
+
+  it("clearly refuses older releases without downloading their aggregate", async () => {
+    vi.spyOn(releases, "fetchReleaseMetadata").mockResolvedValue({
+      tag,
+      assets: releaseAssets(digest("aggregate"))
+        .filter(({ name }) => name !== archiveName && name !== archiveBundle)
+        .concat([
+          {
+            name: cache.RELEASE_ARTIFACT_NAME,
+            digest: "sha256:" + digest("aggregate"),
+          },
+        ]),
+      url: "",
+      publishedAt: "",
+    });
+    const download = vi.spyOn(cache, "downloadReleaseCompanion");
+    start(true);
+    const response = await app.inject(`${url}/${archiveName}`);
+    expect(response.statusCode).toBe(404);
+    expect(response.json().error).toContain(
+      "Upgrade the controller to a release with native runner payloads"
+    );
+    expect(download).not.toHaveBeenCalled();
   });
 
   it("never follows a release companion directory symlink during repair", async () => {
@@ -446,12 +518,19 @@ describe("runner artifact routes", () => {
     mockAttestations();
     start(true);
     expect((await app.inject(descriptor)).statusCode).toBe(200);
-    await writeFile(cache.cachedTarballPath(tag), "replacement bytes");
+    await writeFile(
+      path.join(
+        path.dirname(cache.cachedTarballPath(tag)),
+        `runner-${tag}`,
+        archiveName
+      ),
+      "replacement bytes"
+    );
     expect((await app.inject(descriptor)).statusCode).toBe(503);
     expect((await app.inject(`${url}/${archiveName}`)).statusCode).toBe(503);
   });
 
-  it("rejects an attested aggregate from a different build of the same version", async () => {
+  it("rejects an attested native payload from a different build of the same version", async () => {
     await buildFixture({ revision: "deadbeefcafe" });
     await seedRelease();
     mockAttestations();
@@ -468,6 +547,7 @@ describe("runner artifact routes", () => {
     await seedRelease();
     mockAttestations();
     start(true);
+    expect((await app.inject(`${url}/${bootstrapRoute}`)).statusCode).toBe(503);
     expect((await app.inject(descriptor)).statusCode).toBe(503);
   });
 });

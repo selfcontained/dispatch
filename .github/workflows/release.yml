@@ -395,7 +395,14 @@ jobs:
           DISPATCH_NOTARY_KEYCHAIN_PROFILE: dispatch-release-notary
 
       - name: Pack release artifact
-        run: bin/pack-release --output dispatch-server.tar.gz
+        run: |
+          bin/pack-release --output dispatch-server.tar.gz
+          # A recovery run may build a tag that predates native runner assets.
+          if bin/pack-release --help | grep -q -- --runner-arch; then
+            for arch in x64 arm64; do
+              bin/pack-release --runner-arch "$arch" --output "dispatch-runner-linux-$arch.tar.gz"
+            done
+          fi
 
       - name: Upload release bundle
         uses: actions/upload-artifact@v7
@@ -405,6 +412,7 @@ jobs:
           path: |
             dist/bun/
             dispatch-server.tar.gz
+            dispatch-runner-linux-*.tar.gz
             release-notes/current.md
           retention-days: 7
 
@@ -829,6 +837,12 @@ jobs:
             test -s install-dispatch-runner.sh
             echo "present=true" >> "$GITHUB_OUTPUT"
           fi
+          if [ -f dispatch-runner-linux-x64.tar.gz ] || [ -f dispatch-runner-linux-arm64.tar.gz ]; then
+            test -s dispatch-runner-linux-x64.tar.gz
+            test -s dispatch-runner-linux-arm64.tar.gz
+            test -s install-dispatch-runner.sh
+            echo "native=true" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Attest the Linux-containing release bundle
         id: attest-bundle
@@ -842,6 +856,20 @@ jobs:
         uses: actions/attest-build-provenance@v3
         with:
           subject-path: install-dispatch-runner.sh
+
+      - name: Attest the Linux x64 runner
+        if: steps.runner-bootstrap.outputs.native == 'true'
+        id: attest-runner-x64
+        uses: actions/attest-build-provenance@v3
+        with:
+          subject-path: dispatch-runner-linux-x64.tar.gz
+
+      - name: Attest the Linux arm64 runner
+        if: steps.runner-bootstrap.outputs.native == 'true'
+        id: attest-runner-arm64
+        uses: actions/attest-build-provenance@v3
+        with:
+          subject-path: dispatch-runner-linux-arm64.tar.gz
 
       - name: Create GitHub prerelease from tested artifacts
         run: |
@@ -860,6 +888,11 @@ jobs:
             cp "$BOOTSTRAP_ATTESTATION" install-dispatch-runner.sh.sigstore.json
             ASSETS+=(install-dispatch-runner.sh install-dispatch-runner.sh.sigstore.json)
           fi
+          if [ -n "$RUNNER_X64_ATTESTATION" ] && [ -n "$RUNNER_ARM64_ATTESTATION" ]; then
+            cp "$RUNNER_X64_ATTESTATION" dispatch-runner-linux-x64.tar.gz.sigstore.json
+            cp "$RUNNER_ARM64_ATTESTATION" dispatch-runner-linux-arm64.tar.gz.sigstore.json
+            ASSETS+=(dispatch-runner-linux-{x64,arm64}.tar.gz{,.sigstore.json})
+          fi
           gh release create "$TAG" \
             --repo "${{ github.repository }}" \
             --verify-tag \
@@ -872,6 +905,8 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           BUNDLE_ATTESTATION: ${{ steps.attest-bundle.outputs.bundle-path }}
           BOOTSTRAP_ATTESTATION: ${{ steps.attest-runner-bootstrap.outputs.bundle-path }}
+          RUNNER_X64_ATTESTATION: ${{ steps.attest-runner-x64.outputs.bundle-path }}
+          RUNNER_ARM64_ATTESTATION: ${{ steps.attest-runner-arm64.outputs.bundle-path }}
 
   publish-macos-appcast:
     needs:

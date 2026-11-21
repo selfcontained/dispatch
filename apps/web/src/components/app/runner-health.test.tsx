@@ -127,18 +127,18 @@ describe("update command", () => {
         command,
       };
       render(<RunnerHealthDetails runner={health(reported)} />);
-      expect(screen.getByText(/Update available · 1\.7\.28/)).toBeTruthy();
+      expect(screen.getByText("Update available")).toBeTruthy();
       expect(screen.getByTestId("command-Update").textContent).toBe(command);
     }
   );
 
   it.each([
-    ["1.2.3", true],
-    ["1.2.10", false],
-    ["unknown", false],
+    ["1.2.3", "Update available", true],
+    ["1.2.10", "Runner is newer", false],
+    ["unknown", "Unknown", false],
   ])(
     "shows an update for a different revision at runner version %s only when eligible",
-    (reported, offered) => {
+    (reported, status, offered) => {
       installer.data = {
         revision: "2c8f997d5349",
         version: "1.2.3",
@@ -146,7 +146,8 @@ describe("update command", () => {
         command,
       };
       render(<RunnerHealthDetails runner={health("8fa2787f", reported)} />);
-      expect(Boolean(screen.queryByText(/Update available/))).toBe(offered);
+      expect(screen.getByText(status)).toBeTruthy();
+      expect(Boolean(screen.queryByTestId("command-Update"))).toBe(offered);
     }
   );
 
@@ -163,6 +164,43 @@ describe("update command", () => {
     };
     render(<RunnerHealthDetails runner={health(reported)} />);
     expect(screen.queryByText(/Update available/)).toBeNull();
+    if (reported === "2c8f997")
+      expect(screen.getByText("Up to date")).toBeTruthy();
     expect(screen.queryByTestId("command-Update")).toBeNull();
   });
+  it.each([
+    [75, "Deferred while an agent was working"],
+    [1, "Failed while downloading or verifying the release"],
+  ])(
+    "keeps build status and records the last update result for exit %d",
+    (exitCode, reason) => {
+      installer.data = {
+        version: "1.2.3",
+        revision: "2c8f997d5349",
+        source: "dev",
+        command,
+      };
+      const reported = health("8fa2787f");
+      render(
+        <RunnerHealthDetails
+          runner={{
+            ...reported,
+            health: {
+              ...reported.health,
+              maintenanceFailure: { exitCode, step: "stage", at: receivedAt },
+            },
+          }}
+        />
+      );
+      expect(screen.getByText("Wanted build")).toBeTruthy();
+      expect(screen.getByText("2c8f997d5349")).toBeTruthy();
+      expect(screen.getByText("Runner version")).toBeTruthy();
+      expect(screen.getByText("8fa2787f")).toBeTruthy();
+      expect(screen.getByText("Update available")).toBeTruthy();
+      expect(
+        screen.getByText(exitCode === 75 ? /Update deferred/ : /Update failed/)
+      ).toBeTruthy();
+      expect(screen.getByText(`${reason} (exit ${exitCode}) ·`)).toBeTruthy();
+    }
+  );
 });
