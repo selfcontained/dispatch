@@ -237,27 +237,6 @@ function CreateAgentDialogContent({
                           {form.repoStatus}
                         </p>
                       )}
-                      {form.repository && !form.repoStatus && (
-                        <WorktreeSection
-                          key={form.repository}
-                          runner={{
-                            id: form.runnerId,
-                            repository: form.repository,
-                            browse: !!form.runner?.repositoryPicker,
-                          }}
-                          cwd=""
-                          worktreeAvailable
-                          useWorktree
-                          baseBranch={form.runnerBranch}
-                          onBaseBranchChange={form.setRunnerBranch}
-                          worktreeBranch={form.runnerNewBranch}
-                          onWorktreeBranchChange={form.setRunnerNewBranch}
-                          createNewBranch={form.branchMode === "new"}
-                          onCreateNewBranchChange={(checked) =>
-                            form.setBranchMode(checked ? "new" : "existing")
-                          }
-                        />
-                      )}
                     </>
                   )}
                   {form.runnerId || task ? null : (
@@ -293,10 +272,14 @@ function CreateAgentDialogContent({
                     onChange={form.setCreatePersona}
                   />
                 )}
-                {form.runnerId ? null : (
+                {form.checkoutVisible && (
                   <WorktreeSection
-                    cwd={form.createCwd}
+                    key={form.branchSource?.repository}
+                    cwd={form.branchSource ? "" : form.createCwd}
+                    branchSource={form.branchSource}
+                    pullRequests={Boolean(form.branchSource)}
                     worktreeAvailable={form.worktreeAvailable}
+                    worktreeOptional={form.worktreeOptional}
                     useWorktree={form.createUseWorktree}
                     onUseWorktreeChange={form.setCreateUseWorktree}
                     baseBranch={form.createBaseBranch}

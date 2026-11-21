@@ -1,7 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { GitBranch, Info } from "lucide-react";
 
-import { BranchSelect } from "@/components/app/branch-select";
+import {
+  BranchSelect,
+  type BranchSelectProps,
+} from "@/components/app/branch-select";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   Tooltip,
@@ -14,8 +17,13 @@ import { cn } from "@/lib/utils";
 
 type WorktreeSectionProps = {
   cwd: string;
-  runner?: { id: string; repository: string; browse: boolean };
+  /** Lists branches from this repository instead of the local folder. */
+  branchSource?: BranchSelectProps["runner"];
+  /** Accept a pull request URL when opening an existing branch. */
+  pullRequests?: boolean;
   worktreeAvailable: boolean;
+  /** False when the checkout always uses a managed worktree. */
+  worktreeOptional?: boolean;
   useWorktree: boolean;
   onUseWorktreeChange?: (value: boolean) => void;
   baseBranch: string;
@@ -28,8 +36,10 @@ type WorktreeSectionProps = {
 
 export function WorktreeSection({
   cwd,
-  runner,
+  branchSource,
+  pullRequests = false,
   worktreeAvailable,
+  worktreeOptional = true,
   useWorktree,
   onUseWorktreeChange,
   baseBranch,
@@ -73,9 +83,9 @@ export function WorktreeSection({
             onCheckedChange={(checked) =>
               onUseWorktreeChange?.(checked === true)
             }
-            disabled={!worktreeAvailable || !!runner}
+            disabled={!worktreeAvailable || !worktreeOptional}
             title={
-              runner
+              !worktreeOptional
                 ? "Runner repositories use a managed worktree"
                 : worktreeAvailable
                   ? "Toggle managed git worktree"
@@ -132,8 +142,8 @@ export function WorktreeSection({
             <div className="ml-8 w-[calc(100%-2rem)]">
               <BranchSelect
                 cwd={cwd}
-                runner={runner}
-                allowPullRequest={!!runner && !createNewBranch}
+                runner={branchSource}
+                allowPullRequest={pullRequests && !createNewBranch}
                 baseBranch={baseBranch}
                 onBaseBranchChange={onBaseBranchChange}
                 worktreeBranch={worktreeBranch}
@@ -174,7 +184,7 @@ export function WorktreeSection({
                 />
               </div>
             </div>
-            {runner && (
+            {!worktreeOptional && (
               <p className="ml-8 text-xs text-muted-foreground">
                 Archiving removes this worktree. Commit and push changes you
                 want to keep.

@@ -64,6 +64,8 @@ type CwdPathInfo = {
   isGitRepo: boolean;
 };
 
+const FRESH_CHECKOUT = { baseBranch: "", createNewBranch: true };
+
 type ValidatedCwd = CwdPathInfo & {
   cwd: string;
 };
@@ -102,9 +104,7 @@ export function useCreateAgentForm({
     setCreateEffort(null);
     setChosenRepo(null);
     setRunnerProjectId(undefined);
-    setRunnerNewBranch("");
-    setRunnerBranch("");
-    setBranchMode("new");
+    resetRepositoryCheckout();
     setRunnerId(id);
     setRunnerWorkspace(null);
   };
@@ -144,17 +144,12 @@ export function useCreateAgentForm({
     retry: false,
   });
   const [chosenRepo, setChosenRepo] = useState<string | null>(null);
-  const [branchMode, setBranchMode] = useState<"new" | "existing">("new");
-  const [runnerNewBranch, setRunnerNewBranch] = useState("");
-  const [runnerBranch, setRunnerBranch] = useState("");
   const repository = chosenRepo ?? projectRepository.data?.url ?? "";
   const chooseRepo = (url: string) => {
     if (task || !parseRunnerRepositoryUrl(url)) return;
     setRunnerProjectId(null);
     setChosenRepo(url);
-    setRunnerNewBranch("");
-    setRunnerBranch("");
-    setBranchMode("new");
+    resetRepositoryCheckout();
   };
   const repoStatus =
     !managedSession || !selectedProjectId
@@ -170,24 +165,11 @@ export function useCreateAgentForm({
               : !parseRunnerRepositoryUrl(repository)
                 ? "This project has no supported HTTPS repository linked."
                 : null;
-  const repoReady =
-    !managedSession ||
-    (!repoStatus &&
-      (!repository ||
-        (branchMode === "new"
-          ? (!runnerBranch || validBranch(runnerBranch.trim())) &&
-            (!runnerNewBranch.trim() || validBranch(runnerNewBranch.trim()))
-          : validBranch(runnerBranch.trim()) ||
-            /^https:\/\/github\.com\/[^/]+\/[^/]+\/pull\/[1-9]\d*\/?$/.test(
-              runnerBranch.trim()
-            ))));
   const setCreateProjectId = (id: string | null) => {
     if (managedSession) {
       setRunnerProjectId(id);
       setChosenRepo(null);
-      setBranchMode("new");
-      setRunnerNewBranch("");
-      setRunnerBranch("");
+      resetRepositoryCheckout();
       return;
     }
     setLocationChoice({ projectId: id });
@@ -213,9 +195,6 @@ export function useCreateAgentForm({
     return isLocalFolder(resolved) ? resolved : readLastUsedCwd();
   });
   const createCwd = remote ? remoteCwd : (project?.repoRoot ?? folderCwd);
-  const locationReady = runnerId
-    ? Boolean(remoteCwd) && repoReady && (!selectedProjectId || projectsLoaded)
-    : isLocalFolder(createCwd) && (!selectedProjectId || projectsLoaded);
   const [createCwdInitialized, setCreateCwdInitialized] = useState(
     () => createCwd.trim().length > 0
   );
@@ -250,15 +229,56 @@ export function useCreateAgentForm({
     setPersona: setCreatePersona,
     fullAccess: savedCreateFullAccess,
     setFullAccess: setCreateFullAccess,
-    useWorktree: createUseWorktree,
+    useWorktree: savedUseWorktree,
     setUseWorktree: setCreateUseWorktree,
-    baseBranch: createBaseBranch,
-    setBaseBranch: setCreateBaseBranch,
-    createNewBranch,
-    setCreateNewBranch,
+    baseBranch: savedBaseBranch,
+    setBaseBranch: setSavedBaseBranch,
+    createNewBranch: savedCreateNewBranch,
+    setCreateNewBranch: setSavedCreateNewBranch,
     model: nativeModel,
     setModel: setNativeModel,
   } = useCreateAgentPrefs(createCwd, createType);
+  // One checkout choice for both placements. A local folder remembers it per
+  // folder; a runner repository starts on its default branch each time.
+  const [repositoryChoice, setRepositoryChoice] = useState(FRESH_CHECKOUT);
+  const resetRepositoryCheckout = () => {
+    setRepositoryChoice(FRESH_CHECKOUT);
+    setCreateWorktreeBranch("");
+  };
+  // A managed repository checkout always uses a worktree.
+  const worktreeOptional = !managedSession;
+  const createUseWorktree = worktreeOptional ? savedUseWorktree : true;
+  const createBaseBranch = worktreeOptional
+    ? savedBaseBranch
+    : repositoryChoice.baseBranch;
+  const createNewBranch = worktreeOptional
+    ? savedCreateNewBranch
+    : repositoryChoice.createNewBranch;
+  const setCreateBaseBranch = (baseBranch: string) =>
+    worktreeOptional
+      ? setSavedBaseBranch(baseBranch)
+      : setRepositoryChoice((choice) => ({ ...choice, baseBranch }));
+  const setCreateNewBranch = (createNewBranch: boolean) =>
+    worktreeOptional
+      ? setSavedCreateNewBranch(createNewBranch)
+      : setRepositoryChoice((choice) => ({ ...choice, createNewBranch }));
+  // Blank or this value leaves the base to the server's default.
+  const defaultBaseBranch = worktreeOptional ? "main" : "";
+  const repoReady =
+    !managedSession ||
+    (!repoStatus &&
+      (!repository ||
+        (createNewBranch
+          ? (!createBaseBranch || validBranch(createBaseBranch.trim())) &&
+            (!createWorktreeBranch.trim() ||
+              validBranch(createWorktreeBranch.trim()))
+          : validBranch(createBaseBranch.trim()) ||
+            /^https:\/\/github\.com\/[^/]+\/[^/]+\/pull\/[1-9]\d*\/?$/.test(
+              createBaseBranch.trim()
+            ))));
+  const locationReady = runnerId
+    ? Boolean(remoteCwd) && repoReady && (!selectedProjectId || projectsLoaded)
+    : isLocalFolder(createCwd) && (!selectedProjectId || projectsLoaded);
   const createFullAccess = createType === "opencode" || savedCreateFullAccess;
   const {
     options: nativeOptions,
@@ -422,7 +442,8 @@ export function useCreateAgentForm({
   }, [createProjectId, createCwd, handlePathInfoChange, remote]);
   const currentCwd = createCwd.trim();
   const worktreeAvailable =
-    validatedCwd?.cwd === currentCwd && validatedCwd.isGitRepo;
+    !worktreeOptional ||
+    (validatedCwd?.cwd === currentCwd && validatedCwd.isGitRepo);
 
   const handleStartupPaste = useCallback(
     (event: ClipboardEvent<HTMLElement>) => {
@@ -470,55 +491,46 @@ export function useCreateAgentForm({
       setCreating(true);
       try {
         const latestPathInfo = validatedCwdRef.current;
-        const submitUseWorktree =
-          !remote &&
-          latestPathInfo?.cwd === cwd &&
-          latestPathInfo.isGitRepo &&
-          createUseWorktree;
+        const repositoryUrl = managedSession ? repository.trim() : "";
+        const base = createBaseBranch.trim();
+        // A pull request URL is still resolved here and sent as a checkout
+        // plan. Everything else sends worktree intent the server resolves.
+        const pullRequest =
+          repositoryUrl && !createNewBranch && base.startsWith("https://");
+        const submitUseWorktree = repositoryUrl
+          ? !pullRequest
+          : !remote &&
+            latestPathInfo?.cwd === cwd &&
+            latestPathInfo.isGitRepo &&
+            createUseWorktree;
         const submitCreateNewBranch = submitUseWorktree && createNewBranch;
         const contextInitialPrompt =
           step === "context" ? initialPrompt.trim() || undefined : undefined;
-        // A runner repository sends the same worktree intent as a local
-        // launch; the server resolves the checkout. Only a pull request URL
-        // is still resolved here and sent as a checkout plan.
         let checkout;
-        let runnerIntent;
-        if (managedSession && repository.trim()) {
-          const branch = runnerBranch.trim();
-          if (branchMode === "existing" && branch.startsWith("https://")) {
-            if (!runnerId || !runner?.githubManagement)
-              throw new Error(
-                "Update this runner to open a pull request by URL, or enter a branch name."
-              );
-            const pr = new URL(branch);
-            const repo = new URL(repository.trim());
-            if (
-              pr.hostname !== repo.hostname ||
-              pr.pathname.split("/").slice(0, 3).join("/").toLowerCase() !==
-                repo.pathname.replace(/\.git$|\/$/g, "").toLowerCase()
-            )
-              throw new Error(
-                "Choose a pull request from the selected repository."
-              );
-            const head = await api<{ url: string; branch: string }>(
-              `/api/v1/runners/${encodeURIComponent(runnerId)}/pull-request-head?url=${encodeURIComponent(branch)}`
+        if (pullRequest) {
+          if (!runnerId || !runner?.githubManagement)
+            throw new Error(
+              "Update this runner to open a pull request by URL, or enter a branch name."
             );
-            checkout = {
-              url: head.url,
-              checkout: { kind: "branch", branch: head.branch },
-            };
-          } else {
-            checkout = { url: repository.trim() };
-            runnerIntent = {
-              useWorktree: true,
-              createNewBranch: branchMode === "new",
-              worktreeBranch:
-                branchMode === "new"
-                  ? runnerNewBranch.trim() || undefined
-                  : undefined,
-              baseBranch: branch || undefined,
-            };
-          }
+          const pr = new URL(base);
+          const repo = new URL(repositoryUrl);
+          if (
+            pr.hostname !== repo.hostname ||
+            pr.pathname.split("/").slice(0, 3).join("/").toLowerCase() !==
+              repo.pathname.replace(/\.git$|\/$/g, "").toLowerCase()
+          )
+            throw new Error(
+              "Choose a pull request from the selected repository."
+            );
+          const head = await api<{ url: string; branch: string }>(
+            `/api/v1/runners/${encodeURIComponent(runnerId)}/pull-request-head?url=${encodeURIComponent(base)}`
+          );
+          checkout = {
+            url: head.url,
+            checkout: { kind: "branch", branch: head.branch },
+          };
+        } else if (repositoryUrl) {
+          checkout = { url: repositoryUrl };
         }
         const payloadBase = {
           name: createName.trim(),
@@ -544,12 +556,11 @@ export function useCreateAgentForm({
             ? createWorktreeBranch.trim() || undefined
             : undefined,
           baseBranch:
-            submitUseWorktree && createBaseBranch !== "main"
-              ? createBaseBranch
+            submitUseWorktree && base && base !== defaultBaseBranch
+              ? base
               : undefined,
           initialPrompt: contextInitialPrompt,
           taskId: task?.id,
-          ...runnerIntent,
         };
         const resolvedStartupLinks = startupLinks;
         const useStartupContext =
@@ -604,9 +615,7 @@ export function useCreateAgentForm({
       runnerId,
       runner?.githubManagement,
       repository,
-      branchMode,
-      runnerBranch,
-      runnerNewBranch,
+      defaultBaseBranch,
       locationReady,
       runnerEngineBlocked,
       runnerEnginesLoading,
@@ -649,13 +658,7 @@ export function useCreateAgentForm({
     managedSession,
     repository,
     chooseRepo,
-    branchMode,
-    setBranchMode,
-    runnerNewBranch,
-    setRunnerNewBranch,
     runner,
-    runnerBranch,
-    setRunnerBranch,
     repoStatus,
     selectRunner,
     runnerWorkspace,
@@ -719,6 +722,20 @@ export function useCreateAgentForm({
     cwdHistoryMetadata,
     removeCwdHistory,
     worktreeAvailable,
+    worktreeOptional,
+    // The checkout controls show for a local folder, or once a runner
+    // repository is chosen and its origin is known.
+    checkoutVisible: runnerId
+      ? managedSession && Boolean(repository) && !repoStatus
+      : true,
+    branchSource:
+      managedSession && runner
+        ? {
+            id: runner.id,
+            repository,
+            browse: Boolean(runner.repositoryPicker),
+          }
+        : undefined,
     startupFilePreviewsRef,
     handlePathInfoChange,
     appendStartupFiles,

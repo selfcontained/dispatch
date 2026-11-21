@@ -62,6 +62,17 @@ function baseBranch(): HTMLButtonElement {
 }
 
 describe("WorktreeSection", () => {
+  it("locks the worktree on when it is not optional and warns about archiving", () => {
+    render(<WorktreeSection {...defaultProps} worktreeOptional={false} />);
+    expect(checkbox("create-agent-worktree").disabled).toBe(true);
+    expect(checkbox("create-agent-new-branch").disabled).toBe(false);
+    expect(screen.getByText(/Archiving removes this worktree/)).toBeTruthy();
+    cleanup();
+    render(<WorktreeSection {...defaultProps} />);
+    expect(checkbox("create-agent-worktree").disabled).toBe(false);
+    expect(screen.queryByText(/Archiving removes this worktree/)).toBeNull();
+  });
+
   it("renders saved true values unchecked and collapses branch controls outside a git repo", () => {
     render(<WorktreeSection {...defaultProps} worktreeAvailable={false} />);
 
