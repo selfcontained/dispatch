@@ -7,11 +7,13 @@ import {
   type RemoteRunnerService,
 } from "./service.js";
 import type { RunnerEngineTransport } from "./engine-manager.js";
+import type { FastifyBaseLogger } from "fastify";
 import type { RunnerEngine } from "@dispatch/runner-protocol";
 import type { AgentType } from "../../shared/agent-types.js";
 import type { RunnerModelCatalogSource } from "../../shared/agent-models.js";
 
 const MODEL_CATALOG_TTL_MS = 15_000;
+const UNAVAILABLE_CATALOG_TTL_MS = 3_000;
 
 type CachedCatalog = {
   request: Promise<EngineOperationAck>;
@@ -19,7 +21,8 @@ type CachedCatalog = {
 };
 
 export function remoteEngineTransport(
-  service: RemoteRunnerService
+  service: RemoteRunnerService,
+  log?: Pick<FastifyBaseLogger, "warn" | "debug">
 ): RunnerEngineTransport {
   const catalogs = new Map<string, Map<RunnerEngine, CachedCatalog>>();
   const invalidate = (runnerId: string) => catalogs.delete(runnerId);
@@ -143,19 +146,30 @@ export function remoteEngineTransport(
         const pending: CachedCatalog = {
           expiresAt: Infinity,
           request: transport.send(runnerId, operation).then((ack) => {
-            if (
+            const available =
               ack.ok &&
               ack.capability?.type === "model_catalog" &&
-              ack.capability.catalog.models.length > 0
-            ) {
-              pending.expiresAt = Date.now() + MODEL_CATALOG_TTL_MS;
-            } else if (
-              catalogs.get(runnerId) === entries &&
-              entries.get(engine) === pending
-            ) {
+              ack.capability.catalog.models.length > 0;
+            const ttl = available
+              ? MODEL_CATALOG_TTL_MS
+              : UNAVAILABLE_CATALOG_TTL_MS;
+            pending.expiresAt = Date.now() + ttl;
+            if (!ack.ok) {
+              log?.[ack.unsupported ? "debug" : "warn"](
+                { runnerId, agentType: engine, reason: ack.error },
+                "Runner model catalog unavailable"
+              );
+            }
+            // Expire even disconnected runner IDs that will never reconnect.
+            setTimeout(() => {
+              if (
+                catalogs.get(runnerId) !== entries ||
+                entries.get(engine) !== pending
+              )
+                return;
               entries.delete(engine);
               if (entries.size === 0) invalidate(runnerId);
-            }
+            }, ttl).unref();
             return ack;
           }),
         };
@@ -200,8 +214,7 @@ export function runnerModelCatalogSource(
       type: "model_catalog",
       engine: agentType as RunnerEngine,
     });
-    if (!ack.ok) throw new Error(ack.error);
-    return ack.capability?.type === "model_catalog"
+    return ack.ok && ack.capability?.type === "model_catalog"
       ? ack.capability.catalog
       : null;
   };

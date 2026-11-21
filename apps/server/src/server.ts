@@ -241,7 +241,7 @@ const remoteRunner = configuredRunner({
     validateJobMcpToken(config.authToken, token, runId, agentId),
 });
 const runnerEngines = remoteRunner
-  ? remoteEngineTransport(remoteRunner)
+  ? remoteEngineTransport(remoteRunner, app.log)
   : undefined;
 setRunnerModelCatalogSource(
   runnerEngines ? runnerModelCatalogSource(runnerEngines) : null,
