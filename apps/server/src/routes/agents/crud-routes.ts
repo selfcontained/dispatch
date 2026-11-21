@@ -1,3 +1,4 @@
+import { admitLaunch } from "../../agents/launch-admission.js";
 import { isCheckoutStateId } from "@dispatch/runner-protocol";
 import {
   MANAGED_WORKSPACE,
@@ -238,27 +239,25 @@ export async function registerAgentCrudRoutes(
       } catch (error) {
         return reply.code(400).send({ error: errorMessage(error) });
       }
-      if (
-        managed &&
-        body.projectId &&
-        body.projectId !== taskBriefing.projectId
-      )
-        return reply
-          .code(400)
-          .send({ error: "Choose the task’s project for its runner session." });
-      if (!body.projectId && (managed || !body.cwd))
-        body.projectId = taskBriefing.projectId;
     }
-    if (body.projectId && body.cwd && !managed)
+    const admission = admitLaunch({
+      phase: "api",
+      caller: taskBriefing ? "task" : "createAgent",
+      target: !placement
+        ? "folder"
+        : managed
+          ? "managedRepository"
+          : "configuredWorkspace",
+      cwd: body.cwd,
+      projectId:
+        typeof body.projectId === "string" ? body.projectId : undefined,
+      taskProjectId: taskBriefing?.projectId,
+    });
+    if (!admission.ok)
       return reply
-        .code(400)
-        .send({ error: "Choose a project or a folder, not both." });
-
-    if (!body.projectId && typeof body?.cwd !== "string") {
-      return reply
-        .code(400)
-        .send({ error: "Body must include cwd as a string." });
-    }
+        .code(admission.statusCode)
+        .send({ error: admission.message });
+    body.projectId = admission.projectId;
 
     let repository: unknown;
     let parsedAgentArgs: string[] | undefined;
@@ -475,6 +474,7 @@ export async function registerAgentCrudRoutes(
           // or run a turn, so its first task_comment finds it a member.
           ...(taskBriefing && typeof body.taskId === "string"
             ? {
+                caller: "task",
                 beforeLaunch: (agentId: string) =>
                   deps.tasks!.assignCreated(body.taskId as string, agentId),
               }

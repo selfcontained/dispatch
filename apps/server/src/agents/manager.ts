@@ -54,6 +54,7 @@ import {
 } from "./archive-checkout.js";
 import type { ArchiveOutcome } from "./archive-policy.js";
 import { AgentError } from "./errors.js";
+import { admitLaunch } from "./launch-admission.js";
 import { type AgentEventBus, createAgentEventBus } from "./events.js";
 import { runLifecycleHook } from "./lifecycle-hooks.js";
 import {
@@ -116,7 +117,7 @@ import {
   type CheckoutQuery,
   type CheckoutReply,
 } from "./remote/protocol.js";
-import { parseRepository, parseRepositoryTarget } from "./remote/repository.js";
+import { parseRepository } from "./remote/repository.js";
 import { RunnerRevoked, type RemoteRunnerService } from "./remote/service.js";
 import { buildLaunchEnv } from "./acp/launch-env.js";
 import { dispatchMcpUrl } from "./acp/mcp-url.js";
@@ -232,6 +233,15 @@ type CreateAgentInput = {
   projectId?: string | null;
   repository?: unknown;
 };
+
+function callerForLaunch(input: CreateAgentInput, taskCaller?: "task") {
+  if (input.jobRunId) return "job";
+  if (taskCaller) return taskCaller;
+  if (input.role === "review") return "review";
+  if (input.launchedByAgentId)
+    return input.parentAgentId ? "mcpChild" : "mcpIndependent";
+  return input.templateId ? "template" : "createAgent";
+}
 
 type StopAgentInput = {
   force?: boolean;
@@ -1662,6 +1672,8 @@ export class AgentManager {
     input: CreateAgentInput,
     options: {
       detachLaunch?: boolean;
+      /** Trusted origin for task launches through the API or templates. */
+      caller?: "task";
       /** Trusted shared-checkout launch, never accepted from an HTTP launch payload. */
       useWorktreeOf?: string;
       /** Trusted MCP launch with its own checkout on the caller's runner. */
@@ -1676,46 +1688,34 @@ export class AgentManager {
     const independentSource = independentCheckoutOf
       ? await this.getAgent(independentCheckoutOf)
       : null;
-    if (
-      independentCheckoutOf &&
-      (!independentSource ||
-        !remotePlacement(independentSource.cwd) ||
-        input.cwd !== independentSource.cwd ||
-        input.launchedByAgentId !== independentSource.id ||
-        (input.parentAgentId && input.parentAgentId !== independentSource.id) ||
-        (input.fullAccess && !independentSource.fullAccess) ||
-        (input.persona && !options.taskPersonaBody) ||
-        useWorktreeOf)
-    )
-      throw new AgentError("Invalid independent runner checkout binding.", 400);
+    const hasPersonaBody = Boolean(options.taskPersonaBody);
+    if (independentCheckoutOf) {
+      const decision = admitLaunch({
+        phase: "independentBinding",
+        input,
+        owner: independentSource,
+        hasPersonaBody,
+        borrowsCheckout: Boolean(useWorktreeOf),
+      });
+      if (!decision.ok)
+        throw new AgentError(decision.message, decision.statusCode);
+    }
     if (independentSource) input.projectId = independentSource.projectId;
     if (useWorktreeOf !== undefined) {
-      const owner = await this.getAgent(useWorktreeOf);
-      if (
-        !owner ||
-        input.launchedByAgentId !== owner.id ||
-        !input.parentAgentId ||
-        input.repository ||
-        input.useWorktree ||
-        (input.cwd !== owner.cwd && input.cwd !== reviewerWorkspace(owner)) ||
-        (input.projectId !== undefined && input.projectId !== owner.projectId)
-      )
-        throw new AgentError("Invalid shared checkout binding.", 400);
-      if (input.role === "review") {
-        if (!input.persona)
-          throw new AgentError("Missing reviewer persona.", 400);
-      } else if (
-        input.parentAgentId !== owner.id ||
-        !remotePlacement(owner.cwd) ||
-        (input.fullAccess && !owner.fullAccess) ||
-        (input.persona && !options.taskPersonaBody)
-      ) {
-        throw new AgentError("Invalid child checkout binding.", 400);
-      }
+      const candidate = await this.getAgent(useWorktreeOf);
+      const ownerWorkdir = candidate ? reviewerWorkspace(candidate) : undefined;
+      const decision = admitLaunch({
+        phase: "sharedBinding",
+        input,
+        owner: candidate,
+        ownerWorkdir,
+        hasPersonaBody,
+      });
+      if (!decision.ok)
+        throw new AgentError(decision.message, decision.statusCode);
+      const { owner, parentId } = decision;
       const displayParent =
-        input.parentAgentId === owner.id
-          ? owner
-          : await this.getAgent(input.parentAgentId);
+        parentId === owner.id ? owner : await this.getAgent(parentId);
       if (!displayParent || displayParent.projectId !== owner.projectId)
         throw new AgentError(
           "Display parent must belong to the requester's project.",
@@ -1729,67 +1729,45 @@ export class AgentManager {
     const managed = placement
       ? (this.remote?.isManagedWorkspace(placement) ?? false)
       : false;
-    const repository = (() => {
-      if (input.repository === undefined) return undefined;
-      if (!managed)
-        throw new AgentError(
-          "Repository checkout requires a managed runner session.",
-          400
-        );
-      try {
-        return parseRepositoryTarget(input.repository);
-      } catch (error) {
-        throw new AgentError(errorMessage(error), 400);
-      }
-    })();
-    if (placement) {
-      if (
-        !this.remote?.available(placement) ||
-        this.config.agentRuntime !== "acp"
-      ) {
-        throw new AgentError(
-          "The enrolled runner workspace is unavailable.",
-          409
-        );
-      }
-      if (
-        (!useWorktreeOf && !independentSource && input.parentAgentId) ||
-        (!managed &&
-          (input.jobRunId ||
-            input.useWorktree ||
-            // A project template selects an existing configured workspace.
-            // Project membership is validated below and remains host state.
-            Boolean(input.projectId) !== Boolean(input.templateId))) ||
-        (input.persona &&
-          !useWorktreeOf &&
-          !options.taskPersonaBody &&
-          !input.templateId &&
-          !input.jobRunId)
-      ) {
-        throw new AgentError(
-          "Runner launches require a standalone agent and runner-managed storage.",
-          400
-        );
-      }
-      if (
-        input.initialFiles?.length &&
-        !this.remote.supportsSessionFiles(placement)
-      )
-        throw new AgentError(
-          "Update the runner to launch with startup files.",
-          409
-        );
-      if (useWorktreeOf && !this.remote.supportsSharedWorktree(placement))
-        throw new AgentError(
-          "Update the runner to launch an agent in an existing checkout.",
-          409
-        );
-      // A repository named without a checkout plan always gets a managed
-      // worktree, resolved from the launch's worktree intent below.
-      input.useWorktree = repository
-        ? !repository.checkout
-        : input.useWorktree === true;
-    }
+    const workspace = !placement
+      ? "folder"
+      : managed
+        ? "managedRepository"
+        : "configuredWorkspace";
+    const remoteService = this.remote;
+    const runtime = this.config.agentRuntime;
+    const admission = admitLaunch({
+      phase: "manager",
+      caller: callerForLaunch(input, options.caller),
+      target: useWorktreeOf ? { borrowed: workspace } : workspace,
+      input,
+      hasIndependentBinding: Boolean(independentSource),
+      hasPersonaBody,
+      capabilities: {
+        get available() {
+          return (
+            !placement ||
+            (remoteService?.available(placement) === true && runtime === "acp")
+          );
+        },
+        get sessionFiles() {
+          return (
+            !placement ||
+            remoteService?.supportsSessionFiles(placement) === true
+          );
+        },
+        get sharedWorktree() {
+          return (
+            !placement ||
+            remoteService?.supportsSharedWorktree(placement) === true
+          );
+        },
+      },
+    });
+    if (!admission.ok)
+      throw new AgentError(admission.message, admission.statusCode);
+    const { repository } = admission;
+    if (placement) input.useWorktree = admission.useWorktree;
     let projectRoot: string | undefined;
     if (input.templateId) {
       const template = (

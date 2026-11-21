@@ -7,6 +7,7 @@ import type { Pool } from "pg";
 
 import type { AgentManager, AgentRecord } from "../agents/manager.js";
 import { AgentError } from "../agents/errors.js";
+import { admitLaunch } from "../agents/launch-admission.js";
 import { agentWorkspaceDir } from "../agents/workspace-target.js";
 import { detectFileType } from "../files/file-type.js";
 import { fileMetadataFromBuffer } from "../files/metadata.js";
@@ -368,22 +369,19 @@ async function handleLaunchAgent(
   }
   const parentCwd = agentWorkspaceDir(parent) ?? parent.cwd;
   const runnerParent = remotePlacement(parent.cwd);
-  const templateRunner = template && remotePlacement(template.directory);
-  if (
-    (runnerParent &&
-      ((input.cwd !== undefined && input.cwd !== parent.cwd) ||
-        (templateRunner && template?.directory !== parent.cwd) ||
-        (template?.projectId && template.projectId !== parent.projectId))) ||
-    (!runnerParent && remotePlacement(input.cwd ?? template?.directory ?? ""))
-  ) {
-    throw new AgentError(
-      "A child launch cannot select a checkout on another runner or outside the caller's project.",
-      400
-    );
-  }
-  const cwd = runnerParent
-    ? parent.cwd
-    : (input.cwd ?? template?.directory ?? parentCwd);
+  const child = input.child !== false;
+  const admissionInput = {
+    caller: child ? "mcpChild" : "mcpIndependent",
+    sourceCwd: parent.cwd,
+    sourceWorkdir: parentCwd,
+    sourceProjectId: parent.projectId,
+    cwd: input.cwd,
+    template,
+  } as const;
+  const admission = admitLaunch({ phase: "mcpTarget", ...admissionInput });
+  if (!admission.ok)
+    throw new AgentError(admission.message, admission.statusCode);
+  const { cwd } = admission;
   const persona = input.persona ?? template?.persona ?? undefined;
   const selectedPersona =
     input.persona || (runnerParent && persona)
@@ -429,7 +427,6 @@ async function handleLaunchAgent(
       ...(launched.warnings ? { warnings: launched.warnings } : {}),
     };
   }
-  const child = input.child !== false;
   // Depth cap: the sidebar renders a child as a row inside its parent's card,
   // and that row has nowhere to render children of its own — a grandchild would
   // simply stop being visible. So a child may only launch outside the lineage.
@@ -538,14 +535,11 @@ async function handleLaunchAgent(
     unknownArgs = rendered.unknownArgs;
   }
 
-  if (
-    !runnerParent &&
-    template?.projectId &&
-    input.cwd &&
-    input.cwd !== template.directory
-  ) {
-    throw new Error("Project template directory cannot be overridden.");
-  }
+  const templateAdmission = admitLaunch({
+    phase: "mcpTemplate",
+    ...admissionInput,
+  });
+  if (!templateAdmission.ok) throw new Error(templateAdmission.message);
 
   const launch: Parameters<AgentManager["createAgent"]>[0] = {
     name: input.name,

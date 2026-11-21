@@ -305,7 +305,7 @@ export class TemplateService {
     )
       throw new Error("Project template directory cannot be overridden.");
     const cwd = input.directory ?? template.directory;
-    const agent = await this.agentManager.createAgent({
+    const launch = {
       name: input.name?.trim() || sanitizeAgentName(template.name),
       type: resolvedType,
       model: resolvedModel,
@@ -321,7 +321,10 @@ export class TemplateService {
       initialFiles: input.startupFiles ?? [],
       templateId: template.id,
       ...(input.projectId ? { projectId: input.projectId } : {}),
-    });
+    };
+    const agent = input.resolvedTemplate
+      ? await this.agentManager.createAgent(launch, { caller: "task" })
+      : await this.agentManager.createAgent(launch);
 
     this.logger.info(
       {

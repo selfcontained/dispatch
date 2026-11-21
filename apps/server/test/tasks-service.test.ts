@@ -1323,6 +1323,7 @@ describe("triggers", () => {
     for (const args of createAgent.mock.calls)
       expect(args).toEqual([
         expect.objectContaining({ cwd, projectId, templateId: TEMPLATE_ID }),
+        { caller: "task" },
       ]);
   });
 
@@ -3913,7 +3914,8 @@ it("passes normalized workspace/model options to the shared template launcher", 
       useWorktree: true,
       baseBranch: "main",
       worktreeBranch: "task/lead",
-    })
+    }),
+    { caller: "task" }
   );
 });
 
