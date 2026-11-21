@@ -20,14 +20,6 @@ export type ComparisonBaseAgent = WorkspaceTargetAgent & {
 /** The launch checkout a runner session was created from, if any. */
 export type LaunchCheckout = RunnerRepository["checkout"] | null | undefined;
 
-// D2: an existing native branch keeps its own base. Runner branches and PRs
-// let the runner determine the comparison base.
-const PLACEMENT_RULES = {
-  local: (agent: ComparisonBaseAgent) => agent.baseBranch ?? null,
-  runner: (_agent: ComparisonBaseAgent, launch: LaunchCheckout) =>
-    launch?.kind === "new" ? (launch.base ?? null) : null,
-};
-
 /**
  * The branch an agent's work is compared against, computed by the service
  * and passed explicitly to the local and runner executors alike. A moved
@@ -42,9 +34,13 @@ export async function agentComparisonBase(
 ): Promise<string | null> {
   if (agent.workspacePath) return agent.workspaceBaseBranch ?? null;
   const isRunner = Boolean(agent.cwd && remotePlacement(agent.cwd));
-  const launchBase = isRunner
-    ? PLACEMENT_RULES.runner(agent, launch)
-    : PLACEMENT_RULES.local(agent);
+  // Existing-branch launches compare against the opened branch, including PR
+  // heads. Older runner rows may only have that branch in the checkout plan.
+  const existingBranch =
+    launch?.kind === "branch" || launch?.kind === "pr" ? launch.branch : null;
+  const storedBase = !isRunner || existingBranch ? agent.baseBranch : null;
+  const launchBase =
+    launch?.kind === "new" ? launch.base : (storedBase ?? existingBranch);
   if (launchBase) return launchBase;
 
   const managed =

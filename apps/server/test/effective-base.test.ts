@@ -48,6 +48,50 @@ describe("agentComparisonBase", () => {
     ],
     [
       {
+        name: "existing branch, ahead of origin with edits",
+        agent: { baseBranch: "feature" },
+        launch: { kind: "branch", branch: "feature" },
+      },
+      "feature",
+    ],
+    [
+      {
+        name: "existing branch, fully pushed",
+        agent: { baseBranch: "feature" },
+        launch: { kind: "branch", branch: "feature" },
+      },
+      "feature",
+    ],
+    [
+      {
+        name: "existing branch, local ref only",
+        agent: { baseBranch: "feature" },
+        launch: { kind: "branch", branch: "feature" },
+      },
+      "feature",
+    ],
+    [
+      {
+        name: "existing branch, plain checkout with a stored base",
+        agent: {
+          baseBranch: "feature",
+          worktreePath: null,
+          worktreeBranch: null,
+        },
+        launch: { kind: "branch", branch: "feature" },
+      },
+      "feature",
+    ],
+    [
+      {
+        name: "PR source resolved to a branch checkout",
+        agent: { baseBranch: "pr-head" },
+        launch: { kind: "branch", branch: "pr-head" },
+      },
+      "pr-head",
+    ],
+    [
+      {
         name: "moved workspace with a base",
         agent: { workspacePath: "/elsewhere", workspaceBaseBranch: "release" },
         launch: { kind: "new", branch: "topic", base: "develop" },
@@ -73,34 +117,34 @@ describe("agentComparisonBase", () => {
     }
   });
 
-  // Unknown runner defaults still resolve on the runner. D2 is unchanged.
-  it.each<[Shape, string | null, string | null]>([
-    [
-      {
-        name: "new branch, no base picked (D1)",
-        agent: {},
-        launch: { kind: "new", branch: "topic" },
-      },
-      "main",
-      null,
-    ],
-    [
-      {
-        name: "existing branch (D2)",
-        agent: { baseBranch: "feature" },
-        launch: { kind: "branch", branch: "feature" },
-      },
-      "feature",
-      null,
-    ],
-  ])("keeps today's placement rule: %o", async (shape, local, runner) => {
+  it.each<LaunchCheckout>([
+    { kind: "branch", branch: "feature" },
+    { kind: "pr", branch: "feature", number: 42 },
+  ])("uses the checkout branch for a legacy runner row: %o", async (launch) => {
+    const agent = agentFor(REMOTE, { name: "legacy", agent: {} });
+    for (const use of USES) {
+      await expect(agentComparisonBase(agent, use, launch)).resolves.toBe(
+        "feature"
+      );
+    }
+  });
+
+  it("leaves unresolved defaults to the runner", async () => {
+    const shape: Shape = {
+      name: "new branch, no base picked (D1)",
+      agent: {},
+      launch: { kind: "new", branch: "topic" },
+    };
     for (const use of USES) {
       await expect(
         agentComparisonBase(agentFor(LOCAL, shape), use)
-      ).resolves.toBe(local);
+      ).resolves.toBe("main");
       await expect(
         agentComparisonBase(agentFor(REMOTE, shape), use, shape.launch)
-      ).resolves.toBe(runner);
+      ).resolves.toBeNull();
+      await expect(
+        agentComparisonBase(agentFor(REMOTE, shape), use)
+      ).resolves.toBeNull();
     }
   });
 
