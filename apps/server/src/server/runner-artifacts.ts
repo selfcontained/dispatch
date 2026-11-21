@@ -162,10 +162,12 @@ export function createRunnerArtifactSource(
       failure?: { error: unknown; retryAt: number };
     }
   >();
-  const filePath = (name: RunnerArtifactName) => path.join(directory, name);
+  const filePath = (
+    name: RunnerArtifactName | ReturnType<typeof runnerManifestName>
+  ) => path.join(directory, name);
 
   async function check<T>(
-    names: RunnerArtifactName[],
+    names: (RunnerArtifactName | ReturnType<typeof runnerManifestName>)[],
     verify: () => Promise<T>
   ) {
     try {
@@ -336,60 +338,63 @@ export function createRunnerArtifactSource(
   ): Promise<RunnerUpdateArtifactSet> {
     const name = runnerManifestName(arch);
     const envelopePath = path.join(directory, name);
-    if (source === "release" && tag && !(await regularFile(envelopePath))) {
-      const release = await fetchReleaseMetadata(tag, true);
-      if (
-        release?.tag !== tag ||
-        !release.assets?.some((asset) => asset.name === name)
-      )
+    const { manifest, envelope } = await check([name], async () => {
+      if (source === "release" && tag && !(await regularFile(envelopePath))) {
+        const release = await fetchReleaseMetadata(tag, true);
+        if (
+          release?.tag !== tag ||
+          !release.assets?.some((asset) => asset.name === name)
+        )
+          throw new RunnerPayloadUnavailable(
+            `Dispatch release ${tag} does not publish ${name}`
+          );
+        await downloadReleaseCompanion({
+          tag,
+          repo: RELEASE_REPO,
+          name,
+          destination: envelopePath,
+        });
+      }
+      const stat = await regularFile(envelopePath);
+      if (!stat)
         throw new RunnerPayloadUnavailable(
-          `Dispatch release ${tag} does not publish ${name}`
+          `Missing runner update asset: ${name}`
         );
-      await downloadReleaseCompanion({
-        tag,
-        repo: RELEASE_REPO,
-        name,
-        destination: envelopePath,
+      if (stat.size > RUNNER_UPDATE_MANIFEST_LIMIT)
+        throw new Error("Runner update envelope exceeds the size limit");
+      const handle = await openRunnerArtifact({
+        path: envelopePath,
+        stat,
       });
-    }
-    const stat = await regularFile(envelopePath);
-    if (!stat)
-      throw new RunnerPayloadUnavailable(
-        `Missing runner update asset: ${name}`
+      let bytes: Buffer;
+      try {
+        bytes = Buffer.alloc(stat.size + 1);
+        const { bytesRead } = await handle.read({ buffer: bytes });
+        if (bytesRead !== stat.size || !unchanged(stat, await handle.stat()))
+          throw new Error("Runner update envelope changed while reading");
+        bytes = bytes.subarray(0, bytesRead);
+      } finally {
+        await handle.close();
+      }
+      const keys =
+        source === "release"
+          ? productionRunnerUpdateKeys
+          : new Map([
+              [
+                RUNNER_UPDATE_DEV_KEY_ID,
+                compiledRunnerDevKey() ?? (await readRunnerDevPublicKey()),
+              ],
+            ]);
+      const manifest = verifyRunnerUpdateEnvelope(
+        JSON.parse(bytes.toString("utf8")),
+        keys
       );
-    if (stat.size > RUNNER_UPDATE_MANIFEST_LIMIT)
-      throw new Error("Runner update envelope exceeds the size limit");
-    const handle = await openRunnerArtifact({
-      path: envelopePath,
-      stat,
+      if (manifest.version !== version || manifest.arch !== arch)
+        throw new Error(
+          "Runner update manifest is for a different version or platform"
+        );
+      return { manifest, envelope: { path: envelopePath, stat, bytes } };
     });
-    let bytes: Buffer;
-    try {
-      bytes = Buffer.alloc(stat.size + 1);
-      const { bytesRead } = await handle.read({ buffer: bytes });
-      if (bytesRead !== stat.size || !unchanged(stat, await handle.stat()))
-        throw new Error("Runner update envelope changed while reading");
-      bytes = bytes.subarray(0, bytesRead);
-    } finally {
-      await handle.close();
-    }
-    const keys =
-      source === "release"
-        ? productionRunnerUpdateKeys
-        : new Map([
-            [
-              RUNNER_UPDATE_DEV_KEY_ID,
-              compiledRunnerDevKey() ?? (await readRunnerDevPublicKey()),
-            ],
-          ]);
-    const manifest = verifyRunnerUpdateEnvelope(
-      JSON.parse(bytes.toString("utf8")),
-      keys
-    );
-    if (manifest.version !== version || manifest.arch !== arch)
-      throw new Error(
-        "Runner update manifest is for a different version or platform"
-      );
 
     const staging = await mkdtemp(path.join(directory, ".runner-update-"));
     try {
@@ -421,7 +426,7 @@ export function createRunnerArtifactSource(
       return {
         manifest,
         archive,
-        envelope: { path: envelopePath, stat, bytes },
+        envelope,
         executable: {
           name: "dispatch-runner",
           path: executablePath,

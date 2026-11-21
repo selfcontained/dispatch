@@ -633,6 +633,40 @@ describe("runner update artifacts", () => {
     expect((await app.inject(executableUrl)).statusCode).toBe(503);
   });
 
+  it("evicts a truncated release envelope and refetches it after backoff", async () => {
+    let now = 0;
+    await buildFixture();
+    const companions = await seedRelease();
+    const envelope = await signFixture(companions, "fixture-release");
+    const cached = path.join(companions, manifestName);
+    await writeFile(cached, '{"manifest":');
+    vi.spyOn(keys, "productionRunnerUpdateKeys", "get").mockReturnValue(
+      new Map([["fixture-release", pem]])
+    );
+    mockAttestations();
+    vi.spyOn(releases, "fetchReleaseMetadata").mockResolvedValue({
+      tag,
+      assets: [{ name: manifestName }],
+      url: "",
+      publishedAt: "",
+    });
+    const download = vi
+      .spyOn(cache, "downloadReleaseCompanion")
+      .mockImplementation(async ({ destination }) => {
+        expect(destination).toBe(cached);
+        await writeFile(destination, JSON.stringify(envelope));
+      });
+    start(true, () => now);
+    expect((await app.inject(manifestUrl)).statusCode).toBe(503);
+    await expect(lstat(cached)).rejects.toMatchObject({ code: "ENOENT" });
+    expect(download).not.toHaveBeenCalled();
+    now = 60_000;
+    const response = await app.inject(manifestUrl);
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual(envelope);
+    expect(download).toHaveBeenCalledOnce();
+  });
+
   it("rejects release update requests when the signed companion is absent", async () => {
     await buildFixture();
     await seedRelease();
