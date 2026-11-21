@@ -45,6 +45,8 @@ export type ArchiveDeps = {
   /** Settle stream rows the stopped host left open, as stopped. */
   settleStream: (id: string) => Promise<number>;
   setArchivePhase: (id: string, phase: ArchivePhase) => Promise<void>;
+  /** Resolves once the agent's runner is not held for an update. */
+  waitForRunner?: (agent: AgentRecord) => Promise<void>;
 };
 
 /**
@@ -174,6 +176,7 @@ export async function executeArchive(
     // Phase: stopping — tear down session without changing agent status
     const t = Date.now();
     try {
+      await deps.waitForRunner?.(agent);
       await runLifecycleHook("stop", agent, logger, {
         local: deps.localRunner,
         remote: deps.remote,
@@ -317,6 +320,7 @@ export async function deleteAgentDirect(
     // Not stopAgent: it writes `stopping`/`stopped`, releasing the claim above
     // and letting a fresh archive take this agent mid-teardown.
     try {
+      await deps.waitForRunner?.(agent);
       await runLifecycleHook("stop", agent, logger, {
         local: deps.localRunner,
         remote: deps.remote,

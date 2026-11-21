@@ -165,6 +165,7 @@ export function createAgentRuntime(
     | "recoverRemoteEvent"
     | "classifySteering"
     | "remote"
+    | "holds"
     | "placement"
   >
 ): AgentRuntime {

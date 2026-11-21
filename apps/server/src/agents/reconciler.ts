@@ -47,6 +47,8 @@ export type ReconcilerDeps = {
   ) => Promise<void>;
   /** Settle stream rows a dead host left open. */
   settleStream: (id: string, reason: string) => Promise<number>;
+  /** A launch held for a runner update: not a launch that failed. */
+  launchHeld?: (id: string) => boolean;
 };
 
 export type Reconciler = {
@@ -100,6 +102,7 @@ async function reconcileAgentStatuses(
         .filter(
           (row) =>
             runtime.tracksProcesses() &&
+            !deps.launchHeld?.(row.id) &&
             (row.status === "running" || row.status === "creating") &&
             !(
               row.status === "creating" &&
@@ -144,8 +147,11 @@ async function reconcileAgentStatuses(
     if (!runtime.tracksProcesses()) continue;
 
     // The host is spawned at the end of `creating`; before that there is
-    // legitimately nothing to find.
-    if (row.status === "creating" && stuckSeconds < CREATING_GRACE_S) {
+    // legitimately nothing to find. A held launch has not been tried yet.
+    if (
+      row.status === "creating" &&
+      (stuckSeconds < CREATING_GRACE_S || deps.launchHeld?.(row.id))
+    ) {
       continue;
     }
 

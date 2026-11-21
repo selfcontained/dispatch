@@ -130,6 +130,10 @@ import { registerFileRoutes } from "./routes/files.js";
 import { registerStreamRoutes } from "./routes/streams.js";
 import { StreamService, type TaskStreamRoot } from "./chat/service.js";
 import { configuredRunner } from "./agents/remote/service.js";
+import {
+  fileRunnerHoldStore,
+  RunnerUpdateHolds,
+} from "./agents/remote/update-hold.js";
 import { registerMcpRoutes } from "./routes/mcp.js";
 import { ProjectStore } from "./projects/store.js";
 import { registerPersonaRoutes } from "./routes/personas.js";
@@ -249,8 +253,20 @@ setRunnerModelCatalogSource(
   runnerEngines ? runnerModelCatalogSource(runnerEngines) : null,
   app.log
 );
+// Runner update holds: nothing is held until an update coordinator begins one.
+const runnerHolds = remoteRunner
+  ? new RunnerUpdateHolds({
+      store: fileRunnerHoldStore(
+        process.env.DISPATCH_RUNNER_HOLDS_PATH ??
+          statePath("runner-update", "holds.json"),
+        app.log
+      ),
+      logger: app.log,
+    })
+  : undefined;
 const agentManager = new AgentManager(pool, app.log, config, {
   remote: remoteRunner,
+  holds: runnerHolds,
   classifySteering: steeringDecisions.classify,
 });
 const focusTracker = new FocusTracker();
@@ -704,6 +720,7 @@ const streamService = new StreamService({
       ).delivery,
     held: (agentId) => agentManager.isPromptHeld(agentId),
     activeTurn: (agentId) => agentManager.hasOpenTurn(agentId),
+    updateHeld: (agentId) => agentManager.isUpdateHeld(agentId),
     cancel: (agentId) => {
       routingShadow.cancel(agentId);
       return agentManager.cancelTurn(agentId);
@@ -1494,6 +1511,9 @@ export async function initializeApp(options?: {
   serviceResources.setCollectionEnabled(
     await readServiceResourcesCollectionEnabled(pool)
   );
+  // Held launches and the bound survive a restart; read them before agents
+  // are restored so a held launch is not mistaken for a lost host.
+  await runnerHolds?.load();
   // Probation never reconciles; only a normal start after commit does.
   const shouldReconcileState =
     recoveryMaintenance.mode !== "probation" &&
@@ -1517,6 +1537,9 @@ export async function initializeApp(options?: {
     await jobService.reconcileActiveRuns();
     await jobService.startSchedulers();
     await scheduledMessages.start();
+    // Arm each hold's bound only now: one that lapsed while Dispatch was down
+    // releases its launches into a fully started service.
+    runnerHolds?.start();
     // Warm the diff-stats cache so the first sidebar expand doesn't get a
     // cold-cache `null`. Fire-and-forget per agent — the refresher's 3s
     // freshness window dedupes any overlap with SSE-driven signals from
@@ -1631,6 +1654,7 @@ async function cleanupAppResources(): Promise<void> {
   shuttingDown = true;
   checkoutObservers.close();
   remoteRunner?.close();
+  runnerHolds?.close();
   const stage = async (name: string, close: () => Promise<unknown>) => {
     app.log.info({ stage: name }, "Shutdown stage started");
     await close();

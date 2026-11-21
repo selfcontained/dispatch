@@ -220,6 +220,8 @@ export type StreamDeliveryAdapter = {
   held: (agentId: string) => boolean;
   /** Whether an active turn, rather than queued prompts, blocks delivery. */
   activeTurn: (agentId: string) => boolean;
+  /** Whether a runner update holds this agent's deliveries in its queue. */
+  updateHeld?: (agentId: string) => Promise<boolean>;
   /** Cut the agent's running turn, for a post sent to interrupt it. */
   cancel: (agentId: string) => Promise<void>;
   controlQueuedPrompt?: (
@@ -4677,6 +4679,8 @@ export class StreamService {
         // Still queued behind the agent's own work: that is the queue
         // doing its job, so keep waiting.
         if (this.delivery().activeTurn(agentId)) continue;
+        // Held for a runner update, which is bounded: the queue again.
+        if (await this.delivery().updateHeld?.(agentId)) continue;
         this.log.warn(
           { agentId, ...logContext },
           "stream: the engine never took this prompt; marking it undelivered"

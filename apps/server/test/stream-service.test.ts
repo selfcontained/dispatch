@@ -88,6 +88,7 @@ function build(
     controlQueuedPrompt?: StreamDeliveryAdapter["controlQueuedPrompt"];
     interruptDelivery?: StreamDeliveryAdapter["interruptDelivery"];
     commands?: readonly string[];
+    updateHeld?: () => Promise<boolean>;
   } = {}
 ) {
   const events: unknown[] = [];
@@ -129,6 +130,7 @@ function build(
             },
             held: () => opts.held ?? queued.size > 0,
             activeTurn: () => opts.held ?? false,
+            ...(opts.updateHeld ? { updateHeld: opts.updateHeld } : {}),
             controlQueuedPrompt: opts.controlQueuedPrompt,
             interruptDelivery: opts.interruptDelivery,
             commands: () => opts.commands ?? [],
@@ -5795,6 +5797,19 @@ describe("StreamService delivery that is never taken", () => {
     });
     expect(await svc.store.getById(second.block.id)).toMatchObject({
       delivered: false,
+    });
+  });
+
+  it("keeps waiting while a runner update holds the queue", async () => {
+    vi.useFakeTimers();
+    const { svc } = build({ gate: never, updateHeld: async () => true });
+    const res = await svc.sendUserPost(A, { text: "during the update" });
+    await vi.advanceTimersByTimeAsync(10 * 60_000);
+    // A give-up would be a database write the timer flush does not await.
+    vi.useRealTimers();
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(await svc.store.getById(res.block.id)).toMatchObject({
+      delivered: null,
     });
   });
 

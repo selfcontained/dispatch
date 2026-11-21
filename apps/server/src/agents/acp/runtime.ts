@@ -43,8 +43,10 @@ import {
   RunnerUnavailable,
   RunnerRevoked,
   RunnerHostGone,
+  RunnerUpdateFenced,
   type RemoteRunnerService,
 } from "../remote/service.js";
+import type { RunnerUpdateHolds } from "../remote/update-hold.js";
 import type { Placement } from "../remote/protocol.js";
 import type { RemoteEventInbox } from "../remote/event-inbox.js";
 import { HostClient } from "./host-client.js";
@@ -96,6 +98,8 @@ type Waiting = {
 
 type Live = {
   remote?: boolean;
+  /** The runner this host is placed on; local hosts have none. */
+  runner?: string;
   client: HostClient;
   commands: AvailableCommand[];
   configOptions: SessionConfigOption[];
@@ -254,6 +258,11 @@ export type AcpRuntimeDeps = {
     images: PromptImage[]
   ) => Promise<PromptImage[]>;
   remote?: Pick<RemoteRunnerService, "available" | "requestSession">;
+  /** Runner update holds: new work for a held runner waits in the queue. */
+  holds?: Pick<
+    RunnerUpdateHolds,
+    "isHeld" | "wait" | "onRelease" | "countWith"
+  >;
   remoteInbox?: Pick<RemoteEventInbox, "receive" | "projected">;
   recoverRemoteEvent?: (agentId: string) => Promise<void>;
   placement?: (agentId: string) => Promise<Placement | null>;
@@ -294,6 +303,34 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
 
   const stateDir = (agentId: string) =>
     path.join(config.agentStateRoot, agentId);
+
+  /** An update holds new work for this host's runner. */
+  const held = (entry: Live) =>
+    entry.runner !== undefined && deps.holds?.isHeld(entry.runner) === true;
+
+  /**
+   * Stop and discard start runner processes, so a held runner's fence would
+   * refuse them: wait for the hold, and wait again if a refusal says the
+   * request never started while the hold is still on.
+   */
+  async function heldSessionRequest(
+    placement: Placement,
+    operation: SessionLifecycleOperation
+  ): Promise<SessionResult> {
+    for (;;) {
+      await deps.holds?.wait(placement.runner, "stop");
+      try {
+        return await requestSession(placement, operation);
+      } catch (error) {
+        if (
+          error instanceof RunnerUpdateFenced &&
+          deps.holds?.isHeld(placement.runner)
+        )
+          continue;
+        throw error;
+      }
+    }
+  }
 
   const local = createLocalRunner(config.agentStateRoot, logger);
   function requestSession(
@@ -365,6 +402,7 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
       while (
         entry.waiting.length &&
         (!entry.remote || entry.client.isReady()) &&
+        !held(entry) &&
         !entry.deliveryInterrupts.size &&
         live.get(agentId) === entry
       ) {
@@ -585,6 +623,16 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
             if (ended) w.resolveSettled();
           }
         } catch (error) {
+          if (
+            error instanceof RunnerUpdateFenced &&
+            !submitted &&
+            held(entry)
+          ) {
+            // The runner refused file delivery under its update fence: none
+            // of it started. Back into the queue to go out on release.
+            await requeue();
+            continue;
+          }
           entry.settleWaiters = entry.settleWaiters.filter(
             (w) => w !== onSettle
           );
@@ -701,6 +749,7 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
     const cursor = await deps.hostSeq(agentId);
     const entry: Live = {
       remote: Boolean(placement),
+      ...(placement ? { runner: placement.runner } : {}),
       client: null as unknown as HostClient,
       commands: [],
       configOptions: [],
@@ -1012,6 +1061,24 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
     return { accepted, settled };
   }
 
+  deps.holds?.onRelease(({ runnerId }) => {
+    for (const [agentId, entry] of live)
+      if (entry.runner === runnerId) void pump(agentId, entry);
+  });
+  deps.holds?.countWith((runnerId) => {
+    let prompts = 0;
+    let scheduled = 0;
+    for (const entry of live.values()) {
+      if (entry.runner !== runnerId) continue;
+      // Taken prompts have already left the queue.
+      for (const w of entry.waiting) {
+        if (w.source?.scheduleId) scheduled++;
+        else prompts++;
+      }
+    }
+    return { prompts, scheduled };
+  });
+
   runtime = {
     tracksProcesses: () => true,
     async getBackgroundWork(agentId) {
@@ -1148,10 +1215,13 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
       // still reconnecting. Attach before the first send, sharing any replay
       // already under way. This path never retries a submitted prompt.
       const delivery = (async () => {
-        if (!deps.remote || !(await placementOf(agentId)))
+        const placement = deps.remote ? await placementOf(agentId) : null;
+        if (!deps.remote || !placement)
           throw new Error(
             "The agent is not running; the prompt cannot be delivered."
           );
+        // Across a held update the runner may be between supervisors.
+        if (!pending) await deps.holds?.wait(placement.runner);
         const host = await (pending ?? connect(agentId, ATTACH_TIMEOUT_MS));
         if (live.get(agentId) !== host)
           throw new Error(
@@ -1325,7 +1395,7 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
     async stop(agentId, force) {
       const placement = await placementOf(agentId);
       const operation = { kind: "stop", agentId, force } as const;
-      if (placement) await requestSession(placement, operation);
+      if (placement) await heldSessionRequest(placement, operation);
       const entry = live.get(agentId);
       if (entry) {
         live.delete(agentId);
@@ -1399,7 +1469,7 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
     async discard(agentId) {
       const placement = await placementOf(agentId);
       const operation = { kind: "discard", agentId } as const;
-      if (placement) await requestSession(placement, operation);
+      if (placement) await heldSessionRequest(placement, operation);
       const entry = live.get(agentId);
       if (entry) {
         live.delete(agentId);
