@@ -250,6 +250,74 @@ describe("placement-scoped model validation", () => {
     }
   });
 
+  it("rechecks a stored task model when only the launch template changes", async () => {
+    const service = taskService();
+    const task = await service.createTask(
+      {
+        projectId,
+        title: `Scope ${++seq}`,
+        launchTemplateId: template(LOCAL).id,
+        launchAgentType: "claude",
+        launchModel: LOCAL_ONLY,
+      },
+      { kind: "user" }
+    );
+    await expect(
+      service.updateTask(
+        task.id,
+        { launchTemplateId: template(ONLINE).id },
+        { kind: "user" }
+      )
+    ).rejects.toThrow(/Model "opus" is not supported for claude/);
+    expect(await service.getTaskDetail(task.id)).toMatchObject({
+      launchTemplateId: template(LOCAL).id,
+      launchModel: LOCAL_ONLY,
+    });
+    // A runner whose catalog is unavailable checks the model at launch.
+    await expect(
+      service.updateTask(
+        task.id,
+        { launchTemplateId: template(OFFLINE).id },
+        { kind: "user" }
+      )
+    ).resolves.toMatchObject({
+      launchTemplateId: template(OFFLINE).id,
+      launchModel: LOCAL_ONLY,
+    });
+  });
+
+  it("accepts a well-formed task model before the project has a launch target", async () => {
+    const bare = (
+      await pool.query<{ id: string }>(
+        `INSERT INTO projects (id, name, repo_root, color) VALUES (gen_random_uuid(), 'Bare', $1, '#336699') RETURNING id`,
+        [`${LOCAL}-bare-${++seq}`]
+      )
+    ).rows[0]!.id;
+    const service = taskService();
+    await expect(
+      service.createTask(
+        {
+          projectId: bare,
+          title: "Runner-only model",
+          launchAgentType: "claude",
+          launchModel: RUNNER_ONLY,
+        },
+        { kind: "user" }
+      )
+    ).resolves.toMatchObject({ launchModel: RUNNER_ONLY });
+    await expect(
+      service.createTask(
+        {
+          projectId: bare,
+          title: "Malformed model",
+          launchAgentType: "claude",
+          launchModel: "invalid model",
+        },
+        { kind: "user" }
+      )
+    ).rejects.toThrow(/not supported/);
+  });
+
   it("checks effort against the runner's levels for the model", async () => {
     const scope = await modelScopeFor(ONLINE, "claude");
     expect(validateAgentEffort("claude", "turbo", RUNNER_ONLY, scope)).toBe(

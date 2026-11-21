@@ -3724,6 +3724,8 @@ describe("task runtime overrides", () => {
   );
 
   it("keeps the pair explicit: no stranded model, no cleared model under a runtime", async () => {
+    // A local launch target, so models are checked against this Mac's catalog.
+    await withTrigger("ready", { assign: false });
     const task = await service.createTask(
       {
         projectId,

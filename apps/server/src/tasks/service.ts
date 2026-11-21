@@ -710,7 +710,7 @@ export class TaskService {
     >
   ): Promise<Pick<TaskPatch, "launchAgentType" | "launchModel">> {
     if (input.launchAgentType === undefined && input.launchModel === undefined)
-      return {};
+      return this.recheckStoredLaunchModel(projectId, current, input);
     if (input.launchAgentType === null) {
       if (input.launchModel != null)
         throw invalid(
@@ -762,10 +762,44 @@ export class TaskService {
   }
 
   /**
+   * A launch template change moves the task to another machine, so a stored
+   * model override is checked against the new target's catalog.
+   */
+  private async recheckStoredLaunchModel(
+    projectId: string,
+    current: Pick<
+      Task,
+      "launchAgentType" | "launchModel" | "launchTemplateId"
+    > | null,
+    input: Pick<UpdateTaskInput, "launchTemplateId">
+  ): Promise<Pick<TaskPatch, "launchAgentType" | "launchModel">> {
+    if (
+      input.launchTemplateId === undefined ||
+      input.launchTemplateId === current?.launchTemplateId ||
+      !current?.launchAgentType ||
+      !current.launchModel
+    )
+      return {};
+    try {
+      const model = await this.validateTaskLaunchModel(
+        projectId,
+        input.launchTemplateId,
+        current.launchAgentType,
+        current.launchModel
+      );
+      if (!model)
+        throw new Error(`Model "${current.launchModel}" is not supported.`);
+      return { launchAgentType: current.launchAgentType, launchModel: model };
+    } catch (error) {
+      throw invalid(errorMessage(error));
+    }
+  }
+
+  /**
    * A task's model override is checked against the machines the task can
    * launch on: its launch template's, else its project's trigger templates'.
    * It passes when any of them accepts it; the launch itself checks the
-   * actual target again.
+   * actual target again. With no target yet, any well-formed id passes.
    */
   private async validateTaskLaunchModel(
     projectId: string,
@@ -778,10 +812,11 @@ export class TaskService {
       : (await this.store.listColumns(projectId)).flatMap((column) =>
           column.trigger ? [column.trigger.templateId] : []
         );
+    if (templateIds.length === 0)
+      return validateAgentModel(agentType, model, { kind: "engine" });
     const targets = new Set<string | null>();
     for (const id of templateIds)
       targets.add((await this.deps.getTemplate(id))?.directory ?? null);
-    if (targets.size === 0) targets.add(null);
     let rejection: unknown;
     for (const target of targets) {
       try {
