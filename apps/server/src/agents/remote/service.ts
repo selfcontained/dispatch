@@ -20,6 +20,7 @@ export {
   RunnerUnavailable,
   RunnerHostGone,
   RunnerUpdateFenced,
+  RunnerAcknowledgementLost,
 } from "@dispatch/runner-protocol/connection";
 import type { Pool } from "pg";
 import type { FastifyBaseLogger } from "fastify";
@@ -203,6 +204,8 @@ type Peer = {
   checkoutViews: boolean;
   sharedWorktree: boolean;
   workspacePreparation: boolean;
+  /** Reconciles a repeated `launch.launchId` instead of running it again. */
+  launchReconcile: boolean;
   /** Last pushed, validated engine inventory; absent until the runner first reports one. */
   engines?: EngineInventoryEntry[];
 };
@@ -366,6 +369,19 @@ export class RemoteRunnerService {
     return () => this.connectionListeners.delete(listener);
   }
   private readonly peers = new Map<string, Peer>();
+  /** What each runner's latest approved connection advertised; kept after
+   * it disconnects, for admitting launches a runner update will hold. */
+  private readonly lastSeen = new Map<
+    string,
+    Pick<
+      Peer,
+      | "gate"
+      | "workspaces"
+      | "managedWorkspace"
+      | "sessionFiles"
+      | "sharedWorktree"
+    >
+  >();
   private peerEpoch = 0;
   private readonly updateListeners = new Set<
     (event: RunnerUpdateEvent) => void
@@ -978,6 +994,7 @@ export class RemoteRunnerService {
           checkoutInspection: ready.checkoutInspection === true,
           sharedWorktree: ready.sharedWorktree === true,
           workspacePreparation: ready.workspacePreparation === true,
+          launchReconcile: ready.launchReconcile === true,
           connection: new RunnerConnection(send),
           send,
           epoch: ++this.peerEpoch,
@@ -989,6 +1006,13 @@ export class RemoteRunnerService {
         // A reconnect replaces a half-open predecessor for the same runner.
         const previous = this.peers.get(gate.key);
         this.peers.set(gate.key, peer);
+        this.lastSeen.set(gate.key, {
+          gate,
+          workspaces: peer.workspaces,
+          managedWorkspace: peer.managedWorkspace,
+          sessionFiles: peer.sessionFiles,
+          sharedWorktree: peer.sharedWorktree,
+        });
         previous?.socket.destroy();
         gate.ready?.(ready.workspaces, peer.managedWorkspace);
         for (const notify of this.connectionListeners) notify(gate.key);
@@ -2076,6 +2100,33 @@ export class RemoteRunnerService {
     );
   }
 
+  /** Whether the connected runner reconciles a repeated launch ID. */
+  reconcilesLaunches(placement: Placement) {
+    return this.peers.get(placement.runner)?.launchReconcile === true;
+  }
+
+  /**
+   * The capabilities the runner's latest approved connection advertised,
+   * even while it is disconnected. Only for admitting a launch that a runner
+   * update holds: the launch is checked again against the reconnected peer
+   * when it is released.
+   */
+  lastSeenCapabilities(placement: Placement) {
+    const seen = this.lastSeen.get(placement.runner);
+    if (
+      !seen ||
+      !seen.gate.approved() ||
+      !seen.gate.allows(placement.workspace) ||
+      !seen.workspaces.has(placement.workspace)
+    )
+      return undefined;
+    return {
+      managedWorkspace: seen.managedWorkspace,
+      sessionFiles: seen.sessionFiles,
+      sharedWorktree: seen.sharedWorktree,
+    };
+  }
+
   available(placement: Placement) {
     const peer = this.peers.get(placement.runner);
     return Boolean(
@@ -2179,6 +2230,15 @@ export class RemoteRunnerService {
         ...command,
         launch: { ...command.launch, prepareWorkspace: true },
       };
+    if (
+      command.kind === "launch" &&
+      command.launch.launchId !== undefined &&
+      !peer.launchReconcile
+    ) {
+      // An older runner keeps the launch shape it knows.
+      const { launchId: _launchId, ...launch } = command.launch;
+      command = { ...command, launch };
+    }
     if (
       command.kind === "launch" &&
       command.launch.prepareWorkspace &&

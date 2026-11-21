@@ -20,6 +20,7 @@ import {
 
 const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
 const ATTEMPT = "11111111-1111-4111-8111-111111111111";
+const OTHER_ATTEMPT = "22222222-2222-4222-8222-222222222222";
 const OTHER = "22222222-2222-4222-8222-222222222222";
 
 let dirs: string[] = [];
@@ -124,13 +125,86 @@ describe("runner update holds", () => {
     ]);
     expect(launches[0]).toMatchObject({ kind: "create", create });
 
+    // Released, but not yet settled: a restart drives them again.
     const third = open(file);
     await third.load();
     expect(third.isHeld("r1")).toBe(false);
+    expect(third.hasLaunch("agt_a")).toBe(true);
+    expect(third.counts("r1").launches).toBe(0);
+    const recovered = vi.fn();
+    third.onResume(recovered);
+    third.start();
+    await vi.waitFor(() => expect(recovered).toHaveBeenCalledTimes(1));
+    expect(
+      recovered.mock.calls[0]![0].map((l: { agentId: string }) => l.agentId)
+    ).toEqual(["agt_a", "agt_b"]);
+    expect(recovered.mock.calls[0]![0][0]).toMatchObject({
+      id: launches[0].id,
+      runnerId: "r1",
+      kind: "create",
+      create,
+    });
+    for (const launch of launches) await third.settleLaunch(launch.id);
+    expect(third.hasLaunch("agt_a")).toBe(false);
     expect(JSON.parse(await readFile(file, "utf8"))).toEqual({
       format: 1,
       holds: [],
     });
+  });
+
+  it("keeps a released launch's ID and settles only that record", async () => {
+    const file = await holdFile();
+    const holds = open(file);
+    await holds.load();
+    holds.start();
+    const launchId = "6f1c2d3e-4a5b-4c6d-8e7f-8091a2b3c4d5";
+    await holds.begin("r1", ATTEMPT);
+    await holds.holdLaunch("r1", { agentId: "agt_a", kind: "start", launchId });
+    expect(holds.current("r1")?.launches[0]).toMatchObject({ launchId });
+    await holds.release("r1", ATTEMPT, "committed");
+    const [resumed] = JSON.parse(await readFile(file, "utf8")).resuming;
+    expect(resumed).toMatchObject({
+      agentId: "agt_a",
+      launchId,
+      runnerId: "r1",
+    });
+
+    // Held again under a new attempt: a new record, the old one settles.
+    await holds.begin("r1", OTHER_ATTEMPT);
+    await holds.holdLaunch("r1", { agentId: "agt_a", kind: "start", launchId });
+    await holds.settleLaunch(resumed.id);
+    expect(holds.hasLaunch("agt_a")).toBe(true);
+    expect(JSON.parse(await readFile(file, "utf8"))).not.toHaveProperty(
+      "resuming"
+    );
+    // A stop takes the held one; it never touched the runner.
+    expect(await holds.takeLaunch("agt_a")).toMatchObject({ launchId });
+    expect(holds.hasLaunch("agt_a")).toBe(false);
+
+    // A stop of a released, unsettled launch drops it but reports nothing
+    // held: it may already have reached the runner.
+    await holds.holdLaunch("r1", { agentId: "agt_b", kind: "start" });
+    await holds.release("r1", OTHER_ATTEMPT, "committed");
+    expect(holds.hasLaunch("agt_b")).toBe(true);
+    expect(await holds.takeLaunch("agt_b")).toBeUndefined();
+    expect(holds.hasLaunch("agt_b")).toBe(false);
+    expect(JSON.parse(await readFile(file, "utf8"))).toEqual({
+      format: 1,
+      holds: [],
+    });
+  });
+
+  it("rejects a launch ID that is not a UUID", async () => {
+    const holds = open(await holdFile());
+    await holds.load();
+    await holds.begin("r1", ATTEMPT);
+    await expect(
+      holds.holdLaunch("r1", {
+        agentId: "agt_a",
+        kind: "start",
+        launchId: "not-a-uuid",
+      })
+    ).rejects.toThrow();
   });
 
   it("releases at its bound with outcome expired and resolves waiters", async () => {
@@ -262,7 +336,7 @@ describe("runner update holds", () => {
     let fail = false;
     const holds = new RunnerUpdateHolds({
       store: {
-        read: async () => [],
+        read: async () => ({ holds: [], resuming: [] }),
         write: async () => {
           if (fail) throw new Error("disk full");
         },
@@ -278,7 +352,7 @@ describe("runner update holds", () => {
   it("does not hold when the hold cannot be persisted", async () => {
     const holds = new RunnerUpdateHolds({
       store: {
-        read: async () => [],
+        read: async () => ({ holds: [], resuming: [] }),
         write: async () => {
           throw new Error("disk full");
         },

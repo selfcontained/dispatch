@@ -44,6 +44,7 @@ import {
   RunnerRevoked,
   RunnerHostGone,
   RunnerUpdateFenced,
+  RunnerAcknowledgementLost,
   type RemoteRunnerService,
 } from "../remote/service.js";
 import type { RunnerUpdateHolds } from "../remote/update-hold.js";
@@ -55,6 +56,8 @@ import { type JournalEntry } from "./host-protocol.js";
 /** The engine's ACP handshake can take a while on a cold adapter. */
 const LAUNCH_TIMEOUT_MS = 60_000;
 const ATTACH_TIMEOUT_MS = 5_000;
+/** A launch reply lost again and again across one update is not retried forever. */
+const MAX_LAUNCH_RECONCILES = 5;
 /**
  * Posts that queued up behind a turn go to the agent together, as one
  * prompt, rather than one turn apiece. A backlog longer than this carries
@@ -257,7 +260,10 @@ export type AcpRuntimeDeps = {
     agentId: string,
     images: PromptImage[]
   ) => Promise<PromptImage[]>;
-  remote?: Pick<RemoteRunnerService, "available" | "requestSession">;
+  remote?: Pick<RemoteRunnerService, "available" | "requestSession"> &
+    Partial<Pick<RemoteRunnerService, "reconcilesLaunches">>;
+  /** How often a lost launch reply polls for the runner to return. */
+  launchRetryPollMs?: number;
   /** Runner update holds: new work for a held runner waits in the queue. */
   holds?: Pick<
     RunnerUpdateHolds,
@@ -328,6 +334,53 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
         )
           continue;
         throw error;
+      }
+    }
+  }
+
+  /**
+   * A launch whose reply was lost while its runner was held for an update:
+   * once the runner is back, send the same attempt again. A runner that
+   * reconciles launch IDs adopts the host it already started or resumes
+   * its preparation; a fenced runner refuses it, and the caller holds it.
+   * Anything else keeps the original uncertain outcome.
+   */
+  async function requestLaunch(
+    placement: Placement | null | undefined,
+    operation: Extract<SessionLifecycleOperation, { kind: "launch" }>,
+    settings: LocalLaunchSettings,
+    onProgress?: RuntimeLaunch["onWorkspaceProgress"]
+  ): Promise<SessionResult> {
+    for (let attempt = 1; ; attempt++) {
+      try {
+        return await requestSession(placement, operation, settings, onProgress);
+      } catch (error) {
+        const hold = placement && deps.holds?.current(placement.runner);
+        if (
+          !(error instanceof RunnerAcknowledgementLost) ||
+          !placement ||
+          operation.launch.launchId === undefined ||
+          !hold ||
+          attempt >= MAX_LAUNCH_RECONCILES
+        )
+          throw error;
+        const deadline = Date.parse(hold.expiresAt);
+        const pollMs = deps.launchRetryPollMs ?? 250;
+        while (!deps.remote?.available(placement) && Date.now() < deadline)
+          await new Promise((resolve) => setTimeout(resolve, pollMs));
+        if (
+          !deps.remote?.available(placement) ||
+          !deps.remote.reconcilesLaunches?.(placement)
+        )
+          throw error;
+        logger.info(
+          {
+            agentId: operation.agentId,
+            runnerId: placement.runner,
+            launchId: operation.launch.launchId,
+          },
+          "launch reply lost during a runner update; reconciling the same launch"
+        );
       }
     }
   }
@@ -1157,7 +1210,7 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
         onWorkspaceProgress,
         ...launch
       } = input;
-      const { launchExited } = await requestSession(
+      const { launchExited } = await requestLaunch(
         placement,
         { kind: "launch", agentId: input.agentId, launch },
         { cwd, bins, env, pathPrefix },

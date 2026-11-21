@@ -9,12 +9,13 @@ import {
   type Command,
 } from "@dispatch/runner-protocol";
 import {
+  RunnerAcknowledgementLost,
   RunnerConnection,
   RunnerUnavailable,
   RunnerUpdateFenced,
   runnerReplyTimeoutMs,
 } from "@dispatch/runner-protocol/connection";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 const attemptId = "6f1c1d1e-2a3b-4c5d-8e9f-0a1b2c3d4e5f";
 const sha256 = "a".repeat(64);
@@ -256,6 +257,83 @@ describe("existing envelopes", () => {
     });
     await expect(fenced).rejects.toBeInstanceOf(RunnerUpdateFenced);
     await expect(fenced).rejects.not.toBeInstanceOf(RunnerUnavailable);
+  });
+
+  it("tells a reply lost to a closed connection from one never sent or timed out", async () => {
+    const sent: { id: string }[] = [];
+    const command = {
+      kind: "alive",
+      agentId: "agt_one",
+      workspace: "@session",
+    } as Command;
+    const connection = new RunnerConnection((frame) =>
+      sent.push(frame as { id: string })
+    );
+    const lost = connection.request(command);
+    connection.close();
+    await expect(lost).rejects.toBeInstanceOf(RunnerAcknowledgementLost);
+    await expect(lost).rejects.toBeInstanceOf(RunnerUnavailable);
+    await expect(lost).rejects.toThrow("execution is unknown");
+    // Closed before sending: never started.
+    const closed = connection.request(command);
+    await expect(closed).rejects.toBeInstanceOf(RunnerUnavailable);
+    await expect(closed).rejects.not.toBeInstanceOf(RunnerAcknowledgementLost);
+    // A failed write.
+    const broken = new RunnerConnection(() => {
+      throw new Error("EPIPE");
+    });
+    await expect(broken.request(command)).rejects.not.toBeInstanceOf(
+      RunnerAcknowledgementLost
+    );
+    // A timeout leaves the operation possibly still running there.
+    vi.useFakeTimers();
+    try {
+      const slow = new RunnerConnection(() => {});
+      const pending = slow.request(command);
+      const settled = pending.catch((error: unknown) => error);
+      await vi.advanceTimersByTimeAsync(runnerReplyTimeoutMs(command));
+      const error = await settled;
+      expect(error).toBeInstanceOf(RunnerUnavailable);
+      expect(error).not.toBeInstanceOf(RunnerAcknowledgementLost);
+      expect((error as Error).message).toBe(
+        "Runner acknowledgement was lost; execution is unknown."
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("accepts an optional UUID launch ID and the reconcile capability", () => {
+    const launch = (launchId: unknown) => ({
+      type: "request",
+      id: "req-1",
+      command: {
+        kind: "launch",
+        agentId: "agt_one",
+        workspace: "@session",
+        launch: {
+          agentId: "agt_one",
+          engine: "codex",
+          model: null,
+          systemPrompt: null,
+          resumeSessionId: null,
+          ...(launchId !== undefined && { launchId }),
+        },
+      },
+    });
+    expect(parseServiceFrame(launch(undefined))).not.toBeNull();
+    expect(parseServiceFrame(launch(attemptId))).not.toBeNull();
+    for (const bad of ["", "not-a-uuid", 7, null, attemptId.toUpperCase()])
+      expect(parseServiceFrame(launch(bad))).toBeNull();
+
+    const ready = { type: "ready", version: 1, workspaces: ["@session"] };
+    expect(parseReadyFrame(ready)).not.toHaveProperty("launchReconcile");
+    expect(
+      parseReadyFrame({ ...ready, launchReconcile: "yes" })
+    ).not.toHaveProperty("launchReconcile");
+    expect(parseReadyFrame({ ...ready, launchReconcile: true })).toMatchObject({
+      launchReconcile: true,
+    });
   });
 
   it("keeps the reply deadlines", () => {

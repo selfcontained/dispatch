@@ -237,6 +237,8 @@ describe("remote runner startup", () => {
           version: 1,
           workspaces: handles,
           health: true,
+          // A repeated launch ID is reconciled, not run again.
+          launchReconcile: true,
         });
         socket.emit(
           "data",

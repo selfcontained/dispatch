@@ -14,6 +14,9 @@ export class RunnerUnavailable extends Error {}
 export class RunnerHostGone extends Error {}
 /** The runner's update fence refused the request before it started. */
 export class RunnerUpdateFenced extends Error {}
+/** The request was sent and its connection closed before any reply: the
+ * runner may or may not have run it. */
+export class RunnerAcknowledgementLost extends RunnerUnavailable {}
 
 /** How long the service waits for a reply. The runner's update fence uses
  * the same bound as the deadline of an already-admitted operation. */
@@ -119,18 +122,15 @@ export class RunnerConnection {
     const checkoutReplyTimeoutMs =
       command.kind === "checkoutCommand" ? timeoutMs : undefined;
     return new Promise((resolve, reject) => {
-      const finish = (frame?: ResultFrame, timeoutMessage?: string) => {
+      const unknown = "Runner acknowledgement was lost; execution is unknown.";
+      // No frame: the connection closed after sending (`close()` settles
+      // with nothing), unless a timeout or failed send says otherwise.
+      const finish = (frame?: ResultFrame, failure?: Error) => {
         clearTimeout(timer);
         signal?.removeEventListener("abort", cancel);
         this.pending.delete(id);
         this.progress.delete(id);
-        if (!frame)
-          reject(
-            new RunnerUnavailable(
-              timeoutMessage ??
-                "Runner acknowledgement was lost; execution is unknown."
-            )
-          );
+        if (!frame) reject(failure ?? new RunnerAcknowledgementLost(unknown));
         else if (frame.code === "host-gone")
           reject(new RunnerHostGone(frame.error));
         else if (frame.code === "update-fenced")
@@ -157,9 +157,11 @@ export class RunnerConnection {
         if (command.kind === "checkoutCommand") requestCancel();
         finish(
           undefined,
-          checkoutReplyTimeoutMs === undefined
-            ? undefined
-            : `No runner checkout command reply after ${checkoutReplyTimeoutMs / 1000} seconds; execution is unknown.`
+          new RunnerUnavailable(
+            checkoutReplyTimeoutMs === undefined
+              ? unknown
+              : `No runner checkout command reply after ${checkoutReplyTimeoutMs / 1000} seconds; execution is unknown.`
+          )
         );
       }, timeoutMs);
       signal?.addEventListener("abort", cancel, { once: true });
@@ -167,7 +169,7 @@ export class RunnerConnection {
       try {
         this.send({ type: "request", id, command });
       } catch {
-        finish();
+        finish(undefined, new RunnerUnavailable(unknown));
       }
     });
   }

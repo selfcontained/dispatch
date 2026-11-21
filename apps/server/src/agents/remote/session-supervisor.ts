@@ -99,6 +99,51 @@ type SupervisorOptions = {
   mayStartProcess?: () => boolean;
 };
 
+/**
+ * Dispatch's durable identity for one launch attempt, saved before the
+ * launch starts any process. A repeat of the same ID (its reply was lost)
+ * resumes from the stage recorded here instead of running again.
+ */
+type LaunchRecord = {
+  launchId: string;
+  stage: "preparing" | "spawning";
+  /** The host this attempt spawned, once it reached `spawning`. */
+  hostInstanceId?: string;
+  /** Dependency preparation for this attempt. `started` alone is unknown. */
+  dependencies?: "started" | "done" | "failed";
+};
+
+/** A record that does not parse is no record: the launch runs as new. Its
+ * ID is only ever compared with the validated ID on the wire. */
+function parseLaunchRecord(raw: string | null): LaunchRecord | null {
+  if (raw === null) return null;
+  try {
+    const value = JSON.parse(raw) as Record<string, unknown>;
+    if (
+      (value.stage !== "preparing" && value.stage !== "spawning") ||
+      (value.hostInstanceId !== undefined &&
+        typeof value.hostInstanceId !== "string")
+    )
+      return null;
+    return {
+      launchId: value.launchId as string,
+      stage: value.stage,
+      ...(value.hostInstanceId !== undefined && {
+        hostInstanceId: value.hostInstanceId as string,
+      }),
+      ...(value.dependencies !== undefined && {
+        dependencies: value.dependencies as LaunchRecord["dependencies"],
+      }),
+    };
+  } catch {
+    return null;
+  }
+}
+
+export const UNRECONCILED_DEPENDENCIES =
+  "The runner restarted while preparing dependencies for this launch, so " +
+  "their result is unknown. They were not run again. Start the agent to retry.";
+
 const managedBinding = "\0managed";
 const sharedBindingPrefix = managedBinding + ":";
 const storageKeyPattern = /^(agt_[a-z0-9]+|opaque-[A-Za-z0-9_-]{43})$/;
@@ -304,6 +349,7 @@ export async function createSessionSupervisor(
     path.join(bindings, `${key}.borrowed-cwd`);
   const markerFile = (key: string) => path.join(bindings, `${key}.owner`);
   const identityFile = (key: string) => path.join(bindings, `${key}.host`);
+  const launchFile = (key: string) => path.join(bindings, `${key}.launch`);
   function managedTarget(workspace: string) {
     if (managedWorkspace && workspace === MANAGED_WORKSPACE) return true;
     if (!config.workspaces.has(workspace))
@@ -649,6 +695,7 @@ export async function createSessionSupervisor(
       cwdFile(key),
       selectedFile(key),
       borrowedFile(key),
+      launchFile(key),
       path.join(bindings, key),
     ])
       await rm(file, { force: true });
@@ -704,6 +751,18 @@ export async function createSessionSupervisor(
         : workspace;
     if (binding !== null && binding !== bindingValue)
       throw new Error("Agent is not bound to this workspace or checkout");
+    const { launchId } = command.launch;
+    const recorded =
+      launchId === undefined
+        ? null
+        : parseLaunchRecord(await readOptional(launchFile(key)));
+    // Only the same attempt resumes; another ID is a new launch, as before.
+    const repeat = recorded?.launchId === launchId ? recorded : null;
+    let record: LaunchRecord | null = null;
+    const saveLaunch = async (next: LaunchRecord) => {
+      record = next;
+      await writePrivateState(launchFile(key), JSON.stringify(next));
+    };
     progress?.({ phase: "workspace" });
     if (owner) {
       if ((await readBinding(owner)) !== managedBinding)
@@ -715,8 +774,33 @@ export async function createSessionSupervisor(
     if (binding === null)
       await writePrivateState(path.join(bindings, key), bindingValue);
     const identity = await readIdentity(key);
-    if (identity && processes.alive(identity))
+    if (identity && processes.alive(identity)) {
+      const live = classifySessionIdentity(identity);
+      // This attempt's own host: its reply was lost. Adopt it.
+      if (
+        repeat &&
+        live.kind === "current" &&
+        live.record.hostInstanceId === repeat.hostInstanceId
+      ) {
+        progress?.({ phase: "ready" });
+        return;
+      }
       throw new Error("Runner already has a host for this agent");
+    }
+    // A preparation step that ran with no recorded result cannot be
+    // reconciled; never run it a second time for the same attempt.
+    if (
+      repeat?.dependencies === "started" &&
+      (await readOptional(dependenciesFile(key))) === null
+    )
+      throw new Error(UNRECONCILED_DEPENDENCIES);
+    // Saved before this launch starts any process.
+    if (launchId !== undefined)
+      await saveLaunch({
+        launchId,
+        stage: "preparing",
+        ...(repeat?.dependencies && { dependencies: repeat.dependencies }),
+      });
     await cleanHost(key, identity);
     checkUntrackedSocket(path.join(hostRoot, key));
     await cleanLegacyHost(key);
@@ -759,20 +843,34 @@ export async function createSessionSupervisor(
           clear: () => rm(planFile(key), { force: true }),
         });
         cwd = await managedDirectory(key);
+        const current = record as LaunchRecord | null;
         if (
           command.launch.prepareWorkspace &&
           config.prepareDependencies &&
           (await readOptional(dependenciesFile(key))) === null
         ) {
-          progress?.({ phase: "dependencies" });
-          const installed = await config
-            .prepareDependencies(cwd)
-            .catch(() => false);
-          if (installed) await writePrivateState(dependenciesFile(key), "done");
-          progress?.({
-            phase: "dependencies",
-            status: installed ? "done" : "failed",
-          });
+          if (current?.dependencies === "failed") {
+            // This attempt already reported a failed install and went on.
+            progress?.({ phase: "dependencies", status: "failed" });
+          } else {
+            if (current)
+              await saveLaunch({ ...current, dependencies: "started" });
+            progress?.({ phase: "dependencies" });
+            const installed = await config
+              .prepareDependencies(cwd)
+              .catch(() => false);
+            if (installed)
+              await writePrivateState(dependenciesFile(key), "done");
+            if (current)
+              await saveLaunch({
+                ...current,
+                dependencies: installed ? "done" : "failed",
+              });
+            progress?.({
+              phase: "dependencies",
+              status: installed ? "done" : "failed",
+            });
+          }
         }
       }
     }
@@ -803,6 +901,7 @@ export async function createSessionSupervisor(
       repository: _repository,
       useWorktreeOf: _owner,
       prepareWorkspace: _preparation,
+      launchId: _launchId,
       ...launchOptions
     } = command.launch;
     const hostIdentity: CurrentSessionIdentity = {
@@ -848,6 +947,13 @@ export async function createSessionSupervisor(
     await chown(hostFile(dir, "launch"), config.uid, config.gid);
     await chown(dir, config.uid, config.gid);
 
+    const reached = record as LaunchRecord | null;
+    if (reached)
+      await saveLaunch({
+        ...reached,
+        stage: "spawning",
+        hostInstanceId: hostIdentity.hostInstanceId,
+      });
     const log = openSync(path.join(logs, key), "a", 0o600);
     try {
       const host = config.hostCommand(dir);
@@ -1306,6 +1412,7 @@ export async function createSessionSupervisor(
         await removeGuestDirectory(dir);
         await rm(selectedFile(key), { force: true });
         await rm(borrowedFile(key), { force: true });
+        await rm(launchFile(key), { force: true });
         await rm(path.join(bindings, key), { force: true });
         if (managed) await syncBindings();
       });

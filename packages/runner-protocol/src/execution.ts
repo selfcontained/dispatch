@@ -23,6 +23,7 @@ import {
 import { isGitHubOperation, type GitHubOperation } from "./github.js";
 import type { RunnerHealth } from "./health.js";
 import {
+  isUpdateAttemptId,
   parseSelfUpdateAdvert,
   parseUpdateServiceFrame,
   UPDATE_SERVICE_FRAME_TYPES,
@@ -71,6 +72,12 @@ export type RemoteLaunch = {
   useWorktreeOf?: string;
   /** Opt in to workspace preparation and request-scoped progress. */
   prepareWorkspace?: true;
+  /**
+   * Durable identity of this launch attempt, chosen by Dispatch. A runner
+   * that advertises `launchReconcile` saves it before any process starts and
+   * answers a repeat of the same ID from that record. Older runners ignore it.
+   */
+  launchId?: string;
 };
 
 export type SessionLifecycleOperation = { agentId: string } & (
@@ -129,6 +136,8 @@ export type ReadyFrame = {
   sessionCheckout?: true;
   checkoutRelease?: true;
   sessionFiles?: true;
+  /** A repeated `launch.launchId` is reconciled rather than run again. */
+  launchReconcile?: true;
   /** Supervisor self-update support and the installed identity. */
   selfUpdate?: SelfUpdateAdvert;
 };
@@ -165,6 +174,7 @@ export function parseReadyFrame(value: unknown): ReadyFrame | null {
     ...(frame.checkoutInspection === true && { checkoutInspection: true }),
     ...(frame.sharedWorktree === true && { sharedWorktree: true }),
     ...(frame.sessionFiles === true && { sessionFiles: true }),
+    ...(frame.launchReconcile === true && { launchReconcile: true }),
     ...(frame.checkoutRelease === true && { checkoutRelease: true }),
     ...(frame.sessionCheckout === true && { sessionCheckout: true }),
     ...(frame.workspacePreparation === true && { workspacePreparation: true }),
@@ -342,6 +352,7 @@ function isRemoteLaunch(value: unknown): value is RemoteLaunch {
     (value.personaContext === undefined ||
       isNullableString(value.personaContext)) &&
     (value.prepareWorkspace === undefined || value.prepareWorkspace === true) &&
+    (value.launchId === undefined || isUpdateAttemptId(value.launchId)) &&
     (value.mcp === undefined || isServiceMcp(value.mcp)) &&
     (value.useWorktreeOf === undefined ||
       (isOpaqueId(value.useWorktreeOf) &&

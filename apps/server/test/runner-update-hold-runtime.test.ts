@@ -17,7 +17,7 @@ import { scriptedHost } from "./runner-update-hold-fixtures.js";
 import { RunnerUpdateFenced } from "../src/agents/remote/service.js";
 import {
   RunnerUpdateHolds,
-  type RunnerHold,
+  type RunnerHoldState,
 } from "../src/agents/remote/update-hold.js";
 
 const logger = {
@@ -40,7 +40,7 @@ afterEach(() => {
 });
 
 function memoryHolds() {
-  let saved: RunnerHold[] = [];
+  let saved: RunnerHoldState = { holds: [], resuming: [] };
   const holds = new RunnerUpdateHolds({
     store: {
       read: async () => saved,

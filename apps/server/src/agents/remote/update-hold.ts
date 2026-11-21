@@ -64,6 +64,8 @@ const heldLaunch = z
     heldAt: z.string().datetime(),
     /** A new agent's first launch, or a start of an existing one. */
     kind: z.enum(["create", "start"]),
+    /** The attempt's launch ID; the runner reconciles a repeat of it. */
+    launchId: z.string().uuid().optional(),
     /** What only the create promise knew: its first turn. */
     create: z
       .object({
@@ -96,13 +98,28 @@ const runnerHold = z
   .strict();
 export type RunnerHold = z.infer<typeof runnerHold>;
 
+/** A released launch that has not yet reached its runner. */
+const resumingLaunch = heldLaunch
+  .extend({ runnerId: z.string().min(1).max(256) })
+  .strict();
+export type ResumingLaunch = z.infer<typeof resumingLaunch>;
+
 const holdFile = z
-  .object({ format: z.literal(1), holds: z.array(runnerHold).max(1000) })
+  .object({
+    format: z.literal(1),
+    holds: z.array(runnerHold).max(1000),
+    resuming: z.array(resumingLaunch).max(10_000).optional(),
+  })
   .strict();
 
+export type RunnerHoldState = {
+  holds: RunnerHold[];
+  resuming: ResumingLaunch[];
+};
+
 export type RunnerHoldStore = {
-  read(): Promise<RunnerHold[]>;
-  write(holds: RunnerHold[]): Promise<void>;
+  read(): Promise<RunnerHoldState>;
+  write(state: RunnerHoldState): Promise<void>;
 };
 
 /** A private file, replaced atomically; absent when nothing is held. */
@@ -116,7 +133,8 @@ export function fileRunnerHoldStore(
       try {
         raw = await readPrivate(file, { maxBytes: 16 * 1024 * 1024 });
       } catch (error) {
-        if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+        if ((error as NodeJS.ErrnoException).code === "ENOENT")
+          return { holds: [], resuming: [] };
         return setAside(error);
       }
       let parsed: ReturnType<typeof holdFile.safeParse>;
@@ -126,27 +144,37 @@ export function fileRunnerHoldStore(
         return setAside(error);
       }
       if (!parsed.success) return setAside(parsed.error);
-      return parsed.data.holds;
+      return {
+        holds: parsed.data.holds,
+        resuming: parsed.data.resuming ?? [],
+      };
     },
-    async write(holds) {
+    async write({ holds, resuming }) {
       await mkdir(path.dirname(file), { recursive: true, mode: 0o700 });
+      // Without resuming launches the file keeps its earlier shape.
       await writeAtomic(
         file,
-        JSON.stringify(holdFile.parse({ format: 1, holds }))
+        JSON.stringify(
+          holdFile.parse({
+            format: 1,
+            holds,
+            ...(resuming.length && { resuming }),
+          })
+        )
       );
     },
   };
 
   // An unreadable record holds nothing: held work then takes its ordinary
   // path (a still-fenced runner refuses it visibly). Kept for inspection.
-  async function setAside(error: unknown): Promise<RunnerHold[]> {
+  async function setAside(error: unknown): Promise<RunnerHoldState> {
     logger?.warn(
       { err: error, file },
       "runner update hold state is unreadable; holding nothing"
     );
     await rename(file, `${file}.rejected-${Date.now()}`).catch(() => null);
     await syncDirectory(path.dirname(file)).catch(() => null);
-    return [];
+    return { holds: [], resuming: [] };
   }
 }
 
@@ -179,6 +207,15 @@ export class RunnerUpdateHolds {
     string,
     { kind: "stop" | "other"; resolve: () => void }[]
   >();
+  /**
+   * Launches whose hold was released but which have not yet reached their
+   * runner. Persisted with the release, so a controller that stops in
+   * between drives them again (same launch ID) when it starts.
+   */
+  private resuming: ResumingLaunch[] = [];
+  private readonly resumeListeners = new Set<
+    (launches: ResumingLaunch[]) => void | Promise<void>
+  >();
   private readonly releaseListeners = new Set<
     (release: RunnerHoldRelease) => void | Promise<void>
   >();
@@ -203,18 +240,41 @@ export class RunnerUpdateHolds {
 
   /** Read persisted holds. Expiry is armed by `start`, after boot recovery. */
   async load(): Promise<void> {
-    for (const hold of await this.options.store.read())
-      this.holds.set(hold.runnerId, { ...hold });
-    if (this.holds.size)
+    const { holds, resuming } = await this.options.store.read();
+    for (const hold of holds) this.holds.set(hold.runnerId, { ...hold });
+    this.resuming = [...resuming];
+    if (this.holds.size || this.resuming.length)
       this.options.logger.info(
-        { runners: [...this.holds.keys()] },
+        {
+          runners: [...this.holds.keys()],
+          resuming: this.resuming.length,
+        },
         "runner update holds restored"
       );
   }
 
-  /** Arm each bound; one already past releases now. */
+  /**
+   * Arm each bound; one already past releases now. Launches released before
+   * a restart that never settled are handed to the resume listeners again.
+   */
   start(): void {
     for (const hold of this.holds.values()) this.arm(hold);
+    const recovered = [...this.resuming];
+    if (!recovered.length) return;
+    this.options.logger.warn(
+      { launches: recovered.length },
+      "resuming runner launches released before a restart"
+    );
+    for (const listener of this.resumeListeners) {
+      void Promise.resolve()
+        .then(() => listener(recovered))
+        .catch((error: unknown) =>
+          this.options.logger.error(
+            { err: error },
+            "runner launch recovery listener failed"
+          )
+        );
+    }
   }
 
   close(): void {
@@ -271,6 +331,8 @@ export class RunnerUpdateHolds {
     if (!hold || hold.attemptId !== attemptId) return false;
     this.holds.delete(runnerId);
     clearTimeout(hold.timer);
+    // Recorded with the release, in the same write.
+    this.resuming.push(...hold.launches.map((l) => ({ ...l, runnerId })));
     try {
       await this.persist();
     } catch (error) {
@@ -349,11 +411,30 @@ export class RunnerUpdateHolds {
   hasLaunch(agentId: string): boolean {
     for (const hold of this.holds.values())
       if (hold.launches.some((l) => l.agentId === agentId)) return true;
-    return false;
+    return this.resuming.some((l) => l.agentId === agentId);
+  }
+
+  /** A released launch reached its outcome (or is held again elsewhere). */
+  async settleLaunch(id: string): Promise<void> {
+    const before = this.resuming.length;
+    this.resuming = this.resuming.filter((l) => l.id !== id);
+    if (this.resuming.length !== before) await this.persist();
+  }
+
+  onResume(
+    listener: (launches: ResumingLaunch[]) => void | Promise<void>
+  ): () => void {
+    this.resumeListeners.add(listener);
+    return () => this.resumeListeners.delete(listener);
   }
 
   /** Cancel a held launch (stop/archive won). */
   async takeLaunch(agentId: string): Promise<HeldLaunch | undefined> {
+    const released = this.resuming.find((l) => l.agentId === agentId);
+    if (released) {
+      this.resuming = this.resuming.filter((l) => l !== released);
+      await this.persist();
+    }
     for (const hold of this.holds.values()) {
       const launch = hold.launches.find((l) => l.agentId === agentId);
       if (!launch) continue;
@@ -416,9 +497,10 @@ export class RunnerUpdateHolds {
     const write = this.writes
       .catch(() => {})
       .then(() =>
-        this.options.store.write(
-          [...this.holds.values()].map((hold) => snapshot(hold))
-        )
+        this.options.store.write({
+          holds: [...this.holds.values()].map((hold) => snapshot(hold)),
+          resuming: [...this.resuming],
+        })
       );
     this.writes = write;
     return write;

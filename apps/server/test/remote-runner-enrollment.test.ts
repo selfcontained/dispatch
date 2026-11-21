@@ -29,6 +29,7 @@ import {
   RemoteRunnerService,
   RunnerRequestError,
   RunnerUnavailable,
+  RunnerAcknowledgementLost,
   RunnerRevoked,
 } from "../src/agents/remote/service.js";
 import {
@@ -77,6 +78,8 @@ function dialRunner(input: {
   engineManagement?: true;
   engineCapabilities?: true;
   pullRequestStatus?: true;
+  sessionFiles?: true;
+  launchReconcile?: true;
   selfUpdate?: object;
 }): Promise<FakeRunner> {
   const url = new URL(input.endpoint);
@@ -113,6 +116,8 @@ function dialRunner(input: {
         engineManagement: input.engineManagement,
         engineCapabilities: input.engineCapabilities,
         pullRequestStatus: input.pullRequestStatus,
+        sessionFiles: input.sessionFiles,
+        launchReconcile: input.launchReconcile,
         ...(input.selfUpdate ? { selfUpdate: input.selfUpdate } : {}),
       });
       resolve({ socket, closed, requests, send });
@@ -951,6 +956,92 @@ describe("runner enrollment service", () => {
     } finally {
       extended.socket.destroy();
     }
+  });
+
+  it("sends a launch ID only to a runner that reconciles it, and reports a lost reply as such", async () => {
+    const service = makeService();
+    const a = await enroll(service, "alpha");
+    const placement = { runner: a.id, workspace: "@session" };
+    const launchId = "6f1c2d3e-4a5b-4c6d-8e7f-8091a2b3c4d5";
+    const launch = {
+      kind: "launch",
+      agentId: "agt_one",
+      launch: {
+        agentId: "agt_one",
+        engine: "codex",
+        model: null,
+        systemPrompt: null,
+        resumeSessionId: null,
+        launchId,
+      },
+    } as const;
+    const sentLaunches = (peer: FakeRunner) =>
+      peer.requests.flatMap((frame) =>
+        frame.type === "request" && frame.command.kind === "launch"
+          ? [frame.command.launch]
+          : []
+      );
+    const peer = (
+      label: string,
+      extra: Partial<Parameters<typeof dialRunner>[0]> = {}
+    ) =>
+      dialRunner({
+        ...a,
+        label,
+        workspaces: ["@session"],
+        managedWorkspace: true,
+        ...extra,
+      });
+
+    expect(service.lastSeenCapabilities(placement)).toBeUndefined();
+    const old = await peer("old");
+    try {
+      await waitFor(() => service.available(placement));
+      expect(service.reconcilesLaunches(placement)).toBe(false);
+      await service.requestSession(placement, launch);
+      // An older runner sees exactly the launch shape it knows.
+      const { launchId: _, ...known } = launch.launch;
+      expect(sentLaunches(old)).toEqual([known]);
+      expect(sentLaunches(old)[0]).not.toHaveProperty("launchId");
+    } finally {
+      old.socket.destroy();
+    }
+    await waitFor(() => !service.available(placement));
+    expect(service.reconcilesLaunches(placement)).toBe(false);
+    // Kept after it went offline, for a launch an update holds.
+    expect(service.lastSeenCapabilities(placement)).toEqual({
+      managedWorkspace: true,
+      sessionFiles: false,
+      sharedWorktree: false,
+    });
+    expect(
+      service.lastSeenCapabilities({ runner: a.id, workspace: "other" })
+    ).toBeUndefined();
+
+    const current = await peer("current", {
+      answer: false,
+      launchReconcile: true,
+      sessionFiles: true,
+      sharedWorktree: true,
+    });
+    try {
+      await waitFor(() => service.reconcilesLaunches(placement));
+      const pending = service.requestSession(placement, launch);
+      await waitFor(() => sentLaunches(current).length === 1);
+      expect(sentLaunches(current)).toEqual([launch.launch]);
+      current.socket.destroy();
+      await expect(pending).rejects.toBeInstanceOf(RunnerAcknowledgementLost);
+    } finally {
+      current.socket.destroy();
+    }
+    await waitFor(() => !service.available(placement));
+    expect(service.lastSeenCapabilities(placement)).toEqual({
+      managedWorkspace: true,
+      sessionFiles: true,
+      sharedWorktree: true,
+    });
+    await service.revoke(a.id);
+    expect(service.lastSeenCapabilities(placement)).toBeUndefined();
   });
 
   it("distinguishes a configured @session handle from managed mode and retains the mode offline", async () => {

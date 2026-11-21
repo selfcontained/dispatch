@@ -1551,6 +1551,373 @@ describe("runner session supervision", () => {
       );
     }
   });
+
+  describe("launch acknowledgements", () => {
+    const LAUNCH = "6f1c2d3e-4a5b-4c6d-8e7f-8091a2b3c4d5";
+    const OTHER_LAUNCH = "7a1c2d3e-4a5b-4c6d-8e7f-8091a2b3c4d5";
+    const withId = (workspace: string, launchId?: string) => {
+      const command = launch(workspace);
+      return {
+        ...command,
+        launch: {
+          ...command.launch,
+          ...(launchId !== undefined && { launchId }),
+        },
+      };
+    };
+    const launchRecord = () =>
+      readFile(path.join(state, "bindings", agentId + ".launch"), "utf8").then(
+        (raw) => JSON.parse(raw),
+        () => null
+      );
+    const hostOptions = async () =>
+      JSON.parse(
+        await readFile(
+          path.join(state, "hosts", agentId, "launch.json"),
+          "utf8"
+        )
+      );
+    const sessionDirs = async () =>
+      (
+        await import("node:fs/promises").then(({ readdir }) =>
+          readdir(path.join(state, "sessions"))
+        )
+      ).filter((entry) => !entry.startsWith("."));
+
+    it("saves the launch ID and the spawning host before the host starts", async () => {
+      const runner = await start([]);
+      processes.spawn.mockImplementationOnce(
+        async (_command, _cwd, _env, _log, save) => {
+          const saved = await launchRecord();
+          expect(saved).toEqual({
+            launchId: LAUNCH,
+            stage: "spawning",
+            hostInstanceId: (await hostOptions()).hostInstanceId,
+          });
+          expect((await stat(record).catch(() => null)) === null).toBe(true);
+          await save(identity);
+          kernelHost = identity;
+        }
+      );
+      await runner.launch(withId(MANAGED_WORKSPACE, LAUNCH), root);
+      expect(processes.spawn).toHaveBeenCalledTimes(1);
+      // The ID never reaches the host's own launch file.
+      expect(await hostOptions()).not.toHaveProperty("launchId");
+      const mode =
+        (await stat(path.join(state, "bindings", agentId + ".launch"))).mode &
+        0o777;
+      expect(mode).toBe(0o600);
+    });
+
+    it("writes no launch record for an older controller", async () => {
+      const runner = await start([]);
+      await runner.launch(withId(MANAGED_WORKSPACE), root);
+      expect(await launchRecord()).toBeNull();
+      await expect(
+        runner.launch(withId(MANAGED_WORKSPACE), root)
+      ).rejects.toThrow("already has a host");
+      expect(processes.spawn).toHaveBeenCalledTimes(1);
+    });
+
+    it("adopts its own host when the same launch waited at the lock queue", async () => {
+      const runner = await start([]);
+      const first = runner.launch(withId(MANAGED_WORKSPACE, LAUNCH), root);
+      const repeat = runner.launch(withId(MANAGED_WORKSPACE, LAUNCH), root);
+      const progress = vi.fn();
+      const other = runner.launch(
+        withId(MANAGED_WORKSPACE, OTHER_LAUNCH),
+        root,
+        progress
+      );
+      await first;
+      await repeat;
+      await expect(other).rejects.toThrow("already has a host");
+      expect(processes.spawn).toHaveBeenCalledTimes(1);
+      expect(await sessionDirs()).toEqual([agentId]);
+      expect(await runner.alive(agentId, MANAGED_WORKSPACE)).toBe(true);
+    });
+
+    it("spawns once more when the supervisor stopped before the process gate opened", async () => {
+      const first = await start([]);
+      processes.spawn.mockImplementationOnce(
+        async (_command, _cwd, _env, _log, save) => {
+          await save(identity);
+          // The gate never opened: the launcher shell exits on EOF.
+          throw new Error("supervisor stopped");
+        }
+      );
+      await expect(
+        first.launch(withId(MANAGED_WORKSPACE, LAUNCH), root)
+      ).rejects.toThrow("supervisor stopped");
+      first.close();
+
+      const recovered = await start([]);
+      await recovered.launch(withId(MANAGED_WORKSPACE, LAUNCH), root);
+      expect(processes.spawn).toHaveBeenCalledTimes(2);
+      expect(processes.cleanup).toHaveBeenCalledTimes(1);
+      expect(await recovered.alive(agentId, MANAGED_WORKSPACE)).toBe(true);
+      expect(await sessionDirs()).toEqual([agentId]);
+      expect(await launchRecord()).toMatchObject({
+        launchId: LAUNCH,
+        stage: "spawning",
+        hostInstanceId: (await hostOptions()).hostInstanceId,
+      });
+    });
+
+    it.each(["after spawn", "after reply"])(
+      "adopts the live host of the same launch %s across a supervisor restart",
+      async (boundary) => {
+        const first = await start([]);
+        if (boundary === "after spawn")
+          processes.spawn.mockImplementationOnce(
+            async (_command, _cwd, _env, _log, save) => {
+              await save(identity);
+              kernelHost = identity;
+              throw new Error("receipt lost");
+            }
+          );
+        const sent = first.launch(withId(MANAGED_WORKSPACE, LAUNCH), root);
+        if (boundary === "after spawn")
+          await expect(sent).rejects.toThrow("receipt lost");
+        else await sent;
+        const instance = (await hostOptions()).hostInstanceId;
+        first.close();
+
+        const recovered = await start([]);
+        const progress = vi.fn();
+        await recovered.launch(
+          withId(MANAGED_WORKSPACE, LAUNCH),
+          root,
+          progress
+        );
+        expect(progress.mock.calls).toEqual([
+          [{ phase: "workspace" }],
+          [{ phase: "ready" }],
+        ]);
+        expect(processes.spawn).toHaveBeenCalledTimes(1);
+        expect(processes.cleanup).not.toHaveBeenCalled();
+        expect((await hostOptions()).hostInstanceId).toBe(instance);
+        expect(await sessionDirs()).toEqual([agentId]);
+
+        // Another attempt for the same session keeps the existing conflict.
+        await expect(
+          recovered.launch(withId(MANAGED_WORKSPACE, OTHER_LAUNCH), root)
+        ).rejects.toThrow("already has a host");
+        // So does a host that is not the one this attempt started.
+        await writeFile(
+          record,
+          JSON.stringify({
+            ...currentIdentity,
+            hostInstanceId: "11111111-2222-4333-8444-555555555555",
+          })
+        );
+        await expect(
+          recovered.launch(withId(MANAGED_WORKSPACE, LAUNCH), root)
+        ).rejects.toThrow("already has a host");
+        expect(processes.spawn).toHaveBeenCalledTimes(1);
+      }
+    );
+
+    it("does not adopt a legacy host record for the same launch", async () => {
+      const runner = await start([]);
+      await runner.launch(withId(MANAGED_WORKSPACE, LAUNCH), root);
+      await writeFile(record, JSON.stringify(identity));
+      await expect(
+        runner.launch(withId(MANAGED_WORKSPACE, LAUNCH), root)
+      ).rejects.toThrow("already has a host");
+    });
+
+    it.each([
+      ["not JSON", "{"],
+      ["an unknown stage", { stage: "spawned" }],
+      ["a malformed host instance", { hostInstanceId: 5 }],
+    ])("treats a launch record with %s as a new launch", async (_, change) => {
+      const runner = await start([]);
+      await runner.launch(withId(MANAGED_WORKSPACE, LAUNCH), root);
+      kernelHost = undefined;
+      // Otherwise an install of unknown result: this attempt would refuse.
+      const recorded = {
+        launchId: LAUNCH,
+        stage: "preparing",
+        dependencies: "started",
+      };
+      await writeFile(
+        path.join(state, "bindings", agentId + ".launch"),
+        typeof change === "string"
+          ? change
+          : JSON.stringify({ ...recorded, ...change })
+      );
+      await runner.launch(withId(MANAGED_WORKSPACE, LAUNCH), root);
+      expect(processes.spawn).toHaveBeenCalledTimes(2);
+    });
+
+    it("refuses only an install whose result is not on disk", async () => {
+      const runner = await start([]);
+      await runner.launch(withId(MANAGED_WORKSPACE, LAUNCH), root);
+      kernelHost = undefined;
+      await writeFile(
+        path.join(state, "bindings", agentId + ".launch"),
+        JSON.stringify({
+          launchId: LAUNCH,
+          stage: "preparing",
+          dependencies: "started",
+        })
+      );
+      await expect(
+        runner.launch(withId(MANAGED_WORKSPACE, LAUNCH), root)
+      ).rejects.toThrow("their result is unknown");
+      // The install finished just before the record could say so.
+      await writeFile(
+        path.join(state, "bindings", agentId + ".dependencies"),
+        "done"
+      );
+      await runner.launch(withId(MANAGED_WORKSPACE, LAUNCH), root);
+      expect(processes.spawn).toHaveBeenCalledTimes(2);
+    });
+
+    it("discards the launch record with the session", async () => {
+      const runner = await start([]);
+      await runner.launch(withId(MANAGED_WORKSPACE, LAUNCH), root);
+      await runner.stop(agentId, MANAGED_WORKSPACE, true);
+      await runner.discard(agentId, MANAGED_WORKSPACE);
+      expect(await launchRecord()).toBeNull();
+    });
+
+    describe("dependency preparation", () => {
+      const url = "https://github.com/fixture/project.git";
+      let seed: string;
+      const repoLaunch = (launchId: string) => {
+        const command = withId(MANAGED_WORKSPACE, launchId);
+        return {
+          ...command,
+          launch: {
+            ...command.launch,
+            prepareWorkspace: true as const,
+            repository: {
+              url,
+              checkout: { kind: "new" as const, branch: "feature" },
+            },
+          },
+        };
+      };
+      const git = (...args: string[]) =>
+        execFileSync("git", args, { encoding: "utf8" });
+      const workload = async (bin: string, args: string[]) =>
+        execFileSync(
+          bin,
+          args.some((arg) => arg === "ls-remote" || arg === "fetch")
+            ? args.map((arg) => (arg === url ? seed : arg))
+            : args,
+          { encoding: "utf8" }
+        );
+
+      beforeEach(() => {
+        seed = path.join(root, "seed");
+        git("init", "--quiet", "--initial-branch=trunk", seed);
+        git(
+          "-C",
+          seed,
+          "-c",
+          "user.name=Test",
+          "-c",
+          "user.email=test@example.invalid",
+          "commit",
+          "--quiet",
+          "--allow-empty",
+          "-m",
+          "seed"
+        );
+      });
+
+      it("saves the launch before the first workspace process", async () => {
+        let first: unknown;
+        const runner = await start(
+          [],
+          async (bin, args) => {
+            first ??= await launchRecord();
+            return workload(bin, args);
+          },
+          async () => true
+        );
+        await runner.launch(repoLaunch(LAUNCH), undefined, vi.fn());
+        expect(first).toEqual({ launchId: LAUNCH, stage: "preparing" });
+      });
+
+      it("surfaces an install that ran with no recorded result and never runs it again", async () => {
+        const prepare = vi.fn(
+          (_cwd: string): Promise<boolean> => new Promise(() => {})
+        );
+        const first = await start([], workload, (cwd) => prepare(cwd));
+        void first.launch(repoLaunch(LAUNCH), undefined, vi.fn());
+        await vi.waitFor(() => expect(prepare).toHaveBeenCalledTimes(1));
+        expect(await launchRecord()).toMatchObject({
+          launchId: LAUNCH,
+          dependencies: "started",
+        });
+        // The supervisor stops mid-install.
+        first.close();
+
+        const recovered = await start([], workload, (cwd) => prepare(cwd));
+        await expect(
+          recovered.launch(repoLaunch(LAUNCH), undefined, vi.fn())
+        ).rejects.toThrow(
+          "their result is unknown. They were not run again. Start the agent to retry."
+        );
+        expect(prepare).toHaveBeenCalledTimes(1);
+        expect(processes.spawn).not.toHaveBeenCalled();
+        expect(processes.cleanup).not.toHaveBeenCalled();
+
+        // A new attempt (Start) prepares again, as any new launch does.
+        prepare.mockResolvedValueOnce(true);
+        await recovered.launch(repoLaunch(OTHER_LAUNCH), undefined, vi.fn());
+        expect(prepare).toHaveBeenCalledTimes(2);
+        expect(processes.spawn).toHaveBeenCalledTimes(1);
+      });
+
+      it("resumes after a recorded install without running it again", async () => {
+        for (const installed of [false, true]) {
+          processes.spawn.mockReset();
+          processes.spawn.mockImplementationOnce(
+            async (_command, _cwd, _env, _log, save) => {
+              await save(identity);
+              throw new Error("supervisor stopped");
+            }
+          );
+          processes.spawn.mockImplementation(
+            async (_command, _cwd, _env, _log, save) => {
+              await save(identity);
+              kernelHost = identity;
+            }
+          );
+          const prepare = vi.fn(async () => installed);
+          const id = installed ? OTHER_LAUNCH : LAUNCH;
+          const first = await start([], workload, prepare);
+          await expect(
+            first.launch(repoLaunch(id), undefined, vi.fn())
+          ).rejects.toThrow("supervisor stopped");
+          first.close();
+          const recovered = await start([], workload, prepare);
+          const progress = vi.fn();
+          await recovered.launch(repoLaunch(id), undefined, progress);
+          expect(prepare).toHaveBeenCalledTimes(1);
+          expect(processes.spawn).toHaveBeenCalledTimes(2);
+          expect(progress.mock.calls.map(([step]) => step)).toEqual(
+            installed
+              ? [{ phase: "workspace" }, { phase: "ready" }]
+              : [
+                  { phase: "workspace" },
+                  { phase: "dependencies", status: "failed" },
+                  { phase: "ready" },
+                ]
+          );
+          expect(await sessionDirs()).toEqual([agentId]);
+          await recovered.stop(agentId, MANAGED_WORKSPACE, true);
+          recovered.close();
+          supervisor = undefined;
+        }
+      });
+    });
+  });
 });
 
 it("reads session and start time after a process name containing parentheses", () => {

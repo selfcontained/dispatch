@@ -122,10 +122,7 @@ import {
   RunnerUpdateFenced,
   type RemoteRunnerService,
 } from "./remote/service.js";
-import type {
-  RunnerHoldRelease,
-  RunnerUpdateHolds,
-} from "./remote/update-hold.js";
+import type { HeldLaunch, RunnerUpdateHolds } from "./remote/update-hold.js";
 import { buildLaunchEnv } from "./acp/launch-env.js";
 import { dispatchMcpUrl } from "./acp/mcp-url.js";
 import {
@@ -403,6 +400,8 @@ export class AgentManager {
   private readonly config: AppConfig;
   private readonly remote?: RemoteRunnerService;
   private readonly holds?: RunnerUpdateHolds;
+  private readonly recoveredLaunchWaitMs: number;
+  private readonly recoveredLaunchPollMs: number;
   private readonly diagnostics: DiagnosticsRecorder;
   private readonly eventBus: AgentEventBus;
   private readonly runtime: AgentRuntime;
@@ -453,6 +452,9 @@ export class AgentManager {
       remote?: RemoteRunnerService;
       /** Runner update holds; absent, nothing is ever held. */
       holds?: RunnerUpdateHolds;
+      /** How long a launch recovered at startup waits for its runner. */
+      recoveredLaunchWaitMs?: number;
+      recoveredLaunchPollMs?: number;
       classifySteering?: import("./steering.js").ClassifySteering;
     } = {}
   ) {
@@ -465,6 +467,8 @@ export class AgentManager {
     this.localRunner = createLocalRunner(config.agentStateRoot, logger);
     this.remote = options.remote;
     this.holds = options.holds;
+    this.recoveredLaunchWaitMs = options.recoveredLaunchWaitMs ?? 10 * 60_000;
+    this.recoveredLaunchPollMs = options.recoveredLaunchPollMs ?? 1_000;
     this.diagnostics = createDiagnosticsRecorder(logger);
     this.eventBus = createAgentEventBus(logger);
     this.streamStore = new StreamStore(pool);
@@ -532,18 +536,30 @@ export class AgentManager {
         launchHeld: (id: string) => this.holds!.hasLaunch(id),
       }),
     });
-    this.holds?.onRelease((release) => this.resumeHeldLaunches(release));
+    this.holds?.onRelease((release) =>
+      this.resumeHeldLaunches(release.launches)
+    );
+    // Released before a restart but never settled: drive the same attempt.
+    this.holds?.onResume((launches) =>
+      this.resumeHeldLaunches(launches, { recovered: true })
+    );
   }
 
   /**
    * A held runner opened: run its launches in the order they were held.
    * Each re-reads its agent first; a stopped, archived or moved agent wins
    * over the launch. A launch onto a runner held again is held again there.
+   * Each keeps its launch ID, so a runner that already saw it reconciles it.
+   * A recovered launch waits (bounded) for its runner to reconnect first.
    */
-  private async resumeHeldLaunches(release: RunnerHoldRelease): Promise<void> {
-    for (const launch of release.launches) {
-      const { agentId } = launch;
+  private async resumeHeldLaunches(
+    launches: HeldLaunch[],
+    { recovered = false }: { recovered?: boolean } = {}
+  ): Promise<void> {
+    for (const launch of launches) {
+      const { agentId, launchId } = launch;
       const resume = async () => {
+        if (recovered) await this.waitForRunner(agentId);
         const agent = await this.getAgent(agentId);
         if (agent?.status !== "creating") {
           this.logger.info(
@@ -553,7 +569,7 @@ export class AgentManager {
           return;
         }
         if (launch.kind === "start" || !launch.create)
-          return void (await this.startAgentClaimed(agentId));
+          return void (await this.startAgentClaimed(agentId, launchId));
         const create = launch.create;
         await this.continueLaunch(agentId, {
           workspace: null,
@@ -562,6 +578,7 @@ export class AgentManager {
           initialFiles: create.initialFiles,
           chatLaunchPost: create.chatLaunchPost,
           jobRunId: create.jobRunId,
+          launchId,
         });
       };
       // A start ran under the lifecycle lock when it was held, and does so
@@ -570,10 +587,31 @@ export class AgentManager {
         launch.kind === "start"
           ? this.serializeLifecycle(agentId, resume)
           : resume()
-      ).catch((error: unknown) =>
-        this.logger.warn({ err: error, agentId }, "Held agent launch failed")
-      );
+      )
+        .catch((error: unknown) =>
+          this.logger.warn({ err: error, agentId }, "Held agent launch failed")
+        )
+        // Reached an outcome, or was held again under a new record.
+        .finally(() => this.holds?.settleLaunch(launch.id))
+        .catch((error: unknown) =>
+          this.logger.warn(
+            { err: error, agentId },
+            "could not record a resumed launch as settled"
+          )
+        );
     }
+  }
+
+  /** Bounded wait for a recovered launch's runner to reconnect. */
+  private async waitForRunner(agentId: string): Promise<void> {
+    const agent = await this.getAgent(agentId);
+    const placement = agent ? remotePlacement(agent.cwd) : null;
+    if (!placement || !this.remote) return;
+    const deadline = Date.now() + this.recoveredLaunchWaitMs;
+    while (!this.remote.available(placement) && Date.now() < deadline)
+      await new Promise((resolve) =>
+        setTimeout(resolve, this.recoveredLaunchPollMs)
+      );
   }
 
   /** The runner this agent is placed on is held for an update. */
@@ -1796,8 +1834,20 @@ export class AgentManager {
       input.projectId = owner.projectId;
     }
     const placement = remotePlacement(input.cwd);
+    // A runner held for an update may be between supervisors. Admit with
+    // what it last advertised: the launch is held, and checked against the
+    // reconnected runner when it is released. Without a hold, an offline
+    // runner refuses as before.
+    const heldOffline =
+      placement &&
+      this.holds?.isHeld(placement.runner) &&
+      !this.remote?.available(placement)
+        ? this.remote?.lastSeenCapabilities(placement)
+        : undefined;
     const managed = placement
-      ? (this.remote?.isManagedWorkspace(placement) ?? false)
+      ? heldOffline
+        ? heldOffline.managedWorkspace
+        : (this.remote?.isManagedWorkspace(placement) ?? false)
       : false;
     const workspace = !placement
       ? "folder"
@@ -1817,19 +1867,25 @@ export class AgentManager {
         get available() {
           return (
             !placement ||
-            (remoteService?.available(placement) === true && runtime === "acp")
+            ((remoteService?.available(placement) === true ||
+              heldOffline !== undefined) &&
+              runtime === "acp")
           );
         },
         get sessionFiles() {
           return (
             !placement ||
-            remoteService?.supportsSessionFiles(placement) === true
+            (heldOffline
+              ? heldOffline.sessionFiles
+              : remoteService?.supportsSessionFiles(placement) === true)
           );
         },
         get sharedWorktree() {
           return (
             !placement ||
-            remoteService?.supportsSharedWorktree(placement) === true
+            (heldOffline
+              ? heldOffline.sharedWorktree
+              : remoteService?.supportsSharedWorktree(placement) === true)
           );
         },
       },
@@ -2458,22 +2514,30 @@ export class AgentManager {
       initialFiles: SeededFile[];
       chatLaunchPost: ChatLaunchPost | null;
       jobRunId: string | undefined;
+      /** A released launch keeps the attempt's ID. */
+      launchId?: string;
     }
   ): Promise<void> {
     const { workspace, chatLaunchPost } = opts;
+    // One ID for this attempt, wherever it is held or retried.
+    const launchId = opts.launchId ?? randomUUID();
     try {
       const agent = opts.agent ?? (await this.getRequiredAgent(id));
-      if (await this.holdLaunch(agent, "create", opts)) return;
+      if (await this.holdLaunch(agent, "create", launchId, opts)) return;
       let started: { sessionId: string };
       try {
         started = await this.startHost(agent, {
           resumeSessionId: null,
           jobRunId: opts.jobRunId,
           recordWorkspaceProgress: true,
+          launchId,
         });
       } catch (error) {
         // Refused by the runner's update fence: nothing started.
-        if (await this.holdRefusedLaunch(agent, error, "create", opts)) return;
+        if (
+          await this.holdRefusedLaunch(agent, error, "create", launchId, opts)
+        )
+          return;
         throw error;
       }
       const { sessionId } = started;
@@ -2577,6 +2641,7 @@ export class AgentManager {
   private async holdLaunch(
     agent: AgentRecord,
     kind: "create" | "start",
+    launchId: string,
     create?: {
       initialPrompt: string | undefined;
       initialFiles: SeededFile[];
@@ -2589,6 +2654,7 @@ export class AgentManager {
     const held = await this.holds.holdLaunch(placement.runner, {
       agentId: agent.id,
       kind,
+      launchId,
       ...(kind === "create" && create
         ? {
             create: {
@@ -2617,11 +2683,12 @@ export class AgentManager {
     agent: AgentRecord,
     error: unknown,
     kind: "create" | "start",
-    create?: Parameters<AgentManager["holdLaunch"]>[2]
+    launchId: string,
+    create?: Parameters<AgentManager["holdLaunch"]>[3]
   ): Promise<boolean> {
     return (
       error instanceof RunnerUpdateFenced &&
-      (await this.holdLaunch(agent, kind, create))
+      (await this.holdLaunch(agent, kind, launchId, create))
     );
   }
 
@@ -2745,6 +2812,8 @@ export class AgentManager {
       jobRunId: string | undefined;
       previousJobFinished?: boolean;
       recordWorkspaceProgress?: boolean;
+      /** This attempt's durable ID; only a runner launch carries it. */
+      launchId?: string;
     }
   ): Promise<{ sessionId: string; resumed: boolean }> {
     if (!isAcpEngine(agent.type)) {
@@ -2934,6 +3003,7 @@ export class AgentManager {
         env,
         pathPrefix,
         resumeSessionId: opts.resumeSessionId,
+        ...(placement && opts.launchId && { launchId: opts.launchId }),
         ...(onWorkspaceProgress && { onWorkspaceProgress }),
       });
     } finally {
@@ -2998,7 +3068,12 @@ export class AgentManager {
     return this.startAgentClaimed(id);
   }
 
-  private async startAgentClaimed(id: string): Promise<AgentRecord> {
+  private async startAgentClaimed(
+    id: string,
+    /** A released start keeps the attempt's ID. */
+    heldLaunchId?: string
+  ): Promise<AgentRecord> {
+    const launchId = heldLaunchId ?? randomUUID();
     let agent = await this.getRequiredAgent(id);
     if (await this.runtime.attach(id)) {
       this.streamRecorder.setCwd(id, agent.workspacePath ?? agent.cwd);
@@ -3021,7 +3096,7 @@ export class AgentManager {
       }
       // A stopped job still needs its run-scoped tools and launch rules when
       // its host is recreated. Reattaching above keeps the existing context.
-      if (await this.holdLaunch(agent, "start"))
+      if (await this.holdLaunch(agent, "start", launchId))
         return (await this.getAgent(id)) as AgentRecord;
       const jobRun = await this.pool.query<{ id: string }>(
         "SELECT id FROM job_runs WHERE agent_id = $1 AND status IN ('started', 'running', 'needs_input') ORDER BY started_at DESC LIMIT 1",
@@ -3033,10 +3108,11 @@ export class AgentManager {
           resumeSessionId: agent.cliSessionId ?? null,
           jobRunId: jobRun.rows[0]?.id,
           previousJobFinished: Boolean(agent.jobRun) && !jobRun.rows.length,
+          launchId,
         });
       } catch (error) {
         // Refused by the runner's update fence: nothing started.
-        if (await this.holdRefusedLaunch(agent, error, "start"))
+        if (await this.holdRefusedLaunch(agent, error, "start", launchId))
           return (await this.getAgent(id)) as AgentRecord;
         throw error;
       }

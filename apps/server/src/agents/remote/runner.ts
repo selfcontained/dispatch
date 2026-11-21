@@ -1256,6 +1256,7 @@ export async function runRemoteRunner(
           sessionFiles: true,
           checkoutViews: true,
           sharedWorktree: true,
+          launchReconcile: true,
           ...(advert ? { selfUpdate: advert } : {}),
         });
         updateConnection = updates.connect((frame) => safeSend(frame));

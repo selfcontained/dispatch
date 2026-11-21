@@ -25,7 +25,7 @@ import { createAcpRuntime } from "../src/agents/acp/runtime.js";
 import type { AgentManager } from "../src/agents/manager.js";
 import {
   RunnerUpdateHolds,
-  type RunnerHold,
+  type RunnerHoldState,
 } from "../src/agents/remote/update-hold.js";
 import type { StreamService } from "../src/chat/service.js";
 import { ScheduledMessageService } from "../src/scheduled-messages/service.js";
@@ -48,7 +48,7 @@ const id = "agt_held";
 
 let pool: Pool;
 let cleanup: Array<() => void> = [];
-let saved: RunnerHold[] = [];
+let saved: RunnerHoldState = { holds: [], resuming: [] };
 
 beforeAll(async () => {
   pool = await setupTestDb();
@@ -61,7 +61,7 @@ beforeAll(async () => {
 afterAll(teardownTestDb);
 beforeEach(async () => {
   await pool.query("DELETE FROM scheduled_messages");
-  saved = [];
+  saved = { holds: [], resuming: [] };
 });
 afterEach(() => {
   for (const run of cleanup.splice(0).reverse()) run();
