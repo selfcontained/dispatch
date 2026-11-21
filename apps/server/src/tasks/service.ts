@@ -582,8 +582,7 @@ export class TaskService {
     try {
       const scope = await modelScopeFor(
         template.directory,
-        agentType ?? template.agentType,
-        "local"
+        agentType ?? template.agentType
       );
       model =
         validateAgentModel(
@@ -789,7 +788,7 @@ export class TaskService {
         return validateAgentModel(
           agentType,
           model,
-          await modelScopeFor(target, agentType, "local")
+          await modelScopeFor(target, agentType)
         );
       } catch (error) {
         rejection ??= error;

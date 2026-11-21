@@ -240,11 +240,12 @@ const remoteRunner = configuredRunner({
   validJobToken: (token, runId, agentId) =>
     validateJobMcpToken(config.authToken, token, runId, agentId),
 });
-// Launch callers check model ids against the target runner's catalog.
+const runnerEngines = remoteRunner
+  ? remoteEngineTransport(remoteRunner)
+  : undefined;
 setRunnerModelCatalogSource(
-  remoteRunner
-    ? runnerModelCatalogSource(remoteEngineTransport(remoteRunner))
-    : null
+  runnerEngines ? runnerModelCatalogSource(runnerEngines) : null,
+  app.log
 );
 const agentManager = new AgentManager(pool, app.log, config, {
   remote: remoteRunner,
@@ -1115,9 +1116,7 @@ async function registerRoutes() {
   });
   await registerMcpRoutes(app, {
     localEngines,
-    runnerEngines: remoteRunner
-      ? remoteEngineTransport(remoteRunner)
-      : undefined,
+    runnerEngines,
     usageWatches,
     providerPlans,
     redeemCodexReset,
@@ -1233,15 +1232,13 @@ async function registerRoutes() {
           opencode: config.opencodeBin,
         },
       },
-      remote: remoteRunner
-        ? remoteEngineTransport(remoteRunner)
-        : {
-            send: async () => ({
-              ok: false,
-              error: "Runner enrollment is disabled.",
-              unsupported: true,
-            }),
-          },
+      remote: runnerEngines ?? {
+        send: async () => ({
+          ok: false,
+          error: "Runner enrollment is disabled.",
+          unsupported: true,
+        }),
+      },
     })
   );
   await registerUpdateRecoveryRoutes(app, updateRecoveryRuntime.routeDeps);

@@ -93,8 +93,7 @@ export class TemplateService {
       );
     const scope = await modelScopeFor(
       input.directory,
-      input.agentType ?? "claude",
-      "local"
+      input.agentType ?? "claude"
     );
     const template = await this.store.createTemplate({
       projectId: input.projectId ?? null,
@@ -190,8 +189,7 @@ export class TemplateService {
     if (input.prompt !== undefined) updates.prompt = input.prompt;
     const scope = await modelScopeFor(
       input.directory ?? existing.directory,
-      input.agentType ?? existing.agentType,
-      "local"
+      input.agentType ?? existing.agentType
     );
     const nextModel = resolveAgentModelForUpdate({
       inputAgentType: input.agentType,

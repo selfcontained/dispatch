@@ -13,7 +13,7 @@ import type { TemplateRecord } from "./store.js";
  * One resolution rule for previews and launches, including CLI default on
  * runtime changes. The model and effort are checked against the catalog of
  * the machine the launch targets (`target`, else the template's directory);
- * a runner that can't report one falls back to this Mac's catalog.
+ * a runner that can't report one validates the override at launch.
  */
 export async function resolveTemplateLaunch(
   template: TemplateRecord,
@@ -42,7 +42,7 @@ export async function resolveTemplateLaunch(
   const branchName = workspace.worktreeBranch?.trim()
     ? assertSafeRefName(workspace.worktreeBranch, "worktreeBranch")
     : null;
-  const scope = await modelScopeFor(target, agentType, "local");
+  const scope = await modelScopeFor(target, agentType);
   return {
     ...template,
     agentType,

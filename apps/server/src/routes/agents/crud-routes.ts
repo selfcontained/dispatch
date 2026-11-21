@@ -386,8 +386,7 @@ export async function registerAgentCrudRoutes(
     try {
       const scope = await modelScopeFor(
         typeof body.cwd === "string" ? body.cwd : null,
-        agentType,
-        "engine"
+        agentType
       );
       model = validateAgentModel(
         agentType,

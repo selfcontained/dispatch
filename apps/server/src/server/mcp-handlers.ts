@@ -498,8 +498,7 @@ async function handleLaunchAgent(
 
   const scope = await modelScopeFor(
     cwd,
-    agentType as (typeof CLI_AGENT_TYPES)[number],
-    "engine"
+    agentType as (typeof CLI_AGENT_TYPES)[number]
   );
   const model = validateAgentModel(
     agentType as (typeof CLI_AGENT_TYPES)[number],

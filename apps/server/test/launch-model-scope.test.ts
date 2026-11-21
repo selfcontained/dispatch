@@ -38,9 +38,10 @@ const RUNNER_ONLY = "runner-model";
 
 let pool: Pool;
 let projectId: string;
+const loggerWarn = vi.fn();
 const logger = {
   info: vi.fn(),
-  warn: vi.fn(),
+  warn: loggerWarn,
   error: vi.fn(),
   debug: vi.fn(),
   child: () => logger,
@@ -63,19 +64,22 @@ afterAll(async () => {
 
 beforeEach(() => {
   forgetLearnedAgentModels();
-  setRunnerModelCatalogSource(async (runnerId) =>
-    runnerId === "online"
-      ? {
-          defaultModel: RUNNER_ONLY,
-          models: [
-            {
-              id: RUNNER_ONLY,
-              label: "Runner model",
-              effort: [{ value: "turbo", name: "Turbo" }],
-            },
-          ],
-        }
-      : null
+  loggerWarn.mockClear();
+  setRunnerModelCatalogSource(
+    async (runnerId) =>
+      runnerId === "online"
+        ? {
+            defaultModel: RUNNER_ONLY,
+            models: [
+              {
+                id: RUNNER_ONLY,
+                label: "Runner model",
+                effort: [{ value: "turbo", name: "Turbo" }],
+              },
+            ],
+          }
+        : Promise.reject(new Error("transient runner failure")),
+    logger
   );
 });
 
@@ -127,9 +131,8 @@ const agentManager = { createAgent } as unknown as AgentManager;
 
 let seq = 0;
 type Caller = (cwd: string, model: string) => Promise<unknown>;
-const callers: Record<string, { offline: "local" | "engine"; run: Caller }> = {
+const callers: Record<string, { run: Caller }> = {
   "template create": {
-    offline: "local",
     run: (directory, model) =>
       new TemplateService(pool, agentManager, logger).addTemplate({
         name: `scope-${++seq}`,
@@ -138,8 +141,18 @@ const callers: Record<string, { offline: "local" | "engine"; run: Caller }> = {
         model,
       }),
   },
+  "template update": {
+    run: async (directory, model) => {
+      const service = new TemplateService(pool, agentManager, logger);
+      const existing = await service.addTemplate({
+        name: `scope-${++seq}`,
+        directory,
+        agentType: "claude",
+      });
+      return service.updateTemplate(existing.id, { model });
+    },
+  },
   "template launch": {
-    offline: "local",
     run: (directory, model) =>
       new TemplateService(pool, agentManager, logger).launchTemplate({
         templateId: template(directory).id,
@@ -148,7 +161,6 @@ const callers: Record<string, { offline: "local" | "engine"; run: Caller }> = {
       }),
   },
   "job create": {
-    offline: "local",
     run: (directory, model) =>
       new JobService(pool, agentManager, logger, {
         agentRuntime: "inert",
@@ -160,8 +172,21 @@ const callers: Record<string, { offline: "local" | "engine"; run: Caller }> = {
         model,
       }),
   },
+  "job update": {
+    run: async (directory, model) => {
+      const service = new JobService(pool, agentManager, logger, {
+        agentRuntime: "inert",
+      } as AppConfig);
+      const existing = await service.addJob({
+        name: `scope-${++seq}`,
+        directory,
+        prompt: "Run",
+        agentType: "claude",
+      });
+      return service.updateJob({ jobId: existing.id, model });
+    },
+  },
   "task column trigger": {
-    offline: "local",
     run: (directory, model) =>
       taskService().createColumn(projectId, {
         name: `Scope ${++seq}`,
@@ -169,7 +194,6 @@ const callers: Record<string, { offline: "local" | "engine"; run: Caller }> = {
       }),
   },
   "task model override": {
-    offline: "local",
     run: (directory, model) =>
       taskService().createTask(
         {
@@ -184,13 +208,8 @@ const callers: Record<string, { offline: "local" | "engine"; run: Caller }> = {
   },
   // Create Agent, MCP launch_agent and reviewer launches share this check.
   "agent launch": {
-    offline: "engine",
     run: async (cwd, model) =>
-      validateAgentModel(
-        "claude",
-        model,
-        await modelScopeFor(cwd, "claude", "engine")
-      ),
+      validateAgentModel("claude", model, await modelScopeFor(cwd, "claude")),
   },
 };
 
@@ -199,7 +218,7 @@ const cases = [
   { target: "local folder", cwd: LOCAL, model: RUNNER_ONLY, ok: false },
   { target: "runner with catalog", cwd: ONLINE, model: RUNNER_ONLY, ok: true },
   { target: "runner with catalog", cwd: ONLINE, model: LOCAL_ONLY, ok: false },
-  // Without a catalog each caller keeps what it checked before.
+  { target: "offline runner", cwd: OFFLINE, model: "invalid model", ok: false },
   {
     target: "offline runner",
     cwd: OFFLINE,
@@ -210,28 +229,29 @@ const cases = [
     target: "offline runner",
     cwd: OFFLINE,
     model: RUNNER_ONLY,
-    ok: "engine" as const,
+    ok: true,
   },
 ];
 
 describe("placement-scoped model validation", () => {
   it.each(
-    Object.entries(callers).flatMap(([caller, { offline, run }]) =>
-      cases.map(({ ok, ...row }) => ({
-        caller,
-        run,
-        ...row,
-        ok: ok === "engine" ? offline === "engine" : ok,
-      }))
+    Object.entries(callers).flatMap(([caller, { run }]) =>
+      cases.map((row) => ({ caller, run, ...row }))
     )
   )("$caller: $model on $target → ok=$ok", async ({ run, cwd, model, ok }) => {
     const result = run(cwd, model);
     if (ok) await expect(result).resolves.not.toThrow();
     else await expect(result).rejects.toThrow(/not supported/);
+    if (cwd === OFFLINE) {
+      expect(loggerWarn).toHaveBeenCalledWith(
+        expect.objectContaining({ runnerId: "offline", agentType: "claude" }),
+        "Runner model catalog unavailable"
+      );
+    }
   });
 
   it("checks effort against the runner's levels for the model", async () => {
-    const scope = await modelScopeFor(ONLINE, "claude", "local");
+    const scope = await modelScopeFor(ONLINE, "claude");
     expect(validateAgentEffort("claude", "turbo", RUNNER_ONLY, scope)).toBe(
       "turbo"
     );

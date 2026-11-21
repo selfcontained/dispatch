@@ -183,39 +183,40 @@ export type RunnerModelCatalogSource = (
 } | null>;
 
 let runnerCatalogSource: RunnerModelCatalogSource | null = null;
+let runnerCatalogLog:
+  | Pick<import("fastify").FastifyBaseLogger, "warn">
+  | undefined;
 
 /** Wired once at startup to the runner engine transport; tests stub it. */
 export function setRunnerModelCatalogSource(
-  source: RunnerModelCatalogSource | null
+  source: RunnerModelCatalogSource | null,
+  log?: typeof runnerCatalogLog
 ): void {
   runnerCatalogSource = source;
+  runnerCatalogLog = log;
 }
 
 /**
  * The model scope for a launch target. A local folder uses this Mac's
  * catalog. A runner location uses the runner's catalog when it can report
- * one; when it can't (offline, too old, nothing reported yet) the caller's
- * `offline` scope applies, which is what that caller checked before
- * runner catalogs were consulted.
+ * one. If the catalog is unavailable, the runner checks the override at launch.
  */
 export async function modelScopeFor(
   target: string | null | undefined,
-  agentType: AgentType,
-  offline: "local" | "engine"
+  agentType: AgentType
 ): Promise<ModelScope> {
   const placement = target ? remotePlacement(target) : null;
   if (!placement) return LOCAL_MODEL_SCOPE;
-  const catalog = await runnerCatalogSource?.(
-    placement.runner,
-    agentType
-  ).catch(() => null);
-  if (catalog && catalog.models.length > 0)
-    return {
-      kind: "runner",
-      defaultModel: catalog.defaultModel,
-      models: catalog.models,
-    };
-  return offline === "local" ? LOCAL_MODEL_SCOPE : { kind: "engine" };
+  try {
+    const catalog = await runnerCatalogSource?.(placement.runner, agentType);
+    if (catalog?.models.length) return { kind: "runner", ...catalog };
+  } catch (err) {
+    runnerCatalogLog?.warn(
+      { err, runnerId: placement.runner, agentType },
+      "Runner model catalog unavailable"
+    );
+  }
+  return { kind: "engine" };
 }
 
 /** The ids a scope offers for a type; null when the engine checks at launch. */

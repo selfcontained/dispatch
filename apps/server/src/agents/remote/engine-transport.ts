@@ -11,10 +11,21 @@ import type { RunnerEngine } from "@dispatch/runner-protocol";
 import type { AgentType } from "../../shared/agent-types.js";
 import type { RunnerModelCatalogSource } from "../../shared/agent-models.js";
 
+const MODEL_CATALOG_TTL_MS = 15_000;
+
+type CachedCatalog = {
+  request: Promise<EngineOperationAck>;
+  expiresAt: number;
+};
+
 export function remoteEngineTransport(
   service: RemoteRunnerService
 ): RunnerEngineTransport {
-  return {
+  const catalogs = new Map<string, Map<RunnerEngine, CachedCatalog>>();
+  const invalidate = (runnerId: string) => catalogs.delete(runnerId);
+  service.onConnectionChange(invalidate);
+
+  const transport: RunnerEngineTransport = {
     cachedInventory(runnerId) {
       return service.engineInventorySnapshot(runnerId);
     },
@@ -115,14 +126,70 @@ export function remoteEngineTransport(
       }
     },
   };
+
+  return {
+    ...transport,
+    async send(runnerId, operation, onEvent) {
+      if (operation.type === "model_catalog" && !operation.model && !onEvent) {
+        let entries = catalogs.get(runnerId);
+        if (!entries) {
+          entries = new Map();
+          catalogs.set(runnerId, entries);
+        }
+        const engine = operation.engine;
+        const cached = entries.get(engine);
+        if (cached && cached.expiresAt > Date.now()) return cached.request;
+
+        const pending: CachedCatalog = {
+          expiresAt: Infinity,
+          request: transport.send(runnerId, operation).then((ack) => {
+            if (
+              ack.ok &&
+              ack.capability?.type === "model_catalog" &&
+              ack.capability.catalog.models.length > 0
+            ) {
+              pending.expiresAt = Date.now() + MODEL_CATALOG_TTL_MS;
+            } else if (
+              catalogs.get(runnerId) === entries &&
+              entries.get(engine) === pending
+            ) {
+              entries.delete(engine);
+              if (entries.size === 0) invalidate(runnerId);
+            }
+            return ack;
+          }),
+        };
+        entries.set(engine, pending);
+        return pending.request;
+      }
+
+      const changesEngine =
+        operation.type === "install" ||
+        operation.type === "update" ||
+        operation.type === "login_start" ||
+        operation.type === "login_submit" ||
+        operation.type === "login_cancel";
+      if (changesEngine) invalidate(runnerId);
+      const ack = await transport.send(runnerId, operation, onEvent);
+      // A browser/device login can finish after its initial operation returns.
+      if (
+        changesEngine ||
+        (operation.type === "login_status" &&
+          ack.ok &&
+          ack.login?.status === "succeeded")
+      ) {
+        invalidate(runnerId);
+      }
+      return ack;
+    },
+  };
 }
 
 const RUNNER_ENGINES: readonly AgentType[] = ["claude", "codex", "opencode"];
 
 /**
  * A runner's model catalog for one engine, read through the existing
- * `model_catalog` engine operation. Null when the runner is offline, too
- * old, or has nothing to report for that engine.
+ * `model_catalog` engine operation. Null when there is no catalog to check.
  */
 export function runnerModelCatalogSource(
   transport: RunnerEngineTransport
@@ -133,7 +200,8 @@ export function runnerModelCatalogSource(
       type: "model_catalog",
       engine: agentType as RunnerEngine,
     });
-    return ack.ok && ack.capability?.type === "model_catalog"
+    if (!ack.ok) throw new Error(ack.error);
+    return ack.capability?.type === "model_catalog"
       ? ack.capability.catalog
       : null;
   };
