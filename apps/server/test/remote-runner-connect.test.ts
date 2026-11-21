@@ -513,9 +513,25 @@ describe("runner-initiated connect enrollment", () => {
     expect((await get(archive, { ...pinned, method: "HEAD" })).status).toBe(
       200
     );
+    const update = `/api/v1/runner-artifacts/abc1234/update/1.2.3/linux/arm64/${"a".repeat(64)}`;
+    for (const file of ["manifest.json", "dispatch-runner"]) {
+      const resource = `${origin}${update}/${file}`;
+      expect((await get(resource, pinned)).status).toBe(200);
+      expect((await get(resource, { ...pinned, method: "HEAD" })).status).toBe(
+        200
+      );
+      expect(
+        (await get(resource, { ...pinned, method: "DELETE" })).status
+      ).toBe(404);
+    }
     for (const path of [
       "/api/v1/runner-artifacts/abc1234/package.json",
       "/api/v1/runner-artifacts/abc1234/../../runners",
+      `${update}/package.json`,
+      `${update}/manifest%2ejson`,
+      `${update}/manifest.json?alias`,
+      `${update.replace("/arm64/", "/amd64/")}/dispatch-runner`,
+      `${update.slice(0, -1)}/dispatch-runner`,
     ])
       expect((await get(`${origin}${path}`, pinned)).status).toBe(404);
     expect((await get(archive, { ...pinned, method: "DELETE" })).status).toBe(

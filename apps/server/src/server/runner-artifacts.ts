@@ -1,6 +1,19 @@
 import { constants, type Stats } from "node:fs";
-import { lstat, open, rm } from "node:fs/promises";
+import { lstat, mkdtemp, open, rename, rm } from "node:fs/promises";
 import path from "node:path";
+import {
+  compiledRunnerDevKey,
+  productionRunnerUpdateKeys,
+  RUNNER_UPDATE_DEV_KEY_ID,
+} from "../agents/remote/update-keys.js";
+import {
+  runnerExecutableMember,
+  runnerManifestName,
+  RUNNER_ARCHES,
+  RUNNER_UPDATE_MANIFEST_LIMIT,
+  verifyRunnerUpdateEnvelope,
+  type RunnerArch,
+} from "../agents/remote/update-manifest.js";
 import {
   cachedTarballPath,
   downloadReleaseCompanion,
@@ -10,17 +23,20 @@ import { resolveConfiguredPath } from "../shared/lib/resolve-tilde.js";
 import { runCommand } from "../shared/lib/run-command.js";
 import { hashRegular } from "../update-recovery/files.js";
 import {
+  extractTarMember,
   verifyReleaseTarballDigest,
   verifyRunnerArchive,
   verifyRunnerReleaseAttestation,
 } from "./release-artifact.js";
 import { fetchReleaseMetadata, getGitHubRepo } from "./release-helpers.js";
 
+import { readRunnerDevPublicKey } from "./runner-dev-key.js";
+
 const BOOTSTRAP = "install-dispatch-runner.sh";
 const BOOTSTRAP_BUNDLE = "install-dispatch-runner.sh.sigstore.json";
 const RELEASE_REPO = "selfcontained/dispatch";
-export const RUNNER_ARCHES = ["x64", "arm64"] as const;
-export type RunnerArch = (typeof RUNNER_ARCHES)[number];
+export { RUNNER_ARCHES };
+export type { RunnerArch };
 export const runnerArchiveName = (arch: RunnerArch) =>
   `dispatch-runner-linux-${arch}.tar.gz` as const;
 export const runnerDescriptorName = (arch: RunnerArch) =>
@@ -68,8 +84,8 @@ export function resolveRunnerArtifact(name: string) {
   return routes.get(name);
 }
 
-type ArtifactFile = {
-  name: RunnerArtifactName;
+type ArtifactFile<Name extends string = RunnerArtifactName> = {
+  name: Name;
   path: string;
   stat: Stats;
   sha256: string;
@@ -101,7 +117,9 @@ async function regularFile(file: string): Promise<Stats | null> {
   return stat;
 }
 
-export async function openRunnerArtifact(file: ArtifactFile) {
+export async function openRunnerArtifact(
+  file: Pick<ArtifactFile, "path" | "stat">
+) {
   const handle = await open(
     file.path,
     constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK
@@ -134,6 +152,13 @@ export function createRunnerArtifactSource(
     RunnerArch | undefined,
     {
       loaded?: Promise<ArtifactSet>;
+      failure?: { error: unknown; retryAt: number };
+    }
+  >();
+  const updateStates = new Map<
+    RunnerArch,
+    {
+      loaded?: Promise<RunnerUpdateArtifactSet>;
       failure?: { error: unknown; retryAt: number };
     }
   >();
@@ -300,13 +325,163 @@ export function createRunnerArtifactSource(
     }
   }
 
+  const updateEnabled =
+    source === "dev"
+      ? !compiled || Boolean(compiledRunnerDevKey())
+      : Boolean(compiled && tag);
+
+  async function loadUpdate(
+    arch: RunnerArch,
+    archive: ArtifactFile
+  ): Promise<RunnerUpdateArtifactSet> {
+    const name = runnerManifestName(arch);
+    const envelopePath = path.join(directory, name);
+    if (source === "release" && tag && !(await regularFile(envelopePath))) {
+      const release = await fetchReleaseMetadata(tag, true);
+      if (
+        release?.tag !== tag ||
+        !release.assets?.some((asset) => asset.name === name)
+      )
+        throw new RunnerPayloadUnavailable(
+          `Dispatch release ${tag} does not publish ${name}`
+        );
+      await downloadReleaseCompanion({
+        tag,
+        repo: RELEASE_REPO,
+        name,
+        destination: envelopePath,
+      });
+    }
+    const stat = await regularFile(envelopePath);
+    if (!stat)
+      throw new RunnerPayloadUnavailable(
+        `Missing runner update asset: ${name}`
+      );
+    if (stat.size > RUNNER_UPDATE_MANIFEST_LIMIT)
+      throw new Error("Runner update envelope exceeds the size limit");
+    const handle = await openRunnerArtifact({
+      path: envelopePath,
+      stat,
+    });
+    let bytes: Buffer;
+    try {
+      bytes = Buffer.alloc(stat.size + 1);
+      const { bytesRead } = await handle.read({ buffer: bytes });
+      if (bytesRead !== stat.size || !unchanged(stat, await handle.stat()))
+        throw new Error("Runner update envelope changed while reading");
+      bytes = bytes.subarray(0, bytesRead);
+    } finally {
+      await handle.close();
+    }
+    const keys =
+      source === "release"
+        ? productionRunnerUpdateKeys
+        : new Map([
+            [
+              RUNNER_UPDATE_DEV_KEY_ID,
+              compiledRunnerDevKey() ?? (await readRunnerDevPublicKey()),
+            ],
+          ]);
+    const manifest = verifyRunnerUpdateEnvelope(
+      JSON.parse(bytes.toString("utf8")),
+      keys
+    );
+    if (manifest.version !== version || manifest.arch !== arch)
+      throw new Error(
+        "Runner update manifest is for a different version or platform"
+      );
+
+    const staging = await mkdtemp(path.join(directory, ".runner-update-"));
+    try {
+      const candidate = path.join(staging, "dispatch-runner");
+      await extractTarMember(
+        archive.path,
+        runnerExecutableMember(version, arch),
+        candidate
+      );
+      // Recheck the archive identity after extracting the member by pathname.
+      await get(arch);
+      if ((await hashRegular(candidate)) !== manifest.sha256)
+        throw new Error(
+          "Runner executable does not match its signed update digest"
+        );
+      const executablePath = path.join(
+        directory,
+        `runner-${revision}-${arch}-${manifest.sha256}`
+      );
+      const candidateStat = await lstat(candidate);
+      await rename(candidate, executablePath);
+      const executableStat = await regularFile(executablePath);
+      if (
+        !executableStat ||
+        executableStat.dev !== candidateStat.dev ||
+        executableStat.ino !== candidateStat.ino
+      )
+        throw new Error("Verified runner executable was replaced");
+      return {
+        manifest,
+        archive,
+        envelope: { path: envelopePath, stat, bytes },
+        executable: {
+          name: "dispatch-runner",
+          path: executablePath,
+          stat: executableStat,
+          sha256: manifest.sha256,
+        },
+      };
+    } finally {
+      await rm(staging, { recursive: true, force: true });
+    }
+  }
+
+  async function getUpdate(arch: RunnerArch) {
+    if (!updateEnabled)
+      throw new RunnerPayloadUnavailable(
+        "Runner updates are disabled for this build."
+      );
+    const { files } = await get(arch);
+    let state = updateStates.get(arch);
+    if (!state) {
+      state = {};
+      updateStates.set(arch, state);
+    }
+    if (state.failure && now() < state.failure.retryAt)
+      throw state.failure.error;
+    const pending = (state.loaded ??= loadUpdate(arch, files[0]!));
+    try {
+      const artifacts = await pending;
+      if (artifacts.archive !== files[0])
+        throw new Error("Runner archive changed after update verification");
+      for (const file of [artifacts.envelope, artifacts.executable]) {
+        const stat = await regularFile(file.path);
+        if (!stat || !unchanged(file.stat, stat))
+          throw new Error("Runner update artifact changed after verification");
+      }
+      return artifacts;
+    } catch (error) {
+      if (state.loaded === pending) {
+        state.failure = { error, retryAt: now() + PREPARATION_RETRY_MS };
+        state.loaded = undefined;
+      }
+      throw error;
+    }
+  }
+
   return {
     enabled: Boolean(devDir || (compiled && tag)),
     kind: source,
     preparationFailed,
     get,
+    getUpdate,
   };
 }
+
+type RunnerUpdateArtifactSet = {
+  archive: ArtifactFile;
+  manifest: ReturnType<typeof verifyRunnerUpdateEnvelope>;
+  envelope: { path: string; stat: Stats; bytes: Buffer };
+  executable: ArtifactFile<"dispatch-runner">;
+};
 
 export type RunnerArtifactSource = ReturnType<
   typeof createRunnerArtifactSource

@@ -170,6 +170,10 @@ function writeChecksums() {
 }
 
 const targets = parseTargets(process.env.DISPATCH_BUN_TARGETS);
+const devPublicKey =
+  process.env.DISPATCH_RUNNER_UPDATE_DEV_BUILD === "1"
+    ? (await import("./runner-dev-key.mjs")).loadRunnerDevKey().publicKey
+    : undefined;
 
 function run(command, args) {
   const result = spawnSync(command, args, {
@@ -197,6 +201,12 @@ for (const target of targets) {
     "build",
     "--compile",
     `--target=${target}`,
+    ...(devPublicKey
+      ? [
+          "--define",
+          `DISPATCH_COMPILED_RUNNER_DEV_KEY=${JSON.stringify(devPublicKey)}`,
+        ]
+      : []),
     entrypoint,
     "--outfile",
     outfile,

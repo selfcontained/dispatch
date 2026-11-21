@@ -13,6 +13,7 @@ import {
 import path from "node:path";
 import { pipeline } from "node:stream/promises";
 
+import { runnerExecutableMember } from "../agents/remote/update-manifest.js";
 import { hashRegular } from "../update-recovery/files.js";
 
 import type { RunCommand } from "./release-helpers.js";
@@ -70,7 +71,7 @@ async function tarMemberText(
   });
 }
 
-async function extractTarMember(
+export async function extractTarMember(
   tarballPath: string,
   member: string,
   destination: string
@@ -84,8 +85,11 @@ async function extractTarMember(
     child.on("error", reject);
     child.on("close", resolve);
   });
-  await pipeline(child.stdout, createWriteStream(destination, { mode: 0o700 }));
-  if ((await exited) !== 0)
+  const [code] = await Promise.all([
+    exited,
+    pipeline(child.stdout, createWriteStream(destination, { mode: 0o700 })),
+  ]);
+  if (code !== 0)
     throw new Error(
       `Unable to extract ${member}: ${Buffer.concat(errors).toString("utf8").trim()}`
     );
@@ -199,7 +203,7 @@ export async function verifyRunnerArchive(input: {
     "bin/dispatch-runner",
     "bin/dispatch-runner.service",
     "bin/runner-handoff-v1.py",
-    `dist/bun/dispatch-${version}-bun-${platform.replace("/", "-")}`,
+    runnerExecutableMember(version, platform === "linux/x64" ? "x64" : "arm64"),
   ];
   const { stdout } = await runCommand("tar", ["tvf", archive]);
   const entries = stdout.trimEnd().split("\n");

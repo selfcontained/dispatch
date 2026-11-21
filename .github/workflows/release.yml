@@ -392,6 +392,7 @@ jobs:
         run: |
           pnpm run build:bun
         env:
+          DISPATCH_RUNNER_UPDATE_DEV_BUILD: "0"
           DISPATCH_CODESIGN_IDENTITY: "Developer ID Application: Brad Harris (ML8BQ6D727)"
           DISPATCH_MACOS_BUNDLE_ID: dev.bradharris.dispatch
           DISPATCH_NOTARIZE_MACOS_BINARIES: "1"
@@ -525,6 +526,7 @@ jobs:
 
       - run: pnpm run build:bun
         env:
+          DISPATCH_RUNNER_UPDATE_DEV_BUILD: "0"
           DISPATCH_BUN_TARGETS: bun-darwin-${{ env.MAC_ARCH }}
           NODE_OPTIONS: --max-old-space-size=2048
 
@@ -853,6 +855,41 @@ jobs:
             echo "native=true" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Check out release signing tools
+        if: steps.runner-bootstrap.outputs.native == 'true'
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: runner-signing
+          persist-credentials: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /scripts/sign-runner-update.mjs
+            /scripts/runner-dev-key.mjs
+            /apps/server/src/agents/remote/update-manifest.ts
+            /apps/server/src/agents/remote/update-keys.ts
+            /apps/server/src/server/runner-dev-key.ts
+
+      - name: Set up Node for runner signing
+        if: steps.runner-bootstrap.outputs.native == 'true'
+        uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+
+      - name: Sign native runner manifests
+        if: steps.runner-bootstrap.outputs.native == 'true'
+        env:
+          TAG: ${{ needs.prepare-release.outputs.tag }}
+          RUNNER_UPDATE_SIGNING_KEY: ${{ secrets.RUNNER_UPDATE_SIGNING_KEY }}
+          RUNNER_UPDATE_SIGNING_KEY_ID: ${{ vars.RUNNER_UPDATE_SIGNING_KEY_ID }}
+        run: |
+          set -euo pipefail
+          for arch in x64 arm64; do
+            node --experimental-strip-types runner-signing/scripts/sign-runner-update.mjs \
+              --release "${TAG#v}" "$arch" "dispatch-runner-linux-$arch.tar.gz" \
+              "dispatch-runner-linux-$arch.manifest.json"
+          done
+
       - name: Attest the Linux-containing release bundle
         id: attest-bundle
         uses: actions/attest-build-provenance@v3
@@ -900,7 +937,7 @@ jobs:
           if [ -n "$RUNNER_X64_ATTESTATION" ] && [ -n "$RUNNER_ARM64_ATTESTATION" ]; then
             cp "$RUNNER_X64_ATTESTATION" dispatch-runner-linux-x64.tar.gz.sigstore.json
             cp "$RUNNER_ARM64_ATTESTATION" dispatch-runner-linux-arm64.tar.gz.sigstore.json
-            ASSETS+=(dispatch-runner-linux-{x64,arm64}.tar.gz{,.sigstore.json})
+            ASSETS+=(dispatch-runner-linux-{x64,arm64}.tar.gz{,.sigstore.json} dispatch-runner-linux-{x64,arm64}.manifest.json)
           fi
           gh release create "$TAG" \
             --repo "${{ github.repository }}" \

@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, generateKeyPairSync, sign } from "node:crypto";
 import {
   lstat,
   copyFile,
@@ -13,6 +13,12 @@ import os from "node:os";
 import path from "node:path";
 import Fastify, { type FastifyInstance } from "fastify";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import * as keys from "../src/agents/remote/update-keys.js";
+import {
+  canonicalRunnerManifest,
+  runnerManifestName,
+} from "../src/agents/remote/update-manifest.js";
+import * as devKeys from "../src/server/runner-dev-key.js";
 import * as cache from "../src/release-tarball-cache.js";
 import { registerRunnerArtifacts } from "../src/routes/runner-artifacts.js";
 import { registerRunnerInstaller } from "../src/routes/runner-installer.js";
@@ -50,6 +56,7 @@ async function buildFixture(options?: {
   revision?: string;
   includeArm64?: boolean;
   wrongArch?: boolean;
+  binary?: string;
 }) {
   await mkdir(path.join(source, "dist/bun"), { recursive: true });
   await mkdir(path.join(source, "bin"), { recursive: true });
@@ -76,7 +83,7 @@ async function buildFixture(options?: {
     ? ["x64", "arm64"]
     : [options?.wrongArch ? "arm64" : "x64"]) {
     const binary = `dist/bun/dispatch-${version}-bun-linux-${arch}`;
-    await writeFile(path.join(source, binary), arch);
+    await writeFile(path.join(source, binary), options?.binary ?? arch);
     members.push(binary);
   }
   await commands.runCommand(
@@ -104,6 +111,7 @@ async function seedRelease() {
   );
   for (const bundle of [bootstrapBundle, archiveBundle])
     await writeFile(path.join(companions, bundle), "{}\n");
+  return companions;
 }
 
 function mockAttestations(verificationError?: string) {
@@ -549,5 +557,138 @@ describe("runner artifact routes", () => {
     start(true);
     expect((await app.inject(`${url}/${bootstrapRoute}`)).statusCode).toBe(503);
     expect((await app.inject(descriptor)).statusCode).toBe(503);
+  });
+});
+
+describe("runner update artifacts", () => {
+  const signer = generateKeyPairSync("ed25519");
+  const sha256 = digest("x64");
+  const update = `${url}/update/${version}/linux/x64/${sha256}`;
+  const manifestUrl = `${update}/manifest.json`;
+  const executableUrl = `${update}/dispatch-runner`;
+  const manifestName = runnerManifestName("x64");
+  const pem = signer.publicKey.export({ type: "spki", format: "pem" });
+
+  async function signFixture(directory: string, keyId: string, fields = {}) {
+    const manifest = {
+      version,
+      os: "linux",
+      arch: "x64",
+      sha256,
+      ...fields,
+    } as const;
+    const signature = sign(
+      null,
+      canonicalRunnerManifest(manifest),
+      signer.privateKey
+    ).toString("base64");
+    const envelope = { manifest, signatures: [{ keyId, signature }] };
+    await writeFile(
+      path.join(directory, manifestName),
+      JSON.stringify(envelope)
+    );
+    return envelope;
+  }
+
+  function dev() {
+    vi.stubEnv("DISPATCH_RUNNER_ARTIFACT_DEV_DIR", inputs);
+    vi.spyOn(devKeys, "readRunnerDevPublicKey").mockResolvedValue(pem);
+    start();
+  }
+
+  it("serves a preseeded release using local attested assets and signature verification", async () => {
+    await buildFixture();
+    const companions = await seedRelease();
+    const envelope = await signFixture(companions, "fixture-release");
+    vi.spyOn(keys, "productionRunnerUpdateKeys", "get").mockReturnValue(
+      new Map([["fixture-release", pem]])
+    );
+    mockAttestations();
+    const metadata = vi.spyOn(releases, "fetchReleaseMetadata");
+    start(true);
+    const manifest = await app.inject(manifestUrl);
+    expect(manifest.statusCode).toBe(200);
+    expect(manifest.json()).toEqual(envelope);
+    const binary = await app.inject(executableUrl);
+    expect(binary.statusCode).toBe(200);
+    expect(digest(binary.rawPayload)).toBe(sha256);
+    expect(metadata).not.toHaveBeenCalled();
+    for (const resource of [manifestUrl, executableUrl]) {
+      const head = await app.inject({ method: "HEAD", url: resource });
+      expect(head.statusCode).toBe(200);
+      expect(Number(head.headers["content-length"])).toBeGreaterThan(0);
+      expect(head.rawPayload).toHaveLength(0);
+    }
+  });
+
+  it("rejects an untrusted release signature even with an attested archive", async () => {
+    await buildFixture();
+    const companions = await seedRelease();
+    await signFixture(companions, keys.RUNNER_UPDATE_DEV_KEY_ID);
+    mockAttestations();
+    start(true);
+    expect((await app.inject(manifestUrl)).statusCode).toBe(503);
+    expect((await app.inject(executableUrl)).statusCode).toBe(503);
+  });
+
+  it("rejects release update requests when the signed companion is absent", async () => {
+    await buildFixture();
+    await seedRelease();
+    mockAttestations();
+    vi.spyOn(releases, "fetchReleaseMetadata").mockResolvedValue(null);
+    start(true);
+    expect((await app.inject(manifestUrl)).statusCode).toBe(404);
+    expect((await app.inject(executableUrl)).statusCode).toBe(404);
+    expect((await app.inject(`${url}/${archiveName}`)).statusCode).toBe(200);
+  });
+
+  it("requires dev compilation for a compiled controller to serve dev updates", async () => {
+    await buildFixture();
+    await signFixture(inputs, keys.RUNNER_UPDATE_DEV_KEY_ID);
+    vi.stubEnv("DISPATCH_RUNNER_ARTIFACT_DEV_DIR", inputs);
+    vi.spyOn(devKeys, "readRunnerDevPublicKey").mockResolvedValue(pem);
+    start(true);
+    expect((await app.inject(manifestUrl)).statusCode).toBe(404);
+  });
+
+  it.each([
+    ["altered executable bytes", { binary: "x65" }, {}],
+    ["archive revision skew", { revision: "abcdef123456" }, {}],
+    ["signed version skew", {}, { version: "1.2.4" }],
+    ["signed platform skew", {}, { arch: "arm64" }],
+  ])("rejects both files for %s", async (_case, archive, fields) => {
+    await buildFixture(archive);
+    await signFixture(inputs, keys.RUNNER_UPDATE_DEV_KEY_ID, fields);
+    dev();
+    expect((await app.inject(manifestUrl)).statusCode).toBe(503);
+    expect((await app.inject(executableUrl)).statusCode).toBe(503);
+  });
+
+  it("requires an exact path, controller revision, version and signed digest", async () => {
+    await buildFixture();
+    await signFixture(inputs, keys.RUNNER_UPDATE_DEV_KEY_ID);
+    dev();
+    expect((await app.inject(executableUrl)).body).toBe("x64");
+    for (const invalid of [
+      manifestUrl.replace(revision, "deadbeef"),
+      manifestUrl.replace(version, "9.9.9"),
+      manifestUrl.replace(sha256, "a".repeat(64)),
+      manifestUrl.replace("manifest.json", "manifest%2ejson"),
+      manifestUrl + "?alias",
+    ])
+      expect((await app.inject(invalid)).statusCode, invalid).toBe(404);
+  });
+
+  it("rejects a changed cached executable before serving either file", async () => {
+    await buildFixture();
+    await signFixture(inputs, keys.RUNNER_UPDATE_DEV_KEY_ID);
+    dev();
+    expect((await app.inject(executableUrl)).statusCode).toBe(200);
+    await writeFile(
+      path.join(inputs, `runner-${revision}-x64-${sha256}`),
+      "x65"
+    );
+    expect((await app.inject(manifestUrl)).statusCode).toBe(503);
+    expect((await app.inject(executableUrl)).statusCode).toBe(503);
   });
 });

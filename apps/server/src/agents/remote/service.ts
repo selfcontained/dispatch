@@ -69,6 +69,7 @@ import {
   RunnerRegistry,
   type Registration,
 } from "./registry.js";
+import { resolveRunnerUpdatePath } from "./update-artifact-path.js";
 import { publicKeyPin } from "./x509.js";
 
 /** The single manually approved registration of the original prototype. */
@@ -1109,7 +1110,8 @@ export class RemoteRunnerService {
       url === RUNNER_LISTENER_INSTALL_PATH &&
       (request.method === "GET" || request.method === "HEAD");
     const artifact =
-      RUNNER_ARTIFACT_PATH.test(url) &&
+      (RUNNER_ARTIFACT_PATH.test(url) ||
+        Boolean(resolveRunnerUpdatePath(url))) &&
       (request.method === "GET" || request.method === "HEAD");
     const ping = url === "/ping" && request.method === "GET";
     const connectCreate =
