@@ -3,15 +3,17 @@ import type { Pool } from "pg";
 
 import { MANAGED_WORKSPACE, remotePlacement } from "@dispatch/runner-protocol";
 import {
-  archiveCheckoutState,
-  archiveReleaseState,
-  nativeBorrowers,
-  observeArchiveCheckout,
   releaseRemoteCheckout,
-  rememberArchiveCheckoutState,
   type ArchiveCheckoutAgent,
   type LocalArchiveRunner,
 } from "./archive-checkout.js";
+import {
+  cascadeMode,
+  finishArchiveCheckout,
+  localArchiveExecutor,
+  type ArchiveCheckoutHooks,
+  type ArchiveOutcome,
+} from "./archive-policy.js";
 import type { RemoteRunnerService } from "./remote/service.js";
 import type { CheckoutCommandRunners } from "./checkout-commands.js";
 import { runLifecycleHook } from "./lifecycle-hooks.js";
@@ -46,13 +48,6 @@ export type ArchiveDeps = {
 };
 
 /**
- * Children go with the parent, worktrees included. The parent's confirmation is
- * the one answer for the whole cascade. Native children retain the legacy
- * force policy. Runner-managed children use automatic cleanup.
- */
-const CASCADED_CHILD_CLEANUP: WorktreeCleanupMode = "force";
-
-/**
  * True children and review agents requested by this agent go with it.
  * Other `launched_by_agent_id` agents remain independent (`child: false`).
  * An agent already `archiving` belongs to its own archive, which cascades itself.
@@ -72,56 +67,25 @@ async function getChildAgentIds(
   return result.rows.map((row) => row.id);
 }
 
-/** Returns whether cleanup should be retried after archive. */
+/** Finish a local checkout through the shared archive sequence. */
 export async function cleanupAgentWorktree(
   pool: Pool,
   logger: FastifyBaseLogger,
   localRunner: LocalArchiveRunner,
   agent: ArchiveCheckoutAgent,
   mode: WorktreeCleanupMode,
-  durations: Record<string, number>,
-  onCleanupStart?: () => Promise<void>
-): Promise<boolean> {
-  const { id, worktreePath } = agent;
-  if (!worktreePath || remotePlacement(agent.cwd) || mode === "keep")
-    return false;
-  try {
-    const started = Date.now();
-    const expectedState = await archiveCheckoutState(pool, id);
-    const { checkout, borrowers } = await observeArchiveCheckout(
-      pool,
-      agent,
-      localRunner
-    );
-    const releaseState = archiveReleaseState(mode, checkout, expectedState);
-    if (!checkout || releaseState === null) return false;
-    durations.outstandingChangesCheck = Date.now() - started;
-    if (borrowers.length) {
-      await rememberArchiveCheckoutState(pool, id, releaseState);
-      return true;
-    }
-    await onCleanupStart?.();
-    if (
-      (await nativeBorrowers(pool, agent, checkout.path, localRunner)).length
-    ) {
-      await rememberArchiveCheckoutState(pool, id, releaseState);
-      return true;
-    }
-
-    const cleanupStarted = Date.now();
-    await localRunner.checkoutRelease(agent, {
-      kind: "release",
-      expectedState: releaseState,
-    });
-    durations.worktreeCleanup = Date.now() - cleanupStarted;
-    return false;
-  } catch (err) {
-    logger.warn(
-      { err, agentId: id, worktreePath },
-      "Worktree cleanup failed; leaving on disk."
-    );
-    return false;
-  }
+  hooks?: ArchiveCheckoutHooks
+): Promise<ArchiveOutcome> {
+  if (!agent.worktreePath || remotePlacement(agent.cwd))
+    return { kind: "kept", reason: "notManaged" };
+  return finishArchiveCheckout(
+    pool,
+    logger,
+    agent,
+    mode,
+    localArchiveExecutor(pool, agent, localRunner),
+    hooks
+  );
 }
 
 function managedCheckout(agent: Pick<AgentRecord, "runnerManaged" | "cwd">) {
@@ -131,39 +95,35 @@ function managedCheckout(agent: Pick<AgentRecord, "runnerManaged" | "cwd">) {
   );
 }
 
-async function finishCheckout(
+/** Returns whether the checkout release stays pending for a retry. */
+export async function finishCheckout(
   deps: ArchiveDeps,
   agent: AgentRecord,
   mode: WorktreeCleanupMode,
   stopped: boolean,
   durations: Record<string, number>,
   onCleanupStart?: () => Promise<void>
-) {
-  if (!managedCheckout(agent)) {
-    return cleanupAgentWorktree(
-      deps.pool,
-      deps.logger,
-      deps.localRunner,
-      agent,
-      mode,
-      durations,
-      onCleanupStart
-    );
-  }
-  if (!stopped || !deps.remote) return true;
-  try {
-    await onCleanupStart?.();
-    return (
-      (await releaseRemoteCheckout(deps.pool, agent, mode, deps.remote)) ===
-      "inUse"
-    );
-  } catch (err) {
-    deps.logger.warn(
-      { err, agentId: agent.id },
-      "Runner checkout release remains pending."
-    );
-    return true;
-  }
+): Promise<boolean> {
+  const hooks = { durations, onCleanupStart };
+  const outcome = managedCheckout(agent)
+    ? await releaseRemoteCheckout(
+        deps.pool,
+        deps.logger,
+        agent,
+        mode,
+        deps.remote,
+        stopped,
+        hooks
+      )
+    : await cleanupAgentWorktree(
+        deps.pool,
+        deps.logger,
+        deps.localRunner,
+        agent,
+        mode,
+        hooks
+      );
+  return outcome.kind === "pending";
 }
 
 export async function beginArchive(
@@ -333,7 +293,7 @@ export async function deleteAgentDirect(
   const durations: Record<string, number> = {};
   const agent = await deps.getRequiredAgent(id);
 
-  const mode = managedCheckout(agent) ? "auto" : CASCADED_CHILD_CLEANUP;
+  const mode = cascadeMode(managedCheckout(agent) ? "runner" : "local");
   // Claim before any teardown — an agent's own archive and an ancestor's
   // cascade can reach it at once. Same CAS `beginArchive` takes.
   const claimed = await pool.query(

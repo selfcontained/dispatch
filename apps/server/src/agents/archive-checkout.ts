@@ -1,10 +1,16 @@
+import type { FastifyBaseLogger } from "fastify";
 import {
   isCheckoutObservation,
   remotePlacement,
   type CheckoutObservation,
-  type CheckoutReleaseResult,
 } from "@dispatch/runner-protocol";
 import type { Pool } from "pg";
+import {
+  finishArchiveCheckout,
+  runnerArchiveExecutor,
+  type ArchiveCheckoutHooks,
+  type ArchiveOutcome,
+} from "./archive-policy.js";
 import type { createLocalRunner } from "./local-runner.js";
 import { observeBoundCheckout } from "./checkout-observation.js";
 import { AgentError } from "./errors.js";
@@ -100,7 +106,7 @@ export async function observeArchiveCheckout(
   );
 }
 
-async function observeRemoteCheckout(
+export async function observeRemoteCheckout(
   agent: ArchiveCheckoutAgent,
   remote: RemoteRunnerService,
   placement: NonNullable<ReturnType<typeof remotePlacement>>
@@ -152,43 +158,22 @@ export function archiveReleaseState(
   return checkout.stateId;
 }
 
-export async function releaseRemoteCheckout(
+/** Finish a runner-managed checkout through the shared archive sequence. */
+export function releaseRemoteCheckout(
   pool: Pool,
+  logger: FastifyBaseLogger,
   agent: ArchiveCheckoutAgent,
   mode: WorktreeCleanupMode,
-  remote: RemoteRunnerService
-): Promise<CheckoutReleaseResult> {
-  const placement = remotePlacement(agent.cwd);
-  if (!placement) throw new Error("Missing remote runner placement.");
-  let expectedState =
-    mode === "keep" ? null : await archiveCheckoutState(pool, agent.id);
-  if (mode === "auto" || (mode === "force" && expectedState === null)) {
-    const { checkout, ownership } = await observeRemoteCheckout(
-      agent,
-      remote,
-      placement
-    );
-    if (ownership === "owned") {
-      expectedState = archiveReleaseState(mode, checkout, expectedState);
-    }
-    if (ownership === "owned" && expectedState !== null) {
-      // Record the observation before sending a request that can outlive
-      // the connection or be deferred while a borrower still holds it.
-      await rememberArchiveCheckoutState(pool, agent.id, expectedState);
-    } else if (ownership === "owned") {
-      // Persist the keep decision across a lost reply or server restart.
-      await pool.query(
-        "UPDATE agents SET archive_cleanup_mode = 'keep' WHERE id = $1",
-        [agent.id]
-      );
-    }
-  }
-  const { value } = await remote.requestSession(placement, {
-    kind: "checkoutRelease",
-    agentId: agent.id,
-    operation: { kind: "release", expectedState },
-  });
-  if (value !== "released" && value !== "retained" && value !== "inUse")
-    throw new Error("Invalid checkout release result from the runner.");
-  return value;
+  remote: RemoteRunnerService | undefined,
+  stopped: boolean,
+  hooks?: ArchiveCheckoutHooks
+): Promise<ArchiveOutcome> {
+  return finishArchiveCheckout(
+    pool,
+    logger,
+    agent,
+    mode,
+    runnerArchiveExecutor(agent, remote, stopped),
+    hooks
+  );
 }

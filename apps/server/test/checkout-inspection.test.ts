@@ -690,13 +690,17 @@ describe("archive checkout parity", () => {
           }),
         } as unknown as RemoteRunnerService;
         expect(
-          await releaseRemoteCheckout(
-            pool,
-            { ...agent, cwd: "runner://test/@session" },
-            mode,
-            remote
-          )
-        ).toBe(shouldRelease ? "released" : "retained");
+          (
+            await releaseRemoteCheckout(
+              pool,
+              logger,
+              { ...agent, cwd: "runner://test/@session" },
+              mode,
+              remote,
+              true
+            )
+          ).kind
+        ).toBe(shouldRelease ? "released" : "kept");
       }
       expect(existsSync(checkout)).toBe(!shouldRelease);
     }

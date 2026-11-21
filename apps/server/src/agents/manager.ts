@@ -52,6 +52,7 @@ import {
   releaseRemoteCheckout,
   type ArchiveCheckoutAgent,
 } from "./archive-checkout.js";
+import type { ArchiveOutcome } from "./archive-policy.js";
 import { AgentError } from "./errors.js";
 import { type AgentEventBus, createAgentEventBus } from "./events.js";
 import { runLifecycleHook } from "./lifecycle-hooks.js";
@@ -3068,32 +3069,30 @@ export class AgentManager {
       for (const agent of rows) {
         const { id, cwd, mode } = agent;
         try {
+          let outcome: ArchiveOutcome;
           if (remotePlacement(cwd)) {
             if (!this.remote) continue;
             await this.runtime.stop(id, true);
             await this.streamRecorder.settleStopped(id);
             await this.runtime.clearRemoteState?.(id);
-            if (
-              (await releaseRemoteCheckout(
-                this.pool,
-                agent,
-                mode ?? "auto",
-                this.remote
-              )) === "inUse"
-            )
-              continue;
-          } else if (
-            await cleanupAgentWorktree(
+            outcome = await releaseRemoteCheckout(
+              this.pool,
+              this.logger,
+              agent,
+              mode ?? "auto",
+              this.remote,
+              true
+            );
+          } else {
+            outcome = await cleanupAgentWorktree(
               this.pool,
               this.logger,
               this.localRunner,
               agent,
-              mode ?? "auto",
-              {}
-            )
-          ) {
-            continue;
+              mode ?? "auto"
+            );
           }
+          if (outcome.kind === "pending") continue;
           await this.pool.query(
             "UPDATE agents SET runner_cleanup_pending = false, archive_cleanup_mode = NULL, archive_checkout_state = NULL WHERE id = $1",
             [id]
