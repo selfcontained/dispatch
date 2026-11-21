@@ -169,6 +169,27 @@ async function systemctl(...args: string[]) {
   return stdout.trim();
 }
 
+/** Called with an existing fence, so new manual writers will refuse it. */
+export async function trialLocksAvailable(layout: RunnerUpdateLayout) {
+  try {
+    await execute(
+      "/usr/bin/flock",
+      [
+        "-n",
+        path.join(path.dirname(layout.installed), "install.lock"),
+        "/usr/bin/flock",
+        "-n",
+        path.join(layout.state, "stage.lock"),
+        "/usr/bin/true",
+      ],
+      { timeout: 5_000 }
+    );
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function startRunnerTrial() {
   return systemctl("--no-block", "start", TRIAL_UNIT);
 }

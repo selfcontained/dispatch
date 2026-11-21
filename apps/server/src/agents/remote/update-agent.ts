@@ -36,6 +36,7 @@ import {
   sendTrialSignal,
   startRunnerTrial,
   terminalTrial,
+  trialLocksAvailable,
   trialMatches,
 } from "./update-trial.js";
 import {
@@ -65,6 +66,7 @@ export type StageReport =
  */
 export type RunnerUpdater = {
   canActivate: boolean;
+  activationLocksAvailable?(): Promise<boolean>;
   durable?: {
     read(): ReturnType<typeof readTrial>;
     fenceCleared(): Promise<boolean>;
@@ -520,6 +522,14 @@ export function createRunnerUpdateAgent(options: {
       await release(frame.attemptId);
       return unknown(frame.attemptId);
     }
+    const locksAvailable = await (updater.activationLocksAvailable?.() ?? true);
+    if (admission.current !== current || activationPending) return;
+    if (!locksAvailable) {
+      await release(frame.attemptId);
+      return status(frame.attemptId, "deferred", {
+        reason: "operations_pending",
+      });
+    }
     clearTimeout(expiryTimer);
     activationPending = true;
     try {
@@ -792,6 +802,7 @@ export function systemdRunnerUpdater(
   return {
     canActivate,
     ...(canActivate && {
+      activationLocksAvailable: () => trialLocksAvailable(layout),
       durable: {
         read: () => readTrial(layout),
         fenceCleared: async () =>

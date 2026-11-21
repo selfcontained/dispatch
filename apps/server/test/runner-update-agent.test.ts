@@ -425,6 +425,30 @@ describe("runner update agent", () => {
     expect(s.admission.closed).toBe(false);
   });
 
+  it("defers an activation while a manual or staging writer holds the lock", async () => {
+    const updater = {
+      ...mockUpdater(),
+      activationLocksAvailable: vi.fn(async () => false),
+    };
+    const s = await setup({ updater });
+    await staged(s);
+    await s.receive(fence());
+    await s.receive({ type: "update_activate", attemptId });
+    expect(updater.activate).not.toHaveBeenCalled();
+    expect(updater.activationLocksAvailable).toHaveBeenCalledOnce();
+    expect(s.store.write.mock.calls.map(([record]) => record.phase)).toEqual([
+      "fencing",
+      "fenced",
+    ]);
+    expect(s.store.record).toBeNull();
+    expect(s.last()).toMatchObject({
+      phase: "deferred",
+      reason: "operations_pending",
+    });
+    await s.receive(offer());
+    await vi.waitFor(() => expect(s.last()?.reason).toBe("ready"));
+  });
+
   it("does not persist activating when activation is unavailable", async () => {
     const updater = { ...mockUpdater(), canActivate: false };
     const s = await setup({ updater });
