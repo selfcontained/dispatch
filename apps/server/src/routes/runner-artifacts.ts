@@ -20,13 +20,17 @@ const FILE_NAMES = new Set<string>(RUNNER_ARTIFACT_FILES);
 
 export function registerRunnerArtifacts(
   app: FastifyInstance,
-  build: { revision: string | null; version: string; compiled: boolean }
+  build: { revision: string | null; version: string; compiled: boolean },
+  now?: () => number
 ) {
   const { revision, version } = build;
-  const source = createRunnerArtifactSource({
-    ...build,
-    revision: revision ?? "",
-  });
+  const source = createRunnerArtifactSource(
+    {
+      ...build,
+      revision: revision ?? "",
+    },
+    now
+  );
   app.get<{ Params: { revision: string; file: string } }>(
     `${PREFIX}/:revision/:file`,
     { config: { publicRunnerArtifact: true } },

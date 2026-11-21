@@ -62,9 +62,8 @@ export type RunnerInstallScript = {
  * downloads runs before it is verified: a release bootstrap by its Sigstore
  * provenance, a dev bootstrap by the digest embedded here and only after the
  * operator passed the dev flag. Over the listener, every further download
- * trusts only the runner CA this pinned response carries. The body is one
- * function, and its call is a brace group on the last line, so a truncated
- * download is a syntax error rather than half a script.
+ * trusts only the runner CA this pinned response carries. The brace group
+ * contains both the function and its call, with no bytes outside it.
  */
 export function runnerInstallScript(input: RunnerInstallScript) {
   const { origin, revision, version, caPem, command, dev } = input;
@@ -86,9 +85,9 @@ export function runnerInstallScript(input: RunnerInstallScript) {
   const build = `Dispatch ${version} (${revision})`;
   const fail = (message: string) => `{ echo ${quote(message)} >&2; exit 1; }`;
   const lines = [
-    "#!/bin/sh",
+    "{",
     `# Installs or updates a Dispatch runner from ${build}.`,
-    `# Options: ${command.replace(/ \| sudo bash$/, " | sudo bash -s -- [--user USER | --dedicated-user]")}`,
+    `# Options: ${command.replace(/ \| sudo bash$/, " | sudo bash -s -- [--user USER | --dedicated-user] [--allow-downgrade]")}`,
     "dispatch_runner_install() (",
     "  set -eu",
     `  [ "$(id -u)" = 0 ] || ${fail(`error: Run this as root: ${command}`)}`,
@@ -133,20 +132,34 @@ export function runnerInstallScript(input: RunnerInstallScript) {
         ]
       : [
           `  fetch ${BOOTSTRAP}.sigstore.json`,
-          // sudo's secure PATH often hides the invoking user's own GitHub CLI.
-          "  gh=$(command -v gh || :)",
-          '  if [ -z "$gh" ] && [ -n "${SUDO_USER:-}" ]; then',
-          `    gh=$(sudo -H -u "$SUDO_USER" sh -lc 'command -v gh' < /dev/null 2> /dev/null | tail -n 1 || :)`,
+          // Match account_command in the installer when loading the user's gh.
+          '  if [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != root ]; then',
+          `    entry=$(getent -- passwd "$SUDO_USER") || ${fail("error: Cannot look up the invoking account for release verification.")}`,
+          "    IFS=: read -r account ignored uid gid ignored home shell <<EOF",
+          "$entry",
+          "EOF",
+          `    case $uid in '' | 0* | *[!0-9]*) ${fail("error: Invalid invoking account for release verification.")} ;; esac`,
+          `    case $gid in '' | *[!0-9]*) ${fail("error: Invalid invoking account for release verification.")} ;; esac`,
+          `    case $home in /*) ;; *) ${fail("error: Invalid invoking account for release verification.")} ;; esac`,
+          '    case ${shell##*/} in bash|zsh|sh|dash) [ -x "$shell" ] || shell=/bin/bash ;; *) shell=/bin/bash ;; esac',
+          '    chmod 0711 "$dir"',
+          `    chmod 0644 "$dir/${BOOTSTRAP}" "$dir/${BOOTSTRAP}.sigstore.json"`,
+          "    run_gh() {",
+          '      setpriv --reuid="$uid" --regid="$gid" --init-groups env -i HOME="$home" USER="$account" LOGNAME="$account" PATH=/usr/local/bin:/usr/bin:/bin \\',
+          '        "$shell" -lc \'[ -f "$HOME/.dispatch/env" ] && . "$HOME/.dispatch/env"; export PATH="${PATH:+$PATH:}$HOME/.local/bin"; command -v gh > /dev/null || { echo "error: Install GitHub CLI 2.49 or newer to verify this Dispatch release." >&2; exit 1; }; exec gh "$@"\' dispatch-account-command "$@"',
+          "    }",
+          "  else",
+          `    command -v gh > /dev/null || ${fail("error: Install GitHub CLI 2.49 or newer to verify this Dispatch release.")}`,
+          '    run_gh() { gh "$@"; }',
           "  fi",
-          `  [ -n "$gh" ] || ${fail("error: Install GitHub CLI 2.49 or newer to verify this Dispatch release.")}`,
-          `  "$gh" attestation verify "$dir/${BOOTSTRAP}" --hostname github.com --bundle "$dir/${BOOTSTRAP}.sigstore.json" --repo selfcontained/dispatch --signer-workflow selfcontained/dispatch/.github/workflows/release.yml < /dev/null`,
+          `  run_gh attestation verify "$dir/${BOOTSTRAP}" --hostname github.com --bundle "$dir/${BOOTSTRAP}.sigstore.json" --repo selfcontained/dispatch --signer-workflow selfcontained/dispatch/.github/workflows/release.yml < /dev/null`,
         ]),
     `  bash "$dir/${BOOTSTRAP}" install --tag v${version} --source "$base"${cacert}${
       dev ? ` --sha256 '${dev.archiveSha256}'` : ""
     } "$@" < /dev/null`,
     ")",
-    '{ dispatch_runner_install "$@"; }',
-    "",
+    'dispatch_runner_install "$@"',
+    "}",
   ];
   return lines.join("\n");
 }
@@ -171,7 +184,10 @@ export function registerRunnerInstaller(
   app: FastifyInstance,
   deps: {
     runners: InstallerRunners;
-    artifacts: Pick<RunnerArtifactSource, "enabled" | "kind" | "get">;
+    artifacts: Pick<
+      RunnerArtifactSource,
+      "enabled" | "kind" | "get" | "preparationFailed"
+    >;
     build: { revision: string | null; version: string };
   }
 ) {
@@ -180,7 +196,8 @@ export function registerRunnerInstaller(
   app.get("/api/v1/runners/installer", async (request) => {
     const { revision, version } = build;
     const unavailable = { revision, version, source: null, command: null };
-    if (!revision || !artifacts.enabled) return unavailable;
+    if (!revision || !artifacts.enabled || artifacts.preparationFailed())
+      return unavailable;
     // The runner listener by default: its pinned key authenticates the
     // script. Without one, the web origin serves the same script.
     let endpoint: { origin: string; pin?: string };
@@ -192,6 +209,7 @@ export function registerRunnerInstaller(
       endpoint = { origin: webOrigin(request) };
     }
     try {
+      if (artifacts.preparationFailed()) return unavailable;
       return {
         revision,
         version,

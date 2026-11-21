@@ -103,11 +103,11 @@ it("preserves the no-sample state", () => {
 describe("update command", () => {
   const command =
     "curl -fsSk --pinnedpubkey 'sha256//AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=' https://dispatch.example:7443/install | sudo bash";
-  const health = (revision?: string) => ({
+  const health = (revision?: string, version = "1.2.3") => ({
     ...runner,
     healthReceivedAt: receivedAt,
     health: {
-      version: "1.2.3",
+      version,
       ...(revision ? { revision } : {}),
       sessions: 0,
       working: 0,
@@ -117,17 +117,38 @@ describe("update command", () => {
     },
   });
 
-  it("offers the controller's command when the runner reports another revision", () => {
-    installer.data = {
-      revision: "2c8f997d5349",
-      version: "1.7.28",
-      source: "release",
-      command,
-    };
-    render(<RunnerHealthDetails runner={health("8fa2787f")} />);
-    expect(screen.getByText(/Update available · 1\.7\.28/)).toBeTruthy();
-    expect(screen.getByTestId("command-Update").textContent).toBe(command);
-  });
+  it.each([undefined, "2c8f997d5349", "8fa2787f"])(
+    "offers the newer version with reported revision %s",
+    (reported) => {
+      installer.data = {
+        revision: "2c8f997d5349",
+        version: "1.7.28",
+        source: "release",
+        command,
+      };
+      render(<RunnerHealthDetails runner={health(reported)} />);
+      expect(screen.getByText(/Update available · 1\.7\.28/)).toBeTruthy();
+      expect(screen.getByTestId("command-Update").textContent).toBe(command);
+    }
+  );
+
+  it.each([
+    ["1.2.3", true],
+    ["1.2.10", false],
+    ["unknown", false],
+  ])(
+    "shows an update for a different revision at runner version %s only when eligible",
+    (reported, offered) => {
+      installer.data = {
+        revision: "2c8f997d5349",
+        version: "1.2.3",
+        source: "dev",
+        command,
+      };
+      render(<RunnerHealthDetails runner={health("8fa2787f", reported)} />);
+      expect(Boolean(screen.queryByText(/Update available/))).toBe(offered);
+    }
+  );
 
   it.each([
     ["the same revision at another length", "2c8f997d5349", "2c8f997"],
@@ -136,7 +157,7 @@ describe("update command", () => {
   ])("offers nothing for %s", (_case, controller, reported) => {
     installer.data = {
       revision: controller,
-      version: "1.7.28",
+      version: "1.2.3",
       source: controller ? "release" : null,
       command: controller ? command : null,
     };

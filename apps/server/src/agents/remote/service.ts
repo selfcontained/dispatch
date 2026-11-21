@@ -10,6 +10,7 @@ import http from "node:http";
 import https from "node:https";
 import { connect as connectTcp, isIP, type Socket } from "node:net";
 import os from "node:os";
+import { Writable } from "node:stream";
 import { createServer, type Server, type TLSSocket } from "node:tls";
 import {
   RunnerConnection,
@@ -189,6 +190,8 @@ const MAX_HTTP_RELAYS = 256;
 const UNAUTHENTICATED_TIMEOUT = 10_000;
 /** A runner release download may outlast the handshake bound on a slow link. */
 const ARTIFACT_DOWNLOAD_TIMEOUT = 30 * 60_000;
+const ARTIFACT_IDLE_TIMEOUT = 60_000;
+const MAX_ARTIFACT_RELAYS = 8;
 /** Where the web origin serves the runner install script. */
 export const RUNNER_INSTALL_PATH = "/api/v1/runner-artifacts/install";
 /** The runner listener's short alias for that script. */
@@ -327,7 +330,9 @@ export function configuredRunner(input?: {
 
 type ProxyRelay = {
   releaseHandshake?: () => void;
-  extendHandshake?: (ms: number) => void;
+  reserveArtifact: (response: http.ServerResponse) => boolean;
+  startDownload: () => void;
+  hasArtifact: () => boolean;
   requestsServed: number;
 };
 
@@ -345,6 +350,7 @@ export class RemoteRunnerService {
   private readonly sockets = new Set<TLSSocket>();
   private unauthenticated = 0;
   private activeHttpRelays = 0;
+  private activeArtifactRelays = 0;
   private readonly maxHttpRelays = MAX_HTTP_RELAYS;
   private legacyListener?: Server;
   private listener?: Server;
@@ -410,7 +416,7 @@ export class RemoteRunnerService {
             relay?.releaseHandshake?.();
             if (relay) relay.releaseHandshake = undefined;
           },
-          () => relay?.extendHandshake?.(this.artifactDownloadTimeout)
+          relay
         );
       }
     );
@@ -637,20 +643,26 @@ export class RemoteRunnerService {
       () => socket.destroy(),
       this.handshakeTimeout
     );
-    const release = () => {
-      if (deadline === undefined) return;
-      socket.removeListener("close", release);
-      clearTimeout(deadline);
-      deadline = undefined;
+    let hasSlot = true;
+    const releaseSlot = () => {
+      if (!hasSlot) return;
+      hasSlot = false;
       this.unauthenticated--;
     };
-    // A public download keeps its unauthenticated slot, with a longer bound.
-    const extend = (ms: number) => {
-      if (deadline === undefined) return;
+    const clearDeadline = () => {
       clearTimeout(deadline);
+      deadline = undefined;
+    };
+    const release = () => {
+      releaseSlot();
+      clearDeadline();
+    };
+    const setDeadline = (ms: number) => {
+      clearDeadline();
       deadline = setTimeout(() => socket.destroy(), ms);
     };
-    socket.once("close", release);
+    socket.once("close", releaseSlot);
+    socket.once("close", clearDeadline);
     let prefix = "";
     const classify = (chunk: Buffer) => {
       if (!prefix && chunk[0] === 0x7b && kind === "enrolled") {
@@ -669,7 +681,12 @@ export class RemoteRunnerService {
         const head = prefix
           ? Buffer.concat([Buffer.from(prefix, "latin1"), chunk])
           : chunk;
-        void this.relay(socket, head, release, extend);
+        void this.relay(socket, head, {
+          release,
+          releaseSlot,
+          clearDeadline,
+          setDeadline,
+        });
       } else if (/^(?:[A-Z]{1,7}|[A-Z]{3,7} )$/.test(candidate)) {
         prefix = candidate;
       } else {
@@ -687,8 +704,12 @@ export class RemoteRunnerService {
   private async relay(
     socket: TLSSocket,
     head: Buffer,
-    release: () => void,
-    extend: (ms: number) => void
+    handshake: {
+      release: () => void;
+      releaseSlot: () => void;
+      clearDeadline: () => void;
+      setDeadline: (ms: number) => void;
+    }
   ) {
     if (this.activeHttpRelays >= this.maxHttpRelays) {
       socket.destroy();
@@ -696,9 +717,52 @@ export class RemoteRunnerService {
     }
     this.activeHttpRelays++;
     const started = performance.now();
+    let servingArtifact = false;
+    let reservedArtifact = false;
+    let downloadIdle: ReturnType<typeof setTimeout> | undefined;
+    let downloadCap: ReturnType<typeof setTimeout> | undefined;
+    const clearDownload = () => {
+      clearTimeout(downloadIdle);
+      clearTimeout(downloadCap);
+      downloadIdle = downloadCap = undefined;
+    };
+    const resetDownloadIdle = () => {
+      clearTimeout(downloadIdle);
+      downloadIdle = setTimeout(
+        () => socket.destroy(),
+        this.artifactIdleTimeout
+      );
+    };
     const relay: ProxyRelay = {
-      releaseHandshake: release,
-      extendHandshake: extend,
+      releaseHandshake: handshake.release,
+      reserveArtifact: (response) => {
+        // An artifact request, including a refusal, no longer needs a
+        // pairing or scoped MCP handshake slot.
+        servingArtifact = true;
+        handshake.releaseSlot();
+        if (!relay.releaseHandshake)
+          handshake.setDeadline(this.handshakeTimeout);
+        if (this.activeArtifactRelays >= MAX_ARTIFACT_RELAYS) return false;
+        reservedArtifact = true;
+        this.activeArtifactRelays++;
+        const proxySocket = response.socket;
+        response.once("finish", () => {
+          if (!downloadCap) handshake.setDeadline(this.handshakeTimeout);
+          // Deliver the loopback FIN after these bytes so the TLS writer can
+          // end the long deadline when the complete response reaches it.
+          proxySocket?.end();
+        });
+        return true;
+      },
+      hasArtifact: () => servingArtifact,
+      startDownload: () => {
+        handshake.clearDeadline();
+        downloadCap = setTimeout(
+          () => socket.destroy(),
+          this.artifactDownloadTimeout
+        );
+        resetDownloadIdle();
+      },
       requestsServed: 0,
     };
     let closedBy: "client" | "proxy" | undefined;
@@ -706,6 +770,8 @@ export class RemoteRunnerService {
     socket.once("error", () => (closedBy ??= "client"));
     socket.once("close", () => {
       this.activeHttpRelays--;
+      if (reservedArtifact) this.activeArtifactRelays--;
+      clearDownload();
       this.logger?.debug(
         {
           ageMs: Math.round(performance.now() - started),
@@ -737,7 +803,26 @@ export class RemoteRunnerService {
         this.proxyRelays.set(relayPort, relay);
         upstream.once("close", () => this.proxyRelays.delete(relayPort));
         upstream.write(head);
-        socket.pipe(upstream).pipe(socket);
+        // Track writes to the client TLS stream, beyond the loopback proxy's
+        // buffers. Incoming bytes cannot renew a stalled download.
+        const client = new Writable({
+          write(chunk, _encoding, done) {
+            socket.write(chunk, (error) => {
+              if (!error && downloadIdle) resetDownloadIdle();
+              done(error);
+            });
+          },
+          final: (done) => {
+            if (downloadCap) {
+              clearDownload();
+              handshake.setDeadline(this.handshakeTimeout);
+            }
+            socket.end(done);
+          },
+        });
+        client.on("error", () => socket.destroy());
+        socket.once("close", () => client.destroy());
+        socket.pipe(upstream).pipe(client);
         socket.resume();
       });
     } catch {
@@ -748,6 +833,7 @@ export class RemoteRunnerService {
   private readonly proxyIdleTimeout = PROXY_KEEP_ALIVE_TIMEOUT;
   private readonly handshakeTimeout = UNAUTHENTICATED_TIMEOUT;
   private readonly artifactDownloadTimeout = ARTIFACT_DOWNLOAD_TIMEOUT;
+  private readonly artifactIdleTimeout = ARTIFACT_IDLE_TIMEOUT;
   private readonly proxyRelays = new Map<number, ProxyRelay>();
   private readonly proxyRequests = new WeakMap<
     Socket,
@@ -1015,7 +1101,7 @@ export class RemoteRunnerService {
     request: http.IncomingMessage,
     response: http.ServerResponse,
     onAuthenticated: () => void,
-    onDownload: () => void
+    relay: ProxyRelay | undefined
   ) {
     const url = request.url ?? "";
     const target = this.api;
@@ -1045,6 +1131,12 @@ export class RemoteRunnerService {
       ((agentId && target?.validAgentToken?.(token, agentId)) ||
         (job && target?.validJobToken?.(token, job[1]!, job[2]!)))
     );
+    if (relay?.hasArtifact()) {
+      response
+        .writeHead(503, { Connection: "close", "Retry-After": "10" })
+        .end();
+      return;
+    }
     if (mcp) {
       onAuthenticated();
     } else {
@@ -1066,7 +1158,10 @@ export class RemoteRunnerService {
       response.writeHead(allowed ? 503 : 404).end();
       return;
     }
-    if (artifact) onDownload();
+    if ((artifact || install) && !relay?.reserveArtifact(response)) {
+      response.writeHead(503, { "Retry-After": "10" }).end();
+      return;
+    }
     const host =
       target.host === "0.0.0.0"
         ? "127.0.0.1"
@@ -1103,6 +1198,13 @@ export class RemoteRunnerService {
         rejectUnauthorized: false,
       },
       (reply) => {
+        if (
+          artifact &&
+          request.method === "GET" &&
+          reply.statusCode === 200 &&
+          reply.headers["content-disposition"]?.startsWith("attachment;")
+        )
+          relay?.startDownload();
         const headers = { ...reply.headers };
         delete headers.connection;
         delete headers["keep-alive"];

@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import {
+  lstat,
   copyFile,
   mkdir,
   mkdtemp,
@@ -14,6 +15,7 @@ import Fastify, { type FastifyInstance } from "fastify";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as cache from "../src/release-tarball-cache.js";
 import { registerRunnerArtifacts } from "../src/routes/runner-artifacts.js";
+import { registerRunnerInstaller } from "../src/routes/runner-installer.js";
 import * as releases from "../src/server/release-helpers.js";
 import * as commands from "../src/shared/lib/run-command.js";
 import * as files from "../src/update-recovery/files.js";
@@ -67,8 +69,8 @@ async function buildFixture(options?: {
   );
 }
 
-function start(compiled = false) {
-  registerRunnerArtifacts(app, { revision, version, compiled });
+function start(compiled = false, now?: () => number) {
+  return registerRunnerArtifacts(app, { revision, version, compiled }, now);
 }
 
 async function seedRelease() {
@@ -207,6 +209,7 @@ describe("runner artifact routes", () => {
     start();
     expect((await app.inject(descriptor)).statusCode).toBe(503);
     expect(hash).not.toHaveBeenCalledWith(file);
+    expect((await lstat(file)).isSymbolicLink()).toBe(true);
   });
 
   it("rejects an aggregate missing one of the advertised platforms", async () => {
@@ -327,6 +330,14 @@ describe("runner artifact routes", () => {
       expect(response.statusCode).toBe(503);
       expect(response.json().error).toContain("verified");
     }
+    const archive = cache.cachedTarballPath(tag);
+    const companions = path.join(path.dirname(archive), `runner-${tag}`);
+    await expect(
+      lstat(path.join(companions, bootstrapName))
+    ).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(
+      lstat(path.join(companions, bootstrapBundle))
+    ).rejects.toMatchObject({ code: "ENOENT" });
   });
 
   it("keeps rejecting a cache fill whose archive differs from the published digest", async () => {
@@ -349,6 +360,84 @@ describe("runner artifact routes", () => {
     start(true);
     expect((await app.inject(descriptor)).statusCode).toBe(503);
     expect((await app.inject(`${url}/${archiveName}`)).statusCode).toBe(503);
+    await expect(lstat(archive)).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("suppresses installer offers and refetches a malformed cache entry after 60 seconds", async () => {
+    let now = 0;
+    await buildFixture();
+    await seedRelease();
+    const archive = cache.cachedTarballPath(tag);
+    const companions = path.join(path.dirname(archive), `runner-${tag}`);
+    const malformed = path.join(companions, archiveBundle);
+    await rm(malformed);
+    const outside = path.join(inputs, "keep");
+    await writeFile(outside, "{}");
+    await symlink(outside, malformed);
+    const archiveSha256 = await files.hashRegular(archive);
+    mockAttestations();
+    const metadata = vi
+      .spyOn(releases, "fetchReleaseMetadata")
+      .mockResolvedValue({
+        tag,
+        artifactSha256: archiveSha256,
+        url: "",
+        publishedAt: "",
+      });
+    const download = vi
+      .spyOn(cache, "downloadReleaseCompanion")
+      .mockImplementation(async ({ destination }) => {
+        await writeFile(destination, "{}");
+      });
+    const artifacts = start(true, () => now);
+    registerRunnerInstaller(app, {
+      artifacts,
+      build: { revision, version },
+      runners: {
+        artifactEndpoint: async () => ({
+          origin: "https://runner.test",
+          pin: "A".repeat(43) + "=",
+        }),
+        listenerInstall: () => undefined,
+      },
+    });
+    const offer = async () =>
+      (await app.inject("/api/v1/runners/installer")).json().command;
+    expect(await offer()).toBeTruthy();
+    expect((await app.inject(descriptor)).statusCode).toBe(503);
+    await expect(lstat(malformed)).rejects.toMatchObject({ code: "ENOENT" });
+    expect((await lstat(outside)).isFile()).toBe(true);
+    now = 59_999;
+    expect(await offer()).toBeNull();
+    expect((await app.inject(descriptor)).statusCode).toBe(503);
+    expect(metadata).not.toHaveBeenCalled();
+    now = 60_000;
+    expect((await app.inject(descriptor)).statusCode).toBe(200);
+    expect(download).toHaveBeenCalledOnce();
+    expect(download).toHaveBeenCalledWith(
+      expect.objectContaining({ destination: malformed })
+    );
+    expect(await offer()).toBeTruthy();
+  });
+
+  it("never follows a release companion directory symlink during repair", async () => {
+    await buildFixture();
+    await seedRelease();
+    const companions = path.join(
+      path.dirname(cache.cachedTarballPath(tag)),
+      `runner-${tag}`
+    );
+    const outside = path.join(temp, "outside-companions");
+    await rename(companions, outside);
+    await symlink(outside, companions);
+    const attest = mockAttestations("fixture invalid attestation");
+    start(true, () => 0);
+    expect((await app.inject(descriptor)).statusCode).toBe(503);
+    expect(attest.mock.calls).toEqual([]);
+    await expect(lstat(companions)).rejects.toMatchObject({ code: "ENOENT" });
+    expect((await lstat(path.join(outside, bootstrapName))).isFile()).toBe(
+      true
+    );
   });
 
   it("invalidates the descriptor and download after a verified archive is replaced", async () => {

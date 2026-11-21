@@ -11,6 +11,8 @@ Usage:
   install-dispatch-runner.sh update --tag vX.Y.Z [SOURCE]
   install-dispatch-runner.sh recover
 
+Add --allow-downgrade to install or update to permit replacing a newer runner.
+
 SOURCE takes the release from a Dispatch controller instead of GitHub:
   --source URL [--cacert FILE]
       URL ends in /api/v1/runner-artifacts/<revision>. FILE is the pinned
@@ -57,7 +59,11 @@ release_fetch() {
     return
   fi
   fetch_asset "$asset.sigstore.json"
-  "${gh_bin:-gh}" attestation verify "$stage/$asset" --hostname github.com \
+  if [[ ${#release_account[@]} -gt 0 ]]; then
+    chmod 0711 "$stage"
+    chmod 0644 "$stage/$asset" "$stage/$asset.sigstore.json"
+  fi
+  run_release_gh attestation verify "$stage/$asset" --hostname github.com \
     --bundle "$stage/$asset.sigstore.json" --repo selfcontained/dispatch \
     --signer-workflow selfcontained/dispatch/.github/workflows/release.yml
 }
@@ -85,24 +91,53 @@ validate_source() {
   fi
 }
 
-# Where an account's login shell finds a tool: the same profile and
-# ~/.dispatch/env the runner's agent sessions load. Prints nothing if absent.
-account_tool() {
-  local account=$1 uid=$2 gid=$3 home=$4 shell=$5 tool=$6
+# Use the same login profile and ~/.dispatch/env the runner's sessions load.
+account_command() {
+  local account=$1 uid=$2 gid=$3 home=$4 shell=$5 command=$6
+  shift 6
   case "${shell##*/}" in
     bash|zsh|sh|dash) [[ -x "$shell" ]] || shell=/bin/bash ;;
     *) shell=/bin/bash ;;
   esac
   setpriv --reuid="$uid" --regid="$gid" --init-groups \
     env -i HOME="$home" USER="$account" LOGNAME="$account" PATH="${account_base_path:-/usr/local/bin:/usr/bin:/bin}" \
-    "$shell" -lc '[ -f "$HOME/.dispatch/env" ] && . "$HOME/.dispatch/env"; export PATH="${PATH:+$PATH:}$HOME/.local/bin"; command -v "$1"' \
-    dispatch-tool-lookup "$tool" < /dev/null 2> /dev/null | grep '^/' | tail -n 1 || :
+    "$shell" -lc '[ -f "$HOME/.dispatch/env" ] && . "$HOME/.dispatch/env"; export PATH="${PATH:+$PATH:}$HOME/.local/bin"; '"$command" \
+    dispatch-account-command "$@" < /dev/null
+}
+
+account_tool() {
+  account_command "${@:1:5}" 'command -v "$1"' "$6" 2> /dev/null | grep '^/' | tail -n 1 || :
+}
+
+release_account=()
+resolve_release_gh() {
+  local sudo_entry uid gid home shell
+  release_account=()
+  gh_bin=
+  if [[ -n "${SUDO_USER:-}" && "$SUDO_USER" != root ]]; then
+    sudo_entry=$(getent -- passwd "$SUDO_USER") || error "Cannot look up $SUDO_USER for release verification"
+    IFS=: read -r _ _ uid gid _ home shell <<< "$sudo_entry"
+    [[ "$uid" =~ ^[1-9][0-9]*$ && "$gid" =~ ^[0-9]+$ && "$home" == /* ]] ||
+      error "Invalid invoking account for release verification"
+    release_account=("$SUDO_USER" "$uid" "$gid" "$home" "$shell")
+    gh_bin=$(account_tool "${release_account[@]}" gh)
+  else
+    gh_bin=$(command -v gh) || gh_bin=
+  fi
+}
+
+run_release_gh() {
+  if [[ ${#release_account[@]} -gt 0 ]]; then
+    account_command "${release_account[@]}" 'exec "$@"' "$gh_bin" "$@"
+  else
+    "${gh_bin:-gh}" "$@"
+  fi
 }
 
 # Report each dependency the installer itself uses. Nothing is installed or
 # upgraded here: a present tool is used as it is, a missing one is named.
 check_dependencies() {
-  local command found missing=() sudo_entry uid gid home shell
+  local command found missing=()
   for command in curl tar ps find; do
     if found=$(command -v "$command"); then
       printf 'Found %s: %s\n' "$command" "$found"
@@ -111,15 +146,8 @@ check_dependencies() {
       missing+=("$command")
     fi
   done
-  gh_bin=$(command -v gh) || gh_bin=
-  # sudo's secure PATH often hides the invoking user's own GitHub CLI. That
-  # user already runs this script as root, so their gh is trusted here too.
-  if [[ -z "$gh_bin" && -n "${SUDO_USER:-}" && "$SUDO_USER" != root ]] &&
-    sudo_entry=$(getent -- passwd "$SUDO_USER"); then
-    IFS=: read -r _ _ uid gid _ home shell <<< "$sudo_entry"
-    if [[ "$uid" =~ ^[1-9][0-9]*$ && "$gid" =~ ^[1-9][0-9]*$ && "$home" == /* ]]; then
-      gh_bin=$(account_tool "$SUDO_USER" "$uid" "$gid" "$home" "$shell" gh)
-    fi
+  if [[ "${allow_dev:-0}" != 1 ]]; then
+    resolve_release_gh
   fi
   if [[ "${allow_dev:-0}" == 1 ]]; then
     # A dev build is checked by digest alone; gh is not needed for it.
@@ -136,7 +164,7 @@ check_dependencies() {
     missing+=(gh)
   fi
   [[ ${#missing[@]} -eq 0 ]] || error "Install ${missing[*]}. The installer does not install or upgrade packages"
-  [[ "${allow_dev:-0}" == 1 ]] || "$gh_bin" attestation verify --help > /dev/null 2>&1 ||
+  [[ "${allow_dev:-0}" == 1 ]] || run_release_gh attestation verify --help > /dev/null 2>&1 ||
     error "GitHub CLI at $gh_bin cannot verify release attestations (needs gh 2.49 or newer). Update that gh; the installer will not install another one"
 }
 
@@ -316,6 +344,7 @@ install_runner() {
   repair_install_root
   if [[ ! -e "$runtime/dispatch" ]]; then
     install -m 0755 "$stage/dispatch" "$stage/initial"
+    record_release "$stage/initial"
     mv -fT "$stage/initial" "$runtime/dispatch"
   fi
   install_service_unit
@@ -465,7 +494,52 @@ recover_runner() {
   sync -f "$runtime"
 }
 
+# Track both inodes during an update so recovery selects the previous record
+# automatically when it restores the previous executable.
+installed_release() {
+  local inode recorded version
+  inode=$(stat -c '%d:%i' "$runtime/dispatch") || return
+  [[ -f "$runtime/installed-release" ]] || return 0
+  while read -r recorded version; do
+    if [[ "$recorded" == "$inode" && "$version" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+      printf '%s\n' "$version"
+      return
+    fi
+  done < "$runtime/installed-release"
+}
+
+record_release() {
+  local binary=$1 installed=${2:-} inode
+  inode=$(stat -c '%d:%i' "$binary")
+  printf '%s %s\n' "$inode" "$tag" > "$stage/installed-release"
+  if [[ -n "$installed" ]]; then
+    inode=$(stat -c '%d:%i' "$runtime/dispatch")
+    printf '%s %s\n' "$inode" "$installed" >> "$stage/installed-release"
+  fi
+  mv -fT "$stage/installed-release" "$runtime/installed-release"
+  sync -f "$runtime"
+}
+
+version_is_lower() {
+  local major minor patch old_major old_minor old_patch pair left right LC_ALL=C
+  IFS=. read -r major minor patch <<< "${1#v}"
+  IFS=. read -r old_major old_minor old_patch <<< "${2#v}"
+  # Compare digits by length first to avoid shell integer overflow.
+  for pair in "$major:$old_major" "$minor:$old_minor" "$patch:$old_patch"; do
+    left=${pair%:*}
+    right=${pair#*:}
+    left=${left#"${left%%[!0]*}"}
+    right=${right#"${right%%[!0]*}"}
+    if [[ "$left" != "$right" ]]; then
+      [[ ${#left} -lt ${#right} || ( ${#left} -eq ${#right} && "$left" < "$right" ) ]]
+      return
+    fi
+  done
+  return 1
+}
+
 update_runner() {
+  local installed
   maintenance_step=prepare
   # Keep the original tool error on the runner. Only the bounded status record
   # goes to Dispatch. The lock serializes writers, and tee must not inherit it.
@@ -478,13 +552,21 @@ update_runner() {
     recover_runner
     [[ "$action" != recover ]] || return 0
   fi
+  installed=$(installed_release)
+  if [[ -n "$installed" && "${allow_downgrade:-0}" != 1 ]] && version_is_lower "$tag" "$installed"; then
+    error "Refusing to downgrade Dispatch runner from $installed to $tag. Use --allow-downgrade to proceed"
+  fi
   maintenance_step=stage
   stage_release
+  if [[ -z "$installed" && "${allow_downgrade:-0}" != 1 ]] && ! cmp -s "$stage/dispatch" "$runtime/dispatch"; then
+    error "Cannot determine the installed Dispatch runner version. Use --allow-downgrade to replace this runner"
+  fi
   repair_install_root
   if ! tar -xOzf "$stage/dispatch-server.tar.gz" bin/runner-handoff-v1.py > "$stage/handoff.py" 2>/dev/null; then
     : > "$stage/handoff.py"
   fi
   if cmp -s "$stage/dispatch" "$runtime/dispatch"; then
+    record_release "$runtime/dispatch"
     maintenance_step=unit
     install_service_unit
     install_managed_tools
@@ -500,6 +582,7 @@ update_runner() {
   rm -f -- "$runtime/previous-active"
   stop_runner_for_update record_previous
   maintenance_step=replace
+  record_release "$stage/next" "$installed"
   mv -fT "$stage/next" "$runtime/dispatch"
   sync -f "$runtime"
   maintenance_step=start
@@ -569,6 +652,10 @@ parse_install_options() {
         esac
         shift 2
         ;;
+      --allow-downgrade)
+        allow_downgrade=1
+        shift
+        ;;
       --allow-unverified-dev-build)
         allow_dev=1
         shift
@@ -606,6 +693,7 @@ main() {
   source_ca=
   dev_sha256=
   allow_dev=0
+  allow_downgrade=0
   action=${1:-}
   case "$action" in
     -h|--help) usage; return ;;

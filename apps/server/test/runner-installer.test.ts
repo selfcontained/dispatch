@@ -70,6 +70,16 @@ eval "url=\\\${$(($# - 2))}"
 cp "$SERVED/\${url##*/}" "$arg"`,
     gh: `#!/bin/sh\nprintf 'gh %s\\n' "$*" >> "$LOG"\n[ ! -e "$SERVED/reject" ]`,
     id: `#!/bin/sh\necho "\${STUB_UID:-0}"`,
+    getent: `#!/bin/sh\nprintf 'build:x:1000:1001::%s:/bin/sh\\n' "$SERVED/../home"`,
+    setpriv: `#!/bin/sh
+[ "$1 $2 $3" = '--reuid=1000 --regid=1001 --init-groups' ] || exit 1
+[ "$4 $5" = 'env -i' ] && [ "\${11}" = -lc ] || exit 1
+printf 'login gh as %s\\n' "\${7#USER=}" >> "$LOG"
+shift 13
+[ -n "$(find "$(dirname "$3")" -maxdepth 0 -perm 0711 -print)" ] || exit 1
+[ -n "$(find "$3" -perm 0644 -print)" ] || exit 1
+[ -n "$(find "$7" -perm 0644 -print)" ] || exit 1
+exec "$(dirname "$0")/gh" "$@"`,
   };
   for (const [name, body] of Object.entries(stubs)) {
     await writeFile(path.join(bin, name), body);
@@ -171,6 +181,19 @@ describe.each(["sh", "bash", "dash"])(
         )
       );
       expect(await leftovers()).toEqual([]);
+    });
+
+    it("uses the invoking account's login shell for release verification", async () => {
+      const { code, log } = await pipe(runnerInstallScript(release), [], {
+        shell,
+        env: { SUDO_USER: "build" },
+      });
+      expect(code).toBe(0);
+      expect(log.slice(2)).toEqual([
+        "login gh as build",
+        expect.stringMatching(/^gh attestation verify /),
+        expect.stringMatching(/^installer install /),
+      ]);
     });
 
     it("does not run a bootstrap that fails provenance", async () => {
@@ -277,33 +300,27 @@ describe.each(["sh", "bash", "dash"])(
   }
 );
 
-describe("a truncated runner install script", () => {
-  it("never runs the installer", async () => {
+it.each(["sh", "bash", "dash"])(
+  "rejects every nonempty truncated prefix under %s",
+  async (shell) => {
     const script = runnerInstallScript(release);
-    const complete = script.trimEnd();
-    // Every line boundary, a cut inside every line, and every byte of the
-    // call at the end, where a cut could drop the operator's options.
-    const cuts = new Set<number>();
-    for (let i = complete.length - 120; i < complete.length; i++) cuts.add(i);
-    for (let i = 0; i < complete.length; i++)
-      if (complete[i] === "\n") cuts.add(i).add(i + 1);
-    for (const line of complete.split("\n").keys()) {
-      const start = complete.split("\n").slice(0, line).join("\n").length;
-      const length = complete.split("\n")[line]!.length;
-      for (const offset of [1, Math.floor(length / 2), length - 1])
-        if (offset > 0) cuts.add(start + (line ? 1 : 0) + offset);
+    const bytes = Buffer.from(script);
+    // Empty stdin always succeeds in these shells.
+    for (let cut = 1; cut < bytes.length; cut++) {
+      const { code, log } = await pipe(
+        bytes.subarray(0, cut).toString(),
+        ["--dedicated-user"],
+        { shell }
+      );
+      expect(code, `cut at byte ${cut}`).not.toBe(0);
+      expect(log, `cut at byte ${cut}`).toEqual([]);
     }
-    for (const cut of [...cuts].filter((cut) => cut < complete.length)) {
-      const { log } = await pipe(complete.slice(0, cut), ["--dedicated-user"]);
-      expect(
-        log.filter((line) => line.startsWith("installer")),
-        `cut at ${cut}: ${JSON.stringify(complete.slice(cut - 20, cut))}`
-      ).toEqual([]);
-    }
-    const whole = await pipe(complete, ["--dedicated-user"]);
+    const whole = await pipe(script, ["--dedicated-user"], { shell });
+    expect(whole.code).toBe(0);
     expect(whole.log.at(-1)).toMatch(/^installer .* --dedicated-user$/);
-  }, 60_000);
-});
+  },
+  120_000
+);
 
 describe("runner install script validation", () => {
   it.each([
@@ -335,6 +352,7 @@ describe("runner installer routes", () => {
       endpoint?: () => Promise<{ origin: string; pin: string }>;
       listener?: { caPem: string; pin: string };
       revision?: string | null;
+      preparationFailed?: boolean;
     },
     request: { url: string; headers?: Record<string, string> }
   ) {
@@ -352,6 +370,7 @@ describe("runner installer routes", () => {
       artifacts: {
         enabled: options.enabled ?? true,
         kind: options.kind ?? "release",
+        preparationFailed: () => options.preparationFailed ?? false,
         get,
       } as never,
       build: {
@@ -406,6 +425,16 @@ describe("runner installer routes", () => {
       const { response } = await serve(options, installer);
       expect(response.json().command).toBeNull();
     }
+  });
+
+  it("suppresses the command while artifact preparation failures are cached", async () => {
+    const { response, get, artifactEndpoint } = await serve(
+      { preparationFailed: true },
+      installer
+    );
+    expect(response.json().command).toBeNull();
+    expect(get).not.toHaveBeenCalled();
+    expect(artifactEndpoint).not.toHaveBeenCalled();
   });
 
   it("serves the listener script with its CA, and the web script without", async () => {

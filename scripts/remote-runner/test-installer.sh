@@ -22,6 +22,7 @@ source_url=
 source_ca=
 dev_sha256=
 allow_dev=0
+allow_downgrade=0
 unit=dispatch-runner.service
 unit_path="$root/$unit"
 command_path="$root/bin/dispatch-runner"
@@ -57,6 +58,13 @@ gh() {
   [[ "$1 $2" == 'attestation verify' && "$*" == *'--repo selfcontained/dispatch'* &&
      "$*" == *'--signer-workflow selfcontained/dispatch/.github/workflows/release.yml'* ]] || return 1
   openssl dgst -sha256 -verify "$root/public.pem" -signature "$3.sigstore.json" "$3"
+}
+stat() {
+  if [[ "$(uname -s)" == Darwin && "$1" == -c && "$2" == '%d:%i' ]]; then
+    command stat -f '%d:%i' "$3"
+  else
+    command stat "$@"
+  fi
 }
 systemctl() {
   local command="$1"
@@ -168,8 +176,9 @@ case "$action" in
     action=install
     parse_install_options "${@:5}"
     validate_source
-    if [[ "$allow_dev" == 0 ]]; then
-      gh_bin=gh
+    if [[ "$allow_dev" == 0 && -n "${SUDO_USER:-}" ]]; then
+      resolve_release_gh
+      [[ -n "$gh_bin" ]] || exit 1
     fi
     run_action
     ;;
@@ -186,7 +195,14 @@ case "$action" in
     export -f systemctl flock
     "$command_path" connect --service "$tag"
     ;;
-  *) update_runner ;;
+  *)
+    parse_install_options "${@:5}"
+    if [[ "$action" != recover && "$allow_dev" == 0 && -n "${SUDO_USER:-}" ]]; then
+      resolve_release_gh
+      [[ -n "$gh_bin" ]] || exit 1
+    fi
+    update_runner
+    ;;
 esac
 HARNESS
 
@@ -286,7 +302,7 @@ SUDO_USER=installer run deps "" > "$deps/out"
 for tool in curl tar ps find; do
   grep -Fxq "Found $tool: $deps/rootbin/$tool" "$deps/out"
 done
-grep -Fxq "Found gh: $deps/rootbin/gh" "$deps/out"
+grep -Fxq "Found gh: $deps/installer home/tools/bin/gh" "$deps/out"
 grep -Fxq "Found git for installer: $deps/installer home/tools/bin/git" "$deps/out"
 grep -Fxq "Found gh for installer: $deps/installer home/tools/bin/gh" "$deps/out"
 [[ ! -e "$deps/package-installs" ]]
@@ -410,7 +426,23 @@ diff -r "$root/original-settings" "$root/settings"
 # A controller serves its own build. The same command installs a clean host
 # and later updates it in place; the release is verified as from GitHub.
 hosted="$root/hosted"
-mkdir -p "$hosted/served" "$hosted/installer home"
+mkdir -p "$hosted/served" "$hosted/installer home/.local/bin"
+printf 'PATH="$HOME/.local/bin:$PATH"\n' > "$hosted/installer home/.bash_profile"
+cat > "$hosted/installer home/.local/bin/gh" <<'GH'
+#!/bin/sh
+set -eu
+[ "${USER:-}" = installer ] && [ -f "$HOME/../public.pem" ] || {
+  echo "Fixture gh did not inherit the invoking account" >&2
+  exit 1
+}
+stage=$(dirname "$3")
+echo "$USER" >> "$HOME/../gh-users"
+[ -n "$(find "$stage" -maxdepth 0 -perm 0711 -print)" ]
+[ -n "$(find "$3" -perm 0644 -print)" ]
+[ -n "$(find "$7" -perm 0644 -print)" ]
+openssl dgst -sha256 -verify "$HOME/../public.pem" -signature "$7" "$3"
+GH
+chmod 0755 "$hosted/installer home/.local/bin/gh"
 ln -s "$root/public.pem" "$hosted/public.pem"
 printf 'fixture-ca\n' > "$hosted/ca.pem"
 serve() {
@@ -429,6 +461,7 @@ grep -q 'release-new' "$hosted/runtime/dispatch" && exit 1
 grep -Fq '"uid": 1000' "$hosted/settings/runner.json"
 ! grep -q github.com "$hosted/curl"
 grep -Fq "$https_source/dispatch-server.tar.gz.sigstore.json" "$hosted/curl"
+grep -Fxq installer "$hosted/gh-users"
 # An enrolled runner keeps its credentials and account across the update.
 printf 'enrolled\n' > "$hosted/settings/cert.pem"
 serve v1.0.1
@@ -450,20 +483,41 @@ cmp bin/dispatch-runner "$hosted/runtime/runner-cli"
 printf 'tampered\n' >> "$hosted/served/dispatch-server.tar.gz"
 SUDO_USER=installer expect_status 1 apply v1.0.1 x64 --source "$http_source"
 cmp "$hosted/current" "$hosted/runtime/dispatch"
+# Refuse a downgrade through both entry points, before fetching or stopping.
+serve v1.0.0
+for action in update apply; do
+  SUDO_USER=installer expect_status 1 "$action" v1.0.0 x64 --source "$http_source" 2> "$hosted/err"
+  grep -Fq 'Refusing to downgrade Dispatch runner from v1.0.1 to v1.0.0' "$hosted/err"
+  cmp "$hosted/current" "$hosted/runtime/dispatch"
+done
+# A different build at the same version is allowed.
+serve v1.0.1
+SUDO_USER=installer run apply v1.0.1 arm64 --source "$http_source"
+grep -q 'release-new arm64' "$hosted/runtime/dispatch"
+cp "$hosted/runtime/dispatch" "$hosted/current"
+# A runner installed before version records can be identified by a
+# byte-identical verified release. Until then replacements need the flag.
+rm "$hosted/runtime/installed-release"
+SUDO_USER=installer expect_status 1 apply v1.0.1 x64 --source "$http_source" 2> "$hosted/err"
+grep -Fq 'Cannot determine the installed Dispatch runner version' "$hosted/err"
+cmp "$hosted/current" "$hosted/runtime/dispatch"
+SUDO_USER=installer run apply v1.0.1 arm64 --source "$http_source" > "$hosted/out"
+grep -Fxq 'Runner already has the requested release.' "$hosted/out"
+[[ -s "$hosted/runtime/installed-release" ]]
 # A dev build has no signature. It is refused unless the operator accepts it,
 # and then only bytes that match the copied digest are used.
 serve v1.0.0 dev
-SUDO_USER=installer expect_status 22 apply v1.0.0 x64 --source "$http_source"
+SUDO_USER=installer expect_status 22 apply v1.0.0 x64 --source "$http_source" --allow-downgrade
 cmp "$hosted/current" "$hosted/runtime/dispatch"
 SUDO_USER=installer expect_status 1 apply v1.0.0 x64 --source "$http_source" --sha256 "$(printf '0%.0s' {1..64})"
 digest=$(sha256sum "$hosted/served/dispatch-server.tar.gz")
 digest=${digest%% *}
 SUDO_USER=installer expect_status 1 apply v1.0.0 x64 --allow-unverified-dev-build --sha256 "$digest"
 SUDO_USER=installer expect_status 1 apply v1.0.0 x64 --source "$http_source" --allow-unverified-dev-build \
-  --sha256 "$(printf '0%.0s' {1..64})" 2> "$hosted/err"
+  --allow-downgrade --sha256 "$(printf '0%.0s' {1..64})" 2> "$hosted/err"
 grep -Fq 'does not match the copied digest' "$hosted/err"
 cmp "$hosted/current" "$hosted/runtime/dispatch"
-SUDO_USER=installer run apply v1.0.0 x64 --source "$http_source" --allow-unverified-dev-build --sha256 "$digest" 2> "$hosted/err"
+SUDO_USER=installer run apply v1.0.0 x64 --source "$http_source" --allow-unverified-dev-build --allow-downgrade --sha256 "$digest" 2> "$hosted/err"
 grep -Fq 'WARNING: This is an unverified dev build of Dispatch' "$hosted/err"
 ! grep -q 'release-new' "$hosted/runtime/dispatch"
 for bad in ftp://controller.test/api/v1/runner-artifacts/abc1234 "$http_source/../x" https://controller.test/other; do

@@ -1,5 +1,5 @@
 import { constants, type Stats } from "node:fs";
-import { lstat, open } from "node:fs/promises";
+import { lstat, open, rm } from "node:fs/promises";
 import path from "node:path";
 import {
   cachedTarballPath,
@@ -84,35 +84,76 @@ export async function openRunnerArtifact(file: ArtifactFile) {
   }
 }
 
-export function createRunnerArtifactSource(build: {
-  revision: string;
-  version: string;
-  compiled: boolean;
-}) {
+const PREPARATION_RETRY_MS = 60_000;
+
+export function createRunnerArtifactSource(
+  build: { revision: string; version: string; compiled: boolean },
+  now: () => number = Date.now
+) {
   const { revision, version, compiled } = build;
   const devDir = process.env.DISPATCH_RUNNER_ARTIFACT_DEV_DIR?.trim();
   const trustedRoot = process.env.DISPATCH_RUNNER_ARTIFACT_TRUST_ROOT?.trim();
   const tag = packageVersionTag(version);
+  const source = devDir ? "dev" : "release";
+  const archive = devDir
+    ? path.join(resolveConfiguredPath(devDir), RELEASE_ARTIFACT_NAME)
+    : tag
+      ? cachedTarballPath(tag)
+      : "";
+  const companionDir = devDir
+    ? path.dirname(archive)
+    : path.join(path.dirname(archive), `runner-${tag}`);
   let loaded: Promise<ArtifactSet> | undefined;
+  let failure: { error: unknown; retryAt: number } | undefined;
   let publishedDigest: string | undefined;
 
+  const filePath = (name: RunnerArtifactName) =>
+    name === RELEASE_ARTIFACT_NAME ? archive : path.join(companionDir, name);
+
+  async function check<T>(
+    names: RunnerArtifactName[],
+    verify: () => Promise<T>
+  ) {
+    try {
+      return await verify();
+    } catch (error) {
+      if (source === "release") {
+        // A malformed companion directory may itself be a symlink. Never
+        // follow it when invalidating anything underneath it.
+        const directory = await lstat(companionDir).catch(() => undefined);
+        await Promise.allSettled(
+          names.map(async (name) => {
+            if (name === RELEASE_ARTIFACT_NAME || directory?.isDirectory())
+              await rm(filePath(name), { force: true, recursive: true });
+          })
+        );
+      }
+      throw error;
+    }
+  }
+
   async function load(): Promise<ArtifactSet> {
-    const source = devDir ? "dev" : "release";
-    let archive: string;
-    let companionDir: string;
-    if (devDir) {
-      companionDir = resolveConfiguredPath(devDir);
-      archive = path.join(companionDir, RELEASE_ARTIFACT_NAME);
-    } else {
+    if (source === "release") {
       if (!tag) throw new Error("The running build has no release tag");
       if ((await getGitHubRepo()) !== RELEASE_REPO)
         throw new Error("Runner releases are signed by selfcontained/dispatch");
-      archive = cachedTarballPath(tag);
-      companionDir = path.join(path.dirname(archive), `runner-${tag}`);
-      const archivePresent = await regularFile(archive);
-      const missing = [];
+      const directory = await lstat(companionDir).catch(
+        (error: NodeJS.ErrnoException) => {
+          if (error.code !== "ENOENT") throw error;
+        }
+      );
+      if (directory && !directory.isDirectory()) {
+        await rm(companionDir, { force: true });
+        throw new Error(
+          "Expected a regular runner release companion directory"
+        );
+      }
+      const archivePresent = await check([RELEASE_ARTIFACT_NAME], () =>
+        regularFile(archive)
+      );
+      const missing: RunnerArtifactName[] = [];
       for (const name of RELEASE_COMPANIONS) {
-        if (!(await regularFile(path.join(companionDir, name))))
+        if (!(await check([name], () => regularFile(filePath(name)))))
           missing.push(name);
       }
       if (!archivePresent || missing.length) {
@@ -126,7 +167,7 @@ export function createRunnerArtifactSource(build: {
               tag,
               repo: RELEASE_REPO,
               name,
-              destination: path.join(companionDir, name),
+              destination: filePath(name),
             })
           ),
           ...(archivePresent
@@ -138,68 +179,81 @@ export function createRunnerArtifactSource(build: {
       }
     }
 
-    const files = await Promise.all(
-      (devDir ? DEV_FILES : RUNNER_ARTIFACT_FILES).map(async (name) => {
-        const file =
-          name === RELEASE_ARTIFACT_NAME
-            ? archive
-            : path.join(companionDir, name);
-        const stat = await regularFile(file);
-        if (!stat) throw new Error(`Missing runner artifact: ${name}`);
-        return { name, path: file, stat, sha256: await hashRegular(file) };
-      })
-    );
+    const files: ArtifactFile[] = [];
+    for (const name of source === "dev" ? DEV_FILES : RUNNER_ARTIFACT_FILES) {
+      files.push(
+        await check([name], async () => {
+          const file = filePath(name);
+          const stat = await regularFile(file);
+          if (!stat) throw new Error(`Missing runner artifact: ${name}`);
+          return { name, path: file, stat, sha256: await hashRegular(file) };
+        })
+      );
+    }
     if (source === "release") {
-      if (publishedDigest)
-        verifyReleaseTarballDigest(
-          files.find((file) => file.name === RELEASE_ARTIFACT_NAME)!.sha256,
-          publishedDigest
-        );
+      const expected = publishedDigest;
+      if (expected)
+        await check([RELEASE_ARTIFACT_NAME], async () => {
+          verifyReleaseTarballDigest(
+            files.find((file) => file.name === RELEASE_ARTIFACT_NAME)!.sha256,
+            expected
+          );
+        });
       const root = trustedRoot ? resolveConfiguredPath(trustedRoot) : undefined;
-      await Promise.all(
-        DEV_FILES.map((name) =>
+      for (const name of DEV_FILES) {
+        const bundle = `${name}.sigstore.json` as const;
+        await check([name, bundle], () =>
           verifyRunnerReleaseAttestation({
-            file:
-              name === RELEASE_ARTIFACT_NAME
-                ? archive
-                : path.join(companionDir, name),
-            bundle: path.join(companionDir, `${name}.sigstore.json`),
+            file: filePath(name),
+            bundle: filePath(bundle),
             repo: RELEASE_REPO,
             trustedRoot: root,
             runCommand,
           })
-        )
-      );
+        );
+      }
     }
-    await verifyRunnerArchive({
-      archive,
-      version,
-      revision,
-      runCommand,
-      bootstrapSha256: files.find((file) => file.name === BOOTSTRAP)!.sha256,
-    });
-    for (const file of files) {
-      if (!unchanged(file.stat, await lstat(file.path)))
-        throw new Error("Runner artifact changed during verification");
-    }
+    await check([...DEV_FILES], () =>
+      verifyRunnerArchive({
+        archive,
+        version,
+        revision,
+        runCommand,
+        bootstrapSha256: files.find((file) => file.name === BOOTSTRAP)!.sha256,
+      })
+    );
     return { source, files };
+  }
+
+  function preparationFailed() {
+    return failure !== undefined && now() < failure.retryAt;
   }
 
   return {
     enabled: Boolean(devDir || (compiled && tag)),
-    kind: (devDir ? "dev" : "release") as ArtifactSet["source"],
+    kind: source,
+    preparationFailed,
     async get() {
+      if (failure) {
+        if (preparationFailed()) throw failure.error;
+        failure = undefined;
+      }
       const pending = (loaded ??= load());
       try {
         const artifacts = await pending;
         for (const file of artifacts.files) {
-          const stat = await regularFile(file.path);
-          if (!stat || !unchanged(file.stat, stat))
-            throw new Error("Runner artifact changed after verification");
+          await check([file.name], async () => {
+            const stat = await regularFile(file.path);
+            if (!stat || !unchanged(file.stat, stat))
+              throw new Error("Runner artifact changed after verification");
+          });
         }
         return artifacts;
       } catch (error) {
-        if (loaded === pending) loaded = undefined;
+        if (loaded === pending) {
+          failure = { error, retryAt: now() + PREPARATION_RETRY_MS };
+          loaded = undefined;
+        }
         throw error;
       }
     },

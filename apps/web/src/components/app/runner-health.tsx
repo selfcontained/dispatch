@@ -8,6 +8,7 @@ import {
 } from "@/components/ui/tooltip";
 import type { Runner } from "@/hooks/use-runners";
 import { formatRelativeTime } from "@/lib/format";
+import { isVersionNewer } from "@/lib/tips/version-compare";
 
 const reportDateTimeOptions: Intl.DateTimeFormatOptions = {
   year: "numeric",
@@ -100,9 +101,12 @@ export function RunnerHealthDetails({ runner }: { runner: Runner }) {
     );
   const update =
     target?.command &&
-    target.revision &&
-    health.revision &&
-    !sameRevision(health.revision, target.revision)
+    /^v?\d+\.\d+\.\d+$/.test(health.version) &&
+    (isVersionNewer(target.version, health.version) ||
+      (target.version === health.version.replace(/^v/, "") &&
+        target.revision &&
+        health.revision &&
+        !sameRevision(health.revision, target.revision)))
       ? { command: target.command, version: target.version }
       : undefined;
   const stale = !isRunnerHealthFresh(runner);

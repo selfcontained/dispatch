@@ -86,6 +86,7 @@ describe("runner-initiated connect enrollment", () => {
   let pool: Pool;
   let api: http.Server;
   let activeService: RemoteRunnerService | undefined;
+  const stalled = new Set<http.ServerResponse>();
   const services: RemoteRunnerService[] = [];
   const runners: FakeRunner[] = [];
 
@@ -159,14 +160,38 @@ describe("runner-initiated connect enrollment", () => {
         return;
       }
       if (url.startsWith("/api/v1/runner-artifacts/")) {
-        // Slower than the shortened handshake bound used below.
-        setTimeout(() => {
-          response.writeHead(200, {
-            "content-type": "application/gzip",
-            "content-length": "7",
-          });
-          response.end(request.method === "HEAD" ? undefined : "archive");
-        }, 600);
+        const status = url.includes("/deadbeef/") ? 404 : 200;
+        response.writeHead(status, {
+          "content-type": "application/gzip",
+          "content-disposition":
+            'attachment; filename="dispatch-server.tar.gz"',
+        });
+        response.flushHeaders();
+        if (url.includes("/feed123/")) {
+          const timer = setInterval(() => response.write("chunk"), 20);
+          response.once("close", () => clearInterval(timer));
+          return;
+        }
+        if (url.includes("/abc4321/") || status === 404) {
+          stalled.add(response);
+          response.on("close", () => stalled.delete(response));
+          if (status === 200) {
+            // Overfill the client receive buffer without buffering in the test.
+            const chunk = Buffer.alloc(256 * 1024);
+            const flood = () => {
+              while (!response.destroyed && response.write(chunk)) {}
+              if (!response.destroyed) response.once("drain", flood);
+            };
+            flood();
+          } else {
+            response.write("missing revision");
+          }
+          return;
+        }
+        // Slower than the shortened handshake bound used below, after
+        // upstream has confirmed which file it is serving.
+        if (request.method === "HEAD") response.end();
+        else setTimeout(() => response.end("archive"), 600);
         return;
       }
       response.end("api");
@@ -489,6 +514,127 @@ describe("runner-initiated connect enrollment", () => {
     expect((await get(archive, { ...pinned, method: "DELETE" })).status).toBe(
       404
     );
+  });
+
+  function artifactRequest(origin: string, revision: string) {
+    const options = { agent: false as const, rejectUnauthorized: false };
+    const request = https.get(
+      `${origin}/api/v1/runner-artifacts/${revision}/dispatch-server.tar.gz`,
+      options
+    );
+    const response = new Promise<http.IncomingMessage>((resolve, reject) => {
+      request.once("response", resolve);
+      request.once("error", reject);
+    });
+    return { request, response };
+  }
+
+  it("limits stalled artifact downloads without using up runner enrollment slots", async () => {
+    const service = makeService();
+    // Long enough to hold the admitted readers while more than 64 try.
+    const { origin } = await service.artifactEndpoint(HOST);
+    const admitted = Array.from({ length: 8 }, () =>
+      artifactRequest(origin, "abc4321")
+    );
+    try {
+      for (const response of await Promise.all(
+        admitted.map(({ response }) => response)
+      )) {
+        expect(response.statusCode).toBe(200);
+        response.pause();
+      }
+      for (let attempt = 0; attempt < 65; attempt++) {
+        const { request, response } = artifactRequest(origin, "abc4321");
+        try {
+          const reply = await response;
+          expect(reply.statusCode).toBe(503);
+          expect(reply.headers["retry-after"]).toBeTruthy();
+          reply.resume();
+        } finally {
+          request.destroy();
+        }
+      }
+      expect(stalled.size).toBe(8);
+      // Check the shared budget directly as well: keeping eight slots for
+      // downloads would still let a single enrollment through.
+      expect(Reflect.get(service, "unauthenticated")).toBe(0);
+      const body = JSON.stringify({ publicKey: generateRunnerKey().publicKey });
+      const response = await new Promise<http.IncomingMessage>(
+        (resolve, reject) => {
+          https
+            .request(
+              `${origin}/api/runners/connect`,
+              {
+                method: "POST",
+                rejectUnauthorized: false,
+                agent: false,
+                headers: {
+                  "Content-Type": "application/json",
+                  "Content-Length": Buffer.byteLength(body),
+                },
+              },
+              resolve
+            )
+            .once("error", reject)
+            .end(body);
+        }
+      );
+      expect(response.statusCode).toBe(201);
+      response.resume();
+    } finally {
+      for (const { request } of admitted) request.destroy();
+      await waitFor(() => stalled.size === 0);
+    }
+  });
+
+  it("drops an artifact reader when writes stop making progress", async () => {
+    const service = makeService();
+    Object.defineProperty(service, "artifactIdleTimeout", { value: 100 });
+    const { origin } = await service.artifactEndpoint(HOST);
+    const { request, response } = artifactRequest(origin, "abc4321");
+    try {
+      const reply = await response;
+      expect(reply.statusCode).toBe(200);
+      reply.socket.pause();
+      expect(stalled.size).toBe(1);
+      await waitFor(() => stalled.size === 0);
+    } finally {
+      request.destroy();
+      await waitFor(() => stalled.size === 0);
+    }
+  });
+
+  it("refreshes the idle bound on writes but still caps a progressing download", async () => {
+    const service = makeService();
+    Object.defineProperty(service, "artifactIdleTimeout", { value: 100 });
+    Object.defineProperty(service, "artifactDownloadTimeout", { value: 500 });
+    const { origin } = await service.artifactEndpoint(HOST);
+    const { request, response } = artifactRequest(origin, "feed123");
+    try {
+      const reply = await response;
+      let received = 0;
+      reply.on("data", (chunk: Buffer) => (received += chunk.length));
+      await waitFor(() => reply.destroyed);
+      expect(received).toBeGreaterThanOrEqual(50);
+    } finally {
+      request.destroy();
+    }
+  });
+
+  it("keeps a nonexistent revision on the short timeout even after upstream headers", async () => {
+    const service = makeService();
+    Object.defineProperty(service, "handshakeTimeout", { value: 100 });
+    const { origin } = await service.artifactEndpoint(HOST);
+    const { request, response } = artifactRequest(origin, "deadbeef");
+    try {
+      const reply = await response;
+      expect(reply.statusCode).toBe(404);
+      expect(stalled.size).toBe(1);
+      await waitFor(() => stalled.size === 0);
+    } finally {
+      request.destroy();
+      await waitFor(() => stalled.size === 0);
+    }
   });
 
   it("runs the real CLI end-to-end over the runner listener's own pinned HTTPS (no main API HTTPS needed)", async () => {
