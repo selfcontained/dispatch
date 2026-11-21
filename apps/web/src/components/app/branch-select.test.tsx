@@ -8,10 +8,10 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
-import { afterEach, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { api } from "@/lib/api";
-import { BranchSelect } from "./branch-select";
+import { BranchSelect, branchRows } from "./branch-select";
 
 vi.mock("@/lib/api", () => ({ api: vi.fn() }));
 
@@ -73,7 +73,6 @@ it("offers the local repository default and keeps main selectable on a trunk rep
       {...props}
       cwd="/repo"
       baseBranch="main"
-      allowRepositoryDefault
       onBaseBranchChange={onBaseBranchChange}
     />,
     { wrapper: wrapper() }
@@ -141,3 +140,120 @@ it.each([
     expect(control.textContent).toContain("new-main");
   }
 );
+
+// One picker model for both sources: equivalent data renders identical rows.
+const sources = {
+  local: { cwd: "/repo" },
+  runner: {
+    runner: {
+      id: "runner-a",
+      repository: "https://github.com/example/repo",
+      browse: true,
+    },
+  },
+} as const;
+
+function stubLayout() {
+  globalThis.ResizeObserver ??= class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  };
+  Element.prototype.scrollIntoView ??= () => {};
+}
+
+async function openRows(
+  source: keyof typeof sources,
+  extra: Partial<React.ComponentProps<typeof BranchSelect>> = {}
+) {
+  stubLayout();
+  vi.mocked(api).mockResolvedValue({
+    branches: ["trunk", "feature/a", "feature/b"],
+    defaultBranch: "trunk",
+  } as never);
+  render(<BranchSelect {...props} {...sources[source]} {...extra} />, {
+    wrapper: wrapper(),
+  });
+  const control = screen.getByRole("combobox", { name: "Base branch" });
+  // Both sources load before the menu opens and name the default.
+  await waitFor(() =>
+    expect(control.textContent).toContain(extra.baseBranch || "trunk")
+  );
+  expect(api).toHaveBeenCalledTimes(1);
+  fireEvent.click(control);
+  await screen.findByRole("option", { name: "feature/a" });
+  return () =>
+    screen.getAllByRole("option").map((row) => ({
+      text: row.textContent,
+      selected: row.querySelector("svg")?.classList.contains("opacity-100"),
+    }));
+}
+
+describe.each(["local", "runner"] as const)("%s branch picker", (source) => {
+  it("lists the default first, then the branches", async () => {
+    const rows = await openRows(source);
+    expect(rows()).toEqual([
+      { text: "trunk", selected: true },
+      { text: "feature/a", selected: false },
+      { text: "feature/b", selected: false },
+    ]);
+  });
+
+  it("flags a saved branch that is no longer listed", async () => {
+    const rows = await openRows(source, { baseBranch: "gone" });
+    expect(rows()[1]).toEqual({ text: "gonenot found", selected: true });
+    expect(screen.getByText(/no longer exists on the remote/)).toBeTruthy();
+  });
+
+  it("accepts a typed branch and a pull request URL", async () => {
+    const onBaseBranchChange = vi.fn();
+    const rows = await openRows(source, {
+      allowPullRequest: true,
+      onBaseBranchChange,
+    });
+    const search = screen.getByPlaceholderText("Branch name or GitHub PR URL");
+    fireEvent.change(search, { target: { value: "release/next" } });
+    expect(rows().map((row) => row.text)).toContain("release/next");
+    fireEvent.click(screen.getByRole("option", { name: "release/next" }));
+    expect(onBaseBranchChange).toHaveBeenLastCalledWith("release/next");
+
+    fireEvent.click(screen.getByRole("combobox", { name: "Base branch" }));
+    const pr = "https://github.com/example/repo/pull/7";
+    fireEvent.change(
+      screen.getByPlaceholderText("Branch name or GitHub PR URL"),
+      { target: { value: pr } }
+    );
+    fireEvent.click(await screen.findByRole("option", { name: pr }));
+    expect(onBaseBranchChange).toHaveBeenLastCalledWith(pr);
+  });
+});
+
+it("builds the same rows for any source and offers PR URLs only when allowed", () => {
+  const data = {
+    branches: ["trunk", "a"],
+    defaultBranch: "trunk",
+    baseBranch: "",
+    listed: true,
+  };
+  const pr = "https://github.com/o/r/pull/1";
+  expect(
+    branchRows({ ...data, typed: pr, allowPullRequest: false }).map(
+      (row) => row.value
+    )
+  ).toEqual(["", "a"]);
+  expect(
+    branchRows({ ...data, typed: pr, allowPullRequest: true }).map(
+      (row) => row.value
+    )
+  ).toEqual(["", pr, "a"]);
+  // A branch entered by hand is not flagged as missing.
+  expect(
+    branchRows({
+      ...data,
+      baseBranch: "typed",
+      typed: "",
+      allowPullRequest: false,
+      entered: "typed",
+    })[1]
+  ).toMatchObject({ value: "typed", missing: false, selected: true });
+});

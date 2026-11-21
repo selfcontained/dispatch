@@ -277,7 +277,7 @@ function CreateAgentDialogContent({
                     key={form.branchSource?.repository}
                     cwd={form.branchSource ? "" : form.createCwd}
                     branchSource={form.branchSource}
-                    pullRequests={Boolean(form.branchSource)}
+                    pullRequests={form.pullRequests}
                     worktreeAvailable={form.worktreeAvailable}
                     worktreeOptional={form.worktreeOptional}
                     useWorktree={form.createUseWorktree}

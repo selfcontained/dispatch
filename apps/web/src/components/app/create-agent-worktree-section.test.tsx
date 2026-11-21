@@ -62,14 +62,17 @@ function baseBranch(): HTMLButtonElement {
 }
 
 describe("WorktreeSection", () => {
-  it("locks the worktree on when it is not optional and warns about archiving", () => {
-    render(<WorktreeSection {...defaultProps} worktreeOptional={false} />);
+  it("locks the worktree on when it is not optional with the same helper text", () => {
+    const { container } = render(
+      <WorktreeSection {...defaultProps} worktreeOptional={false} />
+    );
     expect(checkbox("create-agent-worktree").disabled).toBe(true);
     expect(checkbox("create-agent-new-branch").disabled).toBe(false);
-    expect(screen.getByText(/Archiving removes this worktree/)).toBeTruthy();
+    const lockedText = container.textContent;
     cleanup();
-    render(<WorktreeSection {...defaultProps} />);
+    const optional = render(<WorktreeSection {...defaultProps} />);
     expect(checkbox("create-agent-worktree").disabled).toBe(false);
+    expect(optional.container.textContent).toBe(lockedText);
     expect(screen.queryByText(/Archiving removes this worktree/)).toBeNull();
   });
 
@@ -129,12 +132,16 @@ describe("WorktreeSection", () => {
 
     fireEvent.click(baseBranch());
     expect(baseBranch().getAttribute("aria-expanded")).toBe("true");
-    expect(screen.getByPlaceholderText("Search branches...")).toBeTruthy();
+    expect(
+      screen.getByPlaceholderText("Search or enter a branch")
+    ).toBeTruthy();
 
     rerender(<WorktreeSection {...defaultProps} useWorktree={false} />);
 
     expect(baseBranch().getAttribute("aria-expanded")).toBe("false");
-    expect(screen.queryByPlaceholderText("Search branches...")).toBeNull();
+    expect(
+      screen.queryByPlaceholderText("Search or enter a branch")
+    ).toBeNull();
     expect(baseBranch().closest("[aria-hidden]")?.hasAttribute("inert")).toBe(
       true
     );

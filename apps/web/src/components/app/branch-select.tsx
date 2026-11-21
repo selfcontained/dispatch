@@ -19,17 +19,20 @@ import { cn } from "@/lib/utils";
 
 const EMPTY_BRANCHES: string[] = [];
 
+const PULL_REQUEST_URL =
+  /^https:\/\/github\.com\/[^/]+\/[^/]+\/pull\/[1-9]\d*\/?$/;
+
 export type BranchSelectProps = {
   cwd: string;
+  /** Lists a runner repository's branches instead of the local folder's. */
   runner?: { id: string; repository: string; browse: boolean };
+  /** Accept a GitHub pull request URL as the branch to open. */
   allowPullRequest?: boolean;
-  allowRepositoryDefault?: boolean;
   baseBranch: string;
   /**
-   * Fired when the user picks a branch. The component never overwrites
-   * `baseBranch` on its own — if a saved branch is missing from the
-   * fetched list we keep it in the dropdown with a visible flag and let
-   * the user choose a replacement.
+   * Fired when the user picks a branch; "" selects the repository default.
+   * The component never overwrites `baseBranch` on its own — a saved branch
+   * missing from the fetched list stays selectable with a visible flag.
    */
   onBaseBranchChange: (value: string) => void;
   worktreeBranch: string;
@@ -46,11 +49,104 @@ export type BranchSelectProps = {
   disabled?: boolean;
 };
 
+/** The branches endpoint for either source; both return one shape. */
+export function branchListEndpoint(
+  cwd: string,
+  runner: BranchSelectProps["runner"]
+): string {
+  if (!runner)
+    return cwd.trim()
+      ? `/api/v1/git/branches?cwd=${encodeURIComponent(cwd.trim())}`
+      : "";
+  // Runners list GitHub branches only when they can browse repositories.
+  const repo =
+    runner.browse &&
+    /^https:\/\/github\.com\/([\w.-]+)\/([\w.-]+?)(?:\.git)?\/?$/.exec(
+      runner.repository
+    );
+  return repo
+    ? `/api/v1/runners/${encodeURIComponent(runner.id)}/repositories/${repo[1]}/${repo[2]}/branches`
+    : "";
+}
+
+export type BranchRow = {
+  /** "" is the repository default. */
+  value: string;
+  label: string;
+  selected: boolean;
+  missing: boolean;
+};
+
+/**
+ * One row model for every source: the repository default, then a typed
+ * branch or PR URL, then a saved branch that is no longer listed, then the
+ * rest of the list.
+ */
+export function branchRows({
+  branches,
+  defaultBranch,
+  baseBranch,
+  typed,
+  allowPullRequest,
+  listed,
+  entered,
+}: {
+  branches: string[];
+  defaultBranch: string;
+  baseBranch: string;
+  typed: string;
+  allowPullRequest: boolean;
+  /** The list loaded, so an unlisted saved branch can be flagged. */
+  listed: boolean;
+  /** A branch entered by hand here; it is not flagged as missing. */
+  entered?: string;
+}): BranchRow[] {
+  const isDefault = (branch: string) =>
+    !branch || (Boolean(defaultBranch) && branch === defaultBranch);
+  const rows: BranchRow[] = [
+    {
+      value: "",
+      label: defaultBranch || "Repository default",
+      selected: isDefault(baseBranch),
+      missing: false,
+    },
+  ];
+  const others = branches.filter((branch) => !isDefault(branch));
+  const entry = typed.trim();
+  const isPullRequest = PULL_REQUEST_URL.test(entry);
+  if (
+    entry &&
+    !isDefault(entry) &&
+    entry !== baseBranch &&
+    !others.includes(entry) &&
+    (isPullRequest ? allowPullRequest : true)
+  )
+    rows.push({ value: entry, label: entry, selected: false, missing: false });
+  if (!isDefault(baseBranch) && !others.includes(baseBranch))
+    rows.push({
+      value: baseBranch,
+      label: baseBranch,
+      selected: true,
+      missing:
+        listed &&
+        branches.length > 0 &&
+        baseBranch !== entered &&
+        !PULL_REQUEST_URL.test(baseBranch),
+    });
+  for (const branch of others)
+    rows.push({
+      value: branch,
+      label: branch,
+      selected: branch === baseBranch,
+      missing: false,
+    });
+  return rows;
+}
+
 export function BranchSelect({
   cwd,
   runner,
   allowPullRequest = false,
-  allowRepositoryDefault = false,
   baseBranch,
   onBaseBranchChange,
   worktreeBranch,
@@ -63,18 +159,8 @@ export function BranchSelect({
   disabled = false,
 }: BranchSelectProps): JSX.Element {
   const [typed, setTyped] = useState("");
-  const githubRepo =
-    runner?.browse &&
-    /^https:\/\/github\.com\/([\w.-]+)\/([\w.-]+?)(?:\.git)?\/?$/.exec(
-      runner.repository
-    );
-  const endpoint = runner
-    ? githubRepo
-      ? `/api/v1/runners/${encodeURIComponent(runner.id)}/repositories/${githubRepo[1]}/${githubRepo[2]}/branches`
-      : ""
-    : cwd.trim()
-      ? `/api/v1/git/branches?cwd=${encodeURIComponent(cwd.trim())}`
-      : "";
+  const [entered, setEntered] = useState<string>();
+  const endpoint = branchListEndpoint(cwd, runner);
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const cmdRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -83,20 +169,17 @@ export function BranchSelect({
   if (disabled && dropdownOpen) setDropdownOpen(false);
   useClickOutside(cmdRef, dropdownOpen, closeDropdown);
 
-  // Load runner metadata for the closed control and local refs on demand.
+  // Load eagerly so the closed control names the repository default.
   const branches = useQuery({
     queryKey: ["branch-select", endpoint],
     queryFn: ({ signal }) =>
       api<{ branches: string[]; defaultBranch?: string }>(endpoint, { signal }),
-    enabled:
-      !disabled && Boolean(endpoint) && (Boolean(runner) || dropdownOpen),
+    enabled: !disabled && Boolean(endpoint),
     staleTime: 30_000,
     retry: false,
   });
-  const remoteBranches = branches.data?.branches ?? EMPTY_BRANCHES;
+  const listedBranches = branches.data?.branches ?? EMPTY_BRANCHES;
   const defaultBranch = branches.data?.defaultBranch ?? "";
-  const showDefaultRow =
-    !allowPullRequest && Boolean(runner || allowRepositoryDefault);
   const branchesLoading = branches.isFetching;
   const fetchError = branches.error?.message ?? null;
 
@@ -107,33 +190,35 @@ export function BranchSelect({
     requestAnimationFrame(() => inputRef.current?.focus());
   }, [disabled]);
 
-  // Keep the saved baseBranch selectable even if the fetched list doesn't
-  // include it (branch renamed/deleted upstream). We flag it visually in
-  // the dropdown rather than silently overwrite it.
-  const allBranches = useMemo(() => {
-    const listedDefault = defaultBranch || (runner ? "" : "main");
-    const base = showDefaultRow
-      ? remoteBranches.filter((branch) => branch !== defaultBranch)
-      : listedDefault && (runner || !remoteBranches.includes(listedDefault))
-        ? [
-            listedDefault,
-            ...remoteBranches.filter((branch) => branch !== listedDefault),
-          ]
-        : remoteBranches;
-    const hasDefaultRow = showDefaultRow && baseBranch === defaultBranch;
-    if (baseBranch && !hasDefaultRow && !base.includes(baseBranch))
-      return [baseBranch, ...base];
-    return base;
-  }, [remoteBranches, baseBranch, defaultBranch, runner, showDefaultRow]);
-
-  const savedBranchMissing =
-    !runner &&
-    !branchesLoading &&
-    !!baseBranch &&
-    branches.isSuccess &&
-    remoteBranches.length > 0 &&
-    baseBranch !== defaultBranch &&
-    !remoteBranches.includes(baseBranch);
+  const rows = useMemo(
+    () =>
+      branchRows({
+        branches: listedBranches,
+        defaultBranch,
+        baseBranch,
+        typed,
+        allowPullRequest,
+        listed: branches.isSuccess && !branchesLoading,
+        entered,
+      }),
+    [
+      listedBranches,
+      defaultBranch,
+      baseBranch,
+      typed,
+      allowPullRequest,
+      branches.isSuccess,
+      branchesLoading,
+      entered,
+    ]
+  );
+  const savedBranchMissing = rows.some((row) => row.missing);
+  const choose = (value: string) => {
+    if (value && value === typed.trim()) setEntered(value);
+    onBaseBranchChange(value);
+    setDropdownOpen(false);
+    requestAnimationFrame(() => triggerRef.current?.focus());
+  };
 
   return (
     <div className="space-y-2">
@@ -166,10 +251,7 @@ export function BranchSelect({
           )}
         >
           <span className="truncate">
-            {baseBranch ||
-              (allowPullRequest
-                ? "Choose a branch or PR"
-                : defaultBranch || "Repository default")}
+            {baseBranch || defaultBranch || "Repository default"}
           </span>
           {branchesLoading ? (
             <ActivityBars size={14} className="ml-2 shrink-0" />
@@ -198,9 +280,9 @@ export function BranchSelect({
                 value={typed}
                 onValueChange={setTyped}
                 placeholder={
-                  runner && allowPullRequest
+                  allowPullRequest
                     ? "Branch name or GitHub PR URL"
-                    : "Search branches..."
+                    : "Search or enter a branch"
                 }
                 className="font-mono text-xs"
               />
@@ -215,80 +297,29 @@ export function BranchSelect({
                 ) : null}
                 <CommandEmpty>No matching branches.</CommandEmpty>
                 <CommandGroup>
-                  {showDefaultRow && (
+                  {rows.map((row) => (
                     <CommandItem
-                      value={defaultBranch || "Repository default"}
-                      keywords={["default"]}
+                      key={row.value || "\0default"}
+                      value={row.label}
+                      keywords={row.value ? undefined : ["default"]}
                       data-testid={`${testIdPrefix}-base-branch-option`}
                       className="font-mono"
-                      onSelect={() => {
-                        onBaseBranchChange("");
-                        closeDropdown();
-                        triggerRef.current?.focus();
-                      }}
+                      onSelect={() => choose(row.value)}
                     >
                       <Check
                         className={cn(
                           "mr-2 h-3 w-3 shrink-0",
-                          !baseBranch || baseBranch === defaultBranch
-                            ? "opacity-100"
-                            : "opacity-0"
+                          row.selected ? "opacity-100" : "opacity-0"
                         )}
                       />
-                      {defaultBranch || "Repository default"}
+                      <span className="truncate">{row.label}</span>
+                      {row.missing ? (
+                        <span className="ml-2 text-[10px] uppercase tracking-wide text-status-waiting">
+                          not found
+                        </span>
+                      ) : null}
                     </CommandItem>
-                  )}
-                  {runner &&
-                    typed.trim() &&
-                    (allowPullRequest || typed.trim() !== defaultBranch) &&
-                    !allBranches.includes(typed.trim()) && (
-                      <CommandItem
-                        value={typed.trim()}
-                        onSelect={() => {
-                          onBaseBranchChange(typed.trim());
-                          closeDropdown();
-                          triggerRef.current?.focus();
-                        }}
-                      >
-                        <Check className="mr-2 h-3 w-3 shrink-0 opacity-0" />
-                        {typed.trim()}
-                      </CommandItem>
-                    )}
-                  {allBranches.map((branch) => {
-                    const isMissing =
-                      !runner &&
-                      branch === baseBranch &&
-                      remoteBranches.length > 0 &&
-                      !remoteBranches.includes(branch);
-                    return (
-                      <CommandItem
-                        key={branch}
-                        value={branch}
-                        data-testid={`${testIdPrefix}-base-branch-option`}
-                        className="font-mono"
-                        onSelect={() => {
-                          onBaseBranchChange(branch);
-                          setDropdownOpen(false);
-                          requestAnimationFrame(() =>
-                            triggerRef.current?.focus()
-                          );
-                        }}
-                      >
-                        <Check
-                          className={cn(
-                            "mr-2 h-3 w-3 shrink-0",
-                            branch === baseBranch ? "opacity-100" : "opacity-0"
-                          )}
-                        />
-                        {branch}
-                        {isMissing ? (
-                          <span className="ml-2 text-[10px] uppercase tracking-wide text-status-waiting">
-                            not found
-                          </span>
-                        ) : null}
-                      </CommandItem>
-                    );
-                  })}
+                  ))}
                 </CommandGroup>
               </CommandList>
             </Command>

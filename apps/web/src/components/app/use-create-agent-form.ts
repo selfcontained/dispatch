@@ -276,7 +276,9 @@ export function useCreateAgentForm({
           ? (!createBaseBranch || validBranch(createBaseBranch.trim())) &&
             (!createWorktreeBranch.trim() ||
               validBranch(createWorktreeBranch.trim()))
-          : validBranch(createBaseBranch.trim()) ||
+          : // An empty choice opens the repository default, as locally.
+            !createBaseBranch.trim() ||
+            validBranch(createBaseBranch.trim()) ||
             isPullRequestUrl(createBaseBranch.trim()))));
   const locationReady = runnerId
     ? Boolean(remoteCwd) && repoReady && (!selectedProjectId || projectsLoaded)
@@ -699,6 +701,8 @@ export function useCreateAgentForm({
     checkoutVisible: runnerId
       ? managedSession && Boolean(repository) && !repoStatus
       : true,
+    // Opening a PR needs GitHub access: local gh, or the runner's GitHub.
+    pullRequests: managedSession ? runner?.githubManagement === true : true,
     branchSource:
       managedSession && runner
         ? {

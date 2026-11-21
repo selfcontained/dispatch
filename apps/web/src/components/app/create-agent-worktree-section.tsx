@@ -144,7 +144,6 @@ export function WorktreeSection({
                 cwd={cwd}
                 runner={branchSource}
                 allowPullRequest={pullRequests && !createNewBranch}
-                allowRepositoryDefault
                 baseBranch={baseBranch}
                 onBaseBranchChange={onBaseBranchChange}
                 worktreeBranch={worktreeBranch}
@@ -185,12 +184,6 @@ export function WorktreeSection({
                 />
               </div>
             </div>
-            {!worktreeOptional && (
-              <p className="ml-8 text-xs text-muted-foreground">
-                Archiving removes this worktree. Commit and push changes you
-                want to keep.
-              </p>
-            )}
           </div>
         </div>
       </div>
