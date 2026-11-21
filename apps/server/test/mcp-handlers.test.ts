@@ -1,3 +1,4 @@
+import { setRunnerModelCatalogSource } from "../src/shared/agent-models.js";
 import { BUILT_IN_PERSONA_SUMMARIES } from "../src/personas/built-in.js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -1000,6 +1001,55 @@ describe("createMcpHandlers", () => {
         })
       ).rejects.toThrow("another runner");
       expect(deps.agentManager.createAgent).toHaveBeenCalledTimes(3);
+    });
+
+    it("checks the model against the caller runner's catalog when it reports one", async () => {
+      const cwd = "runner://runner-test/@session";
+      deps.agentManager.getAgent.mockResolvedValue({
+        ...(await deps.agentManager.getAgent()),
+        cwd,
+      });
+      const catalog = vi.fn(async () => ({
+        defaultModel: "runner-model",
+        models: [{ id: "runner-model", label: "Runner model" }],
+      }));
+      setRunnerModelCatalogSource(catalog);
+      try {
+        await expect(
+          handlers.launchAgent("agt_test1", {
+            name: "local-only",
+            prompt: "work",
+            type: "claude",
+            model: "opus",
+          })
+        ).rejects.toThrow('Model "opus" is not supported for claude.');
+        expect(deps.agentManager.createAgent).not.toHaveBeenCalled();
+        await handlers.launchAgent("agt_test1", {
+          name: "runner-only",
+          prompt: "work",
+          type: "claude",
+          model: "runner-model",
+        });
+        expect(catalog).toHaveBeenCalledWith("runner-test", "claude");
+        expect(deps.agentManager.createAgent).toHaveBeenLastCalledWith(
+          expect.objectContaining({ cwd, model: "runner-model" }),
+          expect.anything()
+        );
+        // No catalog: the engine checks a well-formed id at launch, as before.
+        catalog.mockResolvedValueOnce(null as never);
+        await handlers.launchAgent("agt_test1", {
+          name: "offline",
+          prompt: "work",
+          type: "claude",
+          model: "anything-new",
+        });
+        expect(deps.agentManager.createAgent).toHaveBeenLastCalledWith(
+          expect.objectContaining({ model: "anything-new" }),
+          expect.anything()
+        );
+      } finally {
+        setRunnerModelCatalogSource(null);
+      }
     });
 
     it("rejects a review persona from a different requested workspace", async () => {

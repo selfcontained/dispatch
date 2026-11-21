@@ -7,6 +7,9 @@ import {
   type RemoteRunnerService,
 } from "./service.js";
 import type { RunnerEngineTransport } from "./engine-manager.js";
+import type { RunnerEngine } from "@dispatch/runner-protocol";
+import type { AgentType } from "../../shared/agent-types.js";
+import type { RunnerModelCatalogSource } from "../../shared/agent-models.js";
 
 export function remoteEngineTransport(
   service: RemoteRunnerService
@@ -111,5 +114,27 @@ export function remoteEngineTransport(
         };
       }
     },
+  };
+}
+
+const RUNNER_ENGINES: readonly AgentType[] = ["claude", "codex", "opencode"];
+
+/**
+ * A runner's model catalog for one engine, read through the existing
+ * `model_catalog` engine operation. Null when the runner is offline, too
+ * old, or has nothing to report for that engine.
+ */
+export function runnerModelCatalogSource(
+  transport: RunnerEngineTransport
+): RunnerModelCatalogSource {
+  return async (runnerId, agentType) => {
+    if (!RUNNER_ENGINES.includes(agentType)) return null;
+    const ack = await transport.send(runnerId, {
+      type: "model_catalog",
+      engine: agentType as RunnerEngine,
+    });
+    return ack.ok && ack.capability?.type === "model_catalog"
+      ? ack.capability.catalog
+      : null;
   };
 }

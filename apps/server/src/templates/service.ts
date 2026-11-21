@@ -14,6 +14,7 @@ import { sanitizeAgentName } from "../shared/lib/agent-strings.js";
 import { renderTemplatePrompt } from "./launch-prompt.js";
 import {
   applyAgentConfigDefaults,
+  modelScopeFor,
   resolveAgentModelForUpdate,
 } from "../shared/agent-models.js";
 import {
@@ -92,17 +93,23 @@ export class TemplateService {
         "task",
         "catalog"
       );
+    const scope = await modelScopeFor(
+      input.directory,
+      input.agentType ?? "claude",
+      "local"
+    );
     const template = await this.store.createTemplate({
       projectId: input.projectId ?? null,
       name: input.name.trim(),
       directory: input.directory,
       description: input.description ?? null,
       prompt: input.prompt ?? null,
-      ...applyAgentConfigDefaults(input),
+      ...applyAgentConfigDefaults(input, scope),
       effort: validateAgentEffort(
         input.agentType ?? "claude",
         input.effort,
-        input.model
+        input.model,
+        scope
       ),
       callable: input.callable ?? true,
       allowFiles: input.allowFiles ?? true,
@@ -182,11 +189,17 @@ export class TemplateService {
       updates.description = input.description;
     if (input.directory !== undefined) updates.directory = input.directory;
     if (input.prompt !== undefined) updates.prompt = input.prompt;
+    const scope = await modelScopeFor(
+      input.directory ?? existing.directory,
+      input.agentType ?? existing.agentType,
+      "local"
+    );
     const nextModel = resolveAgentModelForUpdate({
       inputAgentType: input.agentType,
       inputModel: input.model,
       existingAgentType: existing.agentType,
       existingModel: existing.model,
+      scope,
     });
     const nextEffort = validateAgentEffort(
       input.agentType ?? existing.agentType,
@@ -195,7 +208,8 @@ export class TemplateService {
         : input.agentType && input.agentType !== existing.agentType
           ? null
           : existing.effort,
-      nextModel
+      nextModel,
+      scope
     );
     if (input.effort !== undefined || nextEffort !== existing.effort)
       updates.effort = nextEffort;
@@ -258,7 +272,13 @@ export class TemplateService {
     const stored =
       input.resolvedTemplate ??
       (await this.store.getTemplate(input.templateId));
-    const template = stored ? resolveTemplateLaunch(stored, input) : null;
+    const template = stored
+      ? await resolveTemplateLaunch(
+          stored,
+          input,
+          input.directory ?? stored.directory
+        )
+      : null;
     if (!template) {
       throw new Error(`Template ${input.templateId} not found.`);
     }

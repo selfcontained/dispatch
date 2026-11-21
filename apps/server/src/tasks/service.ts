@@ -22,7 +22,7 @@ import { AGENT_TYPES, type AgentType } from "../agent-type-settings.js";
 import type { AgentRecord } from "../agents/types.js";
 import type { StreamService, TaskStreamRoot } from "../chat/service.js";
 import { ProjectStore, type ProjectRecord } from "../projects/store.js";
-import { validateAgentModel } from "../shared/agent-models.js";
+import { modelScopeFor, validateAgentModel } from "../shared/agent-models.js";
 import { errorMessage } from "../shared/lib/error-message.js";
 import { resolveTemplateLaunch } from "../templates/resolve-launch.js";
 import { resolveLaunchPersona } from "../personas/resolve.js";
@@ -578,12 +578,18 @@ export class TaskService {
     let model: string | null = null;
     let effort: Effort | null = null;
     try {
+      const scope = await modelScopeFor(
+        template.directory,
+        agentType ?? template.agentType,
+        "local"
+      );
       model =
         validateAgentModel(
           agentType ?? template.agentType,
-          trigger.model ?? undefined
+          trigger.model ?? undefined,
+          scope
         ) ?? null;
-      const resolved = resolveTemplateLaunch(template, {
+      const resolved = await resolveTemplateLaunch(template, {
         agentType: agentType ?? undefined,
         model: model ?? undefined,
         effort: trigger.effort ?? undefined,
@@ -591,7 +597,8 @@ export class TaskService {
       effort = validateAgentEffort(
         agentType ?? template.agentType,
         trigger.effort,
-        resolved.model
+        resolved.model,
+        scope
       );
     } catch (error) {
       throw invalid(errorMessage(error));
@@ -624,7 +631,7 @@ export class TaskService {
       !(stored.projectId === null && stored.directory === project.repoRoot)
     )
       throw invalid(`Template "${stored.name}" belongs to another project.`);
-    const template = resolveTemplateLaunch(stored, {
+    const template = await resolveTemplateLaunch(stored, {
       ...(launch.agentType ? { agentType: launch.agentType } : {}),
       ...(launch.model ? { model: launch.model } : {}),
       ...(launch.effort ? { effort: launch.effort } : {}),
@@ -683,10 +690,17 @@ export class TaskService {
    * for the new runtime); a model is never cleared under an active runtime,
    * and `launchAgentType: null` clears both. Nothing is ever substituted.
    */
-  private launchRuntimePatch(
-    current: Pick<Task, "launchAgentType" | "launchModel"> | null,
-    input: Pick<UpdateTaskInput, "launchAgentType" | "launchModel">
-  ): Pick<TaskPatch, "launchAgentType" | "launchModel"> {
+  private async launchRuntimePatch(
+    projectId: string,
+    current: Pick<
+      Task,
+      "launchAgentType" | "launchModel" | "launchTemplateId"
+    > | null,
+    input: Pick<
+      UpdateTaskInput,
+      "launchAgentType" | "launchModel" | "launchTemplateId"
+    >
+  ): Promise<Pick<TaskPatch, "launchAgentType" | "launchModel">> {
     if (input.launchAgentType === undefined && input.launchModel === undefined)
       return {};
     if (input.launchAgentType === null) {
@@ -719,7 +733,14 @@ export class TaskService {
         "launchModel must be a model id; send launchAgentType: null to clear the override."
       );
     try {
-      const model = validateAgentModel(agentType, requested);
+      const model = await this.validateTaskLaunchModel(
+        projectId,
+        input.launchTemplateId !== undefined
+          ? input.launchTemplateId
+          : (current?.launchTemplateId ?? null),
+        agentType,
+        requested
+      );
       if (!model) throw new Error(`Model "${requested}" is not supported.`);
       return { launchAgentType: agentType, launchModel: model };
     } catch (error) {
@@ -730,6 +751,42 @@ export class TaskService {
           : errorMessage(error)
       );
     }
+  }
+
+  /**
+   * A task's model override is checked against the machines the task can
+   * launch on: its launch template's, else its project's trigger templates'.
+   * It passes when any of them accepts it; the launch itself checks the
+   * actual target again.
+   */
+  private async validateTaskLaunchModel(
+    projectId: string,
+    launchTemplateId: string | null,
+    agentType: AgentType,
+    model: string
+  ): Promise<string | undefined> {
+    const templateIds = launchTemplateId
+      ? [launchTemplateId]
+      : (await this.store.listColumns(projectId)).flatMap((column) =>
+          column.trigger ? [column.trigger.templateId] : []
+        );
+    const targets = new Set<string | null>();
+    for (const id of templateIds)
+      targets.add((await this.deps.getTemplate(id))?.directory ?? null);
+    if (targets.size === 0) targets.add(null);
+    let rejection: unknown;
+    for (const target of targets) {
+      try {
+        return validateAgentModel(
+          agentType,
+          model,
+          await modelScopeFor(target, agentType, "local")
+        );
+      } catch (error) {
+        rejection ??= error;
+      }
+    }
+    throw rejection;
   }
 
   private async validateLaunchPreference(
@@ -1069,7 +1126,7 @@ export class TaskService {
         input.launchTemplateId,
         caller
       );
-    const runtime = this.launchRuntimePatch(null, input);
+    const runtime = await this.launchRuntimePatch(input.projectId, null, input);
     const column = await this.store.transaction(async (db) => {
       if (!(await this.store.lockColumn(initialColumn.id, db)))
         throw notFound("Column");
@@ -1230,7 +1287,7 @@ export class TaskService {
       patch.launchTemplateId = input.launchTemplateId;
       changed.push("launchTemplateId");
     }
-    const runtime = this.launchRuntimePatch(task, input);
+    const runtime = await this.launchRuntimePatch(task.projectId, task, input);
     if (
       runtime.launchAgentType !== undefined &&
       runtime.launchAgentType !== task.launchAgentType

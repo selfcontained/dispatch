@@ -36,7 +36,7 @@ import {
   OWNERS_PATH,
   PERSONA_DIRS,
 } from "../personas/paths.js";
-import { validateAgentModel } from "../shared/agent-models.js";
+import { modelScopeFor, validateAgentModel } from "../shared/agent-models.js";
 import type { PublishUiEvent } from "./mcp-handler-types.js";
 
 import { parseDefaultBranchPersonas } from "../personas/catalog.js";
@@ -218,9 +218,9 @@ export function createPersonaHandlers(deps: CreatePersonaHandlersDeps) {
     if (!enabledAgentTypes.includes(agentType)) {
       throw new Error(`${agentType} agents are disabled in settings.`);
     }
-    const workload = Boolean(remotePlacement(parent.cwd));
-    const model = validateAgentModel(agentType, opts.model, workload);
-    const effort = validateAgentEffort(agentType, opts.effort, model, workload);
+    const scope = await modelScopeFor(parent.cwd, agentType, "engine");
+    const model = validateAgentModel(agentType, opts.model, scope);
+    const effort = validateAgentEffort(agentType, opts.effort, model, scope);
 
     const persona =
       opts.resolvedPersona ??

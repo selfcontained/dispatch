@@ -8,7 +8,7 @@ import type { FastifyInstance, FastifyReply } from "fastify";
 import type { AgentManager } from "../agents/manager.js";
 import { StreamServiceError, type StreamService } from "../chat/service.js";
 import { CLI_AGENT_TYPES } from "../agent-type-settings.js";
-import { validateAgentModel } from "../shared/agent-models.js";
+import { modelScopeFor, validateAgentModel } from "../shared/agent-models.js";
 import {
   discoverSessionPersonas,
   readSessionOwnerRules,
@@ -259,16 +259,16 @@ export async function registerPersonaRoutes(
       const parent = await deps.agentManager.getAgent(agentId);
       if (!parent) return reply.code(404).send({ error: "Agent not found." });
       const agentType = body.agentType as (typeof CLI_AGENT_TYPES)[number];
-      const workload = Boolean(remotePlacement(parent.cwd));
+      const scope = await modelScopeFor(parent.cwd, agentType, "engine");
       let model: string | undefined;
       let effort: Effort | null;
       try {
         model = validateAgentModel(
           agentType,
           typeof body.model === "string" ? body.model : undefined,
-          workload
+          scope
         );
-        effort = validateAgentEffort(agentType, body.effort, model, workload);
+        effort = validateAgentEffort(agentType, body.effort, model, scope);
       } catch (error) {
         return reply.code(400).send({
           error: error instanceof Error ? error.message : "Invalid model.",

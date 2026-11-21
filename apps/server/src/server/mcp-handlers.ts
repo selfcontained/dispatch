@@ -17,7 +17,7 @@ import {
   CLI_AGENT_TYPES,
   getEnabledAgentTypes,
 } from "../agent-type-settings.js";
-import { validateAgentModel } from "../shared/agent-models.js";
+import { modelScopeFor, validateAgentModel } from "../shared/agent-models.js";
 import type { JobService } from "../jobs/service.js";
 import type { TemplateService } from "../templates/service.js";
 import { templateWorktreeConfig } from "../templates/worktree-config.js";
@@ -497,6 +497,11 @@ async function handleLaunchAgent(
   // this the MCP path silently forced "sibling".
   const worktreeLocation = await getWorktreeLocation(deps.pool);
 
+  const scope = await modelScopeFor(
+    cwd,
+    agentType as (typeof CLI_AGENT_TYPES)[number],
+    "engine"
+  );
   const model = validateAgentModel(
     agentType as (typeof CLI_AGENT_TYPES)[number],
     (input.model !== undefined
@@ -504,7 +509,7 @@ async function handleLaunchAgent(
       : template?.agentType === agentType
         ? template.model
         : undefined) ?? undefined,
-    Boolean(runnerParent)
+    scope
   );
   const effort = validateAgentEffort(
     agentType as (typeof CLI_AGENT_TYPES)[number],
@@ -515,7 +520,7 @@ async function handleLaunchAgent(
         ? template.effort
         : null,
     model,
-    Boolean(runnerParent)
+    scope
   );
 
   // Launching a template is a request for the template's own instructions —

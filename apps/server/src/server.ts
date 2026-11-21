@@ -153,7 +153,11 @@ import {
   engineOperationStore,
 } from "./agents/engine-updates.js";
 import { EngineManager } from "./agents/remote/engine-manager.js";
-import { remoteEngineTransport } from "./agents/remote/engine-transport.js";
+import {
+  remoteEngineTransport,
+  runnerModelCatalogSource,
+} from "./agents/remote/engine-transport.js";
+import { setRunnerModelCatalogSource } from "./shared/agent-models.js";
 import { registerPluginRoutes } from "./routes/plugin.js";
 import { registerResourceRoutes } from "./routes/resources.js";
 import {
@@ -235,6 +239,12 @@ const remoteRunner = configuredRunner({
   validJobToken: (token, runId, agentId) =>
     validateJobMcpToken(config.authToken, token, runId, agentId),
 });
+// Launch callers check model ids against the target runner's catalog.
+setRunnerModelCatalogSource(
+  remoteRunner
+    ? runnerModelCatalogSource(remoteEngineTransport(remoteRunner))
+    : null
+);
 const agentManager = new AgentManager(pool, app.log, config, {
   remote: remoteRunner,
   classifySteering: steeringDecisions.classify,

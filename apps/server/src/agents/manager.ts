@@ -2214,11 +2214,12 @@ export class AgentManager {
     if (!placement) await getDirectoryIconPath(this.pool, originalCwd);
     const id = this.newAgentId();
     const type: AgentType = input.type ?? "claude";
+    // Callers checked the target's catalog; a runner engine rechecks at launch.
     const effort = validateAgentEffort(
       type,
       input.effort,
       input.model,
-      Boolean(placement)
+      placement ? { kind: "engine" } : undefined
     );
     const role: AgentRole = input.role ?? "standard";
     const fullAccess = type === "opencode" || (input.fullAccess ?? false);

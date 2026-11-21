@@ -1,3 +1,5 @@
+import { remotePlacement } from "@dispatch/runner-protocol";
+
 import { CLI_AGENT_TYPES, type AgentType } from "./agent-types.js";
 
 export type AgentModelOption = {
@@ -152,21 +154,94 @@ export function describeAgentModelCatalog(
   return sentences.join(" ");
 }
 
+/**
+ * The catalog a model id and effort are checked against: the one on the
+ * machine the agent will run on.
+ * - `local`: this Mac's learned (or seed) catalog.
+ * - `runner`: the catalog the target runner reported for the engine.
+ * - `engine`: no catalog to check here; any well-formed id passes and the
+ *   engine validates it over ACP at launch.
+ */
+export type ModelScope =
+  | { kind: "local" }
+  | {
+      kind: "runner";
+      defaultModel: string | null;
+      models: readonly AgentModelOption[];
+    }
+  | { kind: "engine" };
+
+export const LOCAL_MODEL_SCOPE: ModelScope = { kind: "local" };
+
+/** Reads a runner's reported catalog for one engine; null when unavailable. */
+export type RunnerModelCatalogSource = (
+  runnerId: string,
+  agentType: AgentType
+) => Promise<{
+  defaultModel: string | null;
+  models: readonly AgentModelOption[];
+} | null>;
+
+let runnerCatalogSource: RunnerModelCatalogSource | null = null;
+
+/** Wired once at startup to the runner engine transport; tests stub it. */
+export function setRunnerModelCatalogSource(
+  source: RunnerModelCatalogSource | null
+): void {
+  runnerCatalogSource = source;
+}
+
+/**
+ * The model scope for a launch target. A local folder uses this Mac's
+ * catalog. A runner location uses the runner's catalog when it can report
+ * one; when it can't (offline, too old, nothing reported yet) the caller's
+ * `offline` scope applies, which is what that caller checked before
+ * runner catalogs were consulted.
+ */
+export async function modelScopeFor(
+  target: string | null | undefined,
+  agentType: AgentType,
+  offline: "local" | "engine"
+): Promise<ModelScope> {
+  const placement = target ? remotePlacement(target) : null;
+  if (!placement) return LOCAL_MODEL_SCOPE;
+  const catalog = await runnerCatalogSource?.(
+    placement.runner,
+    agentType
+  ).catch(() => null);
+  if (catalog && catalog.models.length > 0)
+    return {
+      kind: "runner",
+      defaultModel: catalog.defaultModel,
+      models: catalog.models,
+    };
+  return offline === "local" ? LOCAL_MODEL_SCOPE : { kind: "engine" };
+}
+
+/** The ids a scope offers for a type; null when the engine checks at launch. */
+export function scopeModelOptions(
+  agentType: AgentType,
+  scope: ModelScope
+): readonly AgentModelOption[] | null {
+  if (scope.kind === "engine") return null;
+  return scope.kind === "runner"
+    ? scope.models
+    : getAgentModelOptions(agentType);
+}
+
 export function validateAgentModel(
   agentType: AgentType,
   model: string | undefined,
-  workload = false
+  scope: ModelScope = LOCAL_MODEL_SCOPE
 ): string | undefined {
   const normalizedModel = model?.trim() || undefined;
   if (normalizedModel === undefined) return undefined;
+  const options = scopeModelOptions(agentType, scope);
   // An enrolled engine owns its catalog and validates the override in ACP.
-  if (workload && /^[\w./:@+\[\]-]{1,160}$/.test(normalizedModel))
-    return normalizedModel;
   if (
-    !workload &&
-    getAgentModelOptions(agentType).some(
-      (option) => option.id === normalizedModel
-    )
+    options === null
+      ? /^[\w./:@+\[\]-]{1,160}$/.test(normalizedModel)
+      : options.some((option) => option.id === normalizedModel)
   ) {
     return normalizedModel;
   }
@@ -206,13 +281,15 @@ export type AgentConfigDefaults<T extends AgentType = AgentType> = {
  * resolved agent type's catalog, exactly as validateAgentModel does.
  */
 export function applyAgentConfigDefaults<T extends AgentType = AgentType>(
-  input: AgentConfigInput<T>
+  input: AgentConfigInput<T>,
+  scope: ModelScope = LOCAL_MODEL_SCOPE
 ): AgentConfigDefaults<T> {
   const agentType = input.agentType ?? "claude";
   return {
     agentType,
     ...(input.persona !== undefined ? { persona: input.persona } : {}),
-    model: validateAgentModel(agentType, input.model ?? undefined) ?? null,
+    model:
+      validateAgentModel(agentType, input.model ?? undefined, scope) ?? null,
     useWorktree: input.useWorktree ?? false,
     baseBranch: input.baseBranch ?? null,
     branchName: input.branchName ?? null,
@@ -233,19 +310,25 @@ export function resolveAgentModelForUpdate(params: {
   inputModel: string | null | undefined;
   existingAgentType: AgentType;
   existingModel: string | null;
+  scope?: ModelScope;
 }): string | null {
   const nextAgentType = params.inputAgentType ?? params.existingAgentType;
+  const scope = params.scope ?? LOCAL_MODEL_SCOPE;
   if (params.inputModel !== undefined) {
     return (
-      validateAgentModel(nextAgentType, params.inputModel ?? undefined) ?? null
+      validateAgentModel(
+        nextAgentType,
+        params.inputModel ?? undefined,
+        scope
+      ) ?? null
     );
   }
+  const options = scopeModelOptions(nextAgentType, scope);
   if (
     params.inputAgentType !== undefined &&
     params.existingModel !== null &&
-    !getAgentModelOptions(nextAgentType).some(
-      (option) => option.id === params.existingModel
-    )
+    options !== null &&
+    !options.some((option) => option.id === params.existingModel)
   ) {
     return null;
   }

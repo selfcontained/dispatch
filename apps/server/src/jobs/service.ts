@@ -16,6 +16,7 @@ import { sanitizeAgentName } from "../shared/lib/agent-strings.js";
 import { buildSelfImprovementGuidance } from "../shared/self-improvement-prompt.js";
 import {
   applyAgentConfigDefaults,
+  modelScopeFor,
   resolveAgentModelForUpdate,
 } from "../shared/agent-models.js";
 import { errorMessage } from "../shared/lib/error-message.js";
@@ -647,12 +648,18 @@ export class JobService {
         "task",
         "catalog"
       );
+    const scope = await modelScopeFor(
+      input.directory,
+      input.agentType ?? "claude",
+      "local"
+    );
     const agentConfig = {
-      ...applyAgentConfigDefaults(input),
+      ...applyAgentConfigDefaults(input, scope),
       effort: validateAgentEffort(
         input.agentType ?? "claude",
         input.effort,
-        input.model
+        input.model,
+        scope
       ),
     };
 
@@ -810,11 +817,17 @@ export class JobService {
     const previousEffort = backingTemplate
       ? backingTemplate.effort
       : existing.effort;
+    const scope = await modelScopeFor(
+      directory,
+      input.agentType ?? existing.agentType,
+      "local"
+    );
     const nextModel = resolveAgentModelForUpdate({
       inputAgentType: input.agentType,
       inputModel: input.model,
       existingAgentType: existing.agentType,
       existingModel: existing.model,
+      scope,
     });
     const nextEffort = validateAgentEffort(
       input.agentType ?? backingTemplate?.agentType ?? existing.agentType,
@@ -825,7 +838,8 @@ export class JobService {
               (backingTemplate?.agentType ?? existing.agentType)
           ? null
           : previousEffort,
-      nextModel
+      nextModel,
+      scope
     );
     if (input.effort !== undefined || nextEffort !== existing.effort)
       config.effort = nextEffort;

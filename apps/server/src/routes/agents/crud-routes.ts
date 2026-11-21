@@ -35,7 +35,10 @@ import {
   CLAUDE_FULL_ACCESS_ARG,
   type AgentRouteDeps,
 } from "./shared.js";
-import { validateAgentModel } from "../../shared/agent-models.js";
+import {
+  modelScopeFor,
+  validateAgentModel,
+} from "../../shared/agent-models.js";
 import { getDirectoryIconPath } from "../../shared/directory-icon-cache.js";
 
 export async function registerAgentCrudRoutes(
@@ -381,17 +384,17 @@ export async function registerAgentCrudRoutes(
     let model: string | undefined;
     let effort: Effort | null;
     try {
+      const scope = await modelScopeFor(
+        typeof body.cwd === "string" ? body.cwd : null,
+        agentType,
+        "engine"
+      );
       model = validateAgentModel(
         agentType,
         typeof body.model === "string" ? body.model : undefined,
-        Boolean(placement)
+        scope
       );
-      effort = validateAgentEffort(
-        agentType,
-        body.effort,
-        model,
-        Boolean(placement)
-      );
+      effort = validateAgentEffort(agentType, body.effort, model, scope);
     } catch (error) {
       return reply.code(400).send({ error: errorMessage(error) });
     }
