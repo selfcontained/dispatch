@@ -1,3 +1,4 @@
+import * as checkoutIntent from "../../src/agents/checkout-intent.js";
 import { createMcpHandlers } from "../../src/server/mcp-handlers.js";
 import { JobService } from "../../src/jobs/service.js";
 import { TemplateService } from "../../src/templates/service.js";
@@ -526,7 +527,9 @@ describe("AgentManager", () => {
       });
     });
 
-    it("carries the MCP existing-branch default to the runner launch request", async () => {
+    it("carries MCP new and existing checkout intent to the runner launch request", async ({
+      onTestFinished,
+    }) => {
       const remote = {
         available: () => true,
         isManagedWorkspace: () => true,
@@ -552,6 +555,10 @@ describe("AgentManager", () => {
         publishUiEvent: vi.fn(),
         withStreamFlag: (agent) => ({ ...agent, hasStream: false }),
       } as Parameters<typeof createMcpHandlers>[0]);
+      const convert = vi.spyOn(checkoutIntent, "toRunnerCheckout");
+      onTestFinished(() => {
+        convert.mockRestore();
+      });
       const input = {
         name: "existing",
         prompt: "Work independently",
@@ -571,8 +578,22 @@ describe("AgentManager", () => {
           { kind: "branch", branch: "main", allowDefault: true },
         ],
         [{}, { kind: "default" }],
+        [
+          {
+            createNewBranch: true,
+            worktreeBranch: "origin/new-topic",
+            baseBranch: "origin/develop",
+          },
+          { kind: "new", branch: "origin/new-topic", base: "develop" },
+        ],
+        [
+          { createNewBranch: true },
+          { kind: "new", branch: expect.stringMatching(/^agt_.+\/existing$/) },
+        ],
       ] as const) {
+        convert.mockClear();
         const child = await mcp.launchAgent(parent.id, { ...input, ...refs });
+        expect(convert).toHaveReturnedWith(expect.objectContaining(checkout));
         expect(runtime.launch).toHaveBeenLastCalledWith(
           expect.objectContaining({
             agentId: child.agentId,

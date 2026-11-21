@@ -29,11 +29,7 @@ import {
   createDiagnosticsRecorder,
   type DiagnosticsRecorder,
 } from "../diagnostics.js";
-import {
-  assertSafeRefName,
-  GitWorktreeError,
-  normalizeBaseBranch,
-} from "../shared/git/worktree.js";
+import { GitWorktreeError } from "../shared/git/worktree.js";
 import { resolveFilesDir } from "../shared/files.js";
 import { getDirectoryIconPath } from "../shared/directory-icon-cache.js";
 import {
@@ -96,6 +92,12 @@ import type {
 import { type EngineBins, isAcpEngine } from "./acp/engine-spec.js";
 import { agentWorkspaceDir } from "./workspace-target.js";
 import { inspectAgentCheckout, reviewerWorkspace } from "./checkout-runner.js";
+import {
+  resolveCheckoutIntent,
+  toLocalWorktreeRequest,
+  toRunnerCheckout,
+  type ResolvedCheckout,
+} from "./checkout-intent.js";
 import { RemoteEventInbox } from "./remote/event-inbox.js";
 import {
   MANAGED_WORKSPACE,
@@ -241,7 +243,7 @@ type PreparedCreateInputs = {
   effort: Effort | null;
   fullAccess: boolean;
   normalizedBaseBranch: string | undefined;
-  worktree: WorktreeRequest | null;
+  checkout: ResolvedCheckout | null;
   cliSessionId: string | null;
   initialSetupPhase: SetupPhase;
 };
@@ -1908,19 +1910,10 @@ export class AgentManager {
       input,
       directory?.cwd ?? input.cwd
     );
-    if (derivedRepositoryUrl && p.worktree) {
-      const { branch, baseBranch, createNewBranch } = p.worktree;
+    if (derivedRepositoryUrl && p.checkout) {
       runnerRepository = {
         url: derivedRepositoryUrl,
-        checkout: !createNewBranch
-          ? baseBranch
-            ? { kind: "branch", branch: baseBranch, allowDefault: true }
-            : { kind: "default" }
-          : {
-              kind: "new",
-              branch,
-              ...(baseBranch ? { base: baseBranch } : {}),
-            },
+        checkout: toRunnerCheckout(p.checkout),
       };
       try {
         parseRepository(runnerRepository);
@@ -1931,8 +1924,12 @@ export class AgentManager {
     await mkdir(p.filesDir, { recursive: true });
     // Restart can see the row before persona and workspace preparation run.
     // Persist the native request first so restart never treats it as a direct launch.
-    if (directory && p.worktree)
-      await this.localRunner.bindWorkspace(p.id, directory, p.worktree);
+    const worktree =
+      directory && p.checkout
+        ? toLocalWorktreeRequest(p.checkout, p.name, input.worktreeLocation)
+        : null;
+    if (directory && worktree)
+      await this.localRunner.bindWorkspace(p.id, directory, worktree);
     await this.insertAgentRecord(
       p,
       input,
@@ -2002,7 +1999,7 @@ export class AgentManager {
       type: p.type,
       originalCwd: p.originalCwd,
       directory,
-      worktree: p.worktree,
+      worktree,
       initialPrompt: input.initialPrompt,
       initialFiles,
       resolveLaunchPost,
@@ -2199,50 +2196,22 @@ export class AgentManager {
         : (input.agentArgs ?? []);
     const name = input.name?.trim() || `agent-${id.slice(-6)}`;
     const filesDir = path.join(this.config.filesRoot, id);
-    const useWorktree = input.useWorktree !== false;
-    const createNewBranch = input.createNewBranch ?? true;
-
-    // Sanitize ref names: rejects chars that would allow injection in the
-    // bash setup script and gives us a canonical form for archive cleanup.
-    let normalizedBaseBranch: string | undefined;
-    let normalizedWorktreeBranch: string | undefined;
+    let intent: ReturnType<typeof resolveCheckoutIntent>;
     try {
-      if (input.baseBranch !== undefined && input.baseBranch.trim() !== "") {
-        normalizedBaseBranch = normalizeBaseBranch(input.baseBranch);
-      }
-      if (
-        input.worktreeBranch !== undefined &&
-        input.worktreeBranch.trim() !== ""
-      ) {
-        normalizedWorktreeBranch = assertSafeRefName(
-          input.worktreeBranch,
-          "worktreeBranch"
-        );
-      }
+      intent = resolveCheckoutIntent(input, { id, name });
     } catch (err) {
       if (err instanceof GitWorktreeError) {
         throw new AgentError(err.message, err.statusCode);
       }
       throw err;
     }
-    const slugName = name
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-+|-+$/g, "");
-    const worktree = useWorktree
-      ? {
-          name,
-          branch: normalizedWorktreeBranch || `${id}/${slugName || "work"}`,
-          createNewBranch,
-          baseBranch: normalizedBaseBranch,
-          location: input.worktreeLocation,
-        }
-      : null;
 
     // The engine mints the ACP session id at launch; a caller-supplied one
     // is a session to resume.
     const cliSessionId = input.cliSessionId ?? null;
-    const initialSetupPhase: SetupPhase = useWorktree ? "worktree" : "session";
+    const initialSetupPhase: SetupPhase = intent.checkout
+      ? "worktree"
+      : "session";
 
     return {
       id,
@@ -2255,8 +2224,7 @@ export class AgentManager {
       model: input.model,
       effort,
       fullAccess,
-      normalizedBaseBranch,
-      worktree,
+      ...intent,
       cliSessionId,
       initialSetupPhase,
     };

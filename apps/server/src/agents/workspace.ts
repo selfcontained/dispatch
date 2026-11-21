@@ -12,10 +12,7 @@ import {
 import path from "node:path";
 import type { FastifyBaseLogger } from "fastify";
 
-import {
-  probeGitContext,
-  resolveCurrentBranch,
-} from "../shared/git/git-context.js";
+import { probeGitContext } from "../shared/git/git-context.js";
 import {
   createGitWorktree,
   GitWorktreeError,
@@ -26,7 +23,7 @@ import {
   setupAgentWorkspace,
   type WorkspaceProgress,
 } from "./workspace-prep.js";
-import { detectDefaultBranch } from "./workspace-target.js";
+import { resolveLocalCheckout } from "./checkout-intent.js";
 
 export async function resolveLaunchDirectory(rawCwd: string) {
   const home = process.env.HOME ?? "/";
@@ -142,12 +139,7 @@ export function createWorkspacePreparation(logger: FastifyBaseLogger) {
         "The launch directory was moved or replaced.",
         409
       );
-    const base =
-      request.baseBranch ??
-      (await detectDefaultBranch(cwd)) ??
-      (await resolveCurrentBranch(cwd).catch(() => null)) ??
-      "main";
-    const branch = request.createNewBranch ? request.branch : base;
+    const { base, branch } = await resolveLocalCheckout(cwd, request);
     const worktreePath =
       request.location === "nested"
         ? path.join(
