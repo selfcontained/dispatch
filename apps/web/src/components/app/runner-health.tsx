@@ -189,7 +189,7 @@ export function RunnerHealthDetails({ runner }: { runner: Runner }) {
           <RunnerReportTime receivedAt={healthReceivedAt} />
         </dd>
       </dl>
-      {failure && (
+      {failure && failure.exitCode !== 75 && (
         <div className="mt-2 text-xs">
           <p>Read the updater’s error output on {runner.name}.</p>
           <RunnerCommand

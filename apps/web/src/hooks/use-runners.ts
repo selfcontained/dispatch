@@ -29,7 +29,12 @@ export function runnerLocator(runnerId: string, workspace: string): string {
 }
 
 export function useRunners(
-  options: { poll?: boolean; enabled?: boolean; includeCleared?: boolean } = {}
+  options: {
+    poll?: boolean;
+    pollInBackground?: boolean;
+    enabled?: boolean;
+    includeCleared?: boolean;
+  } = {}
 ) {
   return useQuery({
     queryKey: options.includeCleared
@@ -45,6 +50,7 @@ export function useRunners(
         )
       ).runners,
     refetchInterval: options.poll ? 5000 : false,
+    refetchIntervalInBackground: options.pollInBackground,
   });
 }
 

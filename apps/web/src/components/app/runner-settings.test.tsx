@@ -1,6 +1,11 @@
 // @vitest-environment jsdom
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
+  focusManager,
+  QueryClient,
+  QueryClientProvider,
+} from "@tanstack/react-query";
+import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -289,6 +294,52 @@ it("shows reported activity only for online runners with fresh health", async ()
     expect(
       within(roster).getByTestId(`runner-select-${id}`).textContent
     ).not.toContain(" · ");
+  }
+});
+
+it("refreshes the update attempt and reported build while runner details are in a background tab", async () => {
+  const at = new Date().toISOString();
+  let health: Runner["health"] = {
+    version: "1.2.3",
+    revision: "1234567",
+    sessions: 1,
+    working: 1,
+    cpuPercent: 10,
+    memoryUsed: 256,
+    memoryTotal: 1024,
+  };
+  vi.mocked(api).mockImplementation(async (path) => {
+    if (path !== "/api/runners") throw new Error(`Unexpected endpoint ${path}`);
+    return {
+      runners: [
+        { ...online, engineManagement: false, health, healthReceivedAt: at },
+      ],
+    };
+  });
+
+  vi.useFakeTimers();
+  try {
+    renderSettings("/settings/runners?runner=build");
+    await act(() => vi.advanceTimersByTimeAsync(10));
+    const panel = within(screen.getByTestId("runner-health"));
+    expect(panel.getByText("1234567")).toBeTruthy();
+    focusManager.setFocused(false);
+
+    health = {
+      ...health,
+      maintenanceFailure: { exitCode: 75, step: "stop", at },
+    };
+    await act(() => vi.advanceTimersByTimeAsync(5_010));
+    expect(panel.getByText(/Deferred while an agent was working/)).toBeTruthy();
+
+    health = { ...health, revision: "7654321", maintenanceFailure: undefined };
+    await act(() => vi.advanceTimersByTimeAsync(5_010));
+    expect(panel.getByText("7654321")).toBeTruthy();
+    expect(panel.queryByText("Last update attempt")).toBeNull();
+  } finally {
+    cleanup();
+    focusManager.setFocused(undefined);
+    vi.useRealTimers();
   }
 });
 

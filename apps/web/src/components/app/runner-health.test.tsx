@@ -201,6 +201,14 @@ describe("update command", () => {
         screen.getByText(exitCode === 75 ? /Update deferred/ : /Update failed/)
       ).toBeTruthy();
       expect(screen.getByText(`${reason} (exit ${exitCode}) ·`)).toBeTruthy();
+      expect(
+        Boolean(screen.queryByText(/Read the updater’s error output/))
+      ).toBe(exitCode !== 75);
+      expect(screen.queryByTestId("command-Update log")?.textContent).toBe(
+        exitCode === 75
+          ? undefined
+          : "sudo cat /opt/dispatch-runner/last-maintenance.log"
+      );
     }
   );
 });
