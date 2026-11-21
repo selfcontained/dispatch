@@ -277,6 +277,30 @@ describe("GET /api/v1/history/projects", () => {
     expect(projA.usageCount).toBe(2);
   });
 
+  it("builds icon URLs only from agents that still exist", async () => {
+    const live = await createAgent({ cwd: "/home/user/mixed" });
+    const gone = await createAgent({ cwd: "/home/user/mixed" });
+    const only = await createAgent({ cwd: "/home/user/deleted" });
+    await ctx.pool.query(
+      "UPDATE agents SET deleted_at = now() WHERE id = ANY($1)",
+      [[gone, only]]
+    );
+
+    const res = await authedInject("GET", "/api/v1/history/projects");
+    const options = res.json().projectOptions as {
+      path: string;
+      usageCount: number;
+      iconUrl?: string;
+    }[];
+    expect(options.find((p) => p.path === "/home/user/mixed")).toMatchObject({
+      usageCount: 2,
+      iconUrl: `/api/v1/agents/${live}/repo-icon`,
+    });
+    const deleted = options.find((p) => p.path === "/home/user/deleted");
+    expect(deleted).toBeTruthy();
+    expect(deleted).not.toHaveProperty("iconUrl");
+  });
+
   it("filters by search query", async () => {
     await createAgent({ cwd: "/home/user/alpha" });
     await createAgent({ cwd: "/home/user/beta" });

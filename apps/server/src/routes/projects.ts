@@ -214,7 +214,8 @@ export async function registerProjectRoutes(
           .send(cached.icon_data);
       }
       const icon = await readRepositoryIcon(project.repoRoot);
-      if (!icon) return reply.code(404).send();
+      // No icon is an empty answer, not an error: the image falls back.
+      if (!icon) return reply.code(204).send();
       await pool.query(
         "UPDATE projects SET icon_data=$2, icon_mime=$3 WHERE id=$1",
         [project.id, icon.bytes, icon.mime]
