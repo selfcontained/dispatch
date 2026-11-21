@@ -148,7 +148,9 @@ export function WorktreeSection({
                 onBaseBranchChange={onBaseBranchChange}
                 worktreeBranch={worktreeBranch}
                 onWorktreeBranchChange={onWorktreeBranchChange}
-                baseBranchLabel="Starting branch"
+                baseBranchLabel={
+                  createNewBranch ? "Starting branch" : "Existing branch"
+                }
                 showNewBranchInput={false}
                 testIdPrefix="create-agent"
                 disabled={!worktreeChecked}

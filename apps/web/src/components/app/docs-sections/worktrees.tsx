@@ -63,7 +63,8 @@ export function WorktreesContent() {
             field blank. This is the standard authoring flow.
           </li>
           <li>
-            <strong>Off</strong> — the worktree checks out the starting branch
+            <strong>Off</strong> — the picker becomes{" "}
+            <strong>Existing branch</strong> and the worktree checks it out
             directly. Useful for review or investigation flows where you want an
             isolated working copy of an existing branch without creating a new
             one.

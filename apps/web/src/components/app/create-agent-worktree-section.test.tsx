@@ -153,4 +153,12 @@ describe("WorktreeSection", () => {
       false
     );
   });
+
+  it("labels the picker for the branch it will check out", () => {
+    const { rerender } = render(<WorktreeSection {...defaultProps} />);
+    expect(baseBranch().getAttribute("aria-label")).toBe("Starting branch");
+    rerender(<WorktreeSection {...defaultProps} createNewBranch={false} />);
+    expect(baseBranch().getAttribute("aria-label")).toBe("Existing branch");
+    expect(screen.getByText("Existing branch")).toBeTruthy();
+  });
 });
