@@ -101,6 +101,10 @@ if (process.argv[2]?.startsWith("recovery-")) {
     process.stdout.write(
       JSON.stringify({ ...embeddedBuild, handoff: runnerHandoff }) + "\n"
     );
+} else if (process.argv[2] === "runner-update-trial") {
+  const { runRunnerUpdateTrial } =
+    await import("./agents/remote/update-trial.js");
+  await runRunnerUpdateTrial(process.argv.slice(3));
 } else if (process.argv[2] === "runner-update-stage") {
   const { runRunnerUpdateStage } =
     await import("./agents/remote/update-stage-cli.js");

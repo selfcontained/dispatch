@@ -92,6 +92,7 @@ systemctl() {
       : > "$root/enabled"
       : > "$root/running"
       ;;
+    disable) rm -f "$root/enabled" ;;
     is-active) [[ -e "$root/running" ]];;
     is-enabled)
       if [[ -e "$root/enabled" ]]; then
@@ -205,6 +206,7 @@ case "$action" in
     export -f systemctl flock
     "$command_path" connect --service "$tag"
     ;;
+  uninstall) run_action ;;
   *)
     parse_install_options "${@:5}"
     if [[ "$action" != recover && "$allow_dev" == 0 && -n "${SUDO_USER:-}" ]]; then
@@ -219,7 +221,7 @@ HARNESS
 openssl genrsa -out "$root/private.pem" 2048 2>/dev/null
 openssl rsa -in "$root/private.pem" -pubout -out "$root/public.pem" 2>/dev/null
 mkdir -p "$root/archive/dist/bun" "$root/archive/bin"
-cp bin/{dispatch-runner,dispatch-runner.service,dispatch-runner-update@.service,install-dispatch-runner.sh,runner-handoff-v1.py,pack-release} "$root/archive/bin/"
+cp bin/{dispatch-runner,dispatch-runner.service,dispatch-runner-update@.service,dispatch-runner-trial.service,50-dispatch-trial.conf,install-dispatch-runner.sh,runner-handoff-v1.py,pack-release} "$root/archive/bin/"
 touch "$root/archive/README.md" "$root/archive/.env.example"
 if "$root/archive/bin/pack-release" --runner-arch riscv64 > "$root/pack-error" 2>&1; then exit 1; fi
 grep -Fq 'expects x64 or arm64' "$root/pack-error"
@@ -358,6 +360,13 @@ grep -Fq '"uid": 103' "$root/settings/runner.json"
 ! grep -Eq '^(start|enable) ' "$root/systemctl" || fail
 [[ "$(find "$root/settings/runner.json" -perm 0600 -print)" == "$root/settings/runner.json" ]] || fail
 grep -q '"workspaces": {}' "$root/settings/runner.json"
+# The fixed trial helper shares the verified executable inode and lives
+# behind the private directory. Both units are removed as a pair.
+cmp bin/dispatch-runner-trial.service "$root/dispatch-runner-trial.service" || fail
+cmp bin/50-dispatch-trial.conf "$root/dispatch-runner.service.d/50-dispatch-trial.conf" || fail
+[[ "$root/runtime/update/activate-helper" -ef "$root/runtime/dispatch" ]] || fail
+[[ -n "$(find "$root/runtime/update/activate-helper" -perm 0755 -print)" ]] || fail
+[[ $(find "$root/dispatch-runner-trial.service" "$root/dispatch-runner.service.d/50-dispatch-trial.conf" -perm 0644 -print | wc -l) -eq 2 ]] || fail
 # The fixed staging unit and its private directories come with the release.
 cmp 'bin/dispatch-runner-update@.service' "$root/dispatch-runner-update@.service"
 [[ -n "$(find "$root/dispatch-runner-update@.service" -perm 0644 -print)" ]] || fail
@@ -391,7 +400,17 @@ cp "$root/legacy-unit" "$root/dispatch-runner.service"
 chmod 0711 "$root/state"
 printf '[Service]\nExecStart=/bin/sh -c %%i\n' > "$root/dispatch-runner-update@.service"
 chmod 0755 "$root/runtime/update"
+printf '{"phase":"activating"}
+' > "$root/state/update/fence.json"
+fetches_before_fence=$(wc -l < "$root/curl")
+expect_status 1 update v1.0.1
+expect_status 1 uninstall unused
+[[ $(wc -l < "$root/curl") -eq "$fetches_before_fence" ]] || fail
+cmp "$root/original" "$root/runtime/dispatch" || fail
+rm "$root/state/update/fence.json"
 run update v1.0.1
+cmp "$root/original" "$root/runtime/previous-verified" || fail
+[[ "$root/runtime/update/activate-helper" -ef "$root/runtime/dispatch" ]] || fail
 # An update restores the release's unit and the directory modes.
 cmp 'bin/dispatch-runner-update@.service' "$root/dispatch-runner-update@.service"
 [[ -n "$(find "$root/runtime/update" -maxdepth 0 -perm 0700 -print)" ]] || fail
@@ -583,4 +602,16 @@ unset fixture_root
 printf 'tampered\n' >> "$root/releases/v1.0.1/dispatch-runner-linux-x64.tar.gz"
 expect_status 1 update v1.0.1
 cmp "$root/original" "$root/runtime/dispatch"
+expect_status 75 uninstall unused
+rm -f "$root/busy" "$root/idle-host"
+run uninstall unused
+[[ ! -e "$root/runtime/dispatch" && ! -e "$root/runtime/update/activate-helper" ]] || fail
+[[ ! -e "$root/dispatch-runner-trial.service" && ! -e "$root/dispatch-runner.service.d/50-dispatch-trial.conf" ]] || fail
+[[ -s "$root/settings/runner.json" && -d "$root/state" ]] || fail
+
+cp "$root/settings/runner.json" "$root/before-reinstall.json"
+run install v1.0.0
+cmp "$root/before-reinstall.json" "$root/settings/runner.json" || fail
+[[ "$root/runtime/update/activate-helper" -ef "$root/runtime/dispatch" ]] || fail
+
 printf 'Runner installer fixtures passed.\n'

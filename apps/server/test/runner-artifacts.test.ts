@@ -85,6 +85,8 @@ async function buildFixture(options?: {
     "bin/dispatch-runner",
     "bin/dispatch-runner.service",
     "bin/dispatch-runner-update@.service",
+    "bin/dispatch-runner-trial.service",
+    "bin/50-dispatch-trial.conf",
     "bin/runner-handoff-v1.py",
   ]) {
     await writeFile(path.join(source, helper), "fixture");

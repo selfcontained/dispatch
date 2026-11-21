@@ -179,7 +179,7 @@ export function candidatePath(layout: RunnerUpdateLayout, sha256: string) {
   return path.join(layout.staging, `dispatch-${sha256}`);
 }
 
-async function trusted(
+export async function trusted(
   file: string,
   kind: "file" | "directory",
   uid: number,
@@ -274,7 +274,11 @@ function alive(pid: number) {
   }
 }
 
-async function writeAtomic(directory: string, name: string, data: string) {
+export async function writeAtomic(
+  directory: string,
+  name: string,
+  data: string
+) {
   const temporary = temporaryPath(directory);
   const handle = await open(temporary, "wx", 0o600);
   try {
@@ -295,7 +299,7 @@ async function writeAtomic(directory: string, name: string, data: string) {
   await syncDirectory(directory);
 }
 
-async function syncDirectory(directory: string) {
+export async function syncDirectory(directory: string) {
   const handle = await open(directory, "r");
   try {
     await handle.sync();
@@ -308,7 +312,7 @@ async function syncDirectory(directory: string) {
  * The lowest version this runner may run. Kept by the updater alone and
  * seeded from the installed build; the controller cannot lower it.
  */
-async function confirmedFloor(
+export async function confirmedFloor(
   layout: RunnerUpdateLayout,
   installed: Floor,
   uid: number
@@ -482,7 +486,7 @@ async function pruneStaging(layout: RunnerUpdateLayout, keep?: string) {
   }
 }
 
-async function verifiedCandidate(
+export async function verifiedCandidate(
   layout: RunnerUpdateLayout,
   request: RunnerUpdateRequest,
   keys: RunnerUpdateKeys,

@@ -17,7 +17,10 @@ import {
   type UpdateServiceFrame,
   type UpdateStatusFrame,
 } from "./protocol.js";
+export { trialHelperAvailable } from "./update-trial.js";
+
 import type { FenceRecord, UpdateAdmission } from "./update-admission.js";
+import { fileFenceStore } from "./update-fence-store.js";
 import {
   runnerHandoff,
   type HandoffFormats,
@@ -27,6 +30,14 @@ import {
 import { compiledRunnerUpdateKeys } from "./update-keys.js";
 import { RUNNER_UPDATE_VERSION } from "./update-manifest.js";
 import { parseCompatibility } from "./update-probe.js";
+import {
+  isSuppressed,
+  readTrial,
+  sendTrialSignal,
+  startRunnerTrial,
+  terminalTrial,
+  trialMatches,
+} from "./update-trial.js";
 import {
   RUNNER_UPDATE_UNIT_PREFIX,
   runnerUpdateInstance,
@@ -49,12 +60,19 @@ export type StageReport =
   | { outcome: "refused"; reason: string };
 
 /**
- * The root updater. Task 2's staging unit backs `stage`. Activation,
- * confirmation and trial rollback belong to the later activation task; this
- * build has no real implementation of them.
+ * Staging and activation run in separate fixed systemd units. The durable
+ * adapter reports journal outcomes and submits authenticated trial decisions.
  */
 export type RunnerUpdater = {
   canActivate: boolean;
+  durable?: {
+    read(): ReturnType<typeof readTrial>;
+    fenceCleared(): Promise<boolean>;
+    signal(
+      fence: FenceRecord,
+      signal: Parameters<typeof sendTrialSignal>[2]
+    ): Promise<void>;
+  };
   stage(target: RunnerUpdateTarget): Promise<StageReport>;
   /** A persisted failed digest needs an explicit retry. */
   suppressed(target: RunnerUpdateTarget): Promise<boolean>;
@@ -157,6 +175,10 @@ export function createRunnerUpdateAgent(options: {
   let expiryTimer: ReturnType<typeof setTimeout> | undefined;
   let expiredAttempt: string | undefined;
   let activationPending = false;
+  let reportedPhase: string | undefined;
+  let checkingTrial = false;
+  let readyFence: FenceRecord | undefined;
+  let kickedFence: FenceRecord | undefined;
   const stagings = new Map<string, Promise<StageReport>>();
 
   const installed = (): RunnerInstalledBuild => ({
@@ -184,6 +206,85 @@ export function createRunnerUpdateAgent(options: {
   }
   const unknown = (attemptId: string) =>
     status(attemptId, "deferred", { reason: "cancelled" });
+
+  async function replayTerminal(attemptId: string) {
+    const trial = await updater.durable?.read();
+    if (trial && trial.fence.attemptId === attemptId && terminalTrial(trial))
+      return status(attemptId, trial.phase, { reason: trial.reason });
+    return unknown(attemptId);
+  }
+
+  async function reconcileTrial(replay = false) {
+    if (!identity || !updater.durable || checkingTrial) return;
+    checkingTrial = true;
+    try {
+      const current = admission.current;
+      const trial = await updater.durable.read();
+      if (current?.phase === "activating" && trialMatches(trial, current)) {
+        if (terminalTrial(trial!)) {
+          if (!(await updater.durable.fenceCleared())) return;
+          if (admission.current === current) {
+            if (attempt?.attemptId === current.attemptId) attempt = null;
+            admission.releaseFromUpdater();
+          }
+        } else if (trial!.phase === "starting" && readyFence !== current) {
+          if (
+            installed().revision !== current.target.revision ||
+            installed().sha256 !== current.target.sha256 ||
+            installed().version !== current.target.version
+          ) {
+            await updater.durable.signal(current, {
+              kind: "reject",
+              reason: "verify_failed",
+            });
+          } else {
+            await updater.durable.signal(current, {
+              kind: "ready",
+              pid: process.pid,
+            });
+          }
+          readyFence = current;
+        }
+      } else if (
+        current?.phase === "activating" &&
+        send &&
+        kickedFence !== current
+      ) {
+        kickedFence = current;
+        await updater.activate(current);
+      }
+      if (
+        trial &&
+        (terminalTrial(trial) ||
+          (admission.current && trialMatches(trial, admission.current)))
+      ) {
+        const key = `${trial.fence.attemptId}/${trial.fence.startedAt}/${trial.phase}`;
+        if (send && (replay || reportedPhase !== key)) {
+          reportedPhase = key;
+          if (terminalTrial(trial)) {
+            status(trial.fence.attemptId, trial.phase, {
+              reason: trial.reason,
+            });
+          } else {
+            status(trial.fence.attemptId, "activating", {
+              ...(trial.phase === "trial" && { reason: "trial" }),
+              retained: trial.fence.retained,
+            });
+          }
+        }
+      }
+    } catch (error) {
+      log(`Runner update reconciliation failed: ${(error as Error).message}`);
+    } finally {
+      checkingTrial = false;
+    }
+  }
+
+  if (identity && updater.durable) {
+    // Works while disconnected, so a confirmed candidate can reopen admission
+    // even if the acknowledgement was lost with the connection.
+    setInterval(() => void reconcileTrial(), 500).unref();
+  }
 
   function armExpiry(fence: FenceRecord) {
     clearTimeout(expiryTimer);
@@ -252,8 +353,10 @@ export function createRunnerUpdateAgent(options: {
         reason: "fence_ready",
         retained: fence.retained,
       });
-    else if (fence.phase === "activating")
-      status(fence.attemptId, "activating");
+    else if (fence.phase === "activating") {
+      if (updater.durable) return reconcileTrial(true);
+      status(fence.attemptId, "activating", { retained: fence.retained });
+    }
   }
 
   async function offer(
@@ -267,12 +370,24 @@ export function createRunnerUpdateAgent(options: {
         !sameTarget(fence.target, frame.target)
       )
         return unknown(frame.attemptId);
+      if (fence.phase === "activating") return fenceStatus(fence);
       // A restarted supervisor rebinds staging for its persisted attempt.
       if (attempt?.attemptId !== frame.attemptId) {
         attempt = { attemptId: frame.attemptId, target: fence.target };
         stage(attempt);
       }
       return fenceStatus(fence);
+    }
+    if (updater.durable) {
+      const last = await updater.durable.read();
+      if (
+        last &&
+        terminalTrial(last) &&
+        last.phase !== "deferred" &&
+        last.fence.attemptId === frame.attemptId &&
+        sameTarget(last.fence.target, frame.target)
+      )
+        return status(frame.attemptId, last.phase, { reason: last.reason });
     }
     if (attempt?.attemptId === frame.attemptId) {
       if (!sameTarget(attempt.target, frame.target))
@@ -391,7 +506,10 @@ export function createRunnerUpdateAgent(options: {
       await boundary(currentFence);
   }
 
-  async function activate(frame: { attemptId: string }) {
+  async function activate(
+    frame: { attemptId: string },
+    isCurrent: () => boolean
+  ) {
     const current = admission.current;
     if (!current || current.attemptId !== frame.attemptId)
       return unknown(frame.attemptId);
@@ -418,11 +536,18 @@ export function createRunnerUpdateAgent(options: {
     } finally {
       activationPending = false;
     }
-    status(frame.attemptId, "activating");
+    status(frame.attemptId, "activating", { retained: current.retained });
+    const activating = admission.current!;
+    kickedFence = activating;
     try {
-      await updater.activate(admission.current!);
+      if (!isCurrent() && updater.durable)
+        await updater.durable.signal(activating, { kind: "disconnect" });
+      await updater.activate(activating);
     } catch (error) {
-      // Nothing was swapped. Reopen admission before reporting.
+      // A systemctl failure is ambiguous. The durable helper or the next
+      // connection reconciles the request without reopening the fence.
+      if (updater.durable) throw error;
+      // The in-process seam reports a definite pre-swap refusal.
       log(`Runner update activation refused: ${(error as Error).message}`);
       if (admission.current?.attemptId === frame.attemptId)
         await release(frame.attemptId);
@@ -431,21 +556,55 @@ export function createRunnerUpdateAgent(options: {
   }
 
   async function confirm(
-    frame: Extract<UpdateServiceFrame, { type: "update_confirm" }>
+    frame: Extract<UpdateServiceFrame, { type: "update_confirm" }>,
+    isCurrent: () => boolean
   ) {
     const current = admission.current;
-    if (!current || current.attemptId !== frame.attemptId)
-      return unknown(frame.attemptId);
-    if (
-      current.phase !== "activating" ||
+    if (!current) return replayTerminal(frame.attemptId);
+    if (current.attemptId !== frame.attemptId) return unknown(frame.attemptId);
+    if (current.phase !== "activating") return fenceStatus(current);
+    if (updater.durable) {
+      const trial = await updater.durable.read();
+      if (!isCurrent()) return;
+      if (!trialMatches(trial, current) || trial!.phase !== "trial")
+        return fenceStatus(current);
+      if (
+        frame.revision !== current.target.revision ||
+        frame.sha256 !== current.target.sha256
+      ) {
+        return updater.durable.signal(current, {
+          kind: "reject",
+          reason: "verify_failed",
+        });
+      }
+      const inventory = await inspect(identity!.handoff).catch(() => null);
+      if (!isCurrent() || admission.current !== current) return;
+      if (
+        !inventory ||
+        !current.retained.every((expected) =>
+          inventory.retained.some(
+            (host) =>
+              host.sessionId === expected.sessionId &&
+              host.instanceId === expected.instanceId
+          )
+        )
+      ) {
+        return updater.durable.signal(current, {
+          kind: "reject",
+          reason: "reattach_failed",
+        });
+      }
+    } else if (
       frame.revision !== current.target.revision ||
       frame.sha256 !== current.target.sha256
-    )
+    ) {
       return fenceStatus(current);
+    }
     await updater.confirm(current, {
       revision: frame.revision,
       sha256: frame.sha256,
     });
+    if (updater.durable) return;
     if (admission.current === current) await release(frame.attemptId);
     status(frame.attemptId, "confirmed");
   }
@@ -459,6 +618,8 @@ export function createRunnerUpdateAgent(options: {
         "Runner update fence state was unreadable; cancelled by the service."
       );
       await release(frame.attemptId);
+    } else if (!current && updater.durable) {
+      return replayTerminal(frame.attemptId);
     } else if (current && current.attemptId !== frame.attemptId) {
       return unknown(frame.attemptId);
     } else if (current) {
@@ -498,13 +659,17 @@ export function createRunnerUpdateAgent(options: {
      */
     connect(sendStatus: (frame: UpdateStatusFrame) => void) {
       send = sendStatus;
+      reportedPhase = undefined;
+      kickedFence = undefined;
+      const isCurrent = () => send === sendStatus;
+      void reconcileTrial(true);
       if (expiredAttempt) {
         unknown(expiredAttempt);
         expiredAttempt = undefined;
       }
       return {
         receive(frame: UpdateServiceFrame): Promise<void> {
-          if (!identity) return Promise.resolve();
+          if (!identity || send !== sendStatus) return Promise.resolve();
           const handle = async () => {
             switch (frame.type) {
               case "update_offer":
@@ -512,9 +677,9 @@ export function createRunnerUpdateAgent(options: {
               case "update_fence":
                 return fence(frame);
               case "update_activate":
-                return activate(frame);
+                return activate(frame, isCurrent);
               case "update_confirm":
-                return confirm(frame);
+                return confirm(frame, isCurrent);
               case "update_cancel":
                 return cancel(frame);
             }
@@ -524,7 +689,22 @@ export function createRunnerUpdateAgent(options: {
           );
         },
         close() {
-          if (send === sendStatus) send = undefined;
+          if (!isCurrent()) return;
+          send = undefined;
+          const fence = admission.current;
+          if (
+            updater.durable &&
+            fence?.phase === "activating" &&
+            installed().sha256 !== fence.target.sha256
+          ) {
+            void updater.durable
+              .signal(fence, { kind: "disconnect" })
+              .catch((error: Error) =>
+                log(
+                  `Runner update disconnect could not be recorded: ${error.message}`
+                )
+              );
+          }
         },
       };
     },
@@ -605,16 +785,23 @@ export async function readStageRecord(
   }
 }
 
-/** Task 2's root staging unit. The activation steps are not in this build. */
 export function systemdRunnerUpdater(
-  layout: RunnerUpdateLayout
+  layout: RunnerUpdateLayout,
+  canActivate = false
 ): RunnerUpdater {
-  const unavailable = () =>
-    Promise.reject(
-      new Error("Runner activation is not available in this build.")
-    );
   return {
-    canActivate: false,
+    canActivate,
+    ...(canActivate && {
+      durable: {
+        read: () => readTrial(layout),
+        fenceCleared: async () =>
+          (await fileFenceStore(layout.state, 0).read()) === null,
+        signal: (
+          fence: FenceRecord,
+          signal: Parameters<typeof sendTrialSignal>[2]
+        ) => sendTrialSignal(layout, fence, signal),
+      },
+    }),
     async stage(target) {
       const startedAt = Date.now();
       const unit = `${RUNNER_UPDATE_UNIT_PREFIX}${runnerUpdateInstance(target)}.service`;
@@ -630,10 +817,25 @@ export function systemdRunnerUpdater(
         }
       );
     },
-    suppressed: async () => false,
-    activate: unavailable,
-    confirm: unavailable,
-    cancelTrial: async () => false,
+    suppressed: (target) => isSuppressed(layout, target.sha256),
+    async activate() {
+      if (!canActivate)
+        throw new Error("Runner activation helper is unavailable");
+      await startRunnerTrial();
+    },
+    async confirm(fence, observed) {
+      if (!canActivate)
+        throw new Error("Runner activation helper is unavailable");
+      await sendTrialSignal(layout, fence, { kind: "confirm", observed });
+    },
+    async cancelTrial(fence, reason) {
+      if (!canActivate) return false;
+      await sendTrialSignal(layout, fence, {
+        kind: "reject",
+        reason: reason === "trial_failed" ? "reattach_failed" : "cancelled",
+      });
+      return true;
+    },
   };
 }
 

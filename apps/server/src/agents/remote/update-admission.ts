@@ -251,8 +251,12 @@ export class UpdateAdmission {
     return pending;
   }
 
-  /** Reopen admission and remove the persisted fence. */
-  async release() {
+  /** The durable updater owns the on-disk fence after activation. */
+  releaseFromUpdater() {
+    this.reset();
+  }
+
+  private reset() {
     this.generation++;
     this.record = null;
     this.untrusted = false;
@@ -262,6 +266,11 @@ export class UpdateAdmission {
     this.wake?.();
     this.terminalsSettled?.();
     this.terminalsSettled = undefined;
+  }
+
+  /** Reopen admission and remove the persisted fence. */
+  async release() {
+    this.reset();
     try {
       await this.updateStore(() => this.store.clear());
     } catch (error) {

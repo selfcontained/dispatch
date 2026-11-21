@@ -59,6 +59,8 @@ describe.skipIf(!BUILDS_EXIST)("pack-release", () => {
     expect(files).toContain("bin/dispatch-runner");
     expect(files).toContain("bin/dispatch-runner.service");
     expect(files).toContain("bin/dispatch-runner-update@.service");
+    expect(files).toContain("bin/dispatch-runner-trial.service");
+    expect(files).toContain("bin/50-dispatch-trial.conf");
   });
 
   it("does NOT embed macOS xattr/pax metadata (e.g. com.apple.provenance)", () => {

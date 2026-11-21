@@ -10,6 +10,7 @@ Usage:
   install-dispatch-runner.sh install --tag vX.Y.Z [--user USER | --dedicated-user] [SOURCE]
   install-dispatch-runner.sh update --tag vX.Y.Z [SOURCE]
   install-dispatch-runner.sh recover
+  install-dispatch-runner.sh uninstall
 
 Add --allow-downgrade to install or update to permit replacing a newer runner.
 
@@ -28,6 +29,7 @@ The workload uses SUDO_USER by default. Use --user for another existing
 non-root account, or --dedicated-user to create the dispatch-runner account.
 Update preserves idle sessions on compatible runners. Exit 75 means retry after the reported activity finishes.
 Recover restores the previous binary after an interrupted update.
+Uninstall removes the managed service and binaries and retains enrollment and session data.
 USAGE
 }
 
@@ -199,6 +201,16 @@ stage_release() {
   else
     : > "$stage/$update_unit"
   fi
+  local unit_asset
+  for unit_asset in dispatch-runner-trial.service 50-dispatch-trial.conf; do
+    if ! tar -xOzf "$stage/$archive" "bin/$unit_asset" > "$stage/$unit_asset" 2>/dev/null; then
+      : > "$stage/$unit_asset"
+    fi
+  done
+  if [[ -s "$stage/dispatch-runner-trial.service" || -s "$stage/50-dispatch-trial.conf" ]]; then
+    [[ -s "$stage/dispatch-runner-trial.service" && -s "$stage/50-dispatch-trial.conf" ]] ||
+      error "Incomplete runner trial unit in $tag"
+  fi
 }
 
 stable_start() {
@@ -296,18 +308,34 @@ runner_probe_available() {
   [[ -x /usr/bin/systemd-run ]]
 }
 
-install_update_unit() {
-  local replacement path="${unit_path%/*}/$update_unit"
-  install -d -m 0700 "$runtime/update" "$state/update"
-  if [[ ! -s "$stage/$update_unit" ]]; then
+install_unit_asset() {
+  local source=$1 path=$2 replacement
+  if [[ ! -s "$source" ]]; then
     rm -f -- "$path"
-    return 0
+    return
   fi
-  cmp -s "$stage/$update_unit" "$path" && return 0
   replacement=$(mktemp "${path}.XXXXXX")
-  if ! install -m 0644 "$stage/$update_unit" "$replacement" || ! mv -fT "$replacement" "$path"; then
+  if ! install -o root -g root -m 0644 "$source" "$replacement" || ! mv -fT "$replacement" "$path"; then
     rm -f -- "$replacement"
-    error "Could not install the runner update unit"
+    error "Could not install $path"
+  fi
+}
+
+install_update_unit() {
+  local dir="${unit_path%/*}" dropin="${unit_path}.d"
+  install -o root -g root -d -m 0700 "$runtime/update" "$state/update"
+  install_unit_asset "$stage/$update_unit" "$dir/$update_unit"
+  if [[ -s "$stage/dispatch-runner-trial.service" ]]; then
+    if [[ -L "$runtime/update/activate-helper" || ! "$runtime/update/activate-helper" -ef "$runtime/dispatch" ]]; then
+      ln "$runtime/dispatch" "$stage/activate-helper"
+      mv -fT "$stage/activate-helper" "$runtime/update/activate-helper"
+      sync -f "$runtime/update"
+    fi
+    install -o root -g root -d -m 0755 "$dropin"
+    install_unit_asset "$stage/dispatch-runner-trial.service" "$dir/dispatch-runner-trial.service"
+    install_unit_asset "$stage/50-dispatch-trial.conf" "$dropin/50-dispatch-trial.conf"
+  else
+    rm -f -- "$dropin/50-dispatch-trial.conf" "$dir/dispatch-runner-trial.service" "$runtime/update/activate-helper"
   fi
 }
 
@@ -568,9 +596,15 @@ version_is_lower() {
   return 1
 }
 
+assert_no_update_fence() {
+  [[ ! -e "$state/update/fence.json" ]] ||
+    error "A runner update fence or trial is in progress"
+}
+
 update_runner() {
   local installed
   maintenance_step=prepare
+  assert_no_update_fence
   # Keep the original tool error on the runner. Only the bounded status record
   # goes to Dispatch. The lock serializes writers, and tee must not inherit it.
   install -m 0600 /dev/null "$runtime/last-maintenance.log"
@@ -616,6 +650,13 @@ update_runner() {
   maintenance_step=stop
   rm -f -- "$runtime/previous-active"
   stop_runner_for_update record_previous
+  # A fence may have arrived while we were downloading or stopping. Restore
+  # the old service before giving the self-updater the installer lock.
+  if [[ -e "$state/update/fence.json" ]]; then
+    recover_runner
+    assert_no_update_fence
+    error "A runner update fence interrupted manual maintenance"
+  fi
   maintenance_step=replace
   record_release "$stage/next" "$installed"
   mv -fT "$stage/next" "$runtime/dispatch"
@@ -626,6 +667,25 @@ update_runner() {
     recover_runner
     maintenance_step=start
     error "New runner failed to start. Restored the previous release"
+  fi
+  local previous_sha previous_revision previous_compatibility
+  install -o root -g root -d -m 0700 "$state/update"
+  previous_sha=$(sha256sum "$runtime/previous")
+  previous_sha=${previous_sha%% *}
+  previous_revision=
+  if previous_compatibility=$("$runtime/previous" runner-update-compatibility 2>/dev/null); then
+    previous_revision=$(sed -nE 's/.*"revision":"([0-9a-f]{40})".*/\1/p' <<< "$previous_compatibility")
+  fi
+  previous_revision=${previous_revision:-unknown}
+  local previous_record
+  previous_record=$(mktemp "$state/update/.previous-verified.XXXXXX")
+  printf '{"version":"%s","revision":"%s","sha256":"%s"}\n' \
+    "${installed#v}" "$previous_revision" "$previous_sha" > "$previous_record"
+  sync -f "$previous_record"
+  mv -fT "$previous_record" "$state/update/previous-verified.json"
+  sync -f "$state/update"
+  if [[ ! "$runtime/previous" -ef "$runtime/previous-verified" ]]; then
+    mv -fT "$runtime/previous" "$runtime/previous-verified"
   fi
   rm -f -- "$runtime/previous" "$runtime/previous-handoff.py" "$runtime/previous-active"
   sync -f "$runtime"
@@ -701,6 +761,31 @@ parse_install_options() {
   done
 }
 
+uninstall_runner() {
+  assert_no_update_fence
+  managed_runner_installed || error "No managed Dispatch runner is installed"
+  [[ ! -e "$runtime/previous" ]] || error "Recover the interrupted manual update first"
+  # Without a handoff probe this refuses to stop a unit with agent processes.
+  local was_running=0
+  if systemctl is-active --quiet "$unit"; then was_running=1; fi
+  stop_runner_for_update
+  if [[ -e "$state/update/fence.json" ]]; then
+    if [[ "$was_running" == 1 ]]; then stable_start; fi
+    assert_no_update_fence
+  fi
+  systemctl disable "$unit"
+  if [[ -L "$command_path" && "$(readlink "$command_path")" == "$runtime/runner-cli" ]]; then
+    rm -f -- "$command_path"
+  fi
+  rm -f -- "$unit_path" "${unit_path}.d/50-dispatch-trial.conf" \
+    "${unit_path%/*}/$update_unit" "${unit_path%/*}/dispatch-runner-trial.service"
+  rm -f -- "$runtime/update/activate-helper" "$runtime/runner-cli" \
+    "$runtime/install-dispatch-runner.sh" "$runtime/previous-verified" \
+    "$runtime/installed-release" "$runtime/dispatch"
+  systemctl daemon-reload
+  printf 'Runner uninstalled. Enrollment and session data were retained.\n'
+}
+
 managed_runner_installed() {
   [[ -f "$runtime/managed-install" && -x "$runtime/dispatch" && -f "$config" ]]
 }
@@ -714,12 +799,11 @@ run_action() {
     fi
     action=update
   fi
-  if [[ "$action" == install ]]; then
-    stage_release
-    install_runner
-  else
-    update_runner
-  fi
+  case "$action" in
+    install) stage_release; install_runner ;;
+    uninstall) uninstall_runner ;;
+    *) update_runner ;;
+  esac
 }
 
 main() {
@@ -733,11 +817,11 @@ main() {
   action=${1:-}
   case "$action" in
     -h|--help) usage; return ;;
-    install|update|recover) shift ;;
-    *) usage >&2; error "Choose install, update, or recover" ;;
+    install|update|recover|uninstall) shift ;;
+    *) usage >&2; error "Choose install, update, recover, or uninstall" ;;
   esac
-  if [[ "$action" == recover ]]; then
-    [[ $# -eq 0 ]] || error "Recover takes no options"
+  if [[ "$action" == recover || "$action" == uninstall ]]; then
+    [[ $# -eq 0 ]] || error "$action takes no options"
   else
     [[ $# -ge 2 && "$1" == --tag ]] || error "Supply --tag vX.Y.Z"
     tag=$2
@@ -756,7 +840,7 @@ main() {
   [[ -r "$cgroup_root/cgroup.controllers" && -d /run/systemd/system ]] ||
     error "The managed runner needs systemd and cgroup v2"
   [[ -x /usr/bin/setpriv ]] || error "Install util-linux with /usr/bin/setpriv"
-  if [[ "$action" != recover ]]; then
+  if [[ "$action" == install || "$action" == update ]]; then
     check_dependencies
   fi
   umask 077

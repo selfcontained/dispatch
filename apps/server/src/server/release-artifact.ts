@@ -208,6 +208,16 @@ export async function verifyRunnerArchive(input: {
   ];
   const { stdout } = await runCommand("tar", ["tvf", archive]);
   const entries = stdout.trimEnd().split("\n");
+  const trialAssets = [
+    "bin/dispatch-runner-trial.service",
+    "bin/50-dispatch-trial.conf",
+  ];
+  if (
+    entries.some((entry) =>
+      trialAssets.some((asset) => entry.endsWith(` ${asset}`))
+    )
+  )
+    members.push(...trialAssets);
   if (entries.length !== members.length)
     throw new Error("Runner archive contains unexpected members");
   for (const member of members) {

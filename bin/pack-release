@@ -78,7 +78,8 @@ if [[ -n "$RUNNER_ARCH" ]]; then
   fi
   printf '%s\n' "${binaries[0]}" dist/bun/BUILD_IDENTITY.json \
     bin/install-dispatch-runner.sh bin/dispatch-runner bin/dispatch-runner.service \
-    'bin/dispatch-runner-update@.service' bin/runner-handoff-v1.py > "$MANIFEST"
+    'bin/dispatch-runner-update@.service' bin/dispatch-runner-trial.service \
+    bin/50-dispatch-trial.conf bin/runner-handoff-v1.py > "$MANIFEST"
 else
   cat > "$MANIFEST" <<'LIST'
 dist/bun

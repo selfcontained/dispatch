@@ -28,6 +28,7 @@ import {
   createRunnerUpdateAgent,
   detectSelfUpdate,
   systemdRunnerUpdater,
+  trialHelperAvailable,
   type RunnerUpdater,
   type UpdateIdentity,
 } from "./update-agent.js";
@@ -513,7 +514,12 @@ export async function runRemoteRunner(
         ? await detectSelfUpdate(updateLayout)
         : updateOptions.updateIdentity,
     admission,
-    updater: updateOptions.updater ?? systemdRunnerUpdater(updateLayout),
+    updater:
+      updateOptions.updater ??
+      systemdRunnerUpdater(
+        updateLayout,
+        await trialHelperAvailable(updateLayout)
+      ),
     inspect: (candidate) => supervisor.inspectHandoff(candidate),
   });
 

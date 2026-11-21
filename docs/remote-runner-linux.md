@@ -217,6 +217,28 @@ sudo systemctl start 'dispatch-runner-update@1.2.3_linux_x64_<sha256>.service'
 sudo cat /var/lib/dispatch-runner/update/last-stage.json
 ```
 
+## Runner update trial
+
+After the controller requests activation, systemd starts
+`dispatch-runner-trial.service` independently of the supervisor. The helper
+holds the installer lock, validates the staged build again, pins the old
+binary and stops only the fenced supervisor before replacing its executable.
+The old agent hosts keep running. The supervisor's startup hook recovers an
+interrupted trial before launching the runner at boot.
+
+The trial allows up to four minutes for the supervisor to start, reconnect
+and reattach the retained sessions. A confirmation binds the attempt to the
+exact revision and digest. The helper records the confirmed version floor
+and retains one previous verified executable. Failed trials restore the
+previous executable and require an explicit retry to try the failed digest
+again. Inspect `/var/lib/dispatch-runner/update/trial.json` and
+`journalctl -u dispatch-runner-trial.service` for the outcome.
+
+Manual update and uninstall share the same lock and refuse an active update
+fence. Run `sudo /opt/dispatch-runner/install-dispatch-runner.sh uninstall`
+to remove the service and executable after its sessions are closed. Enrollment
+and session data remain on disk.
+
 ## Clear a stuck update fence
 
 A pre-activation fence expires six minutes after it was recorded, including

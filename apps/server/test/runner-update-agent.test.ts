@@ -17,6 +17,7 @@ import {
   type HandoffInventory,
   type StageReport,
 } from "../src/agents/remote/update-agent.js";
+import type { TrialRecord } from "../src/agents/remote/update-trial.js";
 import { RUNNER_UPDATE_LAYOUT } from "../src/agents/remote/update-verify.js";
 import {
   attemptId,
@@ -41,6 +42,7 @@ async function setup(
     inventory?: HandoffInventory;
     store?: ReturnType<typeof memoryStore>;
     updater?: RunnerUpdater;
+    installed?: typeof identity;
   } = {}
 ) {
   const store = options.store ?? memoryStore();
@@ -56,7 +58,7 @@ async function setup(
       }
   );
   const agent = createRunnerUpdateAgent({
-    identity,
+    identity: options.installed ?? identity,
     admission,
     updater: options.updater ?? updater,
     inspect,
@@ -648,5 +650,111 @@ describe("staging record", () => {
       at: new Date(now).toISOString(),
     });
     expect(await readStageRecord(layout, target, now, uid)).toBeNull();
+  });
+});
+
+describe("durable trial protocol", () => {
+  afterEach(() => vi.useRealTimers());
+
+  async function trial(inventory?: HandoffInventory) {
+    vi.useFakeTimers();
+    const fence = {
+      ...fenceRecord,
+      phase: "activating",
+      retained: [host],
+    } as const;
+    const store = memoryStore({
+      ...fence,
+      retained: [{ sessionId: host.sessionId, instanceId: host.instanceId }],
+    });
+    let record: TrialRecord = {
+      fence: store.record!,
+      phase: "trial",
+      previous: identity,
+      deadline: Date.now() + 60_000,
+    };
+    const updater = {
+      ...mockUpdater(),
+      durable: {
+        read: vi.fn(async () => record),
+        fenceCleared: async () => store.record === null,
+        signal: vi.fn(async () => {}),
+      },
+    } satisfies RunnerUpdater;
+    const s = await setup({
+      store,
+      updater,
+      inventory,
+      installed: { ...identity, ...target },
+    });
+    await vi.advanceTimersByTimeAsync(1);
+    const confirm = (revision = target.revision, attempt = attemptId) =>
+      s.receive({
+        type: "update_confirm",
+        attemptId: attempt,
+        revision,
+        sha256: target.sha256,
+      });
+    return {
+      ...s,
+      updater,
+      confirm,
+      setRecord: (next: TrialRecord) => {
+        record = next;
+      },
+    };
+  }
+
+  it("reports the trial and keeps admission closed until the durable terminal is published and cleared", async () => {
+    const s = await trial();
+    expect(s.last()).toMatchObject({
+      attemptId,
+      phase: "activating",
+      reason: "trial",
+      installed: { revision: target.revision, sha256: target.sha256 },
+      retained: [{ sessionId: host.sessionId, instanceId: host.instanceId }],
+    });
+    await s.confirm();
+    expect(s.updater.confirm).toHaveBeenCalledOnce();
+    expect(s.admission.closed).toBe(true);
+    s.setRecord({ fence: s.store.record!, phase: "confirmed" });
+    await vi.advanceTimersByTimeAsync(500);
+    expect(s.admission.closed).toBe(true);
+    s.store.record = null;
+    await vi.advanceTimersByTimeAsync(500);
+    expect(s.admission.closed).toBe(false);
+    expect(s.last()).toMatchObject({ phase: "confirmed" });
+    expect(s.store.clear).not.toHaveBeenCalled();
+    await s.confirm();
+    expect(s.last()).toMatchObject({ phase: "confirmed" });
+    expect(s.updater.confirm).toHaveBeenCalledOnce();
+  });
+
+  it("rejects a mismatching revision for the active attempt, ignoring an unrelated attempt", async () => {
+    const s = await trial();
+    await s.confirm(target.revision, otherAttempt);
+    expect(s.updater.durable.signal).not.toHaveBeenCalled();
+    await s.confirm("e".repeat(40));
+    expect(s.updater.durable.signal).toHaveBeenCalledWith(s.store.record, {
+      kind: "reject",
+      reason: "verify_failed",
+    });
+    expect(s.updater.confirm).not.toHaveBeenCalled();
+  });
+
+  it("rejects a retained session replaced by a different instance", async () => {
+    const s = await trial({
+      retained: [
+        { ...host, instanceId: "00000000-0000-4000-8000-000000000002" },
+      ],
+      requiresQuiescence: false,
+      live: 1,
+    });
+    await s.confirm();
+    expect(s.updater.durable.signal).toHaveBeenCalledWith(s.store.record, {
+      kind: "reject",
+      reason: "reattach_failed",
+    });
+    expect(s.updater.confirm).not.toHaveBeenCalled();
   });
 });
