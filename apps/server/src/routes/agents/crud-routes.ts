@@ -341,6 +341,14 @@ export async function registerAgentCrudRoutes(
         .code(400)
         .send({ error: "baseBranch must be a string when provided." });
     }
+    if (
+      body.pullRequest !== undefined &&
+      typeof body.pullRequest !== "string"
+    ) {
+      return reply
+        .code(400)
+        .send({ error: "pullRequest must be a string when provided." });
+    }
 
     if (
       body.initialPrompt !== undefined &&
@@ -442,6 +450,8 @@ export async function registerAgentCrudRoutes(
               : undefined,
           baseBranch:
             typeof body.baseBranch === "string" ? body.baseBranch : undefined,
+          pullRequest:
+            typeof body.pullRequest === "string" ? body.pullRequest : undefined,
           worktreeLocation,
           persona: typeof body.persona === "string" ? body.persona : undefined,
           parentAgentId:

@@ -348,6 +348,59 @@ describe("launch location preference", () => {
     ]);
   });
 
+  it("submits a pull request URL for the server to resolve on both placements", async () => {
+    queryClient.setQueryDefaults(["runners"], { staleTime: Infinity });
+    queryClient.setQueryData(
+      ["runners"],
+      [
+        {
+          id: "rnr_lima",
+          name: "Lima",
+          status: "online",
+          workspaces: ["@session"],
+          managedWorkspace: true,
+          githubManagement: true,
+        },
+      ]
+    );
+    const { result } = await setup();
+    const pr = "https://github.com/org/repo/pull/12";
+    const submitted: Record<string, unknown>[] = [];
+    for (const runner of [null, "rnr_lima"]) {
+      act(() => result.current.selectRunner(runner));
+      if (runner)
+        act(() => result.current.chooseRepo("https://github.com/org/repo"));
+      else act(() => result.current.handlePathInfoChange(REPO_INFO));
+      act(() => {
+        result.current.setCreateNewBranch(false);
+        result.current.setCreateBaseBranch(pr);
+      });
+      apiMock.mockClear();
+      await act(async () => result.current.handleSubmit(submitEvent()));
+      const body = agentsPostJson();
+      submitted.push(
+        Object.fromEntries(
+          ["useWorktree", "createNewBranch", "baseBranch", "pullRequest"].map(
+            (key) => [key, body[key]]
+          )
+        )
+      );
+      expect(
+        apiMock.mock.calls.some(([url]) =>
+          String(url).includes("pull-request-head")
+        )
+      ).toBe(false);
+    }
+    expect(submitted).toEqual(
+      Array(2).fill({
+        useWorktree: true,
+        createNewBranch: false,
+        baseBranch: undefined,
+        pullRequest: pr,
+      })
+    );
+  });
+
   it("starts each runner repository fresh without touching the folder's saved choice", async () => {
     queryClient.setQueryDefaults(["runners"], { staleTime: Infinity });
     queryClient.setQueryData(

@@ -3,6 +3,7 @@ import {
   resolveCurrentBranch,
 } from "../git/git-context.js";
 import { runCommand, type CommandRunner } from "../lib/run-command.js";
+import { githubPullRequestHead } from "@dispatch/runner-protocol";
 
 export type GetPrStatusInput = {
   cwd: string;
@@ -36,6 +37,27 @@ export class GitHubPrError extends Error {
     this.name = "GitHubPrError";
     this.statusCode = statusCode;
   }
+}
+
+/**
+ * A pull request's source repository and branch through the local `gh`,
+ * the same query a runner's GitHub executor runs.
+ */
+export async function getPullRequestHead(
+  input: { cwd: string; owner: string; repo: string; number: number },
+  commandRunner: CommandRunner = runCommand
+): Promise<{ url: string; branch: string }> {
+  const result = await commandRunner(
+    "gh",
+    [
+      "api",
+      `repos/${input.owner}/${input.repo}/pulls/${input.number}`,
+      "--jq",
+      "{url:.head.repo.clone_url,branch:.head.ref}",
+    ],
+    { cwd: input.cwd, timeoutMs: 15_000 }
+  );
+  return githubPullRequestHead(JSON.parse(result.stdout));
 }
 
 export async function getPrStatus(

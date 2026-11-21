@@ -4,6 +4,8 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
+import { parseRepository } from "../src/agents/remote/repository.js";
+import { getPullRequestHead } from "../src/shared/github/pr.js";
 import {
   resolveCheckoutIntent,
   resolveLocalCheckout,
@@ -234,3 +236,127 @@ it.each([
     }
   }
 );
+
+describe("pull request intent", () => {
+  const repository = async () => "https://github.com/owner/repo";
+  const heads = {
+    sameRepo: { url: "https://github.com/owner/repo.git", branch: "topic" },
+    fork: { url: "https://github.com/someone/repo.git", branch: "fix" },
+  };
+  // What the web used to submit after calling /pull-request-head itself.
+  const browserCheckout = (head: { url: string; branch: string }) =>
+    parseRepository({
+      url: head.url,
+      checkout: { kind: "branch", branch: head.branch },
+    });
+
+  it.each(["sameRepo", "fork"] as const)(
+    "opens a %s PR on a runner exactly as the browser did",
+    async (kind) => {
+      const lookup = vi.fn(async () => heads[kind]);
+      const { checkout, normalizedBaseBranch } = await resolveCheckoutIntent(
+        {
+          createNewBranch: false,
+          pullRequest: "https://github.com/Owner/Repo/pull/12",
+        },
+        { ...context, repository, pullRequestHead: lookup }
+      );
+      expect(lookup).toHaveBeenCalledWith({
+        owner: "owner",
+        repo: "repo",
+        number: 12,
+      });
+      expect(checkout?.source).toBe("pullRequest");
+      if (checkout?.source !== "pullRequest") throw new Error("PR expected");
+      expect(
+        parseRepository({
+          url: checkout.repository,
+          checkout: toRunnerCheckout(checkout),
+        })
+      ).toEqual(browserCheckout(heads[kind]));
+      expect(normalizedBaseBranch).toBe(heads[kind].branch);
+    }
+  );
+
+  it("opens a same-repository PR locally as its existing branch", async () => {
+    const run = vi.fn(async () => ({
+      stdout: JSON.stringify(heads.sameRepo),
+      stderr: "",
+      exitCode: 0,
+    }));
+    const { checkout } = await resolveCheckoutIntent(
+      { createNewBranch: false, pullRequest: "#12" },
+      {
+        ...context,
+        repository,
+        pullRequestHead: (target) =>
+          getPullRequestHead({ cwd: "/repo", ...target }, run as never),
+        forkPullRequests: false,
+      }
+    );
+    // Same query the runner's GitHub executor runs.
+    expect(run).toHaveBeenCalledWith(
+      "gh",
+      [
+        "api",
+        "repos/owner/repo/pulls/12",
+        "--jq",
+        "{url:.head.repo.clone_url,branch:.head.ref}",
+      ],
+      expect.objectContaining({ cwd: "/repo" })
+    );
+    const request = toLocalWorktreeRequest(checkout!, context.name);
+    expect(request).toMatchObject({
+      createNewBranch: false,
+      baseBranch: "topic",
+    });
+    await expect(resolveLocalCheckout("/repo", request)).resolves.toEqual({
+      branch: "topic",
+      base: "topic",
+    });
+  });
+
+  it.each([
+    [
+      "a PR from another repository",
+      { pullRequest: "https://github.com/other/repo/pull/12" },
+      { pullRequestHead: async () => heads.sameRepo },
+      "Choose a pull request from the selected repository.",
+    ],
+    [
+      "a PR that cannot be found",
+      { pullRequest: "https://github.com/owner/repo/pull/404" },
+      {
+        pullRequestHead: async () => {
+          throw new Error("HTTP 404");
+        },
+      },
+      "Couldn’t find the source branch of pull request #404",
+    ],
+    [
+      "a fork PR on a local checkout",
+      { pullRequest: "12" },
+      { pullRequestHead: async () => heads.fork, forkPullRequests: false },
+      "This pull request comes from a fork.",
+    ],
+    [
+      "a launch without a GitHub repository",
+      { pullRequest: "12" },
+      { repository: async () => undefined },
+      "Opening a pull request needs a GitHub repository.",
+    ],
+    [
+      "something that is not a PR",
+      { pullRequest: "https://example.com/owner/repo/pull/1" },
+      {},
+      "Enter a GitHub pull request URL or number.",
+    ],
+  ])("rejects %s", async (_, input, options, message) => {
+    await expect(
+      resolveCheckoutIntent(
+        { createNewBranch: false, ...input },
+        { ...context, repository, ...options }
+      )
+    ).rejects.toThrow(message);
+  });
+});

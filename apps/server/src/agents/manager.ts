@@ -30,6 +30,7 @@ import {
   type DiagnosticsRecorder,
 } from "../diagnostics.js";
 import { localDefaultBranch } from "../shared/git/default-branch.js";
+import { getPullRequestHead } from "../shared/github/pr.js";
 import { GitWorktreeError } from "../shared/git/worktree.js";
 import { resolveFilesDir } from "../shared/files.js";
 import { getDirectoryIconPath } from "../shared/directory-icon-cache.js";
@@ -95,6 +96,7 @@ import { agentWorkspaceDir, isSafeBranchName } from "./workspace-target.js";
 import { inspectAgentCheckout, reviewerWorkspace } from "./checkout-runner.js";
 import {
   resolveCheckoutIntent,
+  CheckoutIntentError,
   runnerDefaultBranch,
   toLocalWorktreeRequest,
   toRunnerCheckout,
@@ -199,6 +201,8 @@ type CreateAgentInput = {
   createNewBranch?: boolean;
   worktreeBranch?: string;
   baseBranch?: string;
+  /** Open this pull request's source branch (URL or number). */
+  pullRequest?: string;
   worktreeLocation?: WorktreeLocation;
   persona?: string;
   /** Existing agents use workspace overrides; UI/templates/jobs use the catalog. */
@@ -1917,21 +1921,51 @@ export class AgentManager {
       repository?.url && repository.checkout
         ? { url: repository.url, checkout: repository.checkout }
         : null;
+    const localGit =
+      directory && directory.git.status === "ok" && directory.git.value
+        ? directory.canonicalPath
+        : null;
+    const remote = this.remote;
+    // One PR lookup, two executors: the runner's GitHub operation or local gh.
     const p = await this.prepareCreateInputs(
       input,
       directory?.cwd ?? input.cwd,
-      directory && directory.git.status === "ok" && directory.git.value
-        ? () => localDefaultBranch(directory.canonicalPath)
-        : placement && derivedRepositoryUrl && this.remote
-          ? () =>
-              runnerDefaultBranch(derivedRepositoryUrl, (owner, repo) =>
-                this.remote!.listGitHubBranches(placement.runner, owner, repo)
-              )
-          : undefined
+      localGit
+        ? {
+            defaultBranch: () => localDefaultBranch(localGit),
+            repository: () =>
+              this.localRunner
+                .inferRepositoryUrl(localGit)
+                .catch(() => undefined),
+            pullRequestHead: (target) =>
+              getPullRequestHead({ cwd: localGit, ...target }),
+            // A local worktree checks out branches from its own origin.
+            forkPullRequests: false,
+          }
+        : placement && derivedRepositoryUrl && remote
+          ? {
+              defaultBranch: () =>
+                runnerDefaultBranch(derivedRepositoryUrl, (owner, repo) =>
+                  remote.listGitHubBranches(placement.runner, owner, repo)
+                ),
+              repository: async () => derivedRepositoryUrl,
+              pullRequestHead: ({ owner, repo, number }) =>
+                remote.lookupGitHubPullRequestHead(
+                  placement.runner,
+                  owner,
+                  repo,
+                  number
+                ),
+            }
+          : {}
     );
     if (derivedRepositoryUrl && p.checkout) {
       runnerRepository = {
-        url: derivedRepositoryUrl,
+        // A PR checks out from its head repository, which may be a fork.
+        url:
+          p.checkout.source === "pullRequest"
+            ? p.checkout.repository
+            : derivedRepositoryUrl,
         checkout: toRunnerCheckout(p.checkout),
       };
       try {
@@ -2188,7 +2222,10 @@ export class AgentManager {
   private async prepareCreateInputs(
     input: CreateAgentInput,
     originalCwd: string,
-    defaultBranch?: () => Promise<string | undefined>
+    checkoutContext: Omit<
+      Parameters<typeof resolveCheckoutIntent>[1],
+      "id" | "name"
+    > = {}
   ): Promise<PreparedCreateInputs> {
     const placement = remotePlacement(originalCwd);
     // Remember the icon of the directory the user chose, before a managed
@@ -2218,9 +2255,16 @@ export class AgentManager {
     const filesDir = path.join(this.config.filesRoot, id);
     let intent: Awaited<ReturnType<typeof resolveCheckoutIntent>>;
     try {
-      intent = await resolveCheckoutIntent(input, { id, name, defaultBranch });
+      intent = await resolveCheckoutIntent(input, {
+        id,
+        name,
+        ...checkoutContext,
+      });
     } catch (err) {
-      if (err instanceof GitWorktreeError) {
+      if (
+        err instanceof GitWorktreeError ||
+        err instanceof CheckoutIntentError
+      ) {
         throw new AgentError(err.message, err.statusCode);
       }
       throw err;

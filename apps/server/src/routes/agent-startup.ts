@@ -23,6 +23,7 @@ export type CreateAgentBody = {
   createNewBranch?: unknown;
   worktreeBranch?: unknown;
   baseBranch?: unknown;
+  pullRequest?: unknown;
   persona?: unknown;
   parentAgentId?: unknown;
   personaContext?: unknown;

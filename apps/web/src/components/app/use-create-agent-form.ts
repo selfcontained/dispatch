@@ -64,6 +64,12 @@ type CwdPathInfo = {
   isGitRepo: boolean;
 };
 
+export function isPullRequestUrl(value: string): boolean {
+  return /^https:\/\/github\.com\/[^/]+\/[^/]+\/pull\/[1-9]\d*\/?$/.test(
+    value.trim()
+  );
+}
+
 const FRESH_CHECKOUT = { baseBranch: "", createNewBranch: true };
 
 type ValidatedCwd = CwdPathInfo & {
@@ -271,9 +277,7 @@ export function useCreateAgentForm({
             (!createWorktreeBranch.trim() ||
               validBranch(createWorktreeBranch.trim()))
           : validBranch(createBaseBranch.trim()) ||
-            /^https:\/\/github\.com\/[^/]+\/[^/]+\/pull\/[1-9]\d*\/?$/.test(
-              createBaseBranch.trim()
-            ))));
+            isPullRequestUrl(createBaseBranch.trim()))));
   const locationReady = runnerId
     ? Boolean(remoteCwd) && repoReady && (!selectedProjectId || projectsLoaded)
     : isLocalFolder(createCwd) && (!selectedProjectId || projectsLoaded);
@@ -491,12 +495,10 @@ export function useCreateAgentForm({
         const latestPathInfo = validatedCwdRef.current;
         const repositoryUrl = managedSession ? repository.trim() : "";
         const base = createBaseBranch.trim();
-        // A pull request URL is still resolved here and sent as a checkout
-        // plan. Everything else sends worktree intent the server resolves.
-        const pullRequest =
-          repositoryUrl && !createNewBranch && base.startsWith("https://");
+        // A pull request URL opens its source branch; the server resolves it.
+        const pullRequest = !createNewBranch && isPullRequestUrl(base);
         const submitUseWorktree = repositoryUrl
-          ? !pullRequest
+          ? true
           : !remote &&
             latestPathInfo?.cwd === cwd &&
             latestPathInfo.isGitRepo &&
@@ -504,32 +506,7 @@ export function useCreateAgentForm({
         const submitCreateNewBranch = submitUseWorktree && createNewBranch;
         const contextInitialPrompt =
           step === "context" ? initialPrompt.trim() || undefined : undefined;
-        let checkout;
-        if (pullRequest) {
-          if (!runnerId || !runner?.githubManagement)
-            throw new Error(
-              "Update this runner to open a pull request by URL, or enter a branch name."
-            );
-          const pr = new URL(base);
-          const repo = new URL(repositoryUrl);
-          if (
-            pr.hostname !== repo.hostname ||
-            pr.pathname.split("/").slice(0, 3).join("/").toLowerCase() !==
-              repo.pathname.replace(/\.git$|\/$/g, "").toLowerCase()
-          )
-            throw new Error(
-              "Choose a pull request from the selected repository."
-            );
-          const head = await api<{ url: string; branch: string }>(
-            `/api/v1/runners/${encodeURIComponent(runnerId)}/pull-request-head?url=${encodeURIComponent(base)}`
-          );
-          checkout = {
-            url: head.url,
-            checkout: { kind: "branch", branch: head.branch },
-          };
-        } else if (repositoryUrl) {
-          checkout = { url: repositoryUrl };
-        }
+        const checkout = repositoryUrl ? { url: repositoryUrl } : undefined;
         const payloadBase = {
           name: createName.trim(),
           cwd: createProjectId && !remote ? undefined : cwd,
@@ -553,7 +530,9 @@ export function useCreateAgentForm({
           worktreeBranch: submitCreateNewBranch
             ? createWorktreeBranch.trim() || undefined
             : undefined,
-          baseBranch: submitUseWorktree ? base || undefined : undefined,
+          baseBranch:
+            submitUseWorktree && !pullRequest ? base || undefined : undefined,
+          pullRequest: submitUseWorktree && pullRequest ? base : undefined,
           initialPrompt: contextInitialPrompt,
           taskId: task?.id,
         };
@@ -607,8 +586,6 @@ export function useCreateAgentForm({
     [
       createBaseBranch,
       managedSession,
-      runnerId,
-      runner?.githubManagement,
       repository,
       locationReady,
       runnerEngineBlocked,
