@@ -25,7 +25,7 @@ import {
   agentComparisonBase,
   type ComparisonBaseAgent,
 } from "./effective-base.js";
-import { agentWorkspaceDir, agentDiffTarget } from "./workspace-target.js";
+import { agentWorkspaceDir, agentDiffPath } from "./workspace-target.js";
 
 type Inspect = Extract<SessionOperation, { kind: "inspectCheckout" }>;
 
@@ -117,9 +117,15 @@ export async function readAgentView(
   agent: ComparisonBaseAgent & { id: string },
   view: CheckoutView,
   remote?: RemoteRunnerService | null,
-  comparisonBase: string | null = agentComparisonBase(agent, "changes")
+  comparisonBase?: string | null
 ): Promise<unknown> {
-  const data = await readAgentViewData(agent, view, remote, comparisonBase);
+  const base =
+    "baseBranch" in view &&
+    view.baseBranch === null &&
+    comparisonBase === undefined
+      ? await agentComparisonBase(agent, "changes")
+      : (comparisonBase ?? null);
+  const data = await readAgentViewData(agent, view, remote, base);
   if (view.kind === "stats" && data !== null) return decodeStats(data).stats;
   return data;
 }
@@ -167,9 +173,7 @@ async function readAgentViewData(
     }
   }
   const cwd =
-    "baseBranch" in view
-      ? agentDiffTarget(agent)?.path
-      : agentWorkspaceDir(agent);
+    "baseBranch" in view ? agentDiffPath(agent) : agentWorkspaceDir(agent);
   if (!cwd) {
     if (view.kind === "stats") return null;
     throw new AgentError("This agent has no workspace.", 404);
@@ -181,20 +185,24 @@ export async function readAgentStats(
   id: string,
   agent: ComparisonBaseAgent,
   remote?: RemoteRunnerService | null,
-  comparisonBase: string | null = agentComparisonBase(agent, "changes")
+  comparisonBase?: string | null
 ): Promise<DiffStatsComputation> {
+  const base =
+    comparisonBase === undefined
+      ? await agentComparisonBase(agent, "changes")
+      : comparisonBase;
   const placement = agent.cwd && remotePlacement(agent.cwd);
   if (placement) {
     const data = await readAgentViewData(
       { ...agent, id },
       { kind: "stats", baseBranch: null, includeUncommitted: true },
       remote,
-      comparisonBase
+      base
     );
     return decodeStats(data);
   }
-  const target = agentDiffTarget(agent);
+  const target = agentDiffPath(agent);
   return target
-    ? getDiffStatsComputation(target.path, comparisonBase)
+    ? getDiffStatsComputation(target, base)
     : { kind: "no-data", stats: null };
 }

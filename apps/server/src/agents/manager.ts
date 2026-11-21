@@ -29,6 +29,7 @@ import {
   createDiagnosticsRecorder,
   type DiagnosticsRecorder,
 } from "../diagnostics.js";
+import { localDefaultBranch } from "../shared/git/default-branch.js";
 import { GitWorktreeError } from "../shared/git/worktree.js";
 import { resolveFilesDir } from "../shared/files.js";
 import { getDirectoryIconPath } from "../shared/directory-icon-cache.js";
@@ -94,6 +95,7 @@ import { agentWorkspaceDir, isSafeBranchName } from "./workspace-target.js";
 import { inspectAgentCheckout, reviewerWorkspace } from "./checkout-runner.js";
 import {
   resolveCheckoutIntent,
+  runnerDefaultBranch,
   toLocalWorktreeRequest,
   toRunnerCheckout,
   type ResolvedCheckout,
@@ -1917,7 +1919,15 @@ export class AgentManager {
         : null;
     const p = await this.prepareCreateInputs(
       input,
-      directory?.cwd ?? input.cwd
+      directory?.cwd ?? input.cwd,
+      directory && directory.git.status === "ok" && directory.git.value
+        ? () => localDefaultBranch(directory.canonicalPath)
+        : placement && derivedRepositoryUrl && this.remote
+          ? () =>
+              runnerDefaultBranch(derivedRepositoryUrl, (owner, repo) =>
+                this.remote!.listGitHubBranches(placement.runner, owner, repo)
+              )
+          : undefined
     );
     if (derivedRepositoryUrl && p.checkout) {
       runnerRepository = {
@@ -2177,7 +2187,8 @@ export class AgentManager {
 
   private async prepareCreateInputs(
     input: CreateAgentInput,
-    originalCwd: string
+    originalCwd: string,
+    defaultBranch?: () => Promise<string | undefined>
   ): Promise<PreparedCreateInputs> {
     const placement = remotePlacement(originalCwd);
     // Remember the icon of the directory the user chose, before a managed
@@ -2205,9 +2216,9 @@ export class AgentManager {
         : (input.agentArgs ?? []);
     const name = input.name?.trim() || `agent-${id.slice(-6)}`;
     const filesDir = path.join(this.config.filesRoot, id);
-    let intent: ReturnType<typeof resolveCheckoutIntent>;
+    let intent: Awaited<ReturnType<typeof resolveCheckoutIntent>>;
     try {
-      intent = resolveCheckoutIntent(input, { id, name });
+      intent = await resolveCheckoutIntent(input, { id, name, defaultBranch });
     } catch (err) {
       if (err instanceof GitWorktreeError) {
         throw new AgentError(err.message, err.statusCode);

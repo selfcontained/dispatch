@@ -610,6 +610,10 @@ describe("AgentManager", () => {
       const remote = {
         available: () => true,
         isManagedWorkspace: () => true,
+        listGitHubBranches: vi.fn(async () => ({
+          branches: ["main", "trunk"],
+          defaultBranch: "trunk",
+        })),
         originFor: () => "https://example.test",
       } as unknown as RemoteRunnerService;
       const manager = new AgentManager(pool, noopLogger, testConfig, {
@@ -675,6 +679,26 @@ describe("AgentManager", () => {
         url,
         checkout: { kind: "new", branch: `${auto.agent.id}/web-topic` },
       });
+      const known = await launched({
+        repository: { url: "https://github.com/owner/repo.git" },
+      });
+      expect(known.agent.baseBranch).toBe("trunk");
+      expect(known.repository?.checkout).toMatchObject({
+        kind: "new",
+        base: "trunk",
+      });
+      expect(remote.listGitHubBranches).toHaveBeenCalledWith(
+        "runner-test",
+        "owner",
+        "repo"
+      );
+      await expect(
+        manager.comparisonBase(known.agent, "changes")
+      ).resolves.toBe("trunk");
+      await expect(manager.comparisonBase(known.agent, "review")).resolves.toBe(
+        "trunk"
+      );
+
       await expect(
         manager.createAgent({ cwd, repository: {}, useWorktree: true })
       ).rejects.toThrow("Enter a repository URL");

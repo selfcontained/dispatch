@@ -9,7 +9,7 @@ import {
   type ComparisonUse,
   type LaunchCheckout,
 } from "../src/agents/effective-base.js";
-import { agentDiffTarget } from "../src/agents/workspace-target.js";
+import { agentDiffPath } from "../src/agents/workspace-target.js";
 import type { RemoteRunnerService } from "../src/agents/remote/service.js";
 
 const LOCAL = {
@@ -62,16 +62,18 @@ describe("agentComparisonBase", () => {
       },
       null,
     ],
-  ])("gives local and runner the same base: %o", (shape, expected) => {
+  ])("gives local and runner the same base: %o", async (shape, expected) => {
     for (const use of USES) {
-      expect(agentComparisonBase(agentFor(LOCAL, shape), use)).toBe(expected);
-      expect(
+      await expect(
+        agentComparisonBase(agentFor(LOCAL, shape), use)
+      ).resolves.toBe(expected);
+      await expect(
         agentComparisonBase(agentFor(REMOTE, shape), use, shape.launch)
-      ).toBe(expected);
+      ).resolves.toBe(expected);
     }
   });
 
-  // D1/D2 are owner decisions; today's per-placement rule stays until then.
+  // Unknown runner defaults still resolve on the runner. D2 is unchanged.
   it.each<[Shape, string | null, string | null]>([
     [
       {
@@ -91,28 +93,30 @@ describe("agentComparisonBase", () => {
       "feature",
       null,
     ],
-  ])("keeps today's placement rule: %o", (shape, local, runner) => {
+  ])("keeps today's placement rule: %o", async (shape, local, runner) => {
     for (const use of USES) {
-      expect(agentComparisonBase(agentFor(LOCAL, shape), use)).toBe(local);
-      expect(
+      await expect(
+        agentComparisonBase(agentFor(LOCAL, shape), use)
+      ).resolves.toBe(local);
+      await expect(
         agentComparisonBase(agentFor(REMOTE, shape), use, shape.launch)
-      ).toBe(runner);
+      ).resolves.toBe(runner);
     }
   });
 
-  it("matches main's local Changes and review defaults", () => {
+  it("matches main's local Changes and review defaults", async () => {
     const probed = {
       cwd: "/repo",
       worktreePath: null,
       baseBranch: null,
       gitContext: { worktreePath: "/repo", isWorktree: true },
     };
-    expect(agentComparisonBase(probed, "changes")).toBe("main");
-    expect(agentComparisonBase(probed, "review")).toBeNull();
+    await expect(agentComparisonBase(probed, "changes")).resolves.toBe("main");
+    await expect(agentComparisonBase(probed, "review")).resolves.toBeNull();
     const unnamed = { cwd: "/wt", worktreePath: "/wt", baseBranch: null };
-    expect(agentComparisonBase(unnamed, "changes")).toBe("main");
-    expect(agentComparisonBase(unnamed, "review")).toBeNull();
-    expect(agentDiffTarget(probed)).toEqual({ path: "/repo", baseRef: "main" });
+    await expect(agentComparisonBase(unnamed, "changes")).resolves.toBe("main");
+    await expect(agentComparisonBase(unnamed, "review")).resolves.toBeNull();
+    expect(agentDiffPath(probed)).toBe("/repo");
   });
 });
 

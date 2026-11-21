@@ -30,6 +30,9 @@ vi.mock("../src/shared/git/git-context.js", async (importOriginal) => ({
   resolveRepoRoot: vi.fn(async () => "/main-checkout"),
   resolveWorktreeRoot: vi.fn(async () => "/worktree"),
 }));
+vi.mock("../src/shared/git/default-branch.js", () => ({
+  localDefaultBranch: vi.fn(async () => "main"),
+}));
 vi.mock("../src/shared/lib/run-command.js", () => ({
   runCommand: vi.fn(() => {
     throw new Error("Unexpected local process");

@@ -1,10 +1,12 @@
-import type { RepositoryCheckout } from "@dispatch/runner-protocol";
-import { resolveCurrentBranch } from "../shared/git/git-context.js";
+import {
+  validBranch,
+  type RepositoryCheckout,
+} from "@dispatch/runner-protocol";
+import { localDefaultBranch } from "../shared/git/default-branch.js";
 import {
   assertSafeRefName,
   normalizeBaseBranch,
 } from "../shared/git/worktree.js";
-import { detectDefaultBranch } from "./workspace-target.js";
 import type { WorktreeRequest } from "./workspace.js";
 
 export type CheckoutIntent = {
@@ -21,7 +23,12 @@ export type ResolvedCheckout =
       base?: string;
       source: "branch" | "default";
     }
-  | { createNewBranch: false; branch: string; base: string; source: "branch" }
+  | {
+      createNewBranch: false;
+      branch: string;
+      base: string;
+      source: "branch" | "default";
+    }
   | {
       createNewBranch: false;
       branch?: undefined;
@@ -29,37 +36,35 @@ export type ResolvedCheckout =
       source: "default";
     };
 
-// Keep the current defaults here. Native preparation probes the checkout
-// after verifying its source identity; runners resolve an omitted base.
-const PLACEMENT_RULES = {
-  local: {
-    defaultBase: async (cwd: string) =>
-      (await detectDefaultBranch(cwd)) ??
-      (await resolveCurrentBranch(cwd).catch(() => null)) ??
-      "main",
-  },
-  runner: {
-    existingDefault: { kind: "default" } as const,
-  },
-};
-
-export function resolveCheckoutIntent(
+export async function resolveCheckoutIntent(
   input: CheckoutIntent,
-  { id, name }: { id: string; name: string }
-): {
+  {
+    id,
+    name,
+    defaultBranch,
+  }: {
+    id: string;
+    name: string;
+    defaultBranch?: () => Promise<string | undefined>;
+  }
+): Promise<{
   normalizedBaseBranch: string | undefined;
   checkout: ResolvedCheckout | null;
-} {
+}> {
   // Validate supplied refs even when the launch does not use a worktree.
-  const base = input.baseBranch?.trim()
+  const requestedBase = input.baseBranch?.trim()
     ? normalizeBaseBranch(input.baseBranch)
     : undefined;
   const requestedBranch = input.worktreeBranch?.trim()
     ? assertSafeRefName(input.worktreeBranch, "worktreeBranch")
     : undefined;
 
+  const useWorktree = input.useWorktree !== false;
+  const base =
+    requestedBase ?? (useWorktree ? await defaultBranch?.() : undefined);
+  const source = requestedBase ? "branch" : "default";
   let checkout: ResolvedCheckout | null = null;
-  if (input.useWorktree !== false) {
+  if (useWorktree) {
     if (input.createNewBranch ?? true) {
       const slug = name
         .toLowerCase()
@@ -69,11 +74,11 @@ export function resolveCheckoutIntent(
         createNewBranch: true,
         branch: requestedBranch ?? `${id}/${slug || "work"}`,
         base,
-        source: base ? "branch" : "default",
+        source,
       };
     } else {
       checkout = base
-        ? { createNewBranch: false, branch: base, base, source: "branch" }
+        ? { createNewBranch: false, branch: base, base, source }
         : { createNewBranch: false, source: "default" };
     }
   }
@@ -87,9 +92,9 @@ export function toRunnerCheckout(intent: ResolvedCheckout): RepositoryCheckout {
       branch: intent.branch,
       ...(intent.base ? { base: intent.base } : {}),
     };
-  if (intent.source === "branch")
+  if (intent.branch)
     return { kind: "branch", branch: intent.branch, allowDefault: true };
-  return PLACEMENT_RULES.runner.existingDefault;
+  return { kind: "default" };
 }
 
 export function toLocalWorktreeRequest(
@@ -111,7 +116,21 @@ export async function resolveLocalCheckout(
   cwd: string,
   request: Pick<WorktreeRequest, "branch" | "baseBranch" | "createNewBranch">
 ): Promise<{ branch: string; base: string }> {
-  const base =
-    request.baseBranch ?? (await PLACEMENT_RULES.local.defaultBase(cwd));
+  const base = request.baseBranch ?? (await localDefaultBranch(cwd));
   return { base, branch: request.createNewBranch ? request.branch : base };
+}
+
+/** Older runners and origins without GitHub metadata resolve the base at checkout. */
+export async function runnerDefaultBranch(
+  url: string,
+  listBranches: (
+    owner: string,
+    repo: string
+  ) => Promise<{ branches: string[]; defaultBranch?: string }>
+): Promise<string | undefined> {
+  const repo =
+    /^https:\/\/github\.com\/([\w.-]+)\/([\w.-]+?)(?:\.git)?\/?$/i.exec(url);
+  if (!repo) return undefined;
+  const result = await listBranches(repo[1]!, repo[2]!).catch(() => null);
+  return validBranch(result?.defaultBranch) ? result.defaultBranch : undefined;
 }

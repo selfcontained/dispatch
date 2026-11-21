@@ -23,6 +23,7 @@ export type BranchSelectProps = {
   cwd: string;
   runner?: { id: string; repository: string; browse: boolean };
   allowPullRequest?: boolean;
+  allowRepositoryDefault?: boolean;
   baseBranch: string;
   /**
    * Fired when the user picks a branch. The component never overwrites
@@ -49,6 +50,7 @@ export function BranchSelect({
   cwd,
   runner,
   allowPullRequest = false,
+  allowRepositoryDefault = false,
   baseBranch,
   onBaseBranchChange,
   worktreeBranch,
@@ -81,8 +83,7 @@ export function BranchSelect({
   if (disabled && dropdownOpen) setDropdownOpen(false);
   useClickOutside(cmdRef, dropdownOpen, closeDropdown);
 
-  // Load the runner's default for the closed control. Local branches are
-  // only needed when the menu opens.
+  // Load runner metadata for the closed control and local refs on demand.
   const branches = useQuery({
     queryKey: ["branch-select", endpoint],
     queryFn: ({ signal }) =>
@@ -94,6 +95,8 @@ export function BranchSelect({
   });
   const remoteBranches = branches.data?.branches ?? EMPTY_BRANCHES;
   const defaultBranch = branches.data?.defaultBranch ?? "";
+  const showDefaultRow =
+    !allowPullRequest && Boolean(runner || allowRepositoryDefault);
   const branchesLoading = branches.isFetching;
   const fetchError = branches.error?.message ?? null;
 
@@ -108,22 +111,20 @@ export function BranchSelect({
   // include it (branch renamed/deleted upstream). We flag it visually in
   // the dropdown rather than silently overwrite it.
   const allBranches = useMemo(() => {
-    // The default has its own row when starting a new branch; when opening
-    // an existing branch it leads the list, even past the list's cap.
-    const others = remoteBranches.filter((branch) => branch !== defaultBranch);
-    const base = runner
-      ? allowPullRequest && defaultBranch
-        ? [defaultBranch, ...others]
-        : others
-      : remoteBranches.includes("main")
-        ? remoteBranches
-        : ["main", ...remoteBranches];
-    const hasDefaultRow =
-      runner && !allowPullRequest && baseBranch === defaultBranch;
+    const listedDefault = defaultBranch || (runner ? "" : "main");
+    const base = showDefaultRow
+      ? remoteBranches.filter((branch) => branch !== defaultBranch)
+      : listedDefault && (runner || !remoteBranches.includes(listedDefault))
+        ? [
+            listedDefault,
+            ...remoteBranches.filter((branch) => branch !== listedDefault),
+          ]
+        : remoteBranches;
+    const hasDefaultRow = showDefaultRow && baseBranch === defaultBranch;
     if (baseBranch && !hasDefaultRow && !base.includes(baseBranch))
       return [baseBranch, ...base];
     return base;
-  }, [remoteBranches, baseBranch, runner, defaultBranch, allowPullRequest]);
+  }, [remoteBranches, baseBranch, defaultBranch, runner, showDefaultRow]);
 
   const savedBranchMissing =
     !runner &&
@@ -131,6 +132,7 @@ export function BranchSelect({
     !!baseBranch &&
     branches.isSuccess &&
     remoteBranches.length > 0 &&
+    baseBranch !== defaultBranch &&
     !remoteBranches.includes(baseBranch);
 
   return (
@@ -213,7 +215,7 @@ export function BranchSelect({
                 ) : null}
                 <CommandEmpty>No matching branches.</CommandEmpty>
                 <CommandGroup>
-                  {runner && !allowPullRequest && (
+                  {showDefaultRow && (
                     <CommandItem
                       value={defaultBranch || "Repository default"}
                       keywords={["default"]}

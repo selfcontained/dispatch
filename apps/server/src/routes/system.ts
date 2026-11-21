@@ -231,7 +231,7 @@ export async function registerSystemRoutes(
         .send({ error: "cwd query parameter is required." });
     }
     try {
-      return { branches: await listLocalRemoteBranches(query.cwd.trim()) };
+      return await listLocalRemoteBranches(query.cwd.trim());
     } catch {
       return reply.code(500).send({ error: "Failed to list remote branches." });
     }

@@ -5,8 +5,11 @@ import {
   type GetDiffStatsOptions,
 } from "../shared/git/diff-stats.js";
 import type { SubsystemTracker } from "../observability/subsystem-tracker.js";
-import type { ComparisonBaseAgent } from "./effective-base.js";
-import { agentDiffTarget } from "./workspace-target.js";
+import {
+  agentComparisonBase,
+  type ComparisonBaseAgent,
+} from "./effective-base.js";
+import { agentDiffPath } from "./workspace-target.js";
 
 export type DiffStatsAgent = ComparisonBaseAgent & { runnerManaged?: boolean };
 
@@ -171,14 +174,14 @@ export class DiffStatsRefresher {
     try {
       const agent = await this.getAgent(agentId);
       // `getDiffStats` returns null when the path isn't inside a repo.
-      const target = agent ? agentDiffTarget(agent) : null;
+      const target = agent ? agentDiffPath(agent) : null;
       if (agent && (this.computeAgentStats || target)) {
         const base = this.comparisonBase
           ? await this.comparisonBase(agentId, agent)
-          : (target?.baseRef ?? null);
+          : await agentComparisonBase(agent, "changes");
         computation = this.computeAgentStats
           ? await this.computeAgentStats(agentId, agent, base)
-          : await this.computeDiffStats(target!.path, base);
+          : await this.computeDiffStats(target!, base);
         if (computation.kind === "failure") throw computation.error;
         nextStats = computation.stats;
       }

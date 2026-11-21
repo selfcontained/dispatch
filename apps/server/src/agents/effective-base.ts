@@ -1,5 +1,9 @@
 import { remotePlacement, type RunnerRepository } from "./remote/protocol.js";
-import type { WorkspaceTargetAgent } from "./workspace-target.js";
+import { localDefaultBranch } from "../shared/git/default-branch.js";
+import {
+  agentDiffPath,
+  type WorkspaceTargetAgent,
+} from "./workspace-target.js";
 
 /**
  * What the base is compared for. Changes (diff, file diff, stats) and owner
@@ -16,61 +20,39 @@ export type ComparisonBaseAgent = WorkspaceTargetAgent & {
 /** The launch checkout a runner session was created from, if any. */
 export type LaunchCheckout = RunnerRepository["checkout"] | null | undefined;
 
-type PlacementRule = {
-  /** The base recorded at launch, before any workspace move. */
-  launchBase(agent: ComparisonBaseAgent, launch: LaunchCheckout): string | null;
-  /** The base when nothing was recorded. Null leaves it to the executor. */
-  defaultBase(agent: ComparisonBaseAgent, use: ComparisonUse): string | null;
-};
-
-const DEFAULT_WORKTREE_BASE_BRANCH = "main";
-
-/**
- * SWITCH POINT for owner decisions D1 (default base when none was picked) and
- * D2 (base for an agent opened on an existing branch or PR). Today's
- * behaviour differs per placement and is kept here, and only here, until
- * those decisions land:
- *
- * - local: the stored launch base (`agents.base_branch`, which is the opened
- *   branch for an existing-branch launch). Managed worktrees default to `main`.
- * - runner: only a new branch's fork point counts. An existing branch or PR
- *   and a new branch without a base return null, so the runner falls back to
- *   its recorded base (the repository default), then PR base, then upstream.
- */
-const PLACEMENT_RULES: Record<"local" | "runner", PlacementRule> = {
-  local: {
-    launchBase: (agent) => agent.baseBranch ?? null,
-    defaultBase: (agent, use) => {
-      const managed =
-        use === "review"
-          ? Boolean(agent.worktreePath && agent.worktreeBranch)
-          : Boolean(agent.worktreePath || agent.gitContext?.isWorktree);
-      return managed ? DEFAULT_WORKTREE_BASE_BRANCH : null;
-    },
-  },
-  runner: {
-    launchBase: (_agent, launch) =>
-      launch?.kind === "new" ? (launch.base ?? null) : null,
-    defaultBase: () => null,
-  },
+// D2: an existing native branch keeps its own base. Runner branches and PRs
+// let the runner determine the comparison base.
+const PLACEMENT_RULES = {
+  local: (agent: ComparisonBaseAgent) => agent.baseBranch ?? null,
+  runner: (_agent: ComparisonBaseAgent, launch: LaunchCheckout) =>
+    launch?.kind === "new" ? (launch.base ?? null) : null,
 };
 
 /**
  * The branch an agent's work is compared against, computed by the service
  * and passed explicitly to the local and runner executors alike. A moved
  * workspace uses the base recorded when it moved. Otherwise the launch base
- * applies, then the placement's default. Null means the executor resolves
+ * applies, then the repository's default. Null means the executor resolves
  * it (recorded base, PR base, upstream, main).
  */
-export function agentComparisonBase(
+export async function agentComparisonBase(
   agent: ComparisonBaseAgent,
   use: ComparisonUse,
   launch?: LaunchCheckout
-): string | null {
+): Promise<string | null> {
   if (agent.workspacePath) return agent.workspaceBaseBranch ?? null;
-  const rule =
-    PLACEMENT_RULES[
-      agent.cwd && remotePlacement(agent.cwd) ? "runner" : "local"
-    ];
-  return rule.launchBase(agent, launch) ?? rule.defaultBase(agent, use);
+  const isRunner = Boolean(agent.cwd && remotePlacement(agent.cwd));
+  const launchBase = isRunner
+    ? PLACEMENT_RULES.runner(agent, launch)
+    : PLACEMENT_RULES.local(agent);
+  if (launchBase) return launchBase;
+
+  const managed =
+    use === "review"
+      ? Boolean(agent.worktreePath && agent.worktreeBranch)
+      : Boolean(agent.worktreePath || agent.gitContext?.isWorktree);
+  // New runner launches have a known default in launch.base when available.
+  // For older or unresolved launches the runner has the checkout's recorded base.
+  const cwd = managed ? agentDiffPath(agent) : null;
+  return cwd ? localDefaultBranch(cwd) : null;
 }

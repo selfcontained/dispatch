@@ -144,6 +144,7 @@ export function WorktreeSection({
                 cwd={cwd}
                 runner={branchSource}
                 allowPullRequest={pullRequests && !createNewBranch}
+                allowRepositoryDefault
                 baseBranch={baseBranch}
                 onBaseBranchChange={onBaseBranchChange}
                 worktreeBranch={worktreeBranch}

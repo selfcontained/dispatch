@@ -56,6 +56,35 @@ it("shows one selected default when starting a new branch from the explicit defa
   );
 });
 
+it("offers the local repository default and keeps main selectable on a trunk repo", async () => {
+  globalThis.ResizeObserver ??= class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  };
+  Element.prototype.scrollIntoView ??= () => {};
+  vi.mocked(api).mockResolvedValue({
+    branches: ["main", "trunk"],
+    defaultBranch: "trunk",
+  });
+  const onBaseBranchChange = vi.fn();
+  render(
+    <BranchSelect
+      {...props}
+      cwd="/repo"
+      baseBranch="main"
+      allowRepositoryDefault
+      onBaseBranchChange={onBaseBranchChange}
+    />,
+    { wrapper: wrapper() }
+  );
+  fireEvent.click(screen.getByRole("combobox", { name: "Base branch" }));
+  const trunk = await screen.findByRole("option", { name: "trunk" });
+  expect(screen.getByRole("option", { name: "main" })).toBeTruthy();
+  fireEvent.click(trunk);
+  expect(onBaseBranchChange).toHaveBeenCalledWith("");
+});
+
 const props = {
   cwd: "",
   baseBranch: "",

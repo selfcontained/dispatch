@@ -262,8 +262,6 @@ export function useCreateAgentForm({
     worktreeOptional
       ? setSavedCreateNewBranch(createNewBranch)
       : setRepositoryChoice((choice) => ({ ...choice, createNewBranch }));
-  // Blank or this value leaves the base to the server's default.
-  const defaultBaseBranch = worktreeOptional ? "main" : "";
   const repoReady =
     !managedSession ||
     (!repoStatus &&
@@ -555,10 +553,7 @@ export function useCreateAgentForm({
           worktreeBranch: submitCreateNewBranch
             ? createWorktreeBranch.trim() || undefined
             : undefined,
-          baseBranch:
-            submitUseWorktree && base && base !== defaultBaseBranch
-              ? base
-              : undefined,
+          baseBranch: submitUseWorktree ? base || undefined : undefined,
           initialPrompt: contextInitialPrompt,
           taskId: task?.id,
         };
@@ -615,7 +610,6 @@ export function useCreateAgentForm({
       runnerId,
       runner?.githubManagement,
       repository,
-      defaultBaseBranch,
       locationReady,
       runnerEngineBlocked,
       runnerEnginesLoading,

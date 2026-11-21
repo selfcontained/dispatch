@@ -219,7 +219,7 @@ export const createFullAccessPrefAtom = atomFamily((cwd: string) =>
   atomWithLocalStorage<boolean>(`dispatch:fullAccess:${cwd}`, true)
 );
 export const createBaseBranchPrefAtom = atomFamily((cwd: string) =>
-  atomWithLocalStorage<string>(`dispatch:baseBranch:${cwd}`, "main", {
+  atomWithLocalStorage<string>(`dispatch:baseBranch:${cwd}`, "", {
     legacyRawString: true,
   })
 );

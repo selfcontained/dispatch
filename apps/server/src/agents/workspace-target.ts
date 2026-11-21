@@ -8,7 +8,7 @@ import {
   resolveRepoRoot,
 } from "../shared/git/git-context.js";
 import { runCommand, type CommandRunner } from "../shared/lib/run-command.js";
-import { agentComparisonBase } from "./effective-base.js";
+import { detectDefaultBranch } from "../shared/git/default-branch.js";
 import { AgentError } from "./errors.js";
 
 const WORKSPACE_PROBE_TIMEOUT_MS = 5_000;
@@ -50,25 +50,15 @@ export function agentWorkspaceDir(agent: WorkspaceTargetAgent): string | null {
   return agent.workspacePath ?? agent.worktreePath ?? agent.cwd ?? null;
 }
 
-/**
- * The directory and base branch a diff of the agent's work runs against.
- * The base comes from `agentComparisonBase`; plain checkouts with no base
- * leave it to the resolver.
- */
-export function agentDiffTarget(
-  agent: WorkspaceTargetAgent
-): { path: string; baseRef: string | null } | null {
+/** Local path used by Changes, including a worktree discovered on older rows. */
+export function agentDiffPath(agent: WorkspaceTargetAgent): string | null {
   if (agent.cwd && remotePlacement(agent.cwd)) return null;
-  const gitContextWorktreePath = agent.gitContext?.isWorktree
-    ? agent.gitContext.worktreePath
-    : null;
-  const path =
+  return (
     agent.workspacePath ??
     agent.worktreePath ??
-    gitContextWorktreePath ??
-    agent.cwd;
-  if (!path) return null;
-  return { path, baseRef: agentComparisonBase(agent, "changes") };
+    (agent.gitContext?.isWorktree ? agent.gitContext.worktreePath : null) ??
+    agent.cwd
+  );
 }
 
 /**
@@ -135,40 +125,6 @@ export async function resolveWorkspace(
     path: workspace,
     baseBranch: await detectDefaultBranch(workspace, run),
   };
-}
-
-/**
- * The repo's default branch: origin/HEAD when the clone recorded it,
- * otherwise the first of main/master that exists. Null when none do.
- */
-export async function detectDefaultBranch(
-  dir: string,
-  run: CommandRunner = runCommand
-): Promise<string | null> {
-  const opts = {
-    allowedExitCodes: [0, 1, 128],
-    timeoutMs: WORKSPACE_PROBE_TIMEOUT_MS,
-  };
-  const originHead = await run(
-    "git",
-    ["-C", dir, "symbolic-ref", "--short", "-q", "refs/remotes/origin/HEAD"],
-    opts
-  ).catch(() => null);
-  const fromOrigin = originHead?.exitCode === 0 ? originHead.stdout.trim() : "";
-  if (fromOrigin.startsWith("origin/")) {
-    return fromOrigin.slice("origin/".length);
-  }
-  for (const branch of ["main", "master"]) {
-    for (const ref of [`origin/${branch}`, branch]) {
-      const found = await run(
-        "git",
-        ["-C", dir, "rev-parse", "--verify", "--quiet", ref],
-        opts
-      ).catch(() => null);
-      if (found?.exitCode === 0 && found.stdout.trim()) return branch;
-    }
-  }
-  return null;
 }
 
 export function isSafeBranchName(name: string): boolean {

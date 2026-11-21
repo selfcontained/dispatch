@@ -487,7 +487,7 @@ describe("launch location preference", () => {
     act(() => result.current.setCreateProjectId("project-b"));
     expect(result.current.createCwd).toBe("/repo/b");
     expect(result.current.createPersona).toBeNull();
-    expect(result.current.createBaseBranch).toBe("main");
+    expect(result.current.createBaseBranch).toBe("");
   });
 
   it("preserves a manual choice made before project data and preferences arrive", async () => {
@@ -823,6 +823,18 @@ describe("handleSubmit", () => {
     expect(body).not.toHaveProperty("worktreeBranch");
     expect(body).not.toHaveProperty("baseBranch");
   });
+
+  it.each(["", "main"])(
+    "submits the selected base %j without assuming main is the default",
+    async (base) => {
+      const { result } = await setup();
+      act(() => result.current.handlePathInfoChange(REPO_INFO));
+      act(() => result.current.setCreateBaseBranch(base));
+
+      await act(async () => result.current.handleSubmit(submitEvent()));
+      expect(agentsPostJson().baseBranch).toBe(base || undefined);
+    }
+  );
 
   it("sends branch fields when a worktree is requested off main", async () => {
     const { result } = await setup();
