@@ -257,3 +257,34 @@ it("builds the same rows for any source and offers PR URLs only when allowed", (
     })[1]
   ).toMatchObject({ value: "typed", missing: false, selected: true });
 });
+
+it("opens the list above a scrolling dialog body and returns focus on close", async () => {
+  stubLayout();
+  vi.mocked(api).mockResolvedValue({
+    branches: ["trunk", "feature/a"],
+    defaultBranch: "trunk",
+  } as never);
+  render(
+    <div role="dialog" data-testid="dialog">
+      <div data-testid="dialog-body" className="overflow-y-auto">
+        <BranchSelect {...props} cwd="/repo" />
+      </div>
+    </div>,
+    { wrapper: wrapper() }
+  );
+  const control = screen.getByRole("combobox", { name: "Base branch" });
+  await waitFor(() => expect(control.textContent).toContain("trunk"));
+  control.focus();
+  fireEvent.keyDown(control, { key: "ArrowDown" });
+  const option = await screen.findByRole("option", { name: "feature/a" });
+  // Portalled into the dialog, outside the body that scrolls and clips.
+  expect(screen.getByTestId("dialog-body").contains(option)).toBe(false);
+  expect(screen.getByTestId("dialog").contains(option)).toBe(true);
+  const search = screen.getByPlaceholderText("Search or enter a branch");
+  await waitFor(() => expect(document.activeElement).toBe(search));
+  fireEvent.keyDown(search, { key: "Escape" });
+  await waitFor(() =>
+    expect(screen.queryByRole("option", { name: "feature/a" })).toBeNull()
+  );
+  await waitFor(() => expect(document.activeElement).toBe(control));
+});

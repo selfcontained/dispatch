@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { Check, ChevronDown } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 
@@ -13,7 +13,11 @@ import {
   CommandLoading,
 } from "@/components/ui/command";
 import { Input } from "@/components/ui/input";
-import { useClickOutside } from "@/hooks/use-click-outside";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
@@ -162,12 +166,9 @@ export function BranchSelect({
   const [entered, setEntered] = useState<string>();
   const endpoint = branchListEndpoint(cwd, runner);
   const [dropdownOpen, setDropdownOpen] = useState(false);
-  const cmdRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  const closeDropdown = useCallback(() => setDropdownOpen(false), []);
   if (disabled && dropdownOpen) setDropdownOpen(false);
-  useClickOutside(cmdRef, dropdownOpen, closeDropdown);
 
   // Load eagerly so the closed control names the repository default.
   const branches = useQuery({
@@ -183,12 +184,11 @@ export function BranchSelect({
   const branchesLoading = branches.isFetching;
   const fetchError = branches.error?.message ?? null;
 
-  const openDropdown = useCallback(() => {
-    if (disabled) return;
-    setTyped("");
-    setDropdownOpen(true);
-    requestAnimationFrame(() => inputRef.current?.focus());
-  }, [disabled]);
+  const changeOpen = (next: boolean) => {
+    if (next && disabled) return;
+    if (next) setTyped("");
+    setDropdownOpen(next);
+  };
 
   const rows = useMemo(
     () =>
@@ -217,64 +217,65 @@ export function BranchSelect({
     if (value && value === typed.trim()) setEntered(value);
     onBaseBranchChange(value);
     setDropdownOpen(false);
-    requestAnimationFrame(() => triggerRef.current?.focus());
   };
+  // Keep the list inside the dialog's scroll lock, above its scrolling body.
+  const dialog = triggerRef.current?.closest<HTMLElement>('[role="dialog"]');
 
   return (
     <div className="space-y-2">
-      <div className="relative" ref={cmdRef}>
+      <div>
         <label className="mb-1 block text-xs text-muted-foreground">
           {baseBranchLabel}
         </label>
-        <button
-          ref={triggerRef}
-          type="button"
-          role="combobox"
-          tabIndex={0}
-          disabled={disabled}
-          aria-label={baseBranchLabel}
-          aria-expanded={dropdownOpen}
-          data-testid={`${testIdPrefix}-base-branch`}
-          onClick={() =>
-            dropdownOpen ? setDropdownOpen(false) : openDropdown()
-          }
-          onKeyDown={(e) => {
-            if (e.key === "ArrowDown" || e.key === "Enter" || e.key === " ") {
-              e.preventDefault();
-              if (!dropdownOpen) openDropdown();
-            }
-          }}
-          className={cn(
-            "flex h-9 w-full items-center justify-between rounded-md border border-white/[0.12] bg-white/[0.04] px-3 py-2 font-mono text-xs shadow-[inset_0_2px_6px_rgba(0,0,0,0.3)] backdrop-blur-md",
-            "ring-offset-background focus:outline-none focus:ring-1 focus:ring-ring",
-            disabled && "cursor-not-allowed opacity-60"
-          )}
-        >
-          <span className="truncate">
-            {baseBranch || defaultBranch || "Repository default"}
-          </span>
-          {branchesLoading ? (
-            <ActivityBars size={14} className="ml-2 shrink-0" />
-          ) : (
-            <ChevronDown
-              className={cn(
-                "ml-2 h-4 w-4 shrink-0 text-muted-foreground transition-transform",
-                dropdownOpen && "rotate-180"
-              )}
-            />
-          )}
-        </button>
-        {dropdownOpen ? (
-          <div className="absolute left-0 right-0 z-[80] mt-1 rounded-md border border-white/[0.2] bg-[hsl(var(--card))] shadow-[0_16px_64px_rgba(0,0,0,0.5),inset_0_1px_0_rgba(255,255,255,0.15)] backdrop-blur-2xl">
-            <Command
+        <Popover open={dropdownOpen} onOpenChange={changeOpen}>
+          <PopoverTrigger asChild>
+            <button
+              ref={triggerRef}
+              type="button"
+              role="combobox"
+              disabled={disabled}
+              aria-label={baseBranchLabel}
+              aria-expanded={dropdownOpen}
+              data-testid={`${testIdPrefix}-base-branch`}
               onKeyDown={(e) => {
-                if (e.key === "Escape") {
+                if (e.key === "ArrowDown" && !dropdownOpen) {
                   e.preventDefault();
-                  setDropdownOpen(false);
-                  requestAnimationFrame(() => triggerRef.current?.focus());
+                  changeOpen(true);
                 }
               }}
+              className={cn(
+                "flex h-9 w-full items-center justify-between rounded-md border border-white/[0.12] bg-white/[0.04] px-3 py-2 font-mono text-xs shadow-[inset_0_2px_6px_rgba(0,0,0,0.3)] backdrop-blur-md",
+                "ring-offset-background focus:outline-none focus:ring-1 focus:ring-ring",
+                disabled && "cursor-not-allowed opacity-60"
+              )}
             >
+              <span className="truncate">
+                {baseBranch || defaultBranch || "Repository default"}
+              </span>
+              {branchesLoading ? (
+                <ActivityBars size={14} className="ml-2 shrink-0" />
+              ) : (
+                <ChevronDown
+                  className={cn(
+                    "ml-2 h-4 w-4 shrink-0 text-muted-foreground transition-transform",
+                    dropdownOpen && "rotate-180"
+                  )}
+                />
+              )}
+            </button>
+          </PopoverTrigger>
+          <PopoverContent
+            container={dialog}
+            collisionBoundary={dialog}
+            align="start"
+            aria-label={baseBranchLabel}
+            onOpenAutoFocus={(e) => {
+              e.preventDefault();
+              inputRef.current?.focus();
+            }}
+            className="flex w-[var(--radix-popover-trigger-width)] flex-col overflow-hidden p-0"
+          >
+            <Command className="min-h-0 border-0 bg-transparent shadow-none">
               <CommandInput
                 ref={inputRef}
                 value={typed}
@@ -286,7 +287,7 @@ export function BranchSelect({
                 }
                 className="font-mono text-xs"
               />
-              <CommandList>
+              <CommandList className="max-h-[min(200px,calc(var(--radix-popover-content-available-height)-2.75rem))] touch-pan-y overscroll-contain">
                 {branchesLoading ? (
                   <CommandLoading>
                     <div className="flex items-center gap-2 px-2 py-3 text-xs text-muted-foreground">
@@ -323,8 +324,8 @@ export function BranchSelect({
                 </CommandGroup>
               </CommandList>
             </Command>
-          </div>
-        ) : null}
+          </PopoverContent>
+        </Popover>
       </div>
       {fetchError ? (
         <div className="flex items-center gap-2 text-xs text-status-blocked">
