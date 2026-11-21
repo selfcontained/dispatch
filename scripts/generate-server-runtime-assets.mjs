@@ -161,6 +161,14 @@ lines.push("");
 
 mkdirSync(generatedDir, { recursive: true });
 writeFileSync(manifestFile, `${lines.join("\n")}\n`, "utf8");
+if (process.argv.includes("--write-build-identity")) {
+  // Included in the attested aggregate. The release workflow's signing
+  // commit can differ from the commit it checks out to build the binaries.
+  writeFileSync(
+    path.join(repoRoot, "dist", "bun", "BUILD_IDENTITY.json"),
+    JSON.stringify({ version: packageVersion, revision: gitSha }) + "\n"
+  );
+}
 
 console.log(
   `Generated Dispatch runtime assets from ${path.relative(repoRoot, sourceStaticDir)} (${staticFiles.length} static files, ${migrationFiles.length} migrations, version ${packageVersion}, git ${gitSha ?? "unknown"})`

@@ -106,6 +106,7 @@ import { JobService } from "./jobs/service.js";
 import { TemplateService } from "./templates/service.js";
 import { ReleaseLogStreamProcessor } from "./release-log-stream.js";
 import {
+  gitSha,
   packageVersion,
   staticFiles as embeddedStaticFiles,
 } from "./generated/runtime-assets.js";
@@ -136,6 +137,7 @@ import { registerPersonalityRoutes } from "./routes/personalities.js";
 import { registerQuickPhraseRoutes } from "./routes/quick-phrases.js";
 import { registerRunnerGitHub } from "./routes/runner-github.js";
 import { registerRunnerInstaller } from "./routes/runner-installer.js";
+import { registerRunnerArtifacts } from "./routes/runner-artifacts.js";
 import { registerRunnerRepositorySearch } from "./routes/runner-repositories.js";
 import { registerRunnerRoutes } from "./routes/runners.js";
 import { registerReleaseRoutes } from "./routes/release.js";
@@ -990,6 +992,7 @@ async function registerRoutes() {
     // short, bounded-attempt code and a key-bound certificate; approval and
     // denial are ordinary authenticated routes alongside them.
     if (request.routeOptions.config.runnerConnectBootstrap) return;
+    if (request.routeOptions.config.publicRunnerArtifact) return;
     // The recovery helper authenticates with its enrollment key, loopback-only.
     if (request.routeOptions.config.updateRecovery) return;
     const authHeader = request.headers.authorization;
@@ -1430,6 +1433,11 @@ async function registerRoutes() {
   // --- Quick Phrases ---
 
   await registerQuickPhraseRoutes(app, { pool });
+  registerRunnerArtifacts(app, {
+    revision: gitSha,
+    version: packageVersion,
+    compiled: import.meta.url.startsWith("file:///$bunfs/root/"),
+  });
   if (remoteRunner) {
     registerRunnerGitHub(app, remoteRunner, (id) =>
       pullRequests.invalidateRunner(id)

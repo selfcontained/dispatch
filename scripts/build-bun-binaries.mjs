@@ -186,7 +186,10 @@ rmSync(outDir, { recursive: true, force: true });
 mkdirSync(outDir, { recursive: true });
 
 run("pnpm", ["run", "build:web"]);
-run("bun", ["scripts/generate-server-runtime-assets.mjs"]);
+run("bun", [
+  "scripts/generate-server-runtime-assets.mjs",
+  "--write-build-identity",
+]);
 
 for (const target of targets) {
   const outfile = path.join(outDir, `dispatch-${version}-${target}`);

@@ -16,6 +16,16 @@ afterAll(() => {
 });
 
 describe("runner control API", () => {
+  it("exposes artifacts to unenrolled clients while protecting the installer command", async () => {
+    const artifacts = await ctx.app.inject(
+      "/api/v1/runner-artifacts/deadbeef/descriptor.json"
+    );
+    expect(artifacts.statusCode).toBe(404);
+    expect(artifacts.json().error).toContain("running revision");
+    const command = await ctx.app.inject("/api/v1/runners/installer");
+    expect(command.statusCode).toBe(401);
+  });
+
   it("requires normal API authentication", async () => {
     for (const [method, url] of [
       ["GET", "/api/runners"],
