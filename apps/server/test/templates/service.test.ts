@@ -369,7 +369,7 @@ it("duplicates persona and project configuration through the existing creation v
     repoRoot: source.directory,
   } as never);
   const resolve = vi
-    .spyOn(personaResolver, "resolveLaunchPersona")
+    .spyOn(personaResolver, "resolvePersona")
     .mockResolvedValue({ slug: "builder" } as never);
   const create = vi.spyOn(service.store, "createTemplate").mockImplementation(
     async (config) =>
@@ -391,10 +391,9 @@ it("duplicates persona and project configuration through the existing creation v
     });
     expect(create).toHaveBeenCalledTimes(1);
     expect(resolve).toHaveBeenCalledWith(
-      source.directory,
+      { kind: "folder", cwd: source.directory, source: "catalog" },
       "builder",
-      "task",
-      "catalog"
+      "task"
     );
     expect(source).toEqual(snapshot);
     expect(createAgent).not.toHaveBeenCalled();

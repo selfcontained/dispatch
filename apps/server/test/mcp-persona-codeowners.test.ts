@@ -373,6 +373,7 @@ describe("code owner launches through the checkout boundary", () => {
       const app = Fastify();
       await registerPersonaRoutes(app, {
         agentManager: agentManager as never,
+        projects: { get: async () => null },
         streams: {
           async promptAgent(id, { text }) {
             if (text.includes('launch_owner_reviews({ agentType: "codex"')) {

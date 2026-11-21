@@ -1330,7 +1330,7 @@ describe("triggers", () => {
   it("launches a prompt-less persona template with the briefing as its prompt", async () => {
     // This test isolates prompt composition; discovery is validated separately.
     const persona = vi
-      .spyOn(personaResolution, "resolveLaunchPersona")
+      .spyOn(personaResolution, "resolvePersona")
       .mockResolvedValue({ body: "Build" } as never);
     const prompted: Array<string | undefined> = [];
     const promptless = template({

@@ -1,3 +1,4 @@
+import { remotePlacement } from "@dispatch/runner-protocol";
 import { TASK_LABEL_NAME_MAX_LENGTH } from "@dispatch/shared";
 import { taskLabelsSchema } from "./labels.js";
 import type { Effort } from "@dispatch/shared";
@@ -25,7 +26,8 @@ import { ProjectStore, type ProjectRecord } from "../projects/store.js";
 import { modelScopeFor, validateAgentModel } from "../shared/agent-models.js";
 import { errorMessage } from "../shared/lib/error-message.js";
 import { resolveTemplateLaunch } from "../templates/resolve-launch.js";
-import { resolveLaunchPersona } from "../personas/resolve.js";
+import { personaScopeFor } from "../personas/persona-scope.js";
+import { resolvePersona } from "../personas/resolve.js";
 import type { TemplateRecord } from "../templates/store.js";
 import { agentTaskProject } from "./agent-scope.js";
 import { newTaskId, TaskStore, type TaskPatch } from "./store.js";
@@ -638,13 +640,20 @@ export class TaskService {
     });
     if (caller && template.fullAccess && isRestricted(caller))
       throw invalid(RESTRICTED_LAUNCH_REASON);
-    if (template.persona)
-      await resolveLaunchPersona(
-        template.directory,
+    if (template.persona) {
+      const project =
+        template.projectId && remotePlacement(template.directory)
+          ? await this.projects.get(template.projectId)
+          : null;
+      await resolvePersona(
+        personaScopeFor({
+          cwd: template.directory,
+          projectRoot: project?.repoRoot,
+        }),
         template.persona,
-        "task",
-        "catalog"
+        "task"
       );
+    }
     return template;
   }
 

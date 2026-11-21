@@ -9,7 +9,8 @@ import type { SeedFileInput } from "../agents/file-seed.js";
 import type { AgentManager } from "../agents/manager.js";
 import type { AgentRecord } from "../agents/types.js";
 import type { AgentType } from "../agent-type-settings.js";
-import { resolveLaunchPersona } from "../personas/resolve.js";
+import { personaScopeFor } from "../personas/persona-scope.js";
+import { resolvePersona } from "../personas/resolve.js";
 import { sanitizeAgentName } from "../shared/lib/agent-strings.js";
 import { renderTemplatePrompt } from "./launch-prompt.js";
 import {
@@ -85,13 +86,10 @@ export class TemplateService {
         input = { ...input, directory: project.repoRoot };
     }
     if (input.persona)
-      await resolveLaunchPersona(
-        remotePlacement(input.directory)
-          ? (projectRoot ?? null)
-          : input.directory,
+      await resolvePersona(
+        personaScopeFor({ cwd: input.directory, projectRoot }),
         input.persona,
-        "task",
-        "catalog"
+        "task"
       );
     const scope = await modelScopeFor(
       input.directory,
@@ -170,16 +168,17 @@ export class TemplateService {
     if (
       persona &&
       (persona !== existing.persona ||
+        projectId !== existing.projectId ||
         (input.directory !== undefined &&
           input.directory !== existing.directory))
     )
-      await resolveLaunchPersona(
-        remotePlacement(input.directory ?? existing.directory)
-          ? (projectRoot ?? null)
-          : (input.directory ?? existing.directory),
+      await resolvePersona(
+        personaScopeFor({
+          cwd: input.directory ?? existing.directory,
+          projectRoot,
+        }),
         persona,
-        "task",
-        "catalog"
+        "task"
       );
     const updates: Parameters<TemplateStore["updateTemplate"]>[1] = {};
     if (input.persona !== undefined) updates.persona = input.persona;

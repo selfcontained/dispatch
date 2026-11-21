@@ -1,6 +1,12 @@
-import { remotePlacement } from "@dispatch/runner-protocol";
+import type { AgentManager, AgentRecord } from "../agents/manager.js";
+import { RunnerCapabilityUnavailable } from "../agents/remote/service.js";
+import { readAgentCheckoutFile } from "../server/mcp-checkout.js";
+import type { PersonaScope } from "./persona-scope.js";
+import { PERSONA_DIRS } from "./paths.js";
 import {
   loadPersonaBySlug,
+  loadPersonaFromCheckout,
+  loadCheckoutPersonas,
   loadPersonas,
   mergePersonasWithWorktreePrecedence,
   supportsPersonaType,
@@ -12,63 +18,138 @@ import {
   getBuiltInPersona,
 } from "./built-in.js";
 import { resolveWorktreeRoot } from "../shared/git/git-context.js";
-import { personaCatalog } from "./catalog.js";
+import { personaCatalog, parseDefaultBranchPersonas } from "./catalog.js";
 
-export async function discoverPersonas(
-  cwd: string,
-  source: "catalog" | "workspace" = "workspace",
-  waitForRefresh = false
+async function sessionDefaultBranchPersonas(
+  manager: Pick<AgentManager, "inspectCheckout">,
+  agent: AgentRecord,
+  waitForRefresh: boolean
 ) {
-  if (remotePlacement(cwd))
+  try {
+    const reply = await manager.inspectCheckout(agent, {
+      kind: "defaultBranchFiles",
+      directories: [...PERSONA_DIRS],
+      waitForRefresh,
+    });
+    if (reply.kind !== "defaultBranchFiles")
+      throw new Error("Runner did not return default-branch files.");
+    return parseDefaultBranchPersonas(reply);
+  } catch (error) {
+    if (!(error instanceof RunnerCapabilityUnavailable)) throw error;
     return {
-      personas: [...BUILT_IN_PERSONAS],
-      warnings: [],
+      personas: [],
+      warnings: [error.message],
       refreshing: false,
       updatedAt: null,
     };
+  }
+}
+
+async function personaSources(scope: PersonaScope) {
+  if (scope.kind === "session") {
+    const { manager, agent } = scope;
+    const readFile = (path: string) =>
+      readAgentCheckoutFile(manager, agent, path);
+    return {
+      load: (warnings: string[]) =>
+        loadCheckoutPersonas(
+          async (path) => {
+            const reply = await manager.inspectCheckout(agent, {
+              kind: "listFiles",
+              path,
+            });
+            if (reply.kind !== "listFiles")
+              throw new Error("Runner did not return a file list.");
+            return reply.names;
+          },
+          readFile,
+          warnings
+        ),
+      loadSlug: (slug: string) => loadPersonaFromCheckout(slug, readFile),
+      catalog: (wait: boolean) =>
+        sessionDefaultBranchPersonas(manager, agent, wait),
+    };
+  }
+  if (scope.kind === "builtins") return null;
+  const cwd = scope.kind === "folder" ? scope.cwd : scope.repoRoot;
   const root = await resolveWorktreeRoot(cwd).catch(() => cwd);
-  const catalog = await personaCatalog.get(root, waitForRefresh);
-  const warnings = [...catalog.warnings];
-  const local =
-    source === "workspace" ? await loadPersonas(root, warnings) : [];
+  const workspace = scope.kind === "folder" && scope.source === "workspace";
   return {
-    ...catalog,
-    warnings,
-    personas: appendBuiltInPersonas(
-      mergePersonasWithWorktreePrecedence({
-        worktreePersonas: local,
-        repoPersonas: catalog.personas,
-      }),
-      BUILT_IN_PERSONAS
-    ),
+    load: (warnings: string[]) =>
+      workspace ? loadPersonas(root, warnings) : [],
+    loadSlug: (slug: string) =>
+      workspace ? loadPersonaBySlug(root, slug) : null,
+    catalog: (wait: boolean) => personaCatalog.get(root, wait),
   };
 }
 
-export async function resolveLaunchPersona(
-  cwd: string | null,
-  slug: string,
+const emptyCatalog = {
+  personas: [],
+  warnings: [],
+  refreshing: false,
+  updatedAt: null,
+};
+
+export async function listPersonas(
+  scope: PersonaScope,
   type?: "task" | "review",
-  source: "catalog" | "workspace" = "workspace"
+  waitForRefresh = false
+) {
+  const sources = await personaSources(scope);
+  const warnings: string[] = [];
+  const local = (await sources?.load(warnings)) ?? [];
+  const catalog = sources
+    ? await sources.catalog(waitForRefresh).catch((error) => {
+        if (scope.kind !== "session") throw error;
+        return {
+          ...emptyCatalog,
+          warnings: ["Could not read default-branch files from the runner."],
+        };
+      })
+    : emptyCatalog;
+  const personas = appendBuiltInPersonas(
+    mergePersonasWithWorktreePrecedence({
+      worktreePersonas: local,
+      repoPersonas: catalog.personas,
+    }),
+    BUILT_IN_PERSONAS
+  );
+  return {
+    ...catalog,
+    warnings: [...warnings, ...catalog.warnings],
+    personas: type
+      ? personas.filter((p) => supportsPersonaType(p, type))
+      : personas,
+  };
+}
+
+export async function resolvePersona(
+  scope: PersonaScope,
+  slug: string,
+  type?: "task" | "review"
 ): Promise<PersonaDefinition> {
   if (slug.includes("/") || slug.includes("\\") || slug.includes(".."))
     throw new Error("Invalid persona slug.");
-  const root =
-    cwd &&
-    !remotePlacement(cwd) &&
-    (await resolveWorktreeRoot(cwd).catch(() => cwd));
-  // A malformed local override must fail explicitly, not fall back to a remote copy.
-  let persona =
-    root && source === "workspace" ? await loadPersonaBySlug(root, slug) : null;
-  if (root && !persona) {
-    const catalog = await personaCatalog.get(root, true);
-    persona = catalog.personas.find((p) => p.slug === slug) ?? null;
+  const sources = await personaSources(scope);
+  // A malformed checkout override must fail explicitly.
+  let persona: PersonaDefinition | null | undefined =
+    await sources?.loadSlug(slug);
+  if (sources && !persona) {
+    const catalog = await sources.catalog(true);
+    persona = catalog.personas.find((p) => p.slug === slug);
+    if (scope.kind === "session") persona ??= getBuiltInPersona(slug);
     if (!persona && catalog.refreshing)
       throw new Error(
         "Persona catalog is still refreshing. Try again shortly."
       );
   }
   persona ??= getBuiltInPersona(slug);
-  if (!persona) throw new Error(`Persona "${slug}" not found.`);
+  if (!persona)
+    throw new Error(
+      scope.kind === "session"
+        ? `Persona "${slug}" not found in this checkout or built-ins.`
+        : `Persona "${slug}" not found.`
+    );
   if (type && !supportsPersonaType(persona, type))
     throw new Error(`Persona "${slug}" is not available for ${type} launches.`);
   if (!persona.body.trim())

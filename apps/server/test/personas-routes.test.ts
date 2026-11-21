@@ -13,7 +13,7 @@ import { registerPersonaRoutes } from "../src/routes/personas.js";
 import { StreamServiceError } from "../src/chat/service.js";
 
 vi.mock("../src/personas/resolve.js", () => ({
-  discoverPersonas: vi.fn(async () => ({
+  listPersonas: vi.fn(async () => ({
     personas: [],
     warnings: [],
     refreshing: false,
@@ -32,6 +32,7 @@ vi.mock("../src/shared/git/git-context.js", () => ({
 
 function createMockDeps() {
   return {
+    projects: { get: vi.fn(async (_id: string) => ({ repoRoot: "/project" })) },
     agentManager: {
       getAgent: vi.fn(async () => ({
         id: "agt_parent",
@@ -89,8 +90,8 @@ describe("GET /api/v1/personas", () => {
   });
 
   it("loads personas from the worktree and repo roots", async () => {
-    const { discoverPersonas } = await import("../src/personas/resolve.js");
-    vi.mocked(discoverPersonas).mockResolvedValueOnce({
+    const { listPersonas } = await import("../src/personas/resolve.js");
+    vi.mocked(listPersonas).mockResolvedValueOnce({
       personas: [
         { slug: "security-review", name: "Security Review", type: "review" },
       ],
@@ -105,12 +106,15 @@ describe("GET /api/v1/personas", () => {
     expect(response.statusCode).toBe(200);
     expect(response.json().personas[0].slug).toBe("security-review");
     expect(response.json().codeowners).toBe(false);
-    expect(discoverPersonas).toHaveBeenCalledWith("/tmp", "workspace");
+    expect(listPersonas).toHaveBeenCalledWith(
+      { kind: "folder", cwd: "/tmp", source: "workspace" },
+      "review"
+    );
   });
 
   it("returns discovery warnings without hiding valid personas", async () => {
-    const { discoverPersonas } = await import("../src/personas/resolve.js");
-    vi.mocked(discoverPersonas).mockResolvedValueOnce({
+    const { listPersonas } = await import("../src/personas/resolve.js");
+    vi.mocked(listPersonas).mockResolvedValueOnce({
       warnings: ["Invalid persona type in broken.md"],
       refreshing: true,
       updatedAt: null,
@@ -129,7 +133,10 @@ describe("GET /api/v1/personas", () => {
       url: "/api/v1/personas?cwd=/tmp&type=task",
     });
     expect(response.statusCode).toBe(200);
-    expect(discoverPersonas).toHaveBeenCalledWith("/tmp", "catalog");
+    expect(listPersonas).toHaveBeenCalledWith(
+      { kind: "folder", cwd: "/tmp", source: "catalog" },
+      "task"
+    );
     expect(response.json()).toMatchObject({
       refreshing: true,
       personas: [expect.objectContaining({ slug: "builder" })],
@@ -137,40 +144,17 @@ describe("GET /api/v1/personas", () => {
     });
   });
 
-  it("separates agent and review pickers", async () => {
-    const { discoverPersonas } = await import("../src/personas/resolve.js");
-    const personas = [
-      { slug: "legacy", type: "review" },
-      { slug: "builder", type: "task" },
-      { slug: "default" },
-    ];
-    vi.mocked(discoverPersonas).mockResolvedValueOnce({
-      personas,
-      warnings: [],
-      refreshing: false,
-      updatedAt: null,
-    } as never);
-    expect(
-      (
-        await app.inject({
-          method: "GET",
-          url: "/api/v1/personas?cwd=/tmp&type=task",
-        })
-      )
-        .json()
-        .personas.map((p: { slug: string }) => p.slug)
-    ).toEqual(["builder"]);
-    vi.mocked(discoverPersonas).mockResolvedValueOnce({
-      personas,
-      warnings: [],
-      refreshing: false,
-      updatedAt: null,
-    } as never);
-    expect(
-      (await app.inject({ method: "GET", url: "/api/v1/personas?cwd=/tmp" }))
-        .json()
-        .personas.map((p: { slug: string }) => p.slug)
-    ).toEqual(["legacy", "default"]);
+  it.each([
+    ["&projectId=prj_test", { kind: "project", repoRoot: "/project" }],
+    ["", { kind: "builtins" }],
+  ])("scopes a runner listing with query suffix %s", async (suffix, scope) => {
+    const { listPersonas } = await import("../src/personas/resolve.js");
+    const response = await app.inject({
+      method: "GET",
+      url: `/api/v1/personas?cwd=runner://rnr_test/session&type=task${suffix}`,
+    });
+    expect(response.statusCode).toBe(200);
+    expect(listPersonas).toHaveBeenCalledWith(scope, "task");
   });
 
   it("reports an ownership map found in the worktree", async () => {

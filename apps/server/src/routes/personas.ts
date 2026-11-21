@@ -1,7 +1,9 @@
 import { remotePlacement } from "@dispatch/runner-protocol";
 import type { Effort } from "@dispatch/shared";
 import { validateAgentEffort } from "../shared/agent-effort.js";
-import { discoverPersonas } from "../personas/resolve.js";
+import { listPersonas } from "../personas/resolve.js";
+import { personaScopeFor } from "../personas/persona-scope.js";
+import type { ProjectStore } from "../projects/store.js";
 import { errorMessage } from "../shared/lib/error-message.js";
 import type { FastifyInstance, FastifyReply } from "fastify";
 
@@ -9,16 +11,13 @@ import type { AgentManager } from "../agents/manager.js";
 import { StreamServiceError, type StreamService } from "../chat/service.js";
 import { CLI_AGENT_TYPES } from "../agent-type-settings.js";
 import { modelScopeFor, validateAgentModel } from "../shared/agent-models.js";
-import {
-  discoverSessionPersonas,
-  readSessionOwnerRules,
-} from "../server/mcp-persona-handlers.js";
+import { readSessionOwnerRules } from "../server/mcp-persona-handlers.js";
 import { hasCodeowners } from "../personas/codeowners.js";
-import { supportsPersonaType } from "../personas/loader.js";
 import { resolveWorktreeRoot } from "../shared/git/git-context.js";
 
 type PersonaRouteDeps = {
   agentManager: AgentManager;
+  projects: Pick<ProjectStore, "get">;
   /**
    * The request reaches the agent as a post in its stream: the agent
    * launches the persona itself, with its own briefing of the work.
@@ -113,6 +112,7 @@ export async function registerPersonaRoutes(
     const query = request.query as {
       agentId?: unknown;
       cwd?: unknown;
+      projectId?: unknown;
       type?: unknown;
     };
     const type = query.type === "task" ? "task" : "review";
@@ -121,42 +121,54 @@ export async function registerPersonaRoutes(
         const agent = await deps.agentManager.getAgent(query.agentId);
         if (!agent) return reply.code(404).send({ error: "Agent not found." });
         const [catalog, owners] = await Promise.all([
-          discoverSessionPersonas(deps.agentManager, agent),
+          listPersonas(
+            personaScopeFor({ manager: deps.agentManager, agent }),
+            type
+          ),
           readSessionOwnerRules(deps.agentManager, agent).catch(() => null),
         ]);
         return {
           ...catalog,
-          personas: catalog.personas
-            .filter((p) => supportsPersonaType(p, type))
-            .map(({ slug, name, description, type }) => ({
+          personas: catalog.personas.map(
+            ({ slug, name, description, type }) => ({
               slug,
               name,
               description,
               type,
-            })),
+            })
+          ),
           codeowners: owners !== null,
         };
       }
-      if (typeof query.cwd !== "string") {
+      const cwd = typeof query.cwd === "string" ? query.cwd : undefined;
+      const projectId =
+        typeof query.projectId === "string" ? query.projectId : undefined;
+      if (cwd === undefined && !projectId)
         return reply
           .code(400)
-          .send({ error: "cwd query parameter is required." });
-      }
-      const worktreeRoot = remotePlacement(query.cwd)
-        ? null
-        : await resolveOptionalWorktreeRoot(query.cwd);
-      const { personas, warnings, refreshing, updatedAt } =
-        await discoverPersonas(
-          query.cwd,
-          type === "task" ? "catalog" : "workspace"
-        );
+          .send({ error: "cwd or projectId query parameter is required." });
+      const project = projectId ? await deps.projects.get(projectId) : null;
+      if (projectId && !project)
+        return reply.code(404).send({ error: "Project not found." });
+      const worktreeRoot =
+        cwd && !remotePlacement(cwd)
+          ? await resolveOptionalWorktreeRoot(cwd)
+          : null;
+      const { personas, warnings, refreshing, updatedAt } = await listPersonas(
+        personaScopeFor({
+          cwd,
+          projectRoot: project?.repoRoot,
+          source: type === "task" ? "catalog" : "workspace",
+        }),
+        type
+      );
       // Owner reviews read the map from the checkout being reviewed, so only
       // the worktree decides whether the option is offered.
       const codeowners = worktreeRoot
         ? await hasCodeowners(worktreeRoot)
         : false;
       return {
-        personas: personas.filter((p) => supportsPersonaType(p, type)),
+        personas,
         codeowners,
         refreshing,
         updatedAt,

@@ -134,7 +134,8 @@ import {
   missingEngineMessage,
 } from "./engine-availability.js";
 import { StreamStore } from "./acp/stream-store.js";
-import { resolveLaunchPersona } from "../personas/resolve.js";
+import { personaScopeFor } from "../personas/persona-scope.js";
+import { resolvePersona } from "../personas/resolve.js";
 import {
   PERSONA_CONTEXT_ARG,
   extractPersonaContext,
@@ -1884,11 +1885,14 @@ export class AgentManager {
     const taskPersonaBody = async () =>
       options.taskPersonaBody ??
       (
-        await resolveLaunchPersona(
-          placement ? (projectRoot ?? null) : input.cwd,
+        await resolvePersona(
+          personaScopeFor({
+            cwd: input.cwd,
+            projectRoot,
+            source: input.personaSource,
+          }),
           input.persona!,
-          "task",
-          input.personaSource ?? "catalog"
+          "task"
         )
       ).body;
     if (taskPersona && !options.detachLaunch) {

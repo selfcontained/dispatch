@@ -7,7 +7,8 @@ import { readFile } from "node:fs/promises";
 import type { FastifyBaseLogger } from "fastify";
 import type { Pool } from "pg";
 
-import { resolveLaunchPersona } from "../personas/resolve.js";
+import { personaScopeFor } from "../personas/persona-scope.js";
+import { resolvePersona } from "../personas/resolve.js";
 import { Cron } from "croner";
 
 import type { AgentManager } from "../agents/manager.js";
@@ -640,13 +641,10 @@ export class JobService {
         input = { ...input, directory: project.repoRoot };
     }
     if (input.persona)
-      await resolveLaunchPersona(
-        remotePlacement(input.directory)
-          ? (projectRoot ?? null)
-          : input.directory,
+      await resolvePersona(
+        personaScopeFor({ cwd: input.directory, projectRoot }),
         input.persona,
-        "task",
-        "catalog"
+        "task"
       );
     const scope = await modelScopeFor(
       input.directory,
@@ -851,13 +849,14 @@ export class JobService {
       input.persona === undefined ? previousPersona : input.persona;
     if (
       persona &&
-      (persona !== previousPersona || directory !== previousDirectory)
+      (persona !== previousPersona ||
+        directory !== previousDirectory ||
+        projectId !== backingTemplate?.projectId)
     )
-      await resolveLaunchPersona(
-        remotePlacement(directory) ? (projectDirectory ?? null) : directory,
+      await resolvePersona(
+        personaScopeFor({ cwd: directory, projectRoot: projectDirectory }),
         persona,
-        "task",
-        "catalog"
+        "task"
       );
     if (input.persona !== undefined) config.persona = input.persona;
     if (input.agentType !== undefined) config.agentType = input.agentType;

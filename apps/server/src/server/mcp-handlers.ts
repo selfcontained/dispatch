@@ -56,12 +56,10 @@ import type {
   PublishUiEvent,
   SendAgentPrompt,
 } from "./mcp-handler-types.js";
-import { resolveLaunchPersona } from "../personas/resolve.js";
+import { personaScopeFor } from "../personas/persona-scope.js";
+import { resolvePersona } from "../personas/resolve.js";
 import { remotePlacement } from "@dispatch/runner-protocol";
-import {
-  createPersonaHandlers,
-  resolveRunnerPersona,
-} from "./mcp-persona-handlers.js";
+import { createPersonaHandlers } from "./mcp-persona-handlers.js";
 import {
   activatePersonality,
   createPersonality,
@@ -385,11 +383,12 @@ async function handleLaunchAgent(
   const persona = input.persona ?? template?.persona ?? undefined;
   const selectedPersona =
     input.persona || (runnerParent && persona)
-      ? runnerParent
-        ? await resolveRunnerPersona(deps.agentManager, parent, persona!)
-        : cwd === parentCwd
-          ? await resolveRunnerPersona(deps.agentManager, parent, persona!)
-          : await resolveLaunchPersona(cwd, persona!)
+      ? await resolvePersona(
+          runnerParent || cwd === parentCwd
+            ? personaScopeFor({ manager: deps.agentManager, agent: parent })
+            : personaScopeFor({ cwd, source: "workspace" }),
+          persona!
+        )
       : null;
   if (selectedPersona && (selectedPersona.type ?? "review") === "review") {
     if (template)

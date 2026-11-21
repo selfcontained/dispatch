@@ -10,19 +10,13 @@ import {
   getEnabledAgentTypes,
   isCliAgentType,
 } from "../agent-type-settings.js";
-import {
-  appendBuiltInPersonas,
-  BUILT_IN_PERSONAS,
-  getBuiltInPersona,
-} from "../personas/built-in.js";
+import { getBuiltInPersona } from "../personas/built-in.js";
 import {
   supportsPersonaType,
   assemblePersonaPrompt,
   buildStandardFeedbackGuidance,
   MAX_PERSONA_PROMPT_BYTES,
   loadPersonaFromCheckout,
-  loadCheckoutPersonas,
-  mergePersonasWithWorktreePrecedence,
   type PersonaDefinition,
 } from "../personas/loader.js";
 import {
@@ -31,16 +25,12 @@ import {
   resolveCodeowners,
   type OwnerReviewResult,
 } from "../personas/codeowners.js";
-import {
-  LEGACY_OWNERS_PATH,
-  OWNERS_PATH,
-  PERSONA_DIRS,
-} from "../personas/paths.js";
+import { LEGACY_OWNERS_PATH, OWNERS_PATH } from "../personas/paths.js";
 import { modelScopeFor, validateAgentModel } from "../shared/agent-models.js";
 import type { PublishUiEvent } from "./mcp-handler-types.js";
 
-import { parseDefaultBranchPersonas } from "../personas/catalog.js";
-import { RunnerCapabilityUnavailable } from "../agents/remote/service.js";
+import { listPersonas, resolvePersona } from "../personas/resolve.js";
+import { personaScopeFor } from "../personas/persona-scope.js";
 import { readAgentCheckoutFile } from "./mcp-checkout.js";
 import { PERSONA_CONTEXT_ARG } from "../agents/acp/persona-context.js";
 
@@ -54,75 +44,6 @@ export type CreatePersonaHandlersDeps = {
   withStreamFlag: (agent: AgentRecord) => AgentRecord & { hasStream: boolean };
 };
 
-async function sessionDefaultBranchPersonas(
-  manager: AgentManager,
-  agent: AgentRecord,
-  waitForRefresh: boolean
-) {
-  try {
-    const reply = await manager.inspectCheckout(agent, {
-      kind: "defaultBranchFiles",
-      directories: [...PERSONA_DIRS],
-      waitForRefresh,
-    });
-    if (reply.kind !== "defaultBranchFiles")
-      throw new Error("Runner did not return default-branch files.");
-    return parseDefaultBranchPersonas(reply);
-  } catch (error) {
-    if (!(error instanceof RunnerCapabilityUnavailable)) throw error;
-    return {
-      personas: [],
-      warnings: [error.message],
-      refreshing: false,
-      updatedAt: null,
-    };
-  }
-}
-
-export async function discoverSessionPersonas(
-  manager: AgentManager,
-  agent: AgentRecord
-) {
-  const warnings: string[] = [];
-  const local = await loadCheckoutPersonas(
-    async (path) => {
-      const reply = await manager.inspectCheckout(agent, {
-        kind: "listFiles",
-        path,
-      });
-      if (reply.kind !== "listFiles")
-        throw new Error("Runner did not return a file list.");
-      return reply.names;
-    },
-    (path) => readAgentCheckoutFile(manager, agent, path),
-    warnings
-  );
-  const catalog = await sessionDefaultBranchPersonas(
-    manager,
-    agent,
-    false
-  ).catch(() => ({
-    personas: [],
-    warnings: ["Could not read default-branch files from the runner."],
-    refreshing: false,
-    updatedAt: null,
-  }));
-  warnings.push(...catalog.warnings);
-  const personas = appendBuiltInPersonas(
-    mergePersonasWithWorktreePrecedence({
-      worktreePersonas: local,
-      repoPersonas: catalog.personas,
-    }),
-    BUILT_IN_PERSONAS
-  );
-  return {
-    personas,
-    warnings,
-    refreshing: catalog.refreshing,
-    updatedAt: catalog.updatedAt,
-  };
-}
-
 export async function readSessionOwnerRules(
   manager: AgentManager,
   agent: AgentRecord
@@ -132,33 +53,6 @@ export async function readSessionOwnerRules(
     if (content !== null) return { path, content };
   }
   return null;
-}
-
-export async function resolveRunnerPersona(
-  manager: AgentManager,
-  agent: AgentRecord,
-  slug: string
-) {
-  let persona = await loadPersonaFromCheckout(slug, (path) =>
-    readAgentCheckoutFile(manager, agent, path)
-  );
-  if (!persona) {
-    const catalog = await sessionDefaultBranchPersonas(manager, agent, true);
-    persona =
-      catalog.personas.find((candidate) => candidate.slug === slug) ??
-      getBuiltInPersona(slug);
-    if (!persona && catalog.refreshing)
-      throw new Error(
-        "Persona catalog is still refreshing. Try again shortly."
-      );
-  }
-  if (!persona)
-    throw new Error(
-      `Persona "${slug}" not found in this checkout or built-ins.`
-    );
-  if (!persona.body.trim())
-    throw new Error(`Persona "${slug}" has no instructions.`);
-  return persona;
 }
 
 export type PersonaLaunchOptions = {
@@ -224,7 +118,11 @@ export function createPersonaHandlers(deps: CreatePersonaHandlersDeps) {
 
     const persona =
       opts.resolvedPersona ??
-      (await resolveRunnerPersona(agentManager, parent, opts.persona));
+      (await resolvePersona(
+        personaScopeFor({ manager: agentManager, agent: parent }),
+        opts.persona,
+        "review"
+      ));
     if (!supportsPersonaType(persona, "review"))
       throw new Error(
         `Persona "${opts.persona}" is not available for review launches.`
@@ -456,14 +354,14 @@ export function createPersonaHandlers(deps: CreatePersonaHandlersDeps) {
     return reply;
   }
 
-  async function listPersonas(agentId: string) {
+  async function listSessionPersonas(agentId: string) {
     const agent = await agentManager.getAgent(agentId);
     if (!agent) throw new Error("Agent not found.");
     const {
       personas: loaded,
       warnings,
       refreshing,
-    } = await discoverSessionPersonas(agentManager, agent);
+    } = await listPersonas(personaScopeFor({ manager: agentManager, agent }));
     if (refreshing)
       warnings.push(
         "Default-branch persona catalog is refreshing in the background. This list contains currently available definitions; list again shortly for newly merged personas."
@@ -481,7 +379,7 @@ export function createPersonaHandlers(deps: CreatePersonaHandlersDeps) {
     preparePersonaLaunch,
     launchPersonaAgent,
     launchOwnerReviews,
-    listPersonas,
+    listPersonas: listSessionPersonas,
   };
 }
 

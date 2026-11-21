@@ -130,6 +130,7 @@ import { registerStreamRoutes } from "./routes/streams.js";
 import { StreamService, type TaskStreamRoot } from "./chat/service.js";
 import { configuredRunner } from "./agents/remote/service.js";
 import { registerMcpRoutes } from "./routes/mcp.js";
+import { ProjectStore } from "./projects/store.js";
 import { registerPersonaRoutes } from "./routes/personas.js";
 import { registerPersonalityRoutes } from "./routes/personalities.js";
 import { registerQuickPhraseRoutes } from "./routes/quick-phrases.js";
@@ -1420,6 +1421,7 @@ async function registerRoutes() {
   // --- Personas ---
   await registerPersonaRoutes(app, {
     agentManager,
+    projects: new ProjectStore(pool),
     streams: streamService,
     handleAgentError,
   });

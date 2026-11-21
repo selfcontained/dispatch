@@ -2,10 +2,7 @@ import {
   defaultBranchFiles,
   inspectCheckout,
 } from "../src/agents/checkout-inspection.js";
-import {
-  createPersonaHandlers,
-  resolveRunnerPersona,
-} from "../src/server/mcp-persona-handlers.js";
+import { createPersonaHandlers } from "../src/server/mcp-persona-handlers.js";
 import { DefaultBranchFiles } from "../src/agents/default-branch-files.js";
 import { RunnerCapabilityUnavailable } from "../src/agents/remote/service.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -27,10 +24,9 @@ import {
   runCommand,
   type CommandRunner,
 } from "../src/shared/lib/run-command.js";
-import {
-  discoverPersonas,
-  resolveLaunchPersona,
-} from "../src/personas/resolve.js";
+import { listPersonas, resolvePersona } from "../src/personas/resolve.js";
+
+import { personaScopeFor } from "../src/personas/persona-scope.js";
 
 let directory: string,
   remote: string,
@@ -184,35 +180,45 @@ describe("shared remote persona catalog", () => {
       spy.mockRestore();
     }
   });
-  it("lists and resolves a session's default-branch persona with checkout precedence", async () => {
-    await publish("default instructions");
-    const agent = { id: "author", cwd: worktree } as never;
-    const manager = {
-      getAgent: async () => agent,
-      inspectCheckout: (
-        _agent: unknown,
-        query: Parameters<typeof inspectCheckout>[1]
-      ) => inspectCheckout(worktree, query),
-    } as never;
-    const handlers = createPersonaHandlers({ agentManager: manager } as never);
-    expect((await resolveRunnerPersona(manager, agent, "builder")).body).toBe(
-      "default instructions"
-    );
-    expect((await handlers.listPersonas("author")).personas).toContainEqual(
-      expect.objectContaining({ slug: "builder", name: "builder" })
-    );
-    await mkdir(path.join(worktree, ".agents/personas"), { recursive: true });
-    await writeFile(
-      path.join(worktree, ".agents/personas/builder.md"),
-      "---\ntype: task\nname: Local Builder\n---\ncheckout instructions"
-    );
-    expect((await handlers.listPersonas("author")).personas).toContainEqual(
-      expect.objectContaining({ slug: "builder", name: "Local Builder" })
-    );
-    expect((await resolveRunnerPersona(manager, agent, "builder")).body).toBe(
-      "checkout instructions"
-    );
-  });
+  it.each(["local", "runner"])(
+    "lists and resolves a %s session's personas with checkout precedence",
+    async (placement) => {
+      await publish("default instructions");
+      const agent = {
+        id: "author",
+        cwd: placement === "local" ? worktree : "runner://rnr_test/session",
+      } as never;
+      const manager = {
+        getAgent: async () => agent,
+        inspectCheckout: (
+          _agent: unknown,
+          query: Parameters<typeof inspectCheckout>[1]
+        ) => inspectCheckout(worktree, query),
+      } as never;
+      const handlers = createPersonaHandlers({
+        agentManager: manager,
+      } as never);
+      expect(
+        (await resolvePersona(personaScopeFor({ manager, agent }), "builder"))
+          .body
+      ).toBe("default instructions");
+      expect((await handlers.listPersonas("author")).personas).toContainEqual(
+        expect.objectContaining({ slug: "builder", name: "builder" })
+      );
+      await mkdir(path.join(worktree, ".agents/personas"), { recursive: true });
+      await writeFile(
+        path.join(worktree, ".agents/personas/builder.md"),
+        "---\ntype: task\nname: Local Builder\n---\ncheckout instructions"
+      );
+      expect((await handlers.listPersonas("author")).personas).toContainEqual(
+        expect.objectContaining({ slug: "builder", name: "Local Builder" })
+      );
+      expect(
+        (await resolvePersona(personaScopeFor({ manager, agent }), "builder"))
+          .body
+      ).toBe("checkout instructions");
+    }
+  );
 
   it("keeps checkout personas and built-ins available to an older runner", async () => {
     const agent = { id: "author", cwd: "runner://rnr_old/proof" } as never;
@@ -248,7 +254,8 @@ describe("shared remote persona catalog", () => {
     ]);
     expect(list.warnings.join()).toContain("Update the runner");
     expect(
-      (await resolveRunnerPersona(manager, agent, "code-review")).slug
+      (await resolvePersona(personaScopeFor({ manager, agent }), "code-review"))
+        .slug
     ).toBe("code-review");
   });
 
@@ -341,24 +348,84 @@ describe("shared remote persona catalog", () => {
       "---\ntype: task\n---\nlocal override"
     );
     expect(
-      (await resolveLaunchPersona(checkout, "builder", "task", "catalog")).body
+      (
+        await resolvePersona(
+          personaScopeFor({ cwd: checkout }),
+          "builder",
+          "task"
+        )
+      ).body
     ).toBe("remote");
-    expect((await resolveLaunchPersona(worktree, "builder", "task")).body).toBe(
-      "local override"
-    );
     expect(
-      (await discoverPersonas(worktree, "workspace", true)).personas.find(
-        (p) => p.slug === "builder"
-      )?.body
+      (
+        await resolvePersona(
+          personaScopeFor({ cwd: worktree, source: "workspace" }),
+          "builder",
+          "task"
+        )
+      ).body
+    ).toBe("local override");
+    expect(
+      (
+        await listPersonas(
+          personaScopeFor({ cwd: worktree, source: "workspace" }),
+          "task",
+          true
+        )
+      ).personas.find((p) => p.slug === "builder")?.body
     ).toBe("local override");
     await writeFile(
       path.join(worktree, ".agents/personas/builder.md"),
       "---\ntype: typo\n---\nbad override"
     );
     await expect(
-      resolveLaunchPersona(worktree, "builder", "task")
+      resolvePersona(
+        personaScopeFor({ cwd: worktree, source: "workspace" }),
+        "builder",
+        "task"
+      )
     ).rejects.toThrow("Invalid persona type");
   });
+  it.each([
+    ["local folder", (root: string) => ({ cwd: root })],
+    ["local project", (root: string) => ({ projectRoot: root })],
+    [
+      "runner project",
+      (root: string) => ({
+        cwd: "runner://rnr_test/session",
+        projectRoot: root,
+      }),
+    ],
+  ] as const)(
+    "lists the same task definition it resolves for a %s",
+    async (_name, target) => {
+      await publish("catalog instructions");
+      const scope = personaScopeFor(target(checkout));
+      const listed = await listPersonas(scope, "task", true);
+      expect(listed.personas.map((persona) => persona.slug)).toEqual([
+        "builder",
+      ]);
+      expect(await resolvePersona(scope, "builder", "task")).toEqual(
+        listed.personas[0]
+      );
+    }
+  );
+
+  it("limits a runner repository without a project to built-ins", async () => {
+    const scope = personaScopeFor({ cwd: "runner://rnr_test/session" });
+    const listed = await listPersonas(scope, "review", true);
+    expect(listed.personas.map((persona) => persona.slug)).toEqual([
+      "code-review",
+    ]);
+    expect(await resolvePersona(scope, "code-review", "review")).toEqual(
+      listed.personas[0]
+    );
+    expect((await listPersonas(scope, "task")).personas).toEqual([]);
+    await expect(resolvePersona(scope, "builder", "task")).rejects.toThrow(
+      "not found"
+    );
+  });
+
   it("keeps local personas usable without a remote or a git repository", async () => {
     await git(checkout, "remote", "remove", "origin");
     await mkdir(path.join(checkout, ".agents/personas"), { recursive: true });
