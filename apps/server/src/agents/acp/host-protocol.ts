@@ -60,9 +60,39 @@ export function hostFile(
 /** One journal line: an event with its position in the host's stream. */
 export type JournalEntry = RunnerJournalEntry<DriverEvent>;
 
-export type ClientMessage = SessionCommand<PromptSource>;
+export type PromptReceiptState =
+  | "accepted"
+  | "claimed"
+  | "unclaimed"
+  | "rotated";
+
+type PromptReceiptQuery = {
+  type: "prompt_receipt";
+  id: string;
+  journalId: string;
+};
+export type ClientMessage = SessionCommand<PromptSource> | PromptReceiptQuery;
 
 export function parseClientMessage(value: unknown): ClientMessage | null {
+  if (
+    value &&
+    typeof value === "object" &&
+    "type" in value &&
+    value.type === "prompt_receipt"
+  ) {
+    if (
+      !("id" in value) ||
+      typeof value.id !== "string" ||
+      !("journalId" in value) ||
+      typeof value.journalId !== "string" ||
+      value.id.length === 0 ||
+      value.id.length > 128 ||
+      value.journalId.length === 0 ||
+      value.journalId.length > 128
+    )
+      return null;
+    return { type: "prompt_receipt", id: value.id, journalId: value.journalId };
+  }
   const message = parseSessionCommand(value);
   if (message?.type !== "prompt" && message?.type !== "steer") return message;
   // Keep validating the legacy Dispatch source shape. Other services can
@@ -74,6 +104,7 @@ export function parseClientMessage(value: unknown): ClientMessage | null {
 
 type DispatchWelcome = HostWelcome & {
   hostBuild?: BuildIdentity;
+  promptReceiptSupported?: true;
   hostInstanceId?: string;
   /** The open turn, if one is running. */
   turn: { seq: number; startedAt: string; source?: PromptSource } | null;
@@ -86,6 +117,12 @@ type DispatchWelcome = HostWelcome & {
 
 export type HostMessage =
   | SessionReply<DriverEvent, DispatchWelcome>
+  | {
+      type: "prompt_receipt_result";
+      id: string;
+      journalId: string;
+      state: PromptReceiptState;
+    }
   /** A set_config took; the engine's options after it. */
   | { type: "config_set"; id: string; options: SessionConfigOption[] }
   | { type: "permissions"; requests: AgentPermissionRequest[] }

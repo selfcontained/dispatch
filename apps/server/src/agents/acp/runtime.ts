@@ -49,7 +49,7 @@ import {
 import type { RunnerUpdateHolds } from "../remote/update-hold.js";
 import type { Placement } from "../remote/protocol.js";
 import type { RemoteEventInbox } from "../remote/event-inbox.js";
-import { HostClient } from "./host-client.js";
+import { HostClient, UpdateAcknowledgementLost } from "./host-client.js";
 import { type JournalEntry } from "./host-protocol.js";
 
 /** The engine's ACP handshake can take a while on a cold adapter. */
@@ -261,7 +261,7 @@ export type AcpRuntimeDeps = {
   /** Runner update holds: new work for a held runner waits in the queue. */
   holds?: Pick<
     RunnerUpdateHolds,
-    "isHeld" | "wait" | "onRelease" | "countWith"
+    "isHeld" | "current" | "wait" | "onRelease" | "countWith"
   >;
   remoteInbox?: Pick<RemoteEventInbox, "receive" | "projected">;
   recoverRemoteEvent?: (agentId: string) => Promise<void>;
@@ -564,6 +564,11 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
           if (!images)
             throw new Error("Runner prompt file delivery is unavailable.");
           if (steering) {
+            if (held(entry)) {
+              for (const w of batch) finishDecision(w, "queued");
+              await requeue();
+              continue;
+            }
             const outcome = await entry.client.steer(id, text, source);
             if (outcome === "promptRequired") {
               // The engine won the idle race. The message was not consumed;
@@ -603,7 +608,8 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
               id,
               text,
               source,
-              images.length ? images : undefined
+              images.length ? images : undefined,
+              () => !batch.some((w) => w.signal?.aborted)
             );
             if (outcome === "deferred") {
               // The engine started a turn of its own first. The prompt waits
@@ -637,7 +643,14 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
             (w) => w !== onSettle
           );
           for (const w of batch) finishDecision(w, "failed");
-          if (submitted) entry.turnOpen = false;
+          if (
+            submitted &&
+            !(
+              error instanceof UpdateAcknowledgementLost &&
+              entry.client.isReady()
+            )
+          )
+            entry.turnOpen = false;
           for (const w of batch) {
             w.rejectAccepted(
               error instanceof Error ? error : new Error(String(error))
@@ -792,6 +805,10 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
               if (error instanceof RunnerUnavailable) return "retry";
               return undefined;
             },
+            updateDeadline: () => {
+              const hold = deps.holds?.current(placement.runner);
+              return hold ? Date.parse(hold.expiresAt) : undefined;
+            },
             onReady: () => void pump(agentId, entry),
           }
         : {}),
@@ -931,7 +948,7 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
       delivery:
         opts?.delivery === "interrupt"
           ? "interrupt"
-          : requiresPrompt
+          : requiresPrompt || held(entry)
             ? "queue"
             : (opts?.delivery ?? "queue"),
       taken: false,
@@ -1310,7 +1327,7 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
             (entry.turnSeq !== undefined &&
               entry.interruptedTurnSeq === entry.turnSeq);
         } else {
-          prompt.delivery = "auto";
+          prompt.delivery = held(entry) ? "queue" : "auto";
           prompt.steerTurnSeq = entry.turnOpen ? entry.turnSeq : undefined;
         }
       }

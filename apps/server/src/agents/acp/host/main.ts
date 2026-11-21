@@ -347,6 +347,7 @@ async function main(): Promise<void> {
           backgroundWorkSupported: true,
           steeringSupported: driver.supportsSteering(agentId),
           interruptSupported: true,
+          promptReceiptSupported: true,
           turn: openTurn,
           journalSeq: journal.lastSeq,
           journalId: journal.id,
@@ -389,6 +390,17 @@ async function main(): Promise<void> {
       }
       case "ping":
         send(socket, { type: "pong" });
+        return;
+      case "prompt_receipt":
+        send(socket, {
+          type: "prompt_receipt_result",
+          id: message.id,
+          journalId: journal.id,
+          state:
+            message.journalId === journal.id
+              ? (receipts.get(message.id) ?? "unclaimed")
+              : "rotated",
+        });
         return;
       case "prompt": {
         if (message.journalId) {

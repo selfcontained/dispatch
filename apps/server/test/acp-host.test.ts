@@ -6,12 +6,15 @@
  * client, replay from a sequence number, and a clean stop.
  */
 import {
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
+import { writeFile } from "node:fs/promises";
+import { Duplex } from "node:stream";
 import os from "node:os";
 import net from "node:net";
 import { once } from "node:events";
@@ -25,11 +28,15 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   encodeMessage,
   ndjsonDecoder,
+  type ClientMessage,
   type HostMessage,
 } from "../src/agents/acp/host-protocol.js";
 import { embeddedBuild } from "../src/agents/build-identity.js";
 import type { DriverEvent } from "../src/agents/acp/driver.js";
 import { createAcpRuntime } from "../src/agents/acp/runtime.js";
+import { createLocalRunner } from "../src/agents/local-runner.js";
+import { RunnerUnavailable } from "../src/agents/remote/service.js";
+import { RunnerUpdateHolds } from "../src/agents/remote/update-hold.js";
 import { buildSystemPrompt } from "../src/agents/acp/system-prompt.js";
 import type { AgentRuntime, RuntimeLaunch } from "../src/agents/runtime.js";
 
@@ -54,7 +61,8 @@ type Seen = { agentId: string; event: DriverEvent; seq: number };
 function runtimeWith(
   stateRoot: string,
   hostSeq: () => number,
-  journalId: string | null = null
+  journalId: string | null = null,
+  overrides?: Partial<Parameters<typeof createAcpRuntime>[0]>
 ): {
   runtime: AgentRuntime;
   seen: Seen[];
@@ -73,6 +81,7 @@ function runtimeWith(
     syncJournal: async (_agentId, id, reset) => {
       synced.push({ journalId: id, reset });
     },
+    ...overrides,
   });
   runtime.onEvent((agentId, event, seq) => {
     seen.push({ agentId, event, seq });
@@ -798,6 +807,501 @@ await import(${JSON.stringify(pathToFileURL(fakeAgent).href)});
       host.kill();
       await closed;
       rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  const uncertain =
+    "Runner connection dropped before acknowledgement; execution is unknown.";
+  const attempt = "11111111-1111-4111-8111-111111111111";
+
+  async function updateFixture(adapter?: RuntimeLaunch["bins"]["adapter"]) {
+    const root = mkdtempSync("/tmp/dispatch-ack-");
+    const folder = mkdtempSync(path.join(cwd, "update-"));
+    const id = "agt_update_ack";
+    const input = launchFor(id, folder);
+    input.fullAccess = false;
+    input.bins.adapter = adapter ?? {
+      bin: "bun",
+      args: [path.join(here, "helpers/remote-acp-fixture.ts")],
+    };
+    const hosts: ReturnType<typeof createLocalRunner>[] = [];
+    async function launchHost(dir: string) {
+      const host = createLocalRunner(dir, logger);
+      const { cwd, bins, env, pathPrefix, ...launch } = input;
+      await host.requestSession(
+        { kind: "launch", agentId: id, launch },
+        { cwd, bins, env, pathPrefix }
+      );
+      hosts.push(host);
+      const socket = path.join(dir, id, "host.sock");
+      await until(() => existsSync(path.join(dir, id, "session.json")));
+      return socket;
+    }
+    let socketPath = await launchHost(root);
+    const holds = new RunnerUpdateHolds({
+      store: { read: async () => [], write: async () => {} },
+      logger,
+    });
+    const commands: ClientMessage[] = [];
+    const replies: HostMessage[] = [];
+    const links: Duplex[] = [];
+    const tap: {
+      outbound?: (message: ClientMessage, drop: () => void) => boolean | void;
+      inbound?: (
+        message: HostMessage,
+        drop: () => void
+      ) => HostMessage | false | void;
+      offline: boolean;
+    } = { offline: false };
+    let seq = 0;
+    let journal: string | null = null;
+    const { runtime, seen } = runtimeWith(root, () => seq, null, {
+      hostSeq: async () => ({ seq, journalId: journal }),
+      syncJournal: async (_agentId, next, reset) => {
+        journal = next;
+        if (reset) seq = 0;
+      },
+      holds,
+      placement: async () => ({ runner: "update-runner", workspace: "test" }),
+      remote: {
+        available: () => true,
+        async requestSession(_placement, operation) {
+          if (operation.kind !== "attach") return { value: true };
+          if (tap.offline) throw new RunnerUnavailable("swapping");
+          const host = net.createConnection(socketPath);
+          const outgoing = ndjsonDecoder<ClientMessage>();
+          const incoming = ndjsonDecoder<HostMessage>();
+          const link = new Duplex({
+            read() {},
+            write(chunk, _encoding, callback) {
+              for (const message of outgoing(chunk)) {
+                commands.push(message);
+                if (tap.outbound?.(message, drop) !== false)
+                  host.write(encodeMessage(message));
+              }
+              callback();
+            },
+            destroy(error, callback) {
+              host.destroy();
+              callback(error);
+            },
+          });
+          const drop = () => {
+            tap.offline = true;
+            link.destroy();
+          };
+          links.push(link);
+          host.on("close", () => link.destroy());
+          host.on("error", (error) => link.destroy(error));
+          host.on("data", (chunk) => {
+            for (const message of incoming(chunk)) {
+              if (link.destroyed) break;
+              replies.push(message);
+              const result = tap.inbound?.(message, drop);
+              if (result !== false && !link.destroyed)
+                link.push(encodeMessage(result ?? message));
+            }
+          });
+          return { channel: link, value: true };
+        },
+      },
+    });
+    runtime.onEvent((_id, _event, next) => {
+      if (next > 0) seq = next;
+    });
+    expect(await runtime.attach(id)).toBe(true);
+    const invocations = () => {
+      const file = path.join(folder, "provider-invocations");
+      return existsSync(file)
+        ? readFileSync(file, "utf8").trim().split("\n").length
+        : 0;
+    };
+    return {
+      id,
+      runtime,
+      seen,
+      holds,
+      commands,
+      replies,
+      tap,
+      folder,
+      invocations,
+      async rotate() {
+        const rotated = path.join(root, "rotated");
+        socketPath = await launchHost(rotated);
+      },
+      async close() {
+        await holds.release("update-runner", attempt, "cancelled");
+        await runtime.stop(id, true);
+        for (const link of links) link.destroy();
+        holds.close();
+        for (const host of hosts)
+          await host.requestSession({ kind: "stop", agentId: id, force: true });
+        rmSync(root, { recursive: true, force: true });
+      },
+    };
+  }
+
+  it.each([
+    "unclaimed",
+    "claimed",
+    "accepted",
+    "rotated",
+    "old-host",
+    "interrupted-replay",
+    "expired",
+    "unheld",
+    "wrong-receipt-journal",
+    "silent-receipt",
+    "receipt-channel-lost",
+    "aborted",
+  ] as const)(
+    "reconciles a lost prompt acknowledgement with a real host (%s)",
+    async (mode) => {
+      const f = await updateFixture();
+      const fifo = path.join(f.folder, "image.png");
+      const claimed = mode === "claimed";
+      const unclaimed = [
+        "unclaimed",
+        "unheld",
+        "expired",
+        "wrong-receipt-journal",
+        "silent-receipt",
+        "receipt-channel-lost",
+        "aborted",
+      ].includes(mode);
+      const query = !["unheld", "old-host", "rotated", "expired"].includes(
+        mode
+      );
+      const controller = new AbortController();
+      let releaseImage: Promise<void> | undefined;
+      try {
+        if (claimed) execFileSync("mkfifo", [fifo]);
+        const begin = () => {
+          if (mode === "unheld") return;
+          void f.holds.begin("update-runner", attempt, {
+            ...(mode === "expired" ? { boundMs: 1000 } : {}),
+          });
+        };
+        f.tap.outbound = (message, drop) => {
+          if (
+            message.type !== "prompt" ||
+            f.commands.filter((m) => m.type === "prompt").length !== 1
+          )
+            return;
+          begin();
+          if (unclaimed) {
+            drop();
+            return false;
+          }
+        };
+        let dropped = false;
+        let replayInterrupted = false;
+        f.tap.inbound = (message, drop) => {
+          if (
+            mode === "interrupted-replay" &&
+            dropped &&
+            !replayInterrupted &&
+            message.type === "replay_complete"
+          ) {
+            replayInterrupted = true;
+            drop();
+            queueMicrotask(() => {
+              f.tap.offline = false;
+            });
+            return false;
+          }
+          if (message.type === "prompt_receipt_result") {
+            if (mode === "silent-receipt") return false;
+            if (mode === "receipt-channel-lost") queueMicrotask(drop);
+            if (mode === "wrong-receipt-journal")
+              return { ...message, journalId: "wrong" };
+          }
+          if (message.type === "welcome" && mode === "old-host")
+            return { ...message, promptReceiptSupported: undefined };
+          if (
+            !dropped &&
+            ((claimed &&
+              message.type === "event" &&
+              message.event.type === "turn" &&
+              message.event.state === "started") ||
+              message.type === "prompt_accepted")
+          ) {
+            dropped = true;
+            drop();
+            return false;
+          }
+        };
+        const turn = f.runtime.prompt(
+          f.id,
+          "proof-count",
+          undefined,
+          claimed
+            ? { images: [{ path: fifo, mimeType: "image/png" }] }
+            : { signal: controller.signal }
+        );
+        await until(
+          () => f.tap.offline && !f.runtime.getPermissions(f.id).connected
+        );
+        if (mode === "rotated") await f.rotate();
+        let outcome: string | undefined;
+        const result = turn.accepted
+          .then(
+            () => "accepted",
+            (error: Error) => error.message
+          )
+          .then((visible) => (outcome = visible));
+        if (mode === "unheld") {
+          await until(() => outcome !== undefined, 500);
+          expect(outcome).toBe(uncertain);
+        } else {
+          // Give the close handler and its rejection handlers a turn before
+          // allowing the new supervisor to attach.
+          await new Promise<void>((resolve) => setImmediate(resolve));
+          expect(outcome).toBeUndefined();
+        }
+        if (unclaimed) dropped = true;
+        if (mode === "aborted") controller.abort();
+        if (mode !== "expired") f.tap.offline = false;
+        const accepted = [
+          "unclaimed",
+          "accepted",
+          "interrupted-replay",
+        ].includes(mode);
+        expect(await result).toBe(accepted ? "accepted" : uncertain);
+        await turn.settled;
+        const prompts = f.commands.filter((m) => m.type === "prompt");
+        const queries = f.commands.filter((m) => m.type === "prompt_receipt");
+        expect(prompts).toHaveLength(mode === "unclaimed" ? 2 : 1);
+        if (mode === "unclaimed") expect(prompts[1]).toEqual(prompts[0]);
+        if (query) {
+          expect(queries).toEqual([
+            {
+              type: "prompt_receipt",
+              id: prompts[0]?.id,
+              journalId: prompts[0]?.journalId,
+            },
+          ]);
+          expect(f.replies).toContainEqual({
+            ...queries[0],
+            type: "prompt_receipt_result",
+            state: unclaimed ? "unclaimed" : claimed ? "claimed" : "accepted",
+          });
+        } else expect(queries).toEqual([]);
+        if (claimed) {
+          expect(f.runtime.hasOpenTurn(f.id)).toBe(true);
+          releaseImage = writeFile(fifo, "image");
+          await releaseImage;
+        }
+        if (mode === "unclaimed" || (!unclaimed && mode !== "rotated")) {
+          await until(() =>
+            f.seen.some(
+              ({ event }) => event.type === "turn" && event.state === "settled"
+            )
+          );
+          expect(
+            f.seen.flatMap(({ event }) =>
+              event.type === "turn" ? [event.state] : []
+            )
+          ).toEqual(["started", "settled"]);
+        }
+        if (mode === "rotated") {
+          const welcomes = f.replies.filter((m) => m.type === "welcome");
+          expect(welcomes.at(-1)?.journalId).not.toBe(welcomes[0]?.journalId);
+          expect(
+            f.seen.filter(
+              ({ event }) => event.type === "turn" && event.state === "settled"
+            )
+          ).toHaveLength(0);
+        }
+        expect(f.invocations()).toBe(unclaimed && mode !== "unclaimed" ? 0 : 1);
+      } finally {
+        if (claimed && !releaseImage && f.tap.offline)
+          void writeFile(fifo, "image").catch(() => {});
+        await f.close();
+      }
+    }
+  );
+
+  it.each([
+    "matches",
+    "changed",
+    "already-answered",
+    "different-session",
+    "different-journal",
+    "unlisted-option",
+  ] as const)(
+    "validates a pending permission answer on reconnect (%s)",
+    async (mode) => {
+      const f = await updateFixture();
+      try {
+        const turn = f.runtime.prompt(f.id, "proof-count prove-permission");
+        await turn.accepted;
+        await until(() => f.runtime.getPermissions(f.id).requests.length === 1);
+        const [request] = f.runtime.getPermissions(f.id).requests;
+        await f.holds.begin("update-runner", attempt);
+        f.tap.outbound = (message, drop) => {
+          if (
+            message.type === "answer_permission" &&
+            f.commands.filter((m) => m.type === "answer_permission").length ===
+              1 &&
+            mode !== "already-answered"
+          ) {
+            drop();
+            return false;
+          }
+        };
+        f.tap.inbound = (message, drop) => {
+          if (
+            mode === "already-answered" &&
+            message.type === "permission_answered"
+          ) {
+            drop();
+            return false;
+          }
+          if (mode === "different-session" && message.type === "welcome")
+            return { ...message, sessionId: "different" };
+          if (mode === "different-journal" && message.type === "welcome")
+            return { ...message, journalId: "different" };
+          if (mode === "changed" && message.type === "welcome")
+            return {
+              ...message,
+              permissions: message.permissions?.map((item) => ({
+                ...item,
+                details: "changed operation",
+              })),
+            };
+        };
+        const result = f.runtime
+          .answerPermission(
+            f.id,
+            request!.id,
+            mode === "unlisted-option" ? "absent" : "allow"
+          )
+          .then(
+            () => "answered",
+            (error: Error) => error.message
+          );
+        await until(
+          () => f.tap.offline && !f.runtime.getPermissions(f.id).connected
+        );
+        const pending = Symbol();
+        expect(await Promise.race([result, Promise.resolve(pending)])).toBe(
+          pending
+        );
+        if (mode !== "already-answered")
+          expect(f.runtime.getPermissions(f.id).requests).toEqual([request]);
+        f.tap.offline = false;
+        expect(await result).toBe(mode === "matches" ? "answered" : uncertain);
+        expect(
+          f.commands.filter((m) => m.type === "answer_permission")
+        ).toHaveLength(mode === "matches" ? 2 : 1);
+        const consumed = mode === "matches" || mode === "already-answered";
+        if (consumed) await turn.settled;
+        expect(existsSync(path.join(f.folder, "protected-action"))).toBe(
+          consumed
+        );
+      } finally {
+        await f.close();
+      }
+    }
+  );
+
+  it("keeps steering queued during the update and never resends an in-flight steer", async () => {
+    const f = await updateFixture({ bin: fakeAgent });
+    try {
+      const active = f.runtime.prompt(f.id, "permission-test");
+      await active.accepted;
+      await until(() => f.runtime.getPermissions(f.id).requests.length === 1);
+      const [permission] = f.runtime.getPermissions(f.id).requests;
+      let dropped = false;
+      f.tap.outbound = (message) => {
+        if (message.type === "steer" && !dropped)
+          void f.holds.begin("update-runner", attempt);
+      };
+      f.tap.inbound = (message, drop) => {
+        if (message.type === "steer_result" && !dropped) {
+          dropped = true;
+          drop();
+          return false;
+        }
+      };
+      const steer = f.runtime.prompt(
+        f.id,
+        "in flight",
+        { source: "chat", chatMessageId: "one" },
+        { delivery: "auto" }
+      );
+      await expect(steer.accepted).rejects.toThrow(uncertain);
+      const queued = f.runtime.prompt(
+        f.id,
+        "queue this",
+        { source: "chat", chatMessageId: "two" },
+        { delivery: "auto", alone: true }
+      );
+      const promoted = f.runtime.prompt(
+        f.id,
+        "send this",
+        { source: "chat", chatMessageId: "three" },
+        { alone: true }
+      );
+      expect(f.runtime.controlQueuedPrompt([f.id], "three", "send-now")).toBe(
+        true
+      );
+      f.tap.offline = false;
+      await until(() => f.runtime.getPermissions(f.id).connected);
+      expect(f.runtime.hasOpenTurn(f.id)).toBe(true);
+      await f.holds.release("update-runner", attempt, "committed");
+      await f.runtime.answerPermission(f.id, permission!.id, "once");
+      await active.settled;
+      await queued.accepted;
+      await queued.settled;
+      await promoted.accepted;
+      await promoted.settled;
+      expect(f.commands.filter((m) => m.type === "steer")).toHaveLength(1);
+      expect(f.commands.filter((m) => m.type === "prompt")).toHaveLength(3);
+      expect(
+        f.seen.filter(({ event }) => event.type === "steered")
+      ).toHaveLength(1);
+    } finally {
+      await f.close();
+    }
+  });
+
+  it("defers steering if the update hold begins during submission preparation", async () => {
+    const f = await updateFixture({ bin: fakeAgent });
+    try {
+      const active = f.runtime.prompt(f.id, "permission-test");
+      await active.accepted;
+      await until(() => f.runtime.getPermissions(f.id).requests.length === 1);
+      const [permission] = f.runtime.getPermissions(f.id).requests;
+      const preparing = Promise.withResolvers<void>();
+      const submit = Promise.withResolvers<boolean>();
+      const queued = f.runtime.prompt(
+        f.id,
+        "keep this queued",
+        { source: "chat", chatMessageId: "preparing" },
+        {
+          delivery: "auto",
+          async beforeSubmit() {
+            preparing.resolve();
+            return submit.promise;
+          },
+        }
+      );
+      await preparing.promise;
+      await f.holds.begin("update-runner", attempt);
+      submit.resolve(true);
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      await f.holds.release("update-runner", attempt, "committed");
+      await f.runtime.answerPermission(f.id, permission!.id, "once");
+      await active.settled;
+      await queued.accepted;
+      await queued.settled;
+      expect(f.commands.filter((m) => m.type === "steer")).toEqual([]);
+      expect(f.commands.filter((m) => m.type === "prompt")).toHaveLength(2);
+    } finally {
+      await f.close();
     }
   });
 

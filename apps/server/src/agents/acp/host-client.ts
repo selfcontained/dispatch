@@ -7,6 +7,7 @@ import type {
 import type { PromptImage, PromptSource } from "./prompt-source.js";
 
 import type { Duplex } from "node:stream";
+import { isDeepStrictEqual } from "node:util";
 
 import type { SessionConfigOption } from "@agentclientprotocol/sdk";
 
@@ -16,6 +17,7 @@ import {
   encodeMessage,
   type HostMessage,
   type JournalEntry,
+  type PromptReceiptState,
   ndjsonDecoder,
 } from "./host-protocol.js";
 
@@ -24,12 +26,23 @@ const RECONNECT_MAX_MS = 10_000;
 
 export type HostWelcome = Extract<HostMessage, { type: "welcome" }>;
 
+const UNKNOWN_EXECUTION =
+  "Runner connection dropped before acknowledgement; execution is unknown.";
+
+export class UpdateAcknowledgementLost extends Error {
+  constructor(readonly reattached: Promise<HostWelcome | null>) {
+    super(UNKNOWN_EXECUTION);
+  }
+}
+
 export type HostClientDeps = {
   agentId: string;
   remote: boolean;
   openSocket: () => Promise<Duplex>;
   reconnectError?: (error: unknown) => "retry" | "gone" | undefined;
   onReady?: () => void;
+  /** The active runner update's deadline, sampled when the socket drops. */
+  updateDeadline?: () => number | undefined;
   logger: DriverLogger;
   /** The newest journal seq already applied; the host replays after it. */
   fromSeq: () => number;
@@ -105,6 +118,11 @@ export class HostClient {
   private sentFromSeq = 0;
   private replayReady = false;
   private reconnectingForLegacyReplay = false;
+  private finishUpdateReattach?: (welcome: HostWelcome | null) => void;
+  private readonly pendingReceipts = new Map<
+    string,
+    (receipt?: Extract<HostMessage, { type: "prompt_receipt_result" }>) => void
+  >();
 
   constructor(private readonly deps: HostClientDeps) {}
 
@@ -234,15 +252,44 @@ export class HostClient {
     socket.on("close", () => {
       if (this.socket !== socket) return;
       this.socket = null;
+      // Only operations pending at the update disconnect get this exception
+      // to the normal ambiguous-loss policy. An incomplete attach leaves
+      // the original recovery waiting for a complete journal replay.
+      const deadline = this.deps.remote
+        ? this.deps.updateDeadline?.()
+        : undefined;
+      const recovery =
+        !this.finishUpdateReattach &&
+        deadline !== undefined &&
+        deadline > Date.now() &&
+        (this.pendingPrompts.size || this.pendingPermissions.size)
+          ? new UpdateAcknowledgementLost(this.awaitUpdateReattach(deadline))
+          : undefined;
       this.failPending(
         new Error(
           this.deps.remote
-            ? "Runner connection dropped before acknowledgement; execution is unknown."
+            ? UNKNOWN_EXECUTION
             : "the agent host connection closed"
-        )
+        ),
+        recovery
       );
       if (this.closed) return;
       this.scheduleReconnect();
+    });
+  }
+
+  private awaitUpdateReattach(deadline: number): Promise<HostWelcome | null> {
+    return new Promise((resolve) => {
+      const timer = setTimeout(
+        () => this.finishUpdateReattach?.(null),
+        deadline - Date.now()
+      );
+      timer.unref?.();
+      this.finishUpdateReattach = (welcome) => {
+        clearTimeout(timer);
+        this.finishUpdateReattach = undefined;
+        resolve(welcome);
+      };
     });
   }
 
@@ -278,6 +325,7 @@ export class HostClient {
         return;
       case "replay_complete":
         this.replayReady = true;
+        this.finishUpdateReattach?.(this.isReady() ? this.lastWelcome : null);
         this.deps.onReady?.();
         return;
       case "event":
@@ -312,6 +360,9 @@ export class HostClient {
         pending?.resolve();
         return;
       }
+      case "prompt_receipt_result":
+        this.pendingReceipts.get(message.id)?.(message);
+        return;
       case "prompt_accepted":
       case "prompt_deferred": {
         const pending = this.pendingPrompts.get(message.id);
@@ -343,6 +394,7 @@ export class HostClient {
       }
       case "error": {
         if (message.id) {
+          this.pendingReceipts.get(message.id)?.();
           const pending =
             this.pendingBackground.get(message.id) ??
             this.pendingInventory.get(message.id) ??
@@ -401,7 +453,8 @@ export class HostClient {
     this.reconnectTimer.unref?.();
   }
 
-  private failPending(err: Error): void {
+  private failPending(err: Error, recovery?: UpdateAcknowledgementLost): void {
+    for (const finish of this.pendingReceipts.values()) finish();
     for (const pending of this.pendingBackground.values()) pending.reject(err);
     this.pendingBackground.clear();
     for (const pending of this.pendingInventory.values()) pending.reject(err);
@@ -410,9 +463,11 @@ export class HostClient {
     this.pendingInterrupts.clear();
     for (const pending of this.pendingSteers.values()) pending.reject(err);
     this.pendingSteers.clear();
-    for (const pending of this.pendingPermissions.values()) pending.reject(err);
+    for (const pending of this.pendingPermissions.values())
+      pending.reject(recovery ?? err);
     this.pendingPermissions.clear();
-    for (const pending of this.pendingPrompts.values()) pending.reject(err);
+    for (const pending of this.pendingPrompts.values())
+      pending.reject(recovery ?? err);
     this.pendingPrompts.clear();
     for (const pending of this.pendingConfig.values()) pending.reject(err);
     this.pendingConfig.clear();
@@ -518,25 +573,80 @@ export class HostClient {
    * Resolves once the adapter has accepted the prompt, or with "deferred"
    * when the host handed it back because the engine's own turn is open.
    */
-  prompt(
+  async prompt(
     id: string,
     text: string,
     source?: PromptSource,
-    images?: PromptImage[]
+    images?: PromptImage[],
+    mayReplay?: () => boolean
   ): Promise<"accepted" | "deferred"> {
+    const journalId = this.deps.remote
+      ? this.lastWelcome?.journalId
+      : undefined;
+    const command = {
+      type: "prompt" as const,
+      id,
+      text,
+      ...(this.deps.remote ? { journalId } : {}),
+      ...(source ? { source } : {}),
+      ...(images?.length ? { images } : {}),
+    };
+    try {
+      return await this.sendPrompt(command);
+    } catch (error) {
+      if (!(error instanceof UpdateAcknowledgementLost) || !journalId)
+        throw error;
+      const welcome = await error.reattached;
+      if (
+        welcome?.promptReceiptSupported !== true ||
+        welcome.journalId !== journalId ||
+        !this.isCurrent(welcome)
+      )
+        throw error;
+      const state = await this.queryPromptReceipt(id, journalId);
+      if (!this.isCurrent(welcome)) throw error;
+      if (state === "accepted") return "accepted";
+      if (state !== "unclaimed" || mayReplay?.() === false) throw error;
+      // The host atomically checks the same ID and journal again before
+      // claiming, so even a query-to-send race cannot submit twice.
+      return this.sendPrompt(command);
+    }
+  }
+
+  private isCurrent(welcome: HostWelcome): boolean {
+    return this.isReady() && this.lastWelcome === welcome;
+  }
+
+  private queryPromptReceipt(
+    id: string,
+    journalId: string
+  ): Promise<PromptReceiptState | undefined> {
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => finish(), 5000);
+      const finish = (
+        receipt?: Extract<HostMessage, { type: "prompt_receipt_result" }>
+      ) => {
+        clearTimeout(timer);
+        this.pendingReceipts.delete(id);
+        resolve(receipt?.journalId === journalId ? receipt.state : undefined);
+      };
+      this.pendingReceipts.set(id, finish);
+      try {
+        this.send({ type: "prompt_receipt", id, journalId });
+      } catch {
+        finish();
+      }
+    });
+  }
+
+  private sendPrompt(
+    command: Extract<ClientMessage, { type: "prompt" }>
+  ): Promise<"accepted" | "deferred"> {
+    const { id } = command;
     return new Promise<"accepted" | "deferred">((resolve, reject) => {
       this.pendingPrompts.set(id, { resolve, reject });
       try {
-        this.send({
-          type: "prompt",
-          id,
-          text,
-          ...(this.deps.remote
-            ? { journalId: this.lastWelcome?.journalId }
-            : {}),
-          ...(source ? { source } : {}),
-          ...(images?.length ? { images } : {}),
-        });
+        this.send(command);
       } catch (err) {
         this.pendingPrompts.delete(id);
         reject(err instanceof Error ? err : new Error(String(err)));
@@ -568,7 +678,43 @@ export class HostClient {
     };
   }
 
-  answerPermission(
+  async answerPermission(
+    id: string,
+    requestId: string,
+    optionId: string | null
+  ): Promise<void> {
+    const original = this.lastWelcome;
+    const request = this.permissions.find(
+      (permission) => permission.id === requestId
+    );
+    try {
+      await this.sendPermission(id, requestId, optionId);
+    } catch (error) {
+      if (
+        !(error instanceof UpdateAcknowledgementLost) ||
+        !original?.journalId ||
+        !request
+      )
+        throw error;
+      const welcome = await error.reattached;
+      if (
+        !welcome ||
+        !this.isCurrent(welcome) ||
+        welcome.journalId !== original.journalId ||
+        welcome.sessionId !== original.sessionId ||
+        !isDeepStrictEqual(
+          this.permissions.find((permission) => permission.id === requestId),
+          request
+        ) ||
+        (optionId !== null &&
+          !request.options.some((option) => option.optionId === optionId))
+      )
+        throw error;
+      await this.sendPermission(id, requestId, optionId);
+    }
+  }
+
+  private sendPermission(
     id: string,
     requestId: string,
     optionId: string | null
@@ -644,6 +790,7 @@ export class HostClient {
     this.closed = true;
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     this.reconnectTimer = null;
+    this.finishUpdateReattach?.(null);
     this.failPending(new Error("the agent host client was closed"));
     this.socket?.destroy();
     this.socket = null;
