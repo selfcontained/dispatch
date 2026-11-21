@@ -193,6 +193,12 @@ stage_release() {
   release_fetch "$archive"
   tar -xOzf "$stage/$archive" "$member" > "$stage/dispatch"
   [[ -s "$stage/dispatch" ]] || error "Missing Linux executable for $tag ($arch)"
+  if tar -xOzf "$stage/$archive" "bin/$update_unit" > "$stage/$update_unit" 2>/dev/null &&
+     [[ -s "$stage/$update_unit" ]]; then
+    runner_probe_available || error "Install systemd with /usr/bin/systemd-run for runner updates"
+  else
+    : > "$stage/$update_unit"
+  fi
 }
 
 stable_start() {
@@ -286,11 +292,14 @@ install_service_unit() {
 # always matches the installed release: replaced from the verified archive,
 # removed when that release has none. Its two private directories hold the
 # candidate on the executable's filesystem and the updater's own state.
+runner_probe_available() {
+  [[ -x /usr/bin/systemd-run ]]
+}
+
 install_update_unit() {
   local replacement path="${unit_path%/*}/$update_unit"
   install -d -m 0700 "$runtime/update" "$state/update"
-  if ! tar -xOzf "$stage/dispatch-runner-linux-$arch.tar.gz" "bin/$update_unit" > "$stage/$update_unit" 2>/dev/null ||
-     [[ ! -s "$stage/$update_unit" ]]; then
+  if [[ ! -s "$stage/$update_unit" ]]; then
     rm -f -- "$path"
     return 0
   fi

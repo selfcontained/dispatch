@@ -1,10 +1,20 @@
-import { mkdtemp, rm, stat } from "node:fs/promises";
+import * as childProcess from "node:child_process";
+import { createHash } from "node:crypto";
+import { readFileSync, statSync } from "node:fs";
+import * as fs from "node:fs/promises";
+import { mkdtemp, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { requiresQuiescence } from "../src/agents/remote/update-handoff.js";
-import { readRunnerCompatibility } from "../src/agents/remote/update-probe.js";
+import {
+  probeStagedRunner,
+  readRunnerCompatibility,
+} from "../src/agents/remote/update-probe.js";
+
+vi.mock("node:child_process", { spy: true });
+vi.mock("node:fs/promises", { spy: true });
 
 // Frozen read-side projection of the pre-epoch supervisor's binding format.
 function previousReader(raw: string) {
@@ -83,6 +93,105 @@ describe("candidate compatibility probe", () => {
       expectedVersion
     );
 
+  it("runs only the rehashed private copy in a fixed unprivileged systemd sandbox", async () => {
+    const staging = await mkdtemp(path.join(tmpdir(), "runner-probe-sandbox-"));
+    const platform = Object.getOwnPropertyDescriptor(process, "platform")!;
+    const { spawn } =
+      await vi.importActual<typeof childProcess>("node:child_process");
+    const { lstat } = await vi.importActual<typeof fs>("node:fs/promises");
+    const candidate = "verified fixture";
+    const sha256 = createHash("sha256").update(candidate).digest("hex");
+    const target = {
+      version: compatibility.version,
+      os: "linux",
+      arch: "x64",
+      sha256,
+    } as const;
+    const runner = path.join(staging, `dispatch-${sha256}`);
+    const layout = { staging, config: "", installed: "", state: "" };
+    let copy: string | undefined;
+    try {
+      await writeFile(runner, candidate, { mode: 0o700 });
+      Object.defineProperty(process, "platform", {
+        ...platform,
+        value: "linux",
+      });
+      vi.spyOn(process, "getuid").mockReturnValue(0);
+      vi.mocked(fs.lstat).mockImplementation((async (file: string) =>
+        Object.assign(await lstat(file), { uid: 0 })) as typeof fs.lstat);
+      vi.mocked(childProcess.spawn).mockImplementation(((
+        command: string,
+        args: string[],
+        options: childProcess.SpawnOptions
+      ) => {
+        expect(command).toBe("/usr/bin/systemd-run");
+        expect(args).toEqual(
+          expect.arrayContaining([
+            "--wait",
+            "--pipe",
+            "--service-type=exec",
+            "--property=User=nobody",
+            "--property=Group=65534",
+            "--property=CapabilityBoundingSet=",
+            "--property=NoNewPrivileges=yes",
+            "--property=TimeoutStartSec=5s",
+            "--property=RuntimeMaxSec=5s",
+            "--property=MemoryMax=512M",
+            "--property=TasksMax=32",
+            "--property=ProtectSystem=strict",
+            "--property=ProtectHome=yes",
+            "--property=PrivateTmp=yes",
+            "--property=PrivateDevices=yes",
+            "--property=PrivateNetwork=yes",
+            "--property=RestrictNamespaces=yes",
+            "--property=RestrictSUIDSGID=yes",
+            "--property=SystemCallArchitectures=native",
+            "--property=KillSignal=SIGKILL",
+          ])
+        );
+        const bind = args.find((arg) =>
+          arg.startsWith("--property=BindReadOnlyPaths=")
+        );
+        const executable = "/run/dispatch-runner-compatibility";
+        copy = bind?.match(
+          /^--property=BindReadOnlyPaths=(.+):\/run\/dispatch-runner-compatibility$/
+        )?.[1];
+        expect(path.dirname(copy!)).toBe(staging);
+        expect(copy).not.toBe(runner);
+        expect(readFileSync(copy!, "utf8")).toBe(candidate);
+        expect(statSync(copy!).mode & 0o777).toBe(0o555);
+        expect(args.slice(-3)).toEqual([
+          "--",
+          executable,
+          "runner-update-compatibility",
+        ]);
+        return spawn(
+          process.execPath,
+          [
+            "-e",
+            `console.log(${JSON.stringify(JSON.stringify(compatibility))})`,
+          ],
+          options
+        );
+      }) as typeof childProcess.spawn);
+      await expect(probeStagedRunner(layout, target)).resolves.toEqual(
+        compatibility
+      );
+      await expect(stat(copy!)).rejects.toMatchObject({ code: "ENOENT" });
+      await writeFile(runner, "different bytes");
+      await expect(probeStagedRunner(layout, target)).rejects.toThrow(
+        "digest mismatch"
+      );
+      expect(childProcess.spawn).toHaveBeenCalledOnce();
+    } finally {
+      Object.defineProperty(process, "platform", platform);
+      vi.restoreAllMocks();
+      vi.mocked(fs.lstat).mockReset();
+      vi.mocked(childProcess.spawn).mockReset();
+      await rm(staging, { recursive: true, force: true });
+    }
+  });
+
   it("accepts bounded JSON for the expected version and projects its fields", async () => {
     await expect(emit({ ...compatibility, extra: "ignored" })).resolves.toEqual(
       compatibility
@@ -142,7 +251,6 @@ describe("candidate compatibility probe", () => {
           "/bin/sh",
           ["-c", '(sleep 0.3; touch "$1") & wait', "probe", marker],
           compatibility.version,
-          undefined,
           100
         )
       ).rejects.toThrow("timed out");

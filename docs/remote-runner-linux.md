@@ -200,7 +200,17 @@ than the installed version or the recorded floor, verifies the Ed25519
 manifest against the keys built into the installed runner, and checks the
 downloaded bytes against the signed digest before writing
 `/opt/dispatch-runner/update/dispatch-<sha256>`. Nothing starts it
-automatically yet. To stage by hand:
+automatically yet.
+
+The staging unit has an empty capability bounding set. After verifying the
+candidate, the updater makes a private copy, hashes it again and uses
+`/usr/bin/systemd-run` to ask PID 1 to mount the copy read-only in a transient
+service running as `nobody`. The probe has no capabilities and runs with
+`NoNewPrivileges`, a five-second runtime limit, 512 MiB of memory and a limit
+of 32 tasks. The staging service bounds the probe's combined output and
+accepts only a valid compatibility response.
+
+To stage by hand:
 
 ```sh
 sudo systemctl start 'dispatch-runner-update@1.2.3_linux_x64_<sha256>.service'

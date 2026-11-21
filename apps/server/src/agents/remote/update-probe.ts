@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
 import { constants, createReadStream } from "node:fs";
-import { chmod, copyFile, lstat, open, unlink } from "node:fs/promises";
+import { chmod, copyFile, lstat, unlink } from "node:fs/promises";
 import path from "node:path";
 import { isBuildIdentity } from "../build-identity.js";
 import type { RunnerCompatibility } from "./update-handoff.js";
@@ -11,7 +11,6 @@ import {
   type RunnerUpdateLayout,
   type RunnerUpdateRequest,
 } from "./update-verify.js";
-import { setpriv } from "./workload-identity.js";
 
 export const RUNNER_COMPATIBILITY_MODE = "runner-update-compatibility";
 const probeTimeoutMs = 5_000;
@@ -49,7 +48,6 @@ export function readRunnerCompatibility(
   command: string,
   args: string[],
   version: string,
-  executableFd?: number,
   timeout = probeTimeoutMs
 ): Promise<RunnerCompatibility> {
   return new Promise((resolve, reject) => {
@@ -57,12 +55,7 @@ export function readRunnerCompatibility(
       cwd: "/",
       env: { HOME: "/nonexistent" },
       detached: true,
-      stdio: [
-        "ignore",
-        "pipe",
-        "pipe",
-        ...(executableFd === undefined ? [] : [executableFd]),
-      ],
+      stdio: ["ignore", "pipe", "pipe"],
     });
     const fail = (message: string) => {
       clearTimeout(timer);
@@ -142,9 +135,8 @@ export async function probeStagedRunner(
       "Runner compatibility probe requires a private staged executable"
     );
 
-  // Keep the staged inode private and unchanged. Pass an unlinked read-only
-  // copy as fd 3, so the sandbox UID needs no access to the staging tree.
-  // Match the digest again on the exact bytes passed to the probe.
+  // PID 1 bind-mounts this private, re-hashed copy read-only into the probe
+  // unit. The probe UID cannot traverse the staging directory on the host.
   const copy = path.join(
     layout.staging,
     `.tmp-${process.pid}-${randomBytes(8).toString("hex")}`
@@ -156,29 +148,40 @@ export async function probeStagedRunner(
     if (hash.digest("hex") !== target.sha256)
       throw new Error("Runner compatibility probe digest mismatch");
     await chmod(copy, 0o555);
-    const executable = await open(copy, "r");
-    try {
-      await unlink(copy);
-      return await readRunnerCompatibility(
-        setpriv,
-        [
-          "--reuid=65534",
-          "--regid=65534",
-          "--clear-groups",
-          "--no-new-privs",
-          "--inh-caps=-all",
-          "--ambient-caps=-all",
-          "--bounding-set=-all",
-          "--",
-          "/proc/self/fd/3",
-          RUNNER_COMPATIBILITY_MODE,
-        ],
-        target.version,
-        executable.fd
-      );
-    } finally {
-      await executable.close();
-    }
+    const executable = "/run/dispatch-runner-compatibility";
+    return await readRunnerCompatibility(
+      "/usr/bin/systemd-run",
+      [
+        "--wait",
+        "--pipe",
+        "--quiet",
+        "--collect",
+        "--service-type=exec",
+        "--property=User=nobody",
+        "--property=Group=65534",
+        "--property=CapabilityBoundingSet=",
+        "--property=NoNewPrivileges=yes",
+        "--property=TimeoutStartSec=5s",
+        "--property=RuntimeMaxSec=5s",
+        "--property=KillSignal=SIGKILL",
+        "--property=MemoryMax=512M",
+        "--property=TasksMax=32",
+        "--property=ProtectSystem=strict",
+        "--property=ProtectHome=yes",
+        "--property=PrivateTmp=yes",
+        "--property=PrivateDevices=yes",
+        "--property=PrivateNetwork=yes",
+        "--property=RestrictNamespaces=yes",
+        "--property=RestrictSUIDSGID=yes",
+        "--property=SystemCallArchitectures=native",
+        `--property=BindReadOnlyPaths=${copy}:${executable}`,
+        "--",
+        executable,
+        RUNNER_COMPATIBILITY_MODE,
+      ],
+      target.version,
+      11_000
+    );
   } finally {
     await unlink(copy).catch((error) => {
       if (error.code !== "ENOENT") throw error;

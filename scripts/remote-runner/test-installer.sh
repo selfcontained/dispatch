@@ -73,6 +73,9 @@ stat() {
     command stat "$@"
   fi
 }
+runner_probe_available() {
+  [[ ! -e "$root/no-systemd-run" ]]
+}
 systemctl() {
   local command="$1"
   printf '%s\n' "$*" >> "$root/systemctl"
@@ -337,6 +340,15 @@ grep -Fq "cannot verify release attestations" "$deps/err"
 [[ ! -e "$deps/package-installs" ]] || fail
 unset fixture_root
 
+fixture_root="$root/missing-probe"
+mkdir -p "$fixture_root"
+cp -R "$root/releases" "$root/public.pem" "$fixture_root/"
+touch "$fixture_root/no-systemd-run"
+expect_status 1 install v1.0.0 x64 --dedicated-user > /dev/null 2> "$root/no-systemd-run.err"
+grep -Fq 'Install systemd with /usr/bin/systemd-run for runner updates' "$root/no-systemd-run.err" || fail
+[[ ! -e "$fixture_root/runtime/dispatch" && ! -e "$fixture_root/account" ]] || fail
+unset fixture_root
+
 run install v1.0.0 x64 --dedicated-user
 run install v1.0.0 x64 --dedicated-user
 [[ -e "$root/account" && -d "$root/state/home" ]] || fail
@@ -352,7 +364,8 @@ cmp 'bin/dispatch-runner-update@.service' "$root/dispatch-runner-update@.service
 [[ $(find "$root/runtime/update" "$root/state/update" -maxdepth 0 -type d -perm 0700 -print | wc -l) -eq 2 ]] || fail
 grep -Fxq 'ExecStart=/usr/bin/flock --nonblock --conflict-exit-code 75 /var/lib/dispatch-runner/update/stage.lock /opt/dispatch-runner/dispatch runner-update-stage %i' \
   "$root/dispatch-runner-update@.service"
-grep -Fxq 'ReadWritePaths=/opt/dispatch-runner/update /var/lib/dispatch-runner/update' "$root/dispatch-runner-update@.service"
+grep -Fxq 'ReadWritePaths=/opt/dispatch-runner/update /var/lib/dispatch-runner/update' "$root/dispatch-runner-update@.service" || fail
+[[ "$(grep '^CapabilityBoundingSet=' "$root/dispatch-runner-update@.service")" == 'CapabilityBoundingSet=' ]] || fail
 node - "$root/settings/runner.json" "$root/runtime/dispatch" <<'JS'
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
