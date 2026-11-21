@@ -232,25 +232,28 @@ describe("launch location preference", () => {
     expect(result.current.repository).toBe("https://github.com/org/project");
     act(() => result.current.setRunnerBranch("release"));
     await act(async () => result.current.handleSubmit(submitEvent()));
-    expect(agentsPostJson()).toMatchObject({
+    // A runner repository sends the same worktree intent as a local launch;
+    // the server names the branch and builds the checkout.
+    expect(agentsPostJson()).toEqual({
+      name: "",
       projectId: "project-a",
       cwd: "runner://rnr_lima/@session",
-      repository: {
-        url: "https://github.com/org/project",
-        checkout: {
-          kind: "new",
-          base: "release",
-          branch: expect.stringMatching(/^session\//),
-        },
-      },
+      repository: { url: "https://github.com/org/project" },
+      type: "claude",
+      fullAccess: true,
+      useWorktree: true,
+      createNewBranch: true,
+      baseBranch: "release",
     });
     apiMock.mockClear();
     act(() => result.current.setRunnerNewBranch("feature/custom"));
     await act(async () => result.current.handleSubmit(submitEvent()));
     expect(agentsPostJson()).toMatchObject({
-      repository: {
-        checkout: { kind: "new", base: "release", branch: "feature/custom" },
-      },
+      repository: { url: "https://github.com/org/project" },
+      useWorktree: true,
+      createNewBranch: true,
+      worktreeBranch: "feature/custom",
+      baseBranch: "release",
     });
 
     apiMock.mockClear();
@@ -262,12 +265,13 @@ describe("launch location preference", () => {
     await act(async () => result.current.handleSubmit(submitEvent()));
     expect(agentsPostJson()).toMatchObject({
       cwd: "runner://rnr_lima/@session",
-      repository: {
-        url: "https://github.com/org/standalone",
-        checkout: { kind: "branch", branch: "feature" },
-      },
+      repository: { url: "https://github.com/org/standalone" },
+      useWorktree: true,
+      createNewBranch: false,
+      baseBranch: "feature",
     });
     expect(agentsPostJson()).not.toHaveProperty("projectId");
+    expect(agentsPostJson()).not.toHaveProperty("worktreeBranch");
 
     apiMock.mockClear();
     act(() => result.current.setCreateProjectId(null));

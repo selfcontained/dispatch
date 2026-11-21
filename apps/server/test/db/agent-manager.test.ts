@@ -606,6 +606,88 @@ describe("AgentManager", () => {
       }
     });
 
+    it("resolves a web repository launch from worktree intent like the old raw checkout", async () => {
+      const remote = {
+        available: () => true,
+        isManagedWorkspace: () => true,
+        originFor: () => "https://example.test",
+      } as unknown as RemoteRunnerService;
+      const manager = new AgentManager(pool, noopLogger, testConfig, {
+        runtime,
+        remote,
+      });
+      const cwd = "runner://runner-test/@session";
+      const url = "https://example.test/r.git";
+      const launched = async (input: Record<string, unknown>) => {
+        const agent = await manager.createAgent({
+          cwd,
+          name: "Web Topic",
+          ...input,
+        });
+        const call = runtime.launch.mock.calls.at(-1)?.[0];
+        expect(call?.agentId).toBe(agent.id);
+        return { agent, repository: call?.repository };
+      };
+      for (const [raw, intent, checkout] of [
+        [
+          { kind: "new", branch: "topic", base: "develop" },
+          {
+            createNewBranch: true,
+            worktreeBranch: "topic",
+            baseBranch: "develop",
+          },
+          { kind: "new", branch: "topic", base: "develop" },
+        ],
+        [
+          { kind: "new", branch: "topic" },
+          { createNewBranch: true, worktreeBranch: "topic" },
+          { kind: "new", branch: "topic" },
+        ],
+        // The shared resolver also lets an existing branch be the default
+        // branch, as MCP and local launches already do.
+        [
+          { kind: "branch", branch: "feature/x" },
+          { createNewBranch: false, baseBranch: "feature/x" },
+          { kind: "branch", branch: "feature/x", allowDefault: true },
+        ],
+      ] as const) {
+        // An older client's raw checkout is still launched unchanged.
+        expect(
+          (await launched({ repository: { url, checkout: raw } })).repository
+        ).toEqual({ url, checkout: raw });
+        expect(
+          (
+            await launched({
+              repository: { url },
+              useWorktree: true,
+              ...intent,
+            })
+          ).repository
+        ).toEqual({ url, checkout });
+      }
+      // A blank new-branch name gets the same auto name as MCP launches.
+      const auto = await launched({
+        repository: { url },
+        useWorktree: true,
+        createNewBranch: true,
+      });
+      expect(auto.repository).toEqual({
+        url,
+        checkout: { kind: "new", branch: `${auto.agent.id}/web-topic` },
+      });
+      await expect(
+        manager.createAgent({ cwd, repository: {}, useWorktree: true })
+      ).rejects.toThrow("Enter a repository URL");
+      await expect(
+        manager.createAgent({
+          cwd,
+          repository: { url },
+          createNewBranch: true,
+          worktreeBranch: "bad..name",
+        })
+      ).rejects.toThrow();
+    });
+
     it("places project templates and scheduled jobs on their saved runner", async () => {
       const cwd = "runner://runner-test/@session";
       const projectId = "managed-runner-project";

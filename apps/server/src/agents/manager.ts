@@ -111,7 +111,7 @@ import {
   type CheckoutQuery,
   type CheckoutReply,
 } from "./remote/protocol.js";
-import { parseRepository } from "./remote/repository.js";
+import { parseRepository, parseRepositoryTarget } from "./remote/repository.js";
 import { RunnerRevoked, type RemoteRunnerService } from "./remote/service.js";
 import { buildLaunchEnv } from "./acp/launch-env.js";
 import { dispatchMcpUrl } from "./acp/mcp-url.js";
@@ -1730,7 +1730,7 @@ export class AgentManager {
           400
         );
       try {
-        return parseRepository(input.repository);
+        return parseRepositoryTarget(input.repository);
       } catch (error) {
         throw new AgentError(errorMessage(error), 400);
       }
@@ -1777,7 +1777,11 @@ export class AgentManager {
           "Update the runner to launch an agent in an existing checkout.",
           409
         );
-      input.useWorktree = !repository && input.useWorktree === true;
+      // A repository named without a checkout plan always gets a managed
+      // worktree, resolved from the launch's worktree intent below.
+      input.useWorktree = repository
+        ? !repository.checkout
+        : input.useWorktree === true;
     }
     let projectRoot: string | undefined;
     if (input.templateId) {
@@ -1863,17 +1867,27 @@ export class AgentManager {
       // or a deliberately selected subdirectory.
       if (matches.length === 1) input.projectId = matches[0]!.id;
     }
+    if (repository && !repository.url)
+      throw new AgentError(
+        "Enter a repository URL or select a project with a repository origin.",
+        400
+      );
     const taskPersona = Boolean(input.persona && input.role !== "review");
     const derivedRepositoryUrl =
       placement && input.useWorktree
-        ? independentSource
-          ? (await this.runnerCheckout(independentSource, { kind: "describe" }))
-              .origin
-          : projectRoot
-            ? await this.localRunner
-                .inferRepositoryUrl(projectRoot)
-                .catch(() => null)
-            : null
+        ? repository
+          ? repository.url
+          : independentSource
+            ? (
+                await this.runnerCheckout(independentSource, {
+                  kind: "describe",
+                })
+              ).origin
+            : projectRoot
+              ? await this.localRunner
+                  .inferRepositoryUrl(projectRoot)
+                  .catch(() => null)
+              : null
         : undefined;
     if (derivedRepositoryUrl === null)
       throw new AgentError(
@@ -1897,14 +1911,10 @@ export class AgentManager {
         agentArgs: [...(input.agentArgs ?? []), PERSONA_CONTEXT_ARG, body],
       };
     }
-    let runnerRepository = repository?.url
-      ? { url: repository.url, checkout: repository.checkout }
-      : null;
-    if (repository && !runnerRepository)
-      throw new AgentError(
-        "Enter a repository URL or select a project with a repository origin.",
-        400
-      );
+    let runnerRepository =
+      repository?.url && repository.checkout
+        ? { url: repository.url, checkout: repository.checkout }
+        : null;
     const p = await this.prepareCreateInputs(
       input,
       directory?.cwd ?? input.cwd

@@ -3,7 +3,6 @@ import {
   useRunnerModelCatalog,
 } from "@/hooks/use-runner-engines";
 import { isLocalFolder } from "./path-input-utils";
-import { createClientId } from "@/lib/client-id";
 import {
   MANAGED_WORKSPACE,
   parseRunnerRepositoryUrl,
@@ -479,19 +478,14 @@ export function useCreateAgentForm({
         const submitCreateNewBranch = submitUseWorktree && createNewBranch;
         const contextInitialPrompt =
           step === "context" ? initialPrompt.trim() || undefined : undefined;
+        // A runner repository sends the same worktree intent as a local
+        // launch; the server resolves the checkout. Only a pull request URL
+        // is still resolved here and sent as a checkout plan.
         let checkout;
+        let runnerIntent;
         if (managedSession && repository.trim()) {
           const branch = runnerBranch.trim();
-          if (branchMode === "new") {
-            checkout = {
-              url: repository.trim(),
-              checkout: {
-                kind: "new",
-                branch: runnerNewBranch.trim() || `session/${createClientId()}`,
-                base: branch || undefined,
-              },
-            };
-          } else if (branch.startsWith("https://")) {
+          if (branchMode === "existing" && branch.startsWith("https://")) {
             if (!runnerId || !runner?.githubManagement)
               throw new Error(
                 "Update this runner to open a pull request by URL, or enter a branch name."
@@ -514,9 +508,15 @@ export function useCreateAgentForm({
               checkout: { kind: "branch", branch: head.branch },
             };
           } else {
-            checkout = {
-              url: repository.trim(),
-              checkout: { kind: "branch", branch },
+            checkout = { url: repository.trim() };
+            runnerIntent = {
+              useWorktree: true,
+              createNewBranch: branchMode === "new",
+              worktreeBranch:
+                branchMode === "new"
+                  ? runnerNewBranch.trim() || undefined
+                  : undefined,
+              baseBranch: branch || undefined,
             };
           }
         }
@@ -549,6 +549,7 @@ export function useCreateAgentForm({
               : undefined,
           initialPrompt: contextInitialPrompt,
           taskId: task?.id,
+          ...runnerIntent,
         };
         const resolvedStartupLinks = startupLinks;
         const useStartupContext =

@@ -8,6 +8,21 @@ import {
 export { validBranch };
 
 export type RepositoryInput = { url?: string; checkout: RepositoryCheckout };
+/**
+ * A launch's repository: a raw checkout plan (older clients), or only the
+ * origin, whose checkout comes from the launch's worktree intent.
+ */
+export type RepositoryTarget = { url?: string; checkout?: RepositoryCheckout };
+
+export function parseRepositoryTarget(input: unknown): RepositoryTarget {
+  if (input && typeof input === "object" && !("checkout" in input)) {
+    if (!("url" in input) || input.url === undefined) return {};
+    if (typeof input.url !== "string")
+      throw new Error("Repository URL must be a string.");
+    return { url: repositoryUrl(input.url) };
+  }
+  return parseRepository(input);
+}
 
 export function repositoryUrl(input: string, fromOrigin = false): string {
   let source = input;
