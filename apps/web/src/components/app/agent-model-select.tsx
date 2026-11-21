@@ -31,9 +31,8 @@ export function AgentModelSelect({
   testId = "create-agent-model",
 }: AgentModelSelectProps): JSX.Element {
   const fallback = catalogDefault ?? DEFAULT_VALUE;
-  const selected =
-    options.find((option) => option.id === value) ??
-    options.find((option) => option.id === fallback);
+  const selectedValue =
+    value && options.some((option) => option.id === value) ? value : fallback;
 
   return (
     <div className="space-y-1">
@@ -41,7 +40,7 @@ export function AgentModelSelect({
         Model
       </label>
       <Select
-        value={selected?.id ?? fallback}
+        value={selectedValue}
         onValueChange={(nextValue) => {
           // Radix's hidden form input echoes an empty value back through
           // onValueChange when its native <option> set lags the rendered items.
@@ -53,18 +52,16 @@ export function AgentModelSelect({
         <SelectTrigger
           id={id}
           data-testid={testId}
-          aria-busy={loading || undefined}
-          disabled={!loading && options.length === 0}
+          disabled={loading || options.length === 0}
         >
-          <SelectValue>{selected?.label ?? "Default"}</SelectValue>
+          <SelectValue>{loading ? "Loading models…" : undefined}</SelectValue>
         </SelectTrigger>
         <SelectContent className="max-h-[clamp(4rem,var(--radix-select-content-available-height),24rem)]">
           {!catalogDefault && (
-            <SelectItem value={DEFAULT_VALUE}>Default</SelectItem>
-          )}
-          {loading && (
-            <SelectItem value="__loading__" disabled>
-              Loading models…
+            <SelectItem value={DEFAULT_VALUE}>
+              {catalogDefault === null && options.length > 0
+                ? "Use engine setting"
+                : "Default"}
             </SelectItem>
           )}
           {options.map((option) => (

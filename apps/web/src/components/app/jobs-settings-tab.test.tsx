@@ -237,9 +237,10 @@ describe("save payload", () => {
     // through untouched, so saving too early would sidestep the behavior
     // under test.
     await waitFor(() =>
-      expect(
-        screen.getByTestId("create-agent-model").getAttribute("aria-busy")
-      ).toBeNull()
+      expect(screen.getByTestId("create-agent-model")).toHaveProperty(
+        "disabled",
+        false
+      )
     );
 
     await clickSave();

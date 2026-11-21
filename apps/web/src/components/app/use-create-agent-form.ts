@@ -709,8 +709,7 @@ export function useCreateAgentForm({
     checkoutVisible: runnerId
       ? managedSession && Boolean(repository) && !repoStatus
       : true,
-    // Opening a PR needs GitHub access: local gh, or the runner's GitHub.
-    pullRequests: managedSession ? runner?.githubManagement === true : true,
+    pullRequests: managedSession && runner?.githubManagement === true,
     branchSource:
       managedSession && runner
         ? {

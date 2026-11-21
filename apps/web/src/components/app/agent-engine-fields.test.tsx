@@ -185,12 +185,14 @@ const renderHost = (host: "create" | "trigger") => {
 /**
  * The block the Type picker sits in, with the host's ids made neutral. Radix
  * adds a hidden native select only inside a <form>, which Create Agent is.
+ * The trigger dialog omits the catalog default prop.
  */
 const engineBlock = () => {
   const type = screen.getByRole("combobox", { name: /^(Agent|Type)$/ });
   const block = type.parentElement!.parentElement!.parentElement!;
   return block.outerHTML
     .replace(">Agent</label>", ">Type</label>")
+    .replace(">Use engine setting</span>", ">Default</span>")
     .replace(/task-trigger-type/g, "agent-type-select")
     .replace(/task-trigger-(model|engine|effort)/g, "create-agent-$1")
     .replace(/radix-[^"]*/g, "radix")
@@ -200,7 +202,7 @@ const engineBlock = () => {
 
 const settle = async (expectModel: boolean, missing = false) => {
   await waitFor(() => {
-    expect(document.querySelector('[aria-busy="true"]')).toBeNull();
+    expect(screen.queryByText("Loading models…")).toBeNull();
     expect(screen.queryAllByText("Model")).toHaveLength(expectModel ? 1 : 0);
   });
   // Engines arrive on their own query; only a missing one says anything.

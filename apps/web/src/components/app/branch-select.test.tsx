@@ -183,7 +183,7 @@ async function openRows(
   fireEvent.click(control);
   await screen.findByRole("option", { name: "feature/a" });
   return () =>
-    screen.getAllByRole("option").map((row) => ({
+    screen.queryAllByRole("option").map((row) => ({
       text: row.textContent,
       selected: row.querySelector("svg")?.classList.contains("opacity-100"),
     }));
@@ -204,28 +204,48 @@ describe.each(["local", "runner"] as const)("%s branch picker", (source) => {
     expect(rows()[1]).toEqual({ text: "gonenot found", selected: true });
     expect(screen.getByText(/no longer exists on the remote/)).toBeTruthy();
   });
+});
 
-  it("accepts a typed branch and a pull request URL", async () => {
-    const onBaseBranchChange = vi.fn();
-    const rows = await openRows(source, {
-      allowPullRequest: true,
-      onBaseBranchChange,
-    });
-    const search = screen.getByPlaceholderText("Branch name or GitHub PR URL");
-    fireEvent.change(search, { target: { value: "release/next" } });
-    expect(rows().map((row) => row.text)).toContain("release/next");
-    fireEvent.click(screen.getByRole("option", { name: "release/next" }));
-    expect(onBaseBranchChange).toHaveBeenLastCalledWith("release/next");
-
-    fireEvent.click(screen.getByRole("combobox", { name: "Base branch" }));
-    const pr = "https://github.com/example/repo/pull/7";
-    fireEvent.change(
-      screen.getByPlaceholderText("Branch name or GitHub PR URL"),
-      { target: { value: pr } }
-    );
-    fireEvent.click(await screen.findByRole("option", { name: pr }));
-    expect(onBaseBranchChange).toHaveBeenLastCalledWith(pr);
+it("accepts a typed branch and a pull request URL", async () => {
+  const onBaseBranchChange = vi.fn();
+  const rows = await openRows("runner", {
+    allowPullRequest: true,
+    onBaseBranchChange,
   });
+  const search = screen.getByPlaceholderText("Branch name or GitHub PR URL");
+  fireEvent.change(search, { target: { value: "release/next" } });
+  expect(rows().map((row) => row.text)).toContain("release/next");
+  fireEvent.click(screen.getByRole("option", { name: "release/next" }));
+  expect(onBaseBranchChange).toHaveBeenLastCalledWith("release/next");
+
+  fireEvent.click(screen.getByRole("combobox", { name: "Base branch" }));
+  const pr = "https://github.com/example/repo/pull/7";
+  fireEvent.change(
+    screen.getByPlaceholderText("Branch name or GitHub PR URL"),
+    { target: { value: pr } }
+  );
+  fireEvent.click(await screen.findByRole("option", { name: pr }));
+  expect(onBaseBranchChange).toHaveBeenLastCalledWith(pr);
+});
+
+it("only offers listed branches when searching locally", async () => {
+  const onBaseBranchChange = vi.fn();
+  const rows = await openRows("local", {
+    allowPullRequest: true,
+    onBaseBranchChange,
+  });
+  const search = screen.getByPlaceholderText(/Search branches|GitHub PR URL/);
+  for (const value of [
+    "release/next",
+    "https://github.com/example/repo/pull/7",
+  ]) {
+    fireEvent.change(search, { target: { value } });
+    expect(rows().map((row) => row.text)).not.toContain(value);
+  }
+  fireEvent.change(search, { target: { value: "feature/a" } });
+  fireEvent.click(screen.getByRole("option", { name: "feature/a" }));
+  expect(onBaseBranchChange).toHaveBeenLastCalledWith("feature/a");
+  expect(search.getAttribute("placeholder")).toBe("Search branches...");
 });
 
 it("builds the same rows for any source and offers PR URLs only when allowed", () => {
@@ -280,7 +300,7 @@ it("opens the list above a scrolling dialog body and returns focus on close", as
   // Portalled into the dialog, outside the body that scrolls and clips.
   expect(screen.getByTestId("dialog-body").contains(option)).toBe(false);
   expect(screen.getByTestId("dialog").contains(option)).toBe(true);
-  const search = screen.getByPlaceholderText("Search or enter a branch");
+  const search = screen.getByPlaceholderText("Search branches...");
   await waitFor(() => expect(document.activeElement).toBe(search));
   fireEvent.keyDown(search, { key: "Escape" });
   await waitFor(() =>

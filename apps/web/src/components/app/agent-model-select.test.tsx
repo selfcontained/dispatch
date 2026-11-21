@@ -35,14 +35,26 @@ describe("AgentModelSelect", () => {
     }
   );
 
-  it("stays a usable, labelled control while the catalog loads", () => {
+  it("shows Use engine setting when the catalog has models but no default", () => {
+    render(
+      <AgentModelSelect
+        value={null}
+        options={OPTIONS}
+        catalogDefault={null}
+        onChange={vi.fn()}
+      />
+    );
+    expect(screen.getByTestId("create-agent-model").textContent).toBe(
+      "Use engine setting"
+    );
+  });
+
+  it("disables the model picker while the catalog loads", () => {
     render(
       <AgentModelSelect value={null} options={[]} onChange={vi.fn()} loading />
     );
     const trigger = screen.getByTestId("create-agent-model");
-    expect(trigger.textContent).toContain("Default");
-    expect(trigger.textContent).not.toContain("Loading");
-    expect(trigger.getAttribute("aria-busy")).toBe("true");
-    expect(trigger).toHaveProperty("disabled", false);
+    expect(trigger.textContent).toBe("Loading models…");
+    expect(trigger).toHaveProperty("disabled", true);
   });
 });

@@ -150,7 +150,7 @@ export function branchRows({
 export function BranchSelect({
   cwd,
   runner,
-  allowPullRequest = false,
+  allowPullRequest: allowPullRequestInput = false,
   baseBranch,
   onBaseBranchChange,
   worktreeBranch,
@@ -165,6 +165,8 @@ export function BranchSelect({
   const [typed, setTyped] = useState("");
   const [entered, setEntered] = useState<string>();
   const endpoint = branchListEndpoint(cwd, runner);
+  const allowPullRequest = Boolean(runner) && allowPullRequestInput;
+  const typedBranch = runner ? typed : "";
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -196,7 +198,7 @@ export function BranchSelect({
         branches: listedBranches,
         defaultBranch,
         baseBranch,
-        typed,
+        typed: typedBranch,
         allowPullRequest,
         listed: branches.isSuccess && !branchesLoading,
         entered,
@@ -205,7 +207,7 @@ export function BranchSelect({
       listedBranches,
       defaultBranch,
       baseBranch,
-      typed,
+      typedBranch,
       allowPullRequest,
       branches.isSuccess,
       branchesLoading,
@@ -214,7 +216,7 @@ export function BranchSelect({
   );
   const savedBranchMissing = rows.some((row) => row.missing);
   const choose = (value: string) => {
-    if (value && value === typed.trim()) setEntered(value);
+    if (value && value === typedBranch.trim()) setEntered(value);
     onBaseBranchChange(value);
     setDropdownOpen(false);
   };
@@ -283,7 +285,9 @@ export function BranchSelect({
                 placeholder={
                   allowPullRequest
                     ? "Branch name or GitHub PR URL"
-                    : "Search or enter a branch"
+                    : runner
+                      ? "Search or enter a branch"
+                      : "Search branches..."
                 }
                 className="font-mono text-xs"
               />
