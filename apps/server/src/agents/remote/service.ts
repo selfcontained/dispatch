@@ -1671,7 +1671,14 @@ export class RemoteRunnerService {
    * With `epoch`, refuse if the connection changed since it was read.
    * Replies arrive through `onUpdateStatus`.
    */
-  sendUpdate(runnerId: string, frame: UpdateServiceFrame, epoch?: number) {
+  sendUpdate(
+    runnerId: string,
+    ...[frame, epoch]:
+      | [Extract<UpdateServiceFrame, { type: "update_offer" }>, epoch?: number]
+      | [UpdateServiceFrame, epoch: number]
+  ) {
+    if (frame.type !== "update_offer" && epoch === undefined)
+      throw new TypeError("A runner connection epoch is required.");
     const peer = this.peers.get(runnerId);
     if (!peer?.gate.approved())
       throw new RunnerUnavailable("The runner is disconnected or unavailable.");
@@ -1705,7 +1712,7 @@ export class RemoteRunnerService {
     runnerId: string,
     attemptId: string,
     retainSessions: boolean,
-    epoch?: number
+    epoch: number
   ) {
     return this.sendUpdate(
       runnerId,
@@ -1714,7 +1721,7 @@ export class RemoteRunnerService {
     );
   }
 
-  activateUpdate(runnerId: string, attemptId: string, epoch?: number) {
+  activateUpdate(runnerId: string, attemptId: string, epoch: number) {
     return this.sendUpdate(
       runnerId,
       { type: "update_activate", attemptId },
@@ -1726,7 +1733,7 @@ export class RemoteRunnerService {
     runnerId: string,
     attemptId: string,
     observed: { revision: string; sha256: string },
-    epoch?: number
+    epoch: number
   ) {
     return this.sendUpdate(
       runnerId,
@@ -1739,7 +1746,7 @@ export class RemoteRunnerService {
     runnerId: string,
     attemptId: string,
     reason: RunnerUpdateCancelReason,
-    epoch?: number
+    epoch: number
   ) {
     return this.sendUpdate(
       runnerId,

@@ -412,11 +412,23 @@ describe("runner enrollment service", () => {
       service.fenceUpdate(currentId, attemptId, true, epoch + 1)
     ).toThrow(RunnerUnavailable);
     expect(() =>
+      // @ts-expect-error A decision requires a connection epoch.
       service.sendUpdate(currentId, {
         type: "update_cancel",
         attemptId,
-        reason: "because",
-      } as never)
+        reason: "policy_changed",
+      })
+    ).toThrow(/epoch is required/);
+    expect(() =>
+      service.sendUpdate(
+        currentId,
+        {
+          type: "update_cancel",
+          attemptId,
+          reason: "because",
+        } as never,
+        epoch
+      )
     ).toThrow(TypeError);
     await waitFor(() => currentPeer.requests.length === 1);
     expect(currentPeer.requests[0]).toEqual({
