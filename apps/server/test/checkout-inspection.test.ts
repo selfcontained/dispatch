@@ -24,7 +24,14 @@ import {
 } from "vitest";
 
 import { inspectCheckout } from "../src/agents/checkout-inspection.js";
-import { inspectAgentCheckout } from "../src/agents/checkout-runner.js";
+import {
+  inspectAgentCheckout,
+  readAgentStats,
+  readAgentView,
+} from "../src/agents/checkout-runner.js";
+import { agentComparisonBase } from "../src/agents/effective-base.js";
+import type { AgentRecord } from "../src/agents/types.js";
+import type { DiffResponse } from "@dispatch/shared";
 import { createLocalRunner } from "../src/agents/local-runner.js";
 import type { FastifyBaseLogger } from "fastify";
 
@@ -125,6 +132,141 @@ beforeEach(() => {
 afterEach(() => {
   vi.unstubAllEnvs();
   rmSync(fixture, { recursive: true, force: true });
+});
+
+// On origin/main, agentDiffTarget and resolveReviewBase both start with
+// agent.baseBranch when stored. Git prefers origin/<branch> over <branch>.
+describe("local existing-branch comparison", () => {
+  it.each([
+    { name: "ahead with edits", pushed: true, ahead: true, dirty: true },
+    { name: "fully pushed", pushed: true },
+    { name: "local-only with edits", dirty: true },
+    {
+      name: "PR head with edits",
+      pushed: true,
+      ahead: true,
+      dirty: true,
+      pr: true,
+    },
+    {
+      name: "plain checkout with a stored base",
+      pushed: true,
+      ahead: true,
+      dirty: true,
+      plain: true,
+    },
+    {
+      name: "plain checkout with only an upstream",
+      pushed: true,
+      ahead: true,
+      dirty: true,
+      plain: true,
+      implicit: true,
+    },
+    {
+      name: "plain local-only checkout with no stored base",
+      ahead: true,
+      dirty: true,
+      plain: true,
+      implicit: true,
+    },
+    {
+      name: "plain PR head with an upstream and no stored base",
+      pushed: true,
+      ahead: true,
+      dirty: true,
+      pr: true,
+      plain: true,
+      implicit: true,
+    },
+  ])("$name", async ({ pushed, ahead, dirty, pr, plain, implicit }) => {
+    const origin = path.join(fixture, "bare-origin");
+    git(fixture, "init", "--bare", origin);
+    git(repo, "remote", "set-url", "origin", origin);
+    git(repo, "push", "origin", "main");
+    if (plain) {
+      git(repo, "worktree", "remove", checkout);
+      git(repo, "switch", "feature");
+    }
+    const cwd = plain ? repo : checkout;
+    put(cwd, "branch.txt", "branch work\n");
+    git(cwd, "add", "branch.txt");
+    git(cwd, "commit", "-m", "existing branch work");
+    if (pushed) git(cwd, "push", "-u", "origin", "feature");
+    if (ahead) {
+      put(cwd, "ahead.txt", "unpushed work\n");
+      git(cwd, "add", "ahead.txt");
+      git(cwd, "commit", "-m", "additional branch work");
+    }
+    if (dirty) put(cwd, "unstaged.txt", "working tree edit\n");
+    if (pr) {
+      writeFileSync(
+        path.join(bin, "gh"),
+        `#!/bin/sh
+cat <<'JSON'
+{"number":1,"url":"https://example.invalid/pr/1","title":"Test PR","state":"OPEN","isDraft":false,"headRefName":"feature","baseRefName":"main"}
+JSON
+`
+      );
+    }
+
+    const agent = {
+      id: "agt_local",
+      cwd,
+      worktreePath: plain ? null : cwd,
+      worktreeBranch: plain ? null : "feature",
+      baseBranch: implicit ? null : "feature",
+    };
+    const expectedRef = pushed
+      ? "origin/feature"
+      : implicit
+        ? "origin/main"
+        : "feature";
+    const expectedCommitted =
+      implicit && !pushed
+        ? ["ahead.txt", "branch.txt"]
+        : ahead && pushed
+          ? ["ahead.txt"]
+          : [];
+    const expectedFiles = dirty
+      ? [...expectedCommitted, "unstaged.txt"]
+      : expectedCommitted;
+    const expectedSha = git(cwd, "rev-parse", expectedRef);
+
+    for (const includeUncommitted of [true, false]) {
+      const expected = includeUncommitted ? expectedFiles : expectedCommitted;
+      const view = { baseBranch: null, includeUncommitted };
+      const diff = (await readAgentView(agent, {
+        kind: "diff",
+        ...view,
+        ignoreWhitespace: false,
+      })) as DiffResponse;
+      expect(diff.baseRef).toBe(expectedSha);
+      expect(diff.files.map((file) => file.path).sort()).toEqual(expected);
+      expect(
+        await readAgentView(agent, { kind: "stats", ...view })
+      ).toMatchObject({
+        files: expected.length,
+      });
+    }
+    expect(await readAgentStats(agent.id, agent)).toMatchObject({
+      kind: "success",
+      stats: { files: expectedFiles.length },
+    });
+    expect(
+      await inspectAgentCheckout(agent as AgentRecord, {
+        kind: "changes",
+        baseBranch: await agentComparisonBase(agent, "review"),
+      })
+    ).toMatchObject(
+      implicit && pr
+        ? {
+            baseRef: "origin/main",
+            files: [...expectedFiles, "branch.txt"].sort(),
+          }
+        : { baseRef: expectedRef, files: expectedFiles }
+    );
+  });
 });
 
 describe("native executor base", () => {
