@@ -10,15 +10,20 @@ import {
 
 export function AgentPersonaSelect({
   cwd,
+  projectId,
   value,
   onChange,
 }: {
   cwd: string;
+  projectId?: string | null;
   value: string | null;
   onChange: (value: string | null) => void;
 }) {
   const id = useId();
-  const { data, isLoading, isError, isSuccess } = useTaskPersonas(cwd);
+  const { data, isLoading, isError, isSuccess } = useTaskPersonas(
+    cwd,
+    projectId
+  );
   const personas = data?.personas ?? [];
   const selected = personas.find((p) => p.slug === value);
   return (

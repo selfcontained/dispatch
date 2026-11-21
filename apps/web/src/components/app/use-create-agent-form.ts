@@ -243,7 +243,11 @@ export function useCreateAgentForm({
     setCreateNewBranch: setSavedCreateNewBranch,
     model: nativeModel,
     setModel: setNativeModel,
-  } = useCreateAgentPrefs(createCwd, createType);
+  } = useCreateAgentPrefs(
+    createCwd,
+    createType,
+    remote ? createProjectId : null
+  );
   // One checkout choice for both placements. A local folder remembers it per
   // folder; a runner repository starts on its default branch each time.
   const [repositoryChoice, setRepositoryChoice] = useState(FRESH_CHECKOUT);
@@ -519,7 +523,7 @@ export function useCreateAgentForm({
           repository: checkout,
           projectId: createProjectId ?? undefined,
           type: createType,
-          persona: remote ? undefined : (createPersona ?? undefined),
+          persona: createPersona ?? undefined,
           model: modelOptions.some((option) => option.id === createModel)
             ? createModel
             : undefined,

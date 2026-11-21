@@ -278,6 +278,7 @@ export function admitLaunch(
             input.useWorktree ||
             Boolean(input.projectId) !== Boolean(input.templateId))) ||
         (input.persona &&
+          !(managed && input.role !== "review") &&
           !borrowed &&
           !hasPersonaBody &&
           !input.templateId &&

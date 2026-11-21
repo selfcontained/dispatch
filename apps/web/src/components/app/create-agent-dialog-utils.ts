@@ -198,10 +198,17 @@ export function useCwdHistory() {
   };
 }
 
-export function useCreateAgentPrefs(cwd: string, agentType: AgentType) {
+export function useCreateAgentPrefs(
+  cwd: string,
+  agentType: AgentType,
+  runnerProjectId?: string | null
+) {
   const trimmedCwd = cwd.trim();
+  const personaScopeKey = runnerProjectId
+    ? JSON.stringify([trimmedCwd, runnerProjectId])
+    : trimmedCwd;
   const [persona, setPersona] = useAtom(
-    useMemo(() => createPersonaPrefAtom(trimmedCwd), [trimmedCwd])
+    useMemo(() => createPersonaPrefAtom(personaScopeKey), [personaScopeKey])
   );
   const [fullAccess, setFullAccess] = useAtom(
     useMemo(() => createFullAccessPrefAtom(trimmedCwd), [trimmedCwd])

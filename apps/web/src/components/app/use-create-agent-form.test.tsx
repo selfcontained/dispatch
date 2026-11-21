@@ -228,15 +228,30 @@ describe("launch location preference", () => {
       url: "https://github.com/org/project",
     });
     const { result } = await setup({ initialProjectId: "project-a" });
+    act(() => {
+      result.current.setCreatePersona("builder");
+      result.current.handlePathInfoChange(REPO_INFO);
+    });
+    await act(async () => result.current.handleSubmit(submitEvent()));
+    expect(agentsPostJson()).toMatchObject({
+      projectId: "project-a",
+      persona: "builder",
+    });
+    apiMock.mockClear();
+
     act(() => result.current.selectRunner("rnr_lima"));
     expect(result.current.repository).toBe("https://github.com/org/project");
-    act(() => result.current.setCreateBaseBranch("release"));
+    act(() => {
+      result.current.setCreatePersona("builder");
+      result.current.setCreateBaseBranch("release");
+    });
     await act(async () => result.current.handleSubmit(submitEvent()));
     // A runner repository sends the same worktree intent as a local launch;
     // the server names the branch and builds the checkout.
     expect(agentsPostJson()).toEqual({
       name: "",
       projectId: "project-a",
+      persona: "builder",
       cwd: "runner://rnr_lima/@session",
       repository: { url: "https://github.com/org/project" },
       type: "claude",
@@ -271,6 +286,7 @@ describe("launch location preference", () => {
       baseBranch: "feature",
     });
     expect(agentsPostJson()).not.toHaveProperty("projectId");
+    expect(agentsPostJson()).not.toHaveProperty("persona");
     expect(agentsPostJson()).not.toHaveProperty("worktreeBranch");
     // A runner repository always uses a managed worktree.
     expect(result.current.worktreeOptional).toBe(false);

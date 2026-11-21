@@ -265,13 +265,12 @@ function CreateAgentDialogContent({
                   )}
                 </div>
 
-                {form.runnerId ? null : (
-                  <AgentPersonaSelect
-                    cwd={form.createCwd}
-                    value={form.createPersona}
-                    onChange={form.setCreatePersona}
-                  />
-                )}
+                <AgentPersonaSelect
+                  cwd={form.createCwd}
+                  projectId={form.runnerId ? form.createProjectId : undefined}
+                  value={form.createPersona}
+                  onChange={form.setCreatePersona}
+                />
                 {form.checkoutVisible && (
                   <WorktreeSection
                     key={form.branchSource?.repository ?? form.createCwd.trim()}

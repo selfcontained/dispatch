@@ -149,6 +149,14 @@ describe("launch admission compatibility", () => {
     }
   );
 
+  it("admits a standalone task persona on a managed runner", async () => {
+    const input = { cwd: managed, persona: "task-persona" };
+    expect(await checkAdmission({ ...input, projectId })).toBeNull();
+    expect(await checkAdmission(input)).toBe(
+      'Persona "task-persona" not found.'
+    );
+  });
+
   it.each([
     { cwd: configured, input: { projectId }, expected: standalone },
     { cwd: configured, input: { useWorktree: true }, expected: standalone },
@@ -157,7 +165,6 @@ describe("launch admission compatibility", () => {
       input: { repository: {} },
       expected: "Repository checkout requires a managed runner session.",
     },
-    { cwd: managed, input: { persona: "task-persona" }, expected: standalone },
     {
       cwd: managed,
       input: { initialFiles: [{}] as Launch["initialFiles"] },
