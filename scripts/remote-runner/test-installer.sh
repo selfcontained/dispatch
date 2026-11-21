@@ -18,6 +18,10 @@ config="$settings/runner.json"
 state="$root/state"
 dedicated=0
 requested_user=
+source_url=
+source_ca=
+dev_sha256=
+allow_dev=0
 unit=dispatch-runner.service
 unit_path="$root/$unit"
 command_path="$root/bin/dispatch-runner"
@@ -32,7 +36,22 @@ trap cleanup EXIT
 
 curl() {
   local destination="${@: -1}" url="${@: -3:1}"
-  cp "$root/releases/${url#https://github.com/selfcontained/dispatch/releases/download/}" "$destination"
+  printf '%s\n' "$*" >> "$root/curl"
+  case "$url" in
+    https://github.com/selfcontained/dispatch/releases/download/*)
+      cp "$root/releases/${url#https://github.com/selfcontained/dispatch/releases/download/}" "$destination"
+      ;;
+    http://controller.test:8080/api/v1/runner-artifacts/abc1234/* | https://controller.test:7443/api/v1/runner-artifacts/abc1234/*)
+      # A served file must come over the source's own scheme, pinned for https.
+      [[ "$*" == *"--proto =${url%%://*} --proto-redir =${url%%://*} "* ]] || return 1
+      if [[ "$url" == https://* && -n "$source_ca" ]]; then
+        [[ "$*" == *"--cacert $stage/ca.pem "* ]] && cmp -s "$stage/ca.pem" "$source_ca" || return 60
+      fi
+      [[ -f "$root/served/${url##*/}" ]] || return 22
+      cp "$root/served/${url##*/}" "$destination"
+      ;;
+    *) return 6 ;;
+  esac
 }
 gh() {
   [[ "$1 $2" == 'attestation verify' && "$*" == *'--repo selfcontained/dispatch'* &&
@@ -144,6 +163,16 @@ apt() { printf 'apt %s\n' "$*" >> "$root/package-installs"; }
 
 case "$action" in
   install) parse_install_options "${@:5}"; stage_release; install_runner ;;
+  apply)
+    # The copied command's entry point: install, or update a managed runner.
+    action=install
+    parse_install_options "${@:5}"
+    validate_source
+    if [[ "$allow_dev" == 0 ]]; then
+      gh_bin=gh
+    fi
+    run_action
+    ;;
   deps)
     (
       unset -f gh curl
@@ -368,6 +397,66 @@ cp bin/runner-handoff-v1.py "$root/runtime/previous-handoff.py"
 run recover ""
 cmp "$root/original" "$root/runtime/dispatch"
 diff -r "$root/original-settings" "$root/settings"
+
+# A controller serves its own build. The same command installs a clean host
+# and later updates it in place; the release is verified as from GitHub.
+hosted="$root/hosted"
+mkdir -p "$hosted/served" "$hosted/installer home"
+ln -s "$root/public.pem" "$hosted/public.pem"
+printf 'fixture-ca\n' > "$hosted/ca.pem"
+serve() {
+  rm -f "$hosted/served/"*
+  cp "$root/releases/$1/dispatch-server.tar.gz" "$hosted/served/"
+  if [[ "${2:-}" != dev ]]; then
+    cp "$root/releases/$1/dispatch-server.tar.gz.sigstore.json" "$hosted/served/"
+  fi
+}
+https_source=https://controller.test:7443/api/v1/runner-artifacts/abc1234
+http_source=http://controller.test:8080/api/v1/runner-artifacts/abc1234
+fixture_root=$hosted
+serve v1.0.0
+SUDO_USER=installer run apply v1.0.0 x64 --source "$https_source" --cacert "$hosted/ca.pem"
+grep -q 'release-new' "$hosted/runtime/dispatch" && exit 1
+grep -Fq '"uid": 1000' "$hosted/settings/runner.json"
+! grep -q github.com "$hosted/curl"
+grep -Fq "$https_source/dispatch-server.tar.gz.sigstore.json" "$hosted/curl"
+# An enrolled runner keeps its credentials and account across the update.
+printf 'enrolled\n' > "$hosted/settings/cert.pem"
+serve v1.0.1
+SUDO_USER=installer run apply v1.0.1 x64 --source "$https_source" --cacert "$hosted/ca.pem" --user alternate 2> "$hosted/err"
+grep -Fq 'Keeping the configured workload account.' "$hosted/err"
+grep -q 'release-new x64' "$hosted/runtime/dispatch"
+grep -Fq '"uid": 1000' "$hosted/settings/runner.json"
+grep -Fxq enrolled "$hosted/settings/cert.pem"
+[[ ! -e "$hosted/runtime/previous" ]]
+cp "$hosted/runtime/dispatch" "$hosted/current"
+SUDO_USER=installer run apply v1.0.1 x64 --source "$http_source" > "$hosted/out"
+grep -Fxq 'Runner already has the requested release.' "$hosted/out"
+# Bytes the controller serves still need the release signature.
+printf 'tampered\n' >> "$hosted/served/dispatch-server.tar.gz"
+SUDO_USER=installer expect_status 1 apply v1.0.1 x64 --source "$http_source"
+cmp "$hosted/current" "$hosted/runtime/dispatch"
+# A dev build has no signature. It is refused unless the operator accepts it,
+# and then only bytes that match the copied digest are used.
+serve v1.0.0 dev
+SUDO_USER=installer expect_status 22 apply v1.0.0 x64 --source "$http_source"
+cmp "$hosted/current" "$hosted/runtime/dispatch"
+SUDO_USER=installer expect_status 1 apply v1.0.0 x64 --source "$http_source" --sha256 "$(printf '0%.0s' {1..64})"
+digest=$(sha256sum "$hosted/served/dispatch-server.tar.gz")
+digest=${digest%% *}
+SUDO_USER=installer expect_status 1 apply v1.0.0 x64 --allow-unverified-dev-build --sha256 "$digest"
+SUDO_USER=installer expect_status 1 apply v1.0.0 x64 --source "$http_source" --allow-unverified-dev-build \
+  --sha256 "$(printf '0%.0s' {1..64})" 2> "$hosted/err"
+grep -Fq 'does not match the copied digest' "$hosted/err"
+cmp "$hosted/current" "$hosted/runtime/dispatch"
+SUDO_USER=installer run apply v1.0.0 x64 --source "$http_source" --allow-unverified-dev-build --sha256 "$digest" 2> "$hosted/err"
+grep -Fq 'WARNING: This is an unverified dev build of Dispatch' "$hosted/err"
+! grep -q 'release-new' "$hosted/runtime/dispatch"
+for bad in ftp://controller.test/api/v1/runner-artifacts/abc1234 "$http_source/../x" https://controller.test/other; do
+  SUDO_USER=installer expect_status 1 apply v1.0.0 x64 --source "$bad"
+done
+SUDO_USER=installer expect_status 1 apply v1.0.0 x64 --source "$http_source" --cacert "$hosted/ca.pem"
+unset fixture_root
 
 printf 'tampered\n' >> "$root/releases/v1.0.1/dispatch-server.tar.gz"
 expect_status 1 update v1.0.1

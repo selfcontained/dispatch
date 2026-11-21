@@ -137,7 +137,7 @@ it("leaves pairing approvals actionable after closing the Add runner dialog", as
       return { requests: approved ? [] : [{ id: "request-deadbeef" }] };
     }
     if (path === "/api/v1/runners/installer")
-      return { command: null, tag: null };
+      return { command: null, revision: null, version: "1.2.3", source: null };
     if (path === "/api/v1/runners/connect-command") {
       return {
         command: "sudo dispatch-runner connect https://dispatch.example",
@@ -160,7 +160,7 @@ it("leaves pairing approvals actionable after closing the Add runner dialog", as
   const dialog = screen.getByRole("dialog", { name: "Add runner" });
   await within(dialog).findByTestId("runner-connect-command");
   expect(
-    within(dialog).getByText(/signed runner installer is not available/)
+    within(dialog).getByText(/does not serve a runner installer/)
   ).toBeTruthy();
   fireEvent.click(within(dialog).getByRole("button", { name: "Done" }));
   expect(screen.queryByRole("dialog")).toBeNull();
@@ -196,13 +196,18 @@ it("leaves pairing approvals actionable after closing the Add runner dialog", as
 
 it("copies the exact install and connect commands and closes from the footer", async () => {
   const install =
-    "curl -fsSL https://example.test/install.sh -o /tmp/install.sh \\\n  && sudo bash /tmp/install.sh install";
+    'dispatch_runner_install() (\n  sudo bash "$dir/install-dispatch-runner.sh" install\n)\ndispatch_runner_install';
   const connect = "sudo dispatch-runner connect https://dispatch.example";
   vi.mocked(api).mockImplementation(async (path) => {
     if (path === "/api/runners") return { runners: [] };
     if (path === "/api/v1/runners/connect") return { requests: [] };
     if (path === "/api/v1/runners/installer")
-      return { command: install, tag: "v1.2.3" };
+      return {
+        command: install,
+        revision: "abc1234def56",
+        version: "1.2.3",
+        source: "release",
+      };
     if (path === "/api/v1/runners/connect-command") return { command: connect };
     throw new Error(`Unexpected endpoint ${path}`);
   });

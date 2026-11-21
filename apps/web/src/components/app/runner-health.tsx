@@ -7,7 +7,6 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import type { Runner } from "@/hooks/use-runners";
-import { isVersionNewer } from "@/lib/tips/version-compare";
 import { formatRelativeTime } from "@/lib/format";
 
 const reportDateTimeOptions: Intl.DateTimeFormatOptions = {
@@ -77,11 +76,19 @@ const maintenanceSteps = {
   unit: "refreshing the systemd service",
 };
 
+/** Revisions may be reported at different abbreviation lengths. */
+export function sameRevision(a: string, b: string) {
+  const [short, long] = [a.toLowerCase(), b.toLowerCase()].sort(
+    (x, y) => x.length - y.length
+  );
+  return short!.length >= 7 && long!.startsWith(short!);
+}
+
 export function RunnerHealthDetails({ runner }: { runner: Runner }) {
   const { health, healthReceivedAt } = runner;
   const [open, setOpen] = useState(false);
   const installer = useRunnerInstaller(open);
-  const tag = installer.data?.tag;
+  const target = installer.data;
   if (!health || !healthReceivedAt)
     return (
       <div className="space-y-1">
@@ -92,9 +99,12 @@ export function RunnerHealthDetails({ runner }: { runner: Runner }) {
       </div>
     );
   const update =
-    tag &&
-    /^v?\d+\.\d+\.\d+$/.test(health.version) &&
-    isVersionNewer(tag, health.version);
+    target?.command &&
+    target.revision &&
+    health.revision &&
+    !sameRevision(health.revision, target.revision)
+      ? { command: target.command, version: target.version }
+      : undefined;
   const stale = !isRunnerHealthFresh(runner);
   return (
     <details
@@ -159,15 +169,15 @@ export function RunnerHealthDetails({ runner }: { runner: Runner }) {
       {update && (
         <div className="mt-3 space-y-2 text-xs">
           <p className="font-medium text-foreground">
-            Update available · {tag}
+            Update available · {update.version}
+            <span className="ml-2 font-mono font-normal text-muted-foreground">
+              {target!.revision}
+            </span>
           </p>
           <p className="break-words">
             Run this on {runner.name} after its sessions finish.
           </p>
-          <RunnerCommand
-            value={`sudo /opt/dispatch-runner/install-dispatch-runner.sh update --tag ${tag}`}
-            label="Update"
-          />
+          <RunnerCommand value={update.command} label="Update" />
         </div>
       )}
     </details>

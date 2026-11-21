@@ -186,6 +186,11 @@ type Peer = {
 const MAX_UNAUTHENTICATED = 64;
 const MAX_HTTP_RELAYS = 256;
 const UNAUTHENTICATED_TIMEOUT = 10_000;
+/** A runner release download may outlast the handshake bound on a slow link. */
+const ARTIFACT_DOWNLOAD_TIMEOUT = 30 * 60_000;
+const RUNNER_CA_PATH = "/api/v1/runner-artifacts/ca.pem";
+const RUNNER_ARTIFACT_PATH =
+  /^\/api\/v1\/runner-artifacts\/[a-f0-9]{7,40}\/(?:descriptor\.json|install-dispatch-runner\.sh(?:\.sigstore\.json)?|dispatch-server\.tar\.gz(?:\.sigstore\.json)?)$/;
 const PROXY_KEEP_ALIVE_TIMEOUT = 75_000;
 
 function validHost(host: string) {
@@ -314,6 +319,12 @@ export function configuredRunner(input?: {
     : undefined;
 }
 
+type ProxyRelay = {
+  releaseHandshake?: () => void;
+  extendHandshake?: (ms: number) => void;
+  requestsServed: number;
+};
+
 export class RemoteRunnerService {
   /** Connected runners by placement name; each is an independent peer. */
   private readonly connectionListeners = new Set<(runnerId: string) => void>();
@@ -386,10 +397,15 @@ export class RemoteRunnerService {
           response.once("finish", () => relay.requestsServed++);
         }
         this.trackProxyRequest(request.socket, response);
-        this.forward(request, response, () => {
-          relay?.releaseHandshake?.();
-          if (relay) relay.releaseHandshake = undefined;
-        });
+        this.forward(
+          request,
+          response,
+          () => {
+            relay?.releaseHandshake?.();
+            if (relay) relay.releaseHandshake = undefined;
+          },
+          () => relay?.extendHandshake?.(this.artifactDownloadTimeout)
+        );
       }
     );
   }
@@ -613,7 +629,7 @@ export class RemoteRunnerService {
     this.unauthenticated++;
     let deadline: ReturnType<typeof setTimeout> | undefined = setTimeout(
       () => socket.destroy(),
-      UNAUTHENTICATED_TIMEOUT
+      this.handshakeTimeout
     );
     const release = () => {
       if (deadline === undefined) return;
@@ -621,6 +637,12 @@ export class RemoteRunnerService {
       clearTimeout(deadline);
       deadline = undefined;
       this.unauthenticated--;
+    };
+    // A public download keeps its unauthenticated slot, with a longer bound.
+    const extend = (ms: number) => {
+      if (deadline === undefined) return;
+      clearTimeout(deadline);
+      deadline = setTimeout(() => socket.destroy(), ms);
     };
     socket.once("close", release);
     let prefix = "";
@@ -641,7 +663,7 @@ export class RemoteRunnerService {
         const head = prefix
           ? Buffer.concat([Buffer.from(prefix, "latin1"), chunk])
           : chunk;
-        void this.relay(socket, head, release);
+        void this.relay(socket, head, release, extend);
       } else if (/^(?:[A-Z]{1,7}|[A-Z]{3,7} )$/.test(candidate)) {
         prefix = candidate;
       } else {
@@ -656,15 +678,21 @@ export class RemoteRunnerService {
    * request on it. Piping (rather than emitting the TLS socket into an
    * http.Server) works the same under Node and Bun.
    */
-  private async relay(socket: TLSSocket, head: Buffer, release: () => void) {
+  private async relay(
+    socket: TLSSocket,
+    head: Buffer,
+    release: () => void,
+    extend: (ms: number) => void
+  ) {
     if (this.activeHttpRelays >= this.maxHttpRelays) {
       socket.destroy();
       return;
     }
     this.activeHttpRelays++;
     const started = performance.now();
-    const relay: { releaseHandshake?: () => void; requestsServed: number } = {
+    const relay: ProxyRelay = {
       releaseHandshake: release,
+      extendHandshake: extend,
       requestsServed: 0,
     };
     let closedBy: "client" | "proxy" | undefined;
@@ -712,10 +740,9 @@ export class RemoteRunnerService {
   }
 
   private readonly proxyIdleTimeout = PROXY_KEEP_ALIVE_TIMEOUT;
-  private readonly proxyRelays = new Map<
-    number,
-    { releaseHandshake?: () => void; requestsServed: number }
-  >();
+  private readonly handshakeTimeout = UNAUTHENTICATED_TIMEOUT;
+  private readonly artifactDownloadTimeout = ARTIFACT_DOWNLOAD_TIMEOUT;
+  private readonly proxyRelays = new Map<number, ProxyRelay>();
   private readonly proxyRequests = new WeakMap<
     Socket,
     { pending: number; idleTimer?: ReturnType<typeof setTimeout> }
@@ -968,20 +995,37 @@ export class RemoteRunnerService {
   }
 
   /**
-   * Forward bearer-authenticated session MCP calls, `/ping`, and the two
-   * runner-initiated ("connect") bootstrap calls to the local API. The
-   * bootstrap calls carry no Dispatch credentials — none exist yet — so
-   * they are allow-listed by path and method alone, exactly like `/ping`;
-   * this is what lets a clean runner reach them through this listener's own
-   * pinned CA even when the ordinary API is loopback-only or plain HTTP.
+   * Forward bearer-authenticated session MCP calls, `/ping`, the two
+   * runner-initiated ("connect") bootstrap calls and the public runner
+   * release files to the local API. The bootstrap calls carry no Dispatch
+   * credentials — none exist yet — so they are allow-listed by path and
+   * method alone, exactly like `/ping`; this is what lets a clean runner
+   * reach them through this listener's own pinned CA even when the ordinary
+   * API is loopback-only or plain HTTP. The listener answers for its own CA,
+   * which the copied install command checks against its pin.
    */
   private forward(
     request: http.IncomingMessage,
     response: http.ServerResponse,
-    onAuthenticated: () => void
+    onAuthenticated: () => void,
+    onDownload: () => void
   ) {
     const url = request.url ?? "";
     const target = this.api;
+    if (url === RUNNER_CA_PATH && request.method === "GET") {
+      response.setHeader("Connection", "close");
+      if (!this.authority) return void response.writeHead(503).end();
+      response
+        .writeHead(200, {
+          "content-type": "application/x-pem-file",
+          "cache-control": "no-store",
+        })
+        .end(this.authority.caPem);
+      return;
+    }
+    const artifact =
+      RUNNER_ARTIFACT_PATH.test(url) &&
+      (request.method === "GET" || request.method === "HEAD");
     const ping = url === "/ping" && request.method === "GET";
     const connectCreate =
       /^\/api\/(?:v1\/)?runners\/connect$/.test(url) &&
@@ -1017,11 +1061,12 @@ export class RemoteRunnerService {
         response.once("close", () => clearTimeout(timeout));
       }
     }
-    const allowed = ping || mcp || connectCreate || connectPoll;
+    const allowed = ping || mcp || connectCreate || connectPoll || artifact;
     if (!allowed || !target) {
       response.writeHead(allowed ? 503 : 404).end();
       return;
     }
+    if (artifact) onDownload();
     const host =
       target.host === "0.0.0.0"
         ? "127.0.0.1"
@@ -1248,6 +1293,17 @@ export class RemoteRunnerService {
       origin = `${tls ? "https" : "http"}://${formatHost(webHost)}:${port}`;
     }
     return origin ? new URL("/settings/runners", origin).href : undefined;
+  }
+
+  /** Where a runner fetches this controller's release, and the CA to pin. */
+  async artifactEndpoint(hostHint?: string) {
+    if (!this.enrollment)
+      throw new RunnerRequestError(409, "Runner enrollment is disabled.");
+    const host = await this.prepareEndpoint(hostHint);
+    return {
+      origin: `https://${formatHost(host)}:${this.port!}`,
+      caFingerprint: this.authority!.caFingerprint,
+    };
   }
 
   async connectCommand(hostHint?: string) {

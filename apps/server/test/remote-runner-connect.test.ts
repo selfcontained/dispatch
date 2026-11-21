@@ -1,6 +1,7 @@
 import { X509Certificate } from "node:crypto";
 import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import http from "node:http";
+import https from "node:https";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -149,6 +150,17 @@ describe("runner-initiated connect enrollment", () => {
               error: (error as Error).message,
             })
           );
+        return;
+      }
+      if (url.startsWith("/api/v1/runner-artifacts/")) {
+        // Slower than the shortened handshake bound used below.
+        setTimeout(() => {
+          response.writeHead(200, {
+            "content-type": "application/gzip",
+            "content-length": "7",
+          });
+          response.end(request.method === "HEAD" ? undefined : "archive");
+        }, 600);
         return;
       }
       response.end("api");
@@ -382,6 +394,51 @@ describe("runner-initiated connect enrollment", () => {
       pollReply.mockRestore();
       await rm(dir, { force: true, recursive: true });
     }
+  });
+
+  it("serves its CA for pinning and relays release downloads past the handshake bound", async () => {
+    const service = makeService();
+    Object.defineProperty(service, "handshakeTimeout", { value: 200 });
+    const { origin, caFingerprint } = await service.artifactEndpoint(HOST);
+    const get = (
+      url: string,
+      options: https.RequestOptions
+    ): Promise<{ status: number; body: string }> =>
+      new Promise((resolve, reject) => {
+        https
+          .request(url, options, (response) => {
+            let body = "";
+            response.on("data", (chunk) => (body += chunk));
+            response.on("end", () =>
+              resolve({ status: response.statusCode ?? 0, body })
+            );
+          })
+          .on("error", reject)
+          .end();
+      });
+    const ca = await get(`${origin}/api/v1/runner-artifacts/ca.pem`, {
+      rejectUnauthorized: false,
+    });
+    expect(ca.status).toBe(200);
+    expect(new X509Certificate(ca.body).fingerprint256).toBe(caFingerprint);
+
+    const pinned = { ca: ca.body, rejectUnauthorized: true };
+    const archive = `${origin}/api/v1/runner-artifacts/abc1234/dispatch-server.tar.gz`;
+    expect(await get(archive, pinned)).toEqual({
+      status: 200,
+      body: "archive",
+    });
+    expect((await get(archive, { ...pinned, method: "HEAD" })).status).toBe(
+      200
+    );
+    for (const path of [
+      "/api/v1/runner-artifacts/abc1234/package.json",
+      "/api/v1/runner-artifacts/abc1234/../../runners",
+    ])
+      expect((await get(`${origin}${path}`, pinned)).status).toBe(404);
+    expect((await get(archive, { ...pinned, method: "DELETE" })).status).toBe(
+      404
+    );
   });
 
   it("runs the real CLI end-to-end over the runner listener's own pinned HTTPS (no main API HTTPS needed)", async () => {

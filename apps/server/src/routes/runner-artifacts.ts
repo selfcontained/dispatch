@@ -89,4 +89,5 @@ export function registerRunnerArtifacts(
       }
     }
   );
+  return source;
 }

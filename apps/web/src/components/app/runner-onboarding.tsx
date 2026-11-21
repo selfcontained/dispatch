@@ -178,13 +178,18 @@ function RunnerPairingRequest({ request }: { request: PairRequest }) {
   );
 }
 
+export type RunnerInstaller = {
+  /** The controller's own build; the command installs or updates to it. */
+  revision: string | null;
+  version: string;
+  source: "release" | "dev" | null;
+  command: string | null;
+};
+
 export function useRunnerInstaller(enabled: boolean) {
   return useQuery({
-    queryKey: ["runner-installer-release"],
-    queryFn: () =>
-      api<{ command: string | null; tag: string | null }>(
-        "/api/v1/runners/installer"
-      ),
+    queryKey: ["runner-installer"],
+    queryFn: () => api<RunnerInstaller>("/api/v1/runners/installer"),
     enabled,
     staleTime: 300_000,
     retry: false,
@@ -270,18 +275,18 @@ export function RunnerOnboarding() {
                 size="sm"
                 onClick={() => void installer.refetch()}
               >
-                Retry release check
+                Retry installer check
               </Button>
             ) : installer.isPending ? (
               <p role="status" className="text-sm text-muted-foreground">
-                Checking release…
+                Preparing command…
               </p>
             ) : installer.data?.command ? (
               <RunnerCommand value={installer.data.command} label="Install" />
             ) : (
               <p className="text-xs text-muted-foreground">
-                A signed runner installer is not available for this release. If
-                the runner is already installed, continue below.
+                This Dispatch build does not serve a runner installer. If the
+                runner is already installed, continue below.
               </p>
             )}
           </section>

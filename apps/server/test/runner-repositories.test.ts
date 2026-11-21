@@ -1,7 +1,6 @@
 import Fastify from "fastify";
 import { describe, expect, it, vi } from "vitest";
 import { registerRunnerRepositorySearch } from "../src/routes/runner-repositories.js";
-import { installRunnerCommand } from "../src/routes/runner-installer.js";
 
 describe("runner repository selection", () => {
   it("returns the contributor's repo and branch for a fork PR", async () => {
@@ -47,13 +46,5 @@ describe("runner repository selection", () => {
     } finally {
       await app.close();
     }
-  });
-  it("only builds install instructions for release tags", () => {
-    expect(() => installRunnerCommand("main")).toThrow();
-    const command = installRunnerCommand("v1.2.3");
-    expect(command).toContain("tag=v1.2.3");
-    expect(command.indexOf("gh attestation verify")).toBeLessThan(
-      command.indexOf("sudo bash")
-    );
   });
 });

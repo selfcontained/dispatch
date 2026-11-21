@@ -1433,7 +1433,7 @@ async function registerRoutes() {
   // --- Quick Phrases ---
 
   await registerQuickPhraseRoutes(app, { pool });
-  registerRunnerArtifacts(app, {
+  const runnerArtifacts = registerRunnerArtifacts(app, {
     revision: gitSha,
     version: packageVersion,
     compiled: import.meta.url.startsWith("file:///$bunfs/root/"),
@@ -1443,7 +1443,11 @@ async function registerRoutes() {
       pullRequests.invalidateRunner(id)
     );
     registerRunnerRepositorySearch(app, remoteRunner);
-    registerRunnerInstaller(app, pool);
+    registerRunnerInstaller(app, {
+      runners: remoteRunner,
+      artifacts: runnerArtifacts,
+      build: { revision: gitSha, version: packageVersion },
+    });
   }
   await registerRunnerRoutes(app, { runners: remoteRunner });
 }

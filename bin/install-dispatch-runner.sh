@@ -7,12 +7,21 @@ error() { printf 'error: %s\n' "$*" >&2; exit 1; }
 usage() {
   cat <<'USAGE'
 Usage:
-  install-dispatch-runner.sh install --tag vX.Y.Z [--user USER | --dedicated-user]
-  install-dispatch-runner.sh update --tag vX.Y.Z
+  install-dispatch-runner.sh install --tag vX.Y.Z [--user USER | --dedicated-user] [SOURCE]
+  install-dispatch-runner.sh update --tag vX.Y.Z [SOURCE]
   install-dispatch-runner.sh recover
+
+SOURCE takes the release from a Dispatch controller instead of GitHub:
+  --source URL [--cacert FILE]
+      URL ends in /api/v1/runner-artifacts/<revision>. FILE is the pinned
+      runner CA for an https URL. Release provenance is verified as usual.
+  --allow-unverified-dev-build --sha256 HEX
+      Accept a controller's dev build, checked only against this digest.
 
 Run as root on Linux with systemd and unified cgroup v2.
 Install verifies the release and prepares the runner for the connect command.
+On a runner this script already manages, install updates it and keeps its
+enrollment and workload account.
 The workload uses SUDO_USER by default. Use --user for another existing
 non-root account, or --dedicated-user to create the dispatch-runner account.
 Update preserves idle sessions on compatible runners. Exit 75 means retry after the reported activity finishes.
@@ -20,13 +29,60 @@ Recover restores the previous binary after an interrupted update.
 USAGE
 }
 
+# A controller source serves the same release files under its own revision.
+# Its bytes are verified exactly like GitHub's before anything uses them.
+fetch_asset() {
+  local name="$1" scheme
+  if [[ -n "${source_url:-}" ]]; then
+    scheme=${source_url%%://*}
+    local tls=()
+    if [[ -n "${source_ca:-}" ]]; then
+      tls=(--cacert "$stage/ca.pem")
+    fi
+    curl -qfsSL --proto "=$scheme" --proto-redir "=$scheme" ${tls[@]+"${tls[@]}"} \
+      "$source_url/$name" -o "$stage/$name"
+  else
+    curl -qfsSL --proto '=https' --proto-redir '=https' \
+      "https://github.com/selfcontained/dispatch/releases/download/$tag/$name" -o "$stage/$name"
+  fi
+}
+
 release_fetch() {
-  local asset="$1" base="https://github.com/selfcontained/dispatch/releases/download/$tag"
-  curl -qfsSL --proto '=https' --proto-redir '=https' "$base/$asset" -o "$stage/$asset"
-  curl -qfsSL --proto '=https' --proto-redir '=https' "$base/$asset.sigstore.json" -o "$stage/$asset.sigstore.json"
+  local asset="$1" digest
+  fetch_asset "$asset"
+  if [[ "${allow_dev:-0}" == 1 ]]; then
+    digest=$(sha256sum "$stage/$asset")
+    [[ "${digest%% *}" == "$dev_sha256" ]] ||
+      error "The dev build from $source_url does not match the copied digest. Copy the command again"
+    return
+  fi
+  fetch_asset "$asset.sigstore.json"
   "${gh_bin:-gh}" attestation verify "$stage/$asset" --hostname github.com \
     --bundle "$stage/$asset.sigstore.json" --repo selfcontained/dispatch \
     --signer-workflow selfcontained/dispatch/.github/workflows/release.yml
+}
+
+# Options may name a source without GitHub. Check them before any download.
+validate_source() {
+  local pattern='^https?://[][A-Za-z0-9.:-]+/api/v1/runner-artifacts/[a-f0-9]{7,40}$'
+  if [[ -n "${source_url:-}" ]]; then
+    [[ "$source_url" =~ $pattern ]] ||
+      error "Use a Dispatch runner artifact URL with --source"
+    if [[ -n "${source_ca:-}" ]]; then
+      [[ "$source_url" == https://* ]] || error "--cacert applies only to an https source"
+      [[ -f "$source_ca" && -s "$source_ca" ]] || error "Cannot read the runner CA at $source_ca"
+    fi
+  elif [[ -n "${source_ca:-}" || "${allow_dev:-0}" == 1 ]]; then
+    error "--cacert and --allow-unverified-dev-build need --source"
+  fi
+  if [[ "${allow_dev:-0}" == 1 ]]; then
+    [[ "${dev_sha256:-}" =~ ^[0-9a-f]{64}$ ]] ||
+      error "An unverified dev build needs its --sha256 digest"
+    printf 'WARNING: This is an unverified dev build of Dispatch from %s.\n' "$source_url" >&2
+    printf 'WARNING: No release provenance is checked; only the copied SHA-256 digest is.\n' >&2
+  elif [[ -n "${dev_sha256:-}" ]]; then
+    error "--sha256 applies only with --allow-unverified-dev-build"
+  fi
 }
 
 # Where an account's login shell finds a tool: the same profile and
@@ -65,14 +121,22 @@ check_dependencies() {
       gh_bin=$(account_tool "$SUDO_USER" "$uid" "$gid" "$home" "$shell" gh)
     fi
   fi
-  if [[ -n "$gh_bin" ]]; then
+  if [[ "${allow_dev:-0}" == 1 ]]; then
+    # A dev build is checked by digest alone; gh is not needed for it.
+    if found=$(command -v sha256sum); then
+      printf 'Found sha256sum: %s\n' "$found"
+    else
+      printf 'Missing sha256sum\n'
+      missing+=(sha256sum)
+    fi
+  elif [[ -n "$gh_bin" ]]; then
     printf 'Found gh: %s\n' "$gh_bin"
   else
     printf 'Missing gh\n'
     missing+=(gh)
   fi
   [[ ${#missing[@]} -eq 0 ]] || error "Install ${missing[*]}. The installer does not install or upgrade packages"
-  "$gh_bin" attestation verify --help > /dev/null 2>&1 ||
+  [[ "${allow_dev:-0}" == 1 ]] || "$gh_bin" attestation verify --help > /dev/null 2>&1 ||
     error "GitHub CLI at $gh_bin cannot verify release attestations (needs gh 2.49 or newer). Update that gh; the installer will not install another one"
 }
 
@@ -95,6 +159,9 @@ check_workload_tools() {
 
 stage_release() {
   local archive=dispatch-server.tar.gz member="dist/bun/dispatch-${tag#v}-bun-linux-$arch"
+  if [[ -n "${source_ca:-}" && ! -s "$stage/ca.pem" ]]; then
+    cp -- "$source_ca" "$stage/ca.pem"
+  fi
   release_fetch "$archive"
   tar -xOzf "$stage/$archive" "$member" > "$stage/dispatch"
   [[ -s "$stage/dispatch" ]] || error "Missing Linux executable for $tag ($arch)"
@@ -466,29 +533,72 @@ cleanup() {
   return "$status"
 }
 
+# Account options belong to install. Source options apply to install and update.
 parse_install_options() {
+  local value
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --user)
+        [[ "${action:-install}" == install ]] || error "Update takes only --tag and source options"
         [[ "$dedicated" == 0 && -z "$requested_user" && -n "${2:-}" && "$2" != -* ]] ||
           error "Supply one workload account with --user or --dedicated-user"
         requested_user=$2
         shift 2
         ;;
       --dedicated-user)
+        [[ "${action:-install}" == install ]] || error "Update takes only --tag and source options"
         [[ "$dedicated" == 0 && -z "$requested_user" ]] ||
           error "Supply one workload account with --user or --dedicated-user"
         dedicated=1
         shift
         ;;
-      *) error "Unknown install option: $1" ;;
+      --source|--cacert|--sha256)
+        value=${2:-}
+        [[ -n "$value" && "$value" != -* ]] || error "Supply a value with $1"
+        case "$1" in
+          --source) [[ -z "${source_url:-}" ]] || error "Supply one --source"; source_url=$value ;;
+          --cacert) [[ -z "${source_ca:-}" ]] || error "Supply one --cacert"; source_ca=$value ;;
+          --sha256) [[ -z "${dev_sha256:-}" ]] || error "Supply one --sha256"; dev_sha256=$value ;;
+        esac
+        shift 2
+        ;;
+      --allow-unverified-dev-build)
+        allow_dev=1
+        shift
+        ;;
+      *) error "Unknown $action option: $1" ;;
     esac
   done
+}
+
+managed_runner_installed() {
+  [[ -f "$runtime/managed-install" && -x "$runtime/dispatch" && -f "$config" ]]
+}
+
+# One entry point for a first install and for every later one. A managed
+# runner goes through the update transaction, which keeps its enrollment.
+run_action() {
+  if [[ "$action" == install ]] && managed_runner_installed; then
+    if [[ "$dedicated" == 1 || -n "$requested_user" ]]; then
+      printf 'Keeping the configured workload account. Account options apply only to the first install.\n' >&2
+    fi
+    action=update
+  fi
+  if [[ "$action" == install ]]; then
+    stage_release
+    install_runner
+  else
+    update_runner
+  fi
 }
 
 main() {
   dedicated=0
   requested_user=
+  source_url=
+  source_ca=
+  dev_sha256=
+  allow_dev=0
   action=${1:-}
   case "$action" in
     -h|--help) usage; return ;;
@@ -501,12 +611,9 @@ main() {
     [[ $# -ge 2 && "$1" == --tag ]] || error "Supply --tag vX.Y.Z"
     tag=$2
     shift 2
-    if [[ "$action" == install ]]; then
-      parse_install_options "$@"
-    else
-      [[ $# -eq 0 ]] || error "Update takes only --tag vX.Y.Z"
-    fi
+    parse_install_options "$@"
     [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || error "Use an exact release tag (vX.Y.Z)"
+    validate_source
   fi
   [[ "$EUID" == 0 && "$(uname -s)" == Linux ]] || error "Run as root on Linux"
   case "$(uname -m)" in
@@ -537,12 +644,7 @@ main() {
   trap cleanup EXIT
   trap 'exit 130' INT
   trap 'exit 143' TERM
-  if [[ "$action" == install ]]; then
-    stage_release
-    install_runner
-  else
-    update_runner
-  fi
+  run_action
 }
 
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then

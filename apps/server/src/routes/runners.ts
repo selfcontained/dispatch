@@ -17,7 +17,7 @@ declare module "fastify" {
   }
 }
 
-function hostHint(host: string | undefined) {
+export function hostHint(host: string | undefined) {
   if (!host) return undefined;
   try {
     return new URL(`http://${host}`).hostname.replace(/^\[|\]$/g, "");

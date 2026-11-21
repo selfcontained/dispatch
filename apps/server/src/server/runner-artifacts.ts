@@ -187,6 +187,7 @@ export function createRunnerArtifactSource(build: {
 
   return {
     enabled: Boolean(devDir || (compiled && tag)),
+    kind: (devDir ? "dev" : "release") as ArtifactSet["source"],
     async get() {
       const pending = (loaded ??= load());
       try {
@@ -204,6 +205,10 @@ export function createRunnerArtifactSource(build: {
     },
   };
 }
+
+export type RunnerArtifactSource = ReturnType<
+  typeof createRunnerArtifactSource
+>;
 
 export function describeRunnerArtifacts(
   revision: string,
