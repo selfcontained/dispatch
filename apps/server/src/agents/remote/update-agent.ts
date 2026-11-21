@@ -54,6 +54,7 @@ export type StageReport =
  * build has no real implementation of them.
  */
 export type RunnerUpdater = {
+  canActivate: boolean;
   stage(target: RunnerUpdateTarget): Promise<StageReport>;
   /** A persisted failed digest needs an explicit retry. */
   suppressed(target: RunnerUpdateTarget): Promise<boolean>;
@@ -67,10 +68,11 @@ export type RunnerUpdater = {
     fence: FenceRecord,
     observed: { revision: string; sha256: string }
   ): Promise<void>;
+  /** True if the updater owns a trial and will report its outcome. */
   cancelTrial(
     fence: FenceRecord,
     reason: RunnerUpdateCancelReason
-  ): Promise<void>;
+  ): Promise<boolean>;
 };
 
 export type UpdateIdentity = {
@@ -138,6 +140,9 @@ export function stageResult(
   }
 }
 
+/** Longer than the five-minute operation deadline, flush margin and grace. */
+export const PRE_ACTIVATION_FENCE_TTL_MS = 6 * 60_000;
+
 export function createRunnerUpdateAgent(options: {
   identity: UpdateIdentity | null;
   admission: UpdateAdmission;
@@ -149,6 +154,9 @@ export function createRunnerUpdateAgent(options: {
   const log = options.log ?? ((message) => console.warn(message));
   let attempt: Attempt | null = null;
   let send: ((frame: UpdateStatusFrame) => void) | undefined;
+  let expiryTimer: ReturnType<typeof setTimeout> | undefined;
+  let expiredAttempt: string | undefined;
+  let activationPending = false;
   const stagings = new Map<string, Promise<StageReport>>();
 
   const installed = (): RunnerInstalledBuild => ({
@@ -176,6 +184,42 @@ export function createRunnerUpdateAgent(options: {
   }
   const unknown = (attemptId: string) =>
     status(attemptId, "deferred", { reason: "cancelled" });
+
+  function armExpiry(fence: FenceRecord) {
+    clearTimeout(expiryTimer);
+    if (fence.phase === "activating") return;
+    const remaining = Math.min(
+      PRE_ACTIVATION_FENCE_TTL_MS,
+      fence.startedAt + PRE_ACTIVATION_FENCE_TTL_MS - Date.now()
+    );
+    expiryTimer = setTimeout(
+      () => {
+        const current = admission.current;
+        if (
+          !current ||
+          current.attemptId !== fence.attemptId ||
+          current.startedAt !== fence.startedAt ||
+          current.phase === "activating"
+        )
+          return;
+        void release(current.attemptId).then(() => {
+          log(`Runner pre-activation fence expired for ${current.attemptId}.`);
+          if (send) unknown(current.attemptId);
+          else expiredAttempt = current.attemptId;
+        });
+      },
+      Math.max(0, remaining)
+    );
+    expiryTimer.unref();
+  }
+
+  async function release(attemptId: string) {
+    clearTimeout(expiryTimer);
+    if (attempt?.attemptId === attemptId) attempt = null;
+    await admission.release();
+  }
+
+  if (identity && admission.current) armExpiry(admission.current);
 
   function stage(current: Attempt) {
     const { sha256 } = current.target;
@@ -260,13 +304,14 @@ export function createRunnerUpdateAgent(options: {
       inventory = await inspect(compatibility?.handoff ?? null);
     } catch (error) {
       log(`Runner update inventory failed: ${(error as Error).message}`);
-      if (admission.current === fence) await admission.release();
+      if (admission.current !== fence || activationPending) return;
+      await release(fence.attemptId);
       return status(fence.attemptId, "deferred", {
         reason: "operations_pending",
       });
     }
     // A cancel during inspection already replied.
-    if (admission.current !== fence) return;
+    if (admission.current !== fence || activationPending) return;
     const retained = inventory.retained.map(({ sessionId, instanceId }) => ({
       sessionId,
       instanceId,
@@ -274,7 +319,7 @@ export function createRunnerUpdateAgent(options: {
     if (
       !fence.retainSessions ? inventory.live > 0 : inventory.requiresQuiescence
     ) {
-      await admission.release();
+      await release(fence.attemptId);
       return status(fence.attemptId, "deferred", {
         reason: fence.retainSessions
           ? "incompatible_handoff"
@@ -284,14 +329,15 @@ export function createRunnerUpdateAgent(options: {
       });
     }
     await admission.closeTerminals();
-    if (admission.current !== fence) return;
+    if (admission.current !== fence || activationPending) return;
     try {
-      await admission.advance("fenced", retained);
+      if (!(await admission.advance("fenced", retained))) return;
     } catch (error) {
       log(
         `Runner update fence could not be saved: ${(error as Error).message}`
       );
-      await admission.release();
+      if (admission.current !== fence || activationPending) return;
+      await release(fence.attemptId);
       return status(fence.attemptId, "deferred", { reason: "cancelled" });
     }
     status(fence.attemptId, "deferred", {
@@ -306,6 +352,7 @@ export function createRunnerUpdateAgent(options: {
   ) {
     const current = admission.current;
     if (current) {
+      if (activationPending) return;
       if (current.attemptId !== frame.attemptId)
         return unknown(frame.attemptId);
       if (current.phase === "activating") return fenceStatus(current);
@@ -322,7 +369,7 @@ export function createRunnerUpdateAgent(options: {
       return status(frame.attemptId, "deferred", {
         reason: attempt.result?.reason ?? "staging",
       });
-    const outcome = await admission.fence({
+    const draining = admission.fence({
       format: 1,
       attemptId: attempt.attemptId,
       target: attempt.target,
@@ -330,6 +377,9 @@ export function createRunnerUpdateAgent(options: {
       phase: "fencing",
       retained: [],
     });
+    const currentFence = admission.current;
+    if (currentFence) armExpiry(currentFence);
+    const outcome = await draining;
     if (outcome === "cancelled") return;
     if (outcome === "timeout")
       return status(frame.attemptId, "deferred", {
@@ -337,7 +387,8 @@ export function createRunnerUpdateAgent(options: {
       });
     if (outcome === "store_failed")
       return status(frame.attemptId, "deferred", { reason: "cancelled" });
-    await boundary(admission.current!);
+    if (currentFence && admission.current === currentFence)
+      await boundary(currentFence);
   }
 
   async function activate(frame: { attemptId: string }) {
@@ -346,13 +397,26 @@ export function createRunnerUpdateAgent(options: {
       return unknown(frame.attemptId);
     if (current.phase === "fencing") return;
     if (current.phase === "activating") return fenceStatus(current);
+    if (activationPending) return;
+    if (!updater.canActivate) {
+      await release(frame.attemptId);
+      return unknown(frame.attemptId);
+    }
+    clearTimeout(expiryTimer);
+    activationPending = true;
     try {
-      await admission.advance("activating");
+      if (!(await admission.advance("activating"))) return;
     } catch (error) {
       log(
         `Runner update activation could not be saved: ${(error as Error).message}`
       );
-      return fenceStatus(current);
+      if (admission.current === current) {
+        armExpiry(current);
+        return fenceStatus(current);
+      }
+      return;
+    } finally {
+      activationPending = false;
     }
     status(frame.attemptId, "activating");
     try {
@@ -361,8 +425,7 @@ export function createRunnerUpdateAgent(options: {
       // Nothing was swapped. Reopen admission before reporting.
       log(`Runner update activation refused: ${(error as Error).message}`);
       if (admission.current?.attemptId === frame.attemptId)
-        await admission.release();
-      if (attempt?.attemptId === frame.attemptId) attempt = null;
+        await release(frame.attemptId);
       status(frame.attemptId, "deferred", { reason: "cancelled" });
     }
   }
@@ -383,8 +446,7 @@ export function createRunnerUpdateAgent(options: {
       revision: frame.revision,
       sha256: frame.sha256,
     });
-    if (admission.current === current) await admission.release();
-    if (attempt?.attemptId === frame.attemptId) attempt = null;
+    if (admission.current === current) await release(frame.attemptId);
     status(frame.attemptId, "confirmed");
   }
 
@@ -396,14 +458,16 @@ export function createRunnerUpdateAgent(options: {
       log(
         "Runner update fence state was unreadable; cancelled by the service."
       );
-      await admission.release();
+      await release(frame.attemptId);
     } else if (current && current.attemptId !== frame.attemptId) {
       return unknown(frame.attemptId);
-    } else if (current?.phase === "activating") {
-      // The updater owns the trial and reports its own outcome.
-      return updater.cancelTrial(current, frame.reason);
     } else if (current) {
-      await admission.release();
+      if (
+        current.phase === "activating" &&
+        (await updater.cancelTrial(current, frame.reason))
+      )
+        return;
+      if (admission.current === current) await release(frame.attemptId);
     }
     if (attempt?.attemptId === frame.attemptId) attempt = null;
     status(frame.attemptId, "deferred", { reason: "cancelled" });
@@ -425,6 +489,7 @@ export function createRunnerUpdateAgent(options: {
           writes: identity.handoff.writes,
         },
         ...(pending && { pendingAttemptId: pending }),
+        ...(admission.unreadable && { fenceUnreadable: true }),
       };
     },
     /**
@@ -433,6 +498,10 @@ export function createRunnerUpdateAgent(options: {
      */
     connect(sendStatus: (frame: UpdateStatusFrame) => void) {
       send = sendStatus;
+      if (expiredAttempt) {
+        unknown(expiredAttempt);
+        expiredAttempt = undefined;
+      }
       return {
         receive(frame: UpdateServiceFrame): Promise<void> {
           if (!identity) return Promise.resolve();
@@ -545,6 +614,7 @@ export function systemdRunnerUpdater(
       new Error("Runner activation is not available in this build.")
     );
   return {
+    canActivate: false,
     async stage(target) {
       const startedAt = Date.now();
       const unit = `${RUNNER_UPDATE_UNIT_PREFIX}${runnerUpdateInstance(target)}.service`;
@@ -563,7 +633,7 @@ export function systemdRunnerUpdater(
     suppressed: async () => false,
     activate: unavailable,
     confirm: unavailable,
-    cancelTrial: unavailable,
+    cancelTrial: async () => false,
   };
 }
 

@@ -217,6 +217,25 @@ sudo systemctl start 'dispatch-runner-update@1.2.3_linux_x64_<sha256>.service'
 sudo cat /var/lib/dispatch-runner/update/last-stage.json
 ```
 
+## Clear a stuck update fence
+
+A pre-activation fence expires six minutes after it was recorded, including
+across supervisor restarts. The longest admitted operations get about five
+minutes, plus time to flush their reply and close terminals. An activation
+request handed to the updater leaves expiry and recovery to the updater.
+
+An unreadable fence is reported in the runner's update advertisement and a
+controller cancel can clear it. To clear a fence manually, first verify
+there is no active update trial. Stop the supervisor, preserve the private
+fence record for diagnosis, and start the supervisor again:
+
+```sh
+sudo systemctl stop dispatch-runner.service
+sudo mv /var/lib/dispatch-runner/update/fence.json \
+  /var/lib/dispatch-runner/update/fence.json.manual-clear
+sudo systemctl start dispatch-runner.service
+```
+
 ## Validate installer changes
 
 Run `bash scripts/remote-runner/test-installer.sh` from the worktree root.

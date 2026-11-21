@@ -313,10 +313,10 @@ describe("runner update fence", () => {
   it("a supervisor restarted while fenced refuses every spawning command before it starts", async () => {
     const state = path.join(root, "update");
     await mkdir(state, { mode: 0o700 });
-    await fileFenceStore(state).write({
-      ...fenceRecord,
-      phase: "fenced",
-    });
+    const persisted = { ...fenceRecord, phase: "fenced" } as const;
+    const store = fileFenceStore(state);
+    await store.write(persisted);
+    expect(await store.read()).toEqual(persisted);
     const ready = await start({
       updateIdentity: identity,
       updater: mockUpdater(),

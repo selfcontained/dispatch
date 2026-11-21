@@ -41,6 +41,7 @@ export type SelfUpdateAdvert = {
   installedSha256: string;
   handoff: { reads: number[]; writes: number };
   pendingAttemptId?: string;
+  fenceUnreadable?: true;
 };
 
 export type RunnerUpdateReason =
@@ -214,8 +215,10 @@ export function parseSelfUpdateAdvert(value: unknown): SelfUpdateAdvert | null {
     value.handoff.reads.length > MAX_HANDOFF_FORMATS ||
     !value.handoff.reads.every(isFormat) ||
     !isFormat(value.handoff.writes) ||
+    (value.fenceUnreadable !== undefined && value.fenceUnreadable !== true) ||
     (value.pendingAttemptId !== undefined &&
-      !isUpdateAttemptId(value.pendingAttemptId))
+      (!isUpdateAttemptId(value.pendingAttemptId) ||
+        value.fenceUnreadable === true))
   )
     return null;
   return {
@@ -229,6 +232,7 @@ export function parseSelfUpdateAdvert(value: unknown): SelfUpdateAdvert | null {
       reads: [...value.handoff.reads],
       writes: value.handoff.writes,
     },
+    ...(value.fenceUnreadable === true && { fenceUnreadable: true }),
     ...(value.pendingAttemptId !== undefined && {
       pendingAttemptId: value.pendingAttemptId,
     }),

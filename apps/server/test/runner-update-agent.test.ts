@@ -9,13 +9,18 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { UpdateAdmission } from "../src/agents/remote/update-admission.js";
 import {
   createRunnerUpdateAgent,
+  PRE_ACTIVATION_FENCE_TTL_MS,
+  systemdRunnerUpdater,
+  type RunnerUpdater,
   readStageRecord,
   stageResult,
   type HandoffInventory,
   type StageReport,
 } from "../src/agents/remote/update-agent.js";
+import { RUNNER_UPDATE_LAYOUT } from "../src/agents/remote/update-verify.js";
 import {
   attemptId,
+  fenceRecord,
   compatible,
   identity,
   memoryStore,
@@ -35,10 +40,12 @@ async function setup(
     report?: StageReport;
     inventory?: HandoffInventory;
     store?: ReturnType<typeof memoryStore>;
+    updater?: RunnerUpdater;
   } = {}
 ) {
   const store = options.store ?? memoryStore();
-  const admission = await UpdateAdmission.load(store);
+  const log = vi.fn();
+  const admission = await UpdateAdmission.load(store, { log });
   const updater = mockUpdater(options.report);
   const inspect = vi.fn(
     async (): Promise<HandoffInventory> =>
@@ -51,15 +58,26 @@ async function setup(
   const agent = createRunnerUpdateAgent({
     identity,
     admission,
-    updater,
+    updater: options.updater ?? updater,
     inspect,
-    log: () => {},
+    log,
   });
   const sent: UpdateStatusFrame[] = [];
   const connection = agent.connect((frame) => sent.push(frame));
   const receive = (frame: UpdateServiceFrame) => connection.receive(frame);
   const last = () => sent[sent.length - 1];
-  return { store, admission, updater, inspect, agent, sent, receive, last };
+  return {
+    store,
+    admission,
+    updater,
+    inspect,
+    agent,
+    sent,
+    receive,
+    last,
+    connection,
+    log,
+  };
 }
 
 const offer = (retry = false, attempt = attemptId) =>
@@ -73,6 +91,7 @@ async function staged(s: Awaited<ReturnType<typeof setup>>) {
 }
 
 describe("runner update agent", () => {
+  afterEach(() => vi.useRealTimers());
   it("stages the offered tuple and binds its result to the digest", async () => {
     const s = await setup();
     await s.receive(offer());
@@ -205,6 +224,7 @@ describe("runner update agent", () => {
     expect(s.store.record).toMatchObject({
       attemptId,
       phase: "fenced",
+      startedAt: expect.any(Number),
       retained: [{ sessionId: host.sessionId, instanceId: host.instanceId }],
     });
     expect(s.agent.advert()?.pendingAttemptId).toBe(attemptId);
@@ -231,7 +251,15 @@ describe("runner update agent", () => {
     const terminal = vi.fn();
     s.admission.onTerminal(terminal);
     await staged(s);
-    await s.receive(fence());
+    vi.useFakeTimers();
+    const inventory = await s.inspect();
+    s.inspect.mockImplementationOnce(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 6_000));
+      return inventory;
+    });
+    const pending = s.receive(fence());
+    await vi.advanceTimersByTimeAsync(6_000);
+    await pending;
     expect(s.last()).toMatchObject({
       reason: "incompatible_handoff",
       requiresQuiescence: true,
@@ -371,6 +399,125 @@ describe("runner update agent", () => {
     expect(s.admission.closed).toBe(false);
   });
 
+  const cancel = (id = attemptId) =>
+    ({
+      type: "update_cancel",
+      attemptId: id,
+      reason: "policy_changed",
+    }) as const;
+
+  it("clears a restarted activating record when the production updater has no trial", async () => {
+    const store = memoryStore({ ...fenceRecord, phase: "activating" });
+    const s = await setup({
+      store,
+      updater: systemdRunnerUpdater(RUNNER_UPDATE_LAYOUT),
+    });
+    expect(s.admission.closed).toBe(true);
+    await s.receive(cancel());
+    expect(s.last()).toMatchObject({
+      attemptId,
+      phase: "deferred",
+      reason: "cancelled",
+    });
+    expect(store.record).toBeNull();
+    expect(s.admission.closed).toBe(false);
+  });
+
+  it("does not persist activating when activation is unavailable", async () => {
+    const updater = { ...mockUpdater(), canActivate: false };
+    const s = await setup({ updater });
+    await staged(s);
+    await s.receive(fence());
+    await s.receive({ type: "update_activate", attemptId });
+    expect(updater.activate).not.toHaveBeenCalled();
+    expect(s.store.write.mock.calls.map(([record]) => record.phase)).toEqual([
+      "fencing",
+      "fenced",
+    ]);
+    expect(s.last()).toMatchObject({ phase: "deferred", reason: "cancelled" });
+    expect(s.admission.closed).toBe(false);
+  });
+
+  it("advertises an unreadable fence and accepts a cancel with any attempt ID", async () => {
+    const store = memoryStore();
+    store.read.mockRejectedValueOnce(new Error("malformed fence"));
+    const s = await setup({ store });
+    expect(s.agent.advert()).toMatchObject({ fenceUnreadable: true });
+    expect(s.agent.advert()).not.toHaveProperty("pendingAttemptId");
+    expect(s.admission.closed).toBe(true);
+    await s.receive(cancel(otherAttempt));
+    expect(s.last()).toMatchObject({
+      attemptId: otherAttempt,
+      reason: "cancelled",
+    });
+    expect(s.agent.advert()).not.toHaveProperty("fenceUnreadable");
+    expect(s.admission.closed).toBe(false);
+    expect(store.clear).toHaveBeenCalledOnce();
+  });
+
+  it("reopens and logs a fence clear failure while still reporting cancellation", async () => {
+    const s = await setup();
+    await staged(s);
+    await s.receive(fence());
+    s.store.clear.mockRejectedValueOnce(new Error("fixture clear failure"));
+    await s.receive(cancel());
+    expect(s.admission.closed).toBe(false);
+    expect(s.last()).toMatchObject({ reason: "cancelled" });
+    expect(s.log).toHaveBeenCalledWith(
+      expect.stringContaining("fixture clear failure")
+    );
+  });
+
+  it("expires a disconnected pre-activation fence and reports cancellation on reconnect", async () => {
+    const s = await setup();
+    await staged(s);
+    vi.useFakeTimers();
+    await s.receive(fence());
+    s.connection.close();
+    await vi.advanceTimersByTimeAsync(PRE_ACTIVATION_FENCE_TTL_MS - 1);
+    expect(s.admission.closed).toBe(true);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(s.store.record).toBeNull();
+    expect(s.admission.closed).toBe(false);
+    expect(s.last()?.reason).toBe("fence_ready");
+    s.agent.connect((frame) => s.sent.push(frame));
+    expect(s.last()).toMatchObject({
+      attemptId,
+      phase: "deferred",
+      reason: "cancelled",
+    });
+  });
+
+  it("uses the persisted TTL after restart", async () => {
+    vi.useFakeTimers();
+    const store = memoryStore({
+      ...fenceRecord,
+      phase: "fenced",
+      startedAt: Date.now() - PRE_ACTIVATION_FENCE_TTL_MS + 100,
+    });
+    const s = await setup({ store });
+    await vi.advanceTimersByTimeAsync(99);
+    expect(s.admission.closed).toBe(true);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(s.admission.closed).toBe(false);
+    expect(s.last()).toMatchObject({
+      attemptId,
+      phase: "deferred",
+      reason: "cancelled",
+    });
+  });
+
+  it("keeps activation fenced after the pre-activation deadline", async () => {
+    const s = await setup();
+    await staged(s);
+    vi.useFakeTimers();
+    await s.receive(fence());
+    await s.receive({ type: "update_activate", attemptId });
+    await vi.advanceTimersByTimeAsync(PRE_ACTIVATION_FENCE_TTL_MS);
+    expect(s.store.record?.phase).toBe("activating");
+    expect(s.admission.closed).toBe(true);
+  });
+
   it("a restarted supervisor keeps its persisted fence and replays it", async () => {
     const store = memoryStore({
       format: 1,
@@ -378,6 +525,7 @@ describe("runner update agent", () => {
       target,
       retainSessions: true,
       phase: "fenced",
+      startedAt: Date.now(),
       retained: [{ sessionId: host.sessionId, instanceId: host.instanceId }],
     });
     const s = await setup({ store });

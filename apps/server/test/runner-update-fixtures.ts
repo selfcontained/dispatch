@@ -22,6 +22,7 @@ export const fenceRecord: FenceRecord = {
   },
   retainSessions: true,
   phase: "fencing",
+  startedAt: Date.now(),
   retained: [],
 };
 
@@ -67,10 +68,11 @@ export const compatible: StageReport = {
 };
 export function mockUpdater(report: StageReport = compatible) {
   return {
+    canActivate: true,
     stage: vi.fn(async () => report),
     suppressed: vi.fn(async () => false),
     activate: vi.fn(async () => {}),
     confirm: vi.fn(async () => {}),
-    cancelTrial: vi.fn(async () => {}),
+    cancelTrial: vi.fn(async () => true),
   } satisfies RunnerUpdater;
 }

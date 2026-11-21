@@ -13,13 +13,21 @@ import type { FenceRecord, FenceStore } from "./update-admission.js";
 export const RUNNER_UPDATE_FENCE_FILE = "fence.json";
 const MAX_FENCE_BYTES = 256 * 1024;
 
-export function parseFenceRecord(value: unknown): FenceRecord | null {
+function parseFenceRecord(
+  value: unknown,
+  legacyStartedAt: number
+): FenceRecord | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const record = value as Record<string, unknown>;
+  const startedAt =
+    record.startedAt === undefined ? legacyStartedAt : record.startedAt;
   const target = parseUpdateTarget(record.target);
   const retained = parseRetainedSessions(record.retained);
   if (
     record.format !== 1 ||
+    typeof startedAt !== "number" ||
+    !Number.isSafeInteger(startedAt) ||
+    startedAt < 0 ||
     !isUpdateAttemptId(record.attemptId) ||
     !target ||
     typeof record.retainSessions !== "boolean" ||
@@ -37,6 +45,7 @@ export function parseFenceRecord(value: unknown): FenceRecord | null {
     target,
     retainSessions: record.retainSessions,
     phase: record.phase,
+    startedAt,
     retained,
   };
 }
@@ -89,7 +98,8 @@ export function fileFenceStore(
         )
           throw new Error("Runner update fence is not a private file");
         const record = parseFenceRecord(
-          JSON.parse(await handle.readFile("utf8"))
+          JSON.parse(await handle.readFile("utf8")),
+          Math.trunc(stat.mtimeMs)
         );
         if (!record) throw new Error("Runner update fence is malformed");
         return record;

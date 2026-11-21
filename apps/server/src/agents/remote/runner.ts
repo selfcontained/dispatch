@@ -590,7 +590,7 @@ export async function runRemoteRunner(
       );
       socket.on("close", () => {
         connection.abort();
-        updateConnection.close();
+        updateConnection?.close();
         // No reply can flush now; admitted work still counts until it settles.
         for (const flushed of [...awaitingReply.values()]) flushed();
         awaitingReply.clear();
@@ -656,7 +656,8 @@ export async function runRemoteRunner(
           done();
         };
       }
-      const updateConnection = updates.connect((frame) => safeSend(frame));
+      let updateConnection: ReturnType<typeof updates.connect> | undefined;
+      let advert: ReturnType<typeof updates.advert>;
 
       async function request(id: string, command: Command) {
         if (!isOpaqueId(id)) throw new Error("Invalid runner request ID");
@@ -1195,7 +1196,7 @@ export async function runRemoteRunner(
             .finally(settled);
         } else if (UPDATE_SERVICE_FRAME_TYPES.has(frame.type)) {
           // Only a runner that advertised the capability accepts these.
-          if (!advert) return socket.destroy();
+          if (!advert || !updateConnection) return socket.destroy();
           void updateConnection.receive(
             frame as Parameters<typeof updateConnection.receive>[0]
           );
@@ -1223,8 +1224,8 @@ export async function runRemoteRunner(
           else terminals.delete(frame.id);
         } else socket.destroy();
       });
-      const advert = updates.advert();
       socket.once("secureConnect", () => {
+        advert = updates.advert();
         connectedAt = performance.now();
         clearTimeout(timeout);
         safeSend({
@@ -1257,6 +1258,7 @@ export async function runRemoteRunner(
           sharedWorktree: true,
           ...(advert ? { selfUpdate: advert } : {}),
         });
+        updateConnection = updates.connect((frame) => safeSend(frame));
       });
     }).catch((error) => {
       supervisor.close();

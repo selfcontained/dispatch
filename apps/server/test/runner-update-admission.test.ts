@@ -107,10 +107,12 @@ describe("update admission gate", () => {
     const cancelled = vi.fn();
     gate.onTerminal(open);
     gate.onTerminal(cancelled)();
-    void gate.fence(fenceRecord);
+    await expect(gate.fence(fenceRecord)).resolves.toBe("drained");
+    const closing = gate.closeTerminals();
     await vi.advanceTimersByTimeAsync(4_999);
     expect(open).not.toHaveBeenCalled();
     await vi.advanceTimersByTimeAsync(1);
+    await closing;
     expect(open).toHaveBeenCalledOnce();
     expect(cancelled).not.toHaveBeenCalled();
     // One that registers late (its open was admitted earlier) closes at once.
@@ -126,11 +128,32 @@ describe("update admission gate", () => {
     });
     const terminal = vi.fn();
     gate.onTerminal(terminal);
-    void gate.fence(fenceRecord);
+    await expect(gate.fence(fenceRecord)).resolves.toBe("drained");
+    const closing = gate.closeTerminals();
     await vi.advanceTimersByTimeAsync(1_000);
     await gate.release();
+    await closing;
     await vi.advanceTimersByTimeAsync(10_000);
     expect(terminal).not.toHaveBeenCalled();
+  });
+
+  it("keeps cancellation durable when it races a pending phase write", async () => {
+    const store = memoryStore();
+    const gate = await UpdateAdmission.load(store);
+    await gate.fence(fenceRecord);
+    let finish!: () => void;
+    store.write.mockImplementationOnce(async (record) => {
+      await new Promise<void>((resolve) => (finish = resolve));
+      store.record = record;
+    });
+    const phase = gate.advance("fenced");
+    await vi.waitFor(() => expect(finish).toBeDefined());
+    const released = gate.release();
+    finish();
+    await expect(phase).resolves.toBe(false);
+    await released;
+    expect(store.record).toBeNull();
+    expect(gate.closed).toBe(false);
   });
 
   it("persists phase and retained set", async () => {
@@ -172,6 +195,16 @@ describe("file fence store", () => {
     expect(await store.read()).toBeNull();
   });
 
+  it("uses the file timestamp for a record written by the earlier supervisor", async () => {
+    const { startedAt: _, ...legacy } = fenceRecord;
+    const file = path.join(state, "fence.json");
+    await writeFile(file, JSON.stringify(legacy), { mode: 0o600 });
+    expect(await fileFenceStore(state).read()).toEqual({
+      ...legacy,
+      startedAt: Math.trunc((await stat(file)).mtimeMs),
+    });
+  });
+
   it("treats a missing updater directory as no fence", async () => {
     expect(await fileFenceStore(path.join(root, "absent")).read()).toBeNull();
   });
@@ -207,6 +240,27 @@ describe("file fence store", () => {
         await writeFile(real, JSON.stringify(fenceRecord), { mode: 0o600 });
         await symlink(real, file);
       },
+    ],
+    [
+      "timestamp is a string",
+      async (file: string) =>
+        writeFile(file, JSON.stringify({ ...fenceRecord, startedAt: "1" }), {
+          mode: 0o600,
+        }),
+    ],
+    [
+      "timestamp is fractional",
+      async (file: string) =>
+        writeFile(file, JSON.stringify({ ...fenceRecord, startedAt: 0.5 }), {
+          mode: 0o600,
+        }),
+    ],
+    [
+      "timestamp is negative",
+      async (file: string) =>
+        writeFile(file, JSON.stringify({ ...fenceRecord, startedAt: -1 }), {
+          mode: 0o600,
+        }),
     ],
   ])("refuses a fence that is %s", async (_, plant) => {
     await plant(path.join(state, "fence.json"));

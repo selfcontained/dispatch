@@ -55,6 +55,15 @@ describe("ready.selfUpdate", () => {
     expect(parsed?.selfUpdate).not.toHaveProperty("extra");
   });
 
+  it("preserves the explicit unreadable fence flag", () => {
+    expect(
+      parseReadyFrame({
+        ...ready,
+        selfUpdate: { ...advert, fenceUnreadable: true },
+      })?.selfUpdate
+    ).toEqual({ ...advert, fenceUnreadable: true });
+  });
+
   it.each([
     ["protocol", { protocol: 2 }],
     ["os", { os: "darwin" }],
@@ -66,6 +75,9 @@ describe("ready.selfUpdate", () => {
     ["zero format", { handoff: { reads: [0], writes: 2 } }],
     ["too many reads", { handoff: { reads: Array(33).fill(1), writes: 1 } }],
     ["pending attempt", { pendingAttemptId: "not-a-uuid" }],
+    ["string unreadable flag", { fenceUnreadable: "true" }],
+    ["false unreadable flag", { fenceUnreadable: false }],
+    ["ambiguous fence", { fenceUnreadable: true, pendingAttemptId: attemptId }],
   ])(
     "drops a malformed advert (%s) without failing the handshake",
     (_, change) => {

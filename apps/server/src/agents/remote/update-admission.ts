@@ -16,6 +16,7 @@ export type FenceRecord = {
   target: RunnerUpdateTarget;
   retainSessions: boolean;
   phase: FencePhase;
+  startedAt: number;
   /** Authoritative retained set recorded at `fence_ready`. */
   retained: RetainedSession[];
 };
@@ -49,6 +50,7 @@ export class UpdateAdmission {
   /** Closed by state that exists but cannot be read; any cancel clears it. */
   private untrusted: boolean;
   private generation = 0;
+  private pendingStore = Promise.resolve();
   private readonly admitted = new Set<Admitted>();
   private readonly terminals = new Set<() => void>();
   private terminalTimer?: ReturnType<typeof setTimeout>;
@@ -60,7 +62,8 @@ export class UpdateAdmission {
     private readonly store: FenceStore,
     initial: FenceRecord | null,
     untrusted: boolean,
-    private readonly terminalGraceMs: number
+    private readonly terminalGraceMs: number,
+    private readonly log: (message: string) => void
   ) {
     this.record = initial;
     this.untrusted = untrusted;
@@ -76,13 +79,14 @@ export class UpdateAdmission {
       log?: (message: string) => void;
     } = {}
   ) {
+    const log = options.log ?? ((message: string) => console.warn(message));
     let record: FenceRecord | null = null;
     let untrusted = false;
     try {
       record = await store.read();
     } catch (error) {
       untrusted = true;
-      options.log?.(
+      log(
         `Runner update fence state is unreadable; admission stays closed: ${(error as Error).message}`
       );
     }
@@ -90,7 +94,8 @@ export class UpdateAdmission {
       store,
       record,
       untrusted,
-      options.terminalGraceMs ?? TERMINAL_UPDATE_GRACE_MS
+      options.terminalGraceMs ?? TERMINAL_UPDATE_GRACE_MS,
+      log
     );
   }
 
@@ -154,13 +159,19 @@ export class UpdateAdmission {
    * closes synchronously; the record is persisted before draining. On timeout
    * the gate reopens, so a stalled operation defers the update.
    */
-  async fence(record: FenceRecord): Promise<DrainOutcome> {
+  async fence(record: Omit<FenceRecord, "startedAt">): Promise<DrainOutcome> {
     if (this.closed) throw new Error("The update fence is already closed.");
     const generation = ++this.generation;
-    this.record = { ...record, phase: "fencing", retained: [] };
+    const next: FenceRecord = {
+      ...record,
+      phase: "fencing",
+      retained: [],
+      startedAt: Date.now(),
+    };
+    this.record = next;
     this.terminalsClosed = false;
     try {
-      await this.store.write(this.record);
+      await this.updateStore(() => this.store.write(next));
     } catch {
       if (generation === this.generation) await this.release();
       return "store_failed";
@@ -197,6 +208,7 @@ export class UpdateAdmission {
       this.terminalsClosed = true;
       return;
     }
+    const generation = this.generation;
     await new Promise<void>((resolve) => {
       this.terminalsSettled = resolve;
       this.terminalTimer = setTimeout(() => {
@@ -212,8 +224,10 @@ export class UpdateAdmission {
         resolve();
       }, this.terminalGraceMs);
     });
-    this.terminalsSettled = undefined;
-    this.terminalTimer = undefined;
+    if (generation === this.generation) {
+      this.terminalsSettled = undefined;
+      this.terminalTimer = undefined;
+    }
   }
 
   /** Advance the persisted phase of the current fence. */
@@ -224,8 +238,17 @@ export class UpdateAdmission {
       phase,
       ...(retained && { retained }),
     };
-    await this.store.write(next);
+    const generation = this.generation;
+    await this.updateStore(() => this.store.write(next));
+    if (generation !== this.generation) return false;
     this.record = next;
+    return true;
+  }
+
+  private updateStore(action: () => Promise<void>) {
+    const pending = this.pendingStore.then(action);
+    this.pendingStore = pending.catch(() => {});
+    return pending;
   }
 
   /** Reopen admission and remove the persisted fence. */
@@ -238,6 +261,13 @@ export class UpdateAdmission {
     this.terminalTimer = undefined;
     this.wake?.();
     this.terminalsSettled?.();
-    await this.store.clear();
+    this.terminalsSettled = undefined;
+    try {
+      await this.updateStore(() => this.store.clear());
+    } catch (error) {
+      this.log(
+        `Runner admission reopened but could not remove the persisted update fence: ${(error as Error).message}`
+      );
+    }
   }
 }
