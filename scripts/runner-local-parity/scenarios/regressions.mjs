@@ -176,16 +176,16 @@ export const regressions = [
       });
       const repos = {
         "persona file": await reviewableRepo(w, "persona-file", {
-          ".agents/personas/keeper.md": { link: w.path("shared/keeper.md") },
+          ".agents/personas/keeper.md": { link: "../../../shared/keeper.md" },
           ".agents/owners.json": owners(),
         }),
         "persona directory": await reviewableRepo(w, "persona-dir", {
-          ".agents/personas": { link: w.path("shared/personas") },
+          ".agents/personas": { link: "../../shared/personas" },
           ".agents/owners.json": owners(),
         }),
         "owners file": await reviewableRepo(w, "owners-file", {
           ".agents/personas/keeper.md": persona("Keeper"),
-          ".agents/owners.json": { link: w.path("shared/owners.json") },
+          ".agents/owners.json": { link: "../../shared/owners.json" },
         }),
       };
       for (const [label, cwd] of Object.entries(repos)) {

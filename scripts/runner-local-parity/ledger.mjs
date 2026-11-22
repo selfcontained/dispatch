@@ -115,10 +115,28 @@ export function evaluate(found, { known, intended }, ran, complete = true) {
 export function assertShrinks(previous, next, pinMoved = false) {
   const id = pinMoved ? place : exact;
   const before = new Set(previous.entries.map(id));
+  const after = new Set(next.entries.map(id));
   const added = next.entries.filter((entry) => !before.has(id(entry)));
-  if (added.length)
+  // A fix can make a scenario run further, and a difference already tracked
+  // under another finding then shows in its output. That may replace the fixed
+  // entries of the same scenario, if it is attributed to a finding the ledger
+  // already has and the ledger ends up smaller.
+  const fixed = new Set(
+    previous.entries
+      .filter((entry) => !after.has(id(entry)))
+      .map((entry) => entry.scenario)
+  );
+  const surfaced = (entry) =>
+    next.entries.length < previous.entries.length &&
+    !entry.field &&
+    fixed.has(entry.scenario) &&
+    previous.entries.some(
+      (old) => old.finding === entry.finding && old.scenario !== entry.scenario
+    );
+  const refused = added.filter((entry) => !surfaced(entry));
+  if (refused.length)
     throw new Error(
-      `Known parity regressions only shrink. New or changed entries:\n${added
+      `Known parity regressions only shrink. New or changed entries:\n${refused
         .map((entry) => `  ${label(entry)}`)
         .join("\n")}`
     );

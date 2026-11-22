@@ -203,6 +203,38 @@ test("known regressions only shrink", () => {
   );
 });
 
+test("a fix may swap its entries for a known difference it uncovers, if the ledger shrinks", () => {
+  const fixed = { ...entry, scenario: "fixed", finding: "fixed-finding" };
+  const fixedToo = { ...fixed, path: "post > more" };
+  const tracked = { ...entry, scenario: "elsewhere", finding: "tracked" };
+  const surfaced = {
+    ...entry,
+    scenario: "fixed",
+    path: "plan",
+    finding: "tracked",
+  };
+  const ledger = (entries) => ({
+    findings: {
+      "fixed-finding": { title: "f", task: "T" },
+      tracked: { title: "t", task: "T" },
+    },
+    entries,
+  });
+  const before = ledger([fixed, fixedToo, tracked]);
+  assertShrinks(before, ledger([tracked, surfaced]));
+  for (const next of [
+    // No net shrink.
+    [fixed, tracked, surfaced],
+    // A scenario nothing was fixed in.
+    [tracked, { ...surfaced, scenario: "other" }],
+    // A finding the ledger did not have.
+    [tracked, { ...surfaced, finding: "new" }],
+    // A finding only this scenario had.
+    [tracked, { ...surfaced, finding: "fixed-finding" }],
+  ])
+    assert.throws(() => assertShrinks(before, ledger(next)), /shrink/);
+});
+
 test("ledger entries need an owner", () => {
   const problems = (ledgers) =>
     validateLedgers(

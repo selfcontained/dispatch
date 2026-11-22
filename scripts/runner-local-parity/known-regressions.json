@@ -4,10 +4,6 @@
       "title": "Posting by path refuses files main could read: another session's, task attachments, hard links, over 20 MiB, dot-dot, odd names, state and files roots",
       "task": "F1"
     },
-    "audit-4.3-2": {
-      "title": "Symlinked tools manifests, persona and owner files are rejected, so tools, hooks, personas and reviews vanish",
-      "task": "F1"
-    },
     "audit-4.3-3": {
       "title": "Repo tools gained a five-minute kill, 64 KiB output, argument and manifest limits, and changed exit codes and errors",
       "task": "F1"
@@ -431,251 +427,6 @@
       "main": "{\"createdAt\":\"<time>\",\"id\":\"<uuid:1>\",\"kind\":\"file\",\"replyTo\":null,\"streamId\":\"<agent:1>\",\"threadId\":null}",
       "head": "<absent>",
       "finding": "audit-4.3-1"
-    },
-    {
-      "scenario": "audit-2-symlinks-repo-tools",
-      "path": "directory: call > content > 0 > text",
-      "main": "\"ok\"",
-      "head": "\"MCP error -32602: Tool repo_echo not found\"",
-      "finding": "audit-4.3-2"
-    },
-    {
-      "scenario": "audit-2-symlinks-repo-tools",
-      "path": "directory: call > isError",
-      "main": "<absent>",
-      "head": "true",
-      "finding": "audit-4.3-2"
-    },
-    {
-      "scenario": "audit-2-symlinks-repo-tools",
-      "path": "directory: call > structuredContent",
-      "main": "{\"command\":[\"echo\",\"ok\"],\"exitCode\":0,\"stderr\":\"\",\"stdout\":\"ok\"}",
-      "head": "<absent>",
-      "finding": "audit-4.3-2"
-    },
-    {
-      "scenario": "audit-2-symlinks-repo-tools",
-      "path": "directory: tools > repo_echo",
-      "main": "true",
-      "head": "<absent>",
-      "finding": "audit-4.3-2"
-    },
-    {
-      "scenario": "audit-2-symlinks-repo-tools",
-      "path": "file inside the repo: call > content > 0 > text",
-      "main": "\"ok\"",
-      "head": "\"MCP error -32602: Tool repo_echo not found\"",
-      "finding": "audit-4.3-2"
-    },
-    {
-      "scenario": "audit-2-symlinks-repo-tools",
-      "path": "file inside the repo: call > isError",
-      "main": "<absent>",
-      "head": "true",
-      "finding": "audit-4.3-2"
-    },
-    {
-      "scenario": "audit-2-symlinks-repo-tools",
-      "path": "file inside the repo: call > structuredContent",
-      "main": "{\"command\":[\"echo\",\"ok\"],\"exitCode\":0,\"stderr\":\"\",\"stdout\":\"ok\"}",
-      "head": "<absent>",
-      "finding": "audit-4.3-2"
-    },
-    {
-      "scenario": "audit-2-symlinks-repo-tools",
-      "path": "file inside the repo: tools > repo_echo",
-      "main": "true",
-      "head": "<absent>",
-      "finding": "audit-4.3-2"
-    },
-    {
-      "scenario": "audit-2-symlinks-repo-tools",
-      "path": "file outside the repo: call > content > 0 > text",
-      "main": "\"ok\"",
-      "head": "\"MCP error -32602: Tool repo_echo not found\"",
-      "finding": "audit-4.3-2"
-    },
-    {
-      "scenario": "audit-2-symlinks-repo-tools",
-      "path": "file outside the repo: call > isError",
-      "main": "<absent>",
-      "head": "true",
-      "finding": "audit-4.3-2"
-    },
-    {
-      "scenario": "audit-2-symlinks-repo-tools",
-      "path": "file outside the repo: call > structuredContent",
-      "main": "{\"command\":[\"echo\",\"ok\"],\"exitCode\":0,\"stderr\":\"\",\"stdout\":\"ok\"}",
-      "head": "<absent>",
-      "finding": "audit-4.3-2"
-    },
-    {
-      "scenario": "audit-2-symlinks-repo-tools",
-      "path": "file outside the repo: hook ran",
-      "main": "true",
-      "head": "false",
-      "finding": "audit-4.3-2"
-    },
-    {
-      "scenario": "audit-2-symlinks-repo-tools",
-      "path": "file outside the repo: tools > repo_echo",
-      "main": "true",
-      "head": "<absent>",
-      "finding": "audit-4.3-2"
-    },
-    {
-      "scenario": "audit-2-symlinks-personas-owners",
-      "path": "owners file: owner plan > content > 0 > text",
-      "main": "\"Selected 1 code owner reviewer(s); no reviewers launched. 0 file(s) lack an explicit owner.\"",
-      "head": "\"Expected a regular worktree file\"",
-      "finding": "audit-4.3-2"
-    },
-    {
-      "scenario": "audit-2-symlinks-personas-owners",
-      "path": "owners file: owner plan > isError",
-      "main": "<absent>",
-      "head": "true",
-      "finding": "audit-4.3-2"
-    },
-    {
-      "scenario": "audit-2-symlinks-personas-owners",
-      "path": "owners file: owner plan > structuredContent",
-      "main": "sha256:ea953784b4d1da7b {\"baseRef\":\"origin/main\",\"changedFiles\":[\"changed.txt\"],\"failures\":[],\"launched\":[],\"omittedOwners\":…",
-      "head": "<absent>",
-      "finding": "audit-4.3-2"
-    },
-    {
-      "scenario": "audit-2-symlinks-personas-owners",
-      "path": "persona directory: owner plan > content > 0 > text",
-      "main": "\"Selected 1 code owner reviewer(s); no reviewers launched. 0 file(s) lack an explicit owner.\"",
-      "head": "\"Could not read persona .agents/personas/keeper.md: ELOOP: too many symbolic links encountered, open '<root>/work/persona-dir/.agents/personas/keeper.md'\"",
-      "finding": "audit-4.3-2"
-    },
-    {
-      "scenario": "audit-2-symlinks-personas-owners",
-      "path": "persona directory: owner plan > isError",
-      "main": "<absent>",
-      "head": "true",
-      "finding": "audit-4.3-2"
-    },
-    {
-      "scenario": "audit-2-symlinks-personas-owners",
-      "path": "persona directory: owner plan > structuredContent",
-      "main": "sha256:ea953784b4d1da7b {\"baseRef\":\"origin/main\",\"changedFiles\":[\"changed.txt\"],\"failures\":[],\"launched\":[],\"omittedOwners\":…",
-      "head": "<absent>",
-      "finding": "audit-4.3-2"
-    },
-    {
-      "scenario": "audit-2-symlinks-personas-owners",
-      "path": "persona directory: persona launch > content > 0 > text",
-      "main": "sha256:624824518a86a0b3 \"Launched agent \\\"keeper\\\" (<agent:launched-1>). Dispatch will send you a new prompt when this perso…",
-      "head": "\"Could not read persona .agents/personas/keeper.md: ELOOP: too many symbolic links encountered, open '<root>/work/persona-dir/.agents/personas/keeper.md'\"",
-      "finding": "audit-4.3-2"
-    },
-    {
-      "scenario": "audit-2-symlinks-personas-owners",
-      "path": "persona directory: persona launch > isError",
-      "main": "<absent>",
-      "head": "true",
-      "finding": "audit-4.3-2"
-    },
-    {
-      "scenario": "audit-2-symlinks-personas-owners",
-      "path": "persona directory: persona launch > structuredContent",
-      "main": "{\"agentId\":\"<agent:launched-1>\",\"name\":\"keeper\",\"personaType\":\"review\"}",
-      "head": "<absent>",
-      "finding": "audit-4.3-2"
-    },
-    {
-      "scenario": "audit-2-symlinks-personas-owners",
-      "path": "persona directory: personas > content > 0 > text > personas",
-      "main": "sha256:8467cb9545eab317 [{\"description\":\"The Keeper persona\",\"name\":\"Keeper\",\"slug\":\"keeper\",\"type\":\"review\"},{\"description\"…",
-      "head": "sha256:90cfee24e60f0547 [{\"description\":\"Built-in generalist reviewer — correctness, clarity, and fit with the surrounding c…",
-      "finding": "audit-4.3-2"
-    },
-    {
-      "scenario": "audit-2-symlinks-personas-owners",
-      "path": "persona directory: personas > content > 0 > text > warnings",
-      "main": "sha256:dd5fb6467cca6f57 [\"Default-branch persona catalog is refreshing in the background. This list contains currently avail…",
-      "head": "sha256:9fdf934c6b1b806a [\"Could not list personas in .agents/personas: Directory links are not followed.\",\"Default-branch pe…",
-      "finding": "audit-4.3-2"
-    },
-    {
-      "scenario": "audit-2-symlinks-personas-owners",
-      "path": "persona directory: personas > structuredContent > personas",
-      "main": "sha256:8467cb9545eab317 [{\"description\":\"The Keeper persona\",\"name\":\"Keeper\",\"slug\":\"keeper\",\"type\":\"review\"},{\"description\"…",
-      "head": "sha256:90cfee24e60f0547 [{\"description\":\"Built-in generalist reviewer — correctness, clarity, and fit with the surrounding c…",
-      "finding": "audit-4.3-2"
-    },
-    {
-      "scenario": "audit-2-symlinks-personas-owners",
-      "path": "persona directory: personas > structuredContent > warnings",
-      "main": "sha256:dd5fb6467cca6f57 [\"Default-branch persona catalog is refreshing in the background. This list contains currently avail…",
-      "head": "sha256:9fdf934c6b1b806a [\"Could not list personas in .agents/personas: Directory links are not followed.\",\"Default-branch pe…",
-      "finding": "audit-4.3-2"
-    },
-    {
-      "scenario": "audit-2-symlinks-personas-owners",
-      "path": "persona file: owner plan > content > 0 > text",
-      "main": "\"Selected 1 code owner reviewer(s); no reviewers launched. 0 file(s) lack an explicit owner.\"",
-      "head": "\"Could not read persona .agents/personas/keeper.md: Expected a regular worktree file\"",
-      "finding": "audit-4.3-2"
-    },
-    {
-      "scenario": "audit-2-symlinks-personas-owners",
-      "path": "persona file: owner plan > isError",
-      "main": "<absent>",
-      "head": "true",
-      "finding": "audit-4.3-2"
-    },
-    {
-      "scenario": "audit-2-symlinks-personas-owners",
-      "path": "persona file: owner plan > structuredContent",
-      "main": "sha256:ea953784b4d1da7b {\"baseRef\":\"origin/main\",\"changedFiles\":[\"changed.txt\"],\"failures\":[],\"launched\":[],\"omittedOwners\":…",
-      "head": "<absent>",
-      "finding": "audit-4.3-2"
-    },
-    {
-      "scenario": "audit-2-symlinks-personas-owners",
-      "path": "persona file: persona launch > content > 0 > text",
-      "main": "sha256:624824518a86a0b3 \"Launched agent \\\"keeper\\\" (<agent:launched-1>). Dispatch will send you a new prompt when this perso…",
-      "head": "\"Could not read persona .agents/personas/keeper.md: Expected a regular worktree file\"",
-      "finding": "audit-4.3-2"
-    },
-    {
-      "scenario": "audit-2-symlinks-personas-owners",
-      "path": "persona file: persona launch > isError",
-      "main": "<absent>",
-      "head": "true",
-      "finding": "audit-4.3-2"
-    },
-    {
-      "scenario": "audit-2-symlinks-personas-owners",
-      "path": "persona file: persona launch > structuredContent",
-      "main": "{\"agentId\":\"<agent:launched-1>\",\"name\":\"keeper\",\"personaType\":\"review\"}",
-      "head": "<absent>",
-      "finding": "audit-4.3-2"
-    },
-    {
-      "scenario": "audit-2-symlinks-personas-owners",
-      "path": "persona file: personas > content > 0 > text > personas",
-      "main": "sha256:8467cb9545eab317 [{\"description\":\"The Keeper persona\",\"name\":\"Keeper\",\"slug\":\"keeper\",\"type\":\"review\"},{\"description\"…",
-      "head": "sha256:90cfee24e60f0547 [{\"description\":\"Built-in generalist reviewer — correctness, clarity, and fit with the surrounding c…",
-      "finding": "audit-4.3-2"
-    },
-    {
-      "scenario": "audit-2-symlinks-personas-owners",
-      "path": "persona file: personas > structuredContent > personas",
-      "main": "sha256:8467cb9545eab317 [{\"description\":\"The Keeper persona\",\"name\":\"Keeper\",\"slug\":\"keeper\",\"type\":\"review\"},{\"description\"…",
-      "head": "sha256:90cfee24e60f0547 [{\"description\":\"Built-in generalist reviewer — correctness, clarity, and fit with the surrounding c…",
-      "finding": "audit-4.3-2"
-    },
-    {
-      "scenario": "audit-2-symlinks-personas-owners",
-      "path": "persona file: route > body > warnings",
-      "main": "[\"Could not load persona .agents/personas/keeper.md: unsupported file or larger than 256 KiB.\"]",
-      "head": "<absent>",
-      "finding": "audit-4.3-2"
     },
     {
       "scenario": "audit-3-tool-timeout",
@@ -1725,6 +1476,27 @@
       "path": "reviewers > 0 > persona_context",
       "main": "sha256:54781055ea170d55 \"## Code ownership scope\\nYou were selected as keeper. The review base is origin/main. Paths are rep…",
       "head": "sha256:f6aab49db2a7c688 \"Inspect the shared checkout without modifying it. Report findings to the launcher.\\nCheckout record…",
+      "finding": "owner-review-briefing"
+    },
+    {
+      "scenario": "audit-2-symlinks-personas-owners",
+      "path": "owners file: owner plan > structuredContent > reviewedState",
+      "main": "<absent>",
+      "head": "{\"head\":\"49d855a797745e67a86b1dfce92dfe4022ca9139\",\"stateId\":\"<checkout-state>\"}",
+      "finding": "owner-review-briefing"
+    },
+    {
+      "scenario": "audit-2-symlinks-personas-owners",
+      "path": "persona directory: owner plan > structuredContent > reviewedState",
+      "main": "<absent>",
+      "head": "{\"head\":\"5bc4ac1b4f94cc87d739cc8a1672012728d86915\",\"stateId\":\"<checkout-state>\"}",
+      "finding": "owner-review-briefing"
+    },
+    {
+      "scenario": "audit-2-symlinks-personas-owners",
+      "path": "persona file: owner plan > structuredContent > reviewedState",
+      "main": "<absent>",
+      "head": "{\"head\":\"3d14bf8f8c8ab561235defd57d946197c59a5930\",\"stateId\":\"<checkout-state>\"}",
       "finding": "owner-review-briefing"
     },
     {

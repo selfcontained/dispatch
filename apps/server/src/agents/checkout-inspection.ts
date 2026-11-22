@@ -622,7 +622,12 @@ export async function inspectCheckout(
             names.push(entry.name);
         }
       } finally {
-        await directory.close().catch(() => undefined);
+        // Iterating to the end closes it already; Node rejects a second close.
+        try {
+          await directory.close();
+        } catch {
+          // Already closed.
+        }
       }
       const reply = { kind: "listFiles" as const, names: names.sort() };
       encodeReply(reply);
