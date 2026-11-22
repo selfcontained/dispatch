@@ -10,6 +10,7 @@ import {
 } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
+import { childProcessEnv } from "../../shared/process/child-environment.js";
 import { setTimeout as pause } from "node:timers/promises";
 import {
   embeddedBuild,
@@ -234,7 +235,7 @@ export async function trialLocksAvailable(layout: RunnerUpdateLayout) {
         path.join(layout.state, "stage.lock"),
         "/usr/bin/true",
       ],
-      { timeout: 5_000 }
+      { env: childProcessEnv(), timeout: 5_000 }
     );
     return true;
   } catch {

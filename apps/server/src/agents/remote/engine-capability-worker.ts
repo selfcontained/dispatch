@@ -23,6 +23,7 @@ import {
   applyPluginUpdate,
   checkPluginStatus,
 } from "../../shared/plugin-status.js";
+import { childProcessEnv } from "../../shared/process/child-environment.js";
 import { parseEngineCapabilityResult } from "./engine-capability-result.js";
 
 async function readCatalog(
@@ -41,7 +42,7 @@ async function readCatalog(
     cwd,
     env: {
       ...spec.envDefaults,
-      ...process.env,
+      ...childProcessEnv(),
       ...spec.env,
       PATH: bin ? withEngineBinDir(process.env.PATH, bin) : process.env.PATH,
     },

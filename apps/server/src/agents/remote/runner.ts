@@ -1,4 +1,5 @@
 import { embeddedBuild } from "../build-identity.js";
+import { childProcessEnv } from "../../shared/process/child-environment.js";
 import { executionArgs, setpriv } from "./workload-identity.js";
 import { runnerHealthSampler } from "./health.js";
 import { SharedCheckoutWatches, childWatch } from "../checkout-watch.js";
@@ -269,7 +270,7 @@ export async function runRemoteRunner(
   const { stdout: account } = await execute(
     "/usr/bin/getent",
     ["passwd", String(config.uid)],
-    { timeout: 5000 }
+    { env: childProcessEnv(), timeout: 5000 }
   );
   const [username, , , , , , passwdShell] = account.trimEnd().split(":");
   const shell =
