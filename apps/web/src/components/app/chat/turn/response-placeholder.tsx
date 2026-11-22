@@ -44,7 +44,7 @@ export const CHARS_PER_PIECE = 250;
 const MIN_COLUMNS = 32;
 const SLOTS = 128;
 const CELL_GAP = 2;
-const MAX_CELL_SIZE = 7.5;
+const MAX_CELL_SIZE = 7;
 const ROW_PITCH = MAX_CELL_SIZE + CELL_GAP;
 
 /** Small seeded PRNG: random per turn, stable while that turn runs. */
