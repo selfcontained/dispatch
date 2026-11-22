@@ -413,11 +413,12 @@ export async function runTrial(options: {
     await writeAtomic(layout.state, "floor.json", JSON.stringify(target));
     await checkpoint("floor-published");
     await writeAtomic(layout.state, "confirmed.json", JSON.stringify(target));
-    const { ino } = await lstat(layout.installed);
+    const { dev, ino } = await lstat(layout.installed, { bigint: true });
+    // The manual installer looks this up by `stat -c %d:%i`.
     await writeAtomic(
       runtime,
       "installed-release",
-      `${ino} v${target.version}\n`
+      `${dev}:${ino} v${target.version}\n`
     );
     await replaceLink(layout.installed, path.join(runtime, TRIAL_HELPER));
     await checkpoint("helper-refreshed");

@@ -620,7 +620,10 @@ installed_release() {
   inode=$(stat -c '%d:%i' "$runtime/dispatch") || return
   [[ -f "$runtime/installed-release" ]] || return 0
   while read -r recorded version; do
-    if [[ "$recorded" == "$inode" && "$version" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    # Trial helpers up to 98cb679dd recorded the inode without its device. The
+    # incumbent helper writes the commit, so such records outlive its update.
+    if [[ ( "$recorded" == "$inode" || "$recorded" == "${inode#*:}" ) &&
+          "$version" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
       printf '%s\n' "$version"
       return
     fi

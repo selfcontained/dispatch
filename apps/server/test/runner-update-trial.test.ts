@@ -302,6 +302,14 @@ describe("durable runner trial", () => {
     expect(s.system.stop).toHaveBeenCalledTimes(1);
   });
 
+  it("records a confirmed build under the installer's device:inode key", async () => {
+    await startThen(() => s.confirm());
+    const { dev, ino } = await lstat(s.layout.installed, { bigint: true });
+    expect(await readFile(path.join(s.root, "installed-release"), "utf8")).toBe(
+      `${dev}:${ino} v${s.target.version}\n`
+    );
+  });
+
   it("replaces the retained predecessor only when the next update is confirmed", async () => {
     await startThen(() => s.confirm());
     const first = (await lstat(s.layout.installed)).ino;

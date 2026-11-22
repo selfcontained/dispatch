@@ -546,6 +546,24 @@ run install v1.0.0 x64 --allow-downgrade
 expect_floor 1.0.0 || fail
 unset fixture_root
 
+# A self-updated build is refused as the downgrade it is, with either record
+# the trial helper has written.
+fixture_root="$root/self-updated"
+mkdir -p "$fixture_root"
+ln -s "$root/releases" "$fixture_root/releases"
+ln -s "$root/public.pem" "$fixture_root/public.pem"
+run install v1.0.0 x64 --dedicated-user
+run update v1.0.1
+read -r installed_key _ < "$fixture_root/runtime/installed-release"
+cp "$fixture_root/runtime/dispatch" "$fixture_root/self-updated-bytes"
+for key in "$installed_key" "${installed_key#*:}"; do
+  printf '%s v1.0.1\n' "$key" > "$fixture_root/runtime/installed-release"
+  expect_status 1 update v1.0.0 2> "$fixture_root/err"
+  grep -Fq 'Refusing to downgrade Dispatch runner from v1.0.1 to v1.0.0. Use --allow-downgrade to proceed' "$fixture_root/err" || fail
+  cmp "$fixture_root/self-updated-bytes" "$fixture_root/runtime/dispatch" || fail
+done
+unset fixture_root
+
 # Start a phase-2 layout. The new supervisor's first start must see both
 # loaded update units and the helper. A failed start restores the old layout.
 fixture_root="$root/phase-two"
