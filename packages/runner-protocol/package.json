@@ -11,5 +11,8 @@
   },
   "files": [
     "src"
-  ]
+  ],
+  "scripts": {
+    "check": "tsc -p tsconfig.json && tsc -p tsconfig.portable.json"
+  }
 }

@@ -93,6 +93,12 @@ jobs:
       - name: Test CI event policy
         run: node --test scripts/ci-event-policy.test.mjs
 
+      - name: Check runner boundary baseline history
+        run: node scripts/check-runner-boundary.mjs --history "$PR_BASE_SHA" "$PR_HEAD_SHA"
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+
       # This guard runs for every PR, including the docs fast path. It reads
       # ownership definitions from the PR head, not the merge checkout.
       - name: Require explicit PR owner coverage

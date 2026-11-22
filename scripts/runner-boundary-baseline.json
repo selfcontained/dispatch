@@ -1,0 +1,3978 @@
+[
+  {
+    "file": "apps/server/src/agents/acp/background-work.ts",
+    "kind": "R5 runner to Dispatch",
+    "detail": "@dispatch/shared",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/acp/driver.ts",
+    "kind": "R5 runner to Dispatch",
+    "detail": "@dispatch/shared",
+    "task": "T04",
+    "count": 4
+  },
+  {
+    "file": "apps/server/src/agents/acp/driver.ts",
+    "kind": "R5 runner to Dispatch",
+    "detail": "apps/server/src/agents/acp/mcp-inventory",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/acp/driver.ts",
+    "kind": "R5 runner to Dispatch",
+    "detail": "apps/server/src/agents/acp/package-bin-dir",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/acp/driver.ts",
+    "kind": "R5 runner to Dispatch",
+    "detail": "apps/server/src/agents/acp/prompt-images",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/acp/driver.ts",
+    "kind": "R5 runner to Dispatch",
+    "detail": "apps/server/src/agents/acp/prompt-source",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/acp/engine-spec.ts",
+    "kind": "R5 runner to Dispatch",
+    "detail": "@dispatch/shared",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/acp/host-client.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/agents/acp/driver",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/acp/host-command.ts",
+    "kind": "R5 protocol leak",
+    "detail": "DISPATCH_",
+    "task": "T24",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/acp/host-env.ts",
+    "kind": "R5 runner to Dispatch",
+    "detail": "apps/server/src/agents/acp/engine-bin-dir",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/acp/host-env.ts",
+    "kind": "R5 runner to Dispatch",
+    "detail": "apps/server/src/agents/acp/host-protocol",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/acp/host-env.ts",
+    "kind": "R5 runner to Dispatch",
+    "detail": "apps/server/src/local-tls",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/acp/host-env.ts",
+    "kind": "R5 runner to Dispatch",
+    "detail": "apps/server/src/shared/lib/tool-environment",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/acp/host-protocol.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/agents/acp/driver",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/acp/host-protocol.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/agents/acp/engine-spec",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/acp/host-protocol.ts",
+    "kind": "R5 protocol leak",
+    "detail": "PromptSource",
+    "task": "T24",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/acp/host/main.ts",
+    "kind": "R5 runner to Dispatch",
+    "detail": "apps/server/src/agents/acp/host-protocol",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/acp/host/main.ts",
+    "kind": "R5 runner to Dispatch",
+    "detail": "apps/server/src/agents/acp/launch-effort",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/acp/host/main.ts",
+    "kind": "R5 runner to Dispatch",
+    "detail": "apps/server/src/agents/acp/persona-context",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/acp/host/main.ts",
+    "kind": "R5 runner to Dispatch",
+    "detail": "apps/server/src/agents/acp/prompt-source",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/acp/host/main.ts",
+    "kind": "R5 runner to Dispatch",
+    "detail": "apps/server/src/agents/build-identity",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/acp/launch-effort.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/agents/acp/driver",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/acp/launch-effort.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/agents/acp/engine-spec",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/acp/launch-env.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/agents/acp/engine-spec",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/acp/opencode-instructions.ts",
+    "kind": "R5 runner to Dispatch",
+    "detail": "apps/server/src/agents/acp/host-protocol",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/acp/permissions.ts",
+    "kind": "R5 runner to Dispatch",
+    "detail": "@dispatch/shared",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/acp/persona-context.ts",
+    "kind": "R2 host access",
+    "detail": "fs/promises",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/acp/prompt-images.ts",
+    "kind": "R2 host access",
+    "detail": "fs/promises",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/acp/runtime.ts",
+    "kind": "R1 placement read",
+    "detail": "current.remote",
+    "task": "T07",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/acp/runtime.ts",
+    "kind": "R1 placement read",
+    "detail": "entry.remote",
+    "task": "T07",
+    "count": 8
+  },
+  {
+    "file": "apps/server/src/agents/acp/runtime.ts",
+    "kind": "R1 placement read",
+    "detail": "entry.runner",
+    "task": "T07",
+    "count": 12
+  },
+  {
+    "file": "apps/server/src/agents/acp/runtime.ts",
+    "kind": "R1 placement read",
+    "detail": "hold.entry.runner",
+    "task": "T07",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/acp/runtime.ts",
+    "kind": "R1 placement read",
+    "detail": "placement?.runner",
+    "task": "T07",
+    "count": 2
+  },
+  {
+    "file": "apps/server/src/agents/acp/runtime.ts",
+    "kind": "R1 placement read",
+    "detail": "placement.runner",
+    "task": "T07",
+    "count": 10
+  },
+  {
+    "file": "apps/server/src/agents/acp/runtime.ts",
+    "kind": "R2 host access",
+    "detail": "fs/promises",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/acp/runtime.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/agents/acp/driver",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/acp/runtime.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/agents/acp/host-client",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/acp/runtime.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/agents/acp/host-command",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/acp/runtime.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/agents/local-runner",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/acp/runtime.ts",
+    "kind": "R7 restriction",
+    "detail": "N20 Runner attachments require a new prompt",
+    "task": "T12",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/acp/runtime.ts",
+    "kind": "R7 restriction",
+    "detail": "N33 Runner stop waits for the remote request",
+    "task": "T26",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/acp/stream-recorder.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/agents/acp/driver",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/archive-checkout.ts",
+    "kind": "R1 placement call",
+    "detail": "remotePlacement(agent.cwd)",
+    "task": "T07",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/archive-checkout.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/agents/checkout-observation",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/archive-checkout.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/agents/local-runner",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/archive-policy.ts",
+    "kind": "R1 placement call",
+    "detail": "remotePlacement(agent.cwd)",
+    "task": "T07",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/archive.ts",
+    "kind": "R1 placement call",
+    "detail": "remotePlacement(agent.cwd)",
+    "task": "T07",
+    "count": 2
+  },
+  {
+    "file": "apps/server/src/agents/checkout-command-executor.ts",
+    "kind": "R2 host access",
+    "detail": "child_process",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/checkout-command-executor.ts",
+    "kind": "R2 host access",
+    "detail": "os",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/checkout-command-executor.ts",
+    "kind": "R2 host access",
+    "detail": "process.kill",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/checkout-command-executor.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/agents/acp/host-command",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/checkout-commands.ts",
+    "kind": "R1 placement call",
+    "detail": "remotePlacement(agent.cwd)",
+    "task": "T07",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/checkout-commands.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/agents/local-runner",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/checkout-inspection.ts",
+    "kind": "R2 host access",
+    "detail": "child_process",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/checkout-inspection.ts",
+    "kind": "R2 host access",
+    "detail": "fs",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/checkout-inspection.ts",
+    "kind": "R2 host access",
+    "detail": "fs/promises",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/checkout-inspection.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/agents/default-branch-files",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/checkout-inspection.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/files/workspace-directory",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/checkout-inspection.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/shared/git/base-ref",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/checkout-inspection.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/shared/git/git-context",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/checkout-inspection.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/shared/git/owner-review-files",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/checkout-inspection.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/shared/github/pr",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/checkout-inspection.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/shared/lib/run-command",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/checkout-inspection.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/shared/process/child-environment",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/checkout-inspection.ts",
+    "kind": "R5 protocol leak",
+    "detail": "owner-review-files.js",
+    "task": "T09",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/checkout-intent.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/agents/workspace",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/checkout-intent.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/shared/git/worktree",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/checkout-observers.ts",
+    "kind": "R1 placement call",
+    "detail": "agentWorkspaceDir(agent)",
+    "task": "T07",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/checkout-observers.ts",
+    "kind": "R1 placement call",
+    "detail": "remotePlacement(agent.cwd)",
+    "task": "T07",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/checkout-observers.ts",
+    "kind": "R1 placement read",
+    "detail": "item.runner",
+    "task": "T07",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/checkout-observers.ts",
+    "kind": "R1 placement read",
+    "detail": "placement.runner",
+    "task": "T07",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/checkout-observers.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/agents/checkout-watch",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/checkout-runner.ts",
+    "kind": "R1 placement call",
+    "detail": "agentDiffPath(agent)",
+    "task": "T07",
+    "count": 2
+  },
+  {
+    "file": "apps/server/src/agents/checkout-runner.ts",
+    "kind": "R1 placement call",
+    "detail": "agentWorkspaceDir(agent)",
+    "task": "T07",
+    "count": 2
+  },
+  {
+    "file": "apps/server/src/agents/checkout-runner.ts",
+    "kind": "R1 placement call",
+    "detail": "agentWorkspaceDir(owner)",
+    "task": "T07",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/checkout-runner.ts",
+    "kind": "R1 placement call",
+    "detail": "remotePlacement(agent.cwd)",
+    "task": "T07",
+    "count": 3
+  },
+  {
+    "file": "apps/server/src/agents/checkout-runner.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/agents/checkout-inspection",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/checkout-runner.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/agents/checkout-view",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/checkout-runner.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/shared/git/diff-stats",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/checkout-view-cli.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/agents/checkout-view",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/checkout-view-cli.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/files/workspace-view",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/checkout-view.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/agents/checkout-inspection",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/checkout-view.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/files/workspace-view",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/checkout-view.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/shared/git/agent-diff",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/checkout-view.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/shared/git/diff-image",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/checkout-view.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/shared/git/diff-stats",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/checkout-watch.ts",
+    "kind": "R2 host access",
+    "detail": "fs",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/checkout-watch.ts",
+    "kind": "R2 host access",
+    "detail": "fs/promises",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/codex-reset.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/agents/provider-plans",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/default-branch-files.ts",
+    "kind": "R2 host access",
+    "detail": "fs/promises",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/default-branch-files.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/shared/lib/run-command",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/diff-stats-refresher.ts",
+    "kind": "R1 placement call",
+    "detail": "agentDiffPath(agent)",
+    "task": "T07",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/diff-stats-refresher.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/shared/git/diff-stats",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/effective-base.ts",
+    "kind": "R1 placement call",
+    "detail": "agentDiffPath(agent)",
+    "task": "T07",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/effective-base.ts",
+    "kind": "R1 placement call",
+    "detail": "remotePlacement(agent.cwd)",
+    "task": "T07",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/effective-base.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/shared/git/default-branch",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/engine-availability.ts",
+    "kind": "R2 host access",
+    "detail": "fs/promises",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/engine-availability.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/agents/acp/engine-spec",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/engine-availability.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/shared/lib/run-command",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/engine-login.ts",
+    "kind": "R2 host access",
+    "detail": "child_process",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/engine-login.ts",
+    "kind": "R2 host access",
+    "detail": "fs/promises",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/engine-login.ts",
+    "kind": "R2 host access",
+    "detail": "os",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/engine-login.ts",
+    "kind": "R2 host access",
+    "detail": "process.kill",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/engine-login.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/agents/acp/host-command",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/engine-login.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/shared/process/child-environment",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/engine-updates.ts",
+    "kind": "R2 host access",
+    "detail": "child_process",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/engine-updates.ts",
+    "kind": "R2 host access",
+    "detail": "fs/promises",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/engine-updates.ts",
+    "kind": "R2 host access",
+    "detail": "os",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/engine-updates.ts",
+    "kind": "R2 host access",
+    "detail": "process.kill",
+    "task": "T04",
+    "count": 3
+  },
+  {
+    "file": "apps/server/src/agents/engine-updates.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/agents/acp/engine-spec",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/engine-updates.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/agents/engine-availability",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/engine-updates.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/shared/lib/run-command",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/engine-updates.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/shared/process/child-environment",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/github-pull-request-evidence.ts",
+    "kind": "R2 host access",
+    "detail": "child_process",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/github-pull-request-evidence.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/shared/process/child-environment",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/launch-admission.ts",
+    "kind": "R1 placement call",
+    "detail": "remotePlacement(owner.cwd)",
+    "task": "T07",
+    "count": 2
+  },
+  {
+    "file": "apps/server/src/agents/launch-admission.ts",
+    "kind": "R1 placement call",
+    "detail": "remotePlacement(requestedCwd ?? \"\")",
+    "task": "T07",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/launch-admission.ts",
+    "kind": "R1 placement call",
+    "detail": "remotePlacement(sourceCwd)",
+    "task": "T07",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/launch-admission.ts",
+    "kind": "R1 placement call",
+    "detail": "remotePlacement(template.directory)",
+    "task": "T07",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/launch-admission.ts",
+    "kind": "R7 restriction",
+    "detail": "N1 Launch target bound to caller",
+    "task": "T36",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/launch-admission.ts",
+    "kind": "R7 restriction",
+    "detail": "N2 Launch cwd overwritten",
+    "task": "T36",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/launch-admission.ts",
+    "kind": "R7 restriction",
+    "detail": "N3 Runner storage admission restricts launches",
+    "task": "T25",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/launch-admission.ts",
+    "kind": "R7 restriction",
+    "detail": "N4 Runner parent binding restrictions",
+    "task": "T36",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/launch-admission.ts",
+    "kind": "R7 restriction",
+    "detail": "N5 Repositories require managed workspaces",
+    "task": "T19",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/launch-admission.ts",
+    "kind": "R7 restriction",
+    "detail": "N7 Managed runner cross-project task refusal",
+    "task": "T25",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/local-runner-checkout.ts",
+    "kind": "R2 host access",
+    "detail": "fs/promises",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/local-runner-checkout.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/agents/checkout-inspection",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/local-runner-checkout.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/shared/git/worktree",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/local-runner-checkout.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/shared/lib/run-command",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/local-runner-engine.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/agents/engine-availability",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/local-runner-engine.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/agents/provider-plans",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/local-runner-engine.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/shared/plugin-status",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/local-runner-engine.ts",
+    "kind": "R3 local method",
+    "detail": "consumeCodexReset",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/local-runner-engine.ts",
+    "kind": "R3 local method",
+    "detail": "plugins",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/local-runner-engine.ts",
+    "kind": "R3 local method",
+    "detail": "readModelCatalog",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/local-runner-engine.ts",
+    "kind": "R3 local method",
+    "detail": "readModelOptions",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/local-runner-engine.ts",
+    "kind": "R3 local method",
+    "detail": "readProviderPlans",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/local-runner.ts",
+    "kind": "R1 locator",
+    "detail": "runner://",
+    "task": "T07",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/local-runner.ts",
+    "kind": "R1 placement call",
+    "detail": "remotePlacement(settings.checkout.cwd)",
+    "task": "T07",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/local-runner.ts",
+    "kind": "R2 host access",
+    "detail": "child_process",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/local-runner.ts",
+    "kind": "R2 host access",
+    "detail": "fs",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/local-runner.ts",
+    "kind": "R2 host access",
+    "detail": "fs/promises",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/local-runner.ts",
+    "kind": "R2 host access",
+    "detail": "os",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/local-runner.ts",
+    "kind": "R2 host access",
+    "detail": "process.kill",
+    "task": "T04",
+    "count": 3
+  },
+  {
+    "file": "apps/server/src/agents/local-runner.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/agents/acp/host-command",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/local-runner.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/agents/checkout-command-executor",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/local-runner.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/agents/checkout-inspection",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/local-runner.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/agents/local-runner-checkout",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/local-runner.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/agents/workspace",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/local-runner.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/files/session-file",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/local-runner.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/projects/resolve-root",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/local-runner.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/shared/process/child-environment",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/local-runner.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/shared/process/owned-processes",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/local-runner.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/terminal/pty",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/local-runner.ts",
+    "kind": "R3 local method",
+    "detail": "bindWorkspace",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/local-runner.ts",
+    "kind": "R3 local method",
+    "detail": "canonicalPath",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/local-runner.ts",
+    "kind": "R3 local method",
+    "detail": "checkoutRelease",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/local-runner.ts",
+    "kind": "R3 local method",
+    "detail": "collectSessionFile",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/local-runner.ts",
+    "kind": "R3 local method",
+    "detail": "deliverSessionFile",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/local-runner.ts",
+    "kind": "R3 local method",
+    "detail": "hostPid",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/local-runner.ts",
+    "kind": "R3 local method",
+    "detail": "inferRepositoryUrl",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/local-runner.ts",
+    "kind": "R3 local method",
+    "detail": "inspectHost",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/local-runner.ts",
+    "kind": "R3 local method",
+    "detail": "isHostPid",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/local-runner.ts",
+    "kind": "R3 local method",
+    "detail": "listHosted",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/local-runner.ts",
+    "kind": "R3 local method",
+    "detail": "prepareWorkspace",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/local-runner.ts",
+    "kind": "R3 local method",
+    "detail": "recordedHostPid",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/local-runner.ts",
+    "kind": "R3 local method",
+    "detail": "requestedWorktree",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/local-runner.ts",
+    "kind": "R3 local method",
+    "detail": "resolveLaunchDirectory",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/local-runner.ts",
+    "kind": "R3 local method",
+    "detail": "resolveProjectRoot",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/local-runner.ts",
+    "kind": "R3 local method",
+    "detail": "resolveWorkspace",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/local-runner.ts",
+    "kind": "R3 local method",
+    "detail": "resumeWorkspace",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/local-runner.ts",
+    "kind": "R3 local method",
+    "detail": "terminalBackend",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/local-runner.ts",
+    "kind": "R3 local side channel",
+    "detail": "LocalLaunchSettings",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/local-runner.ts",
+    "kind": "R3 local side channel",
+    "detail": "NativeHostProcess",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/local-workspace-probes.ts",
+    "kind": "R2 host access",
+    "detail": "fs/promises",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/local-workspace-probes.ts",
+    "kind": "R2 host access",
+    "detail": "os",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/local-workspace-probes.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/shared/git/default-branch",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/local-workspace-probes.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/shared/lib/run-command",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/manager.ts",
+    "kind": "R1 locator",
+    "detail": "runner://",
+    "task": "T07",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/manager.ts",
+    "kind": "R1 placement call",
+    "detail": "agentWorkspaceDir(agent)",
+    "task": "T07",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/manager.ts",
+    "kind": "R1 placement call",
+    "detail": "agentWorkspaceDir(updated)",
+    "task": "T07",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/manager.ts",
+    "kind": "R1 placement call",
+    "detail": "remotePlacement(agent.cwd)",
+    "task": "T07",
+    "count": 24
+  },
+  {
+    "file": "apps/server/src/agents/manager.ts",
+    "kind": "R1 placement call",
+    "detail": "remotePlacement(cwd)",
+    "task": "T07",
+    "count": 2
+  },
+  {
+    "file": "apps/server/src/agents/manager.ts",
+    "kind": "R1 placement call",
+    "detail": "remotePlacement(input.cwd)",
+    "task": "T07",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/manager.ts",
+    "kind": "R1 placement call",
+    "detail": "remotePlacement(originalCwd)",
+    "task": "T07",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/manager.ts",
+    "kind": "R1 placement call",
+    "detail": "remotePlacement(row.cwd)",
+    "task": "T07",
+    "count": 3
+  },
+  {
+    "file": "apps/server/src/agents/manager.ts",
+    "kind": "R1 placement read",
+    "detail": "placement?.runner",
+    "task": "T07",
+    "count": 2
+  },
+  {
+    "file": "apps/server/src/agents/manager.ts",
+    "kind": "R1 placement read",
+    "detail": "placement.runner",
+    "task": "T07",
+    "count": 13
+  },
+  {
+    "file": "apps/server/src/agents/manager.ts",
+    "kind": "R1 placement read",
+    "detail": "remotePlacement(agent.cwd)?.runner",
+    "task": "T07",
+    "count": 4
+  },
+  {
+    "file": "apps/server/src/agents/manager.ts",
+    "kind": "R1 placement read",
+    "detail": "remotePlacement(cwd)?.runner",
+    "task": "T07",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/manager.ts",
+    "kind": "R2 host access",
+    "detail": "fs/promises",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/manager.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/agents/acp/driver",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/manager.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/agents/acp/engine-spec",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/manager.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/agents/engine-availability",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/manager.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/agents/local-runner",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/manager.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/agents/workspace",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/manager.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/files/session-file",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/manager.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/shared/git/git-context",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/manager.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/shared/git/worktree",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/manager.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/shared/github/pr",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/manager.ts",
+    "kind": "R7 restriction",
+    "detail": "N21 Missing runner attachment fails prompt",
+    "task": "T12",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/manager.ts",
+    "kind": "R7 restriction",
+    "detail": "N22 Runner checkout skips Git refresh",
+    "task": "T15",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/manager.ts",
+    "kind": "R7 restriction",
+    "detail": "N30 Model learning local only",
+    "task": "T30",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/manager.ts",
+    "kind": "R7 restriction",
+    "detail": "N6 Independent runner worktrees require HTTPS",
+    "task": "T18",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/merge-risk/evidence.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/shared/git/test-files",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/merge-risk/explanation-diff.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/shared/git/diff-file-rules",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/merge-risk/explanation-diff.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/shared/git/test-files",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/merge-risk/explanation-diff.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/shared/lib/run-command",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/merge-risk/sources.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/shared/lib/run-command",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/provider-plans.ts",
+    "kind": "R2 host access",
+    "detail": "child_process",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/provider-plans.ts",
+    "kind": "R2 host access",
+    "detail": "fs/promises",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/provider-plans.ts",
+    "kind": "R2 host access",
+    "detail": "os",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/provider-plans.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/shared/process/child-environment",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/pull-request-reader.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/shared/lib/run-command",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/pull-request-refresher.ts",
+    "kind": "R1 placement read",
+    "detail": "{ runner }",
+    "task": "T07",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/remote/checkout-command.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/agents/checkout-command-executor",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/remote/checkout-command.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/agents/checkout-inspection",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/remote/engine-capability-worker.ts",
+    "kind": "R5 protocol leak",
+    "detail": "dispatch@dispatch",
+    "task": "T31",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/remote/engine-capability-worker.ts",
+    "kind": "R5 runner to Dispatch",
+    "detail": "apps/server/src/agents/acp/engine-bin-dir",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/remote/engine-capability-worker.ts",
+    "kind": "R5 runner to Dispatch",
+    "detail": "apps/server/src/agents/engine-models",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/remote/engine-capability-worker.ts",
+    "kind": "R5 runner to Dispatch",
+    "detail": "apps/server/src/agents/remote/engine-capability-result",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/remote/engine-manager.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/agents/acp/engine-spec",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/remote/engine-manager.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/agents/engine-availability",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/remote/engine-manager.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/agents/engine-login",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/remote/engine-manager.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/agents/engine-updates",
+    "task": "T04",
+    "count": 2
+  },
+  {
+    "file": "apps/server/src/agents/remote/engine-manager.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/agents/local-runner-engine",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/remote/engine-runner-executor.ts",
+    "kind": "R7 restriction",
+    "detail": "N34 Engine updates require configured commands",
+    "task": "T29",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/remote/enrollment.ts",
+    "kind": "R2 host access",
+    "detail": "fs",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/remote/enrollment.ts",
+    "kind": "R2 host access",
+    "detail": "fs/promises",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/remote/event-inbox.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/agents/acp/driver",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/remote/force-sessions.ts",
+    "kind": "R1 placement call",
+    "detail": "remotePlacement(agent.cwd)",
+    "task": "T07",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/remote/force-sessions.ts",
+    "kind": "R1 placement read",
+    "detail": "remotePlacement(agent.cwd)?.runner",
+    "task": "T07",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/remote/github-pull-request-watches.ts",
+    "kind": "R5 protocol leak",
+    "detail": "setTimeout",
+    "task": "T33",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/remote/github-pull-request-watches.ts",
+    "kind": "R5 runner to Dispatch",
+    "detail": "apps/server/src/agents/remote/protocol",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/remote/github-runner-executor.ts",
+    "kind": "R5 runner to Dispatch",
+    "detail": "apps/server/src/agents/github-pull-request-evidence",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/remote/github-runner-executor.ts",
+    "kind": "R5 runner to Dispatch",
+    "detail": "apps/server/src/agents/pull-request-reader",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/remote/github-runner-executor.ts",
+    "kind": "R5 runner to Dispatch",
+    "detail": "apps/server/src/agents/remote/protocol",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/remote/health.ts",
+    "kind": "R2 host access",
+    "detail": "fs/promises",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/remote/health.ts",
+    "kind": "R2 host access",
+    "detail": "os",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/remote/registry.ts",
+    "kind": "R1 locator",
+    "detail": "runner://",
+    "task": "T07",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/remote/repository.ts",
+    "kind": "R2 host access",
+    "detail": "child_process",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/remote/repository.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/shared/process/child-environment",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/remote/runner.ts",
+    "kind": "R5 protocol leak",
+    "detail": "case \"repo\":",
+    "task": "T09",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/remote/runner.ts",
+    "kind": "R5 runner to Dispatch",
+    "detail": "apps/server/src/agents/acp/host-protocol",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/remote/runner.ts",
+    "kind": "R5 runner to Dispatch",
+    "detail": "apps/server/src/agents/build-identity",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/remote/runner.ts",
+    "kind": "R5 runner to Dispatch",
+    "detail": "apps/server/src/agents/remote/health",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/remote/runner.ts",
+    "kind": "R5 runner to Dispatch",
+    "detail": "apps/server/src/agents/remote/protocol",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/remote/runner.ts",
+    "kind": "R5 runner to Dispatch",
+    "detail": "apps/server/src/agents/remote/update-admission",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/remote/runner.ts",
+    "kind": "R7 restriction",
+    "detail": "N12 Runner checkout hardens Git configuration",
+    "task": "T19",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/remote/runner.ts",
+    "kind": "R7 restriction",
+    "detail": "N14 Runner repo tool and manifest limits",
+    "task": "T14",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/remote/runner.ts",
+    "kind": "R7 restriction",
+    "detail": "N16 Sixteen terminals per runner",
+    "task": "T21",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/remote/service.ts",
+    "kind": "R1 placement read",
+    "detail": "placement.runner",
+    "task": "T07",
+    "count": 18
+  },
+  {
+    "file": "apps/server/src/agents/remote/service.ts",
+    "kind": "R2 host access",
+    "detail": "fs",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/remote/service.ts",
+    "kind": "R2 host access",
+    "detail": "os",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/remote/service.ts",
+    "kind": "R7 restriction",
+    "detail": "N29 Capability-specific update refusals",
+    "task": "T40",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/remote/session-files.ts",
+    "kind": "R5 runner to Dispatch",
+    "detail": "apps/server/src/files/open-workspace-file",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/remote/session-processes.ts",
+    "kind": "R5 runner to Dispatch",
+    "detail": "apps/server/src/agents/build-identity",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/remote/session-processes.ts",
+    "kind": "R5 runner to Dispatch",
+    "detail": "apps/server/src/agents/remote/protocol",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/remote/session-storage.ts",
+    "kind": "R5 protocol leak",
+    "detail": "dispatchReviewBase",
+    "task": "T20",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/remote/session-storage.ts",
+    "kind": "R5 runner to Dispatch",
+    "detail": "apps/server/src/agents/remote/protocol",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/remote/session-storage.ts",
+    "kind": "R5 runner to Dispatch",
+    "detail": "apps/server/src/agents/remote/repository",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/remote/session-supervisor.ts",
+    "kind": "R5 protocol leak",
+    "detail": "agt_",
+    "task": "T25",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/remote/session-supervisor.ts",
+    "kind": "R5 protocol leak",
+    "detail": "DISPATCH_",
+    "task": "T24",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/remote/session-supervisor.ts",
+    "kind": "R5 runner to Dispatch",
+    "detail": "apps/server/src/agents/acp/host-protocol",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/remote/session-supervisor.ts",
+    "kind": "R5 runner to Dispatch",
+    "detail": "apps/server/src/agents/build-identity",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/remote/session-supervisor.ts",
+    "kind": "R5 runner to Dispatch",
+    "detail": "apps/server/src/agents/remote/protocol",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/remote/session-supervisor.ts",
+    "kind": "R5 runner to Dispatch",
+    "detail": "apps/server/src/agents/remote/repository",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/remote/session-supervisor.ts",
+    "kind": "R5 runner to Dispatch",
+    "detail": "apps/server/src/agents/remote/update-handoff",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/remote/session-supervisor.ts",
+    "kind": "R7 restriction",
+    "detail": "N10 Attach by path has runner-only bounds",
+    "task": "T11",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/remote/session-supervisor.ts",
+    "kind": "R7 restriction",
+    "detail": "N27 Helper commands absent from runner PATH",
+    "task": "T24, T39",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/remote/session-supervisor.ts",
+    "kind": "R7 restriction",
+    "detail": "N31 Runner repository icons disabled",
+    "task": "T15",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/remote/session-supervisor.ts",
+    "kind": "R7 restriction",
+    "detail": "N9 Selected workspace is confined",
+    "task": "T16",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/remote/update-agent.ts",
+    "kind": "R5 runner to Dispatch",
+    "detail": "apps/server/src/agents/build-identity",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/remote/update-agent.ts",
+    "kind": "R5 runner to Dispatch",
+    "detail": "apps/server/src/agents/remote/protocol",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/remote/update-agent.ts",
+    "kind": "R5 runner to Dispatch",
+    "detail": "apps/server/src/agents/remote/update-admission",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/remote/update-agent.ts",
+    "kind": "R5 runner to Dispatch",
+    "detail": "apps/server/src/agents/remote/update-handoff",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/remote/update-agent.ts",
+    "kind": "R5 runner to Dispatch",
+    "detail": "apps/server/src/agents/remote/update-keys",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/remote/update-agent.ts",
+    "kind": "R5 runner to Dispatch",
+    "detail": "apps/server/src/agents/remote/update-manifest",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/remote/update-coordinator.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/agents/remote/update-verify",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/remote/update-fence-store.ts",
+    "kind": "R5 runner to Dispatch",
+    "detail": "apps/server/src/agents/remote/protocol",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/remote/update-fence-store.ts",
+    "kind": "R5 runner to Dispatch",
+    "detail": "apps/server/src/agents/remote/update-admission",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/remote/update-probe.ts",
+    "kind": "R5 runner to Dispatch",
+    "detail": "apps/server/src/agents/build-identity",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/remote/update-probe.ts",
+    "kind": "R5 runner to Dispatch",
+    "detail": "apps/server/src/agents/remote/update-handoff",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/remote/update-stage-cli.ts",
+    "kind": "R5 runner to Dispatch",
+    "detail": "apps/server/src/agents/remote/update-keys",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/remote/update-stage-cli.ts",
+    "kind": "R5 runner to Dispatch",
+    "detail": "apps/server/src/generated/runtime-assets",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/remote/update-state-file.ts",
+    "kind": "R2 host access",
+    "detail": "fs/promises",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/remote/update-trial.ts",
+    "kind": "R5 runner to Dispatch",
+    "detail": "apps/server/src/agents/build-identity",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/remote/update-trial.ts",
+    "kind": "R5 runner to Dispatch",
+    "detail": "apps/server/src/agents/remote/protocol",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/remote/update-trial.ts",
+    "kind": "R5 runner to Dispatch",
+    "detail": "apps/server/src/agents/remote/update-admission",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/remote/update-trial.ts",
+    "kind": "R5 runner to Dispatch",
+    "detail": "apps/server/src/agents/remote/update-keys",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/remote/update-trial.ts",
+    "kind": "R5 runner to Dispatch",
+    "detail": "apps/server/src/agents/remote/update-manifest",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/remote/update-verify.ts",
+    "kind": "R5 runner to Dispatch",
+    "detail": "apps/server/src/agents/remote/update-artifact-path",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/remote/update-verify.ts",
+    "kind": "R5 runner to Dispatch",
+    "detail": "apps/server/src/agents/remote/update-manifest",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/remote/workload-tools.ts",
+    "kind": "R5 runner to Dispatch",
+    "detail": "apps/server/src/shared/lib/tool-environment",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/runtime.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/agents/acp/driver",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/types.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/shared/git/worktree-status",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/workspace-prep.ts",
+    "kind": "R2 host access",
+    "detail": "fs/promises",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/workspace-prep.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/agents/worktree-local-config",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/workspace-prep.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/shared/lib/run-command",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/workspace-target.ts",
+    "kind": "R1 locator",
+    "detail": "runner://",
+    "task": "T07",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/workspace-target.ts",
+    "kind": "R1 placement call",
+    "detail": "remotePlacement(agent.cwd)",
+    "task": "T07",
+    "count": 2
+  },
+  {
+    "file": "apps/server/src/agents/workspace-target.ts",
+    "kind": "R1 placement call",
+    "detail": "remotePlacement(directory)",
+    "task": "T07",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/workspace-target.ts",
+    "kind": "R2 host access",
+    "detail": "fs/promises",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/workspace-target.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/shared/git/default-branch",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/workspace-target.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/shared/git/git-context",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/workspace-target.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/shared/lib/run-command",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/workspace.ts",
+    "kind": "R2 host access",
+    "detail": "fs/promises",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/workspace.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/agents/workspace-prep",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/workspace.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/shared/git/git-context",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/workspace.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/shared/git/worktree",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/worktree-local-config.ts",
+    "kind": "R2 host access",
+    "detail": "fs/promises",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/chat/service.ts",
+    "kind": "R1 placement call",
+    "detail": "remotePlacement(agent.cwd ?? \"\")",
+    "task": "T07",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/chat/service.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/agents/acp/driver",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/config.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/agents/acp/engine-spec",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/db/migrate.ts",
+    "kind": "R2 host access",
+    "detail": "os",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/db/migrations/0054_runner_registrations.sql",
+    "kind": "R1 locator",
+    "detail": "runner:// in SQL",
+    "task": "T07",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/diagnostics.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/shared/lib/run-command",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/files/open-workspace-file.ts",
+    "kind": "R2 host access",
+    "detail": "fs",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/files/open-workspace-file.ts",
+    "kind": "R2 host access",
+    "detail": "fs/promises",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/files/workspace-directory.ts",
+    "kind": "R2 host access",
+    "detail": "fs/promises",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/files/workspace-file-index.ts",
+    "kind": "R2 host access",
+    "detail": "child_process",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/files/workspace-file-index.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/files/workspace-directory",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/files/workspace-file-index.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/shared/process/child-environment",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/files/workspace-ignore.ts",
+    "kind": "R2 host access",
+    "detail": "child_process",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/files/workspace-ignore.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/shared/process/child-environment",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/files/workspace-view.ts",
+    "kind": "R2 host access",
+    "detail": "fs",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/files/workspace-view.ts",
+    "kind": "R2 host access",
+    "detail": "fs/promises",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/files/workspace-view.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/files/workspace-directory",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/files/workspace-view.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/files/workspace-file-index",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/files/workspace-view.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/files/workspace-ignore",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/jobs/service.ts",
+    "kind": "R1 placement call",
+    "detail": "remotePlacement(directory)",
+    "task": "T07",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/jobs/service.ts",
+    "kind": "R1 placement call",
+    "detail": "remotePlacement(input.directory)",
+    "task": "T07",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/jobs/service.ts",
+    "kind": "R1 placement call",
+    "detail": "remotePlacement(requestedDirectory)",
+    "task": "T07",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/jobs/service.ts",
+    "kind": "R1 placement call",
+    "detail": "remotePlacement(trimmed)",
+    "task": "T07",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/jobs/service.ts",
+    "kind": "R2 host access",
+    "detail": "fs/promises",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/jobs/service.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/shared/git/git-context",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/jobs/service.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/shared/lib/run-command",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/jobs/store.ts",
+    "kind": "R1 placement call",
+    "detail": "resolveLaunchLocation(directory)",
+    "task": "T07",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/jobs/store.ts",
+    "kind": "R1 placement call",
+    "detail": "resolveLaunchLocation(input.directory)",
+    "task": "T07",
+    "count": 2
+  },
+  {
+    "file": "apps/server/src/local-tls.ts",
+    "kind": "R2 host access",
+    "detail": "child_process",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/local-tls.ts",
+    "kind": "R2 host access",
+    "detail": "os",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/local-tls.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/shared/process/child-environment",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/main.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/agents/acp/host/main",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/main.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/agents/checkout-inspection",
+    "task": "T04",
+    "count": 2
+  },
+  {
+    "file": "apps/server/src/main.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/agents/checkout-watch",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/main.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/agents/remote/engine-capability-worker",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/main.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/agents/remote/runner",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/main.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/agents/remote/session-files",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/main.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/agents/remote/update-stage-cli",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/main.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/agents/remote/update-trial",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/main.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/agents/workspace-prep",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/main.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/terminal/runner-worker",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/notifications/slack-images.ts",
+    "kind": "R2 host access",
+    "detail": "fs/promises",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/observability/artifact-storage.ts",
+    "kind": "R2 host access",
+    "detail": "child_process",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/observability/artifact-storage.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/shared/process/child-environment",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/observability/service-resources.ts",
+    "kind": "R2 host access",
+    "detail": "os",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/observability/service-resources.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/shared/lib/run-command",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/personas/authoring.ts",
+    "kind": "R2 host access",
+    "detail": "fs",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/personas/authoring.ts",
+    "kind": "R2 host access",
+    "detail": "fs/promises",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/personas/catalog.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/agents/default-branch-files",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/personas/catalog.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/shared/git/git-context",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/personas/catalog.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/shared/lib/run-command",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/personas/codeowners.ts",
+    "kind": "R2 host access",
+    "detail": "fs/promises",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/personas/codeowners.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/shared/git/owner-review-files",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/personas/coverage.ts",
+    "kind": "R2 host access",
+    "detail": "child_process",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/personas/coverage.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/shared/process/child-environment",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/personas/loader.ts",
+    "kind": "R2 host access",
+    "detail": "fs/promises",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/personas/persona-scope.ts",
+    "kind": "R1 placement call",
+    "detail": "remotePlacement(target.cwd)",
+    "task": "T07",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/personas/persona-scope.ts",
+    "kind": "R7 restriction",
+    "detail": "N24 Runner persona resolution falls back",
+    "task": "T35",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/personas/resolve.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/shared/git/git-context",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/projects/matching.ts",
+    "kind": "R2 host access",
+    "detail": "fs/promises",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/projects/matching.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/projects/resolve-root",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/projects/resolve-root.ts",
+    "kind": "R2 host access",
+    "detail": "child_process",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/projects/resolve-root.ts",
+    "kind": "R2 host access",
+    "detail": "fs/promises",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/projects/resolve-root.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/shared/process/child-environment",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/release-candidate-store.ts",
+    "kind": "R2 host access",
+    "detail": "os",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/release-store.ts",
+    "kind": "R2 host access",
+    "detail": "os",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/release-tarball-cache.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/shared/lib/run-command",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/routes/agents/checkout-response.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/files/workspace-view",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/routes/agents/checkout-response.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/shared/git/diff-image",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/routes/agents/crud-routes.ts",
+    "kind": "R1 placement call",
+    "detail": "remotePlacement(body.cwd)",
+    "task": "T07",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/routes/agents/crud-routes.ts",
+    "kind": "R2 host access",
+    "detail": "fs",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/routes/agents/crud-routes.ts",
+    "kind": "R2 host access",
+    "detail": "fs/promises",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/routes/agents/lifecycle-routes.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/shared/git/diff-image",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/routes/agents/pull-request-routes.ts",
+    "kind": "R1 placement call",
+    "detail": "remotePlacement(agent.cwd)",
+    "task": "T07",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/routes/agents/pull-request-routes.ts",
+    "kind": "R1 placement read",
+    "detail": "remotePlacement(agent.cwd)?.runner",
+    "task": "T07",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/routes/agents/shared.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/agents/local-runner-engine",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/routes/agents/shared.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/agents/provider-plans",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/routes/agents/streaming-routes.ts",
+    "kind": "R1 locator",
+    "detail": "runner://",
+    "task": "T07",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/routes/agents/streaming-routes.ts",
+    "kind": "R7 restriction",
+    "detail": "N26 Runner screencast returns 409",
+    "task": "T39",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/routes/agents/usage-routes.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/agents/local-runner-engine",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/routes/agents/usage-routes.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/agents/provider-plans",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/routes/agents/workspace-routes.ts",
+    "kind": "R1 placement call",
+    "detail": "agentWorkspaceDir(agent)",
+    "task": "T07",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/routes/agents/workspace-routes.ts",
+    "kind": "R1 placement call",
+    "detail": "remotePlacement(agent.cwd)",
+    "task": "T07",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/routes/engine-login.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/agents/engine-login",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/routes/mcp.ts",
+    "kind": "R1 placement call",
+    "detail": "agentWorkspaceDir(agent)",
+    "task": "T07",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/routes/mcp.ts",
+    "kind": "R1 placement call",
+    "detail": "remotePlacement(agent.cwd)",
+    "task": "T07",
+    "count": 5
+  },
+  {
+    "file": "apps/server/src/routes/mcp.ts",
+    "kind": "R1 placement call",
+    "detail": "remotePlacement(target.cwd)",
+    "task": "T07",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/routes/mcp.ts",
+    "kind": "R1 placement call",
+    "detail": "resolveLaunchLocation(directory)",
+    "task": "T07",
+    "count": 2
+  },
+  {
+    "file": "apps/server/src/routes/mcp.ts",
+    "kind": "R1 placement read",
+    "detail": "placement.runner",
+    "task": "T07",
+    "count": 3
+  },
+  {
+    "file": "apps/server/src/routes/mcp.ts",
+    "kind": "R1 placement read",
+    "detail": "workspace?.runner",
+    "task": "T07",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/routes/mcp.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/agents/local-runner-engine",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/routes/mcp.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/agents/provider-plans",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/routes/mcp.ts",
+    "kind": "R7 restriction",
+    "detail": "N17 Runner usage tools and capability limits",
+    "task": "T31",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/routes/mcp.ts",
+    "kind": "R7 restriction",
+    "detail": "N18 Runner Brain and task scope require a project",
+    "task": "T34",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/routes/mcp.ts",
+    "kind": "R7 restriction",
+    "detail": "N19 Runner repository scope unavailable for listing and risk",
+    "task": "T34",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/routes/mcp.ts",
+    "kind": "R7 restriction",
+    "detail": "N23 Runner persona authoring root is absent",
+    "task": "T35",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/routes/personas.ts",
+    "kind": "R1 placement call",
+    "detail": "remotePlacement(cwd)",
+    "task": "T07",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/routes/personas.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/shared/git/git-context",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/routes/plugin.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/shared/plugin-status",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/routes/projects.ts",
+    "kind": "R2 host access",
+    "detail": "fs/promises",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/routes/projects.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/projects/resolve-root",
+    "task": "T04",
+    "count": 2
+  },
+  {
+    "file": "apps/server/src/routes/projects.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/shared/repo-icon",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/routes/projects.ts",
+    "kind": "R7 restriction",
+    "detail": "N28 Project creation resolves only controller paths",
+    "task": "T17",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/routes/release.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/shared/lib/run-command",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/routes/system.ts",
+    "kind": "R1 placement call",
+    "detail": "remotePlacement(resolved)",
+    "task": "T07",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/routes/system.ts",
+    "kind": "R2 host access",
+    "detail": "os",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/routes/system.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/agents/acp/engine-spec",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/routes/system.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/agents/engine-availability",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/routes/system.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/agents/engine-updates",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/routes/system.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/agents/local-runner-engine",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/scheduled-messages/service.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/agents/acp/driver",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/server.ts",
+    "kind": "R1 placement call",
+    "detail": "remotePlacement(agent.cwd)",
+    "task": "T07",
+    "count": 2
+  },
+  {
+    "file": "apps/server/src/server.ts",
+    "kind": "R1 placement read",
+    "detail": "remotePlacement(agent.cwd)?.runner",
+    "task": "T07",
+    "count": 2
+  },
+  {
+    "file": "apps/server/src/server.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/agents/engine-availability",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/server.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/agents/engine-login",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/server.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/agents/engine-updates",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/server.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/agents/local-runner-engine",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/server.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/agents/provider-plans",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/server.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/shared/lib/run-command",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/server/mcp-checkout.ts",
+    "kind": "R1 placement call",
+    "detail": "remotePlacement(agent.cwd)",
+    "task": "T07",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/server/mcp-checkout.ts",
+    "kind": "R7 restriction",
+    "detail": "N15 Runner repo tools require additional credentials",
+    "task": "T14",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/server/mcp-handlers.ts",
+    "kind": "R1 placement call",
+    "detail": "agentWorkspaceDir(agent)",
+    "task": "T07",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/server/mcp-handlers.ts",
+    "kind": "R1 placement call",
+    "detail": "agentWorkspaceDir(parent)",
+    "task": "T07",
+    "count": 2
+  },
+  {
+    "file": "apps/server/src/server/mcp-handlers.ts",
+    "kind": "R1 placement call",
+    "detail": "remotePlacement(a.cwd)",
+    "task": "T07",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/server/mcp-handlers.ts",
+    "kind": "R1 placement call",
+    "detail": "remotePlacement(agent.cwd)",
+    "task": "T07",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/server/mcp-handlers.ts",
+    "kind": "R1 placement call",
+    "detail": "remotePlacement(parent.cwd)",
+    "task": "T07",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/server/mcp-handlers.ts",
+    "kind": "R1 placement call",
+    "detail": "remotePlacement(sender.cwd)",
+    "task": "T07",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/server/mcp-handlers.ts",
+    "kind": "R2 host access",
+    "detail": "fs/promises",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/server/mcp-handlers.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/shared/git/git-context",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/server/mcp-persona-handlers.ts",
+    "kind": "R1 placement call",
+    "detail": "agentWorkspaceDir(parent)",
+    "task": "T07",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/server/mcp-persona-handlers.ts",
+    "kind": "R1 placement call",
+    "detail": "remotePlacement(parent.cwd)",
+    "task": "T07",
+    "count": 2
+  },
+  {
+    "file": "apps/server/src/server/release-artifact.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/shared/process/child-environment",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/server/release-runtime.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/shared/process/child-environment",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/server/runner-artifacts.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/shared/lib/run-command",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/server/runner-dev-key.ts",
+    "kind": "R2 host access",
+    "detail": "os",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/server/ui-events.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/shared/git/diff-stats",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/shared/agent-models.ts",
+    "kind": "R1 placement call",
+    "detail": "remotePlacement(target)",
+    "task": "T07",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/shared/agent-models.ts",
+    "kind": "R1 placement read",
+    "detail": "placement.runner",
+    "task": "T07",
+    "count": 2
+  },
+  {
+    "file": "apps/server/src/shared/directory-icon-cache.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/shared/repo-icon",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/shared/git/agent-diff.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/shared/git/base-ref",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/shared/git/agent-diff.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/shared/git/diff-file-rules",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/shared/git/agent-diff.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/shared/git/diff-image",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/shared/git/agent-diff.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/shared/git/test-files",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/shared/git/agent-diff.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/shared/lib/run-command",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/shared/git/base-ref.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/shared/lib/run-command",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/shared/git/default-branch.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/shared/git/git-context",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/shared/git/default-branch.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/shared/lib/run-command",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/shared/git/diff-file-rules.ts",
+    "kind": "R2 host access",
+    "detail": "fs/promises",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/shared/git/diff-image.ts",
+    "kind": "R2 host access",
+    "detail": "child_process",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/shared/git/diff-image.ts",
+    "kind": "R2 host access",
+    "detail": "fs/promises",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/shared/git/diff-image.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/shared/git/base-ref",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/shared/git/diff-image.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/shared/lib/run-command",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/shared/git/diff-image.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/shared/process/child-environment",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/shared/git/diff-stats.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/shared/git/base-ref",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/shared/git/diff-stats.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/shared/git/diff-file-rules",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/shared/git/diff-stats.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/shared/git/test-files",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/shared/git/diff-stats.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/shared/lib/run-command",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/shared/git/git-context.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/shared/lib/run-command",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/shared/git/git-context.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/shared/repo-icon",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/shared/git/owner-review-files.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/shared/lib/run-command",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/shared/git/worktree-status.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/shared/git/base-ref",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/shared/git/worktree-status.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/shared/lib/run-command",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/shared/git/worktree.ts",
+    "kind": "R2 host access",
+    "detail": "fs/promises",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/shared/git/worktree.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/shared/git/git-context",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/shared/git/worktree.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/shared/lib/run-command",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/shared/github/pr.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/shared/git/git-context",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/shared/github/pr.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/shared/lib/run-command",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/shared/lib/resolve-tilde.ts",
+    "kind": "R2 host access",
+    "detail": "os",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/shared/lib/run-command.ts",
+    "kind": "R2 host access",
+    "detail": "child_process",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/shared/lib/run-command.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/shared/process/child-environment",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/shared/lib/tool-environment.ts",
+    "kind": "R2 host access",
+    "detail": "fs",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/shared/lib/tool-environment.ts",
+    "kind": "R2 host access",
+    "detail": "os",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/shared/lib/tool-environment.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/shared/process/child-environment",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/shared/mcp/repo-tools.ts",
+    "kind": "R2 host access",
+    "detail": "fs/promises",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/shared/mcp/repo-tools.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/shared/lib/run-command",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/shared/mcp/tool-error.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/shared/git/worktree",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/shared/mcp/tool-error.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/shared/github/pr",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/shared/plugin-status.ts",
+    "kind": "R2 host access",
+    "detail": "fs/promises",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/shared/plugin-status.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/shared/lib/run-command",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/shared/process/owned-processes.js",
+    "kind": "R2 host access",
+    "detail": "child_process",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/shared/process/owned-processes.js",
+    "kind": "R2 host access",
+    "detail": "fs",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/shared/process/owned-processes.js",
+    "kind": "R2 host access",
+    "detail": "process.kill",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/shared/process/owned-processes.js",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/shared/process/child-environment",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/shared/repo-icon.ts",
+    "kind": "R2 host access",
+    "detail": "fs/promises",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/startup/acp-adapter.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/agents/acp/engine-spec",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/startup/shell-environment.ts",
+    "kind": "R2 host access",
+    "detail": "os",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/stream-manager.ts",
+    "kind": "R2 host access",
+    "detail": "loopback fetch",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/tasks/agent-scope.ts",
+    "kind": "R1 placement call",
+    "detail": "agentWorkspaceDir(agent)",
+    "task": "T07",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/tasks/agent-scope.ts",
+    "kind": "R1 placement call",
+    "detail": "remotePlacement(workspaceDir)",
+    "task": "T07",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/tasks/agent-scope.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/shared/git/git-context",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/tasks/service.ts",
+    "kind": "R1 placement call",
+    "detail": "remotePlacement(template.directory)",
+    "task": "T07",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/tasks/service.ts",
+    "kind": "R2 host access",
+    "detail": "fs/promises",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/templates/resolve-launch.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/shared/git/worktree",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/templates/service.ts",
+    "kind": "R1 placement call",
+    "detail": "remotePlacement(input.directory ?? existing.directory)",
+    "task": "T07",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/templates/service.ts",
+    "kind": "R1 placement call",
+    "detail": "remotePlacement(input.directory)",
+    "task": "T07",
+    "count": 2
+  },
+  {
+    "file": "apps/server/src/templates/store.ts",
+    "kind": "R1 placement call",
+    "detail": "resolveLaunchLocation(directory)",
+    "task": "T07",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/templates/store.ts",
+    "kind": "R1 placement call",
+    "detail": "resolveLaunchLocation(input.directory)",
+    "task": "T07",
+    "count": 2
+  },
+  {
+    "file": "apps/server/src/terminal/manager.ts",
+    "kind": "R2 host access",
+    "detail": "process.kill",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/terminal/manager.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/terminal/pty",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/terminal/process-session.ts",
+    "kind": "R2 host access",
+    "detail": "child_process",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/terminal/process-session.ts",
+    "kind": "R2 host access",
+    "detail": "createRequire",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/terminal/process-session.ts",
+    "kind": "R2 host access",
+    "detail": "fs",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/terminal/process-session.ts",
+    "kind": "R2 host access",
+    "detail": "process.kill",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/terminal/process-session.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/shared/process/child-environment",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/terminal/pty.ts",
+    "kind": "R2 host access",
+    "detail": "Bun.spawn",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/terminal/pty.ts",
+    "kind": "R2 host access",
+    "detail": "os",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/terminal/pty.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/agents/acp/host-command",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/terminal/pty.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/terminal/process-session",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/update-recovery/linux.ts",
+    "kind": "R2 host access",
+    "detail": "loopback fetch",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/update-recovery/linux.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/shared/lib/run-command",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/update-recovery/linux.ts",
+    "kind": "R2 host import",
+    "detail": "apps/server/src/shared/process/child-environment",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "apps/web/src/components/app/agent-card-details.tsx",
+    "kind": "R6 locator",
+    "detail": "runner://",
+    "task": "T38",
+    "count": 1
+  },
+  {
+    "file": "apps/web/src/components/app/agent-card-details.tsx",
+    "kind": "R7 restriction",
+    "detail": "N25 Workspace and copy actions hidden",
+    "task": "T37",
+    "count": 1
+  },
+  {
+    "file": "apps/web/src/components/app/agent-card.tsx",
+    "kind": "R6 placement call",
+    "detail": "remotePlacement(agent.cwd)",
+    "task": "T38",
+    "count": 1
+  },
+  {
+    "file": "apps/web/src/components/app/agent-card.tsx",
+    "kind": "R6 placement read",
+    "detail": "agent.runnerManaged",
+    "task": "T38",
+    "count": 1
+  },
+  {
+    "file": "apps/web/src/components/app/agent-card.tsx",
+    "kind": "R6 placement read",
+    "detail": "placement?.runner",
+    "task": "T38",
+    "count": 1
+  },
+  {
+    "file": "apps/web/src/components/app/agent-card.tsx",
+    "kind": "R6 protocol value import",
+    "detail": "@dispatch/runner-protocol",
+    "task": "T38",
+    "count": 1
+  },
+  {
+    "file": "apps/web/src/components/app/agent-history-detail.tsx",
+    "kind": "R6 placement call",
+    "detail": "remotePlacement(data.agent.cwd)",
+    "task": "T38",
+    "count": 1
+  },
+  {
+    "file": "apps/web/src/components/app/agent-history-detail.tsx",
+    "kind": "R6 placement read",
+    "detail": "placement?.runner",
+    "task": "T38",
+    "count": 1
+  },
+  {
+    "file": "apps/web/src/components/app/agent-history-detail.tsx",
+    "kind": "R6 protocol value import",
+    "detail": "@dispatch/runner-protocol",
+    "task": "T38",
+    "count": 1
+  },
+  {
+    "file": "apps/web/src/components/app/branch-select.tsx",
+    "kind": "R6 placement read",
+    "detail": "{ runner }",
+    "task": "T38",
+    "count": 1
+  },
+  {
+    "file": "apps/web/src/components/app/chat/chat-delivery-meta.tsx",
+    "kind": "R6 placement call",
+    "detail": "remotePlacement(agent.cwd)",
+    "task": "T38",
+    "count": 1
+  },
+  {
+    "file": "apps/web/src/components/app/chat/chat-delivery-meta.tsx",
+    "kind": "R6 placement read",
+    "detail": "remotePlacement(agent.cwd)?.runner",
+    "task": "T38",
+    "count": 1
+  },
+  {
+    "file": "apps/web/src/components/app/chat/chat-delivery-meta.tsx",
+    "kind": "R6 protocol value import",
+    "detail": "@dispatch/runner-protocol",
+    "task": "T38",
+    "count": 1
+  },
+  {
+    "file": "apps/web/src/components/app/chat/composer-meta.tsx",
+    "kind": "R6 placement call",
+    "detail": "remotePlacement(agent.cwd)",
+    "task": "T38",
+    "count": 1
+  },
+  {
+    "file": "apps/web/src/components/app/chat/composer-meta.tsx",
+    "kind": "R6 placement read",
+    "detail": "remotePlacement(agent.cwd)?.runner",
+    "task": "T38",
+    "count": 1
+  },
+  {
+    "file": "apps/web/src/components/app/chat/composer-meta.tsx",
+    "kind": "R6 protocol value import",
+    "detail": "@dispatch/runner-protocol",
+    "task": "T38",
+    "count": 1
+  },
+  {
+    "file": "apps/web/src/components/app/create-agent-dialog.tsx",
+    "kind": "R6 placement read",
+    "detail": "form.runner",
+    "task": "T38",
+    "count": 4
+  },
+  {
+    "file": "apps/web/src/components/app/delete-agent-dialog.tsx",
+    "kind": "R6 locator",
+    "detail": "runner://",
+    "task": "T38",
+    "count": 1
+  },
+  {
+    "file": "apps/web/src/components/app/delete-agent-dialog.tsx",
+    "kind": "R6 placement read",
+    "detail": "deleteTarget?.runnerManaged",
+    "task": "T38",
+    "count": 1
+  },
+  {
+    "file": "apps/web/src/components/app/files-pane.tsx",
+    "kind": "R6 placement call",
+    "detail": "remotePlacement(workspace)",
+    "task": "T38",
+    "count": 1
+  },
+  {
+    "file": "apps/web/src/components/app/files-pane.tsx",
+    "kind": "R6 protocol value import",
+    "detail": "@dispatch/runner-protocol",
+    "task": "T38",
+    "count": 1
+  },
+  {
+    "file": "apps/web/src/components/app/ide-launch-button.tsx",
+    "kind": "R7 restriction",
+    "detail": "N32 Runner IDE refusal",
+    "task": "T37",
+    "count": 1
+  },
+  {
+    "file": "apps/web/src/components/app/path-input-utils.ts",
+    "kind": "R6 locator",
+    "detail": "runner://",
+    "task": "T38",
+    "count": 1
+  },
+  {
+    "file": "apps/web/src/components/app/persona-launcher.tsx",
+    "kind": "R6 locator",
+    "detail": "runner://",
+    "task": "T38",
+    "count": 1
+  },
+  {
+    "file": "apps/web/src/components/app/persona-launcher.tsx",
+    "kind": "R6 placement call",
+    "detail": "remotePlacement(agent.cwd)",
+    "task": "T38",
+    "count": 1
+  },
+  {
+    "file": "apps/web/src/components/app/persona-launcher.tsx",
+    "kind": "R6 placement read",
+    "detail": "remotePlacement(agent.cwd)?.runner",
+    "task": "T38",
+    "count": 1
+  },
+  {
+    "file": "apps/web/src/components/app/persona-launcher.tsx",
+    "kind": "R6 protocol value import",
+    "detail": "@dispatch/runner-protocol",
+    "task": "T38",
+    "count": 1
+  },
+  {
+    "file": "apps/web/src/components/app/runner-github-account.tsx",
+    "kind": "R6 placement read",
+    "detail": "{ runner }",
+    "task": "T38",
+    "count": 2
+  },
+  {
+    "file": "apps/web/src/components/app/runner-github-account.tsx",
+    "kind": "R6 protocol value import",
+    "detail": "@dispatch/runner-protocol",
+    "task": "T38",
+    "count": 1
+  },
+  {
+    "file": "apps/web/src/components/app/runner-health.tsx",
+    "kind": "R6 placement read",
+    "detail": "{ runner }",
+    "task": "T38",
+    "count": 1
+  },
+  {
+    "file": "apps/web/src/components/app/runner-project-picker.tsx",
+    "kind": "R6 protocol value import",
+    "detail": "@dispatch/runner-protocol",
+    "task": "T38",
+    "count": 2
+  },
+  {
+    "file": "apps/web/src/components/app/runner-settings.tsx",
+    "kind": "R6 placement read",
+    "detail": "{ runner }",
+    "task": "T38",
+    "count": 3
+  },
+  {
+    "file": "apps/web/src/components/app/runner-update.tsx",
+    "kind": "R6 placement read",
+    "detail": "{ runner }",
+    "task": "T38",
+    "count": 2
+  },
+  {
+    "file": "apps/web/src/components/app/use-create-agent-form.ts",
+    "kind": "R6 protocol value import",
+    "detail": "@dispatch/runner-protocol",
+    "task": "T38",
+    "count": 1
+  },
+  {
+    "file": "apps/web/src/components/app/use-create-agent-form.ts",
+    "kind": "R7 restriction",
+    "detail": "N8 Create form gates project and checkout options",
+    "task": "T38",
+    "count": 1
+  },
+  {
+    "file": "apps/web/src/hooks/use-runner-engines.ts",
+    "kind": "R6 protocol value import",
+    "detail": "@dispatch/runner-protocol/engine-management",
+    "task": "T38",
+    "count": 1
+  },
+  {
+    "file": "apps/web/src/hooks/use-runners.ts",
+    "kind": "R6 protocol value import",
+    "detail": "@dispatch/runner-protocol",
+    "task": "T38",
+    "count": 1
+  },
+  {
+    "file": "apps/web/src/lib/pwa-update.ts",
+    "kind": "R2 computed import",
+    "detail": "import()",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "packages/runner-protocol/src/checkout-command.ts",
+    "kind": "R5 protocol leak",
+    "detail": "checkoutCommandTimeoutMs",
+    "task": "T14",
+    "count": 1
+  },
+  {
+    "file": "packages/runner-protocol/src/checkout-view.ts",
+    "kind": "R5 protocol leak",
+    "detail": "excludingTests",
+    "task": "T09",
+    "count": 1
+  },
+  {
+    "file": "packages/runner-protocol/src/checkout-view.ts",
+    "kind": "R7 restriction",
+    "detail": "N13 Checkout reply and watch limits",
+    "task": "T09",
+    "count": 1
+  },
+  {
+    "file": "packages/runner-protocol/src/connection.ts",
+    "kind": "R5 package import",
+    "detail": "node:stream",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "packages/runner-protocol/src/execution.ts",
+    "kind": "R5 protocol leak",
+    "detail": "personaContext",
+    "task": "T24",
+    "count": 1
+  },
+  {
+    "file": "packages/runner-protocol/src/node.ts",
+    "kind": "R5 package import",
+    "detail": "node:stream",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "packages/runner-protocol/src/node.ts",
+    "kind": "R5 package import",
+    "detail": "node:string_decoder",
+    "task": "T04",
+    "count": 1
+  },
+  {
+    "file": "packages/runner-protocol/src/session-files.ts",
+    "kind": "R7 restriction",
+    "detail": "N11 Delivery filename and path rules",
+    "task": "T12",
+    "count": 1
+  }
+]
