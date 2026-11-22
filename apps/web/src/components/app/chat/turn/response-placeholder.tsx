@@ -44,7 +44,7 @@ export const CHARS_PER_PIECE = 250;
 const MIN_COLUMNS = 32;
 const SLOTS = 128;
 const CELL_GAP = 2;
-const MAX_CELL_SIZE = 7;
+const MAX_CELL_SIZE = 6;
 const ROW_PITCH = MAX_CELL_SIZE + CELL_GAP;
 
 /** Small seeded PRNG: random per turn, stable while that turn runs. */
@@ -559,7 +559,7 @@ export function ResponsePlaceholderVisual({
     <div
       data-glow={glow}
       data-testid="chat-response-placeholder"
-      className={`dispatch-placeholder ${quiet ? "" : "dispatch-placeholder-chase"} relative mt-3 w-full max-w-md rounded-lg border border-border/60 bg-muted/10 overflow-clip px-2.5 py-2 ${reducedCells ? "dispatch-defrag-reduced" : ""}`}
+      className={`dispatch-placeholder ${quiet ? "" : "dispatch-placeholder-chase"} relative mt-3 w-full rounded-lg md:max-w-md border border-border/60 bg-muted/10 overflow-clip px-2.5 py-2 ${reducedCells ? "dispatch-defrag-reduced" : ""}`}
     >
       {/* The status region holds only the picture; the peek control sits
           beside it, so its changing count is never announced. */}

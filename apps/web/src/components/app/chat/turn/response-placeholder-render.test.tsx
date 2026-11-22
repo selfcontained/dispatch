@@ -667,12 +667,12 @@ it("moves blocks to offsets measured against the grid, not the block's own box",
   expect(grid.style.containerType).toBe("inline-size");
   const cells = [...grid.querySelectorAll<HTMLElement>("[data-defrag-cell]")];
   const tile = grid.querySelector<HTMLElement>("[style*='mask-size']")!;
-  expect(tile.style.maskSize).toBe("3.125% 9px");
+  expect(tile.style.maskSize).toBe("3.125% 8px");
   expect(cells.length).toBeGreaterThan(0);
   for (const cell of cells) {
     // A 32-column grid and an 8px row pitch match the repeated background.
     expect(cell.style.transform).toMatch(
-      /^translate\(calc\(\d+ \* 100cqw \/ 32\), (0|9|18|27)px\)$/
+      /^translate\(calc\(\d+ \* 100cqw \/ 32\), (0|8|16|24)px\)$/
     );
   }
 });
