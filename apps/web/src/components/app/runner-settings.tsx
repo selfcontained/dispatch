@@ -396,6 +396,7 @@ function RunnerDetail({
             <RunnerEngines
               scope={{ kind: "runner", runnerId: runner.id }}
               capabilities={runner.engineCapabilities}
+              updating={Boolean(runner.update?.attempt)}
             />
             {runner.engineCapabilities ? (
               <RunnerProviderUsage

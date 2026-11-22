@@ -28,9 +28,11 @@ import type { EngineScope } from "@dispatch/runner-protocol/engine-management";
 export function RunnerEngines({
   scope,
   capabilities = false,
+  updating = false,
 }: {
   scope: EngineScope;
   capabilities?: boolean;
+  updating?: boolean;
 }): JSX.Element {
   const inventory = useRunnerEngineInventory(scope);
   const entries = inventory.data?.entries ?? [];
@@ -38,7 +40,7 @@ export function RunnerEngines({
 
   if (
     inventory.isLoading ||
-    (!inventory.isError && inventory.data?.entries === null)
+    (updating && !inventory.isError && inventory.data?.entries === null)
   ) {
     return (
       <p

@@ -77,24 +77,34 @@ it("renders each engine's installed/signed-in state and available actions", asyn
   expect(screen.getByTestId("runner-engine-codex-install")).toBeTruthy();
 });
 
-it("keeps loading while a runner's engines are not known yet", async () => {
-  vi.mocked(api).mockResolvedValue({ entries: null });
-  const client = new QueryClient();
-  render(
-    <QueryClientProvider client={client}>
-      <RunnerEngines scope={{ kind: "runner", runnerId: "r1" }} />
-      <RunnerProviderUsage runnerId="r1" />
-    </QueryClientProvider>
-  );
-  await waitFor(() =>
-    expect(
-      client.getQueryData(runnerEnginesKey({ kind: "runner", runnerId: "r1" }))
-    ).toEqual({ entries: null })
-  );
-  expect(screen.getByText("Loading engines…")).toBeTruthy();
-  expect(screen.queryByText("No engines reported.")).toBeNull();
-  expect(screen.queryByText("Set up Claude or Codex")).toBeNull();
-});
+it.each([true, false])(
+  "shows the unknown inventory state with updating=%s",
+  async (updating) => {
+    vi.mocked(api).mockResolvedValue({ entries: null });
+    const client = new QueryClient();
+    render(
+      <QueryClientProvider client={client}>
+        <RunnerEngines
+          scope={{ kind: "runner", runnerId: "r1" }}
+          updating={updating}
+        />
+        <RunnerProviderUsage runnerId="r1" />
+      </QueryClientProvider>
+    );
+    await waitFor(() =>
+      expect(
+        client.getQueryData(
+          runnerEnginesKey({ kind: "runner", runnerId: "r1" })
+        )
+      ).toEqual({ entries: null })
+    );
+    const shown = updating ? "Loading engines…" : "No engines reported.";
+    const hidden = updating ? "No engines reported." : "Loading engines…";
+    expect(await screen.findByText(shown)).toBeTruthy();
+    expect(screen.queryByText(hidden)).toBeNull();
+    expect(screen.queryByText("Set up Claude or Codex")).toBeNull();
+  }
+);
 
 it("shows a failed read over unknown engines", async () => {
   vi.mocked(api).mockRejectedValue(new Error("down"));
