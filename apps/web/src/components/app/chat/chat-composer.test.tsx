@@ -43,6 +43,36 @@ function renderComposer(
 }
 
 describe("ChatComposer", () => {
+  it.each([
+    ["open", false],
+    ["closed", true],
+  ])(
+    "when autofocus turns on over a dialog that is %s, takes focus: %s",
+    (state, takesFocus) => {
+      const view = (autoFocus: boolean) => (
+        <>
+          <div role="dialog" data-state={state}>
+            <textarea data-testid="dialog-note" />
+          </div>
+          <ChatComposer
+            agentId={null}
+            onSend={vi.fn()}
+            disabledReason={null}
+            autoFocus={autoFocus}
+          />
+        </>
+      );
+      const { rerender } = render(view(false));
+      screen.getByTestId("dialog-note").focus();
+
+      // What a resize across the mobile breakpoint does.
+      rerender(view(true));
+      expect(document.activeElement).toBe(
+        screen.getByTestId(takesFocus ? "chat-composer-input" : "dialog-note")
+      );
+    }
+  );
+
   it("keeps sending usable when ID creation throws, then retries", async () => {
     const { onSend, input } = renderComposer();
     const random = vi

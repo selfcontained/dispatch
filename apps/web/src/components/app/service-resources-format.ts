@@ -1,4 +1,5 @@
 import type { ResourceHealthState } from "@/hooks/use-service-resources";
+import { statusLabel } from "@/lib/status-label";
 
 export function formatBytes(bytes: number | null): string {
   if (bytes === null) return "—";
@@ -31,7 +32,7 @@ export function formatUptime(seconds: number): string {
 
 export function stateLabel(state: ResourceHealthState): string {
   if (state === "degraded") return "Needs attention";
-  return state.replace("_", " ");
+  return statusLabel(state);
 }
 
 export function stateBadgeVariant(state: ResourceHealthState) {

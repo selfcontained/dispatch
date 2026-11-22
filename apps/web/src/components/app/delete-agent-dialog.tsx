@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/dialog";
 import { descendantAgents } from "@/lib/agent-lineage";
 import { api } from "@/lib/api";
+import { errorMessage } from "@/lib/errors";
 
 type WorktreeStatus = {
   hasWorktree: boolean;
@@ -50,6 +51,7 @@ export function DeleteAgentDialog({
   );
   const [loading, setLoading] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   // Archiving cascades to the target's sub agents, so the confirmation has to
   // say how many go with it — otherwise a parent's archive silently takes out
@@ -72,6 +74,7 @@ export function DeleteAgentDialog({
       setWorktreeStatus(null);
       setLoading(false);
       setDeleting(false);
+      setError(null);
       return;
     }
 
@@ -116,10 +119,13 @@ export function DeleteAgentDialog({
 
     // No worktree or no unmerged commits — standard delete with auto cleanup
     setDeleting(true);
+    setError(null);
     try {
       await onDelete(deleteTarget, "auto");
       setOpen(false);
       setDeleteTarget(null);
+    } catch (err) {
+      setError(errorMessage(err));
     } finally {
       setDeleting(false);
     }
@@ -130,10 +136,13 @@ export function DeleteAgentDialog({
       if (!deleteTarget) return;
 
       setDeleting(true);
+      setError(null);
       try {
         await onDelete(deleteTarget, cleanupMode);
         setOpen(false);
         setDeleteTarget(null);
+      } catch (err) {
+        setError(errorMessage(err));
       } finally {
         setDeleting(false);
       }
@@ -146,6 +155,16 @@ export function DeleteAgentDialog({
     setDeleteTarget(null);
   }, [setOpen, setDeleteTarget]);
 
+  // Dismissing mid-request would leave a failure nowhere to show.
+  const onOpenChange = (next: boolean) => {
+    if (!deleting) setOpen(next);
+  };
+  const failure = error ? (
+    <p role="alert" className="break-words text-sm text-destructive">
+      Couldn't archive the agent: {error}
+    </p>
+  ) : null;
+
   if (step === "worktree-choice" && worktreeStatus) {
     const hasUnmerged =
       worktreeStatus.hasUnmergedCommits &&
@@ -155,7 +174,7 @@ export function DeleteAgentDialog({
       worktreeStatus.uncommittedFiles.length > 0;
 
     return (
-      <Dialog open={open} onOpenChange={setOpen}>
+      <Dialog open={open} onOpenChange={onOpenChange}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Worktree Has Outstanding Changes</DialogTitle>
@@ -202,6 +221,7 @@ export function DeleteAgentDialog({
             </p>
           </div>
 
+          {failure}
           <div className="grid gap-2 pt-1 sm:grid-cols-[auto,minmax(0,1fr),minmax(0,1fr)]">
             <Button
               variant="ghost"
@@ -238,7 +258,7 @@ export function DeleteAgentDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Archive Agent</DialogTitle>
@@ -248,11 +268,13 @@ export function DeleteAgentDialog({
               : "Archive this agent?"}
           </DialogDescription>
         </DialogHeader>
+        {failure}
         <div className="flex justify-end gap-2">
           <Button
             variant="ghost"
             data-testid="delete-agent-cancel"
             onClick={close}
+            disabled={deleting}
           >
             Cancel
           </Button>

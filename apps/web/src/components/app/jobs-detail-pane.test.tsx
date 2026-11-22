@@ -159,9 +159,17 @@ function defaultContext(job: Job | null): Record<string, unknown> {
     jobs: job ? [job] : [],
     selectedJob: job,
     tab: "configure",
-    history: { data: { runs: [] as JobRun[] }, isLoading: false },
+    history: {
+      data: { runs: [] as JobRun[] },
+      error: null,
+      isPending: false,
+    },
+    isLoading: false,
+    error: null,
+    retry: vi.fn(),
+    isRetrying: false,
     attachedAgent: null,
-    jobStats: { data: null, isLoading: false },
+    jobStats: { data: null, isPending: false },
     routeRunId: undefined,
     navigate: vi.fn(),
     onOpenAgent: vi.fn().mockResolvedValue(undefined),
@@ -220,9 +228,38 @@ describe("JobDetailPane — overview branch", () => {
     );
   });
 
+  it("shows loading, not the overview's empty state, while jobs load", () => {
+    H.context = defaultContext(null);
+    H.context.isLoading = true;
+    render(<JobDetailPane />);
+    expect(screen.getByText("Loading jobs…")).toBeTruthy();
+    expect(screen.queryByTestId("stub-JobsOverview")).toBeNull();
+  });
+
+  it("shows an error with Retry, not the empty state, when jobs fail", () => {
+    H.context = defaultContext(null);
+    H.context.error = new Error("boom");
+    render(<JobDetailPane />);
+    expect(screen.getByRole("alert").textContent).toContain(
+      "Couldn't load jobs: boom"
+    );
+    expect(screen.queryByTestId("stub-JobsOverview")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    expect(H.context.retry).toHaveBeenCalledOnce();
+  });
+
+  it("keeps loaded jobs under a failed refresh", () => {
+    H.context = defaultContext(null);
+    H.context.jobs = [makeJob()];
+    H.context.error = new Error("boom");
+    render(<JobDetailPane />);
+    expect(screen.getByRole("alert")).toBeTruthy();
+    expect(screen.getByTestId("stub-JobsOverview")).toBeTruthy();
+  });
+
   it("passes through non-null stats data", () => {
     H.context = defaultContext(null);
-    H.context.jobStats = { data: { stats: {} }, isLoading: true };
+    H.context.jobStats = { data: { stats: {} }, isPending: true };
     render(<JobDetailPane />);
     const overviewProps = propsOf("JobsOverview");
     expect(overviewProps.stats).toEqual({ stats: {} });
@@ -528,11 +565,11 @@ describe("JobDetailPane — status badge", () => {
     expect(screen.getByText("never run")).toBeTruthy();
   });
 
-  it("shows the raw status when a last run status exists", () => {
+  it("shows the status label when a last run status exists", () => {
     const job = makeJob({ lastRunStatus: "completed" });
     H.context = defaultContext(job);
     render(<JobDetailPane />);
-    expect(screen.getByText("completed")).toBeTruthy();
+    expect(screen.getByText("Completed")).toBeTruthy();
   });
 });
 

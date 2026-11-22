@@ -9,17 +9,25 @@ import {
 import { ActivityBars } from "@/components/ui/activity-bars";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { type JobRun } from "@/hooks/use-jobs";
+import { LoadError } from "@/components/app/load-error";
 import { formatDuration } from "@/lib/format";
+import { statusLabel } from "@/lib/status-label";
 import { cn } from "@/lib/utils";
 
 export function HistoryTab({
   runs,
   loading,
+  error,
+  retrying,
+  onRetry,
   selectedRunId,
   onSelectRun,
 }: {
   runs: JobRun[];
   loading: boolean;
+  error: unknown;
+  retrying: boolean;
+  onRetry: () => void;
   selectedRunId: string | null;
   onSelectRun: (runId: string) => void;
 }) {
@@ -28,7 +36,16 @@ export function HistoryTab({
     : null;
   return (
     <ScrollArea className="mt-4 min-h-0 h-full pr-1">
-      {loading ? (
+      {error ? (
+        <LoadError
+          message="Couldn't load history"
+          error={error}
+          onRetry={onRetry}
+          retrying={retrying}
+          className="mb-2"
+        />
+      ) : null}
+      {error && runs.length === 0 ? null : loading ? (
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <ActivityBars size={16} /> Loading history...
         </div>
@@ -65,7 +82,7 @@ export function HistoryTab({
                       statusTextColor(run.status)
                     )}
                   >
-                    {run.status}
+                    {statusLabel(run.status)}
                   </span>
                   <span className="min-w-0 truncate font-mono tabular-nums">
                     {formatJobDateTime(run.startedAt)}
@@ -116,7 +133,7 @@ function RunReport({ run }: { run: JobRun | null }) {
             <span className="font-medium">{task.name}</span>
             {task.status === "error" && (
               <span className="uppercase text-status-blocked">
-                {task.status}
+                {statusLabel(task.status)}
               </span>
             )}
           </div>

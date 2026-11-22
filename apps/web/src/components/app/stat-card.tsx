@@ -1,3 +1,4 @@
+import { formatCount } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 export function StatCard({
@@ -20,7 +21,7 @@ export function StatCard({
           variant === "warning" ? "text-status-blocked" : "text-foreground"
         )}
       >
-        {value}
+        {typeof value === "number" ? formatCount(value) : value}
       </p>
       {sub && (
         <p className="mt-0.5 text-[10px] sm:text-xs text-muted-foreground">

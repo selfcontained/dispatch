@@ -190,7 +190,11 @@ function renderTab(
     route?: string;
     isMobile?: boolean;
     active?: boolean;
+    /** Null while the route's agent waits for the agent list. */
+    agentId?: string | null;
     store?: ReturnType<typeof createStore>;
+    /** The diff request fails this many times before it answers. */
+    diffFailures?: number;
     /** The agent's stream, where the reviews of its work are. */
     feed?: StreamFeedResponse;
   } = {}
@@ -203,7 +207,10 @@ function renderTab(
     active = true,
     store = createStore(),
     feed,
+    diffFailures = 0,
+    agentId: initialAgentId = AGENT_ID,
   } = options;
+  let failuresLeft = diffFailures;
 
   apiMock.mockImplementation((async (path: string, init?: RequestInit) => {
     if (path === "/api/v1/agents") return { agents: [] };
@@ -220,7 +227,10 @@ function renderTab(
         text: "<svg/>",
       };
     if (path.includes("/diff/file")) return await fileDiff;
-    if (path.includes("/diff?")) return { baseRef: "main", files };
+    if (path.includes("/diff?")) {
+      if (failuresLeft-- > 0) throw new Error("Failed to compute diff.");
+      return { baseRef: "main", files };
+    }
     throw new Error(`unexpected request: ${path}`);
   }) as typeof api);
 
@@ -229,14 +239,18 @@ function renderTab(
   });
   const onReviewPosted = vi.fn();
 
-  const tree = (agentId: string, tabActive = active) => (
+  const tree = (agentId: string | null, tabActive = active) => (
     <QueryClientProvider client={queryClient}>
       <Provider store={store}>
         <MemoryRouter initialEntries={[route]}>
           <LocationProbe />
           <ChangesTab
             agentId={agentId}
-            agent={{ id: agentId, status: "running", cwd: "/work" } as Agent}
+            agent={
+              agentId
+                ? ({ id: agentId, status: "running", cwd: "/work" } as Agent)
+                : null
+            }
             enabledAgentTypes={["claude"]}
             active={tabActive}
             isMobile={isMobile}
@@ -247,7 +261,7 @@ function renderTab(
     </QueryClientProvider>
   );
 
-  const view = render(tree(AGENT_ID));
+  const view = render(tree(initialAgentId));
 
   return {
     ...view,
@@ -479,6 +493,30 @@ describe("ChangesTab", () => {
 
     await waitForFile("src/app.ts");
     expect(screen.queryByText("Loading changes…")).toBeNull();
+  });
+
+  it("shows a failed diff as an error, never as no changes, and retries", async () => {
+    renderTab({ files: [], diffFailures: 1 });
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain(
+      "Couldn't load changes: Failed to compute diff."
+    );
+    expect(screen.queryByText("No changes yet")).toBeNull();
+
+    fireEvent.click(within(alert).getByRole("button", { name: "Retry" }));
+    expect(await screen.findByText("No changes yet")).toBeTruthy();
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("shows loading, never no changes, until the route's agent resolves", async () => {
+    const { switchAgent } = renderTab({ files: [], agentId: null });
+
+    expect(screen.getByText("Loading changes…")).toBeTruthy();
+    expect(screen.queryByText("No changes yet")).toBeNull();
+
+    switchAgent(AGENT_ID);
+    expect(await screen.findByText("No changes yet")).toBeTruthy();
   });
 
   it("sorts files by path", async () => {

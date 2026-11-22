@@ -1,6 +1,6 @@
 import { shortModelName } from "@/components/app/activity-chart-utils";
 import { cn } from "@/lib/utils";
-import { formatTokenCount, shortProjectName } from "@/lib/format";
+import { formatCount, formatTokenCount, shortProjectName } from "@/lib/format";
 import type { TokenByModel, TokenByProject } from "@/hooks/use-activity";
 
 // ── Horizontal bar helper ──────────────────────────────────────────
@@ -67,7 +67,7 @@ export function ModelBreakdown({ data }: { data: TokenByModel[] }) {
             value={total}
             maxValue={max}
             color="bg-chart-5"
-            sub={`· ${m.sessions} session${m.sessions !== 1 ? "s" : ""}`}
+            sub={`· ${formatCount(m.sessions, "session")}`}
           />
         );
       })}

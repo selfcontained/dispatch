@@ -20,6 +20,8 @@ import {
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import {
+  formatCount,
+  formatDateTime,
   formatDuration,
   formatTokenCount,
   formatRelativeTime,
@@ -196,7 +198,7 @@ function AgentHistoryList({
 
           {data && (
             <span className="ml-auto text-[11px] text-muted-foreground">
-              {data.total} agent{data.total !== 1 ? "s" : ""}
+              {formatCount(data.total, "agent")}
             </span>
           )}
         </div>
@@ -318,7 +320,10 @@ function AgentHistoryList({
                         "—"
                       )}
                     </td>
-                    <td className="px-2 py-2.5 pr-3 text-muted-foreground sm:pr-5">
+                    <td
+                      className="px-2 py-2.5 pr-3 text-muted-foreground sm:pr-5"
+                      title={formatDateTime(agent.updatedAt)}
+                    >
                       {formatRelativeTime(agent.updatedAt)}
                     </td>
                   </tr>
@@ -352,7 +357,10 @@ function AgentHistoryList({
                             ? formatTokenCount(child.totalTokens)
                             : "—"}
                         </td>
-                        <td className="px-2 py-2 pr-3 text-muted-foreground sm:pr-5">
+                        <td
+                          className="px-2 py-2 pr-3 text-muted-foreground sm:pr-5"
+                          title={formatDateTime(child.updatedAt)}
+                        >
                           {formatRelativeTime(child.updatedAt)}
                         </td>
                       </tr>

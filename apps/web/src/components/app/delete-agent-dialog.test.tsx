@@ -243,6 +243,56 @@ describe("DeleteAgentDialog", () => {
     expect(screen.queryByText("Worktree Has Outstanding Changes")).toBeNull();
   });
 
+  it("shows a failed archive in the dialog and can retry it", async () => {
+    const { setOpen, onDelete } = renderDialog(makeAgent());
+    onDelete.mockRejectedValueOnce(new Error("Archive broke"));
+
+    fireEvent.click(await archiveButtonReady());
+    expect((await screen.findByRole("alert")).textContent).toContain(
+      "Archive broke"
+    );
+    expect(setOpen).not.toHaveBeenCalled();
+
+    fireEvent.click(await archiveButtonReady());
+    await waitFor(() => expect(setOpen).toHaveBeenCalledWith(false));
+    expect(onDelete).toHaveBeenCalledTimes(2);
+  });
+
+  it("shows a failed archive on the worktree choice too", async () => {
+    const agent = makeAgent({
+      worktreePath: "/repo/.dispatch/worktrees/worker-1",
+    });
+    apiMock.mockResolvedValueOnce(
+      worktreeStatus({ hasUncommittedChanges: true })
+    );
+    const { setOpen, onDelete } = renderDialog(agent);
+    onDelete.mockRejectedValueOnce(new Error("Archive broke"));
+
+    fireEvent.click(await archiveButtonReady());
+    fireEvent.click(await screen.findByTestId("delete-agent-keep-worktree"));
+    expect((await screen.findByRole("alert")).textContent).toContain(
+      "Archive broke"
+    );
+    expect(setOpen).not.toHaveBeenCalled();
+  });
+
+  it("cannot be dismissed while the archive is in flight", async () => {
+    const { setOpen, onDelete } = renderDialog(makeAgent());
+    let fail!: (error: Error) => void;
+    onDelete.mockReturnValueOnce(
+      new Promise<void>((_, reject) => {
+        fail = reject;
+      })
+    );
+
+    fireEvent.click(await archiveButtonReady());
+    fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
+    expect(setOpen).not.toHaveBeenCalled();
+
+    fail(new Error("Archive broke"));
+    expect(await screen.findByRole("alert")).toBeTruthy();
+  });
+
   it("names the sub agents that archive with the target", async () => {
     const agent = makeAgent();
     const child = makeAgent({ id: "agt_child", parentAgentId: "agt_target" });

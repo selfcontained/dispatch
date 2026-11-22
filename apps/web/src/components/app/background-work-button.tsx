@@ -10,6 +10,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { statusLabel } from "@/lib/status-label";
 
 export function BackgroundWorkButton({ agentId }: { agentId: string | null }) {
   return agentId ? (
@@ -128,7 +129,7 @@ function AgentBackgroundWork({ agentId }: { agentId: string }) {
                           aria-hidden="true"
                         />
                       )}
-                      {item.state}
+                      {statusLabel(item.state)}
                     </span>
                   </li>
                 );

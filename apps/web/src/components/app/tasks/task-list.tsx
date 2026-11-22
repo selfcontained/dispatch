@@ -12,7 +12,8 @@ import {
 import { Button } from "@/components/ui/button";
 import { TaskAgent } from "./task-agent";
 import { TaskLaunching } from "./task-launching";
-import { columnAccent, groupTasks, taskAge } from "./task-utils";
+import { formatRelativeCompact } from "@/lib/format";
+import { columnAccent, groupTasks } from "./task-utils";
 import { ColumnTriggerStrip } from "./task-trigger-dialog";
 import { ColumnCapacity } from "./task-column-capacity";
 import { TaskColumnMenu } from "./task-column-menu";
@@ -160,7 +161,7 @@ export function TaskList({
                     )}
                   </div>
                   <span className="text-right text-xs text-muted-foreground">
-                    {taskAge(task.createdAt)}
+                    {formatRelativeCompact(task.createdAt)}
                   </span>
                   <div className="col-span-2 flex min-w-0 flex-wrap items-center gap-2 md:col-span-1">
                     {task.latestFailure && !task.launching && (

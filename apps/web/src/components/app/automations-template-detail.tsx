@@ -154,9 +154,8 @@ function TemplateDetail({
         navigate("/automations");
         toast.success(`Template "${template.name}" deleted.`);
       })
-      .catch((err: Error) => {
-        setRemoveDialogOpen(false);
-        toast.error(`Failed to delete: ${err.message}`);
+      .catch(() => {
+        // The mutation keeps the error, which the open dialog shows.
       });
   }, [removeTemplate, template, navigate]);
 
@@ -276,7 +275,10 @@ function TemplateDetail({
                 variant="destructive"
                 size="sm"
                 disabled={removeTemplate.isPending}
-                onClick={() => setRemoveDialogOpen(true)}
+                onClick={() => {
+                  removeTemplate.reset();
+                  setRemoveDialogOpen(true);
+                }}
               >
                 <Trash2 className="mr-2 h-4 w-4" />
                 Delete
@@ -286,7 +288,12 @@ function TemplateDetail({
         </div>
       </div>
 
-      <Dialog open={removeDialogOpen} onOpenChange={setRemoveDialogOpen}>
+      <Dialog
+        open={removeDialogOpen}
+        onOpenChange={(next) => {
+          if (!removeTemplate.isPending) setRemoveDialogOpen(next);
+        }}
+      >
         <DialogContent className="max-w-sm">
           <DialogHeader>
             <DialogTitle>Delete template</DialogTitle>
@@ -295,6 +302,11 @@ function TemplateDetail({
               This cannot be undone.
             </DialogDescription>
           </DialogHeader>
+          {removeTemplate.error ? (
+            <p role="alert" className="break-words text-sm text-destructive">
+              Couldn't delete the template: {removeTemplate.error.message}
+            </p>
+          ) : null}
           <div className="flex justify-end gap-2">
             <Button
               variant="ghost"

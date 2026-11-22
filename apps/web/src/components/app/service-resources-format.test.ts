@@ -90,9 +90,9 @@ describe("stateLabel", () => {
   });
 
   it("passes other states through", () => {
-    expect(stateLabel("healthy")).toBe("healthy");
-    expect(stateLabel("unavailable")).toBe("unavailable");
-    expect(stateLabel("unknown")).toBe("unknown");
+    expect(stateLabel("healthy")).toBe("Healthy");
+    expect(stateLabel("unavailable")).toBe("Unavailable");
+    expect(stateLabel("unknown")).toBe("Unknown");
   });
 });
 

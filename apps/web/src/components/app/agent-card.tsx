@@ -8,6 +8,7 @@ import { AgentCardDetails } from "@/components/app/agent-card-details";
 import { AgentCardHeader } from "@/components/app/agent-card-header";
 import { AgentCardActivity } from "@/components/app/agent-card-status";
 import { ChildAgentRow } from "@/components/app/child-agent-row";
+import { AgentName } from "@/components/app/agent-name";
 import { useAgentDiffStats } from "@/hooks/use-agent-diff-stats";
 import { useCopyText } from "@/hooks/use-copy";
 import { SessionSettingsDialog } from "@/components/app/session-settings-dialog";
@@ -218,7 +219,9 @@ function AgentCardImpl({
                     personaParentName={
                       agent.parentAgentId
                         ? (agents.find((a) => a.id === agent.parentAgentId)
-                            ?.name ?? agent.parentAgentId.slice(-6))
+                            ?.name ?? (
+                            <AgentName agentId={agent.parentAgentId} />
+                          ))
                         : undefined
                     }
                     diffStats={diffStats}

@@ -34,6 +34,7 @@ import {
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import type { AgentPullRequest, MergeRiskSummary } from "@dispatch/shared";
+import { statusLabel } from "@/lib/status-label";
 
 type Status = AgentPullRequest["status"];
 const percent = (value: number | null) =>
@@ -650,9 +651,7 @@ function checkResult(check: CiSnapshot["checks"][number]) {
     };
   return {
     label:
-      check.conclusion === "FAILURE"
-        ? "Failed"
-        : check.conclusion.toLowerCase().replaceAll("_", " "),
+      check.conclusion === "FAILURE" ? "Failed" : statusLabel(check.conclusion),
     icon: CircleX,
     color: "text-status-blocked",
   };
