@@ -35,7 +35,7 @@ function applyChange(
   return { ...current, disabled };
 }
 
-const MUTATION_KEY = ["agent-model-availability"];
+export const MODEL_AVAILABILITY_MUTATION_KEY = ["agent-model-availability"];
 
 /**
  * Edits the model filter. It shows at once in every picker, since they share
@@ -45,7 +45,7 @@ const MUTATION_KEY = ["agent-model-availability"];
 export function useUpdateModelAvailability() {
   const queryClient = useQueryClient();
   return useMutation<unknown, Error, ModelAvailabilityChange>({
-    mutationKey: MUTATION_KEY,
+    mutationKey: MODEL_AVAILABILITY_MUTATION_KEY,
     scope: { id: "agent-model-availability" },
     mutationFn: (change) =>
       api("/api/v1/app/settings/agent-models", {
@@ -67,7 +67,11 @@ export function useUpdateModelAvailability() {
       });
     },
     onSettled: () => {
-      if (queryClient.isMutating({ mutationKey: MUTATION_KEY }) === 1)
+      if (
+        queryClient.isMutating({
+          mutationKey: MODEL_AVAILABILITY_MUTATION_KEY,
+        }) === 1
+      )
         void queryClient.invalidateQueries({ queryKey: ["agent-models"] });
     },
   });
