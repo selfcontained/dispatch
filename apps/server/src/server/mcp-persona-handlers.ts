@@ -31,7 +31,7 @@ import {
   resolveBaseRef,
 } from "../shared/git/base-ref.js";
 import { resolveWorktreeRoot } from "../shared/git/git-context.js";
-import { validateAgentModel } from "../shared/agent-models.js";
+import { validateAgentModelChoice } from "../shared/agent-models.js";
 import { getPrStatus } from "../shared/github/pr.js";
 import { runCommand } from "../shared/lib/run-command.js";
 import type { PublishUiEvent } from "./mcp-handler-types.js";
@@ -135,7 +135,7 @@ export function createPersonaHandlers(deps: CreatePersonaHandlersDeps) {
     if (!enabledAgentTypes.includes(agentType)) {
       throw new Error(`${agentType} agents are disabled in settings.`);
     }
-    const model = validateAgentModel(agentType, opts.model);
+    const model = validateAgentModelChoice(agentType, opts.model);
     const effort = validateAgentEffort(agentType, opts.effort, model);
 
     const parentCwd = agentWorkspaceDir(parent) ?? parent.cwd;

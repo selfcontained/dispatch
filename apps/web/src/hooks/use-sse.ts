@@ -803,6 +803,8 @@ export function useSSE(authState: AuthState): void {
 
         if (payload.type === "agent_models.changed") {
           void queryClient.invalidateQueries({ queryKey: ["agent-models"] });
+          // A running agent's model choices follow the same filter.
+          void queryClient.invalidateQueries({ queryKey: ["agent-config"] });
           return;
         }
 

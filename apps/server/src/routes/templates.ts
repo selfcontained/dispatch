@@ -94,6 +94,7 @@ function classifyErrorCode(message: string): number {
     message.includes("template argument") ||
     message.includes("no prompt") ||
     message.includes("is not supported for") ||
+    message.includes("is turned off for") ||
     /effort/i.test(message)
   )
     return 400;

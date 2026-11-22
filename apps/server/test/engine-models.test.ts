@@ -167,10 +167,11 @@ describe("recordEngineModels", () => {
       String(c[0]).includes("UPDATE agents SET model")
     );
     expect(update?.[1]).toEqual(["agt_1", "claude-opus-5"]);
-    const stored = p.query.mock.calls.find((c) =>
-      String(c[0]).includes("INSERT INTO settings")
+    const stored = p.query.mock.calls.find(
+      (c) =>
+        String(c[0]).includes("INSERT INTO settings") &&
+        (c[1] as string[])[0] === "agent_models:claude"
     )?.[1] as [string, string];
-    expect(stored[0]).toBe("agent_models:claude");
     expect(JSON.parse(stored[1]).models).toHaveLength(2);
   });
 

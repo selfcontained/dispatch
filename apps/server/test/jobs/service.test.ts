@@ -4,6 +4,7 @@ import {
   expect,
   beforeAll,
   afterAll,
+  afterEach,
   beforeEach,
   vi,
 } from "vitest";
@@ -13,6 +14,10 @@ import { setupTestDb, teardownTestDb, runTestMigrations } from "../db/setup.js";
 import { JobService, WebhookNotFoundError } from "../../src/jobs/service.js";
 import { JobStore } from "../../src/jobs/store.js";
 import type { AgentManager } from "../../src/agents/manager.js";
+import {
+  forgetLearnedAgentModels,
+  setAgentModelAvailability,
+} from "../../src/shared/agent-models.js";
 
 let pool: Pool;
 
@@ -1363,6 +1368,56 @@ describe("JobService", () => {
       expect(result.stats).toHaveProperty("daily");
       expect(Array.isArray(result.recentRuns)).toBe(true);
 
+      await service.shutdown();
+    });
+  });
+
+  describe("a model turned off in settings", () => {
+    afterEach(() => forgetLearnedAgentModels());
+
+    it("keeps running and saving an existing job, but can't be newly set", async () => {
+      const service = new JobService(
+        pool,
+        mockAgentManager,
+        mockLog,
+        mockConfig
+      );
+      const base = { directory: "/tmp/test-model-filter", prompt: "Go" };
+      const saved = await service.addJob({
+        ...base,
+        name: "saved",
+        model: "haiku",
+      });
+      const other = await service.addJob({ ...base, name: "other" });
+      setAgentModelAvailability("claude", {
+        autoEnable: true,
+        disabled: ["haiku"],
+        unseen: [],
+        known: null,
+      });
+
+      const edited = await service.updateJob({
+        jobId: saved.id,
+        model: "haiku",
+        timeoutMs: 90_000,
+      });
+      expect(edited.model).toBe("haiku");
+      await expect(
+        service.updateJob({ jobId: other.id, model: "haiku" })
+      ).rejects.toThrow("turned off");
+      await expect(
+        service.addJob({ ...base, name: "new", model: "haiku" })
+      ).rejects.toThrow("turned off");
+
+      // Stop at the launch: what it was asked to launch is what matters.
+      vi.mocked(mockAgentManager.createAgent).mockRejectedValue(
+        new Error("not launching in a test")
+      );
+      await service.runJob({ jobId: saved.id }).catch(() => {});
+      expect(mockAgentManager.createAgent).toHaveBeenCalledWith(
+        expect.objectContaining({ model: "haiku" }),
+        expect.anything()
+      );
       await service.shutdown();
     });
   });

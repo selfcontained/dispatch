@@ -35,6 +35,20 @@ describe("AgentModelSelect", () => {
     }
   );
 
+  it("shows a saved model that was turned off", () => {
+    render(
+      <AgentModelSelect
+        value="haiku"
+        options={OPTIONS}
+        savedOption={{ id: "haiku", label: "Haiku" }}
+        onChange={vi.fn()}
+      />
+    );
+    expect(screen.getByTestId("create-agent-model").textContent).toContain(
+      "Haiku"
+    );
+  });
+
   it("keeps the trigger labelled while the catalog loads", () => {
     render(
       <AgentModelSelect value={null} options={[]} onChange={vi.fn()} loading />

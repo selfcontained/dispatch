@@ -1,12 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useSetAtom } from "jotai";
 import { ChevronDown } from "lucide-react";
 import { useSearchParams } from "react-router-dom";
 
-import {
-  AgentModelSettings,
-  ModelPreviewControls,
-} from "@/components/app/agent-model-settings";
+import { AgentModelSettings } from "@/components/app/agent-model-settings";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -16,7 +12,6 @@ import {
 } from "@/components/ui/collapsible";
 import { useAgentModelCatalog } from "@/hooks/use-agent-model-catalog";
 import { api } from "@/lib/api";
-import { seenModelsAtom } from "@/lib/model-availability-preview";
 import { cn } from "@/lib/utils";
 import {
   AGENT_TYPE_LABELS,
@@ -56,17 +51,13 @@ function AgentTypeRow({
 }): JSX.Element {
   const { options, allOptions } = useAgentModelCatalog(agentType);
   const offCount = allOptions.length - options.length;
-  const markSeen = useSetAtom(seenModelsAtom);
   const wasOpen = useRef(open);
   useEffect(() => {
     // New stays up while the list is open, and clears once it has been seen.
-    if (wasOpen.current && !open) {
-      const unseen = allOptions.filter((option) => option.isNew);
-      if (unseen.length)
-        markSeen((seen) => [...seen, ...unseen.map((option) => option.id)]);
-    }
+    if (wasOpen.current && !open)
+      allOptions.forEach((option) => option.markSeen?.());
     wasOpen.current = open;
-  }, [allOptions, markSeen, open]);
+  }, [allOptions, open]);
   return (
     <Collapsible
       open={open}
@@ -77,7 +68,9 @@ function AgentTypeRow({
         <label
           className={cn(
             "flex min-w-0 flex-1 items-center gap-3 px-3 py-2.5 transition-colors",
-            disabled ? "cursor-not-allowed" : "cursor-pointer hover:bg-muted/50"
+            disabled
+              ? "cursor-not-allowed opacity-60"
+              : "cursor-pointer hover:bg-muted/50"
           )}
         >
           <Checkbox
@@ -248,7 +241,6 @@ export function AgentTypeSettings({
           );
         })}
       </div>
-      <ModelPreviewControls agentType={openType} />
 
       {error ? <p className="text-sm text-destructive">{error}</p> : null}
     </div>

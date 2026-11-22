@@ -1848,6 +1848,7 @@ describe("useSSE message handling", () => {
       ["brain"],
       ["tasks"],
       ["agent-models"],
+      ["agent-config"],
     ]);
   });
 

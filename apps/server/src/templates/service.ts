@@ -13,6 +13,7 @@ import { sanitizeAgentName } from "../shared/lib/agent-strings.js";
 import { renderTemplatePrompt } from "./launch-prompt.js";
 import {
   applyAgentConfigDefaults,
+  assertModelSelectable,
   resolveAgentModelForUpdate,
 } from "../shared/agent-models.js";
 import {
@@ -247,6 +248,15 @@ export class TemplateService {
     const stored =
       input.resolvedTemplate ??
       (await this.store.getTemplate(input.templateId));
+    // A task's snapshot was checked when its choice was saved.
+    if (stored && !input.resolvedTemplate) {
+      const type = input.agentType ?? stored.agentType;
+      assertModelSelectable(
+        type,
+        input.model,
+        type === stored.agentType ? stored.model : null
+      );
+    }
     const template = stored ? resolveTemplateLaunch(stored, input) : null;
     if (!template) {
       throw new Error(`Template ${input.templateId} not found.`);

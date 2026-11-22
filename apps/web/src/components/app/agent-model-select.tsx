@@ -1,5 +1,3 @@
-import { useSetAtom } from "jotai";
-
 import {
   Select,
   SelectContent,
@@ -7,9 +5,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { seenModelsAtom } from "@/lib/model-availability-preview";
 
-type AgentModelOption = { id: string; label: string; isNew?: boolean };
+type AgentModelOption = {
+  id: string;
+  label: string;
+  isNew?: boolean;
+  markSeen?: () => void;
+};
 
 type AgentModelSelectProps = {
   value: string | null;
@@ -49,7 +51,6 @@ export function AgentModelSelect({
   const selectedLabel =
     options.find((option) => option.id === selectedValue)?.label ??
     (savedOption?.id === selectedValue ? savedOption.label : fallbackLabel);
-  const markSeen = useSetAtom(seenModelsAtom);
 
   return (
     <div className="space-y-1">
@@ -59,9 +60,8 @@ export function AgentModelSelect({
       <Select
         value={selectedValue}
         onOpenChange={(open) => {
-          const unseen = options.filter((option) => option.isNew);
-          if (open || unseen.length === 0) return;
-          markSeen((seen) => [...seen, ...unseen.map((option) => option.id)]);
+          // On close, so New is still there to read while the list is open.
+          if (!open) options.forEach((option) => option.markSeen?.());
         }}
         onValueChange={(nextValue) => {
           // Radix's hidden form input echoes an empty value back through
