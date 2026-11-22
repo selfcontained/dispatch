@@ -137,17 +137,20 @@ Add a new `[data-theme="your-theme-id"]` block in `apps/web/src/index.css`. You 
 export type ThemeId = "default" | "cool-navy" | "midnight";
 ```
 
-2. Add an entry to the `THEMES` array with a label, description, 4 representative hex swatches (shown in the picker UI), and a `terminal` palette:
+2. Add an entry to the `THEMES` array with a label, description, mode, 4 representative hex swatches (shown in the picker UI), and a `terminal` palette:
 
 ```ts
 {
   id: "midnight",
   label: "Midnight",
   description: "Deep purple with violet accents",
+  mode: "dark",
   swatches: ["#0a0a14", "#9966ff", "#f0f0f0", "#2d2d3d"],
   terminal: { ...MONOKAI, background: "#0a0a14", cursorAccent: "#0a0a14", black: "#0a0a14" },
 },
 ```
+
+Set `mode: "light"` for a light theme. It selects that mode's edges, fills, shadows and `-ink` steps.
 
 The `terminal` field is a `TerminalPalette` object with 22 color properties (foreground, background, cursor, 16 ANSI colors, etc.). For dark themes, you can spread `MONOKAI` and override just the background. For themes with a distinctive palette (like Solarized), define a full custom palette. See `SOLARIZED_DARK` in `use-theme.ts` for an example.
 

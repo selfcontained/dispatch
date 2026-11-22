@@ -252,7 +252,7 @@ function SubmitReviewDialog({
     >
       <DialogContent data-testid="submit-review-dialog">
         <DialogHeader>
-          <DialogTitle className="">Post review</DialogTitle>
+          <DialogTitle>Post review</DialogTitle>
           <DialogDescription>
             Posts a review block into the agent&apos;s stream. Each comment
             becomes a finding with its own thread; the agent answers under it
@@ -382,7 +382,7 @@ function CancelReviewDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle className="">Discard review?</DialogTitle>
+          <DialogTitle>Discard review?</DialogTitle>
           <DialogDescription>
             You have {draftCount} draft comment{draftCount !== 1 ? "s" : ""}.
             Discarding will remove all comments.

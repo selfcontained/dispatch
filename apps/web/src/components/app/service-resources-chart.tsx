@@ -39,7 +39,7 @@ export function ResourceChart({
   return (
     <Card>
       <CardHeader className="pb-2">
-        <CardTitle className="">{title}</CardTitle>
+        <CardTitle>{title}</CardTitle>
         <CardDescription className="text-body-sm">
           {description}
         </CardDescription>
