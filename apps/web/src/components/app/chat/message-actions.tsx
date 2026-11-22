@@ -13,7 +13,6 @@ import {
   MessageSquarePlus,
   SmilePlus,
 } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -29,6 +28,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { IconButton } from "@/components/ui/icon-button";
 import { formatDateTime } from "@/lib/format";
 import {
   POST_ACTION_BUTTON,
@@ -99,22 +99,19 @@ export function MessageActions({
             {copy}
             <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
               <DropdownMenuTrigger asChild>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="stream-icon"
+                <IconButton
+                  size="icon-sm"
                   className={`${POST_ACTION_BUTTON} data-[state=open]:opacity-100`}
-                  aria-label="Message actions"
+                  label="Message actions"
                   ref={actionsRef}
-                  title="Message actions"
                 >
                   <span className={POST_ACTION_FACE}>
                     <MoreHorizontal
-                      className="h-3.5 w-3.5"
+                      className="size-icon-md"
                       aria-hidden="true"
                     />
                   </span>
-                </Button>
+                </IconButton>
               </DropdownMenuTrigger>
               <DropdownMenuContent
                 align="end"

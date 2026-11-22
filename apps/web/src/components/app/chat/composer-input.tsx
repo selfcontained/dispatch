@@ -16,7 +16,7 @@ import { baseKeymap, splitBlock } from "prosemirror-commands";
 import { keymap } from "prosemirror-keymap";
 import "prosemirror-view/style/prosemirror.css";
 import { createPortal } from "react-dom";
-import { Button } from "@/components/ui/button";
+import { RowButton } from "@/components/ui/row-button";
 import {
   emojiQueryAt,
   emojiForAlias,
@@ -485,17 +485,14 @@ export const ComposerInput = forwardRef<
             }}
           >
             {candidates.map(([alias, emoji], index) => (
-              <Button
-                size="stream-md"
+              <RowButton
                 key={alias}
-                type="button"
-                variant="ghost"
                 role="option"
                 id={`${listId}-${index}`}
                 aria-selected={index === selected}
                 className={cn(
-                  "flex w-full justify-start gap-2",
-                  index === selected && "bg-accent"
+                  "px-2 py-1.5 text-body-md",
+                  index === selected && "bg-surface-hover"
                 )}
                 onPointerDown={(event) => event.preventDefault()}
                 onMouseDown={(event) => event.preventDefault()}
@@ -503,7 +500,7 @@ export const ComposerInput = forwardRef<
                 onClick={() => pickEmoji(emoji)}
               >
                 <span aria-hidden="true">{emoji}</span>:{alias}:
-              </Button>
+              </RowButton>
             ))}
           </div>,
           document.body

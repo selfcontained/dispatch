@@ -214,13 +214,7 @@ function renderTask(search = "?task=task-1") {
   };
 }
 const selectTab = (name: string) =>
-  fireEvent.mouseDown(
-    screen.getByRole("tab", { name: new RegExp(`^${name}`) }),
-    {
-      button: 0,
-      ctrlKey: false,
-    }
-  );
+  fireEvent.click(screen.getByRole("radio", { name: new RegExp(`^${name}`) }));
 
 it.each([
   ["?task=task-1", 0, "Details"],
@@ -237,9 +231,9 @@ it.each([
   renderTask(search);
   expect(
     screen
-      .getByRole("tab", { name: new RegExp(`^${tab}`) })
+      .getByRole("radio", { name: new RegExp(`^${tab}`) })
       .getAttribute("data-state")
-  ).toBe("active");
+  ).toBe("on");
   expect(
     screen.getByTestId("task-conversation").getAttribute("data-active")
   ).toBe(String(tab === "Conversation"));
@@ -276,9 +270,9 @@ it("keeps Conversation selected when mark-read clears the badge", () => {
     expect(screen.queryByLabelText("3 unread posts")).toBeNull();
     expect(
       screen
-        .getByRole("tab", { name: "Conversation" })
+        .getByRole("radio", { name: "Conversation" })
         .getAttribute("data-state")
-    ).toBe("active");
+    ).toBe("on");
   });
 });
 
@@ -286,8 +280,8 @@ it("keeps Details selected as late unread data arrives and changes", async () =>
   summary.unread = undefined;
   const { client } = renderTask();
   expect(
-    screen.getByRole("tab", { name: "Details" }).getAttribute("data-state")
-  ).toBe("active");
+    screen.getByRole("radio", { name: "Details" }).getAttribute("data-state")
+  ).toBe("on");
   summary.unread = 2;
   act(() =>
     client.setQueryData(taskKeys.detail(detail.id), {
@@ -298,8 +292,8 @@ it("keeps Details selected as late unread data arrives and changes", async () =>
   await screen.findByLabelText("2 unread posts");
   await waitFor(() =>
     expect(
-      screen.getByRole("tab", { name: "Details" }).getAttribute("data-state")
-    ).toBe("active")
+      screen.getByRole("radio", { name: "Details" }).getAttribute("data-state")
+    ).toBe("on")
   );
   summary.unread = 4;
   act(() =>
@@ -311,8 +305,8 @@ it("keeps Details selected as late unread data arrives and changes", async () =>
   await screen.findByLabelText("4 unread posts");
   await waitFor(() =>
     expect(
-      screen.getByRole("tab", { name: "Details" }).getAttribute("data-state")
-    ).toBe("active")
+      screen.getByRole("radio", { name: "Details" }).getAttribute("data-state")
+    ).toBe("on")
   );
 });
 
@@ -322,25 +316,25 @@ it("resets to Details on task navigation and restores explicit panes with histor
   selectTab("Conversation");
   fireEvent.click(screen.getByRole("button", { name: "Other task" }));
   expect(
-    screen.getByRole("tab", { name: "Details" }).getAttribute("data-state")
-  ).toBe("active");
+    screen.getByRole("radio", { name: "Details" }).getAttribute("data-state")
+  ).toBe("on");
   expect(screen.getByTestId("task-conversation").textContent).toBe("task-2");
   fireEvent.click(screen.getByRole("button", { name: "Back" }));
   expect(
     screen
-      .getByRole("tab", { name: /^Conversation/ })
+      .getByRole("radio", { name: /^Conversation/ })
       .getAttribute("data-state")
-  ).toBe("active");
+  ).toBe("on");
   fireEvent.click(screen.getByRole("button", { name: "Forward" }));
   expect(
-    screen.getByRole("tab", { name: "Details" }).getAttribute("data-state")
-  ).toBe("active");
+    screen.getByRole("radio", { name: "Details" }).getAttribute("data-state")
+  ).toBe("on");
 });
 
 it("keeps Details when the reader interacts before the unread query arrives", async () => {
   summary.unread = undefined;
   const { client } = renderTask();
-  fireEvent.pointerDown(screen.getByRole("tab", { name: "Details" }));
+  fireEvent.pointerDown(screen.getByRole("radio", { name: "Details" }));
   summary.unread = 2;
   act(() =>
     client.setQueryData(taskKeys.detail(detail.id), {
@@ -350,8 +344,8 @@ it("keeps Details when the reader interacts before the unread query arrives", as
   );
   await waitFor(() =>
     expect(
-      screen.getByRole("tab", { name: "Details" }).getAttribute("data-state")
-    ).toBe("active")
+      screen.getByRole("radio", { name: "Details" }).getAttribute("data-state")
+    ).toBe("on")
   );
 });
 
@@ -614,13 +608,15 @@ it("keeps Conversation selected when closing clears its URL pane", async () => {
     </MemoryRouter>
   );
   expect(
-    screen.getByRole("tab", { name: "Conversation" }).getAttribute("data-state")
-  ).toBe("active");
+    screen
+      .getByRole("radio", { name: "Conversation" })
+      .getAttribute("data-state")
+  ).toBe("on");
   fireEvent.click(screen.getByRole("button", { name: "Clear route" }));
   const conversation = screen.getByTestId("task-conversation");
   expect(
-    conversation.closest('[role="tabpanel"]')?.getAttribute("data-state")
-  ).toBe("active");
+    conversation.closest('section[aria-label="Conversation"]')?.className
+  ).not.toMatch(/(^| )hidden( |$)/);
   expect(conversation.getAttribute("data-active")).toBe("false");
   await waitFor(() =>
     expect(screen.queryByTestId("task-conversation")).toBeNull()

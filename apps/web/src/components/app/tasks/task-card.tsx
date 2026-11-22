@@ -211,6 +211,7 @@ function TaskCardDetails({
         ) : task.assignedAgentId ? (
           <TaskAgent
             agent={agent}
+            agentId={task.assignedAgentId}
             agents={agents}
             projectId={task.projectId}
             fullWidth

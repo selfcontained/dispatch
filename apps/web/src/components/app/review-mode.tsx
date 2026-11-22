@@ -119,12 +119,12 @@ export const ReviewModeBar = memo(function ReviewModeBar({
   return (
     <>
       <div
-        className="flex items-center gap-2 border-b border-border-subtle bg-surface-subtle px-3 py-2"
+        className="flex items-center gap-1.5 border-b border-border-subtle bg-surface-subtle px-3 py-2 sm:gap-2"
         data-testid="review-mode-bar"
       >
         <MessageSquarePlus className="h-3.5 w-3.5 text-primary" />
-        <span className="text-body-sm font-medium text-foreground">
-          Review Mode
+        <span className="whitespace-nowrap text-body-sm font-medium text-foreground">
+          Review mode
         </span>
         <Badge size="sm" tone="info" data-testid="review-mode-count">
           {drafts.length} comment{drafts.length !== 1 ? "s" : ""}

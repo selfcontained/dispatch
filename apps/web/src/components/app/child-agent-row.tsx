@@ -193,7 +193,6 @@ export function ChildAgentRow({
         as clicking blank space anywhere else in the row.
       */}
       <div className="flex shrink-0 items-center gap-1">
-        <ChatUnreadBadge agentId={agent.id} />
         {review || isReviewAgent ? (
           <AgentReviewIndicator
             agentId={agent.id}
@@ -203,6 +202,7 @@ export function ChildAgentRow({
             isError={reviewSummary.isError}
           />
         ) : null}
+        <ChatUnreadBadge agentId={agent.id} />
         {/*
           Attach/detach no longer have their own buttons — clicking
           anywhere on the row does it (mirrors the top-level agent card,

@@ -12,7 +12,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
-import { TaskAgentChip } from "./task-agent";
+import { TaskAgentChip, UnlistedTaskAgentChip } from "./task-agent";
 import { assigneeOptions } from "./task-utils";
 
 const UNASSIGNED = "__unassigned";
@@ -47,6 +47,9 @@ export function AssigneeSelect({
   className?: string;
 }) {
   const options = assigneeOptions(agents, projectId, value);
+  // Without an item of its own, an archived assignee would show as a blank.
+  const unlisted =
+    value && !options.some((agent) => agent.id === value) ? value : null;
   // Choosing a launch entry opens a dialog or starts an agent; the Select
   // must not pull focus back to its trigger over whatever comes next.
   const launching = useRef(false);
@@ -123,6 +126,15 @@ export function AssigneeSelect({
         <SelectItem value={UNASSIGNED}>
           <span className="text-muted-foreground">Unassigned</span>
         </SelectItem>
+        {unlisted && (
+          <SelectItem value={unlisted}>
+            <UnlistedTaskAgentChip
+              agentId={unlisted}
+              compact
+              className="max-w-full"
+            />
+          </SelectItem>
+        )}
         {options.map((agent) => (
           <SelectItem key={agent.id} value={agent.id}>
             <TaskAgentChip

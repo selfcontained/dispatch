@@ -100,24 +100,14 @@ export default tseslint.config(
   },
   {
     files: ["src/**/*.tsx"],
-    // components/ui defines the controls. The stream moves onto them in
-    // design-system task 5/6, which drops its ignore here and the exceptions.
-    ignores: [
-      "**/*.test.tsx",
-      "src/components/ui/**",
-      "src/components/app/chat/**",
-    ],
+    // components/ui defines the controls.
+    ignores: ["**/*.test.tsx", "src/components/ui/**"],
     plugins: { dispatch },
     rules: {
       "dispatch/controls": [
         "error",
         {
-          allow: [
-            // The diff's Add comment split button moves to SplitButton in 5/6.
-            { file: "diff-comment-form.tsx", id: "rawButton" },
-            // Effort's compact form is a chip in the composer's meta row.
-            { file: "effort-picker.tsx", id: "streamSize" },
-          ],
+          allow: [],
         },
       ],
     },

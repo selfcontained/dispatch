@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { feedImageBoxWidth, galleryTileSizes } from "./chat-attachment-views";
+import {
+  feedImageBoxWidth,
+  galleryTileSizes,
+  pullRequestReference,
+} from "./chat-attachment-views";
 
 describe("feedImageBoxWidth", () => {
   it("is the max-w-xs width when the size is unknown", () => {
@@ -41,5 +45,20 @@ describe("galleryTileSizes", () => {
     expect(galleryTileSizes(3200, 2000)).toBe(
       "(min-width: 640px) 256px, calc(50vw * 1.600)"
     );
+  });
+});
+
+describe("pullRequestReference", () => {
+  it.each([
+    ["https://github.com/example/demo/pull/12", "#12 · example/demo"],
+    ["https://github.com/example/demo/pull/12/files", "#12 · example/demo"],
+    [
+      "https://gitlab.com/group/sub/project/-/merge_requests/7",
+      "#7 · group/sub/project",
+    ],
+    ["https://example.com/docs", null],
+    ["not a url", null],
+  ])("%s → %s", (url, expected) => {
+    expect(pullRequestReference(url)).toBe(expected);
   });
 });

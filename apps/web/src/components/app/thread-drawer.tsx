@@ -191,7 +191,7 @@ export function ThreadDrawer({
       )}
       aria-label={heading.title}
     >
-      <div className="flex min-h-14 items-center gap-1 pl-1.5 pr-2 pt-safe">
+      <div className="flex min-h-14 shrink-0 items-center gap-1 pb-2 pl-1.5 pr-2 pt-safe-2">
         {depth > 1 ? (
           <IconButton label="Back" data-testid="drawer-back" onClick={back}>
             <ArrowLeft aria-hidden="true" />

@@ -26,7 +26,13 @@ import type { FeedContext } from "@/components/app/chat/chat-entries";
 import { FeedImage } from "@/components/app/chat/feed-image";
 import { stripTimestamp } from "@/components/app/file-utils";
 import { formatBytes } from "@/components/app/service-resources-format";
+import {
+  BlockBody,
+  BlockHeader,
+  BlockShell,
+} from "@/components/ui/block-shell";
 import { Markdown } from "@/components/ui/markdown";
+import { RowButton } from "@/components/ui/row-button";
 import { imageVariantSrcSet } from "@/lib/image-variants";
 import { cn } from "@/lib/utils";
 
@@ -69,26 +75,16 @@ function hostOf(url: string): string {
 export function AttachmentBlock({
   children,
   className,
-  accent,
   ...rest
 }: {
   children: ReactNode;
   className?: string;
-  /** Extra border classes, for a card that wants a colour of its own. */
-  accent?: string;
   [dataAttr: `data-${string}`]: string | undefined;
 }): JSX.Element {
   return (
-    <div
-      className={cn(
-        "w-fit max-w-full overflow-hidden rounded-md border border-border-subtle bg-surface-subtle",
-        accent,
-        className
-      )}
-      {...rest}
-    >
+    <BlockShell padded={false} className={cn("w-fit", className)} {...rest}>
       {children}
-    </div>
+    </BlockShell>
   );
 }
 
@@ -102,7 +98,27 @@ function Tile({ children }: { children: ReactNode }): JSX.Element {
 }
 
 const CARD_ROW =
-  "flex min-w-[14rem] max-w-md items-center gap-3 p-2 pr-3 text-left transition-colors hover:bg-surface-hover";
+  "min-w-0 max-w-md gap-3 rounded-none p-2 pr-3 sm:min-w-[14rem]";
+
+const LINK_ROW =
+  "group/link flex w-full min-w-0 items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-surface-hover focus-ring-inset max-md:min-h-11 pointer-coarse:min-h-11";
+
+/**
+ * "#12 · example/demo" for a pull or merge request URL: the number first, so the card says which
+ * one it is. Null for anything else.
+ */
+export function pullRequestReference(url: string): string | null {
+  let path: string;
+  try {
+    path = new URL(url).pathname;
+  } catch {
+    return null;
+  }
+  const match = /^\/(.+?)\/(?:-\/)?(?:pull|merge_requests)\/(\d+)(?:\/|$)/.exec(
+    path
+  );
+  return match ? `#${match[2]} · ${match[1]}` : null;
+}
 
 export function LinkAttachment({
   href,
@@ -121,6 +137,10 @@ export function LinkAttachment({
   testId: string;
 }): JSX.Element {
   const host = hostOf(href);
+  const reference =
+    resourceKind === "pr" || isPullRequestUrl(href)
+      ? pullRequestReference(href)
+      : null;
   const inApp = href.startsWith("/") && !href.startsWith("//");
   const resourceLabel =
     resourceKind === "pr"
@@ -146,9 +166,7 @@ export function LinkAttachment({
         <span className="block truncate text-label-xs leading-3 text-muted-foreground">
           {inApp
             ? "Opens in Dispatch"
-            : title && host
-              ? host
-              : "Opens in a new tab"}
+            : (reference ?? (title && host ? host : "Opens in a new tab"))}
         </span>
       </span>
       <ArrowUpRight
@@ -161,14 +179,14 @@ export function LinkAttachment({
     <AttachmentBlock
       data-testid={testId}
       className={cn(
-        "w-full rounded-sm border-border-subtle bg-surface-hover md:w-fit md:max-w-xs",
+        "w-full md:w-fit md:max-w-xs",
         fullWidth && "md:w-full md:max-w-none"
       )}
     >
       {inApp ? (
         <Link
           to={href}
-          className="group/link flex w-full min-w-0 items-center gap-2 px-2 py-1 text-left transition-colors hover:bg-surface-hover focus-ring-inset max-md:min-h-11"
+          className={LINK_ROW}
           title={href}
           aria-label={accessibleLabel}
         >
@@ -179,7 +197,7 @@ export function LinkAttachment({
           href={href}
           target="_blank"
           rel="noreferrer"
-          className="group/link flex w-full min-w-0 items-center gap-2 px-2 py-1 text-left transition-colors hover:bg-surface-hover focus-ring-inset max-md:min-h-11"
+          className={LINK_ROW}
           title={href}
           aria-label={accessibleLabel}
         >
@@ -249,10 +267,9 @@ export function FileAttachment({
   if (attachment.media === "image") {
     return (
       <AttachmentBlock data-testid="chat-attachment-image">
-        <button
-          type="button"
+        <RowButton
           onClick={open}
-          className="block max-w-xs text-left"
+          className="block max-w-xs rounded-none"
           title={attachment.fileName}
         >
           <span className="block border-b border-border-subtle bg-background/veil">
@@ -278,7 +295,7 @@ export function FileAttachment({
               {formatBytes(attachment.sizeBytes)}
             </span>
           </span>
-        </button>
+        </RowButton>
         {attachment.caption ? (
           <p
             data-testid="chat-attachment-caption"
@@ -293,8 +310,7 @@ export function FileAttachment({
   const extension = extensionOf(attachment.fileName);
   return (
     <AttachmentBlock data-testid="chat-attachment-file">
-      <button
-        type="button"
+      <RowButton
         onClick={open}
         className={CARD_ROW}
         title={attachment.fileName}
@@ -316,7 +332,7 @@ export function FileAttachment({
             {formatBytes(attachment.sizeBytes)}
           </span>
         </span>
-      </button>
+      </RowButton>
     </AttachmentBlock>
   );
 }
@@ -331,13 +347,18 @@ function CodeAttachment({
   return (
     <AttachmentBlock className="w-full" data-testid="chat-attachment-code">
       {attachment.path ? (
-        <div className="truncate border-b border-border-subtle px-2 py-1 font-mono text-label-sm text-muted-foreground">
-          {attachment.path}
-        </div>
+        <BlockHeader className="border-b border-border-subtle px-3 py-1.5">
+          <span
+            className="min-w-0 truncate font-mono text-label-sm text-muted-foreground"
+            title={attachment.path}
+          >
+            {attachment.path}
+          </span>
+        </BlockHeader>
       ) : null}
-      <div className="p-1.5 [&_pre]:my-0">
-        <Markdown className="text-body-sm">{source}</Markdown>
-      </div>
+      <BlockBody className="p-1.5 [&_pre]:my-0">
+        <Markdown density="compact">{source}</Markdown>
+      </BlockBody>
     </AttachmentBlock>
   );
 }
@@ -442,33 +463,34 @@ function ImageGallery({
             key={`${attachment.fileId}-${index}`}
             className="min-w-0 sm:w-40"
           >
-            <button
-              type="button"
-              onClick={() =>
-                ctx.onOpenFile(attachment.fileId, order, { captions, index })
-              }
-              className="relative block w-full aspect-square overflow-hidden rounded-md border border-border-subtle bg-surface-subtle transition-opacity hover:opacity-90 focus-ring sm:size-40"
-              title={label}
-              aria-label={more ? `${label}, and ${more - 1} more` : label}
-              data-testid="chat-attachment-gallery-tile"
-            >
-              <img
-                src={tileUrl}
-                srcSet={imageVariantSrcSet(tileUrl, attachment.width)}
-                sizes={galleryTileSizes(attachment.width, attachment.height)}
-                // The button's label names the tile; the image adds nothing.
-                alt=""
-                // From the top: a tall screenshot keeps the header that
-                // identifies the screen.
-                className="h-full w-full object-cover object-top"
-                loading="lazy"
-              />
-              {more ? (
-                <span className="absolute inset-0 flex items-center justify-center bg-scrim text-heading-lg text-media-foreground">
-                  +{more}
-                </span>
-              ) : null}
-            </button>
+            <BlockShell padded={false}>
+              <RowButton
+                onClick={() =>
+                  ctx.onOpenFile(attachment.fileId, order, { captions, index })
+                }
+                className="relative block aspect-square overflow-hidden rounded-none transition-opacity hover:opacity-90"
+                title={label}
+                aria-label={more ? `${label}, and ${more - 1} more` : label}
+                data-testid="chat-attachment-gallery-tile"
+              >
+                <img
+                  src={tileUrl}
+                  srcSet={imageVariantSrcSet(tileUrl, attachment.width)}
+                  sizes={galleryTileSizes(attachment.width, attachment.height)}
+                  // The button's label names the tile; the image adds nothing.
+                  alt=""
+                  // From the top: a tall screenshot keeps the header that
+                  // identifies the screen.
+                  className="h-full w-full object-cover object-top"
+                  loading="lazy"
+                />
+                {more ? (
+                  <span className="absolute inset-0 flex items-center justify-center bg-scrim text-heading-lg text-media-foreground">
+                    +{more}
+                  </span>
+                ) : null}
+              </RowButton>
+            </BlockShell>
             {attachment.caption ? (
               <figcaption
                 data-testid="chat-attachment-caption"

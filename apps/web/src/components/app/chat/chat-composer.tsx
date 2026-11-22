@@ -50,7 +50,7 @@ import {
   type SlashCommand,
 } from "@/components/app/chat/slash-commands";
 import { createClientId } from "@/lib/client-id";
-import { Button } from "@/components/ui/button";
+import { IconButton } from "@/components/ui/icon-button";
 import {
   ComposerDelivery,
   recipientTimings,
@@ -1546,19 +1546,15 @@ export function ChatComposer({
                     onChange={onFileChange}
                     data-testid="chat-composer-file-input"
                   />
-                  <Button
-                    type="button"
-                    size="stream-icon"
-                    variant="ghost"
+                  <IconButton
                     disabled={disabled || attachmentsFull}
                     onClick={() => fileInputRef.current?.click()}
-                    title="Attach a file"
-                    aria-label="Attach a file"
+                    label="Attach a file"
                     data-testid="chat-composer-attach-button"
-                    className="h-9 w-9 shrink-0 rounded-full bg-surface-hover text-muted-foreground pointer-coarse:min-h-11 pointer-coarse:min-w-11"
+                    className="rounded-full bg-surface-hover"
                   >
-                    <Plus className="h-5 w-5" />
-                  </Button>
+                    <Plus />
+                  </IconButton>
                   <ShareTaskPicker
                     disabled={
                       disabled ||
@@ -1581,43 +1577,38 @@ export function ChatComposer({
                       });
                     }}
                   />
-                  <Button
-                    type="button"
-                    size="stream-icon"
-                    variant="ghost"
+                  <IconButton
                     disabled={disabled || !mentionables?.length}
                     onMouseDown={(event) => event.preventDefault()}
                     onClick={openMentions}
-                    title={
+                    tooltip={
                       mentionables?.length
                         ? "Mention an agent (@)"
                         : "No agents available to mention"
                     }
-                    aria-label="Mention an agent"
+                    label="Mention an agent"
                     aria-haspopup="listbox"
                     aria-expanded={mentionOpen}
                     data-testid="chat-composer-mention-button"
-                    className="h-9 w-9 text-muted-foreground pointer-coarse:min-h-11 pointer-coarse:min-w-11"
+                    className="disabled:pointer-events-auto"
                   >
-                    <AtSign className="h-[18px] w-[18px]" />
-                  </Button>
-                  <Button
-                    type="button"
-                    size="stream-icon"
-                    variant="ghost"
+                    <AtSign />
+                  </IconButton>
+                  <IconButton
                     disabled={Boolean(slashUnavailableReason)}
                     onMouseDown={(event) => event.preventDefault()}
                     onClick={openCommands}
-                    title={slashUnavailableReason ?? "Slash commands (/)"}
-                    aria-label="Slash commands"
+                    tooltip={slashUnavailableReason ?? "Slash commands (/)"}
+                    aria-description={slashUnavailableReason ?? undefined}
+                    label="Slash commands"
                     aria-haspopup="listbox"
                     aria-expanded={slashOpen}
                     aria-controls={slashOpen ? slashListId : undefined}
                     data-testid="chat-composer-command-button"
-                    className="h-9 w-9 text-muted-foreground pointer-coarse:min-h-11 pointer-coarse:min-w-11"
+                    className="disabled:pointer-events-auto"
                   >
-                    <SquareSlash className="h-[18px] w-[18px]" />
-                  </Button>
+                    <SquareSlash />
+                  </IconButton>
                 </div>
 
                 <div className="flex items-center gap-1 pointer-coarse:gap-0">
@@ -1644,22 +1635,18 @@ export function ChatComposer({
                             className="inline-flex"
                             data-testid="chat-composer-send-trigger"
                           >
-                            <Button
+                            <IconButton
                               type="submit"
-                              size="stream-icon"
                               variant={canSend ? "primary" : "ghost"}
                               disabled={!canSend}
-                              aria-label="Send message"
+                              label="Send message"
+                              // The span around it has the tooltip, which
+                              // also says why a send is held.
+                              tooltip=""
                               data-testid="chat-composer-send"
-                              className={cn(
-                                "h-9 w-9 pointer-coarse:min-h-11 pointer-coarse:min-w-11"
-                              )}
                             >
-                              <SendHorizontal
-                                className="h-4 w-4"
-                                aria-hidden="true"
-                              />
-                            </Button>
+                              <SendHorizontal aria-hidden="true" />
+                            </IconButton>
                           </span>
                         </TooltipTrigger>
                         <TooltipContent

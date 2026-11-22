@@ -1,4 +1,4 @@
-import { ProjectSwitcher } from "./project-switcher";
+import { SidebarTop } from "./sidebar-top";
 import { useProjectScope } from "@/hooks/use-projects";
 import { useProjectNavigate } from "@/hooks/use-projects";
 import { useCallback, useState } from "react";
@@ -84,7 +84,7 @@ function AutomationsSidebar({
           onItemSelect={onItemSelect}
         />
       ) : activeTab === "jobs" ? (
-        <JobListContent onItemSelect={onItemSelect} hideHeader />
+        <JobListContent onItemSelect={onItemSelect} />
       ) : (
         <BrainsListContent onItemSelect={onItemSelect} />
       )}
@@ -111,15 +111,18 @@ function TemplateListContent({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex items-center gap-2 px-3 py-2">
-        <div className="min-w-0 flex-1">
-          <ProjectSwitcher />
-        </div>
-        <Button size="sm" onClick={() => setShowCreate(true)}>
-          <FormInput />
-          Create
-        </Button>
-      </div>
+      <SidebarTop
+        action={
+          <Button
+            size="sm"
+            variant="primary"
+            onClick={() => setShowCreate(true)}
+          >
+            <FormInput />
+            New template
+          </Button>
+        }
+      />
       <div className="min-h-0 flex-1 overflow-y-auto">
         <AsyncBoundary
           query={query}

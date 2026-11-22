@@ -1,4 +1,4 @@
-import { ProjectSwitcher } from "./project-switcher";
+import { SidebarTop } from "./sidebar-top";
 import { useProjectScope } from "@/hooks/use-projects";
 import { Activity, AlarmClock, Clock } from "lucide-react";
 
@@ -15,10 +15,8 @@ import { Alert } from "@/components/ui/alert";
 /** Job list content for the unified sidebar. */
 export function JobListContent({
   onItemSelect,
-  hideHeader,
 }: {
   onItemSelect?: () => void;
-  hideHeader?: boolean;
 }): JSX.Element {
   const {
     jobs: allJobs,
@@ -37,39 +35,19 @@ export function JobListContent({
     : allJobs;
   return (
     <div data-testid="jobs-sidebar" className="flex min-h-0 flex-1 flex-col">
-      {hideHeader ? (
-        <div className="flex items-center gap-2 px-3 py-2">
-          <div className="min-w-0 flex-1">
-            <ProjectSwitcher />
-          </div>
+      <SidebarTop
+        action={
           <Button
             size="sm"
-            className="bg-surface-subtle text-muted-foreground hover:bg-surface-hover hover:text-foreground"
+            variant="primary"
             onClick={openAddJob}
             data-testid="add-job-button"
           >
             <AlarmClock />
-            Create
+            New job
           </Button>
-        </div>
-      ) : (
-        <div className="mt-2 flex h-14 items-center border-b border-border px-3">
-          <div className="mr-2 min-w-0 flex-1">
-            <ProjectSwitcher />
-          </div>
-          <div className="ml-auto flex items-center">
-            <Button
-              size="sm"
-              className="bg-surface-subtle text-muted-foreground hover:bg-surface-hover hover:text-foreground"
-              onClick={openAddJob}
-              data-testid="add-job-button"
-            >
-              <AlarmClock />
-              Create
-            </Button>
-          </div>
-        </div>
-      )}
+        }
+      />
 
       <div
         data-testid="jobs-sidebar-scroll"

@@ -4,7 +4,10 @@ import { fetchAuthStatus, type AuthStatus } from "@/hooks/use-auth";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
+import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { StatusDot, type StatusDotTone } from "@/components/ui/status-dot";
+import { Hint } from "@/components/ui/tooltip";
 import { SetPasswordForm } from "@/components/app/set-password-form";
 import { MobileTerminalControls } from "./mobile-terminal-controls";
 import { applyCtrl } from "./terminal-input";
@@ -37,6 +40,17 @@ const STATUS_LABELS = {
   endPending: "End pending",
 } as const;
 type Status = keyof typeof STATUS_LABELS | { exitCode: number };
+const STATUS_TONES: Record<keyof typeof STATUS_LABELS, StatusDotTone> = {
+  connecting: "info",
+  connected: "success",
+  reconnecting: "warning",
+  connectionFailed: "danger",
+  unavailable: "danger",
+  ending: "info",
+  ended: "neutral",
+  endFailed: "danger",
+  endPending: "warning",
+};
 
 function sessionKey(agentId: string) {
   return `dispatch:human-terminal:${agentId}`;
@@ -442,6 +456,8 @@ export default function TerminalPanel({
     typeof status === "object"
       ? `Exited (${status.exitCode})`
       : STATUS_LABELS[status];
+  const statusTone =
+    typeof status === "object" ? "neutral" : STATUS_TONES[status];
   return (
     <section
       className="flex min-h-0 flex-1 flex-col gap-2 p-3"
@@ -452,21 +468,27 @@ export default function TerminalPanel({
       }}
     >
       <div className="min-w-0 text-body-sm text-muted-foreground">
-        <p
-          className="truncate"
-          title={info ? `${info.user}@${info.host}` : undefined}
-        >
-          {info ? `${info.user}@${info.host}` : "Dispatch host"}
-        </p>
-        {info && (
-          <p className="truncate" title={info.cwd}>
-            {info.cwd}
+        <Hint label={info ? `${info.user}@${info.host}` : null}>
+          {/* Focusable, so the keyboard can read what is cut off. */}
+          <p
+            tabIndex={info ? 0 : undefined}
+            className="truncate rounded-sm focus-ring-inset"
+          >
+            {info ? `${info.user}@${info.host}` : "Dispatch host"}
           </p>
+        </Hint>
+        {info && (
+          <Hint label={info.cwd}>
+            <p tabIndex={0} className="truncate rounded-sm focus-ring-inset">
+              {info.cwd}
+            </p>
+          </Hint>
         )}
       </div>
       <div className="flex flex-wrap items-center gap-2 text-body-sm">
-        <span role="status" className="mr-auto">
-          {statusLabel}
+        <span className="mr-auto flex min-w-0 items-center gap-1.5">
+          <StatusDot tone={statusTone} data-tone={statusTone} />
+          <span role="status">{statusLabel}</span>
         </span>
         {(info || status === "endPending" || status === "endFailed") &&
           !finished && (
@@ -500,9 +522,7 @@ export default function TerminalPanel({
         )}
       </div>
       {info?.unencrypted && (
-        <p className="text-body-sm text-warning">
-          Unencrypted connection on this network.
-        </p>
+        <Alert tone="warning" title="Unencrypted connection on this network." />
       )}
       {error && (
         <p role="alert" className="text-body-sm text-danger">

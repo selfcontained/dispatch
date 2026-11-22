@@ -23,6 +23,12 @@ vi.mock("@/hooks/use-tasks", () => ({
     data: { columns: [{ id: "done", name: "Completed", isDone: true }] },
   }),
 }));
+const identity = vi.hoisted(() => ({
+  record: null as { name: string; archived: boolean } | null,
+}));
+vi.mock("@/hooks/use-agent-tree", () => ({
+  useAgentRecord: () => identity.record,
+}));
 vi.mock("@/hooks/use-projects", () => ({
   useProjects: () => ({ data: [{ id: "p1", name: "Dispatch" }] }),
 }));
@@ -30,6 +36,7 @@ afterEach(() => {
   cleanup();
   query.error = null;
   query.isPending = false;
+  identity.record = null;
 });
 const block = { kind: "task", data: { taskId: "tsk_012345abcdef" } } as Extract<
   Block,
@@ -75,6 +82,13 @@ it("replaces cached task fields with a safe unavailable state on error", () => {
   expect(screen.getByText(block.data.taskId)).toBeTruthy();
   expect(screen.queryByTestId("stream-task-card")).toBeNull();
   expect(screen.queryByText("Updated title")).toBeNull();
+});
+it("names an archived assignee the stream's directory has no name for", () => {
+  identity.record = { name: "Retired builder", archived: true };
+  render(<View />);
+  const card = screen.getByTestId("stream-task-card");
+  expect(card.textContent).toContain("Retired builder");
+  expect(card.textContent).not.toContain("Unassigned");
 });
 it("reserves space while loading", () => {
   query.isPending = true;

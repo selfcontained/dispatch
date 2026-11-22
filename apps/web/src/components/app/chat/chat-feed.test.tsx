@@ -3375,7 +3375,9 @@ describe("response backlinks", () => {
       name: "Send now (stops current turn)",
     });
     expect(button.getAttribute("data-send-now")).toBe("interrupt");
-    expect(button.getAttribute("title")).toContain("Stop the current turn");
+    expect(button.getAttribute("aria-description")).toContain(
+      "Stop the current turn"
+    );
     fireEvent.click(button);
     await waitFor(() =>
       expect(api).toHaveBeenCalledWith(

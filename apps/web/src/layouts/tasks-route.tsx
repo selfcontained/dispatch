@@ -8,6 +8,7 @@ import { formatDateTime, formatRelativeCompact } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { SectionShell } from "./section-shell";
 import { ProjectSwitcher } from "@/components/app/project-switcher";
+import { SidebarTop } from "@/components/app/sidebar-top";
 import { ProjectIcon } from "@/components/app/project-location";
 import { useDashboardContext } from "@/components/app/dashboard-context";
 import { useProjects, useProjectScope } from "@/hooks/use-projects";
@@ -180,13 +181,17 @@ function TasksContent({ projectId }: { projectId: string }) {
     });
   };
   const sidebar = (
-    <div className="space-y-4 p-3">
-      <ProjectSwitcher allowAll={false} />
-      <Button className="w-full justify-start" onClick={() => startNewTask()}>
-        <Plus />
-        New task
-      </Button>
-      <div>
+    <div>
+      <SidebarTop
+        scope={<ProjectSwitcher allowAll={false} />}
+        action={
+          <Button size="sm" variant="primary" onClick={() => startNewTask()}>
+            <Plus />
+            New task
+          </Button>
+        }
+      />
+      <div className="p-3">
         <h2 className="mb-2 px-2 section-label">Columns</h2>
         {columns.map((column, index) => (
           <RowButton
@@ -538,11 +543,7 @@ export function TasksRoute(): JSX.Element {
   ) : (
     <SectionShell
       activeSection="tasks"
-      sidebar={
-        <div className="p-3">
-          <ProjectSwitcher allowAll={false} />
-        </div>
-      }
+      sidebar={<SidebarTop scope={<ProjectSwitcher allowAll={false} />} />}
     >
       <PageHeader title="Tasks" />
       {/* Boards are per project, so with none chosen the page is the choice. */}

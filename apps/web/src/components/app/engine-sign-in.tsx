@@ -24,6 +24,7 @@ export function EngineSignIn({
   since,
   onSignedIn,
   extra,
+  primary = false,
 }: {
   engine: EngineLoginEngine;
   /**
@@ -37,6 +38,8 @@ export function EngineSignIn({
   onSignedIn?: (login: EngineLogin) => void;
   /** Shown beside Sign in while nothing is under way. */
   extra?: ReactNode;
+  /** Sign in is the one primary action, as in a failed turn's Alert. */
+  primary?: boolean;
 }): JSX.Element {
   const flow = useEngineLogin(engine);
   const { login } = flow;
@@ -54,6 +57,9 @@ export function EngineSignIn({
     onSignedInRef.current?.(signedIn);
   }, [signedIn]);
 
+  const lead = primary
+    ? ({ size: "sm", variant: "primary" } as const)
+    : ({ size: "xs", variant: "secondary" } as const);
   const startOver = () => {
     setCode("");
     flow.start(true);
@@ -83,10 +89,10 @@ export function EngineSignIn({
         <p role="alert" className="text-body-sm text-danger">
           {flow.error?.message ?? login?.error ?? "The sign-in failed."}
         </p>
-        <div className="flex flex-wrap items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2">
           <Button
             type="button"
-            size="xs"
+            {...lead}
             onClick={startOver}
             disabled={flow.starting}
           >
@@ -100,10 +106,10 @@ export function EngineSignIn({
 
   if (!isLoginActive(login)) {
     return (
-      <div className="flex flex-wrap items-center gap-3">
+      <div className="flex flex-wrap items-center gap-2">
         <Button
           type="button"
-          size="xs"
+          {...lead}
           onClick={() => flow.start()}
           disabled={flow.starting || !flow.loaded}
           data-testid="engine-sign-in-start"

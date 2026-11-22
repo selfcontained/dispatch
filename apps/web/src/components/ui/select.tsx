@@ -26,13 +26,20 @@ export const selectTriggerClassName = cn(
 
 const SelectTrigger = React.forwardRef<
   React.ElementRef<typeof SelectPrimitive.Trigger>,
-  React.ComponentPropsWithoutRef<typeof SelectPrimitive.Trigger>
->(({ className, children, ...rest }, ref) => {
+  React.ComponentPropsWithoutRef<typeof SelectPrimitive.Trigger> & {
+    /** 28px, for a field inside a stream block or another dense surface. */
+    dense?: boolean;
+  }
+>(({ className, children, dense, ...rest }, ref) => {
   const props = useFieldControl(rest);
   return (
     <SelectPrimitive.Trigger
       ref={ref}
-      className={cn(selectTriggerClassName, className)}
+      className={cn(
+        selectTriggerClassName,
+        dense && "h-7 px-2 py-0 text-body-sm",
+        className
+      )}
       {...props}
     >
       {children}

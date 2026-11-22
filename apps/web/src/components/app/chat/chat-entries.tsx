@@ -46,6 +46,13 @@ import { type Agent } from "@/components/app/types";
 import { Button } from "@/components/ui/button";
 import { Markdown } from "@/components/ui/markdown";
 import { CopyButton } from "@/components/ui/copy-button";
+import {
+  BlockBody as BlockShellBody,
+  BlockShell,
+} from "@/components/ui/block-shell";
+import { CountBubble } from "@/components/ui/count-bubble";
+import { IconButton } from "@/components/ui/icon-button";
+import { RowButton } from "@/components/ui/row-button";
 import { type AgentRelation, agentRelation } from "@/lib/agent-lineage";
 import { AgentRelationBadge } from "@/components/app/agent-relation-badge";
 import { AgentSeatBadge } from "@/components/app/agent-seat-badge";
@@ -642,20 +649,17 @@ export function ReplyInThreadButton({
   onClick: () => void;
 }): JSX.Element {
   return (
-    <Button
-      type="button"
-      variant="ghost"
-      size="stream-icon"
+    <IconButton
+      size="icon-sm"
       className={POST_ACTION_BUTTON}
       onClick={onClick}
-      title="Reply in thread"
-      aria-label="Reply in thread"
+      label="Reply in thread"
       data-testid="chat-reply-in-thread"
     >
       <span className={POST_ACTION_FACE}>
-        <MessageSquarePlus className="h-3.5 w-3.5" aria-hidden="true" />
+        <MessageSquarePlus className="size-icon-md" aria-hidden="true" />
       </span>
-    </Button>
+    </IconButton>
   );
 }
 
@@ -788,7 +792,7 @@ export function Post({
             deliveryIndicator ? null : (
               <span
                 // Hidden on phones: the body runs under it there.
-                className="invisible whitespace-nowrap pt-1 text-label-xs leading-none text-muted-foreground group-hover:visible max-sm:hidden"
+                className="invisible whitespace-nowrap pt-1 text-label-xs leading-none text-muted-foreground group-hover:visible max-sm:hidden post-narrow:hidden"
                 title={formatDateTime(at)}
                 data-testid="chat-gutter-time"
               >
@@ -848,7 +852,7 @@ export function Post({
                 "flex items-center leading-tight",
                 // Shifted, not margined: as a flex box beside the action
                 // float it ignores a negative margin.
-                !flush && "max-sm:-translate-x-11"
+                !flush && "max-sm:-translate-x-11 post-narrow:-translate-x-11"
               )}
               data-testid="chat-grouped-receipt-header"
             >
@@ -866,7 +870,7 @@ export function Post({
             // and a 2px ring) to keep the body clear of both.
             className={cn(
               "flex flex-wrap items-baseline gap-x-2 gap-y-0.5 leading-tight",
-              !flush && "max-sm:min-h-10"
+              !flush && "max-sm:min-h-10 post-narrow:min-h-10"
             )}
             {...(showRecipient && side
               ? {
@@ -929,7 +933,9 @@ export function Post({
             POST_BODY_MEASURE,
             // On phones the body takes the avatar column's width too (w-8 +
             // gap-3); on desktop it stays indented under the author.
-            !flush && !hideHeader && "max-sm:-ml-11 max-sm:max-w-none"
+            !flush &&
+              !hideHeader &&
+              "max-sm:-ml-11 max-sm:max-w-none post-narrow:-ml-11 post-narrow:max-w-none"
           )}
         >
           {children}
@@ -1009,9 +1015,8 @@ function ThreadLine({
   const repliers = block.repliers ?? [];
   const last = block.lastReplyAt ? formatRelativeTime(block.lastReplyAt) : "";
   return (
-    <button
-      type="button"
-      className="group/thread mt-2 flex w-fit max-w-full items-center gap-2 text-label-sm leading-none disabled:cursor-default"
+    <RowButton
+      className="group/thread -ml-1 mt-1 w-fit max-w-full px-1 py-1 text-label-sm leading-none disabled:cursor-default disabled:opacity-100"
       disabled={!onOpen}
       data-testid="chat-thread-line"
       data-reply-count={String(count)}
@@ -1042,15 +1047,14 @@ function ThreadLine({
         {count} {count === 1 ? "reply" : "replies"}
       </span>
       {unread > 0 ? (
-        <span
-          className="rounded-full bg-info px-1.5 py-0.5 text-label-xs font-semibold text-background"
+        <CountBubble
+          tone="info"
+          count={`${unread} new`}
           data-testid="chat-thread-unread"
-        >
-          {unread} new
-        </span>
+        />
       ) : null}
       {last ? <span className="text-muted-foreground">last {last}</span> : null}
-    </button>
+    </RowButton>
   );
 }
 
@@ -1113,18 +1117,15 @@ function InputSurface({
       : block.state?.submission !== undefined)
   );
   return (
-    <div
+    <BlockShell
+      level="ask"
+      state={resolved ? "closed" : "waiting"}
+      className="mt-1"
       data-testid="chat-input-surface"
       data-state={resolved ? "resolved" : "open"}
-      className={cn(
-        "min-w-0 rounded-r-md border-l-[3px] px-3 py-2",
-        resolved
-          ? "border-border bg-transparent"
-          : "border-primary bg-primary/wash"
-      )}
     >
-      {children}
-    </div>
+      <BlockShellBody>{children}</BlockShellBody>
+    </BlockShell>
   );
 }
 
@@ -1173,7 +1174,13 @@ function BlockBody({
     case "metric":
     case "chart":
       return (
-        <Suspense fallback={<p>Loading visualization…</p>}>
+        <Suspense
+          fallback={
+            <BlockShell className="max-w-2xl text-body-sm text-muted-foreground">
+              <p>Loading visualization…</p>
+            </BlockShell>
+          }
+        >
           <VisualizationBlock kind={block.kind} data={block.data} />
         </Suspense>
       );
@@ -1229,7 +1236,7 @@ function BlockBody({
       );
     case "finding":
       return (
-        <div className="mt-1">
+        <BlockShell level="plain" className="mt-1">
           <FindingDetail
             block={block}
             disabled={answersDisabled || !onSetBlockState}
@@ -1247,7 +1254,7 @@ function BlockBody({
                   : agentDisplayName(by.agentId, ctx)
             }
           />
-        </div>
+        </BlockShell>
       );
     case "launch":
       return <LaunchCard block={block} ctx={ctx} inThread={inThread} />;
@@ -1267,9 +1274,9 @@ function BlockBody({
       return null;
     default:
       return (
-        <p className="text-body-sm text-muted-foreground">
-          Unsupported block type.
-        </p>
+        <BlockShell className="text-body-sm text-muted-foreground">
+          <p>Unsupported block type.</p>
+        </BlockShell>
       );
   }
 }
@@ -1579,23 +1586,22 @@ function LaunchCard({
     );
   }
   return (
-    <div
+    <BlockShell
+      level="plain"
       className="mx-3 my-4 sm:mx-4 sm:my-4"
       data-testid="chat-compact-launch"
       data-block-id={block.id}
     >
       <LaunchHomeLink agentId={block.toAgentId!} name={name} />
       {!inThread && ctx.onOpenThread ? (
-        <Button
-          size="stream-md"
-          variant="ghost"
-          className="flex h-auto min-h-11 w-full items-center gap-2 rounded-md px-1 py-2 text-left sm:hidden"
+        <RowButton
+          className="min-h-11 px-1 py-2 sm:hidden"
           data-testid="launch-open-thread-mobile"
           aria-label={`${startupIssue ? `${startupIssue}: ` : ""}Open launch thread for ${name}`}
           onClick={() => ctx.onOpenThread?.(block.id)}
         >
           {mobileSummary}
-        </Button>
+        </RowButton>
       ) : (
         <div className="flex min-h-11 items-center gap-2 px-1 py-2 sm:hidden">
           {mobileSummary}
@@ -1622,9 +1628,9 @@ function LaunchCard({
           <div className="flex min-w-0 items-center gap-2 whitespace-nowrap leading-[21px]">
             {startupIssue && !inThread && ctx.onOpenThread ? (
               <Button
-                size="stream-md"
-                variant="ghost"
-                className="h-auto shrink-0 px-0 py-0 text-label-xs font-normal text-danger hover:bg-transparent hover:text-danger hover:underline"
+                size="inline"
+                variant="link"
+                className="shrink-0 text-label-xs text-danger"
                 data-testid="launch-startup-note"
                 aria-label={`${startupIssue}: Open launch thread for ${name}`}
                 onClick={() => ctx.onOpenThread?.(block.id)}
@@ -1675,23 +1681,19 @@ function LaunchCard({
         </div>
         <span className="h-px min-w-0 flex-1 bg-border" aria-hidden="true" />
         {!inThread && ctx.onOpenThread ? (
-          <Button
-            variant="ghost"
-            size="stream-icon"
-            className="h-8 w-8 shrink-0 text-muted-foreground"
+          <IconButton
             data-testid="launch-open-thread"
             onClick={() => ctx.onOpenThread?.(block.id)}
-            aria-label={`Open launch thread for ${name}`}
-            title={`Open launch thread for ${name}`}
+            label={`Open launch thread for ${name}`}
           >
-            <ChevronRight className="h-4 w-4" aria-hidden="true" />
-          </Button>
+            <ChevronRight aria-hidden="true" />
+          </IconButton>
         ) : null}
       </div>
       {inThread && startupIssue ? <LaunchStartup block={block} /> : null}
       {inThread ? <LaunchBriefing block={block} ctx={ctx} /> : null}
       <LaunchReviews block={block} ctx={ctx} inThread={inThread} />
-    </div>
+    </BlockShell>
   );
 }
 

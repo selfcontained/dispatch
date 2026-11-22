@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { BlockShell } from "@/components/ui/block-shell";
 import {
   Collapsible,
   CollapsibleContent,
@@ -159,10 +160,10 @@ export function SystemEventEntry({
   );
   if (inline)
     return (
-      <div
+      <BlockShell
         role="group"
         aria-label={`Dispatch system observation: ${event.summary}`}
-        className="my-1 rounded-md border bg-card px-3 py-3 text-body-md"
+        className="my-1 text-body-md"
       >
         <div className="flex items-start gap-2">
           {icon ?? (
@@ -192,57 +193,57 @@ export function SystemEventEntry({
             </div>
           </div>
         </div>
-      </div>
+      </BlockShell>
     );
   return (
-    <Collapsible
-      role="group"
-      aria-label={`Dispatch system observation: ${event.summary}`}
-      defaultOpen={event.defaultOpen}
-      className="my-1 rounded-md border bg-card px-3 py-3 text-body-md"
-    >
-      <div className="flex items-start gap-2">
-        {icon ?? (
-          <Icon aria-hidden className={`mt-0.5 size-4 shrink-0 ${iconColor}`} />
-        )}
-        <div className="min-w-0 flex-1">
-          {header}
-          {time}
-          {visibleContent}
-          {resource}
-          <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-label-sm text-muted-foreground">
-            {commit}
-            <CollapsibleTrigger asChild>
-              <Button
-                variant="ghost"
-                size="stream-sm"
-                className="ml-auto h-5 gap-1 bg-transparent px-1 text-body-sm hover:bg-transparent hover:text-foreground focus-visible:bg-transparent data-[state=open]:bg-transparent"
-              >
-                Details
-                <ChevronDown className="size-3" />
-              </Button>
-            </CollapsibleTrigger>
+    <BlockShell asChild className="my-1 text-body-md">
+      <Collapsible
+        role="group"
+        aria-label={`Dispatch system observation: ${event.summary}`}
+        defaultOpen={event.defaultOpen}
+      >
+        <div className="flex items-start gap-2">
+          {icon ?? (
+            <Icon
+              aria-hidden
+              className={`mt-0.5 size-4 shrink-0 ${iconColor}`}
+            />
+          )}
+          <div className="min-w-0 flex-1">
+            {header}
+            {time}
+            {visibleContent}
+            {resource}
+            <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-label-sm text-muted-foreground">
+              {commit}
+              <CollapsibleTrigger asChild>
+                <Button variant="ghost" size="xs" className="ml-auto">
+                  Details
+                  <ChevronDown aria-hidden="true" />
+                </Button>
+              </CollapsibleTrigger>
+            </div>
           </div>
         </div>
-      </div>
-      <CollapsibleContent className="mt-3 ml-6 border-t pt-3 font-sans text-body-md leading-relaxed">
-        {event.details ? (
-          <>
-            <p className="mb-1 text-body-sm font-medium text-muted-foreground">
-              Observation details
+        <CollapsibleContent className="mt-3 ml-6 border-t pt-3 font-sans text-body-md leading-relaxed">
+          {event.details ? (
+            <>
+              <p className="mb-1 text-body-sm font-medium text-muted-foreground">
+                Observation details
+              </p>
+              <div className="break-words">
+                <Markdown>{event.details}</Markdown>
+              </div>
+            </>
+          ) : null}
+          {children}
+          {event.category !== "info" ? (
+            <p className="mt-3 text-body-sm text-muted-foreground">
+              Informational · Not merge approval or authorization.
             </p>
-            <div className="break-words">
-              <Markdown>{event.details}</Markdown>
-            </div>
-          </>
-        ) : null}
-        {children}
-        {event.category !== "info" ? (
-          <p className="mt-3 text-body-sm text-muted-foreground">
-            Informational · Not merge approval or authorization.
-          </p>
-        ) : null}
-      </CollapsibleContent>
-    </Collapsible>
+          ) : null}
+        </CollapsibleContent>
+      </Collapsible>
+    </BlockShell>
   );
 }

@@ -18,6 +18,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { IconButton } from "@/components/ui/icon-button";
+import { Textarea } from "@/components/ui/textarea";
 
 export function InlineDraftAnnotation({
   draft,
@@ -75,15 +76,17 @@ export function InlineDraftAnnotation({
           <span className="font-medium text-foreground">Edit draft</span>
         </div>
         <div className="p-3">
-          <textarea
-            className="w-full resize-none rounded-sm border border-border bg-surface-subtle px-3 py-2 text-body-sm text-foreground placeholder:text-muted-foreground focus-ring"
+          <Textarea
+            dense
+            aria-label={`Draft comment on ${lineLabel.toLowerCase()}`}
+            className="resize-none"
             rows={3}
             value={editValue}
             onChange={(e) => setEditValue(e.target.value)}
             onKeyDown={handleKeyDown}
             autoFocus
           />
-          <div className="mt-2 flex items-center justify-end gap-2">
+          <div className="mt-2 flex flex-wrap items-center justify-end gap-2">
             <Button
               type="button"
               variant="ghost"

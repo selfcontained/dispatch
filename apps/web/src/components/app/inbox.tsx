@@ -20,6 +20,7 @@ import {
 import { LinkAttachment } from "@/components/app/chat/chat-attachment-views";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { BlockShell } from "@/components/ui/block-shell";
 import { Markdown } from "@/components/ui/markdown";
 import { CountBubble } from "@/components/ui/count-bubble";
 import { RowButton } from "@/components/ui/row-button";
@@ -152,8 +153,10 @@ function InboxInputCard({
   const actionPending =
     answer.isPending || submit.isPending || setState.isPending;
   return (
-    <div
-      className="mx-3 mb-2 rounded-md border border-border-subtle bg-card/veil px-3 py-2"
+    <BlockShell
+      level="ask"
+      state="waiting"
+      className="mx-3 mb-2"
       data-testid="inbox-input"
       data-block-id={block.id}
       data-kind={block.kind}
@@ -214,7 +217,7 @@ function InboxInputCard({
           {error ?? cancelError}
         </div>
       ) : null}
-    </div>
+    </BlockShell>
   );
 }
 
@@ -240,8 +243,10 @@ function InboxReviewCard({
   const status = reviewStatus(findings);
   const standing = REVIEW_STATUS[status];
   return (
-    <div
-      className="mx-3 mb-2 flex w-[calc(100%-1.5rem)] flex-col gap-1 rounded-md border border-border-subtle bg-card/veil px-3 py-2 text-left hover:bg-surface-hover"
+    <BlockShell
+      level="ask"
+      state={standing.state}
+      className="mx-3 mb-2 flex flex-col gap-1 text-left hover:bg-surface-hover"
       data-testid="inbox-review"
       data-block-id={review.id}
       data-status={status}
@@ -292,7 +297,7 @@ function InboxReviewCard({
           {findingsSummary(review)}
         </span>
       </RowButton>
-    </div>
+    </BlockShell>
   );
 }
 

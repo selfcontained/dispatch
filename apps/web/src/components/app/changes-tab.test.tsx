@@ -698,9 +698,9 @@ describe("ChangesTab", () => {
     });
     await waitForFile("src/util.ts");
 
-    expect(screen.queryByText("Review Mode")).toBeNull();
+    expect(screen.queryByText("Review mode")).toBeNull();
     callDiffViewProp("src/app.ts", "onStartReview");
-    expect(screen.getByText("Review Mode")).toBeTruthy();
+    expect(screen.getByText("Review mode")).toBeTruthy();
     expect(screen.getByText("0 comments")).toBeTruthy();
 
     callDiffViewProp("src/app.ts", "onAddDraft", "src/app.ts", 2, 3, "first");
@@ -749,7 +749,7 @@ describe("ChangesTab", () => {
     expect(screen.getByText("1 comment")).toBeTruthy();
 
     callDiffViewProp("src/util.ts", "onRemoveDraft", "draft-1");
-    expect(screen.queryByText("Review Mode")).toBeNull();
+    expect(screen.queryByText("Review mode")).toBeNull();
     expect(store.get(reviewDraftAtomFamily(AGENT_ID)).reviewMode).toBe(false);
   });
 
@@ -767,7 +767,7 @@ describe("ChangesTab", () => {
       await screen.findByRole("button", { name: "Discard review" })
     );
 
-    expect(screen.queryByText("Review Mode")).toBeNull();
+    expect(screen.queryByText("Review mode")).toBeNull();
     expect(store.get(reviewDraftAtomFamily(AGENT_ID))).toEqual({
       reviewMode: false,
       drafts: [],

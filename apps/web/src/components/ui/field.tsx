@@ -28,6 +28,11 @@ export interface FieldProps {
   required?: boolean;
   /** Several controls under one label, such as a list of choices. */
   group?: boolean;
+  /**
+   * "responsive": label above, or to the left once the nearest container
+   * (`[container-type:inline-size]`) is 640px wide.
+   */
+  layout?: "stacked" | "responsive";
   /** The control's id, where it needs a fixed one. */
   id?: string;
   className?: string;
@@ -45,6 +50,7 @@ export function Field({
   required,
   group,
   id,
+  layout = "stacked",
   className,
   children,
 }: FieldProps): JSX.Element {
@@ -61,10 +67,17 @@ export function Field({
     [controlId, describedBy, invalid, required]
   );
   const Label = group ? "span" : "label";
+  const responsive = layout === "responsive";
+  const aside = responsive && "block-wide:col-start-2";
 
   return (
     <div
-      className={cn("flex min-w-0 flex-col gap-1.5", className)}
+      className={cn(
+        "flex min-w-0 flex-col gap-1.5",
+        responsive &&
+          "block-wide:grid block-wide:grid-cols-[minmax(0,1fr)_minmax(0,2fr)] block-wide:gap-x-3",
+        className
+      )}
       {...(group
         ? {
             role: "group",
@@ -76,6 +89,7 @@ export function Field({
       <div
         className={cn(
           "flex min-h-4 items-center gap-1",
+          responsive && "block-wide:min-h-7 block-wide:self-start",
           labelHidden && "sr-only"
         )}
       >
@@ -104,11 +118,18 @@ export function Field({
         {children}
       </FieldContext.Provider>
       {hint ? (
-        <div id={hintId} className="text-body-sm text-muted-foreground">
+        <div
+          id={hintId}
+          className={cn("text-body-sm text-muted-foreground", aside)}
+        >
           {hint}
         </div>
       ) : null}
-      {error ? <FieldError id={errorId}>{error}</FieldError> : null}
+      {error ? (
+        <FieldError id={errorId} className={cn(aside)}>
+          {error}
+        </FieldError>
+      ) : null}
     </div>
   );
 }

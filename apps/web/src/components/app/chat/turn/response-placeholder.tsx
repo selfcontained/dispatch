@@ -15,6 +15,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { Button } from "@/components/ui/button";
 
 import { useChatRowState } from "../chat-row-state";
 import { cn } from "@/lib/utils";
@@ -821,15 +822,17 @@ export function ResponsePlaceholderVisual({
             </span>
           ) : null}
           {!summary && onShowProgress && textLength > 0 && (
-            <button
+            <Button
               type="button"
+              variant="link"
+              size="inline"
               onClick={onShowProgress}
               aria-label="Show progress text"
               data-testid="chat-response-show-progress"
-              className="ml-auto rounded-sm text-muted-foreground underline-offset-2 hover:text-foreground hover:underline focus-ring"
+              className="ml-auto text-muted-foreground no-underline hover:text-foreground hover:underline"
             >
               Show progress · {formatChars(textLength)}
-            </button>
+            </Button>
           )}
         </div>
       ) : null}

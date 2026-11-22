@@ -3,7 +3,7 @@ import { useMutation } from "@tanstack/react-query";
 import { ChevronDown, Loader2, Square } from "lucide-react";
 
 import type { Agent } from "@/components/app/types";
-import { Button } from "@/components/ui/button";
+import { IconButton } from "@/components/ui/icon-button";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -126,29 +126,28 @@ export function StopTurnButton({
       ? `Choose an agent to stop (${turns.length} active)`
       : "No active turns";
   const button = (
-    <Button
+    <IconButton
       ref={triggerRef}
-      type="button"
-      size="stream-icon"
-      variant="ghost"
-      className="h-9 w-9 shrink-0 text-muted-foreground pointer-coarse:min-h-11 pointer-coarse:min-w-11"
+      className="disabled:pointer-events-auto"
       onClick={single ? () => stop(single) : undefined}
       disabled={turns.length === 0 || singleState === "stopping"}
       data-testid="chat-stop-turn"
       data-active={turns.length > 0 ? "true" : undefined}
-      title={label}
-      aria-label={label}
+      label={label}
       aria-haspopup={turns.length > 1 ? "menu" : undefined}
     >
       {singleState === "stopping" ? (
-        <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+        <Loader2 className="animate-spin" aria-hidden="true" />
       ) : (
-        <Square className="h-3 w-3 fill-current" aria-hidden="true" />
+        // Wrapped: smaller than the size's own icon, to leave room for the chevron.
+        <span className="flex items-center gap-0.5">
+          <Square className="size-icon-sm fill-current" aria-hidden="true" />
+          {turns.length > 1 && (
+            <ChevronDown className="size-icon-sm" aria-hidden="true" />
+          )}
+        </span>
       )}
-      {turns.length > 1 && (
-        <ChevronDown className="ml-0.5 h-3 w-3" aria-hidden="true" />
-      )}
-    </Button>
+    </IconButton>
   );
 
   return (

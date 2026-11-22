@@ -111,7 +111,6 @@ describe("capacity presentation", () => {
     const chip = await screen.findByRole("button", {
       name: "Context: 40% left",
     });
-    expect(chip.title).toBe("Context: 40% left");
     expect(chip.querySelector(".composer-usage-full")!.textContent).toBe(
       "40% left · context"
     );

@@ -5,6 +5,7 @@ import {
   resolveHighlightLanguage,
 } from "@/components/app/file-lightbox-syntax";
 import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
 
 /** The read tool's wrapper: <path>…</path>\n<type>file</type>\n<content>\n1: …</content>. */
 export function parseReadOutput(output: string): {
@@ -125,15 +126,17 @@ export function ExpandableBlock({
         ) : null}
       </div>
       {collapsible ? (
-        <button
+        <Button
           type="button"
+          variant="ghost"
+          size="xs"
           onClick={() => setExpanded((v) => !v)}
           aria-expanded={expanded}
           data-testid="harness-block-toggle"
-          className="w-full border-t border-border-subtle px-2 py-1 text-left text-label-xs text-muted-foreground hover:text-foreground"
+          className="w-full justify-start rounded-t-none border-t border-border-subtle"
         >
           {expanded ? "Collapse" : `Show all ${lineCount} lines`}
-        </button>
+        </Button>
       ) : null}
     </div>
   );

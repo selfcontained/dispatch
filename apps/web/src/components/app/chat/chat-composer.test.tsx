@@ -602,7 +602,9 @@ describe("ChatComposer toolbar pickers", () => {
       "chat-composer-command-button"
     ) as HTMLButtonElement;
     expect(button.disabled).toBe(true);
-    expect(button.title).toContain("Remove attachments");
+    expect(button.getAttribute("aria-description")).toContain(
+      "Remove attachments"
+    );
   });
 
   it("reopens a dismissed slash query without adding another prefix", async () => {

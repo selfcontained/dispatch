@@ -3,6 +3,7 @@ import { FileText, Paperclip } from "lucide-react";
 import { ContextChip } from "@/components/app/context-picker-items";
 import { type ChatDraftFile } from "@/lib/chat-draft";
 import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
 
 /** The `pasted.txt` chip: a long paste turned into a file, with a way back. */
 export function PastedTextChip({
@@ -31,14 +32,16 @@ export function PastedTextChip({
       }
       action={
         status ? null : (
-          <button
+          <Button
             type="button"
+            variant="link"
+            size="inline"
             onClick={onKeepInline}
-            className="shrink-0 underline decoration-dotted underline-offset-2 hover:text-foreground"
+            className="shrink-0 decoration-dotted hover:text-foreground"
             data-testid="chat-attachment-keep-inline"
           >
             keep inline
-          </button>
+          </Button>
         )
       }
       onRemove={onRemove}
