@@ -41,13 +41,11 @@ export const ACTIVITY_LABELS: Record<ActivityCategory, string> = {
 /** Characters of progress text per "writing" piece. */
 export const CHARS_PER_PIECE = 250;
 
-const COLS = 32;
-const ROWS = 4;
-const SLOTS = COLS * ROWS;
+const MIN_COLUMNS = 32;
+const SLOTS = 128;
 const CELL_GAP = 2;
 const MAX_CELL_SIZE = 7.5;
 const ROW_PITCH = MAX_CELL_SIZE + CELL_GAP;
-const CELL_SIZE = `clamp(0px, calc(100cqw / ${COLS} - ${CELL_GAP}px), ${MAX_CELL_SIZE}px)`;
 
 /** Small seeded PRNG: random per turn, stable while that turn runs. */
 function rng(seed: number): () => number {
@@ -241,10 +239,10 @@ export function sequenceCategories(
 }
 
 /** Measure columns against the grid width and keep row spacing independent. */
-export function place(slot: number): string {
-  const x = slot % COLS;
-  const y = Math.floor(slot / COLS);
-  return `translate(calc(${x} * 100cqw / ${COLS}), ${y * ROW_PITCH}px)`;
+function place(slot: number, columns: number): string {
+  const x = slot % columns;
+  const y = Math.floor(slot / columns);
+  return `translate(calc(${x} * 100cqw / ${columns}), ${y * ROW_PITCH}px)`;
 }
 const tint = (color: string, alpha: number) =>
   `color-mix(in srgb, ${color} ${alpha}%, transparent)`;
@@ -252,11 +250,19 @@ const tint = (color: string, alpha: number) =>
 // Center each empty square in its column, just like the moving cells.
 const slotSize = `clamp(0px, calc(100vw - ${CELL_GAP}px), ${MAX_CELL_SIZE}px)`;
 const slotMask = `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100%25' height='100%25'%3E%3Crect style='x:calc((100%25 - ${slotSize}) / 2);width:${slotSize};height:${slotSize}' rx='1.5'/%3E%3C/svg%3E")`;
-const slotStyle: CSSProperties = {
-  maskImage: slotMask,
-  maskSize: `${100 / COLS}% ${ROW_PITCH}px`,
-  maskRepeat: "repeat",
-};
+function slotStyle(columns: number): CSSProperties {
+  const remaining = SLOTS % columns;
+  const lastRow = Math.floor(SLOTS / columns) * ROW_PITCH;
+  const lastWidth = (remaining / columns) * 100;
+  return {
+    maskImage: slotMask,
+    maskSize: `${100 / columns}% ${ROW_PITCH}px`,
+    maskRepeat: "repeat",
+    clipPath: remaining
+      ? `polygon(0 0, 100% 0, 100% ${lastRow}px, ${lastWidth}% ${lastRow}px, ${lastWidth}% 100%, 0 100%)`
+      : undefined,
+  };
+}
 
 /**
  * The response placeholder while a turn runs with progress text off: a
@@ -462,10 +468,24 @@ export function ResponsePlaceholderVisual({
 }): JSX.Element {
   const newest = pieces.length - 1;
   const gridRef = useRef<HTMLDivElement>(null);
+  const [columns, setColumns] = useState(MIN_COLUMNS);
+  const cellSize = `clamp(0px, calc(100cqw / ${columns} - ${CELL_GAP}px), ${MAX_CELL_SIZE}px)`;
+  useEffect(() => {
+    const grid = gridRef.current;
+    if (!grid || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(([entry]) => {
+      if (!entry) return;
+      setColumns(
+        Math.max(MIN_COLUMNS, Math.floor(entry.contentRect.width / ROW_PITCH))
+      );
+    });
+    observer.observe(grid);
+    return () => observer.disconnect();
+  }, []);
   const [label, setLabel] = useState<string | null>(null);
   // A pass can move the group away from a stationary mouse or touch point.
   // Dismiss before the new layout travels rather than keeping a stale anchor.
-  useEffect(() => setLabel(null), [cells, reducedCells]);
+  useEffect(() => setLabel(null), [cells, reducedCells, columns]);
   useEffect(() => {
     if (!label) return;
     const dismiss = (event: PointerEvent) => {
@@ -552,7 +572,10 @@ export function ResponsePlaceholderVisual({
             aria-label={statusLabel}
             className="relative w-full"
             // The container `place()` measures columns against.
-            style={{ height: ROWS * ROW_PITCH, containerType: "inline-size" }}
+            style={{
+              height: Math.ceil(SLOTS / columns) * ROW_PITCH,
+              containerType: "inline-size",
+            }}
           >
             <TooltipTrigger asChild>
               <span
@@ -562,12 +585,15 @@ export function ResponsePlaceholderVisual({
                   left: anchor.left,
                   top: anchor.top,
                   width: anchor.width,
-                  height: CELL_SIZE,
+                  height: cellSize,
                 }}
               />
             </TooltipTrigger>
             <div aria-hidden="true" className="absolute inset-0">
-              <div className="absolute inset-0 bg-muted/40" style={slotStyle} />
+              <div
+                className="absolute inset-0 bg-muted/40"
+                style={slotStyle(columns)}
+              />
               <div className="dispatch-placeholder-colors absolute inset-0">
                 {!quiet &&
                   cells.map((c) => {
@@ -595,14 +621,14 @@ export function ResponsePlaceholderVisual({
                             "--neon-color": c.category
                               ? ACTIVITY_COLORS[c.category]
                               : undefined,
-                            width: `${100 / COLS}%`,
+                            width: `${100 / columns}%`,
                             height: MAX_CELL_SIZE,
-                            transform: place(c.slot),
+                            transform: place(c.slot, columns),
                             // The newest block lights where it is first, then travels.
                             transitionDelay: latest ? "450ms" : "0ms",
                             zIndex: latest ? 2 : 1,
                             "--defrag-packed-transform": packed
-                              ? place(packed.slot)
+                              ? place(packed.slot, columns)
                               : undefined,
                             "--defrag-packed-color": packedColor
                               ? tint(packedColor, 75)
@@ -618,8 +644,8 @@ export function ResponsePlaceholderVisual({
                           }
                           className={`mx-auto block rounded-[1.5px] transition-[background-color] duration-500 motion-reduce:transition-none ${piece && arrivalKeys?.has(piece.key) ? "dispatch-defrag-ack" : ""}`}
                           style={{
-                            width: CELL_SIZE,
-                            height: CELL_SIZE,
+                            width: cellSize,
+                            height: cellSize,
                             background: c.category
                               ? tint(
                                   ACTIVITY_COLORS[c.category],
