@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
   defragCells,
@@ -6,7 +6,7 @@ import {
 } from "./chat/turn/response-placeholder";
 import { type ActivityCategory } from "./chat/turn/activity-category";
 
-const cellCount = defragCells("compaction-study", []).length;
+const SEED = "compaction-study";
 
 /** Same cell identities and collision-free placement as the live defrag. */
 function GreenDefrag({
@@ -16,9 +16,7 @@ function GreenDefrag({
   compacting: boolean;
   nearlyFull: boolean;
 }) {
-  const [categories, setCategories] = useState<ActivityCategory[]>(() =>
-    nearlyFull ? Array.from({ length: cellCount - 3 }, () => "checks") : []
-  );
+  const [categories, setCategories] = useState<ActivityCategory[]>([]);
   useEffect(() => {
     const timer = window.setTimeout(
       () => {
@@ -35,15 +33,23 @@ function GreenDefrag({
     );
     return () => window.clearTimeout(timer);
   }, [compacting, categories]);
-  return <DefragPreviewGrid categories={categories} compacting={compacting} />;
+  return (
+    <DefragPreviewGrid
+      categories={categories}
+      compacting={compacting}
+      nearlyFull={nearlyFull}
+    />
+  );
 }
 
 export function DefragPreviewGrid({
   categories,
   compacting,
+  nearlyFull = false,
 }: {
   categories: ActivityCategory[];
   compacting: boolean;
+  nearlyFull?: boolean;
 }) {
   const [seenCount, setSeenCount] = useState(categories.length);
   const [arrivalKeys, setArrivalKeys] = useState<ReadonlySet<string>>(
@@ -60,21 +66,51 @@ export function DefragPreviewGrid({
     );
     setSeenCount(categories.length);
   }
-  const live = defragCells("compaction-study", categories);
-  const endpoint = defragCells(
-    "compaction-study",
-    Array.from({ length: cellCount }, () => "checks")
-  );
-  return (
-    <ResponsePlaceholderVisual
-      cells={live}
-      arrivalKeys={arrivalKeys}
-      pieces={categories.map((category, i) => ({
+  const pieces = useMemo(
+    () =>
+      categories.map((category, i) => ({
         key: `preview-${i}`,
         category,
         label: category,
-      }))}
-      reducedCells={compacting ? endpoint : undefined}
+      })),
+    [categories]
+  );
+  const buildLayout = useCallback(
+    (slots: number) => {
+      const count = defragCells(SEED, [], undefined, slots).length;
+      const prefilled = nearlyFull
+        ? Array.from({ length: count - 3 }, (_, i) => ({
+            key: `preset-${i}`,
+            category: "checks" as const,
+            label: "checks",
+          }))
+        : [];
+      const activity = [...prefilled, ...pieces];
+      return {
+        pieces: activity,
+        cells: defragCells(
+          SEED,
+          activity.map((piece) => piece.category),
+          undefined,
+          slots
+        ),
+        reducedCells: compacting
+          ? defragCells(
+              SEED,
+              Array.from({ length: count }, () => "checks"),
+              undefined,
+              slots
+            )
+          : undefined,
+      };
+    },
+    [pieces, compacting, nearlyFull]
+  );
+  return (
+    <ResponsePlaceholderVisual
+      buildLayout={buildLayout}
+      arrivalKeys={arrivalKeys}
+      pieces={pieces}
       statusLabel={compacting ? "Compacting context" : "Preparing response"}
     />
   );

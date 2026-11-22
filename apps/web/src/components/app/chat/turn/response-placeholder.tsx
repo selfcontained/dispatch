@@ -2,6 +2,7 @@ import "./neon-preview.css";
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -437,6 +438,7 @@ export function ResponsePlaceholder({
 
 type DefragLayout = {
   cells: DefragCell[];
+  pieces?: ResponsePiece[];
   fills?: DefragFill[];
   reducedCells?: DefragCell[];
 };
@@ -450,7 +452,7 @@ export function ResponsePlaceholderVisual({
   cells: suppliedCells,
   buildLayout,
   quiet = false,
-  pieces,
+  pieces: suppliedPieces,
   arrivalKeys,
   textLength = 0,
   onShowProgress,
@@ -477,7 +479,6 @@ export function ResponsePlaceholderVisual({
   /** Earlier passes that filled the grid and scattered it again. */
   fills?: DefragFill[];
 }): JSX.Element {
-  const newest = pieces.length - 1;
   const gridRef = useRef<HTMLDivElement>(null);
   const usesMeasuredCapacity = buildLayout !== undefined;
   const [measuredColumns, setMeasuredColumns] = useState(MIN_COLUMNS);
@@ -500,6 +501,8 @@ export function ResponsePlaceholderVisual({
     () => buildLayout?.(columns * ROWS) ?? EMPTY_LAYOUT,
     [buildLayout, columns]
   );
+  const pieces = layout.pieces ?? suppliedPieces;
+  const newest = pieces.length - 1;
   const cells = suppliedCells ?? layout.cells;
   const fills = suppliedFills ?? layout.fills ?? EMPTY_FILLS;
   const reducedCells = suppliedReducedCells ?? layout.reducedCells;
@@ -510,15 +513,17 @@ export function ResponsePlaceholderVisual({
     fills.length > 0
   );
   const cellSize = `clamp(0px, calc(100cqw / ${columns} - ${CELL_GAP}px), ${MAX_CELL_SIZE}px)`;
-  useEffect(() => {
+  useLayoutEffect(() => {
     const grid = gridRef.current;
     if (!usesMeasuredCapacity || !grid || typeof ResizeObserver === "undefined")
       return;
+    const updateColumns = (width: number) => {
+      setMeasuredColumns(Math.max(MIN_COLUMNS, Math.floor(width / ROW_PITCH)));
+    };
+    // Measure before the first paint, including when a preview preset remounts.
+    updateColumns(grid.getBoundingClientRect().width);
     const observer = new ResizeObserver(([entry]) => {
-      if (!entry) return;
-      setMeasuredColumns(
-        Math.max(MIN_COLUMNS, Math.floor(entry.contentRect.width / ROW_PITCH))
-      );
+      if (entry) updateColumns(entry.contentRect.width);
     });
     observer.observe(grid);
     return () => observer.disconnect();
