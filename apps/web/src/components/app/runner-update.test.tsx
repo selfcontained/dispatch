@@ -163,6 +163,9 @@ it("offers Retry for a suppressed build and sends it", async () => {
     available: { version, action: "retry" },
   });
   expect(text()).toContain("Update to 1.8.0 is blocked");
+  expect(text()).toContain("This build failed on this runner before.");
+  // The title already says so.
+  expect(text()).not.toContain("until you retry");
   fireEvent.click(screen.getByRole("button", { name: "Retry" }));
   await vi.waitFor(() =>
     expect(invalidate).toHaveBeenCalledWith({ queryKey: runnersQueryKey })
@@ -218,6 +221,11 @@ describe("the manual command", () => {
     ["without the capability", undefined, 1],
     ["after a refusal it cannot retry", { result: { state: "deferred" } }, 1],
     ["while it can update itself", { available }, 0],
+    [
+      "after the runner's floor refused this build",
+      { available, result: { state: "deferred", reason: "downgrade" } },
+      1,
+    ],
     ["while updating", { attempt: { id: "a", phase: "staging" } }, 0],
     ["when all agents must be idle", { result: { state: "needs_idle" } }, 1],
   ] as const)("shows %s", (_case, update, count) => {

@@ -172,9 +172,10 @@ export function RunnerUpdateStatus({ runner }: { runner: Runner }) {
               {failed && available.version !== result.version && (
                 <p>Update available: {available.version}</p>
               )}
-              {available.action === "retry" && (
-                <p>This build is blocked on this runner until you retry.</p>
-              )}
+              {available.action === "retry" &&
+                result?.reason !== "suppressed" && (
+                  <p>This build is blocked on this runner until you retry.</p>
+                )}
               <p>Updating closes open terminals on this runner.</p>
             </>
           )}

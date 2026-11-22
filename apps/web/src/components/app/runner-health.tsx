@@ -87,11 +87,11 @@ export function sameRevision(a: string, b: string) {
 
 /** Dispatch is updating this runner, can, or already shows the command. */
 function updatesItself({ update }: Runner) {
-  return Boolean(
-    update?.attempt ||
-    update?.available ||
-    update?.result?.state === "needs_idle"
-  );
+  if (!update) return false;
+  const { attempt, available, result } = update;
+  if (attempt || result?.state === "needs_idle") return true;
+  // Trying again cannot get past the runner's version floor; the command can.
+  return Boolean(available) && result?.reason !== "downgrade";
 }
 
 export function RunnerHealthDetails({ runner }: { runner: Runner }) {
