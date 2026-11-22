@@ -103,6 +103,23 @@ const CARD_ROW =
 const LINK_ROW =
   "group/link flex w-full min-w-0 items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-surface-hover focus-ring-inset max-md:min-h-11 pointer-coarse:min-h-11";
 
+/**
+ * "example/demo #12" for a pull or merge request URL, so the card says which
+ * one it is. Null for anything else.
+ */
+export function pullRequestReference(url: string): string | null {
+  let path: string;
+  try {
+    path = new URL(url).pathname;
+  } catch {
+    return null;
+  }
+  const match = /^\/(.+?)\/(?:-\/)?(?:pull|merge_requests)\/(\d+)(?:\/|$)/.exec(
+    path
+  );
+  return match ? `${match[1]} #${match[2]}` : null;
+}
+
 export function LinkAttachment({
   href,
   title,
@@ -120,6 +137,10 @@ export function LinkAttachment({
   testId: string;
 }): JSX.Element {
   const host = hostOf(href);
+  const reference =
+    resourceKind === "pr" || isPullRequestUrl(href)
+      ? pullRequestReference(href)
+      : null;
   const inApp = href.startsWith("/") && !href.startsWith("//");
   const resourceLabel =
     resourceKind === "pr"
@@ -145,9 +166,7 @@ export function LinkAttachment({
         <span className="block truncate text-label-xs leading-3 text-muted-foreground">
           {inApp
             ? "Opens in Dispatch"
-            : title && host
-              ? host
-              : "Opens in a new tab"}
+            : (reference ?? (title && host ? host : "Opens in a new tab"))}
         </span>
       </span>
       <ArrowUpRight
