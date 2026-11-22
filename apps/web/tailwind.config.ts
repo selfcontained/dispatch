@@ -76,7 +76,12 @@ export default {
         soft: "0.8",
         dense: "0.92",
       },
-      textColor: { faint: "hsl(var(--muted-foreground) / 0.7)" },
+      textColor: {
+        faint: "hsl(var(--muted-foreground) / 0.7)",
+        // Red text takes the readable step; fills, borders and rings keep the red.
+        danger: { DEFAULT: token("danger-ink") },
+        status: { blocked: token("danger-ink") },
+      },
       placeholderColor: { faint: "hsl(var(--muted-foreground) / 0.7)" },
       colors: {
         border: {

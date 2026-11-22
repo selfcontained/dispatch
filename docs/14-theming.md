@@ -46,9 +46,9 @@ These control agent state indicators, badges, buttons, and status dots throughou
 | `--status-done`    | Info/complete state   | Sky blue      | Agent done, transitional badge, info buttons               |
 | `--status-idle`    | Neutral/idle state    | Zinc gray     | Idle agent border                                          |
 
-`status-*` renders an agent, task or run state. Anything that means success, warning, danger or info uses the intent aliases (`success`, `warning`, `danger`, `info`), which `index.css` derives from these variables. Keep `--status-blocked` at hue 0 so danger is the same red in every theme. See [design-system.md](design-system.md) for the full token set.
+`status-*` renders an agent, task or run state. Anything that means success, warning, danger or info uses the intent aliases (`success`, `warning`, `danger`, `info`), which `index.css` derives from these variables. `--status-blocked` is the theme’s one red: tune it within red (hue 343–1), clearly apart from `--primary`, and give it a `--danger-ink` for red text and a `--danger-foreground` for text on the fill, both at least 4.5:1. See [design-system.md](design-system.md) for the full token set.
 
-Edges, fills, shadows and the `-ink` text steps follow the theme's mode (`light` or `dark` in `THEMES`), so a theme block does not define them.
+Edges, fills, shadows and the `-ink` text steps other than `--danger-ink` follow the theme's mode (`light` or `dark` in `THEMES`), so a theme block does not define them.
 
 ### Surface tokens
 
@@ -112,14 +112,15 @@ Add a new `[data-theme="your-theme-id"]` block in `apps/web/src/index.css`. You 
   --muted-foreground: 240 8% 60%;
   --accent: 240 12% 12%;
   --accent-foreground: 0 0% 95%;
-  --danger-foreground: 0 0% 98%;
+  --danger-foreground: 0 0% 0%;
   --border: 240 10% 18%;
   --input: 240 10% 18%;
   --ring: 270 80% 60%;
 
   /* Status tokens */
   --status-working: 140 60% 50%;
-  --status-blocked: 0 80% 55%;
+  --status-blocked: 0 84% 60%;
+  --danger-ink: 0 84% 69.5%;
   --status-waiting: 50 90% 60%;
   --status-done: 210 90% 60%;
   --status-idle: 240 5% 45%;
@@ -150,7 +151,7 @@ export type ThemeId = "default" | "cool-navy" | "midnight";
 },
 ```
 
-Set `mode: "light"` for a light theme. It selects that mode's edges, fills, shadows and `-ink` steps.
+Set `mode: "light"` for a light theme. It selects that mode's edges, fills, shadows and `-ink` steps (except `--danger-ink`, which each theme sets).
 
 The `terminal` field is a `TerminalPalette` object with 22 color properties (foreground, background, cursor, 16 ANSI colors, etc.). For dark themes, you can spread `MONOKAI` and override just the background. For themes with a distinctive palette (like Solarized), define a full custom palette. See `SOLARIZED_DARK` in `use-theme.ts` for an example.
 

@@ -31,7 +31,7 @@ No raw palette classes and no colour literals in classes. amber/yellow/orange �
 
 ### F6 — Intent colors vs status colors
 
-`--success`, `--warning`, `--danger`, `--info` alias the status vars, so there is one value per theme. `danger` is hue 0 in every theme and replaces `destructive`. Each intent has an `-ink` step for small text that needs more contrast on light surfaces. `status-*` is reserved for rendering an agent, task or run state; everything else uses intents.
+`--success`, `--warning`, `--danger`, `--info` alias the status vars, so there is one value per theme. `danger` replaces `destructive`. It is one colour within each theme, tuned within red (hue 343–1) and clearly apart from that theme’s primary. `text-danger` and `text-status-blocked` use its readable step (`--danger-ink`) and `danger-foreground` is the text on its fill; both are at least 4.5:1 in every theme (`theme-contrast.test.ts`). Each intent has an `-ink` step for small text that needs more contrast on light surfaces. `status-*` is reserved for rendering an agent, task or run state; everything else uses intents.
 
 ### F7 — Elevation / glass
 
@@ -289,5 +289,6 @@ Newest first. One line per audit: date, scope, commit audited, where the report 
 
 Newest first. One line per rule added, changed or removed, with the reason.
 
+- 2026-11-22 — F6: danger is tuned within red per theme instead of hue 0 everywhere (one hue didn’t match the themes), with text and fill pairs held to 4.5:1.
 - 2026-11-22 — F1–F10 updated as their tokens landed: added `body-lg` and `code` (iOS zoom, inline code), `xs`, `mark` and `screen` radii (small boxes turned into circles at `sm`), named alpha and z steps for values already in use, seat and media colours; named the classes and lint rule that implement them.
 - 2026-11-22 — all rules added from the baseline audit.

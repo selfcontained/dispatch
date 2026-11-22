@@ -20,7 +20,7 @@
   --muted-foreground: 36 10% 66%;
   --accent: 42 8% 13%;
   --accent-foreground: 60 30% 96%;
-  --danger-foreground: 0 0% 98%;
+  --danger-foreground: 0 0% 0%;
   --border: 40 10% 18%;
   --input: 40 10% 18%;
   --ring: 192 85% 64%;
@@ -42,6 +42,7 @@
   /* Semantic status colors */
   --status-working: 158 64% 52%;
   --status-blocked: 0 84% 60%;
+  --danger-ink: 0 84% 69.5%;
   --status-waiting: 45 96% 64%;
   --status-done: 198 93% 60%;
   --status-merged: 270 70% 68%;
@@ -88,7 +89,7 @@
   --muted-foreground: 220 8% 67%;
   --accent: 220 10% 14%;
   --accent-foreground: 224 13% 95%;
-  --danger-foreground: 0 0% 98%;
+  --danger-foreground: 222 18% 7%;
   --border: 220 11% 21%;
   --input: 220 11% 21%;
   --ring: 207 100% 67%;
@@ -96,7 +97,8 @@
   --heading-accent-2: 270 80% 72%;
 
   --status-working: 150 57% 59%;
-  --status-blocked: 0 100% 68%;
+  --status-blocked: 348 100% 68%;
+  --danger-ink: 348 100% 69.5%;
   --status-waiting: 55 87% 63%;
   --status-done: 207 100% 67%;
   --status-merged: 270 80% 72%;
@@ -130,7 +132,7 @@
   --muted-foreground: 0 0% 55%;
   --accent: 0 0% 8%;
   --accent-foreground: 0 0% 94%;
-  --danger-foreground: 0 0% 98%;
+  --danger-foreground: 0 0% 0%;
   --border: 0 0% 14%;
   --input: 0 0% 14%;
   --ring: 160 84% 39%;
@@ -139,6 +141,7 @@
 
   --status-working: 160 72% 52%;
   --status-blocked: 0 84% 60%;
+  --danger-ink: 0 84% 64.5%;
   --status-waiting: 45 93% 58%;
   --status-done: 198 93% 60%;
   --status-merged: 270 70% 68%;
@@ -172,7 +175,7 @@
   --muted-foreground: 194 14% 40%;
   --accent: 192 81% 14%;
   --accent-foreground: 186 8% 62%;
-  --danger-foreground: 44 87% 94%;
+  --danger-foreground: 0 0% 100%;
   --border: 192 40% 23%;
   --input: 192 40% 23%;
   --ring: 205 82% 45%;
@@ -180,7 +183,8 @@
   --heading-accent-2: 285 65% 62%;
 
   --status-working: 68 100% 30%;
-  --status-blocked: 0 71% 52%;
+  --status-blocked: 1 71% 52%;
+  --danger-ink: 1 71% 74%;
   --status-waiting: 45 100% 35%;
   --status-done: 205 82% 45%;
   --status-merged: 285 65% 62%;
@@ -227,7 +231,8 @@
   --heading-accent-2: 262 72% 50%;
 
   --status-working: 142 71% 35%;
-  --status-blocked: 0 72% 51%;
+  --status-blocked: 0 72% 50%;
+  --danger-ink: 0 72% 39%;
   --status-waiting: 46 97% 42%;
   --status-done: 217 91% 50%;
   --status-merged: 262 72% 50%;
@@ -261,13 +266,13 @@
   --card-foreground: 270 50% 90%;
   --popover: 262 48% 12%;
   --popover-foreground: 270 50% 90%;
-  --primary: 325 100% 72%;
+  --primary: 280 100% 74%;
   --primary-foreground: 262 60% 6%;
   --muted: 262 30% 12%;
   --muted-foreground: 270 20% 58%;
   --accent: 262 30% 12%;
   --accent-foreground: 270 50% 90%;
-  --danger-foreground: 0 0% 100%;
+  --danger-foreground: 262 52% 6%;
   --border: 262 30% 18%;
   --input: 262 30% 18%;
   --ring: 191 99% 50%;
@@ -275,7 +280,8 @@
   --heading-accent-2: 268 80% 72%;
 
   --status-working: 160 100% 50%;
-  --status-blocked: 0 100% 62%;
+  --status-blocked: 350 100% 64%;
+  --danger-ink: 350 100% 65.5%;
   --status-waiting: 57 100% 79%;
   --status-done: 191 99% 50%;
   --status-merged: 268 80% 72%;
@@ -309,7 +315,7 @@
   --muted-foreground: 220 8% 60%;
   --accent: 220 10% 8%;
   --accent-foreground: 224 13% 95%;
-  --danger-foreground: 0 0% 98%;
+  --danger-foreground: 0 0% 0%;
   --border: 220 11% 14%;
   --input: 220 11% 14%;
   --ring: 207 100% 67%;
@@ -317,7 +323,8 @@
   --heading-accent-2: 270 80% 74%;
 
   --status-working: 150 57% 59%;
-  --status-blocked: 0 100% 68%;
+  --status-blocked: 348 100% 68%;
+  --danger-ink: 348 100% 68%;
   --status-waiting: 55 87% 63%;
   --status-done: 207 100% 67%;
   --status-merged: 270 80% 74%;
@@ -360,6 +367,7 @@
 
   --status-working: 136 100% 71%;
   --status-blocked: 0 49% 44%;
+  --danger-ink: 0 49% 61.5%;
   --status-waiting: 46 52% 54%;
   --status-done: 153 76% 64%;
   --status-merged: 270 70% 74%;
@@ -393,7 +401,7 @@
   --muted-foreground: 220 11% 62%;
   --accent: 222 9% 14%;
   --accent-foreground: 219 16% 89%;
-  --danger-foreground: 0 0% 98%;
+  --danger-foreground: 0 0% 1%;
   --border: 225 10% 21%;
   --input: 225 10% 21%;
   --ring: 244 100% 69%;
@@ -405,7 +413,8 @@
   --heading-accent-2: 290 70% 74%;
 
   --status-working: 186 58% 58%;
-  --status-blocked: 0 52% 61%;
+  --status-blocked: 354 52% 61%;
+  --danger-ink: 354 52% 67.5%;
   --status-waiting: 233 28% 73%;
   --status-done: 229 57% 71%;
   --status-merged: 267 72% 72%;
@@ -439,7 +448,7 @@
   --muted-foreground: 196 13% 45%;
   --accent: 46 42% 88%;
   --accent-foreground: 192 81% 14%;
-  --danger-foreground: 44 87% 94%;
+  --danger-foreground: 0 0% 100%;
   --border: 46 30% 80%;
   --input: 46 30% 80%;
   --ring: 205 82% 45%;
@@ -457,7 +466,8 @@
   --heading-accent-2: 331 64% 52%;
 
   --status-working: 68 100% 30%;
-  --status-blocked: 0 71% 52%;
+  --status-blocked: 1 71% 49.5%;
+  --danger-ink: 1 71% 38.5%;
   --status-waiting: 45 100% 35%;
   --status-done: 205 82% 45%;
   --status-merged: 270 60% 50%;
@@ -510,7 +520,8 @@
   --heading-accent-2: 41 86% 83%;
 
   --status-working: 115 54% 76%;
-  --status-blocked: 0 81% 75%;
+  --status-blocked: 343 81% 75%;
+  --danger-ink: 343 81% 79%;
   --status-waiting: 41 86% 83%;
   --status-done: 217 92% 76%;
   --status-merged: 267 84% 81%;
@@ -552,7 +563,8 @@
   --heading-accent-2: 270 70% 35%;
 
   --status-working: 153 80% 27%;
-  --status-blocked: 0 86% 42%;
+  --status-blocked: 350 86% 42%;
+  --danger-ink: 350 86% 38.5%;
   --status-waiting: 30 100% 35%;
   --status-done: 217 100% 42%;
   --status-merged: 270 70% 35%;
@@ -580,15 +592,15 @@
 }
 
 /* Intent colours: what a message means. status-* is only for rendering an
-   agent, task or run state. They share values, so there is one red per theme,
-   and danger is hue 0 in every theme. The -ink steps are for small text that
-   needs more contrast on light surfaces. */
+   agent, task or run state. They share values, so there is one red per theme.
+   Each theme pairs it with a danger-ink, which text-danger uses, and a
+   danger-foreground for text on the fill; theme-contrast.test.ts holds both
+   to 4.5:1. The other -ink steps are for small text on light surfaces. */
 :root {
   --danger: var(--status-blocked);
   --warning: var(--status-waiting);
   --success: var(--status-working);
   --info: var(--status-done);
-  --danger-ink: var(--danger);
   --warning-ink: var(--warning);
   --success-ink: var(--success);
   --info-ink: var(--info);
@@ -627,7 +639,6 @@
   --seat-10-text: 187 92.4% 69%;
 }
 [data-theme-mode="light"] {
-  --danger-ink: 0 70% 35.3%;
   --warning-ink: 22.7 82.5% 31.4%;
   --success-ink: 142.8 64.2% 24.1%;
   --info-ink: 225.9 70.7% 40.2%;
@@ -1451,7 +1462,7 @@ html[data-hidden] .animate-sidebar-nav-pulse {
   --warning-text: hsl(var(--background)) !important;
   --warning-border: hsl(var(--warning)) !important;
   --error-bg: hsl(var(--danger)) !important;
-  --error-text: hsl(var(--background)) !important;
+  --error-text: hsl(var(--danger-foreground)) !important;
   --error-border: hsl(var(--danger)) !important;
 
   /* Push the toast above the mobile bottom nav (≤600px breakpoint).
