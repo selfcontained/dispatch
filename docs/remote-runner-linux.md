@@ -145,7 +145,15 @@ branch. A public HTTPS URL or an empty session folder works without signing in.
 
 ## Update or recover
 
-When **Health** shows **Update available** in the runner's Settings, copy its
+A runner that supports self-update shows **Update** in its Settings when
+Dispatch serves a newer version. Dispatch holds new work for that runner, the
+runner switches under its running agents, and each agent moves to the new
+build when it is next idle. Open terminals close. A failed update returns to
+the previous build, and that build needs **Retry** to install again. Dispatch
+never offers a runner an older build or another build of the version it has.
+
+Otherwise, and when an update needs all agents idle, use the command: when
+**Health** shows **Update available** in the runner's Settings, copy its
 update command and run it on the Linux host. It updates the existing managed
 installation to the controller's build and keeps its enrollment and workload
 account. A successful update also refreshes
@@ -276,6 +284,10 @@ An unreadable fence is reported in the runner's update advertisement and a
 controller cancel can clear it. The runner's reply reports `fenceCleared`,
 which clears the flag in the controller without a reconnect. The boot hook follows the durable journal and
 leaves unreadable fence records in place for that recovery.
+
+`--clear-unreadable-fence` on the install or update command sets the record
+aside as the last step before the supervisor restarts. A refused downgrade or
+a busy runner leaves the record in place.
 
 | Trial journal           | Readable fence                                                                                                               | Unreadable fence                                                         | Fence absent                                              |
 | ----------------------- | ---------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ | --------------------------------------------------------- |

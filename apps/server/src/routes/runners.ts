@@ -1,10 +1,17 @@
 import type { FastifyInstance, FastifyReply } from "fastify";
 import {
+  RunnerUpdateIneligible,
+  type RunnerUpdateCoordinator,
+} from "../agents/remote/update-coordinator.js";
+import {
   RunnerRequestError,
   type RemoteRunnerService,
 } from "../agents/remote/service.js";
 
-type RunnerRouteDeps = { runners?: RemoteRunnerService };
+type RunnerRouteDeps = {
+  runners?: RemoteRunnerService;
+  updates?: RunnerUpdateCoordinator;
+};
 
 declare module "fastify" {
   interface FastifyContextConfig {
@@ -27,6 +34,12 @@ export function hostHint(host: string | undefined) {
 }
 
 function fail(reply: FastifyReply, error: unknown) {
+  if (error instanceof RunnerUpdateIneligible)
+    return reply.code(error.status).send({
+      error: error.message,
+      code: error.code,
+      ...(error.attemptId && { attemptId: error.attemptId }),
+    });
   if (error instanceof RunnerRequestError)
     return reply.code(error.status).send({ error: error.message });
   throw error;
@@ -43,9 +56,31 @@ export async function registerRunnerRoutes(
   for (const base of ["/api/runners", "/api/v1/runners"]) {
     app.get(base, async (request) => {
       const { includeCleared } = request.query as { includeCleared?: string };
+      const runners =
+        (await deps.runners?.list(includeCleared === "true")) ?? [];
       return {
-        runners: (await deps.runners?.list(includeCleared === "true")) ?? [],
+        runners: runners.map((runner) => {
+          if (runner.status === "revoked") return runner;
+          const update = deps.updates?.view(runner.id);
+          return update ? { ...runner, update } : runner;
+        }),
       };
+    });
+
+    app.post(`${base}/:id/update`, async (request, reply) => {
+      const { id } = request.params as { id: string };
+      const { action } = (request.body ?? {}) as { action?: unknown };
+      if (action !== "update" && action !== "retry")
+        return reply
+          .code(400)
+          .send({ error: 'The action must be "update" or "retry".' });
+      if (!deps.updates)
+        return reply.code(404).send({ error: "Runner not found." });
+      try {
+        return reply.code(202).send(await deps.updates.request(id, action));
+      } catch (error) {
+        return fail(reply, error);
+      }
     });
 
     app.post(`${base}/revoked/clear`, async (request, reply) => {

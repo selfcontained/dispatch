@@ -109,6 +109,8 @@ type Live = {
   remote?: boolean;
   /** The runner this host is placed on; local hosts have none. */
   runner?: string;
+  /** The runner connection the host's newest channel was opened over. */
+  channelEpoch?: number;
   client: HostClient;
   commands: AvailableCommand[];
   configOptions: SessionConfigOption[];
@@ -266,7 +268,9 @@ export type AcpRuntimeDeps = {
     images: PromptImage[]
   ) => Promise<PromptImage[]>;
   remote?: Pick<RemoteRunnerService, "available" | "requestSession"> &
-    Partial<Pick<RemoteRunnerService, "reconcilesLaunches">>;
+    Partial<
+      Pick<RemoteRunnerService, "connectionEpoch" | "reconcilesLaunches">
+    >;
   /** How often a lost launch reply polls for the runner to return. */
   launchRetryPollMs?: number;
   /** Runner update holds: new work for a held runner waits in the queue. */
@@ -860,11 +864,15 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
       remote: Boolean(placement),
       openSocket: async () => {
         if (placement) await entry.events;
+        // No await before the request: it goes over exactly this connection.
+        const epoch =
+          placement && deps.remote?.connectionEpoch?.(placement.runner);
         const { channel } = await requestSession(placement, {
           kind: "attach",
           agentId,
         });
         if (!channel) throw new Error("Runner returned no session channel");
+        entry.channelEpoch = epoch ?? undefined;
         return channel;
       },
       ...(placement
@@ -1182,6 +1190,8 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
       build: welcome?.hostBuild,
       instanceId: welcome?.hostInstanceId,
       quiesceSupported: welcome?.quiesceSupported === true,
+      ...(entry.channelEpoch !== undefined &&
+        entry.client.isReady() && { attachedEpoch: entry.channelEpoch }),
     };
   };
 

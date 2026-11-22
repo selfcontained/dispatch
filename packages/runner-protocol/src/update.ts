@@ -138,6 +138,19 @@ export type UpdateStatusFrame = {
   requiresQuiescence?: boolean;
 };
 
+/**
+ * Whether a status is the last word on its attempt. The runner sends one only
+ * after the attempt holds no fence: staging, ready and fence-ready are
+ * progress, and so is everything while activating.
+ */
+export function endsUpdateAttempt({
+  phase,
+  reason,
+}: Pick<UpdateStatusFrame, "phase" | "reason">): boolean {
+  if (phase !== "deferred") return phase !== "activating";
+  return reason !== "staging" && reason !== "ready" && reason !== "fence_ready";
+}
+
 /*
  * A service from before `trial_interrupted` rejects an unknown reason by
  * closing the connection, and a runner replays its terminal status on every

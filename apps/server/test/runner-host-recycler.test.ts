@@ -48,3 +48,53 @@ it("coalesces settlement retries and keeps a bounded fallback scan", async () =>
   expect(recycle).toHaveBeenCalledTimes(3);
   expect(recycler.progress("r1")).toBeNull();
 });
+
+it("settles the restarts already under way when it is stopped", async () => {
+  let finish!: () => void;
+  const recycler = new RunnerHostRecycler({
+    hosts: () => [
+      {
+        agentId: "agt_old",
+        instanceId: "01234567-89ab-4cde-8fab-0123456789ab",
+        build: { version: "1.7.28", revision: "a".repeat(40) },
+        quiesceSupported: true,
+      },
+    ],
+    recycle: () =>
+      new Promise<boolean>((resolve) => (finish = () => resolve(true))),
+    logger: { warn: vi.fn() } as unknown as FastifyBaseLogger,
+  });
+  recycler.start({
+    runnerId: "r1",
+    attemptId: "11111111-1111-4111-8111-111111111111",
+    revision: "b".repeat(40),
+    sha256: "c".repeat(64),
+  });
+  // An ordinary stop must not make the restart forgettable.
+  recycler.stop("r1");
+  let settled = false;
+  const settling = recycler.stopAndSettle("r1").then(() => (settled = true));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(settled).toBe(false);
+  expect(recycler.progress("r1")).toBeNull();
+  finish();
+  await settling;
+  await recycler.stopAndSettle("r2");
+});
+
+it("stops a running pass before settling it", async () => {
+  const recycler = new RunnerHostRecycler({
+    hosts: () => [],
+    recycle: async () => false,
+    logger: { warn: vi.fn() } as unknown as FastifyBaseLogger,
+  });
+  recycler.start({
+    runnerId: "r1",
+    attemptId: "11111111-1111-4111-8111-111111111111",
+    revision: "b".repeat(40),
+    sha256: "c".repeat(64),
+  });
+  expect(recycler.progress("r1")).not.toBeNull();
+  await recycler.stopAndSettle("r1");
+  expect(recycler.progress("r1")).toBeNull();
+});

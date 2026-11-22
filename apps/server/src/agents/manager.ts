@@ -3246,6 +3246,36 @@ export class AgentManager {
     this.hostRecycler.stop(runnerId);
   }
 
+  /** Before a new update holds the runner: stop and finish what is in flight. */
+  settleRunnerHostRecycling(runnerId: string): Promise<void> {
+    return this.hostRecycler.stopAndSettle(runnerId);
+  }
+
+  /**
+   * Whether this exact host instance completed an ACP attach over that
+   * runner connection. A connected runner alone never satisfies it.
+   */
+  isRunnerSessionAttached(
+    runnerId: string,
+    session: { sessionId: string; instanceId: string },
+    epoch: number
+  ): boolean {
+    return (this.runtime.runnerHosts?.(runnerId) ?? []).some(
+      (host) =>
+        host.agentId === session.sessionId &&
+        host.instanceId === session.instanceId &&
+        host.attachedEpoch === epoch
+    );
+  }
+
+  /** Reattach a session a runner retains; only an agent placed on it. */
+  async attachRunnerSession(runnerId: string, agentId: string): Promise<void> {
+    const agent = await this.getAgent(agentId);
+    if (!agent || remotePlacement(agent.cwd)?.runner !== runnerId) return;
+    this.streamRecorder.setCwd(agentId, agent.cwd);
+    await this.runtime.attach(agentId);
+  }
+
   private async recycleRunnerHost(
     update: ConfirmedRunnerUpdate,
     host: RunnerHostIdentity,

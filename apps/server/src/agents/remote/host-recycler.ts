@@ -28,6 +28,8 @@ type Recycling = {
 
 export class RunnerHostRecycler {
   private readonly runs = new Map<string, Recycling>();
+  /** Outlives `stop`: an accepted shutdown still finishes its restart. */
+  private readonly restarts = new Map<string, Set<Promise<unknown>>>();
 
   constructor(
     private readonly deps: {
@@ -71,6 +73,12 @@ export class RunnerHostRecycler {
     this.runs.delete(runnerId);
   }
 
+  /** Stop the pass and wait for the probes and restarts already under way. */
+  async stopAndSettle(runnerId: string): Promise<void> {
+    this.stop(runnerId);
+    await Promise.all(this.restarts.get(runnerId) ?? []);
+  }
+
   settled(agentId: string): void {
     for (const run of this.runs.values()) {
       if (!run.old.has(agentId) || run.inFlight.has(agentId)) continue;
@@ -103,7 +111,7 @@ export class RunnerHostRecycler {
       )
         continue;
       run.inFlight.add(host.agentId);
-      void this.deps
+      const restart = this.deps
         .recycle(update, host, active)
         .then((recycled) => {
           if (recycled) {
@@ -119,7 +127,12 @@ export class RunnerHostRecycler {
         })
         .finally(() => {
           run.inFlight.delete(host.agentId);
+          const restarts = this.restarts.get(update.runnerId);
+          restarts?.delete(restart);
+          if (!restarts?.size) this.restarts.delete(update.runnerId);
         });
+      const restarts = this.restarts.get(update.runnerId) ?? new Set();
+      this.restarts.set(update.runnerId, restarts.add(restart));
     }
     this.schedule(run, RESCAN_DELAY_MS);
   }

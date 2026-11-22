@@ -57,6 +57,7 @@ import {
   parseLaunchProgress,
   type EngineInventoryEntry,
   type Placement,
+  endsUpdateAttempt,
   parseUpdateServiceFrame,
   parseUpdateStatus,
   type RunnerUpdateCancelReason,
@@ -1064,9 +1065,16 @@ export class RemoteRunnerService {
       } else if (frame.type === "update_status" && peer.selfUpdate) {
         const status = parseUpdateStatus(frame);
         if (!status) return socket.destroy();
+        // The ready advert is otherwise cached for the whole connection.
         if (status.fenceCleared) {
-          // The ready advert is otherwise cached for the whole connection.
           const { fenceUnreadable: _, ...advert } = peer.selfUpdate;
+          peer.selfUpdate = advert;
+        }
+        if (
+          peer.selfUpdate.pendingAttemptId === status.attemptId &&
+          endsUpdateAttempt(status)
+        ) {
+          const { pendingAttemptId: _, ...advert } = peer.selfUpdate;
           peer.selfUpdate = advert;
         }
         const event = { runnerId: gate.key, epoch: peer.epoch, status };
@@ -1689,6 +1697,23 @@ export class RemoteRunnerService {
   onUpdateStatus(listener: (event: RunnerUpdateEvent) => void) {
     this.updateListeners.add(listener);
     return () => this.updateListeners.delete(listener);
+  }
+
+  /** Changes on every accepted connection; undefined while disconnected. */
+  connectionEpoch(runnerId: string): number | undefined {
+    const peer = this.peers.get(runnerId);
+    return peer?.gate.approved() ? peer.epoch : undefined;
+  }
+
+  connectedRunnerIds(): string[] {
+    return [...this.peers.keys()];
+  }
+
+  /** An enrolled, unrevoked runner, online or not. */
+  isRegistered(runnerId: string): boolean {
+    return (
+      Boolean(this.registrationById(runnerId)) || this.legacy?.id === runnerId
+    );
   }
 
   /** The current connection's self-update advertisement, if any. */

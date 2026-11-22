@@ -546,6 +546,7 @@ export function createRunnerArtifactSource(
   return {
     enabled: Boolean(devDir || (compiled && tag)),
     kind: source,
+    updateEnabled,
     preparationFailed,
     get,
     getUpdate,

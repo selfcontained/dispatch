@@ -59,6 +59,11 @@ export type RunnerHostIdentity = {
   build: BuildIdentity | undefined;
   instanceId: string | undefined;
   quiesceSupported: boolean;
+  /**
+   * The runner connection that carries this host's completed attach: its
+   * welcome and journal replay. Absent while not fully attached.
+   */
+  attachedEpoch?: number;
 };
 
 export type RunnerHostRecycleHold = {

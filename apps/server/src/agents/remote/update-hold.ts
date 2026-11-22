@@ -1,14 +1,8 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, rename } from "node:fs/promises";
-import path from "node:path";
 import type { FastifyBaseLogger } from "fastify";
 import { z } from "zod";
 
-import {
-  readPrivate,
-  syncDirectory,
-  writeAtomic,
-} from "../../update-recovery/files.js";
+import { privateStateFile } from "./update-state-file.js";
 
 /**
  * Dispatch's side of a runner update fence: while a runner is held, new work
@@ -127,55 +121,28 @@ export function fileRunnerHoldStore(
   file: string,
   logger?: Pick<FastifyBaseLogger, "warn">
 ): RunnerHoldStore {
-  return {
-    async read() {
-      let raw: string;
-      try {
-        raw = await readPrivate(file, { maxBytes: 16 * 1024 * 1024 });
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code === "ENOENT")
-          return { holds: [], resuming: [] };
-        return setAside(error);
-      }
-      let parsed: ReturnType<typeof holdFile.safeParse>;
-      try {
-        parsed = holdFile.safeParse(JSON.parse(raw));
-      } catch (error) {
-        return setAside(error);
-      }
-      if (!parsed.success) return setAside(parsed.error);
-      return {
-        holds: parsed.data.holds,
-        resuming: parsed.data.resuming ?? [],
-      };
-    },
-    async write({ holds, resuming }) {
-      await mkdir(path.dirname(file), { recursive: true, mode: 0o700 });
-      // Without resuming launches the file keeps its earlier shape.
-      await writeAtomic(
-        file,
-        JSON.stringify(
-          holdFile.parse({
-            format: 1,
-            holds,
-            ...(resuming.length && { resuming }),
-          })
-        )
-      );
-    },
-  };
-
   // An unreadable record holds nothing: held work then takes its ordinary
   // path (a still-fenced runner refuses it visibly). Kept for inspection.
-  async function setAside(error: unknown): Promise<RunnerHoldState> {
-    logger?.warn(
-      { err: error, file },
-      "runner update hold state is unreadable; holding nothing"
-    );
-    await rename(file, `${file}.rejected-${Date.now()}`).catch(() => null);
-    await syncDirectory(path.dirname(file)).catch(() => null);
-    return { holds: [], resuming: [] };
-  }
+  const state = privateStateFile({
+    file,
+    schema: holdFile,
+    unreadable: "runner update hold state is unreadable; holding nothing",
+    logger,
+  });
+  return {
+    async read() {
+      const saved = await state.read();
+      return { holds: saved?.holds ?? [], resuming: saved?.resuming ?? [] };
+    },
+    async write({ holds, resuming }) {
+      // Without resuming launches the file keeps its earlier shape.
+      await state.write({
+        format: 1,
+        holds,
+        ...(resuming.length && { resuming }),
+      });
+    },
+  };
 }
 
 export type HeldCounts = {

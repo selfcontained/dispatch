@@ -106,6 +106,7 @@ import { JobService } from "./jobs/service.js";
 import { TemplateService } from "./templates/service.js";
 import { ReleaseLogStreamProcessor } from "./release-log-stream.js";
 import {
+  buildRevision,
   gitSha,
   packageVersion,
   staticFiles as embeddedStaticFiles,
@@ -142,6 +143,11 @@ import { registerQuickPhraseRoutes } from "./routes/quick-phrases.js";
 import { registerRunnerGitHub } from "./routes/runner-github.js";
 import { registerRunnerInstaller } from "./routes/runner-installer.js";
 import { registerRunnerArtifacts } from "./routes/runner-artifacts.js";
+import {
+  fileRunnerUpdateStore,
+  RunnerUpdateCoordinator,
+} from "./agents/remote/update-coordinator.js";
+import type { RunnerArtifactSource } from "./server/runner-artifacts.js";
 import { registerRunnerRepositorySearch } from "./routes/runner-repositories.js";
 import { registerRunnerRoutes } from "./routes/runners.js";
 import { registerReleaseRoutes } from "./routes/release.js";
@@ -269,6 +275,24 @@ const agentManager = new AgentManager(pool, app.log, config, {
   holds: runnerHolds,
   classifySteering: steeringDecisions.classify,
 });
+// Set with the routes that serve it; the coordinator reads it per request.
+let runnerUpdateArtifacts: RunnerArtifactSource | undefined;
+const runnerUpdates =
+  remoteRunner && runnerHolds
+    ? new RunnerUpdateCoordinator({
+        service: remoteRunner,
+        holds: runnerHolds,
+        agents: agentManager,
+        store: fileRunnerUpdateStore(
+          process.env.DISPATCH_RUNNER_UPDATES_PATH ??
+            statePath("runner-update", "attempts.json"),
+          app.log
+        ),
+        artifacts: () => runnerUpdateArtifacts,
+        build: { version: packageVersion, revision: buildRevision },
+        logger: app.log,
+      })
+    : undefined;
 const focusTracker = new FocusTracker();
 const presenceTracker = new PresenceTracker();
 const slackNotifier = new SlackNotifier(pool, app.log);
@@ -1455,6 +1479,7 @@ async function registerRoutes() {
     version: packageVersion,
     compiled: import.meta.url.startsWith("file:///$bunfs/root/"),
   });
+  runnerUpdateArtifacts = runnerArtifacts;
   if (remoteRunner) {
     registerRunnerGitHub(app, remoteRunner, (id) =>
       pullRequests.invalidateRunner(id)
@@ -1466,7 +1491,10 @@ async function registerRoutes() {
       build: { revision: gitSha, version: packageVersion },
     });
   }
-  await registerRunnerRoutes(app, { runners: remoteRunner });
+  await registerRunnerRoutes(app, {
+    runners: remoteRunner,
+    updates: runnerUpdates,
+  });
 }
 
 async function waitForDatabase(maxAttempts = 15, delayMs = 2000) {
@@ -1514,6 +1542,7 @@ export async function initializeApp(options?: {
   // Held launches and the bound survive a restart; read them before agents
   // are restored so a held launch is not mistaken for a lost host.
   await runnerHolds?.load();
+  await runnerUpdates?.load();
   // Probation never reconciles; only a normal start after commit does.
   const shouldReconcileState =
     recoveryMaintenance.mode !== "probation" &&
@@ -1540,6 +1569,7 @@ export async function initializeApp(options?: {
     // Arm each hold's bound only now: one that lapsed while Dispatch was down
     // releases its launches into a fully started service.
     runnerHolds?.start();
+    await runnerUpdates?.start();
     // Warm the diff-stats cache so the first sidebar expand doesn't get a
     // cold-cache `null`. Fire-and-forget per agent — the refresher's 3s
     // freshness window dedupes any overlap with SSE-driven signals from
@@ -1654,6 +1684,7 @@ async function cleanupAppResources(): Promise<void> {
   shuttingDown = true;
   checkoutObservers.close();
   remoteRunner?.close();
+  runnerUpdates?.close();
   runnerHolds?.close();
   const stage = async (name: string, close: () => Promise<unknown>) => {
     app.log.info({ stage: name }, "Shutdown stage started");

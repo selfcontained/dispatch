@@ -1,0 +1,85 @@
+import Fastify from "fastify";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+import { RunnerUpdateIneligible } from "../src/agents/remote/update-coordinator.js";
+import { registerRunnerRoutes } from "../src/routes/runners.js";
+
+let app: ReturnType<typeof Fastify> | undefined;
+afterEach(async () => {
+  await app?.close();
+});
+
+const runner = (id: string, status: string) => ({
+  id,
+  name: id,
+  status,
+  workspaces: [],
+});
+
+async function routes() {
+  const updates = {
+    request: vi.fn(async () => ({ attemptId: "attempt" })),
+    view: vi.fn((id: string) =>
+      id === "plain"
+        ? undefined
+        : { available: { version: "1.2.3", action: "update" } }
+    ),
+  };
+  app = Fastify();
+  await registerRunnerRoutes(app, {
+    runners: {
+      list: async () => [
+        runner("capable", "online"),
+        runner("plain", "online"),
+        runner("gone", "revoked"),
+      ],
+    } as never,
+    updates: updates as never,
+  });
+  return { app, updates };
+}
+
+describe("runner update routes", () => {
+  it("returns the attempt", async () => {
+    const { app, updates } = await routes();
+    const reply = await app.inject({
+      method: "POST",
+      url: "/api/v1/runners/capable/update",
+      payload: { action: "retry" },
+    });
+    expect(reply.statusCode).toBe(202);
+    expect(reply.json()).toEqual({ attemptId: "attempt" });
+    expect(updates.request).toHaveBeenCalledWith("capable", "retry");
+  });
+
+  it("returns an eligibility error with its code and the attempt in the way", async () => {
+    const { app, updates } = await routes();
+    updates.request.mockRejectedValueOnce(
+      new RunnerUpdateIneligible("update_in_progress", "running")
+    );
+    const reply = await app.inject({
+      method: "POST",
+      url: "/api/v1/runners/capable/update",
+      payload: { action: "update" },
+    });
+    expect(reply.statusCode).toBe(409);
+    expect(reply.json()).toEqual({
+      error: "An update is already running on this runner.",
+      code: "update_in_progress",
+      attemptId: "running",
+    });
+  });
+
+  it("adds update state only where there is any", async () => {
+    const { app } = await routes();
+    const { runners } = (await app.inject("/api/v1/runners")).json();
+    expect(runners).toEqual([
+      {
+        ...runner("capable", "online"),
+        update: { available: { version: "1.2.3", action: "update" } },
+      },
+      runner("plain", "online"),
+      runner("gone", "revoked"),
+    ]);
+  });
+});
