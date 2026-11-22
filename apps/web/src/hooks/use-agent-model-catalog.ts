@@ -39,6 +39,7 @@ export function useAgentModelCatalog(agentType: AgentType): {
   allOptions: AgentModelOption[];
   /** A saved id the engine offers, whether or not it is turned on. */
   savedOption: (value: string | null) => AgentModelOption | null;
+  defaultModel: string | null;
   loading: boolean;
   /** True only once a catalog has actually arrived — a failed fetch stays
    * false so callers don't mistake "no catalog" for "empty catalog". */
@@ -88,10 +89,16 @@ export function useAgentModelCatalog(agentType: AgentType): {
     [allOptions, loaded]
   );
 
+  const reportedDefault = data?.defaults?.[agentType];
+  const defaultModel = options.some((option) => option.id === reportedDefault)
+    ? (reportedDefault ?? null)
+    : null;
+
   return {
     options,
     allOptions,
     savedOption,
+    defaultModel,
     loading: isLoading,
     loaded,
     normalizeModel,

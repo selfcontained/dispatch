@@ -150,6 +150,7 @@ export function useCreateAgentForm({
   const createFullAccess = createType === "opencode" || savedCreateFullAccess;
   const {
     options: modelOptions,
+    defaultModel,
     loading: modelCatalogLoading,
     loaded: modelCatalogLoaded,
   } = useAgentModelCatalog(createType);
@@ -416,9 +417,8 @@ export function useCreateAgentForm({
       setCreateEffort(null);
     },
     modelOptions,
+    defaultModel,
     modelCatalogLoading,
-    /** Default can be chosen before any models are known. */
-    alwaysShowModel: true,
     createBaseBranch,
     setCreateBaseBranch,
     createNewBranch,

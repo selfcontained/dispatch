@@ -127,7 +127,7 @@ export function ModelPreviewControls({
   return (
     <div className="flex max-w-lg flex-wrap items-center gap-2 text-xs text-muted-foreground">
       <span className="mr-auto">Design preview</span>
-      {agentType === "claude" || agentType === "codex" ? (
+      {agentType === "codex" ? (
         <Button
           size="sm"
           variant="ghost"
@@ -136,7 +136,7 @@ export function ModelPreviewControls({
           onClick={() =>
             setAvailability((all) => ({
               ...all,
-              [agentType]: simulateRelease(agentType, state),
+              [agentType]: simulateRelease(state),
             }))
           }
         >

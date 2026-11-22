@@ -28,13 +28,13 @@ export const INITIAL_AVAILABILITY: TypeAvailability = {
 };
 
 export const modelAvailabilityAtom = atomWithLocalStorage<ModelAvailability>(
-  "dispatch:preview:model-availability:v2",
+  "dispatch:preview:model-availability:v3",
   {}
 );
 
 /** New models the person has seen in a list. */
 export const seenModelsAtom = atomWithLocalStorage<string[]>(
-  "dispatch:preview:models-seen:v2",
+  "dispatch:preview:models-seen:v3",
   []
 );
 
@@ -45,31 +45,12 @@ export function previewModels(
   released: boolean,
   seen: readonly string[]
 ): (Model & { isNew?: boolean })[] {
-  if (!released) return [...models];
-  if (type === "codex") {
-    const id = "gpt-6.3-sol";
-    return [{ id, label: "GPT-6.3 Sol", isNew: !seen.includes(id) }, ...models];
-  }
-  if (type !== "claude") return [...models];
-  return models.flatMap((model) =>
-    model.id === "opus"
-      ? [
-          { ...model, label: "Opus 5.6", isNew: !seen.includes("opus") },
-          { ...model, id: "claude-opus-5-5" },
-        ]
-      : [model]
-  );
+  if (!released || type !== "codex") return [...models];
+  const id = "gpt-6.3-sol";
+  return [{ id, label: "GPT-6.3 Sol", isNew: !seen.includes(id) }, ...models];
 }
 
-export function simulateRelease(
-  type: AgentType,
-  state: TypeAvailability
-): TypeAvailability {
-  // A checkbox belongs to the version, so it follows 5.5 off the alias.
-  const off =
-    type === "claude"
-      ? state.off.map((id) => (id === "opus" ? "claude-opus-5-5" : id))
-      : [...state.off];
-  if (!state.autoEnable) off.push(type === "claude" ? "opus" : "gpt-6.3-sol");
+export function simulateRelease(state: TypeAvailability): TypeAvailability {
+  const off = state.autoEnable ? state.off : [...state.off, "gpt-6.3-sol"];
   return { ...state, released: true, off };
 }

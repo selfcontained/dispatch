@@ -19,8 +19,8 @@ type AgentEngineFieldsProps = {
   model: string | null;
   onModelChange: (model: string | null) => void;
   modelOptions: readonly AgentModelOption[];
-  /** Show the picker, with just Default, before any models are known. */
-  alwaysShowModel?: boolean;
+  /** Pass null to show the engine setting when there is no known default. */
+  catalogDefault?: string | null;
   /** What is saved now, which may have been turned off since. */
   savedOption?: AgentModelOption | null;
   modelLoading: boolean;
@@ -44,7 +44,7 @@ export function AgentEngineFields({
   onEffortChange,
   onModelChange,
   modelOptions,
-  alwaysShowModel = false,
+  catalogDefault,
   savedOption,
   modelLoading,
   onTypeOpenChange,
@@ -67,7 +67,7 @@ export function AgentEngineFields({
   );
   const engineLine = engineSummary(engines, agentType);
   const showModelSelect =
-    alwaysShowModel || modelLoading || modelOptions.length > 0;
+    catalogDefault !== undefined || modelLoading || modelOptions.length > 0;
 
   return (
     <div className="space-y-3">
@@ -90,6 +90,7 @@ export function AgentEngineFields({
             testId={idPrefix ? `${idPrefix}-model` : undefined}
             value={model}
             options={modelOptions}
+            catalogDefault={catalogDefault}
             savedOption={savedOption}
             onChange={onModelChange}
             loading={modelLoading}

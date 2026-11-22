@@ -14,6 +14,7 @@ type AgentModelOption = { id: string; label: string; isNew?: boolean };
 type AgentModelSelectProps = {
   value: string | null;
   options: readonly AgentModelOption[];
+  catalogDefault?: string | null;
   /** What is saved now: still shown if turned off, but not offered again. */
   savedOption?: AgentModelOption | null;
   onChange: (model: string | null) => void;
@@ -28,19 +29,27 @@ const DEFAULT_VALUE = "__default__";
 export function AgentModelSelect({
   value,
   options,
+  catalogDefault,
   savedOption,
   onChange,
   loading = false,
   id = "create-agent-model",
   testId = "create-agent-model",
 }: AgentModelSelectProps): JSX.Element {
+  const fallback = catalogDefault ?? DEFAULT_VALUE;
+  const selectedValue =
+    value &&
+    (value === savedOption?.id || options.some((option) => option.id === value))
+      ? value
+      : fallback;
+  const fallbackLabel =
+    catalogDefault === null && options.length > 0
+      ? "Use engine setting"
+      : "Default";
+  const selectedLabel =
+    options.find((option) => option.id === selectedValue)?.label ??
+    (savedOption?.id === selectedValue ? savedOption.label : fallbackLabel);
   const markSeen = useSetAtom(seenModelsAtom);
-  const selected =
-    (value &&
-      (options.find((option) => option.id === value) ??
-        (savedOption?.id === value ? savedOption : null))) ||
-    null;
-  const selectedValue = selected?.id ?? DEFAULT_VALUE;
 
   return (
     <div className="space-y-1">
@@ -59,7 +68,7 @@ export function AgentModelSelect({
           // onValueChange when its native <option> set lags the rendered items.
           // Persisting that would leave the trigger permanently blank.
           if (!nextValue) return;
-          onChange(nextValue === DEFAULT_VALUE ? null : nextValue);
+          onChange(nextValue === fallback ? null : nextValue);
         }}
       >
         <SelectTrigger
@@ -68,11 +77,13 @@ export function AgentModelSelect({
           disabled={loading || options.length === 0}
         >
           <SelectValue>
-            {loading ? "Loading models…" : (selected?.label ?? "Default")}
+            {loading ? "Loading models…" : selectedLabel}
           </SelectValue>
         </SelectTrigger>
         <SelectContent className="max-h-[clamp(4rem,var(--radix-select-content-available-height),24rem)]">
-          <SelectItem value={DEFAULT_VALUE}>Default</SelectItem>
+          {!catalogDefault && (
+            <SelectItem value={DEFAULT_VALUE}>{fallbackLabel}</SelectItem>
+          )}
           {options.map((option) => (
             <SelectItem key={option.id} value={option.id}>
               {option.label}
