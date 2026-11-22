@@ -517,21 +517,17 @@ async function resolveInspectionRoots(cwd: string) {
   const repositoryRoot = await resolveRepoRoot(cwd, {
     commandRunner: run,
   }).catch(() => null);
-  if (repositoryRoot) {
-    const checkoutRoot = await resolveWorktreeRoot(cwd, {
-      commandRunner: run,
-    }).catch(() => null);
-    return { checkoutRoot, repositoryRoot };
-  }
-  const { root } = await inspectionRoot(cwd, false);
-  return { checkoutRoot: root, repositoryRoot: null };
+  const checkoutRoot = repositoryRoot
+    ? await resolveWorktreeRoot(cwd, { commandRunner: run }).catch(() => null)
+    : null;
+  return { checkoutRoot, repositoryRoot };
 }
 
 async function effectiveCommandRoot(cwd: string) {
   const { checkoutRoot, repositoryRoot } = await resolveInspectionRoots(cwd);
-  const root = checkoutRoot ?? repositoryRoot;
-  if (!root) throw new Error("Could not resolve checkout root");
-  return root;
+  return (
+    checkoutRoot ?? repositoryRoot ?? (await inspectionRoot(cwd, false)).root
+  );
 }
 
 export async function readCheckoutCommandFile(

@@ -31,7 +31,7 @@ export async function mcpCheckoutRoots(
   } catch {
     // Built-in MCP tools remain usable when the checkout is unavailable.
   }
-  return { checkoutRoot: null, repositoryRoot: null };
+  return null;
 }
 
 export async function discoverRepoTools(

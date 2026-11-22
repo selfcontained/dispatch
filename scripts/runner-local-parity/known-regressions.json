@@ -12,10 +12,6 @@
       "title": "Repo tools gained a five-minute kill, 64 KiB output, argument and manifest limits, and changed exit codes and errors",
       "task": "F1"
     },
-    "audit-4.3-6": {
-      "title": "A folder outside Git has a checkout root, so repo tools and persona authoring appear there",
-      "task": "F1"
-    },
     "audit-4.3-7": {
       "title": "Owner, persona and hook reads gained 256 KiB, 1024-entry and 4 MiB caps",
       "task": "F1"
@@ -857,90 +853,6 @@
       "finding": "audit-4.3-3"
     },
     {
-      "scenario": "audit-6-non-git-folder",
-      "path": "folder > .agents/personas/written.md",
-      "main": "<absent>",
-      "head": "{\"mode\":420,\"text\":\"---\\ntype: task\\nname: Written\\ndescription: Written by the tool\\n---\\n\\nCheck the folder.\\n\"}",
-      "finding": "audit-4.3-6"
-    },
-    {
-      "scenario": "audit-6-non-git-folder",
-      "path": "persona upsert > content > 0 > text",
-      "main": "\"MCP error -32602: Tool persona_upsert not found\"",
-      "head": "\"Created .agents/personas/written.md.\"",
-      "finding": "audit-4.3-6"
-    },
-    {
-      "scenario": "audit-6-non-git-folder",
-      "path": "persona upsert > isError",
-      "main": "true",
-      "head": "<absent>",
-      "finding": "audit-4.3-6"
-    },
-    {
-      "scenario": "audit-6-non-git-folder",
-      "path": "persona upsert > structuredContent",
-      "main": "<absent>",
-      "head": "{\"content\":\"---\\ntype: task\\nname: Written\\ndescription: Written by the tool\\n---\\n\\nCheck the folder.\\n\",\"created\":true,\"path\":\".agents/personas/written.md\"}",
-      "finding": "audit-4.3-6"
-    },
-    {
-      "scenario": "audit-6-non-git-folder",
-      "path": "personas > content > 0 > text > personas",
-      "main": "sha256:90cfee24e60f0547 [{\"description\":\"Built-in generalist reviewer — correctness, clarity, and fit with the surrounding c…",
-      "head": "sha256:86c83ff958941adc [{\"description\":\"The Keeper persona\",\"name\":\"Keeper\",\"slug\":\"keeper\",\"type\":\"review\"},{\"description\"…",
-      "finding": "audit-4.3-6"
-    },
-    {
-      "scenario": "audit-6-non-git-folder",
-      "path": "personas > structuredContent > personas",
-      "main": "sha256:90cfee24e60f0547 [{\"description\":\"Built-in generalist reviewer — correctness, clarity, and fit with the surrounding c…",
-      "head": "sha256:86c83ff958941adc [{\"description\":\"The Keeper persona\",\"name\":\"Keeper\",\"slug\":\"keeper\",\"type\":\"review\"},{\"description\"…",
-      "finding": "audit-4.3-6"
-    },
-    {
-      "scenario": "audit-6-non-git-folder",
-      "path": "repo tool > content > 0 > text",
-      "main": "\"MCP error -32602: Tool repo_echo not found\"",
-      "head": "\"ok\"",
-      "finding": "audit-4.3-6"
-    },
-    {
-      "scenario": "audit-6-non-git-folder",
-      "path": "repo tool > isError",
-      "main": "true",
-      "head": "<absent>",
-      "finding": "audit-4.3-6"
-    },
-    {
-      "scenario": "audit-6-non-git-folder",
-      "path": "repo tool > structuredContent",
-      "main": "<absent>",
-      "head": "{\"command\":[\"echo\",\"ok\"],\"exitCode\":0,\"stderr\":\"\",\"stdout\":\"ok\",\"truncated\":false}",
-      "finding": "audit-4.3-6"
-    },
-    {
-      "scenario": "audit-6-non-git-folder",
-      "path": "tools > persona_upsert",
-      "main": "<absent>",
-      "head": "true",
-      "finding": "audit-4.3-6"
-    },
-    {
-      "scenario": "audit-6-non-git-folder",
-      "path": "tools > persona_validate",
-      "main": "<absent>",
-      "head": "true",
-      "finding": "audit-4.3-6"
-    },
-    {
-      "scenario": "audit-6-non-git-folder",
-      "path": "tools > repo_echo",
-      "main": "<absent>",
-      "head": "true",
-      "finding": "audit-4.3-6"
-    },
-    {
       "scenario": "audit-7-read-caps",
       "path": "1031 directory entries > content > 0 > text > personas",
       "main": "sha256:8467cb9545eab317 [{\"description\":\"The Keeper persona\",\"name\":\"Keeper\",\"slug\":\"keeper\",\"type\":\"review\"},{\"description\"…",
@@ -1737,20 +1649,6 @@
       "main": "\"Invalid workspace path.\"",
       "head": "\"Invalid workspace path or options.\"",
       "finding": "files-error-text"
-    },
-    {
-      "scenario": "set-workspace",
-      "path": "outside git: tools > persona_upsert",
-      "main": "<absent>",
-      "head": "true",
-      "finding": "audit-4.3-6"
-    },
-    {
-      "scenario": "set-workspace",
-      "path": "outside git: tools > persona_validate",
-      "main": "<absent>",
-      "head": "true",
-      "finding": "audit-4.3-6"
     },
     {
       "scenario": "owner-reviews",

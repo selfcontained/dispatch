@@ -80,6 +80,8 @@ async function checkoutContext(
   const roots = ownerOnly
     ? null
     : await mcpCheckoutRoots(deps.agentManager, agent);
+  const hasCheckout =
+    !roots || Boolean(roots.checkoutRoot || roots.repositoryRoot);
   const repoRoot = placement ? null : (roots?.repositoryRoot ?? null);
   const worktreeRoot = placement ? null : (roots?.checkoutRoot ?? null);
   // The runner's machine-local paths never become host paths or Brain keys.
@@ -98,7 +100,8 @@ async function checkoutContext(
     context: {
       worktreeRoot,
       brainRepoRoot,
-      toolsRoot: placement ? workspaceDir : (worktreeRoot ?? undefined),
+      toolsRoot: hasCheckout && placement ? workspaceDir : undefined,
+      listSessionPersonas: hasCheckout,
       discoverRepoTools: ownerOnly
         ? async () => []
         : () =>
@@ -416,7 +419,6 @@ export async function registerMcpRoutes(
       listFiles: deps.mcpListFiles,
       deleteFile: deps.mcpDeleteFile,
       listPersonas: deps.mcpListPersonas,
-      listSessionPersonas: true,
       launchOwnerReviews: deps.mcpLaunchOwnerReviews,
       listPersonalities: deps.mcpListPersonalities,
       createPersonality: deps.mcpCreatePersonality,
@@ -535,7 +537,6 @@ export async function registerMcpRoutes(
       listFiles: deps.mcpListFiles,
       deleteFile: deps.mcpDeleteFile,
       listPersonas: deps.mcpListPersonas,
-      listSessionPersonas: true,
       launchOwnerReviews: deps.mcpLaunchOwnerReviews,
       listPersonalities: deps.mcpListPersonalities,
       createPersonality: deps.mcpCreatePersonality,

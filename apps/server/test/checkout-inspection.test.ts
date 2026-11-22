@@ -349,7 +349,7 @@ describe.each([
     });
     expect(await inspect(bin, { kind: "roots" })).toEqual({
       kind: "roots",
-      checkoutRoot: bin,
+      checkoutRoot: null,
       repositoryRoot: null,
     });
     expect(await inspect(bin, { kind: "listFiles", path: "missing" })).toEqual({
