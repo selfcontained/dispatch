@@ -49,6 +49,7 @@ export type ReconcilerDeps = {
   settleStream: (id: string, reason: string) => Promise<number>;
   /** A launch held for a runner update: not a launch that failed. */
   launchHeld?: (id: string) => boolean;
+  updateResumePending?: (id: string) => boolean;
 };
 
 export type Reconciler = {
@@ -103,6 +104,7 @@ async function reconcileAgentStatuses(
           (row) =>
             runtime.tracksProcesses() &&
             !deps.launchHeld?.(row.id) &&
+            !deps.updateResumePending?.(row.id) &&
             (row.status === "running" || row.status === "creating") &&
             !(
               row.status === "creating" &&
@@ -127,6 +129,8 @@ async function reconcileAgentStatuses(
   );
 
   for (const row of result.rows) {
+    if (deps.updateResumePending?.(row.id) && row.status === "running")
+      continue;
     const stuckSeconds =
       (Date.now() - new Date(row.updatedAt).getTime()) / 1000;
 

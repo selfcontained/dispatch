@@ -34,9 +34,9 @@ const logger = {
 const ATTEMPT = "11111111-1111-4111-8111-111111111111";
 const OTHER_ATTEMPT = "22222222-2222-4222-8222-222222222222";
 
-let cleanup: Array<() => void> = [];
-afterEach(() => {
-  for (const run of cleanup.splice(0).reverse()) run();
+let cleanup: Array<() => void | Promise<void>> = [];
+afterEach(async () => {
+  for (const run of cleanup.splice(0).reverse()) await run();
 });
 
 function memoryHolds() {
@@ -130,6 +130,59 @@ async function fixture(
 const settle = () => new Promise((resolve) => setTimeout(resolve, 100));
 
 describe("runner update hold in the runtime queue", () => {
+  it("lets only replies scoped to the open turn through a drain", async () => {
+    const { runtime, holds, held } = await fixture();
+    const conversation = { streamId: "agt_held", threadId: "active" };
+    const chat = {
+      source: "chat",
+      chatMessageId: "question",
+      conversation,
+    } as const;
+    held.turn("started", chat);
+    await vi.waitFor(() => expect(runtime.hasOpenTurn("agt_held")).toBe(true));
+    await holds.begin("r1", ATTEMPT, { draining: true });
+    const enqueue = (
+      text: string,
+      source: Partial<typeof chat> & {
+        awaited?: true;
+        correlatedReply?: true;
+        scheduleId?: string;
+      } = {}
+    ) =>
+      runtime.prompt(
+        "agt_held",
+        text,
+        { ...chat, ...source },
+        { delivery: "auto" }
+      );
+    const regular = enqueue("ordinary");
+    const unrelated = runtime.prompt(
+      "agt_held",
+      "unrelated reply",
+      {
+        ...chat,
+        correlatedReply: true,
+        conversation: { ...conversation, threadId: "different" },
+      },
+      { delivery: "auto" }
+    );
+    const scheduled = enqueue("scheduled", { scheduleId: "schedule" });
+    const reply = enqueue("matching answer", { correlatedReply: true });
+    const awaited = enqueue("awaited review", { awaited: true });
+    await Promise.all([reply.accepted, awaited.accepted]);
+    expect(held.steers).toEqual(["matching answer", "awaited review"]);
+    expect(held.prompts).toEqual([]);
+    held.turn("settled");
+    await Promise.all([reply.settled, awaited.settled]);
+    await holds.release("r1", ATTEMPT, "cancelled");
+    await Promise.all([regular.settled, unrelated.settled, scheduled.settled]);
+    const delivered = held.prompts.map(({ text }) => text).join("\n");
+    expect(delivered).toContain("ordinary");
+    expect(delivered).toContain("unrelated reply");
+    expect(delivered).toContain("scheduled");
+    expect(held.steers).toHaveLength(2);
+  });
+
   it("holds only the held runner's prompts and delivers them once, in order, on release", async () => {
     const { runtime, holds, held, other, local } = await fixture();
     await holds.begin("r1", ATTEMPT);

@@ -218,6 +218,13 @@ export async function updateWorld(
     });
   }
 
+  const drain = {
+    hosts: new Map<string, "busy" | "unattached" | "idle">(),
+    stopped: [] as string[],
+    resumed: [] as Array<{ id: string; revision: string }>,
+    recovery: Promise.resolve(),
+  };
+
   // --- The controller, rebuilt on restart ---
   function controller() {
     const service = new RemoteRunnerService();
@@ -307,6 +314,40 @@ export async function updateWorld(
       ),
       settleRunnerHostRecycling: vi.fn(async () => {}),
       startRunnerHostRecycling: vi.fn(),
+      runnerDrainHosts: vi.fn(async () =>
+        [...drain.hosts].map(([id, state]) => ({
+          id,
+          host:
+            state === "unattached"
+              ? undefined
+              : {
+                  agentId: id,
+                  attachedEpoch: service.connectionEpoch(RUNNER),
+                  build: runner.identity,
+                  instanceId: INSTANCE,
+                  quiesceSupported: true,
+                },
+        }))
+      ),
+      stopRunnerHostForDrain: vi.fn(
+        async (_runner, host, _epoch, _mayStop, record) => {
+          const id = host.agentId as string;
+          if (drain.hosts.get(id) !== "idle") return;
+          await record({ id, updatedAt: "2026-11-21 12:00:00+00" });
+          drain.stopped.push(id);
+          drain.hosts.delete(id);
+          runner.inventory = {
+            retained: [],
+            requiresQuiescence: true,
+            live: drain.hosts.size,
+          };
+        }
+      ),
+      resumeRunnerDrainHost: vi.fn(async (_runner, _attempt, { id }) => {
+        await drain.recovery;
+        drain.resumed.push({ id, revision: runner.identity.revision });
+      }),
+      setRunnerDrainReceipt: vi.fn(),
       stopRunnerHostRecycling: vi.fn(),
     };
     const coordinator = new RunnerUpdateCoordinator({
@@ -332,6 +373,7 @@ export async function updateWorld(
 
   const api = {
     runner,
+    drain,
     hosts,
     saved,
     artifacts,

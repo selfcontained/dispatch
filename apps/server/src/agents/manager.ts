@@ -71,6 +71,7 @@ import {
   type QueuedPromptAction,
   type QueuedPromptControl,
   type RunnerHostIdentity,
+  type RunnerHostRecycleHold,
   createAgentRuntime,
 } from "./runtime.js";
 import {
@@ -357,7 +358,7 @@ export const LAUNCH_CONTEXT_RESOLVE_TIMEOUT_MS = 5_000;
 const TIMED_OUT = Symbol("timed-out");
 
 class RecycleSuperseded extends Error {}
-type RecycleRestart = { mayStart(): boolean };
+type RecycleRestart = { mayStart(): boolean; drain?: true };
 
 /** Resolve with the promise's value, or `TIMED_OUT` after `ms`. */
 function withTimeout<T>(
@@ -377,6 +378,8 @@ export const UPDATE_RESUME_MESSAGE =
   "Dispatch stopped this idle agent for an update. Start it to continue if automatic resume did not finish.";
 
 export class AgentManager {
+  private readonly runnerDrainReceipts = new Map<string, Set<string>>();
+  private readonly drainedHostHolds = new Map<string, RunnerHostRecycleHold>();
   private readonly hostRecycler: RunnerHostRecycler;
   private readonly recyclingHosts = new Set<string>();
   private readonly stoppingOrArchiving = new Map<string, number>();
@@ -572,6 +575,7 @@ export class AgentManager {
         (await this.streamStore.settleInterrupted(id, reason)).length,
       ...(this.holds && {
         launchHeld: (id: string) => this.holds!.hasLaunch(id),
+        updateResumePending: (id: string) => this.hasRunnerDrainReceipt(id),
       }),
     });
     this.holds?.onRelease((release) =>
@@ -1301,7 +1305,8 @@ export class AgentManager {
     );
     for (const row of result.rows) {
       // Its launch is held for a runner update and runs when that opens.
-      if (this.holds?.hasLaunch(row.id)) continue;
+      if (this.holds?.hasLaunch(row.id) || this.hasRunnerDrainReceipt(row.id))
+        continue;
       this.streamRecorder.setCwd(
         row.id,
         remotePlacement(row.cwd) ? row.cwd : (row.workspacePath ?? row.cwd)
@@ -3061,6 +3066,7 @@ export class AgentManager {
           opts.launchId && {
             launchId: opts.launchId,
             beforeLaunchReconcile: () => this.assertLifecycleCurrent(agent),
+            ...(opts.recycle?.drain && { requireResume: true }),
           }),
         ...(onWorkspaceProgress && { onWorkspaceProgress }),
       });
@@ -3144,7 +3150,7 @@ export class AgentManager {
       return (await this.getAgent(id)) as AgentRecord;
     }
 
-    await this.setAgentStatus(id, "creating", null);
+    if (!recycle?.drain) await this.setAgentStatus(id, "creating", null);
     try {
       if (!remotePlacement(agent.cwd) && !agent.worktreePath) {
         const workspace = await this.localRunner.resumeWorkspace(
@@ -3159,7 +3165,7 @@ export class AgentManager {
       // A stopped job still needs its run-scoped tools and launch rules when
       // its host is recreated. Reattaching above keeps the existing context.
       if (recycle && !recycle.mayStart()) throw new RecycleSuperseded();
-      if (await this.holdLaunch(agent, "start", launchId))
+      if (!recycle?.drain && (await this.holdLaunch(agent, "start", launchId)))
         return (await this.getAgent(id)) as AgentRecord;
       const jobRun = await this.pool.query<{ id: string }>(
         "SELECT id FROM job_runs WHERE agent_id = $1 AND status IN ('started', 'running', 'needs_input') ORDER BY started_at DESC LIMIT 1",
@@ -3176,7 +3182,10 @@ export class AgentManager {
         });
       } catch (error) {
         // Refused by the runner's update fence: nothing started.
-        if (await this.holdRefusedLaunch(agent, error, "start", launchId))
+        if (
+          !recycle?.drain &&
+          (await this.holdRefusedLaunch(agent, error, "start", launchId))
+        )
           return (await this.getAgent(id)) as AgentRecord;
         throw error;
       }
@@ -3192,6 +3201,7 @@ export class AgentManager {
     } catch (error) {
       if (error instanceof LifecycleSuperseded)
         return this.getRequiredAgent(id);
+      if (recycle?.drain) throw error;
       if (error instanceof RecycleSuperseded) {
         await this.setAgentStatus(id, "stopped", null);
         return this.getRequiredAgent(id);
@@ -3293,6 +3303,137 @@ export class AgentManager {
     if (!agent || remotePlacement(agent.cwd)?.runner !== runnerId) return;
     this.streamRecorder.setCwd(agentId, agent.cwd);
     await this.runtime.attach(agentId);
+  }
+
+  setRunnerDrainReceipt(runnerId: string, ids: string[]): void {
+    const next = new Set(ids);
+    for (const id of this.runnerDrainReceipts.get(runnerId) ?? []) {
+      if (next.has(id)) continue;
+      this.drainedHostHolds.get(id)?.release();
+      this.drainedHostHolds.delete(id);
+    }
+    if (ids.length) this.runnerDrainReceipts.set(runnerId, next);
+    else this.runnerDrainReceipts.delete(runnerId);
+  }
+
+  private hasRunnerDrainReceipt(id: string): boolean {
+    return [...this.runnerDrainReceipts.values()].some((ids) => ids.has(id));
+  }
+
+  /** Legacy identities can be absent from the runner's retained list. */
+  async runnerDrainHosts(runnerId: string, retainedIds: string[]) {
+    this.runtime.wakeRunnerDrain?.(runnerId);
+    const hosts = new Map(
+      (this.runtime.runnerHosts?.(runnerId) ?? []).map((host) => [
+        host.agentId,
+        host,
+      ])
+    );
+    const { rows } = await this.pool.query<{ id: string; cwd: string }>(
+      `SELECT id, cwd FROM agents
+        WHERE status IN ('running', 'creating', 'stopping', 'archiving')
+          AND cwd LIKE 'runner://%' AND deleted_at IS NULL`
+    );
+    const ids = new Set([
+      ...retainedIds,
+      ...hosts.keys(),
+      ...rows
+        .filter(
+          ({ id, cwd }) =>
+            remotePlacement(cwd)?.runner === runnerId &&
+            !this.holds?.hasLaunch(id)
+        )
+        .map(({ id }) => id),
+    ]);
+    const inventory = await Promise.all(
+      [...ids].map(async (id) => {
+        try {
+          if ((await this.runtime.runnerHostAlive?.(runnerId, id)) === false)
+            return null;
+        } catch {
+          return { id, host: undefined };
+        }
+        return { id, host: hosts.get(id) };
+      })
+    );
+    return inventory.filter((entry) => entry !== null);
+  }
+
+  /** Persist the running-row receipt before asking an idle host to exit. */
+  async stopRunnerHostForDrain(
+    runnerId: string,
+    host: RunnerHostIdentity,
+    epoch: number,
+    mayStop: () => boolean,
+    record: (entry: { id: string; updatedAt: string }) => Promise<void>
+  ): Promise<void> {
+    const id = host.agentId;
+    if (this.lifecycleOperations.has(id) || this.drainedHostHolds.has(id))
+      return;
+    await this.serializeLifecycle(id, async () => {
+      const agent = await this.getAgent(id);
+      if (
+        agent?.status !== "running" ||
+        !agent.cliSessionId ||
+        remotePlacement(agent.cwd)?.runner !== runnerId ||
+        this.stoppingOrArchiving.has(id)
+      )
+        return;
+      const hold = this.runtime.holdForRecycle?.(runnerId, host, epoch);
+      if (!hold) return;
+      let keep = false;
+      try {
+        if (!(await hold.quiesce())) return;
+        const [entry] = await this.updateResumeSnapshot([id]);
+        if (!entry || this.stoppingOrArchiving.has(id) || !mayStop()) return;
+        await record(entry);
+        if (this.stoppingOrArchiving.has(id) || !hold.current() || !mayStop())
+          return;
+        keep = await hold.shutdown();
+        if (keep) this.drainedHostHolds.set(id, hold);
+      } finally {
+        if (!keep) hold.release();
+      }
+    });
+  }
+
+  /** The unchanged running row remains the claim until recovery is recorded. */
+  async resumeRunnerDrainHost(
+    runnerId: string,
+    attemptId: string,
+    entry: { id: string; updatedAt: string }
+  ): Promise<void> {
+    const id = entry.id;
+    const release = () => {
+      this.drainedHostHolds.get(id)?.release();
+      this.drainedHostHolds.delete(id);
+    };
+    // Stop can be inside the lifecycle lock waiting for the runner hold.
+    if (this.stoppingOrArchiving.has(id)) return release();
+    await this.serializeLifecycle(id, async () => {
+      if (!(await this.eligibleUpdateResumes([entry])).has(id))
+        return release();
+      const agent = await this.getAgent(id);
+      if (
+        !agent?.cliSessionId ||
+        remotePlacement(agent.cwd)?.runner !== runnerId
+      )
+        return release();
+      if (await this.runtime.runnerHostAlive?.(runnerId, id)) {
+        if (this.drainedHostHolds.has(id))
+          throw new Error("The quiesced runner host is still exiting.");
+        release();
+        if (!(await this.runtime.attach(id)))
+          throw new Error("The runner host has not reattached.");
+        return;
+      }
+      if (this.stoppingOrArchiving.has(id)) return release();
+      await this.startAgentClaimed(id, attemptId, {
+        drain: true,
+        mayStart: () => !this.stoppingOrArchiving.has(id),
+      });
+      release();
+    });
   }
 
   private async recycleRunnerHost(
@@ -3410,6 +3551,17 @@ export class AgentManager {
       return this.getRequiredAgent(id);
     }
 
+    if (
+      placement &&
+      this.hasRunnerDrainReceipt(id) &&
+      (await this.runtime
+        .runnerHostAlive?.(placement.runner, id)
+        .catch(() => true)) === false
+    ) {
+      await this.setAgentStatus(id, "stopped", null, undefined, guard);
+      return this.getRequiredAgent(id);
+    }
+
     // The stop hook and the stop run on the runner; its update fence would
     // refuse both. Wait for a held runner first, with the agent untouched.
     if (placement && this.holds) {
@@ -3506,7 +3658,7 @@ export class AgentManager {
           checkoutState
         );
       },
-      this.recyclingHosts.has(id)
+      this.recyclingHosts.has(id) || this.hasRunnerDrainReceipt(id)
     );
   }
 
@@ -3865,7 +4017,11 @@ export class AgentManager {
       settleStream: (id) => this.streamRecorder.settleStopped(id),
       setArchivePhase: (id, phase) => this.setArchivePhase(id, phase),
       claimArchive: (id, claim) =>
-        this.terminateLifecycle(id, claim, this.recyclingHosts.has(id)),
+        this.terminateLifecycle(
+          id,
+          claim,
+          this.recyclingHosts.has(id) || this.hasRunnerDrainReceipt(id)
+        ),
       ...(this.holds && {
         waitForRunner: async (agent: AgentRecord) => {
           const placement = remotePlacement(agent.cwd);

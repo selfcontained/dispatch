@@ -811,3 +811,54 @@ describe("launches on a runner held for an update", () => {
     expect(await manager.isUpdateHeld(local.id)).toBe(false);
   });
 });
+
+describe("runner drain resume receipts", () => {
+  it("protects the receipt at boot and never restarts a user-stopped, archived or deleted agent", async () => {
+    const holds = await openHolds();
+    const runtime = spyRuntime();
+    const manager = managerOn(holds, runtime);
+    const [resume, stopped, archived, deleted] = await Promise.all(
+      Array.from({ length: 4 }, () => manager.createAgent({ cwd: HELD }))
+    );
+    const entries = await manager.updateResumeSnapshot([
+      resume.id,
+      stopped.id,
+      archived.id,
+      deleted.id,
+    ]);
+    await holds.begin("r1", ATTEMPT, { draining: true });
+    const afterRestart = managerOn(holds, runtime);
+    afterRestart.setRunnerDrainReceipt(
+      "r1",
+      entries.map(({ id }) => id)
+    );
+    expect((await afterRestart.restoreRunningAgents()).lost).toEqual([]);
+    await afterRestart.reconcileAgentStatuses();
+    expect(await statusOf(resume.id)).toBe("running");
+    Object.assign(runtime, { runnerHostAlive: vi.fn(async () => false) });
+    await afterRestart.stopAgent(stopped.id);
+    await afterRestart.beginArchive(archived.id);
+    await pool.query("UPDATE agents SET deleted_at = NOW() WHERE id = $1", [
+      deleted.id,
+    ]);
+    runtime.launch.mockClear();
+    for (const entry of entries)
+      await afterRestart.resumeRunnerDrainHost("r1", ATTEMPT, entry);
+    for (const entry of entries)
+      await afterRestart.resumeRunnerDrainHost("r1", ATTEMPT, entry);
+    expect(runtime.launch.mock.calls).toEqual([
+      [
+        expect.objectContaining({
+          agentId: resume.id,
+          launchId: ATTEMPT,
+          resumeSessionId: resume.cliSessionId,
+          requireResume: true,
+        }),
+      ],
+    ]);
+    expect(await statusOf(stopped.id)).toBe("stopped");
+    expect(await statusOf(archived.id)).toBe("archiving");
+    expect(await afterRestart.getAgent(deleted.id)).toBeNull();
+    expect(holds.isHeld("r1")).toBe(true);
+  });
+});

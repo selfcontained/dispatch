@@ -88,6 +88,7 @@ const runnerHold = z
     beganAt: z.string().datetime(),
     expiresAt: z.string().datetime(),
     launches: z.array(heldLaunch).max(10_000),
+    draining: z.literal(true).optional(),
   })
   .strict();
 export type RunnerHold = z.infer<typeof runnerHold>;
@@ -251,11 +252,29 @@ export class RunnerUpdateHolds {
   async begin(
     runnerId: string,
     attemptId: string,
-    options: { boundMs?: number } = {}
+    options: { boundMs?: number; draining?: true } = {}
   ): Promise<RunnerHold> {
     const existing = this.holds.get(runnerId);
     if (existing) {
-      if (existing.attemptId === attemptId) return snapshot(existing);
+      if (existing.attemptId === attemptId) {
+        if (options.draining && !existing.draining) {
+          const expiresAt = existing.expiresAt;
+          existing.draining = true;
+          existing.expiresAt = new Date(
+            Date.parse(existing.beganAt) + (options.boundMs ?? this.boundMs)
+          ).toISOString();
+          try {
+            await this.persist();
+          } catch (error) {
+            delete existing.draining;
+            existing.expiresAt = expiresAt;
+            throw error;
+          }
+          if (this.holds.get(runnerId) === existing) this.arm(existing);
+          else throw new RunnerHoldConflict("The runner hold expired.");
+        }
+        return snapshot(existing);
+      }
       throw new RunnerHoldConflict(
         "Another update attempt is holding this runner."
       );
@@ -269,6 +288,7 @@ export class RunnerUpdateHolds {
         now + (options.boundMs ?? this.boundMs)
       ).toISOString(),
       launches: [],
+      ...(options.draining && { draining: true }),
     };
     this.holds.set(runnerId, hold);
     try {
@@ -481,5 +501,6 @@ function snapshot(hold: Live): RunnerHold {
     beganAt: hold.beganAt,
     expiresAt: hold.expiresAt,
     launches: [...hold.launches],
+    ...(hold.draining && { draining: true }),
   };
 }

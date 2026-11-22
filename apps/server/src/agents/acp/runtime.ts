@@ -102,6 +102,7 @@ type Waiting = {
   /** Cancellation belongs to the turn active when this post arrived. */
   interruptHandled: boolean;
   interruptTargetSeq?: number;
+  wakeTurnSeq?: number;
 };
 
 type Live = {
@@ -332,6 +333,16 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
     (deps.holds?.isHeld(entry.runner) === true ||
       recycleHolds.has(entry.agentId));
 
+  const draining = (entry: Live) =>
+    entry.runner !== undefined &&
+    deps.holds?.current(entry.runner)?.draining === true &&
+    !recycleHolds.has(entry.agentId);
+  const canWake = (w: Waiting, entry: Live) =>
+    draining(entry) &&
+    entry.turnOpen &&
+    w.wakeTurnSeq !== undefined &&
+    w.wakeTurnSeq === entry.turnSeq;
+
   /**
    * Stop and discard start runner processes, so a held runner's fence would
    * refuse them: wait for the hold, and wait again if a refusal says the
@@ -475,13 +486,14 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
       while (
         entry.queue.waiting.length &&
         (!entry.remote || entry.client.isReady()) &&
-        !held(entry) &&
         !entry.deliveryInterrupts.size &&
         live.get(agentId) === entry
       ) {
-        const urgent = entry.queue.waiting.filter(
-          (w) => w.delivery === "interrupt"
-        );
+        const gated = held(entry);
+        if (gated && !entry.queue.waiting.some((w) => canWake(w, entry))) break;
+        const urgent = gated
+          ? []
+          : entry.queue.waiting.filter((w) => w.delivery === "interrupt");
         for (const w of urgent) {
           // A steering request may settle the arrival-time turn while the pump
           // is locked. Its interrupt must never migrate to a subsequent turn.
@@ -549,7 +561,8 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
           if (!entry.client.welcome?.steeringSupported) break;
           const index = entry.queue.waiting.findIndex(
             (w) =>
-              w.delivery === "auto" &&
+              (!gated || canWake(w, entry)) &&
+              (w.delivery === "auto" || (gated && canWake(w, entry))) &&
               !w.requiresPrompt &&
               !w.steering?.pending &&
               !(
@@ -558,7 +571,9 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
                   .slice(0, entry.queue.waiting.indexOf(w))
                   .some(
                     (earlier) =>
-                      isUserPost(earlier) && earlier.steering?.pending
+                      (!gated || canWake(earlier, entry)) &&
+                      isUserPost(earlier) &&
+                      earlier.steering?.pending
                   )
               ) &&
               steers(w, entry)
@@ -601,6 +616,7 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
           for (const w of batch) {
             w.taken = false;
             w.delivery = "queue";
+            w.wakeTurnSeq = undefined;
           }
           // Keep declined input ahead of ordinary queued work, but behind
           // interrupts that arrived while the request was pending.
@@ -639,7 +655,10 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
           if (!images)
             throw new Error("Runner prompt file delivery is unavailable.");
           if (steering) {
-            if (held(entry)) {
+            if (
+              (gated || held(entry)) &&
+              !batch.every((w) => canWake(w, entry))
+            ) {
               for (const w of batch) finishDecision(w, "queued");
               await requeue();
               continue;
@@ -673,6 +692,10 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
                 }) + "\n",
                 { mode: 0o600, flush: true }
               );
+            }
+            if (entry.runner && deps.holds?.current(entry.runner)?.draining) {
+              await requeue();
+              continue;
             }
             // Set this before submitting: ack and settle can arrive together.
             submitted = true;
@@ -1023,7 +1046,19 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
           input.runnerName === undefined ||
           isPromptImageMimeType(input.mimeType)
       ) ?? false;
+    const wakeTurnSeq =
+      opts?.delivery === "auto" &&
+      !requiresPrompt &&
+      entry.turnOpen &&
+      !source?.scheduleId &&
+      (source?.awaited ||
+        (source?.correlatedReply &&
+          source.conversation &&
+          sameConversation(source.conversation, entry.conversation)))
+        ? entry.turnSeq
+        : undefined;
     const own: Waiting = {
+      wakeTurnSeq,
       requiresPrompt,
       text,
       ...(opts?.beforeSubmit ? { beforeSubmit: opts.beforeSubmit } : {}),
@@ -1207,16 +1242,38 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
         .map(identify);
     },
 
-    holdForRecycle(runnerId, host) {
+    async runnerHostAlive(runnerId, agentId) {
+      const placement = await placementOf(agentId);
+      if (placement?.runner !== runnerId)
+        throw new Error("No matching runner placement for this host.");
+      const { value } = await requestSession(placement, {
+        kind: "alive",
+        agentId,
+      });
+      return value === true;
+    },
+
+    wakeRunnerDrain(runnerId) {
+      for (const [agentId, entry] of live)
+        if (entry.runner === runnerId) void pump(agentId, entry);
+    },
+
+    holdForRecycle(runnerId, host, drainEpoch) {
       const { agentId } = host;
       const entry = live.get(agentId);
+      const drain = drainEpoch !== undefined;
       if (
         !entry ||
         entry.runner !== runnerId ||
         !host.instanceId ||
         entry.client.welcome?.hostInstanceId !== host.instanceId ||
         entry.client.welcome?.quiesceSupported !== true ||
-        held(entry) ||
+        (drain
+          ? entry.channelEpoch !== drainEpoch ||
+            !entry.client.isReady() ||
+            entry.turnOpen ||
+            recycleHolds.has(agentId)
+          : held(entry)) ||
         entry.pumping ||
         entry.deliveryInterrupts.size
       )
@@ -1312,8 +1369,17 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
         pathPrefix,
         onWorkspaceProgress,
         beforeLaunchReconcile,
+        requireResume,
         ...launch
       } = input;
+      if (requireResume) {
+        const previous = live.get(input.agentId);
+        if (previous && preserving(previous)) {
+          live.delete(input.agentId);
+          previous.client.close();
+          await previous.events;
+        }
+      }
       const { launchExited } = await requestLaunch(
         placement,
         { kind: "launch", agentId: input.agentId, launch },
@@ -1331,10 +1397,16 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
         if (!welcome) throw new Error("no welcome from the agent host");
         const recycle = recycleHolds.get(input.agentId);
         if (
-          recycle?.restarting &&
+          (requireResume || recycle?.restarting) &&
           (!welcome.resumed || welcome.sessionId !== input.resumeSessionId)
         ) {
-          await runtime.stop(input.agentId, false);
+          if (requireResume && placement) {
+            await requestSession(placement, {
+              kind: "stop",
+              agentId: input.agentId,
+              force: false,
+            });
+          } else await runtime.stop(input.agentId, false);
           throw new Error(
             "The replacement host could not resume the existing session."
           );

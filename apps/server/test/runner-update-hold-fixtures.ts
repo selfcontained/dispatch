@@ -27,6 +27,8 @@ export async function scriptedHost(
   );
   cleanup.push(() => host.kill());
   writeFileSync(hostFile(dir, "pid"), String(host.pid));
+  const sockets = new Set<net.Socket>();
+  const steers: string[] = [];
   const prompts: { text: string; images?: unknown }[] = [];
   let seq = 0;
   const event = (e: unknown): HostMessage =>
@@ -37,6 +39,8 @@ export async function scriptedHost(
       event: e,
     }) as HostMessage;
   const server = net.createServer((socket) => {
+    sockets.add(socket);
+    socket.once("close", () => sockets.delete(socket));
     const decode = ndjsonDecoder<ClientMessage>();
     socket.on("data", (chunk) => {
       for (const message of decode(chunk)) {
@@ -57,6 +61,15 @@ export async function scriptedHost(
           );
           if (message.replayComplete)
             socket.write(encodeMessage({ type: "replay_complete" }));
+        } else if (message.type === "steer") {
+          steers.push(message.text);
+          socket.write(
+            encodeMessage({
+              type: "steer_result",
+              id: message.id,
+              outcome: "steered",
+            } as HostMessage)
+          );
         } else if (message.type === "prompt") {
           prompts.push({ text: message.text, images: message.images });
           socket.write(
@@ -75,6 +88,21 @@ export async function scriptedHost(
   await new Promise<void>((resolve) =>
     server.listen(hostFile(dir, "socket"), resolve)
   );
-  cleanup.push(() => server.close());
-  return { prompts, socket: hostFile(dir, "socket") };
+  const close = () =>
+    new Promise<void>((resolve) => {
+      for (const socket of sockets) socket.destroy();
+      server.close(() => resolve());
+    });
+  cleanup.push(() => close());
+  return {
+    prompts,
+    steers,
+    socket: hostFile(dir, "socket"),
+    turn(state: "started" | "settled", source?: unknown) {
+      const message = encodeMessage(
+        event({ type: "turn", agentId, state, source })
+      );
+      for (const socket of sockets) socket.write(message);
+    },
+  };
 }

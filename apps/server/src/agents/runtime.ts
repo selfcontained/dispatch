@@ -31,6 +31,7 @@ export type RuntimeLaunch = HostLaunch & {
   onWorkspaceProgress?: (progress: LaunchProgress) => void;
   /** Recheck ownership after waiting for a runner whose launch reply was lost. */
   beforeLaunchReconcile?: () => Promise<void>;
+  requireResume?: true;
 };
 
 export type RuntimeEventListener = (
@@ -86,9 +87,12 @@ export type AgentRuntime = {
   attach(agentId: string): Promise<boolean>;
   isAlive(agentId: string): Promise<boolean>;
   runnerHosts?(runnerId: string): RunnerHostIdentity[];
+  wakeRunnerDrain?(runnerId: string): void;
+  runnerHostAlive?(runnerId: string, agentId: string): Promise<boolean>;
   holdForRecycle?(
     runnerId: string,
-    host: RunnerHostIdentity
+    host: RunnerHostIdentity,
+    drainEpoch?: number
   ): RunnerHostRecycleHold | null;
   /** Inspect an existing session without starting it or submitting chat. */
   getMcpInventory(agentId: string): Promise<AgentMcpInventoryResponse>;

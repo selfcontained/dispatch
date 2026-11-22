@@ -93,10 +93,17 @@ export function useRunnerName(runnerId: string | undefined) {
 export function useStartRunnerUpdate(runnerId: string) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (action: RunnerUpdateAction) =>
+    mutationFn: (
+      action: RunnerUpdateAction | { action: "cancel"; attemptId: string }
+    ) =>
       api<{ attemptId: string }>(
         `/api/v1/runners/${encodeURIComponent(runnerId)}/update`,
-        { method: "POST", body: JSON.stringify({ action }) }
+        {
+          method: "POST",
+          body: JSON.stringify(
+            typeof action === "string" ? { action } : action
+          ),
+        }
       ),
     // A refusal also means the runner's state moved on.
     onSettled: () =>

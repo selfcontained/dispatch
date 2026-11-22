@@ -25,6 +25,8 @@ export type PromptSource = {
   userMessage?: boolean;
   /** Structured answers and commands retain their dedicated delivery policy. */
   steeringExcluded?: boolean;
+  /** An answer to a specific question or form in the source conversation. */
+  correlatedReply?: true;
   /** Agent-authored scheduled content, explicitly eligible for steering. */
   scheduleId?: string;
   scheduleDeliveryId?: string;

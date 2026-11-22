@@ -719,33 +719,113 @@ describe("outcomes", () => {
     expect(world.sent("update_fence")).toEqual([]);
   });
 
-  it("reports an incompatible handoff as needing idle without forcing it", async () => {
+  async function waitingDrain() {
     await online();
+    world.drain.hosts.set(AGENT, "idle");
+    world.drain.hosts.set("agt_busy", "busy");
+    world.drain.hosts.set("agt_unattached", "unattached");
     world.runner.inventory = {
       retained: [],
       requiresQuiescence: true,
-      live: 1,
+      live: world.drain.hosts.size,
     };
-    await update();
-    await world.until(() => world.result());
-    expect(world.coordinator.view(RUNNER)).toEqual({
-      result: { state: "needs_idle", version: target.version },
-    });
-    expect(world.sent("update_fence")).toHaveLength(1);
-    expect(world.sent("update_fence")[0].retainSessions).toBe(true);
+    const { attemptId } = await update();
+    await world.until(
+      () => world.coordinator.view(RUNNER)?.attempt?.agents === 2
+    );
+    return attemptId;
+  }
+
+  it("counts busy and unattached hosts and resumes only a partially drained host on cancellation", async () => {
+    const attemptId = await waitingDrain();
+    const release = vi.fn();
+    world.holds.onRelease(release);
+    expect(world.phase()).toBe("draining");
     expect(world.sent("update_activate")).toEqual([]);
-    expect(world.holds.isHeld(RUNNER)).toBe(false);
+    expect(world.drain.stopped).toEqual([AGENT]);
+    const recovery = Promise.withResolvers<void>();
+    world.drain.recovery = recovery.promise;
+    await world.coordinator.cancelDrain(RUNNER, attemptId);
+    await expect(
+      world.coordinator.cancelDrain(RUNNER, attemptId)
+    ).rejects.toMatchObject({
+      code: "stale_drain",
+    });
+    const pass = world.coordinator.tick();
+    try {
+      await vi.waitFor(() =>
+        expect(world.agents.resumeRunnerDrainHost).toHaveBeenCalledTimes(1)
+      );
+      expect(world.phase()).toBe("resuming");
+      expect(world.holds.isHeld(RUNNER)).toBe(true);
+      expect(release).not.toHaveBeenCalled();
+    } finally {
+      recovery.resolve();
+      await pass;
+    }
+    await world.until(() => world.result()?.reason === "drain_cancelled");
+    await vi.waitFor(() => expect(release).toHaveBeenCalledTimes(1));
+    expect(world.drain.resumed).toEqual([
+      { id: AGENT, revision: identity.revision },
+    ]);
+    await world.coordinator.tick();
+    expect(await world.holds.release(RUNNER, attemptId, "cancelled")).toBe(
+      false
+    );
+    expect(release).toHaveBeenCalledTimes(1);
   });
 
-  it.each([
-    { reason: "incompatible_handoff" },
-    { reason: "operations_pending", requiresQuiescence: true },
-  ] as const)("reads %o as needing idle", async (status) => {
-    await online();
-    const { attemptId } = await staging();
-    world.inject({ attemptId, ...status });
-    await world.until(() => world.result()?.state === "needs_idle");
+  it("keeps a partial receipt and the original deadline across a controller restart, then recovers on abort", async () => {
+    await waitingDrain();
+    const deadline = world.attempt()!.deadline;
+    const hold = world.holds.current(RUNNER);
+    await world.restartController();
+    expect(world.holds.current(RUNNER)).toEqual(hold);
+    expect(world.attempt()?.deadline).toBe(deadline);
+    expect(world.agents.setRunnerDrainReceipt).toHaveBeenCalledWith(RUNNER, [
+      AGENT,
+    ]);
+    await world.connect();
+    await world.until(
+      () => world.coordinator.view(RUNNER)?.attempt?.agents === 2
+    );
+    world.advance(deadline - world.now());
+    await world.until(() => world.result()?.reason === "drain_timeout");
+    expect(world.holds.isHeld(RUNNER)).toBe(false);
+    expect(world.drain.resumed).toEqual([
+      { id: AGENT, revision: identity.revision },
+    ]);
   });
+
+  it.each(["updated", "rolled_back"] as const)(
+    "activates with no hosts and recovers on %s",
+    async (outcome) => {
+      await waitingDrain();
+      world.drain.hosts.set("agt_busy", "idle");
+      world.drain.hosts.set("agt_unattached", "idle");
+      await world.until(() => world.runner.trial?.phase === "prepared");
+      expect(world.sent("update_fence").at(-1)?.retainSessions).toBe(false);
+      expect(world.runner.trial?.fence.retained).toEqual([]);
+      expect(world.holds.isHeld(RUNNER)).toBe(true);
+      expect(world.drain.resumed).toEqual([]);
+      if (outcome === "rolled_back") {
+        // Reconnect the prior build with the updater's terminal receipt.
+        await world.disconnect();
+        await world.endTrial("rolled_back", "boot_failed");
+        await world.restartRunner();
+      } else {
+        await world.swap();
+      }
+      await world.until(() => world.result()?.state === outcome);
+      expect(world.drain.resumed).toEqual(
+        [AGENT, "agt_busy", "agt_unattached"].map((id) => ({
+          id,
+          revision: outcome === "updated" ? target.revision : identity.revision,
+        }))
+      );
+      expect(world.holds.isHeld(RUNNER)).toBe(false);
+    }
+  );
 
   it("releases when work did not settle", async () => {
     await online();

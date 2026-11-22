@@ -5,21 +5,19 @@ import { uuid } from "./protocol.js";
 import { readPrivate, writeAtomic, syncDirectory } from "./files.js";
 const readPrivateFile = (file: string) =>
   readPrivate(file, { maxBytes: 64 * 1024 });
+export const resumeAgentSchema = z
+  .object({
+    id: z.string().regex(/^agt_[A-Za-z0-9_-]{1,64}$/),
+    updatedAt: z.string().min(1).max(64),
+  })
+  .strict();
+
 const resumeReceiptSchema = z
   .object({
     formatVersion: z.literal(1),
     transactionId: uuid,
     createdAt: z.string().datetime(),
-    agents: z
-      .array(
-        z
-          .object({
-            id: z.string().regex(/^agt_[A-Za-z0-9_-]{1,64}$/),
-            updatedAt: z.string().min(1).max(64),
-          })
-          .strict()
-      )
-      .max(10_000),
+    agents: z.array(resumeAgentSchema).max(10_000),
   })
   .strict();
 export type ResumeReceipt = z.infer<typeof resumeReceiptSchema>;

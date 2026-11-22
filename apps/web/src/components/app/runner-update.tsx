@@ -6,7 +6,10 @@ import { useStartRunnerUpdate, type Runner } from "@/hooks/use-runners";
 import { ApiError } from "@/lib/api";
 import { RunnerCommand, useRunnerInstaller } from "./runner-onboarding";
 
-const PHASES: Record<RunnerUpdatePhaseView, string> = {
+const PHASES: Record<
+  Exclude<RunnerUpdatePhaseView, "draining" | "resuming">,
+  string
+> = {
   staging: "Downloading and verifying…",
   settling: "Waiting for work to settle…",
   switching: "Switching to the new build…",
@@ -25,6 +28,7 @@ const ROLLED_BACK: Record<string, string> = {
 };
 
 const DEFERRED: Record<string, string> = {
+  drain_timeout: "The wait for agents timed out.",
   operations_pending: "The runner was still busy, so it didn’t switch.",
   verify_failed: "The runner couldn’t download or verify the build.",
   boot_failed: "The runner couldn’t restart to switch builds.",
@@ -77,6 +81,8 @@ function describeResult({
           "The runner restored its previous build.",
       };
     case "deferred":
+      if (reason === "drain_cancelled")
+        return { title: `${update} was cancelled` };
       if (reason === "downgrade")
         return {
           title: `${update} was refused`,
@@ -112,7 +118,10 @@ export function RunnerUpdateStatus({ runner }: { runner: Runner }) {
     runner.update ?? {};
   // A refusal is stale once an update is running or has landed.
   const error =
-    attempt || (!available && result?.state === "updated") ? null : start.error;
+    (attempt && attempt.phase !== "draining") ||
+    (!available && result?.state === "updated")
+      ? null
+      : start.error;
   if (!attempt && !available && !result && !previousBuildAgents && !error)
     return null;
 
@@ -123,7 +132,14 @@ export function RunnerUpdateStatus({ runner }: { runner: Runner }) {
     title = attempt.version
       ? `Updating to ${attempt.version}`
       : "Runner update in progress";
-    detail = PHASES[attempt.phase];
+    const count = attempt.agents ?? 0;
+    const agents = `${count} ${count === 1 ? "agent" : "agents"}`;
+    detail =
+      attempt.phase === "draining"
+        ? `Waiting on ${agents}`
+        : attempt.phase === "resuming"
+          ? `Resuming ${agents}`
+          : PHASES[attempt.phase];
   } else if (result && (failed || !available)) {
     ({ title, detail } = describeResult(result));
   } else if (available) {
@@ -159,7 +175,11 @@ export function RunnerUpdateStatus({ runner }: { runner: Runner }) {
               {detail}
             </p>
           )}
-          {attempt?.held && <p>New work waits until the update finishes.</p>}
+          {attempt?.held &&
+            attempt.phase !== "draining" &&
+            attempt.phase !== "resuming" && (
+              <p>New work waits until the update finishes.</p>
+            )}
           {!attempt && previousBuildAgents ? (
             <p>
               {previousBuildAgents}{" "}
@@ -180,6 +200,19 @@ export function RunnerUpdateStatus({ runner }: { runner: Runner }) {
             </>
           )}
         </div>
+        {attempt?.phase === "draining" && (
+          <LoadingButton
+            type="button"
+            size="sm"
+            variant="default"
+            loading={start.isPending}
+            onClick={() =>
+              start.mutate({ action: "cancel", attemptId: attempt.id })
+            }
+          >
+            Cancel
+          </LoadingButton>
+        )}
         {!attempt && available && (
           <LoadingButton
             type="button"

@@ -69,11 +69,29 @@ export async function registerRunnerRoutes(
 
     app.post(`${base}/:id/update`, async (request, reply) => {
       const { id } = request.params as { id: string };
-      const { action } = (request.body ?? {}) as { action?: unknown };
+      const { action, attemptId } = (request.body ?? {}) as {
+        action?: unknown;
+        attemptId?: unknown;
+      };
+      if (action === "cancel") {
+        if (typeof attemptId !== "string")
+          return reply
+            .code(400)
+            .send({ error: "The drain attempt ID is required." });
+        if (!deps.updates)
+          return reply.code(404).send({ error: "Runner not found." });
+        try {
+          return reply
+            .code(202)
+            .send(await deps.updates.cancelDrain(id, attemptId));
+        } catch (error) {
+          return fail(reply, error);
+        }
+      }
       if (action !== "update" && action !== "retry")
-        return reply
-          .code(400)
-          .send({ error: 'The action must be "update" or "retry".' });
+        return reply.code(400).send({
+          error: 'The action must be "update", "retry", or "cancel".',
+        });
       if (!deps.updates)
         return reply.code(404).send({ error: "Runner not found." });
       try {

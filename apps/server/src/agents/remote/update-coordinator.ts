@@ -4,6 +4,7 @@ import type { FastifyBaseLogger } from "fastify";
 import { z } from "zod";
 
 import type { RunnerArtifactSource } from "../../server/runner-artifacts.js";
+import { resumeAgentSchema } from "../../update-recovery/resume-receipt.js";
 import type { AgentManager } from "../manager.js";
 import {
   endsUpdateAttempt,
@@ -28,12 +29,10 @@ import { compareRunnerVersions } from "./update-verify.js";
  *   staging ─ready→ settling ─fence_ready→ switching ─trial→ confirming
  *      └───────────────┴──────────────┴─────────────────┴──→ cancelling
  *
- * and from any of them an outcome: updated, rolled_back, deferred or
- * needs_idle. Each step is saved before the frame that causes it is sent, so
- * a restarted Dispatch or a reconnected runner resumes the same attempt or
- * ends it. Work goes on while the runner stages, and is held from `ready`,
- * before the fence is asked for. The runner owns the swap and its rollback; this only asks,
- * observes and confirms. It never drains, forces or picks an update itself.
+ * Incompatible hosts drain before settling with an empty retained set.
+ * Once the runner reports an outcome, Dispatch resumes the stopped hosts
+ * before releasing held work. Work goes on during staging, and is held
+ * before the first fence. The runner owns the swap and its rollback.
  */
 
 /** Phase budgets. Each is saved as a deadline and never extended by a restart. */
@@ -55,6 +54,8 @@ export const UPDATE_TIMING = {
 
 /** The task-5 hold outlasts every phase it covers. */
 export const UPDATE_HOLD_BOUND_MS = 20 * 60_000;
+const DRAIN_WAIT_MS = 2 * 60 * 60_000;
+const DRAIN_HOLD_BOUND_MS = DRAIN_WAIT_MS + UPDATE_HOLD_BOUND_MS;
 
 const targetSchema = z.object({
   version: z.string(),
@@ -62,6 +63,12 @@ const targetSchema = z.object({
   arch: z.enum(["x64", "arm64"]),
   sha256: z.string(),
   revision: z.string(),
+});
+
+const outcomeSchema = z.object({
+  state: z.enum(["updated", "rolled_back", "deferred", "needs_idle"]),
+  reason: z.string().optional(),
+  floorVersion: z.string().optional(),
 });
 
 const attemptSchema = z.object({
@@ -72,6 +79,8 @@ const attemptSchema = z.object({
   phase: z.enum([
     "staging",
     "settling",
+    "draining",
+    "resuming",
     "switching",
     "confirming",
     "cancelling",
@@ -87,11 +96,13 @@ const attemptSchema = z.object({
   activated: z.boolean().optional(),
   /** Why Dispatch cancelled. */
   reason: z.string().optional(),
-  outcome: z
+  outcome: outcomeSchema.optional(),
+  drain: z
     .object({
-      state: z.enum(["updated", "rolled_back", "deferred", "needs_idle"]),
-      reason: z.string().optional(),
-      floorVersion: z.string().optional(),
+      retainedIds: z.array(z.string()).max(1024),
+      waiting: z.number().int().nonnegative().optional(),
+      agents: z.array(resumeAgentSchema).max(10_000),
+      result: outcomeSchema.optional(),
     })
     .optional(),
 });
@@ -145,6 +156,7 @@ export function fileRunnerUpdateStore(
 }
 
 const INELIGIBLE = {
+  stale_drain: "This drain is no longer waiting.",
   not_ready: "Dispatch is still starting. Try again in a moment.",
   offline: "The runner is offline.",
   unsupported:
@@ -197,6 +209,10 @@ type CoordinatorAgents = Pick<
   | "settleRunnerHostRecycling"
   | "startRunnerHostRecycling"
   | "stopRunnerHostRecycling"
+  | "runnerDrainHosts"
+  | "stopRunnerHostForDrain"
+  | "resumeRunnerDrainHost"
+  | "setRunnerDrainReceipt"
 >;
 
 export class RunnerUpdateCoordinator {
@@ -209,6 +225,8 @@ export class RunnerUpdateCoordinator {
   /** The connection that reported `activating/trial`. */
   private readonly trials = new Map<string, number>();
   private readonly confirms = new Map<string, number>();
+  private readonly waiting = new Map<string, number>();
+  private readonly drainCancellations = new Set<string>();
   private readonly attaching = new Set<string>();
   private readonly ticking = new Set<string>();
   /** Between stopping a recycling pass and the attempt that replaces it. */
@@ -253,8 +271,10 @@ export class RunnerUpdateCoordinator {
   }
 
   async load(): Promise<void> {
-    for (const record of await this.options.store.read())
+    for (const record of await this.options.store.read()) {
       this.records.set(record.runnerId, record);
+      this.syncReceipt(record);
+    }
   }
 
   /**
@@ -269,6 +289,7 @@ export class RunnerUpdateCoordinator {
         this.release(runnerId, attempt.id, holdOutcome(attempt.outcome));
       else if (
         attempt.phase !== "cancelling" &&
+        attempt.phase !== "resuming" &&
         !this.isOwnBuild(attempt.target)
       )
         // Never offer or confirm another Dispatch build's target. Without a
@@ -311,6 +332,31 @@ export class RunnerUpdateCoordinator {
     return request;
   }
 
+  async cancelDrain(runnerId: string, attemptId: string) {
+    if (!this.options.service.isRegistered(runnerId))
+      throw new RunnerUpdateIneligible("not_found");
+    if (!this.started) throw new RunnerUpdateIneligible("not_ready");
+    const valid = (attempt: Attempt | undefined): attempt is Attempt =>
+      attempt?.id === attemptId && attempt.phase === "draining";
+    if (!valid(this.active(runnerId)))
+      throw new RunnerUpdateIneligible("stale_drain");
+    this.drainCancellations.add(attemptId);
+    try {
+      return await this.enqueue(runnerId, async () => {
+        const attempt = this.active(runnerId);
+        if (!valid(attempt)) throw new RunnerUpdateIneligible("stale_drain");
+        // The incompatible fence was released before the waiting phase.
+        await this.finish(runnerId, attempt, {
+          state: "deferred",
+          reason: "drain_cancelled",
+        });
+        return { attemptId };
+      });
+    } finally {
+      this.drainCancellations.delete(attemptId);
+    }
+  }
+
   view(runnerId: string): RunnerUpdateView | undefined {
     const { service, agents, artifacts, build } = this.options;
     const record = this.records.get(runnerId);
@@ -321,6 +367,15 @@ export class RunnerUpdateCoordinator {
         attempt: {
           id: attempt.id,
           phase: attempt.phase,
+          ...(attempt.phase === "draining" && {
+            agents:
+              this.waiting.get(runnerId) ??
+              attempt.drain!.waiting ??
+              attempt.drain!.retainedIds.length,
+          }),
+          ...(attempt.phase === "resuming" && {
+            agents: attempt.drain!.agents.length,
+          }),
           ...(attempt.target && { version: attempt.target.version }),
           ...(this.options.holds.current(runnerId)?.attemptId ===
             attempt.id && { held: true }),
@@ -329,7 +384,11 @@ export class RunnerUpdateCoordinator {
 
     const view: RunnerUpdateView = {};
     const last = record?.attempt;
-    if (last?.outcome && this.showsResult(last, last.outcome, advert))
+    if (
+      last?.outcome &&
+      last.outcome.state !== "needs_idle" &&
+      this.showsResult(last, last.outcome, advert)
+    )
       view.result = {
         ...last.outcome,
         ...(last.target && { version: last.target.version }),
@@ -339,8 +398,7 @@ export class RunnerUpdateCoordinator {
       build.revision &&
       !advert.pendingAttemptId &&
       artifacts()?.updateEnabled &&
-      versionOrder(build.version, advert.version) === 1 &&
-      view.result?.state !== "needs_idle"
+      versionOrder(build.version, advert.version) === 1
     )
       view.available = {
         version: build.version,
@@ -475,6 +533,9 @@ export class RunnerUpdateCoordinator {
     const pending = advert?.pendingAttemptId;
     let attempt = this.active(runnerId);
 
+    if (attempt?.phase === "resuming") return this.advance(runnerId);
+    if (attempt?.phase === "draining" && !pending)
+      return this.advance(runnerId);
     if (attempt && !advert) {
       await this.finish(runnerId, attempt, {
         state: "deferred",
@@ -499,12 +560,21 @@ export class RunnerUpdateCoordinator {
 
     // Nothing waits on an attempt the runner is not fenced for and was not
     // asked to fence.
-    if (pending || attempt.phase === "settling" || attempt.activated) {
+    if (
+      pending ||
+      attempt.phase === "settling" ||
+      attempt.activated ||
+      attempt.drain
+    ) {
       if (!(await this.holdOrCancel(runnerId, attempt))) return;
     } else {
       this.releaseOther(runnerId, attempt.id);
     }
     switch (attempt.phase) {
+      case "draining":
+        // An earlier fence might still be unwinding on this connection.
+        await this.cancel(runnerId, attempt, "interrupted");
+        return;
       case "cancelling":
         return this.sendCancel(runnerId, attempt, epoch);
       case "staging":
@@ -563,7 +633,8 @@ export class RunnerUpdateCoordinator {
     const live = this.options.service.selfUpdate(runnerId);
     if (live?.epoch !== epoch) return;
     const attempt = this.records.get(runnerId)?.attempt;
-    if (attempt?.id !== status.attemptId) return;
+    if (attempt?.id !== status.attemptId || attempt.phase === "resuming")
+      return;
     const ended = endsUpdateAttempt(status);
     const { target, outcome } = attempt;
 
@@ -605,9 +676,33 @@ export class RunnerUpdateCoordinator {
       return this.sendOffer(runnerId, attempt, live.advert, epoch);
     if (
       status.phase === "deferred" &&
-      (status.reason === "incompatible_handoff" || status.requiresQuiescence)
+      (status.reason === "incompatible_handoff" || status.requiresQuiescence) &&
+      (attempt.phase === "staging" || attempt.phase === "settling") &&
+      !attempt.drain
+    ) {
+      const hold = await this.options.holds.begin(runnerId, attempt.id, {
+        boundMs: DRAIN_HOLD_BOUND_MS,
+        draining: true,
+      });
+      const retainedIds = [
+        ...new Set(status.retained?.map((host) => host.sessionId)),
+      ];
+      const waiting: Attempt = {
+        ...attempt,
+        phase: "draining",
+        retained: undefined,
+        deadline: Date.parse(hold.beganAt) + DRAIN_WAIT_MS,
+        drain: { retainedIds, agents: [] },
+      };
+      if (!(await this.step(runnerId, attempt, waiting))) return;
+      return this.advance(runnerId);
+    }
+    if (
+      attempt.phase === "draining" &&
+      status.phase === "deferred" &&
+      status.reason === "incompatible_handoff"
     )
-      return this.finish(runnerId, attempt, { state: "needs_idle" });
+      return;
     // The runner's reason wins, unless it only echoes Dispatch's own cancel.
     const reason =
       attempt.reason &&
@@ -631,7 +726,7 @@ export class RunnerUpdateCoordinator {
     status: RunnerUpdateEvent["status"]
   ): Promise<void> {
     const { phase, target } = attempt;
-    if (phase === "cancelling" || !target) return;
+    if (phase === "cancelling" || phase === "draining" || !target) return;
     const { service } = this.options;
 
     if (status.phase === "activating") {
@@ -676,7 +771,7 @@ export class RunnerUpdateCoordinator {
         // Staged: work waits from here, before anything can be refused.
         if (!(await this.holdOrCancel(runnerId, attempt))) return;
         this.send(runnerId, () =>
-          service.fenceUpdate(runnerId, attempt.id, true, epoch)
+          service.fenceUpdate(runnerId, attempt.id, !attempt.drain, epoch)
         );
         return;
       }
@@ -690,7 +785,7 @@ export class RunnerUpdateCoordinator {
           return;
         }
         if (phase !== "settling") return;
-        if (!status.retained)
+        if (!status.retained || (attempt.drain && status.retained.length))
           return this.cancel(runnerId, attempt, "interrupted");
         const fenced: Attempt = {
           ...attempt,
@@ -712,6 +807,8 @@ export class RunnerUpdateCoordinator {
     const attempt = this.active(runnerId);
     if (!attempt) return;
     const { service } = this.options;
+    if (attempt.phase === "resuming")
+      return this.resumeDrain(runnerId, attempt);
     if (!service.isRegistered(runnerId))
       return this.finish(runnerId, attempt, {
         state: "deferred",
@@ -720,6 +817,18 @@ export class RunnerUpdateCoordinator {
     const now = this.now();
     const live = service.selfUpdate(runnerId);
     const { phase } = attempt;
+    if (phase === "draining") {
+      if (
+        now >= attempt.deadline ||
+        this.options.holds.current(runnerId)?.attemptId !== attempt.id
+      )
+        return this.finish(runnerId, attempt, {
+          state: "deferred",
+          reason: "drain_timeout",
+        });
+      if (live) await this.drain(runnerId, attempt, live.advert, live.epoch);
+      return;
+    }
     if (now >= attempt.deadline) {
       if (phase === "cancelling" || !live)
         return this.finish(runnerId, attempt, {
@@ -766,6 +875,99 @@ export class RunnerUpdateCoordinator {
     );
   }
 
+  private async drain(
+    runnerId: string,
+    attempt: Attempt,
+    advert: SelfUpdateAdvert,
+    epoch: number
+  ) {
+    const { agents } = this.options;
+    const drain = attempt.drain!;
+    const mayStop = () =>
+      !this.closed &&
+      !this.drainCancellations.has(attempt.id) &&
+      this.now() < attempt.deadline &&
+      this.options.service.connectionEpoch(runnerId) === epoch &&
+      this.options.holds.current(runnerId)?.attemptId === attempt.id;
+    const hosts = await agents.runnerDrainHosts(runnerId, drain.retainedIds);
+    if (!mayStop()) return;
+    const waiting = new Set(hosts.map(({ id }) => id)).size;
+    this.waiting.set(runnerId, waiting);
+    if (waiting !== drain.waiting) {
+      attempt = { ...attempt, drain: { ...drain, waiting } };
+      await this.save({ ...this.records.get(runnerId), runnerId, attempt });
+      if (!mayStop()) return;
+    }
+    if (!hosts.length) {
+      const next: Attempt = {
+        ...attempt,
+        phase: "settling",
+        deadline: this.now() + UPDATE_TIMING.settlingMs,
+      };
+      if (await this.step(runnerId, attempt, next))
+        this.sendOffer(runnerId, next, advert, epoch);
+      return;
+    }
+    for (const { id, host } of hosts) {
+      if (!mayStop()) return;
+      if (host?.attachedEpoch !== epoch) {
+        this.attach(runnerId, id);
+        continue;
+      }
+      await agents.stopRunnerHostForDrain(
+        runnerId,
+        host,
+        epoch,
+        mayStop,
+        async (entry) => {
+          const current = this.active(runnerId)!;
+          const drain = current.drain!;
+          const next = {
+            ...current,
+            drain: {
+              ...drain,
+              agents: [
+                ...drain.agents.filter(({ id }) => id !== entry.id),
+                entry,
+              ],
+            },
+          };
+          // A failed write must never allow the host to shut down.
+          await this.save({
+            ...this.records.get(runnerId),
+            runnerId,
+            attempt: next,
+          });
+        }
+      );
+    }
+  }
+
+  private async resumeDrain(runnerId: string, attempt: Attempt) {
+    const drain = attempt.drain!;
+    const { agents, service } = this.options;
+    if (drain.agents.length && service.isRegistered(runnerId)) {
+      // A reconnect with an outstanding trial is not an installed build yet.
+      const live = service.selfUpdate(runnerId);
+      if (
+        service.connectionEpoch(runnerId) === undefined ||
+        live?.advert.pendingAttemptId
+      )
+        return;
+      const [entry, ...remaining] = drain.agents;
+      await agents.resumeRunnerDrainHost(runnerId, attempt.id, entry!);
+      const next = { ...attempt, drain: { ...drain, agents: remaining } };
+      await this.save({
+        ...this.records.get(runnerId),
+        runnerId,
+        attempt: next,
+      });
+      if (remaining.length) return;
+      attempt = next;
+    }
+    return this.finish(runnerId, attempt, drain.result!);
+  }
+
   /**
    * Proof is the host's own welcome and completed replay, for the recorded
    * instance, on an attach opened over this connection. A connected runner
@@ -776,25 +978,27 @@ export class RunnerUpdateCoordinator {
     retained: RetainedSession[],
     epoch: number
   ): boolean {
-    const { agents, logger } = this.options;
+    const { agents } = this.options;
     const missing = retained.filter(
       (session) => !agents.isRunnerSessionAttached(runnerId, session, epoch)
     );
-    for (const { sessionId } of missing) {
-      const key = `${runnerId}/${sessionId}`;
-      if (this.attaching.has(key)) continue;
-      this.attaching.add(key);
-      void agents
-        .attachRunnerSession(runnerId, sessionId)
-        .catch((error: unknown) =>
-          logger.warn(
-            { err: error, runnerId, sessionId },
-            "could not attach a retained runner session"
-          )
-        )
-        .finally(() => this.attaching.delete(key));
-    }
+    for (const { sessionId } of missing) this.attach(runnerId, sessionId);
     return missing.length === 0;
+  }
+
+  private attach(runnerId: string, sessionId: string) {
+    const key = `${runnerId}/${sessionId}`;
+    if (this.attaching.has(key)) return;
+    this.attaching.add(key);
+    void this.options.agents
+      .attachRunnerSession(runnerId, sessionId)
+      .catch((err: unknown) =>
+        this.options.logger.warn(
+          { err, runnerId, sessionId },
+          "could not attach a retained runner session"
+        )
+      )
+      .finally(() => this.attaching.delete(key));
   }
 
   // --- Ending an attempt ---
@@ -819,6 +1023,15 @@ export class RunnerUpdateCoordinator {
   }
 
   private async finish(runnerId: string, attempt: Attempt, outcome: Outcome) {
+    if (attempt.drain?.agents.length && attempt.phase !== "resuming") {
+      await this.record(runnerId, {
+        ...attempt,
+        phase: "resuming",
+        drain: { ...attempt.drain, result: outcome },
+      });
+      return;
+    }
+    this.waiting.delete(runnerId);
     const { target } = attempt;
     let { confirmed, failed } = this.records.get(runnerId) ?? {};
     if (outcome.state === "updated" && target) {
@@ -836,7 +1049,7 @@ export class RunnerUpdateCoordinator {
     }
     await this.saveOrKeep({
       runnerId,
-      attempt: { ...attempt, outcome },
+      attempt: { ...attempt, drain: undefined, outcome },
       ...(confirmed && { confirmed }),
       ...(failed && { failed }),
     });
@@ -885,6 +1098,11 @@ export class RunnerUpdateCoordinator {
 
   private async holdFor(runnerId: string, attemptId: string) {
     this.releaseOther(runnerId, attemptId);
+    if (this.active(runnerId)?.drain) {
+      if (this.options.holds.current(runnerId)?.attemptId !== attemptId)
+        throw new Error("The drain hold expired.");
+      return;
+    }
     await this.options.holds.begin(runnerId, attemptId, {
       boundMs: UPDATE_HOLD_BOUND_MS,
     });
@@ -1033,7 +1251,16 @@ export class RunnerUpdateCoordinator {
         "could not save runner update state"
       );
       this.records.set(record.runnerId, record);
+      this.syncReceipt(record);
     }
+  }
+
+  private syncReceipt({ runnerId, attempt }: RunnerUpdateRecord) {
+    if (attempt.drain)
+      this.options.agents.setRunnerDrainReceipt(
+        runnerId,
+        attempt.drain.agents.map(({ id }) => id)
+      );
   }
 
   /** Writes are serialized, and memory follows the file. */
@@ -1043,7 +1270,11 @@ export class RunnerUpdateCoordinator {
       .then(async () => {
         const next = new Map(this.records).set(record.runnerId, record);
         await this.options.store.write([...next.values()]);
+        const hadDrain = this.records.get(record.runnerId)?.attempt.drain;
         this.records.set(record.runnerId, record);
+        if (hadDrain && !record.attempt.drain)
+          this.options.agents.setRunnerDrainReceipt(record.runnerId, []);
+        this.syncReceipt(record);
       });
     this.writes = write;
     return write;

@@ -3,6 +3,8 @@ export type RunnerUpdateAction = "update" | "retry";
 export type RunnerUpdatePhaseView =
   | "staging"
   | "settling"
+  | "draining"
+  | "resuming"
   | "switching"
   | "confirming"
   | "cancelling";
@@ -22,6 +24,7 @@ export type RunnerUpdateView = {
     id: string;
     phase: RunnerUpdatePhaseView;
     version?: string;
+    agents?: number;
     /** New work for the runner waits: from staged until the attempt ends. */
     held?: boolean;
   };
