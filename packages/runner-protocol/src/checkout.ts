@@ -116,7 +116,6 @@ export function isCheckoutReply(
           Number.isFinite(value.updatedAt) &&
           value.updatedAt >= 0)) &&
       Array.isArray(value.warnings) &&
-      value.warnings.length <= 8 &&
       value.warnings.every(
         (warning) => typeof warning === "string" && warning.length <= 512
       ) &&

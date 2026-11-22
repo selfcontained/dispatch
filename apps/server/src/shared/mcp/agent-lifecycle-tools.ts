@@ -100,21 +100,21 @@ export function registerAgentLifecycleTools(
       "set_workspace",
       {
         description:
-          "Tell Dispatch which directory you are working in when it is no longer the one you launched in — for example a git worktree you created yourself, or a different repo. Checkout reads follow your selection. On a remote runner, the next host start also uses the selected directory. Omit path to return to the launch directory.",
+          "Tell Dispatch which directory you are working in when it is no longer the one you launched in — for example a git worktree you created yourself, or a different repo. Dispatch's diff view, branch, repo tools and brain follow it; your shell's working directory does not change. Omit path to return to the launch directory.",
         inputSchema: {
           path: z
             .string()
             .min(1)
             .optional()
             .describe(
-              "Absolute directory on your session’s machine. Inside a git checkout, its root is used."
+              "Absolute path of the directory you now work in. Inside a git checkout, its root is used."
             ),
           baseBranch: z
             .string()
             .min(1)
             .optional()
             .describe(
-              "Branch the diff compares against. If omitted, Dispatch uses the selected checkout’s normal comparison base."
+              "Branch the diff compares against. Defaults to the launch base in the same repo, else the repo's default branch."
             ),
         },
       },

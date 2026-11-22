@@ -379,6 +379,15 @@ it("validates checkout queries, results and borrowed launches", () => {
     isCheckoutReply(
       {
         ...reply,
+        warnings: Array.from({ length: 9 }, (_, index) => `Warning ${index}`),
+      },
+      query
+    )
+  ).toBe(true);
+  expect(
+    isCheckoutReply(
+      {
+        ...reply,
         files: [{ path: ".config/other/settings.txt", content: "other" }],
       },
       query

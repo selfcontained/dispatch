@@ -341,6 +341,48 @@ describe("shared remote persona catalog", () => {
     expect(result.personas.map((p) => p.slug)).toEqual(["replacement"]);
     expect(result.warnings.join()).toContain("bad.md");
   });
+  it("counts only Markdown personas toward the default-branch file cap", async () => {
+    const personas = path.join(author, ".agents/personas");
+    await mkdir(personas, { recursive: true });
+    await Promise.all(
+      Array.from({ length: 100 }, (_, index) =>
+        writeFile(path.join(personas, `a-${index}.txt`), "supporting text")
+      )
+    );
+    await publish("instructions", "z");
+
+    const result = await new PersonaCatalogCache(runner, () => now).get(
+      checkout,
+      true
+    );
+    expect(result.personas.map(({ slug }) => slug)).toEqual(["z"]);
+    expect(result.warnings).toEqual([]);
+  });
+
+  it("counts raw Git blob sizes toward the default-branch byte cap", async () => {
+    const personas = path.join(author, ".agents/personas");
+    await mkdir(personas, { recursive: true });
+    const header = "---\ntype: task\n---\n";
+    const content = header + '"'.repeat(256 * 1024 - header.length);
+    const slugs = Array.from(
+      { length: 16 },
+      (_, index) => `persona-${String(index).padStart(2, "0")}`
+    );
+    await Promise.all(
+      slugs.map((slug) => writeFile(path.join(personas, `${slug}.md`), content))
+    );
+    await git(author, "add", ".");
+    await git(author, "commit", "-m", "Catalog with 4 MiB of raw Markdown");
+    await git(author, "push", "origin", "trunk");
+
+    const result = await new PersonaCatalogCache(runner, () => now).get(
+      checkout,
+      true
+    );
+    expect(result.personas.map(({ slug }) => slug)).toEqual(slugs);
+    expect(result.warnings).toEqual([]);
+  });
+
   it("names a committed persona symlink in a warning instead of skipping it", async () => {
     await publish("one");
     await symlink("builder.md", path.join(author, ".agents/personas/alias.md"));

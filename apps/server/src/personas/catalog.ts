@@ -6,8 +6,8 @@ import {
 import { resolveRepoRoot } from "../shared/git/git-context.js";
 import type { CommandRunner } from "../shared/lib/run-command.js";
 import {
-  loadCheckoutPersonas,
   loadPersonas,
+  toPersonaDefinition,
   type PersonaDefinition,
 } from "./loader.js";
 import { PERSONA_DIRS } from "./paths.js";
@@ -25,21 +25,20 @@ export async function parseDefaultBranchPersonas(
   reply: DefaultBranchFilesReply
 ): Promise<PersonaCatalog> {
   const warnings = [...reply.warnings];
-  if (reply.truncated)
-    warnings.push("The default-branch file listing was incomplete.");
-  const files = new Map(
-    reply.files.map(({ path, content }) => [path, content])
-  );
-  const personas = await loadCheckoutPersonas(
-    async (directory) =>
-      reply.files
-        .filter(
-          ({ path }) => path.slice(0, path.lastIndexOf("/")) === directory
-        )
-        .map(({ path }) => path.slice(directory.length + 1)),
-    async (path) => files.get(path) ?? null,
-    warnings
-  );
+  const personas: PersonaDefinition[] = [];
+  const seen = new Set<string>();
+  for (const { path, content } of reply.files) {
+    const slug = path.slice(path.lastIndexOf("/") + 1, -3);
+    if (!path.endsWith(".md") || seen.has(slug)) continue;
+    seen.add(slug);
+    try {
+      personas.push(toPersonaDefinition(slug, content));
+    } catch {
+      warnings.push(
+        `Could not load persona ${path}: invalid persona definition.`
+      );
+    }
+  }
   return {
     personas,
     warnings,

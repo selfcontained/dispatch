@@ -159,7 +159,7 @@ export function registerAgentLaunchTools(
           .string()
           .optional()
           .describe(
-            "For native launches, defaults to the template directory or the caller’s workspace. A runner caller stays on its bound runner. Use useWorktree for an independent checkout there."
+            "Working directory for the new agent. Defaults to the template’s directory when supplied, otherwise the parent’s working directory. Project template directories cannot be overridden."
           ),
         child: z
           .boolean()

@@ -101,6 +101,7 @@ const rules = [
       "MAX_CHECKOUT_VIEW_BYTES = 16 * 1024 * 1024",
     ],
     [protocol + "checkout.ts", "value.names.length <= 1024"],
+    [protocol + "checkout.ts", "DEFAULT_BRANCH_REPLY_BYTES = 4 * 1024 * 1024"],
     [protocol + "checkout.ts", "encode(value.content).length <= 256 * 1024"],
     [runner, "if (watches.size >= 512)"],
   ],

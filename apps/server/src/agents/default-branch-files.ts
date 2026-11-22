@@ -4,14 +4,15 @@ import path from "node:path";
 import { z } from "zod";
 import { runCommand, type CommandRunner } from "../shared/lib/run-command.js";
 import type { DefaultBranchFilesReply } from "@dispatch/runner-protocol";
-import {
-  DEFAULT_BRANCH_FILE_LIMIT,
-  DEFAULT_BRANCH_REPLY_BYTES,
-} from "@dispatch/runner-protocol";
+import { toPersonaDefinition } from "../personas/loader.js";
 
 export const DEFAULT_BRANCH_REFRESH_MS = 5 * 60_000;
 const MAX_BACKOFF_MS = 60 * 60_000;
 const LOCK_TTL_MS = 5 * 60_000;
+export const PERSONA_CATALOG_LIMIT_WARNING =
+  "Persona catalog exceeds the 100-file or 4 MiB limit.";
+const REFRESH_WARNING =
+  "Could not refresh personas from origin. Using cached definitions; retry is delayed automatically.";
 const cacheSchema = z.object({
   version: z.literal(1),
   nextRefreshAt: z.number(),
@@ -68,67 +69,61 @@ export class DefaultBranchFiles {
   private async readFiles(cwd: string, commit: string, directories: string[]) {
     const files: DefaultBranchFilesReply["files"] = [];
     const warnings: string[] = [];
-    let truncated = false;
-    let bytes = 1024; // Envelope and metadata.
+    const seen = new Set<string>();
+    let bytes = 0;
+    const entries = (
+      await this.git(cwd, [
+        "--literal-pathspecs",
+        "ls-tree",
+        "-r",
+        "-z",
+        "-l",
+        commit,
+        "--",
+        ...directories,
+      ])
+    ).split("\0");
     for (const directory of directories) {
-      // A tree lookup treats the supplied directory as a literal path.
-      const tree = await this.git(cwd, [
-        "rev-parse",
-        "--verify",
-        `${commit}:${directory}`,
-      ]).catch(() => null);
-      const object = tree?.trim();
-      if (
-        !object ||
-        !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(object) ||
-        (await this.git(cwd, ["cat-file", "-t", object])).trim() !== "tree"
-      )
-        continue;
-      const entries = await this.git(cwd, ["ls-tree", "-z", "-l", object]);
-      for (const entry of entries.split("\0")) {
-        const tab = entry.indexOf("\t");
-        if (tab === -1) continue;
-        const name = entry.slice(tab + 1);
-        const [mode, kind, blob, size] = entry
-          .slice(0, tab)
-          .trim()
-          .split(/\s+/);
-        // A committed symlink is not a file the catalog can read; say so, as
-        // before, instead of skipping it silently.
-        if (kind === "blob" && mode === "120000" && name.endsWith(".md"))
-          warnings.push(
-            `Could not load persona ${directory}/${name}: unsupported file or larger than 256 KiB.`
-          );
+      for (const entry of entries) {
+        const [metadata, filePath] = entry.split("\t");
+        if (
+          !filePath?.startsWith(`${directory}/`) ||
+          !filePath.endsWith(".md") ||
+          filePath.slice(directory.length + 1).includes("/")
+        )
+          continue;
+        const slug = path.basename(filePath, ".md");
+        if (seen.has(slug)) continue;
+        seen.add(slug);
+
+        const [mode, kind, blob, size] = metadata.trim().split(/\s+/);
+        bytes += Number(size) || 0;
+        if (seen.size > 100 || bytes > 4 * 1024 * 1024) {
+          warnings.push(PERSONA_CATALOG_LIMIT_WARNING);
+          return { files, truncated: true, warnings };
+        }
         if (
           kind !== "blob" ||
           !["100644", "100755"].includes(mode) ||
-          !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(blob) ||
-          !name ||
-          name.includes("\\") ||
-          name.toLowerCase() === ".git"
-        )
-          continue;
-        const filePath = `${directory}/${name}`;
-        if (filePath.length > 4096) continue;
-        if (Number(size) > 256 * 1024) {
-          truncated = true;
+          Number(size) > 256 * 1024
+        ) {
+          warnings.push(
+            `Could not load persona ${filePath}: unsupported file or larger than 256 KiB.`
+          );
           continue;
         }
-        if (files.length >= DEFAULT_BRANCH_FILE_LIMIT)
-          return { files, truncated: true, warnings };
-        const content = await this.git(cwd, ["cat-file", "blob", blob]);
-        if (Buffer.byteLength(content) > 256 * 1024) {
-          truncated = true;
-          continue;
+        try {
+          const content = await this.git(cwd, ["cat-file", "blob", blob]);
+          toPersonaDefinition(slug, content);
+          files.push({ path: filePath, content });
+        } catch {
+          warnings.push(
+            `Could not load persona ${filePath}: invalid persona definition.`
+          );
         }
-        const file = { path: filePath, content };
-        bytes += Buffer.byteLength(JSON.stringify(file)) + 1;
-        if (bytes > DEFAULT_BRANCH_REPLY_BYTES)
-          return { files, truncated: true, warnings };
-        files.push(file);
       }
     }
-    return { files, truncated, warnings };
+    return { files, truncated: false, warnings };
   }
 
   private async refresh(
@@ -197,8 +192,7 @@ export class DefaultBranchFiles {
             MAX_BACKOFF_MS,
             DEFAULT_BRANCH_REFRESH_MS * 2 ** Math.min(cached.failures, 4)
           );
-        cached.warning =
-          "Could not refresh the default branch from origin. Using cached files; retry is delayed automatically.";
+        cached.warning = REFRESH_WARNING;
         await this.write(file, cached);
       }
     } finally {
@@ -290,7 +284,7 @@ export class DefaultBranchFiles {
       ? await this.readFiles(cwd, cached.commit, directories).catch(() => ({
           files: [],
           truncated: true,
-          warnings: [] as string[],
+          warnings: ["The default-branch file listing was incomplete."],
         }))
       : { files: [], truncated: false, warnings: [] as string[] };
     return {
@@ -298,13 +292,13 @@ export class DefaultBranchFiles {
       hasOrigin: true,
       ...listing,
       warnings: [
-        ...fileWarnings,
         ...(this.unavailable.has(file)
           ? [
-              "Could not store default branch metadata. Check repository cache permissions.",
+              "Could not store the persona catalog. Check repository cache permissions.",
             ]
           : []),
-        ...(cached?.warning ? [cached.warning] : []),
+        ...fileWarnings,
+        ...(cached?.warning ? [REFRESH_WARNING] : []),
       ],
       refreshing,
       updatedAt: cached?.updatedAt ?? null,

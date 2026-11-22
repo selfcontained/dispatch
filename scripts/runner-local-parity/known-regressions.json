@@ -12,14 +12,6 @@
       "title": "Worktree status gained ownership, owner, borrowers and checkoutState",
       "task": "T20"
     },
-    "persona-catalog-caps": {
-      "title": "The persona catalog stops at 100 files or 4 MiB",
-      "task": "T35"
-    },
-    "persona-catalog-warning": {
-      "title": "An oversized default-branch persona is reported as an incomplete listing, without naming the file",
-      "task": "T35"
-    },
     "worktree-launch-failure": {
       "title": "A child whose worktree cannot be created ends stopped, not error and blocked, with a different message",
       "task": "T25"
@@ -35,10 +27,6 @@
     "branches-default": {
       "title": "The branch list gained defaultBranch",
       "task": "T17"
-    },
-    "tool-descriptions": {
-      "title": "launch_agent and set_workspace describe runners to every local agent",
-      "task": "T36"
     },
     "agent-record-field": {
       "title": "Every local agent record gained runnerManaged",
@@ -87,90 +75,6 @@
       "finding": "agent-record-field"
     },
     {
-      "scenario": "audit-7-persona-catalog-caps",
-      "path": "105 personas: route > body > personas",
-      "main": "sha256:fc4e0010802c554d [{\"body\":\"Review carefully.\",\"description\":\"The p000 persona\",\"name\":\"p000\",\"slug\":\"p000\",\"type\":\"re…",
-      "head": "sha256:7759f398bc104b47 [{\"body\":\"Review carefully.\",\"description\":\"The p000 persona\",\"name\":\"p000\",\"slug\":\"p000\",\"type\":\"re…",
-      "finding": "persona-catalog-caps"
-    },
-    {
-      "scenario": "audit-7-persona-catalog-caps",
-      "path": "105 personas: route > body > warnings",
-      "main": "<absent>",
-      "head": "[\"Persona catalog exceeds the 100-file or 4 MiB limit.\",\"Persona catalog exceeds the 100-file or 4 MiB limit.\"]",
-      "finding": "persona-catalog-caps"
-    },
-    {
-      "scenario": "audit-7-persona-catalog-caps",
-      "path": "105 personas: tool > content > 0 > text > personas",
-      "main": "sha256:7ba52bca528afb0c [{\"description\":\"The p000 persona\",\"name\":\"p000\",\"slug\":\"p000\",\"type\":\"review\"},{\"description\":\"The …",
-      "head": "sha256:1b1a39584241fa1a [{\"description\":\"The p000 persona\",\"name\":\"p000\",\"slug\":\"p000\",\"type\":\"review\"},{\"description\":\"The …",
-      "finding": "persona-catalog-caps"
-    },
-    {
-      "scenario": "audit-7-persona-catalog-caps",
-      "path": "105 personas: tool > content > 0 > text > warnings",
-      "main": "<absent>",
-      "head": "[\"Persona catalog exceeds the 100-file or 4 MiB limit.\"]",
-      "finding": "persona-catalog-caps"
-    },
-    {
-      "scenario": "audit-7-persona-catalog-caps",
-      "path": "105 personas: tool > structuredContent > personas",
-      "main": "sha256:7ba52bca528afb0c [{\"description\":\"The p000 persona\",\"name\":\"p000\",\"slug\":\"p000\",\"type\":\"review\"},{\"description\":\"The …",
-      "head": "sha256:1b1a39584241fa1a [{\"description\":\"The p000 persona\",\"name\":\"p000\",\"slug\":\"p000\",\"type\":\"review\"},{\"description\":\"The …",
-      "finding": "persona-catalog-caps"
-    },
-    {
-      "scenario": "audit-7-persona-catalog-caps",
-      "path": "105 personas: tool > structuredContent > warnings",
-      "main": "<absent>",
-      "head": "[\"Persona catalog exceeds the 100-file or 4 MiB limit.\"]",
-      "finding": "persona-catalog-caps"
-    },
-    {
-      "scenario": "audit-7-persona-catalog-caps",
-      "path": "4.4 MiB of personas: route > body > personas",
-      "main": "sha256:454931537f372a17 [{\"body\":\"yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy…",
-      "head": "sha256:1b7a5f80947bb483 [{\"body\":\"yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy…",
-      "finding": "persona-catalog-caps"
-    },
-    {
-      "scenario": "audit-7-persona-catalog-caps",
-      "path": "4.4 MiB of personas: route > body > warnings",
-      "main": "<absent>",
-      "head": "[\"Persona catalog exceeds the 100-file or 4 MiB limit.\",\"Persona catalog exceeds the 100-file or 4 MiB limit.\"]",
-      "finding": "persona-catalog-caps"
-    },
-    {
-      "scenario": "audit-7-persona-catalog-caps",
-      "path": "4.4 MiB of personas: tool > content > 0 > text > personas",
-      "main": "sha256:8cff0758d4855657 [{\"description\":\"The large00 persona\",\"name\":\"large00\",\"slug\":\"large00\",\"type\":\"review\"},{\"descripti…",
-      "head": "sha256:b04ff98837096deb [{\"description\":\"The large00 persona\",\"name\":\"large00\",\"slug\":\"large00\",\"type\":\"review\"},{\"descripti…",
-      "finding": "persona-catalog-caps"
-    },
-    {
-      "scenario": "audit-7-persona-catalog-caps",
-      "path": "4.4 MiB of personas: tool > content > 0 > text > warnings",
-      "main": "<absent>",
-      "head": "[\"Persona catalog exceeds the 100-file or 4 MiB limit.\"]",
-      "finding": "persona-catalog-caps"
-    },
-    {
-      "scenario": "audit-7-persona-catalog-caps",
-      "path": "4.4 MiB of personas: tool > structuredContent > personas",
-      "main": "sha256:8cff0758d4855657 [{\"description\":\"The large00 persona\",\"name\":\"large00\",\"slug\":\"large00\",\"type\":\"review\"},{\"descripti…",
-      "head": "sha256:b04ff98837096deb [{\"description\":\"The large00 persona\",\"name\":\"large00\",\"slug\":\"large00\",\"type\":\"review\"},{\"descripti…",
-      "finding": "persona-catalog-caps"
-    },
-    {
-      "scenario": "audit-7-persona-catalog-caps",
-      "path": "4.4 MiB of personas: tool > structuredContent > warnings",
-      "main": "<absent>",
-      "head": "[\"Persona catalog exceeds the 100-file or 4 MiB limit.\"]",
-      "finding": "persona-catalog-caps"
-    },
-    {
       "scenario": "session-lifecycle",
       "path": "GET /repo-icon > body",
       "main": "{\"error\":\"No repo icon.\"}",
@@ -190,62 +94,6 @@
       "main": "404",
       "head": "204",
       "finding": "icon-no-content"
-    },
-    {
-      "scenario": "session-tool-surface",
-      "path": "agent route > launch_agent > inputSchema > properties > cwd > description",
-      "main": "sha256:11b9d20f9c151c2c \"Working directory for the new agent. Defaults to the template’s directory when supplied, otherwise …",
-      "head": "sha256:abb700bb0d4aa8de \"For native launches, defaults to the template directory or the caller’s workspace. A runner caller …",
-      "finding": "tool-descriptions"
-    },
-    {
-      "scenario": "session-tool-surface",
-      "path": "agent route > set_workspace > description",
-      "main": "sha256:4e15a587d2e75fa2 \"Tell Dispatch which directory you are working in when it is no longer the one you launched in — for…",
-      "head": "sha256:d0c2034710d0fb99 \"Tell Dispatch which directory you are working in when it is no longer the one you launched in — for…",
-      "finding": "tool-descriptions"
-    },
-    {
-      "scenario": "session-tool-surface",
-      "path": "agent route > set_workspace > inputSchema > properties > baseBranch > description",
-      "main": "\"Branch the diff compares against. Defaults to the launch base in the same repo, else the repo's default branch.\"",
-      "head": "\"Branch the diff compares against. If omitted, Dispatch uses the selected checkout’s normal comparison base.\"",
-      "finding": "tool-descriptions"
-    },
-    {
-      "scenario": "session-tool-surface",
-      "path": "agent route > set_workspace > inputSchema > properties > path > description",
-      "main": "\"Absolute path of the directory you now work in. Inside a git checkout, its root is used.\"",
-      "head": "\"Absolute directory on your session’s machine. Inside a git checkout, its root is used.\"",
-      "finding": "tool-descriptions"
-    },
-    {
-      "scenario": "session-tool-surface",
-      "path": "job route > launch_agent > inputSchema > properties > cwd > description",
-      "main": "sha256:11b9d20f9c151c2c \"Working directory for the new agent. Defaults to the template’s directory when supplied, otherwise …",
-      "head": "sha256:abb700bb0d4aa8de \"For native launches, defaults to the template directory or the caller’s workspace. A runner caller …",
-      "finding": "tool-descriptions"
-    },
-    {
-      "scenario": "session-tool-surface",
-      "path": "job route > set_workspace > description",
-      "main": "sha256:4e15a587d2e75fa2 \"Tell Dispatch which directory you are working in when it is no longer the one you launched in — for…",
-      "head": "sha256:d0c2034710d0fb99 \"Tell Dispatch which directory you are working in when it is no longer the one you launched in — for…",
-      "finding": "tool-descriptions"
-    },
-    {
-      "scenario": "session-tool-surface",
-      "path": "job route > set_workspace > inputSchema > properties > baseBranch > description",
-      "main": "\"Branch the diff compares against. Defaults to the launch base in the same repo, else the repo's default branch.\"",
-      "head": "\"Branch the diff compares against. If omitted, Dispatch uses the selected checkout’s normal comparison base.\"",
-      "finding": "tool-descriptions"
-    },
-    {
-      "scenario": "session-tool-surface",
-      "path": "job route > set_workspace > inputSchema > properties > path > description",
-      "main": "\"Absolute path of the directory you now work in. Inside a git checkout, its root is used.\"",
-      "head": "\"Absolute directory on your session’s machine. Inside a git checkout, its root is used.\"",
-      "finding": "tool-descriptions"
     },
     {
       "scenario": "session-create-validation",
@@ -316,27 +164,6 @@
       "main": "false",
       "head": "true",
       "finding": "archive-shared-worktree"
-    },
-    {
-      "scenario": "personas-default-branch",
-      "path": "route > body > warnings > 0",
-      "main": "\"Could not load persona .agents/personas/oversize.md: unsupported file or larger than 256 KiB.\"",
-      "head": "\"The default-branch file listing was incomplete.\"",
-      "finding": "persona-catalog-warning"
-    },
-    {
-      "scenario": "personas-default-branch",
-      "path": "tool > content > 0 > text > warnings > 0",
-      "main": "\"Could not load persona .agents/personas/oversize.md: unsupported file or larger than 256 KiB.\"",
-      "head": "\"The default-branch file listing was incomplete.\"",
-      "finding": "persona-catalog-warning"
-    },
-    {
-      "scenario": "personas-default-branch",
-      "path": "tool > structuredContent > warnings > 0",
-      "main": "\"Could not load persona .agents/personas/oversize.md: unsupported file or larger than 256 KiB.\"",
-      "head": "\"The default-branch file listing was incomplete.\"",
-      "finding": "persona-catalog-warning"
     },
     {
       "scenario": "system-probes",

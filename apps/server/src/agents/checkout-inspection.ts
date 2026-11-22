@@ -1,4 +1,7 @@
-import { DefaultBranchFiles } from "./default-branch-files.js";
+import {
+  DefaultBranchFiles,
+  PERSONA_CATALOG_LIMIT_WARNING,
+} from "./default-branch-files.js";
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
@@ -426,6 +429,35 @@ export async function observeGitCheckout(
 }
 
 function encodeReply(reply: CheckoutReply): string {
+  if (reply.kind === "defaultBranchFiles") {
+    const files = reply.files.filter(
+      ({ path, content }) =>
+        path.length <= 4096 &&
+        !path.includes("\\") &&
+        Buffer.byteLength(content) <= 256 * 1024
+    );
+    reply = { ...reply, files };
+    const encoded = JSON.stringify(reply) + "\n";
+    if (Buffer.byteLength(encoded) <= MAX_REPLY_BYTES) return encoded;
+
+    const limited = {
+      ...reply,
+      files: [] as typeof reply.files,
+      truncated: true,
+      warnings: reply.warnings.includes(PERSONA_CATALOG_LIMIT_WARNING)
+        ? reply.warnings
+        : [...reply.warnings, PERSONA_CATALOG_LIMIT_WARNING],
+    };
+    let bytes = Buffer.byteLength(JSON.stringify(limited) + "\n");
+    for (const file of reply.files) {
+      bytes +=
+        Buffer.byteLength(JSON.stringify(file)) +
+        Number(limited.files.length > 0);
+      if (bytes > MAX_REPLY_BYTES) break;
+      limited.files.push(file);
+    }
+    reply = limited;
+  }
   const encoded = JSON.stringify(reply) + "\n";
   if (Buffer.byteLength(encoded) > MAX_REPLY_BYTES) {
     throw new Error("Checkout inspection reply is too large");

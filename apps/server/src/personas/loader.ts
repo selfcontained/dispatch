@@ -91,7 +91,6 @@ export async function loadCheckoutPersonas(
 ): Promise<PersonaDefinition[]> {
   const personas: PersonaDefinition[] = [];
   const seen = new Set<string>();
-  let bytes = 0;
 
   for (const directory of PERSONA_DIRS) {
     let entries: string[];
@@ -108,18 +107,9 @@ export async function loadCheckoutPersonas(
     for (const file of entries.filter((name) => name.endsWith(".md")).sort()) {
       const slug = file.slice(0, -3);
       if (seen.has(slug)) continue;
-      if (seen.size >= 100) {
-        warnings.push("Persona catalog exceeds the 100-file or 4 MiB limit.");
-        return personas;
-      }
       seen.add(slug);
       try {
         const content = await readFile(`${directory}/${file}`);
-        bytes += Buffer.byteLength(content ?? "");
-        if (bytes > 4 * 1024 * 1024) {
-          warnings.push("Persona catalog exceeds the 100-file or 4 MiB limit.");
-          return personas;
-        }
         if (content !== null) personas.push(toPersonaDefinition(slug, content));
       } catch (error) {
         warnings.push(
