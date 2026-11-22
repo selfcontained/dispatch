@@ -136,3 +136,30 @@ describe("StepRow with children", () => {
     expect(screen.queryByTestId("harness-nested-steps")).toBeNull();
   });
 });
+
+describe("touch height", () => {
+  it("keeps an expandable row's own height on touch, with an overlap for the target", () => {
+    render(
+      <StepRow
+        step={
+          {
+            id: "s1",
+            kind: "execute",
+            status: "ok",
+            label: "bash",
+            startedAt: 0,
+            endedAt: 10,
+            durMs: 10,
+            detail: { input: { command: "ls" }, terminalOutput: "a\nb" },
+          } as never
+        }
+        open={false}
+        onToggle={() => {}}
+        maskClass=""
+      />
+    );
+    const row = screen.getByRole("button");
+    expect(row.className).not.toContain("pointer-coarse:min-h-11");
+    expect(row.className).toContain("pointer-coarse:after:-inset-y-2");
+  });
+});

@@ -495,6 +495,7 @@ function SummaryRow({
   const slot = !done || summary.failed || summary.interrupted;
   return (
     <RowButton
+      dense
       onClick={onToggle}
       aria-expanded={open}
       aria-label={`${verb}, ${steps}, ${formatStepDuration(ms)} total, ${open ? "collapse" : "expand"} activity`}

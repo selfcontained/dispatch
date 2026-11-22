@@ -136,6 +136,7 @@ export function StepRow({
     >
       {expandable ? (
         <RowButton
+          dense
           onClick={onToggle}
           aria-expanded={expanded}
           aria-label={`${label}, ${STATUS_ARIA[step.status]}`}
