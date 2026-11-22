@@ -3907,15 +3907,28 @@ export class AgentManager {
         503
       );
     }
-    const { checkout, ownership, owner, borrowers } = observation;
-    if (ownership === "owned" && !checkout)
+    const { checkout, ownership, borrowers } = observation;
+    if (ownership === "owned" && !checkout) {
+      // The recorded worktree is gone or is no longer a checkout.
+      if (agent.worktreePath)
+        return {
+          ownership,
+          borrowers,
+          hasWorktree: true,
+          hasUnmergedCommits: false,
+          hasUncommittedChanges: false,
+          worktreePath: agent.worktreePath,
+          branchName: null,
+          changedFiles: [],
+          uncommittedFiles: [],
+        };
       throw new AgentError(
         "Checkout status is unavailable on the owning runner.",
         503
       );
+    }
     return {
       ownership,
-      owner,
       borrowers,
       checkoutState: checkout?.stateId,
       hasWorktree: checkout !== null,

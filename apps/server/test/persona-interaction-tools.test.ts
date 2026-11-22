@@ -244,7 +244,6 @@ describe("launch_owner_reviews MCP tool", () => {
       changedFiles: ["src/a.ts"],
       owners: [],
       uncoveredFiles: [],
-      reviewedState: { head: "a".repeat(40), stateId: "1".repeat(64) },
       launched: [
         {
           persona: "owner",

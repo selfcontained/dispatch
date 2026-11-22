@@ -252,7 +252,6 @@ export function createPersonaHandlers(deps: CreatePersonaHandlersDeps) {
     const parent = await agentManager.getAgent(parentId);
     if (!parent) throw new Error("Parent agent not found.");
     const changes = await inspectReviewChanges(parent);
-    const reviewedState = { head: changes.head, stateId: changes.stateId };
     const readCheckoutFile = (path: string) =>
       readAgentCheckoutFile(agentManager, parent, path);
     const owners = await readSessionOwnerRules(agentManager, parent);
@@ -314,20 +313,10 @@ export function createPersonaHandlers(deps: CreatePersonaHandlersDeps) {
     }
     const author = await agentManager.getAgent(parentId);
     if (!author) throw new Error("Parent agent not found.");
-    const latest = await inspectReviewChanges(author);
-    if (
-      latest.baseRef !== changes.baseRef ||
-      latest.head !== reviewedState.head ||
-      latest.stateId !== reviewedState.stateId
-    )
-      throw new Error(
-        "The checkout changed while planning owner reviews. Finish the checkout changes, then retry launch_owner_reviews."
-      );
     if (opts.dryRun)
       return {
         ...plan,
         ...selection,
-        reviewedState,
         launched: [],
         failures: [],
       };
@@ -339,7 +328,7 @@ export function createPersonaHandlers(deps: CreatePersonaHandlersDeps) {
           author,
           {
             persona,
-            context: `Inspect the shared checkout without modifying it. Report findings to the launcher.\nCheckout recorded during review planning: HEAD ${reviewedState.head}, state ID ${reviewedState.stateId}.\n\n${context}`,
+            context,
             agentType: opts.agentType,
             model: opts.model,
             effort: opts.effort,
@@ -349,7 +338,7 @@ export function createPersonaHandlers(deps: CreatePersonaHandlersDeps) {
         );
       }
     );
-    return { ...result, ...selection, reviewedState };
+    return { ...result, ...selection };
   }
 
   async function inspectReviewChanges(agent: AgentRecord) {

@@ -3,7 +3,6 @@ import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
   DARWIN_NOFOLLOW_ANY,
-  openRegularFile,
   openLinuxDirectory,
 } from "../files/open-workspace-file.js";
 import {
@@ -45,8 +44,7 @@ import { childProcessEnv } from "../shared/process/child-environment.js";
 const MAX_QUERY_BYTES = 16 * 1024;
 const MAX_REPLY_BYTES = 4 * 1024 * 1024;
 const MAX_FILE_BYTES = 256 * 1024;
-const MAX_FINGERPRINT_BYTES = 16 * 1024 * 1024;
-const MAX_FINGERPRINT_FILES = 10_000;
+const MAX_SCRATCH_ENTRIES = 10_000;
 const MAX_ERROR_BYTES = 4 * 1024;
 const execFileAsync = promisify(execFile);
 
@@ -205,19 +203,16 @@ async function describeWorktreePath(root: string, relative: string) {
     const stat = await lstat(entry);
     if (stat.isSymbolicLink()) {
       const link = await readlink(entry, { encoding: "buffer" });
-      return { mode: stat.mode, link: link.toString("base64"), regular: false };
+      return { mode: stat.mode, link: link.toString("base64") };
     }
-    if (stat.isDirectory()) {
-      throw new Error(
-        "Checkout fingerprint cannot inspect a dirty directory or submodule"
-      );
-    }
-    return { mode: stat.mode, regular: stat.isFile() };
+    const { mode, ino, size, mtimeMs, ctimeMs } = stat;
+    return { mode, ino, size, mtimeMs, ctimeMs };
   } finally {
     await parent.close();
   }
 }
 
+/** Identity by metadata: no content is read, so nothing is too big to identify. */
 async function fingerprintCheckout(
   root: string,
   base: string,
@@ -227,68 +222,18 @@ async function fingerprintCheckout(
   unstaged: string[],
   untracked: string[]
 ): Promise<string> {
-  if (unstaged.length + untracked.length > MAX_FINGERPRINT_FILES)
-    throw new Error("Too many dirty files to fingerprint the checkout");
-
   const hash = createHash("sha256");
   hash.update(JSON.stringify([base, head, staged, unmerged]));
-  const buffer = Buffer.alloc(64 * 1024);
-  let remaining = MAX_FINGERPRINT_BYTES;
   for (const [kind, files] of [
     ["unstaged", unstaged],
     ["untracked", untracked],
   ] as const) {
     for (const relative of [...new Set(files)].sort()) {
       const descriptor = await describeWorktreePath(root, relative).catch(
-        (error) => {
-          if (
-            kind === "unstaged" &&
-            (error as NodeJS.ErrnoException).code === "ENOENT"
-          )
-            return null;
-          throw error;
-        }
+        // An entry that is gone or unreadable still has an identity.
+        (error: NodeJS.ErrnoException) => ({ error: error.code ?? "unknown" })
       );
       hash.update(JSON.stringify([kind, relative, descriptor]));
-      if (!descriptor?.regular) continue;
-      const file = await openRegularFile(root, relative.split("/"));
-      try {
-        const before = await file.stat();
-        if (!before.isFile())
-          throw new Error("Checkout changed while fingerprinting dirty files");
-        if (before.size > remaining)
-          throw new Error(
-            "Dirty file contents exceed the checkout fingerprint limit"
-          );
-        const content = createHash("sha256");
-        let offset = 0;
-        for (;;) {
-          const { bytesRead } = await file.read(
-            buffer,
-            0,
-            Math.min(buffer.length, remaining + 1),
-            offset
-          );
-          if (bytesRead === 0) break;
-          offset += bytesRead;
-          remaining -= bytesRead;
-          if (remaining < 0)
-            throw new Error(
-              "Dirty file contents exceed the checkout fingerprint limit"
-            );
-          content.update(buffer.subarray(0, bytesRead));
-        }
-        const after = await file.stat();
-        if (
-          before.mode !== descriptor.mode ||
-          before.ctimeMs !== after.ctimeMs ||
-          before.size !== offset
-        )
-          throw new Error("Checkout changed while fingerprinting dirty files");
-        hash.update(content.digest());
-      } finally {
-        await file.close();
-      }
     }
   }
   return hash.digest("hex");
@@ -376,7 +321,7 @@ export async function observeScratchCheckout(
     for (const entry of await readdir(path.join(root, relative), {
       withFileTypes: true,
     })) {
-      if (++entriesSeen > MAX_FINGERPRINT_FILES)
+      if (++entriesSeen > MAX_SCRATCH_ENTRIES)
         throw new Error("Too many scratch checkout entries to fingerprint");
       const name = path.join(relative, entry.name);
       if (entry.isDirectory()) {
@@ -429,33 +374,37 @@ export async function observeGitCheckout(
   };
   await refreshRemoteBaseRef(root, baseBranch, options);
   const baseRef = await resolveBaseRef(root, baseBranch, options);
-  if (
-    !baseRef ||
-    (baseBranch && baseRef !== baseBranch && baseRef !== `origin/${baseBranch}`)
-  )
-    throw new Error("Could not resolve the checkout base");
-  const [{ stdout: head }, { stdout: base }, branch] = await Promise.all([
+  const [{ stdout: head }, branch] = await Promise.all([
     run("git", ["rev-parse", "--verify", "HEAD"], { cwd: root }),
-    run("git", ["rev-parse", "--verify", `${baseRef}^{commit}`], { cwd: root }),
     run("git", ["symbolic-ref", "--short", "--quiet", "HEAD"], {
       cwd: root,
       allowedExitCodes: [0, 1],
     }),
   ]);
-  const [changes, staged, conflicts, merge, baseTree] = await Promise.all([
-    collectOwnerReviewChanges(root, base, run, head),
-    run(
-      "git",
-      ["diff", "--cached", "--raw", "--no-abbrev", "-z", head, "--"],
-      cwd
-    ),
-    run("git", ["ls-files", "--unmerged", "-z"], cwd),
-    run("git", ["merge-tree", "--write-tree", base, head], {
-      cwd: root,
-      allowedExitCodes: [0, 1],
-    }),
-    run("git", ["rev-parse", "--verify", `${base}^{tree}`], { cwd: root }),
-  ]);
+  // An unknown base keeps automatic cleanup off without hiding the checkout.
+  const base = baseRef
+    ? (
+        await run("git", ["rev-parse", "--verify", `${baseRef}^{commit}`], {
+          cwd: root,
+        })
+      ).stdout
+    : head;
+  const [changes, status, staged, conflicts, merge, baseTree] =
+    await Promise.all([
+      collectOwnerReviewChanges(root, base, run, head),
+      run("git", ["status", "--porcelain"], { cwd: root, timeoutMs: 10_000 }),
+      run(
+        "git",
+        ["diff", "--cached", "--raw", "--no-abbrev", "-z", head, "--"],
+        cwd
+      ),
+      run("git", ["ls-files", "--unmerged", "-z"], cwd),
+      run("git", ["merge-tree", "--write-tree", base, head], {
+        cwd: root,
+        allowedExitCodes: [0, 1],
+      }),
+      run("git", ["rev-parse", "--verify", `${base}^{tree}`], { cwd: root }),
+    ]);
   const unpublishedHistory =
     changes.committed.length === 0 &&
     (
@@ -465,6 +414,7 @@ export async function observeGitCheckout(
       })
     ).exitCode === 1;
   const unmerged =
+    !baseRef ||
     unpublishedHistory ||
     merge.exitCode !== 0 ||
     merge.stdout.split("\n")[0] !== baseTree.stdout;
@@ -488,13 +438,7 @@ export async function observeGitCheckout(
     stateId,
     unmerged,
     changedFiles: unmerged ? changes.committed : [],
-    uncommittedFiles: [
-      ...new Set([
-        ...changes.staged,
-        ...changes.unstaged,
-        ...changes.untracked,
-      ]),
-    ].sort(),
+    uncommittedFiles: status.stdout.split("\n").filter(Boolean),
   };
 }
 

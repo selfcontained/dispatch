@@ -54,7 +54,7 @@ export type OwnerReviewPlan = {
   owners: Array<{ persona: string; files: string[] }>;
   uncoveredFiles: string[];
 };
-type OwnerReviewLaunchResult = OwnerReviewPlan & {
+export type OwnerReviewResult = OwnerReviewPlan & {
   /** Present for explicit selection; omitted owners have not been launched. */
   omittedOwners?: OwnerReviewPlan["owners"];
   launched: Array<{
@@ -64,9 +64,6 @@ type OwnerReviewLaunchResult = OwnerReviewPlan & {
     warnings?: string[];
   }>;
   failures: Array<{ persona: string; error: string; files: string[] }>;
-};
-export type OwnerReviewResult = OwnerReviewLaunchResult & {
-  reviewedState: { head: string; stateId: string };
 };
 
 /** The owners map in use: `.agents/owners.json`, else the legacy location. */
@@ -176,8 +173,8 @@ export async function launchOwnerReviewPlan(
     persona: string,
     context: string
   ) => Promise<{ agentId: string; warnings?: string[] }>
-): Promise<OwnerReviewLaunchResult> {
-  const result: OwnerReviewLaunchResult = {
+): Promise<OwnerReviewResult> {
+  const result: OwnerReviewResult = {
     ...plan,
     launched: [],
     failures: [],

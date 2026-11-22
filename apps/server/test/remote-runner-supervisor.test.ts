@@ -1589,7 +1589,7 @@ describe("runner session supervision", () => {
     ).toMatchObject({
       ownership: "owned",
       borrowers: [reviewerId],
-      checkout: { unmerged: false, uncommittedFiles: ["uncommitted.txt"] },
+      checkout: { unmerged: false, uncommittedFiles: ["?? uncommitted.txt"] },
     });
     await expect(running.discard(agentId, workspace)).rejects.toThrow(
       "still in use"

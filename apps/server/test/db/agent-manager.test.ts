@@ -3975,7 +3975,7 @@ describe("AgentManager", () => {
           ownership: "owned",
           borrowers: [child.id],
           checkoutState: expect.stringMatching(/^[0-9a-f]{64}$/),
-          uncommittedFiles: ["dirty.txt"],
+          uncommittedFiles: ["?? dirty.txt"],
         });
 
         const runnerCwd = "runner://runner-test/@session";
@@ -4092,6 +4092,37 @@ describe("AgentManager", () => {
       expect(status.branchName).toBeNull();
       expect(status.changedFiles).toEqual([]);
       expect(status.uncommittedFiles).toEqual([]);
+    });
+
+    it("answers like main when the recorded worktree is gone", async () => {
+      const root = await mkdtemp(path.join(os.tmpdir(), "missing-checkout-"));
+      const worktreePath = path.join(await realpath(root), "gone");
+      try {
+        await mkdir(worktreePath);
+        vi.mocked(createGitWorktree).mockResolvedValueOnce({
+          worktreePath,
+          branchName: "feature",
+        } as never);
+        const agent = await manager.createAgent({
+          cwd: root,
+          useWorktree: true,
+          baseBranch: "main",
+        });
+        await rm(worktreePath, { recursive: true });
+        expect(await manager.checkWorktreeStatus(agent.id)).toEqual({
+          ownership: "owned",
+          borrowers: [],
+          hasWorktree: true,
+          hasUnmergedCommits: false,
+          hasUncommittedChanges: false,
+          worktreePath,
+          branchName: null,
+          changedFiles: [],
+          uncommittedFiles: [],
+        });
+      } finally {
+        await rm(root, { recursive: true, force: true });
+      }
     });
 
     it("should throw 404 for a non-existent agent", async () => {

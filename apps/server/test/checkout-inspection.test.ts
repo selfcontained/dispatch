@@ -479,13 +479,6 @@ JSON
     expect(changedLink).not.toEqual(edited);
   });
 
-  it("rejects a dirty checkout above the fingerprint byte budget", async () => {
-    put(checkout, "untracked", "x".repeat(16 * 1024 * 1024 + 1));
-    await expect(
-      inspect(checkout, { kind: "changes", baseBranch: "main" })
-    ).rejects.toThrow(/fingerprint limit/);
-  });
-
   it("reads live, repo-relative regular files and reports missing files", async () => {
     put(checkout, ".agents/owners.json", "  owners 齿\n");
     expect(
@@ -655,11 +648,39 @@ describe("native runner checkout release", () => {
     expect(git(repo, "branch", "--list", "feature")).toBe("");
   });
 
+  it.each([
+    [
+      "an untracked nested repository",
+      () => {
+        put(checkout, "nested/inner.txt", "nested work");
+        git(path.join(checkout, "nested"), "init", "-q");
+      },
+    ],
+    [
+      "an untracked file above 16 MiB",
+      () => put(checkout, "big.bin", "x".repeat(16 * 1024 * 1024 + 1)),
+    ],
+    [
+      "more than 10,000 dirty files",
+      () => {
+        for (let i = 0; i <= 10_000; i++) put(checkout, `many/${i}.txt`, "");
+      },
+    ],
+  ])("observes and removes a worktree with %s", async (_name, dirty) => {
+    dirty();
+    const runner = adapter();
+    const { checkout: observed } = await runner.observe();
+    expect(observed?.uncommittedFiles.length).toBeGreaterThan(0);
+    expect(await runner.release(observed!.stateId)).toBe("released");
+    expect(existsSync(checkout)).toBe(false);
+    expect(git(repo, "branch", "--list", "feature")).toBe("");
+  });
+
   it("preserves a checkout edited after the runner observed it", async () => {
     put(checkout, "draft.txt", "first version");
     const runner = adapter();
     const { checkout: observed } = await runner.observe();
-    expect(observed?.uncommittedFiles).toEqual(["draft.txt"]);
+    expect(observed?.uncommittedFiles).toEqual(["?? draft.txt"]);
     put(checkout, "draft.txt", "second version");
     expect(await runner.release(observed!.stateId)).toBe("retained");
     expect(existsSync(path.join(checkout, "draft.txt"))).toBe(true);
