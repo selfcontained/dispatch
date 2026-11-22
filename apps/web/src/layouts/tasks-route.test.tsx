@@ -175,6 +175,8 @@ it("resolves a task deep link, then clears it when the user changes projects", a
 
 const pressed = (name: string) =>
   screen.getByRole("button", { name }).getAttribute("aria-pressed");
+const checked = (name: string) =>
+  screen.getByRole("radio", { name }).getAttribute("aria-checked");
 
 // Layout atoms are per project and read storage once, so each case below
 // uses its own project.
@@ -186,7 +188,7 @@ it("shows a ?layout= link without saving it over the saved choice", () => {
     </MemoryRouter>,
     { wrapper: QueryWrapper }
   );
-  expect(pressed("Board layout")).toBe("true");
+  expect(checked("Board layout")).toBe("true");
   expect(window.localStorage.getItem("dispatch:taskLayout:p3")).toBe(
     JSON.stringify("list")
   );
@@ -204,7 +206,7 @@ it("keeps the saved layout on a phone", () => {
     </MemoryRouter>,
     { wrapper: QueryWrapper }
   );
-  expect(pressed("Board layout")).toBe("true");
+  expect(checked("Board layout")).toBe("true");
 });
 
 it("defaults by width until a layout is picked, then saves the pick", () => {
@@ -215,7 +217,7 @@ it("defaults by width until a layout is picked, then saves the pick", () => {
     </MemoryRouter>,
     { wrapper: QueryWrapper }
   );
-  expect(pressed("List layout")).toBe("true");
+  expect(checked("List layout")).toBe("true");
   unmount();
   viewport.isMobile = false;
   render(
@@ -225,9 +227,9 @@ it("defaults by width until a layout is picked, then saves the pick", () => {
     </MemoryRouter>,
     { wrapper: QueryWrapper }
   );
-  expect(pressed("Board layout")).toBe("true");
+  expect(checked("Board layout")).toBe("true");
   expect(window.localStorage.getItem("dispatch:taskLayout:p5")).toBeNull();
-  fireEvent.click(screen.getByRole("button", { name: "List layout" }));
+  fireEvent.click(screen.getByRole("radio", { name: "List layout" }));
   expect(window.localStorage.getItem("dispatch:taskLayout:p5")).toBe(
     JSON.stringify("list")
   );

@@ -2,24 +2,34 @@ import { MessageSquareText } from "lucide-react";
 
 import {
   formatJobDateTime,
-  statusDotColor,
+  statusDotTone,
   statusTextColor,
   triggerSourceLabel,
 } from "@/components/app/jobs-helpers";
 import { ActivityBars } from "@/components/ui/activity-bars";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { RowButton } from "@/components/ui/row-button";
+import { StatusDot } from "@/components/ui/status-dot";
 import { type JobRun } from "@/hooks/use-jobs";
+import { LoadError } from "@/components/app/load-error";
 import { formatDuration } from "@/lib/format";
+import { statusLabel } from "@/lib/status-label";
 import { cn } from "@/lib/utils";
 
 export function HistoryTab({
   runs,
   loading,
+  error,
+  retrying,
+  onRetry,
   selectedRunId,
   onSelectRun,
 }: {
   runs: JobRun[];
   loading: boolean;
+  error: unknown;
+  retrying: boolean;
+  onRetry: () => void;
   selectedRunId: string | null;
   onSelectRun: (runId: string) => void;
 }) {
@@ -28,12 +38,21 @@ export function HistoryTab({
     : null;
   return (
     <ScrollArea className="mt-4 min-h-0 h-full pr-1">
-      {loading ? (
-        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+      {error ? (
+        <LoadError
+          message="Couldn't load history"
+          error={error}
+          onRetry={onRetry}
+          retrying={retrying}
+          className="mb-2"
+        />
+      ) : null}
+      {error && runs.length === 0 ? null : loading ? (
+        <div className="flex items-center gap-2 text-body-md text-muted-foreground">
           <ActivityBars size={16} /> Loading history...
         </div>
       ) : runs.length === 0 ? (
-        <div className="text-sm text-muted-foreground">No runs yet.</div>
+        <div className="text-body-md text-muted-foreground">No runs yet.</div>
       ) : (
         <div className="flex flex-col">
           {runs.map((run) => {
@@ -44,20 +63,16 @@ export function HistoryTab({
               run.status === "needs_input";
             return (
               <div key={run.id}>
-                <button
-                  type="button"
+                <RowButton
                   className={cn(
-                    "flex w-full min-w-0 items-center gap-2.5 overflow-hidden py-1.5 text-left text-xs transition-colors hover:text-foreground",
+                    "min-w-0 overflow-hidden py-1.5 text-body-sm hover:text-foreground",
                     isSelected ? "text-foreground" : "text-muted-foreground"
                   )}
                   onClick={() => onSelectRun(isSelected ? "" : run.id)}
                 >
-                  <span
-                    className={cn(
-                      "h-2 w-2 shrink-0 rounded-full",
-                      statusDotColor(run.status),
-                      isActive && "animate-pulse"
-                    )}
+                  <StatusDot
+                    tone={statusDotTone(run.status)}
+                    className={cn(isActive && "animate-pulse")}
                   />
                   <span
                     className={cn(
@@ -65,7 +80,7 @@ export function HistoryTab({
                       statusTextColor(run.status)
                     )}
                   >
-                    {run.status}
+                    {statusLabel(run.status)}
                   </span>
                   <span className="min-w-0 truncate font-mono tabular-nums">
                     {formatJobDateTime(run.startedAt)}
@@ -74,7 +89,7 @@ export function HistoryTab({
                     {formatDuration(run.durationMs)}
                   </span>
                   <span className="opacity-40">{triggerSourceLabel(run)}</span>
-                </button>
+                </RowButton>
                 {isSelected && <RunReport run={run} />}
               </div>
             );
@@ -88,48 +103,43 @@ export function HistoryTab({
 function RunReport({ run }: { run: JobRun | null }) {
   if (!run) {
     return (
-      <div className="mb-2 ml-4 border-l-2 border-border pl-3 text-xs text-muted-foreground">
+      <div className="mb-2 ml-4 border-l-2 border-border pl-3 text-body-sm text-muted-foreground">
         Select a run.
       </div>
     );
   }
   return (
-    <div className="mb-2 ml-[3px] border-l-2 border-border pl-4">
+    <div className="mb-2 ml-0.5 border-l-2 border-border pl-4">
       {run.report?.summary && (
-        <div className="pb-1 text-xs text-muted-foreground">
+        <div className="pb-1 text-body-sm text-muted-foreground">
           {run.report.summary}
         </div>
       )}
       {run.report?.tasks.map((task, index) => (
         <div key={`${task.name}-${index}`} className="py-0.5">
-          <div className="flex items-center gap-1.5 text-xs">
-            <span
-              className={cn(
-                "h-1.5 w-1.5 shrink-0 rounded-full",
+          <div className="flex items-center gap-1.5 text-body-sm">
+            <StatusDot
+              size="sm"
+              tone={
                 task.status === "success"
-                  ? "bg-status-done"
+                  ? "done"
                   : task.status === "error"
-                    ? "bg-status-blocked"
-                    : "bg-muted-foreground"
-              )}
+                    ? "blocked"
+                    : "neutral"
+              }
             />
             <span className="font-medium">{task.name}</span>
             {task.status === "error" && (
-              <span className="uppercase text-status-blocked">
-                {task.status}
+              <span className="uppercase text-danger">
+                {statusLabel(task.status)}
               </span>
             )}
           </div>
           {task.summary ? (
-            <div className="pl-3.5 text-xs text-muted-foreground/70">
-              {task.summary}
-            </div>
+            <div className="pl-4 text-body-sm text-faint">{task.summary}</div>
           ) : null}
           {task.errors?.map((error, errorIndex) => (
-            <div
-              key={errorIndex}
-              className="pl-3.5 text-xs text-status-blocked"
-            >
+            <div key={errorIndex} className="pl-4 text-body-sm text-danger">
               {error.message}
               {error.action ? (
                 <span className="ml-2 text-muted-foreground">
@@ -141,7 +151,7 @@ function RunReport({ run }: { run: JobRun | null }) {
           {task.logs?.slice(-5).map((log, logIndex) => (
             <div
               key={logIndex}
-              className="pl-3.5 font-mono text-[11px] text-muted-foreground/50"
+              className="pl-4 font-mono text-label-sm text-faint"
             >
               [{log.level}] {log.message}
             </div>
@@ -149,18 +159,18 @@ function RunReport({ run }: { run: JobRun | null }) {
         </div>
       ))}
       {run.pendingQuestion && (
-        <div className="flex items-start gap-1.5 py-1 text-xs">
+        <div className="flex items-start gap-1.5 py-1 text-body-sm">
           <MessageSquareText className="mt-0.5 h-3 w-3 shrink-0 text-status-waiting" />
           <span className="text-status-waiting">{run.pendingQuestion}</span>
         </div>
       )}
       {run.completedAt && (
-        <div className="pt-1 font-mono text-[11px] text-muted-foreground/50">
+        <div className="pt-1 font-mono text-label-sm text-faint">
           Completed {formatJobDateTime(run.completedAt)}
         </div>
       )}
       {!run.report && !run.pendingQuestion && (
-        <div className="text-xs text-muted-foreground">No report yet.</div>
+        <div className="text-body-sm text-muted-foreground">No report yet.</div>
       )}
     </div>
   );

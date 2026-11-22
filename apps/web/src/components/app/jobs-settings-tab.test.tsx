@@ -263,7 +263,9 @@ describe("save payload", () => {
       branchName: "feat-y",
     });
 
-    fireEvent.click(screen.getByTitle("Toggle git worktree"));
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: /Run in a git worktree/ })
+    );
     await clickSave();
     expect(onUpdateJob).toHaveBeenLastCalledWith(basePayload());
   });
@@ -271,7 +273,9 @@ describe("save payload", () => {
   it("lets a loop job turn its worktree on", async () => {
     const { onUpdateJob } = renderTab(makeJob({ continuationEnabled: true }));
 
-    const worktreeToggle = screen.getByTitle("Toggle git worktree");
+    const worktreeToggle = screen.getByRole("checkbox", {
+      name: /Run in a git worktree/,
+    });
     expect(worktreeToggle.getAttribute("disabled")).toBeNull();
     fireEvent.click(worktreeToggle);
     fireEvent.change(screen.getByTestId("job-settings-job_1-worktree-branch"), {
@@ -290,8 +294,12 @@ describe("save payload", () => {
   it("inverts and forwards every advanced toggle", async () => {
     const { onUpdateJob } = renderTab(makeJob());
 
-    fireEvent.click(screen.getByTitle("Toggle full access"));
-    fireEvent.click(screen.getByTitle("Keep agent after run completes"));
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: /Run in full access mode/ })
+    );
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: /Keep agent after run completes/ })
+    );
     fireEvent.click(
       screen.getByRole("switch", { name: "Show in command palette" })
     );
@@ -678,7 +686,7 @@ describe("project to folder working directory", () => {
       isSuccess: true,
     } as never);
     const { onUpdateJob } = renderTab(makeJob({ projectId: "project-a" }));
-    fireEvent.click(screen.getByRole("button", { name: /^Folder$/ }));
+    fireEvent.click(screen.getByRole("radio", { name: /^Folder$/ }));
     fireEvent.change(screen.getByLabelText("Working directory"), {
       target: { value: "/folder-moved" },
     });

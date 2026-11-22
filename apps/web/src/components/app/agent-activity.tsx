@@ -4,6 +4,8 @@ import { Clock, Clock3, CornerDownRight } from "lucide-react";
 import { type Agent } from "@/components/app/types";
 import { TurnGlyph } from "@/components/app/chat/turn/activity-block";
 import { ActivityBars } from "@/components/ui/activity-bars";
+import { RowButton } from "@/components/ui/row-button";
+import { Hint } from "@/components/ui/tooltip";
 import { useAgentTurnLabel } from "@/hooks/use-agent-turn-label";
 import { useLocalDay } from "@/hooks/use-local-day";
 import { useJumpToTurn } from "@/hooks/use-block-jump";
@@ -27,22 +29,25 @@ function ScheduledActivity({
   const today = useLocalDay();
   if (!schedule) return null;
   return (
-    <div
-      className={cn(
-        "flex min-w-0 items-center gap-1.5 text-heading-accent-1",
-        className
-      )}
-      data-testid={`agent-scheduled-activity-${agentId}`}
-      title={`Next scheduled message: ${scheduleTime(schedule.nextDueAt)} (${scheduleTimezone()})`}
+    <Hint
+      label={`Next scheduled message: ${scheduleTime(schedule.nextDueAt)} (${scheduleTimezone()})`}
     >
-      <Clock aria-hidden="true" className="h-3 w-3 shrink-0" />
-      <span className="min-w-0 truncate font-medium">
-        Next{" "}
-        <time dateTime={schedule.nextDueAt}>
-          {sidebarScheduleTime(schedule.nextDueAt, today)}
-        </time>
-      </span>
-    </div>
+      <div
+        className={cn(
+          "flex min-w-0 items-center gap-1.5 text-heading-accent-1",
+          className
+        )}
+        data-testid={`agent-scheduled-activity-${agentId}`}
+      >
+        <Clock aria-hidden="true" className="h-3 w-3 shrink-0" />
+        <span className="min-w-0 truncate font-medium">
+          Next{" "}
+          <time dateTime={schedule.nextDueAt}>
+            {sidebarScheduleTime(schedule.nextDueAt, today)}
+          </time>
+        </span>
+      </div>
+    </Hint>
   );
 }
 
@@ -73,24 +78,25 @@ function ReconnectActivity({
           ? `Next try in ${seconds}s`
           : "Checking soon";
   return (
-    <div
-      className={cn("flex min-w-0 items-center gap-1.5", className)}
-      data-testid={`agent-activity-${agent.id}`}
-      title="The agent host is running; Dispatch is retrying its connection."
-    >
-      {reconnect.phase === "trying" ? (
-        <ActivityBars size={12} className="text-status-working" />
-      ) : (
-        <Clock3
-          aria-hidden="true"
-          className="h-3 w-3 shrink-0 text-status-waiting"
-        />
-      )}
-      <span className="shrink-0 font-medium text-status-waiting">
-        Reconnecting
-      </span>
-      <span className="min-w-0 truncate text-muted-foreground">{detail}</span>
-    </div>
+    <Hint label="The agent host is running; Dispatch is retrying its connection.">
+      <div
+        className={cn("flex min-w-0 items-center gap-1.5", className)}
+        data-testid={`agent-activity-${agent.id}`}
+      >
+        {reconnect.phase === "trying" ? (
+          <ActivityBars size={12} className="text-status-working" />
+        ) : (
+          <Clock3
+            aria-hidden="true"
+            className="h-3 w-3 shrink-0 text-status-waiting"
+          />
+        )}
+        <span className="shrink-0 font-medium text-status-waiting">
+          Reconnecting
+        </span>
+        <span className="min-w-0 truncate text-muted-foreground">{detail}</span>
+      </div>
+    </Hint>
   );
 }
 
@@ -148,30 +154,29 @@ export function AgentActivityLabel({
   }
 
   return (
-    <button
-      type="button"
-      className={cn(
-        "group/turn flex min-w-0 max-w-full items-center gap-1.5 rounded-sm text-left",
-        "hover:underline decoration-muted-foreground/50 underline-offset-2",
-        "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
-        className
-      )}
-      data-testid={`agent-activity-${agent.id}`}
-      data-agent-control="true"
-      data-turn-link={turn.blockId}
-      aria-label={`Go to ${agent.role === "review" ? (agent.persona ?? agent.name) : agent.name}'s current turn`}
-      title="Go to the current turn"
-      onClick={(event) => {
-        event.stopPropagation();
-        onNavigate?.();
-        jumpToTurn(agent.id, turn);
-      }}
-    >
-      {content}
-      <CornerDownRight
-        aria-hidden="true"
-        className="h-3 w-3 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover/turn:opacity-100 group-focus-visible/turn:opacity-100"
-      />
-    </button>
+    <Hint label="Go to the current turn">
+      <RowButton
+        className={cn(
+          "group/turn w-auto min-w-0 max-w-full gap-1.5 rounded-sm hover:bg-transparent pointer-coarse:min-h-0",
+          "hover:underline decoration-muted-foreground/line underline-offset-2",
+          className
+        )}
+        data-testid={`agent-activity-${agent.id}`}
+        data-agent-control="true"
+        data-turn-link={turn.blockId}
+        aria-label={`Go to ${agent.role === "review" ? (agent.persona ?? agent.name) : agent.name}'s current turn`}
+        onClick={(event) => {
+          event.stopPropagation();
+          onNavigate?.();
+          jumpToTurn(agent.id, turn);
+        }}
+      >
+        {content}
+        <CornerDownRight
+          aria-hidden="true"
+          className="h-3 w-3 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover/turn:opacity-100 group-focus-visible/turn:opacity-100"
+        />
+      </RowButton>
+    </Hint>
   );
 }

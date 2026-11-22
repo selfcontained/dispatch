@@ -1,6 +1,16 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { ChevronDown } from "lucide-react";
+import { useSearchParams } from "react-router-dom";
 
+import { AgentModelSettings } from "@/components/app/agent-model-settings";
 import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
+import { RowButton } from "@/components/ui/row-button";
+import { useAgentModelCatalog } from "@/hooks/use-agent-model-catalog";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import {
@@ -29,38 +39,83 @@ function AgentTypeRow({
   checked,
   disabled,
   onToggle,
+  open,
+  onOpenChange,
 }: {
   agentType: AgentType;
   checked: boolean;
   disabled: boolean;
   onToggle: () => void;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
 }): JSX.Element {
+  const { options, allOptions } = useAgentModelCatalog(agentType);
+  const offCount = allOptions.length - options.length;
+  const wasOpen = useRef(open);
+  useEffect(() => {
+    // New stays up while the list is open, and clears once it has been seen.
+    if (wasOpen.current && !open)
+      allOptions.forEach((option) => option.markSeen?.());
+    wasOpen.current = open;
+  }, [allOptions, open]);
   return (
-    <label
-      className={cn(
-        "flex items-center gap-3 rounded border border-border px-3 py-2.5 transition-colors",
-        disabled
-          ? "cursor-not-allowed opacity-60"
-          : "cursor-pointer hover:bg-muted/50"
-      )}
+    <Collapsible
+      open={open}
+      onOpenChange={onOpenChange}
+      className="rounded-sm border border-border"
     >
-      <Checkbox
-        checked={checked}
-        disabled={disabled}
-        onCheckedChange={onToggle}
-        data-testid={`agent-type-toggle-${agentType}`}
-      />
-      <div className="min-w-0">
-        <div className="text-sm font-medium text-foreground">
-          {AGENT_TYPE_LABELS[agentType]}
-        </div>
-        <div className="text-xs text-muted-foreground">
-          {disabled
-            ? "At least one type must stay enabled."
-            : AGENT_TYPE_DESCRIPTIONS[agentType]}
-        </div>
+      <div className="flex items-stretch">
+        <label
+          className={cn(
+            "flex min-w-0 flex-1 items-center gap-3 px-3 py-3 transition-colors",
+            disabled
+              ? "cursor-not-allowed opacity-60"
+              : "cursor-pointer hover:bg-surface-hover"
+          )}
+        >
+          <Checkbox
+            checked={checked}
+            disabled={disabled}
+            onCheckedChange={onToggle}
+            data-testid={`agent-type-toggle-${agentType}`}
+          />
+          <div className="min-w-0">
+            <div className="text-body-md font-medium text-foreground">
+              {AGENT_TYPE_LABELS[agentType]}
+            </div>
+            <div className="text-body-sm text-muted-foreground">
+              {disabled
+                ? "At least one type must stay enabled."
+                : AGENT_TYPE_DESCRIPTIONS[agentType]}
+            </div>
+          </div>
+        </label>
+        <CollapsibleTrigger asChild>
+          <RowButton
+            className="group min-h-11 w-auto shrink-0 justify-center gap-1.5 rounded-none px-3 text-body-sm text-muted-foreground hover:text-foreground"
+            aria-label={`${AGENT_TYPE_LABELS[agentType]} models: ${options.length} on, ${offCount} off`}
+            data-testid={`agent-models-toggle-${agentType}`}
+          >
+            {allOptions.length ? (
+              <span className="flex items-baseline gap-2 text-body-md tabular-nums">
+                <span className="font-semibold text-foreground">
+                  {options.length}
+                </span>
+                {offCount ? (
+                  <span className="text-muted-foreground line-through">
+                    {offCount}
+                  </span>
+                ) : null}
+              </span>
+            ) : null}
+            <ChevronDown className="size-icon-md transition-transform group-data-[state=open]:rotate-180" />
+          </RowButton>
+        </CollapsibleTrigger>
       </div>
-    </label>
+      <CollapsibleContent className="border-t border-border bg-surface-subtle">
+        <AgentModelSettings agentType={agentType} />
+      </CollapsibleContent>
+    </Collapsible>
   );
 }
 
@@ -69,6 +124,9 @@ export function AgentTypeSettings({
   onChange,
 }: AgentTypeSettingsProps): JSX.Element {
   const [agentTypes, setAgentTypes] = useState<AgentType[]>(enabledAgentTypes);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const openType =
+    CLI_AGENT_TYPES.find((type) => type === searchParams.get("models")) ?? null;
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -140,18 +198,17 @@ export function AgentTypeSettings({
   );
 
   if (loading) {
-    return <div className="p-6 text-sm text-muted-foreground">Loading...</div>;
+    return (
+      <div className="p-6 text-body-md text-muted-foreground">Loading...</div>
+    );
   }
 
   return (
     <div className="flex flex-col gap-4 p-6">
       <div>
-        <div className="mb-1.5 text-[10px] uppercase tracking-widest text-muted-foreground">
-          Available agent types
-        </div>
-        <p className="mb-3 max-w-2xl text-sm text-muted-foreground">
-          Choose which agent runtimes can be created from the app. Disabled
-          types are removed from the create-agent dialog.
+        <div className="mb-1.5 section-label">Available agent types</div>
+        <p className="mb-3 max-w-2xl text-body-md text-muted-foreground">
+          Choose which agent types and models Dispatch offers for new launches.
         </p>
       </div>
 
@@ -166,12 +223,24 @@ export function AgentTypeSettings({
               checked={checked}
               disabled={disabled}
               onToggle={() => void toggleAgentType(agentType)}
+              open={openType === agentType}
+              onOpenChange={(open) =>
+                setSearchParams(
+                  (params) => {
+                    const next = new URLSearchParams(params);
+                    if (open) next.set("models", agentType);
+                    else next.delete("models");
+                    return next;
+                  },
+                  { replace: true }
+                )
+              }
             />
           );
         })}
       </div>
 
-      {error ? <p className="text-sm text-destructive">{error}</p> : null}
+      {error ? <p className="text-body-md text-danger">{error}</p> : null}
     </div>
   );
 }

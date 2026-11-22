@@ -23,7 +23,11 @@ import { AGENT_TYPES, type AgentType } from "../agent-type-settings.js";
 import type { AgentRecord } from "../agents/types.js";
 import type { StreamService, TaskStreamRoot } from "../chat/service.js";
 import { ProjectStore, type ProjectRecord } from "../projects/store.js";
-import { modelScopeFor, validateAgentModel } from "../shared/agent-models.js";
+import {
+  assertModelSelectable,
+  modelScopeFor,
+  validateAgentModel,
+} from "../shared/agent-models.js";
 import { errorMessage } from "../shared/lib/error-message.js";
 import { resolveTemplateLaunch } from "../templates/resolve-launch.js";
 import { personaScopeFor } from "../personas/persona-scope.js";
@@ -561,7 +565,9 @@ export class TaskService {
    */
   async validateTrigger(
     project: ProjectRecord,
-    trigger: TaskColumnTriggerInput
+    trigger: TaskColumnTriggerInput,
+    /** The trigger being edited, whose model may be saved again. */
+    previous?: TaskColumnTrigger | null
   ): Promise<TaskColumnTrigger> {
     const template = await this.deps.getTemplate(trigger.templateId);
     if (!template) throw invalid(`Template ${trigger.templateId} not found.`);
@@ -590,6 +596,16 @@ export class TaskService {
           trigger.model ?? undefined,
           scope
         ) ?? null;
+      if (model) {
+        const type = agentType ?? template.agentType;
+        const saved =
+          (type === template.agentType && model === template.model) ||
+          (previous?.model === model &&
+            type ===
+              (previous.agentType ??
+                (await this.deps.getTemplate(previous.templateId))?.agentType));
+        if (!saved) assertModelSelectable(type, model);
+      }
       const resolved = await resolveTemplateLaunch(template, {
         agentType: agentType ?? undefined,
         model: model ?? undefined,
@@ -750,6 +766,11 @@ export class TaskService {
         requested
       );
       if (!model) throw new Error(`Model "${requested}" is not supported.`);
+      assertModelSelectable(
+        agentType,
+        model,
+        current?.launchAgentType === agentType ? current.launchModel : null
+      );
       return { launchAgentType: agentType, launchModel: model };
     } catch (error) {
       // A runtime change keeps the stored model; say how to resolve it.
@@ -971,7 +992,7 @@ export class TaskService {
       patch.trigger =
         input.trigger === null
           ? null
-          : await this.validateTrigger(project, input.trigger);
+          : await this.validateTrigger(project, input.trigger, column.trigger);
     const updated = await this.store.transaction(async (db) => {
       if (input.isDone)
         await this.store.lockProjectColumns(column.projectId, db);

@@ -1,9 +1,9 @@
 import { PanelRightOpen } from "lucide-react";
 import { type NavSection } from "@/components/app/sidebar-shell";
 import { NavigationSidebar } from "@/components/app/navigation-sidebar";
-import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useDashboardContext } from "@/components/app/dashboard-context";
+import { IconButton } from "@/components/ui/icon-button";
 
 export function SectionShell({
   activeSection,
@@ -53,30 +53,26 @@ export function SectionShell({
             <div className="flex min-h-14 shrink-0 items-center justify-between px-3">
               <div>
                 {!leftPanelOpen ? (
-                  <Button
-                    size="icon"
-                    variant="ghost"
+                  <IconButton
                     onClick={() => handleSetLeftPanelOpen(true)}
-                    title="Open sidebar"
+                    label="Open sidebar"
                   >
-                    <PanelRightOpen className="h-4 w-4" />
-                  </Button>
+                    <PanelRightOpen />
+                  </IconButton>
                 ) : null}
               </div>
               <div className="flex items-center gap-1">{headerActions}</div>
             </div>
           ) : null}
           {!leftPanelOpen && !headerActions ? (
-            <div className="pointer-events-none absolute left-3 top-3 z-10">
-              <Button
-                size="icon"
-                variant="ghost"
+            <div className="pointer-events-none absolute left-3 top-3 z-sticky">
+              <IconButton
                 className="pointer-events-auto"
                 onClick={() => handleSetLeftPanelOpen(true)}
-                title="Open sidebar"
+                label="Open sidebar"
               >
-                <PanelRightOpen className="h-4 w-4" />
-              </Button>
+                <PanelRightOpen />
+              </IconButton>
             </div>
           ) : null}
           <div

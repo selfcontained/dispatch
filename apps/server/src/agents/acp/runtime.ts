@@ -5,16 +5,12 @@ import { appendFile, mkdir, rm } from "node:fs/promises";
 import path from "node:path";
 import {
   createLocalRunner,
+  STOP_GRACE_MS,
   type LocalLaunchSettings,
   type SessionResult,
 } from "../local-runner.js";
 import type { SessionLifecycleOperation } from "@dispatch/runner-protocol";
-export {
-  selfCommand,
-  hostCommand,
-  loginShellCommand,
-  hostProcessEnv,
-} from "./host-command.js";
+export { selfCommand, hostCommand, loginShellCommand } from "./host-command.js";
 
 import type { FastifyBaseLogger } from "fastify";
 import type {
@@ -285,7 +281,10 @@ export type AcpRuntimeDeps = {
   recoverRemoteEvent?: (agentId: string) => Promise<void>;
   placement?: (agentId: string) => Promise<Placement | null>;
   classifySteering?: ClassifySteering;
-  config: Pick<AppConfig, "agentStateRoot" | "agentRuntime" | "dispatchBinDir">;
+  config: Pick<
+    AppConfig,
+    "agentStateRoot" | "agentRuntime" | "dispatchBinDir" | "acpAdapter"
+  >;
   logger: FastifyBaseLogger;
   /** The journal position last applied for this agent. */
   hostSeq: (
@@ -1526,7 +1525,12 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
       const { launchExited } = await requestLaunch(
         placement,
         { kind: "launch", agentId: input.agentId, launch },
-        { cwd, bins, env, pathPrefix },
+        {
+          cwd,
+          bins: { ...bins, adapter: config.acpAdapter },
+          env,
+          pathPrefix,
+        },
         onWorkspaceProgress,
         beforeLaunchReconcile
       );
@@ -1864,6 +1868,54 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
               }
             : null,
       };
+    },
+
+    async stopIdleHostForRecovery(agentId) {
+      if (runtime.isBusy(agentId)) return false;
+      const client = new HostClient({
+        agentId,
+        remote: false,
+        openSocket: async () => {
+          const { channel } = await requestSession(null, {
+            kind: "attach",
+            agentId,
+          });
+          if (!channel) throw new Error("no channel to the agent host");
+          return channel;
+        },
+        logger,
+        fromSeq: () => Number.MAX_SAFE_INTEGER,
+        journalId: () => null,
+        onEvent: () => {},
+        onWelcome: () => {},
+        onGone: () => {},
+      });
+      try {
+        const welcome = await client.connect(ATTACH_TIMEOUT_MS);
+        if (
+          welcome.agentId !== agentId ||
+          welcome.turn ||
+          runtime.isBusy(agentId)
+        )
+          return false;
+        client.shutdown(false, true);
+        const deadline = Date.now() + STOP_GRACE_MS;
+        const pid = await local.hostPid(agentId);
+        while (
+          pid &&
+          (await local.isHostPid(agentId, pid)) &&
+          Date.now() < deadline
+        ) {
+          await new Promise((resolve) => setTimeout(resolve, 100));
+        }
+        if (pid && (await local.isHostPid(agentId, pid))) return false;
+        await runtime.stop(agentId, false);
+        return true;
+      } catch {
+        return false;
+      } finally {
+        client.close();
+      }
     },
 
     async listHosted() {

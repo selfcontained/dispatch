@@ -18,6 +18,7 @@ Read `apps/server/src/agents/manager.ts`, `agents/acp/`, `shared/git/`, and the 
 - Real-binary ACP smoke suites (including `scripts/opencode-v2-smoke.mjs`) must isolate HOME/config/credentials, assert observed tool results, and use rejecting deadlines with bounded cleanup on setup, startup and cancellation failures.
 - Cancellation, archive, and cleanup must target the owned engine host/session/worktree, preserve unrelated agents, and avoid orphan processes. Check failed or partially completed launches.
 - ACP initialization, prompt cancellation, permission replies, engine disconnect, and session restore must preserve the owning agent and stream. Never mix host IPC ids with engine request ids.
+- Agent event routes must release subscriptions and heartbeat timers on disconnect; observable heartbeats and client reconnects must recover missed feed events without retaining dead connections.
 - Lifecycle transitions and reconciliation must agree with persisted agent state; concurrent starts, restarts, and exits must not revive an archived agent or duplicate a session.
 - Child/parent lineage must remain valid. Confirm behavior for agents without worktrees and non-git directories when relevant.
 - UI controls must reflect server state and handle failed actions without falsely indicating completion. Trace the changed flow across its route and runtime.

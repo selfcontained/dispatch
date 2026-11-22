@@ -154,7 +154,7 @@ function DeliveryStatus({
   if (skipped.length > 0) {
     return (
       <div
-        className="mt-1 text-[11px] text-muted-foreground"
+        className="mt-1 text-label-sm text-muted-foreground"
         data-testid="chat-delivery-not-attempted"
       >
         Saved · agent unavailable; delivery not attempted
@@ -174,7 +174,7 @@ function DeliveryStatus({
   if (failed.length > 0) {
     return (
       <div
-        className="mt-1 flex min-w-0 flex-wrap items-center gap-1.5 text-[11px] text-destructive [overflow-wrap:anywhere]"
+        className="mt-1 flex min-w-0 flex-wrap items-center gap-1.5 text-label-sm text-danger [overflow-wrap:anywhere]"
         title={
           interrupt
             ? "The stop request or message delivery failed. Your message is saved; retry to request interruption again."
@@ -196,7 +196,7 @@ function DeliveryStatus({
         {onRetryDelivery ? (
           <button
             type="button"
-            className="underline underline-offset-2 hover:no-underline disabled:opacity-60"
+            className="underline underline-offset-2 hover:no-underline disabled-state"
             disabled={retrying}
             onClick={() => onRetryDelivery?.(block.id)}
             data-testid="chat-delivery-retry"
@@ -214,7 +214,7 @@ function DeliveryStatus({
   if (held.length > 0) {
     return (
       <div
-        className="mt-1 flex min-w-0 items-center gap-1 text-[11px] text-muted-foreground [overflow-wrap:anywhere]"
+        className="mt-1 flex min-w-0 items-center gap-1 text-label-sm text-muted-foreground [overflow-wrap:anywhere]"
         title={
           interrupt
             ? `Stop requested${several ? ` for ${nameList(held, recipientName)}` : ""}. Delivery waits for the current turn to stop; running tools may take time to cancel.`
@@ -363,7 +363,7 @@ export function DeliveryIndicator({
       : status;
   return (
     <span
-      className={`flex h-4 w-4 items-center justify-center transition-[color,opacity] duration-500 motion-reduce:transition-none ${confirmed ? "text-green-700 [[data-theme-mode=dark]_&]:text-green-500" : "text-muted-foreground"} ${status ? "opacity-100" : "opacity-0"}`}
+      className={`flex h-4 w-4 items-center justify-center transition-[color,opacity] duration-500 motion-reduce:transition-none ${confirmed ? "text-success-ink" : "text-muted-foreground"} ${status ? "opacity-100" : "opacity-0"}`}
       data-testid="chat-delivery-indicator"
       data-status={status}
       role="status"

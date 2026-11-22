@@ -33,6 +33,8 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import { RowButton } from "@/components/ui/row-button";
+import { Hint } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
 function AddContextMenu({
@@ -44,22 +46,20 @@ function AddContextMenu({
 }) {
   return (
     <div className="flex flex-col">
-      <button
-        type="button"
+      <RowButton
         onClick={onAddFile}
-        className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-sm text-foreground hover:bg-white/[0.1]"
+        className="rounded-sm px-2 py-1.5 text-body-md text-foreground hover:bg-fill-hover"
       >
         <Upload className="h-3.5 w-3.5 text-muted-foreground" />
         Add file
-      </button>
-      <button
-        type="button"
+      </RowButton>
+      <RowButton
         onClick={onAddLink}
-        className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-sm text-foreground hover:bg-white/[0.1]"
+        className="rounded-sm px-2 py-1.5 text-body-md text-foreground hover:bg-fill-hover"
       >
         <Link2 className="h-3.5 w-3.5 text-muted-foreground" />
         Add link
-      </button>
+      </RowButton>
     </div>
   );
 }
@@ -85,7 +85,7 @@ function AddContextLinkForm({
 }) {
   return (
     <div className="space-y-1.5 p-1">
-      <label htmlFor={inputId} className="text-xs text-muted-foreground">
+      <label htmlFor={inputId} className="text-body-sm text-muted-foreground">
         Link URL
       </label>
       <Input
@@ -111,7 +111,7 @@ function AddContextLinkForm({
       {!isValid ? (
         <p
           id={errorId}
-          className="text-xs text-status-blocked"
+          className="text-body-sm text-danger"
           {...(testIdPrefix
             ? { "data-testid": `${testIdPrefix}-link-error` }
             : {})}
@@ -121,12 +121,11 @@ function AddContextLinkForm({
       ) : null}
       <div className="flex justify-between gap-2">
         <Button type="button" variant="ghost" size="sm" onClick={onBack}>
-          <ChevronLeft className="mr-1 h-3 w-3" />
+          <ChevronLeft />
           Back
         </Button>
         <Button
           type="button"
-          variant="default"
           size="sm"
           onClick={onSubmit}
           disabled={value.trim().length === 0 || !isValid}
@@ -278,10 +277,10 @@ export function ContextPicker({
     <div
       ref={rootRef}
       className={cn(
-        "space-y-3 rounded-md border bg-muted/20 px-3 py-3 transition-colors",
+        "space-y-3 rounded-md border bg-surface-subtle px-3 py-3 transition-colors",
         draggingFiles
-          ? "border-status-done/35 bg-status-done/8 ring-1 ring-inset ring-status-done/30"
-          : "border-border/70",
+          ? "border-info/line bg-info/tint ring-1 ring-inset ring-info/line"
+          : "border-border-subtle",
         className
       )}
       onPaste={handleRootPaste}
@@ -289,11 +288,11 @@ export function ContextPicker({
     >
       <div className="flex items-start justify-between gap-2">
         <div>
-          <div className="flex items-center gap-1.5 text-sm font-medium text-foreground">
+          <div className="flex items-center gap-1.5 text-body-md font-medium text-foreground">
             <Paperclip className="h-3.5 w-3.5" />
             Context
           </div>
-          <p className="text-xs text-muted-foreground">{description}</p>
+          <p className="text-body-sm text-muted-foreground">{description}</p>
         </div>
         {clipboard.pasteMode ? (
           <div className="relative shrink-0">
@@ -301,13 +300,13 @@ export function ContextPicker({
               ref={clipboard.pasteRef}
               type="text"
               placeholder="Paste here"
-              className="h-7 w-32 rounded-md border border-border/70 bg-background/40 px-2 text-xs placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              className="h-7 w-32 rounded-md border border-border-subtle bg-background/veil px-2 text-body-sm placeholder:text-muted-foreground focus-ring"
               onPaste={clipboard.handlePasteInput}
               onBlur={clipboard.handlePasteBlur}
             />
             {clipboard.pasteTooltip ? (
               <div
-                className="absolute right-0 top-full z-50 mt-1.5 whitespace-nowrap rounded-md border bg-popover px-2.5 py-1.5 text-xs text-popover-foreground shadow-md animate-in fade-in-0 zoom-in-95"
+                className="absolute right-0 top-full z-drawer mt-1.5 whitespace-nowrap rounded-md border bg-popover px-2 py-1.5 text-body-sm text-popover-foreground shadow-md animate-in fade-in-0 zoom-in-95"
                 role="status"
               >
                 {clipboard.pasteTooltip}
@@ -317,32 +316,27 @@ export function ContextPicker({
         ) : (
           <Button
             type="button"
-            variant="default"
-            size="sm"
-            className="h-7 shrink-0 gap-1 px-2 text-xs"
+            size="xs"
+            className="shrink-0"
             onClick={clipboard.handleCheck}
             disabled={clipboard.checking}
             {...(testIdPrefix
               ? { "data-testid": `${testIdPrefix}-clipboard-action` }
               : {})}
           >
-            {clipboard.checking ? (
-              <ActivityBars size={12} className="mr-0.5" />
-            ) : (
-              <Clipboard className="h-3 w-3" />
-            )}
+            {clipboard.checking ? <ActivityBars size={12} /> : <Clipboard />}
             Read clipboard
           </Button>
         )}
       </div>
       {error && (
-        <p role="alert" className="text-xs text-destructive">
+        <p role="alert" className="text-body-sm text-danger">
           {error}
         </p>
       )}
       {clipboard.readFeedback ? (
         <p
-          className="text-xs text-muted-foreground"
+          className="text-body-sm text-muted-foreground"
           role="status"
           aria-live="polite"
           {...(testIdPrefix
@@ -366,16 +360,15 @@ export function ContextPicker({
       {!hasContextItems ? (
         <Popover open={addOpen} onOpenChange={handleAddOpenChange}>
           <PopoverTrigger asChild>
-            <button
-              type="button"
+            <RowButton
               {...(testIdPrefix
                 ? { "data-testid": `${testIdPrefix}-files-button` }
                 : {})}
               className={cn(
-                "flex w-full flex-col items-center justify-center gap-1.5 rounded-md border border-dashed px-4 py-6 text-sm transition-colors",
+                "flex-col justify-center gap-1.5 border border-dashed px-4 py-6 text-body-md",
                 draggingFiles
-                  ? "border-status-done bg-status-done/10 text-foreground"
-                  : "border-border/70 bg-background/40 text-muted-foreground hover:border-border hover:bg-background/70 hover:text-foreground"
+                  ? "border-info bg-info/tint text-foreground hover:bg-info/tint"
+                  : "border-border-subtle bg-background/veil text-muted-foreground hover:border-border hover:bg-background/soft hover:text-foreground"
               )}
             >
               {draggingFiles ? (
@@ -387,12 +380,12 @@ export function ContextPicker({
                 <>
                   <Plus className="h-5 w-5" />
                   <span>Add files or links</span>
-                  <span className="text-[11px] text-muted-foreground/80">
+                  <span className="text-label-sm text-faint">
                     Click to add, or drop a file here
                   </span>
                 </>
               )}
-            </button>
+            </RowButton>
           </PopoverTrigger>
           <PopoverContent align="start" className="w-72 p-1">
             {popoverContent}
@@ -417,25 +410,26 @@ export function ContextPicker({
           ))}
           <Popover open={addOpen} onOpenChange={handleAddOpenChange}>
             <PopoverTrigger asChild>
-              <button
-                type="button"
-                aria-label="Add context"
-                {...(testIdPrefix
-                  ? { "data-testid": `${testIdPrefix}-files-button` }
-                  : {})}
-                className={cn(
-                  "flex h-12 w-12 items-center justify-center rounded-md border border-dashed transition-colors",
-                  draggingFiles
-                    ? "border-status-done bg-status-done/10 text-foreground"
-                    : "border-border/70 bg-background/40 text-muted-foreground hover:border-border hover:bg-background/70 hover:text-foreground"
-                )}
-              >
-                {draggingFiles ? (
-                  <Upload className="h-4 w-4" />
-                ) : (
-                  <Plus className="h-4 w-4" />
-                )}
-              </button>
+              <Hint label="Add context">
+                <RowButton
+                  aria-label="Add context"
+                  {...(testIdPrefix
+                    ? { "data-testid": `${testIdPrefix}-files-button` }
+                    : {})}
+                  className={cn(
+                    "h-12 w-12 justify-center border border-dashed",
+                    draggingFiles
+                      ? "border-info bg-info/tint text-foreground hover:bg-info/tint"
+                      : "border-border-subtle bg-background/veil text-muted-foreground hover:border-border hover:bg-background/soft hover:text-foreground"
+                  )}
+                >
+                  {draggingFiles ? (
+                    <Upload className="h-4 w-4" />
+                  ) : (
+                    <Plus className="h-4 w-4" />
+                  )}
+                </RowButton>
+              </Hint>
             </PopoverTrigger>
             <PopoverContent align="start" className="w-72 p-1">
               {popoverContent}

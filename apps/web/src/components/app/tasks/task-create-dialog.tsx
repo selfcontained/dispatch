@@ -25,6 +25,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { StatusDot } from "@/components/ui/status-dot";
 import { AssigneeSelect } from "./task-assignee-select";
 import { columnAccent } from "./task-utils";
 
@@ -32,7 +33,7 @@ import { columnAccent } from "./task-utils";
 export const TASK_DIALOG_MOBILE_SHEET =
   "max-md:inset-0 max-md:left-0 max-md:top-0 max-md:h-[100dvh] max-md:max-h-none max-md:w-full max-md:translate-x-0 max-md:translate-y-0 max-md:rounded-none";
 
-const LABEL = "block text-xs font-medium text-muted-foreground";
+const LABEL = "block text-body-sm font-medium text-muted-foreground";
 const DESCRIPTION_PLACEHOLDER = `## Deliverable
 What should exist when this is done?
 
@@ -156,7 +157,7 @@ export function TaskCreateDialog({
         }}
         onDrop={context.handleStartupDrop}
         data-testid="task-create-dialog"
-        className={`md:w-[min(600px,calc(100vw-2rem))] ${TASK_DIALOG_MOBILE_SHEET} max-md:pt-[max(1rem,var(--safe-area-top))]`}
+        className={`md:w-[min(600px,calc(100vw-2rem))] ${TASK_DIALOG_MOBILE_SHEET} max-md:pt-safe-4`}
       >
         <DialogHeader>
           <DialogTitle>New task</DialogTitle>
@@ -206,7 +207,7 @@ export function TaskCreateDialog({
             <Textarea
               id="task-create-description"
               placeholder={DESCRIPTION_PLACEHOLDER}
-              className="min-h-36 resize-none font-mono text-sm md:min-h-44"
+              className="min-h-36 resize-none font-mono text-body-md md:min-h-44"
               value={body}
               onChange={(event) => setBody(event.target.value)}
               onKeyDown={(event) => {
@@ -242,12 +243,8 @@ export function TaskCreateDialog({
                   {columns.map((item, index) => (
                     <SelectItem key={item.id} value={item.id}>
                       <span className="flex items-center gap-2">
-                        <span
-                          aria-hidden="true"
-                          className="h-2 w-2 shrink-0 rounded-full"
-                          style={{
-                            background: `hsl(${columnAccent(item, index)})`,
-                          }}
+                        <StatusDot
+                          color={`hsl(${columnAccent(item, index)})`}
                         />
                         {item.name}
                       </span>
@@ -263,7 +260,7 @@ export function TaskCreateDialog({
                 agents={agents}
                 projectId={projectId}
                 onChange={setAssignee}
-                className="h-9 max-w-none border-input bg-transparent text-sm"
+                className="h-9 max-w-none border-input bg-transparent text-body-md"
               />
             </div>
           </div>
@@ -285,12 +282,12 @@ export function TaskCreateDialog({
             />
           )}
           {error && (
-            <p role="alert" className="text-sm text-destructive">
+            <p role="alert" className="text-body-md text-danger">
               {error}
             </p>
           )}
-          <div className="mt-auto flex items-center justify-end gap-2 pb-[env(safe-area-inset-bottom)]">
-            <span className="mr-auto hidden text-xs text-muted-foreground md:inline">
+          <div className="mt-auto flex items-center justify-end gap-2 pb-safe">
+            <span className="mr-auto hidden text-body-sm text-muted-foreground md:inline">
               ⌘↵ to create from the description
             </span>
             <Button

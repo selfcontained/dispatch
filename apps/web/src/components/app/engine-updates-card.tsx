@@ -42,14 +42,14 @@ function InstallationDetails({
           : null;
   return (
     <Collapsible>
-      <CollapsibleTrigger className="group flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground">
+      <CollapsibleTrigger className="group flex items-center gap-1.5 text-body-sm text-muted-foreground hover:text-foreground">
         <ChevronRight
           className="h-3 w-3 group-data-[state=open]:rotate-90"
           aria-hidden="true"
         />
         Installation details
       </CollapsibleTrigger>
-      <CollapsibleContent className="space-y-2 pt-2 text-xs text-muted-foreground">
+      <CollapsibleContent className="space-y-2 pt-2 text-body-sm text-muted-foreground">
         <p>
           {installer ? `Installed using ${installer}` : "Installer unknown"}
         </p>
@@ -123,7 +123,7 @@ function EngineRow({
   return (
     <section className="border-t pt-2" aria-label={engine.label}>
       <Collapsible open={open} onOpenChange={setOpen}>
-        <CollapsibleTrigger className="flex w-full flex-wrap items-center gap-2 py-2 text-left text-sm hover:text-foreground transition-colors">
+        <CollapsibleTrigger className="flex w-full flex-wrap items-center gap-2 py-2 text-left text-body-md hover:text-foreground transition-colors">
           {open ? (
             <ChevronDown
               className="h-3.5 w-3.5 shrink-0 text-muted-foreground"
@@ -143,18 +143,18 @@ function EngineRow({
           </span>
           <span className="flex h-7 w-full items-center sm:w-72">
             {running ? (
-              <Badge variant="running">Updating…</Badge>
+              <Badge tone="success">Updating…</Badge>
             ) : operation?.status === "interrupted" ? (
-              <Badge variant="error">Update interrupted</Badge>
+              <Badge tone="danger">Update interrupted</Badge>
             ) : operation?.status === "failed" ? (
-              <Badge variant="error">Update failed</Badge>
+              <Badge tone="danger">Update failed</Badge>
             ) : metadata?.latestPending ? (
               <Skeleton
                 className="h-6 w-40"
                 aria-label="Checking for updates"
               />
             ) : metadata?.available ? (
-              <Badge variant="transitional">Update available</Badge>
+              <Badge tone="info">Update available</Badge>
             ) : null}
           </span>
         </CollapsibleTrigger>
@@ -176,7 +176,7 @@ function EngineRow({
                       : `Update ${engine.label} to ${metadata?.latestVersion}`}
                 </Button>
               ) : operation?.retryBlocked ? (
-                <p className="text-sm text-muted-foreground">
+                <p className="text-body-md text-muted-foreground">
                   Update interrupted
                 </p>
               ) : metadata?.latestPending ? (
@@ -185,7 +185,7 @@ function EngineRow({
                   aria-label="Checking for updates"
                 />
               ) : (
-                <p className="text-sm text-muted-foreground">
+                <p className="text-body-md text-muted-foreground">
                   {engine.version && metadata?.latestVersion
                     ? "Up to date"
                     : "Update availability unknown"}
@@ -195,7 +195,7 @@ function EngineRow({
           )}
           {engine.installed && !managed && (
             <div
-              className="min-h-5 text-sm text-muted-foreground"
+              className="min-h-5 text-body-md text-muted-foreground"
               aria-live="polite"
             >
               {metadata?.latestPending ? (
@@ -213,13 +213,13 @@ function EngineRow({
             </div>
           )}
           {metadata?.migrationWarning && (
-            <p className="text-sm text-muted-foreground">
+            <p className="text-body-md text-muted-foreground">
               {metadata.migrationWarning}
             </p>
           )}
           {(!engine.installed || !metadata?.canUpdate) && (
             <>
-              <p className="text-sm text-muted-foreground">
+              <p className="text-body-md text-muted-foreground">
                 {engine.installed
                   ? "Update this installation with the command below."
                   : `Install ${engine.label} with the command below, then sign in.`}
@@ -228,12 +228,12 @@ function EngineRow({
             </>
           )}
           {engine.installed && metadata?.canUpdate && !canManage && (
-            <p className="text-sm text-muted-foreground">
+            <p className="text-body-md text-muted-foreground">
               Sign in to Dispatch to update this CLI.
             </p>
           )}
           {showRequestError && (
-            <p role="alert" className="text-sm text-destructive">
+            <p role="alert" className="text-body-md text-danger">
               {update.error instanceof ApiError
                 ? update.error.message
                 : "The update request could not be confirmed. The server may still be updating. Recheck status before retrying."}
@@ -255,14 +255,14 @@ function EngineRow({
             </Button>
           )}
           {(operation || update.isPending) && (
-            <div role="status" className="space-y-2 text-sm">
+            <div role="status" className="space-y-2 text-body-md">
               <p>
                 {update.isPending && operation?.status !== "running"
                   ? "Starting update…"
                   : operation?.message}
               </p>
               {operation?.output && (
-                <pre className="max-h-60 overflow-auto whitespace-pre-wrap break-all rounded bg-muted p-3 text-xs">
+                <pre className="max-h-60 overflow-auto whitespace-pre-wrap break-all rounded-sm bg-muted p-3 text-body-sm">
                   {operation.output}
                 </pre>
               )}

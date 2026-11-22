@@ -3,6 +3,7 @@ import path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import type { Pool, PoolClient } from "pg";
+import { childProcessEnv } from "../shared/process/child-environment.js";
 
 import { resolveConfiguredPath } from "../shared/lib/resolve-tilde.js";
 
@@ -33,6 +34,7 @@ export async function sampleArtifactStorage(
   signal?.throwIfAborted();
   if (!unique.length) return 0;
   const result = await execFileAsync("du", ["-sk", ...unique], {
+    env: childProcessEnv(),
     timeout: 30_000,
     signal,
     killSignal: "SIGKILL",

@@ -14,7 +14,11 @@ import {
   withRemaining,
   type UsageWatchService,
 } from "../../agents/usage-watches.js";
-import { getAgentModelOptions } from "../agent-models.js";
+import {
+  getAgentModelAvailability,
+  getAgentModelOptions,
+  type AgentModelOption,
+} from "../agent-models.js";
 import { CLI_AGENT_TYPES } from "../agent-types.js";
 import { jsonText } from "./response.js";
 import { toToolError } from "./tool-error.js";
@@ -171,6 +175,15 @@ export function summarizeUsage(
   };
 }
 
+/** A type's catalog less what is turned off in Settings. */
+function offeredModels(
+  engine: (typeof CLI_AGENT_TYPES)[number],
+  models: readonly AgentModelOption[]
+): readonly AgentModelOption[] {
+  const { disabled } = getAgentModelAvailability(engine);
+  return models.filter((model) => !disabled.includes(model.id));
+}
+
 export function registerUsageTools(
   server: McpServer,
   allowed: Set<string>,
@@ -285,9 +298,12 @@ export function registerUsageTools(
                 type: engine,
                 enabled: enabled.includes(engine),
                 ...verdict(plan, windows),
-                models: callbacks.modelOptions
-                  ? await callbacks.modelOptions(engine)
-                  : getAgentModelOptions(engine),
+                models: offeredModels(
+                  engine,
+                  callbacks.modelOptions
+                    ? await callbacks.modelOptions(engine)
+                    : getAgentModelOptions(engine)
+                ),
                 windows,
                 ...(plan?.spend
                   ? {

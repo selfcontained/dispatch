@@ -45,7 +45,7 @@ export function RunnerEngines({
     return (
       <p
         role="status"
-        className="flex items-center gap-2 text-sm text-muted-foreground"
+        className="flex items-center gap-2 text-body-md text-muted-foreground"
       >
         <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
         Loading engines…
@@ -56,7 +56,7 @@ export function RunnerEngines({
   if (inventory.isError) {
     return (
       <div className="flex flex-wrap items-center gap-2">
-        <p role="alert" className="text-sm text-destructive">
+        <p role="alert" className="text-body-md text-danger">
           Could not load engines.
         </p>
         <LoadingButton
@@ -78,7 +78,7 @@ export function RunnerEngines({
       data-testid="runner-engines"
     >
       {entries.length === 0 && (
-        <p className="py-3 text-sm text-muted-foreground">
+        <p className="py-3 text-body-md text-muted-foreground">
           No engines reported.
         </p>
       )}
@@ -180,8 +180,8 @@ function EngineRow({
             />
           </span>
           <div className="min-w-0">
-            <div className="text-sm font-medium">{entry.label}</div>
-            <p className="mt-0.5 break-words text-xs text-muted-foreground">
+            <div className="text-body-md font-medium">{entry.label}</div>
+            <p className="mt-0.5 break-words text-body-sm text-muted-foreground">
               {entry.installed ? (
                 <>
                   {entry.version ? `v${entry.version}` : "Installed"}
@@ -201,8 +201,7 @@ function EngineRow({
           {canInstall && (
             <LoadingButton
               type="button"
-              size="sm"
-              className="h-7 text-xs"
+              size="xs"
               disabled={operation.isPending}
               loading={pendingAction === "install"}
               onClick={() => run({ type: "install", engine: entry.id })}
@@ -214,8 +213,7 @@ function EngineRow({
           {canUpdate && (
             <LoadingButton
               type="button"
-              size="sm"
-              className="h-7 text-xs"
+              size="xs"
               disabled={operation.isPending}
               loading={pendingAction === "update"}
               onClick={() => run({ type: "update", engine: entry.id })}
@@ -229,8 +227,7 @@ function EngineRow({
             !isLoginActive(activeLogin) && (
               <LoadingButton
                 type="button"
-                size="sm"
-                className="h-7 text-xs"
+                size="xs"
                 disabled={operation.isPending}
                 loading={pendingAction === "login_start"}
                 onClick={() => run({ type: "login_start", engine: entry.id })}
@@ -250,7 +247,7 @@ function EngineRow({
         )}
 
       {operation.isError && (
-        <p role="alert" className="text-[12px] text-destructive">
+        <p role="alert" className="text-body-sm text-danger">
           {operation.error.message}
         </p>
       )}
@@ -258,7 +255,7 @@ function EngineRow({
       {actionResult?.kind === "error" && (
         <p
           role="alert"
-          className="text-[12px] text-destructive"
+          className="text-body-sm text-danger"
           data-testid={`runner-engine-${entry.id}-action-error`}
         >
           {actionResult.message}
@@ -266,7 +263,7 @@ function EngineRow({
       )}
       {actionResult?.kind === "success" && (
         <p
-          className="flex items-center gap-2 text-[12px] text-foreground"
+          className="flex items-center gap-2 text-body-sm text-foreground"
           data-testid={`runner-engine-${entry.id}-action-success`}
         >
           <CheckCircle2
@@ -298,7 +295,7 @@ function EngineRow({
       )}
 
       {activeLogin?.status === "succeeded" && (
-        <p className="flex items-center gap-2 text-[12px] text-foreground">
+        <p className="flex items-center gap-2 text-body-sm text-foreground">
           <CheckCircle2
             className="h-3.5 w-3.5 text-status-working"
             aria-hidden="true"
@@ -307,7 +304,7 @@ function EngineRow({
         </p>
       )}
       {activeLogin?.status === "failed" && (
-        <p role="alert" className="text-[12px] text-destructive">
+        <p role="alert" className="text-body-sm text-danger">
           {activeLogin.error ?? "The sign-in failed."}
         </p>
       )}
@@ -335,7 +332,7 @@ function LoginFlow({
   if (login.status !== "waiting" || !login.url) {
     return (
       <div className="flex items-center justify-between gap-2">
-        <p className="flex items-center gap-2 text-[12px] text-muted-foreground">
+        <p className="flex items-center gap-2 text-body-sm text-muted-foreground">
           <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
           {login.status === "verifying"
             ? "Checking the code…"
@@ -343,9 +340,8 @@ function LoginFlow({
         </p>
         <LoadingButton
           type="button"
-          size="sm"
+          size="xs"
           variant="ghost"
-          className="h-7 text-xs"
           loading={cancelling}
           disabled={submitting}
           onClick={onCancel}
@@ -365,7 +361,7 @@ function LoginFlow({
           readOnly
           value={login.url}
           spellCheck={false}
-          className="h-8 min-w-0 flex-1 font-mono text-xs"
+          className="h-8 min-w-0 flex-1 font-mono text-body-sm"
         />
         <CopyButton
           text={login.url}
@@ -377,18 +373,17 @@ function LoginFlow({
         <div className="space-y-1.5">
           <CommandBlock
             text={login.userCode}
-            textClassName="break-all text-lg leading-7 tracking-widest"
+            textClassName="break-all text-body-lg leading-7 tracking-widest"
           />
           <div className="flex items-center justify-between gap-2">
-            <p className="flex items-center gap-2 text-[11.5px] text-muted-foreground">
+            <p className="flex items-center gap-2 text-label-sm text-muted-foreground">
               <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />
               Waiting for you to finish in the browser…
             </p>
             <LoadingButton
               type="button"
-              size="sm"
+              size="xs"
               variant="ghost"
-              className="h-7 text-xs"
               loading={cancelling}
               disabled={submitting}
               onClick={onCancel}
@@ -413,12 +408,12 @@ function LoginFlow({
             autoCapitalize="off"
             spellCheck={false}
             aria-label="Sign-in code"
-            className="h-8 text-xs"
+            className="h-8 text-body-sm"
           />
           <LoadingButton
             type="submit"
             size="sm"
-            className="h-8 shrink-0 text-xs"
+            className="shrink-0 text-body-sm"
             disabled={!code.trim() || cancelling}
             loading={submitting}
           >
@@ -428,7 +423,7 @@ function LoginFlow({
             type="button"
             size="sm"
             variant="ghost"
-            className="h-8 shrink-0 text-xs"
+            className="shrink-0 text-body-sm"
             loading={cancelling}
             disabled={submitting}
             onClick={onCancel}

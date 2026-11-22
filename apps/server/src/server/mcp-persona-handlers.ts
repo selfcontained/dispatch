@@ -26,7 +26,10 @@ import {
   type OwnerReviewResult,
 } from "../personas/codeowners.js";
 import { LEGACY_OWNERS_PATH, OWNERS_PATH } from "../personas/paths.js";
-import { modelScopeFor, validateAgentModel } from "../shared/agent-models.js";
+import {
+  modelScopeFor,
+  validateAgentModelChoice,
+} from "../shared/agent-models.js";
 import type { PublishUiEvent } from "./mcp-handler-types.js";
 
 import { listPersonas, resolvePersona } from "../personas/resolve.js";
@@ -113,7 +116,12 @@ export function createPersonaHandlers(deps: CreatePersonaHandlersDeps) {
       throw new Error(`${agentType} agents are disabled in settings.`);
     }
     const scope = await modelScopeFor(parent.cwd, agentType);
-    const model = validateAgentModel(agentType, opts.model, scope);
+    const model = validateAgentModelChoice(
+      agentType,
+      opts.model,
+      undefined,
+      scope
+    );
     const effort = validateAgentEffort(agentType, opts.effort, model, scope);
 
     const persona =

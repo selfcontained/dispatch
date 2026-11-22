@@ -31,6 +31,7 @@ import type { MacAppUpdateSnapshot } from "./mac-app-update-types.js";
  */
 export type SharedUiEvent =
   | { type: "agent.checkout_changed"; agentId: string }
+  | { type: "heartbeat" }
   | { type: "attention.history_changed" }
   | {
       type: "routing.pending";

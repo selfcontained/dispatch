@@ -7,12 +7,14 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { RowButton } from "@/components/ui/row-button";
+import { StatusDot } from "@/components/ui/status-dot";
 import { cn } from "@/lib/utils";
 import { columnAccent } from "./task-utils";
 
 /** A bottom sheet on a phone; a small centered dialog otherwise. */
 const BOTTOM_SHEET =
-  "max-md:inset-x-0 max-md:bottom-0 max-md:left-0 max-md:top-auto max-md:w-full max-md:max-h-[85dvh] max-md:translate-x-0 max-md:translate-y-0 max-md:rounded-b-none max-md:pb-[max(1rem,env(safe-area-inset-bottom))] md:w-[min(360px,calc(100vw-2rem))]";
+  "max-md:inset-x-0 max-md:bottom-0 max-md:left-0 max-md:top-auto max-md:w-full max-md:max-h-[85dvh] max-md:translate-x-0 max-md:translate-y-0 max-md:rounded-b-none max-md:pb-safe-4 md:w-[min(360px,calc(100vw-2rem))]";
 
 /** Move a task to another column without dragging it there. */
 export function TaskMoveSheet({
@@ -42,7 +44,7 @@ export function TaskMoveSheet({
         }}
       >
         <DialogHeader>
-          <DialogTitle className="text-base">Move to…</DialogTitle>
+          <DialogTitle className="text-heading-md">Move to…</DialogTitle>
           <DialogDescription className="truncate">
             {task.title}
           </DialogDescription>
@@ -57,11 +59,10 @@ export function TaskMoveSheet({
           {columns.map((column, index) => {
             const current = column.id === task.columnId;
             return (
-              <button
+              <RowButton
                 key={column.id}
-                type="button"
                 className={cn(
-                  "flex min-h-11 w-full items-center gap-3 rounded-md px-3 text-left text-sm hover:bg-muted/60",
+                  "min-h-11 gap-3 px-3 text-body-md",
                   current && "font-medium"
                 )}
                 onClick={() => {
@@ -69,11 +70,7 @@ export function TaskMoveSheet({
                   if (!current) onMove(column.id);
                 }}
               >
-                <span
-                  aria-hidden="true"
-                  className="h-2.5 w-2.5 shrink-0 rounded-full"
-                  style={{ background: `hsl(${columnAccent(column, index)})` }}
-                />
+                <StatusDot color={`hsl(${columnAccent(column, index)})`} />
                 <span className="min-w-0 flex-1 truncate">{column.name}</span>
                 {current && (
                   <>
@@ -84,7 +81,7 @@ export function TaskMoveSheet({
                     />
                   </>
                 )}
-              </button>
+              </RowButton>
             );
           })}
         </div>

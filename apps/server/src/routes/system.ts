@@ -17,6 +17,7 @@ import type {
   FastifyRequest,
 } from "fastify";
 import type { Pool } from "pg";
+import { z } from "zod";
 
 import { deleteSetting, getSetting, setSetting } from "../db/settings.js";
 import { JobService } from "../jobs/service.js";
@@ -24,14 +25,20 @@ import {
   AGENT_TYPES,
   getEnabledAgentTypes,
   setEnabledAgentTypes,
+  type AgentType,
 } from "../agent-type-settings.js";
 import { IDE_TYPES, getEnabledIdes, setEnabledIdes } from "../ide-settings.js";
 import { SlackNotifier, slackDelayError } from "../notifications/slack.js";
+import {
+  ModelAvailabilityError,
+  updateModelAvailability,
+} from "../agents/model-availability.js";
 import { resolveTilde } from "../shared/lib/resolve-tilde.js";
 import {
   createLocalEngineRunner,
   type LocalEngineRunner,
 } from "../agents/local-runner-engine.js";
+import { agentModelAvailability } from "../shared/agent-models.js";
 import {
   engineStatuses,
   withEngineVersions,
@@ -56,10 +63,30 @@ import {
 import { ACP_ENGINE_IDS, type AcpEngineId } from "../agents/acp/engine-spec.js";
 
 const INSTANCE_NAME_KEY = "instance_name";
+const modelIdField = z.string().min(1).max(256);
+const ModelAvailabilityBodySchema = z.union([
+  z
+    .object({ agentType: z.enum(AGENT_TYPES), autoEnable: z.boolean() })
+    .strict(),
+  z
+    .object({
+      agentType: z.enum(AGENT_TYPES),
+      model: modelIdField,
+      enabled: z.boolean(),
+    })
+    .strict(),
+  z
+    .object({
+      agentType: z.enum(AGENT_TYPES),
+      seen: z.array(modelIdField).min(1).max(1000),
+    })
+    .strict(),
+]);
 
 type SystemRouteDeps = {
   localEngines?: Pick<LocalEngineRunner, "readModelCatalog">;
   runnerWorkspaceAvailable?: (placement: Placement) => boolean;
+  publishModelsChanged?: (agentType: AgentType) => void;
   notificationLinkOrigins?: () => Promise<SlackLinkOrigins>;
   slackAnswers?: Pick<
     SlackAnswers,
@@ -190,7 +217,10 @@ export async function registerSystemRoutes(
   });
 
   const localEngines = deps.localEngines ?? createLocalEngineRunner();
-  app.get("/api/v1/agent-models", async () => localEngines.readModelCatalog());
+  app.get("/api/v1/agent-models", async () => ({
+    ...localEngines.readModelCatalog(),
+    availability: agentModelAvailability(),
+  }));
 
   app.get("/api/v1/system/path-info", async (request, reply) => {
     const query = request.query as { path?: unknown };
@@ -454,6 +484,26 @@ export async function registerSystemRoutes(
     return {
       enabledAgentTypes: await setEnabledAgentTypes(deps.pool, uniqueTypes),
     };
+  });
+
+  app.patch("/api/v1/app/settings/agent-models", async (request, reply) => {
+    const parsed = ModelAvailabilityBodySchema.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.code(400).send({
+        error:
+          "Send agentType with one of autoEnable, model and enabled, or seen.",
+      });
+    }
+    const { agentType, ...change } = parsed.data;
+    try {
+      if (await updateModelAvailability(deps.pool, agentType, change))
+        deps.publishModelsChanged?.(agentType);
+    } catch (error) {
+      if (error instanceof ModelAvailabilityError)
+        return reply.code(400).send({ error: error.message });
+      throw error;
+    }
+    return { availability: agentModelAvailability() };
   });
 
   app.get("/api/v1/app/settings/ides", async () => {

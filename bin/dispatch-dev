@@ -9,6 +9,17 @@ set -euo pipefail
 #
 # No tmux or agent-session dependency — just background processes + PID files.
 
+# Clear inherited DB configuration before launching any tooling. Only the
+# API and seed processes receive the URL constructed for this stack.
+clear_database_environment() {
+  local key
+  unset DATABASE_URL TEST_DATABASE_URL
+  while IFS= read -r key; do
+    case "$key" in PG*) unset "$key" ;; esac
+  done < <(compgen -A variable PG)
+}
+clear_database_environment
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 # Preflight — fail fast if required tools are missing. Every server script
@@ -37,7 +48,6 @@ Commands:
 
 Options:
   --cwd <path>      Working directory (default: current directory)
-  --no-db           Skip database (use existing DATABASE_URL)
   --suffix <name>   Explicit stack suffix (default: agent ID or generated)
   --live            Run agents for real (the ACP runtime); default is inert.
                     Also disables the default dev-data seed.
@@ -413,7 +423,7 @@ cmd_up() {
   # fresh create — no prior state, no restart in progress — owns its Compose
   # resources closely enough to safely tear them down on failure/interrupt.
   UP_OWNS_DB_CREATE="0"
-  [ "$OPT_NO_DB" != "1" ] && [ -z "${RESTART_DB_PORT:-}" ] && UP_OWNS_DB_CREATE="1"
+  [ -z "${RESTART_DB_PORT:-}" ] && UP_OWNS_DB_CREATE="1"
   install_exit_trap cmd_up_exit_handler
   trap 'on_up_interrupt INT' INT
   trap 'on_up_interrupt TERM' TERM
@@ -431,46 +441,44 @@ cmd_up() {
   fi
 
   # --- Database ---
-  DEV_NO_DB="$OPT_NO_DB"
-  if [ "$OPT_NO_DB" != "1" ]; then
-    local compose
-    compose="$(detect_compose)"
-    if [ -z "$compose" ]; then
-      echo "Error: docker compose is not available. Is Docker Desktop running?" >&2
+  DEV_NO_DB=0
+  local compose
+  compose="$(detect_compose)"
+  if [ -z "$compose" ]; then
+    echo "Error: docker compose is not available. Is Docker Desktop running?" >&2
+    exit 1
+  fi
+
+  DEV_CONTAINER_SUFFIX="$SUFFIX"
+  DEV_COMPOSE_PROJECT="dispatch-dev-${SUFFIX}"
+
+  local db_attempt=1
+  local db_max_attempts=5
+  local compose_output
+  compose_output="$(log_dir)/db-up.log"
+  while [ $db_attempt -le $db_max_attempts ]; do
+    DEV_DB_PORT="${RESTART_DB_PORT:-$(find_free_port)}"
+
+    echo "Starting database on port ${DEV_DB_PORT}..."
+
+    if DISPATCH_DB_NAME="$DEV_CONTAINER_SUFFIX" DISPATCH_DB_PORT="$DEV_DB_PORT" \
+      $compose -f "${SCRIPT_DIR}/docker-compose.yml" -p "$DEV_COMPOSE_PROJECT" up -d --wait >"$compose_output" 2>&1; then
+      cat "$compose_output"
+      echo "Database ready on port ${DEV_DB_PORT}"
+      break
+    fi
+
+    cat "$compose_output"
+    if [ -n "${RESTART_DB_PORT:-}" ] || ! grep -q "address already in use" "$compose_output" || [ $db_attempt -eq $db_max_attempts ]; then
       exit 1
     fi
 
-    DEV_CONTAINER_SUFFIX="$SUFFIX"
-    DEV_COMPOSE_PROJECT="dispatch-dev-${SUFFIX}"
-
-    local db_attempt=1
-    local db_max_attempts=5
-    local compose_output
-    compose_output="$(log_dir)/db-up.log"
-    while [ $db_attempt -le $db_max_attempts ]; do
-      DEV_DB_PORT="${RESTART_DB_PORT:-$(find_free_port)}"
-
-      echo "Starting database on port ${DEV_DB_PORT}..."
-
-      if DISPATCH_DB_NAME="$DEV_CONTAINER_SUFFIX" DISPATCH_DB_PORT="$DEV_DB_PORT" \
-        $compose -f "${SCRIPT_DIR}/docker-compose.yml" -p "$DEV_COMPOSE_PROJECT" up -d --wait >"$compose_output" 2>&1; then
-        cat "$compose_output"
-        echo "Database ready on port ${DEV_DB_PORT}"
-        break
-      fi
-
-      cat "$compose_output"
-      if [ -n "${RESTART_DB_PORT:-}" ] || ! grep -q "address already in use" "$compose_output" || [ $db_attempt -eq $db_max_attempts ]; then
-        exit 1
-      fi
-
-      echo "Database port ${DEV_DB_PORT} was claimed before Docker could bind it; retrying..." >&2
-      # Drop the container so the next attempt can bind a different port;
-      # the volume it was mounting stays, data and all.
-      $compose -f "${SCRIPT_DIR}/docker-compose.yml" -p "$DEV_COMPOSE_PROJECT" down >/dev/null 2>&1 || true
-      db_attempt=$((db_attempt + 1))
-    done
-  fi
+    echo "Database port ${DEV_DB_PORT} was claimed before Docker could bind it; retrying..." >&2
+    # Drop the container so the next attempt can bind a different port;
+    # the volume it was mounting stays, data and all.
+    $compose -f "${SCRIPT_DIR}/docker-compose.yml" -p "$DEV_COMPOSE_PROJECT" down >/dev/null 2>&1 || true
+    db_attempt=$((db_attempt + 1))
+  done
 
   # --- API Server ---
   DEV_API_PORT="${RESTART_API_PORT:-$(find_free_port)}"
@@ -557,9 +565,8 @@ cmd_up() {
     export DISPATCH_RELEASE_CANDIDATE_STORE_PATH="$(log_dir)/release-candidate.json"
     export DISPATCH_RELEASE_CACHE_DIR="$DEV_RELEASE_CACHE_DIR"
 
-    if [ "$OPT_NO_DB" != "1" ]; then
-      export DATABASE_URL="postgres://dispatch:dispatch@127.0.0.1:${DEV_DB_PORT}/dispatch_${DEV_CONTAINER_SUFFIX}"
-    fi
+    clear_database_environment
+    export DATABASE_URL="postgres://dispatch:dispatch@127.0.0.1:${DEV_DB_PORT}/dispatch_${DEV_CONTAINER_SUFFIX}"
 
     pnpm run dev >> "$(log_dir)/api.log" 2>&1 &
     echo $! > "$(log_dir)/api.pid"
@@ -606,7 +613,7 @@ cmd_up() {
   # Runs after the API is up so the UI has something to render on first load.
   # Not invoked by the server runtime — this is the only code path that seeds.
   # --live and --no-seed both skip it.
-  if [ "$OPT_LIVE" != "1" ] && [ "$OPT_NO_SEED" != "1" ] && [ "$OPT_NO_DB" != "1" ]; then
+  if [ "$OPT_LIVE" != "1" ] && [ "$OPT_NO_SEED" != "1" ]; then
     echo "Seeding demo data..."
     (
       cd "$cwd"
@@ -660,9 +667,7 @@ cmd_up() {
 
   echo ""
   echo "Dev environment ready (suffix: ${SUFFIX}):"
-  if [ "$OPT_NO_DB" != "1" ]; then
-    echo "  db:  postgres://dispatch:dispatch@127.0.0.1:${DEV_DB_PORT}/dispatch_${DEV_CONTAINER_SUFFIX}"
-  fi
+  echo "  db:  postgres://dispatch:dispatch@127.0.0.1:${DEV_DB_PORT}/dispatch_${DEV_CONTAINER_SUFFIX}"
   echo "  api: http://${DEV_DISPLAY_HOST}:${DEV_API_PORT}"
   echo "  web: http://${DEV_DISPLAY_HOST}:${DEV_VITE_PORT}"
   if [ -n "${DEV_LAN_HOST:-}" ]; then
@@ -788,14 +793,18 @@ cmd_restart() {
   # Re-launch on the same ports so any open browser tabs reconnect
   # without a manual refresh, and so the DATABASE_URL we assemble
   # below still points at the running container.
-  RESTART_DB_PORT="${DEV_DB_PORT:-}"
+  # Legacy stacks created with --no-db have no managed DB to reuse.
+  if [ "${DEV_NO_DB:-0}" = "1" ]; then
+    RESTART_DB_PORT=""
+  else
+    RESTART_DB_PORT="${DEV_DB_PORT:-}"
+  fi
   RESTART_API_PORT="${DEV_API_PORT:-}"
   RESTART_VITE_PORT="${DEV_VITE_PORT:-}"
 
   # Restore the OPT_* flags from saved state so cmd_up branches
   # consistently with the previous run.
   [ "$OPT_LIVE" = "0" ] && [ "${DEV_LIVE:-0}" = "1" ] && OPT_LIVE="1"
-  [ "$OPT_NO_DB" = "0" ] && [ "${DEV_NO_DB:-0}" = "1" ] && OPT_NO_DB="1"
   [ -z "$OPT_CWD" ] && [ -n "${DEV_CWD:-}" ] && OPT_CWD="$DEV_CWD"
 
   # Always skip seeding on restart — the DB already has the data the
@@ -927,7 +936,6 @@ cmd_logs() {
 # ---------------------------------------------------------------------------
 
 OPT_CWD=""
-OPT_NO_DB="0"
 OPT_LIVE="0"
 OPT_NO_SEED="0"
 OPT_PRESERVE_AGENT_HOSTS="0"
@@ -947,7 +955,8 @@ while [ $# -gt 0 ]; do
     --cwd)
       OPT_CWD="${2:-}"; shift 2 ;;
     --no-db)
-      OPT_NO_DB="1"; shift ;;
+      echo "Error: --no-db was removed. dispatch-dev always provisions an isolated database." >&2
+      exit 1 ;;
     --live)
       OPT_LIVE="1"; shift ;;
     --no-seed)

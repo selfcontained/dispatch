@@ -43,6 +43,7 @@ import {
   verifyRestoredPostgresDatabase,
   type PostgresBackupMetadata,
 } from "./postgres.js";
+import { childProcessEnv } from "../shared/process/child-environment.js";
 
 const policySchema = z
   .object({
@@ -113,7 +114,7 @@ export function assertLinuxRecoveryBoundary(
 async function command(
   command: string,
   args: string[],
-  env: NodeJS.ProcessEnv = process.env
+  env: NodeJS.ProcessEnv = childProcessEnv()
 ): Promise<number> {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, { env, stdio: "ignore" });
@@ -1109,7 +1110,7 @@ export async function withLinuxRequestLease<T>(
         "-c",
         "printf 'locked\\n'; cat >/dev/null",
       ],
-      { stdio: ["pipe", "pipe", "ignore", handle.fd] }
+      { env: childProcessEnv(), stdio: ["pipe", "pipe", "ignore", handle.fd] }
     );
     const closed = new Promise<void>((resolve) =>
       holder.once("close", () => resolve())

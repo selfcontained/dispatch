@@ -10,6 +10,7 @@ import {
   type AgentModelOption,
 } from "../shared/agent-models.js";
 import { AGENT_TYPES, type AgentType } from "../shared/agent-types.js";
+import { recordListedModels } from "./model-availability.js";
 
 /** Old catalog keys could contain enrolled observations without provenance. */
 const settingKey = (agentType: AgentType) => `agent_models:local:${agentType}`;
@@ -80,8 +81,16 @@ export async function loadLearnedAgentModels(pool: Pool): Promise<void> {
     const raw = await getSetting(pool, settingKey(agentType));
     if (!raw) continue;
     try {
+      // Ignore the old E2E fixture catalog until a real engine reports.
       const stored = JSON.parse(raw) as StoredEngineModels;
-      if (Array.isArray(stored.models)) {
+      if (
+        Array.isArray(stored.models) &&
+        !(
+          stored.models.length === 2 &&
+          stored.models.some((model) => model?.id === "default-model") &&
+          stored.models.some((model) => model?.id === "other-model")
+        )
+      ) {
         setLearnedAgentModels(agentType, stored.models, stored.defaultModel);
       }
     } catch {
@@ -101,10 +110,39 @@ export async function recordEngineModels(
   deps: { pool: Pool; logger: FastifyBaseLogger },
   agent: { id: string; type: AgentType; model: string | null },
   options: readonly SessionConfigOption[],
-  { learn = true } = {}
+  learnCatalog = true
 ): Promise<{ modelChanged: boolean; modelsChanged: boolean }> {
   const report = modelOptionOf(options);
   if (!report) return { modelChanged: false, modelsChanged: false };
+  const modelsChanged =
+    learnCatalog &&
+    (await learnEngineCatalog(deps.pool, agent, options, report));
+  if (report.current === agent.model)
+    return { modelChanged: false, modelsChanged };
+  await deps.pool.query(
+    "UPDATE agents SET model = $2, updated_at = NOW() WHERE id = $1",
+    [agent.id, report.current]
+  );
+  deps.logger.info(
+    { agentId: agent.id, model: report.current, requested: agent.model },
+    "agent model as the engine reports it"
+  );
+  return { modelChanged: true, modelsChanged };
+}
+
+async function learnEngineCatalog(
+  pool: Pool,
+  agent: { type: AgentType; model: string | null },
+  options: readonly SessionConfigOption[],
+  report: EngineModelReport
+): Promise<boolean> {
+  if (report.choices.length === 0) return false;
+  // Before the list is published, so a model that starts off is never offered.
+  const filterChanged = await recordListedModels(
+    pool,
+    agent.type,
+    report.choices.map(({ id }) => id)
+  );
   const previous = getAgentModelOptions(agent.type);
   const effort = engineEffortOption(options);
   report.choices = report.choices.map((choice) => {
@@ -117,30 +155,17 @@ export async function recordEngineModels(
   const defaultModel =
     agent.model === null ? report.current : agentModelDefaults()[agent.type];
   const modelsChanged =
-    learn &&
-    report.choices.length > 0 &&
-    (!sameModels(previous, report.choices) ||
-      defaultModel !== agentModelDefaults()[agent.type]);
-  if (learn && report.choices.length > 0) {
-    setLearnedAgentModels(agent.type, report.choices, defaultModel);
-    const stored: StoredEngineModels = {
-      models: report.choices,
-      defaultModel,
-      seenAt: new Date().toISOString(),
-    };
-    await setSetting(deps.pool, settingKey(agent.type), JSON.stringify(stored));
-  }
-  if (report.current === agent.model)
-    return { modelChanged: false, modelsChanged };
-  await deps.pool.query(
-    "UPDATE agents SET model = $2, updated_at = NOW() WHERE id = $1",
-    [agent.id, report.current]
-  );
-  deps.logger.info(
-    { agentId: agent.id, model: report.current, requested: agent.model },
-    "agent model as the engine reports it"
-  );
-  return { modelChanged: true, modelsChanged };
+    filterChanged ||
+    !sameModels(previous, report.choices) ||
+    defaultModel !== agentModelDefaults()[agent.type];
+  setLearnedAgentModels(agent.type, report.choices, defaultModel);
+  const stored: StoredEngineModels = {
+    models: report.choices,
+    defaultModel,
+    seenAt: new Date().toISOString(),
+  };
+  await setSetting(pool, settingKey(agent.type), JSON.stringify(stored));
+  return modelsChanged;
 }
 
 function sameModels(

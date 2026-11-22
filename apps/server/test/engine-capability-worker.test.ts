@@ -69,20 +69,18 @@ if (args === "plugin list --json") {
     async function worker(home: string, operation: EngineCapabilityOperation) {
       const child = execute("bun", [main, "runner-engine-capability"], {
         cwd: home,
-        env: {
-          HOME: home,
-          PATH: process.env.PATH,
-          DISPATCH_ACP_ADAPTER_COMMAND: JSON.stringify([
-            process.execPath,
-            adapter,
-          ]),
-        },
+        env: { HOME: home, PATH: process.env.PATH },
         timeout: 20_000,
       });
       child.child.stdin!.end(
         JSON.stringify({
           operation,
-          bins: { claudeBin: cli, codexBin: cli, opencodeBin: cli },
+          bins: {
+            claudeBin: cli,
+            codexBin: cli,
+            opencodeBin: cli,
+            adapter: { bin: process.execPath, args: [adapter] },
+          },
           secret: "fixture-secret",
         })
       );

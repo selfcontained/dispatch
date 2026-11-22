@@ -1,4 +1,3 @@
-import { Button } from "@/components/ui/button";
 import {
   Select,
   SelectContent,
@@ -6,6 +5,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  SegmentedControl,
+  SegmentedControlItem,
+} from "@/components/ui/segmented-control";
 import type { ReleaseChannel } from "@/hooks/use-release-stream";
 import { cn } from "@/lib/utils";
 
@@ -33,43 +36,25 @@ export function UpdatesPreferences({
   return (
     <>
       <div>
-        <div className="mb-1.5 text-[10px] uppercase tracking-widest text-muted-foreground">
-          Release channel
-        </div>
-        <p className="mb-3 text-sm text-muted-foreground">
+        <div className="mb-1.5 section-label">Release channel</div>
+        <p className="mb-3 text-body-md text-muted-foreground">
           Stable gets promoted releases. Preview gets every release as soon as
           it ships.
         </p>
-        <div
-          className={cn(
-            "inline-flex",
-            channelSaving && "opacity-50 pointer-events-none"
-          )}
+        <SegmentedControl
+          aria-label="Release channel"
+          value={channel}
+          disabled={channelSaving}
+          onValueChange={onChannelChange}
         >
-          {(["stable", "preview"] as ReleaseChannel[]).map((ch) => (
-            <Button
-              key={ch}
-              size="sm"
-              variant={channel === ch ? "primary" : "default"}
-              onClick={() => onChannelChange(ch)}
-              className={cn(
-                "capitalize",
-                ch === "stable" && "rounded-r-none border-r-0",
-                ch === "preview" &&
-                  "rounded-l-none border-l border-white/[0.12]"
-              )}
-            >
-              {ch}
-            </Button>
-          ))}
-        </div>
+          <SegmentedControlItem value="stable">Stable</SegmentedControlItem>
+          <SegmentedControlItem value="preview">Preview</SegmentedControlItem>
+        </SegmentedControl>
       </div>
 
       <div>
-        <div className="mb-1.5 text-[10px] uppercase tracking-widest text-muted-foreground">
-          Automatic updates
-        </div>
-        <p className="mb-3 text-sm text-muted-foreground">
+        <div className="mb-1.5 section-label">Automatic updates</div>
+        <p className="mb-3 text-body-md text-muted-foreground">
           When on, Dispatch periodically checks for new releases and notifies
           you. Updates never install automatically.
         </p>

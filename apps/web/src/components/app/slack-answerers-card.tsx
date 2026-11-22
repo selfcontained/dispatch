@@ -73,7 +73,7 @@ export function SlackAnswerersCard({
     <Card className="border border-border" aria-label="Slack answerers">
       <CardHeader>
         <CardDescription>Answering from Slack</CardDescription>
-        <CardTitle className="flex items-center gap-2 text-base">
+        <CardTitle className="flex items-center gap-2 text-heading-md">
           <ShieldCheck
             className="size-4 text-muted-foreground"
             aria-hidden="true"
@@ -86,26 +86,26 @@ export function SlackAnswerersCard({
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        <p className="text-xs text-muted-foreground">
+        <p className="text-body-sm text-muted-foreground">
           Post a link, click Link my account in Slack, then return here to Allow
           the pending identity. Settings checks for requests every 10 seconds.
           Socket Mode and Slack Interactivity must be enabled; Dispatch cannot
           probe the Interactivity setting.
         </p>
         {missingScopes === null && (
-          <p className="text-xs text-muted-foreground">
+          <p className="text-body-sm text-muted-foreground">
             Slack has not supplied permission evidence. Recheck permissions;
             unknown grants are not verified.
           </p>
         )}
         {!!missingLinkScopes?.length && (
-          <p className="text-sm text-destructive">
+          <p className="text-body-md text-danger">
             Account linking needs: {missingLinkScopes.join(", ")}. Update the
             manifest, reinstall, then recheck permissions.
           </p>
         )}
         {!!missingImageScopes?.length && (
-          <p className="text-xs text-muted-foreground">
+          <p className="text-body-sm text-muted-foreground">
             Optional images unavailable: {missingImageScopes.join(", ")}.
             Account linking uses separate permissions.
           </p>
@@ -113,18 +113,20 @@ export function SlackAnswerersCard({
 
         {needsUpdate && (
           <div
-            className="space-y-2 rounded-lg border border-border bg-muted/25 p-4"
+            className="space-y-2 rounded-lg border border-border bg-surface-subtle p-4"
             data-testid="slack-manifest-update"
           >
             <div className="flex flex-wrap items-center justify-between gap-3">
-              <p className="text-sm font-medium">Update your Slack app first</p>
+              <p className="text-body-md font-medium">
+                Update your Slack app first
+              </p>
               <CopyButton
                 text={manifest}
                 label="Copy manifest"
                 copiedLabel="Manifest copied"
               />
             </div>
-            <p className="text-xs text-muted-foreground">
+            <p className="text-body-sm text-muted-foreground">
               In Slack app management open App Manifest, paste, save, then
               Reinstall to Workspace, then return here and recheck permissions.
               Missing thread reply permissions: {missingScopes!.join(", ")}.
@@ -137,13 +139,13 @@ export function SlackAnswerersCard({
             {pending.map((a) => (
               <li
                 key={a.id}
-                className="flex flex-col gap-3 rounded-lg border border-primary/30 bg-primary/5 p-3 sm:flex-row sm:items-center"
+                className="flex flex-col gap-3 rounded-lg border border-primary/line bg-primary/wash p-3 sm:flex-row sm:items-center"
               >
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-medium">
+                  <p className="truncate text-body-md font-medium">
                     {a.displayName}
                   </p>
-                  <p className="text-xs text-muted-foreground">
+                  <p className="text-body-sm text-muted-foreground">
                     Slack ID <span className="font-mono">{a.userId}</span> ·
                     match it to their Slack profile before allowing
                   </p>
@@ -163,7 +165,7 @@ export function SlackAnswerersCard({
                     disabled={action.isPending}
                     onClick={() => run("allow", a.id)}
                   >
-                    <UserCheck className="mr-2 size-3.5" aria-hidden="true" />
+                    <UserCheck aria-hidden="true" />
                     Allow
                   </Button>
                 </div>
@@ -176,35 +178,36 @@ export function SlackAnswerersCard({
           <ul className="divide-y divide-border" aria-label="Allowed answerers">
             {allowed.map((a) => (
               <li key={a.id} className="flex items-center gap-3 py-2">
-                <span className="min-w-0 flex-1 truncate text-sm">
+                <span className="min-w-0 flex-1 truncate text-body-md">
                   {a.displayName}
-                  <span className="ml-2 font-mono text-xs text-muted-foreground">
+                  <span className="ml-2 font-mono text-body-sm text-muted-foreground">
                     {a.userId}
                   </span>
                 </span>
-                <Badge variant="running">Allowed</Badge>
+                <Badge tone="success">Allowed</Badge>
                 <Button
-                  variant="ghost-destructive"
+                  variant="ghost"
+                  tone="danger"
                   size="sm"
                   aria-label={`Remove ${a.displayName}`}
                   disabled={action.isPending}
                   onClick={() => run("revoke", a.id)}
                 >
-                  <X className="size-3.5" aria-hidden="true" />
+                  <X aria-hidden="true" />
                 </Button>
               </li>
             ))}
           </ul>
         ) : (
           pending.length === 0 && (
-            <p className="text-sm text-muted-foreground">
+            <p className="text-body-md text-muted-foreground">
               No one yet. Questions show a View in Dispatch link only.
             </p>
           )
         )}
 
         <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4">
-          <span className="text-xs text-muted-foreground">
+          <span className="text-body-sm text-muted-foreground">
             Posts a one-time button in #{channelName}; whoever clicks shows up
             here.
           </span>
@@ -212,21 +215,21 @@ export function SlackAnswerersCard({
             disabled={action.isPending || !!missingLinkScopes?.length}
             onClick={() => run("link")}
           >
-            <Link2 className="mr-2 size-3.5" aria-hidden="true" />
+            <Link2 aria-hidden="true" />
             Link a Slack account
           </Button>
         </div>
-        <p className="text-xs text-muted-foreground">
+        <p className="text-body-sm text-muted-foreground">
           Their answers count the same as yours in Dispatch, including
           approvals.
         </p>
         {action.error && (
-          <p role="alert" className="text-sm text-destructive">
+          <p role="alert" className="text-body-md text-danger">
             {action.error.message}
           </p>
         )}
         {message && (
-          <p role="status" className="text-sm text-muted-foreground">
+          <p role="status" className="text-body-md text-muted-foreground">
             {message}
           </p>
         )}

@@ -25,7 +25,9 @@ import { createAcpRuntime, type AcpRuntimeDeps } from "./acp/runtime.js";
  * Native preparation supplies an effective cwd before launch. Enrolled
  * runners prepare their own session workspace as part of launch.
  */
-export type RuntimeLaunch = HostLaunch & {
+export type RuntimeLaunch = Omit<HostLaunch, "bins"> & {
+  /** The adapter is the runtime's own setting, never a launch's. */
+  bins: Omit<HostLaunch["bins"], "adapter">;
   placement?: Placement;
   repository?: RunnerRepository;
   onWorkspaceProgress?: (progress: LaunchProgress) => void;
@@ -196,6 +198,7 @@ export type AgentRuntime = {
     } | null;
     cursor: { seq: number; journalId: string | null } | null;
   }>;
+  stopIdleHostForRecovery?(agentId: string): Promise<boolean>;
   /** Agents with a live host, for the reconciler. */
   listHosted(): Promise<string[]>;
   /** The host's pid when it is alive; the root of the agent's process tree. */

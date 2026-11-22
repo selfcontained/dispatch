@@ -1,4 +1,6 @@
+import { startupAcpAdapter } from "./startup/acp-adapter.js";
 import "dotenv/config";
+import type { EngineBins } from "./agents/acp/engine-spec.js";
 import { parseListenHosts } from "./multi-listener.js";
 import { Client } from "pg";
 import { readFileSync } from "node:fs";
@@ -33,6 +35,7 @@ export type AppConfig = {
   /** Per-agent host state (launch file, socket, journal, log). */
   agentStateRoot: string;
   agentRuntime: "acp" | "inert";
+  acpAdapter?: EngineBins["adapter"];
   tls: TlsConfig | null;
 };
 
@@ -125,6 +128,7 @@ export function loadConfig(): AppConfig {
         )
     ),
     agentRuntime: resolveAgentRuntime(),
+    acpAdapter: startupAcpAdapter,
     tls: loadTls(),
   };
 

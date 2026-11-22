@@ -14,7 +14,7 @@ export function LogStream({
     <div
       ref={viewportRef}
       className={cn(
-        "min-h-0 flex-1 overflow-y-auto rounded-md border p-4 font-mono text-[12px] leading-relaxed shadow-inner",
+        "min-h-0 flex-1 overflow-y-auto rounded-md border p-4 font-mono text-body-sm leading-relaxed shadow-inner",
         "border-[hsl(var(--log-stream-border))] bg-[hsl(var(--log-stream-bg))] text-[hsl(var(--log-stream-foreground))]",
         className
       )}

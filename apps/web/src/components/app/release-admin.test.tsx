@@ -280,7 +280,7 @@ describe("ReleasesAdmin — recent releases", () => {
     });
 
     const row = (await screen.findByText("v2.0.0-rc.1")).closest("div")!;
-    expect(within(row).getByText("pre-release")).toBeTruthy();
+    expect(within(row).getByText("Pre-release")).toBeTruthy();
 
     fireEvent.click(within(row).getByRole("button", { name: "Promote" }));
     expect(within(row).getByText("Mark stable + latest?")).toBeTruthy();
@@ -295,7 +295,7 @@ describe("ReleasesAdmin — recent releases", () => {
         ?.body ?? "{}") as string
     );
     expect(body).toEqual({ tag: "v2.0.0-rc.1" });
-    expect(await within(row).findByText("stable")).toBeTruthy();
+    expect(await within(row).findByText("Stable")).toBeTruthy();
     expect(within(row).queryByRole("button", { name: "Promote" })).toBeNull();
   });
 
@@ -316,7 +316,7 @@ describe("ReleasesAdmin — recent releases", () => {
     });
 
     expect(await within(row).findByText(/Promoting/)).toBeTruthy();
-    expect(within(row).getByText("pre-release")).toBeTruthy();
+    expect(within(row).getByText("Pre-release")).toBeTruthy();
     expect(within(row).queryByRole("button", { name: "Promote" })).toBeNull();
     expect(
       within(row).getByRole("link", { name: "workflow" }).getAttribute("href")
@@ -358,7 +358,7 @@ describe("ReleasesAdmin — recent releases", () => {
     });
 
     expect(await screen.findByText("not found")).toBeTruthy();
-    expect(within(row).getByText("pre-release")).toBeTruthy();
+    expect(within(row).getByText("Pre-release")).toBeTruthy();
     // The confirmation collapsed when the request went out, so the operator
     // is offered the button again rather than a stuck "confirm" row.
     expect(within(row).queryByText("Mark stable + latest?")).toBeNull();
@@ -526,7 +526,7 @@ describe("ReleasesAdmin — in-flight job banners", () => {
     const banner = screen.getByText(/Releasing/);
     expect(banner.textContent).toContain("patch");
     expect(banner.textContent).toContain("v1.2.4");
-    expect(banner.textContent).toContain("watching");
+    expect(banner.textContent).toContain("CI running");
 
     fireEvent.click(screen.getByRole("button", { name: "View progress" }));
     expect(

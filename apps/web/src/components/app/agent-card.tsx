@@ -2,7 +2,6 @@ import { remotePlacement } from "@dispatch/runner-protocol";
 import { useRunnerName } from "@/hooks/use-runners";
 import React from "react";
 import { Pin, PinOff } from "lucide-react";
-import { Button } from "@/components/ui/button";
 
 import { AgentMeta } from "@/components/app/agent-meta";
 import { AgentCardActions } from "@/components/app/agent-card-actions";
@@ -10,11 +9,13 @@ import { AgentCardDetails } from "@/components/app/agent-card-details";
 import { AgentCardHeader } from "@/components/app/agent-card-header";
 import { AgentCardActivity } from "@/components/app/agent-card-status";
 import { ChildAgentRow } from "@/components/app/child-agent-row";
+import { AgentName } from "@/components/app/agent-name";
 import { useAgentDiffStats } from "@/hooks/use-agent-diff-stats";
 import { useCopyText } from "@/hooks/use-copy";
 import { SessionSettingsDialog } from "@/components/app/session-settings-dialog";
 import { type Agent, type AgentVisualState } from "@/components/app/types";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { IconButton } from "@/components/ui/icon-button";
 import { AnimatePresence, motion } from "framer-motion";
 
 import { lineageSeats } from "@/lib/agent-seat";
@@ -151,25 +152,22 @@ function AgentCardImpl({
   }, [nativeDragHandlers]);
 
   const pinControl = onTogglePin ? (
-    <Button
-      variant="ghost"
-      size="icon"
-      className="h-9 w-9 shrink-0 rounded-full p-0 text-muted-foreground [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11"
-      aria-label={isPinned ? "Unpin session" : "Pin session"}
-      title={isPinned ? "Unpin session" : "Pin session"}
+    <IconButton
+      className="rounded-full"
+      label={isPinned ? "Unpin session" : "Pin session"}
       data-agent-control="true"
       data-testid={`agent-pin-toggle-${agent.id}`}
       aria-pressed={isPinned}
       onClick={() => onTogglePin(agent.id)}
     >
-      <span className="flex h-8 w-8 items-center justify-center rounded-full border border-border bg-muted/30">
+      <span className="flex h-8 w-8 items-center justify-center rounded-full border border-border bg-surface-subtle">
         {isPinned ? (
           <PinOff className="h-3.5 w-3.5" />
         ) : (
           <Pin className="h-3.5 w-3.5" />
         )}
       </span>
-    </Button>
+    </IconButton>
   ) : null;
 
   return (
@@ -184,7 +182,7 @@ function AgentCardImpl({
           "border-b border-r-4 border-border px-2 py-2 transition-colors duration-300",
           containerClassName,
           borderForAgentState(effectiveState),
-          isSelected && "bg-muted/60",
+          isSelected && "bg-surface-hover",
           isStopped && "opacity-60"
         )}
       >
@@ -229,7 +227,9 @@ function AgentCardImpl({
                     personaParentName={
                       agent.parentAgentId
                         ? (agents.find((a) => a.id === agent.parentAgentId)
-                            ?.name ?? agent.parentAgentId.slice(-6))
+                            ?.name ?? (
+                            <AgentName agentId={agent.parentAgentId} />
+                          ))
                         : undefined
                     }
                     diffStats={diffStats}
@@ -245,12 +245,10 @@ function AgentCardImpl({
                   <AgentMeta label="Last error" value={agent.lastError} />
                 ) : null}
                 {childAgents.length > 0 ? (
-                  <div className="space-y-1.5 border-t border-border/50 pt-2">
+                  <div className="space-y-1.5 border-t border-border-subtle pt-2">
                     <div className="flex items-center justify-between pl-0.5 pr-2">
-                      <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/75">
-                        Sub Agents
-                      </span>
-                      <span className="text-[10px] text-muted-foreground/55">
+                      <span className="section-label">Sub Agents</span>
+                      <span className="text-label-xs text-faint">
                         {childAgents.length}
                       </span>
                     </div>

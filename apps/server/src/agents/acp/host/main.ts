@@ -254,7 +254,11 @@ async function main(): Promise<void> {
   };
 
   driver.onEvent((event) => {
-    const entry = journal.append(event);
+    const entry = journal.append(
+      event.type === "config"
+        ? { ...event, catalogSource: bins.adapter ? "override" : "engine" }
+        : event
+    );
     if (event.type === "turn") {
       if (event.state === "started") lease = null;
       openTurn =
@@ -608,6 +612,7 @@ async function main(): Promise<void> {
           });
           if (accepted) await shutdown("graceful");
         } else {
+          if (message.idleOnly && openTurn) return;
           await shutdown(message.force ? "SIGKILL" : "graceful");
         }
         return;

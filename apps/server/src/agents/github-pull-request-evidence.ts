@@ -1,6 +1,7 @@
 import { execFile } from "node:child_process";
 import { createHash, createHmac } from "node:crypto";
 import { promisify } from "node:util";
+import { childProcessEnv } from "../shared/process/child-environment.js";
 import {
   isGitHubPullRequestDetails,
   isGitHubPullRequestDiff,
@@ -28,7 +29,7 @@ export function nativeGitHubEvidence() {
       killSignal: "SIGKILL",
       maxBuffer: 128 * 1024,
       env: {
-        ...process.env,
+        ...childProcessEnv(),
         GH_PROMPT_DISABLED: "1",
         ...(token && { GH_TOKEN: token }),
       },

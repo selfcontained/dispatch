@@ -23,6 +23,7 @@ import {
   useAgentModelCatalogData,
 } from "@/hooks/use-agent-model-catalog";
 import {
+  Hint,
   Tooltip,
   TooltipContent,
   TooltipTrigger,
@@ -45,11 +46,15 @@ function CompactMetaRow({
 }): JSX.Element {
   return (
     <div className="flex min-h-7 items-center justify-between gap-3">
-      <span className="shrink-0 text-muted-foreground/75" title={label}>
-        {icon ?? (
-          <span className="text-[10px] uppercase tracking-wide">{label}</span>
-        )}
-      </span>
+      {icon ? (
+        <Hint label={label}>
+          <span role="img" aria-label={label} className="shrink-0 text-faint">
+            {icon}
+          </span>
+        </Hint>
+      ) : (
+        <span className="shrink-0 section-label">{label}</span>
+      )}
       <div className="min-w-0 flex-1 text-left">
         {truncateStart ? (
           <FrontTruncatedValue
@@ -62,7 +67,7 @@ function CompactMetaRow({
           <div
             className={cn(
               "text-foreground break-all",
-              mono && "font-mono text-[11px]"
+              mono && "font-mono text-label-sm"
             )}
           >
             {value}
@@ -76,7 +81,7 @@ function CompactMetaRow({
 export type AgentCardDetailsProps = {
   remoteLocation?: string;
   agent: Agent;
-  personaParentName?: string;
+  personaParentName?: React.ReactNode;
   diffStats: DiffStats | null | undefined;
   refreshDiffStats: () => void;
   fullAccessEnabled: boolean;
@@ -114,7 +119,7 @@ export function AgentCardDetails({
   const modelCatalog = useAgentModelCatalogData();
 
   return (
-    <div className="relative flex flex-col gap-2 rounded-xl border border-border/60 bg-background/25 px-3 py-3 text-xs text-muted-foreground">
+    <div className="relative flex flex-col gap-2 rounded-lg border border-border-subtle bg-background/tint-strong px-3 py-3 text-body-sm text-muted-foreground">
       {/* Concentric with the rounded-xl corner: 11px inner radius minus this
           3px gap leaves the ~8px radius of the 16px-tall pill. */}
       <div className="absolute right-[3px] top-[3px]">
@@ -124,9 +129,15 @@ export function AgentCardDetails({
         <CompactMetaRow label="Runs on" value={remoteLocation} />
       ) : agent.gitContext?.isWorktree ? (
         <div className="flex items-start justify-between gap-3">
-          <span className="shrink-0 text-muted-foreground/75" title="Branch">
-            <GitBranch className="h-3.5 w-3.5" />
-          </span>
+          <Hint label="Branch">
+            <span
+              role="img"
+              aria-label="Branch"
+              className="shrink-0 text-faint"
+            >
+              <GitBranch className="size-icon-md" />
+            </span>
+          </Hint>
           <div className="min-w-0 flex-1 text-left">
             <div className="text-muted-foreground">
               <FrontTruncatedValue
@@ -138,7 +149,7 @@ export function AgentCardDetails({
               />
             </div>
             <div className="mt-0.5 flex items-center gap-1 pl-2">
-              <span className="shrink-0 font-mono text-[11px] text-muted-foreground/50">
+              <span className="shrink-0 font-mono text-label-sm text-faint">
                 ↳
               </span>
               <FrontTruncatedValue
@@ -195,7 +206,7 @@ export function AgentCardDetails({
             mono
           />
           {personaParentName ? (
-            <div className="pl-[26px] text-[10px] text-muted-foreground">
+            <div className="pl-6 text-label-xs text-muted-foreground">
               from {personaParentName}
             </div>
           ) : null}
@@ -205,8 +216,8 @@ export function AgentCardDetails({
       <AgentPullRequests agentId={agent.id} agentName={agent.name} />
       <AgentPreview agentId={agent.id} />
 
-      <div className="flex items-center justify-between gap-2 pt-1">
-        <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+        <div className="flex flex-wrap items-center gap-2">
           {workspaceDir ? (
             <IdeLaunchButton
               path={workspaceDir}
@@ -219,22 +230,21 @@ export function AgentCardDetails({
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
-                  variant="ghost"
-                  size="sm"
+                  size="xs"
                   onClick={() => workspaceDir && copyWorktreePath(workspaceDir)}
                   aria-label={
                     worktreePathCopied
                       ? "Worktree path copied"
                       : `Copy worktree path: ${workspaceDir}`
                   }
-                  className="group relative h-auto min-h-6 gap-1 rounded-full border border-border bg-muted/35 px-2 py-0.5 text-[10px] font-normal text-muted-foreground before:absolute before:inset-x-0 before:-inset-y-1.5 before:content-[''] hover:bg-muted/60 hover:text-foreground"
+                  className="group font-normal text-muted-foreground hover:text-foreground"
                 >
                   {worktreePathCopied ? (
-                    <Check className="h-3 w-3 text-status-done" />
+                    <Check className="text-info" />
                   ) : (
                     <>
-                      <FolderTree className="h-3 w-3 group-hover:hidden group-focus-visible:hidden" />
-                      <Copy className="hidden h-3 w-3 group-hover:block group-focus-visible:block" />
+                      <FolderTree className="group-hover:hidden group-focus-visible:hidden" />
+                      <Copy className="hidden group-hover:block group-focus-visible:block" />
                     </>
                   )}
                   <span>Worktree</span>
@@ -245,18 +255,19 @@ export function AgentCardDetails({
               </TooltipTrigger>
               <TooltipContent className="max-w-[420px] break-all">
                 {workspaceDir}
-                <div className="mt-1 text-[10px] opacity-70">Click to copy</div>
+                <div className="mt-1 text-label-xs opacity-70">
+                  Click to copy
+                </div>
               </TooltipContent>
             </Tooltip>
           ) : null}
         </div>
         {!fullAccessEnabled ? (
-          <span
-            className="text-[10px] text-muted-foreground"
-            title="Uses engine permission checks; approval requests appear in chat."
-          >
-            Restricted access
-          </span>
+          <Hint label="Uses engine permission checks; approval requests appear in chat.">
+            <span className="text-label-xs text-muted-foreground">
+              Restricted access
+            </span>
+          </Hint>
         ) : null}
       </div>
     </div>

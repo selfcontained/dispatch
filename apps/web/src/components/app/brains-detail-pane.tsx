@@ -23,7 +23,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { cn } from "@/lib/utils";
+import { ChipButton } from "@/components/ui/chip";
+import { CountBubble } from "@/components/ui/count-bubble";
 
 export function BrainsDetailPane(): JSX.Element {
   const { encodedRepoRoot, collection } = useParams<{
@@ -63,7 +64,7 @@ function BrainsOverview(): JSX.Element {
       <div>
         <Brain className="mx-auto mb-3 h-8 w-8" />
         <div className="font-medium text-foreground">Brain Explorer</div>
-        <div className="mt-1 max-w-sm text-sm">
+        <div className="mt-1 max-w-sm text-body-md">
           Select a project to inspect its shared brain memory — objects, lists,
           and events organized by collection.
         </div>
@@ -106,11 +107,11 @@ function BrainProjectDetail({
       <div className="border-b border-border px-4 py-3 md:px-6">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <h2 className="truncate text-xl font-semibold">
+            <h2 className="truncate text-heading-lg">
               {repoBasename(repoRoot)}
             </h2>
             <div
-              className="mt-0.5 truncate font-mono text-xs text-muted-foreground"
+              className="mt-0.5 truncate font-mono text-body-sm text-muted-foreground"
               title={repoRoot}
             >
               {repoRoot}
@@ -118,11 +119,12 @@ function BrainProjectDetail({
           </div>
           <Button
             type="button"
-            variant="ghost-destructive"
+            variant="ghost"
+            tone="danger"
             size="sm"
             onClick={() => setProjectDeleteOpen(true)}
           >
-            <Trash2 className="mr-1.5 h-3.5 w-3.5" />
+            <Trash2 />
             Clear project
           </Button>
         </div>
@@ -130,7 +132,7 @@ function BrainProjectDetail({
 
       <div className="border-b border-border px-4 md:px-6">
         <div className="flex items-center gap-3 py-2">
-          <span className="hidden shrink-0 text-[11px] font-medium text-muted-foreground md:block">
+          <span className="hidden shrink-0 text-label-sm font-medium text-muted-foreground md:block">
             Collections
           </span>
 
@@ -148,7 +150,7 @@ function BrainProjectDetail({
                 }
               }}
             >
-              <SelectTrigger className="h-8 text-xs">
+              <SelectTrigger className="h-8 text-body-sm">
                 <SelectValue placeholder="All collections" />
               </SelectTrigger>
               <SelectContent>
@@ -195,7 +197,7 @@ function BrainProjectDetail({
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Filter..."
-              className="h-8 w-32 pl-8 text-xs md:w-40"
+              className="h-8 w-32 pl-8 text-body-sm md:w-40"
             />
           </div>
         </div>
@@ -229,7 +231,7 @@ function BrainProjectDetail({
             </Button>
             <Button
               type="button"
-              variant="destructive"
+              variant="danger"
               onClick={() => void confirmProjectDelete()}
               disabled={deleteProject.isPending}
             >
@@ -254,27 +256,9 @@ function CollectionPill({
   onClick: () => void;
 }): JSX.Element {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(
-        "flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition-colors",
-        active
-          ? "bg-primary/15 text-primary"
-          : "text-muted-foreground hover:bg-muted/40 hover:text-foreground"
-      )}
-    >
+    <ChipButton selected={active} aria-pressed={active} onClick={onClick}>
       {label}
-      {count !== undefined ? (
-        <span
-          className={cn(
-            "rounded-full px-1.5 py-0.5 text-[10px]",
-            active ? "bg-primary/20" : "bg-muted"
-          )}
-        >
-          {count}
-        </span>
-      ) : null}
-    </button>
+      {count !== undefined ? <CountBubble count={String(count)} /> : null}
+    </ChipButton>
   );
 }

@@ -18,28 +18,19 @@ export function CertificateTrustSettings(): JSX.Element | null {
 
   return (
     <section aria-labelledby="certificate-trust-heading">
-      <h3
-        id="certificate-trust-heading"
-        className="mb-4 text-sm font-semibold uppercase tracking-wide text-muted-foreground"
-      >
+      <h3 id="certificate-trust-heading" className="mb-4 section-label">
         Certificate trust
       </h3>
-      <p className="mb-4 max-w-lg text-sm text-muted-foreground">
+      <p className="mb-4 max-w-lg text-body-md text-muted-foreground">
         Trust this Dispatch server once on each device to avoid certificate
         warnings. On iPhone and iPad, install the profile and enable full trust
         in Settings.
       </p>
       <div className="flex flex-wrap gap-3">
-        <Button
-          asChild
-          className="h-auto min-h-9 whitespace-normal text-center"
-        >
+        <Button asChild wrap>
           <a href="/trust">Set up certificate trust</a>
         </Button>
-        <Button
-          asChild
-          className="h-auto min-h-9 whitespace-normal text-center"
-        >
+        <Button asChild wrap>
           <a href="/trust/dispatch.mobileconfig">
             Download Apple trust profile
           </a>

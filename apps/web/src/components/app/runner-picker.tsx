@@ -43,7 +43,7 @@ function RunnerOption({
               ? "bg-status-waiting"
               : status === "unavailable"
                 ? "bg-status-blocked"
-                : "bg-muted-foreground/50"
+                : "bg-muted-foreground/line-strong"
         )}
       />
     </span>
@@ -79,7 +79,7 @@ export function RunnerPicker({
         >
           <SelectTrigger
             aria-labelledby={runnerLabelId}
-            className="h-8 gap-1.5 px-2 text-xs [&>span]:min-w-0 [&>span]:flex-1"
+            className="h-8 gap-1.5 px-2 text-body-sm [&>span]:min-w-0 [&>span]:flex-1"
             data-testid="create-agent-runner"
           >
             <SelectValue />
@@ -132,11 +132,14 @@ export function RunnerWorkspacePicker({
   const workspaceLabelId = useId();
   return (
     <div className="space-y-1">
-      <label id={workspaceLabelId} className="text-sm text-muted-foreground">
+      <label
+        id={workspaceLabelId}
+        className="text-body-md text-muted-foreground"
+      >
         Workspace
       </label>
       {selected.workspaces.length === 0 ? (
-        <p className="text-sm text-muted-foreground">
+        <p className="text-body-md text-muted-foreground">
           This runner has not reported any workspaces.
         </p>
       ) : (

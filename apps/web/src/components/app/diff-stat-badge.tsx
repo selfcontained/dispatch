@@ -6,6 +6,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { ChipButton } from "@/components/ui/chip";
 import type { DiffStats } from "@/components/app/types";
 import { cn } from "@/lib/utils";
 
@@ -95,8 +96,8 @@ export function DiffStatBadge({
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <button
-          type="button"
+        <ChipButton
+          size="sm"
           data-agent-control="true"
           data-testid="diff-stat-badge"
           onClick={(event) => {
@@ -105,13 +106,12 @@ export function DiffStatBadge({
             onRefresh();
           }}
           className={cn(
-            "inline-flex shrink-0 items-center gap-1 rounded-full border px-2 py-0.5 font-mono text-[10px] leading-none transition-colors",
-            "border-border bg-background/70 text-muted-foreground hover:bg-background hover:text-foreground",
-            flash && "border-status-working/60 bg-status-working/15"
+            "font-mono",
+            flash && "border-success/line-strong bg-success/tint"
           )}
           aria-label="Refresh diff stats"
         >
-          <span className="inline-flex items-center tabular-nums text-status-working">
+          <span className="inline-flex items-center tabular-nums text-success">
             <span>+</span>
             {prefersReducedMotion ? (
               <span>{diffStats.added}</span>
@@ -123,7 +123,7 @@ export function DiffStatBadge({
               />
             )}
           </span>
-          <span className="inline-flex items-center tabular-nums text-status-blocked">
+          <span className="inline-flex items-center tabular-nums text-danger">
             <span>−</span>
             {prefersReducedMotion ? (
               <span>{diffStats.deleted}</span>
@@ -135,7 +135,7 @@ export function DiffStatBadge({
               />
             )}
           </span>
-        </button>
+        </ChipButton>
       </TooltipTrigger>
       <TooltipContent>
         <div>
@@ -144,9 +144,7 @@ export function DiffStatBadge({
         <div className="text-muted-foreground">
           +{diffStats.added} −{diffStats.deleted}
         </div>
-        <div className="mt-1 text-[10px] text-muted-foreground/80">
-          Tap to refresh
-        </div>
+        <div className="mt-1 text-label-xs text-faint">Tap to refresh</div>
       </TooltipContent>
     </Tooltip>
   );

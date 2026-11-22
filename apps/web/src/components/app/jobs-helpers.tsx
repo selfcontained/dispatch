@@ -2,6 +2,9 @@ import cronstrue from "cronstrue";
 import { CheckCircle2, XCircle } from "lucide-react";
 
 import { ActivityBars } from "@/components/ui/activity-bars";
+import { Badge, type BadgeTone } from "@/components/ui/badge";
+import { type StatusDotTone } from "@/components/ui/status-dot";
+import { statusLabel } from "@/lib/status-label";
 import { type JobRun, type JobRunStatus } from "@/hooks/use-jobs";
 import { formatDateTime } from "@/lib/format";
 
@@ -11,24 +14,21 @@ export const ACTIVE_RUN_STATUSES: JobRunStatus[] = [
   "needs_input",
 ];
 
-export function statusClasses(status: JobRunStatus | null): string {
-  if (status === "completed")
-    return "border-status-done/45 bg-status-done/15 text-status-done";
+export function statusTone(status: JobRunStatus | null): BadgeTone {
+  if (status === "completed") return "info";
   if (status === "failed" || status === "timed_out" || status === "crashed")
-    return "border-status-blocked/45 bg-status-blocked/15 text-status-blocked";
-  if (status === "needs_input")
-    return "border-status-waiting/45 bg-status-waiting/15 text-status-waiting";
-  if (status === "started" || status === "running")
-    return "border-status-working/45 bg-status-working/15 text-status-working";
-  return "border-border bg-muted/35 text-muted-foreground";
+    return "danger";
+  if (status === "needs_input") return "warning";
+  if (status === "started" || status === "running") return "success";
+  return "neutral";
 }
 
 export function statusIcon(status: JobRunStatus | null): JSX.Element | null {
-  if (status === "completed") return <CheckCircle2 className="h-3.5 w-3.5" />;
+  if (status === "completed") return <CheckCircle2 />;
   if (status === "failed" || status === "timed_out" || status === "crashed")
-    return <XCircle className="h-3.5 w-3.5" />;
+    return <XCircle />;
   if (status === "started" || status === "running" || status === "needs_input")
-    return <ActivityBars size={14} className="shrink-0" />;
+    return <ActivityBars size={12} className="shrink-0" />;
   return null;
 }
 
@@ -42,13 +42,31 @@ export function statusTextColor(status: JobRunStatus | null): string {
   return "text-muted-foreground";
 }
 
-export function statusDotColor(status: JobRunStatus | null): string {
-  if (status === "completed") return "bg-status-done";
+export function statusDotTone(status: JobRunStatus | null): StatusDotTone {
+  if (status === "completed") return "done";
   if (status === "failed" || status === "timed_out" || status === "crashed")
-    return "bg-status-blocked";
-  if (status === "needs_input") return "bg-status-waiting";
-  if (status === "started" || status === "running") return "bg-status-working";
-  return "bg-muted-foreground";
+    return "blocked";
+  if (status === "needs_input") return "waiting";
+  if (status === "started" || status === "running") return "working";
+  return "neutral";
+}
+
+/** A job's last run, drawn the same in the list and on the job. */
+export function JobStatusBadge({
+  status,
+  empty = "Never run",
+  className,
+}: {
+  status: JobRunStatus | null;
+  empty?: string;
+  className?: string;
+}): JSX.Element {
+  return (
+    <Badge tone={statusTone(status)} className={className}>
+      {statusIcon(status)}
+      {status ? statusLabel(status) : empty}
+    </Badge>
+  );
 }
 
 export function formatJobDateTime(iso: string | null | undefined): string {
@@ -98,41 +116,4 @@ export function triggerSourceLabel(run: JobRun): string {
   if (run.config.triggerSource === "scheduled") return "Scheduled";
   if (run.config.triggerSource === "webhook") return "Webhook";
   return "Manual";
-}
-
-export function formatTimeUntil(iso: string): string {
-  const ms = new Date(iso).getTime() - Date.now();
-  if (Number.isNaN(ms) || ms < 0) return "now";
-  const mins = Math.floor(ms / 60_000);
-  if (mins < 1) return "< 1m";
-  if (mins < 60) return `in ${mins}m`;
-  const hours = Math.floor(mins / 60);
-  const remMins = mins % 60;
-  if (hours < 24)
-    return remMins > 0 ? `in ${hours}h ${remMins}m` : `in ${hours}h`;
-  const days = Math.floor(hours / 24);
-  return `in ${days}d`;
-}
-
-export function formatTimeUntilDate(iso: string): string {
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return "";
-  const now = new Date();
-  const isToday = date.toDateString() === now.toDateString();
-  const tomorrow = new Date(now);
-  tomorrow.setDate(tomorrow.getDate() + 1);
-  const isTomorrow = date.toDateString() === tomorrow.toDateString();
-  const time = date.toLocaleTimeString(undefined, {
-    hour: "numeric",
-    minute: "2-digit",
-  });
-  if (isToday) return `Today at ${time}`;
-  if (isTomorrow) return `Tomorrow at ${time}`;
-  return date.toLocaleDateString(undefined, {
-    weekday: "short",
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
 }

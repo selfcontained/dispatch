@@ -25,10 +25,10 @@ describe("ChangesSettingsPopover", () => {
 
     fireEvent.click(getByTestId("changes-settings-button"));
 
-    const unified = screen.getByRole("button", { name: "Unified" });
-    const split = screen.getByRole("button", { name: "Split" });
-    expect(unified.getAttribute("aria-pressed")).toBe("true");
-    expect(split.getAttribute("aria-pressed")).toBe("false");
+    const unified = screen.getByRole("radio", { name: "Unified" });
+    const split = screen.getByRole("radio", { name: "Split" });
+    expect(unified.getAttribute("aria-checked")).toBe("true");
+    expect(split.getAttribute("aria-checked")).toBe("false");
     expect(split.hasAttribute("disabled")).toBe(true);
     expect(
       screen.getByText("Split view is available on larger screens.")

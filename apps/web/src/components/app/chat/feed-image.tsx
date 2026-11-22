@@ -131,7 +131,7 @@ export function FeedImage({
         // with the backfill gone, the fallback sits next to ratio-boxed
         // neighbours forever, so the difference wants to look like a size, not
         // a fault.
-        sized && "bg-muted/30",
+        sized && "bg-surface-subtle",
         className
       )}
       style={feedImageBoxStyle(width, height, maxHeightPx, containerMax)}

@@ -77,7 +77,7 @@ function TaskPicker({ share }: { share: (id: string) => Promise<void> }) {
         ))}
       </CommandList>
       {error && (
-        <p role="alert" className="p-2 text-xs text-destructive">
+        <p role="alert" className="p-2 text-body-sm text-danger">
           {error}
         </p>
       )}
@@ -99,7 +99,7 @@ export function ShareTaskPicker({
       <PopoverTrigger asChild>
         <Button
           type="button"
-          size="icon"
+          size="stream-icon"
           variant="ghost"
           title="Share task"
           aria-label="Share task"

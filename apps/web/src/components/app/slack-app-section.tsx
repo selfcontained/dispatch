@@ -38,6 +38,7 @@ import {
 import { api } from "@/lib/api";
 import { SlackAnswerersCard, type SlackAnswerer } from "./slack-answerers-card";
 import { SlackTimingCard } from "./slack-timing-card";
+import { statusLabel } from "@/lib/status-label";
 
 type Channel = { id: string; name: string; private: boolean };
 type State = {
@@ -181,65 +182,61 @@ export function SlackAppSection() {
   const showSetup = !configured || editing;
   const status = query.isError
     ? "Unavailable"
-    : query.data?.status.replaceAll("_", " ") || "Loading";
+    : query.data?.status
+      ? statusLabel(query.data.status)
+      : "Loading";
   const connected = query.data?.status === "connected";
   return (
     <section
-      className="border-t border-border pt-8 space-y-5"
+      className="border-t border-border pt-8 space-y-4"
       aria-label="Slack app setup"
     >
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="flex items-start gap-3">
-          <div className="rounded-xl border border-border bg-muted/50 p-2.5">
+          <div className="rounded-lg border border-border bg-surface-hover p-2">
             <Slack className="size-5" aria-hidden="true" />
           </div>
           <div>
-            <h3 className="text-base font-semibold">Slack notifications</h3>
-            <p className="mt-1 max-w-lg text-sm text-muted-foreground">
+            <h3 className="text-heading-md">Slack notifications</h3>
+            <p className="mt-1 max-w-lg text-body-md text-muted-foreground">
               A direct line from your agents to your workspace.
             </p>
           </div>
         </div>
         <Badge
-          variant={
+          dot
+          tone={
             connected
-              ? "running"
+              ? "success"
               : query.data?.status === "credentials_rejected" || query.isError
-                ? "error"
-                : "default"
+                ? "danger"
+                : "neutral"
           }
-          className="gap-1.5"
           role="status"
         >
-          <span
-            className={cn(
-              "size-1.5 rounded-full",
-              connected ? "bg-status-working" : "bg-current"
-            )}
-          />
           {status}
         </Badge>
       </div>
 
       {configured && (
-        <Card className="border border-status-working/20">
+        <Card className="border border-success/line">
           <CardHeader>
             <CardDescription>Notification destination</CardDescription>
-            <CardTitle className="flex items-center gap-2 text-base">
+            <CardTitle className="flex items-center gap-2 text-heading-md">
               <Hash
                 className="size-4 text-muted-foreground"
                 aria-hidden="true"
               />
               {query.data?.binding?.channelName}
             </CardTitle>
-            <p className="text-sm text-muted-foreground">
+            <p className="text-body-md text-muted-foreground">
               {query.data?.binding?.teamName}
             </p>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="flex flex-wrap gap-2">
               <Button disabled={action.isPending} onClick={() => run("test")}>
-                <Radio className="mr-2 size-3.5" aria-hidden="true" />
+                <Radio aria-hidden="true" />
                 Send test
               </Button>
               <Button
@@ -258,12 +255,11 @@ export function SlackAppSection() {
                 {editing ? "Cancel replacement" : "Replace tokens"}
               </Button>
             </div>
-            <p className="text-xs text-muted-foreground" role="status">
-              Socket Mode WebSocket: {query.data?.status.replaceAll("_", " ")}.
-              A connected socket does not verify interactive callback delivery.
+            <p className="text-body-sm text-muted-foreground" role="status">
+              Socket Mode WebSocket: {statusLabel(query.data?.status ?? "")}. A
+              connected socket does not verify interactive callback delivery.
             </p>
             <Button
-              variant="default"
               size="sm"
               disabled={action.isPending}
               onClick={() => run("recheck")}
@@ -273,9 +269,9 @@ export function SlackAppSection() {
                 : "Recheck permissions"}
             </Button>
             {query.data?.callbackDiagnostic && (
-              <p className="text-xs text-muted-foreground">
+              <p className="text-body-sm text-muted-foreground">
                 Last Socket Mode callback:{" "}
-                {query.data.callbackDiagnostic.stage.replaceAll("_", " ")} ·{" "}
+                {statusLabel(query.data.callbackDiagnostic.stage)} ·{" "}
                 {new Date(
                   query.data.callbackDiagnostic.at
                 ).toLocaleTimeString()}
@@ -286,12 +282,12 @@ export function SlackAppSection() {
             )}
             <Collapsible>
               <CollapsibleTrigger asChild>
-                <Button variant="ghost" size="sm" className="px-0">
+                <Button variant="ghost" size="sm">
                   Connection details
-                  <ChevronDown className="ml-2 size-3.5" aria-hidden="true" />
+                  <ChevronDown aria-hidden="true" />
                 </Button>
               </CollapsibleTrigger>
-              <CollapsibleContent className="mt-2 space-y-3 text-xs text-muted-foreground">
+              <CollapsibleContent className="mt-2 space-y-3 text-body-sm text-muted-foreground">
                 <p className="break-all">
                   Dispatch link: {query.data?.binding?.baseUrl}
                 </p>
@@ -301,12 +297,13 @@ export function SlackAppSection() {
                   notification was read.
                 </p>
                 <Button
-                  variant="ghost-destructive"
+                  variant="ghost"
+                  tone="danger"
                   size="sm"
                   disabled={action.isPending}
                   onClick={() => run("disconnect")}
                 >
-                  <Unplug className="mr-2 size-3.5" aria-hidden="true" />
+                  <Unplug aria-hidden="true" />
                   Disconnect and clear tokens
                 </Button>
               </CollapsibleContent>
@@ -343,11 +340,11 @@ export function SlackAppSection() {
                 >
                   <span
                     className={cn(
-                      "flex size-6 shrink-0 items-center justify-center rounded-full text-xs",
+                      "flex size-6 shrink-0 items-center justify-center rounded-full text-body-sm",
                       step === index + 1
                         ? "bg-primary text-primary-foreground"
                         : step > index + 1
-                          ? "bg-primary/15 text-primary"
+                          ? "bg-surface-selected text-primary"
                           : "bg-muted text-muted-foreground"
                     )}
                   >
@@ -359,7 +356,7 @@ export function SlackAppSection() {
                   </span>
                   <span
                     className={cn(
-                      "text-xs sm:text-sm",
+                      "text-body-sm sm:text-body-md",
                       step === index + 1
                         ? "font-medium text-foreground"
                         : "text-muted-foreground"
@@ -382,7 +379,7 @@ export function SlackAppSection() {
             <Card className="border border-border">
               <CardHeader>
                 <CardDescription>Step 1 of 3</CardDescription>
-                <CardTitle className="text-base">
+                <CardTitle className="text-heading-md">
                   Your workspace. Your Slack app.
                 </CardTitle>
                 <CardDescription>
@@ -390,14 +387,14 @@ export function SlackAppSection() {
                   configuration for you.
                 </CardDescription>
               </CardHeader>
-              <CardContent className="space-y-5">
-                <div className="rounded-lg border border-border bg-muted/25 p-4">
+              <CardContent className="space-y-4">
+                <div className="rounded-lg border border-border bg-surface-subtle p-4">
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div>
-                      <p className="text-sm font-medium">
+                      <p className="text-body-md font-medium">
                         Copy the app manifest
                       </p>
-                      <p className="mt-1 text-xs text-muted-foreground">
+                      <p className="mt-1 text-body-sm text-muted-foreground">
                         Includes Socket Mode, buttons and forms, and thread
                         replies under Dispatch’s own messages.
                       </p>
@@ -409,7 +406,7 @@ export function SlackAppSection() {
                     />
                   </div>
                   <Disclosure label="Preview manifest">
-                    <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-all rounded bg-background/50 p-3 text-[11px]">
+                    <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-all rounded-sm bg-background/veil p-3 text-label-sm">
                       {manifest}
                     </pre>
                   </Disclosure>
@@ -428,7 +425,7 @@ export function SlackAppSection() {
                       />
                     </a>
                   </Button>
-                  <p className="text-sm text-muted-foreground">
+                  <p className="text-body-md text-muted-foreground">
                     Choose{" "}
                     <strong className="font-medium text-foreground">
                       Create New App → From a manifest
@@ -438,12 +435,12 @@ export function SlackAppSection() {
                   </p>
                 </div>
                 <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4">
-                  <span className="text-xs text-muted-foreground">
+                  <span className="text-body-sm text-muted-foreground">
                     Already have your own app? Continue here.
                   </span>
                   <Button variant="primary" onClick={() => setStep(2)}>
                     App created
-                    <ArrowRight className="ml-2 size-3.5" aria-hidden="true" />
+                    <ArrowRight aria-hidden="true" />
                   </Button>
                 </div>
               </CardContent>
@@ -454,7 +451,7 @@ export function SlackAppSection() {
             <Card className="border border-border">
               <CardHeader>
                 <CardDescription>Step 2 of 3</CardDescription>
-                <CardTitle className="text-base">
+                <CardTitle className="text-heading-md">
                   Connect with two tokens
                 </CardTitle>
                 <CardDescription>
@@ -471,11 +468,11 @@ export function SlackAppSection() {
                     />
                     <label
                       htmlFor="slack-app-token"
-                      className="text-sm font-medium"
+                      className="text-body-md font-medium"
                     >
                       App token
                     </label>
-                    <Badge className="ml-auto normal-case">xapp</Badge>
+                    <Badge className="ml-auto">xapp</Badge>
                   </div>
                   <Input
                     id="slack-app-token"
@@ -496,7 +493,7 @@ export function SlackAppSection() {
                       Scopes. Add the scope below, then generate and copy the
                       token.
                     </p>
-                    <div className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded bg-muted/50 px-3 py-2">
+                    <div className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-sm bg-surface-hover px-3 py-2">
                       <code>connections:write</code>
                       <CopyButton
                         text="connections:write"
@@ -514,11 +511,11 @@ export function SlackAppSection() {
                     />
                     <label
                       htmlFor="slack-bot-token"
-                      className="text-sm font-medium"
+                      className="text-body-md font-medium"
                     >
                       Bot token
                     </label>
-                    <Badge className="ml-auto normal-case">xoxb</Badge>
+                    <Badge className="ml-auto">xoxb</Badge>
                   </div>
                   <Input
                     id="slack-bot-token"
@@ -555,7 +552,7 @@ export function SlackAppSection() {
                     onClick={() => run("validate", { botToken, appToken })}
                   >
                     {action.isPending ? "Validating…" : "Validate tokens"}
-                    <ArrowRight className="ml-2 size-3.5" aria-hidden="true" />
+                    <ArrowRight aria-hidden="true" />
                   </Button>
                 </div>
               </CardContent>
@@ -566,7 +563,7 @@ export function SlackAppSection() {
             <Card className="border border-border">
               <CardHeader>
                 <CardDescription>Step 3 of 3 · {workspace}</CardDescription>
-                <CardTitle className="text-base">
+                <CardTitle className="text-heading-md">
                   Choose where alerts land
                 </CardTitle>
                 <CardDescription>
@@ -576,7 +573,7 @@ export function SlackAppSection() {
               <CardContent className="space-y-4">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <label
-                    className="text-sm font-medium"
+                    className="text-body-md font-medium"
                     id="slack-channel-label"
                   >
                     Notification channel
@@ -608,14 +605,14 @@ export function SlackAppSection() {
                   </SelectContent>
                 </Select>
                 {channels.length === 0 && (
-                  <p className="rounded-lg border border-dashed border-border p-3 text-sm text-muted-foreground">
+                  <p className="rounded-lg border border-dashed border-border p-3 text-body-md text-muted-foreground">
                     No joined channels yet. Use the channel’s Add apps menu in
                     Slack to invite Dispatch, then refresh.
                   </p>
                 )}
                 <div className="space-y-2">
                   <label
-                    className="text-sm font-medium"
+                    className="text-body-md font-medium"
                     id="slack-address-label"
                   >
                     Dispatch address
@@ -636,7 +633,7 @@ export function SlackAppSection() {
                       ))}
                     </SelectContent>
                   </Select>
-                  <p className="text-xs text-muted-foreground">
+                  <p className="text-body-sm text-muted-foreground">
                     Used for links in Slack.
                   </p>
                 </div>
@@ -656,7 +653,7 @@ export function SlackAppSection() {
                     }
                   >
                     {action.isPending ? "Connecting…" : "Enable notifications"}
-                    <ArrowRight className="ml-2 size-3.5" aria-hidden="true" />
+                    <ArrowRight aria-hidden="true" />
                   </Button>
                 </div>
               </CardContent>
@@ -668,15 +665,15 @@ export function SlackAppSection() {
       {action.error && (
         <div
           role="alert"
-          className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive"
+          className="rounded-lg border border-danger/line bg-danger/wash p-3 text-body-md text-danger"
         >
           <p className="font-medium">Couldn’t complete this step</p>
-          <p className="mt-1 text-xs">{action.error.message}</p>
+          <p className="mt-1 text-body-sm">{action.error.message}</p>
         </div>
       )}
       {message && (
         <p
-          className="flex items-start gap-2 text-sm text-muted-foreground"
+          className="flex items-start gap-2 text-body-md text-muted-foreground"
           role="status"
         >
           <Check className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
@@ -700,13 +697,14 @@ function Disclosure({
         <Button
           variant="ghost"
           size="sm"
-          className="h-auto max-w-full whitespace-normal px-0 py-2 text-left text-xs"
+          wrap
+          className="-ml-2 max-w-full justify-start text-left text-body-sm"
         >
           {label}
-          <ChevronDown className="ml-2 size-3 shrink-0" aria-hidden="true" />
+          <ChevronDown aria-hidden="true" />
         </Button>
       </CollapsibleTrigger>
-      <CollapsibleContent className="pt-1 text-xs leading-relaxed text-muted-foreground">
+      <CollapsibleContent className="pt-1 text-body-sm leading-relaxed text-muted-foreground">
         {children}
       </CollapsibleContent>
     </Collapsible>

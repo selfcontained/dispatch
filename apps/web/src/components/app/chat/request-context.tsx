@@ -96,7 +96,7 @@ export function RequestContext({
       <div className="pointer-events-auto w-fit bg-background px-3 py-1 sm:px-4">
         <Button
           variant="ghost"
-          size="sm"
+          size="stream-sm"
           disabled={loading || (seekingLatest && !error)}
           onClick={() => {
             setSeekingLatest(true);
@@ -132,9 +132,8 @@ export function RequestContext({
       data-testid="request-context"
       className={cn(
         glassOverlay,
-        "pointer-events-auto shrink-0 rounded-b-lg border-t-0 bg-popover/35 backdrop-blur-md",
-        open &&
-          "shadow-[0_12px_20px_-4px_rgba(0,0,0,0.75),0_28px_56px_-8px_rgba(0,0,0,0.65),inset_0_1px_0_rgba(255,255,255,0.15)]"
+        "pointer-events-auto shrink-0 rounded-b-lg border-t-0 bg-popover/line backdrop-blur-md",
+        open && "shadow-elev-sticky"
       )}
     >
       <div
@@ -150,7 +149,7 @@ export function RequestContext({
         <div
           className={cn(
             open
-              ? "-mx-3 flex items-center gap-1 border-b border-white/5 px-3 sm:-mx-4 sm:px-4"
+              ? "-mx-3 flex items-center gap-1 border-b border-edge-subtle px-3 sm:-mx-4 sm:px-4"
               : "contents"
           )}
         >
@@ -160,7 +159,7 @@ export function RequestContext({
             aria-expanded={open}
             aria-controls={detailId}
             onClick={() => setOpen(!open)}
-            className="col-start-1 row-start-1 flex h-7 min-w-0 flex-1 items-center gap-2 rounded-sm text-left text-[11px] font-medium text-foreground/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring pointer-coarse:h-9"
+            className="col-start-1 row-start-1 flex h-7 min-w-0 flex-1 items-center gap-2 rounded-sm text-left text-label-sm font-medium text-foreground/soft focus-ring pointer-coarse:h-9"
           >
             <span className="shrink-0 whitespace-nowrap">
               {index === requests.length - 1
@@ -176,7 +175,7 @@ export function RequestContext({
           </button>
           <Button
             variant="ghost"
-            size="icon"
+            size="stream-icon"
             className="col-start-2 row-start-1 h-7 w-7 shrink-0 pointer-coarse:h-9 pointer-coarse:w-9 sm:col-start-3"
             aria-label="Previous message"
             disabled={busy || (index === 0 && !hasOlder)}
@@ -193,7 +192,7 @@ export function RequestContext({
           </Button>
           <Button
             variant="ghost"
-            size="icon"
+            size="stream-icon"
             className="col-start-3 row-start-1 h-7 w-7 shrink-0 pointer-coarse:h-9 pointer-coarse:w-9 sm:col-start-4"
             aria-label="Next message"
             disabled={busy || index === requests.length - 1}
@@ -221,7 +220,7 @@ export function RequestContext({
               : undefined
           }
           className={cn(
-            "min-w-0 transform-gpu pb-1 text-xs leading-5 text-muted-foreground",
+            "min-w-0 transform-gpu pb-1 text-body-sm leading-5 text-muted-foreground",
             open
               ? "max-h-[min(40vh,20rem)] overflow-y-auto overscroll-contain break-words"
               : "col-span-3 col-start-1 row-start-2 truncate sm:col-span-1 sm:col-start-2 sm:row-start-1 sm:pb-0"
@@ -230,7 +229,7 @@ export function RequestContext({
           {open ? (
             <div className="py-3">
               {request.text.trim() && (
-                <Markdown className="text-xs prose-p:whitespace-pre-line prose-li:whitespace-pre-line">
+                <Markdown className="text-body-sm prose-p:whitespace-pre-line prose-li:whitespace-pre-line">
                   {request.text}
                 </Markdown>
               )}
@@ -243,10 +242,10 @@ export function RequestContext({
         {open && (
           <div
             data-testid="request-context-detail"
-            className="-mx-3 border-t border-white/5 px-3 pb-1 pt-1 sm:-mx-4 sm:px-4"
+            className="-mx-3 border-t border-edge-subtle px-3 pb-1 pt-1 sm:-mx-4 sm:px-4"
           >
             <div className="mt-1 flex items-center justify-between gap-3">
-              <time className="text-[11px] text-muted-foreground">
+              <time className="text-label-sm text-muted-foreground">
                 {new Date(request.createdAt).toLocaleString([], {
                   month: "short",
                   day: "numeric",
@@ -256,8 +255,8 @@ export function RequestContext({
               </time>
               <Button
                 variant="ghost"
-                size="sm"
-                className="h-6 rounded-sm px-0 text-[11px] font-normal hover:bg-transparent hover:underline pointer-coarse:h-8"
+                size="stream-sm"
+                className="h-6 rounded-sm px-0 text-label-sm font-normal hover:bg-transparent hover:underline pointer-coarse:h-8"
                 onClick={() => onJump(request.id)}
               >
                 <ArrowUp className="mr-1 h-3 w-3" />
@@ -269,7 +268,7 @@ export function RequestContext({
         {error && seekingBefore && (
           <p
             role="status"
-            className="col-span-full pb-2 text-xs text-muted-foreground"
+            className="col-span-full pb-2 text-body-sm text-muted-foreground"
           >
             Couldn’t load earlier messages. Try again.
           </p>

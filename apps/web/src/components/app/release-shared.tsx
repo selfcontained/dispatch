@@ -1,9 +1,10 @@
 import type { ReleaseJob, ReleasePhase } from "@/hooks/use-release-stream";
 import { ActivityBars } from "@/components/ui/activity-bars";
 import { LogStream } from "@/components/ui/log-stream";
+import { StatusDot } from "@/components/ui/status-dot";
 import { cn } from "@/lib/utils";
 
-const PHASE_LABELS: Record<ReleasePhase, string> = {
+export const PHASE_LABELS: Record<ReleasePhase, string> = {
   preflight: "Pre-flight",
   triggering: "Trigger workflow",
   watching: "CI running",
@@ -31,9 +32,7 @@ export function PhaseProgress({
 
   return (
     <div>
-      <div className="mb-3 text-[10px] uppercase tracking-widest text-muted-foreground">
-        Progress
-      </div>
+      <div className="mb-3 section-label">Progress</div>
       <div className="flex flex-col gap-2">
         {phasesOrder
           .filter((p) => p !== "done")
@@ -42,22 +41,28 @@ export function PhaseProgress({
             const done = phaseIndex > i || job.phase === "done";
             return (
               <div key={phase} className="flex items-center gap-3">
-                <div
+                <StatusDot
+                  tone={
+                    current && isFailed
+                      ? "danger"
+                      : current && !done
+                        ? "warning"
+                        : done
+                          ? "success"
+                          : "neutral"
+                  }
                   className={cn(
-                    "h-2 w-2 rounded-full shrink-0",
-                    done && "bg-status-working",
-                    current && !isFailed && "animate-pulse bg-status-waiting",
-                    current && isFailed && "bg-destructive",
+                    current && !isFailed && "animate-pulse",
                     !done && !current && "bg-muted"
                   )}
                 />
                 <span
                   className={cn(
-                    "text-sm",
+                    "text-body-md",
                     done && "text-muted-foreground",
                     current && !isFailed && "text-foreground font-medium",
-                    current && isFailed && "text-destructive font-medium",
-                    !done && !current && "text-muted-foreground/50"
+                    current && isFailed && "text-danger font-medium",
+                    !done && !current && "text-faint"
                   )}
                 >
                   {PHASE_LABELS[phase as ReleasePhase] ?? phase}

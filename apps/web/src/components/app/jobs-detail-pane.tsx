@@ -13,15 +13,16 @@ import { PromptTab } from "@/components/app/jobs-prompt-tab";
 import { SettingsTab } from "@/components/app/jobs-settings-tab";
 import {
   ACTIVE_RUN_STATUSES,
-  statusClasses,
-  statusIcon,
+  JobStatusBadge,
 } from "@/components/app/jobs-helpers";
+import { LoadError } from "@/components/app/load-error";
+import { ActivityBars } from "@/components/ui/activity-bars";
 import { errorMessage } from "@/lib/errors";
 import { shortPath } from "@/lib/format";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { type UpdateJobConfig, type Job, type JobRun } from "@/hooks/use-jobs";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { type UpdateJobConfig, type Job } from "@/hooks/use-jobs";
 import { type AgentType } from "@/lib/agent-types";
 import { cn } from "@/lib/utils";
 
@@ -29,6 +30,10 @@ import { cn } from "@/lib/utils";
 export function JobDetailPane(): JSX.Element {
   const {
     jobs,
+    isLoading,
+    error,
+    retry,
+    isRetrying,
     selectedJob,
     tab,
     history,
@@ -49,8 +54,29 @@ export function JobDetailPane(): JSX.Element {
 
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background">
+      {error ? (
+        <LoadError
+          message="Couldn't load jobs"
+          error={error}
+          onRetry={retry}
+          retrying={isRetrying}
+          className="m-3"
+        />
+      ) : !selectedJob && jobs.length > 0 && jobStats.error ? (
+        <LoadError
+          message="Couldn't load run history"
+          error={jobStats.error}
+          onRetry={() => void jobStats.refetch()}
+          retrying={jobStats.isFetching}
+          className="m-3"
+        />
+      ) : null}
       <div className="min-h-0 flex-1 overflow-hidden">
-        {selectedJob ? (
+        {isLoading ? (
+          <div className="flex h-full items-center justify-center gap-2 text-body-md text-muted-foreground">
+            <ActivityBars size={16} /> Loading jobs…
+          </div>
+        ) : error && jobs.length === 0 ? null : selectedJob ? (
           <div className="flex h-full min-h-0 flex-col">
             <JobDetail
               className="min-h-0 flex-1"
@@ -61,8 +87,7 @@ export function JobDetailPane(): JSX.Element {
                   `/automations/jobs/${selectedJob.id}${nextTab === "configure" ? "" : `/${nextTab}`}`
                 );
               }}
-              history={history.data?.runs ?? []}
-              historyLoading={history.isLoading}
+              history={history}
               selectedRunId={routeRunId ?? null}
               onSelectRun={(runId) => {
                 navigate(
@@ -98,7 +123,7 @@ export function JobDetailPane(): JSX.Element {
             <JobsOverview
               jobs={jobs}
               stats={jobStats.data ?? null}
-              statsLoading={jobStats.isLoading}
+              statsLoading={jobStats.isPending}
               onSelectJob={selectJob}
               onSelectRun={(jobId, runId) =>
                 navigate(`/automations/jobs/${jobId}/history/${runId}`)
@@ -117,7 +142,6 @@ function JobDetail({
   tab,
   onTabChange,
   history,
-  historyLoading,
   attachedAgent,
   onOpenAgent,
   onRunNow,
@@ -136,8 +160,7 @@ function JobDetail({
   job: Job;
   tab: DetailTab;
   onTabChange: (tab: DetailTab) => void;
-  history: JobRun[];
-  historyLoading: boolean;
+  history: ReturnType<typeof useJobsContext>["history"];
   selectedRunId: string | null;
   onSelectRun: (runId: string) => void;
   attachedAgent: { agent: Agent; isActive: boolean } | null;
@@ -178,9 +201,12 @@ function JobDetail({
     <div className={cn("flex h-full min-h-0 flex-col p-4 md:p-6", className)}>
       <div className="flex flex-wrap items-start gap-3">
         <div className="min-w-0 flex-1">
-          <h2 className="truncate text-xl font-semibold">{job.name}</h2>
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
+            <h2 className="min-w-0 truncate text-heading-lg">{job.name}</h2>
+            <JobStatusBadge status={job.lastRunStatus} />
+          </div>
           <div
-            className="mt-1 truncate font-mono text-xs text-muted-foreground"
+            className="mt-1 truncate font-mono text-body-sm text-muted-foreground"
             title={job.directory}
           >
             {shortPath(job.directory)}
@@ -195,7 +221,7 @@ function JobDetail({
           }
           onClick={handleRunNow}
         >
-          <Play className="mr-2 h-4 w-4" />
+          <Play />
           Run now
         </Button>
       </div>
@@ -204,25 +230,25 @@ function JobDetail({
         <p
           id="job-run-blocked-reason"
           role="status"
-          className="mt-2 text-right text-xs text-muted-foreground"
+          className="mt-2 text-right text-body-sm text-muted-foreground"
         >
           {runBlockedReason}
         </p>
       ) : null}
 
       {detailActionError ? (
-        <div className="mt-2 rounded border border-status-blocked/30 bg-status-blocked/10 p-2 text-sm text-status-blocked">
+        <div className="mt-2 rounded-sm border border-danger/line bg-danger/tint p-2 text-body-md text-danger">
           {detailActionError}
         </div>
       ) : null}
 
       {job.continuationEnabled ? (
-        <div className="mt-4 rounded-md border border-border/70 bg-muted/20 p-3 text-sm">
+        <div className="mt-4 rounded-md border border-border-subtle bg-surface-subtle p-3 text-body-md">
           <div className="font-medium text-foreground">
             Loop{" "}
             {job.lastRunIteration ? `• run ${job.lastRunIteration}` : "enabled"}
           </div>
-          <div className="mt-1 text-xs text-muted-foreground">
+          <div className="mt-1 text-body-sm text-muted-foreground">
             {job.continuationPending
               ? "Preparing the next run."
               : job.maxIterations === null
@@ -256,93 +282,63 @@ function JobDetail({
         />
       ) : null}
 
-      <div className="mt-5 flex flex-wrap items-center gap-2 border-b border-border">
-        <TabButton
-          active={tab === "configure"}
-          onClick={() => onTabChange("configure")}
-          icon={<Settings className="h-4 w-4" />}
+      <Tabs
+        value={tab}
+        onValueChange={(next) => onTabChange(next as DetailTab)}
+        className="mt-4 flex min-h-0 flex-1 flex-col"
+      >
+        <TabsList
+          aria-label="Job sections"
+          className="shrink-0 border-b border-border"
         >
-          Configure
-        </TabButton>
-        <TabButton
-          active={tab === "prompt"}
-          onClick={() => onTabChange("prompt")}
-          icon={<MessageSquareText className="h-4 w-4" />}
-        >
-          Prompt
-        </TabButton>
-        <TabButton
-          active={tab === "history"}
-          onClick={() => onTabChange("history")}
-          icon={<History className="h-4 w-4" />}
-        >
-          History
-        </TabButton>
-        <Badge
-          className={cn("mb-2 self-center", statusClasses(job.lastRunStatus))}
-        >
-          <span className="mr-1">{statusIcon(job.lastRunStatus)}</span>
-          {job.lastRunStatus ?? "never run"}
-        </Badge>
-      </div>
-
-      {tab === "history" ? (
-        <div className="min-h-0 flex-1">
-          <HistoryTab
-            runs={history}
-            loading={historyLoading}
-            selectedRunId={selectedRunId}
-            onSelectRun={onSelectRun}
-          />
-        </div>
-      ) : tab === "configure" ? (
-        <ScrollArea className="min-h-0 flex-1 pr-1">
-          <SettingsTab
-            job={job}
-            enabledAgentTypes={enabledAgentTypes}
-            onUpdateJob={onUpdateJob}
-            onRemoveJob={onRemoveJob}
-            isUpdating={isUpdating}
-            isRemoving={isRemoving}
-          />
-        </ScrollArea>
-      ) : (
-        <div className="min-h-0 flex-1 overflow-y-auto pr-1">
-          <PromptTab
-            job={job}
-            onUpdateJob={onUpdateJob}
-            isUpdating={isUpdating}
-          />
-        </div>
-      )}
+          <TabsTrigger value="configure">
+            <Settings />
+            Configure
+          </TabsTrigger>
+          <TabsTrigger value="prompt">
+            <MessageSquareText />
+            Prompt
+          </TabsTrigger>
+          <TabsTrigger value="history">
+            <History />
+            History
+          </TabsTrigger>
+        </TabsList>
+        <TabsContent value={tab} className="flex min-h-0 flex-1 flex-col">
+          {tab === "history" ? (
+            <div className="min-h-0 flex-1">
+              <HistoryTab
+                runs={history.data?.runs ?? []}
+                loading={history.isPending}
+                error={history.error}
+                retrying={history.isFetching}
+                onRetry={() => void history.refetch()}
+                selectedRunId={selectedRunId}
+                onSelectRun={onSelectRun}
+              />
+            </div>
+          ) : tab === "configure" ? (
+            <ScrollArea className="min-h-0 flex-1 pr-1">
+              <SettingsTab
+                job={job}
+                enabledAgentTypes={enabledAgentTypes}
+                onUpdateJob={onUpdateJob}
+                onRemoveJob={onRemoveJob}
+                isUpdating={isUpdating}
+                isRemoving={isRemoving}
+              />
+            </ScrollArea>
+          ) : (
+            <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+              <PromptTab
+                job={job}
+                onUpdateJob={onUpdateJob}
+                isUpdating={isUpdating}
+              />
+            </div>
+          )}
+        </TabsContent>
+      </Tabs>
     </div>
-  );
-}
-
-function TabButton({
-  active,
-  onClick,
-  icon,
-  children,
-}: {
-  active: boolean;
-  onClick: () => void;
-  icon: React.ReactNode;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      className={cn(
-        "flex items-center gap-2 border-b-2 px-3 py-2 text-sm transition-colors",
-        active
-          ? "border-primary text-foreground"
-          : "border-transparent text-muted-foreground hover:text-foreground"
-      )}
-      onClick={onClick}
-    >
-      {icon}
-      {children}
-    </button>
   );
 }

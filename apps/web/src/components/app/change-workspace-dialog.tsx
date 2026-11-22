@@ -13,11 +13,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
+import { IconButton } from "@/components/ui/icon-button";
 import { api } from "@/lib/api";
 
 /**
@@ -81,22 +77,15 @@ export function ChangeWorkspaceButton({
     // The trigger lives inside the Dialog root so closing (Escape, Cancel,
     // Save) returns focus to it.
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <Tooltip>
-        <DialogTrigger asChild>
-          <TooltipTrigger asChild>
-            <Button
-              variant="ghost"
-              size="sm"
-              aria-label="Change workspace"
-              data-testid={`change-workspace-${agent.id}`}
-              className="h-6 w-6 p-0 text-muted-foreground hover:text-foreground"
-            >
-              <FolderInput className="h-3.5 w-3.5" />
-            </Button>
-          </TooltipTrigger>
-        </DialogTrigger>
-        <TooltipContent>Change workspace</TooltipContent>
-      </Tooltip>
+      <DialogTrigger asChild>
+        <IconButton
+          size="icon-sm"
+          label="Change workspace"
+          data-testid={`change-workspace-${agent.id}`}
+        >
+          <FolderInput />
+        </IconButton>
+      </DialogTrigger>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Change workspace</DialogTitle>
@@ -118,37 +107,37 @@ export function ChangeWorkspaceButton({
           {/* Scrolls on short screens so a long error can't push the
                 actions out of reach. */}
           <div className="-mx-1 flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-1">
-            <label className="flex flex-col gap-1 text-sm">
+            <label className="flex flex-col gap-1 text-body-md">
               <span className="text-muted-foreground">Directory</span>
               <Input
                 value={path}
                 onChange={(event) => setPath(event.target.value)}
                 placeholder="/absolute/path/to/checkout"
-                className="font-mono text-xs"
+                className="font-mono text-body-sm"
                 data-testid="change-workspace-path"
                 autoFocus
               />
             </label>
-            <label className="flex flex-col gap-1 text-sm">
+            <label className="flex flex-col gap-1 text-body-md">
               <span className="text-muted-foreground">
                 Base branch{" "}
-                <span className="text-xs">(optional, for the diff)</span>
+                <span className="text-body-sm">(optional, for the diff)</span>
               </span>
               <Input
                 value={baseBranch}
                 onChange={(event) => setBaseBranch(event.target.value)}
                 placeholder="Repo default"
-                className="font-mono text-xs"
+                className="font-mono text-body-sm"
                 data-testid="change-workspace-base"
               />
             </label>
             {moved ? (
-              <p className="text-xs text-muted-foreground">
+              <p className="text-body-sm text-muted-foreground">
                 Launched in <code className="break-all">{agent.cwd}</code>
               </p>
             ) : null}
             {errorMessage ? (
-              <p className="break-all text-sm text-destructive" role="alert">
+              <p className="break-all text-body-md text-danger" role="alert">
                 {errorMessage}
               </p>
             ) : null}

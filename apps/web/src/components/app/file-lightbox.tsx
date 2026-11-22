@@ -13,6 +13,7 @@ import {
 } from "@/components/app/file-lightbox-text";
 import { stripTimestamp } from "@/components/app/file-utils";
 import { Button } from "@/components/ui/button";
+import { IconButton } from "@/components/ui/icon-button";
 import { type FileItem } from "@/components/app/types";
 import { fileItemQueryKey } from "@/hooks/use-files";
 import { api } from "@/lib/api";
@@ -202,7 +203,7 @@ export function FileLightbox({
   return (
     <div
       className={cn(
-        "fixed inset-0 z-[120] bg-black/90",
+        "fixed inset-0 z-viewer bg-media/dense",
         isImage
           ? "overflow-hidden"
           : "grid grid-cols-[minmax(0,1fr)] grid-rows-[auto_1fr_auto] p-2 sm:p-6"
@@ -214,16 +215,16 @@ export function FileLightbox({
     >
       <div
         className={cn(
-          "flex w-full items-center gap-3 overflow-hidden px-3 py-2 sm:px-4 sm:py-2.5",
+          "flex w-full items-center gap-3 overflow-hidden px-3 py-2 sm:px-4 sm:py-3",
           isImage
-            ? "absolute inset-x-0 top-0 z-10 border-b border-white/10 bg-black/65 pt-[max(0.5rem,env(safe-area-inset-top))] text-white shadow-lg backdrop-blur"
+            ? "absolute inset-x-0 top-0 z-sticky border-b border-media-foreground/tint bg-media/veil pt-safe-2 text-media-foreground shadow-lg backdrop-blur"
             : "mx-auto max-w-4xl rounded-t-lg border border-b-0 border-border bg-surface"
         )}
       >
         <span
           className={cn(
-            "min-w-0 shrink truncate text-xs font-medium sm:text-sm",
-            isImage ? "text-white" : "text-foreground"
+            "min-w-0 shrink truncate text-body-sm font-medium sm:text-body-md",
+            isImage ? "text-media-foreground" : "text-foreground"
           )}
           title={isImage && file?.description ? displayName : undefined}
         >
@@ -242,56 +243,50 @@ export function FileLightbox({
               <div className="mx-0.5 h-5 w-px bg-border" />
             </>
           ) : null}
-          <Button
-            aria-label="Previous file item"
+          <IconButton
+            label="Previous file item"
             data-testid="file-lightbox-prev"
             disabled={!canGoPrev}
-            size="icon"
-            variant="ghost"
             className={cn(
-              "h-11 w-11 sm:h-9 sm:w-9",
-              isImage && "text-white hover:bg-white/15 hover:text-white"
+              isImage &&
+                "text-media-foreground hover:bg-media-foreground/tint-strong hover:text-media-foreground"
             )}
             onClick={() => selectIndex(currentIndex - 1)}
           >
-            <ChevronLeft className="h-6 w-6 sm:h-5 sm:w-5" />
-          </Button>
+            <ChevronLeft />
+          </IconButton>
           <span
             className={cn(
-              "hidden text-xs tabular-nums sm:inline",
-              isImage ? "text-white/70" : "text-muted-foreground"
+              "hidden text-body-sm tabular-nums sm:inline",
+              isImage ? "text-media-foreground/soft" : "text-muted-foreground"
             )}
           >
             {totalItems > 0 ? `${currentIndex + 1}/${totalItems}` : ""}
           </span>
-          <Button
-            aria-label="Next file item"
+          <IconButton
+            label="Next file item"
             data-testid="file-lightbox-next"
             disabled={!canGoNext}
-            size="icon"
-            variant="ghost"
             className={cn(
-              "h-11 w-11 sm:h-9 sm:w-9",
-              isImage && "text-white hover:bg-white/15 hover:text-white"
+              isImage &&
+                "text-media-foreground hover:bg-media-foreground/tint-strong hover:text-media-foreground"
             )}
             onClick={() => selectIndex(currentIndex + 1)}
           >
-            <ChevronRight className="h-6 w-6 sm:h-5 sm:w-5" />
-          </Button>
+            <ChevronRight />
+          </IconButton>
           <div className="mx-0.5 h-5 w-px bg-border" />
-          <Button
+          <IconButton
             ref={closeButtonRef}
-            aria-label="Close"
-            size="icon"
-            variant="ghost"
+            label="Close"
             className={cn(
-              "h-11 w-11 sm:h-9 sm:w-9",
-              isImage && "text-white hover:bg-white/15 hover:text-white"
+              isImage &&
+                "text-media-foreground hover:bg-media-foreground/tint-strong hover:text-media-foreground"
             )}
             onClick={() => setFileId(null)}
           >
-            <X className="h-6 w-6 sm:h-5 sm:w-5" />
-          </Button>
+            <X />
+          </IconButton>
         </div>
       </div>
       <div
@@ -300,24 +295,27 @@ export function FileLightbox({
             ? "absolute inset-0"
             : "mx-auto min-h-0 w-full max-w-4xl overflow-auto border-x border-border",
           isDocument || isHtml
-            ? "bg-white"
+            ? "bg-paper"
             : isMarkdown
               ? "bg-background"
               : isText
                 ? "syntax-surface"
-                : "bg-black"
+                : "bg-media"
         )}
       >
         {!file ? (
-          <div className="flex h-full min-h-screen items-center justify-center px-4 text-white">
+          <div className="flex h-full min-h-screen items-center justify-center px-4 text-media-foreground">
             {showLoadError ? (
               <div className="flex flex-col items-center gap-3 text-center">
-                <p role="alert" className="text-sm text-white/70">
+                <p
+                  role="alert"
+                  className="text-body-md text-media-foreground/soft"
+                >
                   Unable to load this file item.
                 </p>
                 <Button
                   variant="ghost"
-                  className="border-white/30 bg-transparent text-white hover:bg-white/15 hover:text-white"
+                  className="border-media-foreground/line bg-transparent text-media-foreground hover:bg-media-foreground/tint-strong hover:text-media-foreground"
                   onClick={() => void refetch()}
                 >
                   Try again
@@ -327,7 +325,7 @@ export function FileLightbox({
               <div
                 role="status"
                 aria-live="polite"
-                className="flex items-center gap-2 text-sm text-white/70"
+                className="flex items-center gap-2 text-body-md text-media-foreground/soft"
               >
                 <Loader2 className="h-4 w-4 animate-spin" />
                 Loading file…
@@ -371,10 +369,10 @@ export function FileLightbox({
         )}
       </div>
       {file && !isImage && (
-        <div className="mx-auto flex w-full max-w-4xl items-center gap-2 rounded-b-lg border border-t-0 border-border bg-surface px-2 py-1.5 text-xs text-muted-foreground sm:gap-3 sm:px-4 sm:py-2">
+        <div className="mx-auto flex w-full max-w-4xl items-center gap-2 rounded-b-lg border border-t-0 border-border bg-surface px-2 py-1.5 text-body-sm text-muted-foreground sm:gap-3 sm:px-4 sm:py-2">
           <span className="min-w-0 truncate">{caption}</span>
           {file.source ? (
-            <span className="flex-none rounded bg-muted px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide">
+            <span className="flex-none rounded-sm bg-muted px-1.5 py-0.5 text-label-xs font-semibold uppercase tracking-wide">
               {file.source === "user" ? "your upload" : file.source}
             </span>
           ) : null}

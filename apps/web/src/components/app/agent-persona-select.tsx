@@ -28,8 +28,8 @@ export function AgentPersonaSelect({
   const selected = personas.find((p) => p.slug === value);
   return (
     <div className="min-w-0 space-y-1">
-      <label htmlFor={id} className="text-sm text-muted-foreground">
-        Persona <span className="text-muted-foreground/70">(optional)</span>
+      <label htmlFor={id} className="text-body-md text-muted-foreground">
+        Persona <span className="text-faint">(optional)</span>
       </label>
       <Select
         value={value ?? "__none__"}
@@ -65,7 +65,6 @@ export function AgentPersonaSelect({
             <SelectItem
               value="__warnings__"
               disabled
-              title={data.warnings.join("\n")}
               className="max-w-[min(24rem,80vw)] whitespace-normal"
             >
               {data.warnings[0]}

@@ -368,7 +368,17 @@ export class RecoveryMaintenance {
       this.deps.log.warn({ err: error }, "Recovery readiness probe failed");
       return { ok: false, status: 503, code: "DATABASE_PROBE_FAILED" };
     }
-    // Probation never attaches hosts, so a live one is outside the boundary.
+    // Inspect and stop idle surviving hosts without restoring agents or writers.
+    const remaining = await this.deps.quiesceHosts(probation.transactionId);
+    if (remaining.length > 0)
+      return {
+        ok: false,
+        status: 409,
+        code: "HOSTS_RUNNING",
+        liveHosts: remaining.flatMap((reason) =>
+          reason.agentId ? [reason.agentId] : []
+        ),
+      };
     const boundary = await this.deps.boundary();
     if (!boundary.hostsStopped)
       return {

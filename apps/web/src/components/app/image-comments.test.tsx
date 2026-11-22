@@ -479,7 +479,7 @@ it("cancels new notes, saves explicitly, and leaves markup without losing saved 
     (screen.getByPlaceholderText("Add a note…") as HTMLTextAreaElement).value
   ).toBe("Keep me");
   expect(screen.getByRole("button", { name: "Delete" }).className).toContain(
-    "destructive"
+    "bg-danger"
   );
   fireEvent.click(screen.getByRole("button", { name: "Delete" }));
   expect(screen.queryByRole("button", { name: "Comment 1, draft" })).toBeNull();

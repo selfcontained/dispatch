@@ -309,7 +309,7 @@ export const THEMES: ThemeDefinition[] = [
     label: "Cool Navy",
     description: "Cool navy with cyan & pink accents",
     mode: "dark",
-    swatches: ["#0e1014", "#58b8ff", "#ff5db1", "#f1e84f"],
+    swatches: ["#0e1014", "#58b8ff", "#ff5c7c", "#f1e84f"],
     terminal: {
       ...MONOKAI,
       background: "#0e1014",
@@ -346,7 +346,7 @@ export const THEMES: ThemeDefinition[] = [
     label: "Midnight",
     description: "OLED black with vibrant cyan & pink",
     mode: "dark",
-    swatches: ["#000000", "#58b8ff", "#ff5db1", "#f1e84f"],
+    swatches: ["#000000", "#58b8ff", "#ff5c7c", "#f1e84f"],
     terminal: {
       ...MONOKAI,
       background: "#000000",
@@ -394,9 +394,9 @@ export const THEMES: ThemeDefinition[] = [
   {
     id: "vaporwave",
     label: "Vaporwave",
-    description: "Neon pink & cyan on deep purple",
+    description: "Neon purple & cyan on deep purple",
     mode: "dark",
-    swatches: ["#1a0a2e", "#ff71ce", "#01cdfe", "#b967ff"],
+    swatches: ["#1a0a2e", "#d37aff", "#01cdfe", "#ff71ce"],
     terminal: VAPORWAVE,
   },
   {

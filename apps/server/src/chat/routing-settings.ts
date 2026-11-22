@@ -15,7 +15,7 @@ export class RoutingSettings {
   private async stored() {
     const read = async () => {
       const rows = await this.pool.query<{ key: string; value: string }>(
-        "SELECT key,value FROM settings WHERE key IN ('routing_mode','routing_api_key','steering_mode','merge_risk_mode','dispatch_ai_enabled','dispatch_ai_initialized')"
+        "SELECT key,value FROM settings WHERE key IN ('routing_mode','routing_api_key','steering_mode','merge_risk_mode','session_naming_mode','dispatch_ai_enabled','dispatch_ai_initialized')"
       );
       return Object.fromEntries(rows.rows.map((r) => [r.key, r.value]));
     };
@@ -71,6 +71,16 @@ export class RoutingSettings {
           : ("off" as const),
       steeringPreference:
         saved.steering_mode === "active"
+          ? ("active" as const)
+          : ("off" as const),
+      sessionNamingPreference:
+        saved.session_naming_mode === "active"
+          ? ("active" as const)
+          : ("off" as const),
+      sessionNamingMode:
+        saved.dispatch_ai_enabled !== "false" &&
+        !!saved.routing_api_key &&
+        saved.session_naming_mode === "active"
           ? ("active" as const)
           : ("off" as const),
       mergeRiskPreference:
@@ -151,6 +161,7 @@ export class RoutingSettings {
     mode?: RoutingMode;
     steeringMode?: RoutingMode;
     mergeRiskMode?: RoutingMode;
+    sessionNamingMode?: RoutingMode;
     apiKey?: string;
     removeKey?: boolean;
   }) {
@@ -192,6 +203,10 @@ export class RoutingSettings {
         ["dispatch_ai_initialized", initialized ? "true" : undefined],
         ["routing_mode", input.mode ?? (firstSetup ? "active" : undefined)],
         ["routing_api_key", input.apiKey],
+        [
+          "session_naming_mode",
+          input.sessionNamingMode ?? (firstSetup ? "active" : undefined),
+        ],
         [
           "steering_mode",
           input.steeringMode ?? (firstSetup ? "active" : undefined),

@@ -21,7 +21,10 @@ type AgentEngineFieldsProps = {
   model: string | null;
   onModelChange: (model: string | null) => void;
   modelOptions: readonly AgentModelOption[];
+  /** Pass null to show the engine setting when there is no known default. */
   catalogDefault?: string | null;
+  /** What is saved now, which may have been turned off since. */
+  savedOption?: AgentModelOption | null;
   modelLoading: boolean;
   onTypeOpenChange?: (open: boolean) => void;
   /** Overridden by dialogs other than Create Agent so ids stay unique. */
@@ -49,8 +52,9 @@ export function AgentEngineFields({
   onEffortChange,
   onModelChange,
   modelOptions,
-  modelLoading,
   catalogDefault,
+  savedOption,
+  modelLoading,
   onTypeOpenChange,
   idPrefix,
   remote = false,
@@ -99,6 +103,7 @@ export function AgentEngineFields({
             value={model}
             options={modelOptions}
             catalogDefault={catalogDefault}
+            savedOption={savedOption}
             onChange={onModelChange}
             loading={modelLoading}
           />
@@ -118,7 +123,7 @@ export function AgentEngineFields({
       </AgentConfigRow>
       {statusLine ? (
         <p
-          className="-mt-1 truncate text-xs text-muted-foreground/70"
+          className="-mt-1 truncate text-body-sm text-faint"
           title={statusLine}
           data-testid={idPrefix ? `${idPrefix}-engine` : "create-agent-engine"}
         >

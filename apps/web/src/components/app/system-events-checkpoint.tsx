@@ -92,10 +92,10 @@ const events: SystemEventPresentation[] = [
 export function SystemEventsCheckpoint() {
   return (
     <div className="mx-auto max-w-3xl">
-      <h1 className="mb-2 text-lg font-semibold">
+      <h1 className="mb-2 text-heading-lg">
         Compact system events · Design checkpoint
       </h1>
-      <p className="mb-4 text-xs text-muted-foreground">
+      <p className="mb-4 text-body-sm text-muted-foreground">
         Staged feed examples for visual approval. The “No recommendation”
         example starts with details open; check results are shown inline.
       </p>

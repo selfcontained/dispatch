@@ -28,6 +28,8 @@ import { type AgentType } from "@/lib/agent-types";
 import { type IdeType } from "@/lib/ide-types";
 import { type SettingsSection } from "@/components/app/settings-state";
 import { cn } from "@/lib/utils";
+import { RowButton } from "@/components/ui/row-button";
+import { type StatusDotTone } from "@/components/ui/status-dot";
 
 const UpdatePreview = import.meta.env.DEV
   ? lazy(() => import("./update-preview"))
@@ -42,7 +44,7 @@ export function SettingsNavContent({
   onSubsectionChange,
   apiState,
   dbState,
-  serviceDotClass,
+  serviceDotTone,
 }: {
   activeSection: SettingsSection | null;
   activeSubsection?: string;
@@ -55,48 +57,46 @@ export function SettingsNavContent({
   onSubsectionChange?: (subsection: string) => void;
   apiState: ServiceState;
   dbState: ServiceState;
-  serviceDotClass: (state: ServiceState) => string;
+  serviceDotTone: (state: ServiceState) => StatusDotTone;
 }): JSX.Element {
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="mt-2 flex h-14 items-center border-b border-border px-3">
-        <div className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-          Settings
-        </div>
+        <div className="section-label">Settings</div>
       </div>
       <nav className="min-h-0 flex-1 overflow-y-auto px-2 py-2">
         {sections.map(({ id, label, icon: Icon }) => (
           <div key={id}>
-            <button
-              type="button"
+            <RowButton
+              selected={activeSection === id}
+              aria-current={activeSection === id ? "page" : undefined}
               onClick={() => onSectionChange(id)}
               className={cn(
-                "flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-left text-sm transition-colors",
+                "border px-3 py-3 text-body-md",
                 activeSection === id
-                  ? "bg-primary/10 text-foreground border border-primary/20"
-                  : "border border-transparent text-muted-foreground hover:bg-white/[0.04] hover:text-foreground"
+                  ? "border-primary/tint-strong"
+                  : "border-transparent text-muted-foreground hover:text-foreground"
               )}
             >
-              <Icon className="h-3.5 w-3.5 shrink-0" />
+              <Icon className="size-icon-md shrink-0" />
               {label}
-            </button>
+            </RowButton>
             {/* Help sub-menu: show docs sections when Help is active */}
             {id === "help" && activeSection === "help" && (
               <div className="ml-4 border-l border-border">
                 {DOCS_SECTION_NAV.map((doc) => (
-                  <button
+                  <RowButton
                     key={doc.id}
-                    type="button"
                     onClick={() => onSubsectionChange?.(doc.id)}
                     className={cn(
-                      "flex w-full items-center px-4 py-1.5 text-left text-xs transition-colors",
+                      "px-4 py-1.5 text-body-sm",
                       activeSubsection === doc.id
                         ? "text-foreground"
                         : "text-muted-foreground hover:text-foreground"
                     )}
                   >
                     {doc.label}
-                  </button>
+                  </RowButton>
                 ))}
               </div>
             )}
@@ -104,18 +104,18 @@ export function SettingsNavContent({
         ))}
       </nav>
       <div className="border-t border-border px-4 pb-3 pt-4">
-        <div className="flex justify-around text-xs text-muted-foreground">
+        <div className="flex justify-around text-body-sm text-muted-foreground">
           <ServiceStatus
             icon={<Server className="h-3.5 w-3.5" />}
             label="API"
             value={apiState}
-            dotClass={serviceDotClass(apiState)}
+            dotTone={serviceDotTone(apiState)}
           />
           <ServiceStatus
             icon={<Database className="h-3.5 w-3.5" />}
             label="DB"
             value={dbState}
-            dotClass={serviceDotClass(dbState)}
+            dotTone={serviceDotTone(dbState)}
           />
         </div>
       </div>

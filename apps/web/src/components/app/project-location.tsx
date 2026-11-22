@@ -7,6 +7,10 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
 } from "@/components/ui/dropdown-menu";
+import {
+  SegmentedControl,
+  SegmentedControlItem,
+} from "@/components/ui/segmented-control";
 import { useProjects, type Project } from "@/hooks/use-projects";
 export function ProjectIcon({
   project,
@@ -21,7 +25,7 @@ export function ProjectIcon({
   const src = `/api/v1/projects/${project.id}/icon?v=${encodeURIComponent(project.updatedAt)}`;
   return (
     <span
-      className={`relative flex shrink-0 items-center justify-center rounded text-xs font-semibold text-foreground ${className}`}
+      className={`relative flex shrink-0 items-center justify-center rounded-sm text-body-sm font-semibold text-foreground ${className}`}
     >
       <span aria-hidden className={loaded === src ? "invisible" : ""}>
         {fallback ?? project.name.slice(0, 1).toUpperCase()}
@@ -59,58 +63,42 @@ export function ProjectLocation({
   };
   return (
     <div className="space-y-1" data-testid="project-location">
-      <div
-        role="group"
+      <SegmentedControl
+        layout="fill"
         aria-label="Launch location type"
-        className="relative flex w-full rounded-lg border border-white/[0.08] bg-black/20 p-1 shadow-[inset_0_1px_3px_rgba(0,0,0,0.25)]"
+        value={projectId ? "project" : "folder"}
+        onValueChange={(next) =>
+          select(
+            next === "folder"
+              ? null
+              : (projects.find((p) => p.id === lastProjectId.current) ??
+                  projects[0] ??
+                  null)
+          )
+        }
       >
-        <span
-          aria-hidden="true"
-          data-testid="location-toggle-thumb"
-          className="pointer-events-none absolute inset-y-1 left-1 w-[calc((100%-8px)/2)] rounded-md border border-white/[0.12] bg-white/[0.06] shadow-[0_1px_4px_rgba(0,0,0,0.3),inset_0_1px_0_rgba(255,255,255,0.06)] transition-transform duration-200 ease-out motion-reduce:transition-none"
-          style={{
-            transform: projectId ? "translateX(0)" : "translateX(100%)",
-          }}
-        />
-        <Button
-          type="button"
-          variant="ghost"
-          className={`relative z-10 h-9 flex-1 rounded px-3 text-sm hover:bg-transparent ${projectId ? "text-foreground" : "text-muted-foreground"}`}
-          aria-pressed={!!projectId}
+        <SegmentedControlItem
+          value="project"
           disabled={!projects.length}
-          title={
+          className="disabled:pointer-events-auto"
+          hint={
             !projects.length
               ? "Create a project from the sidebar to use this option"
               : undefined
           }
-          onClick={() =>
-            select(
-              projects.find((p) => p.id === lastProjectId.current) ??
-                projects[0] ??
-                null
-            )
-          }
         >
           Project
-        </Button>
-        <Button
-          type="button"
-          variant="ghost"
-          className={`relative z-10 h-9 flex-1 rounded px-3 text-sm hover:bg-transparent ${!projectId ? "text-foreground" : "text-muted-foreground"}`}
-          aria-pressed={!projectId}
-          onClick={() => select(null)}
-        >
-          Folder
-        </Button>
-      </div>
+        </SegmentedControlItem>
+        <SegmentedControlItem value="folder">Folder</SegmentedControlItem>
+      </SegmentedControl>
       {projectId && (
         <div>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button
                 type="button"
-                variant="default"
-                className="h-[38px] w-full justify-between px-3"
+                variant="field"
+                className="w-full"
                 aria-label="Choose project"
               >
                 <span className="flex min-w-0 items-center gap-2">
@@ -120,12 +108,12 @@ export function ProjectLocation({
                       (isLoading ? "Loading projects…" : "Choose a project")}
                   </span>
                 </span>
-                <ChevronDown className="h-4 w-4 shrink-0" />
+                <ChevronDown />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent
               align="start"
-              className="max-h-[min(18rem,var(--radix-dropdown-menu-content-available-height))] w-[var(--radix-dropdown-menu-trigger-width)] min-w-0 overflow-y-auto"
+              className="max-h-[clamp(4rem,var(--radix-dropdown-menu-content-available-height),18rem)] w-[var(--radix-dropdown-menu-trigger-width)] min-w-0 overflow-y-auto"
             >
               {projects.map((p) => (
                 <DropdownMenuItem
@@ -137,7 +125,7 @@ export function ProjectLocation({
                   <span className="min-w-0 flex-1">
                     <span className="block truncate">{p.name}</span>
                     <span
-                      className="block truncate text-xs text-muted-foreground"
+                      className="block truncate text-body-sm text-muted-foreground"
                       title={p.repoRoot}
                     >
                       {p.repoRoot}
@@ -157,13 +145,13 @@ export function ProjectLocation({
                 </DropdownMenuItem>
               )}
               {!isLoading && !isError && !projects.length && (
-                <div className="px-2 py-2 text-sm text-muted-foreground">
+                <div className="px-2 py-2 text-body-md text-muted-foreground">
                   No projects yet
                 </div>
               )}
             </DropdownMenuContent>
           </DropdownMenu>
-          <div className="flex h-5 items-center justify-end text-xs text-muted-foreground">
+          <div className="flex h-5 items-center justify-end text-body-sm text-muted-foreground">
             <span className="truncate" title={project?.repoRoot}>
               {project?.repoRoot}
             </span>

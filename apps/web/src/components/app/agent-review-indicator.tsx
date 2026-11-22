@@ -47,7 +47,7 @@ export function AgentReviewIndicator({
           data-testid={`agent-review-indicator-${agentId}`}
           data-review-status={status}
           className={cn(
-            "flex h-11 w-7 shrink-0 items-center justify-center rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring sm:h-7",
+            "flex h-11 w-7 shrink-0 items-center justify-center rounded-sm outline-none focus-ring sm:h-7",
             status === "pending" && "text-muted-foreground",
             status === "open" && "text-status-blocked",
             status === "partially_resolved" && "text-status-waiting",

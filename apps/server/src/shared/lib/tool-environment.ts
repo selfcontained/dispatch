@@ -1,6 +1,7 @@
 import { readdirSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { childProcessEnv } from "../process/child-environment.js";
 
 /**
  * Directories to try beyond PATH: where these CLIs usually land. A service
@@ -35,7 +36,7 @@ export function defaultSearchDirs(home: string): string[] {
  * Pass this environment to the child only; never mutate the server environment.
  */
 export function withToolSearchPath(
-  inherited: NodeJS.ProcessEnv = process.env
+  inherited: NodeJS.ProcessEnv = childProcessEnv()
 ): NodeJS.ProcessEnv {
   const home = inherited.HOME || os.homedir();
   const fallback = defaultSearchDirs(home);
@@ -65,5 +66,8 @@ export function repoCommandEnvironment(
   agentId: string,
   inherited: NodeJS.ProcessEnv = process.env
 ): NodeJS.ProcessEnv {
-  return { ...withToolSearchPath(inherited), DISPATCH_AGENT_ID: agentId };
+  return {
+    ...withToolSearchPath(childProcessEnv(inherited)),
+    DISPATCH_AGENT_ID: agentId,
+  };
 }

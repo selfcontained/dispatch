@@ -16,18 +16,13 @@ import { AgentReviewIndicator } from "@/components/app/agent-review-indicator";
 import { AgentSeatBadge } from "@/components/app/agent-seat-badge";
 import { ChatUnreadBadge } from "@/components/app/chat/chat-unread-badge";
 import { type Agent, type AgentVisualState } from "@/components/app/types";
-import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
+import { IconButton } from "@/components/ui/icon-button";
 import { cn } from "@/lib/utils";
 import { useAgentRecord } from "@/hooks/use-agent-tree";
 import { useAgentReviewSummary } from "@/hooks/use-agent-review-summary";
@@ -81,7 +76,7 @@ export function ChildAgentRow({
   // The shared DropdownMenuItem is a plain block styled for destructive items;
   // these need inline icons and the normal foreground colour.
   const menuItemClass =
-    "flex min-h-11 items-center gap-2 text-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50 sm:min-h-0";
+    "flex min-h-11 items-center gap-2 text-foreground disabled-state sm:min-h-0";
   const isReviewAgent = agent.role === "review";
   // Persona reviewers are ordinary agents; a submitted review identifies
   // them regardless of their launch role.
@@ -140,8 +135,8 @@ export function ChildAgentRow({
         // Only the connected row below adds border-r-4 on top of this, so
         // "thick right edge" exclusively means "this one's connected," and
         // every other row just looks like an ordinary bordered pill.
-        "group relative flex min-h-11 w-full min-w-0 items-center gap-2 rounded-lg border border-border/60 bg-background/30 px-2 py-1 sm:py-1.5",
-        "transition-colors hover:bg-muted/35",
+        "group relative flex min-h-11 w-full min-w-0 items-center gap-2 rounded-lg border border-border-subtle bg-background/line px-2 py-1 sm:py-1.5",
+        "transition-colors hover:bg-surface-hover",
         !isStopped && "cursor-pointer",
         // Connected row: the same solid right-edge border treatment the
         // top-level agent card uses for "this is what's connected"
@@ -166,21 +161,24 @@ export function ChildAgentRow({
       <div className="min-w-0 flex-1">
         <div className="flex min-w-0 items-center gap-1.5">
           <span
-            className="min-w-0 truncate text-[11px] font-medium"
+            className="min-w-0 truncate text-label-sm font-medium"
             title={agent.name}
           >
             {displayName}
           </span>
         </div>
         {hasPhaseStatus(agent) ? (
-          <AgentCardPhaseStatus agent={agent} className="mt-0.5 text-[10px]" />
+          <AgentCardPhaseStatus
+            agent={agent}
+            className="mt-0.5 text-label-xs"
+          />
         ) : (
           <AgentActivityLabel
             scheduledFallback
             agent={agent}
             linkToTurn
             onNavigate={closeOnSessionAction ? onRequestClose : undefined}
-            className="mt-0.5 text-[10px]"
+            className="mt-0.5 text-label-xs"
           />
         )}
       </div>
@@ -213,25 +211,20 @@ export function ChildAgentRow({
           it keeps a dedicated Resume control, same as the top-level card.
         */}
         {isStopped ? (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                size="icon"
-                variant="ghost-primary"
-                data-agent-control="true"
-                data-testid={`child-agent-resume-${agent.id}`}
-                aria-label={`Resume ${displayName}`}
-                className="h-11 w-11 sm:h-7 sm:w-7"
-                onClick={() => {
-                  if (closeOnSessionAction) onRequestClose?.();
-                  void startAgent(agent);
-                }}
-              >
-                <Play className="h-3.5 w-3.5" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>Resume child agent</TooltipContent>
-          </Tooltip>
+          <IconButton
+            tone="success"
+            size="icon-sm"
+            data-agent-control="true"
+            data-testid={`child-agent-resume-${agent.id}`}
+            tooltip="Resume child agent"
+            label={`Resume ${displayName}`}
+            onClick={() => {
+              if (closeOnSessionAction) onRequestClose?.();
+              void startAgent(agent);
+            }}
+          >
+            <Play />
+          </IconButton>
         ) : null}
         {/*
           Session lifecycle controls: the pause/rename/archive an agent card
@@ -240,16 +233,14 @@ export function ChildAgentRow({
         */}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button
-              size="icon"
-              variant="ghost"
+            <IconButton
+              size="icon-sm"
               data-agent-control="true"
               data-testid={`child-agent-menu-${agent.id}`}
-              aria-label={`Session actions for ${displayName}`}
-              className="h-11 w-11 text-muted-foreground hover:text-foreground sm:h-7 sm:w-7"
+              label={`Session actions for ${displayName}`}
             >
-              <MoreVertical className="h-3.5 w-3.5" />
-            </Button>
+              <MoreVertical />
+            </IconButton>
           </DropdownMenuTrigger>
           {/*
             data-agent-control marks the whole content, not just the
@@ -337,7 +328,7 @@ export function ChildAgentRow({
               Session details
             </DropdownMenuItem>
             <DropdownMenuItem
-              className="flex min-h-11 items-center gap-2 data-[disabled]:pointer-events-none data-[disabled]:opacity-50 sm:min-h-0"
+              className="flex min-h-11 items-center gap-2 disabled-state sm:min-h-0"
               data-testid={`child-agent-archive-${agent.id}`}
               disabled={isArchiving || agent.status === "creating"}
               onSelect={() => {

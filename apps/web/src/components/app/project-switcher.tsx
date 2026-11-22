@@ -81,8 +81,7 @@ export function ProjectSwitcher({ allowAll = true }: { allowAll?: boolean }) {
           <Button
             ref={trigger}
             size="sm"
-            variant="default"
-            className="w-full min-w-0 justify-between gap-2 px-2 text-muted-foreground hover:text-foreground"
+            className="w-full min-w-0 justify-between text-muted-foreground hover:text-foreground"
             aria-label="Filter by project"
           >
             <span className="flex min-w-0 items-center gap-2">
@@ -96,7 +95,7 @@ export function ProjectSwitcher({ allowAll = true }: { allowAll?: boolean }) {
                   (allowAll ? "All projects" : "Choose a project")}
               </span>
             </span>
-            <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+            <ChevronDown className="text-muted-foreground" />
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent
@@ -163,35 +162,36 @@ export function ProjectSwitcher({ allowAll = true }: { allowAll?: boolean }) {
                 <ProjectIcon project={p} />
                 <span
                   aria-hidden
-                  className="h-6 w-1 shrink-0 rounded"
+                  className="h-6 w-1 shrink-0 rounded-sm"
                   style={{ background: p.color }}
                 />
                 <div className="min-w-0 flex-1">
-                  <div className="truncate text-sm font-medium">{p.name}</div>
-                  <div className="truncate text-xs text-muted-foreground">
+                  <div className="truncate text-body-md font-medium">
+                    {p.name}
+                  </div>
+                  <div className="truncate text-body-sm text-muted-foreground">
                     {p.repoRoot}
                   </div>
                 </div>
                 <Button
                   size="sm"
-                  variant="default"
                   aria-label={`Edit ${p.name}`}
                   onClick={() => setEdit(p)}
                 >
-                  <Pencil className="mr-1.5 h-3 w-3" />
+                  <Pencil />
                   Edit
                 </Button>
               </div>
             ))}
             {!projects.length && (
-              <p className="py-4 text-sm text-muted-foreground">
+              <p className="py-4 text-body-md text-muted-foreground">
                 No projects yet. Folder launches always remain available.
               </p>
             )}
           </div>
           <div className="flex justify-between gap-2 pt-2">
             <Button onClick={() => setEdit("new")}>
-              <Plus className="mr-2 h-4 w-4" />
+              <Plus />
               Create project
             </Button>
             <Button variant="ghost" onClick={() => setManage(false)}>

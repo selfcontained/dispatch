@@ -74,7 +74,7 @@ export function OperationTakeover({
       {/* Left column — controls */}
       <div
         className={cn(
-          "flex md:w-[360px] shrink-0 flex-col overflow-y-auto border-b md:border-b-0 md:border-r border-white/[0.12] p-4 md:p-6",
+          "flex md:w-[360px] shrink-0 flex-col overflow-y-auto border-b md:border-b-0 md:border-r border-edge p-4 md:p-6",
           job.jobType === "update"
             ? "h-[496px] gap-4 md:h-full md:gap-6"
             : "gap-6"
@@ -92,22 +92,20 @@ export function OperationTakeover({
             <div
               className={cn(
                 job.jobType === "update" && "h-full",
-                "rounded-lg border border-white/[0.12] bg-white/[0.04] p-3"
+                "rounded-lg border border-edge bg-fill-inset p-3"
               )}
             >
-              <div className="text-[10px] uppercase tracking-widest text-muted-foreground">
-                Current step
-              </div>
-              <div className="mt-2 text-sm font-medium text-foreground">
+              <div className="section-label">Current step</div>
+              <div className="mt-2 text-body-md font-medium text-foreground">
                 {progress.label}
               </div>
               {progress.detail && (
-                <div className="mt-1 text-xs text-muted-foreground">
+                <div className="mt-1 text-body-sm text-muted-foreground">
                   {progress.detail}
                 </div>
               )}
               {formatProgressLabel({ ...job, progress }) && (
-                <div className="mt-2 text-xs font-medium text-blue-300">
+                <div className="mt-2 text-body-sm font-medium text-info">
                   {formatProgressLabel({ ...job, progress })}
                 </div>
               )}
@@ -115,9 +113,9 @@ export function OperationTakeover({
                 progress.bytesReceived !== null &&
                 progress.bytesReceived !== undefined &&
                 progress.totalBytes > 0 && (
-                  <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-white/[0.08]">
+                  <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-fill-hover">
                     <div
-                      className="h-full rounded-full bg-blue-400 transition-[width] duration-200"
+                      className="h-full rounded-full bg-info transition-[width] duration-200"
                       style={{
                         width: `${Math.min(
                           100,
@@ -143,7 +141,7 @@ export function OperationTakeover({
             href={job.runUrl}
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex items-center gap-1.5 self-start text-xs text-blue-400 hover:underline"
+            className="inline-flex items-center gap-1.5 self-start text-body-sm text-info hover:underline"
           >
             <ExternalLink className="h-3 w-3" />
             View GitHub Actions run
@@ -159,7 +157,7 @@ export function OperationTakeover({
           )}
         >
           {waiting && (
-            <div className="text-xs text-muted-foreground" role="status">
+            <div className="text-body-sm text-muted-foreground" role="status">
               Checking for the updated server… {waitingSeconds}s elapsed
               {waitingSeconds >= 120 && (
                 <div className="mt-2">
@@ -173,7 +171,7 @@ export function OperationTakeover({
 
           {isDone && (
             <div className="flex flex-col gap-3">
-              <div className="flex items-center gap-2 rounded border border-green-500/30 bg-green-500/10 px-3 py-2.5 text-sm text-green-400">
+              <div className="flex items-center gap-2 rounded-sm border border-success/line bg-success/tint px-3 py-3 text-body-md text-success">
                 <CheckCircle2 className="h-4 w-4 shrink-0" />
                 <span>
                   {job.jobType === "update" ? "Updated to" : "Released"}{" "}
@@ -183,12 +181,11 @@ export function OperationTakeover({
                 </span>
               </div>
               {job.jobType === "update" && (
-                <div className="text-xs text-muted-foreground">
+                <div className="text-body-sm text-muted-foreground">
                   Reloading the app…
                 </div>
               )}
               <Button
-                variant="default"
                 onClick={onDismiss}
                 className="self-start text-muted-foreground hover:text-foreground"
               >
@@ -199,14 +196,13 @@ export function OperationTakeover({
 
           {isFailed && (
             <div className="flex flex-col gap-3">
-              <div className="flex items-start gap-2 rounded border border-destructive/30 bg-destructive/10 px-3 py-2.5 text-sm text-destructive">
+              <div className="flex items-start gap-2 rounded-sm border border-danger/line bg-danger/tint px-3 py-3 text-body-md text-danger">
                 <XCircle className="mt-0.5 h-4 w-4 shrink-0" />
                 <span>
                   {job.error ? cleanError(job.error) : "Operation failed"}
                 </span>
               </div>
               <Button
-                variant="default"
                 onClick={onDismiss}
                 className="self-start text-muted-foreground hover:text-foreground"
               >

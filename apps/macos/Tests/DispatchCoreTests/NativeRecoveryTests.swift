@@ -5,6 +5,12 @@ import CryptoKit
 @testable import DispatchCore
 
 final class NativeRecoveryTests: XCTestCase {
+    func testBusyUpdateNamesEveryAgentAndNextStep() {
+        let agents = ["agt_one", "agt_two", "agt_three", "agt_four"]
+        XCTAssertEqual(RecoveryDeferral(code: "HOSTS_RUNNING", reasons: agents).errorDescription,
+                       "Dispatch postponed the update because agents are still working (agt_one, agt_two, agt_three, agt_four). Wait for these agents to finish, then retry the update.")
+    }
+
     private func fixture() throws -> (URL, NativeRecoveryStore, NativeRecoveryJournal) {
         let base = FileManager.default.temporaryDirectory.appendingPathComponent("dispatch-native-recovery-\(UUID().uuidString)").resolvingSymlinksInPath()
         let root = base.appendingPathComponent("state")

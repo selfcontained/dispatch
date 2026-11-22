@@ -127,7 +127,7 @@ export function InlineCommentForm({
       className="ml-3 my-3 max-w-full overflow-hidden rounded-md border border-border bg-background shadow-sm sticky left-0"
       style={stickyAnnotationStyle}
     >
-      <div className="flex items-center gap-2 border-b border-border/50 bg-muted/30 px-3 py-2 text-[11px] text-muted-foreground">
+      <div className="flex items-center gap-2 border-b border-border-subtle bg-surface-subtle px-3 py-2 text-label-sm text-muted-foreground">
         <MessageSquare className="h-3 w-3" />
         <span className="font-medium text-foreground">Add a comment</span>
         <span className="truncate font-mono">{lineLabel}</span>
@@ -135,7 +135,7 @@ export function InlineCommentForm({
       <div className="p-3">
         <textarea
           ref={textareaRef}
-          className="w-full resize-none rounded border border-border bg-muted/20 px-3 py-2 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+          className="w-full resize-none rounded-sm border border-border bg-surface-subtle px-3 py-2 text-body-sm text-foreground placeholder:text-muted-foreground focus-ring"
           placeholder="Leave a comment…"
           rows={3}
           value={comment}
@@ -147,7 +147,7 @@ export function InlineCommentForm({
         <div className="mt-2 flex items-center justify-end gap-2">
           <button
             type="button"
-            className="rounded px-3 py-1.5 text-xs text-muted-foreground hover:bg-muted/40"
+            className="rounded-sm px-3 py-1.5 text-body-sm text-muted-foreground hover:bg-surface-hover"
             onClick={cancel}
             disabled={submitting}
           >
@@ -157,7 +157,7 @@ export function InlineCommentForm({
             <div className="flex">
               <button
                 type="button"
-                className="flex items-center gap-1 rounded-l bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+                className="flex items-center gap-1 rounded-l-sm bg-primary px-3 py-1.5 text-body-sm font-medium text-primary-foreground hover:bg-primary/dense disabled-state"
                 onClick={handlePrimaryAction}
                 disabled={!comment.trim() || submitting}
               >
@@ -167,7 +167,7 @@ export function InlineCommentForm({
               <DropdownMenuTrigger asChild>
                 <button
                   type="button"
-                  className="flex items-center rounded-r border-l border-primary-foreground/20 bg-primary px-1.5 py-1.5 text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+                  className="flex items-center rounded-r-sm border-l border-primary-foreground/tint-strong bg-primary px-1.5 py-1.5 text-primary-foreground hover:bg-primary/dense disabled-state"
                   disabled={!comment.trim() || submitting}
                 >
                   <ChevronDown className="h-3 w-3" />

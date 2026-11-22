@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/dialog";
 import { descendantAgents } from "@/lib/agent-lineage";
 import { api } from "@/lib/api";
+import { errorMessage } from "@/lib/errors";
 
 type WorktreeStatus = {
   hasWorktree: boolean;
@@ -58,6 +59,7 @@ export function DeleteAgentDialog({
   const [loading, setLoading] = useState(false);
   const [statusUnavailable, setStatusUnavailable] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   // Archiving cascades to the target's sub agents, so the confirmation has to
   // say how many go with it — otherwise a parent's archive silently takes out
@@ -85,6 +87,7 @@ export function DeleteAgentDialog({
       setStep("confirm");
       setLoading(false);
       setDeleting(false);
+      setError(null);
       return;
     }
 
@@ -131,12 +134,15 @@ export function DeleteAgentDialog({
 
     // The server checks again before allowing automatic cleanup.
     setDeleting(true);
+    setError(null);
     try {
       if (worktreeStatus?.checkoutState)
         await onDelete(deleteTarget, "auto", worktreeStatus.checkoutState);
       else await onDelete(deleteTarget, "auto");
       setOpen(false);
       setDeleteTarget(null);
+    } catch (err) {
+      setError(errorMessage(err));
     } finally {
       setDeleting(false);
     }
@@ -147,6 +153,7 @@ export function DeleteAgentDialog({
       if (!deleteTarget) return;
 
       setDeleting(true);
+      setError(null);
       try {
         if (cleanupMode === "force" && worktreeStatus?.checkoutState)
           await onDelete(
@@ -157,6 +164,8 @@ export function DeleteAgentDialog({
         else await onDelete(deleteTarget, cleanupMode);
         setOpen(false);
         setDeleteTarget(null);
+      } catch (err) {
+        setError(errorMessage(err));
       } finally {
         setDeleting(false);
       }
@@ -169,6 +178,16 @@ export function DeleteAgentDialog({
     setDeleteTarget(null);
   }, [setOpen, setDeleteTarget]);
 
+  // Dismissing mid-request would leave a failure nowhere to show.
+  const onOpenChange = (next: boolean) => {
+    if (!deleting) setOpen(next);
+  };
+  const failure = error ? (
+    <p role="alert" className="break-words text-body-md text-danger">
+      Couldn't archive the agent: {error}
+    </p>
+  ) : null;
+
   if (step === "worktree-choice" && worktreeStatus) {
     const hasUnmerged = worktreeStatus.hasUnmergedCommits;
     const hasUncommitted =
@@ -176,7 +195,7 @@ export function DeleteAgentDialog({
       worktreeStatus.uncommittedFiles.length > 0;
 
     return (
-      <Dialog open={open} onOpenChange={setOpen}>
+      <Dialog open={open} onOpenChange={onOpenChange}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Worktree Has Outstanding Changes</DialogTitle>
@@ -184,14 +203,14 @@ export function DeleteAgentDialog({
 
           <div className="flex flex-col gap-3">
             {hasUnmerged && (
-              <div className="flex flex-col gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2.5 text-sm text-foreground">
+              <div className="flex flex-col gap-2 rounded-md border border-warning/line bg-warning/tint px-3 py-3 text-body-md text-foreground">
                 <div className="flex items-start gap-2">
-                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
+                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
                   <span>
                     {worktreeStatus.branchName && (
                       <>
                         Branch{" "}
-                        <code className="rounded bg-muted px-1 py-0.5 text-xs">
+                        <code className="rounded-sm bg-muted px-1 py-0.5 text-body-sm">
                           {worktreeStatus.branchName}
                         </code>{" "}
                       </>
@@ -200,7 +219,7 @@ export function DeleteAgentDialog({
                     unmerged commits.
                   </span>
                 </div>
-                <div className="ml-6 max-h-40 overflow-y-auto rounded bg-muted/50 px-2 py-1.5 text-xs font-mono leading-relaxed text-muted-foreground">
+                <div className="ml-6 max-h-40 overflow-y-auto rounded-sm bg-surface-hover px-2 py-1.5 text-body-sm font-mono leading-relaxed text-muted-foreground">
                   {worktreeStatus.changedFiles.map((file) => (
                     <div key={file}>{file}</div>
                   ))}
@@ -209,12 +228,12 @@ export function DeleteAgentDialog({
             )}
 
             {hasUncommitted && (
-              <div className="flex flex-col gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2.5 text-sm text-foreground">
+              <div className="flex flex-col gap-2 rounded-md border border-warning/line bg-warning/tint px-3 py-3 text-body-md text-foreground">
                 <div className="flex items-start gap-2">
-                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
+                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
                   <span>Worktree has uncommitted changes.</span>
                 </div>
-                <div className="ml-6 max-h-40 overflow-y-auto rounded bg-muted/50 px-2 py-1.5 text-xs font-mono leading-relaxed text-muted-foreground">
+                <div className="ml-6 max-h-40 overflow-y-auto rounded-sm bg-surface-hover px-2 py-1.5 text-body-sm font-mono leading-relaxed text-muted-foreground">
                   {worktreeStatus.uncommittedFiles.map((file) => (
                     <div key={file}>{file}</div>
                   ))}
@@ -222,7 +241,7 @@ export function DeleteAgentDialog({
               </div>
             )}
 
-            <p className="text-sm text-muted-foreground">
+            <p className="text-body-md text-muted-foreground">
               The agent will be archived either way.
               {worktreeStatus.borrowers?.length
                 ? " Removal waits until the other sessions release the worktree."
@@ -231,6 +250,7 @@ export function DeleteAgentDialog({
             </p>
           </div>
 
+          {failure}
           <div className="grid gap-2 pt-1 sm:grid-cols-[auto,minmax(0,1fr),minmax(0,1fr)]">
             <Button
               variant="ghost"
@@ -241,23 +261,24 @@ export function DeleteAgentDialog({
               Cancel
             </Button>
             <Button
-              variant="default"
               disabled={deleting}
               onClick={() => void handleWorktreeChoice("keep")}
               data-testid="delete-agent-keep-worktree"
-              className="h-auto w-full min-w-0 whitespace-normal py-2 text-center"
+              wrap
+              className="w-full"
             >
-              <GitBranch className="mr-1.5 h-4 w-4" />
+              <GitBranch />
               Archive, keep worktree
             </Button>
             <Button
-              variant="destructive"
+              variant="danger"
               disabled={deleting}
               onClick={() => void handleWorktreeChoice("force")}
               data-testid="delete-agent-force-worktree"
-              className="h-auto w-full min-w-0 whitespace-normal py-2 text-center"
+              wrap
+              className="w-full"
             >
-              {deleting ? <ActivityBars size={16} className="mr-1.5" /> : null}
+              {deleting ? <ActivityBars size={16} /> : null}
               Archive and remove worktree
             </Button>
           </div>
@@ -267,7 +288,7 @@ export function DeleteAgentDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Archive Agent</DialogTitle>
@@ -288,25 +309,23 @@ export function DeleteAgentDialog({
                     : ""}
           </DialogDescription>
         </DialogHeader>
+        {failure}
         <div className="flex justify-end gap-2">
           <Button
             variant="ghost"
             data-testid="delete-agent-cancel"
             onClick={close}
+            disabled={deleting}
           >
             Cancel
           </Button>
           <Button
-            variant="destructive"
+            variant="danger"
             data-testid="delete-agent-confirm"
             disabled={loading || deleting}
             onClick={() => void handleConfirmDelete()}
           >
-            {loading || deleting ? (
-              <ActivityBars size={16} className="mr-1.5" />
-            ) : (
-              <Archive className="mr-1.5 h-4 w-4" />
-            )}
+            {loading || deleting ? <ActivityBars size={16} /> : <Archive />}
             Archive
           </Button>
         </div>

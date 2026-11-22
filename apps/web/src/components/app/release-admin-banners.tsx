@@ -3,6 +3,8 @@ import { cleanError } from "@/components/app/release-utils";
 import { ActivityBars } from "@/components/ui/activity-bars";
 import { Button } from "@/components/ui/button";
 import type { ReleaseJob } from "@/hooks/use-release-stream";
+import { PHASE_LABELS } from "@/components/app/release-shared";
+import { statusLabel } from "@/lib/status-label";
 
 type ReleaseJobBannersProps = {
   job: ReleaseJob;
@@ -30,7 +32,7 @@ export function ReleaseJobBanners({
   return (
     <>
       {releaseInFlight && (
-        <div className="flex items-center gap-3 rounded-lg border border-blue-500/30 bg-blue-500/10 px-3 py-2.5 text-sm text-blue-300">
+        <div className="flex items-center gap-3 rounded-lg border border-info/line bg-info/tint px-3 py-3 text-body-md text-info">
           <ActivityBars size={14} />
           <span>
             Releasing{" "}
@@ -41,11 +43,12 @@ export function ReleaseJobBanners({
                 <span className="font-mono">{job.tag}</span>
               </>
             )}{" "}
-            — {job.phase}
+            — {PHASE_LABELS[job.phase] ?? statusLabel(job.phase)}
           </span>
           <Button
             size="sm"
-            variant="ghost-primary"
+            variant="ghost"
+            tone="success"
             className="ml-auto shrink-0"
             onClick={onShowProgress}
           >
@@ -54,14 +57,19 @@ export function ReleaseJobBanners({
         </div>
       )}
       {isFailed && (
-        <div className="flex items-center gap-3 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2.5 text-sm text-destructive">
+        <div className="flex items-center gap-3 rounded-lg border border-danger/line bg-danger/tint px-3 py-3 text-body-md text-danger">
           <XCircle className="h-4 w-4 shrink-0" />
           <span className="min-w-0 truncate">
             Release failed
             {job.error ? `: ${cleanError(job.error)}` : ""}
           </span>
           <div className="ml-auto flex shrink-0 items-center gap-2">
-            <Button size="sm" variant="ghost-primary" onClick={onShowProgress}>
+            <Button
+              size="sm"
+              variant="ghost"
+              tone="success"
+              onClick={onShowProgress}
+            >
               Details
             </Button>
             <Button size="sm" variant="ghost" onClick={onDismiss}>
@@ -71,7 +79,7 @@ export function ReleaseJobBanners({
         </div>
       )}
       {isDone && watchedRelease && (
-        <div className="flex items-center gap-3 rounded-lg border border-green-500/30 bg-green-500/10 px-3 py-2.5 text-sm text-green-400">
+        <div className="flex items-center gap-3 rounded-lg border border-success/line bg-success/tint px-3 py-3 text-body-md text-success">
           <CheckCircle2 className="h-4 w-4 shrink-0" />
           <span>
             Released <span className="font-mono font-semibold">{job.tag}</span>

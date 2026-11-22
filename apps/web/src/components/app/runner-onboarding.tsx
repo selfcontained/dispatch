@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { IconButton } from "@/components/ui/icon-button";
 import { CommandBlock } from "@/components/ui/command-block";
 import {
   Dialog,
@@ -76,7 +77,7 @@ function RunnerPairingRequest({ request }: { request: PairRequest }) {
       className="flex flex-wrap items-center justify-between gap-2 px-3 py-2"
       data-testid={`runner-approval-request-${request.id}`}
     >
-      <span className="text-sm font-medium">Request {reference}</span>
+      <span className="text-body-md font-medium">Request {reference}</span>
       <Dialog>
         <DialogTrigger asChild>
           <Button
@@ -96,15 +97,9 @@ function RunnerPairingRequest({ request }: { request: PairRequest }) {
             </DialogDescription>
           </DialogHeader>
           <DialogClose asChild>
-            <Button
-              type="button"
-              size="icon"
-              variant="ghost"
-              className="absolute right-3 top-3"
-              aria-label="Close review"
-            >
-              <X className="size-4" aria-hidden="true" />
-            </Button>
+            <IconButton className="absolute right-3 top-3" label="Close review">
+              <X aria-hidden="true" />
+            </IconButton>
           </DialogClose>
           <form
             className="min-h-0 space-y-3 overflow-y-auto p-0.5"
@@ -122,7 +117,7 @@ function RunnerPairingRequest({ request }: { request: PairRequest }) {
             data-testid="runner-approval"
           >
             <div className="grid gap-2 sm:grid-cols-2">
-              <label className="space-y-1 text-sm">
+              <label className="space-y-1 text-body-md">
                 Runner name
                 <Input
                   value={name}
@@ -132,7 +127,7 @@ function RunnerPairingRequest({ request }: { request: PairRequest }) {
                   onChange={(e) => setName(e.target.value)}
                 />
               </label>
-              <label className="space-y-1 text-sm">
+              <label className="space-y-1 text-body-md">
                 Pairing code
                 <Input
                   value={code}
@@ -167,7 +162,7 @@ function RunnerPairingRequest({ request }: { request: PairRequest }) {
               </Button>
             </div>
             {(approve.error || dismiss.error) && (
-              <p className="text-sm text-destructive" role="alert">
+              <p className="text-body-md text-danger" role="alert">
                 {(approve.error ?? dismiss.error)?.message}
               </p>
             )}
@@ -206,7 +201,7 @@ export function RunnerPairingRequests() {
   if (pending.isError && !pending.data) {
     return (
       <div className="flex flex-wrap items-center gap-2">
-        <p role="alert" className="text-sm text-destructive">
+        <p role="alert" className="text-body-md text-danger">
           Could not load pairing requests.
         </p>
         <Button
@@ -225,7 +220,7 @@ export function RunnerPairingRequests() {
   if (requests.length === 0) return null;
   return (
     <section aria-labelledby="runner-pairing-heading" className="space-y-2">
-      <h3 id="runner-pairing-heading" className="text-sm font-medium">
+      <h3 id="runner-pairing-heading" className="text-body-md font-medium">
         Pending approvals
       </h3>
       <ul className="divide-y divide-border rounded-md border border-border">
@@ -263,8 +258,8 @@ export function RunnerOnboarding() {
         </DialogHeader>
         <div className="min-h-0 divide-y divide-border overflow-y-auto p-0.5">
           <section className="space-y-2 pb-4">
-            <h4 className="text-sm font-medium">1. Install on Linux</h4>
-            <p className="text-xs text-muted-foreground">
+            <h4 className="text-body-md font-medium">1. Install on Linux</h4>
+            <p className="text-body-sm text-muted-foreground">
               Requires Linux x86-64 or ARM64, systemd, Git, sudo, and a GitHub
               CLI with attestation support. Check with{" "}
               <code>gh attestation verify --help</code>.
@@ -278,21 +273,21 @@ export function RunnerOnboarding() {
                 Retry installer check
               </Button>
             ) : installer.isPending ? (
-              <p role="status" className="text-sm text-muted-foreground">
+              <p role="status" className="text-body-md text-muted-foreground">
                 Preparing command…
               </p>
             ) : installer.data?.command ? (
               <RunnerCommand value={installer.data.command} label="Install" />
             ) : (
-              <p className="text-xs text-muted-foreground">
+              <p className="text-body-sm text-muted-foreground">
                 This Dispatch build does not serve a runner installer. If the
                 runner is already installed, continue below.
               </p>
             )}
           </section>
           <section className="space-y-2 pt-4">
-            <h4 className="text-sm font-medium">2. Connect to Dispatch</h4>
-            <p className="text-xs text-muted-foreground">
+            <h4 className="text-body-md font-medium">2. Connect to Dispatch</h4>
+            <p className="text-body-sm text-muted-foreground">
               Run this on the runner, then approve its pairing code from the
               list.
             </p>
@@ -310,7 +305,7 @@ export function RunnerOnboarding() {
                 Retry connection instructions
               </Button>
             ) : (
-              <p role="status" className="text-sm text-muted-foreground">
+              <p role="status" className="text-body-md text-muted-foreground">
                 Preparing command…
               </p>
             )}

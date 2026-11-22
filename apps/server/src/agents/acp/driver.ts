@@ -96,7 +96,13 @@ export type DriverEvent =
    * again whenever the engine changes them. The model option is where the
    * server learns which model is really running and which it could run.
    */
-  | { type: "config"; agentId: string; options: acp.SessionConfigOption[] }
+  | {
+      type: "config";
+      agentId: string;
+      options: acp.SessionConfigOption[];
+      /** Set by the host before journaling. Older hosts have unknown provenance. */
+      catalogSource?: "engine" | "override";
+    }
   | {
       type: "turn";
       agentId: string;

@@ -55,7 +55,7 @@ export function TaskDeleteDialog({
         ref={trigger}
         size="sm"
         variant="ghost"
-        className="ml-auto text-destructive hover:bg-destructive/10 hover:text-destructive"
+        className="ml-auto text-danger hover:bg-danger/tint hover:text-danger"
         onClick={() => {
           remove.reset();
           setTarget({ ...task });
@@ -80,15 +80,15 @@ export function TaskDeleteDialog({
             if (trigger.current?.isConnected) trigger.current.focus();
           }}
         >
-          <AlertDialogTitle className="text-lg font-semibold">
+          <AlertDialogTitle className="text-heading-md">
             Delete task?
           </AlertDialogTitle>
-          <AlertDialogDescription className="break-words text-sm text-muted-foreground">
+          <AlertDialogDescription className="break-words text-body-md text-muted-foreground">
             Permanently delete “{target?.title}” and its conversation and
             attachments? This cannot be undone.
           </AlertDialogDescription>
           {remove.error && (
-            <p role="alert" className="break-words text-sm text-destructive">
+            <p role="alert" className="break-words text-body-md text-danger">
               Could not delete the task: {remove.error.message}
             </p>
           )}
@@ -98,7 +98,7 @@ export function TaskDeleteDialog({
             </AlertDialogCancel>
             <AlertDialogAction
               disabled={remove.isPending}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              className="bg-danger text-danger-foreground hover:bg-danger/dense"
               onClick={(event) => {
                 // Keep the dialog open until the request succeeds.
                 event.preventDefault();

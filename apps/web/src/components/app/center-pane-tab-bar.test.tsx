@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -75,5 +75,26 @@ describe("CenterPaneTabBar", () => {
 
     expect(screen.getByRole("tab", { name: /agent/i })).toBeTruthy();
     expect(screen.getByRole("tab", { name: /changes/i })).toBeTruthy();
+  });
+
+  it("selects on click, leaving mousedown free to start a drag", () => {
+    const change = vi.fn();
+    render(
+      <MemoryRouter>
+        <CenterPaneTabBar
+          activeTab="agent"
+          onTabChange={change}
+          isSplit={false}
+          splitState={singleState}
+          isMobile={false}
+        />
+      </MemoryRouter>
+    );
+    const tab = screen.getByRole("tab", { name: /files/i });
+    expect(tab.getAttribute("draggable")).toBe("true");
+    fireEvent.mouseDown(tab);
+    expect(change).not.toHaveBeenCalled();
+    fireEvent.click(tab);
+    expect(change).toHaveBeenCalledWith("files");
   });
 });

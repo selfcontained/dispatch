@@ -46,7 +46,7 @@ export function TemplateDetailPane({
 
   if (!templateId || !template) {
     return (
-      <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+      <div className="flex h-full items-center justify-center text-body-md text-muted-foreground">
         Select a template to view details
       </div>
     );
@@ -154,37 +154,34 @@ function TemplateDetail({
         navigate("/automations");
         toast.success(`Template "${template.name}" deleted.`);
       })
-      .catch((err: Error) => {
-        setRemoveDialogOpen(false);
-        toast.error(`Failed to delete: ${err.message}`);
+      .catch(() => {
+        // The mutation keeps the error, which the open dialog shows.
       });
   }, [removeTemplate, template, navigate]);
 
   return (
     <div className="flex h-full flex-col overflow-y-auto">
       {/* Header with launch */}
-      <div className="border-b border-border px-6 py-5">
-        <h2 className="text-lg font-semibold text-foreground">
-          {template.name}
-        </h2>
+      <div className="border-b border-border px-6 py-4">
+        <h2 className="text-heading-lg text-foreground">{template.name}</h2>
         {template.description ? (
-          <p className="mt-0.5 text-sm text-muted-foreground">
+          <p className="mt-0.5 text-body-md text-muted-foreground">
             {template.description}
           </p>
         ) : null}
-        <p className="mt-0.5 text-xs text-muted-foreground/70">
+        <p className="mt-0.5 text-body-sm text-faint">
           {shortPath(template.directory)}
         </p>
 
         {savedArgs.length > 0 ? (
-          <div className="mt-3 rounded-md border border-border/60 bg-muted/15 px-3 py-2 text-xs text-muted-foreground">
+          <div className="mt-3 rounded-md border border-border-subtle bg-surface-subtle px-3 py-2 text-body-sm text-muted-foreground">
             <span className="font-medium text-foreground">
               Launch arguments:
             </span>{" "}
             {savedArgs.map((a, i) => (
               <span key={a.key}>
                 {i > 0 ? ", " : ""}
-                <span className="rounded bg-primary/10 px-1.5 py-0.5 text-primary">
+                <span className="rounded-sm bg-surface-selected px-1.5 py-0.5 text-primary">
                   {a.name}
                   {a.required ? " *" : ""}
                   {a.multiline ? " (multiline)" : ""}
@@ -194,35 +191,29 @@ function TemplateDetail({
           </div>
         ) : null}
         <div className="mt-4 flex flex-wrap gap-2">
-          <Button
-            className="gap-1.5"
-            disabled={launchTemplate.isPending}
-            onClick={handleLaunch}
-          >
+          <Button disabled={launchTemplate.isPending} onClick={handleLaunch}>
             {launchTemplate.isPending ? (
-              <ActivityBars size={16} className="mr-1" />
+              <ActivityBars size={16} />
             ) : (
-              <Play className="h-3.5 w-3.5 fill-current" />
+              <Play className="fill-current" />
             )}
             Launch
           </Button>
-          <Button
-            variant="default"
-            className="gap-1.5"
-            onClick={() => setDuplicateDialogOpen(true)}
-          >
-            <Copy className="h-3.5 w-3.5" />
+          <Button onClick={() => setDuplicateDialogOpen(true)}>
+            <Copy />
             Duplicate
           </Button>
         </div>
       </div>
 
       {/* Inline-editable config form */}
-      <div className="flex-1 px-6 py-5">
+      <div className="flex-1 px-6 py-4">
         <div className="grid gap-4">
-          <div className="rounded-md border border-white/[0.12] bg-white/[0.04] p-4">
-            <div className="text-sm font-medium">Template configuration</div>
-            <p className="mt-1 text-xs text-muted-foreground">
+          <div className="rounded-md border border-edge bg-fill-inset p-4">
+            <div className="text-body-md font-medium">
+              Template configuration
+            </div>
+            <p className="mt-1 text-body-sm text-muted-foreground">
               Agent launch settings for this template.
             </p>
             <div className="mt-4">
@@ -245,7 +236,7 @@ function TemplateDetail({
             </div>
 
             {saveError ? (
-              <div className="mt-4 rounded-md border border-status-blocked/40 bg-status-blocked/10 p-3 text-sm text-status-blocked">
+              <div className="mt-4 rounded-md border border-danger/line bg-danger/tint p-3 text-body-md text-danger">
                 {saveError}
               </div>
             ) : null}
@@ -255,30 +246,31 @@ function TemplateDetail({
                 disabled={!canSave || updateTemplate.isPending}
                 onClick={handleSave}
               >
-                {updateTemplate.isPending ? (
-                  <ActivityBars size={16} className="mr-2" />
-                ) : null}
+                {updateTemplate.isPending ? <ActivityBars size={16} /> : null}
                 Save
               </Button>
             </div>
           </div>
 
-          <div className="rounded-md border border-status-blocked/30 bg-status-blocked/5 p-4">
-            <div className="text-sm font-medium text-status-blocked">
+          <div className="rounded-md border border-danger/line bg-danger/wash p-4">
+            <div className="text-body-md font-medium text-danger">
               Delete template
             </div>
-            <p className="mt-1 text-xs text-muted-foreground">
+            <p className="mt-1 text-body-sm text-muted-foreground">
               Permanently remove this template. Jobs that reference it will lose
               their backing template.
             </p>
             <div className="mt-3 flex justify-end">
               <Button
-                variant="destructive"
+                variant="danger"
                 size="sm"
                 disabled={removeTemplate.isPending}
-                onClick={() => setRemoveDialogOpen(true)}
+                onClick={() => {
+                  removeTemplate.reset();
+                  setRemoveDialogOpen(true);
+                }}
               >
-                <Trash2 className="mr-2 h-4 w-4" />
+                <Trash2 />
                 Delete
               </Button>
             </div>
@@ -286,7 +278,12 @@ function TemplateDetail({
         </div>
       </div>
 
-      <Dialog open={removeDialogOpen} onOpenChange={setRemoveDialogOpen}>
+      <Dialog
+        open={removeDialogOpen}
+        onOpenChange={(next) => {
+          if (!removeTemplate.isPending) setRemoveDialogOpen(next);
+        }}
+      >
         <DialogContent className="max-w-sm">
           <DialogHeader>
             <DialogTitle>Delete template</DialogTitle>
@@ -295,6 +292,11 @@ function TemplateDetail({
               This cannot be undone.
             </DialogDescription>
           </DialogHeader>
+          {removeTemplate.error ? (
+            <p role="alert" className="break-words text-body-md text-danger">
+              Couldn't delete the template: {removeTemplate.error.message}
+            </p>
+          ) : null}
           <div className="flex justify-end gap-2">
             <Button
               variant="ghost"
@@ -304,7 +306,7 @@ function TemplateDetail({
               Cancel
             </Button>
             <Button
-              variant="destructive"
+              variant="danger"
               onClick={handleDelete}
               disabled={removeTemplate.isPending}
             >

@@ -280,8 +280,8 @@ describe("collection pills", () => {
     mountPane({ collections: [summary("config", 1, 0, 0)] });
 
     const config = await findPill("config");
-    expect(pill("All").className).toContain("bg-primary/15");
-    expect(config.className).not.toContain("bg-primary/15");
+    expect(pill("All").className).toContain("bg-surface-selected");
+    expect(config.className).not.toContain("bg-surface-selected");
   });
 
   it("moves the active marker to the collection named in the URL", async () => {
@@ -291,8 +291,8 @@ describe("collection pills", () => {
     });
 
     const config = await findPill("config");
-    expect(config.className).toContain("bg-primary/15");
-    expect(pill("All").className).not.toContain("bg-primary/15");
+    expect(config.className).toContain("bg-surface-selected");
+    expect(pill("All").className).not.toContain("bg-surface-selected");
   });
 
   it("re-encodes the collection name when navigating to its pill", async () => {

@@ -200,6 +200,8 @@ for (const target of targets) {
   run("bun", [
     "build",
     "--compile",
+    // The server loads config explicitly and the host starts in a checkout.
+    "--no-compile-autoload-dotenv",
     `--target=${target}`,
     ...(devPublicKey
       ? [

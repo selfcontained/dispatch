@@ -6,6 +6,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { CountBubble } from "@/components/ui/count-bubble";
 
 export type OwnerSwitchEntry = {
   agent: SubAgentRef;
@@ -72,19 +73,9 @@ export function OwnerSwitch({
   const counts = (option: { count: number; unseen: number }) => (
     <>
       {option.unseen > 0 ? (
-        <span
-          aria-hidden
-          className="shrink-0 rounded-full bg-destructive px-1.5 text-[10px] font-semibold tabular-nums text-destructive-foreground"
-        >
-          {option.unseen}
-        </span>
+        <CountBubble aria-hidden tone="info" count={option.unseen} />
       ) : null}
-      <span
-        aria-hidden
-        className="shrink-0 rounded-full bg-muted px-1.5 text-[10px] tabular-nums text-muted-foreground"
-      >
-        {option.count}
-      </span>
+      <CountBubble aria-hidden count={option.count} />
       <span className="sr-only">
         {option.unseen > 0 ? `${option.unseen} unseen, ` : ""}
         {option.count} {option.count === 1 ? itemNoun[0] : itemNoun[1]}
@@ -106,7 +97,7 @@ export function OwnerSwitch({
           // it, and the wrapper is forced back to a plain truncating block:
           // the base trigger line-clamps it, which centres the text once the
           // span is stretched to fill the row.
-          className="h-11 gap-2 text-xs md:h-8 [&>span:first-child]:!block [&>span:first-child]:min-w-0 [&>span:first-child]:flex-1 [&>span:first-child]:truncate [&>span:first-child]:text-left"
+          className="h-11 gap-2 text-body-sm md:h-8 [&>span:first-child]:!block [&>span:first-child]:min-w-0 [&>span:first-child]:flex-1 [&>span:first-child]:truncate [&>span:first-child]:text-left"
         >
           <SelectValue>{current?.label}</SelectValue>
           {current ? counts(current) : null}

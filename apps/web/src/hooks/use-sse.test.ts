@@ -668,6 +668,132 @@ describe("useSSE reconnect", () => {
     vi.useRealTimers();
   });
 
+  it("recovers a silent OPEN stream and applies idle prompt delivery, pickup and reply live", () => {
+    const { queryClient } = renderSSE();
+    const post = block({
+      id: "idle-post",
+      authorKind: "user",
+      delivered: null,
+    });
+    const key = streamFeedQueryKey("agt_1");
+    queryClient.setQueryData(key, {
+      pageParams: [undefined],
+      pages: [
+        {
+          entries: [blockEntry(post)],
+          hasMore: false,
+          nextCursor: null,
+          unreadCount: 0,
+        },
+      ],
+    });
+    const stalled = FakeEventSource.instances[0];
+    act(() => stalled.emit({ type: "snapshot", agents: [] }));
+    // WebKit can leave the socket OPEN across sleep/network changes without error.
+    act(() => void vi.advanceTimersByTime(60_000));
+    expect(stalled.readyState).toBe(FakeEventSource.CLOSED);
+    act(() => void vi.advanceTimersByTime(1_000));
+    expect(FakeEventSource.instances).toHaveLength(2);
+    const recovered = FakeEventSource.instances[1];
+    const emit = (entry: StreamEntry) =>
+      act(() =>
+        recovered.emit({ type: "stream.entry", agentId: "agt_1", entry })
+      );
+    // The reconnect snapshot reconciles missed data; subsequent events patch live.
+    act(() => recovered.emit({ type: "snapshot", agents: [] }));
+    emit(
+      blockEntry(
+        block({
+          id: "idle-turn",
+          text: "",
+          delivered: null,
+          createdAt: "2026-09-02T10:00:01.000Z",
+        })
+      )
+    );
+    const receipt = {
+      deliveredAt: "2026-09-02T10:00:01.000Z",
+      mode: "prompt" as const,
+      pickedUpAt: null,
+    };
+    emit(
+      blockEntry({
+        ...post,
+        delivered: true,
+        delivery: [{ agentId: "agt_1", state: "delivered", receipt }],
+      })
+    ); // prompt_delivered
+    emit(
+      blockEntry({
+        ...post,
+        delivered: true,
+        delivery: [
+          {
+            agentId: "agt_1",
+            state: "delivered",
+            receipt: { ...receipt, pickedUpAt: "2026-09-02T10:00:01.030Z" },
+          },
+        ],
+      })
+    ); // steering_picked_up
+    emit(
+      blockEntry(
+        block({
+          id: "idle-reply",
+          text: "Live reply",
+          createdAt: "2026-09-02T10:00:02.000Z",
+        })
+      )
+    );
+    const rows = queryClient.getQueryData<FeedCache>(key)!.pages[0].entries;
+    expect(
+      rows.find((row) => row.id === post.id)?.block.delivery?.[0]
+    ).toMatchObject({
+      state: "delivered",
+      receipt: { mode: "prompt", pickedUpAt: "2026-09-02T10:00:01.030Z" },
+    });
+    expect(rows.find((row) => row.id === "idle-reply")?.block.text).toBe(
+      "Live reply"
+    );
+  });
+
+  it("keeps an idle connection alive on observable heartbeats and cancels the watchdog when hidden", () => {
+    renderSSE();
+    for (let i = 0; i < 6; i++) {
+      act(() => void vi.advanceTimersByTime(20_000));
+      act(() => FakeEventSource.instances[0].emit({ type: "heartbeat" }));
+    }
+    expect(FakeEventSource.instances).toHaveLength(1);
+    setHidden(true);
+    act(() => void vi.advanceTimersByTime(120_000));
+    expect(FakeEventSource.instances).toHaveLength(1);
+    setHidden(false);
+    expect(FakeEventSource.instances).toHaveLength(2);
+  });
+
+  it.each(["visibilitychange", "pageshow"])(
+    "catches up on %s without waiting for an SSE snapshot",
+    (event) => {
+      const { queryClient } = renderSSE();
+      const key = streamFeedQueryKey("agt_1");
+      queryClient.setQueryData(key, { entries: ["stale"] });
+      const old = FakeEventSource.instances[0];
+      if (event === "visibilitychange") {
+        setHidden(true);
+        setHidden(false);
+      } else {
+        act(() =>
+          window.dispatchEvent(
+            new PageTransitionEvent("pageshow", { persisted: true })
+          )
+        );
+      }
+      expect(old.readyState).toBe(FakeEventSource.CLOSED);
+      expect(FakeEventSource.instances).toHaveLength(2);
+      expect(queryClient.getQueryState(key)?.isInvalidated).toBe(true);
+    }
+  );
+
   it("reopens the stream after a fatal error the browser will not retry", () => {
     renderSSE();
     expect(FakeEventSource.instances).toHaveLength(1);
@@ -1736,7 +1862,18 @@ describe("useSSE message handling", () => {
       ["brain"],
       ["tasks"],
       ["agent-models"],
+      ["agent-config"],
     ]);
+  });
+
+  it("doesn't reread the model catalog over filter edits still saving", () => {
+    const { emit, invalidateQueries, queryClient } = renderMessages();
+    vi.spyOn(queryClient, "isMutating").mockReturnValue(1);
+    emit({ type: "agent_models.changed", agentType: "codex" });
+    expect(invalidatedKeys(invalidateQueries)).toEqual([["agent-config"]]);
+    expect(queryClient.isMutating).toHaveBeenCalledWith({
+      mutationKey: ["agent-model-availability"],
+    });
   });
 
   it("invalidates project membership collections when a project changes", () => {

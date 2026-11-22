@@ -28,6 +28,8 @@ import {
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { IconButton } from "@/components/ui/icon-button";
+import { RowButton } from "@/components/ui/row-button";
 import { api, ApiError } from "@/lib/api";
 import { FileActions } from "./file-lightbox-actions";
 import { cn } from "@/lib/utils";
@@ -266,7 +268,7 @@ export function FilesPane({
 }) {
   if (!agentId || !workspace)
     return (
-      <div className="grid h-full place-items-center p-6 text-sm text-muted-foreground">
+      <div className="grid h-full place-items-center p-6 text-body-md text-muted-foreground">
         Select an agent with a workspace to browse files.
       </div>
     );
@@ -461,14 +463,19 @@ function WorkspaceFiles({
         <FolderOpen className="h-4 w-4 shrink-0 text-muted-foreground" />
         <div className="min-w-0 flex-1">
           {remotePlacement(workspace) ? (
-            <div className="truncate text-sm font-medium">Session files</div>
+            <div className="truncate text-body-md font-medium">
+              Session files
+            </div>
           ) : (
             <>
-              <div className="truncate text-sm font-medium" title={workspace}>
+              <div
+                className="truncate text-body-md font-medium"
+                title={workspace}
+              >
                 {workspace.split("/").filter(Boolean).at(-1)}
               </div>
               <div
-                className="truncate text-[10px] text-muted-foreground"
+                className="truncate text-label-xs text-muted-foreground"
                 title={workspace}
               >
                 {workspace}
@@ -477,28 +484,19 @@ function WorkspaceFiles({
           )}
         </div>
         {!isSplit && !isMobile && (
-          <Button
-            title="Open beside Agent"
-            aria-label="Open beside Agent"
-            variant="ghost"
-            size="icon"
-            onClick={onOpenBeside}
-          >
-            <Split className="h-4 w-4" />
-          </Button>
+          <IconButton label="Open beside Agent" onClick={onOpenBeside}>
+            <Split />
+          </IconButton>
         )}
-        <Button
-          title="Refresh files and preview"
-          aria-label="Refresh files and preview"
-          variant="ghost"
-          size="icon"
+        <IconButton
+          label="Refresh files and preview"
           disabled={refreshing}
           onClick={() => {
             void queryClient.invalidateQueries({ queryKey: prefix });
           }}
         >
-          <RefreshCw className={cn("h-4 w-4", refreshing && "animate-spin")} />
-        </Button>
+          <RefreshCw className={cn(refreshing && "animate-spin")} />
+        </IconButton>
       </div>
       <div className="flex min-h-0 flex-1">
         {(!narrow || browse || !selected) && (
@@ -515,11 +513,11 @@ function WorkspaceFiles({
                 placeholder="Find files…"
                 value={filter}
                 onChange={(e) => setFilter(e.target.value)}
-                className="h-8 pl-7 text-xs"
+                className="h-8 pl-8 text-body-sm"
               />
             </div>
             {search && fileIndex.data && (
-              <p className="px-3 pb-2 text-[10px] text-muted-foreground">
+              <p className="px-3 pb-2 text-label-xs text-muted-foreground">
                 {matches.length > 200 ? "First 200 of " : ""}
                 {matches.length} matches
                 {fileIndex.data.truncated ? " · Partial index" : ""}
@@ -580,7 +578,7 @@ function WorkspaceFiles({
                 if (!("entry" in row))
                   return (
                     <div
-                      className="flex h-full items-center gap-1 truncate px-3 text-[11px] text-muted-foreground"
+                      className="flex h-full items-center gap-1 truncate px-3 text-label-sm text-muted-foreground"
                       title={row.message}
                     >
                       {row.message}
@@ -602,8 +600,7 @@ function WorkspaceFiles({
                 const { entry, depth } = row;
                 const open = expanded.includes(entry.path);
                 return (
-                  <button
-                    type="button"
+                  <RowButton
                     id={id}
                     role="treeitem"
                     tabIndex={-1}
@@ -612,6 +609,7 @@ function WorkspaceFiles({
                     aria-label={
                       search ? `${entry.name} ${entry.path}` : entry.name
                     }
+                    selected={selected === entry.path}
                     aria-selected={selected === entry.path}
                     title={entry.path}
                     aria-expanded={
@@ -620,8 +618,8 @@ function WorkspaceFiles({
                     disabled={entry.kind === "link" || entry.kind === "other"}
                     onClick={() => choose(entry)}
                     className={cn(
-                      "relative flex h-full w-full items-center gap-1.5 pr-3 text-left text-xs hover:bg-muted/60 focus-visible:outline focus-visible:outline-1 focus-visible:outline-primary disabled:opacity-40",
-                      selected === entry.path && "bg-primary/10 text-primary",
+                      "relative h-full gap-1.5 rounded-none pr-3 text-body-sm disabled:pointer-events-auto pointer-coarse:min-h-0",
+                      selected === entry.path && "text-primary",
                       active && "ring-1 ring-inset ring-border"
                     )}
                     style={{ paddingLeft: 10 + depth * 8 }}
@@ -630,7 +628,7 @@ function WorkspaceFiles({
                       <span
                         key={level}
                         aria-hidden="true"
-                        className="pointer-events-none absolute inset-y-0 border-l border-border/50"
+                        className="pointer-events-none absolute inset-y-0 border-l border-border-subtle"
                         style={{ left: 15 + level * 8 }}
                       />
                     ))}
@@ -660,21 +658,21 @@ function WorkspaceFiles({
                         </span>
                       </span>
                       {search && (
-                        <span className="block truncate text-[10px] text-muted-foreground">
+                        <span className="block truncate text-label-xs text-muted-foreground">
                           {entry.path}
                         </span>
                       )}
                     </span>
-                  </button>
+                  </RowButton>
                 );
               }}
             />
             {!rows.length && (
-              <p className="p-3 text-xs text-muted-foreground">
+              <p className="p-3 text-body-sm text-muted-foreground">
                 No filenames match.
               </p>
             )}
-            <div className="border-t px-3 py-2 text-[10px] text-muted-foreground">
+            <div className="border-t px-3 py-2 text-label-xs text-muted-foreground">
               On-demand · Manual refresh · No background scans
             </div>
           </div>
@@ -685,17 +683,15 @@ function WorkspaceFiles({
               <>
                 <div className="flex shrink-0 items-center gap-1 border-b px-2 py-1.5">
                   {narrow && (
-                    <Button
-                      size="icon"
-                      variant="ghost"
-                      aria-label="Browse files"
+                    <IconButton
+                      label="Browse files"
                       onClick={() => setBrowse(true)}
                     >
-                      <ArrowLeft className="h-4 w-4" />
-                    </Button>
+                      <ArrowLeft />
+                    </IconButton>
                   )}
                   <span
-                    className="min-w-0 flex-1 truncate px-1 font-mono text-xs"
+                    className="min-w-0 flex-1 truncate px-1 font-mono text-body-sm"
                     title={selected}
                   >
                     {selected}
@@ -711,19 +707,19 @@ function WorkspaceFiles({
                 {preview.isError && keepPreview && preview.data && (
                   <p
                     role="status"
-                    className="px-3 py-2 text-xs text-muted-foreground"
+                    className="px-3 py-2 text-body-sm text-muted-foreground"
                   >
                     {preview.error.message} Showing the last loaded preview.
                   </p>
                 )}
                 {preview.isPending ? (
-                  <div className="p-6 text-sm text-muted-foreground">
+                  <div className="p-6 text-body-md text-muted-foreground">
                     Loading preview…
                   </div>
                 ) : preview.isError && (!keepPreview || !preview.data) ? (
                   <div
                     role="alert"
-                    className="p-6 text-sm text-muted-foreground"
+                    className="p-6 text-body-md text-muted-foreground"
                   >
                     {preview.error.message}
                     <Button
@@ -754,7 +750,7 @@ function WorkspaceFiles({
                     />
                   </div>
                 ) : (
-                  <div className="p-6 text-sm text-muted-foreground">
+                  <div className="p-6 text-body-md text-muted-foreground">
                     {preview.data?.kind === "unsupported" &&
                       preview.data.message}
                   </div>
@@ -763,8 +759,8 @@ function WorkspaceFiles({
             ) : (
               <div className="flex flex-1 flex-col items-center justify-center gap-3 p-8 text-center text-muted-foreground">
                 <File className="h-10 w-10 opacity-30" />
-                <p className="text-sm">Select a file to preview</p>
-                <p className="max-w-64 text-xs leading-relaxed">
+                <p className="text-body-md">Select a file to preview</p>
+                <p className="max-w-64 text-body-sm leading-relaxed">
                   Browse the agent’s workspace. Folders load only when opened;
                   files stay on disk until selected.
                 </p>

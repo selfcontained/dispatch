@@ -1,5 +1,4 @@
 import { ProjectSwitcher } from "./project-switcher";
-import { ChevronDown } from "lucide-react";
 import { useAtom } from "jotai";
 
 import {
@@ -8,14 +7,9 @@ import {
 } from "@/components/app/agent-card";
 import { AgentTypeIcon } from "@/components/app/agent-type-icon";
 import { type Agent, type AgentVisualState } from "@/components/app/types";
-import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { SplitButton } from "@/components/ui/split-button";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { cachedAgentLineage } from "@/lib/agent-lineage";
 import {
@@ -247,16 +241,16 @@ export function AgentListContent({
                 }
               },
               className: cn(
-                "relative cursor-grab active:cursor-grabbing focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+                "relative cursor-grab active:cursor-grabbing focus-ring",
                 draggingAgentId === agent.id && "opacity-55",
                 dropTarget?.agentId === agent.id &&
                   dropTarget.position === "before" &&
                   draggingAgentId !== agent.id &&
-                  "before:absolute before:inset-x-0 before:top-0 before:z-10 before:h-0.5 before:bg-primary",
+                  "before:absolute before:inset-x-0 before:top-0 before:z-sticky before:h-0.5 before:bg-primary",
                 dropTarget?.agentId === agent.id &&
                   dropTarget.position === "after" &&
                   draggingAgentId !== agent.id &&
-                  "after:absolute after:bottom-0 after:inset-x-0 after:z-10 after:h-0.5 after:bg-primary"
+                  "after:absolute after:bottom-0 after:inset-x-0 after:z-sticky after:h-0.5 after:bg-primary"
               ),
               nativeDragHandlers: {
                 dragstart: (event) => {
@@ -388,55 +382,39 @@ export function AgentListContent({
           <ProjectSwitcher />
         </div>
         <div className="ml-auto flex items-center">
-          <Button
+          <SplitButton
             size="sm"
-            variant="default"
-            className={
-              showCreateTypePicker
-                ? "rounded-r-none border-r-0 text-muted-foreground hover:text-foreground"
-                : "text-muted-foreground hover:text-foreground"
-            }
+            className="text-muted-foreground hover:text-foreground"
             onClick={() => onOpenCreateDialog(defaultCreateType)}
             data-testid="create-agent-button"
+            menuLabel="Choose agent type"
+            menuTestId="create-agent-type-dropdown"
+            menuProps={{ side: "bottom", avoidCollisions: false }}
+            menu={
+              showCreateTypePicker
+                ? sortedAgentTypes.map((agentType) => (
+                    <DropdownMenuItem
+                      key={agentType}
+                      className="text-foreground"
+                      onClick={() => onOpenCreateDialog(agentType)}
+                      data-testid={`create-agent-type-${agentType}`}
+                    >
+                      <AgentTypeIcon
+                        type={agentType}
+                        className="mr-2 h-4 w-4"
+                      />
+                      {AGENT_TYPE_LABELS[agentType]}
+                    </DropdownMenuItem>
+                  ))
+                : null
+            }
           >
             <AgentTypeIcon
               type={defaultCreateType}
-              className="mr-1 h-4 w-4 border-none bg-transparent p-0 text-foreground/80"
+              className="size-icon-lg border-none bg-transparent p-0 text-foreground/soft"
             />
             Create
-          </Button>
-          {showCreateTypePicker ? (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  size="sm"
-                  variant="default"
-                  className="rounded-l-none border-l border-white/[0.12] px-1 text-muted-foreground hover:text-foreground"
-                  data-testid="create-agent-type-dropdown"
-                >
-                  <ChevronDown className="h-3.5 w-3.5" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent
-                loop
-                side="bottom"
-                avoidCollisions={false}
-                align="end"
-              >
-                {sortedAgentTypes.map((agentType) => (
-                  <DropdownMenuItem
-                    key={agentType}
-                    className="text-foreground"
-                    onClick={() => onOpenCreateDialog(agentType)}
-                    data-testid={`create-agent-type-${agentType}`}
-                  >
-                    <AgentTypeIcon type={agentType} className="mr-2 h-4 w-4" />
-                    {AGENT_TYPE_LABELS[agentType]}
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          ) : null}
+          </SplitButton>
         </div>
       </div>
 
@@ -448,7 +426,7 @@ export function AgentListContent({
           {agents.length === 0 ? (
             <div
               data-testid="no-agents-message"
-              className="p-4 text-sm text-muted-foreground"
+              className="p-4 text-body-md text-muted-foreground"
             >
               No agents yet.
             </div>

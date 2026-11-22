@@ -57,13 +57,10 @@ export function InstanceNameSettings(): JSX.Element {
 
   return (
     <div>
-      <label
-        htmlFor="instance-name"
-        className="mb-1.5 block text-[10px] uppercase tracking-widest text-muted-foreground"
-      >
+      <label htmlFor="instance-name" className="mb-1.5 block section-label">
         Instance name
       </label>
-      <p className="mb-3 text-sm text-muted-foreground">
+      <p className="mb-3 text-body-md text-muted-foreground">
         Give this Dispatch instance a name to distinguish it from others. Shown
         in the sidebar and browser tab.
       </p>
@@ -87,14 +84,14 @@ export function InstanceNameSettings(): JSX.Element {
           disabled={isSaving}
           placeholder="e.g. Production, Staging, Local"
           maxLength={100}
-          className={cn("w-full max-w-sm", saveError && "border-destructive")}
+          className={cn("w-full max-w-sm", saveError && "border-danger")}
         />
         {showSaved && !saveError ? (
-          <span className="text-xs text-muted-foreground">Saved</span>
+          <span className="text-body-sm text-muted-foreground">Saved</span>
         ) : null}
       </div>
       {saveError ? (
-        <p className="mt-1.5 text-xs text-destructive">
+        <p className="mt-1.5 text-body-sm text-danger">
           Failed to save. Please try again.
         </p>
       ) : null}

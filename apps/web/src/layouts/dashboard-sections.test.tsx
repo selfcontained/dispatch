@@ -16,7 +16,7 @@ vi.mock("@/components/app/project-switcher", () => ({
 
 import { AutomationsRoute } from "./automations-route";
 import { ActivityRoute } from "./activity-route";
-import { SettingsRoute, serviceDotClass } from "./settings-route";
+import { SettingsRoute, serviceDotTone } from "./settings-route";
 
 // Section routes handle wiring, not markup: SectionShell owns the
 // sidebar-open/close branching shared by every route, and the individual
@@ -266,17 +266,17 @@ function renderAt(path: string) {
   );
 }
 
-describe("serviceDotClass", () => {
-  it("maps ok to the working dot", () => {
-    expect(serviceDotClass("ok")).toBe("bg-status-working");
+describe("serviceDotTone", () => {
+  it("maps ok to the success dot", () => {
+    expect(serviceDotTone("ok")).toBe("success");
   });
 
-  it("maps down to the blocked dot", () => {
-    expect(serviceDotClass("down")).toBe("bg-status-blocked");
+  it("maps down to the danger dot", () => {
+    expect(serviceDotTone("down")).toBe("danger");
   });
 
-  it("maps any other state to the waiting dot", () => {
-    expect(serviceDotClass("checking")).toBe("bg-status-waiting");
+  it("maps any other state to the warning dot", () => {
+    expect(serviceDotTone("checking")).toBe("warning");
   });
 });
 
@@ -346,14 +346,14 @@ describe("SectionShell sidebar open/close wiring", () => {
   it("shows the floating open-sidebar button only when the left panel is closed", () => {
     Object.assign(H.context, { leftPanelOpen: false });
     renderAt("/settings");
-    fireEvent.click(screen.getByTitle("Open sidebar"));
+    fireEvent.click(screen.getByRole("button", { name: "Open sidebar" }));
     expect(H.context.handleSetLeftPanelOpen).toHaveBeenCalledWith(true);
   });
 
   it("hides the floating open-sidebar button when the left panel is already open", () => {
     Object.assign(H.context, { leftPanelOpen: true });
     renderAt("/settings");
-    expect(screen.queryByTitle("Open sidebar")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Open sidebar" })).toBeNull();
   });
 });
 
@@ -434,17 +434,21 @@ describe("ActivityRoute tab navigation", () => {
   // URL literally says "metrics" — not the fallback itself.
   it("marks metrics active when the URL tab is metrics", () => {
     renderAt("/activity/metrics");
-    expect(screen.getByText("Metrics").className).toContain("bg-primary/10");
+    expect(screen.getByText("Metrics").className).toContain(
+      "bg-surface-selected"
+    );
     expect(screen.getByText("History").className).not.toContain(
-      "bg-primary/10"
+      "bg-surface-selected"
     );
   });
 
   it("marks history active once the URL tab is history", () => {
     renderAt("/activity/history");
-    expect(screen.getByText("History").className).toContain("bg-primary/10");
+    expect(screen.getByText("History").className).toContain(
+      "bg-surface-selected"
+    );
     expect(screen.getByText("Metrics").className).not.toContain(
-      "bg-primary/10"
+      "bg-surface-selected"
     );
   });
 

@@ -32,6 +32,7 @@ import {
   encodeMessage,
   HOST_FILES,
   ndjsonDecoder,
+  type HostLaunch,
   type ClientMessage,
   type HostMessage,
 } from "../src/agents/acp/host-protocol.js";
@@ -67,6 +68,7 @@ function runtimeWith(
   stateRoot: string,
   hostSeq: () => number,
   journalId: string | null = null,
+  adapter: { bin: string; args?: string[] } | null = { bin: fakeAgent },
   overrides?: Partial<Parameters<typeof createAcpRuntime>[0]>
 ): {
   runtime: AgentRuntime;
@@ -79,6 +81,7 @@ function runtimeWith(
     config: {
       agentStateRoot: stateRoot,
       agentRuntime: "acp",
+      acpAdapter: adapter ?? undefined,
       dispatchBinDir: path.join(repoRoot, "bin"),
     },
     logger,
@@ -94,6 +97,12 @@ function runtimeWith(
   return { runtime, seen, synced };
 }
 
+/** A launch file for a host started by hand, with the adapter the runtime would add. */
+function hostLaunchFor(agentId: string, cwd: string): HostLaunch {
+  const launch = launchFor(agentId, cwd);
+  return { ...launch, bins: { ...launch.bins, adapter: { bin: fakeAgent } } };
+}
+
 function launchFor(agentId: string, cwd: string): RuntimeLaunch {
   return {
     agentId,
@@ -103,8 +112,6 @@ function launchFor(agentId: string, cwd: string): RuntimeLaunch {
     bins: {
       claudeBin: "claude",
       codexBin: null,
-      // Stands a fake engine in place of the adapter this binary carries.
-      adapter: { bin: fakeAgent },
     },
     systemPrompt: "Be brief.",
     mcp: { url: "http://127.0.0.1:1/api/mcp/agt_1", token: "tok" },
@@ -152,7 +159,8 @@ describe("agent host", () => {
   const agentId = "agt_host_test_1";
 
   beforeAll(() => {
-    stateRoot = mkdtempSync(path.join(os.tmpdir(), "dispatch-host-state-"));
+    // Keep the socket path within macOS’s Unix socket path limit.
+    stateRoot = mkdtempSync("/tmp/dispatch-host-state-");
     cwd = mkdtempSync(path.join(os.tmpdir(), "unrelated-user-repo-"));
     execFileSync("git", ["init", "-q", cwd]);
     writeFileSync(path.join(cwd, "user-notes.txt"), "preserve user work\n");
@@ -170,6 +178,172 @@ describe("agent host", () => {
     delete process.env.DISPATCH_AGENT_HOST_COMMAND;
     rmSync(stateRoot, { recursive: true, force: true });
     rmSync(cwd, { recursive: true, force: true });
+  });
+
+  it("uses native ACP in a checkout whose dotenv and launch env specify an override", async () => {
+    const id = "agt_checkout_dotenv";
+    const checkout = path.join(cwd, "checkout");
+    mkdirSync(checkout);
+    const override = JSON.stringify([fakeAgent]);
+    writeFileSync(
+      path.join(checkout, ".env"),
+      `DISPATCH_ACP_ADAPTER_COMMAND='${override}'\n`
+    );
+    // Stand in for the installed OpenCode CLI. The fixture reports OpenCode
+    // only when the native launch path passes the "acp" subcommand.
+    const { runtime, seen } = runtimeWith(stateRoot, () => 0, null, null);
+    try {
+      const session = await runtime.launch({
+        ...launchFor(id, checkout),
+        engine: "opencode",
+        bins: { claudeBin: "", codexBin: null, opencodeBin: fakeAgent },
+        env: { DISPATCH_ACP_ADAPTER_COMMAND: override },
+      });
+      expect(session.sessionId).toMatch(/^fake_opencode_/);
+      await until(() =>
+        seen.some(
+          ({ event }) =>
+            event.type === "config" && event.catalogSource === "engine"
+        )
+      );
+    } finally {
+      await runtime.stop(id, true);
+    }
+  }, 30_000);
+
+  it.each(["server startup", "direct config import"])(
+    "ignores dotenv's adapter during %s",
+    (mode) => {
+      const configUrl = pathToFileURL(
+        path.resolve(here, "../src/config.ts")
+      ).href;
+      const startupUrl = pathToFileURL(
+        path.resolve(here, "../src/startup/acp-adapter.ts")
+      ).href;
+      const dotenv = path.join(cwd, "server.env");
+      writeFileSync(
+        dotenv,
+        `DISPATCH_ACP_ADAPTER_COMMAND='${JSON.stringify([fakeAgent])}'\n`
+      );
+      const env: NodeJS.ProcessEnv = {
+        ...process.env,
+        DATABASE_URL: "postgres://unused",
+        DISPATCH_HOST: "127.0.0.1",
+        DOTENV_CONFIG_PATH: dotenv,
+      };
+      delete env.DISPATCH_ACP_ADAPTER_COMMAND;
+      const result = execFileSync(
+        "bun",
+        [
+          "--no-env-file",
+          "-e",
+          `const { captureStartupAcpAdapter } = await import(${JSON.stringify(startupUrl)});
+         if (${mode === "server startup"}) captureStartupAcpAdapter();
+         const { loadConfig } = await import(${JSON.stringify(configUrl)});
+         console.log(JSON.stringify([!!process.env.DISPATCH_ACP_ADAPTER_COMMAND, loadConfig().acpAdapter ?? null]));`,
+        ],
+        { cwd, env, encoding: "utf8" }
+      );
+      expect(JSON.parse(result)).toEqual([true, null]);
+    }
+  );
+
+  it("uses the adapter exported before server startup", async () => {
+    const id = "agt_server_adapter";
+    const configUrl = pathToFileURL(
+      path.resolve(here, "../src/config.ts")
+    ).href;
+    const startupUrl = pathToFileURL(
+      path.resolve(here, "../src/startup/acp-adapter.ts")
+    ).href;
+    const result = execFileSync(
+      "bun",
+      [
+        "--no-env-file",
+        "-e",
+        `const { captureStartupAcpAdapter } = await import(${JSON.stringify(startupUrl)});
+         captureStartupAcpAdapter();
+         const { loadConfig } = await import(${JSON.stringify(configUrl)});
+         console.log(JSON.stringify(loadConfig().acpAdapter));`,
+      ],
+      {
+        cwd,
+        env: {
+          ...process.env,
+          DATABASE_URL: "postgres://unused",
+          DISPATCH_ACP_ADAPTER_COMMAND: JSON.stringify([fakeAgent]),
+        },
+        encoding: "utf8",
+      }
+    );
+    const { runtime, seen } = runtimeWith(
+      stateRoot,
+      () => 0,
+      null,
+      JSON.parse(result)
+    );
+    try {
+      const session = await runtime.launch(launchFor(id, cwd));
+      expect(session.sessionId).toMatch(/^fake_claude_/);
+      await until(() =>
+        seen.some(
+          ({ event }) =>
+            event.type === "config" && event.catalogSource === "override"
+        )
+      );
+    } finally {
+      await runtime.stop(id, true);
+    }
+  }, 30_000);
+
+  it("stops an idle orphan without replay and resumes the same session for the next prompt", async () => {
+    const id = "agt_recovery_idle";
+    const first = runtimeWith(stateRoot, () => 0);
+    const session = await first.runtime.launch(launchFor(id, cwd));
+    await expectEcho(first.runtime, first.seen, id, "before update");
+    await until(() => !first.runtime.isBusy(id));
+    const probation = runtimeWith(stateRoot, () => 0);
+    try {
+      expect(await probation.runtime.listHosted()).toContain(id);
+      expect(await probation.runtime.stopIdleHostForRecovery!(id)).toBe(true);
+      expect(await probation.runtime.listHosted()).not.toContain(id);
+      expect(probation.seen).toEqual([]);
+      const next = await probation.runtime.launch({
+        ...launchFor(id, cwd),
+        resumeSessionId: session.sessionId,
+      });
+      expect(next.sessionId).toBe(session.sessionId);
+      expect(next.resumed).toBe(true);
+      await expectEcho(probation.runtime, probation.seen, id, "after update");
+    } finally {
+      await probation.runtime.stop(id, true);
+      await first.runtime.stop(id, true);
+    }
+  }, 30_000);
+
+  it("leaves an orphan host with an unsettled turn running", async () => {
+    const id = "agt_recovery_busy";
+    const first = runtimeWith(stateRoot, () => 0);
+    await first.runtime.launch(launchFor(id, cwd));
+    const active = first.runtime.prompt(id, "sleep:60000");
+    void active.settled.catch(() => {});
+    try {
+      await active.accepted;
+      const probation = runtimeWith(stateRoot, () => 0);
+      expect(await probation.runtime.stopIdleHostForRecovery!(id)).toBe(false);
+      expect(await probation.runtime.listHosted()).toContain(id);
+      expect(probation.seen).toEqual([]);
+    } finally {
+      await first.runtime.stop(id, true);
+    }
+  }, 30_000);
+
+  it("does not count a foreign reused PID as an agent host", async () => {
+    const id = "agt_foreign_pid";
+    mkdirSync(path.join(stateRoot, id), { recursive: true });
+    writeFileSync(path.join(stateRoot, id, "host.pid"), String(process.pid));
+    const { runtime } = runtimeWith(stateRoot, () => 0);
+    expect(await runtime.listHosted()).not.toContain(id);
   });
 
   it.each(["graceful", "force", "early-exit"])(
@@ -196,9 +370,10 @@ await import(${JSON.stringify(pathToFileURL(fakeAgent).href)});
         ["-e", "setInterval(() => {}, 1000)"],
         { stdio: "ignore" }
       );
-      const { runtime, seen } = runtimeWith(stateRoot, () => 0);
+      const { runtime, seen } = runtimeWith(stateRoot, () => 0, null, {
+        bin: wrapper,
+      });
       const launch = launchFor(id, cwd);
-      launch.bins.adapter = { bin: wrapper };
       const alive = (pid: number) => {
         try {
           return !execFileSync("ps", ["-p", String(pid), "-o", "stat="], {
@@ -619,7 +794,7 @@ await import(${JSON.stringify(pathToFileURL(fakeAgent).href)});
     const folder = mkdtempSync(path.join(cwd, "session-"));
     const input = launchFor(id, folder);
     input.fullAccess = false;
-    input.bins.adapter = {
+    const adapter = {
       bin: "bun",
       args: [path.join(here, "helpers/remote-acp-fixture.ts")],
     };
@@ -631,7 +806,7 @@ await import(${JSON.stringify(pathToFileURL(fakeAgent).href)});
       `
       import {createAcpRuntime} from ${JSON.stringify(pathToFileURL(path.join(here, "../src/agents/acp/runtime.ts")).href)};
       const runtime = createAcpRuntime({
-        config: { agentStateRoot: ${JSON.stringify(stateRoot)} },
+        config: ${JSON.stringify({ agentStateRoot: stateRoot, acpAdapter: adapter })},
         logger: {info(){}, warn(){}, debug(){}, error(){}},
         hostSeq:async()=>({seq:0,journalId:null}), syncJournal:async()=>{}
       });
@@ -774,7 +949,7 @@ mock.module("node:fs/promises", () => ({
     );
     writeFileSync(
       path.join(dir, "launch.json"),
-      JSON.stringify(launchFor("agt_starting", cwd))
+      JSON.stringify(hostLaunchFor("agt_starting", cwd))
     );
     const host = spawn(
       "bun",
@@ -817,7 +992,7 @@ mock.module("node:fs/promises", () => ({
       writeFileSync(
         path.join(dir, HOST_FILES.launch),
         JSON.stringify({
-          ...launchFor(`agt_files_${engine}`, cwd),
+          ...hostLaunchFor(`agt_files_${engine}`, cwd),
           engine,
           reportTurnActivity: true,
           env: { DISPATCH_LOCAL_CA_CERTIFICATE: ca },
@@ -877,7 +1052,7 @@ mock.module("node:fs/promises", () => ({
     writeFileSync(
       path.join(dir, "launch.json"),
       JSON.stringify({
-        ...launchFor("agt_inventory", cwd),
+        ...hostLaunchFor("agt_inventory", cwd),
         hostInstanceId: instanceId,
       })
     );
@@ -942,7 +1117,7 @@ mock.module("node:fs/promises", () => ({
     const folder = mkdtempSync(path.join(cwd, "quiesce-"));
     const launch = launchFor("agt_quiesce", folder);
     launch.fullAccess = false;
-    launch.bins.adapter = {
+    const adapter = {
       bin: "bun",
       args: [path.join(here, "helpers/recycle-acp-fixture.ts")],
     };
@@ -950,6 +1125,7 @@ mock.module("node:fs/promises", () => ({
       path.join(dir, "launch.json"),
       JSON.stringify({
         ...launch,
+        bins: { ...launch.bins, adapter },
         hostInstanceId: "01234567-89ab-4cde-8fab-0123456789ab",
       })
     );
@@ -1137,13 +1313,13 @@ mock.module("node:fs/promises", () => ({
     "Runner connection dropped before acknowledgement; execution is unknown.";
   const attempt = "11111111-1111-4111-8111-111111111111";
 
-  async function updateFixture(adapter?: RuntimeLaunch["bins"]["adapter"]) {
+  async function updateFixture(adapter?: { bin: string; args?: string[] }) {
     const root = mkdtempSync("/tmp/dispatch-ack-");
     const folder = mkdtempSync(path.join(cwd, "update-"));
     const id = "agt_update_ack";
     const input = launchFor(id, folder);
     input.fullAccess = false;
-    input.bins.adapter = adapter ?? {
+    const hostAdapter = adapter ?? {
       bin: "bun",
       args: [path.join(here, "helpers/remote-acp-fixture.ts")],
     };
@@ -1153,7 +1329,7 @@ mock.module("node:fs/promises", () => ({
       const { cwd, bins, env, pathPrefix, ...launch } = input;
       await host.requestSession(
         { kind: "launch", agentId: id, launch },
-        { cwd, bins, env, pathPrefix }
+        { cwd, bins: { ...bins, adapter: hostAdapter }, env, pathPrefix }
       );
       hosts.push(host);
       const socket = path.join(dir, id, "host.sock");
@@ -1178,7 +1354,7 @@ mock.module("node:fs/promises", () => ({
     } = { offline: false };
     let seq = 0;
     let journal: string | null = null;
-    const { runtime, seen } = runtimeWith(root, () => seq, null, {
+    const { runtime, seen } = runtimeWith(root, () => seq, null, undefined, {
       hostSeq: async () => ({ seq, journalId: journal }),
       syncJournal: async (_agentId, next, reset) => {
         journal = next;
@@ -1676,14 +1852,13 @@ mock.module("node:fs/promises", () => ({
 
   it("replays a remote prompt receipt after a lost acknowledgement without invoking the provider again", async () => {
     const id = "agt_host_receipt";
-    const { runtime } = runtimeWith(stateRoot, () => 0);
+    const { runtime } = runtimeWith(stateRoot, () => 0, null, {
+      bin: "bun",
+      args: [path.join(here, "helpers/remote-acp-fixture.ts")],
+    });
     const launch = launchFor(id, cwd);
     const token = "reauthentication-is-not-required-on-attach";
     launch.mcp = { url: "https://127.0.0.1:1/service", token };
-    launch.bins.adapter = {
-      bin: "bun",
-      args: [path.join(here, "helpers/remote-acp-fixture.ts")],
-    };
     await runtime.launch(launch);
     const dir = path.join(stateRoot, id);
     async function attach() {
@@ -1934,7 +2109,7 @@ mock.module("node:fs/promises", () => ({
   }, 60_000);
 
   it("fails a launch whose engine CLI cannot be found instead of falling back to the adapter's own", async () => {
-    const { runtime } = runtimeWith(stateRoot, () => 0);
+    const { runtime } = runtimeWith(stateRoot, () => 0, null, null);
     await expect(
       runtime.launch({
         ...launchFor("agt_host_test_nocli", cwd),
@@ -1948,16 +2123,11 @@ mock.module("node:fs/promises", () => ({
   }, 60_000);
 
   it("fails the launch, with the host log, when the adapter cannot start", async () => {
-    const { runtime } = runtimeWith(stateRoot, () => 0);
+    const { runtime } = runtimeWith(stateRoot, () => 0, null, {
+      bin: "/definitely/not/a/binary",
+    });
     await expect(
-      runtime.launch({
-        ...launchFor("agt_host_test_2", cwd),
-        bins: {
-          claudeBin: "claude",
-          codexBin: null,
-          adapter: { bin: "/definitely/not/a/binary" },
-        },
-      })
+      runtime.launch(launchFor("agt_host_test_2", cwd))
     ).rejects.toThrow(/engine failed|not executable|Host log/);
     expect(await runtime.isAlive("agt_host_test_2")).toBe(false);
   }, 60_000);

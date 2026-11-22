@@ -15,6 +15,7 @@ import {
   checkDuration,
 } from "./agent-pull-requests";
 import { api } from "@/lib/api";
+import { hintText } from "@/test-utils/hint";
 vi.mock("@/lib/api", () => ({ api: vi.fn() }));
 afterEach(() => {
   cleanup();
@@ -101,9 +102,9 @@ it("retains an earlier request's failure when a later dismissal succeeds", async
 });
 
 it.each([
-  [1, 1, 1, "text-status-blocked", "circle-x"],
-  [1, 0, 1, "text-status-waiting", "clock"],
-  [1, 0, 0, "text-status-working", "circle-check"],
+  [1, 1, 1, "text-danger", "circle-x"],
+  [1, 0, 1, "text-warning", "clock"],
+  [1, 0, 0, "text-success", "circle-check"],
 ])(
   "shows one priority icon for passed=%s failed=%s pending=%s",
   (passed, failed, pending, color, icon) => {
@@ -182,11 +183,13 @@ it("labels each detailed check once through its status icon beside the name", as
       }}
     />
   );
-  fireEvent.click(
-    screen.getByRole("button", { name: "Check details for pull request #1" })
-  );
+  const details = screen.getByRole("button", {
+    name: "Check details for pull request #1",
+  });
+  expect(hintText(details)).toMatch(/^Checks: \S/);
+  fireEvent.click(details);
   const icon = await screen.findByRole("img", { name: "Failed" });
-  expect(icon.getAttribute("title")).toBe("Failed");
+  expect(hintText(icon)).toBe("Failed");
   expect(icon.closest("li")?.textContent).toBe("Build");
   expect(screen.getByRole("link", { name: "Build" }).getAttribute("href")).toBe(
     "https://github.com/a/b/actions/runs/1"
@@ -538,7 +541,7 @@ it("shows current CI independently beside the same risk assessment as checks cha
   fireEvent.click(
     screen.getByRole("button", { name: /Merge risk for pull request #1380/ })
   );
-  expect(screen.getByLabelText("Current CI: 1 failed").title).toContain(
+  expect(hintText(screen.getByLabelText("Current CI: 1 failed"))).toContain(
     "required checks must pass"
   );
   expect(screen.getByTestId("merge-risk-badge").textContent).toBe("Routine");

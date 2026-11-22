@@ -17,7 +17,7 @@ export function NotificationsContent() {
           For browser notifications, you choose which agent actions trigger a
           notification:
         </P>
-        <ul className="grid gap-1.5 pl-4 text-sm text-muted-foreground list-disc">
+        <ul className="grid gap-1.5 pl-4 text-body-md text-muted-foreground list-disc">
           <li>
             <Code>waiting_user</Code> — agent needs your input
           </li>

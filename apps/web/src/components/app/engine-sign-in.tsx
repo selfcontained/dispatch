@@ -62,11 +62,11 @@ export function EngineSignIn({
   if (signedIn) {
     return (
       <p
-        className="flex items-start gap-2 text-[12px] text-foreground"
+        className="flex items-start gap-2 text-body-sm text-foreground"
         data-testid="engine-sign-in-done"
       >
         <CheckCircle2
-          className="mt-0.5 h-3.5 w-3.5 shrink-0 text-status-working"
+          className="mt-0.5 h-3.5 w-3.5 shrink-0 text-success"
           aria-hidden="true"
         />
         <span>Signed in{signedIn.detail ? ` (${signedIn.detail})` : ""}.</span>
@@ -80,14 +80,13 @@ export function EngineSignIn({
   if (failed) {
     return (
       <div className="space-y-2" data-testid="engine-sign-in-failed">
-        <p role="alert" className="text-[12px] text-destructive">
+        <p role="alert" className="text-body-sm text-danger">
           {flow.error?.message ?? login?.error ?? "The sign-in failed."}
         </p>
         <div className="flex flex-wrap items-center gap-3">
           <Button
             type="button"
-            size="sm"
-            className="h-7 text-xs"
+            size="xs"
             onClick={startOver}
             disabled={flow.starting}
           >
@@ -104,8 +103,7 @@ export function EngineSignIn({
       <div className="flex flex-wrap items-center gap-3">
         <Button
           type="button"
-          size="sm"
-          className="h-7 text-xs"
+          size="xs"
           onClick={() => flow.start()}
           disabled={flow.starting || !flow.loaded}
           data-testid="engine-sign-in-start"
@@ -120,9 +118,8 @@ export function EngineSignIn({
   const cancel = (
     <Button
       type="button"
-      size="sm"
+      size="xs"
       variant="ghost"
-      className="h-7 text-xs"
       onClick={flow.cancel}
       data-testid="engine-sign-in-cancel"
     >
@@ -135,7 +132,7 @@ export function EngineSignIn({
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p
           role="status"
-          className="flex items-center gap-2 text-[12px] text-muted-foreground"
+          className="flex items-center gap-2 text-body-sm text-muted-foreground"
         >
           <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
           {login?.status === "verifying"
@@ -150,7 +147,7 @@ export function EngineSignIn({
   return (
     <div className="min-w-0 space-y-3" data-testid="engine-sign-in-steps">
       <div className="space-y-1.5">
-        <p className="text-[12px] text-foreground">
+        <p className="text-body-sm text-foreground">
           1. Copy this link and open it in a browser.
         </p>
         <CommandBlock
@@ -161,16 +158,16 @@ export function EngineSignIn({
       </div>
       {login.userCode ? (
         <div className="space-y-1.5">
-          <p className="text-[12px] text-foreground">
+          <p className="text-body-sm text-foreground">
             2. Sign in, then enter this code when asked.
           </p>
           <CommandBlock
             text={login.userCode}
             testId="engine-sign-in-user-code"
-            textClassName="text-lg leading-7 tracking-widest"
+            textClassName="text-body-lg leading-7 tracking-widest"
           />
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <p className="flex items-center gap-2 text-[11.5px] text-muted-foreground">
+            <p className="flex items-center gap-2 text-label-sm text-muted-foreground">
               <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />
               Waiting for you to finish in the browser…
             </p>
@@ -179,7 +176,7 @@ export function EngineSignIn({
         </div>
       ) : (
         <div className="space-y-1.5">
-          <p className="text-[12px] text-foreground">
+          <p className="text-body-sm text-foreground">
             2. Sign in, then paste the code the page shows.
           </p>
           <form
@@ -197,13 +194,13 @@ export function EngineSignIn({
               autoCapitalize="off"
               spellCheck={false}
               aria-label="Sign-in code"
-              className="h-8 text-xs"
+              className="h-8 text-body-sm"
               data-testid="engine-sign-in-code"
             />
             <Button
               type="submit"
               size="sm"
-              className="h-8 shrink-0 text-xs"
+              className="shrink-0 text-body-sm"
               disabled={!code.trim() || flow.submitting}
               data-testid="engine-sign-in-submit"
             >

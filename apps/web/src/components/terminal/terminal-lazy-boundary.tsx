@@ -15,7 +15,7 @@ export function TerminalLazyBoundary({
   return (
     <Suspense
       fallback={
-        <p role="status" className="p-3 text-xs">
+        <p role="status" className="p-3 text-body-sm">
           Loading terminal…
         </p>
       }

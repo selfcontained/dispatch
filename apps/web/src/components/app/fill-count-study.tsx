@@ -94,10 +94,10 @@ export function FillCountStudy(): JSX.Element {
     <section aria-labelledby="fill-count-heading" className="space-y-6">
       <div className="space-y-3">
         <div>
-          <h2 id="fill-count-heading" className="text-xl font-semibold">
+          <h2 id="fill-count-heading" className="text-heading-lg">
             Fill count
           </h2>
-          <p className="mt-1 text-sm text-muted-foreground">
+          <p className="mt-1 text-body-md text-muted-foreground">
             Each time every block is packed, the next step scatters the grid and
             starts again. The count beside Show progress says how many times,
             and what those laps were made of.
@@ -108,7 +108,7 @@ export function FillCountStudy(): JSX.Element {
             {playing ? "Pause" : "Play"}
           </Button>
           <Button
-            variant={fast ? "default" : "ghost"}
+            variant={fast ? "secondary" : "ghost"}
             aria-pressed={fast}
             onClick={() => {
               setFast((v) => !v);
@@ -128,12 +128,14 @@ export function FillCountStudy(): JSX.Element {
             aria-label="Jump to fills"
             className="flex items-center gap-1"
           >
-            <span className="mr-1 text-xs text-muted-foreground">Fills</span>
+            <span className="mr-1 text-body-sm text-muted-foreground">
+              Fills
+            </span>
             {PRESETS.map((n) => (
               <Button
                 key={n}
                 size="sm"
-                variant={fills.length === n ? "default" : "ghost"}
+                variant={fills.length === n ? "secondary" : "ghost"}
                 onClick={() => {
                   setLength(lengthFor(n));
                   setFast(false);
@@ -145,7 +147,10 @@ export function FillCountStudy(): JSX.Element {
             ))}
           </div>
         </div>
-        <p className="text-xs tabular-nums text-muted-foreground" role="status">
+        <p
+          className="text-body-sm tabular-nums text-muted-foreground"
+          role="status"
+        >
           {fills.length} {fills.length === 1 ? "fill" : "fills"} · {placed}/
           {cellCount} packed · step {categories.length}
         </p>

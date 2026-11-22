@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { childProcessEnv } from "../shared/process/child-environment.js";
 
 import type {
   EngineAuthStatus,
@@ -10,7 +11,7 @@ import type {
   EngineLoginEngine,
 } from "@dispatch/shared";
 
-import { hostProcessEnv, loginShellCommand } from "./acp/host-command.js";
+import { loginShellCommand } from "./acp/host-command.js";
 
 /**
  * Signing an engine CLI in from the browser. The CLI's own login runs here,
@@ -229,7 +230,7 @@ export class EngineLogins {
       deps.createStageDir ??
       (() => mkdtemp(path.join(os.tmpdir(), "dispatch-engine-login-")));
     this.env = {
-      ...hostProcessEnv(deps.env ?? process.env),
+      ...childProcessEnv(deps.env),
       // Claude also tries to open the link itself; on a server that is the
       // wrong machine, and the person picks their own browser anyway.
       BROWSER: "true",

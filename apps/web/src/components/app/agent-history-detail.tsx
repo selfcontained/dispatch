@@ -4,6 +4,7 @@ import { AgentSessionLink } from "./agent-session-link";
 import { ArrowLeft, Search } from "lucide-react";
 
 import {
+  formatDateTime,
   formatDuration,
   formatTokenCount,
   shortProjectName,
@@ -13,6 +14,7 @@ import { StatCard } from "@/components/app/stat-card";
 import { useHistoryAgentDetail } from "@/hooks/use-agent-history";
 import { useRunnerName } from "@/hooks/use-runners";
 import { DetailTabs } from "@/components/app/agent-history-detail-tabs";
+import { Button } from "@/components/ui/button";
 
 function shortModelName(model: string): string {
   return model.replace(/-\d{8}$/, "").replace("claude-", "");
@@ -32,16 +34,17 @@ export function AgentHistoryDetail({
 
   if (isLoading) {
     return (
-      <div className="space-y-4 p-5">
-        <button
-          onClick={onBack}
-          className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
-        >
-          <ArrowLeft className="h-3.5 w-3.5" /> Back
-        </button>
+      <div className="space-y-4 p-4">
+        <Button variant="ghost" size="xs" onClick={onBack} className="-ml-2">
+          <ArrowLeft />
+          Back
+        </Button>
         <div className="space-y-3">
           {Array.from({ length: 4 }).map((_, i) => (
-            <div key={i} className="h-8 animate-pulse rounded bg-muted/30" />
+            <div
+              key={i}
+              className="h-8 animate-pulse rounded-sm bg-surface-subtle"
+            />
           ))}
         </div>
       </div>
@@ -50,17 +53,15 @@ export function AgentHistoryDetail({
 
   if (isError || !data) {
     return (
-      <div className="space-y-4 p-5">
-        <button
-          onClick={onBack}
-          className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
-        >
-          <ArrowLeft className="h-3.5 w-3.5" /> Back to history
-        </button>
-        <div className="flex flex-col items-center justify-center py-16 text-center text-sm text-muted-foreground">
+      <div className="space-y-4 p-4">
+        <Button variant="ghost" size="xs" onClick={onBack} className="-ml-2">
+          <ArrowLeft />
+          Back to history
+        </Button>
+        <div className="flex flex-col items-center justify-center py-16 text-center text-body-md text-muted-foreground">
           <Search className="mb-3 h-8 w-8" />
           <div className="font-medium text-foreground">Agent not found</div>
-          <div className="mt-1 max-w-xs text-xs">
+          <div className="mt-1 max-w-xs text-body-sm">
             No history data exists for this agent ID. It may have been cleaned
             up or the link may be invalid.
           </div>
@@ -79,75 +80,67 @@ export function AgentHistoryDetail({
     tokenUsage.total_output;
 
   return (
-    <div className="mx-auto max-w-5xl min-w-0 space-y-6 px-3 pt-4 pb-12 sm:space-y-8 sm:px-5 sm:pt-6 sm:pb-20 md:px-8">
+    <div className="mx-auto max-w-5xl min-w-0 space-y-6 px-3 pt-4 pb-12 sm:space-y-8 sm:px-4 sm:pt-6 sm:pb-20 md:px-8">
       {/* Header */}
       <div>
-        <button
+        <Button
+          variant="ghost"
+          size="xs"
           onClick={onBack}
-          className="mb-3 flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+          className="mb-3 -ml-2"
         >
-          <ArrowLeft className="h-3.5 w-3.5" /> Back to history
-        </button>
+          <ArrowLeft />
+          Back to history
+        </Button>
         <div className="flex items-center gap-2">
           <AgentSessionLink agentId={agent.id} name={agent.name}>
             <AgentTypeIcon type={agent.type} />
           </AgentSessionLink>
-          <h2 className="text-base font-semibold text-foreground">
+          <h2 className="text-heading-md text-foreground">
             <AgentSessionLink agentId={agent.id} name={agent.name} />
           </h2>
         </div>
-        <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
-          <span>
-            {new Date(agent.createdAt).toLocaleDateString(undefined, {
-              month: "short",
-              day: "numeric",
-              year: "numeric",
-            })}{" "}
-            at{" "}
-            {new Date(agent.createdAt).toLocaleTimeString(undefined, {
-              hour: "2-digit",
-              minute: "2-digit",
-            })}
-          </span>
+        <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-body-sm text-muted-foreground">
+          <span>{formatDateTime(agent.createdAt)}</span>
           <span>{formatDuration(durationMs)}</span>
         </div>
 
         {/* Agent details */}
-        <div className="mt-3 space-y-1 text-xs text-muted-foreground">
+        <div className="mt-3 space-y-1 text-body-sm text-muted-foreground">
           {runnerName && (
             <div className="flex items-center gap-2">
-              <span className="w-16 shrink-0 text-[11px]">Runner</span>
-              <span className="break-all font-mono text-[11px]">
+              <span className="w-16 shrink-0 text-label-sm">Runner</span>
+              <span className="break-all font-mono text-label-sm">
                 {runnerName}
               </span>
             </div>
           )}
           {(agent.worktreeBranch || agent.gitContext?.branch) && (
             <div className="flex items-center gap-2">
-              <span className="w-16 shrink-0 text-[11px]">Branch</span>
-              <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] text-foreground">
+              <span className="w-16 shrink-0 text-label-sm">Branch</span>
+              <span className="rounded-sm bg-muted px-1.5 py-0.5 font-mono text-label-sm text-foreground">
                 {agent.worktreeBranch || agent.gitContext?.branch}
               </span>
             </div>
           )}
           <div className="flex items-center gap-2">
-            <span className="w-16 shrink-0 text-[11px]">Project</span>
-            <span className="font-mono text-[11px]">
+            <span className="w-16 shrink-0 text-label-sm">Project</span>
+            <span className="font-mono text-label-sm">
               {shortProjectName(agent.gitContext?.repoRoot ?? agent.cwd)}
             </span>
           </div>
           {agent.gitContext?.worktreePath && agent.gitContext.isWorktree && (
             <div className="flex items-center gap-2">
-              <span className="w-16 shrink-0 text-[11px]">Worktree</span>
-              <span className="font-mono text-[11px]">
+              <span className="w-16 shrink-0 text-label-sm">Worktree</span>
+              <span className="font-mono text-label-sm">
                 {shortProjectName(agent.gitContext.worktreePath)}
               </span>
             </div>
           )}
           {agent.cwd !== agent.gitContext?.repoRoot && (
             <div className="flex items-center gap-2">
-              <span className="w-16 shrink-0 text-[11px]">Directory</span>
-              <span className="font-mono text-[11px]">
+              <span className="w-16 shrink-0 text-label-sm">Directory</span>
+              <span className="font-mono text-label-sm">
                 {shortProjectName(agent.cwd)}
               </span>
             </div>

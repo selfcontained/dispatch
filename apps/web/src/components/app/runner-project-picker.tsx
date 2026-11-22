@@ -84,7 +84,7 @@ export function RunnerProjectPicker({
 
   return (
     <div className="space-y-1">
-      <label id={labelId} className="text-sm text-muted-foreground">
+      <label id={labelId} className="text-body-md text-muted-foreground">
         Project or repository <span className="opacity-70">(optional)</span>
       </label>
       <div className="flex gap-1">
@@ -92,8 +92,7 @@ export function RunnerProjectPicker({
           <PopoverTrigger asChild>
             <Button
               type="button"
-              variant="default"
-              className="h-[38px] min-w-0 flex-1 justify-between px-3"
+              className="min-w-0 flex-1 justify-between"
               ref={trigger}
               aria-labelledby={`${labelId} ${labelId}-value`}
               data-testid="runner-repository"
@@ -134,7 +133,7 @@ export function RunnerProjectPicker({
                 onValueChange={setInput}
               />
               {showUpdate && (
-                <p className="px-3 py-2 text-xs text-muted-foreground">
+                <p className="px-3 py-2 text-body-sm text-muted-foreground">
                   Update this runner to search your GitHub repositories.
                 </p>
               )}
@@ -203,7 +202,7 @@ export function RunnerProjectPicker({
               </CommandList>
               <div
                 role="status"
-                className="empty:hidden px-3 py-2 text-xs text-muted-foreground"
+                className="empty:hidden px-3 py-2 text-body-sm text-muted-foreground"
               >
                 {urlInput && !validUrl
                   ? "Enter an HTTPS Git URL without credentials, a query, or a fragment."
@@ -229,14 +228,14 @@ export function RunnerProjectPicker({
       </div>
       {projectId && repository && (
         <p
-          className="truncate pt-1 text-xs text-muted-foreground"
+          className="truncate pt-1 text-body-sm text-muted-foreground"
           title={repository}
         >
           {repository}
         </p>
       )}
       {!hasSelection && (
-        <p className="text-xs text-muted-foreground">
+        <p className="text-body-sm text-muted-foreground">
           Starts in an empty directory. Archiving removes it.
         </p>
       )}

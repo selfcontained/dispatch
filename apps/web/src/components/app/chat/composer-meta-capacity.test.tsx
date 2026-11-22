@@ -121,9 +121,9 @@ describe("capacity presentation", () => {
     fireEvent.click(chip);
     for (const engine of ["codex", "claude"]) {
       const card = await screen.findByTestId(`usage-plan-${engine}`);
-      assertBar(card, "Weekly", 40, "bg-status-working");
+      assertBar(card, "Weekly", 40, "bg-success");
       assertBar(card, "Full", 100);
-      assertBar(card, "Empty", 0, "bg-destructive");
+      assertBar(card, "Empty", 0, "bg-danger");
       expect(within(card).getByText("40% left")).toBeTruthy();
     }
     assertBar(screen.getByTestId("usage-agent-card"), "Context", 40);
@@ -147,10 +147,10 @@ describe("capacity presentation", () => {
   });
 
   it.each([
-    [0, 100, "bg-status-working"],
-    [100, 0, "bg-destructive"],
-    [69.6, 30, "bg-status-waiting"],
-    [89.6, 10, "bg-destructive"],
+    [0, 100, "bg-success"],
+    [100, 0, "bg-danger"],
+    [69.6, 30, "bg-warning"],
+    [89.6, 10, "bg-danger"],
   ] as const)(
     "keeps context warning behavior at %s used",
     async (used, left, tone) => {
@@ -165,14 +165,14 @@ describe("capacity presentation", () => {
 
   it("preserves raw used thresholds, provider severity, rounding, and unknowns", async () => {
     const cases = [
-      ["Below warning", 69.6, 30, "bg-status-working", undefined],
-      ["Warning", 70, 30, "bg-status-waiting", undefined],
-      ["Below danger", 89.6, 10, "bg-status-waiting", undefined],
-      ["Danger", 90, 10, "bg-destructive", undefined],
-      ["Provider normal", 99, 1, "bg-status-working", "normal"],
-      ["Provider warning", 0, 100, "bg-status-waiting", "warning"],
-      ["Provider critical", 0, 100, "bg-destructive", "critical"],
-      ["Rounded empty", 99.6, 0, "bg-destructive", undefined],
+      ["Below warning", 69.6, 30, "bg-success", undefined],
+      ["Warning", 70, 30, "bg-warning", undefined],
+      ["Below danger", 89.6, 10, "bg-warning", undefined],
+      ["Danger", 90, 10, "bg-danger", undefined],
+      ["Provider normal", 99, 1, "bg-success", "normal"],
+      ["Provider warning", 0, 100, "bg-warning", "warning"],
+      ["Provider critical", 0, 100, "bg-danger", "critical"],
+      ["Rounded empty", 99.6, 0, "bg-danger", undefined],
     ] as const;
     mount(
       [

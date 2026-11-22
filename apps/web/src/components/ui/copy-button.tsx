@@ -1,12 +1,12 @@
 import type { ComponentProps } from "react";
 import { Check, Copy, Download } from "lucide-react";
-import { Button } from "./button";
+import { IconButton } from "./icon-button";
 import { useCopyText } from "@/hooks/use-copy";
 import { cn } from "@/lib/utils";
 
 type CopyIconButtonProps = Omit<
-  ComponentProps<typeof Button>,
-  "children" | "onClick"
+  ComponentProps<typeof IconButton>,
+  "children" | "label" | "onClick" | "tooltip"
 > & {
   copied: boolean;
   onCopy: () => void;
@@ -23,32 +23,27 @@ export function CopyIconButton({
   copiedLabel = "Copied",
   className,
   faceClassName,
+  size = "icon-sm",
   ...props
 }: CopyIconButtonProps) {
+  const Icon = copied ? Check : Copy;
   return (
-    <Button
+    <IconButton
       {...props}
-      type="button"
-      variant="ghost"
-      size="icon"
-      className={cn(
-        "h-7 w-7 text-muted-foreground hover:text-foreground",
-        className,
-        copied && "text-status-working opacity-100"
-      )}
+      size={size}
+      label={copied ? copiedLabel : label}
+      className={cn(className, copied && "text-success opacity-100")}
       onClick={onCopy}
-      title={copied ? copiedLabel : label}
-      aria-label={copied ? copiedLabel : label}
       data-copied={copied}
     >
-      <span className={faceClassName}>
-        {copied ? (
-          <Check className="h-3.5 w-3.5" aria-hidden="true" />
-        ) : (
-          <Copy className="h-3.5 w-3.5" aria-hidden="true" />
-        )}
-      </span>
-    </Button>
+      {faceClassName ? (
+        <span className={faceClassName}>
+          <Icon className="size-icon-md" aria-hidden="true" />
+        </span>
+      ) : (
+        <Icon aria-hidden="true" />
+      )}
+    </IconButton>
   );
 }
 
@@ -65,20 +60,17 @@ export function CopyButton({
 export function DownloadButton({
   src,
   fileName,
+  size = "icon-sm",
 }: {
   src: string;
   fileName: string;
+  size?: ComponentProps<typeof IconButton>["size"];
 }) {
   return (
-    <Button
-      asChild
-      variant="ghost"
-      size="icon"
-      className="h-7 w-7 text-muted-foreground hover:text-foreground"
-    >
-      <a href={src} download={fileName} title="Download" aria-label="Download">
-        <Download className="h-3.5 w-3.5" aria-hidden="true" />
+    <IconButton asChild size={size} label="Download">
+      <a href={src} download={fileName}>
+        <Download className="size-icon-md" aria-hidden="true" />
       </a>
-    </Button>
+    </IconButton>
   );
 }

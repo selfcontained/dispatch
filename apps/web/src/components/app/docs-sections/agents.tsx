@@ -9,7 +9,7 @@ export function AgentsContent() {
           Click <strong>Create</strong> in the sidebar (or use the dropdown
           arrow to pick a specific agent type). Fill in the create form:
         </P>
-        <ul className="grid gap-1.5 pl-4 text-sm text-muted-foreground list-disc">
+        <ul className="grid gap-1.5 pl-4 text-body-md text-muted-foreground list-disc">
           <li>
             <strong>Type</strong> — <Code>claude</Code> (the default) or{" "}
             <Code>codex</Code>. Disabled types can be enabled in Settings.
@@ -93,7 +93,7 @@ export function AgentsContent() {
           Three contextual badges can appear next to an agent's name in the
           sidebar:
         </P>
-        <ul className="grid gap-1.5 pl-4 text-sm text-muted-foreground list-disc">
+        <ul className="grid gap-1.5 pl-4 text-body-md text-muted-foreground list-disc">
           <li>
             <strong>Attention</strong> — the agent entered an error state and
             may need manual intervention. Hover the badge to see the specific
@@ -281,7 +281,7 @@ export function AgentsContent() {
           agent. Phrases are always available for management; sending is enabled
           while an agent is selected.
         </P>
-        <ul className="grid gap-1.5 pl-4 text-sm text-muted-foreground list-disc">
+        <ul className="grid gap-1.5 pl-4 text-body-md text-muted-foreground list-disc">
           <li>
             <strong>Creating</strong> — click the <Code>+</Code> button in the
             popover to open the Add Phrase dialog. Each phrase has an optional{" "}

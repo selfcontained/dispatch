@@ -11,6 +11,26 @@ of `launch_agent`, `create_job`, `update_job`, `create_template`, and
 `update_template`. That text is derived
 from the catalog — editing the catalog updates it, no separate step.
 
+## Turning models off
+
+**Settings → Agents** filters the catalog per agent type
+(`apps/server/src/agents/model-availability.ts`). It is only a filter. The
+catalog, model ids and Default are unchanged.
+
+- A model that is off can't be **newly chosen**: pickers and tool descriptions
+  omit it, and `validateAgentModelChoice` rejects it. Use that function at any
+  new place a model is chosen.
+- A **saved** choice keeps working. Launching a template, job, trigger or task
+  override, resuming an agent, saving an unchanged value, and duplicating a
+  template use `validateAgentModel`, or pass the saved value to the choice
+  check.
+- **Default** still lets the CLI choose, including a model that is off.
+- The first list an engine reports is the baseline. An id it lists later for
+  the first time is New until seen in a list, and starts on or off by
+  **Auto-enable new models**.
+- The filter keys on the engine's id. A moving alias such as `opus` keeps its
+  setting when the version behind it changes, and that change isn't New.
+
 ## Maintenance sources
 
 - [Codex model selection](https://learn.chatgpt.com/docs/models.md)

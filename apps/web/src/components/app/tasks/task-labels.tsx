@@ -28,6 +28,9 @@ import {
   CommandGroup,
   CommandItem,
 } from "@/components/ui/command";
+import { IconButton } from "@/components/ui/icon-button";
+import { RowButton } from "@/components/ui/row-button";
+import { Hint } from "@/components/ui/tooltip";
 import { ColorPicker, PROJECT_COLORS, isHexColor } from "../color-picker";
 
 export function TaskLabels({ labels = [] }: { labels?: TaskLabel[] }) {
@@ -37,15 +40,16 @@ export function TaskLabels({ labels = [] }: { labels?: TaskLabel[] }) {
         <TaskLabelBadge key={label.name} label={label} />
       ))}
       {labels.length > 3 && (
-        <span
-          title={labels
+        <Hint
+          label={labels
             .slice(3)
             .map((l) => l.name)
             .join(", ")}
-          className="text-[10px] text-muted-foreground"
         >
-          +{labels.length - 3}
-        </span>
+          <span className="text-label-xs text-muted-foreground">
+            +{labels.length - 3}
+          </span>
+        </Hint>
       )}
     </div>
   );
@@ -158,12 +162,10 @@ export function TaskLabelPicker({
       }}
     >
       <PopoverTrigger asChild>
-        <Button
-          type="button"
-          variant="ghost"
+        <RowButton
           disabled={disabled}
           aria-label="Edit labels"
-          className="h-auto min-h-7 max-w-full min-w-0 justify-start gap-1.5 px-1.5 py-1 text-xs font-normal text-muted-foreground"
+          className="min-h-7 w-auto max-w-full min-w-0 gap-1.5 px-1.5 py-1 text-body-sm text-muted-foreground"
         >
           {value.length ? (
             <span className="flex min-w-0 items-center gap-2 overflow-hidden">
@@ -181,12 +183,12 @@ export function TaskLabelPicker({
             </span>
           ) : (
             <>
-              <Tag className="h-3.5 w-3.5 shrink-0" />
+              <Tag className="size-icon-md shrink-0" />
               Add labels
             </>
           )}
-          <ChevronDown className="ml-0.5 h-3 w-3 shrink-0 opacity-60" />
-        </Button>
+          <ChevronDown className="size-icon-sm shrink-0 opacity-60" />
+        </RowButton>
       </PopoverTrigger>
       <PopoverContent
         align="start"
@@ -202,7 +204,7 @@ export function TaskLabelPicker({
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder="Find a label…"
-                className="h-8 min-w-0 text-xs"
+                className="h-8 min-w-0 text-body-sm"
               />
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-1">
@@ -213,37 +215,37 @@ export function TaskLabelPicker({
                 .map((label) => (
                   <div
                     key={label.name}
-                    className="flex min-h-8 items-center gap-2 px-1 text-xs"
+                    className="flex min-h-8 items-center gap-2 px-1 text-body-sm"
                   >
                     <TaskLabelBadge label={label} />
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      disabled={disabled || visibility.isPending}
-                      className={cn(
-                        "ml-auto h-7 shrink-0 text-muted-foreground",
-                        isHidden(label) ? "px-1.5 text-[11px]" : "w-7 p-0"
-                      )}
-                      aria-label={
-                        isHidden(label)
-                          ? `Restore label ${label.name}`
-                          : `Remove label ${label.name} from options`
-                      }
-                      title={
-                        isHidden(label)
-                          ? "Restore label"
-                          : "Remove from options; keep task assignments"
-                      }
-                      onClick={() => {
-                        void setHidden(label, !isHidden(label));
-                      }}
-                    >
-                      {isHidden(label) ? (
-                        "Restore"
-                      ) : (
-                        <X className="h-3.5 w-3.5" aria-hidden="true" />
-                      )}
-                    </Button>
+                    {isHidden(label) ? (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="xs"
+                        disabled={disabled || visibility.isPending}
+                        className="ml-auto shrink-0 text-label-sm"
+                        aria-label={`Restore label ${label.name}`}
+                        onClick={() => {
+                          void setHidden(label, false);
+                        }}
+                      >
+                        Restore
+                      </Button>
+                    ) : (
+                      <IconButton
+                        tooltip="Remove from options; keep task assignments"
+                        size="icon-sm"
+                        disabled={disabled || visibility.isPending}
+                        className="ml-auto"
+                        label={`Remove label ${label.name} from options`}
+                        onClick={() => {
+                          void setHidden(label, true);
+                        }}
+                      >
+                        <X aria-hidden="true" />
+                      </IconButton>
+                    )}
                   </div>
                 ))}
             </div>
@@ -269,7 +271,7 @@ export function TaskLabelPicker({
                     placeholder="Find or create a label…"
                     aria-invalid={canCreate && tooLong}
                     aria-describedby="task-label-length"
-                    className="h-8 min-w-0 text-xs"
+                    className="h-8 min-w-0 text-body-sm"
                   />
                 </CommandPrimitive.Input>
               </div>
@@ -320,13 +322,13 @@ export function TaskLabelPicker({
                         className="min-h-9 gap-2"
                       >
                         <TaskLabelBadge label={hiddenMatch} />
-                        <span className="ml-auto shrink-0 text-[10px] text-muted-foreground">
+                        <span className="ml-auto shrink-0 text-label-xs text-muted-foreground">
                           Hidden · Restore &amp; add
                         </span>
                       </CommandItem>
                     )}
                     {!matching.length && !canCreate && !hiddenMatch && (
-                      <p className="px-2 py-3 text-xs text-muted-foreground">
+                      <p className="px-2 py-3 text-body-sm text-muted-foreground">
                         {isLoading
                           ? "Loading labels…"
                           : "Type a name to create a label"}
@@ -340,7 +342,7 @@ export function TaskLabelPicker({
               <p
                 id="task-label-length"
                 role={tooLong ? "alert" : undefined}
-                className="px-3 text-xs text-muted-foreground"
+                className="px-3 text-body-sm text-muted-foreground"
               >
                 {tooLong
                   ? `Use ${TASK_LABEL_NAME_MAX_LENGTH} characters or fewer`
@@ -356,6 +358,7 @@ export function TaskLabelPicker({
                   label="Label color"
                 />
                 <Button
+                  size="sm"
                   type="button"
                   variant="ghost"
                   aria-label={`Create “${name.trim()}”`}
@@ -367,13 +370,13 @@ export function TaskLabelPicker({
                     !isHexColor(color) ||
                     value.length >= 20
                   }
-                  className="mt-1 h-8 w-full min-w-0 justify-start gap-2 px-1 text-xs"
+                  className="mt-1 w-full min-w-0 justify-start text-body-sm"
                   onClick={() => {
                     toggle({ name: name.trim(), color });
                     setName("");
                   }}
                 >
-                  <Plus className="h-3.5 w-3.5 shrink-0" />
+                  <Plus />
                   <span className="shrink-0">Create</span>
                   <span className="min-w-0 truncate">“{name.trim()}”</span>
                 </Button>
@@ -382,16 +385,17 @@ export function TaskLabelPicker({
           </div>
         )}
         {visibility.error && (
-          <p role="alert" className="px-3 pb-2 text-xs text-destructive">
+          <p role="alert" className="px-3 pb-2 text-body-sm text-danger">
             {visibility.error.message}
           </p>
         )}
-        <div className="flex h-8 shrink-0 items-center border-t border-border/60 bg-muted/20 px-2">
+        <div className="flex h-8 shrink-0 items-center border-t border-border-subtle bg-surface-subtle px-2">
           <Button
+            size="xs"
             type="button"
             variant="ghost"
             aria-label={manage ? "Back to label picker" : "Manage labels"}
-            className="h-6 w-full justify-start gap-1.5 px-1 text-[11px] text-muted-foreground"
+            className="w-full justify-start text-label-sm"
             onClick={() => {
               setManage(!manage);
               setName("");
@@ -399,12 +403,12 @@ export function TaskLabelPicker({
           >
             {manage ? (
               <>
-                <ArrowLeft className="h-3 w-3 shrink-0" aria-hidden="true" />
+                <ArrowLeft aria-hidden="true" />
                 Back
               </>
             ) : (
               <>
-                <Settings className="h-3 w-3 shrink-0" aria-hidden="true" />
+                <Settings aria-hidden="true" />
                 Manage
               </>
             )}

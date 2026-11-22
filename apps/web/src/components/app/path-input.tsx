@@ -9,6 +9,9 @@ import {
 } from "lucide-react";
 
 import { ActivityBars } from "@/components/ui/activity-bars";
+import { CountBubble } from "@/components/ui/count-bubble";
+import { IconButton } from "@/components/ui/icon-button";
+import { Hint } from "@/components/ui/tooltip";
 import {
   isLocalFolder,
   acceptGhostCompletion,
@@ -302,7 +305,7 @@ export function PathInput({
     <div className={cn("relative", className)}>
       {label ? (
         <label
-          className="mb-1.5 block text-xs font-medium text-muted-foreground"
+          className="mb-1.5 block text-body-sm font-medium text-muted-foreground"
           htmlFor={id}
         >
           {label}
@@ -310,17 +313,15 @@ export function PathInput({
       ) : null}
 
       <div className="relative" ref={cmdRef}>
-        <div className="relative rounded-md border border-white/[0.12] bg-white/[0.04] backdrop-blur-md shadow-[inset_0_2px_6px_rgba(0,0,0,0.3)]">
+        <div className="relative rounded-md surface-inset">
           {/* Ghost autocomplete overlay */}
           {ghostSuffix && value.trim() ? (
             <div
               aria-hidden
-              className="pointer-events-none absolute inset-0 flex h-9 items-center overflow-hidden rounded-md border border-transparent px-3 py-2 font-mono text-xs"
+              className="pointer-events-none absolute inset-0 flex h-9 items-center overflow-hidden rounded-md border border-transparent px-3 py-2 font-mono text-body-sm"
             >
               <span className="invisible whitespace-pre">{value}</span>
-              <span className="whitespace-pre text-muted-foreground/40">
-                {ghostSuffix}
-              </span>
+              <span className="whitespace-pre text-faint">{ghostSuffix}</span>
             </div>
           ) : null}
           <input
@@ -384,13 +385,14 @@ export function PathInput({
             }}
             placeholder={placeholder}
             data-testid={testId}
-            className="flex h-9 w-full bg-transparent pr-8 px-3 py-1 font-mono text-xs text-foreground placeholder:text-muted-foreground focus-visible:outline-none"
+            className="flex h-9 w-full rounded-md bg-transparent pr-8 px-3 py-1 font-mono text-body-sm text-foreground placeholder:text-muted-foreground focus-ring"
           />
           {history.length > 0 ? (
-            <button
-              type="button"
+            <IconButton
+              size="icon-xs"
+              label="Show suggestions"
               tabIndex={-1}
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground"
+              className="absolute right-1.5 top-1/2 -translate-y-1/2"
               onClick={() => {
                 setDropdownOpen((prev) => !prev);
                 inputRef.current?.focus();
@@ -399,16 +401,16 @@ export function PathInput({
             >
               <ChevronDown
                 className={cn(
-                  "h-4 w-4 transition-transform",
+                  "transition-transform",
                   dropdownOpen && "rotate-180"
                 )}
               />
-            </button>
+            </IconButton>
           ) : null}
         </div>
         {dropdownOpen && options.length > 0 ? (
-          <div className="absolute left-0 right-0 z-[60] mt-1.5 rounded-md border border-white/[0.2] bg-[hsl(var(--card))] p-1 shadow-[0_16px_64px_rgba(0,0,0,0.5),inset_0_1px_0_rgba(255,255,255,0.15)] backdrop-blur-2xl">
-            <div className="px-2 py-1.5 text-[11px] font-medium text-muted-foreground">
+          <div className="absolute left-0 right-0 z-drawer-panel mt-1.5 rounded-md surface-overlay p-1">
+            <div className="px-2 py-1.5 text-label-sm font-medium text-muted-foreground">
               Suggestions
             </div>
             <div
@@ -430,44 +432,41 @@ export function PathInput({
                     data-testid={historyItemTestId}
                     data-selected={selected}
                     className={cn(
-                      "group flex cursor-default select-none items-center gap-2 rounded-sm px-2 py-2 text-xs outline-none",
-                      selected && "bg-primary/20 text-foreground"
+                      "group flex cursor-default select-none items-center gap-2 rounded-sm px-2 py-2 text-body-sm outline-none",
+                      selected && "bg-primary/tint-strong text-foreground"
                     )}
                     onClick={() => selectOption(option)}
                     onMouseDown={(event) => event.preventDefault()}
                     onMouseMove={() => setSelectedIndex(index)}
                   >
-                    <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded border border-border/70 bg-muted/40">
+                    <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-sm border border-border-subtle bg-surface-subtle">
                       <PathOptionIcon iconUrl={option.iconUrl} />
                     </span>
                     <span className="min-w-0 flex-1">
-                      <span className="block truncate text-sm font-medium leading-4">
+                      <span className="block truncate text-body-md font-medium leading-4">
                         {option.label}
                       </span>
-                      <span className="block truncate font-mono text-[10px] text-muted-foreground">
+                      <span className="block truncate font-mono text-label-xs text-muted-foreground">
                         {option.path}
                       </span>
                     </span>
                     {option.usageCount > 0 ? (
-                      <span
-                        className="shrink-0 rounded border border-border/70 px-1.5 py-0.5 text-[10px] text-muted-foreground"
-                        title={`${option.usageCount} uses`}
-                      >
-                        {option.usageCount}
-                      </span>
+                      <Hint label={`${option.usageCount} uses`}>
+                        <CountBubble count={option.usageCount} />
+                      </Hint>
                     ) : null}
                     {onRemoveHistory && isRemovableOption ? (
-                      <button
-                        type="button"
-                        className="ml-auto shrink-0 p-0.5 text-muted-foreground opacity-0 hover:text-foreground group-data-[selected=true]:opacity-100"
+                      <IconButton
+                        size="icon-xs"
+                        label="Remove from history"
+                        className="ml-auto opacity-0 focus-visible:opacity-100 group-data-[selected=true]:opacity-100 pointer-coarse:opacity-100"
                         onClick={(e) => {
                           e.stopPropagation();
                           onRemoveHistory(option.path);
                         }}
-                        title="Remove from history"
                       >
-                        <X className="h-3 w-3" />
-                      </button>
+                        <X />
+                      </IconButton>
                     ) : null}
                   </div>
                 );
@@ -478,7 +477,7 @@ export function PathInput({
       </div>
 
       {showValidation ? (
-        <div className="mt-1.5 flex h-5 items-center justify-end gap-1.5 text-xs">
+        <div className="mt-1.5 flex h-5 items-center justify-end gap-1.5 text-body-sm">
           {runnerInLocalField ? (
             <span role="status">Choose a folder on this machine.</span>
           ) : validating ? (
@@ -486,33 +485,25 @@ export function PathInput({
           ) : pathValidation ? (
             pathValidation.isDirectory ? (
               <>
-                <CheckCircle2 className="h-3 w-3 text-emerald-500" />
+                <CheckCircle2 className="h-3 w-3 text-success" />
                 {pathValidation.isGitRepo ? (
                   <>
-                    <GitBranch className="h-3 w-3 text-emerald-500" />
-                    <span className="text-emerald-600 dark:text-emerald-400">
-                      Git repository
-                    </span>
+                    <GitBranch className="h-3 w-3 text-success" />
+                    <span className="text-success-ink">Git repository</span>
                   </>
                 ) : (
-                  <span className="text-emerald-600 dark:text-emerald-400">
-                    Valid directory
-                  </span>
+                  <span className="text-success-ink">Valid directory</span>
                 )}
               </>
             ) : pathValidation.exists ? (
               <>
-                <AlertCircle className="h-3 w-3 text-amber-500" />
-                <span className="text-amber-600 dark:text-amber-400">
-                  Not a directory
-                </span>
+                <AlertCircle className="h-3 w-3 text-warning" />
+                <span className="text-warning-ink">Not a directory</span>
               </>
             ) : (
               <>
-                <AlertCircle className="h-3 w-3 text-amber-500" />
-                <span className="text-amber-600 dark:text-amber-400">
-                  Directory not found
-                </span>
+                <AlertCircle className="h-3 w-3 text-warning" />
+                <span className="text-warning-ink">Directory not found</span>
               </>
             )
           ) : null}

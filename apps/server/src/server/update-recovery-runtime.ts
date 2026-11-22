@@ -130,6 +130,7 @@ export function createUpdateRecoveryRuntime(deps: {
     return reasons;
   }
 
+  const stoppedForUpdate = new Set<string>();
   const maintenance = new RecoveryMaintenance({
     version: packageVersion,
     instance: {
@@ -146,15 +147,27 @@ export function createUpdateRecoveryRuntime(deps: {
     quiesceHosts: async (transactionId) => {
       const { stopped, remaining } =
         await agentManager.stopIdleHostsForRecovery(20_000);
+      if (stopped.length === 0 && stoppedForUpdate.size === 0)
+        return remaining.map((agentId) => ({
+          kind: "host-still-running" as const,
+          agentId,
+        }));
+      for (const id of stopped) stoppedForUpdate.add(id);
       // Written before the helper backs up, so a restored backup carries
       // the same receipt and row timestamps as a committed update.
       try {
-        await writeResumeReceipt(recoveryResumeFile, {
-          formatVersion: 1,
-          transactionId,
-          createdAt: new Date().toISOString(),
-          agents: await agentManager.updateResumeSnapshot(stopped),
-        });
+        await writeResumeReceipt(
+          recoveryResumeFile,
+          {
+            formatVersion: 1,
+            transactionId,
+            createdAt: new Date().toISOString(),
+            agents: await agentManager.updateResumeSnapshot([
+              ...stoppedForUpdate,
+            ]),
+          },
+          true
+        );
       } catch (err) {
         log.error({ err }, "Could not record agents to resume");
         return [{ kind: "resume-receipt" as const }];

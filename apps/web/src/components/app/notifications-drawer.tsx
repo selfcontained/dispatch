@@ -12,6 +12,7 @@ import {
   SheetTitle,
   SheetTrigger,
 } from "@/components/ui/sheet";
+import { IconButton } from "@/components/ui/icon-button";
 import { api } from "@/lib/api";
 
 export function NotificationsDrawer(): JSX.Element {
@@ -28,32 +29,28 @@ export function NotificationsDrawer(): JSX.Element {
   return (
     <Sheet open={open} onOpenChange={setOpen}>
       <SheetTrigger asChild>
-        <Button size="icon" variant="ghost" aria-label="Notifications">
-          <Bell className="size-4" />
-        </Button>
+        <IconButton label="Notifications">
+          <Bell />
+        </IconButton>
       </SheetTrigger>
       <SheetContent aria-describedby={undefined}>
-        <div className="border-b px-4 pb-4 pt-[max(1rem,var(--safe-area-top))]">
-          <SheetTitle className="text-base font-semibold">
-            Notifications
-          </SheetTitle>
+        <div className="border-b px-4 pb-4 pt-safe-4">
+          <SheetTitle className="text-heading-md">Notifications</SheetTitle>
         </div>
-        <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+        <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-3 pb-safe-3">
           {history.isPending ? (
-            <p role="status" className="p-2 text-sm text-muted-foreground">
+            <p role="status" className="p-2 text-body-md text-muted-foreground">
               Loading…
             </p>
           ) : history.isError && !history.data ? (
             <div className="space-y-2 p-2">
-              <p role="alert" className="text-sm text-muted-foreground">
+              <p role="alert" className="text-body-md text-muted-foreground">
                 Couldn’t load notifications
               </p>
-              <Button variant="default" onClick={() => void history.refetch()}>
-                Retry
-              </Button>
+              <Button onClick={() => void history.refetch()}>Retry</Button>
             </div>
           ) : items?.length === 0 ? (
-            <p className="p-2 text-sm text-muted-foreground">
+            <p className="p-2 text-body-md text-muted-foreground">
               No notifications
             </p>
           ) : (

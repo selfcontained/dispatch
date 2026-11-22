@@ -45,16 +45,15 @@ export function MobileTerminalControls({
     >
       <div className="relative border-t-2 border-border bg-surface px-2 py-2 md:hidden">
         <div className="flex min-h-[4.5rem] items-stretch gap-2">
-          <div className="min-w-0 flex-1">
+          <div className="grid min-w-0 flex-1">
             <DialogTrigger asChild>
               <Button
                 type="button"
                 size="sm"
-                variant="default"
-                className="h-full w-full rounded-bl-[28px] px-2 text-xs"
+                className="w-full rounded-bl-screen text-body-sm"
                 aria-label="Open text input"
               >
-                <Keyboard className="h-5 w-5" strokeWidth={2} />
+                <Keyboard strokeWidth={2} />
               </Button>
             </DialogTrigger>
           </div>
@@ -64,8 +63,7 @@ export function MobileTerminalControls({
               <Button
                 type="button"
                 size="sm"
-                variant="default"
-                className="h-8 shrink-0 px-3 text-xs"
+                className="shrink-0 text-body-sm"
                 aria-label="Send Escape"
                 onClick={() => sendKey("\u001b")}
               >
@@ -74,10 +72,10 @@ export function MobileTerminalControls({
               <Button
                 type="button"
                 size="sm"
-                variant="default"
                 className={cn(
-                  "h-8 shrink-0 px-3 text-xs",
-                  ctrlArmed && "ring-2 ring-primary bg-primary/20 text-primary"
+                  "shrink-0 text-body-sm",
+                  ctrlArmed &&
+                    "ring-2 ring-primary bg-primary/tint-strong text-primary"
                 )}
                 aria-label="Toggle Control modifier"
                 aria-pressed={ctrlArmed}
@@ -91,8 +89,7 @@ export function MobileTerminalControls({
               <Button
                 type="button"
                 size="sm"
-                variant="default"
-                className="h-8 shrink-0 px-3 text-xs"
+                className="shrink-0 text-body-sm"
                 aria-label="Send Tab"
                 onClick={() => sendKey("\t")}
               >
@@ -104,8 +101,7 @@ export function MobileTerminalControls({
               <Button
                 type="button"
                 size="sm"
-                variant="default"
-                className="h-8 w-10 shrink-0 px-0 text-base"
+                className="w-10 shrink-0 text-body-lg"
                 aria-label="Send Arrow Left"
                 onClick={() => sendKey("\u001b[D")}
               >
@@ -114,8 +110,7 @@ export function MobileTerminalControls({
               <Button
                 type="button"
                 size="sm"
-                variant="default"
-                className="h-8 w-10 shrink-0 px-0 text-base"
+                className="w-10 shrink-0 text-body-lg"
                 aria-label="Send Arrow Up"
                 onClick={() => sendKey("\u001b[A")}
               >
@@ -124,8 +119,7 @@ export function MobileTerminalControls({
               <Button
                 type="button"
                 size="sm"
-                variant="default"
-                className="h-8 w-10 shrink-0 px-0 text-base"
+                className="w-10 shrink-0 text-body-lg"
                 aria-label="Send Arrow Down"
                 onClick={() => sendKey("\u001b[B")}
               >
@@ -134,8 +128,7 @@ export function MobileTerminalControls({
               <Button
                 type="button"
                 size="sm"
-                variant="default"
-                className="h-8 w-10 shrink-0 px-0 text-base"
+                className="w-10 shrink-0 text-body-lg"
                 aria-label="Send Arrow Right"
                 onClick={() => sendKey("\u001b[C")}
               >
@@ -144,12 +137,11 @@ export function MobileTerminalControls({
             </div>
           </div>
 
-          <div className="min-w-0 flex-1">
+          <div className="grid min-w-0 flex-1">
             <Button
               type="button"
               size="sm"
-              variant="default"
-              className="h-full w-full rounded-br-[28px] px-2 text-xs"
+              className="w-full rounded-br-screen text-body-sm"
               aria-label="Send Enter"
               onClick={() => sendKey("\r")}
             >
@@ -160,7 +152,7 @@ export function MobileTerminalControls({
       </div>
 
       <DialogContent
-        className="fixed inset-0 left-0 top-0 h-dvh max-h-none w-full translate-x-0 translate-y-0 gap-0 rounded-none border-0 bg-background/95 p-0 shadow-none backdrop-blur-sm"
+        className="fixed inset-0 left-0 top-0 h-dvh max-h-none w-full translate-x-0 translate-y-0 gap-0 rounded-none border-0 bg-background/dense p-0 shadow-none backdrop-blur-sm"
         onOpenAutoFocus={(event) => {
           event.preventDefault();
           textarea.current?.focus();
@@ -171,7 +163,7 @@ export function MobileTerminalControls({
           <Button
             type="button"
             variant="ghost"
-            className="h-11 shrink-0 px-3 text-sm"
+            className="shrink-0"
             onClick={close}
           >
             Cancel
@@ -179,14 +171,14 @@ export function MobileTerminalControls({
           <Button
             type="button"
             variant="primary"
-            className="h-11 px-4 text-sm font-medium"
+            className="font-medium"
             onClick={submit}
           >
             Submit
           </Button>
         </div>
         <DialogDescription
-          className="truncate px-4 pt-3 text-xs"
+          className="truncate px-4 pt-3 text-body-sm"
           title={`${target.user}@${target.host}:${target.cwd}`}
         >
           Sending to{" "}
@@ -201,7 +193,7 @@ export function MobileTerminalControls({
             aria-label="Terminal input text"
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
-            className="h-full min-h-0 w-full resize-none rounded-lg border border-white/[0.12] bg-white/[0.04] backdrop-blur-md shadow-[inset_0_2px_6px_rgba(0,0,0,0.3)] p-3 font-mono text-base text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary focus-visible:ring-1 focus-visible:ring-primary"
+            className="h-full min-h-0 w-full resize-none rounded-lg surface-inset p-3 font-mono text-body-lg text-foreground placeholder:text-muted-foreground focus-ring"
             placeholder="Type command here..."
             autoFocus
             autoCapitalize="off"

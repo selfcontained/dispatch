@@ -1,4 +1,5 @@
 import { ColorPicker, PROJECT_COLORS, isHexColor } from "./color-picker";
+import { readProjectLogoColors } from "./project-logo-color";
 import {
   Popover,
   PopoverContent,
@@ -22,6 +23,7 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog";
+import { IconButton } from "@/components/ui/icon-button";
 
 export function ProjectEditor({
   project,
@@ -35,7 +37,11 @@ export function ProjectEditor({
   const [name, setName] = useState(project?.name ?? "");
   const [repoRoot, setRepoRoot] = useState(project?.repoRoot ?? "");
   const [previewRoot, setPreviewRoot] = useState(repoRoot);
-  const [color, setColor] = useState(project?.color ?? PROJECT_COLORS[0]!);
+  const [manualColor, setManualColor] = useState<string>();
+  const [logoPalette, setLogoPalette] = useState<{
+    src: string;
+    colors: string[];
+  }>();
   const [icon, setIcon] = useState<string | null>(
     project?.iconOverride?.startsWith("data:") ? project.iconOverride : null
   );
@@ -64,7 +70,13 @@ export function ProjectEditor({
     enabled: !!previewRoot.trim(),
     staleTime: 0,
   });
-  const iconSrc = icon ?? preview.data?.dataUrl;
+  const iconSrc =
+    icon ??
+    (project || repoRoot === previewRoot ? preview.data?.dataUrl : null);
+  const logoColors =
+    logoPalette?.src === iconSrc ? logoPalette?.colors : undefined;
+  const color =
+    manualColor ?? project?.color ?? logoColors?.[0] ?? PROJECT_COLORS[0]!;
   const validColor = isHexColor(color);
   return (
     <>
@@ -100,7 +112,7 @@ export function ProjectEditor({
               className="-m-1 min-h-0 flex-1 space-y-4 overflow-y-auto p-1"
               data-testid="project-editor-body"
             >
-              <label className="block space-y-1 text-sm">
+              <label className="block space-y-1 text-body-md">
                 <span>Name</span>
                 <Input
                   value={name}
@@ -111,11 +123,11 @@ export function ProjectEditor({
                 />
               </label>
               {project ? (
-                <div className="space-y-1 text-sm">
+                <div className="space-y-1 text-body-md">
                   <span>Folder</span>
                   <p
                     title={repoRoot}
-                    className="truncate text-xs text-muted-foreground"
+                    className="truncate text-body-sm text-muted-foreground"
                   >
                     {repoRoot}
                   </p>
@@ -130,20 +142,30 @@ export function ProjectEditor({
                 />
               )}
               <fieldset className="space-y-2">
-                <legend className="text-sm">Icon</legend>
+                <legend className="text-body-md">Icon</legend>
                 <div className="flex items-center gap-3">
                   <div
-                    className="flex h-16 w-16 shrink-0 items-center justify-center rounded-lg border border-border bg-muted/30"
+                    className="flex h-16 w-16 shrink-0 items-center justify-center rounded-lg border border-border bg-surface-subtle"
                     data-testid="project-icon-preview"
                   >
                     {iconSrc ? (
                       <img
+                        key={iconSrc}
                         src={iconSrc}
+                        onLoad={(e) =>
+                          setLogoPalette({
+                            src: iconSrc,
+                            colors: readProjectLogoColors(e.currentTarget),
+                          })
+                        }
+                        onError={() =>
+                          setLogoPalette({ src: iconSrc, colors: [] })
+                        }
                         alt="Project icon preview"
                         className="h-12 w-12 object-contain"
                       />
                     ) : (
-                      <span className="text-xl text-muted-foreground">
+                      <span className="text-heading-lg font-normal text-muted-foreground">
                         {name.trim().slice(0, 1).toUpperCase() || "?"}
                       </span>
                     )}
@@ -151,7 +173,7 @@ export function ProjectEditor({
                   <div className="min-w-0 flex-1 space-y-2">
                     <div className="flex h-4 items-center gap-1">
                       <p
-                        className="min-w-0 truncate text-xs text-muted-foreground"
+                        className="min-w-0 truncate text-body-sm text-muted-foreground"
                         role="status"
                         title={preview.data?.path ?? undefined}
                       >
@@ -165,17 +187,14 @@ export function ProjectEditor({
                       </p>
                       <Popover>
                         <PopoverTrigger asChild>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon"
-                            className="h-5 w-5 shrink-0"
-                            aria-label="About folder icons"
-                          >
-                            <Info className="h-3.5 w-3.5" />
-                          </Button>
+                          <IconButton size="icon-xs" label="About folder icons">
+                            <Info />
+                          </IconButton>
                         </PopoverTrigger>
-                        <PopoverContent className="w-64 text-xs" side="top">
+                        <PopoverContent
+                          className="w-64 text-body-sm"
+                          side="top"
+                        >
                           Add .dispatch/logo.svg or .dispatch/logo.png to the
                           folder to use it automatically. Upload an image to
                           override it.
@@ -192,11 +211,10 @@ export function ProjectEditor({
                         ref={uploadButton}
                         type="button"
                         size="sm"
-                        variant="default"
                         disabled={preparing}
                         onClick={() => uploadInput.current?.click()}
                       >
-                        <Upload className="mr-1.5 h-3.5 w-3.5" />
+                        <Upload />
                         {preparing ? "Preparing…" : "Upload"}
                       </Button>
                       <Button
@@ -237,24 +255,25 @@ export function ProjectEditor({
                 />
               </fieldset>
               <fieldset className="space-y-2">
-                <legend className="text-sm">Color</legend>
+                <legend className="text-body-md">Color</legend>
                 <ColorPicker
                   value={color}
-                  onChange={setColor}
+                  onChange={setManualColor}
+                  logoColors={logoColors}
                   label="Project color"
                 />
               </fieldset>
               {(error || action.error) && (
-                <p role="alert" className="text-sm text-destructive">
+                <p role="alert" className="text-body-md text-danger">
                   {error ?? action.error?.message}
                 </p>
               )}
               {project && (
-                <div className="flex flex-wrap items-center gap-3 rounded-lg bg-muted/30 p-3">
+                <div className="flex flex-wrap items-center gap-3 rounded-lg bg-surface-subtle p-3">
                   <Button
                     type="button"
                     size="sm"
-                    variant="destructive"
+                    variant="danger"
                     disabled={action.isPending}
                     onClick={() =>
                       confirmDelete
@@ -267,7 +286,7 @@ export function ProjectEditor({
                   >
                     {confirmDelete ? "Confirm delete" : "Delete project"}
                   </Button>
-                  <p className="min-w-32 flex-1 text-xs text-muted-foreground">
+                  <p className="min-w-32 flex-1 text-body-sm text-muted-foreground">
                     Ungroups sessions and templates. Files are kept.
                   </p>
                   {confirmDelete && (

@@ -45,6 +45,7 @@ import {
   SelectContent,
   SelectItem,
 } from "@/components/ui/select";
+import { IconButton } from "@/components/ui/icon-button";
 import { FileActions } from "./file-lightbox-actions";
 
 export type ImageShareLocation = {
@@ -614,8 +615,8 @@ export function ImageComments({
         data-testid="file-lightbox"
         aria-label={caption}
         aria-describedby={undefined}
-        className="inset-0 z-[130] h-dvh max-h-none w-screen max-w-none translate-x-0 translate-y-0 gap-0 rounded-none bg-background p-0"
-        overlayClassName="z-[125]"
+        className="inset-0 z-viewer-modal h-dvh max-h-none w-screen max-w-none translate-x-0 translate-y-0 gap-0 rounded-none bg-background p-0"
+        overlayClassName="z-viewer-modal"
         onEscapeKeyDown={(e) => {
           e.preventDefault();
           e.stopPropagation();
@@ -632,66 +633,57 @@ export function ImageComments({
             only the visible area. */}
         <header
           data-testid="image-viewer-header"
-          className="flex min-h-[calc(3.5rem+var(--safe-area-top))] shrink-0 items-center gap-2 border-b pl-[max(0.75rem,env(safe-area-inset-left,0px))] pr-[max(0.75rem,env(safe-area-inset-right,0px))] pt-[var(--safe-area-top)]"
+          className="flex min-h-[calc(3.5rem+var(--safe-area-top))] shrink-0 items-center gap-2 border-b pl-safe-3 pr-safe-3 pt-safe"
         >
-          <span className="min-w-0 flex-1 truncate text-sm">{caption}</span>
+          <span className="min-w-0 flex-1 truncate text-body-md">
+            {caption}
+          </span>
           {!markup && (
             <Button
               ref={markupButton}
               size="sm"
-              variant="default"
               disabled={!loaded}
               onClick={() => {
                 setMarkup(true);
                 setMode("comment");
               }}
             >
-              <Pencil className="mr-2 h-4 w-4" />
+              <Pencil />
               Markup
             </Button>
           )}
           {!compose && (
             <>
               <FileActions src={src} fileName={fileName} />
-              <Button
-                size="icon"
-                variant="ghost"
-                aria-label="Previous image"
+              <IconButton
+                label="Previous image"
                 data-testid="file-lightbox-prev"
                 disabled={!onPrevious || busy || !!selected}
                 onClick={onPrevious}
               >
-                <ChevronLeft className="h-4 w-4" />
-              </Button>
-              <span className="hidden text-xs text-muted-foreground sm:inline">
+                <ChevronLeft />
+              </IconButton>
+              <span className="hidden text-body-sm text-muted-foreground sm:inline">
                 {positionLabel}
               </span>
-              <Button
-                size="icon"
-                variant="ghost"
-                aria-label="Next image"
+              <IconButton
+                label="Next image"
                 data-testid="file-lightbox-next"
                 disabled={!onNext || busy || !!selected}
                 onClick={onNext}
               >
-                <ChevronRight className="h-4 w-4" />
-              </Button>
+                <ChevronRight />
+              </IconButton>
             </>
           )}
-          <Button
-            size="icon"
-            variant="ghost"
-            aria-label="Close image"
-            disabled={busy}
-            onClick={close}
-          >
-            <X className="h-4 w-4" />
-          </Button>
+          <IconButton label="Close image" disabled={busy} onClick={close}>
+            <X />
+          </IconButton>
         </header>
         <div
           ref={setStageElement}
           data-testid="image-viewer-stage"
-          className="relative min-h-0 flex-1 overflow-hidden bg-black/90"
+          className="relative min-h-0 flex-1 overflow-hidden bg-media/dense"
         >
           <img
             ref={image}
@@ -720,7 +712,7 @@ export function ImageComments({
           {!loaded && (
             <p
               role={loadError ? "alert" : "status"}
-              className="absolute inset-0 flex items-center justify-center text-white"
+              className="absolute inset-0 flex items-center justify-center text-media-foreground"
             >
               {loadError
                 ? "Unable to load image. Close and try again."
@@ -728,16 +720,13 @@ export function ImageComments({
             </p>
           )}
           {loaded && markup && !hintDismissed && (
-            <div className="pointer-events-none absolute inset-x-3 top-3 z-10 flex justify-center">
-              <div className="pointer-events-auto flex max-w-full items-center gap-2 rounded-xl border border-white/20 bg-black/75 py-1 pl-3 pr-1 text-xs text-white shadow-md">
+            <div className="pointer-events-none absolute inset-x-3 top-3 z-sticky flex justify-center">
+              <div className="surface-overlay pointer-events-auto flex max-w-full items-center gap-2 rounded-lg py-1 pl-3 pr-1 text-body-sm text-overlay-foreground">
                 <p>Click or drag to leave a note</p>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="h-8 w-8 shrink-0 rounded-lg text-white hover:bg-white/20 hover:text-white"
+                <IconButton
+                  className="rounded-lg text-overlay-foreground hover:bg-fill-hover hover:text-overlay-foreground"
                   data-image-markup-hint
-                  aria-label="Dismiss markup hint"
+                  label="Dismiss markup hint"
                   onPointerDown={(e) => e.stopPropagation()}
                   onClick={(e) => {
                     e.stopPropagation();
@@ -747,8 +736,8 @@ export function ImageComments({
                     else svg.current?.focus();
                   }}
                 >
-                  <X className="h-4 w-4" aria-hidden="true" />
-                </Button>
+                  <X aria-hidden="true" />
+                </IconButton>
               </div>
             </div>
           )}
@@ -965,9 +954,9 @@ export function ImageComments({
                 >
                   <PopoverTrigger asChild>
                     <Button
-                      size="icon"
-                      variant={selected === c.id ? "primary" : "default"}
-                      className={`absolute h-8 w-10 rounded-full border text-white ${seatClasses(c.number).chip} ${selected === c.id ? "ring-2 ring-white" : ""}`}
+                      size="sm"
+                      variant={selected === c.id ? "primary" : "secondary"}
+                      className={`absolute min-w-10 rounded-full border text-seat-foreground ${seatClasses(c.number).chip} ${selected === c.id ? "ring-2 ring-media-foreground" : ""}`}
                       style={{
                         borderColor: seatClasses(c.number).color,
                         left: Math.max(0, Math.min(stageSize.width - 40, left)),
@@ -977,13 +966,13 @@ export function ImageComments({
                       disabled={busy}
                       aria-label={`Comment ${c.number}${c.sent ? ", sent" : ", draft"}`}
                     >
-                      <MessageCircle className="h-4 w-4" />
-                      <span className="text-xs">{c.number}</span>
+                      <MessageCircle />
+                      <span className="text-body-sm">{c.number}</span>
                     </Button>
                   </PopoverTrigger>
                   <PopoverContent
                     ref={notePopover}
-                    className="z-[140] w-[min(320px,calc(100vw-24px))] space-y-3"
+                    className="z-viewer-popover w-[min(320px,calc(100vw-24px))] space-y-3"
                     onCloseAutoFocus={(e) => {
                       e.preventDefault();
                       requestAnimationFrame(() => {
@@ -1014,21 +1003,21 @@ export function ImageComments({
                   >
                     {c.sent ? (
                       <>
-                        <p className="whitespace-pre-wrap break-words text-sm">
+                        <p className="whitespace-pre-wrap break-words text-body-md">
                           {c.note}
                         </p>
-                        <p className="text-xs text-muted-foreground">
+                        <p className="text-body-sm text-muted-foreground">
                           Posted to{" "}
                           {agents.find((a) => a.id === c.recipient)?.name ??
                             c.recipient}
                         </p>
                         {c.delivered === false && (
-                          <p className="text-xs text-destructive">
+                          <p className="text-body-sm text-danger">
                             Agent delivery failed. Retry from the conversation.
                           </p>
                         )}
                         <a
-                          className="block text-xs underline"
+                          className="block text-body-sm underline"
                           href={
                             c.location
                               ? (() => {
@@ -1069,7 +1058,7 @@ export function ImageComments({
                           {newComment.current !== c.id && (
                             <Button
                               size="sm"
-                              variant="destructive"
+                              variant="danger"
                               className="mr-auto"
                               disabled={frozen}
                               onClick={() => {
@@ -1118,44 +1107,39 @@ export function ImageComments({
         </div>
         <footer
           data-testid="image-viewer-footer"
-          className="flex shrink-0 flex-wrap items-center justify-center gap-2 border-t bg-background pb-[max(0.5rem,env(safe-area-inset-bottom,0px))] pl-[max(0.5rem,env(safe-area-inset-left,0px))] pr-[max(0.5rem,env(safe-area-inset-right,0px))] pt-2"
+          className="flex shrink-0 flex-wrap items-center justify-center gap-2 border-t bg-background pb-safe-2 pl-safe-2 pr-safe-2 pt-2"
         >
           <div className="mr-auto flex justify-center">
-            <div className="flex items-center gap-1 rounded-full border border-white/20 bg-black/80 p-1 text-white">
+            <div className="surface-overlay flex items-center gap-1 rounded-full p-1 text-overlay-foreground">
               {markup && (
-                <Button
-                  size="icon"
-                  variant="ghost"
-                  className="text-white"
-                  aria-label="Comment mode"
-                  aria-pressed={mode === "comment"}
+                <IconButton
+                  className="text-overlay-foreground"
+                  label="Comment mode"
+                  pressed={mode === "comment"}
                   onClick={() => setMode("comment")}
                 >
-                  <MessageCircle className="h-4 w-4" />
-                </Button>
+                  <MessageCircle />
+                </IconButton>
               )}
-              <Button
-                size="icon"
-                variant="ghost"
-                className="text-white"
-                aria-label="Pan image"
-                aria-pressed={mode === "pan"}
+              <IconButton
+                className="text-overlay-foreground"
+                label="Pan image"
+                pressed={mode === "pan"}
                 onClick={() => setMode("pan")}
               >
-                <Hand className="h-4 w-4" />
-              </Button>
-              <Button
-                size="icon"
-                variant="ghost"
-                className="text-white"
-                aria-label="Zoom out"
+                <Hand />
+              </IconButton>
+              <IconButton
+                className="text-overlay-foreground"
+                label="Zoom out"
                 onClick={() => setZoom((z) => Math.max(1, z / 1.5))}
               >
-                <Minus className="h-4 w-4" />
-              </Button>
+                <Minus />
+              </IconButton>
               <Button
                 variant="ghost"
-                className="text-white"
+                size="sm"
+                className="text-overlay-foreground tabular-nums"
                 aria-label="Fit image"
                 onClick={() => {
                   setZoom(1);
@@ -1164,15 +1148,13 @@ export function ImageComments({
               >
                 {Math.round(zoom * 100)}%
               </Button>
-              <Button
-                size="icon"
-                variant="ghost"
-                className="text-white"
-                aria-label="Zoom in"
+              <IconButton
+                className="text-overlay-foreground"
+                label="Zoom in"
                 onClick={() => setZoom((z) => Math.min(8, z * 1.5))}
               >
-                <Plus className="h-4 w-4" />
-              </Button>
+                <Plus />
+              </IconButton>
             </div>
           </div>
           {compose && (
@@ -1223,11 +1205,7 @@ export function ImageComments({
                 >
                   <SelectTrigger
                     aria-label="Agent"
-                    className="h-auto min-h-9 w-full [&>span]:line-clamp-none"
-                    title={
-                      agents.find((a) => a.id === shareRecipient)?.name ??
-                      shareRecipient
-                    }
+                    className="h-auto min-h-8 w-full py-1 [&>span]:line-clamp-none pointer-coarse:min-h-11"
                   >
                     <SelectValue placeholder="Choose agent">
                       <span className="block whitespace-normal break-words text-left">
@@ -1237,7 +1215,7 @@ export function ImageComments({
                     </SelectValue>
                   </SelectTrigger>
                   <SelectContent
-                    className="z-[150] w-[var(--radix-select-trigger-width)] max-w-[calc(100vw-24px)]"
+                    className="z-viewer-menu w-[var(--radix-select-trigger-width)] max-w-[calc(100vw-24px)]"
                     collisionPadding={12}
                   >
                     {agents.map((a) => (
@@ -1284,7 +1262,7 @@ export function ImageComments({
           {markup && send.isError && (
             <p
               role="alert"
-              className="w-full text-center text-xs text-destructive"
+              className="w-full text-center text-body-sm text-danger"
             >
               {send.error.message} Notes are kept. Retry sharing; if delivery is
               uncertain, check the conversation.

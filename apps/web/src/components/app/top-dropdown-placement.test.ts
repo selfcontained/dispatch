@@ -13,22 +13,30 @@ describe("top sidebar dropdown placement", () => {
         true,
         ts.ScriptKind.TSX
       );
-      const menus: ts.JsxOpeningElement[] = [];
+      const menus: string[][] = [];
       const visit = (node: ts.Node) => {
-        if (
-          ts.isJsxOpeningElement(node) &&
-          node.tagName.getText(source) === "DropdownMenuContent"
-        )
-          menus.push(node);
+        if (ts.isJsxOpeningElement(node)) {
+          const tag = node.tagName.getText(source);
+          if (tag === "DropdownMenuContent")
+            menus.push(
+              node.attributes.properties.map((prop) => prop.getText(source))
+            );
+          // A SplitButton hands the same props to its menu as an object.
+          if (tag === "SplitButton")
+            for (const prop of node.attributes.properties)
+              if (
+                ts.isJsxAttribute(prop) &&
+                prop.name.getText(source) === "menuProps"
+              )
+                menus.push([prop.getText(source)]);
+        }
         ts.forEachChild(node, visit);
       };
       visit(source);
       expect(menus).toHaveLength(1);
-      const attributes = menus[0].attributes.properties.map((prop) =>
-        prop.getText(source)
-      );
-      expect(attributes).toContain('side="bottom"');
-      expect(attributes).toContain("avoidCollisions={false}");
+      const attributes = menus[0].join(" ");
+      expect(attributes).toMatch(/side(="bottom"|: "bottom")/);
+      expect(attributes).toMatch(/avoidCollisions(=\{false\}|: false)/);
     });
   }
 });

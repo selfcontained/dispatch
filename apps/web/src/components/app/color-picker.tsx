@@ -1,6 +1,6 @@
 import { Check } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { IconButton } from "@/components/ui/icon-button";
 
 export const PROJECT_COLORS = [
   "#9575ed",
@@ -19,36 +19,55 @@ export function ColorPicker({
   onChange,
   disabled = false,
   label = "Color",
+  logoColors,
 }: {
   value: string;
   onChange: (value: string) => void;
   disabled?: boolean;
   label?: string;
+  logoColors?: string[];
 }) {
   const valid = isHexColor(value);
+  const swatch = (color: string, name: string) => {
+    const selected = value.toLowerCase() === color;
+    return (
+      <IconButton
+        size="icon-sm"
+        key={color}
+        disabled={disabled}
+        label={name}
+        tooltip={color}
+        aria-pressed={selected}
+        className="rounded-full"
+        onClick={() => onChange(color)}
+      >
+        <span
+          aria-hidden="true"
+          className="flex h-5 w-5 items-center justify-center rounded-full border border-media/tint text-media"
+          style={{ backgroundColor: color }}
+        >
+          {selected && <Check className="h-3 w-3" />}
+        </span>
+      </IconButton>
+    );
+  };
+
   return (
     <div className="space-y-1.5" role="group" aria-label={label}>
+      {!!logoColors?.length && (
+        <div
+          className="flex flex-wrap items-center gap-0.5"
+          role="group"
+          aria-label="Logo colors"
+        >
+          {logoColors.map((color) => swatch(color, `Logo color ${color}`))}
+          <span className="ml-1.5 text-body-sm text-muted-foreground">
+            Logo colors
+          </span>
+        </div>
+      )}
       <div className="flex flex-wrap gap-0.5">
-        {PROJECT_COLORS.map((color) => (
-          <Button
-            type="button"
-            key={color}
-            variant="ghost"
-            disabled={disabled}
-            aria-label={`Color ${color}`}
-            aria-pressed={value.toLowerCase() === color}
-            title={color}
-            className="h-7 w-7 shrink-0 rounded-full p-1"
-            onClick={() => onChange(color)}
-          >
-            <span
-              className="flex h-5 w-5 items-center justify-center rounded-full border border-black/10 text-black"
-              style={{ backgroundColor: color }}
-            >
-              {value.toLowerCase() === color && <Check className="h-3 w-3" />}
-            </span>
-          </Button>
-        ))}
+        {PROJECT_COLORS.map((color) => swatch(color, `Color ${color}`))}
       </div>
       <div className="flex items-center gap-1.5">
         <Input
@@ -66,7 +85,7 @@ export function ColorPicker({
           onChange={(e) => onChange(e.target.value)}
           pattern="#[0-9a-fA-F]{6}"
           maxLength={7}
-          className="h-7 w-24 px-2 font-mono text-xs"
+          className="h-7 w-24 px-2 font-mono text-body-sm"
           aria-invalid={!valid}
         />
       </div>

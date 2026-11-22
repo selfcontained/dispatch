@@ -81,6 +81,72 @@ export function setLearnedAgentModels(
 export function forgetLearnedAgentModels(): void {
   learned.clear();
   learnedDefaults.clear();
+  availability.clear();
+}
+
+export function getLearnedAgentModels(
+  agentType: AgentType
+): readonly AgentModelOption[] | undefined {
+  return learned.get(agentType);
+}
+
+/**
+ * Which of a type's models are offered for new choices. It is only a filter:
+ * the catalog, Default and launches of saved choices do not read it. Stored
+ * and changed through agents/model-availability.ts.
+ */
+export type AgentModelAvailability = {
+  /** Whether a model the engine lists for the first time starts on. */
+  autoEnable: boolean;
+  disabled: readonly string[];
+  /** New models the person has not seen in a list yet. */
+  unseen: readonly string[];
+  /** Every id the engine has ever listed; null before its first list. */
+  known: readonly string[] | null;
+};
+const availability = new Map<AgentType, AgentModelAvailability>();
+
+export function setAgentModelAvailability(
+  agentType: AgentType,
+  value: AgentModelAvailability
+): void {
+  availability.set(agentType, value);
+}
+
+export function getAgentModelAvailability(
+  agentType: AgentType
+): AgentModelAvailability {
+  return (
+    availability.get(agentType) ?? {
+      autoEnable: true,
+      disabled: [],
+      unseen: [],
+      known: null,
+    }
+  );
+}
+
+/** The filter as the pickers and Settings read it. */
+export function agentModelAvailability(): Partial<
+  Record<AgentType, Omit<AgentModelAvailability, "known">>
+> {
+  return Object.fromEntries(
+    CLI_AGENT_TYPES.map((agentType) => {
+      const { known: _known, ...shown } = getAgentModelAvailability(agentType);
+      return [agentType, shown];
+    })
+  );
+}
+
+/** The catalog less what is turned off: what can be newly chosen. */
+export function selectableAgentModels(
+  agentType: AgentType
+): readonly AgentModelOption[] {
+  const { disabled } = getAgentModelAvailability(agentType);
+  const options = getAgentModelOptions(agentType);
+  return disabled.length
+    ? options.filter((option) => !disabled.includes(option.id))
+    : options;
 }
 
 export function getAgentModelOptions(
@@ -117,7 +183,7 @@ function describeOption(option: AgentModelOption): string {
 }
 
 /**
- * Renders the catalog as a one-line summary for MCP tool schemas.
+ * Renders the selectable catalog as a one-line summary for MCP tool schemas.
  *
  * Agents launching other agents over MCP have no other way to discover which
  * model ids a given agent type accepts, and an unsupported id is rejected at
@@ -134,7 +200,7 @@ export function describeAgentModelCatalog(
   const unsupported: string[] = [];
 
   for (const agentType of agentTypes) {
-    const options = getAgentModelOptions(agentType);
+    const options = selectableAgentModels(agentType);
     if (options.length === 0) {
       unsupported.push(agentType);
       continue;
@@ -251,6 +317,39 @@ export function validateAgentModel(
   );
 }
 
+/** Throws when `model` is turned off and is not the choice already saved. */
+export function assertModelSelectable(
+  agentType: AgentType,
+  model: string | null | undefined,
+  saved?: string | null
+): void {
+  if (!model || model === saved) return;
+  if (!getAgentModelAvailability(agentType).disabled.includes(model)) return;
+  const on = selectableAgentModels(agentType).map(({ id }) => id);
+  throw new Error(
+    `Model "${model}" is turned off for ${agentType} in Settings → Agents. ` +
+      (on.length
+        ? `Choose one of ${on.join(", ")}, or omit model for the CLI default.`
+        : "Omit model for the CLI default.")
+  );
+}
+
+/**
+ * Validates a model somebody is choosing now. Launching something saved uses
+ * validateAgentModel alone, so it keeps running after its model is turned off.
+ * `saved` is the value being edited, which may be sent back unchanged.
+ */
+export function validateAgentModelChoice(
+  agentType: AgentType,
+  model: string | undefined,
+  saved?: string | null,
+  scope: ModelScope = LOCAL_MODEL_SCOPE
+): string | undefined {
+  const valid = validateAgentModel(agentType, model, scope);
+  assertModelSelectable(agentType, valid, saved);
+  return valid;
+}
+
 /** The agent-config fields every job/template create path defaults the same way. */
 export type AgentConfigInput<T extends AgentType = AgentType> = {
   agentType?: T;
@@ -279,10 +378,12 @@ export type AgentConfigDefaults<T extends AgentType = AgentType> = {
  *
  * Shared by the jobs and templates create paths, which write the same six
  * columns from the same optional inputs. Throws when the model is not in the
- * resolved agent type's catalog, exactly as validateAgentModel does.
+ * resolved agent type's catalog or is turned off. `savedModel` is the model of
+ * the record being copied, which may be off.
  */
 export function applyAgentConfigDefaults<T extends AgentType = AgentType>(
   input: AgentConfigInput<T>,
+  savedModel?: string | null,
   scope: ModelScope = LOCAL_MODEL_SCOPE
 ): AgentConfigDefaults<T> {
   const agentType = input.agentType ?? "claude";
@@ -290,7 +391,12 @@ export function applyAgentConfigDefaults<T extends AgentType = AgentType>(
     agentType,
     ...(input.persona !== undefined ? { persona: input.persona } : {}),
     model:
-      validateAgentModel(agentType, input.model ?? undefined, scope) ?? null,
+      validateAgentModelChoice(
+        agentType,
+        input.model ?? undefined,
+        savedModel,
+        scope
+      ) ?? null,
     useWorktree: input.useWorktree ?? false,
     baseBranch: input.baseBranch ?? null,
     branchName: input.branchName ?? null,
@@ -304,7 +410,8 @@ export function applyAgentConfigDefaults<T extends AgentType = AgentType>(
  * An explicit model in the payload is validated against the agent type the
  * record will end up with. Otherwise a stored model that the new agent type no
  * longer offers is dropped, so switching agent type never leaves an
- * incompatible model behind. Shared by the jobs and templates update paths.
+ * incompatible model behind. A stored model that was turned off stays, as
+ * long as the type does. Shared by the jobs and templates update paths.
  */
 export function resolveAgentModelForUpdate(params: {
   inputAgentType: AgentType | undefined;
@@ -315,11 +422,13 @@ export function resolveAgentModelForUpdate(params: {
 }): string | null {
   const nextAgentType = params.inputAgentType ?? params.existingAgentType;
   const scope = params.scope ?? LOCAL_MODEL_SCOPE;
+  const sameType = nextAgentType === params.existingAgentType;
   if (params.inputModel !== undefined) {
     return (
-      validateAgentModel(
+      validateAgentModelChoice(
         nextAgentType,
         params.inputModel ?? undefined,
+        sameType ? params.existingModel : null,
         scope
       ) ?? null
     );
@@ -328,8 +437,12 @@ export function resolveAgentModelForUpdate(params: {
   if (
     params.inputAgentType !== undefined &&
     params.existingModel !== null &&
-    options !== null &&
-    !options.some((option) => option.id === params.existingModel)
+    ((options !== null &&
+      !options.some((option) => option.id === params.existingModel)) ||
+      (!sameType &&
+        getAgentModelAvailability(nextAgentType).disabled.includes(
+          params.existingModel
+        )))
   ) {
     return null;
   }

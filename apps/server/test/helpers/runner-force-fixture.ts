@@ -418,6 +418,12 @@ export async function forceWorld(pool: Pool) {
         opencodeBin: "/bin/opencode",
         agentStateRoot: path.join(dir, "agents"),
         agentRuntime: "acp",
+        acpAdapter: {
+          bin: "bun",
+          args: [
+            fileURLToPath(new URL("./recycle-acp-fixture.ts", import.meta.url)),
+          ],
+        },
         tls: null,
       },
       { remote, holds }
@@ -624,13 +630,6 @@ export async function forceWorld(pool: Pool) {
           "bun",
           fileURLToPath(new URL("../../src/main.ts", import.meta.url)),
           "agent-host",
-        ])
-      );
-      vi.stubEnv(
-        "DISPATCH_ACP_ADAPTER_COMMAND",
-        JSON.stringify([
-          "bun",
-          fileURLToPath(new URL("./recycle-acp-fixture.ts", import.meta.url)),
         ])
       );
       const id = `agt_local_${randomUUID().slice(0, 12)}`;

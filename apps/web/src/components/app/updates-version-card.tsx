@@ -1,5 +1,6 @@
 import { ChevronDown, ChevronRight, ExternalLink } from "lucide-react";
 import { Markdown } from "@/components/ui/markdown";
+import { Button } from "@/components/ui/button";
 import type { ReleaseStatus } from "@/hooks/use-release-stream";
 import { formatShortDateTime } from "@/lib/format";
 import type { AppVersionInfo } from "./release-utils";
@@ -39,56 +40,54 @@ export function UpdatesVersionCard({
   return (
     <>
       <div>
-        <div className="mb-1.5 text-[10px] uppercase tracking-widest text-muted-foreground">
-          Current version
-        </div>
+        <div className="mb-1.5 section-label">Current version</div>
         {status || versionInfo ? (
           <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
             <span
               data-testid="current-version"
-              className="font-mono text-xl font-bold text-foreground"
+              className="font-mono text-heading-lg text-foreground"
             >
               {headline ?? "unknown"}
             </span>
             {details.length > 0 ? (
-              <span className="font-mono text-xs text-muted-foreground">
+              <span className="font-mono text-body-sm text-muted-foreground">
                 {details.join(" · ")}
               </span>
             ) : null}
           </div>
         ) : (
-          <span className="text-sm text-muted-foreground">Loading...</span>
+          <span className="text-body-md text-muted-foreground">Loading...</span>
         )}
       </div>
 
       {versionInfo?.releaseNotes && (
         <div>
-          <button
-            onClick={onToggleNotes}
-            className="flex items-center gap-1.5 text-[10px] uppercase tracking-widest text-muted-foreground hover:text-foreground transition-colors"
-          >
-            {notesExpanded ? (
-              <ChevronDown className="h-3 w-3" />
-            ) : (
-              <ChevronRight className="h-3 w-3" />
-            )}
-            Release notes
+          <div className="flex items-center gap-2">
+            <Button
+              variant="ghost"
+              size="xs"
+              aria-expanded={notesExpanded}
+              onClick={onToggleNotes}
+              className="-ml-2 text-label-xs uppercase tracking-wider"
+            >
+              {notesExpanded ? <ChevronDown /> : <ChevronRight />}
+              Release notes
+            </Button>
             {versionInfo.releaseUrl ? (
               <a
-                className="ml-2 inline-flex items-center gap-1 text-xs normal-case tracking-normal text-blue-400 hover:underline"
+                className="inline-flex items-center gap-1 text-body-sm text-info hover:underline"
                 href={versionInfo.releaseUrl}
                 rel="noopener noreferrer"
                 target="_blank"
-                onClick={(e) => e.stopPropagation()}
               >
                 <ExternalLink className="h-3 w-3" />
                 GitHub
               </a>
             ) : null}
-          </button>
+          </div>
           {notesExpanded && (
-            <div className="mt-2 rounded-lg border border-white/[0.12] bg-white/[0.04] p-3">
-              <div className="max-h-56 overflow-y-auto text-sm text-muted-foreground">
+            <div className="mt-2 rounded-lg border border-edge bg-fill-inset p-3">
+              <div className="max-h-56 overflow-y-auto text-body-md text-muted-foreground">
                 <Markdown>{versionInfo.releaseNotes}</Markdown>
               </div>
             </div>

@@ -1,4 +1,3 @@
-import { ChevronDown } from "lucide-react";
 import { remotePlacement } from "@dispatch/runner-protocol";
 import { useAtom } from "jotai";
 import { useCallback, useMemo, useRef, useState } from "react";
@@ -7,18 +6,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AgentTypeIcon } from "@/components/app/agent-type-icon";
 import { PersonaLauncherDialog } from "@/components/app/persona-launcher-dialog";
 import { type Agent } from "@/components/app/types";
-import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
+import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
+import { SplitButton } from "@/components/ui/split-button";
 import { useAgentModelCatalog } from "@/hooks/use-agent-model-catalog";
 import { useClickOutside } from "@/hooks/use-click-outside";
 import { useRunnerModelCatalog } from "@/hooks/use-runner-engines";
@@ -30,7 +19,6 @@ import {
   isCliAgentType,
 } from "@/lib/agent-types";
 import { reviewAgentModelPrefAtom } from "@/lib/store";
-import { cn } from "@/lib/utils";
 
 type PersonaSummary = {
   slug: string;
@@ -164,25 +152,20 @@ export function PersonaLauncher({
   // request itself failed rather than an unconfigured repo.
   if (personas.length === 0) {
     return (
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            variant="ghost"
-            disabled
-            className="gap-1.5 border border-white/[0.12] bg-white/[0.06] text-muted-foreground backdrop-blur-md disabled:pointer-events-auto disabled:opacity-60"
-            data-testid="launch-reviewer-button-disabled"
-          >
-            <AgentTypeIcon
-              type={defaultReviewAgentType(agent)}
-              className="h-4 w-4 border-none bg-transparent p-0 text-foreground/80"
-            />
-            {label}
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent>
-          Could not load personas for this workspace.
-        </TooltipContent>
-      </Tooltip>
+      <SplitButton
+        size="sm"
+        disabled
+        menuLabel="Choose reviewer type"
+        hint="Could not load personas for this workspace."
+        className="text-muted-foreground"
+        data-testid="launch-reviewer-button-disabled"
+      >
+        <AgentTypeIcon
+          type={defaultReviewAgentType(agent)}
+          className="size-icon-lg border-none bg-transparent p-0 text-foreground/soft"
+        />
+        {label}
+      </SplitButton>
     );
   }
 
@@ -218,51 +201,20 @@ export function PersonaLauncher({
   const launchErrorMessage =
     launchMutation.error instanceof Error ? launchMutation.error.message : null;
 
-  const reviewButton = (
-    <Button
-      variant="ghost"
-      disabled={disabled || launchMutation.isPending}
-      className={cn(
-        "gap-1.5 border border-white/[0.12] bg-white/[0.06] text-muted-foreground backdrop-blur-md hover:bg-white/[0.1] hover:text-foreground disabled:pointer-events-auto",
-        showReviewAgentTypePicker && "rounded-r-none border-r-0"
-      )}
-      data-testid="launch-reviewer-button"
-      onClick={() => openDialog()}
-    >
-      <AgentTypeIcon
-        type={defaultReviewAgentType(agent)}
-        className="h-4 w-4 border-none bg-transparent p-0 text-foreground/80"
-      />
-      {label}
-    </Button>
-  );
-
   return (
     <>
-      <div className="flex items-center">
-        {disabled && disabledReason ? (
-          <Tooltip>
-            <TooltipTrigger asChild>{reviewButton}</TooltipTrigger>
-            <TooltipContent>{disabledReason}</TooltipContent>
-          </Tooltip>
-        ) : (
-          reviewButton
-        )}
-
-        {showReviewAgentTypePicker ? (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                variant="ghost"
-                disabled={disabled || launchMutation.isPending}
-                className="rounded-l-none border border-white/[0.12] bg-white/[0.06] backdrop-blur-md px-1 text-muted-foreground hover:bg-white/[0.1] hover:text-foreground"
-                data-testid="launch-reviewer-type-dropdown"
-              >
-                <ChevronDown className="h-3.5 w-3.5" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              {reviewerTypes.map((agentType) => (
+      <SplitButton
+        size="sm"
+        disabled={disabled || launchMutation.isPending}
+        hint={disabled ? disabledReason : undefined}
+        className="text-muted-foreground hover:text-foreground"
+        data-testid="launch-reviewer-button"
+        onClick={() => openDialog()}
+        menuLabel="Choose reviewer type"
+        menuTestId="launch-reviewer-type-dropdown"
+        menu={
+          showReviewAgentTypePicker
+            ? reviewerTypes.map((agentType) => (
                 <DropdownMenuItem
                   key={agentType}
                   className="text-foreground"
@@ -272,16 +224,21 @@ export function PersonaLauncher({
                   <span className="flex items-center gap-3">
                     <AgentTypeIcon
                       type={agentType}
-                      className="h-4 w-4 border-none bg-transparent p-0 text-foreground/80"
+                      className="size-icon-lg border-none bg-transparent p-0 text-foreground/soft"
                     />
                     <span>{AGENT_TYPE_LABELS[agentType]}</span>
                   </span>
                 </DropdownMenuItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
-        ) : null}
-      </div>
+              ))
+            : null
+        }
+      >
+        <AgentTypeIcon
+          type={defaultReviewAgentType(agent)}
+          className="size-icon-lg border-none bg-transparent p-0 text-foreground/soft"
+        />
+        {label}
+      </SplitButton>
 
       <PersonaLauncherDialog
         open={dialogOpen}

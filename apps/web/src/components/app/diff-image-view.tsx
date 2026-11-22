@@ -11,6 +11,10 @@ import {
 } from "@/lib/store";
 import type { DiffFileStatus } from "@/hooks/use-agent-diff";
 import { Slider } from "@/components/ui/slider";
+import {
+  SegmentedControl,
+  SegmentedControlItem,
+} from "@/components/ui/segmented-control";
 
 type Side = "old" | "new";
 
@@ -97,11 +101,11 @@ function ImagePanel({
 
   return (
     <div className={cn("flex min-w-0 flex-col items-center gap-2", className)}>
-      <div className="flex flex-wrap items-center justify-center gap-x-2 text-[10px] uppercase tracking-wide">
+      <div className="flex flex-wrap items-center justify-center gap-x-2 section-label">
         <span
           className={cn(
             "font-medium",
-            tone === "old" ? "text-status-blocked" : "text-status-working"
+            tone === "old" ? "text-danger" : "text-success"
           )}
         >
           {label}
@@ -117,7 +121,7 @@ function ImagePanel({
       {blocked !== null ? (
         <div
           className={cn(
-            "flex w-full items-center justify-center rounded border border-dashed border-border/60 px-3 py-6 text-[11px] text-muted-foreground",
+            "flex w-full items-center justify-center rounded-sm border border-dashed border-border-subtle px-3 py-6 text-label-sm text-muted-foreground",
             PREVIEW_RESERVE
           )}
         >
@@ -136,7 +140,7 @@ function ImagePanel({
             loading="lazy"
             onError={side.onError}
             onLoad={(e) => side.onLoad(readNaturalSize(e))}
-            className="diff-image-checkerboard max-h-[26rem] max-w-full rounded border border-border/60 object-contain"
+            className="diff-image-checkerboard max-h-[26rem] max-w-full rounded-sm border border-border-subtle object-contain"
           />
         </div>
       )}
@@ -219,7 +223,7 @@ export function DiffImageView({
   if (!hasOld || !hasNew) {
     const only = hasNew ? newSide : oldSide;
     return (
-      <div className="flex justify-center bg-muted/10 px-4 py-4">
+      <div className="flex justify-center bg-surface-subtle px-4 py-4">
         <ImagePanel
           side={only}
           label={hasNew ? newLabel : oldLabel}
@@ -246,43 +250,33 @@ export function DiffImageView({
   const effectiveMode = unavailableReason === null ? mode : "two-up";
 
   return (
-    <div className="bg-muted/10 px-4 py-4">
+    <div className="bg-surface-subtle px-4 py-4">
       <div className="mb-3 flex flex-col items-center gap-1">
-        <div
-          role="group"
+        <SegmentedControl
           aria-label="Image comparison mode"
-          className="flex rounded-md border border-border/60 bg-muted/30 p-0.5"
+          aria-describedby={
+            unavailableReason !== null
+              ? `diff-image-modes-hint-${filePath}`
+              : undefined
+          }
+          value={effectiveMode}
+          onValueChange={setMode}
         >
-          {MODES.map((m) => {
-            const disabled = m.value !== "two-up" && unavailableReason !== null;
-            return (
-              <button
-                key={m.value}
-                type="button"
-                disabled={disabled}
-                aria-pressed={effectiveMode === m.value}
-                aria-describedby={
-                  disabled ? `diff-image-modes-hint-${filePath}` : undefined
-                }
-                data-testid={`diff-image-mode:${m.value}`}
-                className={cn(
-                  "whitespace-nowrap rounded-[3px] px-2.5 py-1 text-[11px] font-medium transition-colors",
-                  "disabled:cursor-not-allowed disabled:opacity-50",
-                  effectiveMode === m.value
-                    ? "bg-background text-foreground shadow-sm"
-                    : "text-muted-foreground hover:text-foreground"
-                )}
-                onClick={() => setMode(m.value)}
-              >
-                {m.label}
-              </button>
-            );
-          })}
-        </div>
+          {MODES.map((m) => (
+            <SegmentedControlItem
+              key={m.value}
+              value={m.value}
+              disabled={m.value !== "two-up" && unavailableReason !== null}
+              data-testid={`diff-image-mode:${m.value}`}
+            >
+              {m.label}
+            </SegmentedControlItem>
+          ))}
+        </SegmentedControl>
         {unavailableReason !== null && unavailableReason !== "Loading…" ? (
           <p
             id={`diff-image-modes-hint-${filePath}`}
-            className="text-[10px] text-muted-foreground"
+            className="text-label-xs text-muted-foreground"
           >
             {unavailableReason}
           </p>
@@ -305,13 +299,13 @@ export function DiffImageView({
           />
           {/* 2-up captions each side itself; stacked, this is the only place
               the before/after numbers can be read. */}
-          <div className="mt-3 flex items-center justify-center gap-3 font-mono text-[10px] text-muted-foreground">
-            <span className="text-status-blocked">
+          <div className="mt-3 flex items-center justify-center gap-3 font-mono text-label-xs text-muted-foreground">
+            <span className="text-danger">
               {oldDim ? `${oldDim.width}×${oldDim.height}` : "—"}
               {image.oldSize !== null ? ` · ${formatBytes(image.oldSize)}` : ""}
             </span>
             <span>→</span>
-            <span className="text-status-working">
+            <span className="text-success">
               {newDim ? `${newDim.width}×${newDim.height}` : "—"}
               {image.newSize !== null ? ` · ${formatBytes(image.newSize)}` : ""}
             </span>
@@ -353,14 +347,14 @@ function OverlayCompare({
           alt="Before"
           onError={oldSide.onError}
           onLoad={(e) => oldSide.onLoad(readNaturalSize(e))}
-          className="diff-image-checkerboard block max-h-[26rem] max-w-full rounded border border-border/60 object-contain"
+          className="diff-image-checkerboard block max-h-[26rem] max-w-full rounded-sm border border-border-subtle object-contain"
         />
         <img
           src={newSide.src!}
           alt="After"
           onError={newSide.onError}
           onLoad={(e) => newSide.onLoad(readNaturalSize(e))}
-          className="diff-image-checkerboard absolute inset-0 h-full w-full rounded border border-border/60 object-contain"
+          className="diff-image-checkerboard absolute inset-0 h-full w-full rounded-sm border border-border-subtle object-contain"
           style={
             mode === "swipe"
               ? { clipPath: `inset(0 0 0 ${position}%)` }

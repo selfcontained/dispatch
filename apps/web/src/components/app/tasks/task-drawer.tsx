@@ -34,6 +34,12 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { CopyButton } from "@/components/ui/copy-button";
 import { Markdown } from "@/components/ui/markdown";
+import { Badge } from "@/components/ui/badge";
+import { CountBubble } from "@/components/ui/count-bubble";
+import { IconButton } from "@/components/ui/icon-button";
+import { RowButton } from "@/components/ui/row-button";
+import { StatusDot } from "@/components/ui/status-dot";
+import { Hint } from "@/components/ui/tooltip";
 import { TaskAgent } from "./task-agent";
 import { useTemplates } from "@/hooks/use-templates";
 import { CreateAgentDialog } from "@/components/app/create-agent-dialog";
@@ -48,20 +54,23 @@ import {
   TASK_PANE_PARAM,
   assignmentLabel,
   columnAccent,
-  taskAge,
 } from "./task-utils";
+import { AgentName } from "@/components/app/agent-name";
+import { AgentSessionLink } from "@/components/app/agent-session-link";
+import {
+  formatDateTime,
+  formatRelativeCompact,
+  formatRelativeTime,
+} from "@/lib/format";
+import { statusLabel } from "@/lib/status-label";
 
 /** Status and Assignee share one width and one quiet field style. */
 const PROPERTY_CONTROL =
-  "h-8 w-full max-w-64 border-transparent bg-muted/50 text-xs hover:bg-muted";
-const ago = (date: string) => {
-  const age = taskAge(date);
-  return age === "now" ? "just now" : `${age} ago`;
-};
+  "h-8 w-full max-w-64 border-transparent bg-surface-hover text-body-sm hover:bg-muted [[data-theme-mode=light]_&]:border-edge";
 
 /** The raised surface each drawer group sits on, over the pane's base. */
 const DRAWER_SURFACE =
-  "rounded-xl bg-card/70 p-3 shadow-sm ring-1 ring-border/40";
+  "rounded-lg bg-card/soft p-3 shadow-sm ring-1 ring-border-subtle";
 
 /** A drawer group: a quiet label over its content, on its own surface. */
 function DrawerSection({
@@ -76,9 +85,7 @@ function DrawerSection({
   return (
     <section className={cn(DRAWER_SURFACE, "space-y-2")}>
       <div className="flex min-h-7 items-center justify-between gap-2">
-        <h3 className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-          {label}
-        </h3>
+        <h3 className="section-label">{label}</h3>
         {action}
       </div>
       {children}
@@ -127,7 +134,7 @@ export function TaskDrawerShell({
     <DrawerFrame open={open} pinned={false} testId="task-drawer-wrapper">
       <div
         className={cn(
-          "flex h-full min-h-0 flex-col rounded-l-lg border-l text-foreground shadow-2xl",
+          "flex h-full min-h-0 flex-col rounded-l-lg border-l text-foreground",
           glassPanel
         )}
       >
@@ -252,32 +259,21 @@ export function TaskDetailPanel({
   const assignee =
     agents.find((agent) => agent.id === task?.assignedAgentId) ?? null;
   const creator =
-    task?.createdBy.kind === "agent"
-      ? (() => {
-          const agentId = task.createdBy.agentId;
-          return agents.find((agent) => agent.id === agentId)?.name ?? agentId;
-        })()
-      : task?.createdBy.kind;
+    task?.createdBy.kind === "agent" ? (
+      <AgentName agentId={task.createdBy.agentId} />
+    ) : (
+      task?.createdBy.kind
+    );
   return (
     <>
-      <header className="flex min-h-14 shrink-0 items-center gap-1 border-b border-border/40 pl-1.5 pr-2 pt-[var(--safe-area-top)] text-xs text-muted-foreground">
-        <Button
-          size="icon"
-          variant="ghost"
-          onClick={close}
-          aria-label="Close task"
-          className="md:hidden"
-        >
-          <ArrowLeft className="h-4 w-4" />
-        </Button>
+      <header className="flex min-h-14 shrink-0 items-center gap-1 border-b border-border-subtle pl-1.5 pr-2 pt-safe text-body-sm text-muted-foreground">
+        <IconButton onClick={close} label="Close task" className="md:hidden">
+          <ArrowLeft />
+        </IconButton>
         <span className="flex min-w-0 flex-1 items-center gap-2 px-1">
           {column && (
-            <span
-              aria-hidden="true"
-              className="h-2 w-2 shrink-0 rounded-full"
-              style={{
-                background: `hsl(${columnAccent(column, columns.indexOf(column))})`,
-              }}
+            <StatusDot
+              color={`hsl(${columnAccent(column, columns.indexOf(column))})`}
             />
           )}
           <span className="truncate">
@@ -285,37 +281,31 @@ export function TaskDetailPanel({
           </span>
           <CopyButton text={id} label="Copy task ID" className="shrink-0" />
         </span>
-        <Button
-          size="icon"
-          variant="ghost"
+        <IconButton
           disabled={index <= 0}
           onClick={() => openTask(peers[index - 1].id)}
-          aria-label="Previous task"
+          label="Previous task"
         >
-          <ChevronLeft className="h-4 w-4" />
-        </Button>
-        <Button
-          size="icon"
-          variant="ghost"
+          <ChevronLeft />
+        </IconButton>
+        <IconButton
           disabled={index < 0 || index >= peers.length - 1}
           onClick={() => openTask(peers[index + 1].id)}
-          aria-label="Next task"
+          label="Next task"
         >
-          <ChevronRight className="h-4 w-4" />
-        </Button>
+          <ChevronRight />
+        </IconButton>
         {headerAction}
-        <Button
-          size="icon"
-          variant="ghost"
+        <IconButton
           onClick={close}
-          aria-label="Close task"
+          label="Close task"
           className="hidden md:inline-flex"
         >
-          <X className="h-4 w-4" />
-        </Button>
+          <X />
+        </IconButton>
       </header>
       {isLoading && (
-        <p className="p-5 text-sm text-muted-foreground">Loading task…</p>
+        <p className="p-4 text-body-md text-muted-foreground">Loading task…</p>
       )}
       {task && (
         <Tabs
@@ -323,29 +313,31 @@ export function TaskDetailPanel({
           onValueChange={changePane}
           className="flex min-h-0 flex-1 flex-col"
         >
-          <TabsList aria-label="Task panes" className="mx-3 my-2 shrink-0">
+          <TabsList
+            aria-label="Task panes"
+            className="shrink-0 border-b border-border-subtle px-1"
+          >
             <TabsTrigger value="details">Details</TabsTrigger>
             <TabsTrigger value="conversation">
               Conversation
               {!!unread && (
-                <span
-                  className="ml-2 rounded-full bg-primary px-1.5 text-[10px] text-primary-foreground"
+                <CountBubble
+                  tone="info"
+                  count={unread}
                   aria-label={`${unread} unread posts`}
-                >
-                  {unread}
-                </span>
+                />
               )}
             </TabsTrigger>
           </TabsList>
           <TabsContent
             value="details"
-            className="mt-0 flex min-h-0 flex-1 flex-col data-[state=inactive]:hidden"
+            className="flex min-h-0 flex-1 flex-col data-[state=inactive]:hidden"
           >
             <div
               data-testid="task-drawer-body"
               className="min-h-0 flex-1 overflow-y-auto overscroll-contain"
             >
-              <div className="space-y-6 p-4 md:p-5">
+              <div className="space-y-6 p-4">
                 {editingTitle ? (
                   <Input
                     autoFocus
@@ -358,20 +350,22 @@ export function TaskDetailPanel({
                     }}
                   />
                 ) : (
-                  <button
-                    className="-mx-1 w-full break-words rounded-md px-1 text-left text-xl font-semibold leading-7 hover:bg-muted/40"
+                  <RowButton
+                    className="-mx-1 block w-full break-words px-1 text-heading-lg leading-7"
                     onClick={() => setEditingTitle(true)}
                   >
                     {task.title}
-                  </button>
+                  </RowButton>
                 )}
                 <section
                   className={cn(
                     DRAWER_SURFACE,
-                    "grid grid-cols-[88px_minmax(0,1fr)] items-center gap-x-3 gap-y-2 text-sm"
+                    "grid grid-cols-[88px_minmax(0,1fr)] items-center gap-x-3 gap-y-2 text-body-md"
                   )}
                 >
-                  <span className="text-xs text-muted-foreground">Labels</span>
+                  <span className="text-body-sm text-muted-foreground">
+                    Labels
+                  </span>
                   <div className="min-w-0">
                     <TaskLabelPicker
                       key={task.id}
@@ -385,9 +379,11 @@ export function TaskDetailPanel({
                       }}
                     />
                   </div>
-                  <span className="text-xs text-muted-foreground">Status</span>
+                  <span className="text-body-sm text-muted-foreground">
+                    Status
+                  </span>
                   {task.archivedAt ? (
-                    <span className="text-sm text-muted-foreground">
+                    <span className="text-body-md text-muted-foreground">
                       Archived · {column?.name}
                     </span>
                   ) : (
@@ -398,7 +394,7 @@ export function TaskDetailPanel({
                       className={PROPERTY_CONTROL}
                     />
                   )}
-                  <span className="text-xs text-muted-foreground">
+                  <span className="text-body-sm text-muted-foreground">
                     Assignee
                   </span>
                   <AssigneeSelect
@@ -414,10 +410,14 @@ export function TaskDetailPanel({
                       void actions.launch.mutateAsync({ id, templateId })
                     }
                   />
-                  <span className="text-xs text-muted-foreground">Created</span>
-                  <span className="text-xs">
-                    by {creator} · {ago(task.createdAt)}
+                  <span className="text-body-sm text-muted-foreground">
+                    Created
                   </span>
+                  <Hint label={formatDateTime(task.createdAt)}>
+                    <span className="text-body-sm">
+                      by {creator} · {formatRelativeTime(task.createdAt)}
+                    </span>
+                  </Hint>
                 </section>
                 {columns.some((c) => c.trigger) && (
                   <DrawerSection label="Launch template">
@@ -428,7 +428,7 @@ export function TaskDetailPanel({
                   {editingBody ? (
                     <textarea
                       autoFocus
-                      className="min-h-36 w-full rounded-lg bg-muted/40 p-3 text-sm outline-none ring-1 ring-border/60 focus:ring-ring"
+                      className="min-h-36 w-full rounded-lg bg-surface-subtle p-3 text-body-md outline-none ring-1 ring-border-subtle focus-ring"
                       value={body}
                       onChange={(event) => setBody(event.target.value)}
                       onBlur={saveBody}
@@ -441,8 +441,8 @@ export function TaskDetailPanel({
                       }}
                     />
                   ) : (
-                    <button
-                      className="-mx-2 min-h-12 w-[calc(100%+1rem)] rounded-lg px-2 py-1 text-left text-sm text-foreground hover:bg-muted/40"
+                    <RowButton
+                      className="-mx-2 block min-h-12 w-[calc(100%+1rem)] px-2 py-1 text-body-md text-foreground"
                       onClick={() => setEditingBody(true)}
                     >
                       {task.body ? (
@@ -452,7 +452,7 @@ export function TaskDetailPanel({
                           Add a deliverable and acceptance criteria…
                         </span>
                       )}
-                    </button>
+                    </RowButton>
                   )}
                 </DrawerSection>
                 {!!task.attachments?.length && (
@@ -470,11 +470,10 @@ export function TaskDetailPanel({
                     addingLink ? null : (
                       <Button
                         variant="ghost"
-                        size="sm"
-                        className="h-7 text-xs"
+                        size="xs"
                         onClick={() => setAddingLink(true)}
                       >
-                        <Plus className="mr-1 h-3 w-3" />
+                        <Plus />
                         Add link
                       </Button>
                     )
@@ -488,7 +487,7 @@ export function TaskDetailPanel({
                           href={link.url ?? undefined}
                           target="_blank"
                           rel="noreferrer"
-                          className="inline-flex max-w-full items-center gap-1 rounded-md bg-muted/50 px-2 py-1 text-xs text-primary hover:bg-muted"
+                          className="inline-flex max-w-full items-center gap-1 rounded-md bg-surface-hover px-2 py-1 text-body-sm text-primary hover:bg-muted"
                         >
                           {link.kind === "pr" && (
                             <GitPullRequest
@@ -551,7 +550,9 @@ export function TaskDetailPanel({
                     </div>
                   )}
                   {!task.links.length && !addingLink && (
-                    <p className="text-xs text-muted-foreground">No links</p>
+                    <p className="text-body-sm text-muted-foreground">
+                      No links
+                    </p>
                   )}
                 </DrawerSection>
                 <DrawerSection label="Agents">
@@ -560,44 +561,67 @@ export function TaskDetailPanel({
                       {task.agents.map((assignment) => {
                         const current =
                           assignment.agentId === task.assignedAgentId;
+                        const agent = agents.find(
+                          (item) => item.id === assignment.agentId
+                        );
                         return (
                           <div
                             key={assignment.agentId}
                             data-testid={`task-agent-row-${assignment.agentId}`}
-                            className="flex items-center gap-2 rounded-lg px-1 py-0.5 hover:bg-muted/30"
+                            className="flex items-center gap-2 rounded-lg px-1 py-0.5 hover:bg-surface-hover"
                           >
-                            <TaskAgent
-                              agent={agents.find(
-                                (agent) => agent.id === assignment.agentId
-                              )}
-                              agents={agents}
-                              projectId={projectId}
-                              fullWidth
-                            />
-                            <span
-                              className="ml-auto flex shrink-0 items-center gap-2 text-xs text-muted-foreground"
-                              title={`${assignmentLabel(assignment, columns)} · ${ago(assignment.assignedAt)}`}
+                            {agent ? (
+                              <TaskAgent
+                                agent={agent}
+                                agents={agents}
+                                projectId={projectId}
+                                fullWidth
+                              />
+                            ) : (
+                              // The live list has no archived agents.
+                              <AgentSessionLink
+                                agentId={assignment.agentId}
+                                projectId={projectId}
+                                decorative={false}
+                                className="min-w-0 truncate text-body-sm text-muted-foreground"
+                              >
+                                <AgentName agentId={assignment.agentId} />
+                              </AgentSessionLink>
+                            )}
+                            <Hint
+                              label={`${assignmentLabel(assignment, columns)} · ${formatDateTime(assignment.assignedAt)}`}
                             >
-                              {current && (
-                                <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-foreground">
-                                  Assignee
-                                </span>
-                              )}
-                              {taskAge(assignment.assignedAt)}
-                            </span>
+                              <span className="ml-auto flex shrink-0 items-center gap-2 text-body-sm text-muted-foreground">
+                                {current && <Badge size="sm">Assignee</Badge>}
+                                {formatRelativeCompact(assignment.assignedAt)}
+                              </span>
+                            </Hint>
                             <DropdownMenu>
                               <DropdownMenuTrigger asChild>
-                                <Button
-                                  size="icon"
-                                  variant="ghost"
-                                  className="h-7 w-7 shrink-0 text-muted-foreground"
-                                  aria-label={`Options for ${agents.find((agent) => agent.id === assignment.agentId)?.name ?? assignment.agentId}`}
+                                <IconButton
+                                  size="icon-sm"
+                                  label={
+                                    agent
+                                      ? `Options for ${agent.name}`
+                                      : "Agent options"
+                                  }
+                                  aria-labelledby={
+                                    agent
+                                      ? undefined
+                                      : `agent-options-${assignment.agentId}`
+                                  }
                                 >
-                                  <MoreHorizontal
-                                    className="h-4 w-4"
-                                    aria-hidden="true"
-                                  />
-                                </Button>
+                                  {!agent && (
+                                    <span
+                                      id={`agent-options-${assignment.agentId}`}
+                                      className="sr-only"
+                                    >
+                                      Options for{" "}
+                                      <AgentName agentId={assignment.agentId} />
+                                    </span>
+                                  )}
+                                  <MoreHorizontal aria-hidden="true" />
+                                </IconButton>
                               </DropdownMenuTrigger>
                               <DropdownMenuContent align="end">
                                 {current ? (
@@ -642,27 +666,27 @@ export function TaskDetailPanel({
                       })}
                     </div>
                   ) : (
-                    <p className="text-xs text-muted-foreground">
+                    <p className="text-body-sm text-muted-foreground">
                       No agents yet
                     </p>
                   )}
                 </DrawerSection>
                 <DrawerSection label="Activity">
-                  <ol className="space-y-2 border-l-2 border-border/50 pl-3">
+                  <ol className="space-y-2 border-l-2 border-border-subtle pl-3">
                     {task.events.map((event) => (
-                      <li key={event.id} className="text-xs">
+                      <li key={event.id} className="text-body-sm">
                         <span className="font-medium">
                           {event.kind === "trigger_launching"
                             ? `Launching ${projectTemplates.find((template) => template.id === event.data.templateId)?.name ?? "agent"}`
-                            : event.kind.replaceAll("_", " ")}
+                            : statusLabel(event.kind)}
                         </span>
-                        <span className="ml-2 text-muted-foreground">
-                          {ago(event.createdAt)}
-                        </span>
+                        <Hint label={formatDateTime(event.createdAt)}>
+                          <span className="ml-2 text-muted-foreground">
+                            {formatRelativeTime(event.createdAt)}
+                          </span>
+                        </Hint>
                         {typeof event.data.reason === "string" && (
-                          <p className="text-destructive">
-                            {event.data.reason}
-                          </p>
+                          <p className="text-danger">{event.data.reason}</p>
                         )}
                       </li>
                     ))}
@@ -672,7 +696,7 @@ export function TaskDetailPanel({
             </div>
             {task.archivedAt && (
               <div
-                className="border-t border-border/40 px-3 py-2 text-sm text-muted-foreground"
+                className="border-t border-border-subtle px-3 py-2 text-body-md text-muted-foreground"
                 role="status"
               >
                 Archived — restore this task to move it.
@@ -680,14 +704,13 @@ export function TaskDetailPanel({
             )}
             {actions.restore?.error &&
               actions.restore.variables === task.id && (
-                <p role="alert" className="px-3 py-2 text-sm text-destructive">
+                <p role="alert" className="px-3 py-2 text-body-md text-danger">
                   {actions.restore.error.message}
                 </p>
               )}
-            <footer className="flex shrink-0 items-center gap-2 border-t border-border/40 bg-card/60 px-3 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
+            <footer className="flex shrink-0 items-center gap-2 border-t border-border-subtle bg-card/veil px-3 py-2 pb-safe-2">
               <Button
                 size="sm"
-                variant="default"
                 disabled={
                   actions.archive?.isPending || actions.restore?.isPending
                 }
@@ -707,7 +730,7 @@ export function TaskDetailPanel({
           <TabsContent
             value="conversation"
             forceMount
-            className="mt-0 min-h-0 flex-1 data-[state=inactive]:hidden px-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] md:px-3 md:pb-3"
+            className="min-h-0 flex-1 data-[state=inactive]:hidden pt-2 px-2 pb-safe-2 md:px-3 md:pb-3"
           >
             <TaskConversation
               key={task.id}

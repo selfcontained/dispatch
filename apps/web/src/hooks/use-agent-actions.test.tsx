@@ -13,6 +13,8 @@ import {
 import { afterEach, expect, it, vi } from "vitest";
 
 import type { Agent } from "@/components/app/types";
+import { api } from "@/lib/api";
+
 import { useAgentActions } from "./use-agent-actions";
 import { useAgentsViewRouting } from "./use-agents-view-routing";
 
@@ -94,4 +96,44 @@ it("stays in Agents when you archive the agent you are viewing", async () => {
 
   expect(seen.location?.pathname).toBe("/agents");
   expect(seen.location?.state).toEqual({ dispatchViewedAgentLeft: true });
+});
+
+it("leaves you on the agent when its archive fails", async () => {
+  // The project scope makes its own GETs; only the archive fails.
+  vi.mocked(api).mockImplementation(async (_path, init) => {
+    if (init?.method === "DELETE") throw new Error("Archive broke");
+    return [];
+  });
+  const setExpandedAgentId = vi.fn();
+  const seen: { path: string } = { path: "" };
+  const { result } = renderHook(
+    () => {
+      seen.path = useLocation().pathname;
+      return useAgentActions({
+        routeAgentId: "agt_me",
+        setExpandedAgentId,
+        setCreateOpen: vi.fn(),
+        setRequestedCreateType: vi.fn(),
+        setLastUsedAgentType: vi.fn(),
+        refreshFiles: vi.fn(),
+      });
+    },
+    {
+      wrapper: ({ children }: { children: ReactNode }) => (
+        <QueryClientProvider client={new QueryClient()}>
+          <MemoryRouter initialEntries={["/agents/agt_me"]}>
+            {children}
+          </MemoryRouter>
+        </QueryClientProvider>
+      ),
+    }
+  );
+
+  await act(async () => {
+    await expect(
+      result.current.deleteAgent({ id: "agt_me" } as Agent)
+    ).rejects.toThrow("Archive broke");
+  });
+  expect(seen.path).toBe("/agents/agt_me");
+  expect(setExpandedAgentId).not.toHaveBeenCalled();
 });

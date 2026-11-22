@@ -36,7 +36,7 @@ export function TaskLaunchTemplatePicker({
   );
   return (
     <div className="space-y-2" data-testid="task-launch-template-picker">
-      <label className="block text-xs font-medium text-muted-foreground">
+      <label className="block text-body-sm font-medium text-muted-foreground">
         {showLabel && "Launch template"}
         <Select
           value={templateId ?? "__inherit__"}
@@ -69,7 +69,7 @@ export function TaskLaunchTemplatePicker({
         projectsLoaded &&
         templateId &&
         !choices.some((t) => t.id === templateId) && (
-          <p role="alert" className="text-xs text-destructive">
+          <p role="alert" className="text-body-sm text-danger">
             Template unavailable. Choose another template or use the column
             default.
           </p>
@@ -107,7 +107,7 @@ export function TaskLaunchTemplateEditor({ task }: { task: Task }) {
         </Button>
       )}
       {error && (
-        <p role="alert" className="text-xs text-destructive">
+        <p role="alert" className="text-body-sm text-danger">
           {error}
         </p>
       )}

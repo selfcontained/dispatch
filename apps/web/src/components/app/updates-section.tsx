@@ -81,7 +81,7 @@ export function UpdatesSection({ stream }: UpdatesSectionProps): JSX.Element {
         onToggleNotes={() => setNotesExpanded(!notesExpanded)}
       />
 
-      <div className="border-t border-white/[0.12]" />
+      <div className="border-t border-edge" />
 
       {!versionInfo ? (
         <Card>
@@ -131,7 +131,7 @@ export function UpdatesSection({ stream }: UpdatesSectionProps): JSX.Element {
         </>
       )}
 
-      <div className="border-t border-white/[0.12]" />
+      <div className="border-t border-edge" />
 
       <EngineUpdatesCard />
 

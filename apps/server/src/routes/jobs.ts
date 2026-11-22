@@ -92,7 +92,7 @@ export async function registerJobRoutes(
     } catch (error) {
       const message = errorMessage(error);
       return reply
-        .code(/effort/i.test(message) ? 400 : 500)
+        .code(/effort|is turned off for/i.test(message) ? 400 : 500)
         .send({ error: message });
     }
   });
@@ -107,7 +107,7 @@ export async function registerJobRoutes(
     } catch (error) {
       const message = errorMessage(error);
       return reply
-        .code(/effort/i.test(message) ? 400 : 500)
+        .code(/effort|is turned off for/i.test(message) ? 400 : 500)
         .send({ error: message });
     }
   });

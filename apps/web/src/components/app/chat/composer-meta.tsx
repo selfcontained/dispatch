@@ -75,7 +75,7 @@ import {
 } from "./composer-meta-format";
 
 const CHIP_CLASS =
-  "inline-flex h-6 min-w-0 items-center gap-1 rounded-md px-1.5 text-[11px] text-muted-foreground hover:bg-muted/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-status-working/50 disabled:pointer-events-none disabled:opacity-60 pointer-coarse:min-h-11";
+  "inline-flex h-6 min-w-0 items-center gap-1 rounded-md px-1.5 text-label-sm text-muted-foreground hover:bg-surface-hover hover:text-foreground focus-ring disabled-state pointer-coarse:min-h-11";
 
 /**
  * Controls beside the recipients under the composer: which model the session runs (a picker)
@@ -220,13 +220,13 @@ function ModelChip({
               }
             />
           ))}
-          <p className="text-[11px] text-muted-foreground">
+          <p className="text-label-sm text-muted-foreground">
             {setConfig.isPending
               ? "Applying…"
               : "Applies from the next turn of this session."}
           </p>
           {setConfig.error ? (
-            <p role="alert" className="text-[11px] text-destructive">
+            <p role="alert" className="text-label-sm text-danger">
               {setConfig.error.message}
             </p>
           ) : null}
@@ -280,7 +280,7 @@ function ConfigSelect({
   const id = `composer-config-${option.id}`;
   return (
     <div className="space-y-1">
-      <label htmlFor={id} className="text-[11px] text-muted-foreground">
+      <label htmlFor={id} className="text-label-sm text-muted-foreground">
         {option.name}
       </label>
       <Select
@@ -292,7 +292,7 @@ function ConfigSelect({
       >
         <SelectTrigger
           id={id}
-          className="h-8 text-xs pointer-coarse:min-h-11"
+          className="h-8 text-body-sm pointer-coarse:min-h-11"
           data-testid={`composer-config-${option.id}`}
         >
           <SelectValue />
@@ -305,7 +305,7 @@ function ConfigSelect({
                 <SelectItem
                   key={choice.value}
                   value={choice.value}
-                  className="text-xs pointer-coarse:min-h-11"
+                  className="text-body-sm pointer-coarse:min-h-11"
                 >
                   {choice.name}
                 </SelectItem>
@@ -391,7 +391,7 @@ function UsageChip({
         // not load, so this panel brings its own: it opens like a drawer from
         // its chip, and Radix waits for the exit animation before unmounting.
         className={cn(
-          "z-[60] max-h-[70vh] w-[22rem] max-w-[calc(100vw-1rem)] space-y-4 overflow-y-auto p-3 text-xs",
+          "z-drawer-panel max-h-[70vh] w-[22rem] max-w-[calc(100vw-1rem)] space-y-4 overflow-y-auto p-3 text-body-sm",
           "data-[state=open]:animate-usage-panel-in-up data-[state=open]:data-[side=bottom]:animate-usage-panel-in-down",
           "data-[state=closed]:animate-usage-panel-out-up data-[state=closed]:data-[side=bottom]:animate-usage-panel-out-down",
           "motion-reduce:!animate-none"
@@ -418,16 +418,16 @@ function UsageChip({
 function barTone(percent: number, severity?: string): string {
   if (severity) {
     return severity === "normal"
-      ? "bg-status-working"
+      ? "bg-success"
       : severity === "warning"
-        ? "bg-status-waiting"
-        : "bg-destructive";
+        ? "bg-warning"
+        : "bg-danger";
   }
   return percent >= 90
-    ? "bg-destructive"
+    ? "bg-danger"
     : percent >= 70
-      ? "bg-status-waiting"
-      : "bg-status-working";
+      ? "bg-warning"
+      : "bg-success";
 }
 
 function Bar({
@@ -628,7 +628,7 @@ function SplitRow({
   title?: string;
 }): JSX.Element {
   return (
-    <div className="flex items-center justify-between gap-3 pl-2 text-[11px] text-muted-foreground/80">
+    <div className="flex items-center justify-between gap-3 pl-2 text-label-sm text-faint">
       <span className="truncate" title={title}>
         {label}
       </span>
@@ -650,12 +650,12 @@ const ENGINES: ProviderPlan["engine"][] = ["codex", "claude"];
  * own card also tints its edge, to call out which engine it runs on.
  */
 const ENGINE_CARD: Record<string, string> = {
-  codex: "border-l-engine-codex/60",
-  claude: "border-l-engine-claude/60",
+  codex: "border-l-engine-codex/line-strong",
+  claude: "border-l-engine-claude/line-strong",
 };
 const ENGINE_ICON: Record<string, string> = {
-  codex: "border-engine-codex/40 bg-engine-codex/15 text-engine-codex",
-  claude: "border-engine-claude/40 bg-engine-claude/15 text-engine-claude",
+  codex: "border-engine-codex/line bg-engine-codex/tint text-engine-codex",
+  claude: "border-engine-claude/line bg-engine-claude/tint text-engine-claude",
 };
 
 /** A card's first row: the engine's icon and name, and a value at the right. */
@@ -706,7 +706,7 @@ const SKELETON_WINDOWS: Record<ProviderPlan["engine"], number> = {
   codex: 2,
 };
 
-const CARD_CLASS = "rounded-md border bg-muted/30 p-2";
+const CARD_CLASS = "rounded-md border bg-surface-subtle p-2";
 /** A card's rows, under its header and set in a little from it. */
 const CARD_BODY_CLASS = "mt-3 space-y-1.5 px-1";
 
@@ -803,12 +803,14 @@ function PlanLimits({
   return (
     <section className="space-y-3" aria-label="Plan limits">
       <div className="flex h-6 items-center justify-between gap-2">
-        <h3 className="text-[11px] font-medium text-foreground">Plan limits</h3>
+        <h3 className="text-label-sm font-medium text-foreground">
+          Plan limits
+        </h3>
         {/* A failed refresh keeps the last values; say so in the header row
             rather than in a line that pushes the cards down. */}
         {failure && plans.data ? (
           <span
-            className="ml-auto truncate text-[11px] text-destructive"
+            className="ml-auto truncate text-label-sm text-danger"
             title={failure.message}
             data-testid="usage-plans-error"
           >
@@ -817,9 +819,9 @@ function PlanLimits({
         ) : null}
         <Button
           type="button"
-          size="sm"
+          size="stream-sm"
           variant="ghost"
-          className="h-6 shrink-0 px-1.5 text-[11px] pointer-coarse:min-h-11"
+          className="h-6 shrink-0 px-1.5 text-label-sm pointer-coarse:min-h-11"
           onClick={() => plans.refresh.mutate()}
           disabled={plans.refresh.isPending}
           aria-busy={busy}
@@ -840,7 +842,7 @@ function PlanLimits({
             <ProviderLimits key={plan.engine} plan={plan} now={now} />
           ))
         ) : plans.error ? (
-          <p className="text-destructive">{plans.error.message}</p>
+          <p className="text-danger">{plans.error.message}</p>
         ) : (
           <PlanLimitsSkeleton />
         )}
@@ -954,8 +956,8 @@ export function UseResetButton({
       <div className="flex flex-col gap-2">
         <div
           className={cn(
-            "min-w-0 text-[11px]",
-            expiring ? "text-primary" : "text-muted-foreground/80"
+            "min-w-0 text-label-sm",
+            expiring ? "text-primary" : "text-faint"
           )}
           data-testid="usage-codex-reset-expiry"
           title={expiry ? `Resets expire: ${expiry}` : undefined}
@@ -971,9 +973,8 @@ export function UseResetButton({
         <DialogTrigger asChild>
           <Button
             type="button"
-            size="sm"
-            variant="default"
-            className="h-6 shrink-0 self-end px-2 text-[11px] pointer-coarse:min-h-11"
+            size="stream-sm"
+            className="h-6 shrink-0 self-end px-2 text-label-sm pointer-coarse:min-h-11"
             disabled={available === 0}
             data-testid="usage-codex-reset"
           >
@@ -990,8 +991,8 @@ export function UseResetButton({
           </DialogDescription>
         </DialogHeader>
         {/* What the reset would clear: the windows as the card shows them. */}
-        <div className="space-y-1.5 rounded-md border bg-muted/30 p-3 text-xs">
-          <div className="text-[11px] font-medium text-foreground">
+        <div className="space-y-1.5 rounded-md border bg-surface-subtle p-3 text-body-sm">
+          <div className="text-label-sm font-medium text-foreground">
             Current usage
           </div>
           {plan.windows.map((w) => (
@@ -1003,8 +1004,8 @@ export function UseResetButton({
           </div>
         </div>
         {resets?.items?.length ? (
-          <div className="space-y-1 text-xs">
-            <div className="text-[11px] font-medium text-foreground">
+          <div className="space-y-1 text-body-sm">
+            <div className="text-label-sm font-medium text-foreground">
               Reset expirations · oldest first
             </div>
             <ul className="space-y-1" data-testid="usage-codex-reset-list">
@@ -1041,7 +1042,7 @@ export function UseResetButton({
         ) : null}
         {outcome ? (
           <p
-            className="text-sm"
+            className="text-body-md"
             role="status"
             data-testid="usage-codex-reset-outcome"
           >
@@ -1049,16 +1050,17 @@ export function UseResetButton({
           </p>
         ) : null}
         {consume.error ? (
-          <p role="alert" className="text-sm text-destructive">
+          <p role="alert" className="text-body-md text-danger">
             {consume.error.message}
           </p>
         ) : null}
         <div className="flex justify-end gap-2">
-          <Button type="button" variant="default" onClick={close}>
+          <Button size="stream-md" type="button" onClick={close}>
             {outcome ? "Close" : "Cancel"}
           </Button>
           {outcome ? null : (
             <Button
+              size="stream-md"
               type="button"
               variant="primary"
               onClick={() => consume.mutate()}
@@ -1096,7 +1098,7 @@ function PlanState({
   if (plan.limitReached) {
     return (
       <span
-        className="shrink-0 text-[11px] text-destructive"
+        className="shrink-0 text-label-sm text-danger"
         role="status"
         title={[
           "Limit reached — requests are refused until a window resets",
@@ -1113,15 +1115,15 @@ function PlanState({
   return (
     <span
       className={cn(
-        "flex shrink-0 items-center gap-1 text-[11px] tabular-nums",
-        age === "live" ? "text-status-working" : "text-muted-foreground"
+        "flex shrink-0 items-center gap-1 text-label-sm tabular-nums",
+        age === "live" ? "text-success" : "text-muted-foreground"
       )}
       title={[plan.unavailableReason, reported].filter(Boolean).join("\n")}
       data-testid={`usage-plan-age-${plan.engine}`}
     >
       {plan.unavailableReason ? (
         <AlertTriangle
-          className="h-3 w-3 text-status-waiting"
+          className="h-3 w-3 text-warning"
           aria-label="Could not refresh"
         />
       ) : null}
@@ -1146,7 +1148,7 @@ function PlanWindowRow({
         <span className="flex min-w-0 items-baseline gap-1.5">
           <span className="shrink-0 whitespace-nowrap">{window.label}</span>
           {resets ? (
-            <span className="truncate text-[11px] text-muted-foreground/80">
+            <span className="truncate text-label-sm text-faint">
               resets {resets}
             </span>
           ) : null}

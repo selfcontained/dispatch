@@ -37,21 +37,19 @@ describe("project location", () => {
     }
     render(<Form />);
     const field = screen.getByLabelText("Folder path");
-    fireEvent.click(screen.getByRole("button", { name: "Folder" }));
+    fireEvent.click(screen.getByRole("radio", { name: "Folder" }));
     expect(
-      screen
-        .getByRole("button", { name: "Folder" })
-        .getAttribute("aria-pressed")
+      screen.getByRole("radio", { name: "Folder" }).getAttribute("aria-checked")
     ).toBe("true");
     fireEvent.change(field, { target: { value: "/edited" } });
-    fireEvent.click(screen.getByRole("button", { name: "Project" }));
+    fireEvent.click(screen.getByRole("radio", { name: "Project" }));
     expect(
       screen.getByRole("button", { name: "Choose project" }).textContent
     ).toContain("Second");
     expect(screen.getByLabelText("Folder path")).toBe(field);
     expect((field as HTMLInputElement).value).toBe("/edited");
   });
-  it("bounds the project menu by the room Radix measures, so an upward flip stays on screen", () => {
+  it("bounds the project menu by the measured room with a usable minimum", () => {
     render(
       <ProjectLocation projectId="first" onChange={() => {}}>
         <input aria-label="Folder path" />
@@ -61,7 +59,7 @@ describe("project location", () => {
     fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false });
     const menu = screen.getByRole("menu");
     expect(menu.className).toContain(
-      "max-h-[min(18rem,var(--radix-dropdown-menu-content-available-height))]"
+      "max-h-[clamp(4rem,var(--radix-dropdown-menu-content-available-height),18rem)]"
     );
     expect(menu.className).not.toMatch(/(^|\s)max-h-72(\s|$)/);
   });

@@ -48,7 +48,7 @@ export function RunnerPlugin({
     (action === "install" || current.updateAvailable);
 
   return (
-    <div className="flex flex-wrap items-center gap-2 text-xs">
+    <div className="flex flex-wrap items-center gap-2 text-body-sm">
       <span>
         Dispatch plugin ·{" "}
         {status.isError
@@ -67,7 +67,6 @@ export function RunnerPlugin({
       {offered && !status.isError && (
         <LoadingButton
           size="sm"
-          variant="default"
           loading={change.isPending || status.isFetching}
           onClick={() => change.mutate(action)}
         >

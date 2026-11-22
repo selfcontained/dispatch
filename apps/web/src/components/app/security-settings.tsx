@@ -79,18 +79,20 @@ export function SecuritySettings({
     confirmPassword.length > 0 && newPassword !== confirmPassword;
 
   if (passwordSet === null) {
-    return <div className="p-6 text-sm text-muted-foreground">Loading...</div>;
+    return (
+      <div className="p-6 text-body-md text-muted-foreground">Loading...</div>
+    );
   }
 
   return (
     <div className="flex flex-col gap-8 p-6">
       <CertificateTrustSettings />
       <div>
-        <h3 className="mb-4 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+        <h3 className="mb-4 section-label">
           {passwordSet ? "Change Password" : "Set Password"}
         </h3>
         {!passwordSet && (
-          <p className="mb-4 text-sm text-muted-foreground">
+          <p className="mb-4 text-body-md text-muted-foreground">
             No password is set. Anyone who can reach this server has full
             access. Set a password to require authentication.
           </p>
@@ -126,14 +128,12 @@ export function SecuritySettings({
               data-testid="security-confirm-password"
             />
             {mismatch && (
-              <p className="text-sm text-destructive">
+              <p className="text-body-md text-danger">
                 Passwords do not match.
               </p>
             )}
-            {error && <p className="text-sm text-destructive">{error}</p>}
-            {message && (
-              <p className="text-sm text-status-working">{message}</p>
-            )}
+            {error && <p className="text-body-md text-danger">{error}</p>}
+            {message && <p className="text-body-md text-success">{message}</p>}
             <Button
               type="submit"
               variant="primary"
@@ -152,11 +152,9 @@ export function SecuritySettings({
 
       {passwordSet && (
         <div>
-          <h3 className="mb-4 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-            Session
-          </h3>
+          <h3 className="mb-4 section-label">Session</h3>
           <Button
-            variant="destructive"
+            variant="danger"
             onClick={onLogout}
             data-testid="logout-button"
           >

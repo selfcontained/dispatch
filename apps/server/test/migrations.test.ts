@@ -112,6 +112,12 @@ async function dropTasks(): Promise<void> {
     "DELETE FROM pgmigrations WHERE name IN ('0053_runner_registrations', '0054_runner_connect_requests', '0055_runner_health', '0060_clear_revoked_runners')"
   );
   await pool.query(
+    "ALTER TABLE agents DROP COLUMN name_revision, DROP COLUMN naming_requested"
+  );
+  await pool.query(
+    "DELETE FROM pgmigrations WHERE name = '0052_agent_name_revision'"
+  );
+  await pool.query(
     "DELETE FROM pgmigrations WHERE name = '0051_attention_stream_events'"
   );
   await pool.query(

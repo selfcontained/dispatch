@@ -1,10 +1,9 @@
 import type { DecisionMetrics, MergeRiskMetrics } from "@dispatch/shared";
 import { useDecisionMetrics, type ActivityRange } from "@/hooks/use-activity";
 import { StatCard } from "./stat-card";
-import { Button } from "@/components/ui/button";
+import { LoadError } from "@/components/app/load-error";
+import { formatLatency } from "@/lib/format";
 
-const ms = (value: number | null) =>
-  value === null ? "—" : `${Math.round(value)} ms`;
 function Metrics({
   title,
   data,
@@ -16,7 +15,7 @@ function Metrics({
 }) {
   return (
     <div className="space-y-3">
-      <h3 className="text-xs font-medium">{title}</h3>
+      <h3 className="text-heading-sm">{title}</h3>
       <div className="flex flex-wrap gap-2 sm:gap-3">
         <StatCard
           label="API attempts"
@@ -47,8 +46,8 @@ function Metrics({
         />
         <StatCard
           label="API latency"
-          value={ms(data.medianMs)}
-          sub={`p95 ${ms(data.p95Ms)}`}
+          value={formatLatency(data.medianMs)}
+          sub={`p95 ${formatLatency(data.p95Ms)}`}
         />
         <StatCard
           label="Known estimated API cost"
@@ -65,7 +64,7 @@ function Metrics({
         />
       </div>
       {data.attempts === 0 && (
-        <p className="text-xs text-muted-foreground">
+        <p className="text-body-sm text-muted-foreground">
           No decisions in this range. Enable{" "}
           {steering ? "steering" : "reply routing"} in Settings → AI routing to
           start collecting metrics.
@@ -77,7 +76,7 @@ function Metrics({
 function MergeRisk({ data }: { data: MergeRiskMetrics }) {
   return (
     <div className="space-y-3">
-      <h3 className="text-xs font-medium">Merge risk</h3>
+      <h3 className="text-heading-sm">Merge risk</h3>
       <div className="flex flex-wrap gap-2 sm:gap-3">
         <StatCard
           label="API attempts"
@@ -98,8 +97,8 @@ function MergeRisk({ data }: { data: MergeRiskMetrics }) {
         <StatCard label="API failures" value={data.failures} />
         <StatCard
           label="API latency"
-          value={ms(data.medianMs)}
-          sub={`p95 ${ms(data.p95Ms)}`}
+          value={formatLatency(data.medianMs)}
+          sub={`p95 ${formatLatency(data.p95Ms)}`}
         />
         <StatCard
           label="Known estimated API cost"
@@ -116,7 +115,7 @@ function MergeRisk({ data }: { data: MergeRiskMetrics }) {
         />
       </div>
       {data.explanations && data.explanations.attempts > 0 && (
-        <p className="text-xs text-muted-foreground">
+        <p className="text-body-sm text-muted-foreground">
           Explanations: {data.explanations.attempts} attempts · $
           {data.explanations.knownEstimatedUsd.toFixed(5)} known estimated cost
           · {data.explanations.unknownCostCalls} unpriced. Uses the shared
@@ -124,7 +123,7 @@ function MergeRisk({ data }: { data: MergeRiskMetrics }) {
         </p>
       )}
       {data.attempts === 0 && (
-        <p className="text-xs text-muted-foreground">
+        <p className="text-body-sm text-muted-foreground">
           No assessments in this range. Enable merge risk in Settings → AI
           routing; open or draft pull requests with a known head and resolved
           findings are assessed once per head.
@@ -142,33 +141,29 @@ export function DecisionMetricsSection({
 }) {
   const query = useDecisionMetrics(range, dailyDate);
   return (
-    <section aria-labelledby="decision-metrics-heading" className="space-y-5">
+    <section aria-labelledby="decision-metrics-heading" className="space-y-4">
       <div>
-        <h2 id="decision-metrics-heading" className="text-sm font-medium">
+        <h2 id="decision-metrics-heading" className="text-heading-sm">
           AI decisions
         </h2>
-        <p className="mt-1 text-xs text-muted-foreground">
+        <p className="mt-1 text-body-sm text-muted-foreground">
           Selected time range, limited to retained diagnostics: up to 14 days
           and 2,000 records per feature. Counts describe delivery, not decision
           accuracy. Costs are estimates, not billing.
         </p>
       </div>
       {query.isPending && (
-        <p className="text-xs text-muted-foreground">
+        <p className="text-body-sm text-muted-foreground">
           Loading decision metrics…
         </p>
       )}
       {query.error && (
-        <div role="alert" className="text-xs text-destructive">
-          Couldn’t load decision metrics.{" "}
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => void query.refetch()}
-          >
-            Retry
-          </Button>
-        </div>
+        <LoadError
+          message="Couldn't load decision metrics"
+          error={query.error}
+          retrying={query.isFetching}
+          onRetry={() => void query.refetch()}
+        />
       )}
       {query.data && (
         <>

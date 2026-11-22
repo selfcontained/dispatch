@@ -1,8 +1,8 @@
-import type { ComponentProps } from "react";
+import { forwardRef, type ComponentPropsWithoutRef } from "react";
 import { cn } from "@/lib/utils";
 import { Check, Copy, ExternalLink, X } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import { useCopyText } from "@/hooks/use-copy";
+import { IconButton } from "@/components/ui/icon-button";
 
 export function AgentLinkControls({
   url,
@@ -26,44 +26,37 @@ export function AgentLinkControls({
       className="flex shrink-0 items-center"
       onClick={(event) => event.stopPropagation()}
     >
-      <Button
-        className="text-muted-foreground/60 hover:text-foreground"
-        variant="ghost"
+      <IconButton
+        className="text-faint hover:text-foreground"
         size="icon-sm"
-        aria-label={copied ? copiedLabel : copyLabel}
-        title={copied ? copiedLabel : copyLabel}
+        label={copied ? copiedLabel : copyLabel}
         onClick={() => copyText(url)}
       >
-        {copied ? (
-          <Check aria-hidden="true" className="h-3.5 w-3.5" />
-        ) : (
-          <Copy aria-hidden="true" className="h-3.5 w-3.5" />
-        )}
-      </Button>
-      <Button
-        className="text-muted-foreground/60 hover:text-foreground"
-        variant="ghost"
+        {copied ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />}
+      </IconButton>
+      <IconButton
+        tooltip={dismissTitle}
+        className="text-faint hover:text-foreground"
         size="icon-sm"
-        aria-label={dismissLabel}
-        title={dismissTitle}
+        label={dismissLabel}
         onClick={onDismiss}
       >
-        <X aria-hidden="true" className="h-3.5 w-3.5" />
-      </Button>
+        <X aria-hidden="true" />
+      </IconButton>
     </div>
   );
 }
 
-export function AgentMetadataLink({
-  children,
-  className,
-  ...props
-}: ComponentProps<"a">) {
+export const AgentMetadataLink = forwardRef<
+  HTMLAnchorElement,
+  ComponentPropsWithoutRef<"a">
+>(({ children, className, ...props }, ref) => {
   return (
     <a
+      ref={ref}
       {...props}
       className={cn(
-        "flex min-w-0 items-center gap-1 rounded-sm font-mono text-xs leading-4 text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        "flex min-w-0 items-center gap-1 rounded-sm font-mono text-body-sm leading-4 text-foreground hover:underline focus-ring",
         className
       )}
     >
@@ -71,4 +64,5 @@ export function AgentMetadataLink({
       <ExternalLink aria-hidden="true" className="h-3 w-3 shrink-0" />
     </a>
   );
-}
+});
+AgentMetadataLink.displayName = "AgentMetadataLink";

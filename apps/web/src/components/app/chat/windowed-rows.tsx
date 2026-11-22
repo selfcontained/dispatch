@@ -92,7 +92,7 @@ export type WindowSegment =
 
 type Range = { from: number; to: number };
 /** A range as set, with the row it started at, to find it again when rows land above. */
-type KeyedRange = Range & { first: string | null };
+type KeyedRange = Range & { first: string | null; atEnd: boolean };
 type Anchor = { key: string; offset: number; scrollTop: number };
 /** How many rows in view are kept as anchors, first choice first. */
 const ANCHOR_COUNT = 4;
@@ -108,6 +108,7 @@ export type WindowedRowsOptions = {
   pinned?: ReadonlySet<string>;
   /** While true, the bottom stays in view through size changes. */
   isFollowing?: () => boolean;
+  followBottom?: () => void;
   /** Names the list so measured heights survive a remount. */
   cacheKey?: string | null;
   /** False renders every row, as a short list or a test would. */
@@ -168,6 +169,7 @@ export function useWindowedRows({
   align,
   pinned,
   isFollowing,
+  followBottom,
   cacheKey,
   enabled = true,
   anchorable,
@@ -196,6 +198,7 @@ export function useWindowedRows({
   const [range, setRange] = useState<KeyedRange>(() => ({
     ...initialRange(keys.length, align, windowing),
     first: null,
+    atEnd: align === "end",
   }));
   /** The range as last rendered, by index into the current keys. */
   const rangeRef = useRef<Range>(range);
@@ -261,14 +264,16 @@ export function useWindowedRows({
     const next = computeRange();
     if (!next) return;
     laidOutRef.current = true;
-    const current = rangeRef.current;
+    const current = rangeStateRef.current;
+    const atEnd = next.to === keysRef.current.length;
     const first = keysRef.current[next.from] ?? null;
     if (
       next.from !== current.from ||
       next.to !== current.to ||
-      first !== rangeStateRef.current.first
+      atEnd !== current.atEnd ||
+      first !== current.first
     ) {
-      setRange({ ...next, first });
+      setRange({ ...next, first, atEnd });
     }
   }, [computeRange]);
 
@@ -426,15 +431,25 @@ export function useWindowedRows({
     if (isFollowingRef.current?.()) {
       const bottom = scroller.scrollHeight - scroller.clientHeight;
       if (bottom - scroller.scrollTop > AT_END_PX) {
-        scroller.scrollTop = bottom;
-        ownScrollRef.current = scroller.scrollTop;
+        if (followBottom) followBottom();
+        else {
+          scroller.scrollTop = bottom;
+          ownScrollRef.current = scroller.scrollTop;
+        }
       }
       captureAnchor();
       return;
     }
     if (correct()) refreshAnchors();
     else captureAnchor();
-  }, [captureAnchor, correct, refreshAnchors, scrollRef, windowing]);
+  }, [
+    captureAnchor,
+    correct,
+    followBottom,
+    refreshAnchors,
+    scrollRef,
+    windowing,
+  ]);
 
   const takePlaceHere = useCallback(
     () => captureAnchor("top"),
@@ -591,7 +606,7 @@ export function useWindowedRows({
   useLayoutEffect(() => {
     keepPlace();
     if (windowing) scheduleRange();
-  });
+  }, [keepPlace, scheduleRange, windowing, keys, range, pinned, focusKey]);
 
   // ---- what to render -------------------------------------------------------
   // The range is kept by index, but it means rows: when rows land above
@@ -640,7 +655,7 @@ export function shownRange({
 }: {
   windowing: boolean;
   laidOut: boolean;
-  range: Range & { first: string | null };
+  range: KeyedRange;
   keys: readonly string[];
   align: "start" | "end";
 }): Range {
@@ -651,14 +666,20 @@ export function shownRange({
     from: Math.min(range.from, count),
     to: Math.min(range.to, count),
   };
-  if (range.first === null || keys[range.from] === range.first) return shown;
-  const moved = keys.indexOf(range.first);
-  if (moved === -1) return shown;
-  const shift = moved - range.from;
-  return {
-    from: Math.min(count, range.from + shift),
-    to: Math.min(count, range.to + shift),
-  };
+  if (range.first !== null && keys[range.from] !== range.first) {
+    const moved = keys.indexOf(range.first);
+    if (moved !== -1) {
+      shown.from = moved;
+      shown.to = Math.min(count, moved + range.to - range.from);
+    }
+  }
+  // When the rendered window includes the tail, measure new arrivals in
+  // their first commit. A temporary estimated spacer would move the scroll
+  // target twice. Keep bulk loads bounded until the next range calculation.
+  if (align === "end" && range.atEnd && count - shown.to <= INITIAL_ROWS) {
+    shown.to = count;
+  }
+  return shown;
 }
 
 /**

@@ -12,6 +12,7 @@ import {
 } from "node:fs/promises";
 import path from "node:path";
 import { pipeline } from "node:stream/promises";
+import { childProcessEnv } from "../shared/process/child-environment.js";
 
 import { runnerExecutableMember } from "../agents/remote/update-manifest.js";
 import { hashRegular } from "../update-recovery/files.js";
@@ -41,6 +42,7 @@ async function tarMemberText(
 ): Promise<string> {
   return new Promise((resolve, reject) => {
     const child = spawn("tar", ["xOf", tarballPath, member], {
+      env: childProcessEnv(),
       stdio: ["ignore", "pipe", "pipe"],
     });
     const chunks: Buffer[] = [];
@@ -77,6 +79,7 @@ export async function extractTarMember(
   destination: string
 ): Promise<void> {
   const child = spawn("tar", ["xOf", tarballPath, member], {
+    env: childProcessEnv(),
     stdio: ["ignore", "pipe", "pipe"],
   });
   const errors: Buffer[] = [];

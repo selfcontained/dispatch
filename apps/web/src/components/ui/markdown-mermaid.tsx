@@ -1,8 +1,8 @@
 import { useEffect, useId, useState } from "react";
 import { Check, Code2, Image } from "lucide-react";
 
-import { Button } from "@/components/ui/button";
 import type { MermaidRenderTheme } from "@/components/ui/markdown-mermaid-theme";
+import { IconButton } from "@/components/ui/icon-button";
 import { useCopyText } from "@/hooks/use-copy";
 import { errorMessage } from "@/lib/errors";
 
@@ -104,29 +104,22 @@ export function MermaidBlock({
 
   if (error) {
     return (
-      <div className="not-prose my-4 rounded-md border border-destructive/40 bg-destructive/10 p-3">
+      <div className="not-prose my-4 rounded-md border border-danger/line bg-danger/tint p-3">
         <div className="flex items-start gap-2">
-          <p className="m-0 flex-1 text-sm font-medium text-destructive">
+          <p className="m-0 flex-1 text-body-md font-medium text-danger">
             Mermaid render failed
           </p>
-          <Button
-            aria-label="Copy Mermaid source"
+          <IconButton
+            label="Copy Mermaid source"
             data-testid="copy-mermaid-source"
-            title="Copy Mermaid source"
-            size="icon"
-            type="button"
-            variant="ghost"
-            className="h-11 w-11 text-destructive hover:bg-destructive/10 hover:text-destructive sm:h-7 sm:w-7"
+            size="icon-sm"
+            className="text-danger hover:bg-danger/tint hover:text-danger"
             onClick={() => copySource(code)}
           >
-            {sourceCopied ? (
-              <Check className="h-3.5 w-3.5" />
-            ) : (
-              <Code2 className="h-3.5 w-3.5" />
-            )}
-          </Button>
+            {sourceCopied ? <Check /> : <Code2 />}
+          </IconButton>
         </div>
-        <pre className="mt-2 overflow-x-auto whitespace-pre-wrap break-words text-xs text-destructive">
+        <pre className="mt-2 overflow-x-auto whitespace-pre-wrap break-words text-body-sm text-danger">
           <code>{code}</code>
         </pre>
       </div>
@@ -135,9 +128,9 @@ export function MermaidBlock({
 
   if (!svg) {
     return (
-      <div className="not-prose my-4 rounded-md border border-border bg-muted/40 p-3 text-sm text-muted-foreground">
+      <div className="not-prose my-4 rounded-md border border-border bg-surface-subtle p-3 text-body-md text-muted-foreground">
         <div className="flex items-center gap-2">
-          <span className="h-2 w-2 rounded-full bg-primary/70 animate-pulse" />
+          <span className="h-2 w-2 rounded-full bg-primary/soft animate-pulse" />
           <span>Rendering diagram...</span>
         </div>
       </div>
@@ -150,40 +143,24 @@ export function MermaidBlock({
       data-testid="mermaid-diagram"
     >
       <div className="mb-2 flex items-center justify-end gap-2 sm:gap-1">
-        <Button
-          aria-label="Copy Mermaid source"
+        <IconButton
+          label="Copy Mermaid source"
           data-testid="copy-mermaid-source"
-          title="Copy Mermaid source"
-          size="icon"
-          type="button"
-          variant="ghost"
-          className="h-11 w-11 text-muted-foreground hover:text-foreground sm:h-7 sm:w-7"
+          size="icon-sm"
           onClick={() => copySource(code)}
         >
-          {sourceCopied ? (
-            <Check className="h-3.5 w-3.5" />
-          ) : (
-            <Code2 className="h-3.5 w-3.5" />
-          )}
-        </Button>
-        <Button
-          aria-label="Copy Mermaid SVG"
+          {sourceCopied ? <Check /> : <Code2 />}
+        </IconButton>
+        <IconButton
+          label="Copy Mermaid SVG"
           data-testid="copy-mermaid-svg"
-          title="Copy Mermaid SVG"
-          size="icon"
-          type="button"
-          variant="ghost"
-          className="h-11 w-11 text-muted-foreground hover:text-foreground sm:h-7 sm:w-7"
+          size="icon-sm"
           onClick={() => {
             if (svg) copySvg(svg);
           }}
         >
-          {svgCopied ? (
-            <Check className="h-3.5 w-3.5" />
-          ) : (
-            <Image className="h-3.5 w-3.5" />
-          )}
-        </Button>
+          {svgCopied ? <Check /> : <Image />}
+        </IconButton>
       </div>
       <div
         className="[&_svg]:h-auto [&_svg]:max-w-full"

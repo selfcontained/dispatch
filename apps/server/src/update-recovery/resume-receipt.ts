@@ -62,8 +62,33 @@ export const RESUME_RECEIPT_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 /** Atomically replace the receipt: private temp file, fsync, rename, fsync dir. */
 export async function writeResumeReceipt(
   file: string,
-  receipt: ResumeReceipt
+  receipt: ResumeReceipt,
+  preserveTransactionAgents = false
 ): Promise<void> {
+  if (preserveTransactionAgents) {
+    let previous: ResumeReceipt | null = null;
+    try {
+      previous = resumeReceiptSchema.parse(
+        JSON.parse(await readPrivateFile(file))
+      );
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+    if (previous?.transactionId === receipt.transactionId) {
+      receipt = {
+        ...receipt,
+        createdAt: previous.createdAt,
+        agents: [
+          ...new Map(
+            [...previous.agents, ...receipt.agents].map((agent) => [
+              agent.id,
+              agent,
+            ])
+          ).values(),
+        ],
+      };
+    }
+  }
   const body = JSON.stringify(resumeReceiptSchema.parse(receipt));
   const directory = path.dirname(file);
   await mkdir(directory, { recursive: true, mode: 0o700 });

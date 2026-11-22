@@ -48,7 +48,7 @@ export function SlackTimingCard(): JSX.Element {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-base">Slack timing</CardTitle>
+        <CardTitle className="text-heading-md">Slack timing</CardTitle>
       </CardHeader>
       <CardContent>
         <form
@@ -56,7 +56,7 @@ export function SlackTimingCard(): JSX.Element {
           className="flex flex-wrap items-end gap-4"
           aria-label="Slack timing"
         >
-          <label className="grid gap-1.5 text-sm">
+          <label className="grid gap-1.5 text-body-md">
             <span>When away (seconds)</span>
             <Input
               type="number"
@@ -71,7 +71,7 @@ export function SlackTimingCard(): JSX.Element {
               onChange={(event) => setAway(event.target.value)}
             />
           </label>
-          <label className="grid gap-1.5 text-sm">
+          <label className="grid gap-1.5 text-body-md">
             <span>When in Dispatch (minutes)</span>
             <Input
               type="number"
@@ -92,7 +92,7 @@ export function SlackTimingCard(): JSX.Element {
         </form>
         {query.isError && (
           <div className="mt-3 flex items-center gap-3" role="alert">
-            <p className="text-sm text-destructive">
+            <p className="text-body-md text-danger">
               Couldn't load Slack timing.
             </p>
             <Button
@@ -105,7 +105,7 @@ export function SlackTimingCard(): JSX.Element {
           </div>
         )}
         {save.isError && (
-          <p className="mt-3 text-sm text-destructive" role="alert">
+          <p className="mt-3 text-body-md text-danger" role="alert">
             {save.error instanceof Error
               ? save.error.message
               : "Couldn't save Slack timing."}

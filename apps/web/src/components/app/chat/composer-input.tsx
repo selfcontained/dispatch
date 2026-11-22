@@ -94,6 +94,8 @@ export interface ComposerInputHandle {
 }
 
 export interface ComposerInputProps {
+  submitting?: boolean;
+  feedTailId?: string | null;
   value: string;
   mentionables: readonly Mentionable[];
   disabled: boolean;
@@ -114,6 +116,9 @@ export const ComposerInput = forwardRef<
 >(function ComposerInput(props, ref) {
   const host = useRef<HTMLDivElement>(null);
   const editor = useRef<EditorView | null>(null);
+  const heldSize = useRef<{ height: number; tail?: string | null } | null>(
+    null
+  );
   const current = useRef(props);
   const [cursor, setCursor] = useState({ text: props.value, caret: 0, end: 0 });
   const [dismissed, setDismissed] = useState("");
@@ -218,7 +223,7 @@ export const ComposerInput = forwardRef<
       editable: () => !current.current.disabled,
       attributes: (state) => ({
         class: cn(
-          "min-h-14 max-h-48 overflow-y-auto whitespace-pre-wrap break-words rounded-t-2xl px-4 pb-2 pt-4 text-sm leading-6 text-foreground caret-foreground outline-none pointer-coarse:text-base selection:bg-primary selection:text-primary-foreground",
+          "min-h-14 max-h-48 overflow-y-auto whitespace-pre-wrap break-words rounded-t-lg px-4 pb-2 pt-4 text-body-md leading-6 text-foreground caret-foreground outline-none pointer-coarse:text-body-lg selection:bg-primary selection:text-primary-foreground",
           current.current.disabled && "opacity-50"
         ),
         role:
@@ -396,10 +401,25 @@ export const ComposerInput = forwardRef<
   }, [listId]);
 
   useLayoutEffect(() => {
+    const previousTail = current.current.feedTailId;
     current.current = props;
     const view = editor.current;
     if (!view) return;
     if (plainText(view.state.doc) !== props.value) {
+      // Clearing a tall editor can clamp the feed's scroll position before
+      // the optimistic row mounts. Keep that space across the DOM update,
+      // then let the editor contract as the sent message arrives.
+      const wrapper = host.current;
+      const easeClear =
+        props.submitting &&
+        !props.value &&
+        wrapper?.animate &&
+        window.matchMedia?.("(prefers-reduced-motion: no-preference)").matches;
+      const before = easeClear ? view.dom.getBoundingClientRect().height : 0;
+      if (wrapper && before) {
+        wrapper.style.minHeight = before + "px";
+        heldSize.current = { height: before, tail: previousTail };
+      }
       const from = textOffset(view.state.doc, view.state.selection.from);
       const to = textOffset(view.state.doc, view.state.selection.to);
       const transaction = closeHistory(view.state.tr).replaceWith(
@@ -415,6 +435,29 @@ export const ComposerInput = forwardRef<
         )
       );
       view.dispatch(transaction.setMeta("external", true));
+    }
+    const held = heldSize.current;
+    const wrapper = host.current;
+    if (
+      held &&
+      wrapper &&
+      (!props.submitting ||
+        props.value ||
+        props.feedTailId === undefined ||
+        props.feedTailId !== held.tail)
+    ) {
+      const after = view.dom.getBoundingClientRect().height;
+      if (held.height > after) {
+        wrapper.animate(
+          [{ minHeight: held.height + "px" }, { minHeight: after + "px" }],
+          {
+            duration: 360,
+            easing: "ease-in-out",
+          }
+        );
+      }
+      wrapper.style.minHeight = "";
+      heldSize.current = null;
     }
     view.setProps({});
   }, [props]);
@@ -433,7 +476,7 @@ export const ComposerInput = forwardRef<
             id={listId}
             role="listbox"
             aria-label="Emoji shortcodes"
-            className="fixed z-50 w-64 overflow-auto rounded-md border bg-popover p-1 text-popover-foreground shadow-md"
+            className="fixed z-drawer w-64 overflow-auto rounded-md border bg-popover p-1 text-popover-foreground shadow-md"
             style={{
               left: Math.max(8, Math.min(rect.left, window.innerWidth - 264)),
               bottom: Math.max(8, window.innerHeight - rect.top + 4),
@@ -443,6 +486,7 @@ export const ComposerInput = forwardRef<
           >
             {candidates.map(([alias, emoji], index) => (
               <Button
+                size="stream-md"
                 key={alias}
                 type="button"
                 variant="ghost"

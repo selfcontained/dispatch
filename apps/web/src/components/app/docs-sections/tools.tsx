@@ -156,7 +156,7 @@ export function ToolsContent() {
           stream — and every top-level block has a thread that opens as a page
           in the drawer. Three tools cover it:
         </P>
-        <ul className="grid gap-1.5 pl-4 text-sm text-muted-foreground list-disc">
+        <ul className="grid gap-1.5 pl-4 text-body-md text-muted-foreground list-disc">
           <li>
             <Code>post</Code> — post a block. Without <Code>to</Code> it goes to
             the agent&apos;s own stream, where the user reads it; with{" "}
@@ -182,7 +182,7 @@ export function ToolsContent() {
           </li>
         </ul>
         <P>Block kinds:</P>
-        <ul className="grid gap-1.5 pl-4 text-sm text-muted-foreground list-disc">
+        <ul className="grid gap-1.5 pl-4 text-body-md text-muted-foreground list-disc">
           <li>
             <Code>text</Code> — markdown. An agent&apos;s ordinary replies
             already appear in the stream as it writes them, so <Code>post</Code>{" "}
@@ -247,7 +247,7 @@ export function ToolsContent() {
           jobs get <Code>job_complete</Code>, <Code>job_failed</Code>,{" "}
           <Code>job_needs_input</Code>, and <Code>job_log</Code>.
         </P>
-        <ul className="grid gap-1.5 pl-4 text-sm text-muted-foreground list-disc">
+        <ul className="grid gap-1.5 pl-4 text-body-md text-muted-foreground list-disc">
           <li>
             <Code>post</Code>, <Code>update</Code>, <Code>react</Code> — the
             stream tools above

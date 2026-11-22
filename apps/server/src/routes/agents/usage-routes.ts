@@ -12,6 +12,11 @@ import {
   loadAgentUsage,
   toAgentConfigOptions,
 } from "../../agents/usage-report.js";
+import {
+  assertModelSelectable,
+  getAgentModelAvailability,
+} from "../../shared/agent-models.js";
+import { errorMessage } from "../../shared/lib/error-message.js";
 import type { AgentRouteDeps } from "./shared.js";
 
 const CONFIG_VALUE_MAX = 200;
@@ -40,7 +45,10 @@ export async function registerAgentUsageRoutes(
     const options = deps.agentManager.getConfigOptions(id);
     const response: AgentConfigResponse = {
       running: options !== null,
-      options: toAgentConfigOptions(options ?? []),
+      options: toAgentConfigOptions(
+        options ?? [],
+        getAgentModelAvailability(agent.type).disabled
+      ),
     };
     return response;
   });
@@ -55,6 +63,18 @@ export async function registerAgentUsageRoutes(
         .code(400)
         .send({ error: "configId and value are required." });
     }
+    const agent = await deps.agentManager.getAgent(id);
+    if (!agent) return reply.code(404).send({ error: "Agent not found." });
+    const option = deps.agentManager
+      .getConfigOptions(id)
+      ?.find((candidate) => candidate.id === configId);
+    if (option && (option.id === "model" || option.category === "model")) {
+      try {
+        assertModelSelectable(agent.type, value, String(option.currentValue));
+      } catch (error) {
+        return reply.code(400).send({ error: errorMessage(error) });
+      }
+    }
     try {
       const options = await deps.agentManager.setConfigOption(
         id,
@@ -63,7 +83,10 @@ export async function registerAgentUsageRoutes(
       );
       const response: AgentConfigResponse = {
         running: true,
-        options: toAgentConfigOptions(options),
+        options: toAgentConfigOptions(
+          options,
+          getAgentModelAvailability(agent.type).disabled
+        ),
       };
       return response;
     } catch (error) {

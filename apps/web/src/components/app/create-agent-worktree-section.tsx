@@ -6,13 +6,8 @@ import {
   type BranchSelectProps,
 } from "@/components/app/branch-select";
 import { Checkbox } from "@/components/ui/checkbox";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { Input } from "@/components/ui/input";
+import { IconButton } from "@/components/ui/icon-button";
 import { cn } from "@/lib/utils";
 
 type WorktreeSectionProps = {
@@ -66,7 +61,7 @@ export function WorktreeSection({
   return (
     <div
       className={cn(
-        "rounded-md border border-border/70 bg-muted/20 px-3 py-3 transition-opacity duration-200",
+        "rounded-md border border-border-subtle bg-surface-subtle px-3 py-3 transition-opacity duration-200",
         !worktreeAvailable && "opacity-60"
       )}
       data-testid="create-agent-worktree-section"
@@ -84,38 +79,26 @@ export function WorktreeSection({
               onUseWorktreeChange?.(checked === true)
             }
             disabled={!worktreeAvailable || !worktreeOptional}
-            title={
-              !worktreeOptional
-                ? "Runner repositories use a managed worktree"
-                : worktreeAvailable
-                  ? "Toggle managed git worktree"
-                  : "Not a git repository"
-            }
             data-testid="create-agent-worktree"
           />
-          <span className="flex h-5 items-center gap-1.5 text-sm font-medium text-foreground">
+          <span className="flex h-5 items-center gap-1.5 text-body-md font-medium text-foreground">
             <GitBranch className="h-3.5 w-3.5" />
             Create managed git worktree
           </span>
         </label>
-        <TooltipProvider>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                type="button"
-                aria-label="About managed worktrees"
-                className="flex h-5 shrink-0 items-center text-muted-foreground hover:text-foreground"
-              >
-                <Info className="h-3.5 w-3.5" />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent className="max-w-64">
-              {worktreeAvailable
+        <IconButton
+          size="icon-xs"
+          label="About managed worktrees"
+          tooltip={
+            !worktreeOptional
+              ? "Runner repositories use a managed worktree"
+              : worktreeAvailable
                 ? "Creates an isolated worktree for this agent. Dispatch tracks and cleans it up when the agent is archived."
-                : "Requires a Git repository."}
-            </TooltipContent>
-          </Tooltip>
-        </TooltipProvider>
+                : "Requires a Git repository."
+          }
+        >
+          <Info />
+        </IconButton>
       </div>
       <div
         ref={collapsibleRef}
@@ -161,7 +144,7 @@ export function WorktreeSection({
             <div className="space-y-1">
               <label
                 htmlFor="create-agent-new-branch"
-                className="ml-8 block cursor-pointer text-xs text-muted-foreground"
+                className="ml-8 block cursor-pointer text-body-sm text-muted-foreground"
               >
                 New branch
               </label>
@@ -172,7 +155,7 @@ export function WorktreeSection({
                   onCheckedChange={(checked) =>
                     onCreateNewBranchChange(checked === true)
                   }
-                  title="Toggle new branch creation"
+                  aria-label="Toggle new branch creation"
                   data-testid="create-agent-new-branch"
                   disabled={!worktreeChecked}
                 />

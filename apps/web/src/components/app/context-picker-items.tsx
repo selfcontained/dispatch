@@ -14,6 +14,9 @@ import {
   startupLinkLabel,
 } from "@/components/app/create-agent-dialog-clipboard";
 import { cn } from "@/lib/utils";
+import { IconButton } from "@/components/ui/icon-button";
+import { RowButton } from "@/components/ui/row-button";
+import { Hint } from "@/components/ui/tooltip";
 
 /** The × that hangs off a chip's top-right corner. */
 export function ChipRemoveButton({
@@ -29,22 +32,22 @@ export function ChipRemoveButton({
   compact?: boolean;
 }): JSX.Element {
   return (
-    <button
-      type="button"
+    <IconButton
+      size="icon-xs"
       className={cn(
-        "absolute flex items-start justify-end rounded-full text-muted-foreground transition-opacity hover:text-foreground focus:opacity-100 group-hover:opacity-100",
+        "absolute rounded-full opacity-100 transition-opacity hover:bg-transparent",
         compact
-          ? "-right-0.5 -top-0.5 z-10 h-6 w-6 p-0.5"
-          : "-right-2 -top-2 h-10 w-10 p-2"
+          ? "-right-1 -top-1 z-sticky pointer-coarse:after:size-7"
+          : "-right-2 -top-2"
       )}
       onClick={onRemove}
-      aria-label={label}
+      label={label}
       {...(testId ? { "data-testid": testId } : {})}
     >
-      <span className="rounded-full border border-border/70 bg-background p-0.5">
-        <X className="h-2.5 w-2.5" />
+      <span className="rounded-full border border-border-subtle bg-background p-0.5">
+        <X className="size-icon-sm" />
       </span>
-    </button>
+    </IconButton>
   );
 }
 
@@ -77,56 +80,65 @@ export function ContextFileItem({
     >
       <div
         className={cn(
-          "relative h-12 w-12 overflow-hidden rounded-md border bg-muted/40",
-          status === "failed" ? "border-destructive/60" : "border-border/70"
+          "relative h-12 w-12 overflow-hidden rounded-md border bg-surface-subtle",
+          status === "failed"
+            ? "border-danger/line-strong"
+            : "border-border-subtle"
         )}
-        title={status === "failed" ? `Upload failed: ${file.name}` : file.name}
       >
         {preview && onOpen ? (
-          <button
-            type="button"
-            className="group/markup relative block h-full w-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
-            aria-label={
-              noteCount
-                ? `Mark up ${file.name}, ${noteCount} ${noteCount === 1 ? "note" : "notes"}`
-                : `Mark up ${file.name}`
-            }
-            title="Mark up"
-            onClick={onOpen}
-          >
-            <img src={preview} alt="" className="h-full w-full object-cover" />
-            <span
-              className="absolute inset-0 bg-black/25 opacity-0 transition-opacity group-hover/markup:opacity-100 group-focus-visible/markup:opacity-100"
-              aria-hidden="true"
-            />
-          </button>
+          <Hint label="Mark up">
+            <RowButton
+              className="group/markup relative block h-full rounded-none"
+              aria-label={
+                noteCount
+                  ? `Mark up ${file.name}, ${noteCount} ${noteCount === 1 ? "note" : "notes"}`
+                  : `Mark up ${file.name}`
+              }
+              onClick={onOpen}
+            >
+              <img
+                src={preview}
+                alt=""
+                className="h-full w-full object-cover"
+              />
+              <span
+                className="absolute inset-0 bg-media/line opacity-0 transition-opacity group-hover/markup:opacity-100 group-focus-visible/markup:opacity-100"
+                aria-hidden="true"
+              />
+            </RowButton>
+          </Hint>
         ) : preview ? (
           <img src={preview} alt="" className="h-full w-full object-cover" />
         ) : (
           <div className="flex h-full w-full flex-col items-center justify-center text-muted-foreground">
             <FileText className="h-3.5 w-3.5" />
-            <span className="text-[8px] font-medium tracking-wide">
+            <span className="text-label-xs font-medium tracking-wide">
               {startupFileExt(file.name)}
             </span>
           </div>
         )}
         {status ? (
-          <div
-            className={cn(
-              "absolute inset-0 flex items-center justify-center bg-background/70",
-              status === "failed" ? "text-destructive" : "text-foreground"
-            )}
+          <Hint
+            label={status === "failed" ? `Upload failed: ${file.name}` : ""}
           >
-            {status === "failed" ? (
-              <AlertTriangle className="h-4 w-4" />
-            ) : (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            )}
-          </div>
+            <div
+              className={cn(
+                "absolute inset-0 flex items-center justify-center bg-background/soft",
+                status === "failed" ? "text-danger" : "text-foreground"
+              )}
+            >
+              {status === "failed" ? (
+                <AlertTriangle className="h-4 w-4" />
+              ) : (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              )}
+            </div>
+          </Hint>
         ) : null}
         {noteCount ? (
           <span
-            className="pointer-events-none absolute bottom-0.5 left-0.5 flex h-4 min-w-4 items-center justify-center gap-0.5 rounded-full bg-primary px-1 text-[9px] font-semibold leading-none text-primary-foreground shadow"
+            className="pointer-events-none absolute bottom-0.5 left-0.5 flex h-4 min-w-4 items-center justify-center gap-0.5 rounded-full bg-primary px-1 text-label-xs font-semibold leading-none text-primary-foreground shadow"
             data-testid="context-file-note-count"
             aria-hidden="true"
           >
@@ -149,7 +161,7 @@ export function ContextFileItem({
         />
       </div>
       <span
-        className="w-full truncate text-[8px] leading-tight text-muted-foreground"
+        className="w-full truncate text-label-xs leading-tight text-muted-foreground"
         title={file.name}
       >
         {file.name}
@@ -187,20 +199,20 @@ export function ContextChip({
   return (
     <div
       className={cn(
-        "group relative flex h-12 max-w-[180px] flex-col justify-center gap-0.5 rounded-md border border-border/70 bg-muted/40 px-2 pr-7 leading-tight",
+        "group relative flex h-12 max-w-[180px] flex-col justify-center gap-0.5 rounded-md border border-border-subtle bg-surface-subtle px-2 pr-8 leading-tight",
         className
       )}
       title={tooltip ?? title}
       {...(testId ? { "data-testid": testId } : {})}
     >
-      <div className="flex items-center gap-1 text-[10px] text-foreground">
+      <div className="flex items-center gap-1 text-label-xs text-foreground">
         <span className="shrink-0 text-muted-foreground [&>svg]:h-2.5 [&>svg]:w-2.5">
           {icon}
         </span>
         <span className="truncate font-medium">{title}</span>
       </div>
       {subtitle || action ? (
-        <div className="flex min-w-0 items-center gap-1 text-[9px] text-muted-foreground">
+        <div className="flex min-w-0 items-center gap-1 text-label-xs text-muted-foreground">
           {subtitle ? <span className="truncate">{subtitle}</span> : null}
           {action}
         </div>

@@ -90,6 +90,7 @@ function LaunchTemplateDialogContent({
   });
   const {
     options: modelOptions,
+    savedOption,
     loading: modelCatalogLoading,
     loaded: modelCatalogLoaded,
   } = useAgentModelCatalog(agentType);
@@ -158,7 +159,7 @@ function LaunchTemplateDialogContent({
     // stand.
     const launchModel = !modelCatalogLoaded
       ? undefined
-      : modelOptions.some((option) => option.id === model)
+      : savedOption(model)
         ? model
         : null;
     launchTemplate
@@ -189,7 +190,7 @@ function LaunchTemplateDialogContent({
     effort,
     effortError,
     modelCatalogLoaded,
-    modelOptions,
+    savedOption,
     navigate,
     onOpenChange,
     startupFiles,
@@ -273,6 +274,7 @@ function LaunchTemplateDialogContent({
               <AgentModelSelect
                 value={model}
                 options={modelOptions}
+                savedOption={savedOption(model)}
                 onChange={handleModelChange}
                 loading={modelCatalogLoading}
                 id="launch-template-model"
@@ -289,7 +291,7 @@ function LaunchTemplateDialogContent({
           </AgentConfigRow>
 
           {effortError ? (
-            <p role="alert" className="mt-2 text-sm text-destructive">
+            <p role="alert" className="mt-2 text-body-md text-danger">
               {effortError}
             </p>
           ) : null}
@@ -336,9 +338,9 @@ function LaunchTemplateDialogContent({
             }
           >
             {launchTemplate.isPending ? (
-              <ActivityBars size={16} className="mr-1.5" />
+              <ActivityBars size={16} />
             ) : (
-              <Play className="h-3.5 w-3.5 mr-1.5 fill-current" />
+              <Play className="fill-current" />
             )}
             Launch
           </Button>

@@ -51,7 +51,7 @@ export function MacAppUpdatesCard(): JSX.Element {
             <strong>Install Updates Automatically</strong> is enabled.
           </CardDescription>
           {!isPending && (
-            <p className="text-sm text-muted-foreground">
+            <p className="text-body-md text-muted-foreground">
               While Dispatch is open on the Mac, you can also check for and
               install updates here.
             </p>
@@ -91,7 +91,7 @@ export function MacAppUpdatesCard(): JSX.Element {
           >
             Check for updates
           </Button>
-          <div className="flex min-w-0 items-center gap-2 text-sm">
+          <div className="flex min-w-0 items-center gap-2 text-body-md">
             {progress ? (
               <>
                 <ActivityBars
@@ -104,7 +104,7 @@ export function MacAppUpdatesCard(): JSX.Element {
               </>
             ) : idle && state.checkedAt && !state.availableVersion ? (
               <>
-                <CheckCircle2 className="h-4 w-4 shrink-0 text-green-500" />
+                <CheckCircle2 className="h-4 w-4 shrink-0 text-success" />
                 <span className="truncate">
                   Up to date · checked {formatRelativeTime(state.checkedAt)}
                 </span>
@@ -114,13 +114,13 @@ export function MacAppUpdatesCard(): JSX.Element {
         </div>
 
         {state.phase === "recovery" && (
-          <div className="rounded border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+          <div className="rounded-sm border border-danger/line bg-danger/tint px-3 py-2 text-body-md text-danger">
             The last update didn’t finish. On the Mac, open the Dispatch menu
             bar icon and choose <strong>Retry Update Recovery</strong>.
           </div>
         )}
         {(state.error || action.error) && (
-          <div className="rounded border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+          <div className="rounded-sm border border-danger/line bg-danger/tint px-3 py-2 text-body-md text-danger">
             {action.error?.message ?? state.error}
           </div>
         )}
@@ -128,8 +128,8 @@ export function MacAppUpdatesCard(): JSX.Element {
         {state.availableVersion && state.phase !== "installing" && (
           <div className="flex flex-col gap-3">
             <div className="flex items-center gap-2">
-              <ArrowDownToLine className="h-4 w-4 text-blue-400" />
-              <span className="text-sm text-foreground">
+              <ArrowDownToLine className="h-4 w-4 text-info" />
+              <span className="text-body-md text-foreground">
                 <span className="font-mono font-semibold">
                   {state.availableVersion}
                 </span>{" "}

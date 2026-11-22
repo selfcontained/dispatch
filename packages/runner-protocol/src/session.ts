@@ -69,7 +69,8 @@ export type SessionCommand<Source = unknown> =
     }
   /** Set one of the session's config options (model, effort, mode). */
   | { type: "set_config"; id: string; configId: string; value: string }
-  | { type: "shutdown"; force?: boolean }
+  /** `idleOnly`: ignored while a turn is open. */
+  | { type: "shutdown"; force?: boolean; idleOnly?: boolean }
   | { type: "mcp_inventory"; id: string; sessionId: string }
   | { type: "background_work"; id: string; sessionId: string }
   | { type: "ping" };
@@ -140,7 +141,10 @@ function isSessionCommand(value: unknown): value is SessionCommand {
         typeof value.value === "string"
       );
     case "shutdown":
-      return value.force === undefined || typeof value.force === "boolean";
+      return (
+        (value.force === undefined || typeof value.force === "boolean") &&
+        (value.idleOnly === undefined || typeof value.idleOnly === "boolean")
+      );
     case "mcp_inventory":
     case "background_work":
       return (

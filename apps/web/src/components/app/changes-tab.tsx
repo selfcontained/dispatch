@@ -36,6 +36,7 @@ import {
   type LineSelection,
 } from "@/components/app/unified-diff-utils";
 import { FileTree } from "@/components/app/changes-file-tree";
+import { LoadError } from "@/components/app/load-error";
 import { DiffPane } from "@/components/app/changes-diff-section";
 
 type ChangesTabProps = {
@@ -69,21 +70,21 @@ function ChangesToolbar({
   return (
     <TooltipProvider delayDuration={200}>
       <div
-        className="flex items-center gap-2 border-b border-border/50 px-3 py-1.5"
+        className="flex flex-wrap items-center gap-2 border-b border-border-subtle px-3 py-1.5"
         data-testid="changes-toolbar"
       >
-        <span className="text-xs font-medium text-muted-foreground">
+        <span className="text-body-sm font-medium text-muted-foreground">
           Review
         </span>
         <div className="flex-1" />
         <Button
+          size="sm"
           type="button"
           variant="ghost"
-          className="h-8 gap-1.5 text-xs text-muted-foreground hover:text-foreground"
           data-testid="changes-start-review"
           onClick={onStartReview}
         >
-          <MessageSquarePlus className="h-3.5 w-3.5" />
+          <MessageSquarePlus />
           Leave a review
         </Button>
         <PersonaLauncher
@@ -186,7 +187,7 @@ export const ChangesTab = memo(function ChangesTab({
   const viewType = isMobile ? "unified" : storedViewType;
   const ignoreWhitespace = useAtomValue(diffIgnoreWhitespaceAtom);
   const hideTestFiles = useAtomValue(diffHideTestFilesAtom);
-  const { data, isLoading, error } = useAgentDiff(
+  const { data, isLoading, error, isFetching, refresh } = useAgentDiff(
     agentId,
     active,
     ignoreWhitespace
@@ -519,39 +520,48 @@ export const ChangesTab = memo(function ChangesTab({
       )
     ) : null;
 
-  if (isLoading && !data) {
+  const loadError = error ? (
+    <LoadError
+      message="Couldn't load changes"
+      error={error}
+      onRetry={refresh}
+      retrying={isFetching}
+      className="m-3"
+    />
+  ) : null;
+
+  if (isLoading) {
     return (
       <div className="flex h-full min-h-0 flex-col">
         {toolbar}
         <div className="flex flex-1 items-center justify-center text-muted-foreground">
           <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-          <span className="text-sm">Loading changes…</span>
+          <span className="text-body-md">Loading changes…</span>
         </div>
       </div>
     );
   }
 
-  const refreshError = error && (
-    <p role="status" className="px-3 py-2 text-xs text-muted-foreground">
-      {error.message}
-      {data && " Showing the last loaded changes."}
-    </p>
-  );
   if (files.length === 0) {
+    if (loadError) {
+      return (
+        <div className="flex h-full min-h-0 flex-col">
+          {toolbar}
+          {loadError}
+        </div>
+      );
+    }
     return (
       <div className="flex h-full min-h-0 flex-col">
         {toolbar}
-        {refreshError}
-        {!error && (
-          <div className="flex flex-1 flex-col items-center justify-center gap-2 text-muted-foreground">
-            <FileDiff className="h-8 w-8" />
-            <p className="text-sm">
-              {hideTestFiles && data?.files.length
-                ? "No non-test changes"
-                : "No changes yet"}
-            </p>
-          </div>
-        )}
+        <div className="flex flex-1 flex-col items-center justify-center gap-2 text-muted-foreground">
+          <FileDiff className="h-8 w-8" />
+          <p className="text-body-md">
+            {hideTestFiles && data?.files.length
+              ? "No non-test changes"
+              : "No changes yet"}
+          </p>
+        </div>
       </div>
     );
   }
@@ -559,7 +569,7 @@ export const ChangesTab = memo(function ChangesTab({
   return (
     <div className="flex h-full min-h-0 flex-col">
       {toolbar}
-      {refreshError}
+      {loadError}
       <div className="flex min-h-0 flex-1">
         <FileTree
           files={files}

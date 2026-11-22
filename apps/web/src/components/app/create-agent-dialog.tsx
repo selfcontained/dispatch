@@ -141,7 +141,7 @@ function CreateAgentDialogContent({
                 {form.runnerUnavailable && (
                   <p
                     role="alert"
-                    className="text-sm text-destructive"
+                    className="text-body-md text-danger"
                     data-testid="create-agent-runner-unavailable"
                   >
                     This runner is revoked or gone. Choose This computer or
@@ -173,9 +173,8 @@ function CreateAgentDialogContent({
                   workloadEffort={form.workloadEffort}
                 />
                 <div className="space-y-1">
-                  <label className="text-sm text-muted-foreground">
-                    Name{" "}
-                    <span className="text-muted-foreground/70">(optional)</span>
+                  <label className="text-body-md text-muted-foreground">
+                    Name <span className="text-faint">(optional)</span>
                   </label>
                   <Input
                     autoFocus
@@ -223,7 +222,7 @@ function CreateAgentDialogContent({
                       )}
                       {task && form.repository && (
                         <p
-                          className="truncate text-xs text-muted-foreground"
+                          className="truncate text-body-sm text-muted-foreground"
                           title={form.repository}
                         >
                           {form.repository}
@@ -232,7 +231,7 @@ function CreateAgentDialogContent({
                       {form.repoStatus && (
                         <p
                           role="status"
-                          className="text-xs text-muted-foreground"
+                          className="text-body-sm text-muted-foreground"
                         >
                           {form.repoStatus}
                         </p>
@@ -291,20 +290,19 @@ function CreateAgentDialogContent({
                 )}
 
                 {form.createType !== "opencode" && (
-                  <label className="flex cursor-pointer items-start gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3">
+                  <label className="flex cursor-pointer items-start gap-3 rounded-md border border-border-subtle bg-surface-subtle px-3 py-3">
                     <Checkbox
                       checked={form.createFullAccess}
                       onCheckedChange={() =>
                         form.setCreateFullAccess((current) => !current)
                       }
                       className="mt-0.5"
-                      title="Toggle full access"
                     />
                     <span className="space-y-1">
-                      <span className="block text-sm font-medium text-foreground">
+                      <span className="block text-body-md font-medium text-foreground">
                         Start in full access mode
                       </span>
-                      <span className="block text-xs text-muted-foreground">
+                      <span className="block text-body-sm text-muted-foreground">
                         Skip permission prompts. Turn off to require approvals.
                       </span>
                     </span>
@@ -324,7 +322,6 @@ function CreateAgentDialogContent({
               </Button>
               <Button
                 type="button"
-                variant="default"
                 tabIndex={0}
                 disabled={
                   form.creating || !form.locationReady || !form.createCwd.trim()
@@ -341,9 +338,7 @@ function CreateAgentDialogContent({
                 disabled={form.creating || !form.locationReady}
                 data-testid="create-agent-submit"
               >
-                {form.creating ? (
-                  <ActivityBars size={16} className="mr-1.5" />
-                ) : null}
+                {form.creating ? <ActivityBars size={16} /> : null}
                 Create
               </Button>
             </div>
@@ -388,7 +383,7 @@ function CreateAgentDialogContent({
                 <div className="space-y-1">
                   <label
                     htmlFor={CONTEXT_PROMPT_ID}
-                    className="text-sm text-muted-foreground"
+                    className="text-body-md text-muted-foreground"
                   >
                     Instructions
                   </label>
@@ -403,9 +398,9 @@ function CreateAgentDialogContent({
                     placeholder="Enter instructions for the agent..."
                     data-testid="create-agent-initial-prompt"
                     className={cn(
-                      "flex min-h-[180px] w-full resize-y rounded-md border border-white/[0.12] bg-white/[0.04] px-3 py-2 text-sm shadow-[inset_0_2px_6px_rgba(0,0,0,0.3)] backdrop-blur-md",
+                      "flex min-h-[180px] w-full resize-y rounded-md surface-inset px-3 py-2 text-body-md",
                       "ring-offset-background placeholder:text-muted-foreground",
-                      "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                      "focus-ring"
                     )}
                   />
                 </div>
@@ -427,16 +422,15 @@ function CreateAgentDialogContent({
               </div>
             </div>
 
-            <div className="flex justify-between gap-2 border-t border-white/[0.08] pt-3">
+            <div className="flex justify-between gap-2 border-t border-edge-subtle pt-3">
               <Button
                 type="button"
                 variant="ghost"
                 tabIndex={0}
-                className="min-h-11 px-3"
                 onClick={() => form.setStep("config")}
                 data-testid="create-agent-context-back"
               >
-                <ChevronLeft className="mr-1 h-4 w-4" />
+                <ChevronLeft />
                 Back
               </Button>
               <div className="flex gap-2">
@@ -444,7 +438,6 @@ function CreateAgentDialogContent({
                   type="button"
                   variant="ghost"
                   tabIndex={0}
-                  className="min-h-11 px-3"
                   onClick={() => setOpen(false)}
                 >
                   Cancel
@@ -453,7 +446,6 @@ function CreateAgentDialogContent({
                   type="submit"
                   variant="primary"
                   tabIndex={0}
-                  className="min-h-11 px-3"
                   disabled={
                     form.creating ||
                     !form.locationReady ||
@@ -461,9 +453,7 @@ function CreateAgentDialogContent({
                   }
                   data-testid="create-agent-context-submit"
                 >
-                  {form.creating ? (
-                    <ActivityBars size={16} className="mr-1.5" />
-                  ) : null}
+                  {form.creating ? <ActivityBars size={16} /> : null}
                   Create
                 </Button>
               </div>
@@ -497,7 +487,7 @@ function TaskContextCard({
   return (
     <section
       data-testid="create-agent-task"
-      className="space-y-2 rounded-md border border-border/70 bg-muted/20 px-3 py-2.5 text-sm"
+      className="space-y-2 rounded-md border border-border-subtle bg-surface-subtle px-3 py-3 text-body-md"
     >
       <div className="flex items-baseline justify-between gap-3">
         <span className="min-w-0 truncate">
@@ -505,17 +495,17 @@ function TaskContextCard({
           {task.title}
         </span>
         <span
-          className="shrink-0 truncate font-mono text-xs text-muted-foreground"
+          className="shrink-0 truncate font-mono text-body-sm text-muted-foreground"
           title={project?.repoRoot}
         >
           {project?.name ?? "…"}
         </span>
       </div>
-      <details className="group text-xs">
+      <details className="group text-body-sm">
         <summary className="cursor-pointer select-none text-muted-foreground hover:text-foreground">
           What the agent is told
         </summary>
-        <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap rounded bg-background/60 p-2 font-mono text-[11px] leading-snug text-muted-foreground">
+        <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap rounded-sm bg-background/veil p-2 font-mono text-label-sm leading-snug text-muted-foreground">
           {briefing.data?.text ??
             (briefing.error ? "Could not load the briefing." : "Loading…")}
         </pre>

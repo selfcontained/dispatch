@@ -144,17 +144,50 @@ export function useAgentSeats(
   return useQueries({ queries: agentIds.map(agentIdentityOptions), combine });
 }
 
+/** A live status or usage update must not invalidate the identity on every post. */
+export function liveIdentityFields(agent: Agent) {
+  const {
+    id,
+    name,
+    projectId,
+    createdAt,
+    model,
+    persona,
+    parentAgentId,
+    type,
+  } = agent;
+  return {
+    id,
+    name,
+    createdAt,
+    model,
+    ...(type !== undefined && { type }),
+    ...(persona !== undefined && { persona }),
+    ...(parentAgentId !== undefined && { parentAgentId }),
+    ...(projectId !== undefined && { projectId }),
+  };
+}
+
 /** One cached record, including archived agents; live metadata wins. */
 export function useAgentRecord(agentId: string | null): AgentIdentity | null {
   const { data } = useQuery(agentIdentityOptions(agentId));
-  const { data: agents = [] } = useQuery<Agent[]>({
+  const selectIdentity = useCallback(
+    (agents: Agent[]) => {
+      const agent =
+        agentId && agents.find((candidate) => candidate.id === agentId);
+      return agent ? liveIdentityFields(agent) : null;
+    },
+    [agentId]
+  );
+  const { data: live } = useQuery({
     queryKey: ["agents"],
     queryFn: fetchAgents,
+    select: selectIdentity,
     enabled: agentId !== null,
     // Reading the live cache from each avatar must not trigger fresh list fetches.
     staleTime: AGENT_RECORD_STALE_TIME,
   });
-  const live = agents.find((agent) => agent.id === agentId);
+
   return data
     ? {
         ...data,
@@ -165,6 +198,16 @@ export function useAgentRecord(agentId: string | null): AgentIdentity | null {
     : live
       ? { ...live, archived: false, seat: null, rootId: null }
       : null;
+}
+
+/**
+ * An agent's name, live or archived. The id stands in only once the lookup has
+ * settled without one, so it never flashes ahead of the name.
+ */
+export function useAgentName(agentId: string): string {
+  const { isPending } = useQuery(agentIdentityOptions(agentId));
+  const record = useAgentRecord(agentId);
+  return record?.name?.trim() || (isPending ? "…" : agentId);
 }
 
 /** Live recipient snapshots for conversation-aware composer timing. */

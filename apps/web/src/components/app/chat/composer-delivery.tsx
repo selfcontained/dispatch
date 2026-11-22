@@ -105,7 +105,7 @@ export function ComposerDelivery({
         <Button
           type="button"
           variant="ghost"
-          size="sm"
+          size="stream-sm"
           className="h-7 w-7 shrink-0 p-0 text-muted-foreground pointer-coarse:min-h-11 pointer-coarse:min-w-11"
           aria-label={`Message timing: ${label}`}
           aria-description={`${modeLabel} delivery mode. Open to change.`}
@@ -121,7 +121,7 @@ export function ComposerDelivery({
         className="w-72 max-w-[calc(100vw-2rem)] space-y-3 p-3"
         onEscapeKeyDown={(event) => event.stopPropagation()}
       >
-        <div className="space-y-2 text-xs" aria-live="polite">
+        <div className="space-y-2 text-body-sm" aria-live="polite">
           {timings.map((item) => (
             <div key={item.id}>
               <div className="flex justify-between gap-3 font-medium">
@@ -151,8 +151,8 @@ export function ComposerDelivery({
             <Button
               key={value}
               type="button"
-              variant={mode === value ? "default" : "ghost"}
-              size="sm"
+              variant={mode === value ? "secondary" : "ghost"}
+              size="stream-sm"
               aria-pressed={mode === value}
               disabled={value === "interrupt" && interruptUnavailable}
               onClick={() => onMode(value)}
@@ -164,13 +164,13 @@ export function ComposerDelivery({
             </Button>
           ))}
           {interruptUnavailable ? (
-            <p className="text-xs text-muted-foreground">
+            <p className="text-body-sm text-muted-foreground">
               {unavailableReason ??
                 "Interrupt is unavailable for a busy recipient on an older host."}
             </p>
           ) : null}
           {mode === "interrupt" ? (
-            <p className="text-xs text-muted-foreground">
+            <p className="text-body-sm text-muted-foreground">
               Interrupt applies when you send. The provider may take time to
               stop an active tool.
             </p>

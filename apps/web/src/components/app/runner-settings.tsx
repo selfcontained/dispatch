@@ -17,6 +17,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
+import { IconButton } from "@/components/ui/icon-button";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -50,8 +51,8 @@ const STATUS_LABEL: Record<RunnerStatus, string> = {
 const STATUS_DOT: Record<RunnerStatus, string> = {
   pending: "bg-status-waiting",
   online: "bg-status-working",
-  offline: "bg-muted-foreground/60",
-  revoked: "bg-destructive",
+  offline: "bg-muted-foreground/veil",
+  revoked: "bg-danger",
 };
 
 function RunnerStatusLabel({
@@ -66,7 +67,7 @@ function RunnerStatusLabel({
       ? runner.health
       : undefined;
   return (
-    <span className="inline-flex max-w-full items-baseline gap-1.5 whitespace-normal text-xs text-muted-foreground">
+    <span className="inline-flex max-w-full items-baseline gap-1.5 whitespace-normal text-body-sm text-muted-foreground">
       <span
         className={cn(
           "size-1.5 shrink-0 self-start rounded-full mt-[5px]",
@@ -177,7 +178,7 @@ export function RunnerSettings(): JSX.Element {
             id="runner-settings-heading"
             tabIndex={-1}
             ref={heading}
-            className="text-xl font-semibold focus:outline-none"
+            className="text-heading-lg focus:outline-none"
           >
             Runners
           </h2>
@@ -191,7 +192,7 @@ export function RunnerSettings(): JSX.Element {
           <p
             role="status"
             className={cn(
-              "text-sm text-muted-foreground",
+              "text-body-md text-muted-foreground",
               !notice && "sr-only"
             )}
           >
@@ -205,19 +206,19 @@ export function RunnerSettings(): JSX.Element {
           id="runner-settings-heading"
           tabIndex={-1}
           ref={heading}
-          className="text-xl font-semibold focus:outline-none"
+          className="text-heading-lg focus:outline-none"
         >
           {loading || loadFailed ? "Runner details" : "Runner unavailable"}
         </h2>
       )}
 
       {loading ? (
-        <p className="text-sm text-muted-foreground" role="status">
+        <p className="text-body-md text-muted-foreground" role="status">
           Loading runners…
         </p>
       ) : loadFailed ? (
         <div className="flex flex-wrap items-center gap-2">
-          <p className="text-sm text-destructive" role="alert">
+          <p className="text-body-md text-danger" role="alert">
             Could not load runners.
           </p>
           <Button
@@ -238,14 +239,14 @@ export function RunnerSettings(): JSX.Element {
             onRevoked={() => onRevoked(selected)}
           />
         ) : (
-          <p className="text-sm text-muted-foreground">
+          <p className="text-body-md text-muted-foreground">
             This runner is no longer connected.
           </p>
         )
       ) : (
         <>
           {roster.length === 0 ? (
-            <p className="text-sm text-muted-foreground">
+            <p className="text-body-md text-muted-foreground">
               No connected runners.
             </p>
           ) : (
@@ -262,37 +263,32 @@ export function RunnerSettings(): JSX.Element {
                     data-testid={`runner-${runner.id}`}
                     data-status={runner.status}
                   >
-                    <Button
-                      variant="ghost"
-                      asChild
-                      className="h-auto min-h-12 w-full justify-start gap-3 px-3 py-2.5 text-left text-foreground"
+                    <Link
+                      className="flex min-h-12 w-full items-center gap-3 rounded-md px-3 py-2.5 text-body-md font-medium text-foreground transition-colors focus-ring-inset hover:bg-surface-hover"
+                      id={`runner-select-${encodeURIComponent(runner.id)}`}
+                      data-testid={`runner-select-${runner.id}`}
+                      to={{ search: next.toString(), hash: location.hash }}
+                      state={{ runnerListSearch: listSearch }}
+                      onClick={() => setNotice("")}
                     >
-                      <Link
-                        id={`runner-select-${encodeURIComponent(runner.id)}`}
-                        data-testid={`runner-select-${runner.id}`}
-                        to={{ search: next.toString(), hash: location.hash }}
-                        state={{ runnerListSearch: listSearch }}
-                        onClick={() => setNotice("")}
-                      >
-                        <Server
-                          className="size-4 shrink-0 text-muted-foreground"
-                          aria-hidden="true"
-                        />
-                        <span className="flex min-w-0 flex-1 flex-col items-start gap-0.5">
-                          <span className="max-w-full truncate">
-                            {runner.name}
-                          </span>
-                          <RunnerStatusLabel
-                            runner={runner}
-                            checkedAt={checkedAt}
-                          />
+                      <Server
+                        className="size-4 shrink-0 text-muted-foreground"
+                        aria-hidden="true"
+                      />
+                      <span className="flex min-w-0 flex-1 flex-col items-start gap-0.5">
+                        <span className="max-w-full truncate">
+                          {runner.name}
                         </span>
-                        <ChevronRight
-                          className="size-4 shrink-0 text-muted-foreground"
-                          aria-hidden="true"
+                        <RunnerStatusLabel
+                          runner={runner}
+                          checkedAt={checkedAt}
                         />
-                      </Link>
-                    </Button>
+                      </span>
+                      <ChevronRight
+                        className="size-4 shrink-0 text-muted-foreground"
+                        aria-hidden="true"
+                      />
+                    </Link>
                   </li>
                 );
               })}
@@ -300,7 +296,7 @@ export function RunnerSettings(): JSX.Element {
           )}
 
           {history.length > 0 && (
-            <details className="text-sm text-muted-foreground">
+            <details className="text-body-md text-muted-foreground">
               <summary className="w-fit cursor-pointer rounded-sm py-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
                 Revoked runners ({history.length})
               </summary>
@@ -319,7 +315,6 @@ export function RunnerSettings(): JSX.Element {
               </ul>
               <Button
                 type="button"
-                variant="default"
                 size="sm"
                 className="mt-2"
                 disabled={clearRevoked.isPending}
@@ -331,7 +326,7 @@ export function RunnerSettings(): JSX.Element {
                 {clearRevoked.isPending ? "Clearing…" : "Clear revoked runners"}
               </Button>
               {clearRevoked.isError && (
-                <p className="mt-2 text-sm text-destructive" role="alert">
+                <p className="mt-2 text-body-md text-danger" role="alert">
                   {clearRevoked.error.message}
                 </p>
               )}
@@ -362,7 +357,7 @@ function RunnerDetail({
             id="runner-settings-heading"
             tabIndex={-1}
             ref={heading}
-            className="break-words text-xl font-semibold focus:outline-none"
+            className="break-words text-heading-lg focus:outline-none"
           >
             {runner.name}
           </h2>
@@ -376,19 +371,19 @@ function RunnerDetail({
       </div>
 
       <section id="runner-agent-engines" className="space-y-2 py-4">
-        <h3 className="text-sm font-medium">Agent engines</h3>
+        <h3 className="text-body-md font-medium">Agent engines</h3>
         {runner.status === "online" && runner.engineCapabilities && (
-          <p className="text-xs text-muted-foreground">
+          <p className="text-body-sm text-muted-foreground">
             Install and sign in to Claude or Codex here to see its plan limits
             below.
           </p>
         )}
         {runner.status !== "online" ? (
-          <p className="text-sm text-muted-foreground">
+          <p className="text-body-md text-muted-foreground">
             Available when the runner is online.
           </p>
         ) : !runner.engineManagement ? (
-          <p className="text-sm text-muted-foreground">
+          <p className="text-body-md text-muted-foreground">
             Engine management isn’t supported on this runner.
           </p>
         ) : (
@@ -405,7 +400,7 @@ function RunnerDetail({
                 allowReset
               />
             ) : (
-              <p className="text-xs text-muted-foreground">
+              <p className="text-body-sm text-muted-foreground">
                 Update this runner to read plan limits and plugins.
               </p>
             )}
@@ -417,7 +412,7 @@ function RunnerDetail({
         <RunnerUpdateStatus runner={runner} />
         <RunnerHealthDetails runner={runner} />
         {runner.workspaces.length > 0 && !runner.managedWorkspace && (
-          <p className="break-words text-xs text-muted-foreground">
+          <p className="break-words text-body-sm text-muted-foreground">
             Folders: {runner.workspaces.join(", ")}
           </p>
         )}
@@ -441,16 +436,13 @@ function RunnerConnectionActions({
     <>
       <DropdownMenu modal={false}>
         <DropdownMenuTrigger asChild>
-          <Button
-            type="button"
-            size="icon"
-            variant="ghost"
-            aria-label="Runner actions"
+          <IconButton
+            label="Runner actions"
             ref={trigger}
             data-testid={`runner-actions-${runner.id}`}
           >
-            <Ellipsis className="size-4" aria-hidden="true" />
-          </Button>
+            <Ellipsis aria-hidden="true" />
+          </IconButton>
         </DropdownMenuTrigger>
         <DropdownMenuContent
           align="end"
@@ -481,15 +473,15 @@ function RunnerConnectionActions({
             trigger.current?.focus();
           }}
         >
-          <AlertDialogTitle className="break-words text-base font-semibold">
+          <AlertDialogTitle className="break-words text-heading-md">
             Revoke access for {runner.name}?
           </AlertDialogTitle>
-          <AlertDialogDescription className="text-sm text-muted-foreground">
+          <AlertDialogDescription className="text-body-md text-muted-foreground">
             This disconnects the runner and blocks new sessions on it. To
             reconnect it, pair it again.
           </AlertDialogDescription>
           {revoke.isError && (
-            <p className="text-sm text-destructive" role="alert">
+            <p className="text-body-md text-danger" role="alert">
               {revoke.error.message}
             </p>
           )}
@@ -499,7 +491,7 @@ function RunnerConnectionActions({
             </AlertDialogCancel>
             <Button
               type="button"
-              variant="destructive"
+              variant="danger"
               disabled={revoke.isPending}
               aria-label={`Confirm revoke ${runner.name}`}
               data-testid={`runner-revoke-confirm-${runner.id}`}

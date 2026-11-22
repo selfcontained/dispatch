@@ -40,25 +40,6 @@ export function adapterCommand(
   if (bins.adapter) {
     return { bin: bins.adapter.bin, args: bins.adapter.args ?? [] };
   }
-  // Test seam, the same shape as DISPATCH_AGENT_HOST_COMMAND: a JSON array
-  // standing a fake engine in for the real one, so e2e can drive the whole
-  // runtime without an engine installed. Not a supported setting.
-  const override = process.env.DISPATCH_ACP_ADAPTER_COMMAND;
-  if (override) {
-    try {
-      const parsed: unknown = JSON.parse(override);
-      if (
-        Array.isArray(parsed) &&
-        parsed.length > 0 &&
-        parsed.every((part) => typeof part === "string")
-      ) {
-        const [bin, ...args] = parsed as string[];
-        return { bin: bin!, args };
-      }
-    } catch {
-      // A malformed override runs the real adapter rather than nothing.
-    }
-  }
   if (engine === "opencode")
     return { bin: engineBin(engine, bins), args: ["acp"] };
   const [bin, ...args] = selfCommand(`${engine}-acp`);
@@ -115,8 +96,7 @@ function engineBin(engine: AcpEngineId, bins: EngineBins): string {
       : engine === "codex"
         ? bins.codexBin
         : bins.opencodeBin;
-  if (bins.adapter || process.env.DISPATCH_ACP_ADAPTER_COMMAND)
-    return bin ?? "";
+  if (bins.adapter) return bin ?? "";
   if (!bin || !path.isAbsolute(bin)) {
     const name = engine;
     throw new Error(

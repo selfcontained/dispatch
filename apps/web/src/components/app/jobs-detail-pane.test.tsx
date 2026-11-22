@@ -159,9 +159,17 @@ function defaultContext(job: Job | null): Record<string, unknown> {
     jobs: job ? [job] : [],
     selectedJob: job,
     tab: "configure",
-    history: { data: { runs: [] as JobRun[] }, isLoading: false },
+    history: {
+      data: { runs: [] as JobRun[] },
+      error: null,
+      isPending: false,
+    },
+    isLoading: false,
+    error: null,
+    retry: vi.fn(),
+    isRetrying: false,
     attachedAgent: null,
-    jobStats: { data: null, isLoading: false },
+    jobStats: { data: null, isPending: false },
     routeRunId: undefined,
     navigate: vi.fn(),
     onOpenAgent: vi.fn().mockResolvedValue(undefined),
@@ -220,9 +228,38 @@ describe("JobDetailPane — overview branch", () => {
     );
   });
 
+  it("shows loading, not the overview's empty state, while jobs load", () => {
+    H.context = defaultContext(null);
+    H.context.isLoading = true;
+    render(<JobDetailPane />);
+    expect(screen.getByText("Loading jobs…")).toBeTruthy();
+    expect(screen.queryByTestId("stub-JobsOverview")).toBeNull();
+  });
+
+  it("shows an error with Retry, not the empty state, when jobs fail", () => {
+    H.context = defaultContext(null);
+    H.context.error = new Error("boom");
+    render(<JobDetailPane />);
+    expect(screen.getByRole("alert").textContent).toContain(
+      "Couldn't load jobs: boom"
+    );
+    expect(screen.queryByTestId("stub-JobsOverview")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    expect(H.context.retry).toHaveBeenCalledOnce();
+  });
+
+  it("keeps loaded jobs under a failed refresh", () => {
+    H.context = defaultContext(null);
+    H.context.jobs = [makeJob()];
+    H.context.error = new Error("boom");
+    render(<JobDetailPane />);
+    expect(screen.getByRole("alert")).toBeTruthy();
+    expect(screen.getByTestId("stub-JobsOverview")).toBeTruthy();
+  });
+
   it("passes through non-null stats data", () => {
     H.context = defaultContext(null);
-    H.context.jobStats = { data: { stats: {} }, isLoading: true };
+    H.context.jobStats = { data: { stats: {} }, isPending: true };
     render(<JobDetailPane />);
     const overviewProps = propsOf("JobsOverview");
     expect(overviewProps.stats).toEqual({ stats: {} });
@@ -231,17 +268,16 @@ describe("JobDetailPane — overview branch", () => {
 });
 
 describe("JobDetailPane — tab navigation", () => {
-  it("styles only the active tab button as active", () => {
+  it("selects only the active tab", () => {
     const job = makeJob();
     H.context = defaultContext(job);
     H.context.tab = "prompt";
     render(<JobDetailPane />);
-    expect(screen.getByRole("button", { name: /prompt/i }).className).toContain(
-      "border-primary"
-    );
-    expect(
-      screen.getByRole("button", { name: /configure/i }).className
-    ).not.toContain("border-primary");
+    const selected = (name: RegExp) =>
+      screen.getByRole("tab", { name }).getAttribute("aria-selected");
+    expect(selected(/prompt/i)).toBe("true");
+    expect(selected(/configure/i)).toBe("false");
+    expect(selected(/history/i)).toBe("false");
   });
 
   it("navigates to the bare job URL for the configure tab and to a suffixed URL for others", () => {
@@ -249,17 +285,21 @@ describe("JobDetailPane — tab navigation", () => {
     H.context = defaultContext(job);
     render(<JobDetailPane />);
 
-    fireEvent.click(screen.getByRole("button", { name: /prompt/i }));
+    fireEvent.mouseDown(screen.getByRole("tab", { name: /prompt/i }));
     expect(H.context.navigate).toHaveBeenLastCalledWith(
       "/automations/jobs/job_1/prompt"
     );
 
-    fireEvent.click(screen.getByRole("button", { name: /history/i }));
+    fireEvent.mouseDown(screen.getByRole("tab", { name: /history/i }));
     expect(H.context.navigate).toHaveBeenLastCalledWith(
       "/automations/jobs/job_1/history"
     );
 
-    fireEvent.click(screen.getByRole("button", { name: /configure/i }));
+    // The context is fixed, so Configure is still selected until it rerenders.
+    cleanup();
+    H.context.tab = "history";
+    render(<JobDetailPane />);
+    fireEvent.mouseDown(screen.getByRole("tab", { name: /configure/i }));
     expect(H.context.navigate).toHaveBeenLastCalledWith(
       "/automations/jobs/job_1"
     );
@@ -521,18 +561,18 @@ describe("JobDetailPane — just-added banner", () => {
 });
 
 describe("JobDetailPane — status badge", () => {
-  it("shows 'never run' when there is no last run status", () => {
+  it("shows 'Never run' when there is no last run status", () => {
     const job = makeJob({ lastRunStatus: null });
     H.context = defaultContext(job);
     render(<JobDetailPane />);
-    expect(screen.getByText("never run")).toBeTruthy();
+    expect(screen.getByText("Never run")).toBeTruthy();
   });
 
-  it("shows the raw status when a last run status exists", () => {
+  it("shows the status label when a last run status exists", () => {
     const job = makeJob({ lastRunStatus: "completed" });
     H.context = defaultContext(job);
     render(<JobDetailPane />);
-    expect(screen.getByText("completed")).toBeTruthy();
+    expect(screen.getByText("Completed")).toBeTruthy();
   });
 });
 

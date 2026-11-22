@@ -9,7 +9,7 @@ import type {
   FileDiffResponse,
 } from "@dispatch/shared";
 
-import { api, ApiError } from "@/lib/api";
+import { api } from "@/lib/api";
 import { diffIncludeUncommittedAtom } from "@/lib/store";
 
 export type { DiffFile, DiffFileStatus, FileDiffResponse };
@@ -36,6 +36,7 @@ export function useAgentDiff(
   data: DiffResponse | undefined;
   isLoading: boolean;
   error: Error | null;
+  isFetching: boolean;
   refresh: () => void;
 } {
   const queryClient = useQueryClient();
@@ -67,13 +68,12 @@ export function useAgentDiff(
   }, [agentId, queryClient]);
 
   return {
-    data:
-      query.isError &&
-      !(query.error instanceof ApiError && query.error.status === 503)
-        ? undefined
-        : query.data,
-    isLoading: query.isLoading,
+    data: query.data,
+    // Pending, not just fetching: with no agent yet, or a paused retry, there
+    // are no changes to report.
+    isLoading: query.isPending,
     error: query.error,
+    isFetching: query.isFetching,
     refresh,
   };
 }

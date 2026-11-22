@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { useTaskBoard, useTaskDetail } from "@/hooks/use-tasks";
 import type { Agent } from "@/components/app/types";
 import { Dialog, DialogDescription, DialogTitle } from "@/components/ui/dialog";
+import { IconButton } from "@/components/ui/icon-button";
 import { TaskDrawerShell, TaskDetailPanel } from "./task-drawer";
 import {
   TASK_MODAL_STATE,
@@ -126,33 +127,29 @@ export function TaskModal({
               <>
                 {/* The panel's header waits on both queries; until then this
                   one keeps a way out, which a phone has no overlay for. */}
-                <header className="flex shrink-0 items-center gap-1 border-b border-border/40 bg-card/60 px-2 py-1.5 pt-[max(0.375rem,var(--safe-area-top))] text-xs text-muted-foreground">
-                  <Button
-                    size="icon"
-                    variant="ghost"
+                <header className="flex shrink-0 items-center gap-1 border-b border-border-subtle bg-card/veil px-2 py-1.5 pt-safe-1.5 text-body-sm text-muted-foreground">
+                  <IconButton
                     onClick={close}
-                    aria-label="Close task"
+                    label="Close task"
                     className="md:hidden"
                   >
-                    <ArrowLeft className="h-4 w-4" />
-                  </Button>
+                    <ArrowLeft />
+                  </IconButton>
                   <span className="min-w-0 flex-1 truncate px-1 font-mono">
                     {id}
                   </span>
-                  <Button
-                    size="icon"
-                    variant="ghost"
+                  <IconButton
                     onClick={close}
-                    aria-label="Close task"
+                    label="Close task"
                     className="hidden md:inline-flex"
                   >
-                    <X className="h-4 w-4" />
-                  </Button>
+                    <X />
+                  </IconButton>
                 </header>
                 {loadError ? (
                   <div
                     role="alert"
-                    className="flex items-center justify-between gap-3 p-5 text-sm text-destructive"
+                    className="flex items-center justify-between gap-3 p-4 text-body-md text-danger"
                   >
                     <span className="min-w-0">{loadError}</span>
                     <Button
@@ -168,7 +165,7 @@ export function TaskModal({
                     </Button>
                   </div>
                 ) : (
-                  <p className="p-5 text-sm text-muted-foreground">
+                  <p className="p-4 text-body-md text-muted-foreground">
                     Loading task…
                   </p>
                 )}

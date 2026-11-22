@@ -17,6 +17,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import { IconButton } from "@/components/ui/icon-button";
 import { parseTemplateArgs } from "@/hooks/use-templates";
 
 export type EditingPhrase = { id: string; label: string; text: string } | null;
@@ -71,7 +72,7 @@ export function EditPhraseDialog({
             <div className="flex flex-col gap-1.5">
               <label
                 htmlFor="phrase-label"
-                className="text-xs font-medium text-muted-foreground"
+                className="text-body-sm font-medium text-muted-foreground"
               >
                 Label (optional)
               </label>
@@ -90,7 +91,7 @@ export function EditPhraseDialog({
               <div className="flex items-center gap-1.5">
                 <label
                   htmlFor="phrase-text"
-                  className="text-xs font-medium text-muted-foreground"
+                  className="text-body-sm font-medium text-muted-foreground"
                 >
                   Phrase text
                 </label>
@@ -99,23 +100,24 @@ export function EditPhraseDialog({
                   onOpenChange={setVariableHelpOpen}
                 >
                   <PopoverTrigger asChild>
-                    <button
-                      type="button"
-                      aria-label="Phrase variable help"
-                      className="text-muted-foreground/60 hover:text-muted-foreground"
+                    <IconButton
+                      size="icon-xs"
+                      label="Phrase variable help"
+                      // The popover it opens on hover is its tooltip.
+                      tooltip=""
                       onMouseEnter={() => setVariableHelpOpen(true)}
                     >
-                      <Info className="h-3 w-3" />
-                    </button>
+                      <Info />
+                    </IconButton>
                   </PopoverTrigger>
                   <PopoverContent
                     container={dialogContentRef.current}
                     side="right"
-                    className="z-[90] w-64 px-2 py-1 text-xs"
+                    className="z-tooltip w-64 px-2 py-1 text-body-sm"
                   >
                     <p>
                       Variables like{" "}
-                      <code className="rounded bg-white/[0.08] px-1 py-0.5 text-[11px]">
+                      <code className="rounded-sm bg-fill-hover px-1 py-0.5 text-label-sm">
                         {"{{D:Name}}"}
                       </code>{" "}
                       become prompts before the phrase is sent. Add
@@ -142,13 +144,13 @@ export function EditPhraseDialog({
                 className="resize-none"
               />
               {detectedArgs.length > 0 ? (
-                <div className="mt-0.5 flex items-start gap-1.5 text-xs text-muted-foreground">
+                <div className="mt-0.5 flex items-start gap-1.5 text-body-sm text-muted-foreground">
                   <span className="shrink-0">Detected variables:</span>
                   <span className="flex flex-wrap gap-1">
                     {detectedArgs.map((a) => (
                       <span
                         key={a.key}
-                        className="inline-block rounded bg-primary/10 px-1.5 py-0.5 text-primary"
+                        className="inline-block rounded-sm bg-surface-selected px-1.5 py-0.5 text-primary"
                       >
                         {a.name}
                         {a.required ? " *" : ""}

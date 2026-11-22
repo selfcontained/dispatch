@@ -28,8 +28,8 @@ export function PendingInputsButton({
     <Button
       type="button"
       variant="ghost"
-      size="sm"
-      className="h-8 text-primary shrink-0 gap-1 px-2 text-xs max-sm:min-h-11 [@media(pointer:coarse)]:min-h-11"
+      size="stream-sm"
+      className="h-8 text-primary shrink-0 gap-1 px-2 text-body-sm max-sm:min-h-11 [@media(pointer:coarse)]:min-h-11"
       aria-label={label}
       title={label}
       data-testid="chat-pending-inputs"

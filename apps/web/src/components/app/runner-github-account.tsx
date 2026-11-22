@@ -27,7 +27,7 @@ export function RunnerGitHubAccount({ runner }: { runner: Runner }) {
     return (
       <div className="space-y-1" data-testid="runner-github">
         <AccountHeading />
-        <p className="text-sm text-muted-foreground">
+        <p className="text-body-md text-muted-foreground">
           {runner.status === "online"
             ? "Update the runner to manage its GitHub account here."
             : "GitHub account details are available when the runner is online."}
@@ -40,7 +40,7 @@ export function RunnerGitHubAccount({ runner }: { runner: Runner }) {
 
 function AccountHeading() {
   return (
-    <h4 className="flex items-center gap-2 text-sm font-medium">
+    <h4 className="flex items-center gap-2 text-body-md font-medium">
       <Github className="size-4" aria-hidden="true" /> GitHub
     </h4>
   );
@@ -121,7 +121,7 @@ function ConnectedAccount({ runner }: { runner: Runner }) {
           <AccountHeading />
           <p
             role="status"
-            className="break-words text-xs text-muted-foreground"
+            className="break-words text-body-sm text-muted-foreground"
           >
             {statusText}
           </p>
@@ -173,14 +173,14 @@ function ConnectedAccount({ runner }: { runner: Runner }) {
         )}
       </div>
       {pending && state.code && !account.isError && (
-        <div className="space-y-2 rounded-md border border-border bg-background/50 p-3">
-          <p className="text-sm">
+        <div className="space-y-2 rounded-md border border-border bg-background/veil p-3">
+          <p className="text-body-md">
             Enter this code on GitHub. Agents on {runner.name} will use the
             account you approve.
           </p>
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-1">
-              <code className="select-all text-base font-semibold tracking-wider">
+              <code className="select-all text-body-lg font-semibold tracking-wider">
                 {state.code}
               </code>
               <CopyButton text={state.code} label="Copy GitHub device code" />
@@ -195,13 +195,13 @@ function ConnectedAccount({ runner }: { runner: Runner }) {
         </div>
       )}
       {signedIn && state.gitIdentityUnavailable && (
-        <p role="alert" className="text-sm text-destructive">
+        <p role="alert" className="text-body-md text-danger">
           Git could not configure the author identity. Set user.name and
           user.email in the runner workload account’s Git config.
         </p>
       )}
       {action.isError && (
-        <p role="alert" className="text-sm text-destructive">
+        <p role="alert" className="text-body-md text-danger">
           {action.error.message}
         </p>
       )}
@@ -210,7 +210,7 @@ function ConnectedAccount({ runner }: { runner: Runner }) {
           <AlertDialogTitle className="font-semibold">
             Sign out of GitHub on {runner.name}?
           </AlertDialogTitle>
-          <AlertDialogDescription className="text-sm text-muted-foreground">
+          <AlertDialogDescription className="text-body-md text-muted-foreground">
             Agents on this runner will lose access through{" "}
             {signedIn ? `@${state.login}` : "this account"}. This removes the
             saved login from this machine. You can revoke the token separately

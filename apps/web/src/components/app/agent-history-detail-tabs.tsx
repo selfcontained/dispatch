@@ -6,6 +6,7 @@ import { type FileItem } from "@/components/app/types";
 import { type HistoryFile } from "@/hooks/use-agent-history";
 import { fileItemQueryKey } from "@/hooks/use-files";
 import { imageVariantSrcSet } from "@/lib/image-variants";
+import { RowButton } from "@/components/ui/row-button";
 
 export function DetailTabs({
   files,
@@ -38,17 +39,17 @@ export function DetailTabs({
   return (
     <>
       <div className="min-w-0">
-        <h3 className="border-b border-border pb-2 text-sm font-medium text-foreground">
+        <h3 className="border-b border-border pb-2 text-heading-sm text-foreground">
           Files {files.length > 0 && `(${files.length})`}
         </h3>
         <div className="pt-3">
           {files.length > 0 ? (
             <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
               {files.map((m) => (
-                <button
+                <RowButton
                   key={m.id}
                   onClick={() => setLightboxFileId(m.id)}
-                  className="overflow-hidden rounded border border-border bg-muted/20 text-left transition-colors hover:border-foreground/30"
+                  className="block overflow-hidden rounded-sm border border-border bg-surface-subtle hover:border-foreground/line hover:bg-surface-subtle"
                 >
                   {m.media === "image" ? (
                     <img
@@ -65,20 +66,20 @@ export function DetailTabs({
                       loading="lazy"
                     />
                   ) : (
-                    <div className="flex aspect-video items-center justify-center text-[10px] text-muted-foreground">
+                    <div className="flex aspect-video items-center justify-center text-label-xs text-muted-foreground">
                       {m.source}
                     </div>
                   )}
                   {m.description && (
-                    <p className="truncate px-1.5 py-1 text-[10px] text-muted-foreground">
+                    <p className="truncate px-1.5 py-1 text-label-xs text-muted-foreground">
                       {m.description}
                     </p>
                   )}
-                </button>
+                </RowButton>
               ))}
             </div>
           ) : (
-            <p className="py-6 text-center text-xs text-muted-foreground">
+            <p className="py-6 text-center text-body-sm text-muted-foreground">
               No files captured.
             </p>
           )}

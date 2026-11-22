@@ -26,6 +26,7 @@ import type { StreamEntry } from "@dispatch/shared";
 
 import type { Agent } from "@/components/app/types";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { hintText } from "@/test-utils/hint";
 
 import {
   recordTurnLabel,
@@ -301,12 +302,12 @@ describe("AgentCard state and selection", () => {
     // the terminal, so the card must not claim either.
     expect(card().className).toContain("border-state-idle");
     expect(card().className).not.toContain("border-state-active");
-    expect(card().className).not.toContain("bg-muted/60");
+    expect(card().className).not.toContain("bg-surface-hover");
 
     // Positive control: same props minus the connected child.
     rerender({ connectedAgentId: null });
     expect(card().className).toContain("border-state-active");
-    expect(card().className).toContain("bg-muted/60");
+    expect(card().className).toContain("bg-surface-hover");
   });
 
   it("dims stopped cards, still opens their Chat on row click, and offers resume", () => {
@@ -485,9 +486,7 @@ describe("AgentCardHeader wiring", () => {
     const { rerender } = renderCard({
       agent: makeAgent({ status: "error", lastError: "tmux session died" }),
     });
-    expect(screen.getByText("Attention").getAttribute("title")).toBe(
-      "tmux session died"
-    );
+    expect(hintText(screen.getByText("Attention"))).toBe("tmux session died");
     expect(screen.queryByText("Job")).toBeNull();
 
     rerender({
@@ -542,9 +541,7 @@ describe("AgentCardHeader wiring", () => {
     const loopBadge = screen.getByText("Loop");
     expect(screen.queryByText("Job")).toBeNull();
 
-    expect(loopBadge.parentElement?.getAttribute("title")).toBe(
-      "Loop iteration 3 of 5"
-    );
+    expect(hintText(loopBadge)).toBe("Loop iteration 3 of 5");
 
     rerender({
       agent: makeAgent({
@@ -556,9 +553,7 @@ describe("AgentCardHeader wiring", () => {
         },
       }),
     });
-    expect(screen.getByText("Loop").parentElement?.getAttribute("title")).toBe(
-      "Loop iteration 2"
-    );
+    expect(hintText(screen.getByText("Loop"))).toBe("Loop iteration 2");
   });
 });
 
@@ -1081,7 +1076,7 @@ describe("AgentCard avatars", () => {
 
     rerender({ expandedAgentId: AGENT_ID });
     expect(screen.getByText("claude-opus-5-5")).toBeTruthy();
-    expect(screen.getByTitle("Engine")).toBeTruthy();
+    expect(screen.getByRole("img", { name: "Engine" })).toBeTruthy();
   });
 });
 
@@ -1192,7 +1187,7 @@ describe("AgentCardActions and child agents", () => {
     expect(screen.getByRole("button", { name: "Resume" })).toBeTruthy();
   });
 
-  it("hides lifecycle actions on persona cards and credits the launching parent", () => {
+  it("hides lifecycle actions on persona cards and credits the launching parent", async () => {
     const { rerender } = renderCard({
       agent: makeChild({ id: AGENT_ID, parentAgentId: "agt_launcher" }),
       agents: [makeAgent({ id: "agt_launcher", name: "worker-1" })],
@@ -1206,11 +1201,14 @@ describe("AgentCardActions and child agents", () => {
     // Parent resolved by id when it is in the list...
     expect(screen.getByText("from worker-1")).toBeTruthy();
 
-    // ...and falls back to the id suffix when it is not.
+    // ...and falls back to the id when the lookup has no name either.
     rerender({
       agent: makeChild({ id: AGENT_ID, parentAgentId: "agt_missing_xyz789" }),
     });
-    expect(screen.getByText("from xyz789")).toBeTruthy();
+    await waitFor(
+      () => expect(screen.getByText("from agt_missing_xyz789")).toBeTruthy(),
+      { timeout: 3000 }
+    );
   });
 
   it("lists child agents with a count when expanded", () => {

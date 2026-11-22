@@ -14,6 +14,7 @@ import {
 } from "./engine-availability.js";
 import type { AcpEngineId } from "./acp/engine-spec.js";
 import type { CommandRunner } from "../shared/lib/run-command.js";
+import { childProcessEnv } from "../shared/process/child-environment.js";
 
 const packages = {
   claude: "@anthropic-ai/claude-code",
@@ -517,7 +518,7 @@ export const observedUpdateRunner =
           ...args,
         ],
         {
-          env: { ...process.env, ...options?.env },
+          env: { ...childProcessEnv(), ...options?.env },
           stdio: ["pipe", "pipe", "pipe"],
           detached: true,
         }

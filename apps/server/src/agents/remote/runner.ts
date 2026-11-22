@@ -291,9 +291,6 @@ export async function runRemoteRunner(
     LOGNAME: username,
     NODE_EXTRA_CA_CERTS: config.ca,
     ...(config.trustBundle ? { SSL_CERT_FILE: config.trustBundle } : {}),
-    ...(config.adapter
-      ? { DISPATCH_ACP_ADAPTER_COMMAND: JSON.stringify(config.adapter) }
-      : {}),
   };
   const childArgs = executionArgs(config.uid, config.gid);
   await verifyExecutionIdentity(config.uid, config.gid, childArgs, env);
@@ -368,27 +365,32 @@ export async function runRemoteRunner(
       },
     },
   });
+  // Hosts and catalog reads take an adapter override only through their bins.
+  const [adapterBin, ...adapterArgs] = config.adapter ?? [];
+  const bins: HostLaunch["bins"] = adapterBin
+    ? { ...config.bins, adapter: { bin: adapterBin, args: adapterArgs } }
+    : config.bins;
   async function resolveBins(
     engine?: RunnerEngine
   ): Promise<HostLaunch["bins"]> {
     switch (engine) {
       case "claude":
         return {
-          ...config.bins,
+          ...bins,
           claudeBin: (await engineExecutor.resolveBin(engine)) ?? "",
         };
       case "codex":
         return {
-          ...config.bins,
+          ...bins,
           codexBin: await engineExecutor.resolveBin(engine),
         };
       case "opencode":
         return {
-          ...config.bins,
+          ...bins,
           opencodeBin: await engineExecutor.resolveBin(engine),
         };
       default:
-        return config.bins;
+        return bins;
     }
   }
   const engineAccountSecret = randomBytes(32).toString("base64url");

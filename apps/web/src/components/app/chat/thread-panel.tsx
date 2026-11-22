@@ -399,8 +399,8 @@ export function ThreadPanel({
         chrome && "bg-background",
         chrome &&
           (isMobile
-            ? "absolute inset-0 z-20"
-            : "w-[26rem] shrink-0 border-l border-border/40")
+            ? "absolute inset-0 z-raised"
+            : "w-[26rem] shrink-0 border-l border-border-subtle")
       )}
       onKeyDownCapture={(event) => {
         // ProseMirror prevents raw Escape at the editor target even without an
@@ -425,12 +425,12 @@ export function ThreadPanel({
       data-mobile={isMobile ? "true" : undefined}
     >
       {chrome ? (
-        <div className="flex shrink-0 items-center gap-2 border-b border-border/40 bg-muted/30 px-3 py-2">
+        <div className="flex shrink-0 items-center gap-2 border-b border-border-subtle bg-surface-subtle px-3 py-2">
           {isMobile ? (
             <Button
               type="button"
               variant="ghost"
-              size="icon"
+              size="stream-icon"
               className="h-8 w-8 shrink-0"
               aria-label="Back to the channel"
               data-testid="chat-thread-close"
@@ -440,13 +440,13 @@ export function ThreadPanel({
             </Button>
           ) : null}
           <div className="min-w-0 flex-1">
-            <div className="text-sm font-semibold text-foreground">
+            <div className="text-body-md font-semibold text-foreground">
               {finding ? "Finding" : "Thread"}
             </div>
             {finding ? (
               <button
                 type="button"
-                className="block max-w-full truncate text-[11.5px] text-muted-foreground underline-offset-2 hover:underline"
+                className="block max-w-full truncate text-label-sm text-muted-foreground underline-offset-2 hover:underline"
                 data-testid="chat-thread-subject"
                 onClick={() => ctx.onOpenThread?.(blockId)}
                 title="Back to the review"
@@ -456,7 +456,7 @@ export function ThreadPanel({
               </button>
             ) : thread.root ? (
               <div
-                className="truncate text-[11.5px] text-muted-foreground"
+                className="truncate text-label-sm text-muted-foreground"
                 data-testid="chat-thread-subject"
               >
                 on {blockAuthor(thread.root, ctx).name}
@@ -470,7 +470,7 @@ export function ThreadPanel({
             <Button
               type="button"
               variant="ghost"
-              size="icon"
+              size="stream-icon"
               className="h-7 w-7 shrink-0"
               aria-label="Close thread"
               data-testid="chat-thread-close"
@@ -489,7 +489,7 @@ export function ThreadPanel({
         {thread.error ? (
           <div
             role="alert"
-            className="mx-4 mb-3 flex items-center justify-between gap-3 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive"
+            className="mx-4 mb-3 flex items-center justify-between gap-3 rounded-md border border-danger/line bg-danger/tint px-3 py-2 text-body-sm text-danger"
             data-testid="chat-thread-error"
           >
             <span className="min-w-0 truncate">
@@ -497,9 +497,8 @@ export function ThreadPanel({
             </span>
             <Button
               type="button"
-              size="sm"
-              variant="default"
-              className="h-6 shrink-0 px-2 text-xs"
+              size="stream-sm"
+              className="h-6 shrink-0 px-2 text-body-sm"
               onClick={thread.refetch}
             >
               Retry
@@ -508,7 +507,7 @@ export function ThreadPanel({
         ) : null}
         {thread.isLoading && !thread.root ? (
           <div
-            className="px-4 py-6 text-center text-xs text-muted-foreground"
+            className="px-4 py-6 text-center text-body-sm text-muted-foreground"
             data-testid="chat-thread-loading"
           >
             Loading the thread…
@@ -532,7 +531,7 @@ export function ThreadPanel({
           <>
             {replies.length > 0 ? (
               <div
-                className="mx-4 mt-2 border-t border-border/40 pt-1 text-[11px] text-muted-foreground"
+                className="mx-4 mt-2 border-t border-border-subtle pt-1 text-label-sm text-muted-foreground"
                 data-testid="chat-thread-count"
               >
                 {replies.length}{" "}
@@ -599,11 +598,11 @@ export function ThreadPanel({
           </>
         ) : null}
       </div>
-      <div className="shrink-0 border-t border-foreground/20 bg-background px-4 pb-3 pt-3">
+      <div className="shrink-0 border-t border-foreground/tint-strong bg-background px-4 pb-3 pt-3">
         {error || stopError ? (
           <div
             role="alert"
-            className="mb-1.5 truncate text-[11px] text-destructive"
+            className="mb-1.5 truncate text-label-sm text-danger"
             data-testid="chat-thread-action-error"
           >
             {error ?? stopError}

@@ -5,8 +5,12 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-import { glassInset } from "@/lib/glass";
+import { Button } from "@/components/ui/button";
+import {
+  SegmentedControl,
+  SegmentedControlItem,
+} from "@/components/ui/segmented-control";
+import { Hint } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
 function Meter({
@@ -22,8 +26,8 @@ function Meter({
         <span
           key={step}
           className={cn(
-            "w-1 rounded-[1px]",
-            step <= index ? "bg-primary" : "bg-muted-foreground/25"
+            "w-1 rounded-mark",
+            step <= index ? "bg-primary" : "bg-muted-foreground/tint-strong"
           )}
           style={{
             height: `${4 + (count > 1 ? (step / (count - 1)) * 4 : 4)}px`,
@@ -74,28 +78,28 @@ export function EffortPicker({
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <button
-          type="button"
-          id={id}
-          data-testid={id}
-          disabled={disabled}
-          aria-label={`Effort: ${isDefault ? defaultLabel : label}`}
-          title={`Reasoning effort: ${isDefault ? defaultLabel : label}`}
-          className={cn(
-            "flex items-center justify-center rounded-md text-[11px] leading-tight transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50",
-            compact
-              ? "h-6 max-w-32 shrink-0 gap-1.5 px-1.5 text-muted-foreground hover:bg-muted/60 hover:text-foreground pointer-coarse:min-h-11"
-              : [
-                  glassInset,
-                  "h-9 w-full flex-col gap-0.5 px-1 hover:bg-white/[0.1]",
-                ]
-          )}
-        >
-          {!isDefault && selected >= 0 ? (
-            <Meter index={selected} count={levels.length} />
-          ) : null}
-          <span className="max-w-full truncate">{label}</span>
-        </button>
+        <Hint label={`Reasoning effort: ${isDefault ? defaultLabel : label}`}>
+          <Button
+            type="button"
+            id={id}
+            data-testid={id}
+            disabled={disabled}
+            aria-label={`Effort: ${isDefault ? defaultLabel : label}`}
+            variant={compact ? "ghost" : "field"}
+            size={compact ? "stream-meta" : "md"}
+            className={cn(
+              "text-label-sm leading-tight disabled:pointer-events-auto",
+              compact
+                ? "max-w-32 shrink-0"
+                : "w-full flex-col justify-center gap-0.5"
+            )}
+          >
+            {!isDefault && selected >= 0 ? (
+              <Meter index={selected} count={levels.length} />
+            ) : null}
+            <span className="max-w-full truncate">{label}</span>
+          </Button>
+        </Hint>
       </PopoverTrigger>
       <PopoverContent
         align="end"
@@ -105,49 +109,48 @@ export function EffortPicker({
         aria-label="Reasoning effort"
       >
         <div>
-          <p className="text-sm font-medium">Reasoning effort</p>
-          <p className="mt-1 text-xs text-muted-foreground">{description}</p>
+          <p className="text-body-md font-medium">Reasoning effort</p>
+          <p className="mt-1 text-body-sm text-muted-foreground">
+            {description}
+          </p>
         </div>
-        <ToggleGroup
-          type="single"
+        <SegmentedControl
+          layout="grid"
           aria-label="Effort level"
           value={value ?? "default"}
           disabled={pending}
-          className="grid w-full grid-cols-2 gap-1"
           onValueChange={(next) => {
-            if (!next) return;
             void Promise.resolve(onChange(next === "default" ? null : next))
               .then(() => setOpen(false))
               .catch(() => {});
           }}
         >
           {allowDefault ? (
-            <ToggleGroupItem
+            <SegmentedControlItem
               value="default"
-              className="col-span-2 h-9 text-xs"
+              className="col-span-2"
               aria-label={defaultLabel}
             >
               {defaultLabel}
-            </ToggleGroupItem>
+            </SegmentedControlItem>
           ) : null}
           {levels.map((choice, index) => (
-            <ToggleGroupItem
+            <SegmentedControlItem
               key={choice.value}
+              hint={choice.description}
               value={choice.value}
-              title={choice.description}
               aria-label={choice.name}
-              className="h-11 min-w-0 flex-col text-xs"
             >
               <Meter index={index} count={levels.length} />
               <span className="max-w-full truncate">{choice.name}</span>
-            </ToggleGroupItem>
+            </SegmentedControlItem>
           ))}
-        </ToggleGroup>
+        </SegmentedControl>
         {pending ? (
-          <p className="text-xs text-muted-foreground">Applying…</p>
+          <p className="text-body-sm text-muted-foreground">Applying…</p>
         ) : null}
         {error ? (
-          <p role="alert" className="text-xs text-destructive">
+          <p role="alert" className="text-body-sm text-danger">
             {error}
           </p>
         ) : null}

@@ -20,13 +20,13 @@ export function CommandBlock({
   return (
     <div
       className={cn(
-        "flex min-w-0 items-start gap-1 rounded border border-border bg-background/60 p-2",
+        "flex min-w-0 items-start gap-1 rounded-sm border border-border bg-background/veil p-2",
         className
       )}
     >
       <pre
         className={cn(
-          "max-h-40 min-w-0 flex-1 select-all overflow-auto whitespace-pre-wrap break-words px-1 font-mono text-[11px] leading-relaxed text-foreground",
+          "max-h-40 min-w-0 flex-1 select-all overflow-auto whitespace-pre-wrap break-words px-1 font-mono text-label-sm leading-relaxed text-foreground",
           textClassName
         )}
         data-testid={testId}

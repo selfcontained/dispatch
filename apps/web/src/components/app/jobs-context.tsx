@@ -25,20 +25,28 @@ type JobsProviderProps = {
 
 export type DetailTab = "configure" | "prompt" | "history";
 
+/** What a pane needs to tell loading, failed and empty apart. */
+type RegionQuery<T> = {
+  data?: T;
+  error: unknown;
+  isPending: boolean;
+  isFetching: boolean;
+  refetch: () => unknown;
+};
+
 type JobsContextValue = {
   jobs: Job[];
   isLoading: boolean;
   error: unknown;
+  retry: () => void;
+  isRetrying: boolean;
   selectedJob: Job | null;
   showOverview: boolean;
   showDetailPane: boolean;
   tab: DetailTab;
-  history: { data?: { runs: JobRun[] }; isLoading: boolean };
+  history: RegionQuery<{ runs: JobRun[] }>;
   attachedAgent: { agent: Agent; isActive: boolean } | null;
-  jobStats: {
-    data?: JobStats | null;
-    isLoading: boolean;
-  };
+  jobStats: RegionQuery<JobStats>;
   routeRunId: string | undefined;
   selectJob: (job: Job) => void;
   openAddJob: () => void;
@@ -94,7 +102,14 @@ export function JobsProvider({
     section: routeSection,
     runId: routeRunId,
   } = useParams();
-  const { data: jobs = [], isLoading, error } = useJobs(open);
+  const {
+    data: jobs = [],
+    // Not isLoading: that is false while a retry is paused, with no data yet.
+    isPending,
+    isFetching,
+    error,
+    refetch,
+  } = useJobs(open);
   const { addJob, runNow, setEnabled, updateJob, removeJob } = useJobActions();
   const [isAddingJob, setIsAddingJob] = useState(false);
   const [actionErrorByJobId] = useState<Record<string, string>>({});
@@ -126,8 +141,10 @@ export function JobsProvider({
 
   const ctx: JobsContextValue = {
     jobs,
-    isLoading,
+    isLoading: isPending,
     error,
+    retry: () => void refetch(),
+    isRetrying: isFetching,
     selectedJob,
     showOverview,
     showDetailPane,

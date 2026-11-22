@@ -87,7 +87,6 @@ async function fixture({ periodicRescan = false } = {}) {
     "DISPATCH_AGENT_HOST_COMMAND",
     JSON.stringify(["bun", main, "agent-host"])
   );
-  vi.stubEnv("DISPATCH_ACP_ADAPTER_COMMAND", JSON.stringify(["bun", adapter]));
   const processes = new Map<
     string,
     { child: ChildProcess; exited: Promise<unknown> }
@@ -272,6 +271,7 @@ async function fixture({ periodicRescan = false } = {}) {
       opencodeBin: "/bin/echo",
       agentStateRoot: state,
       agentRuntime: "acp",
+      acpAdapter: { bin: "bun", args: [adapter] },
       tls: null,
     },
     { remote: remote as unknown as RemoteRunnerService }

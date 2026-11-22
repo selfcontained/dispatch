@@ -28,6 +28,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Hint } from "@/components/ui/tooltip";
 
 type DeleteTarget =
   | { type: "object"; object: BrainObject }
@@ -71,24 +72,26 @@ function DeleteAllButton({
   onClick: () => void;
 }): JSX.Element {
   return (
-    <Button
-      type="button"
-      variant="ghost-destructive"
-      size="sm"
-      className="h-7 shrink-0 px-2 text-[11px]"
-      onClick={onClick}
-      aria-label={label}
-      title={label}
-    >
-      <Trash2 className="mr-1 h-3 w-3" />
-      Delete all
-    </Button>
+    <Hint label={label}>
+      <Button
+        type="button"
+        variant="ghost"
+        tone="danger"
+        size="xs"
+        className="shrink-0 text-label-sm"
+        onClick={onClick}
+        aria-label={label}
+      >
+        <Trash2 />
+        Delete all
+      </Button>
+    </Hint>
   );
 }
 
 function FilteredEmptyNote({ noun }: { noun: string }): JSX.Element {
   return (
-    <div className="px-3 py-2 text-xs text-muted-foreground">
+    <div className="px-3 py-2 text-body-sm text-muted-foreground">
       No {noun} match the current filter.
     </div>
   );
@@ -184,7 +187,7 @@ export function BrainCollectionView({
     !scopeHasEntries
   ) {
     return (
-      <div className="flex flex-1 items-center justify-center p-8 text-center text-sm text-muted-foreground">
+      <div className="flex flex-1 items-center justify-center p-8 text-center text-body-md text-muted-foreground">
         <div className="flex flex-col items-center gap-2">
           <Brain className="h-8 w-8" />
           <div className="mt-4">
@@ -282,9 +285,9 @@ export function BrainCollectionView({
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
-      <div className="space-y-1 px-1 pt-4 pb-12 sm:px-2 md:px-5">
+      <div className="space-y-1 px-1 pt-4 pb-12 sm:px-2 md:px-4">
         {isCapped && !search ? (
-          <div className="mx-3 mb-2 rounded-md border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+          <div className="mx-3 mb-2 rounded-md border border-border bg-surface-subtle px-3 py-2 text-body-sm text-muted-foreground">
             Showing the first 100 items per section. Select a collection to see
             all entries.
           </div>
@@ -294,13 +297,14 @@ export function BrainCollectionView({
           <div className="mx-3 mb-2 flex justify-end">
             <Button
               type="button"
-              variant="ghost-destructive"
+              variant="ghost"
+              tone="danger"
               size="sm"
               onClick={() =>
                 setDeleteTarget({ type: "collection", collection })
               }
             >
-              <Trash2 className="mr-1.5 h-3.5 w-3.5" />
+              <Trash2 />
               Clear collection
             </Button>
           </div>
@@ -456,7 +460,7 @@ function DeleteBrainDialog({
           </Button>
           <Button
             type="button"
-            variant="destructive"
+            variant="danger"
             onClick={onConfirm}
             disabled={deleting}
           >

@@ -129,7 +129,7 @@ export function StopTurnButton({
     <Button
       ref={triggerRef}
       type="button"
-      size="icon"
+      size="stream-icon"
       variant="ghost"
       className="h-9 w-9 shrink-0 text-muted-foreground pointer-coarse:min-h-11 pointer-coarse:min-w-11"
       onClick={single ? () => stop(single) : undefined}
@@ -191,7 +191,9 @@ export function StopTurnButton({
               <Square className="h-2.5 w-2.5 fill-current" aria-hidden="true" />
               <span className="min-w-0 flex-1 truncate">{agent.name}</span>
               {agent.id === selectedAgentId && (
-                <span className="text-xs text-muted-foreground">current</span>
+                <span className="text-body-sm text-muted-foreground">
+                  current
+                </span>
               )}
               {state === "stopping" && (
                 <Loader2
@@ -200,7 +202,9 @@ export function StopTurnButton({
                 />
               )}
               {state === "unconfirmed" && (
-                <span className="text-xs text-muted-foreground">retry</span>
+                <span className="text-body-sm text-muted-foreground">
+                  retry
+                </span>
               )}
             </DropdownMenuItem>
           );

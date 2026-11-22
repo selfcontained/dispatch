@@ -20,6 +20,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { RowButton } from "@/components/ui/row-button";
+import { Hint } from "@/components/ui/tooltip";
 import { AgentEngineFields } from "@/components/app/agent-engine-fields";
 import { CreateTemplateDialog } from "@/components/app/automations-create-dialog";
 import { useDashboardContext } from "@/components/app/dashboard-context";
@@ -57,30 +59,30 @@ export function ColumnTriggerStrip({
   const name = templateName(templates, column.trigger.templateId);
   return (
     <>
-      <button
-        ref={strip}
-        type="button"
-        data-testid={`task-column-trigger-${column.key}`}
-        onClick={() => setOpen(true)}
-        title="Edit trigger"
-        className={cn(
-          "flex w-full items-center gap-2 border-b border-[hsl(var(--col)/0.25)] bg-[hsl(var(--col)/0.06)] px-3 py-1.5 text-left text-xs transition-colors hover:bg-[hsl(var(--col)/0.14)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
-          className
-        )}
-      >
-        <Zap
-          className="h-3.5 w-3.5 shrink-0 text-[hsl(var(--col))]"
-          aria-hidden="true"
-        />
-        <span className="min-w-0 flex-1 truncate whitespace-nowrap text-muted-foreground">
-          On entry → launches{" "}
-          <span className="font-medium text-foreground">{name}</span>
-        </span>
-        <Settings2
-          className="h-3.5 w-3.5 shrink-0 text-muted-foreground"
-          aria-hidden="true"
-        />
-      </button>
+      <Hint label="Edit trigger">
+        <RowButton
+          ref={strip}
+          data-testid={`task-column-trigger-${column.key}`}
+          onClick={() => setOpen(true)}
+          className={cn(
+            "rounded-none border-b border-[hsl(var(--col)/0.25)] bg-[hsl(var(--col)/0.06)] px-3 py-1.5 text-body-sm hover:bg-[hsl(var(--col)/0.14)]",
+            className
+          )}
+        >
+          <Zap
+            className="h-3.5 w-3.5 shrink-0 text-[hsl(var(--col))]"
+            aria-hidden="true"
+          />
+          <span className="min-w-0 flex-1 truncate whitespace-nowrap text-muted-foreground">
+            On entry → launches{" "}
+            <span className="font-medium text-foreground">{name}</span>
+          </span>
+          <Settings2
+            className="h-3.5 w-3.5 shrink-0 text-muted-foreground"
+            aria-hidden="true"
+          />
+        </RowButton>
+      </Hint>
       <TaskTriggerDialog
         column={column}
         projectId={projectId}
@@ -212,7 +214,7 @@ export function TaskTriggerDialog({
         </DialogHeader>
         <div className="-mx-1 min-h-0 space-y-4 overflow-y-auto px-1 pb-1">
           <div className="space-y-1">
-            <label className="text-sm" htmlFor="task-trigger-template">
+            <label className="text-body-md" htmlFor="task-trigger-template">
               Template
             </label>
             <Select
@@ -244,7 +246,7 @@ export function TaskTriggerDialog({
                   <SelectItem key={template.id} value={template.id}>
                     {template.name}
                     {sharedName(template.name) ? (
-                      <span className="ml-1.5 text-xs text-muted-foreground">
+                      <span className="ml-1.5 text-body-sm text-muted-foreground">
                         {template.directory.split("/").filter(Boolean).pop()}
                       </span>
                     ) : null}
@@ -286,11 +288,12 @@ export function TaskTriggerDialog({
               setTrigger((old) => ({ ...old, model, effort: null }))
             }
             modelOptions={models.options}
+            savedOption={models.savedOption(trigger.model)}
             modelLoading={models.loading}
             onTypeOpenChange={setTypeDropdownOpen}
           />
           {effortConflict ? (
-            <p role="alert" className="text-sm text-destructive">
+            <p role="alert" className="text-body-md text-danger">
               {effortConflict}
             </p>
           ) : null}
@@ -300,7 +303,7 @@ export function TaskTriggerDialog({
               ["fireOnCreate", "Also fire when created here"],
             ] as const
           ).map(([key, label]) => (
-            <label key={key} className="flex items-center gap-2 text-sm">
+            <label key={key} className="flex items-center gap-2 text-body-md">
               <Checkbox
                 checked={trigger[key]}
                 onCheckedChange={() => toggle(key)}
@@ -308,7 +311,7 @@ export function TaskTriggerDialog({
               {label}
             </label>
           ))}
-          <p className="rounded bg-muted/50 p-2 text-xs text-muted-foreground">
+          <p className="rounded-sm bg-surface-hover p-2 text-body-sm text-muted-foreground">
             {chosen
               ? `Entering ${column.name} launches ${chosen.name}${chosen.prompt?.trim() ? "" : " with the task as its prompt"}${trigger.assign ? " and assigns the agent" : ""}.`
               : "Choose a project template to configure this column."}

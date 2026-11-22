@@ -88,6 +88,7 @@ export function SettingsTab({
   const [model, setModel] = useState<string | null>(job.model);
   const {
     options: modelOptions,
+    savedOption,
     loading: modelCatalogLoading,
     normalizeModel,
   } = useAgentModelCatalog(agentType);
@@ -153,10 +154,10 @@ export function SettingsTab({
 
   return (
     <div className="mt-4 grid gap-4">
-      <label className="flex items-center justify-between gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3 text-sm">
+      <label className="flex items-center justify-between gap-3 rounded-md border border-border-subtle bg-surface-subtle px-3 py-3 text-body-md">
         <span>
           <span className="block font-medium text-foreground">Enabled</span>
-          <span className="block text-xs text-muted-foreground">
+          <span className="block text-body-sm text-muted-foreground">
             {hasSavedSchedule
               ? "Allow manual and scheduled starts."
               : job.continuationEnabled
@@ -194,19 +195,19 @@ export function SettingsTab({
         />
       </label>
       {enabledError ? (
-        <div className="rounded-md border border-status-blocked/40 bg-status-blocked/10 p-3 text-sm text-status-blocked">
+        <div className="rounded-md border border-danger/line bg-danger/tint p-3 text-body-md text-danger">
           {enabledError}
         </div>
       ) : null}
-      <div className="rounded-md border border-white/[0.12] bg-white/[0.04] p-4">
-        <div className="text-sm font-medium">Job configuration</div>
-        <p className="mt-1 text-xs text-muted-foreground">
+      <div className="rounded-md border border-edge bg-fill-inset p-4">
+        <div className="text-body-md font-medium">Job configuration</div>
+        <p className="mt-1 text-body-sm text-muted-foreground">
           These values are used when the schedule or Run button starts this job.
         </p>
         <div className="mt-4 grid gap-3 md:grid-cols-2">
           <div className="space-y-1 md:col-span-2">
             <label
-              className="text-sm text-muted-foreground"
+              className="text-body-md text-muted-foreground"
               htmlFor={`settings-name-${job.id}`}
             >
               Name
@@ -219,7 +220,7 @@ export function SettingsTab({
           </div>
           <div className="space-y-1 md:col-span-2">
             <label
-              className="text-sm text-muted-foreground"
+              className="text-body-md text-muted-foreground"
               htmlFor={`settings-directory-${job.id}`}
             >
               Working directory
@@ -280,6 +281,7 @@ export function SettingsTab({
               <AgentModelSelect
                 value={model}
                 options={modelOptions}
+                savedOption={savedOption(model)}
                 onChange={(value) => {
                   setModel(value);
                   setEffort(null);
@@ -297,7 +299,7 @@ export function SettingsTab({
           </AgentConfigRow>
           <div className="space-y-1">
             <label
-              className="text-sm text-muted-foreground"
+              className="text-body-md text-muted-foreground"
               htmlFor={`settings-timeout-${job.id}`}
             >
               Run timeout, minutes
@@ -311,7 +313,7 @@ export function SettingsTab({
           </div>
           <div className="space-y-1">
             <label
-              className="text-sm text-muted-foreground"
+              className="text-body-md text-muted-foreground"
               htmlFor={`settings-needs-input-${job.id}`}
             >
               Wait for input, minutes
@@ -353,12 +355,12 @@ export function SettingsTab({
                 : undefined
             }
           />
-          <label className="flex items-center justify-between gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3 text-sm">
+          <label className="flex items-center justify-between gap-3 rounded-md border border-border-subtle bg-surface-subtle px-3 py-3 text-body-md">
             <span>
               <span className="block font-medium text-foreground">
                 Show in command palette
               </span>
-              <span className="block text-xs text-muted-foreground">
+              <span className="block text-body-sm text-muted-foreground">
                 Launch this job from the {"⌘"}K palette.
               </span>
             </span>
@@ -368,12 +370,12 @@ export function SettingsTab({
               ariaLabel="Show in command palette"
             />
           </label>
-          <label className="flex items-center justify-between gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3 text-sm">
+          <label className="flex items-center justify-between gap-3 rounded-md border border-border-subtle bg-surface-subtle px-3 py-3 text-body-md">
             <span>
               <span className="block font-medium text-foreground">
                 Single instance
               </span>
-              <span className="block text-xs text-muted-foreground">
+              <span className="block text-body-sm text-muted-foreground">
                 Only allow one active run at a time.
               </span>
             </span>
@@ -383,13 +385,13 @@ export function SettingsTab({
               ariaLabel="Single instance"
             />
           </label>
-          <div className="rounded-md border border-border/70 bg-muted/20 px-3 py-3 text-sm">
+          <div className="rounded-md border border-border-subtle bg-surface-subtle px-3 py-3 text-body-md">
             <label className="flex items-center justify-between gap-3">
               <span>
                 <span className="block font-medium text-foreground">
                   Webhook trigger
                 </span>
-                <span className="block text-xs text-muted-foreground">
+                <span className="block text-body-sm text-muted-foreground">
                   Trigger this job via an HTTP POST to a secret URL.
                 </span>
               </span>
@@ -402,19 +404,19 @@ export function SettingsTab({
             {webhookEnabled && job.webhookSecret ? (
               <WebhookUrl secret={job.webhookSecret} />
             ) : webhookEnabled && !job.webhookSecret ? (
-              <div className="mt-2 text-xs text-muted-foreground">
+              <div className="mt-2 text-body-sm text-muted-foreground">
                 Save to generate a webhook URL.
               </div>
             ) : null}
           </div>
         </div>
         {saveError ? (
-          <div className="mt-4 rounded-md border border-status-blocked/40 bg-status-blocked/10 p-3 text-sm text-status-blocked">
+          <div className="mt-4 rounded-md border border-danger/line bg-danger/tint p-3 text-body-md text-danger">
             {saveError}
           </div>
         ) : null}
         {saved ? (
-          <div className="mt-4 rounded-md border border-status-done/40 bg-status-done/10 p-3 text-sm text-status-done">
+          <div className="mt-4 rounded-md border border-info/line bg-info/tint p-3 text-body-md text-info">
             Settings saved.
           </div>
         ) : null}
@@ -459,22 +461,20 @@ export function SettingsTab({
                 });
             }}
           >
-            {isUpdating ? <ActivityBars size={16} className="mr-2" /> : null}
+            {isUpdating ? <ActivityBars size={16} /> : null}
             Save
           </Button>
         </div>
       </div>
-      <div className="rounded-md border border-status-blocked/30 bg-status-blocked/5 p-4">
-        <div className="text-sm font-medium text-status-blocked">
-          Remove job
-        </div>
-        <p className="mt-1 text-xs text-muted-foreground">
+      <div className="rounded-md border border-danger/line bg-danger/wash p-4">
+        <div className="text-body-md font-medium text-danger">Remove job</div>
+        <p className="mt-1 text-body-sm text-muted-foreground">
           Remove this saved job, schedule, and run history from this Dispatch
           instance.
         </p>
         <div className="mt-3 flex flex-wrap justify-end gap-2">
           <Button
-            variant="destructive"
+            variant="danger"
             size="sm"
             disabled={isRemoving}
             onClick={() => {
@@ -482,12 +482,12 @@ export function SettingsTab({
               setRemoveDialogOpen(true);
             }}
           >
-            <Trash2 className="mr-2 h-4 w-4" />
+            <Trash2 />
             Remove
           </Button>
         </div>
         {removeError ? (
-          <div className="mt-3 rounded-md border border-status-blocked/40 bg-status-blocked/10 p-3 text-sm text-status-blocked">
+          <div className="mt-3 rounded-md border border-danger/line bg-danger/tint p-3 text-body-md text-danger">
             {removeError}
           </div>
         ) : null}
@@ -524,33 +524,25 @@ function RemoveJobDialog({
   return (
     <DialogPrimitive.Root open={open} onOpenChange={onOpenChange}>
       <DialogPrimitive.Portal>
-        <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/50 backdrop-blur-md" />
-        <DialogPrimitive.Content className="fixed left-1/2 top-1/2 z-50 w-[min(420px,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 rounded-lg border border-white/[0.2] bg-[hsl(var(--card))] backdrop-blur-2xl p-5 shadow-[0_16px_64px_rgba(0,0,0,0.5),inset_0_1px_0_rgba(255,255,255,0.15)] outline-none">
-          <DialogPrimitive.Title className="text-base font-semibold">
+        <DialogPrimitive.Overlay className="fixed inset-0 z-drawer bg-scrim backdrop-blur-md" />
+        <DialogPrimitive.Content className="fixed left-1/2 top-1/2 z-drawer w-[min(420px,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 rounded-lg surface-overlay p-4 outline-none">
+          <DialogPrimitive.Title className="text-heading-md">
             Remove job?
           </DialogPrimitive.Title>
-          <DialogPrimitive.Description className="mt-2 text-sm text-muted-foreground">
+          <DialogPrimitive.Description className="mt-2 text-body-md text-muted-foreground">
             Remove{" "}
             <span className="font-medium text-foreground">{job.name}</span> from
             this Dispatch instance? This removes its saved schedule and run
             history.
           </DialogPrimitive.Description>
-          <div className="mt-5 flex justify-end gap-2">
+          <div className="mt-4 flex justify-end gap-2">
             <DialogPrimitive.Close asChild>
               <Button variant="ghost" disabled={isRemoving}>
                 Cancel
               </Button>
             </DialogPrimitive.Close>
-            <Button
-              variant="destructive"
-              disabled={isRemoving}
-              onClick={onConfirm}
-            >
-              {isRemoving ? (
-                <ActivityBars size={16} className="mr-2" />
-              ) : (
-                <Trash2 className="mr-2 h-4 w-4" />
-              )}
+            <Button variant="danger" disabled={isRemoving} onClick={onConfirm}>
+              {isRemoving ? <ActivityBars size={16} /> : <Trash2 />}
               Remove
             </Button>
           </div>

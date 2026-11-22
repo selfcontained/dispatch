@@ -12,14 +12,13 @@ import { PendingInputsButton } from "./chat/pending-inputs-button";
 import { ChatPane } from "@/components/app/chat/chat-pane";
 import { type Agent } from "@/components/app/types";
 import { agentSwitchValidationMode } from "@/lib/agent-switch-validation";
-import { Button } from "@/components/ui/button";
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { Switch } from "@/components/ui/switch";
-import { cn } from "@/lib/utils";
+import { IconButton } from "@/components/ui/icon-button";
 
 /** The Chat options popover in the Agent pane header. */
 export function ChatFiltersButton(): JSX.Element {
@@ -33,33 +32,21 @@ export function ChatFiltersButton(): JSX.Element {
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <Button
-          type="button"
-          size="icon"
-          variant="ghost"
-          aria-label={filtersLabel}
-          title={filtersLabel}
+        <IconButton
+          size="icon-sm"
+          label={filtersLabel}
           data-testid="chat-filters-trigger"
-          className={cn(
-            "group h-7 w-7 shrink-0 rounded-full p-0 hover:bg-transparent focus-visible:ring-0 pointer-coarse:h-11 pointer-coarse:w-11"
-          )}
+          className="rounded-full"
         >
-          <span
-            data-testid="chat-filters-surface"
-            className={cn(
-              "flex h-6 w-6 items-center justify-center rounded-full transition-colors group-hover:bg-muted/70 group-focus-visible:ring-2 group-focus-visible:ring-ring"
-            )}
-          >
-            <Settings data-testid="chat-filters-icon" className="h-3.5 w-3.5" />
-          </span>
-        </Button>
+          <Settings data-testid="chat-filters-icon" />
+        </IconButton>
       </PopoverTrigger>
       <PopoverContent
         align="end"
         className="w-64 p-3"
         data-testid="chat-filters-popover"
       >
-        <div className="mb-2 text-xs font-semibold text-foreground">
+        <div className="mb-2 text-body-sm font-semibold text-foreground">
           Chat options
         </div>
         <label
@@ -67,10 +54,10 @@ export function ChatFiltersButton(): JSX.Element {
           className="flex cursor-pointer items-center justify-between gap-4 rounded-md px-1 py-1.5"
         >
           <span className="min-w-0">
-            <span className="block text-sm font-medium text-foreground">
+            <span className="block text-body-md font-medium text-foreground">
               Your last message
             </span>
-            <span className="block text-xs text-muted-foreground">
+            <span className="block text-body-sm text-muted-foreground">
               Keep your request visible above the stream.
             </span>
           </span>
@@ -87,11 +74,12 @@ export function ChatFiltersButton(): JSX.Element {
           className="flex cursor-pointer items-center justify-between gap-4 rounded-md px-1 py-1.5"
         >
           <span className="min-w-0">
-            <span className="block text-sm font-medium text-foreground">
+            <span className="block text-body-md font-medium text-foreground">
               Show progress text
             </span>
-            <span className="block text-xs text-muted-foreground">
-              Read updates as the agent works.
+            <span className="block text-body-sm text-muted-foreground">
+              Read updates as the agent works. Off shows a short summary
+              instead.
             </span>
           </span>
           <Switch
@@ -161,7 +149,7 @@ export function AgentPane({
     >
       {header ? (
         <div
-          className="flex min-h-8 shrink-0 items-center justify-between gap-2 border-b border-border/40 py-0 pl-3 pr-2 md:py-1.5"
+          className="flex min-h-8 shrink-0 items-center justify-between gap-2 border-b border-border-subtle py-0 pl-3 pr-2 md:py-1.5"
           data-testid="agent-pane-header"
           style={
             project
@@ -172,7 +160,7 @@ export function AgentPane({
               : undefined
           }
         >
-          <span className="flex min-w-0 items-center gap-1 text-xs font-medium text-foreground">
+          <span className="flex min-w-0 items-center gap-1 text-body-sm font-medium text-foreground">
             {project ? (
               <ProjectIcon
                 project={project}
@@ -188,7 +176,7 @@ export function AgentPane({
           </span>
           {agentSwitchValidationMode ? (
             <span
-              className="text-[10px] text-muted-foreground"
+              className="text-label-xs text-muted-foreground"
               data-testid="agent-switch-validation-mode"
             >
               Validation: {agentSwitchValidationMode} fix
@@ -232,7 +220,7 @@ export function AgentPane({
           />
         ) : (
           <div
-            className="flex h-full items-center justify-center text-sm text-muted-foreground"
+            className="flex h-full items-center justify-center text-body-md text-muted-foreground"
             data-testid="agent-chat-opening"
           >
             Opening chat…

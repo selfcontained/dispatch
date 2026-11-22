@@ -9,6 +9,11 @@ import {
   type ComparisonUse,
 } from "./effective-base.js";
 import type { CheckoutView } from "@dispatch/runner-protocol";
+import {
+  namingContext,
+  nameNewSession,
+  persistSessionName,
+} from "./session-naming.js";
 import { AttentionHistory } from "../notifications/attention-history.js";
 import { matchProjectIdentity } from "../projects/matching.js";
 import {
@@ -457,6 +462,12 @@ export class AgentManager {
   private readonly eventBus: AgentEventBus;
   private readonly runtime: AgentRuntime;
   private readonly localRunner: ReturnType<typeof createLocalRunner>;
+  private readonly jobActivity = new Map<string, number>();
+
+  /** Last actual engine event, excluding host heartbeats and snapshots. */
+  getLastEngineActivity(id: string): number | undefined {
+    return this.jobActivity.get(id);
+  }
   private readonly reconciler: Reconciler;
   private readonly streamStore: StreamStore;
   private readonly streamRecorder: StreamRecorder;
@@ -714,6 +725,9 @@ export class AgentManager {
     seq: number,
     receivedRemotely = false
   ): Promise<void> {
+    if (event.type === "update" || event.type === "turn") {
+      this.jobActivity.set(agentId, Date.now());
+    }
     if (event.type === "permissions") {
       this.attentionHistory.permissions(agentId, event.requests);
       const previous = this.pendingPermissionIds.get(agentId);
@@ -778,7 +792,11 @@ export class AgentManager {
       await this.publishTurnActivity(agentId, event);
     }
     if (event.type === "config") {
-      await this.applyEngineConfig(agentId, event.options);
+      await this.applyEngineConfig(
+        agentId,
+        event.options,
+        event.catalogSource === "engine"
+      );
     }
     // A host an update takes down still has its session to resume.
     if (
@@ -818,7 +836,8 @@ export class AgentManager {
   /** The engine told us its options: record the model it really runs. */
   private async applyEngineConfig(
     agentId: string,
-    options: SessionConfigOption[]
+    options: SessionConfigOption[],
+    learnCatalog: boolean
   ): Promise<void> {
     const agent = await this.getAgent(agentId);
     if (!agent) return;
@@ -826,7 +845,7 @@ export class AgentManager {
       { pool: this.pool, logger: this.logger },
       { id: agent.id, type: agent.type, model: agent.model ?? null },
       options,
-      { learn: !remotePlacement(agent.cwd) }
+      learnCatalog && !remotePlacement(agent.cwd)
     );
     const effortChanged = await recordEngineEffort(this.pool, agent, options);
     if (modelChanged || effortChanged)
@@ -1246,7 +1265,13 @@ export class AgentManager {
       (id) => !this.runtime.isBusy(id)
     );
     await Promise.race([
-      Promise.allSettled(idle.map((id) => this.runtime.stop(id, false))),
+      Promise.allSettled(
+        idle.map((id) =>
+          this.runtime.stopIdleHostForRecovery
+            ? this.runtime.stopIdleHostForRecovery(id)
+            : this.runtime.stop(id, false)
+        )
+      ),
       new Promise((resolve) => setTimeout(resolve, timeoutMs)),
     ]);
     const remaining = await this.runtime.listHosted();
@@ -1583,10 +1608,7 @@ export class AgentManager {
     }
 
     await this.getRequiredAgent(id);
-    await this.pool.query(
-      `UPDATE agents SET name = $2, updated_at = NOW() WHERE id = $1`,
-      [id, trimmed]
-    );
+    await persistSessionName(this.pool, id, trimmed);
     return (await this.getAgent(id)) as AgentRecord;
   }
 
@@ -2207,6 +2229,14 @@ export class AgentManager {
         await rm(p.filesDir, { recursive: true, force: true }).catch(() => {});
         throw error;
       }
+    }
+    if (!input.name?.trim()) {
+      void nameNewSession(this.pool, p.id, namingContext(input), async () => {
+        const updated = await this.getAgent(p.id);
+        if (updated) this.eventBus.publish(updated);
+      }).catch(() => {
+        /* Naming must never affect launch. */
+      });
     }
     // The launch post is the first turn's envelope, so a launch that carries
     // a prompt waits for the post to be durable before the engine starts.

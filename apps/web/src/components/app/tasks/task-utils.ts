@@ -1,6 +1,7 @@
 import type { Task, TaskBoard, TaskColumn } from "@/hooks/use-tasks";
 import { qualifyExternalMentions } from "@dispatch/shared";
 import type { Agent } from "@/components/app/types";
+import { formatRelativeCompact } from "@/lib/format";
 import type { Mentionable } from "@/lib/mentions";
 export function orderedColumns(board: TaskBoard): TaskColumn[] {
   return [...board.columns].sort((a, b) => a.position - b.position);
@@ -79,18 +80,6 @@ export function groupTasks(
     tasks: tasksInColumn(tasks, column.id),
   }));
 }
-export function taskAge(date: string): string {
-  const days = Math.max(
-    0,
-    Math.floor((Date.now() - Date.parse(date)) / 86400000)
-  );
-  if (days) return `${days}d`;
-  const hours = Math.max(
-    0,
-    Math.floor((Date.now() - Date.parse(date)) / 3600000)
-  );
-  return hours ? `${hours}h` : "now";
-}
 /**
  * What tells this agent apart when another in the list wears the same
  * name (two "Builder"s launched by the same column): when it started.
@@ -105,13 +94,7 @@ export function agentQualifier(
     (other) => other.id !== agent.id && other.name.trim().toLowerCase() === name
   );
   if (!clash || !agent.createdAt) return null;
-  const minutes = Math.max(
-    0,
-    Math.floor((Date.now() - Date.parse(agent.createdAt)) / 60000)
-  );
-  if (minutes < 1) return "now";
-  if (minutes < 60) return `${minutes}m`;
-  return taskAge(agent.createdAt);
+  return formatRelativeCompact(agent.createdAt);
 }
 /**
  * How an agent came to be on a task, in words: a column's trigger
@@ -182,8 +165,7 @@ export function taskMentionables(
 /** History state marking an entry pushed by opening the task modal. */
 export const TASK_MODAL_STATE = { taskModal: true } as const;
 /** The app's menu items default to the destructive tint; these are ordinary. */
-export const MENU_ITEM =
-  "text-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50";
+export const MENU_ITEM = "text-foreground disabled-state";
 
 /** Selected task detail tab, shared by the drawer and modal. */
 export const TASK_PANE_PARAM = "pane";

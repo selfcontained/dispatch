@@ -26,7 +26,7 @@ export function AgentEffortSelect({
   const choices = workload ? workloadChoices : nativeChoices;
   return (
     <div className="space-y-1">
-      <label className="text-sm text-muted-foreground" htmlFor={id}>
+      <label className="text-body-md text-muted-foreground" htmlFor={id}>
         Effort
       </label>
       <EffortPicker

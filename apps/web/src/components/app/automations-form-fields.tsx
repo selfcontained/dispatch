@@ -37,20 +37,19 @@ export function TemplateWorktreeOption({
   onBranchNameChange: (value: string) => void;
 }): JSX.Element {
   return (
-    <div className="space-y-2 rounded-md border border-border/70 bg-muted/20 px-3 py-3">
+    <div className="space-y-2 rounded-md border border-border-subtle bg-surface-subtle px-3 py-3">
       <label className="flex cursor-pointer items-start gap-3">
         <Checkbox
           checked={checked}
           onCheckedChange={() => onCheckedChange(!checked)}
           className="mt-0.5"
-          title="Toggle git worktree"
         />
         <span className="space-y-1">
-          <span className="flex items-center gap-1.5 text-sm font-medium text-foreground">
+          <span className="flex items-center gap-1.5 text-body-md font-medium text-foreground">
             <GitBranch className="h-3.5 w-3.5" />
             Run in a git worktree
           </span>
-          <span className="block text-xs text-muted-foreground">
+          <span className="block text-body-sm text-muted-foreground">
             Creates an isolated worktree when this template is launched.
           </span>
         </span>
@@ -79,18 +78,17 @@ export function TemplateFullAccessOption({
   onCheckedChange: (checked: boolean) => void;
 }): JSX.Element {
   return (
-    <label className="flex cursor-pointer items-start gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3">
+    <label className="flex cursor-pointer items-start gap-3 rounded-md border border-border-subtle bg-surface-subtle px-3 py-3">
       <Checkbox
         checked={checked}
         onCheckedChange={() => onCheckedChange(!checked)}
         className="mt-0.5"
-        title="Toggle full access"
       />
       <span className="space-y-1">
-        <span className="block text-sm font-medium text-foreground">
+        <span className="block text-body-md font-medium text-foreground">
           Start in full access mode
         </span>
-        <span className="block text-xs text-muted-foreground">
+        <span className="block text-body-sm text-muted-foreground">
           Starts the selected agent with its most permissive supported execution
           mode.
         </span>
@@ -176,8 +174,11 @@ export function TemplateConfigFields({
   lockedLocation,
 }: TemplateConfigFieldsProps): JSX.Element {
   const effortId = useId();
-  const { options: modelOptions, loading: modelCatalogLoading } =
-    useAgentModelCatalog(agentType);
+  const {
+    options: modelOptions,
+    savedOption,
+    loading: modelCatalogLoading,
+  } = useAgentModelCatalog(agentType);
   const {
     history: cwdHistory,
     removableHistory: removableCwdHistory,
@@ -212,6 +213,7 @@ export function TemplateConfigFields({
           <AgentModelSelect
             value={model}
             options={modelOptions}
+            savedOption={savedOption(model)}
             onChange={onModelChange}
             loading={modelCatalogLoading}
           />
@@ -226,7 +228,7 @@ export function TemplateConfigFields({
       </AgentConfigRow>
 
       <div className="space-y-1">
-        <label className="text-sm text-muted-foreground">Name</label>
+        <label className="text-body-md text-muted-foreground">Name</label>
         <Input
           autoFocus={autoFocusName}
           value={name}
@@ -236,7 +238,9 @@ export function TemplateConfigFields({
       </div>
 
       <div className="space-y-1">
-        <label className="text-sm text-muted-foreground">Description</label>
+        <label className="text-body-md text-muted-foreground">
+          Description
+        </label>
         <Input
           value={description}
           onChange={(e) => onDescriptionChange(e.target.value)}
@@ -246,12 +250,12 @@ export function TemplateConfigFields({
 
       {lockedLocation ? (
         <div className="space-y-1" data-testid="locked-location">
-          <label className="text-sm text-muted-foreground">Project</label>
-          <div className="rounded-md border border-white/[0.08] bg-black/20 px-3 py-2 text-sm">
+          <label className="text-body-md text-muted-foreground">Project</label>
+          <div className="rounded-md border border-edge-subtle bg-fill-track px-3 py-2 text-body-md">
             {lockedLocation.name ? (
               <div className="truncate">{lockedLocation.name}</div>
             ) : null}
-            <div className="truncate text-xs text-muted-foreground">
+            <div className="truncate text-body-sm text-muted-foreground">
               {lockedLocation.repoRoot}
             </div>
           </div>
@@ -302,35 +306,35 @@ export function TemplateConfigFields({
         )}
       </>
 
-      <label className="flex cursor-pointer items-start gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3">
+      <label className="flex cursor-pointer items-start gap-3 rounded-md border border-border-subtle bg-surface-subtle px-3 py-3">
         <Checkbox
           checked={callable}
           onCheckedChange={() => onCallableChange(!callable)}
           className="mt-0.5"
         />
         <span className="space-y-1">
-          <span className="block text-sm font-medium text-foreground">
+          <span className="block text-body-md font-medium text-foreground">
             Show in command palette
           </span>
-          <span className="block text-xs text-muted-foreground">
+          <span className="block text-body-sm text-muted-foreground">
             Launch this template from the {"⌘"}K palette.
           </span>
         </span>
       </label>
 
       <>
-        <label className="flex cursor-pointer items-start gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3">
+        <label className="flex cursor-pointer items-start gap-3 rounded-md border border-border-subtle bg-surface-subtle px-3 py-3">
           <Checkbox
             checked={allowFiles}
             onCheckedChange={() => onAllowFilesChange(!allowFiles)}
             className="mt-0.5"
           />
           <span className="space-y-1">
-            <span className="flex items-center gap-1.5 text-sm font-medium text-foreground">
+            <span className="flex items-center gap-1.5 text-body-md font-medium text-foreground">
               <Paperclip className="h-3.5 w-3.5" />
               Allow file attachments on launch
             </span>
-            <span className="block text-xs text-muted-foreground">
+            <span className="block text-body-sm text-muted-foreground">
               Show a context area for files and links when launching this
               template.
             </span>
@@ -338,7 +342,7 @@ export function TemplateConfigFields({
         </label>
 
         <div className="space-y-1">
-          <label className="text-sm text-muted-foreground">Prompt</label>
+          <label className="text-body-md text-muted-foreground">Prompt</label>
           <Textarea
             value={prompt}
             onChange={(e) => onPromptChange(e.target.value)}
@@ -346,22 +350,22 @@ export function TemplateConfigFields({
             className={cn(
               "min-h-64 resize-y",
               "ring-offset-background placeholder:text-muted-foreground",
-              "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              "focus-ring"
             )}
           />
           {prompt.trim() ? null : (
-            <p className="text-xs text-muted-foreground">
+            <p className="text-body-sm text-muted-foreground">
               Launched from a task it gets the task as its prompt; otherwise it
               needs a prompt or a persona.
             </p>
           )}
           {detectedArgs.length > 0 ? (
-            <div className="mt-1.5 text-xs text-muted-foreground">
+            <div className="mt-1.5 text-body-sm text-muted-foreground">
               Detected arguments:{" "}
               {detectedArgs.map((a) => (
                 <span
                   key={a.key}
-                  className="mr-1.5 inline-block rounded bg-primary/10 px-1.5 py-0.5 text-primary"
+                  className="mr-1.5 inline-block rounded-sm bg-surface-selected px-1.5 py-0.5 text-primary"
                 >
                   {a.name}
                   {a.required ? " *" : ""}
@@ -373,17 +377,17 @@ export function TemplateConfigFields({
           ) : null}
         </div>
 
-        <label className="flex cursor-pointer items-start gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3">
+        <label className="flex cursor-pointer items-start gap-3 rounded-md border border-border-subtle bg-surface-subtle px-3 py-3">
           <Checkbox
             checked={selfImprove}
             onCheckedChange={() => onSelfImproveChange(!selfImprove)}
             className="mt-0.5"
           />
           <span className="space-y-1">
-            <span className="block text-sm font-medium text-foreground">
+            <span className="block text-body-md font-medium text-foreground">
               Self improve after each run
             </span>
-            <span className="block text-xs text-muted-foreground">
+            <span className="block text-body-sm text-muted-foreground">
               Ask the agent to make a conservative saved-prompt improvement when
               it finds one.
             </span>

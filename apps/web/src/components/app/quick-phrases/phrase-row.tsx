@@ -1,6 +1,7 @@
 import { Pencil, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { IconButton } from "@/components/ui/icon-button";
 import type { QuickPhrase } from "@/hooks/use-quick-phrases";
 
 import { InjectSplitButton } from "./inject-split-button";
@@ -26,7 +27,7 @@ export function PhraseRow({
 
   return (
     <div className="flex w-full items-center gap-1.5 px-2 py-1.5">
-      <span className="min-w-0 flex-1 truncate text-sm text-foreground">
+      <span className="min-w-0 flex-1 truncate text-body-md text-foreground">
         {phrase.label || phrase.text}
       </span>
       <div
@@ -37,9 +38,9 @@ export function PhraseRow({
           hasArgs ? (
             <Button
               type="button"
-              size="sm"
+              size="xs"
               disabled={isPending}
-              className="h-7 min-w-[5.5rem] px-2 text-xs"
+              className="min-w-[5.5rem]"
               onClick={onFill}
             >
               Send…
@@ -53,25 +54,19 @@ export function PhraseRow({
             />
           )
         ) : null}
-        <button
-          type="button"
-          className="rounded p-1.5 text-muted-foreground hover:bg-white/[0.1] hover:text-foreground"
-          onClick={onEdit}
-          title="Edit phrase"
-        >
-          <Pencil className="h-3.5 w-3.5" />
-        </button>
-        <button
-          type="button"
-          className="rounded p-1.5 text-muted-foreground hover:bg-white/[0.1] hover:text-foreground"
+        <IconButton size="icon-sm" label="Edit phrase" onClick={onEdit}>
+          <Pencil />
+        </IconButton>
+        <IconButton
+          size="icon-sm"
+          label="Delete phrase"
           onClick={() => {
             const name = phrase.label || phrase.text.slice(0, 40);
             if (window.confirm(`Delete "${name}"?`)) onDelete();
           }}
-          title="Delete phrase"
         >
-          <Trash2 className="h-3.5 w-3.5" />
-        </button>
+          <Trash2 />
+        </IconButton>
       </div>
     </div>
   );

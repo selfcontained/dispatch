@@ -13,7 +13,6 @@ import {
   X,
 } from "lucide-react";
 
-import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
@@ -31,6 +30,9 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { usePostBlock } from "@/hooks/use-stream";
 import type { PersistedDraftComment } from "@/lib/store";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { IconButton } from "@/components/ui/icon-button";
 
 export type DraftComment = PersistedDraftComment;
 
@@ -118,39 +120,34 @@ export const ReviewModeBar = memo(function ReviewModeBar({
   return (
     <>
       <div
-        className="flex items-center gap-2 border-b border-border/50 bg-muted/30 px-3 py-2"
+        className="flex items-center gap-2 border-b border-border-subtle bg-surface-subtle px-3 py-2"
         data-testid="review-mode-bar"
       >
         <MessageSquarePlus className="h-3.5 w-3.5 text-primary" />
-        <span className="text-xs font-medium text-foreground">Review Mode</span>
-        <span
-          className="rounded-full bg-primary/15 px-1.5 py-0.5 text-[10px] font-medium text-primary"
-          data-testid="review-mode-count"
-        >
-          {drafts.length} comment{drafts.length !== 1 ? "s" : ""}
+        <span className="text-body-sm font-medium text-foreground">
+          Review Mode
         </span>
-        <span className="hidden text-[11px] text-muted-foreground sm:inline">
+        <Badge size="sm" tone="info" data-testid="review-mode-count">
+          {drafts.length} comment{drafts.length !== 1 ? "s" : ""}
+        </Badge>
+        <span className="hidden text-label-sm text-muted-foreground sm:inline">
           Select lines in the diff to add a comment.
         </span>
         <div className="flex-1" />
-        <button
+        <Button
           type="button"
-          className="flex items-center gap-1.5 rounded bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+          variant="primary"
+          size="xs"
           disabled={rootId === null}
           data-testid="review-mode-submit"
           onClick={() => setSubmitOpen(true)}
         >
-          <Send className="h-3 w-3" />
+          <Send />
           Post review
-        </button>
-        <button
-          type="button"
-          aria-label="Cancel review"
-          className="text-xs text-muted-foreground hover:text-foreground"
-          onClick={handleCancel}
-        >
-          <X className="h-3.5 w-3.5" />
-        </button>
+        </Button>
+        <IconButton size="icon-sm" label="Cancel review" onClick={handleCancel}>
+          <X />
+        </IconButton>
       </div>
 
       {rootId ? (
@@ -250,7 +247,7 @@ function SubmitReviewDialog({
     >
       <DialogContent data-testid="submit-review-dialog">
         <DialogHeader>
-          <DialogTitle className="text-sm">Post review</DialogTitle>
+          <DialogTitle>Post review</DialogTitle>
           <DialogDescription>
             Posts a review block into the agent&apos;s stream. Each comment
             becomes a finding with its own thread; the agent answers under it
@@ -259,7 +256,7 @@ function SubmitReviewDialog({
         </DialogHeader>
         <div className="flex flex-col gap-3">
           <Textarea
-            className="w-full resize-none text-xs"
+            className="w-full resize-none text-body-sm"
             placeholder="Summary — what you looked at and what you think overall…"
             rows={3}
             value={summary}
@@ -270,7 +267,7 @@ function SubmitReviewDialog({
           />
           {drafts.length > 0 ? (
             <ol
-              className="flex max-h-56 flex-col divide-y divide-border/40 overflow-y-auto rounded-md border border-border/50"
+              className="flex max-h-56 flex-col divide-y divide-border-subtle overflow-y-auto rounded-md border border-border-subtle"
               data-testid="review-draft-list"
             >
               {drafts.map((draft) => (
@@ -286,7 +283,7 @@ function SubmitReviewDialog({
                     }
                   >
                     <SelectTrigger
-                      className="h-7 w-[6.5rem] shrink-0 text-[11px]"
+                      className="h-7 w-[6.5rem] shrink-0 text-label-sm"
                       aria-label="Severity"
                       data-testid="review-draft-severity"
                     >
@@ -301,63 +298,60 @@ function SubmitReviewDialog({
                     </SelectContent>
                   </Select>
                   <div className="min-w-0 flex-1">
-                    <div className="truncate font-mono text-[10px] text-muted-foreground">
+                    <div className="truncate font-mono text-label-xs text-muted-foreground">
                       {draft.filePath}:{draft.startLine}
                       {draft.endLine !== draft.startLine
                         ? `–${draft.endLine}`
                         : ""}
                     </div>
-                    <div className="line-clamp-2 text-xs text-foreground">
+                    <div className="line-clamp-2 text-body-sm text-foreground">
                       {draft.comment}
                     </div>
                   </div>
-                  <Button
-                    type="button"
-                    size="icon"
-                    variant="ghost"
-                    className="h-7 w-7 shrink-0"
-                    aria-label="Remove comment"
+                  <IconButton
+                    size="icon-sm"
+                    label="Remove comment"
                     onClick={() => onRemoveDraft(draft.id)}
                   >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </Button>
+                    <Trash2 />
+                  </IconButton>
                 </li>
               ))}
             </ol>
           ) : (
-            <p className="text-xs text-muted-foreground">
+            <p className="text-body-sm text-muted-foreground">
               No line comments. The review posts with the summary alone.
             </p>
           )}
           {isError ? (
-            <p className="text-xs text-status-blocked" role="alert">
+            <p className="text-body-sm text-danger" role="alert">
               Couldn&apos;t post the review: {error.message}
             </p>
           ) : null}
           <div className="flex items-center justify-end gap-2">
-            <button
+            <Button
               type="button"
-              className="rounded px-3 py-1.5 text-xs text-muted-foreground hover:bg-muted/40"
+              variant="ghost"
               onClick={() => onOpenChange(false)}
             >
               Cancel
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
-              className="flex items-center gap-1.5 rounded bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+              variant="primary"
               onClick={() => void handleSubmit()}
               disabled={!canSubmit}
               data-testid="review-post"
             >
               {isPending ? (
-                <Loader2 className="h-3 w-3 animate-spin" />
+                <Loader2 className="animate-spin" />
               ) : post.isSuccess ? (
-                <CheckCircle2 className="h-3 w-3" />
+                <CheckCircle2 />
               ) : (
-                <Send className="h-3 w-3" />
+                <Send />
               )}
               Post
-            </button>
+            </Button>
           </div>
         </div>
       </DialogContent>
@@ -380,27 +374,23 @@ function CancelReviewDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle className="text-sm">Discard review?</DialogTitle>
+          <DialogTitle>Discard review?</DialogTitle>
           <DialogDescription>
             You have {draftCount} draft comment{draftCount !== 1 ? "s" : ""}.
             Discarding will remove all comments.
           </DialogDescription>
         </DialogHeader>
         <div className="flex items-center justify-end gap-2">
-          <button
+          <Button
             type="button"
-            className="rounded px-3 py-1.5 text-xs text-muted-foreground hover:bg-muted/40"
+            variant="ghost"
             onClick={() => onOpenChange(false)}
           >
             Keep reviewing
-          </button>
-          <button
-            type="button"
-            className="rounded bg-destructive px-3 py-1.5 text-xs font-medium text-destructive-foreground hover:bg-destructive/90"
-            onClick={onConfirm}
-          >
+          </Button>
+          <Button type="button" variant="danger" onClick={onConfirm}>
             Discard
-          </button>
+          </Button>
         </div>
       </DialogContent>
     </Dialog>

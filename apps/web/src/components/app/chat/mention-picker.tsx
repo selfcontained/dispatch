@@ -42,7 +42,7 @@ export function MentionPicker({
     : { left: 8, bottom: 8 };
   return createPortal(
     <div
-      className="fixed z-50 w-64 max-w-[calc(100vw-16px)] overflow-hidden rounded-md border border-border bg-popover text-popover-foreground shadow-md"
+      className="fixed z-drawer w-64 max-w-[calc(100vw-16px)] overflow-hidden rounded-md border border-border bg-popover text-popover-foreground shadow-md"
       style={style}
       data-testid="mention-picker"
     >
@@ -50,7 +50,7 @@ export function MentionPicker({
         {[false, true].map((mode) => (
           <Button
             variant="ghost"
-            size="icon"
+            size="stream-icon"
             key={String(mode)}
             type="button"
             title={
@@ -65,10 +65,10 @@ export function MentionPicker({
             }
             aria-pressed={silent === mode}
             className={cn(
-              "size-6 rounded p-1",
+              "size-6 rounded-sm p-1",
               silent === mode
                 ? "bg-muted text-foreground"
-                : "text-muted-foreground hover:bg-muted/60"
+                : "text-muted-foreground hover:bg-surface-hover"
             )}
             onMouseDown={(event) => event.preventDefault()}
             onClick={() => onSilentChange(mode)}
@@ -94,8 +94,8 @@ export function MentionPicker({
             role="option"
             aria-selected={index === activeIndex}
             className={cn(
-              "flex w-full items-center gap-2 px-2 py-1.5 text-left text-sm",
-              index === activeIndex ? "bg-muted" : "hover:bg-muted/60"
+              "flex w-full items-center gap-2 px-2 py-1.5 text-left text-body-md",
+              index === activeIndex ? "bg-muted" : "hover:bg-surface-hover"
             )}
             // Mouse down would take focus from the textarea and close the
             // list before the click lands.
@@ -124,16 +124,16 @@ export function MentionPicker({
               </span>
             </span>
             {agent.mentionName ? (
-              <span className="shrink-0 font-mono text-[10px] text-muted-foreground">
+              <span className="shrink-0 font-mono text-label-xs text-muted-foreground">
                 {agent.id.slice(-6)}
               </span>
             ) : null}
             {agent.seat !== undefined ? (
-              <span className="shrink-0 font-mono text-[10px] text-muted-foreground">
+              <span className="shrink-0 font-mono text-label-xs text-muted-foreground">
                 @{agent.seat}
               </span>
             ) : (
-              <span className="shrink-0 text-[10px] text-muted-foreground">
+              <span className="shrink-0 text-label-xs text-muted-foreground">
                 Session
               </span>
             )}

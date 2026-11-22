@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { childProcessEnv } from "../../shared/process/child-environment.js";
 import {
   parseRunnerRepositoryUrl,
   validBranch,
@@ -99,7 +100,7 @@ const execute = promisify(execFile);
 
 export async function inferRepositoryUrl(cwd: string): Promise<string> {
   const env = Object.fromEntries(
-    Object.entries(process.env).filter(([key]) => !key.startsWith("GIT_"))
+    Object.entries(childProcessEnv()).filter(([key]) => !key.startsWith("GIT_"))
   );
   try {
     const { stdout } = await execute(

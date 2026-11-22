@@ -37,7 +37,7 @@ import {
 } from "./shared.js";
 import {
   modelScopeFor,
-  validateAgentModel,
+  validateAgentModelChoice,
 } from "../../shared/agent-models.js";
 import { getDirectoryIconPath } from "../../shared/directory-icon-cache.js";
 
@@ -387,9 +387,10 @@ export async function registerAgentCrudRoutes(
         typeof body.cwd === "string" ? body.cwd : null,
         agentType
       );
-      model = validateAgentModel(
+      model = validateAgentModelChoice(
         agentType,
         typeof body.model === "string" ? body.model : undefined,
+        undefined,
         scope
       );
       effort = validateAgentEffort(agentType, body.effort, model, scope);

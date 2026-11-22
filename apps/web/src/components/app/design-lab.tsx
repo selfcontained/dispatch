@@ -5,6 +5,8 @@ import { DefragActivityCheckpoint } from "./defrag-activity-checkpoint";
 import { FillCountStudy } from "./fill-count-study";
 import { THEMES, useTheme, type ThemeId } from "@/hooks/use-theme";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { RowButton } from "@/components/ui/row-button";
+import { Hint } from "@/components/ui/tooltip";
 
 function ThemePicker({
   theme,
@@ -15,31 +17,29 @@ function ThemePicker({
 }): JSX.Element {
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <span className="mr-1 text-xs uppercase tracking-wide text-muted-foreground">
-        Theme
-      </span>
+      <span className="mr-1 section-label">Theme</span>
       {THEMES.map((t) => (
-        <button
-          key={t.id}
-          onClick={() => setTheme(t.id)}
-          className={`group flex items-center gap-2 rounded-lg border px-2.5 py-1.5 text-xs transition-colors ${
-            theme === t.id
-              ? "border-primary bg-primary/10 text-foreground"
-              : "border-border bg-card text-muted-foreground hover:text-foreground"
-          }`}
-          title={t.description}
-        >
-          <span className="flex gap-0.5">
-            {t.swatches.slice(0, 3).map((swatch, i) => (
-              <span
-                key={i}
-                className="h-3 w-3 rounded-sm border border-black/20"
-                style={{ backgroundColor: swatch }}
-              />
-            ))}
-          </span>
-          {t.label}
-        </button>
+        <Hint key={t.id} label={t.description}>
+          <RowButton
+            onClick={() => setTheme(t.id)}
+            className={`group w-auto rounded-lg border px-2 py-1.5 text-body-sm ${
+              theme === t.id
+                ? "border-primary bg-surface-selected text-foreground hover:bg-surface-selected"
+                : "border-border bg-card text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            <span className="flex gap-0.5">
+              {t.swatches.slice(0, 3).map((swatch, i) => (
+                <span
+                  key={i}
+                  className="h-3 w-3 rounded-sm border border-media/tint-strong"
+                  style={{ backgroundColor: swatch }}
+                />
+              ))}
+            </span>
+            {t.label}
+          </RowButton>
+        </Hint>
       ))}
     </div>
   );
@@ -59,7 +59,7 @@ export function DesignLab(): JSX.Element {
   return (
     <div className="bg-background min-h-full p-4 md:p-8">
       <div className="mx-auto max-w-4xl space-y-6">
-        <h1 className="text-2xl font-semibold">Design Lab · Defrag</h1>
+        <h1 className="text-display">Design Lab · Defrag</h1>
         <ThemePicker theme={theme} setTheme={setTheme} />
         <Tabs
           activationMode="manual"

@@ -41,11 +41,11 @@ export function BrowserExtensionSetupCard({
   return (
     <Card>
       <CardHeader className="flex-row items-start gap-3 space-y-0">
-        <div className="rounded-lg bg-primary/10 p-2 text-primary">
+        <div className="rounded-lg bg-surface-selected p-2 text-primary">
           <Chrome className="h-5 w-5" aria-hidden="true" />
         </div>
         <div className="min-w-0 flex-1 space-y-1.5">
-          <CardTitle className="text-base">
+          <CardTitle className="text-heading-md">
             {hasConnections
               ? "Dispatch Browser Feedback"
               : "Try browser feedback"}
@@ -66,7 +66,7 @@ export function BrowserExtensionSetupCard({
               onClick={() => setShowInstallGuide(true)}
             >
               <a href="/dispatch-browser-feedback.zip" download>
-                <Download className="mr-2 h-4 w-4" aria-hidden="true" />
+                <Download aria-hidden="true" />
                 Download extension ZIP
               </a>
             </Button>
@@ -78,9 +78,9 @@ export function BrowserExtensionSetupCard({
             >
               {showInstallGuide ? "Hide setup" : "Already downloaded?"}
               {showInstallGuide ? (
-                <ChevronUp className="ml-2 h-4 w-4" aria-hidden="true" />
+                <ChevronUp aria-hidden="true" />
               ) : (
-                <ChevronDown className="ml-2 h-4 w-4" aria-hidden="true" />
+                <ChevronDown aria-hidden="true" />
               )}
             </Button>
           </div>
@@ -88,24 +88,25 @@ export function BrowserExtensionSetupCard({
         {hasConnections && (
           <Button
             type="button"
-            variant="default"
             onClick={() => setShowInstallGuide((visible) => !visible)}
             aria-expanded={showInstallGuide}
           >
-            <Plus className="mr-2 h-4 w-4" aria-hidden="true" />
+            <Plus aria-hidden="true" />
             Add another browser
           </Button>
         )}
 
         {showInstallGuide && (
           <div
-            className="space-y-4 rounded-lg border border-border bg-background/40 p-4"
+            className="space-y-4 rounded-lg border border-border bg-background/veil p-4"
             data-testid="extension-install-guide"
           >
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div className="min-w-0 flex-[1_1_16rem]">
-                <p className="text-sm font-medium">Finish setup in Chrome</p>
-                <p className="mt-1 text-sm text-muted-foreground">
+                <p className="text-body-md font-medium">
+                  Finish setup in Chrome
+                </p>
+                <p className="mt-1 text-body-md text-muted-foreground">
                   The extension is a developer preview, so Chrome loads it from
                   an unzipped folder for now.
                 </p>
@@ -113,7 +114,7 @@ export function BrowserExtensionSetupCard({
               {hasConnections && (
                 <Button asChild variant="primary" size="sm">
                   <a href="/dispatch-browser-feedback.zip" download>
-                    <Download className="mr-2 h-3.5 w-3.5" aria-hidden="true" />
+                    <Download aria-hidden="true" />
                     Download ZIP
                   </a>
                 </Button>
@@ -125,8 +126,10 @@ export function BrowserExtensionSetupCard({
                   className="mb-2 h-4 w-4 text-primary"
                   aria-hidden="true"
                 />
-                <p className="text-sm font-medium">1. Unzip the download</p>
-                <p className="mt-1 break-words text-xs text-muted-foreground">
+                <p className="text-body-md font-medium">
+                  1. Unzip the download
+                </p>
+                <p className="mt-1 break-words text-body-sm text-muted-foreground">
                   Keep the extracted folder somewhere Chrome can continue to
                   access it.
                 </p>
@@ -136,8 +139,8 @@ export function BrowserExtensionSetupCard({
                   className="mb-2 h-4 w-4 text-primary"
                   aria-hidden="true"
                 />
-                <p className="text-sm font-medium">2. Load the folder</p>
-                <p className="mt-1 break-words text-xs text-muted-foreground">
+                <p className="text-body-md font-medium">2. Load the folder</p>
+                <p className="mt-1 break-words text-body-sm text-muted-foreground">
                   Open <code className="break-all">chrome://extensions</code>,
                   enable Developer mode, then choose Load unpacked.
                 </p>
@@ -147,15 +150,15 @@ export function BrowserExtensionSetupCard({
                   className="mb-2 h-4 w-4 text-primary"
                   aria-hidden="true"
                 />
-                <p className="text-sm font-medium">3. Connect Dispatch</p>
-                <p className="mt-1 break-words text-xs text-muted-foreground">
+                <p className="text-body-md font-medium">3. Connect Dispatch</p>
+                <p className="mt-1 break-words text-body-sm text-muted-foreground">
                   Open the extension, enter this Dispatch URL, and verify the
                   pairing code here.
                 </p>
               </div>
             </div>
             <div className="flex items-center gap-2 rounded-md border border-border bg-background px-3 py-2">
-              <code className="min-w-0 flex-1 truncate text-xs">
+              <code className="min-w-0 flex-1 truncate text-body-sm">
                 {dispatchUrl}
               </code>
               <Button
@@ -167,9 +170,9 @@ export function BrowserExtensionSetupCard({
                 aria-label="Copy Dispatch URL"
               >
                 {copiedUrl ? (
-                  <Check className="h-3.5 w-3.5" aria-hidden="true" />
+                  <Check aria-hidden="true" />
                 ) : (
-                  <Copy className="h-3.5 w-3.5" aria-hidden="true" />
+                  <Copy aria-hidden="true" />
                 )}
                 <span className="ml-1.5">{copiedUrl ? "Copied" : "Copy"}</span>
               </Button>

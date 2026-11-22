@@ -10,7 +10,10 @@ import type { FastifyInstance, FastifyReply } from "fastify";
 import type { AgentManager } from "../agents/manager.js";
 import { StreamServiceError, type StreamService } from "../chat/service.js";
 import { CLI_AGENT_TYPES } from "../agent-type-settings.js";
-import { modelScopeFor, validateAgentModel } from "../shared/agent-models.js";
+import {
+  modelScopeFor,
+  validateAgentModelChoice,
+} from "../shared/agent-models.js";
 import { readSessionOwnerRules } from "../server/mcp-persona-handlers.js";
 import { hasCodeowners } from "../personas/codeowners.js";
 import { resolveWorktreeRoot } from "../shared/git/git-context.js";
@@ -275,9 +278,10 @@ export async function registerPersonaRoutes(
       let model: string | undefined;
       let effort: Effort | null;
       try {
-        model = validateAgentModel(
+        model = validateAgentModelChoice(
           agentType,
           typeof body.model === "string" ? body.model : undefined,
+          undefined,
           scope
         );
         effort = validateAgentEffort(agentType, body.effort, model, scope);

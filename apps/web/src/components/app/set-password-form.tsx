@@ -58,7 +58,7 @@ export function SetPasswordForm({
   return (
     <form onSubmit={submit} className="w-full max-w-sm space-y-3">
       <div className="space-y-1">
-        <label htmlFor={`${id}-password`} className="text-sm">
+        <label htmlFor={`${id}-password`} className="text-body-md">
           Password
         </label>
         <Input
@@ -72,7 +72,7 @@ export function SetPasswordForm({
         />
       </div>
       <div className="space-y-1">
-        <label htmlFor={`${id}-confirm`} className="text-sm">
+        <label htmlFor={`${id}-confirm`} className="text-body-md">
           Confirm password
         </label>
         <Input
@@ -86,10 +86,10 @@ export function SetPasswordForm({
         />
       </div>
       {mismatch && (
-        <p className="text-sm text-destructive">Passwords do not match.</p>
+        <p className="text-body-md text-danger">Passwords do not match.</p>
       )}
       {error && (
-        <p role="alert" className="text-sm text-destructive">
+        <p role="alert" className="text-body-md text-danger">
           {error}
         </p>
       )}

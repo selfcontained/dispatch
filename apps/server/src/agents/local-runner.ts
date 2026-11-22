@@ -33,11 +33,8 @@ import {
   killOwnedProcesses,
   ownedEnvironment,
 } from "../shared/process/owned-processes.js";
-import {
-  hostCommand,
-  hostProcessEnv,
-  loginShellCommand,
-} from "./acp/host-command.js";
+import { childProcessEnv } from "../shared/process/child-environment.js";
+import { hostCommand, loginShellCommand } from "./acp/host-command.js";
 import { preparePersonaContext } from "./acp/persona-context.js";
 import { hostFile, type HostLaunch } from "./acp/host-protocol.js";
 
@@ -74,7 +71,7 @@ export type SessionResult = {
   launchExited?: () => boolean;
 };
 
-const STOP_GRACE_MS = 8_000;
+export const STOP_GRACE_MS = 8_000;
 const KILL_GRACE_MS = 2_000;
 const LOG_TAIL_LINES = 20;
 const CONNECT_TIMEOUT_MS = 5_000;
@@ -110,13 +107,14 @@ async function inspectHostProcess(dir: string): Promise<{
 }
 
 async function hostPidMatches(pid: number, dir: string): Promise<boolean> {
+  if (!pidAlive(pid)) return false;
   try {
     const { stdout } = await processArgs(
       "/bin/ps",
       ["-p", String(pid), "-o", "args="],
-      { timeout: 2_000 }
+      { env: childProcessEnv(), timeout: 2_000 }
     );
-    return stdout.trimEnd().endsWith(` agent-host --state ${dir}`);
+    return stdout.trim().endsWith(`agent-host --state ${dir}`);
   } catch {
     return false;
   }
@@ -287,7 +285,7 @@ export function createLocalRunner(
     await unlink(hostFile(dir, "socket")).catch(() => {});
 
     const { bin, args } = loginShellCommand([...hostCommand(), "--state", dir]);
-    const owned = ownedEnvironment(hostProcessEnv(process.env));
+    const owned = ownedEnvironment(childProcessEnv());
     await writeFile(path.join(dir, "ownership"), owned.marker, {
       mode: 0o600,
     });
@@ -510,6 +508,9 @@ export function createLocalRunner(
       }
       return hosted;
     },
+
+    isHostPid: (agentId: string, pid: number) =>
+      hostPidMatches(pid, stateDir(agentId)),
 
     async hostPid(agentId: string) {
       return (await inspectHostProcess(stateDir(agentId))).pid;

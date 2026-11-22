@@ -6,6 +6,7 @@ import { repoBasename } from "@/components/app/brains-utils";
 import { encodeRepoRoot } from "@/lib/brain-encoding";
 import { shortPath } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { RowButton } from "@/components/ui/row-button";
 
 export function BrainsListContent({
   onItemSelect,
@@ -25,36 +26,36 @@ export function BrainsListContent({
             {Array.from({ length: 3 }, (_, i) => (
               <div
                 key={i}
-                className="h-10 animate-pulse rounded-md bg-muted/40"
+                className="h-10 animate-pulse rounded-md bg-surface-subtle"
               />
             ))}
           </div>
         ) : projects.length === 0 ? (
-          <div className="p-4 text-sm text-muted-foreground">
+          <div className="p-4 text-body-md text-muted-foreground">
             <div className="rounded-md border border-dashed border-border p-4">
               <div className="font-medium text-foreground">
                 No brain data yet.
               </div>
-              <div className="mt-1 text-xs">
+              <div className="mt-1 text-body-sm">
                 Brain data will appear here when agents write shared memory.
               </div>
             </div>
           </div>
         ) : (
           <div>
-            <button
+            <RowButton
               className={cn(
-                "flex w-full items-center gap-2 border-b border-r-4 border-border border-r-transparent px-3 py-2.5 text-left text-sm text-muted-foreground transition-colors hover:bg-muted/40",
-                showOverview && "border-r-primary bg-muted/60"
+                "rounded-none border-b border-r-4 border-border border-r-transparent px-3 py-3 text-body-md text-muted-foreground",
+                showOverview && "border-r-primary bg-surface-hover"
               )}
               onClick={() => {
                 navigate("/automations/brains");
                 onItemSelect?.();
               }}
             >
-              <Activity className="h-3.5 w-3.5" />
+              <Activity className="size-icon-md" />
               <span>Overview</span>
-            </button>
+            </RowButton>
             {projects.map((project) => {
               const encoded = encodeRepoRoot(project.repoRoot);
               const selected = encodedRepoRoot === encoded;
@@ -64,8 +65,8 @@ export function BrainsListContent({
                   role="button"
                   tabIndex={0}
                   className={cn(
-                    "w-full cursor-pointer border-b border-r-4 border-border border-r-transparent px-3 py-2 text-left transition-colors hover:bg-muted/40",
-                    selected && "border-r-primary bg-muted/60"
+                    "w-full cursor-pointer border-b border-r-4 border-border border-r-transparent px-3 py-2 text-left transition-colors hover:bg-surface-hover",
+                    selected && "border-r-primary bg-surface-hover"
                   )}
                   onClick={() => {
                     navigate(`/automations/brains/${encoded}`);
@@ -81,17 +82,17 @@ export function BrainsListContent({
                 >
                   <div className="flex items-center gap-2">
                     <div className="min-w-0 flex-1">
-                      <div className="truncate text-sm font-semibold leading-5">
+                      <div className="truncate text-body-md font-semibold leading-5">
                         {repoBasename(project.repoRoot)}
                       </div>
                       <div
-                        className="truncate font-mono text-[11px] text-muted-foreground"
+                        className="truncate font-mono text-label-sm text-muted-foreground"
                         title={project.repoRoot}
                       >
                         {shortPath(project.repoRoot)}
                       </div>
                     </div>
-                    <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground shrink-0">
+                    <div className="flex items-center gap-1.5 text-label-xs text-muted-foreground shrink-0">
                       {project.objectCount > 0 ? (
                         <span className="flex items-center gap-0.5">
                           <Database className="h-2.5 w-2.5" />

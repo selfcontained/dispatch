@@ -1,3 +1,4 @@
+import { captureStartupAcpAdapter } from "./startup/acp-adapter.js";
 import { restoreLegacyMacLaunchAgentEnvironment } from "./startup/shell-environment.js";
 
 // Modes of this binary, checked before anything else so none of them
@@ -125,6 +126,7 @@ if (process.argv[2]?.startsWith("recovery-")) {
 }
 
 async function serve(): Promise<void> {
+  captureStartupAcpAdapter();
   const shellEnvironment = await restoreLegacyMacLaunchAgentEnvironment();
 
   const { app, shutdown, start } = await import("./server.js");

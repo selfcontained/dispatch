@@ -10,7 +10,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { cn } from "@/lib/utils";
+import { Hint } from "@/components/ui/tooltip";
+import { Badge } from "@/components/ui/badge";
 
 /** Occupancy always comes from the server, including filtered/archived views. */
 export function ColumnCapacity({ column }: { column: TaskColumn }) {
@@ -23,21 +24,21 @@ export function ColumnCapacity({ column }: { column: TaskColumn }) {
         : "Full"
       : null;
   return (
-    <span
-      data-testid={`column-capacity-${column.key}`}
-      aria-label={`${column.name}: ${count} active tasks${limited ? `, limit ${column.capacity}` : ", unlimited"}${state ? `, ${state}` : ""}`}
-      title="All active tasks, including tasks hidden by filters. Archived tasks do not use capacity."
-      className={cn(
-        "inline-flex shrink-0 items-center gap-1 rounded-full bg-background/50 px-1.5 text-xs font-normal tabular-nums text-muted-foreground",
-        state && "bg-destructive/10 text-destructive"
-      )}
-    >
-      <span>
-        {count}
-        {limited ? ` / ${column.capacity}` : ""}
-      </span>
-      {state && <span className="text-[10px]">{state}</span>}
-    </span>
+    <Hint label="All active tasks, including tasks hidden by filters. Archived tasks do not use capacity.">
+      <Badge
+        size="sm"
+        tone={state === "Over limit" ? "danger" : state ? "warning" : "neutral"}
+        data-testid={`column-capacity-${column.key}`}
+        aria-label={`${column.name}: ${count} active tasks${limited ? `, limit ${column.capacity}` : ", unlimited"}${state ? `, ${state}` : ""}`}
+        className="tabular-nums"
+      >
+        <span>
+          {count}
+          {limited ? ` / ${column.capacity}` : ""}
+        </span>
+        {state && <span>{state}</span>}
+      </Badge>
+    </Hint>
   );
 }
 
@@ -114,7 +115,7 @@ export function TaskCapacityDialog({
           }}
         >
           <div className="space-y-2">
-            <label htmlFor={id} className="text-sm font-medium">
+            <label htmlFor={id} className="text-body-md font-medium">
               Active task limit
             </label>
             <Input
@@ -131,7 +132,7 @@ export function TaskCapacityDialog({
               aria-invalid={!!error}
               aria-describedby={`${id}-help${error ? ` ${id}-error` : ""}`}
             />
-            <p id={`${id}-help`} className="text-xs text-muted-foreground">
+            <p id={`${id}-help`} className="text-body-sm text-muted-foreground">
               {column.activeTaskCount} active tasks now. Leave blank for
               unlimited. Capacity only gates entry here; an earlier trigger
               reserves no future slot.
@@ -141,7 +142,7 @@ export function TaskCapacityDialog({
             <p
               id={`${id}-error`}
               role="alert"
-              className="text-sm text-destructive"
+              className="text-body-md text-danger"
             >
               {error}
             </p>

@@ -76,13 +76,6 @@ export function useAgentActions({
 
   const deleteAgent = useCallback(
     async (agent: Agent, cleanupWorktree?: string, checkoutState?: string) => {
-      setExpandedAgentId((current) => (current === agent.id ? null : current));
-      if (routeAgentId === agent.id) {
-        navigate("/agents", {
-          replace: true,
-          state: { [AGENT_LEFT_STATE]: true },
-        });
-      }
       const searchParams = new URLSearchParams();
       if (cleanupWorktree) {
         searchParams.set("cleanupWorktree", cleanupWorktree);
@@ -92,6 +85,14 @@ export function useAgentActions({
       await api(`/api/v1/agents/${agent.id}${qs ? `?${qs}` : ""}`, {
         method: "DELETE",
       });
+      // Only once accepted: a failed archive leaves the agent where it was.
+      setExpandedAgentId((current) => (current === agent.id ? null : current));
+      if (routeAgentId === agent.id) {
+        navigate("/agents", {
+          replace: true,
+          state: { [AGENT_LEFT_STATE]: true },
+        });
+      }
     },
     [navigate, routeAgentId, setExpandedAgentId]
   );

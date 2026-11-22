@@ -102,8 +102,8 @@ export function RunnerHealthDetails({ runner }: { runner: Runner }) {
   if (!health || !healthReceivedAt)
     return (
       <div className="space-y-1">
-        <h3 className="text-sm font-medium">Health</h3>
-        <p className="text-sm text-muted-foreground">
+        <h3 className="text-body-md font-medium">Health</h3>
+        <p className="text-body-md text-muted-foreground">
           No health report received.
         </p>
       </div>
@@ -134,13 +134,13 @@ export function RunnerHealthDetails({ runner }: { runner: Runner }) {
   const stale = !isRunnerHealthFresh(runner);
   return (
     <details
-      className="text-sm text-muted-foreground"
+      className="text-body-md text-muted-foreground"
       onToggle={(event) => setOpen(event.currentTarget.open)}
       data-testid="runner-health"
     >
       <summary className="w-fit cursor-pointer rounded-sm py-1 text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
         <span className="font-medium">Health</span>
-        <span className="ml-2 text-xs text-muted-foreground">
+        <span className="ml-2 text-body-sm text-muted-foreground">
           {stale && "Last report · "}
           {health.sessions} {health.sessions === 1 ? "session" : "sessions"} ·{" "}
           {health.working} working
@@ -150,7 +150,7 @@ export function RunnerHealthDetails({ runner }: { runner: Runner }) {
               : " · Update failed")}
         </span>
       </summary>
-      <dl className="mt-2 grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1 text-xs [&>dd]:text-foreground">
+      <dl className="mt-2 grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1 text-body-sm [&>dd]:text-foreground">
         <dt>CPU</dt>
         <dd>
           {health.cpuPercent === null ? "Sampling…" : `${health.cpuPercent}%`}
@@ -199,7 +199,7 @@ export function RunnerHealthDetails({ runner }: { runner: Runner }) {
         </dd>
       </dl>
       {failure && failure.exitCode !== 75 && (
-        <div className="mt-2 text-xs">
+        <div className="mt-2 text-body-sm">
           <p>Read the updater’s error output on {runner.name}.</p>
           <RunnerCommand
             value="sudo cat /opt/dispatch-runner/last-maintenance.log"
@@ -208,7 +208,7 @@ export function RunnerHealthDetails({ runner }: { runner: Runner }) {
         </div>
       )}
       {updateAvailable && target.command && !updatesItself(runner) && (
-        <div className="mt-3 text-xs">
+        <div className="mt-3 text-body-sm">
           <RunnerCommand value={target.command} label="Update" />
         </div>
       )}

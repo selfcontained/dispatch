@@ -32,7 +32,7 @@ export const POST_ACTION_BUTTON = cn(
 
 /** The chip-like face every post action button draws. */
 export const POST_ACTION_FACE =
-  "flex h-7 w-7 items-center justify-center rounded-md border border-border/60 bg-background/90 shadow-sm";
+  "flex h-7 w-7 items-center justify-center rounded-md border border-border-subtle bg-background/dense shadow-sm";
 
 /** The emoji the reaction picker offers. */
 const REACTION_EMOJI: readonly string[] = [
@@ -81,7 +81,7 @@ export function ReactionPickerButton({
         <Button
           type="button"
           variant="ghost"
-          size="icon"
+          size="stream-icon"
           className={POST_ACTION_BUTTON}
           aria-label="Add reaction (unavailable while the agent can't receive messages)"
           disabled
@@ -100,7 +100,7 @@ export function ReactionPickerButton({
         <Button
           type="button"
           variant="ghost"
-          size="icon"
+          size="stream-icon"
           // Stays up while its picker is open, even once the pointer leaves.
           className={cn(POST_ACTION_BUTTON, "data-[state=open]:opacity-100")}
           title="Add reaction"
@@ -162,9 +162,9 @@ export function ReactionPickerOptions({
             key={emoji}
             type="button"
             className={cn(
-              "flex h-8 w-8 animate-reaction-emoji-in items-center justify-center rounded-md text-lg leading-none transition-[background-color,transform] hover:scale-110 hover:bg-muted motion-reduce:animate-none motion-reduce:hover:scale-100",
+              "flex h-8 w-8 animate-reaction-emoji-in items-center justify-center rounded-md text-body-lg leading-none transition-[background-color,transform] hover:scale-110 hover:bg-muted motion-reduce:animate-none motion-reduce:hover:scale-100",
               "max-sm:h-11 max-sm:w-11 [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11",
-              selected && "bg-primary/15 hover:bg-primary/25"
+              selected && "bg-surface-selected hover:bg-primary/tint-strong"
             )}
             aria-label={
               selected ? `Remove ${emoji} reaction` : `React with ${emoji}`
@@ -202,7 +202,7 @@ function userReactionTitle(
 }
 
 const REACTION_CHIP =
-  "inline-flex h-6 items-center rounded-full border px-2 text-sm leading-none transition-colors max-sm:h-8 max-sm:px-2.5 [@media(pointer:coarse)]:h-8 [@media(pointer:coarse)]:px-2.5";
+  "inline-flex h-6 items-center rounded-full border px-2 text-body-md leading-none transition-colors max-sm:h-8 max-sm:px-2 [@media(pointer:coarse)]:h-8 [@media(pointer:coarse)]:px-2";
 
 /** How a chip arrives and leaves: a quick pop, and neighbours slide over. */
 const CHIP_MOTION = {
@@ -294,7 +294,10 @@ export function ReactionBar({
                     <motion.span
                       key={`agent:${reaction.emoji}`}
                       {...CHIP_MOTION}
-                      className={cn(REACTION_CHIP, "border-border bg-muted/40")}
+                      className={cn(
+                        REACTION_CHIP,
+                        "border-border bg-surface-subtle"
+                      )}
                       title={`${agentName} reacted ${reaction.emoji}`}
                       aria-label={`${agentName} reacted ${reaction.emoji}`}
                       role="img"
@@ -325,8 +328,8 @@ export function ReactionBar({
                     className={cn(
                       REACTION_CHIP,
                       !local && reaction.delivered === false
-                        ? "border-destructive/50 bg-destructive/10 hover:bg-destructive/15"
-                        : "border-primary/40 bg-primary/10 hover:bg-primary/20",
+                        ? "border-danger/line bg-danger/tint hover:bg-danger/tint-strong"
+                        : "border-primary/line bg-surface-selected hover:bg-primary/tint-strong",
                       !removable && "cursor-default"
                     )}
                     title={userReactionTitle(reaction, removable, local)}
@@ -345,7 +348,7 @@ export function ReactionBar({
                     <span aria-hidden="true">{reaction.emoji}</span>
                     {!local && reaction.delivered === false ? (
                       <AlertTriangle
-                        className="ml-1 h-3 w-3 text-destructive"
+                        className="ml-1 h-3 w-3 text-danger"
                         aria-hidden="true"
                       />
                     ) : null}

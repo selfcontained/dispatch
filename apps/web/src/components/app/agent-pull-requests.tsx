@@ -31,9 +31,12 @@ import {
   PopoverContent,
   PopoverAnchor,
 } from "@/components/ui/popover";
+import { IconButton } from "@/components/ui/icon-button";
+import { Hint } from "@/components/ui/tooltip";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import type { AgentPullRequest, MergeRiskSummary } from "@dispatch/shared";
+import { statusLabel } from "@/lib/status-label";
 
 type Status = AgentPullRequest["status"];
 const percent = (value: number | null) =>
@@ -87,10 +90,9 @@ function riskTone(risk: MergeRiskSummary) {
     (!risk.displayState && risk.status !== "ok") ||
     (!risk.displayState && risk.verdict === "human_review")
   )
-    return "text-red-600 [[data-theme-mode=dark]_&]:text-red-400";
-  if (risk.displayState === "evaluating") return "text-status-waiting";
-  if (!risk.displayState && risk.verdict === "routine")
-    return "text-status-working";
+    return "text-danger";
+  if (risk.displayState === "evaluating") return "text-warning";
+  if (!risk.displayState && risk.verdict === "routine") return "text-success";
   return "text-muted-foreground";
 }
 function riskDisplay(risk: MergeRiskSummary) {
@@ -115,7 +117,6 @@ function MergeRiskMarker({ risk }: { risk: MergeRiskSummary }) {
       role="img"
       data-testid="merge-risk-marker"
       aria-label={`Merge risk: ${state.label}`}
-      title={`Merge risk: ${state.label}`}
       className={cn(
         "inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center",
         riskTone(risk)
@@ -128,17 +129,15 @@ function MergeRiskMarker({ risk }: { risk: MergeRiskSummary }) {
 function MergeRiskBadge({ risk }: { risk: MergeRiskSummary }) {
   const state = riskDisplay(risk);
   return (
-    <Badge
-      data-testid="merge-risk-badge"
-      title={`Merge risk: ${state.label}`}
-      className={cn(
-        "shrink-0 px-1.5 py-0 text-[10px] normal-case tracking-normal",
-        state.badge,
-        riskTone(risk)
-      )}
-    >
-      {state.label}
-    </Badge>
+    <Hint label={`Merge risk: ${state.label}`}>
+      <Badge
+        size="sm"
+        data-testid="merge-risk-badge"
+        className={cn(state.badge, riskTone(risk))}
+      >
+        {state.label}
+      </Badge>
+    </Hint>
   );
 }
 function EvidencePercent({
@@ -158,7 +157,7 @@ function EvidencePercent({
           : "var(--risk-context)";
   return (
     <span
-      className="tabular-nums font-medium text-muted-foreground [--risk-positive:#166534] [--risk-negative:#991b1b] [--risk-attention:#92400e] [--risk-neutral:#475569] [--risk-context:#1e40af] [[data-theme-mode=dark]_&]:[--risk-positive:#86efac] [[data-theme-mode=dark]_&]:[--risk-negative:#fca5a5] [[data-theme-mode=dark]_&]:[--risk-attention:#fcd34d] [[data-theme-mode=dark]_&]:[--risk-neutral:#cbd5e1] [[data-theme-mode=dark]_&]:[--risk-context:#93c5fd]"
+      className="tabular-nums font-medium text-muted-foreground [--risk-positive:hsl(var(--success-ink))] [--risk-negative:hsl(var(--danger-ink))] [--risk-attention:hsl(var(--warning-ink))] [--risk-context:hsl(var(--info-ink))] [--risk-neutral:hsl(var(--muted-foreground))]"
       style={{ color }}
     >
       {percent(value)}
@@ -286,9 +285,8 @@ function RiskExplanation({
       : CircleHelp;
   const action = (
     <Button
-      variant="default"
       size="sm"
-      className="h-8 gap-1.5 border-border bg-muted/70 px-2.5 text-[11px] text-foreground shadow-sm backdrop-blur-none hover:border-border hover:bg-muted aria-disabled:cursor-wait aria-disabled:opacity-60"
+      className="border-border bg-surface-hover text-label-sm text-foreground shadow-sm backdrop-blur-none hover:border-border hover:bg-muted aria-disabled:cursor-wait aria-disabled:pointer-events-auto"
       aria-disabled={query.isFetching}
       onClick={() => {
         if (query.isFetching) return;
@@ -308,7 +306,7 @@ function RiskExplanation({
     </Button>
   );
   return (
-    <div className="space-y-2 text-[11px] text-muted-foreground">
+    <div className="space-y-2 text-label-sm text-muted-foreground">
       {!ready && (
         <Card
           role={showNotice ? (failure ? "alert" : "status") : undefined}
@@ -316,10 +314,10 @@ function RiskExplanation({
             "rounded-lg shadow-none",
             showNotice
               ? cn(
-                  "border p-2.5",
+                  "border p-2",
                   failure
-                    ? "border-status-blocked/35 bg-status-blocked/5"
-                    : "border-border bg-muted/30"
+                    ? "border-danger/line bg-danger/wash"
+                    : "border-border bg-surface-subtle"
                 )
               : "border-0 bg-transparent p-0 backdrop-blur-none"
           )}
@@ -330,7 +328,7 @@ function RiskExplanation({
                 aria-hidden="true"
                 className={cn(
                   "mt-0.5 h-3.5 w-3.5 shrink-0",
-                  failure ? "text-status-blocked" : "text-muted-foreground"
+                  failure ? "text-danger" : "text-muted-foreground"
                 )}
               />
             )}
@@ -340,7 +338,7 @@ function RiskExplanation({
                   <p
                     className={cn(
                       "font-medium",
-                      failure ? "text-status-blocked" : "text-foreground"
+                      failure ? "text-danger" : "text-foreground"
                     )}
                   >
                     {notice.title}
@@ -364,7 +362,7 @@ function RiskExplanation({
         <>
           <Markdown
             allowedElements={EXPLANATION_ELEMENTS}
-            className="text-[11px] leading-relaxed prose-headings:mb-0.5 prose-headings:mt-2.5 prose-headings:text-[11px] prose-headings:font-semibold first:prose-headings:mt-0 prose-ul:pl-4 prose-li:my-0 prose-li:pl-0 prose-code:text-[10px] [&>*:first-child]:mt-0"
+            className="text-label-sm leading-relaxed prose-headings:mb-0.5 prose-headings:mt-2 prose-headings:text-label-sm prose-headings:font-semibold first:prose-headings:mt-0 prose-ul:pl-4 prose-li:my-0 prose-li:pl-0 prose-code:text-label-xs [&>*:first-child]:mt-0"
           >
             {query.data?.text ?? ""}
           </Markdown>
@@ -410,24 +408,27 @@ function MergeRiskDetails({
     <section className="space-y-3 border-t border-border p-3">
       <div className="space-y-1.5">
         <div className="flex items-center justify-between gap-3">
-          <h4 className="text-xs font-semibold">Merge risk</h4>
+          <h4 className="text-heading-sm">Merge risk</h4>
           <div className="flex items-center gap-2">
             <MergeRiskBadge risk={risk} />
-            <span
-              tabIndex={0}
-              aria-label={`Current CI: ${checks.label}`}
-              title={`Current CI: ${checks.label}. Risk is independent of checks; required checks must pass before merge.`}
-              className={cn(
-                "inline-flex items-center gap-1 text-[10px]",
-                checks.color
-              )}
+            <Hint
+              label={`Current CI: ${checks.label}. Risk is independent of checks; required checks must pass before merge.`}
             >
-              <ChecksIcon aria-hidden="true" className="h-3 w-3" />
-              <span>CI</span>
-            </span>
+              <span
+                tabIndex={0}
+                aria-label={`Current CI: ${checks.label}`}
+                className={cn(
+                  "inline-flex items-center gap-1 text-label-xs",
+                  checks.color
+                )}
+              >
+                <ChecksIcon aria-hidden="true" className="h-3 w-3" />
+                <span>CI</span>
+              </span>
+            </Hint>
           </div>
         </div>
-        <p className="text-[11px] text-muted-foreground">{state.hint}</p>
+        <p className="text-label-sm text-muted-foreground">{state.hint}</p>
       </div>
       {!risk.displayState && explanation}
       {assessment && (
@@ -436,7 +437,7 @@ function MergeRiskDetails({
             <>
               <hr className="border-border" />
               <div className="flex items-center justify-between gap-3">
-                <h5 className="text-xs font-medium text-foreground">
+                <h5 className="text-body-sm font-medium text-foreground">
                   Previous assessment
                 </h5>
                 <MergeRiskBadge risk={assessment} />
@@ -444,75 +445,60 @@ function MergeRiskDetails({
               {explanation}
             </>
           )}
-          <dl className="grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-4 gap-y-2 text-[11px]">
+          <dl className="grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-4 gap-y-2 text-label-sm">
             <dt className="text-muted-foreground">Change risk</dt>
             <dd
               className={cn(
                 "text-right font-medium",
                 assessment.changeRiskLabel === "high" ||
                   assessment.changeRiskLabel === "critical"
-                  ? "text-red-600 [[data-theme-mode=dark]_&]:text-red-400"
+                  ? "text-danger"
                   : assessment.changeRiskLabel === "low"
-                    ? "text-status-working"
-                    : "text-status-waiting"
+                    ? "text-success"
+                    : "text-warning"
               )}
             >
               {assessment.changeRiskLabel ?? "—"}
             </dd>
-            <dt
-              className="text-muted-foreground"
-              title="Higher means stronger review engagement."
-            >
-              Review engaged
-            </dt>
+            <Hint label="Higher means stronger review engagement.">
+              <dt className="text-muted-foreground">Review engaged</dt>
+            </Hint>
             <dd className="text-right">
               <EvidencePercent
                 value={assessment.reviewAdequate}
                 meaning="support"
               />
             </dd>
-            <dt
-              className="text-muted-foreground"
-              title="Higher means the description better matches the change."
-            >
-              Description matches
-            </dt>
+            <Hint label="Higher means the description better matches the change.">
+              <dt className="text-muted-foreground">Description matches</dt>
+            </Hint>
             <dd className="text-right">
               <EvidencePercent
                 value={assessment.descriptionMatches}
                 meaning="support"
               />
             </dd>
-            <dt
-              className="text-muted-foreground"
-              title="Likelihood of a new product surface; context, not a quality score."
-            >
-              New surface
-            </dt>
+            <Hint label="Likelihood of a new product surface; context, not a quality score.">
+              <dt className="text-muted-foreground">New surface</dt>
+            </Hint>
             <dd className="text-right">
               <EvidencePercent
                 value={assessment.newSurface}
                 meaning="context"
               />
             </dd>
-            <dt
-              className="text-muted-foreground"
-              title="Higher means a person is more likely to need to review this change."
-            >
-              Needs human review
-            </dt>
+            <Hint label="Higher means a person is more likely to need to review this change.">
+              <dt className="text-muted-foreground">Needs human review</dt>
+            </Hint>
             <dd className="text-right">
               <EvidencePercent
                 value={assessment.humanReviewProbability}
                 meaning="attention"
               />
             </dd>
-            <dt
-              className="text-muted-foreground"
-              title="Model certainty; not merge readiness."
-            >
-              Model confidence
-            </dt>
+            <Hint label="Model certainty; not merge readiness.">
+              <dt className="text-muted-foreground">Model confidence</dt>
+            </Hint>
             <dd className="text-right">
               <EvidencePercent
                 value={assessment.confidence}
@@ -520,7 +506,7 @@ function MergeRiskDetails({
               />
             </dd>
           </dl>
-          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] text-muted-foreground">
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-label-xs text-muted-foreground">
             <span className="font-mono">{assessment.headSha.slice(0, 7)}</span>
             <span>·</span>
             <time dateTime={assessment.assessedAt}>
@@ -539,38 +525,38 @@ function MergeRiskDetails({
 const STATES = {
   Open: {
     icon: GitPullRequest,
-    color: "text-status-working",
-    badge: "border-status-working/20 bg-status-working/10 text-status-working",
+    color: "text-success",
+    badge: "border-success/line bg-success/tint text-success",
     label: "Open",
   },
   Draft: {
     icon: GitPullRequestDraft,
     color: "text-muted-foreground",
-    badge: "border-border bg-muted/50 text-muted-foreground",
+    badge: "border-border bg-surface-hover text-muted-foreground",
     label: "Draft",
   },
   Merged: {
     icon: GitMerge,
     color: "text-status-merged",
-    badge: "border-status-merged/20 bg-status-merged/10 text-status-merged",
+    badge: "border-status-merged/line bg-status-merged/tint text-status-merged",
     label: "Merged",
   },
   Closed: {
     icon: GitPullRequestClosed,
-    color: "text-status-blocked",
-    badge: "border-status-blocked/20 bg-status-blocked/10 text-status-blocked",
+    color: "text-danger",
+    badge: "border-danger/line bg-danger/tint text-danger",
     label: "Closed",
   },
   Pending: {
     icon: Clock3,
     color: "text-muted-foreground",
-    badge: "border-border bg-muted/50 text-muted-foreground",
+    badge: "border-border bg-surface-hover text-muted-foreground",
     label: "Checking",
   },
   Unavailable: {
     icon: CircleHelp,
-    color: "text-status-waiting",
-    badge: "border-status-waiting/20 bg-status-waiting/10 text-status-waiting",
+    color: "text-warning",
+    badge: "border-warning/line bg-warning/tint text-warning",
     label: "Unavailable",
   },
 } satisfies Record<
@@ -586,12 +572,7 @@ function identity(url: string) {
 }
 function StatusBadge({ status }: { status: Status }) {
   return (
-    <Badge
-      className={cn(
-        "shrink-0 px-1.5 py-0 text-[10px] normal-case tracking-normal",
-        STATES[status].badge
-      )}
-    >
+    <Badge size="sm" className={STATES[status].badge}>
       {STATES[status].label}
     </Badge>
   );
@@ -612,20 +593,20 @@ function ciPresentation(ci: CiSnapshot | undefined) {
     return {
       label: `${summary.failed} failed${summary.pending ? ` · ${summary.pending} pending` : ""}`,
       icon: CircleX,
-      color: "text-status-blocked",
+      color: "text-danger",
     };
   if (summary.pending)
     return {
       label: `${summary.pending} pending`,
       icon: Clock3,
-      color: "text-status-waiting",
+      color: "text-warning",
     };
   if (summary.status === "none")
     return { label: "No checks", icon: Minus, color: "text-muted-foreground" };
   return {
     label: `${summary.passed}/${summary.total} passed`,
     icon: CircleCheck,
-    color: "text-status-working",
+    color: "text-success",
   };
 }
 
@@ -634,13 +615,13 @@ function checkResult(check: CiSnapshot["checks"][number]) {
     return {
       label: check.status === "IN_PROGRESS" ? "Running" : "Pending",
       icon: Clock3,
-      color: "text-status-waiting",
+      color: "text-warning",
     };
   if (check.conclusion === "SUCCESS")
     return {
       label: "Passed",
       icon: CircleCheck,
-      color: "text-status-working",
+      color: "text-success",
     };
   if (check.conclusion === "SKIPPED" || check.conclusion === "NEUTRAL")
     return {
@@ -650,11 +631,9 @@ function checkResult(check: CiSnapshot["checks"][number]) {
     };
   return {
     label:
-      check.conclusion === "FAILURE"
-        ? "Failed"
-        : check.conclusion.toLowerCase().replaceAll("_", " "),
+      check.conclusion === "FAILURE" ? "Failed" : statusLabel(check.conclusion),
     icon: CircleX,
-    color: "text-status-blocked",
+    color: "text-danger",
   };
 }
 
@@ -686,29 +665,32 @@ export function checkDuration(
   return `${seconds}s`;
 }
 
+/** The checks in a few words: "3 passed, 1 failed", or their state. */
+function checksSummary(ci?: CiSnapshot): string {
+  if (ci?.availability !== "available" || !ci.summary.total)
+    return ciPresentation(ci).label;
+  return [
+    [ci.summary.passed, "passed"],
+    [ci.summary.failed, "failed"],
+    [ci.summary.pending, "pending"],
+    [ci.summary.skipped, "skipped"],
+  ]
+    .filter(([count]) => Number(count) > 0)
+    .map(([count, name]) => `${count} ${name}`)
+    .join(", ");
+}
+
 function CompactChecks({ ci }: { ci?: CiSnapshot }) {
   const state = ciPresentation(ci);
   const Icon =
     ci?.availability === "available" && !ci.summary.failed && ci.summary.pending
       ? Clock
       : state.icon;
-  const label =
-    ci?.availability === "available" && ci.summary.total
-      ? [
-          [ci.summary.passed, "passed"],
-          [ci.summary.failed, "failed"],
-          [ci.summary.pending, "pending"],
-          [ci.summary.skipped, "skipped"],
-        ]
-          .filter(([count]) => Number(count) > 0)
-          .map(([count, name]) => `${count} ${name}`)
-          .join(", ")
-      : state.label;
+  const label = checksSummary(ci);
   return (
     <span
       role="img"
       aria-label={ci?.summary.total ? `Checks: ${label}` : label}
-      title={label}
       className={cn(
         "inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center",
         state.color
@@ -773,7 +755,7 @@ export function AgentPullRequests({
   const prs = preview ? previewPullRequests : (data?.pullRequests ?? []);
   if (!prs.length && !hasDismissError)
     return isError ? (
-      <div className="flex items-center gap-3 text-[11px] text-muted-foreground">
+      <div className="flex items-center gap-3 text-label-sm text-muted-foreground">
         <CircleHelp className="h-3.5 w-3.5 shrink-0" />
         <span>PR status unavailable</span>
       </div>
@@ -781,7 +763,7 @@ export function AgentPullRequests({
   return (
     <div data-testid={`agent-pr-row-${agentId}`} className="contents">
       {hasDismissError && (
-        <p role="alert" className="text-xs text-destructive">
+        <p role="alert" className="text-body-sm text-danger">
           Could not dismiss PR. Please try again.
         </p>
       )}
@@ -840,14 +822,13 @@ export function PullRequestRow({
       <PopoverAnchor virtualRef={triggerRef} />
       <div
         data-testid="agent-pr-line"
-        className="grid h-7 min-w-0 grid-cols-[14px_minmax(0,1fr)] items-center gap-3"
+        className="grid min-h-7 min-w-0 grid-cols-[14px_minmax(0,1fr)] items-center gap-3"
       >
-        <Button
-          variant="ghost"
+        <IconButton
+          tooltip="Pull request details"
           size="icon-sm"
           data-agent-control="true"
-          aria-label={`Details for pull request ${ref.number}: ${STATES[status].label}`}
-          title="Pull request details"
+          label={`Details for pull request ${ref.number}: ${STATES[status].label}`}
           onPointerDownCapture={() => {
             openOnPointerDown.current = open;
           }}
@@ -856,33 +837,32 @@ export function PullRequestRow({
           aria-haspopup="dialog"
           aria-expanded={open}
           aria-controls={open ? contentId : undefined}
-          className="justify-self-center hover:bg-muted/50 data-[state=open]:bg-muted/50"
+          className="justify-self-center hover:bg-surface-hover data-[state=open]:bg-surface-hover"
         >
           <Icon
             aria-hidden="true"
             className={cn("h-3.5 w-3.5", STATES[status].color)}
           />
-        </Button>
+        </IconButton>
         <div className="flex min-w-0 items-center gap-2">
-          <AgentMetadataLink
-            data-agent-control="true"
-            href={pr.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            aria-label={`Pull request ${ref.number}: ${STATES[status].label} — ${pr.title}`}
-            title={`${ref.repo} ${ref.number} · ${STATES[status].label}`}
-            className="mr-auto"
-          >
-            {ref.number === "PR" ? "PR" : `PR ${ref.number}`}
-            <span className="sr-only">{STATES[status].label}</span>
-          </AgentMetadataLink>
-          {!isError && risk && (
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              className="shrink-0"
+          <Hint label={`${ref.repo} ${ref.number} · ${STATES[status].label}`}>
+            <AgentMetadataLink
               data-agent-control="true"
-              aria-label={`Merge risk for pull request ${ref.number}: ${riskDisplay(risk).label}`}
+              href={pr.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label={`Pull request ${ref.number}: ${STATES[status].label} — ${pr.title}`}
+              className="mr-auto"
+            >
+              {ref.number === "PR" ? "PR" : `PR ${ref.number}`}
+              <span className="sr-only">{STATES[status].label}</span>
+            </AgentMetadataLink>
+          </Hint>
+          {!isError && risk && (
+            <IconButton
+              size="icon-sm"
+              data-agent-control="true"
+              label={`Merge risk for pull request ${ref.number}: ${riskDisplay(risk).label}`}
               aria-haspopup="dialog"
               aria-expanded={open}
               aria-controls={open ? contentId : undefined}
@@ -893,17 +873,16 @@ export function PullRequestRow({
               data-pr-details-trigger={contentId}
             >
               <MergeRiskMarker risk={risk} />
-            </Button>
+            </IconButton>
           )}
           {(isError ||
             pr.ci?.availability !== "available" ||
             pr.ci.summary.total > 0) && (
-            <Button
-              variant="ghost"
+            <IconButton
               size="icon-sm"
-              className="shrink-0"
               data-agent-control="true"
-              aria-label={`Check details for pull request ${ref.number}`}
+              label={`Check details for pull request ${ref.number}`}
+              tooltip={`Checks: ${checksSummary(isError ? undefined : pr.ci)}`}
               aria-haspopup="dialog"
               aria-expanded={open}
               aria-controls={open ? contentId : undefined}
@@ -914,7 +893,7 @@ export function PullRequestRow({
               data-pr-details-trigger={contentId}
             >
               <CompactChecks ci={isError ? undefined : pr.ci} />
-            </Button>
+            </IconButton>
           )}
           <AgentLinkControls
             url={pr.url}
@@ -957,15 +936,15 @@ export function PullRequestRow({
         <PopoverArrow />
         <div className="px-3 py-3">
           <div className="flex items-center justify-between gap-2">
-            <h3 className="text-sm font-semibold">Pull request {ref.number}</h3>
+            <h3 className="text-heading-sm">Pull request {ref.number}</h3>
             <StatusBadge status={status} />
           </div>
-          <p className="mt-2 text-xs font-medium">{pr.title}</p>
+          <p className="mt-2 text-body-sm font-medium">{pr.title}</p>
           <a
             href={pr.url}
             target="_blank"
             rel="noopener noreferrer"
-            className="mt-3 inline-flex items-center gap-1.5 text-[11px] text-status-done underline underline-offset-4"
+            className="mt-3 inline-flex items-center gap-1.5 text-label-sm text-info underline underline-offset-4"
           >
             Open on GitHub{" "}
             <ExternalLink aria-hidden="true" className="h-3 w-3" />
@@ -981,9 +960,9 @@ export function PullRequestRow({
             />
           )}
           <div className="border-t border-border p-3">
-            <h4 className="text-xs font-semibold">Checks</h4>
+            <h4 className="text-heading-sm">Checks</h4>
             {(pr.ci?.availability !== "available" || !pr.ci?.checks.length) && (
-              <p className="mt-2 text-[11px] text-muted-foreground">
+              <p className="mt-2 text-label-sm text-muted-foreground">
                 {ci.label}
               </p>
             )}
@@ -1003,19 +982,20 @@ export function PullRequestRow({
                   return (
                     <li
                       key={`${check.name}-${index}`}
-                      className="flex items-center gap-2 border-b border-border/40 py-2 text-[11px] last:border-0"
+                      className="flex items-center gap-2 border-b border-border-subtle py-2 text-label-sm last:border-0"
                     >
-                      <span
-                        role="img"
-                        aria-label={result.label}
-                        title={result.label}
-                        className="shrink-0"
-                      >
-                        <CheckIcon
-                          aria-hidden="true"
-                          className={cn("h-3.5 w-3.5", result.color)}
-                        />
-                      </span>
+                      <Hint label={result.label}>
+                        <span
+                          role="img"
+                          aria-label={result.label}
+                          className="shrink-0"
+                        >
+                          <CheckIcon
+                            aria-hidden="true"
+                            className={cn("h-3.5 w-3.5", result.color)}
+                          />
+                        </span>
+                      </Hint>
                       {check.detailsUrl ? (
                         <a
                           href={check.detailsUrl}
@@ -1035,16 +1015,17 @@ export function PullRequestRow({
                         </span>
                       )}
                       {duration && (
-                        <span
-                          className="shrink-0 tabular-nums text-muted-foreground"
-                          title={
+                        <Hint
+                          label={
                             check.completedAt
                               ? "Check duration"
                               : `Elapsed at last refresh (${pr.ci!.checkedAt})`
                           }
                         >
-                          {duration}
-                        </span>
+                          <span className="shrink-0 tabular-nums text-muted-foreground">
+                            {duration}
+                          </span>
+                        </Hint>
                       )}
                     </li>
                   );
@@ -1054,7 +1035,7 @@ export function PullRequestRow({
           {refresh?.isPending && (
             <p
               role="status"
-              className="px-3 pb-2 text-[11px] text-muted-foreground"
+              className="px-3 pb-2 text-label-sm text-muted-foreground"
             >
               Refreshing checks…
             </p>
@@ -1062,7 +1043,7 @@ export function PullRequestRow({
           {refresh?.isError && (
             <p
               role="alert"
-              className="px-3 pb-3 break-words text-[11px] leading-relaxed text-destructive"
+              className="px-3 pb-3 break-words text-label-sm leading-relaxed text-danger"
             >
               {refresh.error instanceof Error
                 ? refresh.error.message
@@ -1070,17 +1051,19 @@ export function PullRequestRow({
             </p>
           )}
           {(pr.ci || refresh) && (
-            <div className="border-t border-border px-3 py-2 text-[10px] text-muted-foreground">
+            <div className="border-t border-border px-3 py-2 text-label-xs text-muted-foreground">
               <div className="flex items-center gap-2 whitespace-nowrap">
-                <span title={pr.ci?.checkedAt}>
-                  Last checked{" "}
-                  {pr.ci
-                    ? new Date(pr.ci.checkedAt).toLocaleTimeString([], {
-                        hour: "2-digit",
-                        minute: "2-digit",
-                      })
-                    : "Never"}
-                </span>
+                <Hint label={pr.ci?.checkedAt}>
+                  <span>
+                    Last checked{" "}
+                    {pr.ci
+                      ? new Date(pr.ci.checkedAt).toLocaleTimeString([], {
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })
+                      : "Never"}
+                  </span>
+                </Hint>
                 {refresh && <RefreshPullRequest refresh={refresh} />}
                 <span className="ml-auto">
                   Commit{" "}
@@ -1132,11 +1115,9 @@ function RefreshPullRequest({
 }) {
   return (
     <div>
-      <Button
-        variant="ghost"
+      <IconButton
         size="icon-sm"
-        aria-label="Refresh pull request checks"
-        title="Refresh pull request checks"
+        label="Refresh pull request checks"
         disabled={refresh.isPending}
         aria-busy={refresh.isPending}
         onClick={() => {
@@ -1145,9 +1126,9 @@ function RefreshPullRequest({
       >
         <RefreshCw
           aria-hidden="true"
-          className={cn("h-3 w-3", refresh.isPending && "animate-spin")}
+          className={cn(refresh.isPending && "animate-spin")}
         />
-      </Button>
+      </IconButton>
     </div>
   );
 }

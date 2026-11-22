@@ -29,7 +29,7 @@ export function AutomationsContent() {
           <strong>Templates</strong> tab. Click <strong>Create</strong> and fill
           in:
         </P>
-        <ul className="grid gap-1.5 pl-4 text-sm text-muted-foreground list-disc">
+        <ul className="grid gap-1.5 pl-4 text-body-md text-muted-foreground list-disc">
           <li>
             <strong>Name</strong> — display name, unique within its directory.
           </li>
@@ -150,7 +150,7 @@ export function AutomationsContent() {
           launch dialog — there is no launch-on-click path, even for a template
           with no arguments:
         </P>
-        <ul className="grid gap-1.5 pl-4 text-sm text-muted-foreground list-disc">
+        <ul className="grid gap-1.5 pl-4 text-body-md text-muted-foreground list-disc">
           <li>
             <strong>Template detail pane</strong> — select a template in the
             sidebar. It lists the arguments the prompt expects, and{" "}
@@ -219,7 +219,7 @@ export function AutomationsContent() {
           Switch to the <strong>Jobs</strong> tab and click{" "}
           <strong>Create</strong>. The basic fields are:
         </P>
-        <ul className="grid gap-1.5 pl-4 text-sm text-muted-foreground list-disc">
+        <ul className="grid gap-1.5 pl-4 text-body-md text-muted-foreground list-disc">
           <li>
             <strong>Name</strong> — identifier used for the spawned agent and in
             run history.
@@ -282,7 +282,7 @@ export function AutomationsContent() {
         <P>
           Open <strong>Advanced settings</strong> for the rest:
         </P>
-        <ul className="grid gap-1.5 pl-4 text-sm text-muted-foreground list-disc">
+        <ul className="grid gap-1.5 pl-4 text-body-md text-muted-foreground list-disc">
           <li>
             <strong>Run timeout, minutes</strong> — wall-clock ceiling measured
             from the moment the run starts, after which the scheduler
@@ -364,7 +364,7 @@ export function AutomationsContent() {
           A job agent is expected to drive its run to a terminal state by
           calling one of the lifecycle tools before it stops:
         </P>
-        <ul className="grid gap-1.5 pl-4 text-sm text-muted-foreground list-disc">
+        <ul className="grid gap-1.5 pl-4 text-body-md text-muted-foreground list-disc">
           <li>
             <Code>job_log</Code> — append structured progress during the run
             (task name + message, optional severity).
@@ -401,7 +401,7 @@ export function AutomationsContent() {
           Dispatch's built-in MCP toolkit. These are stable across runs, so a
           recurring job's prompt can lean on them.
         </P>
-        <ul className="grid gap-1.5 pl-4 text-sm text-muted-foreground list-disc">
+        <ul className="grid gap-1.5 pl-4 text-body-md text-muted-foreground list-disc">
           <li>
             <strong>The stream</strong> — <Code>post</Code>, <Code>update</Code>
             , and <Code>react</Code> behave the same as for standard agents: a
@@ -464,7 +464,7 @@ export function AutomationsContent() {
           prompt remains responsible for defining where detailed shared context
           lives. Two common approaches are:
         </P>
-        <ul className="grid gap-1.5 pl-4 text-sm text-muted-foreground list-disc">
+        <ul className="grid gap-1.5 pl-4 text-body-md text-muted-foreground list-disc">
           <li>
             <strong>Repository files</strong> — plans, specifications, notes, or
             other project files chosen by the job author. Tell each run what to

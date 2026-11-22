@@ -149,7 +149,7 @@ function describeResult(
 function UpdateCommand() {
   const { data } = useRunnerInstaller(true);
   return data?.command ? (
-    <div className="text-xs">
+    <div className="text-body-sm">
       <RunnerCommand value={data.command} label="Update" />
     </div>
   ) : null;
@@ -189,10 +189,10 @@ function UpdateNow({
         </Button>
       </AlertDialogTrigger>
       <AlertDialogContent>
-        <AlertDialogTitle className="break-words text-base font-semibold">
+        <AlertDialogTitle className="break-words text-heading-md">
           Update {runnerName} now?
         </AlertDialogTitle>
-        <AlertDialogDescription className="text-sm text-muted-foreground">
+        <AlertDialogDescription className="text-body-md text-muted-foreground">
           Running turns are interrupted and resumed after the update. Any tool
           call in progress is lost.
         </AlertDialogDescription>
@@ -200,7 +200,7 @@ function UpdateNow({
           <AlertDialogCancel>Cancel</AlertDialogCancel>
           <Button
             type="button"
-            variant="destructive"
+            variant="danger"
             onClick={() => {
               setOpen(false);
               onConfirm();
@@ -222,7 +222,7 @@ export function RunnerUpdateStatus({ runner }: { runner: Runner }) {
       {runner.automaticUpdates !== undefined && (
         <div className="space-y-2">
           <div className="flex items-center justify-between gap-3">
-            <label htmlFor={policyId} className="text-sm font-medium">
+            <label htmlFor={policyId} className="text-body-md font-medium">
               Update automatically
             </label>
             <Switch
@@ -233,7 +233,7 @@ export function RunnerUpdateStatus({ runner }: { runner: Runner }) {
             />
           </div>
           {policy.error && (
-            <p role="alert" className="text-xs text-destructive">
+            <p role="alert" className="text-body-sm text-danger">
               {policy.error.message}
             </p>
           )}
@@ -307,10 +307,10 @@ function RunnerUpdateProgress({ runner }: { runner: Runner }) {
       <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
         <div
           role="status"
-          className="min-w-0 flex-1 basis-64 space-y-0.5 text-xs text-muted-foreground"
+          className="min-w-0 flex-1 basis-64 space-y-0.5 text-body-sm text-muted-foreground"
         >
           {title && (
-            <p className="break-words text-sm font-medium text-foreground">
+            <p className="break-words text-body-md font-medium text-foreground">
               {title}
             </p>
           )}
@@ -356,7 +356,6 @@ function RunnerUpdateProgress({ runner }: { runner: Runner }) {
             <LoadingButton
               type="button"
               size="sm"
-              variant="default"
               loading={pending === "cancel"}
               disabled={start.isPending}
               onClick={() =>
@@ -390,7 +389,7 @@ function RunnerUpdateProgress({ runner }: { runner: Runner }) {
         )}
       </div>
       {error && (
-        <p className="text-xs text-destructive" role="alert">
+        <p className="text-body-sm text-danger" role="alert">
           {error.message}
         </p>
       )}

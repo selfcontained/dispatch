@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import { RadioIndicator } from "@/components/app/radio-indicator";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { RowButton } from "@/components/ui/row-button";
 
 type WorktreeLocation = "sibling" | "nested";
 
@@ -62,35 +63,35 @@ export function WorktreeLocationSettings(): JSX.Element {
 
   return (
     <div>
-      <div className="mb-1.5 text-[10px] uppercase tracking-widest text-muted-foreground">
-        Worktree location
-      </div>
-      <p className="mb-3 text-sm text-muted-foreground">
+      <div className="mb-1.5 section-label">Worktree location</div>
+      <p className="mb-3 text-body-md text-muted-foreground">
         Choose where git worktrees are created for new agents.
       </p>
       <div className="grid gap-2">
         {OPTIONS.map((opt) => (
-          <button
+          <RowButton
             key={opt.value}
+            selected={worktreeLocation === opt.value}
+            aria-pressed={worktreeLocation === opt.value}
             onClick={() => void handleChange(opt.value)}
             disabled={saving}
             className={cn(
-              "flex items-start gap-3 rounded-md border p-3 text-left transition-colors",
+              "items-start gap-3 border p-3",
               worktreeLocation === opt.value
-                ? "border-primary bg-primary/10"
-                : "border-border hover:border-muted-foreground/30"
+                ? "border-primary bg-surface-selected"
+                : "border-border hover:border-muted-foreground/line"
             )}
           >
             <RadioIndicator selected={worktreeLocation === opt.value} />
             <div className="min-w-0">
-              <div className="text-sm font-medium text-foreground">
+              <div className="text-body-md font-medium text-foreground">
                 {opt.label}
               </div>
-              <div className="text-xs text-muted-foreground">
+              <div className="text-body-sm text-muted-foreground">
                 {opt.description}
               </div>
             </div>
-          </button>
+          </RowButton>
         ))}
       </div>
     </div>

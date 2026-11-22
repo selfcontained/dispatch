@@ -100,7 +100,7 @@ export function LoginPage({ onAuthenticated }: LoginPageProps): JSX.Element {
               autoFocus
               data-testid="login-password"
             />
-            {error && <p className="text-sm text-destructive">{error}</p>}
+            {error && <p className="text-body-md text-danger">{error}</p>}
             <Button
               type="submit"
               variant="primary"
@@ -128,7 +128,7 @@ export function LoginRoute(): JSX.Element {
   if (authState === "loading") {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background text-muted-foreground">
-        <span className="text-sm">Loading...</span>
+        <span className="text-body-md">Loading...</span>
       </div>
     );
   }

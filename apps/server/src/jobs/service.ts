@@ -69,6 +69,8 @@ type RunJobInput = {
 
 export type { AddJobInput } from "./store.js";
 
+const JOB_INACTIVITY_TIMEOUT_MS = 10 * 60 * 1000;
+
 const DEFAULT_TIMEOUT_MS = 30 * 60 * 1000;
 const DEFAULT_NEEDS_INPUT_TIMEOUT_MS = 24 * 60 * 60 * 1000;
 const TERMINAL_STATUSES = new Set<JobRunRecord["status"]>([
@@ -272,7 +274,28 @@ export class JobService {
   async reconcileActiveRuns(): Promise<void> {
     const runs = await this.store.listActiveRuns();
     for (const run of runs) {
-      this.startMonitor(run.id);
+      if (
+        run.agentId &&
+        run.status !== "needs_input" &&
+        !(await this.agentSessionCrashed(run.agentId)) &&
+        this.agentManager.getCommands(run.agentId) !== null &&
+        !this.agentManager.hasOpenTurn(run.agentId)
+      ) {
+        await this.markCrashed(
+          run,
+          "Job turn was lost before server startup reconciliation."
+        );
+      } else if (
+        !run.agentId ||
+        (await this.agentSessionCrashed(run.agentId))
+      ) {
+        await this.markCrashed(
+          run,
+          "Job agent was lost before server startup reconciliation."
+        );
+      } else {
+        this.startMonitor(run.id);
+      }
     }
   }
 
@@ -655,7 +678,7 @@ export class JobService {
       input.agentType ?? "claude"
     );
     const agentConfig = {
-      ...applyAgentConfigDefaults(input, scope),
+      ...applyAgentConfigDefaults(input, undefined, scope),
       effort: validateAgentEffort(
         input.agentType ?? "claude",
         input.effort,
@@ -1220,10 +1243,24 @@ export class JobService {
     let current = await this.store.getRun(runId);
     if (!current) throw new Error(`Job run ${runId} not found.`);
 
+    const monitorStartedAt = Date.now();
     while (ACTIVE_RUN_STATUSES.has(current.status) && !this.stopping) {
       const now = Date.now();
       const startedAt = new Date(current.startedAt).getTime();
       const statusUpdatedAt = new Date(current.statusUpdatedAt).getTime();
+      const lastActivity = current.agentId
+        ? this.agentManager.getLastEngineActivity(current.agentId)
+        : undefined;
+      if (
+        current.status !== "needs_input" &&
+        now - (lastActivity ?? Math.max(startedAt, monitorStartedAt)) >=
+          JOB_INACTIVITY_TIMEOUT_MS
+      ) {
+        return await this.markTimedOut(
+          current,
+          "Job stalled: no engine events received for 10 minutes."
+        );
+      }
       if (now - startedAt >= current.config.timeoutMs) {
         return await this.markTimedOut(
           current,
@@ -1296,6 +1333,18 @@ export class JobService {
         },
       ],
     });
+    // Stop before notifying archivers/continuations; a terminal row alone
+    // leaves the host turn busy and continues to block maintenance.
+    if (updated.agentId) {
+      try {
+        await this.agentManager.stopAgent(updated.agentId, { force: true });
+      } catch (err) {
+        this.logger.warn(
+          { err, runId: run.id, agentId: updated.agentId },
+          "Failed to stop timed-out job agent; publishing terminal outcome"
+        );
+      }
+    }
     return await this.scheduleInfrastructureRecovery(updated);
   }
 

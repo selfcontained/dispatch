@@ -3,9 +3,11 @@
 @tailwind utilities;
 
 :root {
-  --font-terminal:
+  --font-mono:
     "JetBrains Mono", Menlo, "Apple Color Emoji", "Segoe UI Emoji",
     "Noto Color Emoji", monospace;
+  /* UI type and code type share a face today, but can diverge. */
+  --font-ui: var(--font-mono);
   --background: 55 8% 6%;
   --foreground: 60 30% 96%;
   --card: 50 8% 9%;
@@ -18,8 +20,7 @@
   --muted-foreground: 36 10% 66%;
   --accent: 42 8% 13%;
   --accent-foreground: 60 30% 96%;
-  --destructive: 337 94% 57%;
-  --destructive-foreground: 0 0% 98%;
+  --danger-foreground: 0 0% 0%;
   --border: 40 10% 18%;
   --input: 40 10% 18%;
   --ring: 192 85% 64%;
@@ -41,6 +42,7 @@
   /* Semantic status colors */
   --status-working: 158 64% 52%;
   --status-blocked: 0 84% 60%;
+  --danger-ink: 0 84% 69.5%;
   --status-waiting: 45 96% 64%;
   --status-done: 198 93% 60%;
   --status-merged: 270 70% 68%;
@@ -87,8 +89,7 @@
   --muted-foreground: 220 8% 67%;
   --accent: 220 10% 14%;
   --accent-foreground: 224 13% 95%;
-  --destructive: 330 100% 68%;
-  --destructive-foreground: 0 0% 98%;
+  --danger-foreground: 222 18% 7%;
   --border: 220 11% 21%;
   --input: 220 11% 21%;
   --ring: 207 100% 67%;
@@ -96,7 +97,8 @@
   --heading-accent-2: 270 80% 72%;
 
   --status-working: 150 57% 59%;
-  --status-blocked: 330 100% 68%;
+  --status-blocked: 348 100% 68%;
+  --danger-ink: 348 100% 69.5%;
   --status-waiting: 55 87% 63%;
   --status-done: 207 100% 67%;
   --status-merged: 270 80% 72%;
@@ -130,8 +132,7 @@
   --muted-foreground: 0 0% 55%;
   --accent: 0 0% 8%;
   --accent-foreground: 0 0% 94%;
-  --destructive: 0 72% 51%;
-  --destructive-foreground: 0 0% 98%;
+  --danger-foreground: 0 0% 0%;
   --border: 0 0% 14%;
   --input: 0 0% 14%;
   --ring: 160 84% 39%;
@@ -140,6 +141,7 @@
 
   --status-working: 160 72% 52%;
   --status-blocked: 0 84% 60%;
+  --danger-ink: 0 84% 64.5%;
   --status-waiting: 45 93% 58%;
   --status-done: 198 93% 60%;
   --status-merged: 270 70% 68%;
@@ -173,8 +175,7 @@
   --muted-foreground: 194 14% 40%;
   --accent: 192 81% 14%;
   --accent-foreground: 186 8% 62%;
-  --destructive: 1 71% 52%;
-  --destructive-foreground: 44 87% 94%;
+  --danger-foreground: 0 0% 100%;
   --border: 192 40% 23%;
   --input: 192 40% 23%;
   --ring: 205 82% 45%;
@@ -183,6 +184,7 @@
 
   --status-working: 68 100% 30%;
   --status-blocked: 1 71% 52%;
+  --danger-ink: 1 71% 74%;
   --status-waiting: 45 100% 35%;
   --status-done: 205 82% 45%;
   --status-merged: 285 65% 62%;
@@ -216,8 +218,7 @@
   --muted-foreground: 211 11% 39%;
   --accent: 212 21% 88%;
   --accent-foreground: 213 13% 14%;
-  --destructive: 0 72% 51%;
-  --destructive-foreground: 0 0% 100%;
+  --danger-foreground: 0 0% 100%;
   --border: 208 20% 85%;
   --input: 208 20% 85%;
   --ring: 153 78% 27%;
@@ -230,7 +231,8 @@
   --heading-accent-2: 262 72% 50%;
 
   --status-working: 142 71% 35%;
-  --status-blocked: 0 72% 51%;
+  --status-blocked: 0 72% 50%;
+  --danger-ink: 0 72% 39%;
   --status-waiting: 46 97% 42%;
   --status-done: 217 91% 50%;
   --status-merged: 262 72% 50%;
@@ -264,14 +266,13 @@
   --card-foreground: 270 50% 90%;
   --popover: 262 48% 12%;
   --popover-foreground: 270 50% 90%;
-  --primary: 325 100% 72%;
+  --primary: 280 100% 74%;
   --primary-foreground: 262 60% 6%;
   --muted: 262 30% 12%;
   --muted-foreground: 270 20% 58%;
   --accent: 262 30% 12%;
   --accent-foreground: 270 50% 90%;
-  --destructive: 325 100% 62%;
-  --destructive-foreground: 0 0% 100%;
+  --danger-foreground: 262 52% 6%;
   --border: 262 30% 18%;
   --input: 262 30% 18%;
   --ring: 191 99% 50%;
@@ -279,7 +280,8 @@
   --heading-accent-2: 268 80% 72%;
 
   --status-working: 160 100% 50%;
-  --status-blocked: 325 100% 62%;
+  --status-blocked: 350 100% 64%;
+  --danger-ink: 350 100% 65.5%;
   --status-waiting: 57 100% 79%;
   --status-done: 191 99% 50%;
   --status-merged: 268 80% 72%;
@@ -313,8 +315,7 @@
   --muted-foreground: 220 8% 60%;
   --accent: 220 10% 8%;
   --accent-foreground: 224 13% 95%;
-  --destructive: 330 100% 68%;
-  --destructive-foreground: 0 0% 98%;
+  --danger-foreground: 0 0% 0%;
   --border: 220 11% 14%;
   --input: 220 11% 14%;
   --ring: 207 100% 67%;
@@ -322,7 +323,8 @@
   --heading-accent-2: 270 80% 74%;
 
   --status-working: 150 57% 59%;
-  --status-blocked: 330 100% 68%;
+  --status-blocked: 348 100% 68%;
+  --danger-ink: 348 100% 68%;
   --status-waiting: 55 87% 63%;
   --status-done: 207 100% 67%;
   --status-merged: 270 80% 74%;
@@ -356,8 +358,7 @@
   --muted-foreground: 133 37% 72%;
   --accent: 142 18% 8%;
   --accent-foreground: 136 100% 92%;
-  --destructive: 0 49% 44%;
-  --destructive-foreground: 0 0% 98%;
+  --danger-foreground: 0 0% 98%;
   --border: 137 24% 16%;
   --input: 137 24% 16%;
   --ring: 136 100% 71%;
@@ -366,6 +367,7 @@
 
   --status-working: 136 100% 71%;
   --status-blocked: 0 49% 44%;
+  --danger-ink: 0 49% 61.5%;
   --status-waiting: 46 52% 54%;
   --status-done: 153 76% 64%;
   --status-merged: 270 70% 74%;
@@ -399,8 +401,7 @@
   --muted-foreground: 220 11% 62%;
   --accent: 222 9% 14%;
   --accent-foreground: 219 16% 89%;
-  --destructive: 354 52% 61%;
-  --destructive-foreground: 0 0% 98%;
+  --danger-foreground: 0 0% 1%;
   --border: 225 10% 21%;
   --input: 225 10% 21%;
   --ring: 244 100% 69%;
@@ -413,6 +414,7 @@
 
   --status-working: 186 58% 58%;
   --status-blocked: 354 52% 61%;
+  --danger-ink: 354 52% 67.5%;
   --status-waiting: 233 28% 73%;
   --status-done: 229 57% 71%;
   --status-merged: 267 72% 72%;
@@ -446,8 +448,7 @@
   --muted-foreground: 196 13% 45%;
   --accent: 46 42% 88%;
   --accent-foreground: 192 81% 14%;
-  --destructive: 1 71% 52%;
-  --destructive-foreground: 44 87% 94%;
+  --danger-foreground: 0 0% 100%;
   --border: 46 30% 80%;
   --input: 46 30% 80%;
   --ring: 205 82% 45%;
@@ -465,7 +466,8 @@
   --heading-accent-2: 331 64% 52%;
 
   --status-working: 68 100% 30%;
-  --status-blocked: 1 71% 52%;
+  --status-blocked: 1 71% 49.5%;
+  --danger-ink: 1 71% 38.5%;
   --status-waiting: 45 100% 35%;
   --status-done: 205 82% 45%;
   --status-merged: 270 60% 50%;
@@ -505,8 +507,7 @@
   --muted-foreground: 227 23% 72%;
   --accent: 237 16% 23%;
   --accent-foreground: 226 64% 88%;
-  --destructive: 343 81% 75%;
-  --destructive-foreground: 240 21% 15%;
+  --danger-foreground: 240 21% 15%;
   --border: 234 13% 31%;
   --input: 234 13% 31%;
   --ring: 267 84% 81%;
@@ -520,6 +521,7 @@
 
   --status-working: 115 54% 76%;
   --status-blocked: 343 81% 75%;
+  --danger-ink: 343 81% 79%;
   --status-waiting: 41 86% 83%;
   --status-done: 217 92% 76%;
   --status-merged: 267 84% 81%;
@@ -553,8 +555,7 @@
   --muted-foreground: 220 14% 30%;
   --accent: 220 14% 92%;
   --accent-foreground: 220 24% 8%;
-  --destructive: 350 86% 42%;
-  --destructive-foreground: 0 0% 100%;
+  --danger-foreground: 0 0% 100%;
   --border: 220 14% 80%;
   --input: 220 14% 80%;
   --ring: 217 100% 42%;
@@ -563,6 +564,7 @@
 
   --status-working: 153 80% 27%;
   --status-blocked: 350 86% 42%;
+  --danger-ink: 350 86% 38.5%;
   --status-waiting: 30 100% 35%;
   --status-done: 217 100% 42%;
   --status-merged: 270 70% 35%;
@@ -589,8 +591,215 @@
   --log-stream-border: 220 14% 80%;
 }
 
+/* Intent colours: what a message means. status-* is only for rendering an
+   agent, task or run state. They share values, so there is one red per theme.
+   Each theme pairs it with a danger-ink, which text-danger uses, and a
+   danger-foreground for text on the fill; theme-contrast.test.ts holds both
+   to 4.5:1. The other -ink steps are for small text on light surfaces. */
+:root {
+  --danger: var(--status-blocked);
+  --warning: var(--status-waiting);
+  --success: var(--status-working);
+  --info: var(--status-done);
+  --warning-ink: var(--warning);
+  --success-ink: var(--success);
+  --info-ink: var(--info);
+
+  /* Agent seats: ten identity hues, the same in every theme. Keep in step
+     with the canvas paint in lib/agent-seat.ts. */
+  --seat-1: 198.6 88.7% 48.4%;
+  --seat-1-ink: 201 90% 27.5%;
+  --seat-1-text: 199.4 95.5% 73.9%;
+  --seat-2: 160.1 84.1% 39.4%;
+  --seat-2-ink: 163.1 88.1% 19.8%;
+  --seat-2-text: 156.2 71.6% 66.9%;
+  --seat-3: 37.7 92.1% 50.2%;
+  --seat-3-ink: 22.7 82.5% 31.4%;
+  --seat-3-text: 45.9 96.7% 64.5%;
+  --seat-4: 258.3 89.5% 66.3%;
+  --seat-4-ink: 263.4 69.3% 42.2%;
+  --seat-4-text: 252.5 94.7% 85.1%;
+  --seat-5: 349.7 89.2% 60.2%;
+  --seat-5-ink: 343.4 79.7% 34.7%;
+  --seat-5-text: 352.6 95.7% 81.8%;
+  --seat-6: 173.4 80.4% 40%;
+  --seat-6-ink: 176.1 69.4% 21.8%;
+  --seat-6-text: 170.6 76.9% 64.3%;
+  --seat-7: 24.6 95% 53.1%;
+  --seat-7-ink: 15 79.1% 33.7%;
+  --seat-7-text: 30.7 97.2% 72.4%;
+  --seat-8: 292.2 84.1% 60.6%;
+  --seat-8-ink: 295.4 70.2% 32.9%;
+  --seat-8-text: 291.1 93.1% 82.9%;
+  --seat-9: 83.7 80.5% 44.3%;
+  --seat-9-ink: 86.3 69% 22.7%;
+  --seat-9-text: 82 84.5% 67.1%;
+  --seat-10: 188.7 94.5% 42.7%;
+  --seat-10-ink: 194.4 69.6% 27.1%;
+  --seat-10-text: 187 92.4% 69%;
+}
+[data-theme-mode="light"] {
+  --warning-ink: 22.7 82.5% 31.4%;
+  --success-ink: 142.8 64.2% 24.1%;
+  --info-ink: 225.9 70.7% 40.2%;
+  --seat-1-text: var(--seat-1-ink);
+  --seat-2-text: var(--seat-2-ink);
+  --seat-3-text: var(--seat-3-ink);
+  --seat-4-text: var(--seat-4-ink);
+  --seat-5-text: var(--seat-5-ink);
+  --seat-6-text: var(--seat-6-ink);
+  --seat-7-text: var(--seat-7-ink);
+  --seat-8-text: var(--seat-8-ink);
+  --seat-9-text: var(--seat-9-ink);
+  --seat-10-text: var(--seat-10-ink);
+}
+
+/* Its info and warning fills are too dark to carry a count's dark text. */
+[data-theme="solarized-dark"] {
+  --warning-ink: 45 100% 37%;
+  --info-ink: 205 82% 58%;
+}
+
+/* Elevation, edges and fills. Dark themes are lit from above on translucent
+   white; light themes use the foreground for edges and fills, solid white for
+   raised controls, and soft drop shadows with no inner shading. */
+:root {
+  --edge-subtle: hsl(0 0% 100% / 0.08);
+  --edge: hsl(0 0% 100% / 0.12);
+  --edge-strong: hsl(0 0% 100% / 0.19);
+  --edge-on-color: hsl(0 0% 100% / 0.15);
+  --fill-inset: hsl(0 0% 100% / 0.04);
+  --fill-raised: hsl(0 0% 100% / 0.06);
+  --fill-hover: hsl(0 0% 100% / 0.09);
+  --fill-track: hsl(0 0% 0% / 0.2);
+  --fill-wash: hsl(0 0% 100% / 0.065);
+  --scrim: hsl(0 0% 0% / 0.5);
+  --overlay: var(--card);
+  --overlay-foreground: var(--foreground);
+
+  /* Media backdrops are black, and documents white, whatever the theme. */
+  --media: 0 0% 0%;
+  --media-foreground: 0 0% 100%;
+  --paper: 0 0% 100%;
+  --terminal: 240 11.1% 7.1%;
+  --terminal-shell: var(--terminal);
+
+  --elev-inset: inset 0 2px 6px rgb(0 0 0 / 0.3);
+  --elev-track: inset 0 1px 3px rgb(0 0 0 / 0.25);
+  --elev-panel:
+    inset 0 1px 0 rgb(255 255 255 / 0.08),
+    inset 0 -1px 0 rgb(255 255 255 / 0.04);
+  --elev-control:
+    0 1px 4px rgb(0 0 0 / 0.2), inset 0 1px 0 rgb(255 255 255 / 0.06);
+  --elev-raised:
+    0 4px 24px rgb(0 0 0 / 0.3), inset 0 1px 0 rgb(255 255 255 / 0.12);
+  --elev-overlay:
+    0 16px 64px rgb(0 0 0 / 0.5), inset 0 1px 0 rgb(255 255 255 / 0.15);
+  --elev-popover: 0 16px 64px rgb(0 0 0 / 0.5);
+  --elev-floating: 0 4px 16px rgb(0 0 0 / 0.3);
+  --elev-primary:
+    0 2px 8px rgb(0 0 0 / 0.25), 0 0 20px hsl(var(--primary) / 0.25),
+    inset 0 1px 0 rgb(255 255 255 / 0.15);
+  --elev-primary-hover:
+    0 2px 8px rgb(0 0 0 / 0.25), 0 0 32px hsl(var(--primary) / 0.35);
+  --elev-spotlight:
+    0 24px 80px -12px rgb(0 0 0 / 0.6),
+    0 0 60px -12px hsl(var(--primary) / 0.35);
+  --elev-sticky:
+    0 12px 20px -4px rgb(0 0 0 / 0.75), 0 28px 56px -8px rgb(0 0 0 / 0.65),
+    inset 0 1px 0 rgb(255 255 255 / 0.15);
+  --elev-side: -8px 0 24px -12px rgb(0 0 0 / 0.35);
+  --elev-jump:
+    0 4px 14px rgb(0 0 0 / 0.35), 0 0 14px hsl(var(--foreground) / 0),
+    inset 0 1px 0 hsl(var(--foreground) / 0.08);
+  --elev-jump-hover:
+    0 4px 14px rgb(0 0 0 / 0.35), 0 0 14px hsl(var(--foreground) / 0.16),
+    inset 0 1px 0 hsl(var(--foreground) / 0.08);
+}
+[data-theme-mode="light"] {
+  --shade: 220 30% 12%;
+  --edge-subtle: hsl(var(--foreground) / 0.1);
+  --edge: hsl(var(--foreground) / 0.2);
+  --edge-strong: hsl(var(--foreground) / 0.24);
+  --edge-on-color: transparent;
+  --fill-inset: hsl(var(--popover) / 0.7);
+  --fill-raised: hsl(var(--popover));
+  --fill-hover: hsl(var(--foreground) / 0.07);
+  --fill-track: hsl(var(--foreground) / 0.06);
+  --fill-wash: hsl(0 0% 0% / 0.045);
+  --terminal-shell: var(--surface);
+
+  --elev-inset: 0 0 #0000;
+  --elev-track: 0 0 #0000;
+  --elev-panel: 0 0 #0000;
+  --elev-control: 0 1px 2px hsl(var(--shade) / 0.08);
+  --elev-raised: 0 1px 3px hsl(var(--shade) / 0.08);
+  --elev-overlay: 0 12px 32px -8px hsl(var(--shade) / 0.22);
+  --elev-popover: 0 8px 24px -6px hsl(var(--shade) / 0.2);
+  --elev-floating: 0 2px 8px hsl(var(--shade) / 0.14);
+  --elev-primary: 0 1px 2px hsl(var(--shade) / 0.12);
+  --elev-primary-hover: 0 2px 6px hsl(var(--shade) / 0.16);
+  --elev-spotlight: 0 20px 48px -12px hsl(var(--shade) / 0.25);
+  --elev-sticky: 0 6px 12px -6px hsl(var(--shade) / 0.18);
+  --elev-side: -6px 0 16px -12px hsl(var(--shade) / 0.2);
+  --elev-jump:
+    0 2px 8px hsl(var(--shade) / 0.14), 0 0 14px hsl(var(--shade) / 0),
+    inset 0 1px 0 hsl(var(--shade) / 0);
+  --elev-jump-hover:
+    0 2px 8px hsl(var(--shade) / 0.2), 0 0 14px hsl(var(--shade) / 0.06),
+    inset 0 1px 0 hsl(var(--shade) / 0);
+}
+
 * {
   @apply border-border;
+}
+
+/* Recipes built on the tokens. They sit in the components layer, so a utility
+   on the same element still overrides them. */
+@layer components {
+  /* The one uppercase eyebrow above a section or group. */
+  .section-label {
+    @apply text-label-xs font-medium uppercase tracking-wider text-muted-foreground;
+  }
+
+  /* The one focus ring; the inset form is for rows in clipping containers. */
+  .focus-ring {
+    @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring;
+  }
+  .focus-ring-inset {
+    @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring;
+  }
+
+  /* The one disabled treatment. Add disabled:pointer-events-auto where a
+     disabled control still explains itself on hover. */
+  .disabled-state:disabled,
+  .disabled-state[data-disabled=""],
+  .disabled-state[data-disabled="true"],
+  .disabled-state[aria-disabled="true"] {
+    @apply pointer-events-none opacity-50;
+  }
+
+  /* The four elevations. */
+  .surface-inset {
+    @apply border border-edge bg-fill-inset shadow-elev-inset backdrop-blur-md;
+  }
+  /* Edge colour only: each side of a panel picks which borders it draws. */
+  .surface-panel {
+    @apply border-edge-strong bg-card shadow-elev-panel;
+  }
+  .surface-raised {
+    @apply border border-edge bg-fill-raised shadow-elev-raised backdrop-blur-xl;
+  }
+  .surface-overlay {
+    @apply border border-edge-strong bg-overlay shadow-elev-overlay backdrop-blur-2xl;
+  }
+}
+
+/* A hint closes when the pointer leaves its trigger, so it must not take
+   the click meant for what it happens to cover. Radix sizes a wrapper around
+   the content, which has to let go too. */
+[data-radix-popper-content-wrapper]:has(> [data-hint]) {
+  pointer-events: none;
 }
 
 html,
@@ -602,7 +811,7 @@ body {
 
 body {
   @apply bg-background text-foreground antialiased;
-  font-family: var(--font-terminal);
+  font-family: var(--font-ui);
 }
 
 /* Glass atmosphere — subtle radial gradients behind all content.
@@ -841,7 +1050,7 @@ html[data-ios-phone] #safe-area-top {
 }
 
 .terminal-font {
-  font-family: var(--font-terminal);
+  font-family: var(--font-mono);
 }
 
 html[data-theme="matrix"] aside,
@@ -905,14 +1114,14 @@ html[data-theme="matrix"] [role="button"] {
 /* Response placeholder: a quieter take on the review agents' chasing border
    (thinner, slower, dimmer), sharing their angle property and spin. The
    defrag grid inside is utilities on its elements. */
-.dispatch-placeholder-chase::before {
+.dispatch-placeholder::before {
   content: "";
   position: absolute;
   inset: 0;
   border-radius: inherit;
   padding: 1px;
   pointer-events: none;
-  opacity: 0.45;
+  opacity: 0;
   background: conic-gradient(
     from var(--child-agent-chase-angle, 0deg),
     transparent 0deg,
@@ -928,6 +1137,21 @@ html[data-theme="matrix"] [role="button"] {
     linear-gradient(#fff 0 0);
   -webkit-mask-composite: xor;
   mask-composite: exclude;
+}
+.dispatch-placeholder-colors {
+  opacity: 0;
+}
+.dispatch-placeholder-chase .dispatch-placeholder-colors {
+  opacity: 1;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .dispatch-placeholder::before,
+  .dispatch-placeholder-colors {
+    transition: opacity 750ms ease-in-out;
+  }
+}
+.dispatch-placeholder-chase::before {
+  opacity: 0.45;
   animation: child-agent-review-chase-spin 7s linear infinite;
 }
 @media (prefers-reduced-motion: reduce) {
@@ -1026,8 +1250,9 @@ html[data-theme="matrix"] [role="button"] {
   }
 }
 
-/* Shared by Files, stream code blocks and shared-file previews.
-   Exactly two mode-selected palettes; Changes uses its separate Prism rules.
+/* Shared by both highlighters: highlight.js (Files, stream code blocks,
+   shared-file previews) and Prism (Changes). Exactly two mode-selected
+   palettes; comments clear 4.5:1 on the diff's added and deleted lines.
    Dark colors retain Monokai's pink/green/cyan accents on neutral near-black. */
 :root {
   --syntax-bg: #101114;
@@ -1035,7 +1260,7 @@ html[data-theme="matrix"] [role="button"] {
   --syntax-keyword: #ff6b9d;
   --syntax-string: #e6db74;
   --syntax-number: #b99aff;
-  --syntax-comment: #96968e;
+  --syntax-comment: #9d9d95;
   --syntax-type: #66d9ef;
   --syntax-title: #a6e22e;
   --syntax-meta: #fdad66;
@@ -1047,7 +1272,7 @@ html[data-theme="matrix"] [role="button"] {
   --syntax-keyword: #a62659;
   --syntax-string: #37651e;
   --syntax-number: #7040a0;
-  --syntax-comment: #626870;
+  --syntax-comment: #5b6169;
   --syntax-type: #006b7a;
   --syntax-title: #795000;
   --syntax-meta: #934619;
@@ -1232,28 +1457,27 @@ html[data-hidden] .animate-sidebar-nav-pulse {
    which sits later in the cascade than this static stylesheet at equal
    specificity and would otherwise win.
 
-   Success → `--status-working` (the green token consistent across all
-   themes — `--status-done` is blue/cyan in some themes). Info → blue
-   (`--status-done`). Warning/error use their semantic status tokens.
-   Each typed toast uses the status color as the bg with `--background`
-   text for contrast, so the toast reads as a colored alert surface. */
+   Each type maps to the intent of the same name (error is danger).
+   Each typed toast uses the intent color as the bg, so the toast reads as a
+   colored alert surface. Text is `--background`, except error, which uses
+   `--danger-foreground` because the background doesn't read on every red. */
 [data-sonner-toaster][data-sonner-theme] {
   /* Default ("normal") toast — neutral card surface. */
   --normal-bg: hsl(var(--card)) !important;
   --normal-text: hsl(var(--card-foreground)) !important;
   --normal-border: hsl(var(--border)) !important;
-  --success-bg: hsl(var(--status-working)) !important;
+  --success-bg: hsl(var(--success)) !important;
   --success-text: hsl(var(--background)) !important;
-  --success-border: hsl(var(--status-working)) !important;
-  --info-bg: hsl(var(--status-done)) !important;
+  --success-border: hsl(var(--success)) !important;
+  --info-bg: hsl(var(--info)) !important;
   --info-text: hsl(var(--background)) !important;
-  --info-border: hsl(var(--status-done)) !important;
-  --warning-bg: hsl(var(--status-waiting)) !important;
+  --info-border: hsl(var(--info)) !important;
+  --warning-bg: hsl(var(--warning)) !important;
   --warning-text: hsl(var(--background)) !important;
-  --warning-border: hsl(var(--status-waiting)) !important;
-  --error-bg: hsl(var(--status-blocked)) !important;
-  --error-text: hsl(var(--background)) !important;
-  --error-border: hsl(var(--status-blocked)) !important;
+  --warning-border: hsl(var(--warning)) !important;
+  --error-bg: hsl(var(--danger)) !important;
+  --error-text: hsl(var(--danger-foreground)) !important;
+  --error-border: hsl(var(--danger)) !important;
 
   /* Push the toast above the mobile bottom nav (≤600px breakpoint).
      Sonner only consumes `--mobile-offset-bottom` inside its own
@@ -1320,7 +1544,7 @@ html[data-hidden] .animate-sidebar-nav-pulse {
 /* Tip popover — remove inset shadow and backdrop-blur so the SVG arrow
    fill matches the popover background exactly. */
 .tip-popover {
-  box-shadow: 0 16px 64px rgba(0, 0, 0, 0.5) !important;
+  box-shadow: var(--elev-popover) !important;
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
   animation-duration: 300ms !important;
@@ -1345,8 +1569,8 @@ html[data-hidden] .animate-sidebar-nav-pulse {
 
 /* react-diff-view theme overrides */
 .changes-diff-view .diff {
-  font-family: var(--font-terminal);
-  font-size: 12px;
+  font-family: var(--font-mono);
+  font-size: theme("fontSize.body-sm[0]");
   line-height: 1.5;
   background: hsl(var(--diff-bg));
   color: hsl(var(--diff-fg));
@@ -1466,123 +1690,50 @@ html[data-hidden] .animate-sidebar-nav-pulse {
   font-style: italic;
 }
 
-/* Syntax highlighting — dark mode (GitHub Dark) */
+/* Prism tokens, on the shared --syntax-* palette. */
+.changes-diff-view .token.punctuation,
+.changes-diff-view .token.operator,
+.changes-diff-view .token.variable {
+  color: var(--syntax-fg);
+}
 .changes-diff-view .token.comment,
 .changes-diff-view .token.prolog,
 .changes-diff-view .token.doctype,
 .changes-diff-view .token.cdata {
-  color: #8b949e;
+  color: var(--syntax-comment);
 }
-.changes-diff-view .token.punctuation {
-  color: #f0f6fc;
-}
-.changes-diff-view .token.tag {
-  color: #f0f6fc;
-}
-.changes-diff-view .token.property,
 .changes-diff-view .token.constant,
 .changes-diff-view .token.symbol,
-.changes-diff-view .token.deleted {
-  color: #79c0ff;
-}
 .changes-diff-view .token.boolean,
-.changes-diff-view .token.number {
-  color: #79c0ff;
+.changes-diff-view .token.number,
+.changes-diff-view .token.entity,
+.changes-diff-view .token.url {
+  color: var(--syntax-number);
 }
 .changes-diff-view .token.string,
 .changes-diff-view .token.char,
-.changes-diff-view .token.inserted {
-  color: #a5d6ff;
+.changes-diff-view .token.attr-value,
+.changes-diff-view .token.regex {
+  color: var(--syntax-string);
 }
+.changes-diff-view .token.property,
 .changes-diff-view .token.selector,
 .changes-diff-view .token.attr-name,
-.changes-diff-view .token.builtin {
-  color: #ffa657;
-}
-.changes-diff-view .token.operator,
-.changes-diff-view .token.entity,
-.changes-diff-view .token.url {
-  color: #79c0ff;
-}
-.changes-diff-view .token.atrule,
-.changes-diff-view .token.attr-value,
-.changes-diff-view .token.keyword {
-  color: #ff7b72;
-}
-.changes-diff-view .token.function {
-  color: #d2a8ff;
-}
+.changes-diff-view .token.builtin,
 .changes-diff-view .token.class-name {
-  color: #ffa657;
+  color: var(--syntax-type);
 }
-.changes-diff-view .token.regex,
+.changes-diff-view .token.function,
+.changes-diff-view .token.inserted {
+  color: var(--syntax-title);
+}
+.changes-diff-view .token.tag,
+.changes-diff-view .token.deleted,
+.changes-diff-view .token.atrule,
+.changes-diff-view .token.keyword,
 .changes-diff-view .token.important,
-.changes-diff-view .token.variable {
-  color: #ffa657;
-}
 .changes-diff-view .token.template-string .token.interpolation {
-  color: #ff7b72;
-}
-
-/* Syntax highlighting — light mode (GitHub Light) */
-[data-theme-mode="light"] .changes-diff-view .token.comment,
-[data-theme-mode="light"] .changes-diff-view .token.prolog,
-[data-theme-mode="light"] .changes-diff-view .token.doctype,
-[data-theme-mode="light"] .changes-diff-view .token.cdata {
-  color: #59636e;
-}
-[data-theme-mode="light"] .changes-diff-view .token.punctuation {
-  color: #1f2328;
-}
-[data-theme-mode="light"] .changes-diff-view .token.tag {
-  color: #1f2328;
-}
-[data-theme-mode="light"] .changes-diff-view .token.property,
-[data-theme-mode="light"] .changes-diff-view .token.constant,
-[data-theme-mode="light"] .changes-diff-view .token.symbol,
-[data-theme-mode="light"] .changes-diff-view .token.deleted {
-  color: #0550ae;
-}
-[data-theme-mode="light"] .changes-diff-view .token.boolean,
-[data-theme-mode="light"] .changes-diff-view .token.number {
-  color: #0550ae;
-}
-[data-theme-mode="light"] .changes-diff-view .token.string,
-[data-theme-mode="light"] .changes-diff-view .token.char,
-[data-theme-mode="light"] .changes-diff-view .token.inserted {
-  color: #0a3069;
-}
-[data-theme-mode="light"] .changes-diff-view .token.selector,
-[data-theme-mode="light"] .changes-diff-view .token.attr-name,
-[data-theme-mode="light"] .changes-diff-view .token.builtin {
-  color: #953800;
-}
-[data-theme-mode="light"] .changes-diff-view .token.operator,
-[data-theme-mode="light"] .changes-diff-view .token.entity,
-[data-theme-mode="light"] .changes-diff-view .token.url {
-  color: #0550ae;
-}
-[data-theme-mode="light"] .changes-diff-view .token.atrule,
-[data-theme-mode="light"] .changes-diff-view .token.attr-value,
-[data-theme-mode="light"] .changes-diff-view .token.keyword {
-  color: #cf222e;
-}
-[data-theme-mode="light"] .changes-diff-view .token.function {
-  color: #6639ba;
-}
-[data-theme-mode="light"] .changes-diff-view .token.class-name {
-  color: #953800;
-}
-[data-theme-mode="light"] .changes-diff-view .token.regex,
-[data-theme-mode="light"] .changes-diff-view .token.important,
-[data-theme-mode="light"] .changes-diff-view .token.variable {
-  color: #953800;
-}
-[data-theme-mode="light"]
-  .changes-diff-view
-  .token.template-string
-  .token.interpolation {
-  color: #cf222e;
+  color: var(--syntax-keyword);
 }
 
 /* A block the reader jumped to (a sidebar row's current turn, a pasted
@@ -1613,16 +1764,10 @@ html[data-hidden] .animate-sidebar-nav-pulse {
 
 /* User messages use a neutral wash; the avatar carries their identity. */
 .chat-user-wash {
-  background-color: rgb(255 255 255 / 6.5%);
+  background-color: var(--fill-wash);
 }
 .chat-user-wash:hover {
-  background-color: rgb(255 255 255 / 9%);
-}
-[data-theme-mode="light"] .chat-user-wash {
-  background-color: rgb(0 0 0 / 4.5%);
-}
-[data-theme-mode="light"] .chat-user-wash:hover {
-  background-color: rgb(0 0 0 / 6.5%);
+  background-color: var(--fill-hover);
 }
 
 /* The mobile reading state keeps the actual editor mounted, so the first
@@ -1672,7 +1817,7 @@ html[data-hidden] .animate-sidebar-nav-pulse {
       min-height: 44px;
       padding-top: 10px;
       padding-bottom: 10px;
-      border-radius: 1rem;
+      border-radius: theme("borderRadius.lg");
     }
 
     /* One line at rest means a long placeholder (a disabled reason)
@@ -1838,17 +1983,18 @@ html[data-hidden] .animate-sidebar-nav-pulse {
   }
 }
 
-/* A small read/write gesture acknowledges even a piece already in its slot. */
+/* Light the block in place during the pause before it travels. */
 @keyframes dispatch-defrag-ack {
-  35% {
-    transform: translateY(-2px);
-  }
+  0%,
   100% {
-    transform: translateY(0);
+    filter: brightness(1);
+  }
+  35% {
+    filter: brightness(1.2);
   }
 }
 .dispatch-defrag-ack {
-  animation: dispatch-defrag-ack 900ms ease-in-out;
+  animation: dispatch-defrag-ack 450ms ease-in-out;
 }
 @media (prefers-reduced-motion: reduce) {
   .dispatch-defrag-ack {

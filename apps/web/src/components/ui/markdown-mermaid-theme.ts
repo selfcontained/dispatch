@@ -57,11 +57,10 @@ export function useMermaidTheme(): MermaidRenderTheme | null {
     const border = hslToken("--border", styles);
     const card = hslToken("--card", styles);
     const cardForeground = hslToken("--card-foreground", styles);
-    const destructive = hslToken("--destructive", styles);
-    const destructiveForeground = hslToken("--destructive-foreground", styles);
+    const destructive = hslToken("--danger", styles);
+    const destructiveForeground = hslToken("--danger-foreground", styles);
     const fontFamily =
-      styles.getPropertyValue("--font-terminal").trim() ||
-      "system-ui, sans-serif";
+      styles.getPropertyValue("--font-ui").trim() || "system-ui, sans-serif";
 
     const lightness = lightnessFromHsl(background);
     const darkMode = lightness === null ? true : lightness < 0.5;

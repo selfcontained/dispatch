@@ -64,7 +64,7 @@ export function RunnerProviderUsage({
     !redeem.isPending;
 
   return (
-    <section aria-label="Runner plan limits" className="space-y-2 text-xs">
+    <section aria-label="Runner plan limits" className="space-y-2 text-body-sm">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h4 className="font-medium">Plan limits</h4>
         {canReadUsage && (
@@ -149,7 +149,6 @@ export function RunnerProviderUsage({
             <LoadingButton
               type="button"
               size="sm"
-              variant="default"
               loading={redeem.isPending}
               disabled={!canRedeem}
             >

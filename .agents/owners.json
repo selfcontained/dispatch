@@ -5,7 +5,8 @@
       "paths": [
         "apps/server/src/routes/system.ts",
         "apps/server/test/system-routes.test.ts",
-        "e2e/engine-updates.spec.ts"
+        "e2e/engine-updates.spec.ts",
+        "apps/server/test/launch-persona-config.test.ts"
       ],
       "personas": ["code-review"]
     },
@@ -46,6 +47,9 @@
         "scripts/e2e-remote-runners.sh",
         "scripts/remote-runner/codex-offline-preflight.sh",
         "apps/server/src/shared/process/**",
+        "apps/server/src/shared/lib/run-command.ts",
+        "apps/server/src/shared/lib/tool-environment.ts",
+        "apps/server/src/terminal/process-session.ts",
         "apps/server/src/server/agent-*.ts",
         "apps/server/src/shared/git/**",
         "apps/server/test/diff-image.test.ts",
@@ -53,9 +57,11 @@
         "apps/server/src/agents/acp/**",
         "docs/opencode-acp.md",
         "scripts/opencode-v2-smoke.mjs",
+        "scripts/stream-stress/**",
         "apps/server/src/agents/engine-*.ts",
         "apps/server/src/shared/mcp/agent-*.ts",
         "apps/server/src/routes/agents/**",
+        "apps/server/test/events-routes.test.ts",
         "apps/web/src/components/app/agent-pane*",
         "apps/web/src/components/app/agent-*",
         "apps/server/test/*agent*",
@@ -86,6 +92,9 @@
         "apps/server/src/worktree-location-settings.ts",
         "apps/server/src/shared/agent-types.ts",
         "apps/server/src/shared/agent-models.ts",
+        "apps/server/test/model-availability.test.ts",
+        "apps/web/src/hooks/use-model-availability*",
+        "docs/agent-model-catalog.md",
         "apps/server/src/shared/agent-effort.ts",
         "apps/server/test/claude-effort-adapter.test.ts",
         "apps/server/test/launch-effort.test.ts",
@@ -121,7 +130,10 @@
         "e2e/*project*",
         "apps/web/src/components/app/project-*",
         "apps/web/src/hooks/use-projects*",
-        "apps/server/test/launch-guidance.test.ts"
+        "apps/server/test/launch-guidance.test.ts",
+        "apps/server/test/session-naming.test.ts",
+        "apps/server/test/db/session-naming.test.ts",
+        "docs/session-naming.md"
       ],
       "personas": ["agent-runtime-owner"]
     },
@@ -348,8 +360,10 @@
         "apps/web/src/**",
         "apps/web/index.html",
         "apps/web/eslint.config.js",
+        "apps/web/eslint-design-tokens*",
         "apps/web/tailwind.config.ts",
         "apps/web/package.json",
+        "docs/design-system.md",
         "e2e/settings.spec.ts",
         "e2e/changes-virtualization.spec.ts",
         "e2e/sidebar-pins.spec.ts",
@@ -361,6 +375,7 @@
     {
       "paths": [
         "apps/server/src/auth.ts",
+        "apps/server/src/config.ts",
         "apps/server/src/browser-origin.ts",
         "apps/server/src/server-origin.ts",
         "apps/server/src/local-tls.ts",
@@ -406,6 +421,7 @@
         "apps/server/src/routes/files.ts",
         "apps/server/src/shared/files.ts",
         "apps/server/src/shared/file-types.ts",
+        "apps/server/src/shared/lib/clipboard-write.ts",
         "apps/web/src/components/app/file-*",
         "apps/web/src/components/app/files-*",
         "apps/web/src/hooks/use-files*",
@@ -454,6 +470,7 @@
     {
       "paths": [
         "apps/server/src/diagnostics.ts",
+        "apps/server/src/observability/artifact-storage.ts",
         "apps/server/test/diagnostics-helpers.test.ts",
         "docs/10-operations-runbook.md",
         "apps/server/test/process-tree-fixture.test.ts"
@@ -482,6 +499,10 @@
     },
     {
       "paths": ["docs/design/dispatch-website/**"],
+      "personas": ["code-review"]
+    },
+    {
+      "paths": ["apps/web/public/stream-motion.html"],
       "personas": ["code-review"]
     },
     {

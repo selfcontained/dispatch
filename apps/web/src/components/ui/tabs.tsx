@@ -2,7 +2,18 @@ import * as React from "react";
 import * as TabsPrimitive from "@radix-ui/react-tabs";
 import { cn } from "@/lib/utils";
 
-const Tabs = TabsPrimitive.Root;
+/**
+ * Sections of a pane. Arrow keys move between tabs and Enter or Space opens
+ * one: panes here fetch, navigate or attach a terminal when they open. For a
+ * switch between views of the same thing, use SegmentedControl.
+ */
+const Tabs = React.forwardRef<
+  React.ElementRef<typeof TabsPrimitive.Root>,
+  React.ComponentPropsWithoutRef<typeof TabsPrimitive.Root>
+>(({ activationMode = "manual", ...props }, ref) => (
+  <TabsPrimitive.Root ref={ref} activationMode={activationMode} {...props} />
+));
+Tabs.displayName = TabsPrimitive.Root.displayName;
 
 const TabsList = React.forwardRef<
   React.ElementRef<typeof TabsPrimitive.List>,
@@ -11,7 +22,7 @@ const TabsList = React.forwardRef<
   <TabsPrimitive.List
     ref={ref}
     className={cn(
-      "inline-flex h-10 items-center justify-center rounded-md bg-muted p-1 text-muted-foreground pointer-coarse:h-12",
+      "flex max-w-full items-center overflow-x-auto overscroll-x-contain text-muted-foreground [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
       className
     )}
     {...props}
@@ -26,7 +37,9 @@ const TabsTrigger = React.forwardRef<
   <TabsPrimitive.Trigger
     ref={ref}
     className={cn(
-      "inline-flex flex-1 items-center justify-center whitespace-nowrap rounded-sm px-3 py-1.5 text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm pointer-coarse:min-h-10",
+      "relative inline-flex h-9 shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-sm px-3 text-body-md font-medium transition-colors hover:text-foreground focus-ring-inset disabled-state pointer-coarse:h-11 max-sm:px-2",
+      "after:absolute after:inset-x-2 after:bottom-0 after:h-0.5 after:rounded-full data-[state=active]:text-foreground data-[state=active]:after:bg-primary",
+      "[&>svg]:size-icon-md",
       className
     )}
     {...props}
@@ -40,10 +53,7 @@ const TabsContent = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <TabsPrimitive.Content
     ref={ref}
-    className={cn(
-      "mt-2 ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
-      className
-    )}
+    className={cn("focus-ring-inset", className)}
     {...props}
   />
 ));

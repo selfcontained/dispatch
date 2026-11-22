@@ -250,7 +250,7 @@ describe("FileLightbox", () => {
     const close = screen.getByRole("button", { name: "Close" });
     expect(document.activeElement).toBe(close);
     expect(close.parentElement?.parentElement?.className).toContain(
-      "pt-[max(0.5rem,env(safe-area-inset-top))]"
+      "pt-safe-2"
     );
   });
 

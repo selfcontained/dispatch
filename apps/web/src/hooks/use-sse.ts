@@ -1,3 +1,4 @@
+import { liveIdentityFields } from "./use-agent-tree";
 import { isUserInputBlock, isFailedParentInput } from "@dispatch/shared";
 import { useEffect } from "react";
 import type {
@@ -21,6 +22,7 @@ import {
   type FileItem,
 } from "@/components/app/types";
 import { agentDiffQueryKey } from "@/hooks/use-agent-diff";
+import { MODEL_AVAILABILITY_MUTATION_KEY } from "@/hooks/use-model-availability";
 import {
   applyStreamRead,
   bumpReplyCount,
@@ -101,6 +103,9 @@ const MAX_RECONNECT_DELAY_MS = 30_000;
  * and cleared on tab foreground) — acceptable for a stream this chatty.
  */
 const STABLE_CONNECTION_MS = 10_000;
+// The server emits a heartbeat every 20s. Allow three intervals before
+// replacing a socket that WebKit left OPEN without delivering events.
+const STREAM_SILENCE_TIMEOUT_MS = 60_000;
 
 /**
  * The four members whose payloads differ from the server's declaration — see
@@ -475,6 +480,7 @@ export function useSSE(authState: AuthState): void {
     // lifetime: all of it is effect-scoped and torn down together. Nothing
     // here is read during render, so none of it needs to be a ref.
     let source: EventSource | null = null;
+    let watchdogTimer: ReturnType<typeof setTimeout> | null = null;
     let reconnectDelayMs = INITIAL_RECONNECT_DELAY_MS;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
     /** When the current connection last established — or, before it has
@@ -488,6 +494,8 @@ export function useSSE(authState: AuthState): void {
       try {
         recordSSEEvent();
         const payload = JSON.parse(event.data) as UiEvent;
+
+        if (payload.type === "heartbeat") return;
 
         if (payload.type === "routing.pending") {
           const queryKey = routingPendingKey(payload.streamId);
@@ -591,7 +599,11 @@ export function useSSE(authState: AuthState): void {
             ["agent-identity", payload.agent.id],
             (old) =>
               old
-                ? { ...old, ...payload.agent, archived: false, seat: old.seat }
+                ? {
+                    ...old,
+                    ...liveIdentityFields(payload.agent),
+                    archived: false,
+                  }
                 : old
           );
           queryClient.setQueryData<Agent[]>(["agents"], (old) =>
@@ -809,7 +821,16 @@ export function useSSE(authState: AuthState): void {
         }
 
         if (payload.type === "agent_models.changed") {
-          void queryClient.invalidateQueries({ queryKey: ["agent-models"] });
+          // Mid-save the cache is ahead of the server, and a read would undo
+          // the toggles still queued. The last save reads the catalog again.
+          if (
+            !queryClient.isMutating({
+              mutationKey: MODEL_AVAILABILITY_MUTATION_KEY,
+            })
+          )
+            void queryClient.invalidateQueries({ queryKey: ["agent-models"] });
+          // A running agent's model choices follow the same filter.
+          void queryClient.invalidateQueries({ queryKey: ["agent-config"] });
           return;
         }
 
@@ -872,6 +893,25 @@ export function useSSE(authState: AuthState): void {
       }
     };
 
+    const cancelWatchdog = () => {
+      if (watchdogTimer !== null) {
+        clearTimeout(watchdogTimer);
+        watchdogTimer = null;
+      }
+    };
+
+    const armWatchdog = () => {
+      cancelWatchdog();
+      watchdogTimer = setTimeout(() => {
+        watchdogTimer = null;
+        if (!source) return;
+        source.close();
+        source = null;
+        recordSSEReconnect();
+        if (!document.hidden) scheduleReconnect();
+      }, STREAM_SILENCE_TIMEOUT_MS);
+    };
+
     /** A delivered event clears the backoff, but only once the connection has
      *  proven it can last — see STABLE_CONNECTION_MS. */
     const noteStreamActivity = () => {
@@ -907,6 +947,7 @@ export function useSSE(authState: AuthState): void {
       // staleness check trivially true and silently clear the backoff.
       connectionAliveSince = Date.now();
       source = opened;
+      armWatchdog();
       // `open` fires on every establishment, including the browser's own
       // internal retries after a transient drop. Those never re-run `openSSE`,
       // so without this the gate would measure the age of the *instance*
@@ -917,6 +958,8 @@ export function useSSE(authState: AuthState): void {
         connectionAliveSince = Date.now();
       };
       opened.onmessage = (event) => {
+        if (source !== opened) return;
+        armWatchdog();
         noteStreamActivity();
         handleSSEMessage(event);
       };
@@ -937,12 +980,14 @@ export function useSSE(authState: AuthState): void {
         // would double the delay for nothing.
         if (source !== opened) return;
         source = null;
+        cancelWatchdog();
         scheduleReconnect();
       };
     };
 
     const closeSSE = () => {
       cancelReconnect();
+      cancelWatchdog();
       if (source) {
         source.close();
         source = null;
@@ -953,20 +998,35 @@ export function useSSE(authState: AuthState): void {
       openSSE();
     }
 
+    const catchUp = () => {
+      reconnectDelayMs = INITIAL_RECONNECT_DELAY_MS;
+      openSSE();
+      // Catch up immediately even if the new connection cannot deliver its snapshot.
+      void queryClient.invalidateQueries({ queryKey: STREAM_QUERY_PREFIX });
+    };
+
     const onVisChange = () => {
       if (document.hidden || authState !== "authenticated") {
         closeSSE();
       } else {
         // Foregrounding is a fresh start — don't inherit a backed-off delay
         // from whatever killed the previous connection.
-        reconnectDelayMs = INITIAL_RECONNECT_DELAY_MS;
-        openSSE();
+        catchUp();
       }
     };
+    const onPageShow = (event: PageTransitionEvent) => {
+      if (document.hidden || authState !== "authenticated") return;
+      // A BFCache-restored page may retain a stale OPEN EventSource without
+      // a visibility transition. Replace it rather than waiting for silence.
+      if (event.persisted) closeSSE();
+      catchUp();
+    };
 
+    window.addEventListener("pageshow", onPageShow);
     document.addEventListener("visibilitychange", onVisChange);
 
     return () => {
+      window.removeEventListener("pageshow", onPageShow);
       document.removeEventListener("visibilitychange", onVisChange);
       closeSSE();
     };

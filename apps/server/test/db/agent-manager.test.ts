@@ -2497,6 +2497,7 @@ describe("AgentManager", () => {
       manager.onModelsLearned((agentType) => learned.push(agentType));
       const config = {
         type: "config" as const,
+        catalogSource: "engine" as const,
         agentId: agent.id,
         options: [
           {
@@ -3630,19 +3631,16 @@ describe("AgentManager", () => {
   it("quiesces and resumes a real idle ACP host from an unchanged recovery receipt", async () => {
     const root = await mkdtemp("/tmp/dispatch-ru-host-");
     const previousHost = process.env.DISPATCH_AGENT_HOST_COMMAND;
-    const previousAdapter = process.env.DISPATCH_ACP_ADAPTER_COMMAND;
     const repo = path.resolve(import.meta.dirname, "../../../..");
     process.env.DISPATCH_AGENT_HOST_COMMAND = JSON.stringify([
       "bun",
       path.join(repo, "apps/server/src/main.ts"),
       "agent-host",
     ]);
-    process.env.DISPATCH_ACP_ADAPTER_COMMAND = JSON.stringify([
-      path.join(repo, "e2e/fixtures/fake-acp-agent.mjs"),
-    ]);
     const liveConfig = {
       ...testConfig,
       agentRuntime: "acp" as const,
+      acpAdapter: { bin: path.join(repo, "e2e/fixtures/fake-acp-agent.mjs") },
       agentStateRoot: path.join(root, "hosts"),
       filesRoot: path.join(root, "files"),
     };
@@ -3705,9 +3703,6 @@ describe("AgentManager", () => {
       if (previousHost === undefined)
         delete process.env.DISPATCH_AGENT_HOST_COMMAND;
       else process.env.DISPATCH_AGENT_HOST_COMMAND = previousHost;
-      if (previousAdapter === undefined)
-        delete process.env.DISPATCH_ACP_ADAPTER_COMMAND;
-      else process.env.DISPATCH_ACP_ADAPTER_COMMAND = previousAdapter;
       await rm(root, { recursive: true, force: true });
     }
   }, 60_000);

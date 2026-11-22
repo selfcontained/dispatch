@@ -22,7 +22,6 @@ import { TerminalLazyBoundary } from "@/components/terminal/terminal-lazy-bounda
 import { FilesContent } from "@/components/app/files-content";
 import { InboxPanel } from "@/components/app/inbox";
 import { type Inbox } from "@/hooks/use-inbox";
-import { Button } from "@/components/ui/button";
 import { glassPanel } from "@/lib/glass";
 import { cn } from "@/lib/utils";
 import {
@@ -37,6 +36,9 @@ import {
   drawerMaxWidth,
   drawerPinnedReserve,
 } from "@/components/app/drawer-constants";
+import { CountBubble } from "@/components/ui/count-bubble";
+import { IconButton } from "@/components/ui/icon-button";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 type DrawerSharedProps = {
   files: FileItem[];
@@ -86,52 +88,6 @@ type DrawerContentProps = DrawerSharedProps & {
   className?: string;
 };
 
-function SidebarTab({
-  label,
-  active,
-  onClick,
-  badge,
-  badgeClassName,
-  testId,
-}: {
-  label: string;
-  active: boolean;
-  onClick: () => void;
-  badge?: number;
-  badgeClassName?: string;
-  testId: string;
-}): JSX.Element {
-  return (
-    <button
-      onClick={onClick}
-      data-testid={testId}
-      aria-pressed={active}
-      className={cn(
-        "relative flex shrink-0 items-center gap-1.5 px-3 py-2.5 text-xs font-semibold uppercase tracking-wide transition-colors",
-        active
-          ? "text-foreground"
-          : "text-muted-foreground hover:text-foreground/80"
-      )}
-    >
-      {label}
-      {active ? (
-        <span className="absolute bottom-0 left-3 right-3 h-0.5 bg-foreground" />
-      ) : null}
-      {badge !== undefined && badge > 0 ? (
-        <span
-          className={cn(
-            "absolute top-0 right-0 flex h-4 w-4 items-center justify-center rounded-full text-[8px]",
-            badgeClassName ?? "bg-primary text-primary-foreground"
-          )}
-          data-testid={`${testId}-badge`}
-        >
-          {badge}
-        </span>
-      ) : null}
-    </button>
-  );
-}
-
 export function DrawerContent({
   files,
   selectedAgentId,
@@ -170,126 +126,127 @@ export function DrawerContent({
         className
       )}
     >
-      {/* Chrome: the home tabs. A thread opens in a drawer of its own. */}
-      <div className="flex min-h-14 items-center pt-[var(--safe-area-top)]">
-        {
-          <div className="flex min-w-0 flex-1">
-            <SidebarTab
-              label="Inbox"
-              active={activeTab === "inbox"}
-              onClick={() => setActiveTab("inbox")}
-              badge={inbox.inputs.length}
-              badgeClassName="bg-status-waiting text-white"
-              testId="sidebar-tab-inbox"
-            />
-            <SidebarTab
-              label="Files"
-              active={activeTab === "files"}
-              onClick={() => setActiveTab("files")}
-              badge={unseenFileCount}
-              badgeClassName="bg-destructive text-destructive-foreground"
-              testId="sidebar-tab-files"
-            />
-            <SidebarTab
-              label="Terminal"
-              active={activeTab === "terminal"}
-              onClick={() => setActiveTab("terminal")}
-              testId="sidebar-tab-terminal"
-            />
+      <Tabs
+        value={activeTab}
+        onValueChange={(tab) => setActiveTab(tab as DrawerTab)}
+        className="flex min-h-0 flex-1 flex-col"
+      >
+        {/* Chrome: the home tabs. A thread opens in a drawer of its own. */}
+        <div className="flex min-h-14 items-center pt-safe">
+          <TabsList
+            aria-label="Drawer"
+            className="min-w-0 flex-1 self-stretch pl-1"
+          >
+            <TabsTrigger value="inbox" data-testid="sidebar-tab-inbox">
+              Inbox
+              {inbox.inputs.length > 0 ? (
+                <CountBubble
+                  tone="warning"
+                  count={inbox.inputs.length}
+                  data-testid="sidebar-tab-inbox-badge"
+                />
+              ) : null}
+            </TabsTrigger>
+            <TabsTrigger value="files" data-testid="sidebar-tab-files">
+              Files
+              {unseenFileCount > 0 ? (
+                <CountBubble
+                  tone="info"
+                  count={unseenFileCount}
+                  data-testid="sidebar-tab-files-badge"
+                />
+              ) : null}
+            </TabsTrigger>
+            <TabsTrigger value="terminal" data-testid="sidebar-tab-terminal">
+              Terminal
+            </TabsTrigger>
+          </TabsList>
+          <div className="flex items-center gap-1 px-2">
+            {onTogglePin ? (
+              <IconButton
+                size="icon-sm"
+                onClick={onTogglePin}
+                label={pinned ? "Unpin sidebar" : "Pin sidebar"}
+                pressed={pinned ?? false}
+                data-testid="toggle-drawer-pin"
+                data-pinned={pinned ? "true" : "false"}
+              >
+                {pinned ? <PinOff /> : <Pin />}
+              </IconButton>
+            ) : null}
+            {onRequestClose ? (
+              <IconButton
+                size="icon-sm"
+                onClick={onRequestClose}
+                label="Close sidebar"
+              >
+                {closeButtonIcon === "chevron" ? <ChevronRight /> : <X />}
+              </IconButton>
+            ) : null}
           </div>
-        }
-        <div className="flex items-center gap-1 px-2">
-          {onTogglePin ? (
-            <Button
-              size="icon"
-              variant="ghost"
-              onClick={onTogglePin}
-              title={pinned ? "Unpin sidebar" : "Pin sidebar"}
-              aria-label={pinned ? "Unpin sidebar" : "Pin sidebar"}
-              aria-pressed={pinned ?? false}
-              data-testid="toggle-drawer-pin"
-              data-pinned={pinned ? "true" : "false"}
-              className="h-7 w-7"
-            >
-              {pinned ? (
-                <PinOff className="h-4 w-4" />
-              ) : (
-                <Pin className="h-4 w-4" />
-              )}
-            </Button>
-          ) : null}
-          {onRequestClose ? (
-            <Button
-              size="icon"
-              variant="ghost"
-              onClick={onRequestClose}
-              title="Close sidebar"
-              className="h-7 w-7"
-            >
-              {closeButtonIcon === "chevron" ? (
-                <ChevronRight className="h-4 w-4" />
-              ) : (
-                <X className="h-4 w-4" />
-              )}
-            </Button>
-          ) : null}
         </div>
-      </div>
 
-      <div className="relative flex min-h-0 flex-1 flex-col">
-        {selectedAgentId && (
-          <div
+        <div className="relative flex min-h-0 flex-1 flex-col">
+          <TabsContent
+            forceMount
+            value="terminal"
             className={cn(
               "flex min-h-0 flex-1 flex-col",
               activeTab !== "terminal" && "hidden"
             )}
           >
-            <TerminalLazyBoundary
-              key={selectedAgentId}
-              agentId={selectedAgentId}
-              active={visible && activeTab === "terminal"}
+            {selectedAgentId && (
+              <TerminalLazyBoundary
+                key={selectedAgentId}
+                agentId={selectedAgentId}
+                active={visible && activeTab === "terminal"}
+              />
+            )}
+          </TabsContent>
+          {/* Both tabs stay mounted so refs (e.g. IntersectionObserver) remain attached */}
+          <TabsContent
+            forceMount
+            value="inbox"
+            className={cn(
+              "flex min-h-0 flex-1 flex-col",
+              activeTab !== "inbox" && "hidden"
+            )}
+          >
+            <InboxPanel
+              inbox={inbox}
+              agentName={selectedAgentName}
+              agentNameById={agentNameById}
+              disabledReason={inboxDisabledReason}
+              onOpenBlock={onOpenBlock}
             />
-          </div>
-        )}
-        {/* Both tabs stay mounted so refs (e.g. IntersectionObserver) remain attached */}
-        <div
-          className={cn(
-            "flex min-h-0 flex-1 flex-col",
-            activeTab !== "inbox" && "hidden"
-          )}
-        >
-          <InboxPanel
-            inbox={inbox}
-            agentName={selectedAgentName}
-            agentNameById={agentNameById}
-            disabledReason={inboxDisabledReason}
-            onOpenBlock={onOpenBlock}
-          />
+          </TabsContent>
+          <TabsContent
+            forceMount
+            value="files"
+            className={cn(
+              "flex min-h-0 flex-1 flex-col",
+              activeTab !== "files" && "hidden"
+            )}
+          >
+            <FilesContent
+              files={files}
+              ownFiles={ownFiles}
+              subAgentFiles={subAgentFiles}
+              filesOwnerId={filesOwnerId}
+              onFilesOwnerChange={onFilesOwnerChange}
+              selectedAgentId={selectedAgentId}
+              selectedAgentName={selectedAgentName}
+              animatingFileKeys={animatingFileKeys}
+              drawerViewportRef={drawerViewportRef}
+              openLightbox={openLightbox}
+              hasStream={hasStream}
+              streamUrl={streamUrl}
+              onUploadFile={onUploadFile}
+              active={visible && activeTab === "files"}
+            />
+          </TabsContent>
         </div>
-        <div
-          className={cn(
-            "flex min-h-0 flex-1 flex-col",
-            activeTab !== "files" && "hidden"
-          )}
-        >
-          <FilesContent
-            files={files}
-            ownFiles={ownFiles}
-            subAgentFiles={subAgentFiles}
-            filesOwnerId={filesOwnerId}
-            onFilesOwnerChange={onFilesOwnerChange}
-            selectedAgentId={selectedAgentId}
-            selectedAgentName={selectedAgentName}
-            animatingFileKeys={animatingFileKeys}
-            drawerViewportRef={drawerViewportRef}
-            openLightbox={openLightbox}
-            hasStream={hasStream}
-            streamUrl={streamUrl}
-            onUploadFile={onUploadFile}
-            active={visible && activeTab === "files"}
-          />
-        </div>
-      </div>
+      </Tabs>
     </aside>
   );
 }
@@ -405,7 +362,7 @@ function DrawerResizeHandle({
       aria-valuenow={width}
       tabIndex={0}
       data-testid="drawer-resize-handle"
-      className="group absolute inset-y-0 left-0 z-10 w-2 -translate-x-1/2 cursor-col-resize touch-none outline-none"
+      className="group absolute inset-y-0 left-0 z-sticky w-2 -translate-x-1/2 cursor-col-resize touch-none outline-none"
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={endDrag}
@@ -417,8 +374,8 @@ function DrawerResizeHandle({
       <div
         className={cn(
           "mx-auto h-full w-0.5 bg-transparent transition-colors",
-          "group-hover:bg-primary/40 group-focus-visible:bg-primary",
-          drawerWidth.dragging && "bg-primary/60"
+          "group-hover:bg-primary/veil group-focus-visible:bg-primary",
+          drawerWidth.dragging && "bg-primary/veil"
         )}
       />
     </div>
@@ -577,7 +534,7 @@ export function DrawerFrame({
       data-closing={closing ? "true" : undefined}
       data-resizing={dragging ? "true" : undefined}
       className={cn(
-        "fixed bottom-0 right-0 top-[var(--exposure-banner-height,0px)] z-30 transition-transform ease-out",
+        "fixed bottom-0 right-0 top-[var(--exposure-banner-height,0px)] z-dock transition-transform ease-out",
         !open && "pointer-events-none"
       )}
       style={{
@@ -614,11 +571,7 @@ export function Drawer({
         closeButtonIcon="chevron"
         pinned={pinned}
         onTogglePin={onTogglePin}
-        className={cn(
-          "rounded-l-lg border-l",
-          !pinned && "shadow-2xl",
-          glassPanel
-        )}
+        className={cn("rounded-l-lg border-l", glassPanel)}
       />
     </DrawerFrame>
   );

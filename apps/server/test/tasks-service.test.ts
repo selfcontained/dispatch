@@ -17,6 +17,7 @@ import path from "node:path";
 import { startupFileUpload } from "../src/routes/agent-startup.js";
 import {
   afterAll,
+  afterEach,
   beforeAll,
   beforeEach,
   describe,
@@ -40,6 +41,10 @@ import * as personaResolution from "../src/personas/resolve.js";
 import { TemplateService } from "../src/templates/service.js";
 import type { AgentRecord } from "../src/agents/types.js";
 import { registerTaskTools } from "../src/shared/mcp/task-tools.js";
+import {
+  forgetLearnedAgentModels,
+  setAgentModelAvailability,
+} from "../src/shared/agent-models.js";
 import { agentTaskProject, taskScopeInput } from "../src/tasks/agent-scope.js";
 import { chatUrlSchema } from "../src/chat/validation.js";
 import { resolveRepoRoot } from "../src/shared/git/git-context.js";
@@ -3673,6 +3678,65 @@ describe("task runtime overrides", () => {
     expect((await launched(task.id))[0]!.data).toMatchObject({
       source: "task",
       templateId: LEAD,
+    });
+  });
+
+  describe("a model turned off in settings", () => {
+    const turnOff = (model: string) =>
+      setAgentModelAvailability("claude", {
+        autoEnable: true,
+        disabled: [model],
+        unseen: [],
+        known: null,
+      });
+    afterEach(() => forgetLearnedAgentModels());
+
+    it("keeps launching a trigger saved with it, and can save it unchanged", async () => {
+      const ready = await withTrigger("ready", {
+        agentType: "claude",
+        model: "haiku",
+      });
+      turnOff("haiku");
+      await withTrigger("ready", {
+        agentType: "claude",
+        model: "haiku",
+        assign: false,
+      });
+      const task = await service.createTask({ projectId, title: "Old" }, USER);
+      await service.updateTask(task.id, { columnId: ready }, USER);
+      expect(launches[0]!.resolvedTemplate).toMatchObject({ model: "haiku" });
+    });
+
+    it("keeps launching a task saved with it, and can save it unchanged", async () => {
+      const ready = await withTrigger("ready");
+      const pair = { launchAgentType: "claude", launchModel: "haiku" } as const;
+      const task = await service.createTask(
+        { projectId, title: "Old pair", ...pair },
+        USER
+      );
+      turnOff("haiku");
+      await service.updateTask(task.id, pair, USER);
+      await service.updateTask(task.id, { columnId: ready }, USER);
+      expect(launches[0]!.resolvedTemplate).toMatchObject({ model: "haiku" });
+    });
+
+    it("can't be newly set on a trigger or a task", async () => {
+      turnOff("haiku");
+      await expect(
+        withTrigger("ready", { agentType: "claude", model: "haiku" })
+      ).rejects.toThrow(/turned off/);
+      await expect(
+        service.createTask(
+          {
+            projectId,
+            title: "New pair",
+            launchAgentType: "claude",
+            launchModel: "haiku",
+          },
+          USER
+        )
+      ).rejects.toThrow(/turned off/);
+      expect(launches).toHaveLength(0);
     });
   });
 

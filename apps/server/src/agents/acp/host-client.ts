@@ -882,8 +882,8 @@ export class HostClient {
     this.send({ type: "cancel" });
   }
 
-  shutdown(force: boolean): void {
-    this.send({ type: "shutdown", force });
+  shutdown(force: boolean, idleOnly = false): void {
+    this.send({ type: "shutdown", force, idleOnly });
   }
 
   isReady(): boolean {

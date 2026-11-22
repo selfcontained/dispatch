@@ -30,6 +30,7 @@ import {
 } from "../shared/git/owner-review-files.js";
 import { getPrStatus } from "../shared/github/pr.js";
 import type { CommandRunner } from "../shared/lib/run-command.js";
+import { childProcessEnv } from "../shared/process/child-environment.js";
 
 const MAX_QUERY_BYTES = 16 * 1024;
 const MAX_REPLY_BYTES = 4 * 1024 * 1024;
@@ -44,7 +45,7 @@ const run: CommandRunner = async (command, args, options = {}) => {
   const { stdout, stderr, exitCode } = await execFileAsync(command, args, {
     cwd: options.cwd,
     env: {
-      ...process.env,
+      ...childProcessEnv(),
       LC_ALL: "C",
       GIT_TERMINAL_PROMPT: "0",
       GH_PROMPT_DISABLED: "1",
