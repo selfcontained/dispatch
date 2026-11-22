@@ -196,7 +196,7 @@ export const UnifiedDiffView = memo(function UnifiedDiffView({
 
   if (!file) {
     return (
-      <div className="px-4 py-3 text-xs text-muted-foreground">
+      <div className="px-4 py-3 text-body-sm text-muted-foreground">
         Unable to parse diff
       </div>
     );
@@ -215,7 +215,7 @@ export const UnifiedDiffView = memo(function UnifiedDiffView({
     <div
       ref={diffRef}
       className={cn(
-        "changes-diff-view text-xs relative",
+        "changes-diff-view text-body-sm relative",
         "[&_.diff.diff-split]:table-fixed [&_.diff.diff-split]:w-full",
         "[&_.diff.diff-split_.diff-gutter-col]:w-10",
         "[&_.diff.diff-split_.diff-gutter]:px-1 [&_.diff.diff-split_.diff-gutter]:py-0",
@@ -275,7 +275,7 @@ export const UnifiedDiffView = memo(function UnifiedDiffView({
         <button
           type="button"
           onClick={() => onCommentOpen(true)}
-          className="absolute z-10 flex items-center justify-center rounded-md bg-primary p-1 text-primary-foreground shadow-md hover:bg-primary/90 -translate-y-1/2"
+          className="absolute z-sticky flex items-center justify-center rounded-md bg-primary p-1 text-primary-foreground shadow-md hover:bg-primary/dense -translate-y-1/2"
           style={{
             top: buttonPos.top,
             left: buttonPos.left + buttonPos.width / 2,

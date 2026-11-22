@@ -39,12 +39,12 @@ export function StepDetail({
   );
   const d = stepDetailData(step);
   if (hasChildren(step)) {
-    // The same pl-[21px] the plain body below uses, so the Task step's own
+    // The same pl-5 the plain body below uses, so the Task step's own
     // arguments and the nested list line up with the parent's label rather
     // than with its glyph.
     return (
       <div
-        className="mt-1.5 space-y-2 pl-[21px]"
+        className="mt-1.5 space-y-2 pl-5"
         data-testid="harness-step-children"
       >
         <DetailBody step={step} />
@@ -60,7 +60,7 @@ export function StepDetail({
           >
             <span
               aria-hidden="true"
-              className="absolute bottom-1 left-[5.5px] top-1 w-px bg-border/70"
+              className="absolute bottom-1 left-[5.5px] top-1 w-px bg-border-subtle"
             />
             {step.children!.map((child) => (
               <StepRow
@@ -83,10 +83,10 @@ export function StepDetail({
     );
   }
   return (
-    <div className="space-y-2.5 pl-[21px] pt-1 text-foreground/80">
+    <div className="space-y-2 pl-5 pt-1 text-foreground/soft">
       <DetailBody step={step} />
       {d.truncated ? (
-        <p className="text-[11px] text-muted-foreground">
+        <p className="text-label-sm text-muted-foreground">
           Output truncated at the server&apos;s size limit.
         </p>
       ) : null}
@@ -154,7 +154,7 @@ function DetailBody({ step }: { step: Step }): JSX.Element | null {
             />
           )}
           {parsed.note ? (
-            <p className="text-[10.5px] text-muted-foreground">{parsed.note}</p>
+            <p className="text-label-xs text-muted-foreground">{parsed.note}</p>
           ) : null}
         </>
       );
@@ -176,7 +176,7 @@ function DetailBody({ step }: { step: Step }): JSX.Element | null {
     case "notice":
     case "compaction":
       return d.text ? (
-        <Markdown className="text-[12px]">{d.text}</Markdown>
+        <Markdown className="text-body-sm">{d.text}</Markdown>
       ) : null;
     default:
       return (
@@ -197,7 +197,7 @@ function CommandLine({ command }: { command: string }): JSX.Element {
     return <PlainBlock text={`$ ${command}`} />;
   }
   return (
-    <p className="whitespace-pre-wrap font-terminal text-[11px] text-foreground">
+    <p className="whitespace-pre-wrap font-terminal text-label-sm text-foreground">
       <span className="select-none text-muted-foreground">$ </span>
       {command}
     </p>
@@ -211,7 +211,7 @@ function Locations({
 }): JSX.Element | null {
   if (!locations?.length) return null;
   return (
-    <ul className="space-y-0.5 font-terminal text-[11px] text-muted-foreground">
+    <ul className="space-y-0.5 font-terminal text-label-sm text-muted-foreground">
       {locations.map((l, i) => (
         <li key={`${l.path}:${l.line ?? ""}:${i}`} className="truncate">
           {l.path}
@@ -251,10 +251,10 @@ function KvGrid({ rows }: { rows: [string, ReactNode][] }): JSX.Element {
     <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
       {rows.map(([k, v]) => (
         <div key={k} className="contents">
-          <dt className="pt-0.5 font-terminal text-[10px] text-muted-foreground">
+          <dt className="pt-0.5 font-terminal text-label-xs text-muted-foreground">
             {k}
           </dt>
-          <dd className="min-w-0 break-words text-[11px] text-foreground">
+          <dd className="min-w-0 break-words text-label-sm text-foreground">
             {v}
           </dd>
         </div>

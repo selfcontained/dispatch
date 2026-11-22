@@ -56,15 +56,15 @@ export function PromptTab({
 
   return (
     <div className="mt-4">
-      <div className="rounded-md border border-white/[0.12] bg-white/[0.04] p-4">
+      <div className="rounded-md border border-edge bg-fill-inset p-4">
         <div className="space-y-1">
           <label
-            className="text-sm font-medium text-foreground"
+            className="text-body-md font-medium text-foreground"
             htmlFor={`prompt-${job.id}`}
           >
             Task prompt
           </label>
-          <p className="text-xs text-muted-foreground">
+          <p className="text-body-sm text-muted-foreground">
             What each run should work on.
           </p>
         </div>
@@ -73,14 +73,14 @@ export function PromptTab({
           value={prompt}
           onChange={(event) => setPrompt(event.target.value)}
           placeholder="Describe what the agent should do..."
-          className="mt-2 h-64 min-h-48 shrink-0 w-full rounded-md border border-white/[0.12] bg-white/[0.04] backdrop-blur-md shadow-[inset_0_2px_6px_rgba(0,0,0,0.3)] px-3 py-2 text-sm font-mono ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+          className="mt-2 h-64 min-h-48 shrink-0 w-full rounded-md surface-inset px-3 py-2 text-body-md font-mono placeholder:text-muted-foreground focus-ring"
         />
-        <label className="mt-3 flex items-center justify-between gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3 text-sm">
+        <label className="mt-3 flex items-center justify-between gap-3 rounded-md border border-border-subtle bg-surface-subtle px-3 py-3 text-body-md">
           <span>
             <span className="block font-medium text-foreground">
               Self improve after each run
             </span>
-            <span className="block text-xs text-muted-foreground">
+            <span className="block text-body-sm text-muted-foreground">
               Let the agent update this job's saved prompt when it finds a
               durable improvement.
             </span>
@@ -91,7 +91,7 @@ export function PromptTab({
             ariaLabel="Self improve after each run"
           />
         </label>
-        <div className="mt-4 border-t border-border/70 pt-4">
+        <div className="mt-4 border-t border-border-subtle pt-4">
           <LoopSetup
             draft={continuation}
             onChange={setContinuation}
@@ -99,12 +99,12 @@ export function PromptTab({
           />
         </div>
         {saveError ? (
-          <div className="mt-4 rounded-md border border-status-blocked/40 bg-status-blocked/10 p-3 text-sm text-status-blocked">
+          <div className="mt-4 rounded-md border border-danger/line bg-danger/tint p-3 text-body-md text-danger">
             {saveError}
           </div>
         ) : null}
         {saved ? (
-          <div className="mt-4 rounded-md border border-status-done/40 bg-status-done/10 p-3 text-sm text-status-done">
+          <div className="mt-4 rounded-md border border-info/line bg-info/tint p-3 text-body-md text-info">
             Instructions saved.
           </div>
         ) : null}

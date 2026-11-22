@@ -52,7 +52,7 @@ const KIND_STYLE: Record<
   question: {
     label: "Question",
     Icon: MessageCircleQuestion,
-    border: "border-status-waiting/60",
+    border: "border-status-waiting/line-strong",
     bar: "bg-status-waiting",
     tile: "bg-status-waiting",
     text: "text-status-waiting",
@@ -62,7 +62,7 @@ const KIND_STYLE: Record<
   form: {
     label: "Form",
     Icon: ClipboardList,
-    border: "border-status-done/60",
+    border: "border-status-done/line-strong",
     bar: "bg-status-done",
     tile: "bg-status-done",
     text: "text-status-done",
@@ -72,7 +72,7 @@ const KIND_STYLE: Record<
   approval: {
     label: "Approval",
     Icon: ShieldAlert,
-    border: "border-status-merged/60",
+    border: "border-status-merged/line-strong",
     bar: "bg-status-merged",
     tile: "bg-status-merged",
     text: "text-status-merged",
@@ -82,7 +82,7 @@ const KIND_STYLE: Record<
   notice: {
     label: "Notice",
     Icon: Bell,
-    border: "border-status-reviewing/60",
+    border: "border-status-reviewing/line-strong",
     bar: "bg-status-reviewing",
     tile: "bg-status-reviewing",
     text: "text-status-reviewing",
@@ -92,7 +92,7 @@ const KIND_STYLE: Record<
   blocked: {
     label: "Blocked",
     Icon: OctagonX,
-    border: "border-status-blocked/60",
+    border: "border-status-blocked/line-strong",
     bar: "bg-status-blocked",
     tile: "bg-status-blocked",
     text: "text-status-blocked",
@@ -192,8 +192,7 @@ export function AttentionCard({
   // links aren't nested inside it. It's named from the rendered text, which
   // reads as plain words with no Markdown symbols.
   const actionProps = {
-    className:
-      "absolute inset-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+    className: "absolute inset-0 focus-ring-inset",
     "aria-labelledby": [
       `${ids}-name`,
       `${ids}-kind`,
@@ -207,7 +206,7 @@ export function AttentionCard({
   };
   return (
     <div
-      className={`flex w-full items-stretch border bg-popover text-popover-foreground shadow-[0_16px_40px_-12px_rgb(0_0_0/0.7)] transition-colors [font-family:var(--font-terminal)] ${style.border} ${style.hover} ${settled ? "opacity-50" : ""}`}
+      className={`flex w-full items-stretch border bg-popover text-popover-foreground shadow-elev-popover transition-colors [font-family:var(--font-ui)] ${style.border} ${style.hover} ${settled ? "opacity-50" : ""}`}
     >
       <span aria-hidden className={`w-1 shrink-0 ${style.bar}`} />
       <div
@@ -243,12 +242,15 @@ export function AttentionCard({
         </span>
         <span className="pointer-events-none min-w-0 flex-1">
           <span className="flex items-baseline justify-between gap-3">
-            <span id={`${ids}-name`} className="truncate text-sm font-semibold">
+            <span
+              id={`${ids}-name`}
+              className="truncate text-body-md font-semibold"
+            >
               {event.agentName}
             </span>
             <span
               id={`${ids}-kind`}
-              className={`shrink-0 text-[11px] font-semibold uppercase tracking-[0.14em] ${style.text}`}
+              className={`shrink-0 section-label ${style.text}`}
             >
               {style.label}
             </span>
@@ -256,7 +258,7 @@ export function AttentionCard({
           <span
             id={`${ids}-message`}
             ref={messageRef}
-            className="mt-1 block text-[13px] leading-snug text-muted-foreground"
+            className="mt-1 block text-body-sm leading-snug text-muted-foreground"
           >
             <Markdown
               variant="compact"
@@ -274,7 +276,7 @@ export function AttentionCard({
             <time
               id={`${ids}-time`}
               dateTime={createdAt}
-              className="mt-1 block text-[11px] text-muted-foreground"
+              className="mt-1 block text-label-sm text-muted-foreground"
             >
               {formatRelativeTime(createdAt)}
             </time>
@@ -287,7 +289,7 @@ export function AttentionCard({
           type="button"
           aria-label="Dismiss"
           onClick={onDismiss}
-          className="shrink-0 self-start p-3 text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+          className="shrink-0 self-start p-3 text-muted-foreground transition-colors hover:text-foreground focus-ring-inset"
         >
           <X className="size-4" />
         </button>

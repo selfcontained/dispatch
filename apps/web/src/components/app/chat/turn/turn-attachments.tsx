@@ -189,7 +189,7 @@ function SentTo({
   const openable = Boolean(block.text) || block.attachments.length > 0;
   return (
     <div
-      className="group relative flex min-h-6 min-w-0 flex-col pr-6 text-xs"
+      className="group relative flex min-h-6 min-w-0 flex-col pr-6 text-body-sm"
       data-testid="chat-turn-sent-to"
       data-to-agent={block.toAgentId ?? undefined}
       data-block-id={block.id}
@@ -206,7 +206,7 @@ function SentTo({
           )}
           data-testid="chat-turn-sent-to-toggle"
         >
-          <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide">
+          <span className="shrink-0 rounded-sm bg-muted px-1.5 py-0.5 text-label-xs font-semibold uppercase tracking-wide">
             Sent to
           </span>
           <span
@@ -271,7 +271,7 @@ export const TurnAttachments = memo(function TurnAttachments({
   if (items.length === 0) return null;
   return (
     <div
-      className="mt-3 mb-2 flex min-w-0 flex-col gap-2.5 font-sans first:mt-0"
+      className="mt-3 mb-2 flex min-w-0 flex-col gap-2 font-sans first:mt-0"
       data-testid="chat-turn-attachments"
     >
       {items.map((item) =>

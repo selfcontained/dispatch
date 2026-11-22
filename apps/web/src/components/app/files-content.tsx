@@ -63,15 +63,13 @@ function LiveStreamSection({
   return (
     <div className="border-b-2 border-border">
       <div className="flex items-center gap-2 px-3 py-2">
-        <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-status-blocked" />
-        <span className="text-xs font-semibold uppercase tracking-wide text-status-blocked">
-          Live Stream
-        </span>
+        <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-danger" />
+        <span className="section-label text-danger">Live Stream</span>
         <div className="ml-auto">
           <Button
             size="sm"
             variant="ghost"
-            className="h-6 gap-1 px-2 text-xs"
+            className="h-6 gap-1 px-2 text-body-sm"
             onClick={popOut}
           >
             <ExternalLink className="h-3 w-3" />
@@ -80,7 +78,7 @@ function LiveStreamSection({
         </div>
       </div>
       <div className="px-3 pb-3">
-        <div className="overflow-hidden rounded border border-border bg-black">
+        <div className="overflow-hidden rounded-sm border border-border bg-media">
           <img
             src={streamUrl}
             alt="Live browser stream"
@@ -197,7 +195,7 @@ export function FilesContent({
             <Button
               size="sm"
               variant="default"
-              className="h-7 gap-1.5 text-xs"
+              className="h-7 gap-1.5 text-body-sm"
               disabled={uploading}
               onClick={triggerFilePicker}
             >
@@ -215,13 +213,13 @@ export function FilesContent({
                   : "Share file"}
             </Button>
             {uploadError ? (
-              <span className="truncate text-xs text-destructive">
+              <span className="truncate text-body-sm text-danger">
                 {uploadError}
               </span>
             ) : null}
           </div>
           {uploadSuccess ? (
-            <p className="mt-1 text-[11px] text-muted-foreground">
+            <p className="mt-1 text-label-sm text-muted-foreground">
               Tell the agent about the file so it knows to look.
             </p>
           ) : null}
@@ -231,10 +229,10 @@ export function FilesContent({
       <div
         ref={drawerViewportRef}
         data-testid="files-panel-scroll"
-        className="min-h-0 flex-1 overflow-y-auto pb-[env(safe-area-inset-bottom)]"
+        className="min-h-0 flex-1 overflow-y-auto pb-safe"
       >
         {nothingShared ? (
-          <div className="grid h-full place-items-center p-4 text-center text-sm text-muted-foreground">
+          <div className="grid h-full place-items-center p-4 text-center text-body-md text-muted-foreground">
             <div className="flex flex-col items-center gap-2">
               <div className="flex items-center gap-8">
                 <Image className="h-8 w-8 text-muted-foreground" />

@@ -77,11 +77,11 @@ export function InlineFindingAnnotation({
     <div
       ref={ref}
       className={cn(
-        "sticky left-0 my-3 ml-3 max-w-full overflow-clip rounded-md border-l-[3px] bg-card shadow-sm ring-1 ring-border/50",
+        "sticky left-0 my-3 ml-3 max-w-full overflow-clip rounded-md border-l-[3px] bg-card shadow-sm ring-1 ring-border-subtle",
         outcome === "open"
-          ? "border-l-status-waiting"
+          ? "border-l-warning"
           : outcome === "fixed"
-            ? "border-l-status-done"
+            ? "border-l-info"
             : "border-l-border"
       )}
       style={stickyAnnotationStyle}
@@ -94,7 +94,7 @@ export function InlineFindingAnnotation({
       <button
         type="button"
         aria-expanded={expanded}
-        className="flex w-full items-center gap-2 px-3 py-2 text-left outline-none hover:bg-muted/30 focus-visible:ring-2 focus-visible:ring-ring"
+        className="flex w-full items-center gap-2 px-3 py-2 text-left outline-none hover:bg-surface-hover focus-ring"
         data-testid="diff-finding-header"
         onClick={() => setExpanded((value) => !value)}
       >
@@ -109,7 +109,7 @@ export function InlineFindingAnnotation({
         <SeverityChip severity={finding.severity} />
         <span
           className={cn(
-            "min-w-0 flex-1 truncate text-xs font-medium text-foreground",
+            "min-w-0 flex-1 truncate text-body-sm font-medium text-foreground",
             record?.status === "resolved" &&
               "text-muted-foreground line-through"
           )}
@@ -117,21 +117,21 @@ export function InlineFindingAnnotation({
         >
           {finding.title}
         </span>
-        <span className="shrink-0 text-[11px] text-muted-foreground">
+        <span className="shrink-0 text-label-sm text-muted-foreground">
           {item.reviewerName}
         </span>
       </button>
       <Collapse open={expanded} data-testid="diff-finding-body">
-        <div className="flex flex-col gap-2.5 border-t border-border/40 px-3 pb-3 pt-2.5">
-          <Markdown className="text-xs text-foreground/90">
+        <div className="flex flex-col gap-2 border-t border-border-subtle px-3 pb-3 pt-3">
+          <Markdown className="text-body-sm text-foreground">
             {finding.body}
           </Markdown>
           {changedBy ? (
-            <div className="text-[11px] text-muted-foreground">
+            <div className="text-label-sm text-muted-foreground">
               {changedBy}
               {record?.note ? (
                 <div data-testid="diff-finding-note">
-                  <Markdown className="text-[11px] text-foreground/80">
+                  <Markdown className="text-label-sm text-foreground/soft">
                     {record.note}
                   </Markdown>
                 </div>
@@ -149,7 +149,7 @@ export function InlineFindingAnnotation({
             <Button
               type="button"
               variant="ghost"
-              className="ml-auto h-9 gap-1.5 text-xs"
+              className="ml-auto h-9 gap-1.5 text-body-sm"
               data-testid="diff-finding-open"
               // A review on a launch card opens on the card's thread.
               onClick={() => onOpen(block.threadId ?? block.id, item.findingId)}

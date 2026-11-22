@@ -29,7 +29,7 @@ export function InjectSplitButton({
         type={isSm ? "button" : "submit"}
         size={isSm ? "sm" : "default"}
         disabled={disabled}
-        className={cn("rounded-r-none", isSm && "h-7 gap-1 px-2 text-xs")}
+        className={cn("rounded-r-none", isSm && "h-7 gap-1 px-2 text-body-sm")}
         onClick={
           isSm
             ? (e: React.MouseEvent) => {
@@ -49,7 +49,7 @@ export function InjectSplitButton({
             size={isSm ? "sm" : "default"}
             disabled={disabled}
             className={cn(
-              "rounded-l-none border-l border-l-white/20 px-1.5",
+              "rounded-l-none border-l border-l-edge-strong px-1.5",
               isSm && "h-7"
             )}
           >
@@ -58,7 +58,7 @@ export function InjectSplitButton({
         </DropdownMenuTrigger>
         <DropdownMenuContent
           align="end"
-          className={cn("min-w-[180px]", insidePopover && "z-[90]")}
+          className={cn("min-w-[180px]", insidePopover && "z-tooltip")}
         >
           <DropdownMenuItem
             className="text-foreground"

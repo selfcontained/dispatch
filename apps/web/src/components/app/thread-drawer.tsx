@@ -224,7 +224,7 @@ export function ThreadDrawer({
         )}
         aria-label={heading.title}
       >
-        <div className="flex min-h-14 items-center gap-1 pl-1.5 pr-2 pt-[var(--safe-area-top)]">
+        <div className="flex min-h-14 items-center gap-1 pl-1.5 pr-2 pt-safe">
           {depth > 1 ? (
             <Button
               type="button"
@@ -247,14 +247,14 @@ export function ThreadDrawer({
           ) : null}
           <div className="min-w-0 flex-1">
             <div
-              className="truncate text-sm font-semibold text-foreground"
+              className="truncate text-body-md font-semibold text-foreground"
               data-testid="drawer-title"
             >
               {heading.title}
             </div>
             {heading.subtitle ? (
               <div
-                className="truncate text-[11.5px] text-muted-foreground"
+                className="truncate text-label-sm text-muted-foreground"
                 data-testid="drawer-subtitle"
               >
                 {heading.subtitle}

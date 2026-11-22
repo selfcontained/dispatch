@@ -103,7 +103,7 @@ export function AgentCardHeader({
       }}
     >
       <div className="flex flex-1 min-w-0 items-center gap-1.5">
-        <div className="min-w-0 flex items-center gap-2 text-left text-sm font-semibold">
+        <div className="min-w-0 flex items-center gap-2 text-left text-body-md font-semibold">
           <Tooltip>
             <TooltipTrigger asChild>
               <span className="shrink-0">
@@ -134,7 +134,7 @@ export function AgentCardHeader({
                 data-agent-control="true"
                 data-testid={`agent-prompt-rename-${agent.id}`}
                 aria-label="Ask agent to set a session name"
-                className="h-6 w-6 shrink-0 text-muted-foreground/70 hover:text-foreground [@media(pointer:coarse)]:h-10 [@media(pointer:coarse)]:w-10"
+                className="h-6 w-6 shrink-0 text-faint hover:text-foreground [@media(pointer:coarse)]:h-10 [@media(pointer:coarse)]:w-10"
                 disabled={renamePromptPending}
                 onClick={() => {
                   void promptAgentToRename();
@@ -170,7 +170,7 @@ export function AgentCardHeader({
 
       {needsAttention ? (
         <Badge
-          className="border-status-blocked/45 bg-status-blocked/15 text-status-blocked"
+          className="border-status-blocked/line bg-status-blocked/tint text-status-blocked"
           title={
             agent.lastError ??
             "Agent entered an error state and may need attention."
@@ -187,7 +187,7 @@ export function AgentCardHeader({
               className="inline-flex"
               title={isLoopJob ? loopTooltip : "Job-spawned agent"}
             >
-              <Badge className="border-status-working/45 bg-status-working/15 text-status-working">
+              <Badge className="border-status-working/line bg-status-working/tint text-status-working">
                 {isLoopJob ? (
                   <Repeat2 className="mr-1 h-3 w-3" />
                 ) : (

@@ -32,18 +32,16 @@ export function RecentReleases({
 }: RecentReleasesProps): JSX.Element {
   return (
     <div>
-      <div className="mb-3 text-[10px] uppercase tracking-widest text-muted-foreground">
-        Recent releases
-      </div>
+      <div className="mb-3 section-label">Recent releases</div>
 
       {promoteError && (
-        <div className="mb-3 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+        <div className="mb-3 rounded-lg border border-danger/line bg-danger/tint px-3 py-2 text-body-md text-danger">
           {promoteError}
         </div>
       )}
 
       {releasesLoading && releases.length === 0 && (
-        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+        <div className="flex items-center gap-2 text-body-sm text-muted-foreground">
           <ActivityBars size={14} />
           Loading...
         </div>
@@ -54,27 +52,27 @@ export function RecentReleases({
           {releases.map((r) => (
             <div
               key={r.tag}
-              className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border border-white/[0.12] bg-white/[0.04] px-3 py-2.5"
+              className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border border-edge bg-fill-inset px-3 py-3"
             >
-              <span className="font-mono text-sm font-semibold text-foreground">
+              <span className="font-mono text-body-md font-semibold text-foreground">
                 {r.tag}
               </span>
               <span
                 className={cn(
-                  "rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide",
+                  "rounded-full px-2 py-0.5 text-label-xs font-medium uppercase tracking-wide",
                   r.isPrerelease
-                    ? "bg-status-waiting/15 text-status-waiting"
-                    : "bg-green-500/15 text-green-400"
+                    ? "bg-warning/tint text-warning"
+                    : "bg-success/tint text-success"
                 )}
               >
                 {r.isPrerelease ? "pre-release" : "stable"}
               </span>
-              <span className="text-xs text-muted-foreground">
+              <span className="text-body-sm text-muted-foreground">
                 {formatShortDateTime(r.publishedAt)}
               </span>
               <div className="ml-auto flex max-w-full flex-wrap items-center justify-end gap-2">
                 {r.isPrerelease && promotingTag === r.tag && (
-                  <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <span className="flex items-center gap-1.5 text-body-sm text-muted-foreground">
                     <ActivityBars size={12} />
                     Promoting…
                     {promotionUrl && (
@@ -82,7 +80,7 @@ export function RecentReleases({
                         href={promotionUrl}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="text-blue-400 hover:underline"
+                        className="text-info hover:underline"
                       >
                         workflow
                       </a>
@@ -103,7 +101,7 @@ export function RecentReleases({
                   )}
                 {r.isPrerelease && confirmPromoteTag === r.tag && (
                   <>
-                    <span className="text-xs text-muted-foreground">
+                    <span className="text-body-sm text-muted-foreground">
                       Mark stable + latest?
                     </span>
                     <Button
@@ -123,7 +121,7 @@ export function RecentReleases({
                   </>
                 )}
                 {!r.isPrerelease && (
-                  <CheckCircle2 className="h-3.5 w-3.5 text-green-500/50" />
+                  <CheckCircle2 className="h-3.5 w-3.5 text-success/veil" />
                 )}
                 <a
                   href={r.url}
@@ -140,7 +138,9 @@ export function RecentReleases({
       )}
 
       {!releasesLoading && releases.length === 0 && (
-        <div className="text-sm text-muted-foreground">No releases found</div>
+        <div className="text-body-md text-muted-foreground">
+          No releases found
+        </div>
       )}
     </div>
   );

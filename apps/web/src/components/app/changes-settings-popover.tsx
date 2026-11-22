@@ -56,16 +56,14 @@ export function ChangesSettingsPopover({
         <PopoverContent align="end" side="bottom" className="w-64 p-3">
           <div className="space-y-3">
             <div className="space-y-1.5">
-              <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                Diff view
-              </span>
+              <span className="section-label">Diff view</span>
               <div
                 role="group"
                 aria-label="Diff view"
                 aria-describedby={
                   isMobile ? "mobile-diff-view-hint" : undefined
                 }
-                className="flex rounded-md border border-border/60 bg-muted/30 p-0.5"
+                className="flex rounded-md border border-border-subtle bg-surface-subtle p-0.5"
               >
                 {VIEW_OPTIONS.map((opt) => {
                   const disabled = isMobile && opt.value === "split";
@@ -76,7 +74,7 @@ export function ChangesSettingsPopover({
                       disabled={disabled}
                       aria-pressed={effectiveViewType === opt.value}
                       className={cn(
-                        "flex-1 rounded-[3px] px-2 py-1 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50",
+                        "flex-1 rounded-sm px-2 py-1 text-body-sm font-medium transition-colors disabled:cursor-not-allowed disabled-state disabled:pointer-events-auto",
                         effectiveViewType === opt.value
                           ? "bg-background text-foreground shadow-sm"
                           : "text-muted-foreground hover:text-foreground"
@@ -93,53 +91,47 @@ export function ChangesSettingsPopover({
               {isMobile ? (
                 <p
                   id="mobile-diff-view-hint"
-                  className="text-[11px] text-muted-foreground"
+                  className="text-label-sm text-muted-foreground"
                 >
                   Split view is available on larger screens.
                 </p>
               ) : null}
             </div>
             <div className="space-y-1.5">
-              <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                Changes
-              </span>
+              <span className="section-label">Changes</span>
               <label className="flex cursor-pointer items-center gap-2">
                 <Checkbox
                   checked={includeUncommitted}
                   onCheckedChange={(v) => setIncludeUncommitted(v === true)}
                   data-testid="changes-include-uncommitted"
                 />
-                <span className="whitespace-nowrap text-xs text-foreground">
+                <span className="whitespace-nowrap text-body-sm text-foreground">
                   Include uncommitted changes
                 </span>
               </label>
             </div>
             <div className="space-y-1.5">
-              <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                Whitespace
-              </span>
+              <span className="section-label">Whitespace</span>
               <label className="flex cursor-pointer items-center gap-2">
                 <Checkbox
                   checked={ignoreWhitespace}
                   onCheckedChange={(v) => setIgnoreWhitespace(v === true)}
                   data-testid="changes-ignore-whitespace"
                 />
-                <span className="whitespace-nowrap text-xs text-foreground">
+                <span className="whitespace-nowrap text-body-sm text-foreground">
                   Hide whitespace changes
                 </span>
               </label>
             </div>
             <div className="space-y-1.5">
-              <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                Files
-              </span>
+              <span className="section-label">Files</span>
               <label className="flex cursor-pointer items-center gap-2">
                 <Checkbox
                   checked={hideTestFiles}
                   onCheckedChange={(v) => setHideTestFiles(v === true)}
                   data-testid="changes-hide-test-files"
                 />
-                <span className="whitespace-nowrap text-xs text-foreground">
+                <span className="whitespace-nowrap text-body-sm text-foreground">
                   Hide test files
                 </span>
               </label>

@@ -44,7 +44,7 @@ export function ColorPicker({
       >
         <span
           aria-hidden="true"
-          className="flex h-5 w-5 items-center justify-center rounded-full border border-black/10 text-black"
+          className="flex h-5 w-5 items-center justify-center rounded-full border border-media/tint text-media"
           style={{ backgroundColor: color }}
         >
           {selected && <Check className="h-3 w-3" />}
@@ -62,7 +62,7 @@ export function ColorPicker({
           aria-label="Logo colors"
         >
           {logoColors.map((color) => swatch(color, `Logo color ${color}`))}
-          <span className="ml-1.5 text-xs text-muted-foreground">
+          <span className="ml-1.5 text-body-sm text-muted-foreground">
             Logo colors
           </span>
         </div>
@@ -86,7 +86,7 @@ export function ColorPicker({
           onChange={(e) => onChange(e.target.value)}
           pattern="#[0-9a-fA-F]{6}"
           maxLength={7}
-          className="h-7 w-24 px-2 font-mono text-xs"
+          className="h-7 w-24 px-2 font-mono text-body-sm"
           aria-invalid={!valid}
         />
       </div>

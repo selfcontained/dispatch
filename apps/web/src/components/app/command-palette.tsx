@@ -105,7 +105,7 @@ export function CommandPalette({
   return (
     <Dialog.Root open={open} onOpenChange={handleOpenChange}>
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-[65] bg-black/60" />
+        <Dialog.Overlay className="fixed inset-0 z-modal bg-scrim" />
         <Dialog.Content
           aria-label="Command palette"
           data-hotkey-disable="true"
@@ -116,10 +116,10 @@ export function CommandPalette({
             }
           }}
           className={cn(
-            "fixed left-1/2 top-[18%] z-[70] flex w-[min(600px,calc(100vw-2rem))] -translate-x-1/2 flex-col overflow-hidden rounded-2xl",
+            "fixed left-1/2 top-[18%] z-modal flex w-[min(600px,calc(100vw-2rem))] -translate-x-1/2 flex-col overflow-hidden rounded-xl",
             glassOverlay,
-            "shadow-[0_24px_80px_-12px_rgba(0,0,0,0.6),0_0_60px_-12px_hsl(var(--primary)/0.35)]",
-            "ring-1 ring-primary/20"
+            "shadow-elev-spotlight",
+            "ring-1 ring-primary/tint-strong"
           )}
         >
           <Dialog.Title className="sr-only">Command palette</Dialog.Title>
@@ -136,16 +136,16 @@ export function CommandPalette({
               }
             }}
           >
-            <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-primary/60 to-transparent" />
+            <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-primary/veil to-transparent" />
 
             <div
               className={cn(
-                "flex items-center gap-2 border-b border-primary/15 px-4",
+                "flex items-center gap-2 border-b border-primary/tint-strong px-4",
                 page === "confirm" && "sr-only"
               )}
             >
               <Search
-                className="h-4 w-4 shrink-0 text-primary/80"
+                className="h-4 w-4 shrink-0 text-primary/soft"
                 aria-hidden
               />
               <Command.Input
@@ -155,8 +155,8 @@ export function CommandPalette({
                 onValueChange={setSearch}
                 placeholder="Type a command…"
                 className={cn(
-                  "flex h-12 w-full bg-transparent py-3 text-sm outline-none",
-                  "placeholder:text-muted-foreground/70"
+                  "flex h-12 w-full bg-transparent py-3 text-body-md outline-none",
+                  "placeholder:text-faint"
                 )}
               />
             </div>
@@ -170,7 +170,7 @@ export function CommandPalette({
                 />
               ) : (
                 <>
-                  <Command.Empty className="px-2 py-4 text-center text-xs text-muted-foreground">
+                  <Command.Empty className="px-2 py-4 text-center text-body-sm text-muted-foreground">
                     No commands found.
                   </Command.Empty>
                   <Command.Group heading="Commands" className={groupClassName}>
@@ -222,10 +222,10 @@ function ConfirmPage({
   return (
     <div className="flex flex-col gap-3 p-3">
       <div className="flex flex-col gap-0.5">
-        <span className="text-sm font-medium text-foreground">
+        <span className="text-body-md font-medium text-foreground">
           {action.title}
         </span>
-        <span className="text-xs text-muted-foreground">
+        <span className="text-body-sm text-muted-foreground">
           {action.confirm?.description}
         </span>
       </div>
@@ -240,9 +240,9 @@ function ConfirmPage({
           onSelect={onConfirm}
           forceMount
           className={cn(
-            "group flex cursor-default select-none items-center justify-center gap-2 rounded-md px-3 py-2 text-sm font-medium outline-none",
-            "text-primary/70",
-            "data-[selected=true]:bg-primary/20 data-[selected=true]:text-primary"
+            "group flex cursor-default select-none items-center justify-center gap-2 rounded-md px-3 py-2 text-body-md font-medium outline-none",
+            "text-primary/soft",
+            "data-[selected=true]:bg-primary/tint-strong data-[selected=true]:text-primary"
           )}
         >
           <Play className="h-3.5 w-3.5 fill-current" aria-hidden />
@@ -254,9 +254,9 @@ function ConfirmPage({
           onSelect={onBack}
           forceMount
           className={cn(
-            "group flex cursor-default select-none items-center justify-center gap-2 rounded-md px-3 py-2 text-sm outline-none",
+            "group flex cursor-default select-none items-center justify-center gap-2 rounded-md px-3 py-2 text-body-md outline-none",
             "text-muted-foreground",
-            "data-[selected=true]:bg-white/[0.06] data-[selected=true]:text-foreground"
+            "data-[selected=true]:bg-fill-hover data-[selected=true]:text-foreground"
           )}
         >
           Cancel
@@ -268,12 +268,12 @@ function ConfirmPage({
 
 const groupClassName = cn(
   "overflow-hidden p-1 text-foreground",
-  "[&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-xs [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-muted-foreground",
+  "[&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-body-sm [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-muted-foreground",
   "[&+[cmdk-group]]:border-t [&+[cmdk-group]]:border-border"
 );
 
 const itemClassName =
-  "group relative flex cursor-default select-none items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none";
+  "group relative flex cursor-default select-none items-center gap-2 rounded-sm px-2 py-1.5 text-body-md outline-none";
 
 const iconClassName = "h-4 w-4 shrink-0 text-muted-foreground";
 
@@ -294,8 +294,8 @@ function CommandPaletteItem({
       disabled={action.disabled}
       className={cn(
         itemClassName,
-        "data-[selected=true]:bg-white/[0.08] data-[selected=true]:text-foreground",
-        "data-[disabled=true]:pointer-events-none data-[disabled=true]:opacity-50"
+        "data-[selected=true]:bg-fill-hover data-[selected=true]:text-foreground",
+        "disabled-state"
       )}
     >
       {Icon ? <Icon className={iconClassName} aria-hidden /> : null}

@@ -161,12 +161,10 @@ export function QuickPhrasesButton({
           }}
         >
           <div className="flex items-center justify-between border-b border-border px-3 py-2">
-            <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              Quick Phrases
-            </h4>
+            <h4 className="section-label">Quick Phrases</h4>
             <button
               type="button"
-              className="rounded p-1.5 text-muted-foreground hover:bg-white/[0.1] hover:text-foreground"
+              className="rounded-sm p-1.5 text-muted-foreground hover:bg-fill-hover hover:text-foreground"
               onClick={() => setEditing({ id: "", label: "", text: "" })}
               title="Add phrase"
             >
@@ -174,25 +172,25 @@ export function QuickPhrasesButton({
             </button>
           </div>
           {!canInject ? (
-            <div className="border-b border-border/50 bg-yellow-500/5 px-3 py-1.5 text-xs text-yellow-400/90">
+            <div className="border-b border-border-subtle bg-warning/wash px-3 py-1.5 text-body-sm text-warning">
               Connect to an agent session to inject phrases
             </div>
           ) : null}
           <Command shouldFilter={false} loop className="bg-transparent">
             <div className="relative">
-              <Search className="pointer-events-none absolute left-4 top-1/2 z-10 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+              <Search className="pointer-events-none absolute left-4 top-1/2 z-sticky h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
               <CommandInput
                 ref={searchInputRef}
                 value={search}
                 onValueChange={setSearch}
                 placeholder="Search phrases..."
                 aria-label="Search quick phrases"
-                className="h-10 pl-7 text-sm"
+                className="h-10 pl-8 text-body-md"
               />
             </div>
             <CommandList className="max-h-64">
               {phrases.length === 0 ? (
-                <div className="px-3 py-4 text-center text-xs text-muted-foreground">
+                <div className="px-3 py-4 text-center text-body-sm text-muted-foreground">
                   No phrases yet
                 </div>
               ) : (
@@ -204,7 +202,7 @@ export function QuickPhrasesButton({
                         key={phrase.id}
                         value={phrase.id}
                         onSelect={() => handleSelect(phrase)}
-                        className="border-b border-border/50 p-0 last:border-b-0 data-[selected=true]:bg-primary/10"
+                        className="border-b border-border-subtle p-0 last:border-b-0 data-[selected=true]:bg-surface-selected"
                       >
                         <PhraseRow
                           phrase={phrase}

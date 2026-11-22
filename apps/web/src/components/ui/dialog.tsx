@@ -19,10 +19,7 @@ const DialogOverlay = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <DialogPrimitive.Overlay
     ref={ref}
-    className={cn(
-      "fixed inset-0 z-[70] bg-black/50 backdrop-blur-md",
-      className
-    )}
+    className={cn("fixed inset-0 z-modal bg-scrim backdrop-blur-md", className)}
     {...props}
   />
 ));
@@ -40,7 +37,7 @@ const DialogContent = React.forwardRef<
       ref={ref}
       data-hotkey-disable="true"
       className={cn(
-        "fixed left-1/2 top-1/2 z-[70] flex flex-col w-[min(560px,calc(100vw-2rem))] max-h-[80vh] -translate-x-1/2 -translate-y-1/2 gap-3 overflow-hidden rounded-xl p-4",
+        "fixed left-1/2 top-1/2 z-modal flex flex-col w-[min(560px,calc(100vw-2rem))] max-h-[80vh] -translate-x-1/2 -translate-y-1/2 gap-3 overflow-hidden rounded-xl p-4",
         glassOverlay,
         className
       )}
@@ -63,7 +60,7 @@ const DialogTitle = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <DialogPrimitive.Title
     ref={ref}
-    className={cn("text-lg font-semibold", className)}
+    className={cn("text-heading-md", className)}
     {...props}
   />
 ));
@@ -75,7 +72,7 @@ const DialogDescription = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <DialogPrimitive.Description
     ref={ref}
-    className={cn("text-sm text-muted-foreground", className)}
+    className={cn("text-body-md text-muted-foreground", className)}
     {...props}
   />
 ));

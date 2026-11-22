@@ -27,7 +27,7 @@ export function AgentLinkControls({
       onClick={(event) => event.stopPropagation()}
     >
       <Button
-        className="text-muted-foreground/60 hover:text-foreground"
+        className="text-faint hover:text-foreground"
         variant="ghost"
         size="icon-sm"
         aria-label={copied ? copiedLabel : copyLabel}
@@ -41,7 +41,7 @@ export function AgentLinkControls({
         )}
       </Button>
       <Button
-        className="text-muted-foreground/60 hover:text-foreground"
+        className="text-faint hover:text-foreground"
         variant="ghost"
         size="icon-sm"
         aria-label={dismissLabel}
@@ -63,7 +63,7 @@ export function AgentMetadataLink({
     <a
       {...props}
       className={cn(
-        "flex min-w-0 items-center gap-1 rounded-sm font-mono text-xs leading-4 text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        "flex min-w-0 items-center gap-1 rounded-sm font-mono text-body-sm leading-4 text-foreground hover:underline focus-ring",
         className
       )}
     >

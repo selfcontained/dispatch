@@ -60,16 +60,16 @@ export function LoopSetup({
     Boolean(continuationMaxIterations(draft.maxIterations));
 
   return (
-    <section className="rounded-md border border-border/70 bg-muted/20 p-4 text-sm">
+    <section className="rounded-md border border-border-subtle bg-surface-subtle p-4 text-body-md">
       <div className="mb-3">
-        <h3 className="font-medium text-foreground">Loop setup</h3>
+        <h3 className="text-heading-sm text-foreground">Loop setup</h3>
       </div>
       <label className="flex items-center justify-between gap-3">
         <span>
           <span className="block font-medium text-foreground">
             Run as a loop
           </span>
-          <span className="block text-xs text-muted-foreground">
+          <span className="block text-body-sm text-muted-foreground">
             Keep starting new runs until the work is done.
           </span>
         </span>
@@ -80,15 +80,15 @@ export function LoopSetup({
         />
       </label>
       {draft.enabled ? (
-        <div className="mt-4 grid gap-4 border-t border-border/70 pt-4">
-          <p className="text-xs text-muted-foreground">
+        <div className="mt-4 grid gap-4 border-t border-border-subtle pt-4">
+          <p className="text-body-sm text-muted-foreground">
             The job prompt defines how each run works and where it keeps shared
             context. Each completed run passes its outcome, next step, relevant
             files, and blockers to the next run.
           </p>
           <div className="space-y-1">
             <label
-              className="text-sm text-muted-foreground"
+              className="text-body-md text-muted-foreground"
               htmlFor={`${idPrefix}-max-iterations`}
             >
               Maximum runs
@@ -110,7 +110,7 @@ export function LoopSetup({
             />
             <p
               id={`${idPrefix}-max-iterations-help`}
-              className="text-xs text-muted-foreground"
+              className="text-body-sm text-muted-foreground"
             >
               Leave blank for no limit.
             </p>
@@ -118,13 +118,13 @@ export function LoopSetup({
               <p
                 id={`${idPrefix}-max-iterations-error`}
                 role="alert"
-                className="text-xs text-status-blocked"
+                className="text-body-sm text-danger"
               >
                 Use a positive whole number or leave this blank.
               </p>
             ) : null}
           </div>
-          <div className="border-t border-border/70 pt-4">
+          <div className="border-t border-border-subtle pt-4">
             <div className="grid gap-4 md:grid-cols-2">
               <LoopListField
                 id={`${idPrefix}-completionCriteria`}
@@ -172,7 +172,9 @@ function LoopListField({
 
   return (
     <fieldset className="min-w-0 space-y-2">
-      <legend className="text-sm font-medium text-foreground">{label}</legend>
+      <legend className="text-body-md font-medium text-foreground">
+        {label}
+      </legend>
       <div className="grid gap-2">
         {items.map((item, index) => (
           <div
@@ -212,7 +214,7 @@ function LoopListField({
         type="button"
         variant="ghost"
         size="sm"
-        className="h-7 px-2 text-xs"
+        className="h-7 px-2 text-body-sm"
         disabled={!items.at(-1)?.trim()}
         onClick={() => onChange([...items, ""])}
       >

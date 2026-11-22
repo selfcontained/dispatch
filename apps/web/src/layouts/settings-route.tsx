@@ -10,9 +10,9 @@ import { SectionShell } from "./section-shell";
 import { useDashboardContext } from "@/components/app/dashboard-context";
 
 export function serviceDotClass(state: ServiceState): string {
-  if (state === "ok") return "bg-status-working";
-  if (state === "down") return "bg-status-blocked";
-  return "bg-status-waiting";
+  if (state === "ok") return "bg-success";
+  if (state === "down") return "bg-danger";
+  return "bg-warning";
 }
 
 export function SettingsRoute(): JSX.Element {

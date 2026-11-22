@@ -55,8 +55,8 @@ export function diffLines(oldText: string | null, newText: string): DiffLine[] {
 
 const DIFF_LINE_CLASS: Record<DiffLine["kind"], string> = {
   same: "text-muted-foreground",
-  add: "bg-status-done/10 text-status-done",
-  del: "bg-status-blocked/10 text-status-blocked",
+  add: "bg-info/tint text-info",
+  del: "bg-danger/tint text-danger",
 };
 const DIFF_SIGN: Record<DiffLine["kind"], string> = {
   same: " ",
@@ -75,7 +75,7 @@ export function DiffBlock({
   const lines = useMemo(() => diffLines(oldText, newText), [oldText, newText]);
   return (
     <pre
-      className="max-h-64 overflow-auto rounded-md bg-muted font-terminal text-[11px] leading-snug"
+      className="max-h-64 overflow-auto rounded-md bg-muted font-terminal text-label-sm leading-snug"
       data-testid="chat-activity-diff"
     >
       {lines.map((line, index) => (

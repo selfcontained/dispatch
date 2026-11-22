@@ -47,8 +47,8 @@ export function PullRequestChecksComparison() {
   return (
     <section className="mx-auto max-w-4xl space-y-6">
       <header>
-        <h1 className="text-xl font-semibold">PR checks · single status</h1>
-        <p className="mt-2 text-sm text-muted-foreground">
+        <h1 className="text-heading-lg">PR checks · single status</h1>
+        <p className="mt-2 text-body-md text-muted-foreground">
           Real sidebar components at their actual size, using sample checks.
           Failure takes priority, then pending, then passing. Each icon shows
           one status. Click an icon to see individual checks in the popover.
@@ -57,9 +57,9 @@ export function PullRequestChecksComparison() {
       <div className="grid gap-6 md:grid-cols-2">
         {scenarios.map(({ title, pr }) => (
           <article key={title} className="rounded-lg border border-border p-4">
-            <h2 className="text-sm font-semibold">{title}</h2>
+            <h2 className="text-heading-sm">{title}</h2>
             <div className="mt-4 w-full max-w-72 rounded-lg border border-border bg-sidebar p-3">
-              <p className="mb-3 text-xs font-medium">theme polish</p>
+              <p className="mb-3 text-body-sm font-medium">theme polish</p>
               <PullRequestRow pr={pr} isError={false} onDismiss={() => {}} />
             </div>
           </article>

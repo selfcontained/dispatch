@@ -140,7 +140,7 @@ export function MessageActions({
                 )}
                 {onReact && (
                   <DropdownMenuItem
-                    className="flex items-center gap-2 text-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50"
+                    className="flex items-center gap-2 text-foreground disabled-state"
                     disabled={reactionsDisabled}
                     title={
                       reactionsDisabled
@@ -193,14 +193,14 @@ export function MessageActions({
           aria-describedby={undefined}
         >
           <DialogHeader>
-            <DialogTitle className="text-sm tracking-tight">
+            <DialogTitle className="tracking-tight">
               Message metadata
             </DialogTitle>
           </DialogHeader>
           <div className="max-h-[70dvh] space-y-2 overflow-y-auto pr-1">
             <section className="space-y-1.5" aria-label="Message delivery">
               <div className="flex min-w-0 flex-wrap items-baseline justify-between gap-x-2">
-                <p className="break-words text-xs font-medium">
+                <p className="break-words text-body-sm font-medium">
                   <span className="mr-1.5 font-normal text-muted-foreground">
                     From
                   </span>
@@ -208,16 +208,14 @@ export function MessageActions({
                 </p>
                 <time
                   dateTime={block.createdAt}
-                  className="block text-[10px] text-muted-foreground"
+                  className="block text-label-xs text-muted-foreground"
                 >
                   {formatDateTime(block.createdAt)}
                 </time>
               </div>
               <div className="space-y-1">
                 {!!deliveries.length && (
-                  <h3 className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-                    Delivery
-                  </h3>
+                  <h3 className="section-label">Delivery</h3>
                 )}
                 {deliveries.map((delivery) => {
                   const receipt = delivery.receipt;
@@ -236,7 +234,7 @@ export function MessageActions({
                                 ? "Sent · awaiting pickup"
                                 : "Delivered · pickup unconfirmed";
                   return (
-                    <div key={delivery.agentId} className="text-[10px]">
+                    <div key={delivery.agentId} className="text-label-xs">
                       <div className="flex flex-wrap items-center justify-between gap-x-2">
                         <span className="text-muted-foreground">
                           {agentName(delivery.agentId)}
@@ -244,9 +242,9 @@ export function MessageActions({
                         <span
                           className={
                             delivery.state === "failed"
-                              ? "text-destructive"
+                              ? "text-danger"
                               : receipt?.pickedUpAt
-                                ? "text-green-600 dark:text-green-400"
+                                ? "text-success-ink"
                                 : "text-foreground"
                           }
                         >
@@ -292,7 +290,7 @@ export function MessageActions({
                   );
                 })}
                 {!block.delivery?.length && !recipients.length && (
-                  <span className="text-[10px] text-muted-foreground">
+                  <span className="text-label-xs text-muted-foreground">
                     Delivery unavailable
                   </span>
                 )}
@@ -332,12 +330,12 @@ function MessageRoutingDetails({
   return (
     <>
       {metadata.isFetching && !metadata.data && (
-        <p className="text-xs text-muted-foreground">
+        <p className="text-body-sm text-muted-foreground">
           Loading routing details…
         </p>
       )}
       {metadata.isError && (
-        <p className="text-xs text-destructive">
+        <p className="text-body-sm text-danger">
           Couldn’t load routing details.
         </p>
       )}

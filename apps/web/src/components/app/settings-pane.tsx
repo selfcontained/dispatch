@@ -59,9 +59,7 @@ export function SettingsNavContent({
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="mt-2 flex h-14 items-center border-b border-border px-3">
-        <div className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-          Settings
-        </div>
+        <div className="section-label">Settings</div>
       </div>
       <nav className="min-h-0 flex-1 overflow-y-auto px-2 py-2">
         {sections.map(({ id, label, icon: Icon }) => (
@@ -70,10 +68,10 @@ export function SettingsNavContent({
               type="button"
               onClick={() => onSectionChange(id)}
               className={cn(
-                "flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-left text-sm transition-colors",
+                "flex w-full items-center gap-2 rounded-lg px-3 py-3 text-left text-body-md transition-colors",
                 activeSection === id
-                  ? "bg-primary/10 text-foreground border border-primary/20"
-                  : "border border-transparent text-muted-foreground hover:bg-white/[0.04] hover:text-foreground"
+                  ? "bg-surface-selected text-foreground border border-primary/tint-strong"
+                  : "border border-transparent text-muted-foreground hover:bg-fill-hover hover:text-foreground"
               )}
             >
               <Icon className="h-3.5 w-3.5 shrink-0" />
@@ -88,7 +86,7 @@ export function SettingsNavContent({
                     type="button"
                     onClick={() => onSubsectionChange?.(doc.id)}
                     className={cn(
-                      "flex w-full items-center px-4 py-1.5 text-left text-xs transition-colors",
+                      "flex w-full items-center px-4 py-1.5 text-left text-body-sm transition-colors",
                       activeSubsection === doc.id
                         ? "text-foreground"
                         : "text-muted-foreground hover:text-foreground"
@@ -103,7 +101,7 @@ export function SettingsNavContent({
         ))}
       </nav>
       <div className="border-t border-border px-4 pb-3 pt-4">
-        <div className="flex justify-around text-xs text-muted-foreground">
+        <div className="flex justify-around text-body-sm text-muted-foreground">
           <ServiceStatus
             icon={<Server className="h-3.5 w-3.5" />}
             label="API"

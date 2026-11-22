@@ -67,7 +67,7 @@ export function SectionShell({
             </div>
           ) : null}
           {!leftPanelOpen && !headerActions ? (
-            <div className="pointer-events-none absolute left-3 top-3 z-10">
+            <div className="pointer-events-none absolute left-3 top-3 z-sticky">
               <Button
                 size="icon"
                 variant="ghost"

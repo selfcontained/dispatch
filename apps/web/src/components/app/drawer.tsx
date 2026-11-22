@@ -107,10 +107,10 @@ function SidebarTab({
       data-testid={testId}
       aria-pressed={active}
       className={cn(
-        "relative flex shrink-0 items-center gap-1.5 px-3 py-2.5 text-xs font-semibold uppercase tracking-wide transition-colors",
+        "relative flex shrink-0 items-center gap-1.5 px-3 py-3 text-body-sm font-semibold uppercase tracking-wide transition-colors",
         active
           ? "text-foreground"
-          : "text-muted-foreground hover:text-foreground/80"
+          : "text-muted-foreground hover:text-foreground/soft"
       )}
     >
       {label}
@@ -120,7 +120,7 @@ function SidebarTab({
       {badge !== undefined && badge > 0 ? (
         <span
           className={cn(
-            "absolute top-0 right-0 flex h-4 w-4 items-center justify-center rounded-full text-[8px]",
+            "absolute top-0 right-0 flex h-4 w-4 items-center justify-center rounded-full text-label-xs",
             badgeClassName ?? "bg-primary text-primary-foreground"
           )}
           data-testid={`${testId}-badge`}
@@ -171,7 +171,7 @@ export function DrawerContent({
       )}
     >
       {/* Chrome: the home tabs. A thread opens in a drawer of its own. */}
-      <div className="flex min-h-14 items-center pt-[var(--safe-area-top)]">
+      <div className="flex min-h-14 items-center pt-safe">
         {
           <div className="flex min-w-0 flex-1">
             <SidebarTab
@@ -179,7 +179,7 @@ export function DrawerContent({
               active={activeTab === "inbox"}
               onClick={() => setActiveTab("inbox")}
               badge={inbox.inputs.length}
-              badgeClassName="bg-status-waiting text-white"
+              badgeClassName="bg-status-waiting text-background"
               testId="sidebar-tab-inbox"
             />
             <SidebarTab
@@ -187,7 +187,7 @@ export function DrawerContent({
               active={activeTab === "files"}
               onClick={() => setActiveTab("files")}
               badge={unseenFileCount}
-              badgeClassName="bg-destructive text-destructive-foreground"
+              badgeClassName="bg-danger text-danger-foreground"
               testId="sidebar-tab-files"
             />
             <SidebarTab
@@ -405,7 +405,7 @@ function DrawerResizeHandle({
       aria-valuenow={width}
       tabIndex={0}
       data-testid="drawer-resize-handle"
-      className="group absolute inset-y-0 left-0 z-10 w-2 -translate-x-1/2 cursor-col-resize touch-none outline-none"
+      className="group absolute inset-y-0 left-0 z-sticky w-2 -translate-x-1/2 cursor-col-resize touch-none outline-none"
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={endDrag}
@@ -417,8 +417,8 @@ function DrawerResizeHandle({
       <div
         className={cn(
           "mx-auto h-full w-0.5 bg-transparent transition-colors",
-          "group-hover:bg-primary/40 group-focus-visible:bg-primary",
-          drawerWidth.dragging && "bg-primary/60"
+          "group-hover:bg-primary/veil group-focus-visible:bg-primary",
+          drawerWidth.dragging && "bg-primary/veil"
         )}
       />
     </div>
@@ -577,7 +577,7 @@ export function DrawerFrame({
       data-closing={closing ? "true" : undefined}
       data-resizing={dragging ? "true" : undefined}
       className={cn(
-        "fixed bottom-0 right-0 top-[var(--exposure-banner-height,0px)] z-30 transition-transform ease-out",
+        "fixed bottom-0 right-0 top-[var(--exposure-banner-height,0px)] z-dock transition-transform ease-out",
         !open && "pointer-events-none"
       )}
       style={{
@@ -614,11 +614,7 @@ export function Drawer({
         closeButtonIcon="chevron"
         pinned={pinned}
         onTogglePin={onTogglePin}
-        className={cn(
-          "rounded-l-lg border-l",
-          !pinned && "shadow-2xl",
-          glassPanel
-        )}
+        className={cn("rounded-l-lg border-l", glassPanel)}
       />
     </DrawerFrame>
   );

@@ -44,7 +44,7 @@ export function PastedTextChip({
       onRemove={onRemove}
       removeLabel={`Remove ${file.name}`}
       tooltip={`${file.name} — pasted text, ${lines} lines`}
-      className={cn(status === "failed" && "border-destructive/60")}
+      className={cn(status === "failed" && "border-danger/line-strong")}
       testId="chat-attachment-chip-pasted"
     />
   );

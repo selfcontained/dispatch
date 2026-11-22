@@ -61,7 +61,7 @@ export function ZoomableImage({
       />
       <div className="pointer-events-none absolute inset-x-0 bottom-[max(1rem,env(safe-area-inset-bottom))] flex justify-center">
         <div
-          className="pointer-events-auto flex items-center gap-1 rounded-full border border-white/15 bg-black/65 p-1 text-white shadow-lg backdrop-blur"
+          className="surface-overlay pointer-events-auto flex items-center gap-1 rounded-full p-1 text-overlay-foreground"
           onPointerDown={(event) => event.stopPropagation()}
           onDoubleClick={(event) => event.stopPropagation()}
           onWheel={(event) => event.stopPropagation()}
@@ -72,7 +72,7 @@ export function ZoomableImage({
             disabled={transform.scale <= MIN_IMAGE_SCALE}
             size="icon"
             variant="ghost"
-            className="h-10 w-10 rounded-full text-white hover:bg-white/15 hover:text-white"
+            className="h-10 w-10 rounded-full text-overlay-foreground hover:bg-fill-hover hover:text-overlay-foreground"
             onClick={() => zoomAt(transform.scale / 1.5)}
           >
             <ZoomOut className="h-5 w-5" />
@@ -82,7 +82,7 @@ export function ZoomableImage({
             data-testid="file-lightbox-zoom-reset"
             size="sm"
             variant="ghost"
-            className="h-10 min-w-16 rounded-full px-2 text-xs tabular-nums text-white hover:bg-white/15 hover:text-white"
+            className="h-10 min-w-16 rounded-full px-2 text-body-sm tabular-nums text-overlay-foreground hover:bg-fill-hover hover:text-overlay-foreground"
             onClick={reset}
           >
             {Math.round(transform.scale * 100)}%
@@ -93,7 +93,7 @@ export function ZoomableImage({
             disabled={transform.scale >= MAX_IMAGE_SCALE}
             size="icon"
             variant="ghost"
-            className="h-10 w-10 rounded-full text-white hover:bg-white/15 hover:text-white"
+            className="h-10 w-10 rounded-full text-overlay-foreground hover:bg-fill-hover hover:text-overlay-foreground"
             onClick={() => zoomAt(transform.scale * 1.5)}
           >
             <ZoomIn className="h-5 w-5" />
@@ -102,7 +102,7 @@ export function ZoomableImage({
             aria-label="Fit image to screen"
             size="icon"
             variant="ghost"
-            className="h-10 w-10 rounded-full text-white hover:bg-white/15 hover:text-white"
+            className="h-10 w-10 rounded-full text-overlay-foreground hover:bg-fill-hover hover:text-overlay-foreground"
             onClick={reset}
           >
             <Maximize2 className="h-5 w-5" />

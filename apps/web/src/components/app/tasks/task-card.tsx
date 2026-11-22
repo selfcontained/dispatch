@@ -22,11 +22,11 @@ import {
 import { cn } from "@/lib/utils";
 
 const CARD =
-  "group rounded-lg bg-muted/70 p-3 shadow-sm ring-1 ring-foreground/[0.05] pointer-coarse:select-none [-webkit-touch-callout:none]";
+  "group rounded-lg bg-surface-hover p-3 shadow-sm ring-1 ring-foreground/wash pointer-coarse:select-none [-webkit-touch-callout:none]";
 // TouchSensor cancels quick swipes and prevents scrolling only after its hold delay.
 // Keep native panning available on the grip until then (dnd-kit Touch recommendations).
 const GRIP =
-  "-ml-1 self-start rounded text-muted-foreground/50 touch-manipulation pointer-coarse:-my-2 pointer-coarse:-ml-2.5 pointer-coarse:p-2.5";
+  "-ml-1 self-start rounded-sm text-faint touch-manipulation pointer-coarse:-my-2 pointer-coarse:-ml-3 pointer-coarse:p-3";
 /**
  * A card moved from its Move to… sheet remounts in its new column; that
  * mount takes focus back, as the sheet can't reach the new card.
@@ -86,7 +86,7 @@ export function TaskCard({
       data-task-id={task.id}
       className={cn(
         CARD,
-        "transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        "transition-colors hover:bg-muted focus-ring",
         // Lifted into the drag overlay: what stays is the drop placeholder.
         sortable.isDragging && "opacity-40"
       )}
@@ -104,7 +104,7 @@ export function TaskCard({
           <GripVertical className="h-4 w-4" aria-hidden="true" />
         </button>
         <button
-          className="line-clamp-3 min-w-0 flex-1 break-words text-left text-sm font-medium leading-5"
+          className="line-clamp-3 min-w-0 flex-1 break-words text-left text-body-md font-medium leading-5"
           onClick={onOpen}
         >
           {task.title}
@@ -172,14 +172,14 @@ export function TaskCardOverlay({
       data-testid="task-card-overlay"
       className={cn(
         CARD,
-        "cursor-grabbing bg-muted shadow-xl ring-2 ring-ring/40"
+        "cursor-grabbing bg-muted shadow-xl ring-2 ring-ring/line"
       )}
     >
       <div className="flex gap-2">
         <span className={GRIP}>
           <GripVertical className="h-4 w-4" aria-hidden="true" />
         </span>
-        <span className="line-clamp-3 min-w-0 flex-1 break-words text-sm font-medium leading-5">
+        <span className="line-clamp-3 min-w-0 flex-1 break-words text-body-md font-medium leading-5">
           {task.title}
         </span>
       </div>
@@ -201,7 +201,7 @@ function TaskCardDetails({
   const agent = agents.find((item) => item.id === task.assignedAgentId);
   return (
     <>
-      <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+      <div className="mt-2 flex flex-wrap items-center gap-2 text-body-sm text-muted-foreground">
         {task.launching ? (
           <TaskLaunching task={task} columns={columns} />
         ) : task.assignedAgentId ? (
@@ -222,7 +222,7 @@ function TaskCardDetails({
       </div>
       {(task.links.some((link) => link.kind === "pr") ||
         (task.latestFailure && !task.launching)) && (
-        <div className="mt-2 flex flex-wrap gap-1 text-[11px]">
+        <div className="mt-2 flex flex-wrap gap-1 text-label-sm">
           {task.links
             .filter((link) => link.kind === "pr")
             .map((link) => (
@@ -232,7 +232,7 @@ function TaskCardDetails({
                 target="_blank"
                 rel="noreferrer"
                 title={link.label}
-                className="inline-flex min-w-0 max-w-full items-center gap-1 rounded bg-background/60 px-1.5 py-0.5"
+                className="inline-flex min-w-0 max-w-full items-center gap-1 rounded-sm bg-background/veil px-1.5 py-0.5"
                 onClick={(event) => event.stopPropagation()}
               >
                 <GitPullRequest
@@ -244,7 +244,7 @@ function TaskCardDetails({
             ))}
           {task.latestFailure && !task.launching && (
             <span
-              className="max-w-full truncate rounded bg-destructive/15 px-1.5 py-0.5 text-destructive"
+              className="max-w-full truncate rounded-sm bg-danger/tint px-1.5 py-0.5 text-danger"
               title={task.latestFailure.reason}
             >
               ⚠ launch failed · {task.latestFailure.reason}

@@ -68,7 +68,7 @@ export function AvatarCropDialog({
           tabIndex={0}
           aria-label="Avatar crop preview. Drag or use arrow keys to position."
           data-testid="avatar-crop-preview"
-          className="mx-auto aspect-square w-full max-w-64 shrink-0 touch-none cursor-move rounded-full border border-border bg-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+          className="mx-auto aspect-square w-full max-w-64 shrink-0 touch-none cursor-move rounded-full border border-border bg-muted focus-ring"
           onPointerDown={(event) => {
             if (saving) return;
             event.currentTarget.setPointerCapture(event.pointerId);
@@ -104,7 +104,7 @@ export function AvatarCropDialog({
             }
           }}
         />
-        <label className="text-sm">
+        <label className="text-body-md">
           Zoom
           <Slider
             className="mt-3"
@@ -119,12 +119,12 @@ export function AvatarCropDialog({
             }
           />
         </label>
-        <p className="text-xs text-muted-foreground">
+        <p className="text-body-sm text-muted-foreground">
           We’ll crop and resize it for you. Your original photo stays on your
           device.
         </p>
         {error && (
-          <p role="alert" className="text-sm text-destructive">
+          <p role="alert" className="text-body-md text-danger">
             {error}
           </p>
         )}

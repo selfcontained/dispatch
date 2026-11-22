@@ -87,10 +87,10 @@ export function CompactionComparison() {
     <section aria-labelledby="compaction-heading" className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
-          <h2 id="compaction-heading" className="text-xl font-semibold">
+          <h2 id="compaction-heading" className="text-heading-lg">
             Compacting context
           </h2>
-          <p className="mt-1 text-sm text-muted-foreground">
+          <p className="mt-1 text-body-md text-muted-foreground">
             One block at a time turns green. Finish compaction to resume normal
             activity.
           </p>
@@ -120,7 +120,7 @@ export function CompactionComparison() {
           compacting={compacting}
           nearlyFull={preset.nearlyFull}
         />
-        <p className="mt-2 text-xs text-muted-foreground">
+        <p className="mt-2 text-body-sm text-muted-foreground">
           {compacting ? "Compacting context" : "Working"}
         </p>
       </div>

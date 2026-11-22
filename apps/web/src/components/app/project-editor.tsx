@@ -111,7 +111,7 @@ export function ProjectEditor({
               className="-m-1 min-h-0 flex-1 space-y-4 overflow-y-auto p-1"
               data-testid="project-editor-body"
             >
-              <label className="block space-y-1 text-sm">
+              <label className="block space-y-1 text-body-md">
                 <span>Name</span>
                 <Input
                   value={name}
@@ -122,11 +122,11 @@ export function ProjectEditor({
                 />
               </label>
               {project ? (
-                <div className="space-y-1 text-sm">
+                <div className="space-y-1 text-body-md">
                   <span>Folder</span>
                   <p
                     title={repoRoot}
-                    className="truncate text-xs text-muted-foreground"
+                    className="truncate text-body-sm text-muted-foreground"
                   >
                     {repoRoot}
                   </p>
@@ -141,10 +141,10 @@ export function ProjectEditor({
                 />
               )}
               <fieldset className="space-y-2">
-                <legend className="text-sm">Icon</legend>
+                <legend className="text-body-md">Icon</legend>
                 <div className="flex items-center gap-3">
                   <div
-                    className="flex h-16 w-16 shrink-0 items-center justify-center rounded-lg border border-border bg-muted/30"
+                    className="flex h-16 w-16 shrink-0 items-center justify-center rounded-lg border border-border bg-surface-subtle"
                     data-testid="project-icon-preview"
                   >
                     {iconSrc ? (
@@ -164,7 +164,7 @@ export function ProjectEditor({
                         className="h-12 w-12 object-contain"
                       />
                     ) : (
-                      <span className="text-xl text-muted-foreground">
+                      <span className="text-heading-lg font-normal text-muted-foreground">
                         {name.trim().slice(0, 1).toUpperCase() || "?"}
                       </span>
                     )}
@@ -172,7 +172,7 @@ export function ProjectEditor({
                   <div className="min-w-0 flex-1 space-y-2">
                     <div className="flex h-4 items-center gap-1">
                       <p
-                        className="min-w-0 truncate text-xs text-muted-foreground"
+                        className="min-w-0 truncate text-body-sm text-muted-foreground"
                         role="status"
                         title={preview.data?.path ?? undefined}
                       >
@@ -196,7 +196,10 @@ export function ProjectEditor({
                             <Info className="h-3.5 w-3.5" />
                           </Button>
                         </PopoverTrigger>
-                        <PopoverContent className="w-64 text-xs" side="top">
+                        <PopoverContent
+                          className="w-64 text-body-sm"
+                          side="top"
+                        >
                           Add .dispatch/logo.svg or .dispatch/logo.png to the
                           folder to use it automatically. Upload an image to
                           override it.
@@ -258,7 +261,7 @@ export function ProjectEditor({
                 />
               </fieldset>
               <fieldset className="space-y-2">
-                <legend className="text-sm">Color</legend>
+                <legend className="text-body-md">Color</legend>
                 <ColorPicker
                   value={color}
                   onChange={setManualColor}
@@ -267,12 +270,12 @@ export function ProjectEditor({
                 />
               </fieldset>
               {(error || action.error) && (
-                <p role="alert" className="text-sm text-destructive">
+                <p role="alert" className="text-body-md text-danger">
                   {error ?? action.error?.message}
                 </p>
               )}
               {project && (
-                <div className="flex flex-wrap items-center gap-3 rounded-lg bg-muted/30 p-3">
+                <div className="flex flex-wrap items-center gap-3 rounded-lg bg-surface-subtle p-3">
                   <Button
                     type="button"
                     size="sm"
@@ -289,7 +292,7 @@ export function ProjectEditor({
                   >
                     {confirmDelete ? "Confirm delete" : "Delete project"}
                   </Button>
-                  <p className="min-w-32 flex-1 text-xs text-muted-foreground">
+                  <p className="min-w-32 flex-1 text-body-sm text-muted-foreground">
                     Ungroups sessions and templates. Files are kept.
                   </p>
                   {confirmDelete && (

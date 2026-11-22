@@ -247,16 +247,16 @@ export function AgentListContent({
                 }
               },
               className: cn(
-                "relative cursor-grab active:cursor-grabbing focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+                "relative cursor-grab active:cursor-grabbing focus-ring",
                 draggingAgentId === agent.id && "opacity-55",
                 dropTarget?.agentId === agent.id &&
                   dropTarget.position === "before" &&
                   draggingAgentId !== agent.id &&
-                  "before:absolute before:inset-x-0 before:top-0 before:z-10 before:h-0.5 before:bg-primary",
+                  "before:absolute before:inset-x-0 before:top-0 before:z-sticky before:h-0.5 before:bg-primary",
                 dropTarget?.agentId === agent.id &&
                   dropTarget.position === "after" &&
                   draggingAgentId !== agent.id &&
-                  "after:absolute after:bottom-0 after:inset-x-0 after:z-10 after:h-0.5 after:bg-primary"
+                  "after:absolute after:bottom-0 after:inset-x-0 after:z-sticky after:h-0.5 after:bg-primary"
               ),
               nativeDragHandlers: {
                 dragstart: (event) => {
@@ -401,7 +401,7 @@ export function AgentListContent({
           >
             <AgentTypeIcon
               type={defaultCreateType}
-              className="mr-1 h-4 w-4 border-none bg-transparent p-0 text-foreground/80"
+              className="mr-1 h-4 w-4 border-none bg-transparent p-0 text-foreground/soft"
             />
             Create
           </Button>
@@ -411,7 +411,7 @@ export function AgentListContent({
                 <Button
                   size="sm"
                   variant="default"
-                  className="rounded-l-none border-l border-white/[0.12] px-1 text-muted-foreground hover:text-foreground"
+                  className="rounded-l-none border-l border-edge px-1 text-muted-foreground hover:text-foreground"
                   data-testid="create-agent-type-dropdown"
                 >
                   <ChevronDown className="h-3.5 w-3.5" />
@@ -448,7 +448,7 @@ export function AgentListContent({
           {agents.length === 0 ? (
             <div
               data-testid="no-agents-message"
-              className="p-4 text-sm text-muted-foreground"
+              className="p-4 text-body-md text-muted-foreground"
             >
               No agents yet.
             </div>

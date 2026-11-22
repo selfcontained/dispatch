@@ -61,7 +61,7 @@ export function TaskLabelFilter({ labels }: { labels: TaskLabel[] }) {
           aria-label="Filter by labels"
           className={cn(
             selectTriggerClassName,
-            "h-8 w-36 min-w-0 flex-1 basis-0 gap-2 md:flex-none md:basis-auto text-foreground font-normal hover:bg-white/[0.04]"
+            "h-8 w-36 min-w-0 flex-1 basis-0 gap-2 md:flex-none md:basis-auto text-foreground font-normal hover:bg-fill-hover"
           )}
         >
           <span className="truncate">
@@ -91,7 +91,7 @@ export function TaskLabelFilter({ labels }: { labels: TaskLabel[] }) {
           <Input
             aria-label="Find filter labels"
             placeholder="Find labels…"
-            className="h-8 text-xs"
+            className="h-8 text-body-sm"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
@@ -108,7 +108,7 @@ export function TaskLabelFilter({ labels }: { labels: TaskLabel[] }) {
             .map((label) => (
               <label
                 key={label.name}
-                className="flex min-h-8 cursor-pointer items-center gap-2 rounded px-1 py-1 hover:bg-muted/70"
+                className="flex min-h-8 cursor-pointer items-center gap-2 rounded-sm px-1 py-1 hover:bg-surface-hover"
               >
                 <Checkbox
                   aria-label={label.name}
@@ -120,19 +120,19 @@ export function TaskLabelFilter({ labels }: { labels: TaskLabel[] }) {
               </label>
             ))}
           {!options.length && (
-            <p className="px-1 py-2 text-xs text-muted-foreground">
+            <p className="px-1 py-2 text-body-sm text-muted-foreground">
               No project labels yet
             </p>
           )}
         </div>
-        <div className="flex h-8 shrink-0 items-center justify-between border-t border-border/60 bg-muted/20 px-2">
-          <span className="text-[10px] text-muted-foreground">
+        <div className="flex h-8 shrink-0 items-center justify-between border-t border-border-subtle bg-surface-subtle px-2">
+          <span className="text-label-xs text-muted-foreground">
             Match any selected
           </span>
           <Button
             type="button"
             variant="ghost"
-            className="h-6 px-1 text-[11px] text-muted-foreground"
+            className="h-6 px-1 text-label-sm text-muted-foreground"
             disabled={!selected.length}
             onClick={() => change([])}
           >

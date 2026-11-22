@@ -69,11 +69,11 @@ function collapseTree(node: TreeNode): TreeNode {
 
 function treeFileIcon(file: DiffFile): JSX.Element {
   if (file.status === "renamed")
-    return <FileCode2 className="h-3.5 w-3.5 text-purple-400" />;
+    return <FileCode2 className="h-3.5 w-3.5 text-status-merged" />;
   if (file.status === "deleted" || (file.deleted > 0 && file.added === 0))
-    return <FileMinus className="h-3.5 w-3.5 text-status-blocked" />;
+    return <FileMinus className="h-3.5 w-3.5 text-danger" />;
   if (file.status === "added" || (file.added > 0 && file.deleted === 0))
-    return <FilePlus className="h-3.5 w-3.5 text-status-working" />;
+    return <FilePlus className="h-3.5 w-3.5 text-success" />;
   return <FileDiff className="h-3.5 w-3.5 text-muted-foreground" />;
 }
 
@@ -100,12 +100,12 @@ export function FileTree({
 
   return (
     <div
-      className="flex shrink-0 flex-col border-r border-border/50 bg-muted/20 overflow-hidden transition-[width] duration-200 ease-in-out"
+      className="flex shrink-0 flex-col border-r border-border-subtle bg-surface-subtle overflow-hidden transition-[width] duration-200 ease-in-out"
       style={{ width: open ? "14rem" : "2.25rem" }}
     >
-      <div className="shrink-0 flex items-center border-b border-border/40 bg-muted/30">
+      <div className="shrink-0 flex items-center border-b border-border-subtle bg-surface-subtle">
         {open && (
-          <span className="flex-1 px-3 py-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">
+          <span className="flex-1 px-3 py-2 section-label whitespace-nowrap">
             {formatCount(files.length, "file")} changed
           </span>
         )}
@@ -113,7 +113,7 @@ export function FileTree({
           type="button"
           onClick={onToggleOpen}
           className={cn(
-            "shrink-0 flex items-center justify-center text-muted-foreground hover:bg-muted/50 cursor-pointer",
+            "shrink-0 flex items-center justify-center text-muted-foreground hover:bg-surface-hover cursor-pointer",
             open ? "p-2" : "flex-1 py-2"
           )}
         >
@@ -171,7 +171,7 @@ function TreeEntry({
       <>
         <button
           type="button"
-          className="flex w-full items-center gap-1.5 px-2 py-1 text-left text-xs text-muted-foreground hover:bg-muted/40"
+          className="flex w-full items-center gap-1.5 px-2 py-1 text-left text-body-sm text-muted-foreground hover:bg-surface-hover"
           style={{ paddingLeft: `${indent}px` }}
           title={node.name}
           onClick={() => onToggleDir(node.path)}
@@ -218,8 +218,8 @@ function TreeEntry({
     <button
       type="button"
       className={cn(
-        "flex w-full items-center gap-1.5 px-2 py-1 text-left text-xs hover:bg-muted/40",
-        isSelected && "bg-muted/60 text-foreground"
+        "flex w-full items-center gap-1.5 px-2 py-1 text-left text-body-sm hover:bg-surface-hover",
+        isSelected && "bg-surface-hover text-foreground"
       )}
       style={{ paddingLeft: `${indent}px` }}
       title={node.file.path}

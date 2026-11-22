@@ -164,7 +164,7 @@ function TerminalCanvas({
   return (
     <div
       ref={element}
-      className="min-h-0 flex-1 overflow-hidden rounded bg-[#101014] p-2"
+      className="min-h-0 flex-1 overflow-hidden rounded-sm bg-terminal p-2"
       aria-label="Host terminal"
     />
   );
@@ -451,7 +451,7 @@ export default function TerminalPanel({
         if (event.key === "Escape") event.stopPropagation();
       }}
     >
-      <div className="min-w-0 text-xs text-muted-foreground">
+      <div className="min-w-0 text-body-sm text-muted-foreground">
         <p
           className="truncate"
           title={info ? `${info.user}@${info.host}` : undefined}
@@ -464,7 +464,7 @@ export default function TerminalPanel({
           </p>
         )}
       </div>
-      <div className="flex flex-wrap items-center gap-2 text-xs">
+      <div className="flex flex-wrap items-center gap-2 text-body-sm">
         <span role="status" className="mr-auto">
           {statusLabel}
         </span>
@@ -501,17 +501,17 @@ export default function TerminalPanel({
         )}
       </div>
       {info?.unencrypted && (
-        <p className="text-xs text-amber-500">
+        <p className="text-body-sm text-warning">
           Unencrypted connection on this network.
         </p>
       )}
       {error && (
-        <p role="alert" className="text-xs text-destructive">
+        <p role="alert" className="text-body-sm text-danger">
           {error}
         </p>
       )}
       {status === "unavailable" && errorCode === "password_not_set" ? (
-        <div className="min-h-0 flex-1 overflow-auto rounded bg-[#101014] p-4">
+        <div className="min-h-0 flex-1 overflow-auto rounded-sm bg-terminal-shell p-4">
           <SetPasswordForm
             onSuccess={retryAfterSetup}
             onPasswordAlreadySet={retryAfterSetup}
@@ -540,7 +540,7 @@ export default function TerminalPanel({
           )}
         </>
       ) : (
-        <div className="flex min-h-0 flex-1 items-center justify-center rounded bg-[#101014] p-4 text-center text-xs text-muted-foreground">
+        <div className="flex min-h-0 flex-1 items-center justify-center rounded-sm bg-terminal-shell p-4 text-center text-body-sm text-muted-foreground">
           {finished
             ? "Choose New terminal to open a shell."
             : status === "unavailable" ||

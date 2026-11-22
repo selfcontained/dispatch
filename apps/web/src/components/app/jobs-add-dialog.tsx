@@ -53,10 +53,10 @@ export function AddJobDialog({
   return (
     <DialogPrimitive.Root open={open} onOpenChange={onOpenChange}>
       <DialogPrimitive.Portal>
-        <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/50 backdrop-blur-md" />
+        <DialogPrimitive.Overlay className="fixed inset-0 z-drawer bg-scrim backdrop-blur-md" />
         <DialogPrimitive.Content
           onEscapeKeyDown={swallowEscapeFromCombobox}
-          className="fixed inset-x-2 bottom-2 top-2 z-50 flex max-h-[calc(100dvh-1rem)] flex-col overflow-hidden rounded-lg border border-white/[0.2] bg-[hsl(var(--card))] backdrop-blur-2xl shadow-[0_16px_64px_rgba(0,0,0,0.5),inset_0_1px_0_rgba(255,255,255,0.15)] outline-none md:left-1/2 md:top-1/2 md:h-[min(760px,88vh)] md:w-[min(760px,calc(100vw-2rem))] md:-translate-x-1/2 md:-translate-y-1/2"
+          className="fixed inset-x-2 bottom-2 top-2 z-drawer flex max-h-[calc(100dvh-1rem)] flex-col overflow-hidden rounded-lg surface-overlay outline-none md:left-1/2 md:top-1/2 md:h-[min(760px,88vh)] md:w-[min(760px,calc(100vw-2rem))] md:-translate-x-1/2 md:-translate-y-1/2"
         >
           <DialogPrimitive.Title className="sr-only">
             Add job
@@ -68,7 +68,7 @@ export function AddJobDialog({
             <Button
               variant="ghost"
               size="icon"
-              className="absolute right-3 top-3 z-10"
+              className="absolute right-3 top-3 z-sticky"
               aria-label="Close add job"
             >
               <X className="h-4 w-4" />
@@ -149,18 +149,18 @@ export function AddJobFlow({
 
   return (
     <div className="mx-auto flex min-h-0 w-full max-w-3xl flex-1 flex-col overflow-hidden p-4 md:p-8">
-      <div className="text-lg font-semibold">Create a new job</div>
-      <p className="mt-1 text-sm text-muted-foreground">
+      <div className="text-heading-md">Create a new job</div>
+      <p className="mt-1 text-body-md text-muted-foreground">
         Define an automation with a prompt — on a schedule or on demand.
       </p>
 
       <ScrollArea className="mt-6 min-h-0 flex-1 pr-1">
         <div className="grid min-w-0 gap-4">
-          <div className="min-w-0 rounded-md border border-white/[0.12] bg-white/[0.04] p-4">
+          <div className="min-w-0 rounded-md border border-edge bg-fill-inset p-4">
             <div className="grid min-w-0 gap-3 md:grid-cols-2">
               <div className="min-w-0 space-y-1 md:col-span-2">
                 <label
-                  className="text-sm text-muted-foreground"
+                  className="text-body-md text-muted-foreground"
                   htmlFor="job-display-name"
                 >
                   Name
@@ -245,12 +245,12 @@ export function AddJobFlow({
                   id="create-job-effort"
                 />
               </AgentConfigRow>
-              <label className="flex items-center justify-between gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3 text-sm md:col-span-2">
+              <label className="flex items-center justify-between gap-3 rounded-md border border-border-subtle bg-surface-subtle px-3 py-3 text-body-md md:col-span-2">
                 <span>
                   <span className="block font-medium text-foreground">
                     Show in command palette
                   </span>
-                  <span className="block text-xs text-muted-foreground">
+                  <span className="block text-body-sm text-muted-foreground">
                     Launch this job from the {"⌘"}K palette.
                   </span>
                 </span>
@@ -260,12 +260,12 @@ export function AddJobFlow({
                   ariaLabel="Show in command palette"
                 />
               </label>
-              <label className="flex items-center justify-between gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3 text-sm md:col-span-2">
+              <label className="flex items-center justify-between gap-3 rounded-md border border-border-subtle bg-surface-subtle px-3 py-3 text-body-md md:col-span-2">
                 <span>
                   <span className="block font-medium text-foreground">
                     Single instance
                   </span>
-                  <span className="block text-xs text-muted-foreground">
+                  <span className="block text-body-sm text-muted-foreground">
                     Only allow one active run at a time.
                   </span>
                 </span>
@@ -278,15 +278,15 @@ export function AddJobFlow({
             </div>
           </div>
 
-          <div className="min-w-0 rounded-md border border-border bg-muted/20 p-4">
+          <div className="min-w-0 rounded-md border border-border bg-surface-subtle p-4">
             <div className="space-y-1">
               <label
-                className="text-sm font-medium text-foreground"
+                className="text-body-md font-medium text-foreground"
                 htmlFor="job-prompt"
               >
                 Task prompt
               </label>
-              <p className="text-xs text-muted-foreground">
+              <p className="text-body-sm text-muted-foreground">
                 What each run should work on.
               </p>
             </div>
@@ -295,14 +295,14 @@ export function AddJobFlow({
               value={prompt}
               onChange={(event) => setPrompt(event.target.value)}
               placeholder="Describe what the agent should do..."
-              className="mt-2 min-h-64 w-full rounded-md border border-white/[0.12] bg-white/[0.04] backdrop-blur-md shadow-[inset_0_2px_6px_rgba(0,0,0,0.3)] px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+              className="mt-2 min-h-64 w-full rounded-md surface-inset px-3 py-2 text-body-md placeholder:text-muted-foreground focus-ring"
             />
-            <label className="mt-3 flex items-center justify-between gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3 text-sm">
+            <label className="mt-3 flex items-center justify-between gap-3 rounded-md border border-border-subtle bg-surface-subtle px-3 py-3 text-body-md">
               <span>
                 <span className="block font-medium text-foreground">
                   Self improve after each run
                 </span>
-                <span className="block text-xs text-muted-foreground">
+                <span className="block text-body-sm text-muted-foreground">
                   Let the agent update this job's saved prompt when it finds a
                   durable improvement.
                 </span>
@@ -329,15 +329,17 @@ export function AddJobFlow({
             idPrefix="job-continuation"
           />
 
-          <div className="min-w-0 rounded-md border border-white/[0.12] bg-white/[0.04] p-4">
+          <div className="min-w-0 rounded-md border border-edge bg-fill-inset p-4">
             <button
               type="button"
               className="flex w-full items-center justify-between gap-3 text-left"
               onClick={() => setAdvancedOpen((current) => !current)}
             >
               <div>
-                <div className="text-sm font-medium">Advanced settings</div>
-                <div className="mt-1 text-xs text-muted-foreground">
+                <div className="text-body-md font-medium">
+                  Advanced settings
+                </div>
+                <div className="mt-1 text-body-sm text-muted-foreground">
                   Timeouts, worktree, permissions, and whether the agent is kept
                   after running.
                 </div>
@@ -362,7 +364,7 @@ export function AddJobFlow({
                 <div className="grid min-w-0 gap-3 md:grid-cols-2">
                   <div className="min-w-0 space-y-1">
                     <label
-                      className="text-sm text-muted-foreground"
+                      className="text-body-md text-muted-foreground"
                       htmlFor="job-timeout"
                     >
                       Run timeout, minutes
@@ -378,7 +380,7 @@ export function AddJobFlow({
                   </div>
                   <div className="min-w-0 space-y-1">
                     <label
-                      className="text-sm text-muted-foreground"
+                      className="text-body-md text-muted-foreground"
                       htmlFor="job-needs-input-timeout"
                     >
                       Wait for input, minutes
@@ -424,14 +426,14 @@ export function AddJobFlow({
           </div>
 
           {submitError ? (
-            <div className="rounded-md border border-status-blocked/40 bg-status-blocked/10 p-3 text-sm text-status-blocked">
+            <div className="rounded-md border border-danger/line bg-danger/tint p-3 text-body-md text-danger">
               {submitError}
             </div>
           ) : null}
         </div>
       </ScrollArea>
 
-      <div className="mt-4 flex shrink-0 justify-end gap-2 border-t border-border/70 pt-4">
+      <div className="mt-4 flex shrink-0 justify-end gap-2 border-t border-border-subtle pt-4">
         <DialogPrimitive.Close asChild>
           <Button variant="ghost">Cancel</Button>
         </DialogPrimitive.Close>

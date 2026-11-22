@@ -2,9 +2,43 @@ import typography from "@tailwindcss/typography";
 import type { Config } from "tailwindcss";
 import plugin from "tailwindcss/plugin";
 
+const token = (name: string) => `hsl(var(--${name}) / <alpha-value>)`;
+
+const intent = (name: string) => ({
+  DEFAULT: token(name),
+  ink: token(`${name}-ink`),
+});
+
+const seats = Object.fromEntries(
+  Array.from({ length: 10 }, (_, i) => `${i + 1}`).map((n) => [
+    n,
+    {
+      DEFAULT: token(`seat-${n}`),
+      ink: token(`seat-${n}-ink`),
+      text: token(`seat-${n}-text`),
+    },
+  ])
+);
+
 /** `pointer-coarse:` — touch-first devices, where tap targets need ≥44px. */
 const pointerCoarse = plugin(({ addVariant }) => {
   addVariant("pointer-coarse", "@media (pointer: coarse)");
+});
+
+/** `pt-safe`, `pb-safe-2`: a safe-area inset, never less than the step. */
+const safeArea = plugin(({ matchUtilities, theme }) => {
+  const side = (property: string, inset: string) => (value: string) => ({
+    [property]: `max(${value}, ${inset})`,
+  });
+  matchUtilities(
+    {
+      "pt-safe": side("paddingTop", "var(--safe-area-top)"),
+      "pr-safe": side("paddingRight", "env(safe-area-inset-right, 0px)"),
+      "pb-safe": side("paddingBottom", "env(safe-area-inset-bottom, 0px)"),
+      "pl-safe": side("paddingLeft", "env(safe-area-inset-left, 0px)"),
+    },
+    { values: { ...theme("spacing"), DEFAULT: "0px" } }
+  );
 });
 
 export default {
@@ -12,13 +46,58 @@ export default {
   content: ["./index.html", "./src/**/*.{ts,tsx}"],
   theme: {
     extend: {
+      // The type ramp. Headings carry their weight. body-lg is the 16px step
+      // touch inputs need to stop iOS zooming; code scales with its paragraph.
+      fontSize: {
+        "label-xs": ["0.625rem", "0.875rem"],
+        "label-sm": ["0.6875rem", "1rem"],
+        "body-sm": ["0.75rem", "1rem"],
+        "body-md": ["0.875rem", "1.25rem"],
+        "body-lg": ["1rem", "1.5rem"],
+        code: "0.875em",
+        "heading-sm": [
+          "0.875rem",
+          { lineHeight: "1.25rem", fontWeight: "600" },
+        ],
+        "heading-md": ["1rem", { lineHeight: "1.5rem", fontWeight: "600" }],
+        "heading-lg": ["1.25rem", { lineHeight: "1.75rem", fontWeight: "600" }],
+        display: ["1.5rem", { lineHeight: "2rem", fontWeight: "600" }],
+      },
+      // Named alpha steps for any token colour: bg-danger/tint,
+      // border-danger/line. A tinted intent surface is tint fill, line
+      // border, solid text; wash is for tinting a whole block.
+      opacity: {
+        wash: "0.05",
+        tint: "0.1",
+        "tint-strong": "0.18",
+        line: "0.3",
+        "line-strong": "0.5",
+        veil: "0.6",
+        soft: "0.8",
+        dense: "0.92",
+      },
+      textColor: {
+        faint: "hsl(var(--muted-foreground) / 0.7)",
+        // Red text takes the readable step; fills, borders and rings keep the red.
+        danger: { DEFAULT: token("danger-ink") },
+        status: { blocked: token("danger-ink") },
+      },
+      placeholderColor: { faint: "hsl(var(--muted-foreground) / 0.7)" },
       colors: {
-        border: "hsl(var(--border))",
+        border: {
+          DEFAULT: "hsl(var(--border))",
+          subtle: "hsl(var(--border) / 0.6)",
+        },
         input: "hsl(var(--input))",
         ring: "hsl(var(--ring))",
         background: "hsl(var(--background))",
         foreground: "hsl(var(--foreground))",
-        surface: "hsl(var(--surface))",
+        surface: {
+          DEFAULT: "hsl(var(--surface))",
+          subtle: "hsl(var(--muted) / 0.3)",
+          hover: "hsl(var(--muted) / 0.6)",
+          selected: "hsl(var(--primary) / 0.1)",
+        },
         popover: {
           DEFAULT: "hsl(var(--popover))",
           foreground: "hsl(var(--popover-foreground))",
@@ -35,9 +114,36 @@ export default {
           DEFAULT: "hsl(var(--muted))",
           foreground: "hsl(var(--muted-foreground))",
         },
-        destructive: {
-          DEFAULT: "hsl(var(--destructive))",
-          foreground: "hsl(var(--destructive-foreground))",
+        danger: { ...intent("danger"), foreground: token("danger-foreground") },
+        warning: intent("warning"),
+        success: intent("success"),
+        info: intent("info"),
+        seat: { ...seats, foreground: "hsl(0 0% 100% / <alpha-value>)" },
+        edge: {
+          DEFAULT: "var(--edge)",
+          subtle: "var(--edge-subtle)",
+          strong: "var(--edge-strong)",
+          "on-color": "var(--edge-on-color)",
+        },
+        fill: {
+          inset: "var(--fill-inset)",
+          raised: "var(--fill-raised)",
+          hover: "var(--fill-hover)",
+          track: "var(--fill-track)",
+        },
+        scrim: "var(--scrim)",
+        overlay: {
+          DEFAULT: token("overlay"),
+          foreground: token("overlay-foreground"),
+        },
+        media: {
+          DEFAULT: token("media"),
+          foreground: token("media-foreground"),
+        },
+        paper: token("paper"),
+        terminal: {
+          DEFAULT: token("terminal"),
+          shell: token("terminal-shell"),
         },
         engine: {
           codex: "hsl(var(--engine-codex) / <alpha-value>)",
@@ -65,10 +171,53 @@ export default {
           2: "hsl(var(--heading-accent-2) / <alpha-value>)",
         },
       },
+      boxShadow: {
+        "elev-inset": "var(--elev-inset)",
+        "elev-track": "var(--elev-track)",
+        "elev-panel": "var(--elev-panel)",
+        "elev-control": "var(--elev-control)",
+        "elev-raised": "var(--elev-raised)",
+        "elev-overlay": "var(--elev-overlay)",
+        "elev-popover": "var(--elev-popover)",
+        "elev-floating": "var(--elev-floating)",
+        "elev-primary": "var(--elev-primary)",
+        "elev-primary-hover": "var(--elev-primary-hover)",
+        "elev-spotlight": "var(--elev-spotlight)",
+        "elev-sticky": "var(--elev-sticky)",
+        "elev-side": "var(--elev-side)",
+        "elev-jump": "var(--elev-jump)",
+        "elev-jump-hover": "var(--elev-jump-hover)",
+      },
+      // xs: boxes of 20px or less (checkboxes, seat chips), which sm would
+      // turn into circles. sm: badges, menu items, chips. md: buttons, inputs,
+      // popovers, rows. lg: cards, columns, panels. xl: dialogs and sheets.
+      // mark: chart marks only. screen: follows a phone's bottom corners.
       borderRadius: {
-        lg: "0.75rem",
-        md: "0.6rem",
+        mark: "2px",
+        xs: "0.25rem",
         sm: "0.45rem",
+        md: "0.6rem",
+        lg: "0.75rem",
+        xl: "0.75rem",
+        screen: "28px",
+      },
+      // One stacking order. The viewer steps sit above every other overlay
+      // because the image viewer opens from inside dialogs.
+      zIndex: {
+        sticky: "10",
+        raised: "20",
+        dock: "30",
+        drawer: "50",
+        "drawer-panel": "60",
+        modal: "70",
+        popover: "80",
+        toast: "85",
+        tooltip: "90",
+        progress: "100",
+        viewer: "120",
+        "viewer-modal": "130",
+        "viewer-popover": "140",
+        "viewer-menu": "150",
       },
       keyframes: {
         // Fade new posts without moving their rendered position. The same
@@ -144,19 +293,17 @@ export default {
         },
         "mobile-toolbar-flash": {
           "0%": {
-            backgroundColor: "rgba(255,255,255,0.06)",
-            boxShadow:
-              "0 1px 4px rgba(0,0,0,0.2), inset 0 1px 0 rgba(255,255,255,0.06)",
+            backgroundColor: "var(--fill-raised)",
+            boxShadow: "var(--elev-control)",
           },
           "18%": {
-            backgroundColor: "rgba(190,240,255,0.14)",
+            backgroundColor: "hsl(var(--info) / 0.14)",
             boxShadow:
-              "0 1px 4px rgba(0,0,0,0.2), inset 0 0 0 1px rgba(190,240,255,0.22), inset 0 1px 0 rgba(255,255,255,0.06), 0 0 30px rgba(100,190,255,0.12)",
+              "var(--elev-control), inset 0 0 0 1px hsl(var(--info) / 0.22), 0 0 30px hsl(var(--info) / 0.12)",
           },
           "100%": {
-            backgroundColor: "rgba(255,255,255,0.06)",
-            boxShadow:
-              "0 1px 4px rgba(0,0,0,0.2), inset 0 1px 0 rgba(255,255,255,0.06)",
+            backgroundColor: "var(--fill-raised)",
+            boxShadow: "var(--elev-control)",
           },
         },
       },
@@ -181,5 +328,5 @@ export default {
       },
     },
   },
-  plugins: [typography, pointerCoarse],
+  plugins: [typography, pointerCoarse, safeArea],
 } satisfies Config;

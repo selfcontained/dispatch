@@ -121,7 +121,7 @@ export function ComposerDelivery({
         className="w-72 max-w-[calc(100vw-2rem)] space-y-3 p-3"
         onEscapeKeyDown={(event) => event.stopPropagation()}
       >
-        <div className="space-y-2 text-xs" aria-live="polite">
+        <div className="space-y-2 text-body-sm" aria-live="polite">
           {timings.map((item) => (
             <div key={item.id}>
               <div className="flex justify-between gap-3 font-medium">
@@ -164,13 +164,13 @@ export function ComposerDelivery({
             </Button>
           ))}
           {interruptUnavailable ? (
-            <p className="text-xs text-muted-foreground">
+            <p className="text-body-sm text-muted-foreground">
               {unavailableReason ??
                 "Interrupt is unavailable for a busy recipient on an older host."}
             </p>
           ) : null}
           {mode === "interrupt" ? (
-            <p className="text-xs text-muted-foreground">
+            <p className="text-body-sm text-muted-foreground">
               Interrupt applies when you send. The provider may take time to
               stop an active tool.
             </p>

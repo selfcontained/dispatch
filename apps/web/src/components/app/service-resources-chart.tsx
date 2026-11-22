@@ -39,12 +39,14 @@ export function ResourceChart({
   return (
     <Card>
       <CardHeader className="pb-2">
-        <CardTitle className="text-sm">{title}</CardTitle>
-        <CardDescription className="text-xs">{description}</CardDescription>
+        <CardTitle>{title}</CardTitle>
+        <CardDescription className="text-body-sm">
+          {description}
+        </CardDescription>
       </CardHeader>
       <CardContent>
         {data.length < 2 ? (
-          <div className="flex h-44 items-center justify-center text-sm text-muted-foreground">
+          <div className="flex h-44 items-center justify-center text-body-md text-muted-foreground">
             Collecting history…
           </div>
         ) : (

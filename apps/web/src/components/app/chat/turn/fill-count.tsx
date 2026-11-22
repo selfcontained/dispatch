@@ -101,7 +101,7 @@ export function FillCount({
             tabIndex={0}
             aria-label={label}
             data-testid="chat-response-fill-count"
-            className="inline-flex items-center gap-1.5 rounded-sm border border-border/60 px-1 py-px text-[9px] leading-3 text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring cursor-default select-none"
+            className="inline-flex items-center gap-1.5 rounded-sm border border-border-subtle px-1 py-px text-label-xs leading-3 text-muted-foreground focus-ring cursor-default select-none"
           >
             <span className="tabular-nums">×{fills.length}</span>
             <span aria-hidden="true" className="flex shrink-0 gap-px">
@@ -110,7 +110,7 @@ export function FillCount({
                   key={i}
                   data-category={category}
                   data-neon-swatch={glow ? "" : undefined}
-                  className="block h-[5px] w-1 rounded-[1px]"
+                  className="block h-[5px] w-1 rounded-mark"
                   style={
                     {
                       background: color(category),
@@ -129,13 +129,13 @@ export function FillCount({
           className="min-w-40"
           data-glow={glow ? "halo-soft" : undefined}
         >
-          <div className="space-y-1 text-[11px]">
+          <div className="space-y-1 text-label-sm">
             <div className="font-medium">{times}</div>
             {mix.slice(0, 5).map((share) => (
               <div key={share.category} className="flex items-center gap-1.5">
                 <span
                   data-neon-swatch={glow ? "" : undefined}
-                  className="h-2 w-2 rounded-[1.5px]"
+                  className="h-2 w-2 rounded-mark"
                   style={
                     {
                       background: color(share.category),

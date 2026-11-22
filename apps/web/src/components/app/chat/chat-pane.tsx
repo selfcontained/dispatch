@@ -1364,7 +1364,7 @@ export function ChatPane({
         <div className="relative flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
           {showLastMessage && (
             <div
-              className="pointer-events-none absolute inset-x-0 top-0 z-20"
+              className="pointer-events-none absolute inset-x-0 top-0 z-raised"
               data-testid="request-context-overlay"
               style={{ visibility: contextJumpId ? "hidden" : undefined }}
             >
@@ -1407,7 +1407,7 @@ export function ChatPane({
                       type="button"
                       size="sm"
                       variant="default"
-                      className="h-7 text-xs"
+                      className="h-7 text-body-sm"
                       onClick={loadOlder}
                       disabled={feed.isFetchingOlder}
                     >
@@ -1418,7 +1418,7 @@ export function ChatPane({
                 {feed.error ? (
                   <div
                     role="alert"
-                    className="mx-4 mb-3 flex items-center justify-between gap-3 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive"
+                    className="mx-4 mb-3 flex items-center justify-between gap-3 rounded-md border border-danger/line bg-danger/tint px-3 py-2 text-body-sm text-danger"
                     data-testid="chat-feed-error"
                   >
                     <span className="min-w-0 truncate">
@@ -1428,7 +1428,7 @@ export function ChatPane({
                       type="button"
                       size="sm"
                       variant="default"
-                      className="h-6 shrink-0 px-2 text-xs"
+                      className="h-6 shrink-0 px-2 text-body-sm"
                       onClick={feed.refetch}
                       data-testid="chat-feed-retry"
                     >
@@ -1442,7 +1442,7 @@ export function ChatPane({
                 {!feed.isLoading && !feed.error && !agentId ? (
                   <div
                     className={cn(
-                      "flex flex-col items-center justify-center gap-2 px-6 text-center text-sm text-muted-foreground",
+                      "flex flex-col items-center justify-center gap-2 px-6 text-center text-body-md text-muted-foreground",
                       visibleEntries.length === 0 ? "h-full" : "mb-4 py-6"
                     )}
                     data-testid="chat-empty"
@@ -1493,7 +1493,7 @@ export function ChatPane({
                     title={pendingBelow ? "New messages" : "Jump to bottom"}
                     data-testid="chat-jump-to-bottom"
                     data-pending={pendingBelow ? "true" : undefined}
-                    className="pointer-events-auto relative h-9 w-9 rounded-full border border-foreground/[0.22] bg-[hsl(var(--accent))] text-foreground shadow-[0_4px_14px_rgb(0_0_0/0.35),0_0_14px_hsl(var(--foreground)/0),inset_0_1px_0_hsl(var(--foreground)/0.08)] backdrop-blur transition-[color,background-color,border-color,box-shadow] duration-300 ease-in-out hover:border-foreground/40 hover:bg-muted hover:shadow-[0_4px_14px_rgb(0_0_0/0.35),0_0_14px_hsl(var(--foreground)/0.16),inset_0_1px_0_hsl(var(--foreground)/0.08)]"
+                    className="pointer-events-auto relative h-9 w-9 rounded-full border border-foreground/tint-strong bg-[hsl(var(--accent))] text-foreground shadow-elev-jump backdrop-blur transition-[color,background-color,border-color,box-shadow] duration-300 ease-in-out hover:border-foreground/line-strong hover:bg-muted hover:shadow-elev-jump-hover"
                     onClick={jumpToBottom}
                   >
                     <ArrowDown className="h-4 w-4" />
@@ -1510,7 +1510,7 @@ export function ChatPane({
           </div>
           <div
             className={cn(
-              "relative min-w-0 max-w-full shrink-0 overflow-hidden border-t border-foreground/20 bg-background px-3 pt-2 md:px-4 md:pt-3",
+              "relative min-w-0 max-w-full shrink-0 overflow-hidden border-t border-foreground/tint-strong bg-background px-3 pt-2 md:px-4 md:pt-3",
               isMobile ? "pb-2" : "pb-3"
             )}
           >
@@ -1518,7 +1518,7 @@ export function ChatPane({
               <div className="mb-1.5 flex items-center gap-2">
                 <span
                   role="alert"
-                  className="truncate text-[11px] text-destructive"
+                  className="truncate text-label-sm text-danger"
                 >
                   {sendError}
                 </span>

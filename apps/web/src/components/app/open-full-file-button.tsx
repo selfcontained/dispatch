@@ -47,7 +47,7 @@ export function OpenFullFileButton({
     <Button
       variant="ghost"
       size="sm"
-      className="h-7 shrink-0 gap-1 px-2 text-xs"
+      className="h-7 shrink-0 gap-1 px-2 text-body-sm"
       disabled={unavailable || pending}
       aria-label={`View file: ${path}`}
       title={

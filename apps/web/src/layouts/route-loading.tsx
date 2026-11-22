@@ -21,10 +21,10 @@ export function RoutePendingIndicator(): JSX.Element | null {
 
   return (
     <div
-      className="pointer-events-none fixed inset-x-0 top-3 z-[100] flex justify-center"
+      className="pointer-events-none fixed inset-x-0 top-3 z-progress flex justify-center"
       role="status"
     >
-      <div className="flex items-center gap-2 rounded-md border border-border bg-background px-3 py-2 text-sm text-muted-foreground shadow-md">
+      <div className="flex items-center gap-2 rounded-md border border-border bg-background px-3 py-2 text-body-md text-muted-foreground shadow-md">
         <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />
         Loading section…
       </div>
@@ -39,7 +39,7 @@ export function RouteLoadError(): JSX.Element {
       role="alert"
     >
       <p>This section couldn’t be loaded.</p>
-      <p className="text-center text-sm text-muted-foreground">
+      <p className="text-center text-body-md text-muted-foreground">
         Check your connection, then reload to try again.
       </p>
       <Button onClick={() => window.location.reload()}>Reload page</Button>

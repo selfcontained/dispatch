@@ -37,7 +37,7 @@ const short = (value: number) =>
   }).format(value);
 function Metadata({ data }: { data: MetricData | ChartData }) {
   return (
-    <p className="text-[11px] text-muted-foreground break-words">
+    <p className="text-label-sm text-muted-foreground break-words">
       {data.dataKind}
       {data.asOf ? ` · ${data.asOf}` : ""}
       {data.source ? ` · Source: ${data.source}` : ""}
@@ -74,7 +74,7 @@ export function VisualizationBlock({
           }
         >
           {group.title && (
-            <h3 className="text-sm font-medium mb-2">{group.title}</h3>
+            <h3 className="text-heading-sm mb-2">{group.title}</h3>
           )}
           <div
             data-count={group.items.length}
@@ -98,7 +98,7 @@ export function VisualizationBlock({
     return <ChartCard data={parseVisualization("chart", payload)} />;
   } catch {
     return (
-      <p role="status" className="text-sm text-muted-foreground">
+      <p role="status" className="text-body-md text-muted-foreground">
         This visualization is invalid or uses an unsupported version.
       </p>
     );
@@ -112,27 +112,27 @@ function MetricCard({ data }: { data: MetricData }) {
     >
       <div className="space-y-2">
         <div className="min-w-0">
-          <h3 className="text-xs text-muted-foreground break-words">
+          <h3 className="text-body-sm text-muted-foreground break-words">
             {data.title}
           </h3>
           <p
-            className="font-semibold tabular-nums text-3xl break-all"
+            className="tabular-nums text-display break-all"
             title={exact(data.value)}
           >
             {data.value === null ? "Missing" : short(data.value)}{" "}
-            <span className="text-xs font-normal text-muted-foreground">
+            <span className="text-body-sm font-normal text-muted-foreground">
               {data.unit}
             </span>
           </p>
         </div>
         {data.comparison && (
-          <p className="text-xs">
+          <p className="text-body-sm">
             {exact(data.comparison.value)} {data.unit} · {data.comparison.label}
           </p>
         )}
       </div>
       {data.description && (
-        <p className="text-xs break-words">{data.description}</p>
+        <p className="text-body-sm break-words">{data.description}</p>
       )}
       {data.value !== null && (
         <span className="sr-only">
@@ -405,17 +405,17 @@ function ChartCard({ data }: { data: ChartData }) {
       data-chart-type={data.type}
     >
       <div>
-        <h3 className="text-sm font-medium break-words">{data.title}</h3>
-        <p className="text-[11px] text-muted-foreground break-words">
+        <h3 className="text-heading-sm break-words">{data.title}</h3>
+        <p className="text-label-sm text-muted-foreground break-words">
           {data.xLabel}
           {data.xUnit ? ` (${data.xUnit})` : ""} · {data.unit}
         </p>
       </div>
       {data.description && (
-        <p className="text-xs break-words">{data.description}</p>
+        <p className="text-body-sm break-words">{data.description}</p>
       )}
       {!rows.length ? (
-        <p className="text-xs text-muted-foreground py-4">
+        <p className="text-body-sm text-muted-foreground py-4">
           No data to display.
         </p>
       ) : data.type === "heatmap" ? (
@@ -439,7 +439,7 @@ function ChartCard({ data }: { data: ChartData }) {
       {data.type !== "heatmap" && (
         <ul
           aria-label="Chart series"
-          className="flex flex-wrap gap-x-3 gap-y-1 text-[11px]"
+          className="flex flex-wrap gap-x-3 gap-y-1 text-label-sm"
         >
           {data.series.map((s, i) => (
             <li
@@ -462,11 +462,11 @@ function ChartCard({ data }: { data: ChartData }) {
         </ul>
       )}
       <details>
-        <summary className="text-[11px] cursor-pointer">
+        <summary className="text-label-sm cursor-pointer">
           View exact data
         </summary>
         <div className="overflow-x-auto">
-          <table className="w-full text-xs text-left mt-2">
+          <table className="w-full text-body-sm text-left mt-2">
             <caption className="sr-only">
               {data.title}. Exact plotted values in {data.unit}. Null means
               missing.
@@ -632,7 +632,7 @@ function HeatmapPlot({
           ))}
         </svg>
       </div>
-      <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
+      <div className="flex items-center gap-2 text-label-xs text-muted-foreground">
         <span>{exact(min)}</span>
         <span
           aria-hidden="true"

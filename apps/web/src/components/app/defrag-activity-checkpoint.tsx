@@ -18,7 +18,7 @@ export function DefragActivityCheckpoint() {
   const [count, setCount] = useState(0);
   return (
     <section className="max-w-xl space-y-4">
-      <h1 className="text-xl font-semibold">Defrag activity</h1>
+      <h1 className="text-heading-lg">Defrag activity</h1>
       <div className="flex flex-wrap gap-2">
         <Button
           onClick={() => {

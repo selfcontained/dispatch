@@ -21,7 +21,7 @@ export function ProjectIcon({
   const src = `/api/v1/projects/${project.id}/icon?v=${encodeURIComponent(project.updatedAt)}`;
   return (
     <span
-      className={`relative flex shrink-0 items-center justify-center rounded text-xs font-semibold text-foreground ${className}`}
+      className={`relative flex shrink-0 items-center justify-center rounded-sm text-body-sm font-semibold text-foreground ${className}`}
     >
       <span aria-hidden className={loaded === src ? "invisible" : ""}>
         {fallback ?? project.name.slice(0, 1).toUpperCase()}
@@ -62,12 +62,12 @@ export function ProjectLocation({
       <div
         role="group"
         aria-label="Launch location type"
-        className="relative flex w-full rounded-lg border border-white/[0.08] bg-black/20 p-1 shadow-[inset_0_1px_3px_rgba(0,0,0,0.25)]"
+        className="relative flex w-full rounded-lg border border-edge-subtle bg-fill-track p-1 shadow-elev-track"
       >
         <span
           aria-hidden="true"
           data-testid="location-toggle-thumb"
-          className="pointer-events-none absolute inset-y-1 left-1 w-[calc((100%-8px)/2)] rounded-md border border-white/[0.12] bg-white/[0.06] shadow-[0_1px_4px_rgba(0,0,0,0.3),inset_0_1px_0_rgba(255,255,255,0.06)] transition-transform duration-200 ease-out motion-reduce:transition-none"
+          className="pointer-events-none absolute inset-y-1 left-1 w-[calc((100%-8px)/2)] rounded-md border border-edge bg-fill-raised shadow-elev-control transition-transform duration-200 ease-out motion-reduce:transition-none"
           style={{
             transform: projectId ? "translateX(0)" : "translateX(100%)",
           }}
@@ -75,7 +75,7 @@ export function ProjectLocation({
         <Button
           type="button"
           variant="ghost"
-          className={`relative z-10 h-9 flex-1 rounded px-3 text-sm hover:bg-transparent ${projectId ? "text-foreground" : "text-muted-foreground"}`}
+          className={`relative z-sticky h-9 flex-1 rounded-sm px-3 text-body-md hover:bg-transparent ${projectId ? "text-foreground" : "text-muted-foreground"}`}
           aria-pressed={!!projectId}
           disabled={!projects.length}
           title={
@@ -96,7 +96,7 @@ export function ProjectLocation({
         <Button
           type="button"
           variant="ghost"
-          className={`relative z-10 h-9 flex-1 rounded px-3 text-sm hover:bg-transparent ${!projectId ? "text-foreground" : "text-muted-foreground"}`}
+          className={`relative z-sticky h-9 flex-1 rounded-sm px-3 text-body-md hover:bg-transparent ${!projectId ? "text-foreground" : "text-muted-foreground"}`}
           aria-pressed={!projectId}
           onClick={() => select(null)}
         >
@@ -137,7 +137,7 @@ export function ProjectLocation({
                   <span className="min-w-0 flex-1">
                     <span className="block truncate">{p.name}</span>
                     <span
-                      className="block truncate text-xs text-muted-foreground"
+                      className="block truncate text-body-sm text-muted-foreground"
                       title={p.repoRoot}
                     >
                       {p.repoRoot}
@@ -157,13 +157,13 @@ export function ProjectLocation({
                 </DropdownMenuItem>
               )}
               {!isLoading && !isError && !projects.length && (
-                <div className="px-2 py-2 text-sm text-muted-foreground">
+                <div className="px-2 py-2 text-body-md text-muted-foreground">
                   No projects yet
                 </div>
               )}
             </DropdownMenuContent>
           </DropdownMenu>
-          <div className="flex h-5 items-center justify-end text-xs text-muted-foreground">
+          <div className="flex h-5 items-center justify-end text-body-sm text-muted-foreground">
             <span className="truncate" title={project?.repoRoot}>
               {project?.repoRoot}
             </span>

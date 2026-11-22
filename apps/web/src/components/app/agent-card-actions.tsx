@@ -63,7 +63,7 @@ export function AgentCardActions({
             <Button
               size="sm"
               variant="ghost-primary"
-              className="h-8 w-8 rounded-full border border-status-done/35 bg-status-done/10 p-0"
+              className="h-8 w-8 rounded-full border border-info/line bg-info/tint p-0"
               aria-label="Resume"
               title="Resume"
               onClick={() => {
@@ -77,7 +77,7 @@ export function AgentCardActions({
             <Button
               size="sm"
               variant="ghost-warning"
-              className="h-8 w-8 rounded-full border border-status-waiting/35 bg-status-waiting/10 p-0"
+              className="h-8 w-8 rounded-full border border-warning/line bg-warning/tint p-0"
               aria-label="Pause"
               title="Pause"
               onClick={() => {
@@ -91,7 +91,7 @@ export function AgentCardActions({
           <Button
             size="sm"
             variant="ghost"
-            className="h-8 w-8 rounded-full border border-blue-500/35 bg-blue-500/10 p-0 text-blue-400 hover:bg-blue-500/15 hover:text-blue-300"
+            className="h-8 w-8 rounded-full border border-info/line bg-info/tint p-0 text-info hover:bg-info/tint-strong hover:text-info"
             data-testid={`agent-session-settings-${agent.id}`}
             aria-label="Session details"
             title="Session details"
@@ -102,7 +102,7 @@ export function AgentCardActions({
           <Button
             size="sm"
             variant="ghost-destructive"
-            className="h-8 w-8 rounded-full border border-status-blocked/35 bg-status-blocked/10 p-0"
+            className="h-8 w-8 rounded-full border border-danger/line bg-danger/tint p-0"
             data-testid={`agent-archive-${agent.id}`}
             aria-label="Archive"
             title="Archive"

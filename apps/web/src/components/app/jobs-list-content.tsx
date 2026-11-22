@@ -48,7 +48,7 @@ export function JobListContent({
           <Button
             size="sm"
             variant="default"
-            className="bg-muted/35 text-muted-foreground hover:bg-muted/65 hover:text-foreground"
+            className="bg-surface-subtle text-muted-foreground hover:bg-surface-hover hover:text-foreground"
             onClick={openAddJob}
             data-testid="add-job-button"
           >
@@ -65,7 +65,7 @@ export function JobListContent({
             <Button
               size="sm"
               variant="default"
-              className="bg-muted/35 text-muted-foreground hover:bg-muted/65 hover:text-foreground"
+              className="bg-surface-subtle text-muted-foreground hover:bg-surface-hover hover:text-foreground"
               onClick={openAddJob}
               data-testid="add-job-button"
             >
@@ -90,16 +90,16 @@ export function JobListContent({
           />
         ) : null}
         {error && allJobs.length === 0 ? null : isLoading ? (
-          <div className="flex items-center gap-2 p-4 text-sm text-muted-foreground">
+          <div className="flex items-center gap-2 p-4 text-body-md text-muted-foreground">
             <ActivityBars size={16} /> Loading jobs...
           </div>
         ) : jobs.length === 0 ? (
-          <div className="p-4 text-sm text-muted-foreground">
+          <div className="p-4 text-body-md text-muted-foreground">
             <div className="rounded-md border border-dashed border-border p-4">
               <div className="font-medium text-foreground">
                 No jobs added yet.
               </div>
-              <div className="mt-1 text-xs">
+              <div className="mt-1 text-body-sm">
                 Added jobs will appear here — run them on a schedule or on
                 demand.
               </div>
@@ -109,8 +109,8 @@ export function JobListContent({
           <div>
             <button
               className={cn(
-                "flex w-full items-center gap-2 border-b border-r-4 border-border border-r-transparent px-3 py-2.5 text-left text-sm text-muted-foreground transition-colors hover:bg-muted/40",
-                showOverview && "border-r-primary bg-muted/60"
+                "flex w-full items-center gap-2 border-b border-r-4 border-border border-r-transparent px-3 py-3 text-left text-body-md text-muted-foreground transition-colors hover:bg-surface-hover",
+                showOverview && "border-r-primary bg-surface-hover"
               )}
               onClick={() => {
                 navigate("/automations/jobs/overview");
@@ -127,9 +127,9 @@ export function JobListContent({
                   key={job.id}
                   data-testid={`job-row-${job.id}`}
                   className={cn(
-                    "w-full cursor-pointer border-b border-r-4 border-border border-r-transparent px-3 py-2 text-left transition-colors hover:bg-muted/40",
+                    "w-full cursor-pointer border-b border-r-4 border-border border-r-transparent px-3 py-2 text-left transition-colors hover:bg-surface-hover",
                     selectedJob?.id === job.id &&
-                      "md:border-r-primary md:bg-muted/60"
+                      "md:border-r-primary md:bg-surface-hover"
                   )}
                   onClick={() => {
                     selectJob(job);
@@ -138,11 +138,11 @@ export function JobListContent({
                 >
                   <div className="flex items-center gap-2">
                     <div className="min-w-0 flex-1">
-                      <div className="truncate text-sm font-semibold leading-5">
+                      <div className="truncate text-body-md font-semibold leading-5">
                         {job.name}
                       </div>
                       <div
-                        className="truncate font-mono text-[11px] text-muted-foreground"
+                        className="truncate font-mono text-label-sm text-muted-foreground"
                         title={job.directory}
                       >
                         {shortPath(job.directory)}
@@ -157,16 +157,14 @@ export function JobListContent({
                         : "new"}
                     </Badge>
                   </div>
-                  <div className="mt-1 flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
+                  <div className="mt-1 flex min-w-0 items-center gap-1.5 text-body-sm text-muted-foreground">
                     <Clock className="h-3.5 w-3.5 shrink-0" />
                     <span className="truncate">
                       {job.schedule ? `Cron: ${job.schedule}` : "On demand"}
                     </span>
                     {job.schedule ? (
                       <>
-                        <span className="shrink-0 text-muted-foreground/70">
-                          •
-                        </span>
+                        <span className="shrink-0 text-faint">•</span>
                         <span className="shrink-0">
                           {job.enabled ? "enabled" : "disabled"}
                         </span>
@@ -174,9 +172,7 @@ export function JobListContent({
                     ) : null}
                     {job.continuationEnabled ? (
                       <>
-                        <span className="shrink-0 text-muted-foreground/70">
-                          •
-                        </span>
+                        <span className="shrink-0 text-faint">•</span>
                         <span className="shrink-0">
                           {job.continuationPending
                             ? "next run pending"
@@ -188,23 +184,19 @@ export function JobListContent({
                     ) : null}
                     {!job.autoArchive ? (
                       <>
-                        <span className="shrink-0 text-muted-foreground/70">
-                          •
-                        </span>
+                        <span className="shrink-0 text-faint">•</span>
                         <span className="shrink-0">keeps agent</span>
                       </>
                     ) : null}
                     {job.callable ? (
                       <>
-                        <span className="shrink-0 text-muted-foreground/70">
-                          •
-                        </span>
+                        <span className="shrink-0 text-faint">•</span>
                         <span className="shrink-0">callable</span>
                       </>
                     ) : null}
                   </div>
                   {actionError ? (
-                    <div className="mt-2 rounded border border-status-blocked/30 bg-status-blocked/10 px-2 py-1 text-xs text-status-blocked">
+                    <div className="mt-2 rounded-sm border border-danger/line bg-danger/tint px-2 py-1 text-body-sm text-danger">
                       {actionError}
                     </div>
                   ) : null}

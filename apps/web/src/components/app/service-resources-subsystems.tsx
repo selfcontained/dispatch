@@ -52,7 +52,7 @@ function StatSparkline({
   if (data.length < 2) {
     return (
       <div
-        className="mt-2 flex h-9 items-end border-b border-dashed border-border/70 pb-1 text-[9px] uppercase tracking-wider text-muted-foreground/70"
+        className="mt-2 flex h-9 items-end border-b border-dashed border-border-subtle pb-1 section-label"
         data-testid={testId}
       >
         Collecting trend…
@@ -68,9 +68,7 @@ function StatSparkline({
       ? Math.max(1, Math.abs(maximum) * 0.05)
       : (maximum - minimum) * 0.12;
   const rangeLabel = `${stat.formatHistoryValue(minimum)} to ${stat.formatHistoryValue(maximum)}`;
-  const color = stat.isFailure
-    ? "hsl(var(--status-blocked))"
-    : "hsl(var(--chart-1))";
+  const color = stat.isFailure ? "hsl(var(--danger))" : "hsl(var(--chart-1))";
   const config = {
     value: { label: stat.label, color },
   } satisfies ChartConfig;
@@ -158,27 +156,27 @@ function SubsystemRow({
     <div className="border-b border-border last:border-b-0">
       <button
         type="button"
-        className="grid w-full grid-cols-[1fr_auto] items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-muted/40 md:grid-cols-[minmax(12rem,1.4fr)_minmax(7rem,0.6fr)_minmax(7rem,0.6fr)_5.5rem]"
+        className="grid w-full grid-cols-[1fr_auto] items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-surface-hover md:grid-cols-[minmax(12rem,1.4fr)_minmax(7rem,0.6fr)_minmax(7rem,0.6fr)_5.5rem]"
         onClick={() => setExpanded((value) => !value)}
         aria-expanded={expanded}
         data-testid={`subsystem-${subsystem.id}`}
       >
-        <span className="flex min-w-0 items-center gap-2.5">
+        <span className="flex min-w-0 items-center gap-2">
           {expanded ? (
             <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
           ) : (
             <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
           )}
-          <span className="truncate text-sm font-medium">
+          <span className="truncate text-body-md font-medium">
             {subsystem.label}
           </span>
         </span>
-        <span className="hidden text-xs text-muted-foreground md:block">
+        <span className="hidden text-body-sm text-muted-foreground md:block">
           {subsystem.lastDurationMs === null
             ? "—"
             : formatMs(subsystem.lastDurationMs)}
         </span>
-        <span className="hidden text-xs text-muted-foreground md:block">
+        <span className="hidden text-body-sm text-muted-foreground md:block">
           {subsystem.inFlight > 0
             ? `${subsystem.inFlight} in flight`
             : subsystem.runs > 0
@@ -195,24 +193,20 @@ function SubsystemRow({
         </Badge>
       </button>
       {expanded && (
-        <div className="bg-muted/20 px-4 pb-4 pl-10 text-xs text-muted-foreground">
+        <div className="bg-surface-subtle px-4 pb-4 pl-10 text-body-sm text-muted-foreground">
           <p>{subsystem.description}</p>
-          {statusReason && (
-            <p className="mt-2 text-status-waiting">{statusReason}</p>
-          )}
+          {statusReason && <p className="mt-2 text-warning">{statusReason}</p>}
           {stats.length > 0 && (
             <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
               {stats.map((stat) => (
                 <div
                   key={stat.key}
-                  className="rounded-md border border-border/80 bg-background/40 px-3 pb-2 pt-2 shadow-sm"
+                  className="rounded-md border border-border bg-background/veil px-3 pb-2 pt-2 shadow-sm"
                 >
-                  <span className="block text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-                    {stat.label}
-                  </span>
+                  <span className="block section-label">{stat.label}</span>
                   <span
-                    className={`mt-0.5 block text-sm font-semibold tabular-nums ${
-                      stat.isFailure ? "text-status-blocked" : "text-foreground"
+                    className={`mt-0.5 block text-body-md font-semibold tabular-nums ${
+                      stat.isFailure ? "text-danger" : "text-foreground"
                     }`}
                   >
                     {stat.value}
@@ -232,7 +226,7 @@ function SubsystemRow({
             </div>
           )}
           {subsystem.lastError && (
-            <p className="mt-3 text-status-blocked">{subsystem.lastError}</p>
+            <p className="mt-3 text-danger">{subsystem.lastError}</p>
           )}
         </div>
       )}
@@ -250,16 +244,16 @@ export function ServiceResourcesSubsystems({
   return (
     <Card>
       <CardHeader className="pb-2">
-        <CardTitle className="flex items-center gap-2 text-sm">
+        <CardTitle className="flex items-center gap-2">
           <Server className="h-4 w-4 text-muted-foreground" />
           Runtime health
         </CardTitle>
-        <CardDescription className="text-xs">
+        <CardDescription className="text-body-sm">
           Live state for Dispatch loops, dependencies, and connection managers.
         </CardDescription>
       </CardHeader>
       <CardContent className="px-0 pb-0">
-        <div className="hidden grid-cols-[minmax(12rem,1.4fr)_minmax(7rem,0.6fr)_minmax(7rem,0.6fr)_5.5rem] gap-3 border-y border-border px-4 py-2 text-[10px] font-medium uppercase tracking-wider text-muted-foreground md:grid">
+        <div className="hidden grid-cols-[minmax(12rem,1.4fr)_minmax(7rem,0.6fr)_minmax(7rem,0.6fr)_5.5rem] gap-3 border-y border-border px-4 py-2 section-label md:grid">
           <span>Subsystem</span>
           <span>Duration</span>
           <span>Activity</span>

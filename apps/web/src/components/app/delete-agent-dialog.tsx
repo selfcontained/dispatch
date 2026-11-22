@@ -160,7 +160,7 @@ export function DeleteAgentDialog({
     if (!deleting) setOpen(next);
   };
   const failure = error ? (
-    <p role="alert" className="break-words text-sm text-destructive">
+    <p role="alert" className="break-words text-body-md text-danger">
       Couldn't archive the agent: {error}
     </p>
   ) : null;
@@ -182,18 +182,18 @@ export function DeleteAgentDialog({
 
           <div className="flex flex-col gap-3">
             {hasUnmerged && (
-              <div className="flex flex-col gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2.5 text-sm text-foreground">
+              <div className="flex flex-col gap-2 rounded-md border border-warning/line bg-warning/tint px-3 py-3 text-body-md text-foreground">
                 <div className="flex items-start gap-2">
-                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
+                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
                   <span>
                     Branch{" "}
-                    <code className="rounded bg-muted px-1 py-0.5 text-xs">
+                    <code className="rounded-sm bg-muted px-1 py-0.5 text-body-sm">
                       {worktreeStatus.branchName}
                     </code>{" "}
                     has commits not merged to origin.
                   </span>
                 </div>
-                <div className="ml-6 max-h-40 overflow-y-auto rounded bg-muted/50 px-2 py-1.5 text-xs font-mono leading-relaxed text-muted-foreground">
+                <div className="ml-6 max-h-40 overflow-y-auto rounded-sm bg-surface-hover px-2 py-1.5 text-body-sm font-mono leading-relaxed text-muted-foreground">
                   {worktreeStatus.changedFiles.map((file) => (
                     <div key={file}>{file}</div>
                   ))}
@@ -202,12 +202,12 @@ export function DeleteAgentDialog({
             )}
 
             {hasUncommitted && (
-              <div className="flex flex-col gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2.5 text-sm text-foreground">
+              <div className="flex flex-col gap-2 rounded-md border border-warning/line bg-warning/tint px-3 py-3 text-body-md text-foreground">
                 <div className="flex items-start gap-2">
-                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
+                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
                   <span>Worktree has uncommitted changes.</span>
                 </div>
-                <div className="ml-6 max-h-40 overflow-y-auto rounded bg-muted/50 px-2 py-1.5 text-xs font-mono leading-relaxed text-muted-foreground">
+                <div className="ml-6 max-h-40 overflow-y-auto rounded-sm bg-surface-hover px-2 py-1.5 text-body-sm font-mono leading-relaxed text-muted-foreground">
                   {worktreeStatus.uncommittedFiles.map((file) => (
                     <div key={file}>{file}</div>
                   ))}
@@ -215,7 +215,7 @@ export function DeleteAgentDialog({
               </div>
             )}
 
-            <p className="text-sm text-muted-foreground">
+            <p className="text-body-md text-muted-foreground">
               The agent will be archived either way.
               {cascadeNote}
             </p>

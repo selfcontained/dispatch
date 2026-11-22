@@ -39,13 +39,13 @@ export function CopyButton({
         copyText(json);
       }}
       className={cn(
-        "rounded p-0.5 text-muted-foreground hover:text-foreground transition-colors",
+        "rounded-sm p-0.5 text-muted-foreground hover:text-foreground transition-colors",
         className
       )}
       aria-label="Copy value"
     >
       {copied ? (
-        <Check className="h-3 w-3 text-emerald-400" />
+        <Check className="h-3 w-3 text-success" />
       ) : (
         <Copy className="h-3 w-3" />
       )}
@@ -67,7 +67,7 @@ export function DeleteButton({
         e.stopPropagation();
         onClick();
       }}
-      className="inline-flex h-8 w-8 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+      className="inline-flex h-8 w-8 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:bg-danger/tint hover:text-danger"
       aria-label={label}
       title={label}
     >
@@ -83,7 +83,7 @@ export function AgentIdLabel({ agentId }: { agentId: string }): JSX.Element {
   return (
     <Link
       to={`/activity/history/${agentId}`}
-      className="font-mono text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+      className="font-mono text-label-xs text-muted-foreground hover:text-foreground transition-colors"
       title={agentId}
       aria-label={`Open ${name} history`}
       onClick={(e) => e.stopPropagation()}
@@ -102,15 +102,14 @@ export function formatPrimitive(v: unknown): {
   text: string;
   className: string;
 } {
-  if (v === undefined)
-    return { text: "undefined", className: "text-violet-400" };
-  if (v === null) return { text: "null", className: "text-violet-400" };
+  if (v === undefined) return { text: "undefined", className: "text-chart-4" };
+  if (v === null) return { text: "null", className: "text-chart-4" };
   if (typeof v === "boolean")
-    return { text: String(v), className: "text-violet-400" };
+    return { text: String(v), className: "text-chart-4" };
   if (typeof v === "number")
-    return { text: String(v), className: "text-amber-400" };
+    return { text: String(v), className: "text-chart-2" };
   if (typeof v === "string") {
-    return { text: `"${v}"`, className: "text-emerald-400" };
+    return { text: `"${v}"`, className: "text-chart-1" };
   }
   return {
     text: JSON.stringify(v),

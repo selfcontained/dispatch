@@ -105,7 +105,7 @@ export function TaskAgentChip({
         {agent.name}
       </span>
       {qualifier && (
-        <span className="shrink-0 text-[10px] text-muted-foreground">
+        <span className="shrink-0 text-label-xs text-muted-foreground">
           · {qualifier}
         </span>
       )}
@@ -117,21 +117,21 @@ export function TaskAgentChip({
         // Tinted by state, so colour on a card says something: green while
         // the agent starts or works, amber waiting on someone, red blocked,
         // orange archiving, quiet when idle, faded and dashed once stopped.
-        "inline-flex min-w-0 border text-xs text-foreground shadow-sm",
+        "inline-flex min-w-0 border text-body-sm text-foreground shadow-sm",
         compact
           ? "items-center gap-2 rounded-full py-1 pl-1 pr-3"
           : "flex-col gap-1 rounded-lg px-2 py-1.5",
         live
-          ? "border-status-working/40 bg-status-working/10"
+          ? "border-status-working/line bg-status-working/tint"
           : activity.tone === "waiting"
-            ? "border-status-waiting/40 bg-status-waiting/10"
+            ? "border-status-waiting/line bg-status-waiting/tint"
             : activity.tone === "blocked"
-              ? "border-status-blocked/40 bg-status-blocked/10"
+              ? "border-status-blocked/line bg-status-blocked/tint"
               : activity.tone === "archiving"
-                ? "border-orange-400/40 bg-orange-400/10"
+                ? "border-warning/line bg-warning/tint"
                 : activity.tone === "stopped"
                   ? "border-dashed border-border bg-transparent text-muted-foreground"
-                  : "border-border bg-background/70",
+                  : "border-border bg-background/soft",
         fullWidth && "w-full",
         className
       )}
@@ -153,14 +153,14 @@ export function TaskAgentChip({
           <span className="flex min-w-0 items-center gap-2">{nameRow}</span>
           <span
             className={cn(
-              "flex min-h-4 min-w-0 items-center gap-1.5 text-[10px] font-medium",
+              "flex min-h-4 min-w-0 items-center gap-1.5 text-label-xs font-medium",
               activity.kind === "schedule"
                 ? // The sidebar's colour for the next scheduled message.
                   "text-heading-accent-1"
                 : live
                   ? "text-status-working"
                   : activity.tone === "archiving"
-                    ? "text-orange-400"
+                    ? "text-warning"
                     : activity.tone === "waiting"
                       ? "text-status-waiting"
                       : activity.tone === "blocked"
@@ -195,7 +195,9 @@ export function TaskAgent({
   fullWidth?: boolean;
 }) {
   if (!agent)
-    return <span className="text-xs text-muted-foreground">Unassigned</span>;
+    return (
+      <span className="text-body-sm text-muted-foreground">Unassigned</span>
+    );
   return (
     <AgentSessionLink
       decorative={false}

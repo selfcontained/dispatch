@@ -58,10 +58,10 @@ export function TodoList({
               className={cn(
                 STRIP_STATUS_CLASS,
                 done
-                  ? "font-bold text-status-done"
+                  ? "font-semibold text-status-done"
                   : active
                     ? "text-status-working"
-                    : "text-muted-foreground/60"
+                    : "text-faint"
               )}
             >
               <AnimatePresence mode="wait">
@@ -85,10 +85,10 @@ export function TodoList({
               className={cn(
                 STRIP_ITEM_CLASS,
                 done
-                  ? "text-muted-foreground line-through decoration-muted-foreground/40"
+                  ? "text-muted-foreground line-through decoration-muted-foreground/line"
                   : active
                     ? "font-medium text-foreground"
-                    : "text-foreground/80"
+                    : "text-foreground/soft"
               )}
             >
               {item.content}

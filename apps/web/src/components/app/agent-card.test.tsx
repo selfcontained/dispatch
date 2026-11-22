@@ -301,12 +301,12 @@ describe("AgentCard state and selection", () => {
     // the terminal, so the card must not claim either.
     expect(card().className).toContain("border-state-idle");
     expect(card().className).not.toContain("border-state-active");
-    expect(card().className).not.toContain("bg-muted/60");
+    expect(card().className).not.toContain("bg-surface-hover");
 
     // Positive control: same props minus the connected child.
     rerender({ connectedAgentId: null });
     expect(card().className).toContain("border-state-active");
-    expect(card().className).toContain("bg-muted/60");
+    expect(card().className).toContain("bg-surface-hover");
   });
 
   it("dims stopped cards, still opens their Chat on row click, and offers resume", () => {

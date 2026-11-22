@@ -168,24 +168,22 @@ function TasksContent({ projectId }: { projectId: string }) {
     });
   };
   const sidebar = (
-    <div className="space-y-5 p-3">
+    <div className="space-y-4 p-3">
       <ProjectSwitcher allowAll={false} />
       <Button className="w-full justify-start" onClick={() => startNewTask()}>
         <Plus className="mr-2 h-4 w-4" />
         New task
       </Button>
       <div>
-        <h2 className="mb-2 px-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-          Columns
-        </h2>
+        <h2 className="mb-2 px-2 section-label">Columns</h2>
         {columns.map((column, index) => (
           <button
             key={column.id}
             data-testid={`task-nav-column-${column.key}`}
             aria-pressed={onlyColumn?.id === column.id}
             className={cn(
-              "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted/60",
-              onlyColumn?.id === column.id && "bg-muted/70 font-medium"
+              "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-body-md hover:bg-surface-hover",
+              onlyColumn?.id === column.id && "bg-surface-hover font-medium"
             )}
             onClick={() => showColumn(column.id)}
           >
@@ -231,16 +229,16 @@ function TasksContent({ projectId }: { projectId: string }) {
       <div className="flex min-h-0 flex-1 flex-col">
         <header className="flex flex-col gap-2 px-3 py-2 md:flex-row md:items-center md:px-4 md:py-3">
           <div className="flex min-w-0 items-center gap-2 md:mr-auto">
-            <h1 className="min-w-0 flex-1 truncate text-lg font-semibold">
+            <h1 className="min-w-0 flex-1 truncate text-heading-lg">
               Tasks{" "}
-              <span className="text-sm font-normal text-muted-foreground">
+              <span className="text-body-md font-normal text-muted-foreground">
                 · {project?.name}
               </span>
             </h1>
             {onlyColumn && (
               <button
                 data-testid="task-column-filter"
-                className="flex shrink-0 items-center gap-1.5 rounded-full bg-muted/60 py-0.5 pl-2.5 pr-1.5 text-xs hover:bg-muted"
+                className="flex shrink-0 items-center gap-1.5 rounded-full bg-surface-hover py-0.5 pl-2 pr-1.5 text-body-sm hover:bg-muted"
                 onClick={() => updateParam("column", null)}
                 aria-label={`Show all columns (showing only ${onlyColumn.name})`}
               >
@@ -274,7 +272,7 @@ function TasksContent({ projectId }: { projectId: string }) {
               // toggling never changes the control's size.
               className={cn(
                 archived
-                  ? "bg-primary/20 text-primary ring-1 ring-primary/40 hover:bg-primary/25"
+                  ? "bg-primary/tint-strong text-primary ring-1 ring-primary/line hover:bg-primary/tint-strong"
                   : "border border-transparent"
               )}
               aria-pressed={archived}
@@ -282,7 +280,7 @@ function TasksContent({ projectId }: { projectId: string }) {
             >
               Archived
             </Button>
-            <div className="flex shrink-0 rounded-lg bg-muted/50 p-0.5 md:order-last">
+            <div className="flex shrink-0 rounded-lg bg-surface-hover p-0.5 md:order-last">
               <Button
                 size="sm"
                 variant={layout === "board" ? "default" : "ghost"}
@@ -352,10 +350,12 @@ function TasksContent({ projectId }: { projectId: string }) {
           </div>
         </header>
         {isLoading && (
-          <p className="p-5 text-sm text-muted-foreground">Loading board…</p>
+          <p className="p-4 text-body-md text-muted-foreground">
+            Loading board…
+          </p>
         )}
         {error && (
-          <p className="p-5 text-sm text-destructive">
+          <p className="p-4 text-body-md text-danger">
             Could not load tasks: {error.message}
           </p>
         )}
@@ -363,9 +363,9 @@ function TasksContent({ projectId }: { projectId: string }) {
           <div className="min-h-0 flex-1">
             {archived ? (
               <div className="h-full overflow-auto p-4">
-                <h2 className="mb-3 font-semibold">Archived tasks</h2>
+                <h2 className="mb-3 text-heading-md">Archived tasks</h2>
                 {actions.restore.error && (
-                  <p role="alert" className="mb-3 text-sm text-destructive">
+                  <p role="alert" className="mb-3 text-body-md text-danger">
                     {actions.restore.error.message}
                   </p>
                 )}
@@ -377,14 +377,14 @@ function TasksContent({ projectId }: { projectId: string }) {
                     .map((column) => (
                       <span
                         key={column.id}
-                        className="inline-flex items-center gap-1 text-xs"
+                        className="inline-flex items-center gap-1 text-body-sm"
                       >
                         {column.name} <ColumnCapacity column={column} />
                       </span>
                     ))}
                 </div>
                 {tasks.length === 0 && (
-                  <p className="text-sm text-muted-foreground">
+                  <p className="text-body-md text-muted-foreground">
                     No archived tasks.
                   </p>
                 )}
@@ -395,15 +395,15 @@ function TasksContent({ projectId }: { projectId: string }) {
                   .map((task) => (
                     <div
                       key={task.id}
-                      className="flex items-center gap-3 border-b border-border/40 py-3"
+                      className="flex items-center gap-3 border-b border-border-subtle py-3"
                     >
                       <button
-                        className="min-w-0 flex-1 truncate text-left text-sm hover:underline"
+                        className="min-w-0 flex-1 truncate text-left text-body-md hover:underline"
                         onClick={() => openTask(task.id)}
                       >
                         {task.title}
                       </button>
-                      <span className="text-xs text-muted-foreground">
+                      <span className="text-body-sm text-muted-foreground">
                         {
                           columns.find((column) => column.id === task.columnId)
                             ?.name
@@ -411,7 +411,7 @@ function TasksContent({ projectId }: { projectId: string }) {
                       </span>
                       {task.archivedAt && (
                         <time
-                          className="text-xs text-muted-foreground"
+                          className="text-body-sm text-muted-foreground"
                           dateTime={task.archivedAt}
                           title={formatDateTime(task.archivedAt)}
                         >
@@ -507,8 +507,8 @@ export function TasksRoute(): JSX.Element {
       {/* Boards are per project, so with none chosen the page is the choice. */}
       <div className="flex h-full items-center justify-center p-6">
         <div className="w-full max-w-sm text-center">
-          <h1 className="text-lg font-semibold">Choose a project</h1>
-          <p className="mb-4 text-sm text-muted-foreground">
+          <h1 className="text-heading-lg">Choose a project</h1>
+          <p className="mb-4 text-body-md text-muted-foreground">
             {projects.length
               ? "Each project has its own board."
               : "Create a project from the switcher to start a board."}
@@ -517,7 +517,7 @@ export function TasksRoute(): JSX.Element {
             {projects.map((project) => (
               <button
                 key={project.id}
-                className="flex w-full items-center justify-center gap-3 rounded-lg border border-border/60 bg-card/60 px-3 py-2 text-sm hover:bg-muted/60"
+                className="flex w-full items-center justify-center gap-3 rounded-lg border border-border-subtle bg-card/veil px-3 py-2 text-body-md hover:bg-surface-hover"
                 onClick={() => {
                   const next = new URLSearchParams(params);
                   next.set("project", project.id);

@@ -52,7 +52,7 @@ function AutomationsSidebar({
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="mt-2 flex h-14 items-center border-b border-border px-3">
-        <div className="flex w-full gap-1 rounded-lg bg-white/[0.04] p-0.5">
+        <div className="flex w-full gap-1 rounded-lg bg-fill-inset p-0.5">
           <TabButton
             active={activeTab === "templates"}
             onClick={() => onTabChange("templates")}
@@ -103,18 +103,18 @@ function TabButton({
       type="button"
       onClick={onClick}
       className={cn(
-        "relative flex flex-1 items-center justify-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
+        "relative flex flex-1 items-center justify-center gap-1.5 rounded-md px-3 py-1.5 text-body-sm font-medium transition-colors",
         active ? "text-primary" : "text-muted-foreground hover:text-foreground"
       )}
     >
       {active ? (
         <motion.div
           layoutId="automations-tab-indicator"
-          className="absolute inset-0 rounded-md bg-primary/15"
+          className="absolute inset-0 rounded-md bg-surface-selected"
           transition={{ type: "spring", bounce: 0.15, duration: 0.4 }}
         />
       ) : null}
-      <span className="relative z-10 flex items-center gap-1.5">
+      <span className="relative z-sticky flex items-center gap-1.5">
         {icon}
         {label}
       </span>
@@ -151,7 +151,7 @@ function TemplateListContent({
         <Button
           size="sm"
           variant="default"
-          className="bg-muted/35 text-muted-foreground hover:bg-muted/65 hover:text-foreground"
+          className="bg-surface-subtle text-muted-foreground hover:bg-surface-hover hover:text-foreground"
           onClick={() => setShowCreate(true)}
         >
           <FormInput className="mr-1 h-4 w-4" />
@@ -164,17 +164,17 @@ function TemplateListContent({
             {Array.from({ length: 3 }, (_, i) => (
               <div
                 key={i}
-                className="h-10 animate-pulse rounded-md bg-muted/40"
+                className="h-10 animate-pulse rounded-md bg-surface-subtle"
               />
             ))}
           </div>
         ) : templates.length === 0 ? (
-          <div className="p-4 text-sm text-muted-foreground">
+          <div className="p-4 text-body-md text-muted-foreground">
             <div className="rounded-md border border-dashed border-border p-4">
               <div className="font-medium text-foreground">
                 No templates yet.
               </div>
-              <div className="mt-1 text-xs">
+              <div className="mt-1 text-body-sm">
                 Create a template to launch agents with saved configurations.
               </div>
             </div>
@@ -236,22 +236,22 @@ function TemplateListItem({
           }
         }}
         className={cn(
-          "group w-full cursor-pointer border-b border-r-4 border-border border-r-transparent px-3 py-2 text-left transition-colors hover:bg-muted/40",
-          selected && "border-r-primary bg-muted/60"
+          "group w-full cursor-pointer border-b border-r-4 border-border border-r-transparent px-3 py-2 text-left transition-colors hover:bg-surface-hover",
+          selected && "border-r-primary bg-surface-hover"
         )}
       >
         <div className="flex items-center gap-2">
           <div className="min-w-0 flex-1">
-            <div className="truncate text-sm font-semibold leading-5">
+            <div className="truncate text-body-md font-semibold leading-5">
               {template.name}
             </div>
             {template.description ? (
-              <div className="truncate text-xs text-muted-foreground">
+              <div className="truncate text-body-sm text-muted-foreground">
                 {template.description}
               </div>
             ) : (
               <div
-                className="truncate font-mono text-[11px] text-muted-foreground"
+                className="truncate font-mono text-label-sm text-muted-foreground"
                 title={template.directory}
               >
                 {shortPath(template.directory)}
@@ -262,7 +262,7 @@ function TemplateListItem({
             type="button"
             onClick={handleLaunch}
             title="Launch template"
-            className="shrink-0 rounded p-2 text-muted-foreground opacity-0 pointer-events-none transition-opacity hover:bg-white/[0.08] hover:text-primary group-hover:opacity-100 group-hover:pointer-events-auto"
+            className="shrink-0 rounded-sm p-2 text-muted-foreground opacity-0 pointer-events-none transition-opacity hover:bg-fill-hover hover:text-primary group-hover:opacity-100 group-hover:pointer-events-auto"
           >
             <Play className="h-3 w-3 fill-current" />
           </button>

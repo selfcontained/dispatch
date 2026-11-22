@@ -66,12 +66,11 @@ function status(server: McpServer) {
 }
 
 function stateColor(server: McpServer) {
-  if (needsSignIn(server)) return "text-status-waiting";
+  if (needsSignIn(server)) return "text-warning";
   if (server.state === "failed" || server.toolsState === "error")
-    return "text-status-blocked";
-  if (server.state === "connected") return "text-status-working";
-  if (["pending", "starting"].includes(server.state))
-    return "text-status-waiting";
+    return "text-danger";
+  if (server.state === "connected") return "text-success";
+  if (["pending", "starting"].includes(server.state)) return "text-warning";
   return "text-muted-foreground";
 }
 
@@ -198,9 +197,9 @@ function McpInventoryPopover({
         aria-label="MCP servers"
         className="w-[360px] max-w-[calc(100vw-16px)] max-h-[var(--radix-popover-content-available-height)] flex flex-col overflow-hidden rounded-sm border border-border bg-background p-2 font-mono"
       >
-        <div className="mb-2 flex shrink-0 items-center justify-between border-b border-border px-1 pb-1 text-xs">
+        <div className="mb-2 flex shrink-0 items-center justify-between border-b border-border px-1 pb-1 text-body-sm">
           <span className="font-medium">
-            <span aria-hidden="true" className="mr-2 text-status-working">
+            <span aria-hidden="true" className="mr-2 text-success">
               &gt;_
             </span>
             MCP servers{data?.status === "ok" ? ` · ${servers.length}` : ""}
@@ -220,10 +219,10 @@ function McpInventoryPopover({
           </Button>
         </div>
         {query.isPending ? (
-          <div className="min-h-0 overflow-hidden px-2 pb-5 pt-2">
+          <div className="min-h-0 overflow-hidden px-2 pb-4 pt-2">
             <p
               role="status"
-              className="mb-4 flex items-center gap-2 text-xs text-primary"
+              className="mb-4 flex items-center gap-2 text-body-sm text-primary"
             >
               <LoaderCircle
                 aria-hidden="true"
@@ -235,7 +234,7 @@ function McpInventoryPopover({
               {["w-32", "w-24", "w-36", "w-28"].map((width) => (
                 <div
                   key={width}
-                  className="flex h-11 items-center gap-2 border-b border-border/50"
+                  className="flex h-11 items-center gap-2 border-b border-border-subtle"
                 >
                   <Skeleton className="h-3.5 w-3.5 rounded-full motion-reduce:animate-none" />
                   <Skeleton
@@ -247,7 +246,10 @@ function McpInventoryPopover({
             </div>
           </div>
         ) : message ? (
-          <p role="status" className="px-1 py-3 text-xs text-muted-foreground">
+          <p
+            role="status"
+            className="px-1 py-3 text-body-sm text-muted-foreground"
+          >
             {message}
           </p>
         ) : server ? (
@@ -258,7 +260,7 @@ function McpInventoryPopover({
                 type="button"
                 variant="ghost"
                 size="sm"
-                className="h-8 px-1 text-[11px] text-foreground hover:bg-transparent pointer-coarse:min-h-11"
+                className="h-8 px-1 text-label-sm text-foreground hover:bg-transparent pointer-coarse:min-h-11"
                 onClick={() => {
                   setSelected(null);
                   requestAnimationFrame(() =>
@@ -266,13 +268,15 @@ function McpInventoryPopover({
                   );
                 }}
               >
-                <span className="inline-flex h-6 items-center rounded border border-foreground/30 bg-accent px-2">
+                <span className="inline-flex h-6 items-center rounded-sm border border-foreground/line bg-accent px-2">
                   Back
                 </span>
               </Button>
               <div className="min-w-0">
-                <p className="break-words text-xs font-medium">{server.name}</p>
-                <p className={`text-[11px] ${stateColor(server)}`}>
+                <p className="break-words text-body-sm font-medium">
+                  {server.name}
+                </p>
+                <p className={`text-label-sm ${stateColor(server)}`}>
                   {status(server)}
                 </p>
               </div>
@@ -282,7 +286,7 @@ function McpInventoryPopover({
               placeholder="Search tools…"
               value={toolSearch}
               onChange={(event) => setToolSearch(event.target.value)}
-              className="mb-1 h-8 shrink-0 rounded-sm text-xs pointer-coarse:min-h-11 pointer-coarse:text-base"
+              className="mb-1 h-8 shrink-0 rounded-sm text-body-sm pointer-coarse:min-h-11 pointer-coarse:text-body-lg"
             />
             <div
               className="min-h-0 max-h-[min(256px,45dvh)] overflow-y-auto overscroll-contain touch-pan-y"
@@ -291,7 +295,7 @@ function McpInventoryPopover({
               {needsSignIn(server) &&
               server.toolsState !== "known" ? null : server.toolsState !==
                 "known" ? (
-                <p className="px-1 py-2 text-xs text-muted-foreground">
+                <p className="px-1 py-2 text-body-sm text-muted-foreground">
                   {server.toolsState === "error"
                     ? "Tool discovery failed."
                     : "Tools are not available yet."}
@@ -305,7 +309,7 @@ function McpInventoryPopover({
                           type="button"
                           variant="ghost"
                           size="sm"
-                          className="h-auto min-h-8 w-full justify-start whitespace-normal break-all px-1 text-left text-xs font-normal pointer-coarse:min-h-11"
+                          className="h-auto min-h-8 w-full justify-start whitespace-normal break-all px-1 text-left text-body-sm font-normal pointer-coarse:min-h-11"
                           aria-expanded={expanded === tool.name}
                           onClick={() =>
                             setExpanded(
@@ -320,19 +324,19 @@ function McpInventoryPopover({
                           {tool.name}
                         </Button>
                       ) : (
-                        <p className="break-all px-1 py-2 text-xs">
+                        <p className="break-all px-1 py-2 text-body-sm">
                           {tool.name}
                         </p>
                       )}
                       {expanded === tool.name && tool.description ? (
-                        <p className="whitespace-pre-wrap break-words px-1 pb-2 text-[11px] text-muted-foreground">
+                        <p className="whitespace-pre-wrap break-words px-1 pb-2 text-label-sm text-muted-foreground">
                           {tool.description}
                         </p>
                       ) : null}
                     </div>
                   ))}
                   {!visibleTools.length ? (
-                    <p className="px-1 py-2 text-xs text-muted-foreground">
+                    <p className="px-1 py-2 text-body-sm text-muted-foreground">
                       {tools.length ? "No tools match." : "No tools reported."}
                     </p>
                   ) : null}
@@ -349,7 +353,7 @@ function McpInventoryPopover({
                 placeholder="Search servers…"
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
-                className="h-8 rounded-sm pl-7 text-xs pointer-coarse:min-h-11 pointer-coarse:text-base"
+                className="h-8 rounded-sm pl-8 text-body-sm pointer-coarse:min-h-11 pointer-coarse:text-body-lg"
               />
             </div>
             {attention || attentionCount > 0 ? (
@@ -358,7 +362,7 @@ function McpInventoryPopover({
                 variant="ghost"
                 size="sm"
                 aria-pressed={attention}
-                className="my-1 h-7 shrink-0 self-start px-1 text-[11px] text-status-waiting pointer-coarse:min-h-11"
+                className="my-1 h-7 shrink-0 self-start px-1 text-label-sm text-warning pointer-coarse:min-h-11"
                 onClick={() => setAttention(!attention)}
               >
                 Needs attention · {attentionCount}
@@ -381,7 +385,7 @@ function McpInventoryPopover({
                     }}
                     type="button"
                     variant="ghost"
-                    className="h-9 w-full justify-start gap-2 rounded-none border-b border-border/50 px-2 text-left font-normal pointer-coarse:min-h-11"
+                    className="h-9 w-full justify-start gap-2 rounded-none border-b border-border-subtle px-2 text-left font-normal pointer-coarse:min-h-11"
                     onClick={() => {
                       setSelected(item.name);
                       setToolSearch("");
@@ -393,13 +397,13 @@ function McpInventoryPopover({
                       className={`h-3.5 w-3.5 shrink-0 ${stateColor(item)}`}
                     />
                     <span
-                      className="min-w-0 flex-1 truncate text-xs"
+                      className="min-w-0 flex-1 truncate text-body-sm"
                       title={item.name}
                     >
                       {item.name}
                     </span>
                     {!needsSignIn(item) && item.toolsState === "known" ? (
-                      <span className="shrink-0 text-[11px] text-muted-foreground">
+                      <span className="shrink-0 text-label-sm text-muted-foreground">
                         {item.tools!.length} tools
                       </span>
                     ) : null}
@@ -407,7 +411,7 @@ function McpInventoryPopover({
                 );
               })}
               {!visible.length ? (
-                <p className="px-1 py-3 text-xs text-muted-foreground">
+                <p className="px-1 py-3 text-body-sm text-muted-foreground">
                   {servers.length
                     ? "No servers match."
                     : "No MCP servers reported."}

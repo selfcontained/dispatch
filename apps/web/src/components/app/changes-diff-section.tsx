@@ -34,11 +34,11 @@ function statusIcon(file: DiffFile): JSX.Element {
   }
   switch (file.status) {
     case "added":
-      return <FilePlus className="h-3.5 w-3.5 text-status-working" />;
+      return <FilePlus className="h-3.5 w-3.5 text-success" />;
     case "deleted":
-      return <FileMinus className="h-3.5 w-3.5 text-status-blocked" />;
+      return <FileMinus className="h-3.5 w-3.5 text-danger" />;
     case "renamed":
-      return <FileCode2 className="h-3.5 w-3.5 text-purple-400" />;
+      return <FileCode2 className="h-3.5 w-3.5 text-status-merged" />;
     default:
       return <FileText className="h-3.5 w-3.5 text-muted-foreground" />;
   }
@@ -282,15 +282,15 @@ const FileDiffSection = memo(function FileDiffSection({
     <div
       ref={setRef}
       data-testid={`changes-file-section:${file.path}`}
-      className="rounded-md border border-border/50"
+      className="rounded-md border border-border-subtle"
     >
       <div
         style={{ containerType: "inline-size" }}
-        className="sticky top-0 z-10 flex items-center rounded-t-md border-b border-border/50 bg-background/95 pr-1 backdrop-blur-sm"
+        className="sticky top-0 z-sticky flex items-center rounded-t-md border-b border-border-subtle bg-background/dense pr-1 backdrop-blur-sm"
       >
         <button
           type="button"
-          className="flex min-w-0 flex-1 items-center gap-2 px-3 py-2 text-left text-xs hover:bg-muted/60"
+          className="flex min-w-0 flex-1 items-center gap-2 px-3 py-2 text-left text-body-sm hover:bg-surface-hover"
           onClick={() => onToggleCollapse(file.path)}
         >
           {collapsed ? (
@@ -299,7 +299,7 @@ const FileDiffSection = memo(function FileDiffSection({
             <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
           )}
           {statusIcon(file)}
-          <span className="min-w-0 flex-1 truncate font-mono text-xs">
+          <span className="min-w-0 flex-1 truncate font-mono text-body-sm">
             {file.oldPath ? (
               <>
                 <span className="text-muted-foreground">{file.oldPath}</span>
@@ -308,12 +308,12 @@ const FileDiffSection = memo(function FileDiffSection({
             ) : null}
             {file.path}
           </span>
-          <span className="ml-auto shrink-0 font-mono text-[10px]">
+          <span className="ml-auto shrink-0 font-mono text-label-xs">
             {file.added > 0 ? (
-              <span className="text-status-working">+{file.added}</span>
+              <span className="text-success">+{file.added}</span>
             ) : null}
             {file.deleted > 0 ? (
-              <span className="ml-1 text-status-blocked">−{file.deleted}</span>
+              <span className="ml-1 text-danger">−{file.deleted}</span>
             ) : null}
           </span>
         </button>
@@ -413,14 +413,14 @@ function FileDiffContent({
 
   if (file.truncated && !forceLoad) {
     return (
-      <div className="flex items-center justify-between bg-muted/10 px-4 py-3 text-xs text-muted-foreground">
+      <div className="flex items-center justify-between bg-surface-subtle px-4 py-3 text-body-sm text-muted-foreground">
         <span>
           Large file ({file.added > 0 ? `+${file.added}` : ""}
           {file.deleted > 0 ? ` −${file.deleted}` : ""}) — diff truncated
         </span>
         <button
           type="button"
-          className="rounded border border-border px-2 py-0.5 text-xs text-foreground hover:bg-muted/40"
+          className="rounded-sm border border-border px-2 py-0.5 text-body-sm text-foreground hover:bg-surface-hover"
           onClick={onForceLoad}
         >
           Load diff
@@ -431,7 +431,7 @@ function FileDiffContent({
 
   if (file.truncated && forceLoad && fileDiffLoading) {
     return (
-      <div className="flex items-center gap-2 px-4 py-3 text-xs text-muted-foreground">
+      <div className="flex items-center gap-2 px-4 py-3 text-body-sm text-muted-foreground">
         <Loader2 className="h-3 w-3 animate-spin" />
         Loading…
       </div>
@@ -454,7 +454,7 @@ function FileDiffContent({
 
   if (!diffText) {
     return (
-      <div className="px-4 py-3 text-xs text-muted-foreground">
+      <div className="px-4 py-3 text-body-sm text-muted-foreground">
         {file.status === "deleted"
           ? "File deleted"
           : "Binary file or no textual diff available"}

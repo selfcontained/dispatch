@@ -92,9 +92,9 @@ export function SimulatedDefragTurn() {
   });
   const notes = SCRIPT.slice(0, index + 1).filter((event) => "text" in event);
   return (
-    <section className="max-w-2xl space-y-5" aria-label="Simulated agent turn">
+    <section className="max-w-2xl space-y-4" aria-label="Simulated agent turn">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h2 className="text-xl font-semibold">Simulated turn</h2>
+        <h2 className="text-heading-lg">Simulated turn</h2>
         <div className="flex flex-wrap gap-2">
           {!done && (
             <Button
@@ -119,17 +119,17 @@ export function SimulatedDefragTurn() {
         </div>
       </div>
       {compacting && (
-        <p className="text-sm text-muted-foreground">
+        <p className="text-body-md text-muted-foreground">
           Let compaction run, then finish it to watch normal work resume.
         </p>
       )}
-      <div className="rounded-lg bg-muted/30 p-4 text-sm">
+      <div className="rounded-lg bg-surface-subtle p-4 text-body-md">
         Review the placeholder change, run checks, and summarize the result.
       </div>
       <div className="space-y-3">
-        <div className="text-sm font-medium">Dispatch agent</div>
+        <div className="text-body-md font-medium">Dispatch agent</div>
         {notes.map((event) => (
-          <p key={event.label} className="text-sm text-muted-foreground">
+          <p key={event.label} className="text-body-md text-muted-foreground">
             {"text" in event ? event.text : ""}
           </p>
         ))}
@@ -157,7 +157,7 @@ export function SimulatedDefragTurn() {
           }}
         />
         {done && (
-          <p className="text-sm text-status-working" role="status">
+          <p className="text-body-md text-status-working" role="status">
             Turn complete · checks passed
           </p>
         )}

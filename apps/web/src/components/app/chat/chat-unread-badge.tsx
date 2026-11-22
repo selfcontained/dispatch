@@ -24,7 +24,7 @@ export function ChatUnreadBadge({
           tabIndex={0}
           aria-label="Needs your input"
           data-testid="agent-chat-unread"
-          className="inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center text-status-waiting outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center text-status-waiting outline-none focus-ring"
         >
           <MessageCircleQuestion className="h-3.5 w-3.5" aria-hidden="true" />
         </span>

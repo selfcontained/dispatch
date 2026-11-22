@@ -55,7 +55,7 @@ export function WorktreesContent() {
           <strong>New branch</strong> checkbox below it controls what happens
           next:
         </P>
-        <ul className="grid gap-1.5 pl-4 text-sm text-muted-foreground list-disc">
+        <ul className="grid gap-1.5 pl-4 text-body-md text-muted-foreground list-disc">
           <li>
             <strong>On (default)</strong> — Dispatch forks a new working branch
             from the starting branch so the agent can make isolated changes for

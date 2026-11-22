@@ -47,8 +47,8 @@ function ManualCommand({ command }: { command: string }): JSX.Element {
   const [copied, copyText] = useCopyText();
   return (
     <li className="pl-1 marker:text-muted-foreground">
-      <div className="flex min-w-0 items-center gap-1 rounded bg-muted/50 py-1 pl-2 pr-1">
-        <code className="min-w-0 flex-1 whitespace-pre-wrap break-words font-mono text-[11px] text-foreground">
+      <div className="flex min-w-0 items-center gap-1 rounded-sm bg-surface-hover py-1 pl-2 pr-1">
+        <code className="min-w-0 flex-1 whitespace-pre-wrap break-words font-mono text-label-sm text-foreground">
           {command}
         </code>
         <CopyIconButton
@@ -83,19 +83,21 @@ function PluginRow({ status }: { status: PluginStatus }): JSX.Element {
             : "Up to date";
 
   return (
-    <div className="rounded border border-border px-3 py-3">
+    <div className="rounded-sm border border-border px-3 py-3">
       <div className="flex min-h-12 items-center justify-between gap-4">
         <div className="min-w-0 flex-1">
-          <div className="text-sm font-medium text-foreground">{label}</div>
+          <div className="text-body-md font-medium text-foreground">
+            {label}
+          </div>
           {status.installed ? (
-            <p className="mt-1 text-xs text-muted-foreground">
+            <p className="mt-1 text-body-sm text-muted-foreground">
               {status.currentVersion
                 ? `Installed v${status.currentVersion}`
                 : "Installed version unknown"}
               {status.updateAvailable ? ` → v${status.latestVersion}` : ""}
             </p>
           ) : (
-            <p className="mt-1 text-xs text-muted-foreground">
+            <p className="mt-1 text-body-sm text-muted-foreground">
               Dispatch skills
             </p>
           )}
@@ -103,7 +105,7 @@ function PluginRow({ status }: { status: PluginStatus }): JSX.Element {
         <div className="flex shrink-0 flex-col items-end gap-1.5">
           <Badge
             variant={status.updateAvailable ? "running" : "default"}
-            className="max-w-36 rounded-none border-0 bg-transparent p-0 text-right text-xs font-normal normal-case tracking-normal"
+            className="max-w-36 rounded-none border-0 bg-transparent p-0 text-right text-body-sm font-normal normal-case tracking-normal"
           >
             {state}
           </Badge>
@@ -111,7 +113,7 @@ function PluginRow({ status }: { status: PluginStatus }): JSX.Element {
             <Button
               variant="default"
               size="sm"
-              className="h-7 min-w-24 text-xs"
+              className="h-7 min-w-24 text-body-sm"
               disabled={isPending}
               aria-busy={isPending}
               aria-label={`${action === "install" ? "Install" : "Update"} ${label} plugin`}
@@ -136,21 +138,21 @@ function PluginRow({ status }: { status: PluginStatus }): JSX.Element {
         </div>
       </div>
       {status.detectionError ? (
-        <p className="mt-2 text-xs text-muted-foreground">
+        <p className="mt-2 text-body-sm text-muted-foreground">
           {status.detectionError}
         </p>
       ) : null}
       {error ? (
         <p
           role="alert"
-          className="mt-2 whitespace-pre-line text-xs text-destructive"
+          className="mt-2 whitespace-pre-line text-body-sm text-danger"
         >
           {error.message}{" "}
           <Button
             type="button"
             variant="ghost"
             size="sm"
-            className="h-auto p-0 text-xs text-destructive underline"
+            className="h-auto p-0 text-body-sm text-danger underline"
             onClick={() => setManualOpen(true)}
           >
             Run it manually
@@ -163,7 +165,7 @@ function PluginRow({ status }: { status: PluginStatus }): JSX.Element {
             type="button"
             variant="default"
             size="sm"
-            className="group mt-2 h-7 px-2.5 text-xs text-muted-foreground hover:text-foreground"
+            className="group mt-2 h-7 px-2 text-body-sm text-muted-foreground hover:text-foreground"
           >
             <ChevronDown className="mr-1 h-3.5 w-3.5 transition-transform group-data-[state=open]:rotate-180" />
             Manual commands
@@ -171,7 +173,7 @@ function PluginRow({ status }: { status: PluginStatus }): JSX.Element {
         </CollapsibleTrigger>
         <CollapsibleContent className="mt-1 min-w-0 space-y-2">
           <ol
-            className="list-decimal space-y-1.5 pl-4 text-xs"
+            className="list-decimal space-y-1.5 pl-4 text-body-sm"
             aria-label={`${label} manual commands`}
           >
             {manualCommands.map((command) => (
@@ -179,11 +181,11 @@ function PluginRow({ status }: { status: PluginStatus }): JSX.Element {
             ))}
           </ol>
           {action === "install" ? (
-            <p className="text-xs text-muted-foreground">
+            <p className="text-body-sm text-muted-foreground">
               Skip step 1 if the dispatch marketplace is already added.
             </p>
           ) : null}
-          <p className="text-xs text-muted-foreground">
+          <p className="text-body-sm text-muted-foreground">
             Then start a fresh agent session.
           </p>
         </CollapsibleContent>
@@ -204,13 +206,11 @@ export function PluginUpdateSettings(): JSX.Element {
     >
       <div className="max-w-lg">
         <div className="flex items-center justify-between gap-3">
-          <h2 className="text-sm font-medium text-foreground">
-            Dispatch plugins
-          </h2>
+          <h2 className="text-heading-sm text-foreground">Dispatch plugins</h2>
           <Button
             variant="ghost"
             size="sm"
-            className="h-7 text-xs"
+            className="h-7 text-body-sm"
             disabled={checking}
             onClick={() => refresh.mutate()}
           >
@@ -220,7 +220,7 @@ export function PluginUpdateSettings(): JSX.Element {
             Check again
           </Button>
         </div>
-        <p className="mt-1 text-sm text-muted-foreground">
+        <p className="mt-1 text-body-md text-muted-foreground">
           Skills for your enabled Claude Code and Codex CLIs. Install or update
           on this Dispatch server, then start a fresh agent session to load
           them.
@@ -228,12 +228,12 @@ export function PluginUpdateSettings(): JSX.Element {
       </div>
       <div className="max-w-lg space-y-2">
         {isPending ? (
-          <p role="status" className="text-sm text-muted-foreground">
+          <p role="status" className="text-body-md text-muted-foreground">
             Checking plugin versions…
           </p>
         ) : null}
         {error || refresh.error ? (
-          <p role="alert" className="text-sm text-destructive">
+          <p role="alert" className="text-body-md text-danger">
             Could not load plugin status. Check again to retry.
           </p>
         ) : null}
@@ -241,7 +241,7 @@ export function PluginUpdateSettings(): JSX.Element {
           <PluginRow key={status.agentType} status={status} />
         ))}
         {data?.statuses.length === 0 ? (
-          <p className="text-sm text-muted-foreground">
+          <p className="text-body-md text-muted-foreground">
             Enable Claude Code or Codex in Settings → Agents to manage its
             Dispatch plugin.
           </p>

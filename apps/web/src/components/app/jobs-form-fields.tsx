@@ -40,7 +40,7 @@ export function SwitchToggle({
       disabled={disabled}
       onClick={() => onCheckedChange(!checked)}
       className={cn(
-        "inline-flex h-6 w-11 shrink-0 items-center rounded-full border border-transparent p-0.5 transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:ring-offset-background disabled:cursor-not-allowed disabled:opacity-50",
+        "inline-flex h-6 w-11 shrink-0 items-center rounded-full border border-transparent p-0.5 transition-colors focus-ring disabled:cursor-not-allowed disabled-state disabled:pointer-events-auto",
         checked ? "bg-primary" : "bg-muted"
       )}
     >
@@ -77,35 +77,34 @@ export function JobScheduleField({
 }) {
   return (
     <div className="min-w-0 space-y-1">
-      <label className="text-sm text-muted-foreground" htmlFor={id}>
-        Cron schedule{" "}
-        <span className="text-muted-foreground/70">(optional)</span>
+      <label className="text-body-md text-muted-foreground" htmlFor={id}>
+        Cron schedule <span className="text-faint">(optional)</span>
       </label>
       <Input
         id={id}
         value={schedule}
         onChange={(event) => onScheduleChange(event.target.value)}
         placeholder="*/30 * * * *"
-        className="font-mono text-xs"
+        className="font-mono text-body-sm"
       />
       {scheduleError ? (
-        <div className="text-xs text-status-blocked">{scheduleError}</div>
+        <div className="text-body-sm text-danger">{scheduleError}</div>
       ) : null}
       {!scheduleError && schedule.trim() ? (
-        <div className="text-xs text-muted-foreground">
+        <div className="text-body-sm text-muted-foreground">
           {humanSchedule(schedule)}
         </div>
       ) : null}
       {!schedule.trim() ? (
-        <div className="text-xs text-muted-foreground">
+        <div className="text-body-sm text-muted-foreground">
           Leave blank for an on-demand job.
         </div>
       ) : null}
       {showEnabled && (schedule.trim() || showEnabledWithoutSchedule) ? (
-        <label className="mt-2 flex items-center justify-between gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3 text-sm">
+        <label className="mt-2 flex items-center justify-between gap-3 rounded-md border border-border-subtle bg-surface-subtle px-3 py-3 text-body-md">
           <span>
             <span className="block font-medium text-foreground">Enabled</span>
-            <span className="block text-xs text-muted-foreground">
+            <span className="block text-body-sm text-muted-foreground">
               {enabledHelperText}
             </span>
           </span>
@@ -131,7 +130,7 @@ export function JobAgentTypeField({
 }) {
   return (
     <div className="min-w-0 space-y-1">
-      <label className="text-sm text-muted-foreground">Agent type</label>
+      <label className="text-body-md text-muted-foreground">Agent type</label>
       <Select
         value={value}
         onValueChange={(next) => onChange(next as CliAgentType)}
@@ -171,7 +170,7 @@ export function JobWorktreeOption({
   testIdPrefix?: string;
 }) {
   return (
-    <div className="space-y-2 rounded-md border border-border/70 bg-muted/20 px-3 py-3 md:col-span-2">
+    <div className="space-y-2 rounded-md border border-border-subtle bg-surface-subtle px-3 py-3 md:col-span-2">
       <label className="flex cursor-pointer items-start gap-3">
         <Checkbox
           checked={checked}
@@ -180,11 +179,11 @@ export function JobWorktreeOption({
           title="Toggle git worktree"
         />
         <span className="space-y-1">
-          <span className="flex items-center gap-1.5 text-sm font-medium text-foreground">
+          <span className="flex items-center gap-1.5 text-body-md font-medium text-foreground">
             <GitBranch className="h-3.5 w-3.5" />
             Run in a git worktree
           </span>
-          <span className="block text-xs text-muted-foreground">
+          <span className="block text-body-sm text-muted-foreground">
             Creates an isolated worktree and branch when this job runs.
           </span>
         </span>
@@ -219,7 +218,7 @@ export function JobKeepAgentOption({
   return (
     <label
       className={cn(
-        "flex items-start gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3 md:col-span-2",
+        "flex items-start gap-3 rounded-md border border-border-subtle bg-surface-subtle px-3 py-3 md:col-span-2",
         disabled ? "cursor-not-allowed opacity-70" : "cursor-pointer"
       )}
     >
@@ -231,10 +230,10 @@ export function JobKeepAgentOption({
         title="Keep agent after run completes"
       />
       <span className="space-y-1">
-        <span className="block text-sm font-medium text-foreground">
+        <span className="block text-body-md font-medium text-foreground">
           Keep agent after run completes
         </span>
-        <span className="block text-xs text-muted-foreground">
+        <span className="block text-body-sm text-muted-foreground">
           {helperText ??
             "The agent stays in your Agents list so you can continue the session after the job finishes."}
         </span>
@@ -251,7 +250,7 @@ export function JobFullAccessOption({
   onCheckedChange: (checked: boolean) => void;
 }) {
   return (
-    <label className="flex cursor-pointer items-start gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3 md:col-span-2">
+    <label className="flex cursor-pointer items-start gap-3 rounded-md border border-border-subtle bg-surface-subtle px-3 py-3 md:col-span-2">
       <Checkbox
         checked={checked}
         onCheckedChange={() => onCheckedChange(!checked)}
@@ -259,10 +258,10 @@ export function JobFullAccessOption({
         title="Toggle full access"
       />
       <span className="space-y-1">
-        <span className="block text-sm font-medium text-foreground">
+        <span className="block text-body-md font-medium text-foreground">
           Run in full access mode
         </span>
-        <span className="block text-xs text-muted-foreground">
+        <span className="block text-body-sm text-muted-foreground">
           Starts the selected agent with its most permissive supported execution
           mode.
         </span>
@@ -285,26 +284,26 @@ export function WebhookUrl({ secret }: { secret: string }) {
   }, [url]);
 
   return (
-    <div className="mt-2 rounded-md border border-border/50 bg-muted/30 px-3 py-2.5">
-      <div className="text-xs font-medium text-muted-foreground">
+    <div className="mt-2 rounded-md border border-border-subtle bg-surface-subtle px-3 py-3">
+      <div className="text-body-sm font-medium text-muted-foreground">
         Webhook URL
       </div>
       <div className="mt-1 flex items-center gap-2">
-        <code className="min-w-0 flex-1 truncate text-xs">{url}</code>
+        <code className="min-w-0 flex-1 truncate text-body-sm">{url}</code>
         <button
           type="button"
-          className="shrink-0 rounded p-1 text-muted-foreground hover:text-foreground"
+          className="shrink-0 rounded-sm p-1 text-muted-foreground hover:text-foreground"
           onClick={copy}
           aria-label="Copy webhook URL"
         >
           {copied ? (
-            <Check className="h-3.5 w-3.5 text-status-done" />
+            <Check className="h-3.5 w-3.5 text-info" />
           ) : (
             <Copy className="h-3.5 w-3.5" />
           )}
         </button>
       </div>
-      <div className="mt-1 text-[11px] text-muted-foreground/70">
+      <div className="mt-1 text-label-sm text-faint">
         POST to this URL to trigger a run. No auth header required.
       </div>
     </div>

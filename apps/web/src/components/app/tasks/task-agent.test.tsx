@@ -80,23 +80,33 @@ describe("TaskAgentChip activity", () => {
     [
       { status: "creating" as const },
       "Starting…",
-      "border-status-working/40",
+      "border-status-working/line",
       true,
     ],
     [
       { status: "archiving" as const, archivePhase: "worktree-check" as const },
       "Checking worktree…",
-      "border-orange-400/40",
+      "border-warning/line",
       true,
     ],
     [
       { reconnect: { phase: "trying" as const } as Agent["reconnect"] },
       "Reconnecting",
-      "border-status-waiting/40",
+      "border-status-waiting/line",
       true,
     ],
-    [{ activity: "waiting" as const }, null, "border-status-waiting/40", false],
-    [{ activity: "blocked" as const }, null, "border-status-blocked/40", false],
+    [
+      { activity: "waiting" as const },
+      null,
+      "border-status-waiting/line",
+      false,
+    ],
+    [
+      { activity: "blocked" as const },
+      null,
+      "border-status-blocked/line",
+      false,
+    ],
     [{ activity: "idle" as const }, null, "border-border", false],
     [
       { status: "stopped" as const, activity: "stopped" as const },
@@ -121,7 +131,7 @@ describe("TaskAgentChip activity", () => {
     const { client, chip } = renderActivity(parent);
     setStep(client, parent.id, "blk_own", "running tests");
     await waitFor(() => expect(chip.textContent).toContain("running tests"));
-    expect(chip.className).toContain("border-status-working/40");
+    expect(chip.className).toContain("border-status-working/line");
     cleanup();
     const compact = renderActivity(parent, [], true);
     setStep(compact.client, parent.id, "blk_own", "running tests");
@@ -144,7 +154,7 @@ describe("TaskAgentChip activity", () => {
     await waitFor(() =>
       expect(chip.textContent).toContain("↳ reviewer · running tests")
     );
-    expect(chip.className).toContain("border-status-working/40");
+    expect(chip.className).toContain("border-status-working/line");
     expect(screen.getByTestId(`task-agent-live-${parent.id}`)).toBeTruthy();
     expect(
       screen.getByTestId(`agent-status-line-${parent.id}`).textContent
@@ -165,7 +175,7 @@ describe("TaskAgentChip activity", () => {
     await waitFor(() =>
       expect(chip.textContent).toContain("↳ reviewer · running tests")
     );
-    expect(chip.className).toContain("border-status-waiting/40");
+    expect(chip.className).toContain("border-status-waiting/line");
   });
 
   it.each([
@@ -224,8 +234,8 @@ describe("TaskAgentChip activity", () => {
   });
 
   it.each([
-    ["waiting" as const, "border-status-waiting/40"],
-    ["blocked" as const, "border-status-blocked/40"],
+    ["waiting" as const, "border-status-waiting/line"],
+    ["blocked" as const, "border-status-blocked/line"],
     ["stopped" as const, "border-dashed"],
   ])(
     "keeps a %s agent's tint behind its next schedule",

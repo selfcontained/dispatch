@@ -1516,7 +1516,7 @@ describe("ChatFeed", () => {
 
     // Bodies and rows both use the available pane width.
     const body = agentPost!.querySelector(
-      ".min-w-0.text-sm.text-foreground.max-w-full"
+      ".min-w-0.text-body-md.text-foreground.max-w-full"
     );
     expect(body?.textContent).toContain("agent one");
     // The copy action floats over the corner; it must not reserve a strip down

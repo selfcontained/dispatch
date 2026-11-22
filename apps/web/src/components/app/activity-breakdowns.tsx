@@ -9,7 +9,7 @@ function HorizontalBar({
   label,
   value,
   maxValue,
-  color = "bg-emerald-500/70",
+  color = "bg-chart-1/soft",
   sub,
 }: {
   label: string;
@@ -21,14 +21,14 @@ function HorizontalBar({
   const pct = maxValue > 0 ? (value / maxValue) * 100 : 0;
   return (
     <div className="space-y-1">
-      <div className="flex items-center justify-between text-xs">
+      <div className="flex items-center justify-between text-body-sm">
         <span className="truncate text-foreground">{label}</span>
         <span className="ml-2 shrink-0 font-mono text-muted-foreground tabular-nums">
           {formatTokenCount(value)}
           {sub ? ` ${sub}` : ""}
         </span>
       </div>
-      <div className="h-2 w-full rounded-full bg-muted/60">
+      <div className="h-2 w-full rounded-full bg-surface-hover">
         <div
           className={cn("h-2 rounded-full transition-all", color)}
           style={{ width: `${Math.max(pct, 1)}%` }}

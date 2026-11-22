@@ -33,7 +33,7 @@ const STATUS_ARIA: Record<StepStatus, string> = {
 };
 
 const ROW_CLASS =
-  "flex min-w-0 w-full items-center gap-2 py-1.5 text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-status-working/50";
+  "flex min-w-0 w-full items-center gap-2 py-1.5 text-left focus-ring-inset";
 
 /** One step in the step list: glyph, label, summary, duration, toggle. */
 export function StepRow({
@@ -76,7 +76,7 @@ export function StepRow({
       )}
       <span
         className={cn(
-          "truncate text-[12px]",
+          "truncate text-body-sm",
           setup && summary ? "shrink-0" : "min-w-0 flex-1",
           running
             ? "font-medium text-status-working"
@@ -85,7 +85,7 @@ export function StepRow({
       >
         {step.status === "pending" ? `preparing ${label}` : label}
         {server ? (
-          <span className="ml-1 text-[10px] text-muted-foreground">
+          <span className="ml-1 text-label-xs text-muted-foreground">
             {server}
           </span>
         ) : null}
@@ -96,12 +96,12 @@ export function StepRow({
           clipStart={stepDetailData(step).clipStart === true}
         />
       ) : summary ? (
-        <span className="hidden min-w-0 max-w-[35%] truncate text-[11px] text-muted-foreground sm:block">
+        <span className="hidden min-w-0 max-w-[35%] truncate text-label-sm text-muted-foreground sm:block">
           · {summary}
         </span>
       ) : null}
       {step.durMs ? (
-        <span className="shrink-0 text-[10.5px] tabular-nums text-muted-foreground">
+        <span className="shrink-0 text-label-xs tabular-nums text-muted-foreground">
           {formatStepDuration(step.durMs)}
         </span>
       ) : running ? (
@@ -110,7 +110,7 @@ export function StepRow({
       <span
         aria-hidden="true"
         className={cn(
-          "w-2 shrink-0 text-[9px] text-muted-foreground/70",
+          "w-2 shrink-0 text-label-xs text-faint",
           !expandable && "invisible"
         )}
       >
@@ -177,7 +177,7 @@ function SetupAside({
 }): JSX.Element {
   return (
     <span
-      className="flex min-w-0 flex-1 text-[11px] text-muted-foreground"
+      className="flex min-w-0 flex-1 text-label-sm text-muted-foreground"
       data-testid="harness-step-aside"
       title={text}
     >
@@ -204,7 +204,7 @@ export function StatusGlyph({
 }): JSX.Element {
   const { braille } = useStreamTicker(status === "running");
   const base = cn(
-    "z-10 flex w-3 shrink-0 items-center justify-center text-[12px] leading-none",
+    "z-sticky flex w-3 shrink-0 items-center justify-center text-body-sm leading-none",
     maskClass
   );
   switch (status) {
@@ -217,7 +217,7 @@ export function StatusGlyph({
     case "ok":
       return (
         <motion.span
-          className={cn(base, "font-bold text-status-done")}
+          className={cn(base, "font-semibold text-status-done")}
           initial={{ scale: 0.6, opacity: 0 }}
           animate={{ scale: 1, opacity: 1 }}
           transition={arrive(DURATION.fast)}
@@ -229,7 +229,7 @@ export function StatusGlyph({
     case "error":
       return (
         <span
-          className={cn(base, "font-bold text-status-blocked")}
+          className={cn(base, "font-semibold text-status-blocked")}
           aria-hidden="true"
         >
           <X className="h-3 w-3" strokeWidth={2.5} />
@@ -237,10 +237,7 @@ export function StatusGlyph({
       );
     default:
       return (
-        <span
-          className={cn(base, "text-muted-foreground/40")}
-          aria-hidden="true"
-        >
+        <span className={cn(base, "text-faint")} aria-hidden="true">
           ◦
         </span>
       );
@@ -256,7 +253,7 @@ function NoticeGlyph({
   maskClass: string;
 }): JSX.Element {
   const base = cn(
-    "z-10 flex w-3 shrink-0 items-center justify-center leading-none",
+    "z-sticky flex w-3 shrink-0 items-center justify-center leading-none",
     maskClass
   );
   if (severity === "error") {
@@ -290,7 +287,7 @@ export function LiveDuration({
   return (
     <span
       aria-hidden="true"
-      className="shrink-0 text-[10.5px] tabular-nums text-muted-foreground"
+      className="shrink-0 text-label-xs tabular-nums text-muted-foreground"
     >
       {formatStepDuration(elapsed)}
     </span>

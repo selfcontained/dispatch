@@ -249,7 +249,7 @@ describe("TurnEntryView", () => {
       .classList;
     expect(classes.contains("prose-th:text-muted-foreground")).toBe(true);
     expect(classes.contains("prose-th:text-foreground")).toBe(false);
-    expect(classes.contains("prose-a:text-primary/70")).toBe(true);
+    expect(classes.contains("prose-a:text-primary/soft")).toBe(true);
     expect(classes.contains("prose-a:text-primary")).toBe(false);
     expect(classes.contains("prose-pre:opacity-70")).toBe(true);
   });

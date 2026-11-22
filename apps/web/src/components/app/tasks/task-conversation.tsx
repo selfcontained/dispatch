@@ -269,15 +269,15 @@ export function TaskConversation({
   return (
     <div
       data-testid="task-conversation"
-      className="flex h-full min-h-0 flex-col overflow-hidden rounded-xl bg-card shadow-sm ring-1 ring-border/40"
+      className="flex h-full min-h-0 flex-col overflow-hidden rounded-lg bg-card shadow-sm ring-1 ring-border-subtle"
     >
       {thread ? (
         <>
-          <div className="flex shrink-0 items-center gap-1 border-b border-border/40 px-1.5 py-1">
+          <div className="flex shrink-0 items-center gap-1 border-b border-border-subtle px-1.5 py-1">
             <Button
               variant="ghost"
               size="sm"
-              className="h-8 text-xs"
+              className="h-8 text-body-sm"
               onClick={() => setThread(null)}
             >
               <ArrowLeft className="mr-1 h-3.5 w-3.5" aria-hidden="true" />
@@ -315,14 +315,14 @@ export function TaskConversation({
               {feed.error ? (
                 <div
                   role="alert"
-                  className="mx-3 flex items-center justify-between gap-3 rounded-md bg-destructive/10 px-3 py-2 text-xs text-destructive"
+                  className="mx-3 flex items-center justify-between gap-3 rounded-md bg-danger/tint px-3 py-2 text-body-sm text-danger"
                 >
                   <span className="min-w-0 truncate">
                     Couldn&apos;t load the conversation: {feed.error.message}
                   </span>
                   <Button
                     size="sm"
-                    className="h-6 shrink-0 px-2 text-xs"
+                    className="h-6 shrink-0 px-2 text-body-sm"
                     onClick={feed.refetch}
                   >
                     Retry
@@ -333,7 +333,7 @@ export function TaskConversation({
                 <div className="mb-1 flex justify-center">
                   <Button
                     size="sm"
-                    className="h-7 text-xs"
+                    className="h-7 text-body-sm"
                     onClick={feed.loadOlder}
                     disabled={feed.isFetchingOlder}
                   >
@@ -342,7 +342,7 @@ export function TaskConversation({
                 </div>
               ) : null}
               {!feed.isLoading && !feed.error && entries.length === 0 ? (
-                <div className="flex h-full flex-col items-center justify-center gap-2 px-6 py-6 text-center text-xs text-muted-foreground">
+                <div className="flex h-full flex-col items-center justify-center gap-2 px-6 py-6 text-center text-body-sm text-muted-foreground">
                   <MessageSquare className="h-6 w-6" aria-hidden="true" />
                   {assignee
                     ? `Nothing here yet. A message goes to ${assignee.name}.`
@@ -369,11 +369,11 @@ export function TaskConversation({
               ) : null}
             </div>
           </div>
-          <div className="shrink-0 border-t border-border/40 bg-card px-2 pb-2 pt-2 md:px-3">
+          <div className="shrink-0 border-t border-border-subtle bg-card px-2 pb-2 pt-2 md:px-3">
             {error ? (
               <div
                 role="alert"
-                className="mb-1.5 truncate text-[11px] text-destructive"
+                className="mb-1.5 truncate text-label-sm text-danger"
               >
                 {error}
               </div>

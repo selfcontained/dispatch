@@ -31,9 +31,7 @@ export function PhaseProgress({
 
   return (
     <div>
-      <div className="mb-3 text-[10px] uppercase tracking-widest text-muted-foreground">
-        Progress
-      </div>
+      <div className="mb-3 section-label">Progress</div>
       <div className="flex flex-col gap-2">
         {phasesOrder
           .filter((p) => p !== "done")
@@ -45,19 +43,19 @@ export function PhaseProgress({
                 <div
                   className={cn(
                     "h-2 w-2 rounded-full shrink-0",
-                    done && "bg-status-working",
-                    current && !isFailed && "animate-pulse bg-status-waiting",
-                    current && isFailed && "bg-destructive",
+                    done && "bg-success",
+                    current && !isFailed && "animate-pulse bg-warning",
+                    current && isFailed && "bg-danger",
                     !done && !current && "bg-muted"
                   )}
                 />
                 <span
                   className={cn(
-                    "text-sm",
+                    "text-body-md",
                     done && "text-muted-foreground",
                     current && !isFailed && "text-foreground font-medium",
-                    current && isFailed && "text-destructive font-medium",
-                    !done && !current && "text-muted-foreground/50"
+                    current && isFailed && "text-danger font-medium",
+                    !done && !current && "text-faint"
                   )}
                 >
                   {PHASE_LABELS[phase as ReleasePhase] ?? phase}

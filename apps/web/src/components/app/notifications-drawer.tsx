@@ -33,19 +33,17 @@ export function NotificationsDrawer(): JSX.Element {
         </Button>
       </SheetTrigger>
       <SheetContent aria-describedby={undefined}>
-        <div className="border-b px-4 pb-4 pt-[max(1rem,var(--safe-area-top))]">
-          <SheetTitle className="text-base font-semibold">
-            Notifications
-          </SheetTitle>
+        <div className="border-b px-4 pb-4 pt-safe-4">
+          <SheetTitle className="text-heading-md">Notifications</SheetTitle>
         </div>
-        <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+        <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-3 pb-safe-3">
           {history.isPending ? (
-            <p role="status" className="p-2 text-sm text-muted-foreground">
+            <p role="status" className="p-2 text-body-md text-muted-foreground">
               Loading…
             </p>
           ) : history.isError && !history.data ? (
             <div className="space-y-2 p-2">
-              <p role="alert" className="text-sm text-muted-foreground">
+              <p role="alert" className="text-body-md text-muted-foreground">
                 Couldn’t load notifications
               </p>
               <Button variant="default" onClick={() => void history.refetch()}>
@@ -53,7 +51,7 @@ export function NotificationsDrawer(): JSX.Element {
               </Button>
             </div>
           ) : items?.length === 0 ? (
-            <p className="p-2 text-sm text-muted-foreground">
+            <p className="p-2 text-body-md text-muted-foreground">
               No notifications
             </p>
           ) : (

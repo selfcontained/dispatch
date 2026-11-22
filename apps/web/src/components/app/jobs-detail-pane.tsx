@@ -75,7 +75,7 @@ export function JobDetailPane(): JSX.Element {
       ) : null}
       <div className="min-h-0 flex-1 overflow-hidden">
         {isLoading ? (
-          <div className="flex h-full items-center justify-center gap-2 text-sm text-muted-foreground">
+          <div className="flex h-full items-center justify-center gap-2 text-body-md text-muted-foreground">
             <ActivityBars size={16} /> Loading jobs…
           </div>
         ) : error && jobs.length === 0 ? null : selectedJob ? (
@@ -203,9 +203,9 @@ function JobDetail({
     <div className={cn("flex h-full min-h-0 flex-col p-4 md:p-6", className)}>
       <div className="flex flex-wrap items-start gap-3">
         <div className="min-w-0 flex-1">
-          <h2 className="truncate text-xl font-semibold">{job.name}</h2>
+          <h2 className="truncate text-heading-lg">{job.name}</h2>
           <div
-            className="mt-1 truncate font-mono text-xs text-muted-foreground"
+            className="mt-1 truncate font-mono text-body-sm text-muted-foreground"
             title={job.directory}
           >
             {shortPath(job.directory)}
@@ -229,25 +229,25 @@ function JobDetail({
         <p
           id="job-run-blocked-reason"
           role="status"
-          className="mt-2 text-right text-xs text-muted-foreground"
+          className="mt-2 text-right text-body-sm text-muted-foreground"
         >
           {runBlockedReason}
         </p>
       ) : null}
 
       {detailActionError ? (
-        <div className="mt-2 rounded border border-status-blocked/30 bg-status-blocked/10 p-2 text-sm text-status-blocked">
+        <div className="mt-2 rounded-sm border border-danger/line bg-danger/tint p-2 text-body-md text-danger">
           {detailActionError}
         </div>
       ) : null}
 
       {job.continuationEnabled ? (
-        <div className="mt-4 rounded-md border border-border/70 bg-muted/20 p-3 text-sm">
+        <div className="mt-4 rounded-md border border-border-subtle bg-surface-subtle p-3 text-body-md">
           <div className="font-medium text-foreground">
             Loop{" "}
             {job.lastRunIteration ? `• run ${job.lastRunIteration}` : "enabled"}
           </div>
-          <div className="mt-1 text-xs text-muted-foreground">
+          <div className="mt-1 text-body-sm text-muted-foreground">
             {job.continuationPending
               ? "Preparing the next run."
               : job.maxIterations === null
@@ -281,7 +281,7 @@ function JobDetail({
         />
       ) : null}
 
-      <div className="mt-5 flex flex-wrap items-center gap-2 border-b border-border">
+      <div className="mt-4 flex flex-wrap items-center gap-2 border-b border-border">
         <TabButton
           active={tab === "configure"}
           onClick={() => onTabChange("configure")}
@@ -362,7 +362,7 @@ function TabButton({
     <button
       type="button"
       className={cn(
-        "flex items-center gap-2 border-b-2 px-3 py-2 text-sm transition-colors",
+        "flex items-center gap-2 border-b-2 px-3 py-2 text-body-md transition-colors",
         active
           ? "border-primary text-foreground"
           : "border-transparent text-muted-foreground hover:text-foreground"

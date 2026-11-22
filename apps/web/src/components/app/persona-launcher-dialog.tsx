@@ -136,7 +136,7 @@ export function PersonaLauncherDialog({
                   )}
                 >
                   <div className="relative space-y-1" ref={typeCmdRef}>
-                    <label className="text-sm text-muted-foreground">
+                    <label className="text-body-md text-muted-foreground">
                       Agent type
                     </label>
                     <button
@@ -156,15 +156,15 @@ export function PersonaLauncherDialog({
                         }
                       }}
                       className={cn(
-                        "flex h-9 w-full items-center justify-between rounded-md border border-white/[0.12] bg-white/[0.04] px-3 py-2 text-sm shadow-[inset_0_2px_6px_rgba(0,0,0,0.3)] backdrop-blur-md",
-                        "ring-offset-background focus:outline-none focus:ring-1 focus:ring-ring"
+                        "flex h-9 w-full items-center justify-between rounded-md surface-inset px-3 py-2 text-body-md",
+                        "focus-ring"
                       )}
                       data-testid="launch-reviewer-agent-type"
                     >
                       <span className="flex items-center gap-2">
                         <AgentTypeIcon
                           type={selectedAgentType}
-                          className="h-4 w-4 border-none bg-transparent p-0 text-foreground/80"
+                          className="h-4 w-4 border-none bg-transparent p-0 text-foreground/soft"
                         />
                         {AGENT_TYPE_LABELS[selectedAgentType]}
                       </span>
@@ -176,7 +176,7 @@ export function PersonaLauncherDialog({
                       />
                     </button>
                     {typeDropdownOpen ? (
-                      <div className="absolute left-0 right-0 z-[80] mt-1 rounded-md border border-white/[0.2] bg-[hsl(var(--card))] shadow-[0_16px_64px_rgba(0,0,0,0.5),inset_0_1px_0_rgba(255,255,255,0.15)] backdrop-blur-2xl">
+                      <div className="absolute left-0 right-0 z-popover mt-1 rounded-md surface-overlay">
                         <Command
                           shouldFilter={false}
                           ref={(el) => {
@@ -244,7 +244,7 @@ export function PersonaLauncherDialog({
                   <div className="flex items-baseline justify-between">
                     <span
                       id="launch-reviewer-personas-label"
-                      className="text-sm text-muted-foreground"
+                      className="text-body-md text-muted-foreground"
                     >
                       Personas
                     </span>
@@ -252,7 +252,7 @@ export function PersonaLauncherDialog({
                         which is otherwise only conveyed visually. */}
                     <span
                       aria-live="polite"
-                      className="text-xs text-muted-foreground"
+                      className="text-body-sm text-muted-foreground"
                       data-testid="launch-reviewer-selected-count"
                     >
                       {selectedCount > 0 ? `${selectedCount} selected` : ""}
@@ -277,19 +277,19 @@ export function PersonaLauncherDialog({
                       className={cn(
                         "flex w-full items-start gap-3 rounded-md border px-3 py-3 text-left transition-colors",
                         codeownersSelected
-                          ? "border-primary bg-primary/10"
-                          : "border-border/70 bg-muted/20 hover:bg-muted/35",
+                          ? "border-primary bg-surface-selected"
+                          : "border-border-subtle bg-surface-subtle hover:bg-surface-hover",
                         !codeownersAvailable &&
-                          "cursor-not-allowed opacity-60 hover:bg-muted/20"
+                          "cursor-not-allowed opacity-60 hover:bg-surface-hover"
                       )}
                       data-testid="launch-reviewer-codeowners"
                     >
-                      <GitBranch className="mt-0.5 h-4 w-4 shrink-0 text-foreground/80" />
+                      <GitBranch className="mt-0.5 h-4 w-4 shrink-0 text-foreground/soft" />
                       <span className="min-w-0 flex-1 space-y-1">
-                        <span className="block text-sm font-medium">
+                        <span className="block text-body-md font-medium">
                           Code owners
                         </span>
-                        <span className="block text-xs text-muted-foreground">
+                        <span className="block text-body-sm text-muted-foreground">
                           {codeownersAvailable
                             ? "Route reviewers by the files this agent changed, using .agents/owners.json. Each matching owner launches once."
                             : "No .agents/owners.json in this checkout. Add ownership rules to route reviewers by changed files."}
@@ -298,10 +298,10 @@ export function PersonaLauncherDialog({
                       <span
                         aria-hidden="true"
                         className={cn(
-                          "mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-[4px] border transition-colors",
+                          "mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-xs border transition-colors",
                           codeownersSelected
                             ? "border-primary bg-primary text-primary-foreground"
-                            : "border-border/80 bg-transparent"
+                            : "border-border bg-transparent"
                         )}
                       >
                         <Check
@@ -334,8 +334,8 @@ export function PersonaLauncherDialog({
                           className={cn(
                             "flex w-full items-start gap-3 rounded-md border px-3 py-3 text-left transition-colors",
                             isSelected
-                              ? "border-primary bg-primary/10"
-                              : "border-border/70 bg-muted/20 hover:bg-muted/35"
+                              ? "border-primary bg-surface-selected"
+                              : "border-border-subtle bg-surface-subtle hover:bg-surface-hover"
                           )}
                           data-testid={`launch-reviewer-persona-${persona.slug}`}
                         >
@@ -345,13 +345,13 @@ export function PersonaLauncherDialog({
                           />
                           <span className="min-w-0 flex-1 space-y-1">
                             <span
-                              className="block text-sm font-medium"
+                              className="block text-body-md font-medium"
                               style={{ color: `hsl(${colorVar})` }}
                             >
                               {persona.name}
                             </span>
                             {persona.description ? (
-                              <span className="block text-xs text-muted-foreground">
+                              <span className="block text-body-sm text-muted-foreground">
                                 {persona.description}
                               </span>
                             ) : null}
@@ -359,10 +359,10 @@ export function PersonaLauncherDialog({
                           <span
                             aria-hidden="true"
                             className={cn(
-                              "mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-[4px] border transition-colors",
+                              "mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-xs border transition-colors",
                               isSelected
                                 ? "border-primary bg-primary text-primary-foreground"
-                                : "border-border/80 bg-transparent"
+                                : "border-border bg-transparent"
                             )}
                           >
                             <Check
@@ -381,10 +381,10 @@ export function PersonaLauncherDialog({
                 <div className="space-y-1">
                   <label
                     htmlFor="launch-reviewer-note"
-                    className="text-sm text-muted-foreground"
+                    className="text-body-md text-muted-foreground"
                   >
                     What should they focus on?{" "}
-                    <span className="text-xs">(optional)</span>
+                    <span className="text-body-sm">(optional)</span>
                   </label>
                   <Textarea
                     id="launch-reviewer-note"
@@ -396,10 +396,10 @@ export function PersonaLauncherDialog({
                     maxLength={MAX_NOTE_LENGTH}
                     rows={3}
                     placeholder="e.g. focus on the auth changes in session.ts — I'm unsure about the token refresh path"
-                    className="resize-none text-sm"
+                    className="resize-none text-body-md"
                     data-testid="launch-reviewer-note"
                   />
-                  <p className="text-xs text-muted-foreground">
+                  <p className="text-body-sm text-muted-foreground">
                     Added to the briefing each persona receives.
                   </p>
                 </div>
@@ -409,7 +409,7 @@ export function PersonaLauncherDialog({
             <div className="flex justify-end gap-2 pt-3">
               {launchError ? (
                 <p
-                  className="mr-auto max-w-[28rem] text-sm text-destructive"
+                  className="mr-auto max-w-[28rem] text-body-md text-danger"
                   data-testid="launch-reviewer-error"
                 >
                   {launchError}

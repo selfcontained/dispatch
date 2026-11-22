@@ -26,7 +26,7 @@ export function PhraseRow({
 
   return (
     <div className="flex w-full items-center gap-1.5 px-2 py-1.5">
-      <span className="min-w-0 flex-1 truncate text-sm text-foreground">
+      <span className="min-w-0 flex-1 truncate text-body-md text-foreground">
         {phrase.label || phrase.text}
       </span>
       <div
@@ -39,7 +39,7 @@ export function PhraseRow({
               type="button"
               size="sm"
               disabled={isPending}
-              className="h-7 min-w-[5.5rem] px-2 text-xs"
+              className="h-7 min-w-[5.5rem] px-2 text-body-sm"
               onClick={onFill}
             >
               Send…
@@ -55,7 +55,7 @@ export function PhraseRow({
         ) : null}
         <button
           type="button"
-          className="rounded p-1.5 text-muted-foreground hover:bg-white/[0.1] hover:text-foreground"
+          className="rounded-sm p-1.5 text-muted-foreground hover:bg-fill-hover hover:text-foreground"
           onClick={onEdit}
           title="Edit phrase"
         >
@@ -63,7 +63,7 @@ export function PhraseRow({
         </button>
         <button
           type="button"
-          className="rounded p-1.5 text-muted-foreground hover:bg-white/[0.1] hover:text-foreground"
+          className="rounded-sm p-1.5 text-muted-foreground hover:bg-fill-hover hover:text-foreground"
           onClick={() => {
             const name = phrase.label || phrase.text.slice(0, 40);
             if (window.confirm(`Delete "${name}"?`)) onDelete();

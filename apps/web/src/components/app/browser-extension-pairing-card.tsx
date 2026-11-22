@@ -29,13 +29,13 @@ export function BrowserExtensionPairingCard({
   onCheckAgain,
 }: BrowserExtensionPairingCardProps): JSX.Element {
   return (
-    <Card className="border-primary/30">
+    <Card className="border-primary/line">
       <CardHeader className="flex-row items-start gap-3 space-y-0 pb-3">
-        <div className="rounded-lg bg-primary/10 p-2 text-primary">
+        <div className="rounded-lg bg-surface-selected p-2 text-primary">
           <ShieldCheck className="h-5 w-5" aria-hidden="true" />
         </div>
         <div className="space-y-1.5">
-          <CardTitle className="text-base">
+          <CardTitle className="text-heading-md">
             {approvalState === "connected"
               ? "Browser connected"
               : approvalState === "timedOut"
@@ -52,36 +52,36 @@ export function BrowserExtensionPairingCard({
         </div>
       </CardHeader>
       <CardContent>
-        <div className="rounded-lg border border-border bg-background/50 p-4">
+        <div className="rounded-lg border border-border bg-background/veil p-4">
           {approvalState === "connected" ? (
             <div className="flex items-start gap-3" role="status">
               <ShieldCheck
-                className="mt-0.5 h-5 w-5 shrink-0 text-status-working"
+                className="mt-0.5 h-5 w-5 shrink-0 text-success"
                 aria-hidden="true"
               />
               <div>
-                <p className="text-sm font-medium">
+                <p className="text-body-md font-medium">
                   Browser extension connected
                 </p>
-                <p className="mt-1 text-sm text-muted-foreground">
+                <p className="mt-1 text-body-md text-muted-foreground">
                   You can close this page and return to the Dispatch extension.
                 </p>
               </div>
             </div>
           ) : !pairingRequestIsValid ? (
-            <p className="text-sm text-destructive" role="alert">
+            <p className="text-body-md text-danger" role="alert">
               This browser extension pairing link is incomplete. Return to the
               extension and start the connection again.
             </p>
           ) : approvalState === "waiting" ? (
             <div className="flex items-start gap-3" role="status">
               <ShieldCheck
-                className="mt-0.5 h-5 w-5 shrink-0 text-status-working"
+                className="mt-0.5 h-5 w-5 shrink-0 text-success"
                 aria-hidden="true"
               />
               <div>
-                <p className="text-sm font-medium">Connection approved</p>
-                <p className="mt-1 text-sm text-muted-foreground">
+                <p className="text-body-md font-medium">Connection approved</p>
+                <p className="mt-1 text-body-md text-muted-foreground">
                   Return to the extension to finish connecting. This page will
                   update when the browser appears below.
                 </p>
@@ -90,10 +90,10 @@ export function BrowserExtensionPairingCard({
           ) : approvalState === "timedOut" ? (
             <div className="space-y-3" role="alert">
               <div>
-                <p className="text-sm font-medium">
+                <p className="text-body-md font-medium">
                   Browser has not finished connecting
                 </p>
-                <p className="mt-1 text-sm text-muted-foreground">
+                <p className="mt-1 text-body-md text-muted-foreground">
                   Keep the extension open while it finishes the exchange, then
                   check again. If the request is no longer visible in the
                   extension, start a new connection there.
@@ -106,25 +106,25 @@ export function BrowserExtensionPairingCard({
           ) : (
             <div className="space-y-4">
               <div>
-                <p className="text-sm font-medium">
+                <p className="text-body-md font-medium">
                   Chrome is requesting permission to connect
                 </p>
-                <p className="mt-1 text-sm text-muted-foreground">
+                <p className="mt-1 text-body-md text-muted-foreground">
                   Approve only if you started this request. The extension will
                   be able to view available agents and send page feedback to the
                   agent you select.
                 </p>
               </div>
-              <div className="rounded-lg border border-primary/30 bg-primary/10 px-4 py-3 text-center">
-                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              <div className="rounded-lg border border-primary/line bg-surface-selected px-4 py-3 text-center">
+                <p className="section-label">
                   Confirm this code matches the extension
                 </p>
-                <code className="mt-1 block text-xl font-semibold tracking-[0.18em] text-foreground">
+                <code className="mt-1 block text-heading-lg tracking-[0.18em] text-foreground">
                   {code}
                 </code>
               </div>
               {approvalState === "error" && (
-                <p className="text-sm text-destructive" role="alert">
+                <p className="text-body-md text-danger" role="alert">
                   {error}
                 </p>
               )}

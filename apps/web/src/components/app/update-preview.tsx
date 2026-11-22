@@ -97,7 +97,7 @@ export default function UpdatePreview(): JSX.Element {
   return (
     <div className="flex flex-col">
       <div className="flex flex-wrap items-center gap-3 border-b border-border p-4">
-        <span className="text-xs text-muted-foreground">
+        <span className="text-body-sm text-muted-foreground">
           Simulated update — no installation changes. Completion reloads this
           page.
         </span>
@@ -142,7 +142,7 @@ export default function UpdatePreview(): JSX.Element {
           onDismiss={() => stream.setJob(null)}
         />
       ) : (
-        <div className="h-[720px] p-6 text-sm text-muted-foreground md:h-[560px]">
+        <div className="h-[720px] p-6 text-body-md text-muted-foreground md:h-[560px]">
           {running
             ? "Simulation dismissed. Reloading the preview…"
             : "Start a simulation to watch download, preparation, downtime, startup health checks, completion, and automatic reload."}

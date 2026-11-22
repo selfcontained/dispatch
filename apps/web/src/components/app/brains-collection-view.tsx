@@ -75,7 +75,7 @@ function DeleteAllButton({
       type="button"
       variant="ghost-destructive"
       size="sm"
-      className="h-7 shrink-0 px-2 text-[11px]"
+      className="h-7 shrink-0 px-2 text-label-sm"
       onClick={onClick}
       aria-label={label}
       title={label}
@@ -88,7 +88,7 @@ function DeleteAllButton({
 
 function FilteredEmptyNote({ noun }: { noun: string }): JSX.Element {
   return (
-    <div className="px-3 py-2 text-xs text-muted-foreground">
+    <div className="px-3 py-2 text-body-sm text-muted-foreground">
       No {noun} match the current filter.
     </div>
   );
@@ -184,7 +184,7 @@ export function BrainCollectionView({
     !scopeHasEntries
   ) {
     return (
-      <div className="flex flex-1 items-center justify-center p-8 text-center text-sm text-muted-foreground">
+      <div className="flex flex-1 items-center justify-center p-8 text-center text-body-md text-muted-foreground">
         <div className="flex flex-col items-center gap-2">
           <Brain className="h-8 w-8" />
           <div className="mt-4">
@@ -282,9 +282,9 @@ export function BrainCollectionView({
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
-      <div className="space-y-1 px-1 pt-4 pb-12 sm:px-2 md:px-5">
+      <div className="space-y-1 px-1 pt-4 pb-12 sm:px-2 md:px-4">
         {isCapped && !search ? (
-          <div className="mx-3 mb-2 rounded-md border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+          <div className="mx-3 mb-2 rounded-md border border-border bg-surface-subtle px-3 py-2 text-body-sm text-muted-foreground">
             Showing the first 100 items per section. Select a collection to see
             all entries.
           </div>

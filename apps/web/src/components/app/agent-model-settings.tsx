@@ -35,8 +35,8 @@ export function AgentModelSettings({
       <p
         role={loading ? "status" : "alert"}
         className={cn(
-          "px-3 py-3 text-xs",
-          loading ? "text-muted-foreground" : "text-destructive"
+          "px-3 py-3 text-body-sm",
+          loading ? "text-muted-foreground" : "text-danger"
         )}
       >
         {loading
@@ -47,8 +47,8 @@ export function AgentModelSettings({
 
   return (
     <div data-testid={`agent-models-${agentType}`}>
-      <label className="flex min-h-11 cursor-pointer items-center justify-between gap-3 px-3 py-2.5">
-        <span className="text-sm">Auto-enable new models</span>
+      <label className="flex min-h-11 cursor-pointer items-center justify-between gap-3 px-3 py-3">
+        <span className="text-body-md">Auto-enable new models</span>
         <Switch
           aria-label={`Auto-enable new ${typeLabel} models`}
           checked={autoEnable}
@@ -57,7 +57,7 @@ export function AgentModelSettings({
       </label>
 
       {error ? (
-        <p role="alert" className="px-3 pb-2 text-xs text-destructive">
+        <p role="alert" className="px-3 pb-2 text-body-sm text-danger">
           {error}
         </p>
       ) : null}
@@ -65,14 +65,14 @@ export function AgentModelSettings({
       {allOptions.length === 0 ? (
         <p
           role="status"
-          className="border-t border-border/60 px-3 py-3 text-xs text-muted-foreground"
+          className="border-t border-border-subtle px-3 py-3 text-body-sm text-muted-foreground"
         >
           Models appear after the first {typeLabel} agent starts.
         </p>
       ) : (
         <ul
           aria-label={`${typeLabel} models`}
-          className="border-t border-border/60 py-1"
+          className="border-t border-border-subtle py-1"
         >
           {allOptions.map((model) => {
             const on = options.some((option) => option.id === model.id);
@@ -84,7 +84,7 @@ export function AgentModelSettings({
                     "flex min-h-11 items-center gap-3 px-3 py-1.5 transition-colors",
                     last
                       ? "cursor-not-allowed"
-                      : "cursor-pointer hover:bg-muted/50"
+                      : "cursor-pointer hover:bg-surface-hover"
                   )}
                 >
                   <Checkbox
@@ -98,20 +98,22 @@ export function AgentModelSettings({
                   <span className="min-w-0 flex-1">
                     <span
                       className={cn(
-                        "block break-words text-sm",
+                        "block break-words text-body-md",
                         !on && "text-muted-foreground"
                       )}
                     >
                       {model.label}
                     </span>
                     {last ? (
-                      <span className="block text-xs text-muted-foreground">
+                      <span className="block text-body-sm text-muted-foreground">
                         At least one model must stay on.
                       </span>
                     ) : null}
                   </span>
                   {model.isNew ? (
-                    <span className="shrink-0 text-xs text-primary">New</span>
+                    <span className="shrink-0 text-body-sm text-primary">
+                      New
+                    </span>
                   ) : null}
                 </label>
               </li>

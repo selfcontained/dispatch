@@ -54,13 +54,10 @@ export function UserAvatarSettings() {
           }}
         />
       )}
-      <h2
-        id="user-avatar-heading"
-        className="mb-1.5 text-[10px] uppercase tracking-widest text-muted-foreground"
-      >
+      <h2 id="user-avatar-heading" className="mb-1.5 section-label">
         Your avatar
       </h2>
-      <p className="mb-4 max-w-2xl text-sm text-muted-foreground">
+      <p className="mb-4 max-w-2xl text-body-md text-muted-foreground">
         Make your messages easier to spot. This avatar is shared across browsers
         and devices connected to this Dispatch instance.
       </p>
@@ -81,7 +78,7 @@ export function UserAvatarSettings() {
             <Upload className="mr-2 h-4 w-4" />
             Upload photo
           </Button>
-          <p className="mt-2 text-xs text-muted-foreground">
+          <p className="mt-2 text-body-sm text-muted-foreground">
             PNG, JPEG, WebP or HEIC/HEIF, up to 50 MB and 64 megapixels. Choose
             your framing; we’ll handle cropping and resizing.
           </p>
@@ -110,7 +107,7 @@ export function UserAvatarSettings() {
           <Button
             key={id}
             variant="ghost"
-            className="h-auto flex-col gap-1.5 border border-transparent px-3 py-2 aria-pressed:border-primary aria-pressed:bg-primary/10"
+            className="h-auto flex-col gap-1.5 border border-transparent px-3 py-2 aria-pressed:border-primary aria-pressed:bg-surface-selected"
             disabled={disabled}
             aria-pressed={avatar.kind === "builtin" && avatar.id === id}
             aria-label={`Use ${avatarLabel(id)} avatar`}
@@ -121,7 +118,7 @@ export function UserAvatarSettings() {
               className="h-10 w-10"
               label={avatarLabel(id)}
             />
-            <span className="text-xs">{avatarLabel(id)}</span>
+            <span className="text-body-sm">{avatarLabel(id)}</span>
           </Button>
         ))}
       </div>
@@ -136,7 +133,7 @@ export function UserAvatarSettings() {
         >
           Reset avatar
         </Button>
-        <span className="text-xs text-muted-foreground" role="status">
+        <span className="text-body-sm text-muted-foreground" role="status">
           {preparing
             ? "Preparing photo…"
             : save.isPending
@@ -149,7 +146,7 @@ export function UserAvatarSettings() {
         </span>
       </div>
       {query.isError && (
-        <p role="alert" className="mt-2 text-sm text-destructive">
+        <p role="alert" className="mt-2 text-body-md text-danger">
           Could not load your avatar.{" "}
           <button className="underline" onClick={() => void query.refetch()}>
             Try again
@@ -157,7 +154,7 @@ export function UserAvatarSettings() {
         </p>
       )}
       {(error || save.error) && (
-        <p role="alert" className="mt-2 text-sm text-destructive">
+        <p role="alert" className="mt-2 text-body-md text-danger">
           {error ?? save.error?.message}
         </p>
       )}

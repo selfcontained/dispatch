@@ -62,10 +62,8 @@ export function WorktreeLocationSettings(): JSX.Element {
 
   return (
     <div>
-      <div className="mb-1.5 text-[10px] uppercase tracking-widest text-muted-foreground">
-        Worktree location
-      </div>
-      <p className="mb-3 text-sm text-muted-foreground">
+      <div className="mb-1.5 section-label">Worktree location</div>
+      <p className="mb-3 text-body-md text-muted-foreground">
         Choose where git worktrees are created for new agents.
       </p>
       <div className="grid gap-2">
@@ -77,16 +75,16 @@ export function WorktreeLocationSettings(): JSX.Element {
             className={cn(
               "flex items-start gap-3 rounded-md border p-3 text-left transition-colors",
               worktreeLocation === opt.value
-                ? "border-primary bg-primary/10"
-                : "border-border hover:border-muted-foreground/30"
+                ? "border-primary bg-surface-selected"
+                : "border-border hover:border-muted-foreground/line"
             )}
           >
             <RadioIndicator selected={worktreeLocation === opt.value} />
             <div className="min-w-0">
-              <div className="text-sm font-medium text-foreground">
+              <div className="text-body-md font-medium text-foreground">
                 {opt.label}
               </div>
-              <div className="text-xs text-muted-foreground">
+              <div className="text-body-sm text-muted-foreground">
                 {opt.description}
               </div>
             </div>

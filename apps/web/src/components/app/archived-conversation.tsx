@@ -107,9 +107,9 @@ export function ArchivedConversation({
       data-testid="archived-conversation"
     >
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h3 className="text-sm font-medium">
+        <h3 className="text-heading-sm">
           Conversation{" "}
-          <span className="text-xs text-muted-foreground">Read only</span>
+          <span className="text-body-sm text-muted-foreground">Read only</span>
         </h3>
         {threadId ? (
           <Button variant="ghost" size="sm" onClick={back}>
@@ -128,12 +128,12 @@ export function ArchivedConversation({
         data-testid="archived-conversation-scroll"
       >
         {loading ? (
-          <p className="p-4 text-sm text-muted-foreground">
+          <p className="p-4 text-body-md text-muted-foreground">
             Loading conversation…
           </p>
         ) : null}
         {error ? (
-          <div role="alert" className="p-4 text-sm">
+          <div role="alert" className="p-4 text-body-md">
             Couldn&apos;t load conversation.{" "}
             <Button
               variant="ghost"
@@ -181,7 +181,7 @@ export function ArchivedConversation({
               onAnswer={NO_ANSWER}
             />
             {!loading && !error && entries.length === 0 ? (
-              <p className="p-4 text-sm text-muted-foreground">
+              <p className="p-4 text-body-md text-muted-foreground">
                 No conversation recorded.
               </p>
             ) : null}

@@ -64,16 +64,16 @@ export function InlineDraftAnnotation({
   if (editing) {
     return (
       <div
-        className="ml-3 my-3 max-w-full overflow-hidden rounded-md border border-primary/40 bg-background shadow-sm sticky left-0"
+        className="ml-3 my-3 max-w-full overflow-hidden rounded-md border border-primary/line bg-background shadow-sm sticky left-0"
         style={stickyAnnotationStyle}
       >
-        <div className="flex items-center gap-2 border-b border-border/50 bg-primary/10 px-3 py-2 text-[11px]">
+        <div className="flex items-center gap-2 border-b border-border-subtle bg-surface-selected px-3 py-2 text-label-sm">
           <MessageSquarePlus className="h-3 w-3 text-primary" />
           <span className="font-medium text-foreground">Edit draft</span>
         </div>
         <div className="p-3">
           <textarea
-            className="w-full resize-none rounded border border-border bg-muted/20 px-3 py-2 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+            className="w-full resize-none rounded-sm border border-border bg-surface-subtle px-3 py-2 text-body-sm text-foreground placeholder:text-muted-foreground focus-ring"
             rows={3}
             value={editValue}
             onChange={(e) => setEditValue(e.target.value)}
@@ -83,7 +83,7 @@ export function InlineDraftAnnotation({
           <div className="mt-2 flex items-center justify-end gap-2">
             <button
               type="button"
-              className="rounded px-3 py-1.5 text-xs text-muted-foreground hover:bg-muted/40"
+              className="rounded-sm px-3 py-1.5 text-body-sm text-muted-foreground hover:bg-surface-hover"
               onClick={() => {
                 setEditValue(draft.comment);
                 setEditing(false);
@@ -93,7 +93,7 @@ export function InlineDraftAnnotation({
             </button>
             <button
               type="button"
-              className="rounded bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+              className="rounded-sm bg-primary px-3 py-1.5 text-body-sm font-medium text-primary-foreground hover:bg-primary/dense disabled-state"
               onClick={handleSave}
               disabled={!editValue.trim()}
             >
@@ -107,13 +107,13 @@ export function InlineDraftAnnotation({
 
   return (
     <div
-      className="ml-3 my-3 max-w-full overflow-hidden rounded-md border border-primary/40 bg-background shadow-sm sticky left-0"
+      className="ml-3 my-3 max-w-full overflow-hidden rounded-md border border-primary/line bg-background shadow-sm sticky left-0"
       style={stickyAnnotationStyle}
     >
-      <div className="flex items-center gap-2 border-b border-border/50 bg-primary/10 px-3 py-2 text-[11px]">
+      <div className="flex items-center gap-2 border-b border-border-subtle bg-surface-selected px-3 py-2 text-label-sm">
         <MessageSquarePlus className="h-3 w-3 text-primary" />
         <span className="font-medium text-foreground">Draft</span>
-        <span className="rounded-full bg-amber-500/15 px-1.5 py-0 text-[10px] font-medium text-amber-600 dark:text-amber-400">
+        <span className="rounded-full bg-warning/tint px-1.5 py-0 text-label-xs font-medium text-warning-ink">
           Pending
         </span>
         <span className="text-muted-foreground">{lineLabel}</span>
@@ -122,7 +122,7 @@ export function InlineDraftAnnotation({
           <DropdownMenuTrigger asChild>
             <button
               type="button"
-              className="flex items-center justify-center rounded min-h-8 min-w-8 p-0.5 text-muted-foreground hover:bg-muted/40 hover:text-foreground"
+              className="flex items-center justify-center rounded-sm min-h-8 min-w-8 p-0.5 text-muted-foreground hover:bg-surface-hover hover:text-foreground"
             >
               <MoreHorizontal className="h-3.5 w-3.5" />
             </button>
@@ -146,7 +146,7 @@ export function InlineDraftAnnotation({
         </DropdownMenu>
       </div>
       <div className="px-3 py-2">
-        <p className="whitespace-pre-wrap break-words text-xs text-foreground/80">
+        <p className="whitespace-pre-wrap break-words text-body-sm text-foreground/soft">
           {draft.comment}
         </p>
       </div>

@@ -178,7 +178,7 @@ export function TurnAnswer({
         ? {
             label: ENGINE_LOGIN_LABELS[engine],
             body: sincePending ? (
-              <p className="text-[12px] text-muted-foreground">
+              <p className="text-body-sm text-muted-foreground">
                 Sending again…
               </p>
             ) : (
@@ -191,7 +191,7 @@ export function TurnAnswer({
                 extra={
                   <button
                     type="button"
-                    className="text-[11.5px] text-muted-foreground underline underline-offset-2 hover:no-underline"
+                    className="text-label-sm text-muted-foreground underline underline-offset-2 hover:no-underline"
                     onClick={() => onResend(block.id)}
                     data-testid="harness-send-again"
                   >
@@ -376,7 +376,7 @@ export function PendingTurnLine({
         )}
       >
         <span
-          className="max-w-full truncate pt-[3px] text-[11.5px] font-medium text-foreground/80"
+          className="max-w-full truncate pt-0.5 text-label-sm font-medium text-foreground/soft"
           data-testid="chat-pending-turn-author"
         >
           {identity ?? name}

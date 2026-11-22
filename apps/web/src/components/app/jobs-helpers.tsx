@@ -13,14 +13,14 @@ export const ACTIVE_RUN_STATUSES: JobRunStatus[] = [
 
 export function statusClasses(status: JobRunStatus | null): string {
   if (status === "completed")
-    return "border-status-done/45 bg-status-done/15 text-status-done";
+    return "border-status-done/line bg-status-done/tint text-status-done";
   if (status === "failed" || status === "timed_out" || status === "crashed")
-    return "border-status-blocked/45 bg-status-blocked/15 text-status-blocked";
+    return "border-status-blocked/line bg-status-blocked/tint text-status-blocked";
   if (status === "needs_input")
-    return "border-status-waiting/45 bg-status-waiting/15 text-status-waiting";
+    return "border-status-waiting/line bg-status-waiting/tint text-status-waiting";
   if (status === "started" || status === "running")
-    return "border-status-working/45 bg-status-working/15 text-status-working";
-  return "border-border bg-muted/35 text-muted-foreground";
+    return "border-status-working/line bg-status-working/tint text-status-working";
+  return "border-border bg-surface-subtle text-muted-foreground";
 }
 
 export function statusIcon(status: JobRunStatus | null): JSX.Element | null {

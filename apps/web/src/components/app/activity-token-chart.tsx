@@ -61,7 +61,7 @@ export function DailyTokenChart({
 
   if (chartData.length === 0) {
     return (
-      <div className="flex h-40 items-center justify-center text-sm text-muted-foreground">
+      <div className="flex h-40 items-center justify-center text-body-md text-muted-foreground">
         No token data yet
       </div>
     );
@@ -91,7 +91,7 @@ export function DailyTokenChart({
               0
             );
             return (
-              <div className="rounded-lg border border-white/[0.2] bg-[hsl(var(--card))] backdrop-blur-2xl px-3 py-2 text-xs shadow-[0_16px_64px_rgba(0,0,0,0.5),inset_0_1px_0_rgba(255,255,255,0.15)]">
+              <div className="rounded-lg surface-overlay px-3 py-2 text-body-sm">
                 <div className="mb-1.5 font-medium">{tooltipLabel}</div>
                 {payload.map((p) => (
                   <div
@@ -99,7 +99,7 @@ export function DailyTokenChart({
                     className="flex items-center gap-2 py-0.5"
                   >
                     <div
-                      className="h-2.5 w-2.5 shrink-0 rounded-[2px]"
+                      className="h-2.5 w-2.5 shrink-0 rounded-mark"
                       style={{
                         backgroundColor:
                           tokenChartConfig[p.dataKey as string]?.color,

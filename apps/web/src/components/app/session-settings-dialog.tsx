@@ -143,7 +143,7 @@ export function SessionSettingsDialog({
             {agent ? (
               <div className="space-y-1.5">
                 <AgentCardPhaseStatus agent={agent} />
-                <AgentActivityLabel agent={agent} className="text-xs" />
+                <AgentActivityLabel agent={agent} className="text-body-sm" />
                 <AgentCardDetails
                   agent={agent}
                   diffStats={diffStats}
@@ -155,7 +155,7 @@ export function SessionSettingsDialog({
                 />
               </div>
             ) : null}
-            <label className="space-y-1 text-sm">
+            <label className="space-y-1 text-body-md">
               Project
               <Select
                 value={projectId ?? "none"}
@@ -177,7 +177,7 @@ export function SessionSettingsDialog({
             <div className="flex flex-col gap-1.5">
               <label
                 htmlFor="session-name"
-                className="text-sm font-medium text-muted-foreground"
+                className="text-body-md font-medium text-muted-foreground"
               >
                 Name
               </label>
@@ -188,7 +188,7 @@ export function SessionSettingsDialog({
                 onChange={(e) => setName(e.target.value)}
                 maxLength={MAX_NAME_LENGTH}
               />
-              <span className="text-xs text-muted-foreground/60">
+              <span className="text-body-sm text-faint">
                 {name.length}/{MAX_NAME_LENGTH} characters
               </span>
             </div>

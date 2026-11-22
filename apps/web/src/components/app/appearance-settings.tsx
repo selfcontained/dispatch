@@ -33,10 +33,8 @@ export function AppearanceSettings({
   return (
     <div className="flex flex-col gap-6 p-4 md:p-6">
       <div>
-        <div className="mb-1.5 text-[10px] uppercase tracking-widest text-muted-foreground">
-          Theme
-        </div>
-        <p className="mb-3 text-sm text-muted-foreground">
+        <div className="mb-1.5 section-label">Theme</div>
+        <p className="mb-3 text-body-md text-muted-foreground">
           Choose a color theme for the interface.
         </p>
         {(["dark", "light"] as const).map((mode) => {
@@ -44,7 +42,7 @@ export function AppearanceSettings({
           if (items.length === 0) return null;
           return (
             <div key={mode} className="mb-4 last:mb-0">
-              <div className="mb-2 text-[10px] uppercase tracking-widest text-muted-foreground/80">
+              <div className="mb-2 section-label">
                 {mode === "dark" ? "Dark" : "Light"}
               </div>
               <div className="grid gap-3 sm:grid-cols-2">
@@ -55,31 +53,31 @@ export function AppearanceSettings({
                     className={cn(
                       "flex items-start gap-3 rounded-md border p-3 text-left transition-colors",
                       theme === t.id
-                        ? "border-primary bg-primary/10"
-                        : "border-border hover:border-muted-foreground/30"
+                        ? "border-primary bg-surface-selected"
+                        : "border-border hover:border-muted-foreground/line"
                     )}
                   >
                     <div className="mt-0.5 flex gap-1">
                       {t.swatches.map((color, i) => (
                         <span
                           key={i}
-                          className="block h-4 w-4 rounded-full border border-white/10"
+                          className="block h-4 w-4 rounded-full border border-edge-subtle"
                           style={{ backgroundColor: color }}
                         />
                       ))}
                     </div>
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2">
-                        <div className="text-sm font-medium text-foreground">
+                        <div className="text-body-md font-medium text-foreground">
                           {t.label}
                         </div>
                         {t.id === DEFAULT_THEME_ID && (
-                          <span className="rounded-sm border border-border bg-muted/40 px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wider text-muted-foreground">
+                          <span className="rounded-sm border border-border bg-surface-subtle px-1.5 py-0.5 text-label-xs font-medium uppercase tracking-wider text-muted-foreground">
                             Default
                           </span>
                         )}
                       </div>
-                      <div className="text-xs text-muted-foreground">
+                      <div className="text-body-sm text-muted-foreground">
                         {t.description}
                       </div>
                     </div>
@@ -92,10 +90,8 @@ export function AppearanceSettings({
       </div>
 
       <div>
-        <div className="mb-1.5 text-[10px] uppercase tracking-widest text-muted-foreground">
-          Icon Color
-        </div>
-        <p className="mb-3 text-sm text-muted-foreground">
+        <div className="mb-1.5 section-label">Icon Color</div>
+        <p className="mb-3 text-body-md text-muted-foreground">
           Pick a color for the app icon to help distinguish multiple Dispatch
           installations.
         </p>
@@ -123,8 +119,8 @@ export function AppearanceSettings({
               className={cn(
                 "flex w-14 flex-col items-center gap-1 rounded-lg border-2 px-1 py-1.5 transition-all",
                 displayColor === c.id
-                  ? "border-foreground bg-foreground/10"
-                  : "border-transparent hover:border-muted-foreground/40 hover:bg-muted/30"
+                  ? "border-foreground bg-foreground/tint"
+                  : "border-transparent hover:border-muted-foreground/line-strong hover:bg-surface-hover"
               )}
             >
               <img
@@ -134,7 +130,7 @@ export function AppearanceSettings({
               />
               <span
                 className={cn(
-                  "text-[10px] leading-none",
+                  "text-label-xs leading-none",
                   displayColor === c.id
                     ? "text-foreground"
                     : "text-muted-foreground"
@@ -146,7 +142,7 @@ export function AppearanceSettings({
           ))}
         </div>
         {iconColorError ? (
-          <p className="mt-2 text-xs text-destructive">
+          <p className="mt-2 text-body-sm text-danger">
             {iconColorError}{" "}
             <button
               onClick={clearIconColorError}
@@ -156,7 +152,7 @@ export function AppearanceSettings({
             </button>
           </p>
         ) : (
-          <p className="mt-2 text-xs text-muted-foreground/70">
+          <p className="mt-2 text-body-sm text-faint">
             Changing the icon color will reload the page. PWA users may need to
             reinstall for launcher icons to update.
           </p>

@@ -39,10 +39,7 @@ export function AgentSessionLink({
     <Link
       to={`${route}?${query}`}
       aria-label={`Open ${label} session`}
-      className={cn(
-        "rounded-sm hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
-        className
-      )}
+      className={cn("rounded-sm hover:underline focus-ring", className)}
       draggable={false}
       onPointerDown={(event) => event.stopPropagation()}
       onKeyDown={(event) => event.stopPropagation()}

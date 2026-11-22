@@ -155,7 +155,7 @@ function AgentCardImpl({
       aria-pressed={isPinned}
       onClick={() => onTogglePin(agent.id)}
     >
-      <span className="flex h-8 w-8 items-center justify-center rounded-full border border-border bg-muted/30">
+      <span className="flex h-8 w-8 items-center justify-center rounded-full border border-border bg-surface-subtle">
         {isPinned ? (
           <PinOff className="h-3.5 w-3.5" />
         ) : (
@@ -177,7 +177,7 @@ function AgentCardImpl({
           "border-b border-r-4 border-border px-2 py-2 transition-colors duration-300",
           containerClassName,
           borderForAgentState(effectiveState),
-          isSelected && "bg-muted/60",
+          isSelected && "bg-surface-hover",
           isStopped && "opacity-60"
         )}
       >
@@ -237,12 +237,10 @@ function AgentCardImpl({
                   <AgentMeta label="Last error" value={agent.lastError} />
                 ) : null}
                 {childAgents.length > 0 ? (
-                  <div className="space-y-1.5 border-t border-border/50 pt-2">
+                  <div className="space-y-1.5 border-t border-border-subtle pt-2">
                     <div className="flex items-center justify-between pl-0.5 pr-2">
-                      <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/75">
-                        Sub Agents
-                      </span>
-                      <span className="text-[10px] text-muted-foreground/55">
+                      <span className="section-label">Sub Agents</span>
+                      <span className="text-label-xs text-faint">
                         {childAgents.length}
                       </span>
                     </div>

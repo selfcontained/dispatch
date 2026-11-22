@@ -12,11 +12,11 @@ const AlertDialogContent = React.forwardRef<
   React.ComponentPropsWithoutRef<typeof Primitive.Content>
 >(({ className, ...props }, ref) => (
   <Primitive.Portal>
-    <Primitive.Overlay className="fixed inset-0 z-[70] bg-black/50 backdrop-blur-md" />
+    <Primitive.Overlay className="fixed inset-0 z-modal bg-scrim backdrop-blur-md" />
     <Primitive.Content
       ref={ref}
       className={cn(
-        "fixed left-1/2 top-1/2 z-[70] w-[min(480px,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 space-y-4 rounded-xl p-5",
+        "fixed left-1/2 top-1/2 z-modal w-[min(480px,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 space-y-4 rounded-xl p-4",
         glassOverlay,
         className
       )}

@@ -131,7 +131,7 @@ function BoardColumn({
       {...({ inert: hidden ? "" : undefined } as object)}
       style={{ "--col": columnAccent(column, index) } as React.CSSProperties}
       className={cn(
-        "flex h-full shrink-0 snap-start flex-col overflow-hidden rounded-xl bg-card shadow-sm ring-1 ring-border/40 transition-[width,opacity,margin,box-shadow] duration-300 ease-out motion-reduce:transition-none",
+        "flex h-full shrink-0 snap-start flex-col overflow-hidden rounded-lg bg-card shadow-sm ring-1 ring-border-subtle transition-[width,opacity,margin,box-shadow] duration-300 ease-out motion-reduce:transition-none",
         hidden
           ? "pointer-events-none -ml-3 w-0 opacity-0 ring-0"
           : "w-[min(300px,calc(100vw-3rem))]",
@@ -143,7 +143,7 @@ function BoardColumn({
           aria-hidden="true"
           className="h-2 w-2 shrink-0 rounded-full bg-[hsl(var(--col))]"
         />
-        <h2 className="min-w-0 flex-1 truncate text-sm font-semibold">
+        <h2 className="min-w-0 flex-1 truncate text-heading-sm">
           {column.name}
         </h2>
         <ColumnCapacity column={column} />
@@ -177,7 +177,7 @@ function BoardColumn({
       <div className="p-2">
         <Button
           variant="ghost"
-          className="w-full justify-start text-muted-foreground hover:bg-muted/60"
+          className="w-full justify-start text-muted-foreground hover:bg-surface-hover"
           onClick={() => addTask(column.id)}
         >
           <Plus className="mr-1 h-3.5 w-3.5" aria-hidden="true" />

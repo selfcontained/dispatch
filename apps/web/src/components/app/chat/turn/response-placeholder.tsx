@@ -665,7 +665,7 @@ export function ResponsePlaceholderVisual({
     <div
       data-glow="halo-soft"
       data-testid="chat-response-placeholder"
-      className={`dispatch-placeholder ${quiet ? "" : "dispatch-placeholder-chase"} relative mt-3 w-full rounded-lg md:max-w-md border border-border/60 bg-muted/10 overflow-clip px-2.5 pt-2 ${hasFooter ? "pb-1" : "pb-2"} ${reducedCells ? "dispatch-defrag-reduced" : ""}`}
+      className={`dispatch-placeholder ${quiet ? "" : "dispatch-placeholder-chase"} relative mt-3 w-full rounded-lg md:max-w-md border border-border-subtle bg-surface-subtle overflow-clip px-2 pt-2 ${hasFooter ? "pb-1" : "pb-2"} ${reducedCells ? "dispatch-defrag-reduced" : ""}`}
     >
       {/* The status region holds only the picture; the peek control sits
           beside it, so its changing count is never announced. */}
@@ -711,7 +711,7 @@ export function ResponsePlaceholderVisual({
             </TooltipTrigger>
             <div aria-hidden="true" className="absolute inset-0">
               <div
-                className="absolute inset-0 bg-muted/40"
+                className="absolute inset-0 bg-surface-subtle"
                 style={slotStyle(columns)}
               />
               <div className="dispatch-placeholder-colors absolute inset-0">
@@ -767,7 +767,7 @@ export function ResponsePlaceholderVisual({
                           data-neon-swatch={
                             c.category || packed ? "" : undefined
                           }
-                          className={`mx-auto block rounded-[1.5px] transition-[background-color] duration-500 motion-reduce:transition-none ${piece && arrivalKeys?.has(piece.key) ? "dispatch-defrag-ack" : ""}`}
+                          className={`mx-auto block rounded-mark transition-[background-color] duration-500 motion-reduce:transition-none ${piece && arrivalKeys?.has(piece.key) ? "dispatch-defrag-ack" : ""}`}
                           style={{
                             width: cellSize,
                             height: cellSize,
@@ -805,14 +805,14 @@ export function ResponsePlaceholderVisual({
         </Tooltip>
       </TooltipProvider>
       {hasFooter ? (
-        <div className="relative mt-0.5 flex min-h-4 items-center gap-2 text-[10px] leading-4">
+        <div className="relative mt-0.5 flex min-h-4 items-center gap-2 text-label-xs leading-4">
           {fills.length > 0 && <FillCount fills={fills} glow />}
           {summary || reserveSummary ? (
             // The line's room is held from the start, so the counts fading in
             // move nothing.
             <span
               className={cn(
-                "ml-auto min-w-0 truncate text-[9px] tabular-nums text-muted-foreground transition-opacity duration-300 motion-reduce:transition-none",
+                "ml-auto min-w-0 truncate text-label-xs tabular-nums text-muted-foreground transition-opacity duration-300 motion-reduce:transition-none",
                 !summary && "opacity-0"
               )}
               data-testid="chat-response-activity-counts"
@@ -826,7 +826,7 @@ export function ResponsePlaceholderVisual({
               onClick={onShowProgress}
               aria-label="Show progress text"
               data-testid="chat-response-show-progress"
-              className="ml-auto rounded-sm text-muted-foreground underline-offset-2 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              className="ml-auto rounded-sm text-muted-foreground underline-offset-2 hover:text-foreground hover:underline focus-ring"
             >
               Show progress · {formatChars(textLength)}
             </button>

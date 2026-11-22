@@ -62,7 +62,7 @@ function AgentBackgroundWork({ agentId }: { agentId: string }) {
         className="w-[min(640px,calc(100vw-1.5rem))] max-h-[var(--radix-popover-content-available-height)] p-3 font-sans text-foreground"
       >
         <div className="mb-2 flex items-center justify-between gap-2">
-          <h2 id={titleId} className="text-base font-semibold">
+          <h2 id={titleId} className="text-heading-md">
             Background work
           </h2>
           <Button
@@ -84,25 +84,25 @@ function AgentBackgroundWork({ agentId }: { agentId: string }) {
         >
           {query.isPending ? (
             <div
-              className="h-14 animate-pulse rounded-lg bg-muted/50"
+              className="h-14 animate-pulse rounded-lg bg-surface-hover"
               aria-label="Loading background work"
             />
           ) : !available ? (
-            <p className="py-4 text-center text-sm text-muted-foreground">
+            <p className="py-4 text-center text-body-md text-muted-foreground">
               Background visibility unavailable.
             </p>
           ) : !items.length ? (
-            <p className="py-4 text-center text-sm text-muted-foreground">
+            <p className="py-4 text-center text-body-md text-muted-foreground">
               No reported background work.
             </p>
           ) : (
-            <ul className="divide-y divide-border/40">
+            <ul className="divide-y divide-border-subtle">
               {items.map((item) => {
                 const Icon = item.kind === "monitor" ? Radio : Terminal;
                 return (
                   <li
                     key={item.id}
-                    className="flex min-h-9 items-center gap-2.5 px-1 py-2"
+                    className="flex min-h-9 items-center gap-2 px-1 py-2"
                   >
                     <Icon
                       className="size-3.5 shrink-0 text-muted-foreground"
@@ -111,14 +111,14 @@ function AgentBackgroundWork({ agentId }: { agentId: string }) {
                         item.kind === "monitor" ? "Monitor" : "Command"
                       }
                     />
-                    <span className="min-w-0 flex-1 [overflow-wrap:anywhere] text-[13px]">
+                    <span className="min-w-0 flex-1 [overflow-wrap:anywhere] text-body-sm">
                       {item.name}
                     </span>
                     <span
                       className={
                         item.state === "paused"
-                          ? "flex shrink-0 items-center gap-1.5 text-xs text-status-waiting [[data-theme-mode=light]_&]:text-amber-800"
-                          : "flex shrink-0 items-center gap-1.5 text-xs text-status-working [[data-theme-mode=light]_&]:text-emerald-800"
+                          ? "flex shrink-0 items-center gap-1.5 text-body-sm text-status-waiting [[data-theme-mode=light]_&]:text-warning-ink"
+                          : "flex shrink-0 items-center gap-1.5 text-body-sm text-status-working [[data-theme-mode=light]_&]:text-success-ink"
                       }
                     >
                       {item.state === "paused" ? (

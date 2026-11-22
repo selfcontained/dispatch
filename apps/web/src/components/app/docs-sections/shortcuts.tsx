@@ -17,7 +17,7 @@ export function ShortcutsContent() {
           On macOS, <Code>Mod</Code> is <Code>⌘</Code>. On Windows/Linux it is{" "}
           <Code>Ctrl</Code>.
         </P>
-        <ul className="grid gap-1.5 pl-4 text-sm text-muted-foreground list-disc">
+        <ul className="grid gap-1.5 pl-4 text-body-md text-muted-foreground list-disc">
           <li>
             <Code>Mod+Shift+Space</Code> — Focus the visible message composer.
           </li>

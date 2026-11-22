@@ -15,19 +15,19 @@ const KIND_STYLES: Record<
   { dot: string; text: string; badge: string }
 > = {
   decision: {
-    dot: "bg-rose-400",
-    text: "text-rose-400",
-    badge: "bg-rose-950/50 text-rose-400",
+    dot: "bg-chart-4",
+    text: "text-chart-4",
+    badge: "bg-chart-4/tint-strong text-chart-4",
   },
   assessment: {
-    dot: "bg-amber-400",
-    text: "text-amber-400",
-    badge: "bg-amber-950/50 text-amber-400",
+    dot: "bg-chart-2",
+    text: "text-chart-2",
+    badge: "bg-chart-2/tint-strong text-chart-2",
   },
   observation: {
-    dot: "bg-blue-400",
-    text: "text-blue-400",
-    badge: "bg-blue-950/50 text-blue-400",
+    dot: "bg-chart-3",
+    text: "text-chart-3",
+    badge: "bg-chart-3/tint-strong text-chart-3",
   },
 };
 
@@ -70,20 +70,20 @@ export function EventCard({
   const allEntries = { ...(payload as Record<string, unknown>), ...meta };
 
   return (
-    <div className="mx-3 mb-2 rounded-md border border-border bg-muted/20 p-2.5 overflow-hidden">
+    <div className="mx-3 mb-2 rounded-md border border-border bg-surface-subtle p-2 overflow-hidden">
       <div className="flex items-center justify-between gap-2 mb-2 min-w-0">
-        <div className="flex items-center gap-1.5 text-xs min-w-0">
+        <div className="flex items-center gap-1.5 text-body-sm min-w-0">
           <span className={cn("h-2 w-2 rounded-full shrink-0", style.dot)} />
           <span
             className={cn(
-              "rounded px-1.5 py-0.5 font-mono text-[10px] shrink-0",
+              "rounded-sm px-1.5 py-0.5 font-mono text-label-xs shrink-0",
               style.badge
             )}
           >
             {event.kind}
           </span>
         </div>
-        <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground shrink-0">
+        <div className="flex items-center gap-1.5 text-label-xs text-muted-foreground shrink-0">
           {agentId ? <AgentIdLabel agentId={agentId} /> : null}
           <CopyButton value={event.value} />
           {onDelete ? (
@@ -95,7 +95,7 @@ export function EventCard({
           <RelativeTime iso={event.createdAt} />
         </div>
       </div>
-      <div className="rounded bg-muted/30 px-2.5 py-2 overflow-x-auto">
+      <div className="rounded-sm bg-surface-subtle px-2 py-2 overflow-x-auto">
         <KeyValueTable value={allEntries} />
       </div>
     </div>

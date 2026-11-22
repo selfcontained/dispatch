@@ -113,7 +113,7 @@ export function FilesTextPreview({
   );
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex shrink-0 flex-wrap items-center justify-between gap-x-2 border-b px-3 py-1 text-xs text-muted-foreground">
+      <div className="flex shrink-0 flex-wrap items-center justify-between gap-x-2 border-b px-3 py-1 text-body-sm text-muted-foreground">
         <span>
           {lines.length.toLocaleString()} lines ·{" "}
           {highlight?.language ?? (highlight ? "Plain text" : "Highlighting…")}
@@ -133,11 +133,11 @@ export function FilesTextPreview({
         {/* One native vertical scroller aligns both columns. Only the code
             column scrolls horizontally: even elastic scrolling cannot carry
             the gutter along because it is a sibling, not a sticky child. */}
-        <div className="flex min-w-0 items-stretch font-mono text-xs leading-6">
+        <div className="flex min-w-0 items-stretch font-mono text-body-sm leading-6">
           <div
             aria-hidden="true"
             data-testid="file-gutter"
-            className="files-gutter shrink-0 touch-pan-y select-none border-r border-border py-3 text-right text-muted-foreground/60"
+            className="files-gutter shrink-0 touch-pan-y select-none border-r border-border py-3 text-right text-faint"
             style={{
               width: `${Math.max(6, String(lines.length).length + 3)}ch`,
               ...windowPadding,
@@ -201,7 +201,7 @@ export function FilesTextPreview({
       </div>
       {horizontal.width > horizontal.viewport && (
         <div
-          className="syntax-surface flex shrink-0 font-mono text-xs"
+          className="syntax-surface flex shrink-0 font-mono text-body-sm"
           data-testid="file-horizontal-control"
         >
           <div

@@ -12,7 +12,7 @@ import { columnAccent } from "./task-utils";
 
 /** A bottom sheet on a phone; a small centered dialog otherwise. */
 const BOTTOM_SHEET =
-  "max-md:inset-x-0 max-md:bottom-0 max-md:left-0 max-md:top-auto max-md:w-full max-md:max-h-[85dvh] max-md:translate-x-0 max-md:translate-y-0 max-md:rounded-b-none max-md:pb-[max(1rem,env(safe-area-inset-bottom))] md:w-[min(360px,calc(100vw-2rem))]";
+  "max-md:inset-x-0 max-md:bottom-0 max-md:left-0 max-md:top-auto max-md:w-full max-md:max-h-[85dvh] max-md:translate-x-0 max-md:translate-y-0 max-md:rounded-b-none max-md:pb-safe-4 md:w-[min(360px,calc(100vw-2rem))]";
 
 /** Move a task to another column without dragging it there. */
 export function TaskMoveSheet({
@@ -42,7 +42,7 @@ export function TaskMoveSheet({
         }}
       >
         <DialogHeader>
-          <DialogTitle className="text-base">Move to…</DialogTitle>
+          <DialogTitle className="text-heading-md">Move to…</DialogTitle>
           <DialogDescription className="truncate">
             {task.title}
           </DialogDescription>
@@ -61,7 +61,7 @@ export function TaskMoveSheet({
                 key={column.id}
                 type="button"
                 className={cn(
-                  "flex min-h-11 w-full items-center gap-3 rounded-md px-3 text-left text-sm hover:bg-muted/60",
+                  "flex min-h-11 w-full items-center gap-3 rounded-md px-3 text-left text-body-md hover:bg-surface-hover",
                   current && "font-medium"
                 )}
                 onClick={() => {

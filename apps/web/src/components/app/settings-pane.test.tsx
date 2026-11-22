@@ -210,10 +210,10 @@ describe("SettingsNavContent", () => {
 
     expect(
       screen.getByRole("button", { name: "Agent setup" }).className
-    ).toContain("bg-primary/10");
+    ).toContain("bg-surface-selected");
     expect(
       screen.getByRole("button", { name: "General" }).className
-    ).not.toContain("bg-primary/10");
+    ).not.toContain("bg-surface-selected");
   });
 
   it("hides the docs sub-nav until Help is the active section", () => {

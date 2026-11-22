@@ -20,7 +20,7 @@ export function PersonalitiesContent() {
           below Agent types. Click <strong>New personality</strong> to add one.
           Each entry has:
         </P>
-        <ul className="grid gap-1.5 pl-4 text-sm text-muted-foreground list-disc">
+        <ul className="grid gap-1.5 pl-4 text-body-md text-muted-foreground list-disc">
           <li>
             <strong>Name</strong> — up to 80 characters, must be unique. Shown
             in the row and on the active toggle.
@@ -72,7 +72,7 @@ export function PersonalitiesContent() {
           they ship their own carefully-tuned prompts and an extra voice tweak
           risks destabilizing them:
         </P>
-        <ul className="grid gap-1.5 pl-4 text-sm text-muted-foreground list-disc">
+        <ul className="grid gap-1.5 pl-4 text-body-md text-muted-foreground list-disc">
           <li>
             <strong>Persona agents</strong> launched via{" "}
             <Code>launch_agent</Code> with a <Code>persona</Code>, or from the

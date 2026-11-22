@@ -33,10 +33,8 @@ export function UpdatesPreferences({
   return (
     <>
       <div>
-        <div className="mb-1.5 text-[10px] uppercase tracking-widest text-muted-foreground">
-          Release channel
-        </div>
-        <p className="mb-3 text-sm text-muted-foreground">
+        <div className="mb-1.5 section-label">Release channel</div>
+        <p className="mb-3 text-body-md text-muted-foreground">
           Stable gets promoted releases. Preview gets every release as soon as
           it ships.
         </p>
@@ -55,8 +53,7 @@ export function UpdatesPreferences({
               className={cn(
                 "capitalize",
                 ch === "stable" && "rounded-r-none border-r-0",
-                ch === "preview" &&
-                  "rounded-l-none border-l border-white/[0.12]"
+                ch === "preview" && "rounded-l-none border-l border-edge"
               )}
             >
               {ch}
@@ -66,10 +63,8 @@ export function UpdatesPreferences({
       </div>
 
       <div>
-        <div className="mb-1.5 text-[10px] uppercase tracking-widest text-muted-foreground">
-          Automatic updates
-        </div>
-        <p className="mb-3 text-sm text-muted-foreground">
+        <div className="mb-1.5 section-label">Automatic updates</div>
+        <p className="mb-3 text-body-md text-muted-foreground">
           When on, Dispatch periodically checks for new releases and notifies
           you. Updates never install automatically.
         </p>

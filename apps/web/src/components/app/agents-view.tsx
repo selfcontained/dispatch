@@ -433,7 +433,7 @@ export function AgentsView({
   const filesElement = filesVisible ? (
     <Suspense
       fallback={
-        <div role="status" className="p-4 text-sm text-muted-foreground">
+        <div role="status" className="p-4 text-body-md text-muted-foreground">
           Loading files…
         </div>
       }
@@ -651,11 +651,7 @@ export function AgentsView({
               openLightbox={openLightbox}
               onOpenPath={handleOpenPath}
               isMobile={false}
-              className={cn(
-                "rounded-l-lg border-l",
-                !drawerPinned && "shadow-2xl",
-                glassPanel
-              )}
+              className={cn("rounded-l-lg border-l", glassPanel)}
             />
           </DrawerFrame>
           {!isMobile ? (

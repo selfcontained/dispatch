@@ -68,14 +68,14 @@ function PermissionRequest({
     onSettled: () => client.invalidateQueries({ queryKey: key }),
   });
   return (
-    <div className="rounded-md border border-status-waiting/40 bg-status-waiting/5 p-3">
-      <div className="mb-1 flex items-center gap-2 text-sm font-medium">
-        <ShieldCheck className="h-4 w-4 shrink-0 text-status-waiting" />
+    <div className="rounded-md border border-warning/line bg-warning/wash p-3">
+      <div className="mb-1 flex items-center gap-2 text-body-md font-medium">
+        <ShieldCheck className="h-4 w-4 shrink-0 text-warning" />
         Approval needed
       </div>
-      <p className="break-words text-sm">{request.title}</p>
+      <p className="break-words text-body-md">{request.title}</p>
       {request.details ? (
-        <pre className="my-2 max-h-40 overflow-auto whitespace-pre-wrap break-all rounded bg-muted/50 p-2 text-xs">
+        <pre className="my-2 max-h-40 overflow-auto whitespace-pre-wrap break-all rounded-sm bg-surface-hover p-2 text-body-sm">
           {request.details}
         </pre>
       ) : null}
@@ -105,12 +105,12 @@ function PermissionRequest({
         ) : null}
       </div>
       {!connected ? (
-        <p role="status" className="mt-2 text-xs text-muted-foreground">
+        <p role="status" className="mt-2 text-body-sm text-muted-foreground">
           Reconnecting to the agent. No permission has been granted.
         </p>
       ) : null}
       {answer.error ? (
-        <p role="alert" className="mt-2 text-xs text-destructive">
+        <p role="alert" className="mt-2 text-body-sm text-danger">
           {answer.error.message}
         </p>
       ) : null}

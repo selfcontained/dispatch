@@ -19,10 +19,8 @@ export function UpdatesReloadCard({
 }: UpdatesReloadCardProps): JSX.Element {
   return (
     <div>
-      <div className="mb-1.5 text-[10px] uppercase tracking-widest text-muted-foreground">
-        Reload
-      </div>
-      <p className="mb-3 text-sm text-muted-foreground">
+      <div className="mb-1.5 section-label">Reload</div>
+      <p className="mb-3 text-body-md text-muted-foreground">
         Reload the app to pick up the latest version.
       </p>
       <div className="inline-flex items-center">
@@ -40,7 +38,7 @@ export function UpdatesReloadCard({
             <Button
               size="sm"
               variant="default"
-              className="rounded-l-none border-l border-white/[0.12] px-1 text-muted-foreground hover:text-foreground"
+              className="rounded-l-none border-l border-edge px-1 text-muted-foreground hover:text-foreground"
             >
               <ChevronDown className="h-3.5 w-3.5" />
             </Button>

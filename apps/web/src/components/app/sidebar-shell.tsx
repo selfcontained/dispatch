@@ -42,8 +42,8 @@ export function SidebarNavBar({
 }: SidebarNavBarProps): JSX.Element {
   const navButtonClassName = (navItem: string, active = false): string =>
     cn(
-      "rounded-md p-2 transition-colors hover:bg-muted/50 hover:text-foreground",
-      active ? "text-primary hover:text-primary/80" : "text-muted-foreground"
+      "rounded-md p-2 transition-colors hover:bg-surface-hover hover:text-foreground",
+      active ? "text-primary hover:text-primary/soft" : "text-muted-foreground"
     );
 
   const triggerNavAnimationForKey = (
@@ -65,7 +65,7 @@ export function SidebarNavBar({
 
   return (
     <TooltipProvider delayDuration={120}>
-      <div className="flex items-center justify-around border-t border-white/[0.12] py-3 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
+      <div className="flex items-center justify-around border-t border-edge py-3 pb-safe-5">
         {items.map(({ id, icon: Icon, label }) => (
           <Tooltip key={id}>
             <TooltipTrigger asChild>
@@ -120,21 +120,21 @@ export function SidebarShell({
       data-testid="sidebar-shell"
       className="flex h-full min-h-0 w-full flex-col text-foreground"
     >
-      <div className="flex min-h-14 items-center px-3 pt-[var(--safe-area-top)]">
-        <div className="flex items-center gap-2.5">
+      <div className="flex min-h-14 items-center px-3 pt-safe">
+        <div className="flex items-center gap-2">
           <img
             src={`/icons/${iconColor}/brand-icon.svg`}
             alt=""
             className="h-7 w-7 shrink-0 object-contain"
           />
           <div className="flex min-w-0 flex-col justify-center">
-            <div className="text-sm font-bold uppercase tracking-widest text-foreground">
+            <div className="text-body-md font-semibold uppercase tracking-widest text-foreground">
               Dispatch
             </div>
             {instanceName ? (
               <div
                 title={instanceName}
-                className="truncate text-[11px] leading-tight text-muted-foreground"
+                className="truncate text-label-sm leading-tight text-muted-foreground"
               >
                 {instanceName}
               </div>
