@@ -734,6 +734,31 @@ describe("outcomes", () => {
     expect(world.coordinator.view(RUNNER)).toBeUndefined();
   });
 
+  it("still reports a rollback between versions of one revision", async () => {
+    await online({ identity: { ...identity, revision: target.revision } });
+    await rolledBack();
+    expect(world.coordinator.view(RUNNER)).toEqual({
+      available: { version: target.version, action: "retry" },
+      result: {
+        state: "rolled_back",
+        version: target.version,
+        reason: "boot_failed",
+      },
+    });
+  });
+
+  it("hides a success that another version of the same revision replaced", async () => {
+    await online();
+    await updated();
+    world.runner.identity = {
+      ...identity,
+      version: "1.7.40",
+      revision: target.revision,
+    };
+    await world.restartRunner();
+    expect(world.coordinator.view(RUNNER)).toBeUndefined();
+  });
+
   it("hides success and stops recycling after another build is installed", async () => {
     await online();
     await updated();

@@ -956,7 +956,9 @@ export class RunnerUpdateCoordinator {
     this.confirms.delete(runnerId);
   }
 
-  private isOwnBuild(target: RunnerUpdateTarget | undefined) {
+  private isOwnBuild(
+    target: { version: string; revision: string } | undefined
+  ) {
     const { version, revision } = this.options.build;
     return target?.version === version && target.revision === revision;
   }
@@ -974,9 +976,9 @@ export class RunnerUpdateCoordinator {
   ) {
     const { target } = attempt;
     if (outcome.state === "updated")
-      return !advert || !target || advert.revision === target.revision;
+      return !advert || !target || advert.installedSha256 === target.sha256;
     // A failure is history once the runner has this build anyway.
-    if (advert && advert.revision === this.options.build.revision) return false;
+    if (advert && this.isOwnBuild(advert)) return false;
     return (
       !target ||
       this.isOwnBuild(target) ||
