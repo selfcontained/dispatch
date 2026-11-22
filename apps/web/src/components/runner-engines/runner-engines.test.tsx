@@ -15,7 +15,10 @@ import type {
   EngineOperationAck,
 } from "@dispatch/runner-protocol/engine-management";
 
+import { runnerEnginesKey } from "@/hooks/use-runner-engines";
+
 import { RunnerEngines } from "./runner-engines";
+import { RunnerProviderUsage } from "./runner-provider-usage";
 
 vi.mock("@/lib/api", () => ({ api: vi.fn() }));
 
@@ -72,6 +75,40 @@ it("renders each engine's installed/signed-in state and available actions", asyn
     "Not installed"
   );
   expect(screen.getByTestId("runner-engine-codex-install")).toBeTruthy();
+});
+
+it("keeps loading while a runner's engines are not known yet", async () => {
+  vi.mocked(api).mockResolvedValue({ entries: null });
+  const client = new QueryClient();
+  render(
+    <QueryClientProvider client={client}>
+      <RunnerEngines scope={{ kind: "runner", runnerId: "r1" }} />
+      <RunnerProviderUsage runnerId="r1" />
+    </QueryClientProvider>
+  );
+  await waitFor(() =>
+    expect(
+      client.getQueryData(runnerEnginesKey({ kind: "runner", runnerId: "r1" }))
+    ).toEqual({ entries: null })
+  );
+  expect(screen.getByText("Loading engines…")).toBeTruthy();
+  expect(screen.queryByText("No engines reported.")).toBeNull();
+  expect(screen.queryByText("Set up Claude or Codex")).toBeNull();
+});
+
+it("shows a failed read over unknown engines", async () => {
+  vi.mocked(api).mockRejectedValue(new Error("down"));
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  const scope = { kind: "runner", runnerId: "r1" } as const;
+  client.setQueryData(runnerEnginesKey(scope), { entries: null });
+  render(
+    <QueryClientProvider client={client}>
+      <RunnerEngines scope={scope} />
+    </QueryClientProvider>
+  );
+  expect(await screen.findByText("Could not load engines.")).toBeTruthy();
 });
 
 it("posts an install operation scoped to a runner and refreshes", async () => {

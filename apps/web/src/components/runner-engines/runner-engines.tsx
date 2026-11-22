@@ -36,7 +36,10 @@ export function RunnerEngines({
   const entries = inventory.data?.entries ?? [];
   const [activeLogin, setActiveLogin] = useState<EngineLoginView | null>(null);
 
-  if (inventory.isLoading) {
+  if (
+    inventory.isLoading ||
+    (!inventory.isError && inventory.data?.entries === null)
+  ) {
     return (
       <p
         role="status"

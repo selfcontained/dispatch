@@ -24,6 +24,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { RunnerEngines } from "@/components/runner-engines/runner-engines";
+import { useEnginesRefreshAfterUpdate } from "@/hooks/use-runner-engines";
 import {
   runnersQueryKey,
   useRunnerMutations,
@@ -352,6 +353,7 @@ function RunnerDetail({
   onRevoked: () => void;
 }) {
   useWantedBuildRefresh(runner);
+  useEnginesRefreshAfterUpdate(runner.id, Boolean(runner.update?.attempt));
   return (
     <div className="min-w-0 divide-y divide-border" data-testid="runner-detail">
       <header className="flex items-start justify-between gap-2 pb-4">

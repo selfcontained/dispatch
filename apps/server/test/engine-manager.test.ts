@@ -259,6 +259,20 @@ describe("EngineManager runner scope", () => {
     expect(inventory).toHaveLength(3);
   });
 
+  it("announces nothing while a runner's engines are unknown", async () => {
+    const manager = new EngineManager({
+      local: { logins: fakeLogins(), updates: fakeUpdates() },
+      remote: fakeTransport({
+        send: vi.fn(async () => ({ ok: false, error: "fenced" })),
+      }),
+    });
+    const scope = { kind: "runner" as const, runnerId: "r1" };
+    const listener = vi.fn();
+    manager.onChanged(scope, listener);
+    expect(await manager.inventory(scope)).toBeNull();
+    expect(listener).not.toHaveBeenCalled();
+  });
+
   it("notifies onChanged listeners after a state-changing operation", async () => {
     const transport = fakeTransport({
       send: vi.fn(async (_r, op) => {

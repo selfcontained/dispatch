@@ -26,7 +26,7 @@ export function RunnerProviderUsage({
   allowReset?: boolean;
 }) {
   const inventory = useRunnerEngineInventory({ kind: "runner", runnerId });
-  const accountEntries = inventory.data?.entries.filter(
+  const accountEntries = inventory.data?.entries?.filter(
     (entry) => entry.id === "claude" || entry.id === "codex"
   );
   const canReadUsage =

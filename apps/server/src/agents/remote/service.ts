@@ -383,6 +383,7 @@ export class RemoteRunnerService {
       | "managedWorkspace"
       | "sessionFiles"
       | "sharedWorktree"
+      | "engines"
     >
   >();
   private peerEpoch = 0;
@@ -1015,6 +1016,7 @@ export class RemoteRunnerService {
           managedWorkspace: peer.managedWorkspace,
           sessionFiles: peer.sessionFiles,
           sharedWorktree: peer.sharedWorktree,
+          engines: this.lastSeen.get(gate.key)?.engines,
         });
         previous?.socket.destroy();
         gate.ready?.(ready.workspaces, peer.managedWorkspace);
@@ -1059,6 +1061,7 @@ export class RemoteRunnerService {
         const entries = parseEngineInventory(frame.entries);
         if (entries === null) return socket.destroy();
         peer.engines = entries;
+        this.lastSeen.get(gate.key)!.engines = entries;
       } else if (
         frame.type === "launch_progress" &&
         peer.workspacePreparation
@@ -1678,6 +1681,15 @@ export class RemoteRunnerService {
   ): EngineInventoryEntry[] | undefined {
     const peer = this.peers.get(runnerId);
     return peer?.gate.approved() ? peer.engines : undefined;
+  }
+
+  /**
+   * What the runner last pushed, on this connection or an earlier one. A new
+   * connection has pushed nothing while an update fence refuses engine work.
+   */
+  lastEngineInventory(runnerId: string): EngineInventoryEntry[] | undefined {
+    const seen = this.lastSeen.get(runnerId);
+    return seen?.gate.approved() ? seen.engines : undefined;
   }
 
   requestSession(

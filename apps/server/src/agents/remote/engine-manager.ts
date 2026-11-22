@@ -58,6 +58,11 @@ export interface RunnerEngineTransport {
    * transport doesn't track a cache).
    */
   cachedInventory?(runnerId: string): EngineInventoryEntry[] | undefined;
+  /**
+   * The last inventory from any connection: what to show while the runner
+   * can't be read, as during its update.
+   */
+  lastKnownInventory?(runnerId: string): EngineInventoryEntry[] | undefined;
 }
 
 export type LocalEngineDeps = {
@@ -114,12 +119,13 @@ export class EngineManager {
     this.events.emit(engineScopeKey(scope), entries);
   }
 
-  async inventory(scope: EngineScope): Promise<EngineInventoryEntry[]> {
+  /** Null while a runner's engines are not known yet. */
+  async inventory(scope: EngineScope): Promise<EngineInventoryEntry[] | null> {
     const entries =
       scope.kind === "local"
         ? await this.localInventory()
         : await this.remoteInventory(scope);
-    this.emitChanged(scope, entries);
+    if (entries) this.emitChanged(scope, entries);
     return entries;
   }
 
@@ -189,7 +195,7 @@ export class EngineManager {
   private async remoteInventory(
     scope: Extract<EngineScope, { kind: "runner" }>,
     opts: { force?: boolean } = {}
-  ): Promise<EngineInventoryEntry[]> {
+  ): Promise<EngineInventoryEntry[] | null> {
     const cached = opts.force
       ? undefined
       : this.deps.remote.cachedInventory?.(scope.runnerId);
@@ -203,8 +209,16 @@ export class EngineManager {
       }
     );
     if (!ack.ok) {
-      // Unsupported or offline: report every engine as unknown rather than
-      // throwing, so the UI can show "unavailable" instead of an error page.
+      // A failed read, as behind an update fence, doesn't mean "not
+      // installed". Nothing can be changed there until a read succeeds.
+      if (!ack.unsupported)
+        return (
+          this.deps.remote
+            .lastKnownInventory?.(scope.runnerId)
+            ?.map((entry) => ({ ...entry, actions: [] })) ?? null
+        );
+      // Unsupported: report every engine as unknown rather than throwing,
+      // so the UI can show "unavailable" instead of an error page.
       return RUNNER_ENGINES.map((id) => ({
         id,
         label: LABELS[id],

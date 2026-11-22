@@ -32,6 +32,9 @@ export function remoteEngineTransport(
     cachedInventory(runnerId) {
       return service.engineInventorySnapshot(runnerId);
     },
+    lastKnownInventory(runnerId) {
+      return service.lastEngineInventory(runnerId);
+    },
     async send(runnerId, operation, onEvent) {
       const scoped = isEngineCapabilityOperation(operation);
       try {

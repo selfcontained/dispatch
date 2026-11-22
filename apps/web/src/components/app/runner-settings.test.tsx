@@ -14,6 +14,7 @@ import {
   within,
 } from "@testing-library/react";
 import { MemoryRouter, useLocation } from "react-router-dom";
+import { engineScopeKey } from "@dispatch/runner-protocol/engine-management";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { Runner } from "@/hooks/use-runners";
@@ -563,5 +564,32 @@ describe("the wanted build in Health", () => {
     details.open = true;
     fireEvent(details, new Event("toggle"));
     await waitFor(() => expect(details.textContent).toContain("bbbbbbb"));
+  });
+});
+
+it("reads engines, plugins and usage again when an update ends", async () => {
+  let runner: Runner = { ...online, engineManagement: undefined };
+  vi.mocked(api).mockImplementation(async (path) =>
+    path === "/api/runners" ? { runners: [runner] } : ({} as never)
+  );
+  const client = new QueryClient();
+  const invalidate = vi.spyOn(client, "invalidateQueries");
+  renderSettings("/settings/runners?runner=build", client);
+  await screen.findByTestId("runner-detail");
+  runner = { ...runner, update: { attempt: { id: "a", phase: "confirming" } } };
+  await act(() => client.refetchQueries({ queryKey: ["runners"] }));
+  await screen.findByText("Runner update in progress");
+  const keys = [
+    ["runner-engines", engineScopeKey({ kind: "runner", runnerId: "build" })],
+    ["runner-plugin", "build"],
+    ["runner-provider-usage", "build"],
+  ];
+  for (const queryKey of keys)
+    expect(invalidate).not.toHaveBeenCalledWith({ queryKey });
+  runner = { ...runner, update: { result: { state: "updated" } } };
+  await act(() => client.refetchQueries({ queryKey: ["runners"] }));
+  await waitFor(() => {
+    for (const queryKey of keys)
+      expect(invalidate).toHaveBeenCalledWith({ queryKey });
   });
 });

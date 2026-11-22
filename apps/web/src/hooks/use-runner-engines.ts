@@ -1,5 +1,6 @@
 import type { RunnerEngine } from "@dispatch/runner-protocol";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect } from "react";
 
 import {
   engineScopeKey,
@@ -19,7 +20,8 @@ import { api } from "@/lib/api";
  * running locally or on a named runner (runner-wide, not per-workspace).
  * Expects the HTTP routes:
  *
- * - `GET  /api/v1/engine-management/inventory?{scope query}` → `{ entries }`
+ * - `GET  /api/v1/engine-management/inventory?{scope query}` → `{ entries }`,
+ *   null while a runner's engines are not known yet
  * - `POST /api/v1/engine-management/operations` with `{ scope, operation }`
  *   body → `{ ack }`
  *
@@ -39,7 +41,9 @@ export function runnerEnginesKey(scope: EngineScope) {
 }
 
 /** Whether an operation leaves something still running, worth polling for. */
-function hasPendingWork(entries: EngineInventoryEntry[] | undefined): boolean {
+function hasPendingWork(
+  entries: EngineInventoryEntry[] | null | undefined
+): boolean {
   // Sign-in is the only state this inventory can't settle on its own; an
   // install/update's completion is the inventory's own version/installed
   // change, so no separate "pending" flag is needed here.
@@ -50,7 +54,7 @@ function hasPendingWork(entries: EngineInventoryEntry[] | undefined): boolean {
 }
 
 export function useRunnerEngineInventory(scope: EngineScope, enabled = true) {
-  return useQuery<{ entries: EngineInventoryEntry[] }>({
+  return useQuery<{ entries: EngineInventoryEntry[] | null }>({
     queryKey: runnerEnginesKey(scope),
     enabled,
     queryFn: () =>
@@ -58,6 +62,28 @@ export function useRunnerEngineInventory(scope: EngineScope, enabled = true) {
     refetchInterval: (query) =>
       hasPendingWork(query.state.data?.entries) ? 2_000 : 10_000,
   });
+}
+
+/**
+ * A runner refuses engine work while it updates, so what was read then is
+ * the last known state, or a failure. Read it again when the update ends.
+ */
+export function useEnginesRefreshAfterUpdate(
+  runnerId: string,
+  updating: boolean
+) {
+  const queryClient = useQueryClient();
+  useEffect(() => {
+    if (!updating) return;
+    return () => {
+      for (const queryKey of [
+        runnerEnginesKey({ kind: "runner", runnerId }),
+        ["runner-plugin", runnerId],
+        ["runner-provider-usage", runnerId],
+      ])
+        void queryClient.invalidateQueries({ queryKey });
+    };
+  }, [queryClient, runnerId, updating]);
 }
 
 /** Run one operation against a scope and refresh its inventory on completion. */
