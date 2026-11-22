@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useRef, useState, type CSSProperties } from "react";
 
 import {
   Tooltip,
@@ -64,7 +64,13 @@ const color = (category: ActivityCategory) =>
  * blocks grouped by what those laps were made of. Hover, focus or tap for the
  * breakdown.
  */
-export function FillCount({ fills }: { fills: DefragFill[] }): JSX.Element {
+export function FillCount({
+  fills,
+  glow,
+}: {
+  fills: DefragFill[];
+  glow?: boolean;
+}): JSX.Element {
   const [open, setOpen] = useState(false);
   const openAtPress = useRef(false);
   const mix = fillMix(fills);
@@ -95,7 +101,7 @@ export function FillCount({ fills }: { fills: DefragFill[] }): JSX.Element {
             tabIndex={0}
             aria-label={label}
             data-testid="chat-response-fill-count"
-            className="inline-flex items-center gap-1.5 rounded-sm border border-border/60 px-1 py-px text-[10px] leading-4 text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring cursor-default select-none"
+            className="inline-flex items-center gap-1.5 rounded-sm border border-border/60 px-1 py-px text-[9px] leading-3 text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring cursor-default select-none"
           >
             <span className="tabular-nums">×{fills.length}</span>
             <span aria-hidden="true" className="flex shrink-0 gap-px">
@@ -103,21 +109,41 @@ export function FillCount({ fills }: { fills: DefragFill[] }): JSX.Element {
                 <span
                   key={i}
                   data-category={category}
+                  data-neon-swatch={glow ? "" : undefined}
                   className="block h-[5px] w-1 rounded-[1px]"
-                  style={{ background: color(category) }}
+                  style={
+                    {
+                      background: color(category),
+                      "--neon-color": glow
+                        ? ACTIVITY_COLORS[category]
+                        : undefined,
+                    } as CSSProperties
+                  }
                 />
               ))}
             </span>
           </span>
         </TooltipTrigger>
-        <TooltipContent side="top" className="min-w-40">
+        <TooltipContent
+          side="top"
+          className="min-w-40"
+          data-glow={glow ? "halo-soft" : undefined}
+        >
           <div className="space-y-1 text-[11px]">
             <div className="font-medium">{times}</div>
             {mix.slice(0, 5).map((share) => (
               <div key={share.category} className="flex items-center gap-1.5">
                 <span
+                  data-neon-swatch={glow ? "" : undefined}
                   className="h-2 w-2 rounded-[1.5px]"
-                  style={{ background: color(share.category) }}
+                  style={
+                    {
+                      background: color(share.category),
+                      "--neon-color": glow
+                        ? ACTIVITY_COLORS[share.category]
+                        : undefined,
+                    } as CSSProperties
+                  }
                 />
                 <span className="flex-1">
                   {ACTIVITY_LABELS[share.category]}

@@ -1,5 +1,8 @@
+import "./activity-glow.css";
 import {
+  useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -40,11 +43,12 @@ export const ACTIVITY_LABELS: Record<ActivityCategory, string> = {
 /** Characters of progress text per "writing" piece. */
 export const CHARS_PER_PIECE = 250;
 
-const COLS = 32;
+const MIN_COLUMNS = 32;
 const ROWS = 4;
-const SLOTS = COLS * ROWS;
-const CELL_H = 5;
-const ROW_GAP = 3;
+const DEFAULT_SLOTS = MIN_COLUMNS * ROWS;
+const CELL_GAP = 2;
+const MAX_CELL_SIZE = 6;
+const ROW_PITCH = MAX_CELL_SIZE + CELL_GAP;
 
 /** Small seeded PRNG: random per turn, stable while that turn runs. */
 function rng(seed: number): () => number {
@@ -121,9 +125,11 @@ function weighted(r: () => number): ActivityCategory {
 export function defragCells(
   seed: string,
   categories: ActivityCategory[],
-  repackAt: ReadonlySet<number> = new Set()
+  repackAt: ReadonlySet<number> = new Set(),
+  slots = DEFAULT_SLOTS,
+  previousFills: DefragFill[] = []
 ): DefragCell[] {
-  return defragHistory(seed, categories, repackAt).cells;
+  return defragHistory(seed, categories, repackAt, slots, previousFills).cells;
 }
 
 /** One time the grid filled up and scattered for a new pass. */
@@ -136,26 +142,31 @@ export type DefragFill = {
 export function defragHistory(
   seed: string,
   categories: ActivityCategory[],
-  repackAt: ReadonlySet<number> = new Set()
+  repackAt: ReadonlySet<number> = new Set(),
+  slots = DEFAULT_SLOTS,
+  previousFills: DefragFill[] = []
 ): { cells: DefragCell[]; fills: DefragFill[] } {
   const fills: DefragFill[] = [];
   const r = rng(seedOf(seed));
-  const count = Math.round(SLOTS * (0.62 + r() * 0.14));
+  const count = Math.round(slots * (0.62 + r() * 0.14));
+  const previousMix = previousFills.at(-1)?.categories;
   const cells: DefragCell[] = Array.from({ length: count }, (_, id) => ({
     id,
     slot: 0,
-    rest: weighted(r),
+    rest:
+      previousMix?.[Math.floor((id * previousMix.length) / count)] ??
+      weighted(r),
   }));
-  let pass = -1;
+  let pass = previousFills.length - 1;
   let pr = rng(0);
   let unsorted = new Set<number>();
   let bySlot = new Map<number, DefragCell>();
   let run: DefragCell[] = [];
   const beginPass = (scatter: boolean) => {
     pr = rng(seedOf(`${seed}:${++pass}`));
-    const slots = shuffle([...Array(SLOTS).keys()], pr);
+    const positions = shuffle([...Array(slots).keys()], pr);
     for (const cell of cells) {
-      if (scatter) cell.slot = slots[cell.id]!;
+      if (scatter) cell.slot = positions[cell.id]!;
       if (cell.category) cell.rest = cell.category;
       cell.step = undefined;
       cell.category = undefined;
@@ -237,28 +248,25 @@ export function sequenceCategories(
   return out;
 }
 
-/**
- * A slot's offset in the grid. The column is a fraction of the grid's width
- * (`cqw`), not a percentage of the cell's own box: WebKit resolves a
- * percentage translate against the cell's pixel-snapped width, so a move's
- * animated end and its resting position disagreed by a pixel or more and the
- * block snapped sideways as it landed. `cqw` is an absolute length once
- * computed, so every frame and the resting place use the same number.
- */
-export function place(slot: number): string {
-  return `translate(calc(${slot % COLS} * 100cqw / ${COLS}), ${Math.floor(slot / COLS) * (CELL_H + ROW_GAP)}px)`;
+/** Measure columns against the grid width and keep row spacing independent. */
+function place(slot: number, columns: number): string {
+  const x = slot % columns;
+  const y = Math.floor(slot / columns);
+  return `translate(calc(${x} * 100cqw / ${columns}), ${y * ROW_PITCH}px)`;
 }
 const tint = (color: string, alpha: number) =>
   `color-mix(in srgb, ${color} ${alpha}%, transparent)`;
-const HEIGHT = ROWS * CELL_H + (ROWS - 1) * ROW_GAP;
 
-// A tiled mask draws all 128 rounded slots in a single paint layer.
-const slotMask = `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100%25' height='100%25'%3E%3Crect style='width:calc(100%25 - 2px)' height='${CELL_H}' rx='1.5'/%3E%3C/svg%3E")`;
-const slotStyle: CSSProperties = {
-  maskImage: slotMask,
-  maskSize: `${100 / COLS}% ${CELL_H + ROW_GAP}px`,
-  maskRepeat: "repeat",
-};
+// Center each empty square in its column, just like the moving cells.
+const slotSize = `clamp(0px, calc(100vw - ${CELL_GAP}px), ${MAX_CELL_SIZE}px)`;
+const slotMask = `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100%25' height='100%25'%3E%3Crect style='x:calc((100%25 - ${slotSize}) / 2);width:${slotSize};height:${slotSize}' rx='1.5'/%3E%3C/svg%3E")`;
+function slotStyle(columns: number): CSSProperties {
+  return {
+    maskImage: slotMask,
+    maskSize: `${100 / columns}% ${ROW_PITCH}px`,
+    maskRepeat: "repeat",
+  };
+}
 
 /**
  * The response placeholder while a turn runs with progress text off: a
@@ -388,51 +396,124 @@ export function ResponsePlaceholder({
   const categoryKey = pieces
     .map((piece) => `${piece.compaction ? "compact:" : ""}${piece.category}`)
     .join(",");
-  const { cells, fills } = useMemo(() => {
-    const modes = categoryKey ? categoryKey.split(",") : [];
-    const starts = new Set(
-      modes.flatMap((mode, i) =>
-        mode.startsWith("compact:") && !modes[i - 1]?.startsWith("compact:")
-          ? [i]
-          : []
-      )
-    );
-    return defragHistory(
-      seed,
-      modes.map((mode) => mode.replace("compact:", "") as ActivityCategory),
-      starts
-    );
-  }, [seed, categoryKey]);
-  const reducedCells = useMemo(
-    () =>
-      compactionId
-        ? defragCells(
-            seed,
-            Array.from({ length: defragCells(seed, []).length }, () => "checks")
-          )
-        : undefined,
-    [seed, compactionId]
+  const modes = useMemo(
+    () => (categoryKey ? categoryKey.split(",") : []),
+    [categoryKey]
+  );
+  const reducedLayout = useMemo(() => {
+    const cache = new Map<number, DefragCell[]>();
+    return (slots: number, count: number) => {
+      let cells = cache.get(slots);
+      if (!cells) {
+        cells = defragCells(
+          seed,
+          Array(count).fill("checks"),
+          undefined,
+          slots
+        );
+        cache.set(slots, cells);
+      }
+      return cells;
+    };
+  }, [seed]);
+  const buildLayout = useCallback(
+    (slots: number, previous: FillHistory) => {
+      const count = Math.round(slots * (0.62 + rng(seedOf(seed))() * 0.14));
+      const history = advanceFillHistory(previous, modes, count);
+      // A narrower grid can show only the tail of an unfinished pass.
+      const offset = Math.max(history.passStart, modes.length - count);
+      const active = modes.slice(offset);
+      const starts = new Set(
+        active.flatMap((mode, i) =>
+          mode.startsWith("compact:") &&
+          !modes[offset + i - 1]?.startsWith("compact:")
+            ? [i]
+            : []
+        )
+      );
+      const cells = defragCells(
+        seed,
+        active.map((mode) => mode.replace("compact:", "") as ActivityCategory),
+        starts,
+        slots,
+        history.fills
+      );
+      for (const cell of cells)
+        if (cell.step !== undefined) cell.step += offset;
+      return {
+        cells,
+        fills: history.fills,
+        history,
+        reducedCells: compactionId ? reducedLayout(slots, count) : undefined,
+      };
+    },
+    [seed, modes, compactionId, reducedLayout]
   );
   const sum = useActivitySum(steps);
   return (
     <ResponsePlaceholderVisual
-      cells={cells}
+      buildLayout={buildLayout}
       quiet={quiet}
-      fills={fills}
       pieces={pieces}
       arrivalKeys={arrivalKeys}
       textLength={textLength}
       summary={sum}
       reserveSummary={reserveSummary}
-      reducedCells={reducedCells}
       statusLabel={compactionId ? "Compacting context" : "Preparing response"}
     />
   );
 }
 
-/** Shared presentation: the lab varies events, never the chat's frame or palette. */
+type FillHistory = {
+  processed: number;
+  passStart: number;
+  runStart: number;
+  fills: DefragFill[];
+};
+const INITIAL_HISTORY: FillHistory = {
+  processed: 0,
+  passStart: 0,
+  runStart: 0,
+  fills: [],
+};
+
+function advanceFillHistory(
+  previous: FillHistory,
+  modes: string[],
+  count: number
+): FillHistory {
+  if (previous.processed === modes.length) return previous;
+  let { runStart, passStart, fills } = previous;
+  for (let i = previous.processed; i < modes.length; i++) {
+    if (
+      modes[i]!.startsWith("compact:") &&
+      !modes[i - 1]?.startsWith("compact:")
+    ) {
+      runStart = i;
+    } else if (i - runStart >= count) {
+      const categories = modes
+        .slice(runStart, i)
+        .map((mode) => mode.replace("compact:", "") as ActivityCategory);
+      fills = [...fills, { categories }];
+      passStart = runStart = i;
+    }
+  }
+  return { processed: modes.length, passStart, runStart, fills };
+}
+
+type DefragLayout = {
+  cells: DefragCell[];
+  history?: FillHistory;
+  fills?: DefragFill[];
+  reducedCells?: DefragCell[];
+};
+const EMPTY_LAYOUT: DefragLayout = { cells: [] };
+const EMPTY_FILLS: DefragFill[] = [];
+
+/** Shared presentation for live turns and the Design Studio. */
 export function ResponsePlaceholderVisual({
-  cells,
+  cells: suppliedCells,
+  buildLayout,
   quiet = false,
   pieces,
   arrivalKeys,
@@ -440,14 +521,15 @@ export function ResponsePlaceholderVisual({
   onShowProgress,
   summary,
   reserveSummary = false,
-  reducedCells,
+  reducedCells: suppliedReducedCells,
   statusLabel = "Preparing response",
-  fills = [],
+  fills: suppliedFills,
 }: {
   /** What the turn has done so far, in place of the progress link. */
   summary?: string;
   reserveSummary?: boolean;
-  cells: DefragCell[];
+  cells?: DefragCell[];
+  buildLayout?: (slots: number, previous: FillHistory) => DefragLayout;
   quiet?: boolean;
   pieces: ResponsePiece[];
   arrivalKeys?: ReadonlySet<string>;
@@ -458,12 +540,72 @@ export function ResponsePlaceholderVisual({
   /** Earlier passes that filled the grid and scattered it again. */
   fills?: DefragFill[];
 }): JSX.Element {
-  const newest = pieces.length - 1;
   const gridRef = useRef<HTMLDivElement>(null);
+  const usesMeasuredCapacity = buildLayout !== undefined;
+  const [measuredColumns, setMeasuredColumns] = useState<number | null>(null);
+  const columns = usesMeasuredCapacity
+    ? (measuredColumns ?? MIN_COLUMNS)
+    : MIN_COLUMNS;
+  const [animatedColumns, setAnimatedColumns] = useState(MIN_COLUMNS);
+  const reflowing = columns !== animatedColumns;
+  useEffect(() => {
+    if (!reflowing) return;
+    // Paint the new slot positions with no transition before turning motion back on.
+    let restoredFrame = 0;
+    const reflowFrame = requestAnimationFrame(() => {
+      restoredFrame = requestAnimationFrame(() => setAnimatedColumns(columns));
+    });
+    return () => {
+      cancelAnimationFrame(reflowFrame);
+      cancelAnimationFrame(restoredFrame);
+    };
+  }, [columns, reflowing]);
+  const [history, setHistory] = useChatRowState(
+    "defrag-fills",
+    INITIAL_HISTORY
+  );
+  const layout = useMemo(
+    () => buildLayout?.(columns * ROWS, history) ?? EMPTY_LAYOUT,
+    [buildLayout, columns, history]
+  );
+  useLayoutEffect(() => {
+    if (
+      measuredColumns !== null &&
+      layout.history &&
+      layout.history !== history
+    )
+      setHistory(layout.history);
+  }, [measuredColumns, layout.history, history, setHistory]);
+  const newest = pieces.length - 1;
+  const cells = suppliedCells ?? layout.cells;
+  const fills = suppliedFills ?? layout.fills ?? EMPTY_FILLS;
+  const reducedCells = suppliedReducedCells ?? layout.reducedCells;
+  const hasFooter = Boolean(
+    (onShowProgress && textLength > 0) ||
+    summary ||
+    reserveSummary ||
+    fills.length > 0
+  );
+  const cellSize = `clamp(0px, calc(100cqw / ${columns} - ${CELL_GAP}px), ${MAX_CELL_SIZE}px)`;
+  useLayoutEffect(() => {
+    const grid = gridRef.current;
+    if (!usesMeasuredCapacity || !grid) return;
+    const updateColumns = (width: number) => {
+      setMeasuredColumns(Math.max(MIN_COLUMNS, Math.floor(width / ROW_PITCH)));
+    };
+    // Measure before the first paint, before committing the first fill history.
+    updateColumns(grid.getBoundingClientRect().width);
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(([entry]) => {
+      if (entry) updateColumns(entry.contentRect.width);
+    });
+    observer.observe(grid);
+    return () => observer.disconnect();
+  }, [usesMeasuredCapacity]);
   const [label, setLabel] = useState<string | null>(null);
   // A pass can move the group away from a stationary mouse or touch point.
   // Dismiss before the new layout travels rather than keeping a stale anchor.
-  useEffect(() => setLabel(null), [cells, reducedCells]);
+  useEffect(() => setLabel(null), [cells, reducedCells, columns]);
   useEffect(() => {
     if (!label) return;
     const dismiss = (event: PointerEvent) => {
@@ -493,8 +635,8 @@ export function ResponsePlaceholderVisual({
       ({ rect }) =>
         event.clientX >= rect.left &&
         event.clientX < rect.right &&
-        event.clientY >= rect.top - ROW_GAP / 2 &&
-        event.clientY < rect.bottom + ROW_GAP / 2
+        event.clientY >= rect.top - CELL_GAP / 2 &&
+        event.clientY < rect.bottom + CELL_GAP / 2
     );
     if (!hit) return null;
     const category = reduced
@@ -521,8 +663,9 @@ export function ResponsePlaceholderVisual({
 
   return (
     <div
+      data-glow="halo-soft"
       data-testid="chat-response-placeholder"
-      className={`dispatch-placeholder ${quiet ? "" : "dispatch-placeholder-chase"} relative mt-3 w-full max-w-md rounded-lg border border-border/60 bg-muted/10 px-4 py-3.5 ${reducedCells ? "dispatch-defrag-reduced" : ""}`}
+      className={`dispatch-placeholder ${quiet ? "" : "dispatch-placeholder-chase"} relative mt-3 w-full rounded-lg md:max-w-md border border-border/60 bg-muted/10 overflow-clip px-2.5 pt-2 ${hasFooter ? "pb-1" : "pb-2"} ${reducedCells ? "dispatch-defrag-reduced" : ""}`}
     >
       {/* The status region holds only the picture; the peek control sits
           beside it, so its changing count is never announced. */}
@@ -549,7 +692,10 @@ export function ResponsePlaceholderVisual({
             aria-label={statusLabel}
             className="relative w-full"
             // The container `place()` measures columns against.
-            style={{ height: HEIGHT, containerType: "inline-size" }}
+            style={{
+              height: ROWS * ROW_PITCH,
+              containerType: "inline-size",
+            }}
           >
             <TooltipTrigger asChild>
               <span
@@ -559,18 +705,25 @@ export function ResponsePlaceholderVisual({
                   left: anchor.left,
                   top: anchor.top,
                   width: anchor.width,
-                  height: CELL_H,
+                  height: cellSize,
                 }}
               />
             </TooltipTrigger>
             <div aria-hidden="true" className="absolute inset-0">
-              <div className="absolute inset-0 bg-muted/40" style={slotStyle} />
+              <div
+                className="absolute inset-0 bg-muted/40"
+                style={slotStyle(columns)}
+              />
               <div className="dispatch-placeholder-colors absolute inset-0">
                 {!quiet &&
                   cells.map((c) => {
                     const latest = c.step === newest;
                     const piece =
                       c.step === undefined ? undefined : pieces[c.step];
+                    const packed = reducedCells?.[c.id];
+                    const packedColor = packed
+                      ? ACTIVITY_COLORS[packed.category ?? packed.rest]
+                      : undefined;
                     return (
                       <span
                         key={c.id}
@@ -582,40 +735,48 @@ export function ResponsePlaceholderVisual({
                         }
                         data-category={c.category}
                         data-compaction={piece?.compaction || undefined}
-                        className="absolute left-0 top-0 pr-[2px] transition-transform duration-[900ms] ease-in-out motion-reduce:transition-none"
+                        className={cn(
+                          "absolute left-0 top-0",
+                          reflowing
+                            ? "transition-none"
+                            : "transition-transform duration-[900ms] ease-in-out motion-reduce:transition-none"
+                        )}
                         style={
                           {
-                            width: `${100 / COLS}%`,
-                            height: CELL_H,
-                            transform: place(c.slot),
+                            "--neon-color": c.category
+                              ? ACTIVITY_COLORS[c.category]
+                              : undefined,
+                            width: `${100 / columns}%`,
+                            height: MAX_CELL_SIZE,
+                            transform: place(c.slot, columns),
                             // The newest block lights where it is first, then travels.
                             transitionDelay: latest ? "450ms" : "0ms",
                             zIndex: latest ? 2 : 1,
-                            "--defrag-packed-transform": reducedCells
-                              ? place(reducedCells[c.id]!.slot)
+                            "--defrag-packed-transform": packed
+                              ? place(packed.slot, columns)
                               : undefined,
-                            "--defrag-packed-color": reducedCells
-                              ? tint(
-                                  ACTIVITY_COLORS[
-                                    reducedCells[c.id]!.category ??
-                                      reducedCells[c.id]!.rest
-                                  ],
-                                  75
-                                )
+                            "--defrag-packed-color": packedColor
+                              ? tint(packedColor, 75)
                               : undefined,
+                            "--defrag-packed-tone": packedColor,
                           } as CSSProperties
                         }
                       >
                         <span
                           key={c.step ?? "rest"}
-                          className={`block h-full rounded-[1.5px] transition-[background-color] duration-500 motion-reduce:transition-none ${piece && arrivalKeys?.has(piece.key) ? "dispatch-defrag-ack" : ""}`}
+                          data-neon-swatch={
+                            c.category || packed ? "" : undefined
+                          }
+                          className={`mx-auto block rounded-[1.5px] transition-[background-color] duration-500 motion-reduce:transition-none ${piece && arrivalKeys?.has(piece.key) ? "dispatch-defrag-ack" : ""}`}
                           style={{
+                            width: cellSize,
+                            height: cellSize,
                             background: c.category
                               ? tint(
                                   ACTIVITY_COLORS[c.category],
                                   latest ? 100 : 75
                                 )
-                              : `color-mix(in hsl, ${ACTIVITY_COLORS[c.rest]} 22%, hsl(var(--muted)))`,
+                              : tint(ACTIVITY_COLORS[c.rest], 10),
                           }}
                         />
                       </span>
@@ -627,29 +788,31 @@ export function ResponsePlaceholderVisual({
           {label && (
             <TooltipContent
               side="top"
-              style={{
-                color: anchor.color,
-                borderColor: tint(anchor.color, 45),
-                background: `color-mix(in srgb, ${anchor.color} 12%, hsl(var(--card)))`,
-              }}
+              data-glow="halo-soft"
+              data-neon-tooltip=""
+              style={
+                {
+                  "--neon-color": anchor.color,
+                  color: anchor.color,
+                  borderColor: tint(anchor.color, 45),
+                  background: `color-mix(in srgb, ${anchor.color} 12%, hsl(var(--card)))`,
+                } as CSSProperties
+              }
             >
               {label}
             </TooltipContent>
           )}
         </Tooltip>
       </TooltipProvider>
-      {(onShowProgress && textLength > 0) ||
-      summary ||
-      reserveSummary ||
-      fills.length > 0 ? (
-        <div className="relative mt-2.5 flex min-h-[14px] items-center gap-2">
-          {fills.length > 0 && <FillCount fills={fills} />}
+      {hasFooter ? (
+        <div className="relative mt-0.5 flex min-h-4 items-center gap-2 text-[10px] leading-4">
+          {fills.length > 0 && <FillCount fills={fills} glow />}
           {summary || reserveSummary ? (
             // The line's room is held from the start, so the counts fading in
             // move nothing.
             <span
               className={cn(
-                "ml-auto min-w-0 truncate text-[11px] tabular-nums text-muted-foreground transition-opacity duration-300 motion-reduce:transition-none",
+                "ml-auto min-w-0 truncate text-[9px] tabular-nums text-muted-foreground transition-opacity duration-300 motion-reduce:transition-none",
                 !summary && "opacity-0"
               )}
               data-testid="chat-response-activity-counts"
@@ -663,7 +826,7 @@ export function ResponsePlaceholderVisual({
               onClick={onShowProgress}
               aria-label="Show progress text"
               data-testid="chat-response-show-progress"
-              className="ml-auto rounded-sm text-[11px] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              className="ml-auto rounded-sm text-muted-foreground underline-offset-2 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
             >
               Show progress · {formatChars(textLength)}
             </button>
