@@ -222,6 +222,7 @@ export type CrudToolCallbacks = {
   createTemplate: (input: {
     name: string;
     directory: string;
+    projectId?: string | null;
     description?: string | null;
     prompt?: string | null;
     agentType?: string;
@@ -240,6 +241,7 @@ export type CrudToolCallbacks = {
     input: {
       name?: string;
       directory?: string;
+      projectId?: string | null;
       description?: string | null;
       prompt?: string | null;
       agentType?: string;

@@ -521,10 +521,16 @@ describe("job access ceiling wiring", () => {
       await callbacks!.runJob("job_1");
       await callbacks!.createTemplate(input);
       await callbacks!.updateTemplate("tpl_1", input);
-      expect(deps.jobService.addJob).toHaveBeenCalledWith(input, callerAccess);
+      // Local agents: no persona scope, so the services keep their default.
+      expect(deps.jobService.addJob).toHaveBeenCalledWith(
+        input,
+        callerAccess,
+        undefined
+      );
       expect(deps.jobService.updateJob).toHaveBeenCalledWith(
         { jobId: "job_1", prompt: "updated" },
-        callerAccess
+        callerAccess,
+        undefined
       );
       expect(deps.jobService.runJob).toHaveBeenCalledWith({
         jobId: "job_1",
@@ -533,12 +539,14 @@ describe("job access ceiling wiring", () => {
       });
       expect(deps.templateService.addTemplate).toHaveBeenCalledWith(
         input,
-        callerAccess
+        callerAccess,
+        undefined
       );
       expect(deps.templateService.updateTemplate).toHaveBeenCalledWith(
         "tpl_1",
         input,
-        callerAccess
+        callerAccess,
+        undefined
       );
     }
   );

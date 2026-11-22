@@ -7,7 +7,10 @@ import { readFile } from "node:fs/promises";
 import type { FastifyBaseLogger } from "fastify";
 import type { Pool } from "pg";
 
-import { personaScopeFor } from "../personas/persona-scope.js";
+import {
+  personaScopeFor,
+  type SavedPersonaScope,
+} from "../personas/persona-scope.js";
 import { resolvePersona } from "../personas/resolve.js";
 import { Cron } from "croner";
 
@@ -618,7 +621,8 @@ export class JobService {
 
   async addJob(
     input: AddJobInput,
-    callerFullAccess?: boolean
+    callerFullAccess?: boolean,
+    personaScope: SavedPersonaScope = personaScopeFor
   ): Promise<JobRecord> {
     input = { ...input, directory: normalizeJobDirectory(input.directory) };
     if (input.agentType === "opencode") input = { ...input, fullAccess: true };
@@ -642,7 +646,7 @@ export class JobService {
     }
     if (input.persona)
       await resolvePersona(
-        personaScopeFor({ cwd: input.directory, projectRoot }),
+        personaScope({ cwd: input.directory, projectRoot }),
         input.persona,
         "task"
       );
@@ -729,7 +733,8 @@ export class JobService {
 
   async updateJob(
     input: UpdateJobInput,
-    callerFullAccess?: boolean
+    callerFullAccess?: boolean,
+    personaScope: SavedPersonaScope = personaScopeFor
   ): Promise<JobRecord> {
     const existing = await this.getJobOrThrow(input.jobId);
     if ((input.agentType ?? existing.agentType) === "opencode")
@@ -852,7 +857,7 @@ export class JobService {
         projectId !== backingTemplate?.projectId)
     )
       await resolvePersona(
-        personaScopeFor({ cwd: directory, projectRoot: projectDirectory }),
+        personaScope({ cwd: directory, projectRoot: projectDirectory }),
         persona,
         "task"
       );

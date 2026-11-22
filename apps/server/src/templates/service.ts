@@ -9,7 +9,10 @@ import type { SeedFileInput } from "../agents/file-seed.js";
 import type { AgentManager } from "../agents/manager.js";
 import type { AgentRecord } from "../agents/types.js";
 import type { AgentType } from "../agent-type-settings.js";
-import { personaScopeFor } from "../personas/persona-scope.js";
+import {
+  personaScopeFor,
+  type SavedPersonaScope,
+} from "../personas/persona-scope.js";
 import { resolvePersona } from "../personas/resolve.js";
 import { sanitizeAgentName } from "../shared/lib/agent-strings.js";
 import { renderTemplatePrompt } from "./launch-prompt.js";
@@ -73,7 +76,8 @@ export class TemplateService {
 
   async addTemplate(
     input: AddTemplateInput,
-    callerFullAccess?: boolean
+    callerFullAccess?: boolean,
+    personaScope: SavedPersonaScope = personaScopeFor
   ): Promise<TemplateRecord> {
     if (input.agentType === "opencode") input = { ...input, fullAccess: true };
     assertAccessCeiling(input.fullAccess ?? false, callerFullAccess);
@@ -87,7 +91,7 @@ export class TemplateService {
     }
     if (input.persona)
       await resolvePersona(
-        personaScopeFor({ cwd: input.directory, projectRoot }),
+        personaScope({ cwd: input.directory, projectRoot }),
         input.persona,
         "task"
       );
@@ -142,7 +146,8 @@ export class TemplateService {
   async updateTemplate(
     id: string,
     input: Partial<AddTemplateInput>,
-    callerFullAccess?: boolean
+    callerFullAccess?: boolean,
+    personaScope: SavedPersonaScope = personaScopeFor
   ): Promise<TemplateRecord> {
     const existing = await this.store.getTemplate(id);
     if (!existing) throw new Error(`Template "${id}" not found.`);
@@ -172,7 +177,7 @@ export class TemplateService {
           input.directory !== existing.directory))
     )
       await resolvePersona(
-        personaScopeFor({
+        personaScope({
           cwd: input.directory ?? existing.directory,
           projectRoot,
         }),

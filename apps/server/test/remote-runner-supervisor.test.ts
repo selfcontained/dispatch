@@ -1008,7 +1008,8 @@ describe("runner session supervision", () => {
       }
       expect(addTemplate).toHaveBeenCalledWith(
         expect.objectContaining({ name: "first launch", fullAccess: false }),
-        false
+        false,
+        expect.any(Function)
       );
     } finally {
       if (host?.pid && host.exitCode === null && host.signalCode === null) {

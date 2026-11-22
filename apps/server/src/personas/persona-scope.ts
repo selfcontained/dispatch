@@ -12,6 +12,12 @@ export type PersonaScope =
   | { kind: "project"; repoRoot: string }
   | { kind: "builtins" };
 
+/** Chooses where a persona saved on a job or template is resolved. */
+export type SavedPersonaScope = (target: {
+  cwd: string;
+  projectRoot?: string;
+}) => PersonaScope;
+
 export function personaScopeFor(
   target:
     | SessionCheckout
