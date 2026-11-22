@@ -140,6 +140,12 @@ export type RunnerSummary = {
 
 export class RunnerCapabilityUnavailable extends Error {}
 
+/**
+ * A resume opened another session and its host was stopped. The host saved
+ * that session, so launching again would be refused the same way.
+ */
+export class RunnerResumeRefused extends Error {}
+
 export class RunnerRevoked extends RunnerUnavailable {
   static readonly reason =
     "The runner registration was revoked. Dispatch no longer has access to this session.";

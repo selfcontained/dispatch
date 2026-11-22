@@ -120,6 +120,7 @@ import {
 } from "./remote/protocol.js";
 import { parseRepository } from "./remote/repository.js";
 import {
+  RunnerResumeRefused,
   RunnerRevoked,
   RunnerUnavailable,
   RunnerUpdateFenced,
@@ -3530,7 +3531,24 @@ export class AgentManager {
         this.runtime.reattachRunnerHost?.(id);
         if (!(await this.runtime.attach(id)))
           throw new Error("The runner host has not reattached.");
-        return true;
+        const session = this.runtime.runnerHostSession?.(id);
+        if (!session)
+          throw new Error("The runner host has not reported its session.");
+        const claimed =
+          entry.sessionId ?? (await this.getRequiredAgent(id)).cliSessionId;
+        if (session === claimed) return true;
+        // Alive is not resumed: a refused resume's host can outlive its stop.
+        try {
+          await this.runnerForce.stop(runnerId, id);
+        } catch (err) {
+          this.logger.warn(
+            { err, agentId: id, runnerId },
+            "could not stop a host that resumed another session"
+          );
+        }
+        await this.failRunnerResume(id);
+        this.runtime.disownRunnerHost?.(id);
+        return dropped();
       }
       if (!unchanged || this.stoppingOrArchiving.has(id)) return dropped();
       if (entry.launching && entry.sessionId !== undefined) {
@@ -3543,10 +3561,17 @@ export class AgentManager {
       }
       await beforeLaunch?.();
       if (!(await this.runnerResumeWanted(runnerId, entry))) return dropped();
-      await this.startAgentClaimed(id, attemptId, {
-        drain: true,
-        mayStart: () => !this.stoppingOrArchiving.has(id),
-      });
+      try {
+        await this.startAgentClaimed(id, attemptId, {
+          drain: true,
+          mayStart: () => !this.stoppingOrArchiving.has(id),
+        });
+      } catch (error) {
+        if (!(error instanceof RunnerResumeRefused)) throw error;
+        await this.failRunnerResume(id);
+        this.runtime.disownRunnerHost?.(id);
+        return dropped();
+      }
       release();
       return true;
     });
@@ -3579,18 +3604,22 @@ export class AgentManager {
     if (!(await this.runnerResumeWanted(runnerId, entry))) return true;
     if ((await this.runtime.runnerHostAlive?.(runnerId, id)) !== false)
       return false;
+    if (await this.runnerResumeWanted(runnerId, entry))
+      await this.failRunnerResume(id);
+    return true;
+  }
+
+  private async failRunnerResume(id: string) {
     if (
-      (await this.runnerResumeWanted(runnerId, entry)) &&
-      (await this.setAgentStatus(
+      await this.setAgentStatus(
         id,
         "error",
         RUNNER_RESUME_FAILED,
         undefined,
         "running"
-      ))
+      )
     )
       await this.emitAttention(id, "blocked", RUNNER_RESUME_FAILED);
-    return true;
   }
 
   private async recycleRunnerHost(

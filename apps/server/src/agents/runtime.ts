@@ -102,6 +102,10 @@ export type AgentRuntime = {
   /** The host is still there after all: attach to it, keeping its queue. */
   reattachRunnerHost?(agentId: string): void;
   releaseRunnerHost?(agentId: string): void;
+  /** The session the attached host runs; undefined while it cannot say. */
+  runnerHostSession?(agentId: string): string | undefined;
+  /** This host is not the agent's session: let go, delivering nothing to it. */
+  disownRunnerHost?(agentId: string): void;
   releaseRunnerHosts?(runnerId: string): void;
   /** The open turn, once everything received before the call is recorded. */
   runnerTurn?(agentId: string): Promise<{ open: boolean; seq?: number } | null>;

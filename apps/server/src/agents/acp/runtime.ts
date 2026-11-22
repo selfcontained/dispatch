@@ -41,6 +41,7 @@ import type {
   SteeringOutcome,
 } from "../steering.js";
 import {
+  RunnerResumeRefused,
   RunnerUnavailable,
   RunnerRevoked,
   RunnerHostGone,
@@ -1362,6 +1363,26 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
       if (hold?.forced) releaseHold(agentId, hold);
     },
 
+    runnerHostSession(agentId) {
+      const welcome = live.get(agentId)?.client.welcome;
+      return welcome?.running ? welcome.sessionId : undefined;
+    },
+
+    disownRunnerHost(agentId) {
+      const entry = live.get(agentId);
+      if (entry) {
+        live.delete(agentId);
+        entry.client.close();
+        failWaiting(
+          entry,
+          new Error("The agent host is unavailable before delivery.")
+        );
+      }
+      // With no host to pass it to, releasing fails what the hold kept.
+      const hold = recycleHolds.get(agentId);
+      if (hold) releaseHold(agentId, hold);
+    },
+
     releaseRunnerHosts(runnerId) {
       for (const [agentId, hold] of recycleHolds)
         if (hold.forced && hold.entry.runner === runnerId)
@@ -1529,9 +1550,12 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
               force: false,
             });
           } else await runtime.stop(input.agentId, false);
-          throw new Error(
-            "The replacement host could not resume the existing session."
-          );
+          const refused =
+            "The replacement host could not resume the existing session.";
+          // The same ID can still resume on another launch. A new one can't.
+          throw welcome.sessionId === input.resumeSessionId
+            ? new Error(refused)
+            : new RunnerResumeRefused(refused);
         }
         if (requireResume && recycle?.forced) recycle.restarting = false;
         return { sessionId: welcome.sessionId, resumed: welcome.resumed };

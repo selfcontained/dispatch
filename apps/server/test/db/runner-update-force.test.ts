@@ -535,15 +535,73 @@ describe("failure after interruption", () => {
       busy.resumeFails = !reportedResumed;
       busy.sessionId = "sess_new";
       world.swap();
-      await world.until(() => world.entry(busy.id)?.failedAt);
-      expect(busy.alive).toBe(false);
-      expect(await row()).toBe(sessionId);
-      expect(world.entry(busy.id)?.sessionId).toBe(sessionId);
-      world.advance(UPDATE_TIMING.resumeRetryMs);
+      // At once: the host saved the new session, so a retry can't succeed.
       await finished();
+      expect(busy.alive).toBe(false);
+      expect(busy.launches).toHaveLength(2);
       expect(await statusOf(busy.id)).toBe("error");
       expect(await row()).toBe(sessionId);
       expect(busy.prompts).toEqual([]);
+    }
+  );
+
+  it.each([
+    ["cannot be stopped", false, false],
+    ["cannot be stopped, across a controller restart", false, true],
+    ["can be stopped by then", true, false],
+  ] as const)(
+    "fails a refused resume whose host came back on another session and %s",
+    async (_case, stoppable, restarted) => {
+      const busy = await world.agent();
+      const { sessionId } = busy;
+      await world.working(busy);
+      await force();
+      await world.activated();
+      const queued = world.prompt(busy, "held for the old session");
+      let delivered = false;
+      void queued.accepted.then(
+        () => (delivered = true),
+        () => {}
+      );
+      busy.resumeFails = true;
+      busy.sessionId = "sess_new";
+      busy.stopFails = true;
+      // Act between the refused pass and the next.
+      world.saved.afterWrite = () => {
+        if (!world.entry(busy.id)?.failedAt) return;
+        world.saved.afterWrite = undefined;
+        expect(busy.alive).toBe(true);
+        busy.stopFails = !stoppable;
+        if (restarted) world.crash();
+      };
+      world.swap();
+      await world.until(() => !world.saved.afterWrite);
+      const stops = busy.stops;
+      if (restarted) await world.restart();
+      await finished();
+
+      expect(continuations(busy)).toEqual([]);
+      expect(busy.stops).toBeGreaterThan(stops);
+      expect(busy.alive).toBe(!stoppable);
+      const { rows } = await pool.query(
+        "SELECT status, last_error, cli_session_id FROM agents WHERE id = $1",
+        [busy.id]
+      );
+      expect(rows[0]).toEqual({
+        status: "error",
+        last_error:
+          "Dispatch couldn't resume this agent after the runner update. Start it to continue.",
+        cli_session_id: sessionId,
+      });
+      expect(busy.launches).toHaveLength(2);
+      // Nothing reaches the other session, now or once the hold has opened.
+      expect(world.holds.isHeld(RUNNER)).toBe(false);
+      await world.manager.reconcileAgentStatuses();
+      expect(await statusOf(busy.id)).toBe("error");
+      expect(busy.prompts).toEqual([]);
+      expect(delivered).toBe(false);
+      const { runtime } = world.manager as any;
+      expect(runtime.runnerHostSession(busy.id)).toBeUndefined();
     }
   );
 });
