@@ -47,6 +47,13 @@ export function AgentModelSettings({
       </Alert>
     );
 
+  const shownOn = allOptions.filter((model) =>
+    autoSave.value(
+      MODEL + model.id,
+      options.some((option) => option.id === model.id)
+    )
+  ).length;
+
   return (
     <div data-testid={`agent-models-${agentType}`}>
       <SettingRow
@@ -79,7 +86,9 @@ export function AgentModelSettings({
               key,
               options.some((option) => option.id === model.id)
             );
-            const last = on && options.length === 1;
+            // What is on screen, not the cache: a queued save hasn't reached
+            // the cache yet, and the server refuses turning off the last one.
+            const last = on && shownOn === 1;
             const status = autoSave.status(key);
             return (
               <li key={model.id}>
