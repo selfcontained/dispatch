@@ -5,6 +5,7 @@ import { activityCategory, type ActivityCategory } from "./activity-category";
 import {
   blendWrites,
   defragCells,
+  defragHistory,
   sequenceCategories,
 } from "./response-placeholder";
 
@@ -78,6 +79,23 @@ describe("defragCells", () => {
   it("never puts two blocks in one slot", () => {
     const cells = defragCells("blk_2", cats(40));
     expect(new Set(cells.map((c) => c.slot)).size).toBe(cells.length);
+  });
+
+  it("uses the wider four-row grid before starting a new fill", () => {
+    const seed = "responsive-grid";
+    const narrow = defragCells(seed, [], undefined, 128);
+    const wide = defragCells(seed, [], undefined, 212);
+    expect(wide.length).toBeGreaterThan(narrow.length);
+    expect(wide.some((cell) => cell.slot >= 159)).toBe(true);
+    expect(
+      defragHistory(seed, cats(narrow.length + 1), undefined, 212).fills
+    ).toHaveLength(0);
+    const next = defragHistory(seed, cats(wide.length + 1), undefined, 212);
+    expect(next.fills).toHaveLength(1);
+    expect(next.fills[0]?.categories).toHaveLength(wide.length);
+    expect(next.cells.filter((cell) => cell.step !== undefined)).toHaveLength(
+      1
+    );
   });
 
   it("differs from turn to turn but holds still within one", () => {

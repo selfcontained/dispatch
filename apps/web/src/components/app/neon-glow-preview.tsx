@@ -105,17 +105,15 @@ export function NeonGlowPreview() {
                 category: categories[i % categories.length]!,
                 label: `Activity ${i + 1}`,
               }));
-              const { cells, fills } = defragHistory(
-                seed,
-                pieces.map((piece) => piece.category)
-              );
+              const activity = pieces.map((piece) => piece.category);
               return (
                 <div key={label} className="min-w-0">
                   <h4 className="text-xs text-muted-foreground">{label}</h4>
                   <ResponsePlaceholderVisual
                     glow={glow}
-                    cells={cells}
-                    fills={fills}
+                    buildLayout={(slots) =>
+                      defragHistory(seed, activity, undefined, slots)
+                    }
                     pieces={pieces}
                     arrivalKeys={
                       tick ? new Set([pieces.at(-1)!.key]) : undefined
