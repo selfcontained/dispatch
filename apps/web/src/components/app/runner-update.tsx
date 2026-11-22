@@ -208,16 +208,18 @@ export function RunnerUpdateStatus({ runner }: { runner: Runner }) {
     const count = attempt.agents ?? 0;
     const agents = `${count} ${count === 1 ? "agent" : "agents"}`;
     detail =
-      attempt.phase === "draining"
-        ? `Waiting on ${agents}`
-        : attempt.phase === "interrupting"
-          ? // Not counted until Dispatch has looked at the runner's hosts.
-            attempt.agents
-            ? `Interrupting ${agents}`
-            : "Interrupting agents…"
-          : attempt.phase === "resuming"
-            ? `Resuming ${agents}`
-            : PHASES[attempt.phase];
+      runner.status === "offline"
+        ? "Waiting for the runner to reconnect…"
+        : attempt.phase === "draining"
+          ? `Waiting on ${agents}`
+          : attempt.phase === "interrupting"
+            ? // Not counted until Dispatch has looked at the runner's hosts.
+              attempt.agents
+              ? `Interrupting ${agents}`
+              : "Interrupting agents…"
+            : attempt.phase === "resuming"
+              ? `Resuming ${agents}`
+              : PHASES[attempt.phase];
   } else if (result && (failed || !available)) {
     ({ title, detail } = describeResult(result));
   } else if (available) {

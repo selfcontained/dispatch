@@ -33,10 +33,13 @@ afterEach(() => {
   vi.resetAllMocks();
 });
 
-const runner = (update?: RunnerUpdateView): Runner => ({
+const runner = (
+  update?: RunnerUpdateView,
+  status: Runner["status"] = "online"
+): Runner => ({
   id: "rnr/one",
   name: "Build machine",
-  status: "online",
+  status,
   workspaces: [],
   update,
   healthReceivedAt: "2026-01-15T08:42:17.123Z",
@@ -54,16 +57,17 @@ const runner = (update?: RunnerUpdateView): Runner => ({
 function show(update?: RunnerUpdateView, health = false) {
   const client = new QueryClient();
   const invalidate = vi.spyOn(client, "invalidateQueries");
-  const tree = (next?: RunnerUpdateView) => (
+  const tree = (next?: RunnerUpdateView, status?: Runner["status"]) => (
     <QueryClientProvider client={client}>
-      <RunnerUpdateStatus runner={runner(next)} />
-      {health && <RunnerHealthDetails runner={runner(next)} />}
+      <RunnerUpdateStatus runner={runner(next, status)} />
+      {health && <RunnerHealthDetails runner={runner(next, status)} />}
     </QueryClientProvider>
   );
   const view = render(tree(update));
   return {
     invalidate,
-    update: (next?: RunnerUpdateView) => view.rerender(tree(next)),
+    update: (next?: RunnerUpdateView, status?: Runner["status"]) =>
+      view.rerender(tree(next, status)),
   };
 }
 
@@ -90,6 +94,21 @@ it.each([
   expect(text()).toContain(progress);
   expect(text()).not.toContain("New work waits");
   expect(screen.queryByRole("button")).toBeNull();
+});
+
+it("replaces the update phase while offline and restores it on reconnect", () => {
+  const update = {
+    attempt: { id: "a", phase: "resuming", version, agents: 3 },
+  } as const;
+  const view = show(update);
+  expect(text()).toContain("Resuming 3 agents");
+  view.update(update, "offline");
+  expect(text()).toContain("Updating to 1.8.0");
+  expect(text()).toContain("Waiting for the runner to reconnect…");
+  expect(text()).not.toContain("Resuming 3 agents");
+  view.update(update, "online");
+  expect(text()).toContain("Resuming 3 agents");
+  expect(text()).not.toContain("Waiting for the runner to reconnect…");
 });
 
 it("says new work waits once, and only while, it is held", () => {
