@@ -1,30 +1,28 @@
-import { useCallback, useMemo, useRef, useState } from "react";
-import { Check, ChevronDown } from "lucide-react";
+import { useMemo } from "react";
 
+import { Field } from "@/components/ui/field";
 import {
-  Command,
-  CommandGroup,
-  CommandItem,
-  CommandList,
-} from "@/components/ui/command";
-import { Button } from "@/components/ui/button";
-import { useClickOutside } from "@/hooks/use-click-outside";
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   AGENT_TYPE_LABELS,
   type AgentType,
   sortAgentTypes,
 } from "@/lib/agent-types";
-import { cn } from "@/lib/utils";
 
 type AgentTypeSelectProps = {
   value: AgentType;
   onChange: (type: AgentType) => void;
   agentTypes: AgentType[];
-  onOpenChange?: (open: boolean) => void;
   label?: string;
   /** Override when a page can render more than one of these, so ids stay
    * unique. */
   id?: string;
+  testId?: string;
   /**
    * Engines whose CLI this machine does not have. They stay pickable (so a
    * person can see what Dispatch supports) but say what to install.
@@ -36,116 +34,60 @@ export function AgentTypeSelect({
   value,
   onChange,
   agentTypes,
-  onOpenChange,
   label = "Type",
   id = "agent-type-select",
+  testId,
   missing,
 }: AgentTypeSelectProps): JSX.Element {
   const sortedTypes = useMemo(() => sortAgentTypes(agentTypes), [agentTypes]);
-  const [open, setOpen] = useState(false);
-  const cmdRef = useRef<HTMLDivElement>(null);
-  const triggerRef = useRef<HTMLButtonElement>(null);
-
-  const updateOpen = useCallback(
-    (next: boolean) => {
-      setOpen(next);
-      onOpenChange?.(next);
-    },
-    [onOpenChange]
-  );
-
-  const closeDropdown = useCallback(() => updateOpen(false), [updateOpen]);
-  useClickOutside(cmdRef, open, closeDropdown);
 
   return (
-    <div className="relative space-y-1" ref={cmdRef}>
-      <label className="text-body-md text-muted-foreground" htmlFor={id}>
-        {label}
-      </label>
-      <Button
-        variant="field"
-        ref={triggerRef}
-        id={id}
-        type="button"
-        role="combobox"
-        tabIndex={0}
-        aria-expanded={open}
-        onClick={() => updateOpen(!open)}
-        onKeyDown={(e) => {
-          if (e.key === "ArrowDown" || e.key === "Enter" || e.key === " ") {
-            e.preventDefault();
-            if (!open) updateOpen(true);
-          }
-        }}
-        className="w-full"
-      >
-        {AGENT_TYPE_LABELS[value]}
-        <ChevronDown
-          className={cn(
-            "h-4 w-4 shrink-0 text-muted-foreground transition-transform",
-            open && "rotate-180"
-          )}
-        />
-      </Button>
-      {open ? (
-        <div className="absolute left-0 z-popover min-w-48 w-max max-w-[calc(100vw-3rem)] mt-1 rounded-md surface-overlay">
-          <Command
-            shouldFilter={false}
-            ref={(el) => {
-              if (el) requestAnimationFrame(() => el.focus());
-            }}
-            onKeyDown={(e) => {
-              if (e.key === "Escape") {
-                e.preventDefault();
-                updateOpen(false);
-                requestAnimationFrame(() => triggerRef.current?.focus());
-              }
-            }}
+    <Field
+      id={id}
+      label={label}
+      hint={
+        missing?.[value] ? (
+          <span
+            className="text-warning-ink"
+            data-testid="agent-type-missing-note"
           >
-            <CommandList>
-              <CommandGroup>
-                {sortedTypes.map((agentType) => (
-                  <CommandItem
-                    key={agentType}
-                    value={agentType}
-                    onSelect={() => {
-                      onChange(agentType);
-                      updateOpen(false);
-                      requestAnimationFrame(() => triggerRef.current?.focus());
-                    }}
-                  >
-                    <Check
-                      className={cn(
-                        "mr-2 h-3 w-3 shrink-0",
-                        agentType === value ? "opacity-100" : "opacity-0"
-                      )}
-                    />
-                    {AGENT_TYPE_LABELS[agentType]}
-                    {missing?.[agentType] ? (
-                      <span
-                        className="ml-auto pl-2 text-label-sm text-muted-foreground"
-                        data-testid="agent-type-missing"
-                      >
-                        not installed
-                      </span>
-                    ) : null}
-                  </CommandItem>
-                ))}
-              </CommandGroup>
-            </CommandList>
-          </Command>
-        </div>
-      ) : null}
-      {missing?.[value] ? (
-        <p
-          className="text-body-sm text-warning"
-          data-testid="agent-type-missing-note"
-        >
-          {missing[value]!.label} is not installed. Run{" "}
-          <code className="font-mono">{missing[value]!.install}</code> and sign
-          in.
-        </p>
-      ) : null}
-    </div>
+            {missing[value]!.label} is not installed. Run{" "}
+            <code className="font-mono">{missing[value]!.install}</code> and
+            sign in.
+          </span>
+        ) : null
+      }
+    >
+      <Select
+        value={value}
+        onValueChange={(next) => {
+          // Radix's hidden form input can echo an empty value.
+          if (next) onChange(next as AgentType);
+        }}
+      >
+        <SelectTrigger data-testid={testId}>
+          <SelectValue>{AGENT_TYPE_LABELS[value]}</SelectValue>
+        </SelectTrigger>
+        <SelectContent>
+          {sortedTypes.map((agentType) => (
+            <SelectItem
+              key={agentType}
+              value={agentType}
+              textValue={AGENT_TYPE_LABELS[agentType]}
+            >
+              {AGENT_TYPE_LABELS[agentType]}
+              {missing?.[agentType] ? (
+                <span
+                  className="ml-2 text-label-sm text-muted-foreground"
+                  data-testid="agent-type-missing"
+                >
+                  not installed
+                </span>
+              ) : null}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </Field>
   );
 }

@@ -190,7 +190,7 @@ const EXPLANATION_FAILURES: Record<string, string> = {
   provider_rate_limited: "OpenAI rate limit. Wait a minute, then retry.",
   provider_error: "OpenAI returned an error. You can retry.",
   timeout: "OpenAI did not answer in time. You can retry.",
-  network: "Could not reach OpenAI. Check the connection, then retry.",
+  network: "Couldn’t reach OpenAI. Check the connection, then retry.",
   malformed: "OpenAI returned an unusable answer. You can retry.",
   oversized: "Saved evidence is too large to explain. No request was made.",
 };
@@ -207,7 +207,7 @@ function explanationNotice(data: ExplanationReply | undefined) {
     return (
       EXPLANATION_UNAVAILABLE[data.reason ?? ""] ?? {
         title: "Explanation unavailable",
-        message: "Could not explain this assessment.",
+        message: "Couldn’t explain this assessment.",
       }
     );
   if (data?.state === "limited")
@@ -224,7 +224,7 @@ function explanationNotice(data: ExplanationReply | undefined) {
     title: "Explanation failed",
     message:
       (data?.reason && EXPLANATION_FAILURES[data.reason]) ??
-      "Could not explain this assessment. You can retry.",
+      "Couldn’t explain this assessment. You can retry.",
   };
 }
 /** Model-authored text: structure only, never images or live links. */
@@ -764,7 +764,7 @@ export function AgentPullRequests({
     <div data-testid={`agent-pr-row-${agentId}`} className="contents">
       {hasDismissError && (
         <p role="alert" className="text-body-sm text-danger">
-          Could not dismiss PR. Please try again.
+          Couldn’t dismiss the PR. Try again.
         </p>
       )}
       {prs
@@ -1047,7 +1047,7 @@ export function PullRequestRow({
             >
               {refresh.error instanceof Error
                 ? refresh.error.message
-                : "Could not refresh. Please try again."}
+                : "Couldn’t refresh. Try again."}
             </p>
           )}
           {(pr.ci || refresh) && (

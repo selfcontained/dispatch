@@ -198,7 +198,7 @@ export const UnifiedDiffView = memo(function UnifiedDiffView({
   if (!file) {
     return (
       <div className="px-4 py-3 text-body-sm text-muted-foreground">
-        Unable to parse diff
+        Couldn’t read the diff.
       </div>
     );
   }

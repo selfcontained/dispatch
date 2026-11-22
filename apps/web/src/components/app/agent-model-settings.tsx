@@ -9,6 +9,9 @@ import {
 } from "@/hooks/use-model-availability";
 import { AGENT_TYPE_LABELS, type AgentType } from "@/lib/agent-types";
 import { cn } from "@/lib/utils";
+import { Alert } from "@/components/ui/alert";
+import { LoadingSkeleton } from "@/components/ui/skeleton";
+import { SettingRow } from "@/components/ui/setting-row";
 
 /** One agent type's model filter, inside its row in Settings → Agents. */
 export function AgentModelSettings({
@@ -19,47 +22,43 @@ export function AgentModelSettings({
   const { options, allOptions, autoEnable, loading, loaded } =
     useAgentModelCatalog(agentType);
   const { mutateAsync } = useUpdateModelAvailability();
-  const [error, setError] = useState("");
+  const [error, setError] = useState<unknown>();
   const typeLabel = AGENT_TYPE_LABELS[agentType];
 
   const save = (change: ModelAvailabilityChange) => {
-    setError("");
+    setError(undefined);
     // Awaited per change: an observer only reports the latest one's failure.
-    mutateAsync(change).catch((err: Error) =>
-      setError(err.message || "Couldn’t save. Try again.")
-    );
+    mutateAsync(change).catch(setError);
   };
 
   if (!loaded)
-    return (
-      <p
-        role={loading ? "status" : "alert"}
-        className={cn(
-          "px-3 py-3 text-body-sm",
-          loading ? "text-muted-foreground" : "text-danger"
-        )}
-      >
-        {loading
-          ? "Loading models…"
-          : "Couldn’t load models. Reload to try again."}
-      </p>
+    return loading ? (
+      <LoadingSkeleton label="Loading models…" className="w-auto p-3" />
+    ) : (
+      <Alert title="Couldn’t load models." className="m-3">
+        Reload to try again.
+      </Alert>
     );
 
   return (
     <div data-testid={`agent-models-${agentType}`}>
-      <label className="flex min-h-11 cursor-pointer items-center justify-between gap-3 px-3 py-3">
-        <span className="text-body-md">Auto-enable new models</span>
+      <SettingRow
+        label="Auto-enable new models"
+        className="rounded-none border-0 bg-transparent"
+      >
         <Switch
           aria-label={`Auto-enable new ${typeLabel} models`}
           checked={autoEnable}
           onCheckedChange={(next) => save({ agentType, autoEnable: next })}
         />
-      </label>
+      </SettingRow>
 
       {error ? (
-        <p role="alert" className="px-3 pb-2 text-body-sm text-danger">
-          {error}
-        </p>
+        <Alert
+          title="Couldn’t save changes."
+          error={error}
+          className="mx-3 mb-2"
+        />
       ) : null}
 
       {allOptions.length === 0 ? (

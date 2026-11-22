@@ -1,27 +1,37 @@
-import { useId, useState, type FormEvent } from "react";
+import { useState, type FormEvent } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { Alert } from "@/components/ui/alert";
+import { Field } from "@/components/ui/field";
+import {
+  DialogBody,
+  DialogCancel,
+  DialogFooter,
+  DialogForm,
+} from "@/components/ui/dialog";
 
 export function SetPasswordForm({
   onSuccess,
   onPasswordAlreadySet,
+  inDialog = false,
 }: {
+  /** Lays it out as the dialog's body and footer. */
+  inDialog?: boolean;
   onSuccess?: () => void;
   onPasswordAlreadySet?: () => void;
 }) {
-  const id = useId();
   const queryClient = useQueryClient();
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
-  const [error, setError] = useState("");
+  const [error, setError] = useState<unknown>();
   const [loading, setLoading] = useState(false);
   const mismatch = confirm.length > 0 && password !== confirm;
 
   async function submit(event: FormEvent) {
     event.preventDefault();
     if (loading || password.length < 8 || password !== confirm) return;
-    setError("");
+    setError(undefined);
     setLoading(true);
     try {
       const response = await fetch("/api/v1/auth/setup", {
@@ -41,65 +51,79 @@ export function SetPasswordForm({
           await queryClient.invalidateQueries({ queryKey: ["auth-status"] });
           return;
         }
-        setError(body.error ?? "Failed to set password.");
+        setError(new Error(body.error ?? "The server rejected the password."));
         return;
       }
       setPassword("");
       setConfirm("");
       onSuccess?.();
       await queryClient.invalidateQueries({ queryKey: ["auth-status"] });
-    } catch {
-      setError("Unable to reach the server.");
+    } catch (err) {
+      setError(err);
     } finally {
       setLoading(false);
     }
   }
 
-  return (
-    <form onSubmit={submit} className="w-full max-w-sm space-y-3">
-      <div className="space-y-1">
-        <label htmlFor={`${id}-password`} className="text-body-md">
-          Password
-        </label>
+  const fields = (
+    <>
+      <Field
+        label="Password"
+        hint="At least 8 characters."
+        error={
+          password && password.length < 8 ? "Use at least 8 characters." : null
+        }
+      >
         <Input
-          id={`${id}-password`}
           type="password"
           autoComplete="new-password"
-          placeholder="Password (min 8 characters)"
           value={password}
           onChange={(event) => setPassword(event.target.value)}
           data-testid="security-new-password"
         />
-      </div>
-      <div className="space-y-1">
-        <label htmlFor={`${id}-confirm`} className="text-body-md">
-          Confirm password
-        </label>
+      </Field>
+      <Field
+        label="Confirm password"
+        error={mismatch ? "Passwords do not match." : null}
+      >
         <Input
-          id={`${id}-confirm`}
           type="password"
           autoComplete="new-password"
-          placeholder="Confirm password"
           value={confirm}
           onChange={(event) => setConfirm(event.target.value)}
           data-testid="security-confirm-password"
         />
-      </div>
-      {mismatch && (
-        <p className="text-body-md text-danger">Passwords do not match.</p>
-      )}
-      {error && (
-        <p role="alert" className="text-body-md text-danger">
-          {error}
-        </p>
-      )}
-      <Button
-        type="submit"
-        variant="primary"
-        disabled={loading || password.length < 8 || password !== confirm}
-      >
-        {loading ? "Setting up..." : "Set password"}
-      </Button>
+      </Field>
+    </>
+  );
+  const failure = error ? (
+    <Alert title="Couldn’t set the password." error={error} />
+  ) : null;
+  const button = (
+    <Button
+      type="submit"
+      variant="primary"
+      pending={loading}
+      disabled={password.length < 8 || password !== confirm}
+    >
+      Set password
+    </Button>
+  );
+
+  return inDialog ? (
+    <DialogForm onSubmit={submit}>
+      <DialogBody className="space-y-3">{fields}</DialogBody>
+      {failure}
+      <DialogFooter>
+        <DialogCancel />
+        {button}
+      </DialogFooter>
+    </DialogForm>
+  ) : (
+    <form onSubmit={submit} className="w-full max-w-sm space-y-3">
+      {fields}
+      {failure}
+      {button}
     </form>
   );
 }

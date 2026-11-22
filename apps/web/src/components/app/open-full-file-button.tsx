@@ -3,11 +3,11 @@ import { filesBrowserStateFamily } from "./files-browser-state";
 import { useLocation } from "react-router-dom";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ExternalLink } from "lucide-react";
-import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Hint } from "@/components/ui/tooltip";
 import { api } from "@/lib/api";
 import { useProjectNavigate } from "@/hooks/use-projects";
+import { toast } from "@/components/ui/toast";
 
 /** Check the working tree before leaving the diff (historical files may be absent). */
 export function OpenFullFileButton({
@@ -76,9 +76,12 @@ export function OpenFullFileButton({
             params.set("files.path", path);
             setBrowser((old) => ({ ...old, browse: false }));
             navigate(`/agents/${encodeURIComponent(agentId)}/files?${params}`);
-          } catch {
+          } catch (error) {
             if (current())
-              toast.error(`Full file unavailable in the working tree: ${path}`);
+              toast.error(`Couldn’t open ${path}.`, {
+                description: "It’s unavailable in the working tree.",
+                error,
+              });
           } finally {
             setPending(false);
           }

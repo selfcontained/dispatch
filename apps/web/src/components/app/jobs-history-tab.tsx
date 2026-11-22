@@ -6,96 +6,92 @@ import {
   statusTextColor,
   triggerSourceLabel,
 } from "@/components/app/jobs-helpers";
-import { ActivityBars } from "@/components/ui/activity-bars";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { RowButton } from "@/components/ui/row-button";
 import { StatusDot } from "@/components/ui/status-dot";
 import { type JobRun } from "@/hooks/use-jobs";
-import { LoadError } from "@/components/app/load-error";
 import { formatDuration } from "@/lib/format";
 import { statusLabel } from "@/lib/status-label";
 import { cn } from "@/lib/utils";
+import {
+  AsyncBoundary,
+  type AsyncResult,
+} from "@/components/ui/async-boundary";
+import { EmptyState } from "@/components/ui/empty-state";
 
 export function HistoryTab({
-  runs,
-  loading,
-  error,
-  retrying,
-  onRetry,
+  query,
   selectedRunId,
   onSelectRun,
 }: {
-  runs: JobRun[];
-  loading: boolean;
-  error: unknown;
-  retrying: boolean;
-  onRetry: () => void;
+  query: AsyncResult<{ runs: JobRun[] }>;
   selectedRunId: string | null;
   onSelectRun: (runId: string) => void;
 }) {
+  const runs = query.data?.runs ?? [];
   const selectedRun = selectedRunId
     ? (runs.find((run) => run.id === selectedRunId) ?? null)
     : null;
   return (
     <ScrollArea className="mt-4 min-h-0 h-full pr-1">
-      {error ? (
-        <LoadError
-          message="Couldn't load history"
-          error={error}
-          onRetry={onRetry}
-          retrying={retrying}
-          className="mb-2"
-        />
-      ) : null}
-      {error && runs.length === 0 ? null : loading ? (
-        <div className="flex items-center gap-2 text-body-md text-muted-foreground">
-          <ActivityBars size={16} /> Loading history...
-        </div>
-      ) : runs.length === 0 ? (
-        <div className="text-body-md text-muted-foreground">No runs yet.</div>
-      ) : (
-        <div className="flex flex-col">
-          {runs.map((run) => {
-            const isSelected = selectedRun?.id === run.id;
-            const isActive =
-              run.status === "started" ||
-              run.status === "running" ||
-              run.status === "needs_input";
-            return (
-              <div key={run.id}>
-                <RowButton
-                  className={cn(
-                    "min-w-0 overflow-hidden py-1.5 text-body-sm hover:text-foreground",
-                    isSelected ? "text-foreground" : "text-muted-foreground"
-                  )}
-                  onClick={() => onSelectRun(isSelected ? "" : run.id)}
-                >
-                  <StatusDot
-                    tone={statusDotTone(run.status)}
-                    className={cn(isActive && "animate-pulse")}
-                  />
-                  <span
+      <AsyncBoundary
+        query={query}
+        thing="history"
+        className="mb-2"
+        isEmpty={() => runs.length === 0}
+        empty={
+          <EmptyState
+            title="No runs yet."
+            description="Runs show here once the job starts."
+          />
+        }
+      >
+        {() => (
+          <div className="flex flex-col">
+            {runs.map((run) => {
+              const isSelected = selectedRun?.id === run.id;
+              const isActive =
+                run.status === "started" ||
+                run.status === "running" ||
+                run.status === "needs_input";
+              return (
+                <div key={run.id}>
+                  <RowButton
                     className={cn(
-                      "shrink-0 font-medium",
-                      statusTextColor(run.status)
+                      "min-w-0 overflow-hidden py-1.5 text-body-sm hover:text-foreground",
+                      isSelected ? "text-foreground" : "text-muted-foreground"
                     )}
+                    onClick={() => onSelectRun(isSelected ? "" : run.id)}
                   >
-                    {statusLabel(run.status)}
-                  </span>
-                  <span className="min-w-0 truncate font-mono tabular-nums">
-                    {formatJobDateTime(run.startedAt)}
-                  </span>
-                  <span className="font-mono tabular-nums opacity-50">
-                    {formatDuration(run.durationMs)}
-                  </span>
-                  <span className="opacity-40">{triggerSourceLabel(run)}</span>
-                </RowButton>
-                {isSelected && <RunReport run={run} />}
-              </div>
-            );
-          })}
-        </div>
-      )}
+                    <StatusDot
+                      tone={statusDotTone(run.status)}
+                      className={cn(isActive && "animate-pulse")}
+                    />
+                    <span
+                      className={cn(
+                        "shrink-0 font-medium",
+                        statusTextColor(run.status)
+                      )}
+                    >
+                      {statusLabel(run.status)}
+                    </span>
+                    <span className="min-w-0 truncate font-mono tabular-nums">
+                      {formatJobDateTime(run.startedAt)}
+                    </span>
+                    <span className="font-mono tabular-nums opacity-50">
+                      {formatDuration(run.durationMs)}
+                    </span>
+                    <span className="opacity-40">
+                      {triggerSourceLabel(run)}
+                    </span>
+                  </RowButton>
+                  {isSelected && <RunReport run={run} />}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </AsyncBoundary>
     </ScrollArea>
   );
 }

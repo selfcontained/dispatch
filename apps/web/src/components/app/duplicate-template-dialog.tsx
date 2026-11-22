@@ -1,17 +1,22 @@
 import { useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
+  DialogBody,
+  DialogCancel,
   DialogContent,
   DialogDescription,
+  DialogFooter,
+  DialogForm,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { useTemplateActions, type Template } from "@/hooks/use-templates";
+import { Alert } from "@/components/ui/alert";
+import { Field } from "@/components/ui/field";
 
 export function DuplicateTemplateDialog({
   template,
@@ -25,18 +30,18 @@ export function DuplicateTemplateDialog({
   const navigate = useNavigate();
   const { duplicateTemplate } = useTemplateActions();
   const [name, setName] = useState("");
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<unknown>();
   const submitting = useRef(false);
   const changeOpen = (next: boolean) => {
     if (submitting.current) return;
     setName("");
-    setError(null);
+    setError(undefined);
     onOpenChange(next);
   };
 
   return (
     <Dialog open={open} onOpenChange={changeOpen}>
-      <DialogContent className="max-w-sm">
+      <DialogContent size="sm" busy={duplicateTemplate.isPending}>
         <DialogHeader>
           <DialogTitle>Duplicate template</DialogTitle>
           <DialogDescription>
@@ -44,13 +49,12 @@ export function DuplicateTemplateDialog({
             Unsaved edits are not included.
           </DialogDescription>
         </DialogHeader>
-        <form
-          className="grid gap-4"
+        <DialogForm
           onSubmit={async (event) => {
             event.preventDefault();
             if (!name.trim() || submitting.current) return;
             submitting.current = true;
-            setError(null);
+            setError(undefined);
             try {
               const copy = await duplicateTemplate.mutateAsync({
                 id: template.id,
@@ -59,51 +63,38 @@ export function DuplicateTemplateDialog({
               onOpenChange(false);
               setName("");
               navigate(`/automations/templates/${copy.id}`);
-              toast.success(`Template "${copy.name}" created.`);
             } catch (err) {
-              setError((err as Error).message);
+              setError(err);
             } finally {
               submitting.current = false;
             }
           }}
         >
-          <div className="grid gap-2">
-            <label
-              className="text-body-md font-medium"
-              htmlFor="duplicate-template-name"
-            >
-              New template name
-            </label>
-            <Input
-              id="duplicate-template-name"
-              autoFocus
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-              disabled={duplicateTemplate.isPending}
-            />
-          </div>
+          <DialogBody>
+            <Field label="New template name" id="duplicate-template-name">
+              <Input
+                autoFocus
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+                disabled={duplicateTemplate.isPending}
+              />
+            </Field>
+          </DialogBody>
           {error ? (
-            <p role="alert" className="text-body-md text-danger">
-              {error}
-            </p>
+            <Alert title="Couldn’t duplicate the template." error={error} />
           ) : null}
-          <div className="flex justify-end gap-2">
-            <Button
-              type="button"
-              variant="ghost"
-              disabled={duplicateTemplate.isPending}
-              onClick={() => changeOpen(false)}
-            >
-              Cancel
-            </Button>
+          <DialogFooter>
+            <DialogCancel />
             <Button
               type="submit"
-              disabled={!name.trim() || duplicateTemplate.isPending}
+              variant="primary"
+              pending={duplicateTemplate.isPending}
+              disabled={!name.trim()}
             >
-              {duplicateTemplate.isPending ? "Creating…" : "Create template"}
+              Create template
             </Button>
-          </div>
-        </form>
+          </DialogFooter>
+        </DialogForm>
       </DialogContent>
     </Dialog>
   );

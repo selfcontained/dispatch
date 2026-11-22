@@ -7,6 +7,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -22,10 +23,12 @@ import { QuickPhrasesButton } from "./quick-phrases-button";
 // the whole contract from cmdk selection down to the wire payload — a stubbed
 // actions object could silently diverge on args/submit shape.
 vi.mock("@/lib/api", () => ({ api: vi.fn() }));
-vi.mock("sonner", () => ({ toast: { error: vi.fn() } }));
+vi.mock("@/components/ui/toast", () => ({
+  toast: { error: vi.fn(), success: vi.fn() },
+}));
 
 const { api } = await import("@/lib/api");
-const { toast } = await import("sonner");
+const { toast } = await import("@/components/ui/toast");
 const apiMock = vi.mocked(api);
 const toastErrorMock = vi.mocked(toast.error);
 
@@ -132,7 +135,6 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
-  // Restores the window.confirm spy even when its test fails mid-body.
   vi.restoreAllMocks();
 });
 
@@ -325,7 +327,7 @@ describe("inject wire payloads", () => {
     expect(injectCalls()).toHaveLength(1);
   });
 
-  it("shows an error toast and keeps the picker open when inject fails", async () => {
+  it("shows the error in the picker, which stays open, when inject fails", async () => {
     apiMock.mockImplementation((path: string, init?: RequestInit) => {
       if (path === "/api/v1/quick-phrases" && !init) {
         return Promise.resolve({ phrases: TWO_PHRASES });
@@ -338,9 +340,9 @@ describe("inject wire payloads", () => {
 
     fireEvent.click(screen.getByText("Deploy"));
 
-    await waitFor(() =>
-      expect(toastErrorMock).toHaveBeenCalledWith("Failed to send phrase")
-    );
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("Couldn’t send the phrase.");
+    expect(toastErrorMock).not.toHaveBeenCalled();
     expect(screen.getByPlaceholderText("Search phrases...")).toBeTruthy();
     expect(onInjected).not.toHaveBeenCalled();
   });
@@ -419,7 +421,7 @@ describe("fill variables flow", () => {
     expect(
       (
         screen.getByRole("button", {
-          name: "Send & Submit",
+          name: "Send & submit",
         }) as HTMLButtonElement
       ).disabled
     ).toBe(true);
@@ -469,7 +471,7 @@ describe("fill variables flow", () => {
     expect(
       (
         screen.getByRole("button", {
-          name: "Send & Submit",
+          name: "Send & submit",
         }) as HTMLButtonElement
       ).disabled
     ).toBe(true);
@@ -508,16 +510,18 @@ describe("create, edit, and delete", () => {
     await openPicker();
     const initialGets = listGetCount();
 
-    fireEvent.click(screen.getByRole("button", { name: "Add phrase" }));
-    await screen.findByRole("heading", { name: "Add Phrase" });
+    fireEvent.click(screen.getByRole("button", { name: "New phrase" }));
+    await screen.findByRole("heading", { name: "New phrase" });
 
     fireEvent.change(screen.getByLabelText("Phrase text"), {
       target: { value: "  new phrase text  " },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: /^(Create|Save) phrase$/ })
+    );
 
     await waitFor(() =>
-      expect(screen.queryByRole("heading", { name: "Add Phrase" })).toBeNull()
+      expect(screen.queryByRole("heading", { name: "New phrase" })).toBeNull()
     );
     const create = apiMock.mock.calls.find(
       ([path, init]) =>
@@ -539,18 +543,20 @@ describe("create, edit, and delete", () => {
     renderPicker();
     await openPicker();
 
-    fireEvent.click(screen.getByRole("button", { name: "Add phrase" }));
-    await screen.findByRole("heading", { name: "Add Phrase" });
+    fireEvent.click(screen.getByRole("button", { name: "New phrase" }));
+    await screen.findByRole("heading", { name: "New phrase" });
     fireEvent.change(screen.getByLabelText("Label (optional)"), {
       target: { value: "  My Label  " },
     });
     fireEvent.change(screen.getByLabelText("Phrase text"), {
       target: { value: "text" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: /^(Create|Save) phrase$/ })
+    );
 
     await waitFor(() =>
-      expect(screen.queryByRole("heading", { name: "Add Phrase" })).toBeNull()
+      expect(screen.queryByRole("heading", { name: "New phrase" })).toBeNull()
     );
     const create = apiMock.mock.calls.find(
       ([path, init]) =>
@@ -567,11 +573,11 @@ describe("create, edit, and delete", () => {
     serveGet([]);
     renderPicker();
     await openPicker();
-    fireEvent.click(screen.getByRole("button", { name: "Add phrase" }));
-    await screen.findByRole("heading", { name: "Add Phrase" });
+    fireEvent.click(screen.getByRole("button", { name: "New phrase" }));
+    await screen.findByRole("heading", { name: "New phrase" });
 
     const save = screen.getByRole("button", {
-      name: "Save",
+      name: "Create phrase",
     }) as HTMLButtonElement;
     expect(save.disabled).toBe(true);
     fireEvent.change(screen.getByLabelText("Phrase text"), {
@@ -588,8 +594,8 @@ describe("create, edit, and delete", () => {
     serveGet([]);
     renderPicker();
     await openPicker();
-    fireEvent.click(screen.getByRole("button", { name: "Add phrase" }));
-    await screen.findByRole("heading", { name: "Add Phrase" });
+    fireEvent.click(screen.getByRole("button", { name: "New phrase" }));
+    await screen.findByRole("heading", { name: "New phrase" });
 
     fireEvent.change(screen.getByLabelText("Phrase text"), {
       target: { value: "Hi {{D:Name|required}} — {{D:Notes|multiline}}" },
@@ -606,7 +612,7 @@ describe("create, edit, and delete", () => {
     await screen.findByText("Deploy");
 
     fireEvent.click(screen.getAllByRole("button", { name: "Edit phrase" })[0]);
-    await screen.findByRole("heading", { name: "Edit Phrase" });
+    await screen.findByRole("heading", { name: "Edit phrase" });
     expect(
       (screen.getByLabelText("Label (optional)") as HTMLInputElement).value
     ).toBe("Deploy");
@@ -617,10 +623,12 @@ describe("create, edit, and delete", () => {
     fireEvent.change(screen.getByLabelText("Label (optional)"), {
       target: { value: "   " },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: /^(Create|Save) phrase$/ })
+    );
 
     await waitFor(() =>
-      expect(screen.queryByRole("heading", { name: "Edit Phrase" })).toBeNull()
+      expect(screen.queryByRole("heading", { name: "Edit phrase" })).toBeNull()
     );
     const patch = apiMock.mock.calls.find(
       ([path]) => path === "/api/v1/quick-phrases/qp_1"
@@ -638,30 +646,29 @@ describe("create, edit, and delete", () => {
     await openPicker();
     await screen.findByText("Deploy");
 
-    const confirmSpy = vi
-      .spyOn(window, "confirm")
-      .mockReturnValueOnce(false)
-      .mockReturnValueOnce(true);
-
+    const deleteRequested = () =>
+      apiMock.mock.calls.some(
+        ([path, init]) =>
+          path === "/api/v1/quick-phrases/qp_1" &&
+          (init as { method?: string } | undefined)?.method === "DELETE"
+      );
     const deleteButton = screen.getAllByRole("button", {
       name: "Delete phrase",
     })[0];
     fireEvent.click(deleteButton);
+    let question = await screen.findByRole("alertdialog");
+    expect(question.textContent).toContain("Deploy");
+    fireEvent.click(within(question).getByRole("button", { name: "Cancel" }));
     await flushMicrotasks();
-    expect(
-      apiMock.mock.calls.some(([path]) => path === "/api/v1/quick-phrases/qp_1")
-    ).toBe(false);
+    expect(deleteRequested()).toBe(false);
+    // Confirming happens in the picker, which is still there afterwards.
+    expect(screen.getByPlaceholderText("Search phrases...")).toBeTruthy();
 
     fireEvent.click(deleteButton);
-    await waitFor(() =>
-      expect(
-        apiMock.mock.calls.some(
-          ([path, init]) =>
-            path === "/api/v1/quick-phrases/qp_1" &&
-            (init as { method?: string } | undefined)?.method === "DELETE"
-        )
-      ).toBe(true)
+    question = await screen.findByRole("alertdialog");
+    fireEvent.click(
+      within(question).getByRole("button", { name: "Delete phrase" })
     );
-    expect(confirmSpy.mock.calls[0][0]).toContain("Deploy");
+    await waitFor(() => expect(deleteRequested()).toBe(true));
   });
 });

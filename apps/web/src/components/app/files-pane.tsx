@@ -24,7 +24,6 @@ import {
   Split,
   ArrowLeft,
 } from "lucide-react";
-import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { IconButton } from "@/components/ui/icon-button";
@@ -32,6 +31,10 @@ import { RowButton } from "@/components/ui/row-button";
 import { api } from "@/lib/api";
 import { FileActions } from "./file-lightbox-actions";
 import { cn } from "@/lib/utils";
+import { LoadError } from "@/components/ui/async-boundary";
+import { EmptyState } from "@/components/ui/empty-state";
+import { LoadingSkeleton } from "@/components/ui/skeleton";
+import { toast } from "@/components/ui/toast";
 
 type Entry = {
   name: string;
@@ -381,7 +384,11 @@ function WorkspaceFiles({
       return;
     }
     if (query.isError) {
-      rows.push({ depth, message: query.error.message, retry: directory });
+      rows.push({
+        depth,
+        message: "Couldn’t load the folder.",
+        retry: directory,
+      });
       return;
     }
     if (!query.data) return;
@@ -404,7 +411,11 @@ function WorkspaceFiles({
     if (fileIndex.isPending)
       rows.push({ depth: 0, message: "Finding filenames…" });
     else if (fileIndex.isError)
-      rows.push({ depth: 0, message: fileIndex.error.message, retry: "index" });
+      rows.push({
+        depth: 0,
+        message: "Couldn’t load filenames.",
+        retry: "index",
+      });
     else
       for (const path of matches.slice(0, 200))
         rows.push({
@@ -429,7 +440,7 @@ function WorkspaceFiles({
             )
           : old.length >= 32
             ? (toast.info(
-                "Close a folder before opening more (32-folder MVP limit)."
+                "Close a folder before opening more. Up to 32 can be open."
               ),
               old)
             : [...old, entry.path]
@@ -687,23 +698,20 @@ function WorkspaceFiles({
                   )}
                 </div>
                 {preview.isPending ? (
-                  <div className="p-6 text-body-md text-muted-foreground">
-                    Loading preview…
-                  </div>
+                  <LoadingSkeleton
+                    label="Loading preview…"
+                    className="w-auto p-6"
+                    rowClassName="h-4"
+                    rows={8}
+                  />
                 ) : preview.isError ? (
-                  <div
-                    role="alert"
-                    className="p-6 text-body-md text-muted-foreground"
-                  >
-                    {preview.error.message}
-                    <Button
-                      className="ml-2"
-                      size="sm"
-                      onClick={() => void preview.refetch()}
-                    >
-                      Retry
-                    </Button>
-                  </div>
+                  <LoadError
+                    thing="the preview"
+                    error={preview.error}
+                    retrying={preview.isFetching}
+                    onRetry={() => void preview.refetch()}
+                    className="m-4"
+                  />
                 ) : preview.data?.kind === "text" ? (
                   <FilesTextPreview
                     key={selected}
@@ -731,14 +739,11 @@ function WorkspaceFiles({
                 )}
               </>
             ) : (
-              <div className="flex flex-1 flex-col items-center justify-center gap-3 p-8 text-center text-muted-foreground">
-                <File className="h-10 w-10 opacity-30" />
-                <p className="text-body-md">Select a file to preview</p>
-                <p className="max-w-64 text-body-sm leading-relaxed">
-                  Browse the agent’s workspace. Folders load only when opened;
-                  files stay on disk until selected.
-                </p>
-              </div>
+              <EmptyState
+                icon={File}
+                title="Select a file to preview"
+                description="Browse the agent’s workspace. Folders load only when opened; files stay on disk until selected."
+              />
             )}
           </div>
         )}

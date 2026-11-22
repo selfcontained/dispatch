@@ -1,9 +1,10 @@
 import { RefreshCw } from "lucide-react";
 import { cleanError, formatAgo } from "@/components/app/release-utils";
-import { ActivityBars } from "@/components/ui/activity-bars";
 import { IconButton } from "@/components/ui/icon-button";
 import type { ReleaseInfo, ReleaseProgress } from "@/hooks/use-release-stream";
 import { cn } from "@/lib/utils";
+import { LoadError } from "@/components/ui/async-boundary";
+import { Spinner } from "@/components/ui/spinner";
 
 type UnreleasedChangesProps = {
   info: ReleaseInfo | null;
@@ -48,8 +49,8 @@ export function UnreleasedChanges({
 
       {infoLoading && (
         <div className="flex items-center gap-2 text-body-sm text-muted-foreground">
-          <ActivityBars size={14} />
-          {infoProgress?.label ?? "Loading..."}
+          <Spinner />
+          {infoProgress?.label ?? "Loading unreleased changes…"}
           {infoProgress?.detail && (
             <span className="text-faint">{infoProgress.detail}</span>
           )}
@@ -57,16 +58,19 @@ export function UnreleasedChanges({
       )}
 
       {infoError && (
-        <div className="rounded-lg border border-danger/line bg-danger/tint px-3 py-2 text-body-md text-danger">
-          {infoError}
-        </div>
+        <LoadError
+          thing="unreleased changes"
+          error={infoError}
+          retrying={infoLoading}
+          onRetry={onRefresh}
+        />
       )}
 
       {info && !infoLoading && (
         <>
           {info.unreleasedFetchError ? (
             <div className="rounded-lg border border-warning/line bg-warning/tint px-3 py-2 text-body-md text-warning">
-              Couldn't refresh <span className="font-mono">origin/main</span> —
+              Couldn’t refresh <span className="font-mono">origin/main</span> —
               unreleased commit info is unavailable, not necessarily zero.
               <div className="mt-1 break-words font-mono text-body-sm opacity-80">
                 {cleanError(info.unreleasedFetchError)}

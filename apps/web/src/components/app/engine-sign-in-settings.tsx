@@ -2,6 +2,7 @@ import type { EngineAuthStatus } from "@dispatch/shared";
 
 import { EngineSignIn } from "@/components/app/engine-sign-in";
 import { ENGINE_LOGIN_LABELS, useEngineAuth } from "@/hooks/use-engine-login";
+import { AsyncBoundary } from "@/components/ui/async-boundary";
 
 function EngineRow({ status }: { status: EngineAuthStatus }): JSX.Element {
   const label = ENGINE_LOGIN_LABELS[status.engine];
@@ -28,7 +29,7 @@ function EngineRow({ status }: { status: EngineAuthStatus }): JSX.Element {
 
 /** Whether each engine's CLI is signed in on this server, with a way to sign in. */
 export function EngineSignInSettings(): JSX.Element {
-  const { data, isPending, error } = useEngineAuth();
+  const query = useEngineAuth();
   return (
     <section
       aria-label="Engine sign-in"
@@ -42,19 +43,13 @@ export function EngineSignInSettings(): JSX.Element {
         </p>
       </div>
       <div className="max-w-lg space-y-2">
-        {isPending ? (
-          <p role="status" className="text-body-md text-muted-foreground">
-            Checking sign-in…
-          </p>
-        ) : error ? (
-          <p role="alert" className="text-body-md text-danger">
-            {error.message}
-          </p>
-        ) : (
-          data?.engines.map((status) => (
-            <EngineRow key={status.engine} status={status} />
-          ))
-        )}
+        <AsyncBoundary query={query} thing="sign-in status">
+          {({ engines }) =>
+            engines.map((status) => (
+              <EngineRow key={status.engine} status={status} />
+            ))
+          }
+        </AsyncBoundary>
       </div>
     </section>
   );

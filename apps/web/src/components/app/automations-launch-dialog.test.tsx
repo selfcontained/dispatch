@@ -22,10 +22,10 @@ import { LaunchTemplateDialog } from "./automations-launch-dialog";
 // (JSON vs multipart), which is exactly what a stubbed launchTemplate mock
 // could silently get wrong.
 vi.mock("@/lib/api", () => ({ api: vi.fn() }));
-vi.mock("sonner", () => ({ toast: { error: vi.fn() } }));
+vi.mock("@/components/ui/toast", () => ({ toast: { error: vi.fn() } }));
 
 const { api } = await import("@/lib/api");
-const { toast } = await import("sonner");
+const { toast } = await import("@/components/ui/toast");
 const apiMock = vi.mocked(api);
 const toastErrorMock = vi.mocked(toast.error);
 
@@ -488,15 +488,15 @@ describe("launch outcome", () => {
     );
   });
 
-  it("surfaces a toast and stays open on failure", async () => {
+  it("shows the failure in the dialog and stays open", async () => {
     queueLaunch(() => Promise.reject(new Error("boom")));
     const { onOpenChange } = await renderDialog(makeTemplate());
 
     fireEvent.click(launchButton());
 
-    await waitFor(() =>
-      expect(toastErrorMock).toHaveBeenCalledWith("Failed to launch: boom")
-    );
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("Couldn’t launch the template.");
+    expect(alert.textContent).toContain("boom");
     expect(onOpenChange).not.toHaveBeenCalled();
     expect(screen.getByTestId("location").textContent).toBe("/");
   });

@@ -5,7 +5,6 @@ import { useQuery } from "@tanstack/react-query";
 import { Bell } from "lucide-react";
 import { useState } from "react";
 import { AttentionCard } from "./attention-toast";
-import { Button } from "@/components/ui/button";
 import {
   Sheet,
   SheetContent,
@@ -14,6 +13,9 @@ import {
 } from "@/components/ui/sheet";
 import { IconButton } from "@/components/ui/icon-button";
 import { api } from "@/lib/api";
+import { AsyncBoundary } from "@/components/ui/async-boundary";
+import { EmptyState } from "@/components/ui/empty-state";
+import { LoadingSkeleton } from "@/components/ui/skeleton";
 
 export function NotificationsDrawer(): JSX.Element {
   const [open, setOpen] = useState(false);
@@ -25,6 +27,8 @@ export function NotificationsDrawer(): JSX.Element {
     // Also refresh persisted settlements if the tab reconnects between events.
     refetchInterval: open ? 5000 : false,
   });
+  // It polls every 5s: a missed poll keeps the cards, without an alert.
+  const region = { ...history, error: history.data ? null : history.error };
   const items = history.data?.filter((item) => !dismissed[item.toastId]);
   return (
     <Sheet open={open} onOpenChange={setOpen}>
@@ -38,43 +42,48 @@ export function NotificationsDrawer(): JSX.Element {
           <SheetTitle className="text-heading-md">Notifications</SheetTitle>
         </div>
         <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-3 pb-safe-3">
-          {history.isPending ? (
-            <p role="status" className="p-2 text-body-md text-muted-foreground">
-              Loading…
-            </p>
-          ) : history.isError && !history.data ? (
-            <div className="space-y-2 p-2">
-              <p role="alert" className="text-body-md text-muted-foreground">
-                Couldn’t load notifications
-              </p>
-              <Button onClick={() => void history.refetch()}>Retry</Button>
-            </div>
-          ) : items?.length === 0 ? (
-            <p className="p-2 text-body-md text-muted-foreground">
-              No notifications
-            </p>
-          ) : (
-            items?.map((item) => (
-              <AttentionCard
-                key={item.toastId}
-                event={item}
-                createdAt={item.createdAt}
-                settled={item.settled}
-                link
-                onOpen={() => {
-                  setDismissed((previous) => ({
-                    ...Object.fromEntries(
-                      Object.entries(previous).filter(
-                        ([, at]) => Date.parse(at) >= Date.now() - 7 * 86400000
-                      )
-                    ),
-                    [item.toastId]: item.createdAt,
-                  }));
-                  setOpen(false);
-                }}
+          <AsyncBoundary
+            query={region}
+            thing="notifications"
+            loading={
+              <LoadingSkeleton
+                label="Loading notifications…"
+                rowClassName="h-20"
               />
-            ))
-          )}
+            }
+            isEmpty={() => !items?.length}
+            empty={
+              <EmptyState
+                icon={Bell}
+                title="No notifications"
+                className="h-full"
+              />
+            }
+          >
+            {() =>
+              items?.map((item) => (
+                <AttentionCard
+                  key={item.toastId}
+                  event={item}
+                  createdAt={item.createdAt}
+                  settled={item.settled}
+                  link
+                  onOpen={() => {
+                    setDismissed((previous) => ({
+                      ...Object.fromEntries(
+                        Object.entries(previous).filter(
+                          ([, at]) =>
+                            Date.parse(at) >= Date.now() - 7 * 86400000
+                        )
+                      ),
+                      [item.toastId]: item.createdAt,
+                    }));
+                    setOpen(false);
+                  }}
+                />
+              ))
+            }
+          </AsyncBoundary>
         </div>
       </SheetContent>
     </Sheet>

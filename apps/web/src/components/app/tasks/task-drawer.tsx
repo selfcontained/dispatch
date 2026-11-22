@@ -63,6 +63,11 @@ import {
   formatRelativeTime,
 } from "@/lib/format";
 import { statusLabel } from "@/lib/status-label";
+import { Alert } from "@/components/ui/alert";
+import { AsyncBoundary } from "@/components/ui/async-boundary";
+import { EmptyState } from "@/components/ui/empty-state";
+import { archiveTask, restoreTask } from "./task-feedback";
+import { Textarea } from "@/components/ui/textarea";
 
 /** Status and Assignee share one width and one quiet field style. */
 const PROPERTY_CONTROL =
@@ -189,7 +194,8 @@ export function TaskDetailPanel({
   headerAction?: React.ReactNode;
   active?: boolean;
 }) {
-  const { data: task, isLoading } = useTaskDetail(id);
+  const taskQuery = useTaskDetail(id);
+  const task = taskQuery.data;
   const actions = useTaskActions(projectId);
   const [params, setParams] = useSearchParams();
   const location = useLocation();
@@ -227,6 +233,8 @@ export function TaskDetailPanel({
   const [linkLabel, setLinkLabel] = useState("");
   const [linkUrl, setLinkUrl] = useState("");
   const [addingLink, setAddingLink] = useState(false);
+  const currentId = useRef(id);
+  currentId.current = id;
   useEffect(() => {
     setEditingTitle(false);
     setEditingBody(false);
@@ -242,15 +250,26 @@ export function TaskDetailPanel({
     .filter((item) => item.columnId === task?.columnId)
     .sort((a, b) => a.position - b.position);
   const index = peers.findIndex((item) => item.id === id);
+  // A failed save puts the draft back in its field, so nothing typed is lost.
   const saveTitle = () => {
     setEditingTitle(false);
-    if (task && title.trim() && title.trim() !== task.title)
-      void actions.update.mutateAsync({ id, title: title.trim() });
+    const next = title.trim();
+    if (task && next && next !== task.title)
+      void actions.update.mutateAsync({ id, title: next }).catch(() => {
+        if (currentId.current !== id) return;
+        setEditingTitle(true);
+        setTitle(next);
+      });
   };
   const saveBody = () => {
     setEditingBody(false);
-    if (task && body !== task.body)
-      void actions.update.mutateAsync({ id, body });
+    const next = body;
+    if (task && next !== task.body)
+      void actions.update.mutateAsync({ id, body: next }).catch(() => {
+        if (currentId.current !== id) return;
+        setEditingBody(true);
+        setBody(next);
+      });
   };
   const memberIds = useMemo(
     () => task?.agents.map((item) => item.agentId) ?? [],
@@ -264,6 +283,7 @@ export function TaskDetailPanel({
     ) : (
       task?.createdBy.kind
     );
+  const failed = taskFailure(actions, id);
   return (
     <>
       <header className="flex min-h-14 shrink-0 items-center gap-1 border-b border-border-subtle pl-1.5 pr-2 pt-safe text-body-sm text-muted-foreground">
@@ -304,445 +324,468 @@ export function TaskDetailPanel({
           <X />
         </IconButton>
       </header>
-      {isLoading && (
-        <p className="p-4 text-body-md text-muted-foreground">Loading task…</p>
+      {failed && (
+        <Alert
+          title={failed.title}
+          error={failed.error}
+          className="mx-3 mt-2"
+          action={
+            // An open editor saves again when it loses focus.
+            failed.retry && !editingTitle && !editingBody
+              ? { label: "Retry", onClick: failed.retry }
+              : undefined
+          }
+          onDismiss={failed.dismiss}
+        />
       )}
-      {task && (
-        <Tabs
-          value={pane}
-          onValueChange={changePane}
-          className="flex min-h-0 flex-1 flex-col"
-        >
-          <TabsList
-            aria-label="Task panes"
-            className="shrink-0 border-b border-border-subtle px-1"
+      <AsyncBoundary
+        query={taskQuery}
+        thing="the task"
+        className="m-4"
+        notFound={
+          <EmptyState
+            title="Task not found"
+            description="It may have been deleted, or the link may be wrong."
+          />
+        }
+      >
+        {(task) => (
+          <Tabs
+            value={pane}
+            onValueChange={changePane}
+            className="flex min-h-0 flex-1 flex-col"
           >
-            <TabsTrigger value="details">Details</TabsTrigger>
-            <TabsTrigger value="conversation">
-              Conversation
-              {!!unread && (
-                <CountBubble
-                  tone="info"
-                  count={unread}
-                  aria-label={`${unread} unread posts`}
-                />
-              )}
-            </TabsTrigger>
-          </TabsList>
-          <TabsContent
-            value="details"
-            className="flex min-h-0 flex-1 flex-col data-[state=inactive]:hidden"
-          >
-            <div
-              data-testid="task-drawer-body"
-              className="min-h-0 flex-1 overflow-y-auto overscroll-contain"
+            <TabsList
+              aria-label="Task panes"
+              className="shrink-0 border-b border-border-subtle px-1"
             >
-              <div className="space-y-6 p-4">
-                {editingTitle ? (
-                  <Input
-                    autoFocus
-                    value={title}
-                    onChange={(event) => setTitle(event.target.value)}
-                    onBlur={saveTitle}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter") saveTitle();
-                      if (event.key === "Escape") setEditingTitle(false);
-                    }}
+              <TabsTrigger value="details">Details</TabsTrigger>
+              <TabsTrigger value="conversation">
+                Conversation
+                {!!unread && (
+                  <CountBubble
+                    tone="info"
+                    count={unread}
+                    aria-label={`${unread} unread posts`}
                   />
-                ) : (
-                  <RowButton
-                    className="-mx-1 block w-full break-words px-1 text-heading-lg leading-7"
-                    onClick={() => setEditingTitle(true)}
-                  >
-                    {task.title}
-                  </RowButton>
                 )}
-                <section
-                  className={cn(
-                    DRAWER_SURFACE,
-                    "grid grid-cols-[88px_minmax(0,1fr)] items-center gap-x-3 gap-y-2 text-body-md"
-                  )}
-                >
-                  <span className="text-body-sm text-muted-foreground">
-                    Labels
-                  </span>
-                  <div className="min-w-0">
-                    <TaskLabelPicker
-                      key={task.id}
-                      projectId={task.projectId}
-                      value={task.labels ?? []}
-                      disabled={actions.update.isPending}
-                      onChange={(labels) => {
-                        void actions.update
-                          .mutateAsync({ id, labels })
-                          .catch(() => {});
-                      }}
-                    />
-                  </div>
-                  <span className="text-body-sm text-muted-foreground">
-                    Status
-                  </span>
-                  {task.archivedAt ? (
-                    <span className="text-body-md text-muted-foreground">
-                      Archived · {column?.name}
-                    </span>
-                  ) : (
-                    <StatusSelect
-                      task={task}
-                      columns={columns}
-                      moveTask={moveTask}
-                      className={PROPERTY_CONTROL}
-                    />
-                  )}
-                  <span className="text-body-sm text-muted-foreground">
-                    Assignee
-                  </span>
-                  <AssigneeSelect
-                    value={task.assignedAgentId}
-                    agents={agents}
-                    projectId={projectId}
-                    onChange={(assignedAgentId) =>
-                      void actions.update.mutateAsync({ id, assignedAgentId })
-                    }
-                    onNew={() => setLaunchOpen(true)}
-                    templates={projectTemplates}
-                    onLaunchTemplate={(templateId) =>
-                      void actions.launch.mutateAsync({ id, templateId })
-                    }
-                  />
-                  <span className="text-body-sm text-muted-foreground">
-                    Created
-                  </span>
-                  <Hint label={formatDateTime(task.createdAt)}>
-                    <span className="text-body-sm">
-                      by {creator} · {formatRelativeTime(task.createdAt)}
-                    </span>
-                  </Hint>
-                </section>
-                {columns.some((c) => c.trigger) && (
-                  <DrawerSection label="Launch template">
-                    <TaskLaunchTemplateEditor key={task.id} task={task} />
-                  </DrawerSection>
-                )}
-                <DrawerSection label="Description">
-                  {editingBody ? (
-                    <textarea
+              </TabsTrigger>
+            </TabsList>
+            <TabsContent
+              value="details"
+              className="flex min-h-0 flex-1 flex-col data-[state=inactive]:hidden"
+            >
+              <div
+                data-testid="task-drawer-body"
+                className="min-h-0 flex-1 overflow-y-auto overscroll-contain"
+              >
+                <div className="space-y-6 p-4">
+                  {editingTitle ? (
+                    <Input
                       autoFocus
-                      className="min-h-36 w-full rounded-lg bg-surface-subtle p-3 text-body-md outline-none ring-1 ring-border-subtle focus-ring"
-                      value={body}
-                      onChange={(event) => setBody(event.target.value)}
-                      onBlur={saveBody}
+                      value={title}
+                      onChange={(event) => setTitle(event.target.value)}
+                      onBlur={saveTitle}
                       onKeyDown={(event) => {
-                        if (
-                          event.key === "Enter" &&
-                          (event.metaKey || event.ctrlKey)
-                        )
-                          saveBody();
+                        if (event.key === "Enter") saveTitle();
+                        if (event.key === "Escape") setEditingTitle(false);
                       }}
                     />
                   ) : (
                     <RowButton
-                      className="-mx-2 block min-h-12 w-[calc(100%+1rem)] px-2 py-1 text-body-md text-foreground"
-                      onClick={() => setEditingBody(true)}
+                      className="-mx-1 block w-full break-words px-1 text-heading-lg leading-7"
+                      onClick={() => setEditingTitle(true)}
                     >
-                      {task.body ? (
-                        <Markdown headingAccents>{task.body}</Markdown>
-                      ) : (
-                        <span className="text-muted-foreground">
-                          Add a deliverable and acceptance criteria…
-                        </span>
-                      )}
+                      {task.title}
                     </RowButton>
                   )}
-                </DrawerSection>
-                {!!task.attachments?.length && (
-                  <DrawerSection label="Attachments">
-                    <TaskAttachments
-                      key={task.id}
-                      attachments={task.attachments}
-                      updatedAt={task.updatedAt}
-                    />
-                  </DrawerSection>
-                )}
-                <DrawerSection
-                  label="Links"
-                  action={
-                    addingLink ? null : (
-                      <Button
-                        variant="ghost"
-                        size="xs"
-                        onClick={() => setAddingLink(true)}
-                      >
-                        <Plus />
-                        Add link
-                      </Button>
-                    )
-                  }
-                >
-                  {task.links.length > 0 && (
-                    <div className="flex flex-wrap gap-1.5">
-                      {task.links.map((link) => (
-                        <a
-                          key={link.url ?? link.label}
-                          href={link.url ?? undefined}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="inline-flex max-w-full items-center gap-1 rounded-md bg-surface-hover px-2 py-1 text-body-sm text-primary hover:bg-muted"
-                        >
-                          {link.kind === "pr" && (
-                            <GitPullRequest
-                              className="h-3 w-3 shrink-0"
-                              aria-hidden="true"
-                            />
-                          )}
-                          <span className="truncate">{link.label}</span>
-                          <ExternalLink className="h-3 w-3 shrink-0" />
-                        </a>
-                      ))}
+                  <section
+                    className={cn(
+                      DRAWER_SURFACE,
+                      "grid grid-cols-[88px_minmax(0,1fr)] items-center gap-x-3 gap-y-2 text-body-md"
+                    )}
+                  >
+                    <span className="text-body-sm text-muted-foreground">
+                      Labels
+                    </span>
+                    <div className="min-w-0">
+                      <TaskLabelPicker
+                        key={task.id}
+                        projectId={task.projectId}
+                        value={task.labels ?? []}
+                        disabled={actions.update.isPending}
+                        onChange={(labels) => {
+                          actions.update.mutate({ id, labels });
+                        }}
+                      />
                     </div>
+                    <span className="text-body-sm text-muted-foreground">
+                      Status
+                    </span>
+                    {task.archivedAt ? (
+                      <span className="text-body-md text-muted-foreground">
+                        Archived · {column?.name}
+                      </span>
+                    ) : (
+                      <StatusSelect
+                        task={task}
+                        columns={columns}
+                        moveTask={moveTask}
+                        className={PROPERTY_CONTROL}
+                      />
+                    )}
+                    <span className="text-body-sm text-muted-foreground">
+                      Assignee
+                    </span>
+                    <AssigneeSelect
+                      value={task.assignedAgentId}
+                      agents={agents}
+                      projectId={projectId}
+                      onChange={(assignedAgentId) =>
+                        actions.update.mutate({ id, assignedAgentId })
+                      }
+                      onNew={() => setLaunchOpen(true)}
+                      templates={projectTemplates}
+                      onLaunchTemplate={(templateId) =>
+                        actions.launch.mutate({ id, templateId })
+                      }
+                    />
+                    <span className="text-body-sm text-muted-foreground">
+                      Created
+                    </span>
+                    <Hint label={formatDateTime(task.createdAt)}>
+                      <span className="text-body-sm">
+                        by {creator} · {formatRelativeTime(task.createdAt)}
+                      </span>
+                    </Hint>
+                  </section>
+                  {columns.some((c) => c.trigger) && (
+                    <DrawerSection label="Launch template">
+                      <TaskLaunchTemplateEditor key={task.id} task={task} />
+                    </DrawerSection>
                   )}
-                  {addingLink && (
-                    <div className="flex flex-col gap-2 sm:flex-row">
-                      <Input
-                        aria-label="Link label"
-                        placeholder="Label"
-                        value={linkLabel}
-                        onChange={(event) => setLinkLabel(event.target.value)}
+                  <DrawerSection label="Description">
+                    {editingBody ? (
+                      <Textarea
+                        autoFocus
+                        aria-label="Description"
+                        className="min-h-36"
+                        value={body}
+                        onChange={(event) => setBody(event.target.value)}
+                        onBlur={saveBody}
+                        onKeyDown={(event) => {
+                          if (
+                            event.key === "Enter" &&
+                            (event.metaKey || event.ctrlKey)
+                          )
+                            saveBody();
+                        }}
                       />
-                      <Input
-                        aria-label="Link URL"
-                        placeholder="URL"
-                        value={linkUrl}
-                        onChange={(event) => setLinkUrl(event.target.value)}
+                    ) : (
+                      <RowButton
+                        className="-mx-2 block min-h-12 w-[calc(100%+1rem)] px-2 py-1 text-body-md text-foreground"
+                        onClick={() => setEditingBody(true)}
+                      >
+                        {task.body ? (
+                          <Markdown headingAccents>{task.body}</Markdown>
+                        ) : (
+                          <span className="text-muted-foreground">
+                            Add a deliverable and acceptance criteria…
+                          </span>
+                        )}
+                      </RowButton>
+                    )}
+                  </DrawerSection>
+                  {!!task.attachments?.length && (
+                    <DrawerSection label="Attachments">
+                      <TaskAttachments
+                        key={task.id}
+                        attachments={task.attachments}
+                        updatedAt={task.updatedAt}
                       />
-                      <div className="flex gap-2">
+                    </DrawerSection>
+                  )}
+                  <DrawerSection
+                    label="Links"
+                    action={
+                      addingLink ? null : (
                         <Button
                           variant="ghost"
-                          onClick={() => setAddingLink(false)}
+                          size="xs"
+                          onClick={() => setAddingLink(true)}
                         >
-                          Cancel
+                          <Plus />
+                          Add link
                         </Button>
-                        <Button
-                          onClick={() => {
-                            if (linkLabel && linkUrl)
-                              void actions.update
-                                .mutateAsync({
-                                  id,
-                                  links: [
-                                    ...task.links,
-                                    {
-                                      kind: "url",
-                                      label: linkLabel,
-                                      url: linkUrl,
-                                    },
-                                  ],
-                                })
-                                .then(() => {
-                                  setAddingLink(false);
-                                  setLinkLabel("");
-                                  setLinkUrl("");
-                                });
-                          }}
-                        >
-                          Add
-                        </Button>
-                      </div>
-                    </div>
-                  )}
-                  {!task.links.length && !addingLink && (
-                    <p className="text-body-sm text-muted-foreground">
-                      No links
-                    </p>
-                  )}
-                </DrawerSection>
-                <DrawerSection label="Agents">
-                  {task.agents.length ? (
-                    <div className="space-y-1">
-                      {task.agents.map((assignment) => {
-                        const current =
-                          assignment.agentId === task.assignedAgentId;
-                        const agent = agents.find(
-                          (item) => item.id === assignment.agentId
-                        );
-                        return (
-                          <div
-                            key={assignment.agentId}
-                            data-testid={`task-agent-row-${assignment.agentId}`}
-                            className="flex items-center gap-2 rounded-lg px-1 py-0.5 hover:bg-surface-hover"
+                      )
+                    }
+                  >
+                    {task.links.length > 0 && (
+                      <div className="flex flex-wrap gap-1.5">
+                        {task.links.map((link) => (
+                          <a
+                            key={link.url ?? link.label}
+                            href={link.url ?? undefined}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-flex max-w-full items-center gap-1 rounded-md bg-surface-hover px-2 py-1 text-body-sm text-primary hover:bg-muted"
                           >
-                            {agent ? (
-                              <TaskAgent
-                                agent={agent}
-                                agents={agents}
-                                projectId={projectId}
-                                fullWidth
+                            {link.kind === "pr" && (
+                              <GitPullRequest
+                                className="h-3 w-3 shrink-0"
+                                aria-hidden="true"
                               />
-                            ) : (
-                              // The live list has no archived agents.
-                              <AgentSessionLink
-                                agentId={assignment.agentId}
-                                projectId={projectId}
-                                decorative={false}
-                                className="min-w-0 truncate text-body-sm text-muted-foreground"
-                              >
-                                <AgentName agentId={assignment.agentId} />
-                              </AgentSessionLink>
                             )}
-                            <Hint
-                              label={`${assignmentLabel(assignment, columns)} · ${formatDateTime(assignment.assignedAt)}`}
+                            <span className="truncate">{link.label}</span>
+                            <ExternalLink className="h-3 w-3 shrink-0" />
+                          </a>
+                        ))}
+                      </div>
+                    )}
+                    {addingLink && (
+                      <div className="flex flex-col gap-2 sm:flex-row">
+                        <Input
+                          aria-label="Link label"
+                          placeholder="Label"
+                          value={linkLabel}
+                          onChange={(event) => setLinkLabel(event.target.value)}
+                        />
+                        <Input
+                          aria-label="Link URL"
+                          placeholder="URL"
+                          value={linkUrl}
+                          onChange={(event) => setLinkUrl(event.target.value)}
+                        />
+                        <div className="flex gap-2">
+                          <Button
+                            variant="ghost"
+                            onClick={() => setAddingLink(false)}
+                          >
+                            Cancel
+                          </Button>
+                          <Button
+                            onClick={() => {
+                              if (linkLabel && linkUrl)
+                                void actions.update
+                                  .mutateAsync({
+                                    id,
+                                    links: [
+                                      ...task.links,
+                                      {
+                                        kind: "url",
+                                        label: linkLabel,
+                                        url: linkUrl,
+                                      },
+                                    ],
+                                  })
+                                  .then(
+                                    () => {
+                                      setAddingLink(false);
+                                      setLinkLabel("");
+                                      setLinkUrl("");
+                                    },
+                                    // Shown at the top, with the draft kept.
+                                    () => {}
+                                  );
+                            }}
+                          >
+                            Add
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+                    {!task.links.length && !addingLink && (
+                      <p className="text-body-sm text-muted-foreground">
+                        No links
+                      </p>
+                    )}
+                  </DrawerSection>
+                  <DrawerSection label="Agents">
+                    {task.agents.length ? (
+                      <div className="space-y-1">
+                        {task.agents.map((assignment) => {
+                          const current =
+                            assignment.agentId === task.assignedAgentId;
+                          const agent = agents.find(
+                            (item) => item.id === assignment.agentId
+                          );
+                          return (
+                            <div
+                              key={assignment.agentId}
+                              data-testid={`task-agent-row-${assignment.agentId}`}
+                              className="flex items-center gap-2 rounded-lg px-1 py-0.5 hover:bg-surface-hover"
                             >
-                              <span className="ml-auto flex shrink-0 items-center gap-2 text-body-sm text-muted-foreground">
-                                {current && <Badge size="sm">Assignee</Badge>}
-                                {formatRelativeCompact(assignment.assignedAt)}
-                              </span>
-                            </Hint>
-                            <DropdownMenu>
-                              <DropdownMenuTrigger asChild>
-                                <IconButton
-                                  size="icon-sm"
-                                  label={
-                                    agent
-                                      ? `Options for ${agent.name}`
-                                      : "Agent options"
-                                  }
-                                  aria-labelledby={
-                                    agent
-                                      ? undefined
-                                      : `agent-options-${assignment.agentId}`
-                                  }
+                              {agent ? (
+                                <TaskAgent
+                                  agent={agent}
+                                  agents={agents}
+                                  projectId={projectId}
+                                  fullWidth
+                                />
+                              ) : (
+                                // The live list has no archived agents.
+                                <AgentSessionLink
+                                  agentId={assignment.agentId}
+                                  projectId={projectId}
+                                  decorative={false}
+                                  className="min-w-0 truncate text-body-sm text-muted-foreground"
                                 >
-                                  {!agent && (
-                                    <span
-                                      id={`agent-options-${assignment.agentId}`}
-                                      className="sr-only"
+                                  <AgentName agentId={assignment.agentId} />
+                                </AgentSessionLink>
+                              )}
+                              <Hint
+                                label={`${assignmentLabel(assignment, columns)} · ${formatDateTime(assignment.assignedAt)}`}
+                              >
+                                <span className="ml-auto flex shrink-0 items-center gap-2 text-body-sm text-muted-foreground">
+                                  {current && <Badge size="sm">Assignee</Badge>}
+                                  {formatRelativeCompact(assignment.assignedAt)}
+                                </span>
+                              </Hint>
+                              <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                  <IconButton
+                                    size="icon-sm"
+                                    label={
+                                      agent
+                                        ? `Options for ${agent.name}`
+                                        : "Agent options"
+                                    }
+                                    aria-labelledby={
+                                      agent
+                                        ? undefined
+                                        : `agent-options-${assignment.agentId}`
+                                    }
+                                  >
+                                    {!agent && (
+                                      <span
+                                        id={`agent-options-${assignment.agentId}`}
+                                        className="sr-only"
+                                      >
+                                        Options for{" "}
+                                        <AgentName
+                                          agentId={assignment.agentId}
+                                        />
+                                      </span>
+                                    )}
+                                    <MoreHorizontal aria-hidden="true" />
+                                  </IconButton>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end">
+                                  {current ? (
+                                    <DropdownMenuItem
+                                      className={MENU_ITEM}
+                                      onSelect={() =>
+                                        actions.update.mutate({
+                                          id,
+                                          assignedAgentId: null,
+                                        })
+                                      }
                                     >
-                                      Options for{" "}
-                                      <AgentName agentId={assignment.agentId} />
-                                    </span>
+                                      Unassign
+                                    </DropdownMenuItem>
+                                  ) : (
+                                    <DropdownMenuItem
+                                      className={MENU_ITEM}
+                                      onSelect={() =>
+                                        actions.update.mutate({
+                                          id,
+                                          assignedAgentId: assignment.agentId,
+                                        })
+                                      }
+                                    >
+                                      Make assignee
+                                    </DropdownMenuItem>
                                   )}
-                                  <MoreHorizontal aria-hidden="true" />
-                                </IconButton>
-                              </DropdownMenuTrigger>
-                              <DropdownMenuContent align="end">
-                                {current ? (
                                   <DropdownMenuItem
-                                    className={MENU_ITEM}
                                     onSelect={() =>
-                                      void actions.update.mutateAsync({
+                                      actions.removeAgent.mutate({
                                         id,
-                                        assignedAgentId: null,
+                                        agentId: assignment.agentId,
                                       })
                                     }
                                   >
-                                    Unassign
+                                    Remove from task
                                   </DropdownMenuItem>
-                                ) : (
-                                  <DropdownMenuItem
-                                    className={MENU_ITEM}
-                                    onSelect={() =>
-                                      void actions.update.mutateAsync({
-                                        id,
-                                        assignedAgentId: assignment.agentId,
-                                      })
-                                    }
-                                  >
-                                    Make assignee
-                                  </DropdownMenuItem>
-                                )}
-                                <DropdownMenuItem
-                                  onSelect={() =>
-                                    void actions.removeAgent.mutateAsync({
-                                      id,
-                                      agentId: assignment.agentId,
-                                    })
-                                  }
-                                >
-                                  Remove from task
-                                </DropdownMenuItem>
-                              </DropdownMenuContent>
-                            </DropdownMenu>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  ) : (
-                    <p className="text-body-sm text-muted-foreground">
-                      No agents yet
-                    </p>
-                  )}
-                </DrawerSection>
-                <DrawerSection label="Activity">
-                  <ol className="space-y-2 border-l-2 border-border-subtle pl-3">
-                    {task.events.map((event) => (
-                      <li key={event.id} className="text-body-sm">
-                        <span className="font-medium">
-                          {event.kind === "trigger_launching"
-                            ? `Launching ${projectTemplates.find((template) => template.id === event.data.templateId)?.name ?? "agent"}`
-                            : statusLabel(event.kind)}
-                        </span>
-                        <Hint label={formatDateTime(event.createdAt)}>
-                          <span className="ml-2 text-muted-foreground">
-                            {formatRelativeTime(event.createdAt)}
+                                </DropdownMenuContent>
+                              </DropdownMenu>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <p className="text-body-sm text-muted-foreground">
+                        No agents yet
+                      </p>
+                    )}
+                  </DrawerSection>
+                  <DrawerSection label="Activity">
+                    <ol className="space-y-2 border-l-2 border-border-subtle pl-3">
+                      {task.events.map((event) => (
+                        <li key={event.id} className="text-body-sm">
+                          <span className="font-medium">
+                            {event.kind === "trigger_launching"
+                              ? `Launching ${projectTemplates.find((template) => template.id === event.data.templateId)?.name ?? "agent"}`
+                              : statusLabel(event.kind)}
                           </span>
-                        </Hint>
-                        {typeof event.data.reason === "string" && (
-                          <p className="text-danger">{event.data.reason}</p>
-                        )}
-                      </li>
-                    ))}
-                  </ol>
-                </DrawerSection>
+                          <Hint label={formatDateTime(event.createdAt)}>
+                            <span className="ml-2 text-muted-foreground">
+                              {formatRelativeTime(event.createdAt)}
+                            </span>
+                          </Hint>
+                          {typeof event.data.reason === "string" && (
+                            <p className="text-danger">{event.data.reason}</p>
+                          )}
+                        </li>
+                      ))}
+                    </ol>
+                  </DrawerSection>
+                </div>
               </div>
-            </div>
-            {task.archivedAt && (
-              <div
-                className="border-t border-border-subtle px-3 py-2 text-body-md text-muted-foreground"
-                role="status"
-              >
-                Archived — restore this task to move it.
-              </div>
-            )}
-            {actions.restore?.error &&
-              actions.restore.variables === task.id && (
-                <p role="alert" className="px-3 py-2 text-body-md text-danger">
-                  {actions.restore.error.message}
-                </p>
+              {task.archivedAt && (
+                <div
+                  className="border-t border-border-subtle px-3 py-2 text-body-md text-muted-foreground"
+                  role="status"
+                >
+                  Archived — restore this task to move it.
+                </div>
               )}
-            <footer className="flex shrink-0 items-center gap-2 border-t border-border-subtle bg-card/veil px-3 py-2 pb-safe-2">
-              <Button
-                size="sm"
-                disabled={
-                  actions.archive?.isPending || actions.restore?.isPending
-                }
-                onClick={() =>
-                  task.archivedAt
-                    ? actions.restore.mutate(task.id)
-                    : actions.archive.mutate(task.id)
-                }
-              >
-                {task.archivedAt ? "Restore" : "Archive"}
-              </Button>
-              {task.id === id && (
-                <TaskDeleteDialog key={id} task={task} close={close} />
-              )}
-            </footer>
-          </TabsContent>
-          <TabsContent
-            value="conversation"
-            forceMount
-            className="min-h-0 flex-1 data-[state=inactive]:hidden pt-2 px-2 pb-safe-2 md:px-3 md:pb-3"
-          >
-            <TaskConversation
-              key={task.id}
-              taskId={task.id}
-              active={active && pane === "conversation"}
-              assignee={assignee}
-              isMobile={isMobile}
-              memberIds={memberIds}
-            />
-          </TabsContent>
-        </Tabs>
-      )}
+              <footer className="flex shrink-0 items-center gap-2 border-t border-border-subtle bg-card/veil px-3 py-2 pb-safe-2">
+                {task.id === id && (
+                  <TaskDeleteDialog key={id} task={task} close={close} />
+                )}
+                <Button
+                  size="sm"
+                  className="ml-auto"
+                  pending={
+                    actions.archive?.isPending || actions.restore?.isPending
+                  }
+                  onClick={() =>
+                    task.archivedAt
+                      ? restoreTask(actions, task, { failureShownInline: true })
+                      : archiveTask(actions, task, { failureShownInline: true })
+                  }
+                >
+                  {task.archivedAt ? "Restore" : "Archive"}
+                </Button>
+              </footer>
+            </TabsContent>
+            <TabsContent
+              value="conversation"
+              forceMount
+              className="min-h-0 flex-1 data-[state=inactive]:hidden pt-2 px-2 pb-safe-2 md:px-3 md:pb-3"
+            >
+              <TaskConversation
+                key={task.id}
+                taskId={task.id}
+                active={active && pane === "conversation"}
+                assignee={assignee}
+                isMobile={isMobile}
+                memberIds={memberIds}
+              />
+            </TabsContent>
+          </Tabs>
+        )}
+      </AsyncBoundary>
       {task && (
         <CreateAgentDialog
           open={launchOpen}
@@ -759,4 +802,54 @@ export function TaskDetailPanel({
       )}
     </>
   );
+}
+
+/** The drawer's failed action on this task, and how to try it again. */
+function taskFailure(
+  actions: ReturnType<typeof useTaskActions>,
+  id: string
+):
+  | { title: string; error: unknown; retry?: () => void; dismiss: () => void }
+  | undefined {
+  const { update, launch, removeAgent, archive, restore } = actions;
+  if (update?.error && update.variables?.id === id) {
+    const input = update.variables;
+    return {
+      title: "Couldn’t save the task.",
+      error: update.error,
+      retry: () => update.mutate(input),
+      dismiss: update.reset,
+    };
+  }
+  if (launch?.error && launch.variables?.id === id) {
+    const input = launch.variables;
+    return {
+      title: "Couldn’t launch the agent.",
+      error: launch.error,
+      retry: () => launch.mutate(input),
+      dismiss: launch.reset,
+    };
+  }
+  if (removeAgent?.error && removeAgent.variables?.id === id) {
+    const input = removeAgent.variables;
+    return {
+      title: "Couldn’t remove the agent from the task.",
+      error: removeAgent.error,
+      retry: () => removeAgent.mutate(input),
+      dismiss: removeAgent.reset,
+    };
+  }
+  if (archive?.error && archive.variables === id)
+    return {
+      title: "Couldn’t archive the task.",
+      error: archive.error,
+      dismiss: archive.reset,
+    };
+  if (restore?.error && restore.variables === id)
+    return {
+      title: "Couldn’t restore the task.",
+      error: restore.error,
+      dismiss: restore.reset,
+    };
+  return undefined;
 }

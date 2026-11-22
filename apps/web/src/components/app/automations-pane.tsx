@@ -25,6 +25,8 @@ import { useTemplates, type Template } from "@/hooks/use-templates";
 import { agentRoute } from "@/lib/agent-routes";
 import { shortPath } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { AsyncBoundary } from "@/components/ui/async-boundary";
+import { EmptyState } from "@/components/ui/empty-state";
 
 type AutomationsTab = "templates" | "jobs" | "brains";
 
@@ -104,10 +106,7 @@ function TemplateListContent({
   const navigate = useProjectNavigate();
   const { templateId } = useParams<{ templateId?: string }>();
   const { projectId } = useProjectScope();
-  const { data: allTemplates = [], isLoading } = useTemplates();
-  const templates = projectId
-    ? allTemplates.filter((t) => t.projectId === projectId)
-    : allTemplates;
+  const query = useTemplates();
   const [showCreate, setShowCreate] = useState(false);
 
   return (
@@ -122,42 +121,37 @@ function TemplateListContent({
         </Button>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto">
-        {isLoading ? (
-          <div className="space-y-3 p-4">
-            {Array.from({ length: 3 }, (_, i) => (
-              <div
-                key={i}
-                className="h-10 animate-pulse rounded-md bg-surface-subtle"
-              />
-            ))}
-          </div>
-        ) : templates.length === 0 ? (
-          <div className="p-4 text-body-md text-muted-foreground">
-            <div className="rounded-md border border-dashed border-border p-4">
-              <div className="font-medium text-foreground">
-                No templates yet.
-              </div>
-              <div className="mt-1 text-body-sm">
-                Create a template to launch agents with saved configurations.
-              </div>
-            </div>
-          </div>
-        ) : (
-          <div>
-            {templates.map((template) => (
-              <TemplateListItem
-                key={template.id}
-                template={template}
-                enabledAgentTypes={enabledAgentTypes}
-                selected={templateId === template.id}
-                onSelect={() => {
-                  navigate(`/automations/templates/${template.id}`);
-                  onItemSelect?.();
-                }}
-              />
-            ))}
-          </div>
-        )}
+        <AsyncBoundary
+          query={query}
+          thing="templates"
+          className="m-3"
+          isEmpty={(all) =>
+            !all.some((t) => !projectId || t.projectId === projectId)
+          }
+          empty={
+            <EmptyState
+              title="No templates yet."
+              description="Create a template to launch agents with saved configurations."
+            />
+          }
+        >
+          {(all) =>
+            all
+              .filter((t) => !projectId || t.projectId === projectId)
+              .map((template) => (
+                <TemplateListItem
+                  key={template.id}
+                  template={template}
+                  enabledAgentTypes={enabledAgentTypes}
+                  selected={templateId === template.id}
+                  onSelect={() => {
+                    navigate(`/automations/templates/${template.id}`);
+                    onItemSelect?.();
+                  }}
+                />
+              ))
+          }
+        </AsyncBoundary>
       </div>
       <CreateTemplateDialog
         open={showCreate}

@@ -10,6 +10,9 @@ import { Button } from "@/components/ui/button";
 import { useAgentRecord } from "@/hooks/use-agent-tree";
 import { useBlockJump } from "@/hooks/use-block-jump";
 import { useStreamFeed, useThread } from "@/hooks/use-stream";
+import { LoadError } from "@/components/ui/async-boundary";
+import { EmptyState } from "@/components/ui/empty-state";
+import { LoadingSkeleton } from "@/components/ui/skeleton";
 
 const NO_ANSWER = () => {};
 
@@ -128,20 +131,19 @@ export function ArchivedConversation({
         data-testid="archived-conversation-scroll"
       >
         {loading ? (
-          <p className="p-4 text-body-md text-muted-foreground">
-            Loading conversation…
-          </p>
+          <LoadingSkeleton
+            label="Loading conversation…"
+            className="p-4"
+            rowClassName="h-14"
+          />
         ) : null}
         {error ? (
-          <div role="alert" className="p-4 text-body-md">
-            Couldn&apos;t load conversation.{" "}
-            <Button
-              variant="ghost"
-              onClick={() => (threadId ? thread.refetch() : feed.refetch())}
-            >
-              Retry
-            </Button>
-          </div>
+          <LoadError
+            thing="conversation"
+            error={error}
+            className="m-3"
+            onRetry={() => (threadId ? thread.refetch() : feed.refetch())}
+          />
         ) : null}
         {threadId ? (
           thread.root ? (
@@ -181,9 +183,7 @@ export function ArchivedConversation({
               onAnswer={NO_ANSWER}
             />
             {!loading && !error && entries.length === 0 ? (
-              <p className="p-4 text-body-md text-muted-foreground">
-                No conversation recorded.
-              </p>
+              <EmptyState title="No conversation recorded." />
             ) : null}
           </>
         )}

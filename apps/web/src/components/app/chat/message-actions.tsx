@@ -22,7 +22,10 @@ import {
 } from "@/components/ui/dropdown-menu";
 import {
   Dialog,
+  DialogBody,
+  DialogCancel,
   DialogContent,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -189,15 +192,13 @@ export function MessageActions({
             event.preventDefault();
             actionsRef.current?.focus();
           }}
-          className="w-[calc(100vw-2rem)] max-w-sm gap-2 p-3 sm:p-4"
+          size="sm"
           aria-describedby={undefined}
         >
           <DialogHeader>
-            <DialogTitle className="tracking-tight">
-              Message metadata
-            </DialogTitle>
+            <DialogTitle>Message metadata</DialogTitle>
           </DialogHeader>
-          <div className="max-h-[70dvh] space-y-2 overflow-y-auto pr-1">
+          <DialogBody className="space-y-2">
             <section className="space-y-1.5" aria-label="Message delivery">
               <div className="flex min-w-0 flex-wrap items-baseline justify-between gap-x-2">
                 <p className="break-words text-body-sm font-medium">
@@ -299,7 +300,10 @@ export function MessageActions({
             {block.author.kind === "user" && (
               <MessageRoutingDetails block={block} agentName={agentName} />
             )}
-          </div>
+          </DialogBody>
+          <DialogFooter>
+            <DialogCancel>Done</DialogCancel>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </>

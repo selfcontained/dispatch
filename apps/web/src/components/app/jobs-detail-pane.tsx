@@ -15,9 +15,6 @@ import {
   ACTIVE_RUN_STATUSES,
   JobStatusBadge,
 } from "@/components/app/jobs-helpers";
-import { LoadError } from "@/components/app/load-error";
-import { ActivityBars } from "@/components/ui/activity-bars";
-import { errorMessage } from "@/lib/errors";
 import { shortPath } from "@/lib/format";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -25,15 +22,15 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { type UpdateJobConfig, type Job } from "@/hooks/use-jobs";
 import { type AgentType } from "@/lib/agent-types";
 import { cn } from "@/lib/utils";
+import { Alert } from "@/components/ui/alert";
+import { AsyncBoundary, LoadError } from "@/components/ui/async-boundary";
+import { toast } from "@/components/ui/toast";
 
 /** Job detail pane for the main content area. */
 export function JobDetailPane(): JSX.Element {
   const {
     jobs,
-    isLoading,
-    error,
-    retry,
-    isRetrying,
+    jobsQuery,
     selectedJob,
     tab,
     history,
@@ -54,84 +51,80 @@ export function JobDetailPane(): JSX.Element {
 
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background">
-      {error ? (
-        <LoadError
-          message="Couldn't load jobs"
-          error={error}
-          onRetry={retry}
-          retrying={isRetrying}
-          className="m-3"
-        />
-      ) : !selectedJob && jobs.length > 0 && jobStats.error ? (
-        <LoadError
-          message="Couldn't load run history"
-          error={jobStats.error}
-          onRetry={() => void jobStats.refetch()}
-          retrying={jobStats.isFetching}
-          className="m-3"
-        />
-      ) : null}
-      <div className="min-h-0 flex-1 overflow-hidden">
-        {isLoading ? (
-          <div className="flex h-full items-center justify-center gap-2 text-body-md text-muted-foreground">
-            <ActivityBars size={16} /> Loading jobs…
-          </div>
-        ) : error && jobs.length === 0 ? null : selectedJob ? (
-          <div className="flex h-full min-h-0 flex-col">
-            <JobDetail
-              className="min-h-0 flex-1"
-              job={selectedJob}
-              tab={tab}
-              onTabChange={(nextTab) => {
-                navigate(
-                  `/automations/jobs/${selectedJob.id}${nextTab === "configure" ? "" : `/${nextTab}`}`
-                );
-              }}
-              history={history}
-              selectedRunId={routeRunId ?? null}
-              onSelectRun={(runId) => {
-                navigate(
-                  runId
-                    ? `/automations/jobs/${selectedJob.id}/history/${runId}`
-                    : `/automations/jobs/${selectedJob.id}/history`
-                );
-              }}
-              attachedAgent={attachedAgent}
-              onOpenAgent={onOpenAgent}
-              onRunNow={async (job) => {
-                await runNow.mutateAsync(job);
-              }}
-              onSetEnabled={async (job, enabled) => {
-                await setEnabled.mutateAsync({ job, enabled });
-              }}
-              enabledAgentTypes={enabledAgentTypes}
-              onUpdateJob={async (job) => {
-                await updateJob.mutateAsync(job);
-              }}
-              onRemoveJob={async (job) => {
-                await removeJob.mutateAsync(job);
-                navigate("/automations/jobs");
-              }}
-              isUpdating={updateJob.isPending}
-              isRemoving={removeJob.isPending}
-              justAdded={justAddedJobId === selectedJob.id}
-              onDismissAdded={() => setJustAddedJobId(null)}
-            />
-          </div>
-        ) : (
-          <div className="flex h-full min-h-0 flex-col">
-            <JobsOverview
-              jobs={jobs}
-              stats={jobStats.data ?? null}
-              statsLoading={jobStats.isPending}
-              onSelectJob={selectJob}
-              onSelectRun={(jobId, runId) =>
-                navigate(`/automations/jobs/${jobId}/history/${runId}`)
-              }
-            />
-          </div>
+      <AsyncBoundary query={jobsQuery} thing="jobs" className="m-3">
+        {() => (
+          <>
+            {!selectedJob && jobs.length > 0 && jobStats.error ? (
+              <LoadError
+                thing="run history"
+                error={jobStats.error}
+                onRetry={() => void jobStats.refetch()}
+                retrying={jobStats.isFetching}
+                className="m-3"
+              />
+            ) : null}
+            <div className="min-h-0 flex-1 overflow-hidden">
+              {selectedJob ? (
+                <div className="flex h-full min-h-0 flex-col">
+                  <JobDetail
+                    className="min-h-0 flex-1"
+                    job={selectedJob}
+                    tab={tab}
+                    onTabChange={(nextTab) => {
+                      navigate(
+                        `/automations/jobs/${selectedJob.id}${nextTab === "configure" ? "" : `/${nextTab}`}`
+                      );
+                    }}
+                    history={history}
+                    selectedRunId={routeRunId ?? null}
+                    onSelectRun={(runId) => {
+                      navigate(
+                        runId
+                          ? `/automations/jobs/${selectedJob.id}/history/${runId}`
+                          : `/automations/jobs/${selectedJob.id}/history`
+                      );
+                    }}
+                    attachedAgent={attachedAgent}
+                    onOpenAgent={onOpenAgent}
+                    onRunNow={async (job) => {
+                      await runNow.mutateAsync(job);
+                      toast.success(`Job “${job.name}” started.`);
+                    }}
+                    onSetEnabled={async (job, enabled) => {
+                      await setEnabled.mutateAsync({ job, enabled });
+                    }}
+                    enabledAgentTypes={enabledAgentTypes}
+                    onUpdateJob={async (job) => {
+                      await updateJob.mutateAsync(job);
+                    }}
+                    onRemoveJob={async (job) => {
+                      await removeJob.mutateAsync(job);
+                      toast.success(`Job “${job.name}” removed.`);
+                      navigate("/automations/jobs");
+                    }}
+                    isUpdating={updateJob.isPending}
+                    isRemoving={removeJob.isPending}
+                    justAdded={justAddedJobId === selectedJob.id}
+                    onDismissAdded={() => setJustAddedJobId(null)}
+                  />
+                </div>
+              ) : (
+                <div className="flex h-full min-h-0 flex-col">
+                  <JobsOverview
+                    jobs={jobs}
+                    stats={jobStats.data ?? null}
+                    statsLoading={jobStats.isPending && !jobStats.error}
+                    onSelectJob={selectJob}
+                    onSelectRun={(jobId, runId) =>
+                      navigate(`/automations/jobs/${jobId}/history/${runId}`)
+                    }
+                  />
+                </div>
+              )}
+            </div>
+          </>
         )}
-      </div>
+      </AsyncBoundary>
     </div>
   );
 }
@@ -175,9 +168,11 @@ function JobDetail({
   justAdded: boolean;
   onDismissAdded: () => void;
 }) {
-  const [detailActionError, setDetailActionError] = useState<string | null>(
-    null
-  );
+  const [detailActionError, setDetailActionError] = useState<{
+    jobId: string;
+    title: string;
+    error: unknown;
+  }>();
   const runBlockedReason = job.continuationPending
     ? "The loop is preparing its next run."
     : job.continuationEnabled &&
@@ -186,15 +181,23 @@ function JobDetail({
       ? "This job already has a run in progress."
       : null;
   const handleRunNow = () => {
-    setDetailActionError(null);
-    void onRunNow(job).catch((error) =>
-      setDetailActionError(errorMessage(error))
+    setDetailActionError(undefined);
+    void onRunNow(job).catch((error: unknown) =>
+      setDetailActionError({
+        jobId: job.id,
+        title: "Couldn’t start the job.",
+        error,
+      })
     );
   };
   const handleEnable = () => {
-    setDetailActionError(null);
-    void onSetEnabled(job, true).catch((error) =>
-      setDetailActionError(errorMessage(error))
+    setDetailActionError(undefined);
+    void onSetEnabled(job, true).catch((error: unknown) =>
+      setDetailActionError({
+        jobId: job.id,
+        title: "Couldn’t enable the job.",
+        error,
+      })
     );
   };
   return (
@@ -236,10 +239,12 @@ function JobDetail({
         </p>
       ) : null}
 
-      {detailActionError ? (
-        <div className="mt-2 rounded-sm border border-danger/line bg-danger/tint p-2 text-body-md text-danger">
-          {detailActionError}
-        </div>
+      {detailActionError?.jobId === job.id ? (
+        <Alert
+          title={detailActionError.title}
+          error={detailActionError.error}
+          className="mt-2"
+        />
       ) : null}
 
       {job.continuationEnabled ? (
@@ -308,11 +313,7 @@ function JobDetail({
           {tab === "history" ? (
             <div className="min-h-0 flex-1">
               <HistoryTab
-                runs={history.data?.runs ?? []}
-                loading={history.isPending}
-                error={history.error}
-                retrying={history.isFetching}
-                onRetry={() => void history.refetch()}
+                query={history}
                 selectedRunId={selectedRunId}
                 onSelectRun={onSelectRun}
               />

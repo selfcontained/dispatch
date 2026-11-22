@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { useInstanceName } from "@/hooks/use-instance-name";
 import { Input } from "@/components/ui/input";
-import { cn } from "@/lib/utils";
+import { Field } from "@/components/ui/field";
 
 export function InstanceNameSettings(): JSX.Element {
   const {
@@ -57,44 +57,40 @@ export function InstanceNameSettings(): JSX.Element {
 
   return (
     <div>
-      <label htmlFor="instance-name" className="mb-1.5 block section-label">
-        Instance name
-      </label>
-      <p className="mb-3 text-body-md text-muted-foreground">
-        Give this Dispatch instance a name to distinguish it from others. Shown
-        in the sidebar and browser tab.
-      </p>
-      <div className="flex items-center gap-2">
-        <Input
-          id="instance-name"
-          ref={inputRef}
-          type="text"
-          value={draft}
-          onChange={(e) => {
-            setDraft(e.target.value);
-            if (saveError) clearSaveState();
-          }}
-          onBlur={save}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              save();
-              inputRef.current?.blur();
-            }
-          }}
-          disabled={isSaving}
-          placeholder="e.g. Production, Staging, Local"
-          maxLength={100}
-          className={cn("w-full max-w-sm", saveError && "border-danger")}
-        />
-        {showSaved && !saveError ? (
-          <span className="text-body-sm text-muted-foreground">Saved</span>
-        ) : null}
-      </div>
-      {saveError ? (
-        <p className="mt-1.5 text-body-sm text-danger">
-          Failed to save. Please try again.
-        </p>
-      ) : null}
+      <Field
+        id="instance-name"
+        label="Instance name"
+        hint="Give this Dispatch instance a name to distinguish it from others. Shown in the sidebar and browser tab."
+        error={saveError ? "Couldn’t save changes. Try again." : null}
+      >
+        <div className="flex items-center gap-2">
+          <Input
+            ref={inputRef}
+            type="text"
+            value={draft}
+            onChange={(e) => {
+              setDraft(e.target.value);
+              if (saveError) clearSaveState();
+            }}
+            onBlur={save}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                save();
+                inputRef.current?.blur();
+              }
+            }}
+            disabled={isSaving}
+            placeholder="e.g. Production, Staging, Local"
+            maxLength={100}
+            className="w-full max-w-sm"
+          />
+          {showSaved && !saveError ? (
+            <span role="status" className="text-body-sm text-muted-foreground">
+              Saved
+            </span>
+          ) : null}
+        </div>
+      </Field>
     </div>
   );
 }

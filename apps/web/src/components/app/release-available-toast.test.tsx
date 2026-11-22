@@ -3,11 +3,13 @@ import { cleanup, render, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
-import { toast } from "sonner";
+import { toast } from "@/components/ui/toast";
 import { api } from "@/lib/api";
 import { ReleaseAvailableToast } from "./release-available-toast";
 
-vi.mock("sonner", () => ({ toast: { info: vi.fn(), dismiss: vi.fn() } }));
+vi.mock("@/components/ui/toast", () => ({
+  toast: { info: vi.fn(), dismiss: vi.fn() },
+}));
 vi.mock("@/lib/api", () => ({ api: vi.fn() }));
 vi.mock("@/hooks/use-cached-release-info", () => ({
   useCachedReleaseInfo: () => ({

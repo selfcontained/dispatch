@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Clock, X, Pause, Play, CalendarClock } from "lucide-react";
+import { Clock, Pause, Play, CalendarClock } from "lucide-react";
 import type { ScheduledMessage } from "@dispatch/shared";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -13,14 +13,15 @@ import {
 } from "@/components/ui/select";
 import {
   Dialog,
+  DialogBody,
+  DialogCancel,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
-  DialogClose,
 } from "@/components/ui/dialog";
-import { IconButton } from "@/components/ui/icon-button";
 import { Hint } from "@/components/ui/tooltip";
 import {
   upcomingSchedulesKey,
@@ -32,6 +33,9 @@ import {
   scheduleTimezone,
   useScheduledMessages,
 } from "./scheduled-messages";
+import { Alert } from "@/components/ui/alert";
+import { AsyncBoundary } from "@/components/ui/async-boundary";
+import { EmptyState } from "@/components/ui/empty-state";
 
 type Action = "pause" | "resume" | "cancel";
 export function ScheduledMessagesButton({
@@ -89,7 +93,6 @@ export function ScheduledMessagesButton({
     mutation.mutate({ id: s.id, action: value });
   };
   const render = (s: ScheduledMessage) => {
-    const pending = mutation.isPending && mutation.variables?.id === s.id;
     const status =
       s.status === "active"
         ? `Next ${scheduleTime(s.nextDueAt)}`
@@ -111,7 +114,7 @@ export function ScheduledMessagesButton({
         className="flex min-w-0 flex-col"
       >
         <h3 className="sr-only">{s.title}</h3>
-        <div className="flex items-start gap-2 bg-surface-subtle px-4 py-3">
+        <div className="flex items-start gap-2 rounded-md bg-surface-subtle px-3 py-3">
           <Clock className="mt-0.5 h-4 w-4 shrink-0 text-heading-accent-1" />
           <div className="min-w-0">
             <p className="text-body-md font-medium">
@@ -136,7 +139,7 @@ export function ScheduledMessagesButton({
             )}
           </div>
         </div>
-        <div className="space-y-3 px-4 pb-3 pt-4">
+        <div className="space-y-3 pb-3 pt-4">
           <p className="whitespace-pre-wrap text-body-md leading-relaxed [overflow-wrap:anywhere]">
             {s.message}
           </p>
@@ -152,50 +155,9 @@ export function ScheduledMessagesButton({
           </p>
           {s.error && <p className="text-body-sm text-warning">{s.error}</p>}
         </div>
-        {isCurrentSchedule(s) && (
-          <div className="sticky bottom-0 flex flex-wrap items-center gap-2 border-t border-border-subtle bg-[hsl(var(--card))] px-4 py-2 sm:px-4">
-            {s.status !== "uncertain" && (
-              <Button
-                size="sm"
-                disabled={mutation.isPending}
-                onClick={() =>
-                  action(s, s.status === "paused" ? "resume" : "pause")
-                }
-              >
-                {s.status === "paused" ? <Play /> : <Pause />}
-                {pending && mutation.variables?.action !== "cancel"
-                  ? s.status === "paused"
-                    ? "Resuming…"
-                    : "Pausing…"
-                  : s.status === "paused"
-                    ? "Resume"
-                    : "Pause"}
-              </Button>
-            )}
-            <Button
-              size="sm"
-              variant="ghost"
-              tone="danger"
-              disabled={mutation.isPending}
-              onClick={() => action(s, "cancel")}
-            >
-              {pending && mutation.variables?.action === "cancel"
-                ? "Cancelling…"
-                : "Cancel schedule"}
-            </Button>
-          </div>
-        )}
         {feedback?.id === s.id && (
-          <p
-            role="status"
-            className="px-4 pb-3 text-body-sm text-muted-foreground"
-          >
+          <p role="status" className="pb-3 text-body-sm text-muted-foreground">
             {feedback.text}
-          </p>
-        )}
-        {mutation.error && mutation.variables?.id === s.id && (
-          <p role="alert" className="px-4 pb-3 text-body-sm text-danger">
-            {mutation.error.message}
           </p>
         )}
       </section>
@@ -263,7 +225,8 @@ export function ScheduledMessagesButton({
         </DialogTrigger>
       )}
       <DialogContent
-        className="w-[calc(100vw-1.5rem)] sm:w-[min(660px,calc(100vw-3rem))] max-h-[90dvh] gap-0 p-0 text-foreground"
+        busy={mutation.isPending}
+        className="text-foreground"
         onEscapeKeyDown={(event) => event.stopPropagation()}
         onCloseAutoFocus={(event) => {
           if (!scheduleId && fallbackFocus.current?.isConnected) {
@@ -272,85 +235,120 @@ export function ScheduledMessagesButton({
           }
         }}
       >
-        <DialogClose asChild>
-          <IconButton
-            className="absolute right-2 top-2"
-            label="Close scheduled messages"
-          >
-            <X />
-          </IconButton>
-        </DialogClose>
-        <DialogHeader className="shrink-0 border-b border-border-subtle px-4 py-3 pr-14">
-          <DialogTitle className="flex items-center gap-2 text-heading-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
             <CalendarClock className="h-4 w-4 shrink-0 text-heading-accent-1" />
             Scheduled messages
           </DialogTitle>
           <DialogDescription>Times in {scheduleTimezone()}.</DialogDescription>
         </DialogHeader>
-        <div className="min-h-0 overflow-y-auto">
-          {query.isPending ? (
-            <p className="p-6 text-body-md">Loading schedules…</p>
-          ) : query.error ? (
-            <div className="p-6">
-              <p role="alert" className="text-body-md text-danger">
-                {query.error.message}
-              </p>
-              <Button variant="ghost" onClick={() => void query.refetch()}>
-                Try again
-              </Button>
-            </div>
-          ) : (
-            <div className="min-h-0">
-              <div className="border-b border-border-subtle p-3">
-                <Select
-                  value={selected?.id ?? ""}
-                  onValueChange={setSelectedId}
-                >
-                  <SelectTrigger
-                    aria-label="Choose scheduled message"
-                    className="min-h-11 w-full min-w-0 text-body-sm"
+        <DialogBody>
+          <AsyncBoundary query={query} thing="schedules">
+            {() => (
+              <div className="min-h-0">
+                <div className="pb-3">
+                  <Select
+                    value={selected?.id ?? ""}
+                    onValueChange={setSelectedId}
                   >
-                    <SelectValue placeholder="Choose scheduled message" />
-                  </SelectTrigger>
-                  <SelectContent className="max-w-[calc(100vw-2.5rem)]">
-                    {[...current, ...history].map((s) => (
-                      <SelectItem
-                        key={s.id}
-                        value={s.id}
-                        className="min-h-11 text-body-sm"
-                      >
-                        {s.title}
-                        {s.status !== "active"
-                          ? ` · ${scheduleStatusLabels[s.status]}`
-                          : ""}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                {current.length === 0 && (
-                  <p className="mt-2 text-body-sm text-muted-foreground">
-                    No current schedules.
-                  </p>
-                )}
-              </div>
+                    <SelectTrigger
+                      aria-label="Choose scheduled message"
+                      className="min-h-11 w-full min-w-0 text-body-sm"
+                    >
+                      <SelectValue placeholder="Choose scheduled message" />
+                    </SelectTrigger>
+                    <SelectContent className="max-w-[calc(100vw-2.5rem)]">
+                      {[...current, ...history].map((s) => (
+                        <SelectItem
+                          key={s.id}
+                          value={s.id}
+                          className="min-h-11 text-body-sm"
+                        >
+                          {s.title}
+                          {s.status !== "active"
+                            ? ` · ${scheduleStatusLabels[s.status]}`
+                            : ""}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {current.length === 0 && (
+                    <p className="mt-2 text-body-sm text-muted-foreground">
+                      No current schedules.
+                    </p>
+                  )}
+                </div>
 
-              <div className="min-w-0">
-                {scheduleId && !schedules.some((s) => s.id === scheduleId) && (
-                  <p className="px-4 pt-4 text-body-md text-muted-foreground">
-                    Schedule unavailable.
-                  </p>
-                )}
-                {selected ? (
-                  render(selected)
-                ) : (
-                  <div className="p-6 text-body-md text-muted-foreground">
-                    The agent’s future reminders will appear here.
-                  </div>
-                )}
+                <div className="min-w-0">
+                  {scheduleId &&
+                    !schedules.some((s) => s.id === scheduleId) && (
+                      <p className="pt-4 text-body-md text-muted-foreground">
+                        Schedule unavailable.
+                      </p>
+                    )}
+                  {selected ? (
+                    render(selected)
+                  ) : (
+                    <EmptyState
+                      icon={Clock}
+                      title="No scheduled messages"
+                      description="The agent’s future reminders will appear here."
+                    />
+                  )}
+                </div>
               </div>
-            </div>
-          )}
-        </div>
+            )}
+          </AsyncBoundary>
+        </DialogBody>
+        {selected &&
+        mutation.error &&
+        mutation.variables?.id === selected.id ? (
+          <Alert
+            title={`Couldn’t ${mutation.variables.action} the schedule.`}
+            error={mutation.error}
+          />
+        ) : null}
+        {selected && isCurrentSchedule(selected) ? (
+          <DialogFooter
+            start={
+              <Button
+                variant="ghost"
+                tone="danger"
+                disabled={mutation.isPending}
+                pending={
+                  mutation.isPending && mutation.variables?.action === "cancel"
+                }
+                onClick={() => action(selected, "cancel")}
+              >
+                Cancel schedule
+              </Button>
+            }
+          >
+            <DialogCancel>Done</DialogCancel>
+            {selected.status !== "uncertain" && (
+              <Button
+                variant="primary"
+                disabled={mutation.isPending}
+                pending={
+                  mutation.isPending && mutation.variables?.action !== "cancel"
+                }
+                onClick={() =>
+                  action(
+                    selected,
+                    selected.status === "paused" ? "resume" : "pause"
+                  )
+                }
+              >
+                {selected.status === "paused" ? <Play /> : <Pause />}
+                {selected.status === "paused" ? "Resume" : "Pause"}
+              </Button>
+            )}
+          </DialogFooter>
+        ) : (
+          <DialogFooter>
+            <DialogCancel>Done</DialogCancel>
+          </DialogFooter>
+        )}
       </DialogContent>
     </Dialog>
   );

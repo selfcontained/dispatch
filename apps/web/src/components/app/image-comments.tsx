@@ -612,6 +612,7 @@ export function ImageComments({
       }}
     >
       <DialogContent
+        bare
         data-testid="file-lightbox"
         aria-label={caption}
         aria-describedby={undefined}
@@ -715,7 +716,7 @@ export function ImageComments({
               className="absolute inset-0 flex items-center justify-center text-media-foreground"
             >
               {loadError
-                ? "Unable to load image. Close and try again."
+                ? "Couldn’t load the image. Close and try again."
                 : "Loading image…"}
             </p>
           )}

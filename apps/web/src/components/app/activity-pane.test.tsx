@@ -84,9 +84,9 @@ it("shows an error, not empty, and retries only what failed", () => {
   const { daily } = H.queries;
   H.queries.stats = failed;
   render(<ActivityPane open />);
-  expect(screen.getByRole("alert").textContent).toContain(
-    "Couldn't load token usage: boom"
-  );
+  const alert = screen.getByRole("alert").textContent;
+  expect(alert).toContain("Couldn’t load token usage.");
+  expect(alert).toContain("boom");
   expect(screen.queryByText("No token usage yet.")).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "Retry" }));
   expect(failed.refetch).toHaveBeenCalledOnce();

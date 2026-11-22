@@ -133,7 +133,7 @@ for (const mobile of [false, true]) {
     });
     release();
     await expect(
-      page.getByText("Could not explain this assessment. You can retry.")
+      page.getByText("Couldn’t explain this assessment. You can retry.")
     ).toBeVisible();
     await expect(page.getByRole("alert")).toContainText("Explanation failed");
     await expect(
@@ -184,7 +184,7 @@ for (const mobile of [false, true]) {
       .getByRole("button", { name: "Explain assessment", exact: true })
       .click();
     await expect(
-      page.getByText("Could not explain this assessment. You can retry.")
+      page.getByText("Couldn’t explain this assessment. You can retry.")
     ).toBeVisible();
     await expect(
       page.getByText(/Resolved reviews mitigate correctness risk/)

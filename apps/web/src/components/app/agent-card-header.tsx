@@ -1,6 +1,5 @@
 import React from "react";
 import { AlarmClock, ChevronDown, Play, Pin, Repeat2, Tag } from "lucide-react";
-import { toast } from "sonner";
 
 import { AgentSeatBadge } from "@/components/app/agent-seat-badge";
 import { ChatUnreadBadge } from "@/components/app/chat/chat-unread-badge";
@@ -15,6 +14,7 @@ import {
 import { IconButton } from "@/components/ui/icon-button";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { toast } from "@/components/ui/toast";
 
 function hasDefaultSessionName(agent: Agent): boolean {
   if (agent.role === "review") return false;
@@ -73,11 +73,11 @@ export function AgentCardHeader({
       await api(`/api/v1/agents/${agent.id}/prompt-rename`, {
         method: "POST",
       });
-      toast.success("Name request queued. Follow its delivery in the stream.");
-    } catch (err) {
-      toast.error("Couldn't reach the agent — try again in a moment.", {
-        description: err instanceof Error ? err.message : undefined,
+      toast.success("Name request queued.", {
+        description: "Follow its delivery in the stream.",
       });
+    } catch (err) {
+      toast.error("Couldn’t ask the agent for a name.", { error: err });
     } finally {
       // Clear after a short delay so a rapid double-click doesn't fire twice
       // even if the agent hasn't renamed itself yet (which would otherwise

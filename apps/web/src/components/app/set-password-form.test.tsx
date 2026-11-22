@@ -60,7 +60,9 @@ describe("set password form", () => {
     const { onSuccess, invalidate } = setup();
     fill("long-password");
     fireEvent.click(screen.getByRole("button", { name: "Set password" }));
-    expect((await screen.findByRole("alert")).textContent).toBe("Try again.");
+    expect((await screen.findByRole("alert")).textContent).toContain(
+      "Try again."
+    );
     expect(onSuccess).not.toHaveBeenCalled();
     expect((screen.getByLabelText("Password") as HTMLInputElement).value).toBe(
       "long-password"

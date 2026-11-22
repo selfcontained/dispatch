@@ -15,6 +15,9 @@ import {
   cleanError,
   type AppVersionInfo,
 } from "@/components/app/release-utils";
+import { errorMessage } from "@/lib/errors";
+
+const LOAD_PREFERENCES_FAILED = "Couldn’t load update preferences.";
 
 /**
  * Takes the update stream as a param rather than opening its own — the
@@ -52,6 +55,10 @@ export function useReleaseUpdates(stream: UseReleaseStreamResult) {
   const [infoLoading, setInfoLoading] = useState(false);
   const [infoError, setInfoError] = useState<string | null>(null);
   const [updateError, setUpdateError] = useState<string | null>(null);
+  const [preferencesError, setPreferencesError] = useState<{
+    title: string;
+    error: unknown;
+  }>();
   const [lastCheckMessage, setLastCheckMessage] = useState<string | null>(null);
   const reloadingRef = useRef(false);
 
@@ -71,12 +78,18 @@ export function useReleaseUpdates(stream: UseReleaseStreamResult) {
       .then((data) => {
         if (!cancelled) setChannel(data.channel);
       })
-      .catch(() => {});
+      .catch((error: unknown) => {
+        if (!cancelled)
+          setPreferencesError({ title: LOAD_PREFERENCES_FAILED, error });
+      });
     void api<{ mode: "off" | "check" }>("/api/v1/release/auto-update-mode")
       .then((data) => {
         if (!cancelled) setAutoUpdateMode(data.mode);
       })
-      .catch(() => {});
+      .catch((error: unknown) => {
+        if (!cancelled)
+          setPreferencesError({ title: LOAD_PREFERENCES_FAILED, error });
+      });
     return () => {
       cancelled = true;
     };
@@ -85,13 +98,15 @@ export function useReleaseUpdates(stream: UseReleaseStreamResult) {
   const handleAutoUpdateModeChange = useCallback(
     async (next: "off" | "check") => {
       setAutoUpdateMode(next);
+      setPreferencesError(undefined);
       setAutoUpdateSaving(true);
       try {
         await api("/api/v1/release/auto-update-mode", {
           method: "POST",
           body: JSON.stringify({ mode: next }),
         });
-      } catch {
+      } catch (error) {
+        setPreferencesError({ title: "Couldn’t save changes.", error });
         setAutoUpdateMode((prev) => (prev === "off" ? "check" : "off"));
       } finally {
         setAutoUpdateSaving(false);
@@ -102,6 +117,7 @@ export function useReleaseUpdates(stream: UseReleaseStreamResult) {
 
   const handleChannelChange = useCallback(async (value: ReleaseChannel) => {
     setChannel(value);
+    setPreferencesError(undefined);
     setChannelSaving(true);
     try {
       await api("/api/v1/release/channel", {
@@ -109,7 +125,8 @@ export function useReleaseUpdates(stream: UseReleaseStreamResult) {
         body: JSON.stringify({ channel: value }),
       });
       setInfo(null);
-    } catch {
+    } catch (error) {
+      setPreferencesError({ title: "Couldn’t save changes.", error });
       setChannel((prev) => (prev === "stable" ? "preview" : "stable"));
     } finally {
       setChannelSaving(false);
@@ -158,11 +175,17 @@ export function useReleaseUpdates(stream: UseReleaseStreamResult) {
 
   const handleUpdate = async (tag: string) => {
     setUpdateError(null);
-    const res = await fetch("/api/v1/release/update", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ tag }),
-    });
+    let res: Response;
+    try {
+      res = await fetch("/api/v1/release/update", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tag }),
+      });
+    } catch (error) {
+      setUpdateError(cleanError(errorMessage(error)));
+      return;
+    }
     if (!res.ok) {
       const err = (await res.json()) as { error?: string };
       setUpdateError(cleanError(err.error ?? "Failed to start update"));
@@ -232,6 +255,7 @@ export function useReleaseUpdates(stream: UseReleaseStreamResult) {
     autoUpdateSaving,
     infoLoading,
     infoError,
+    preferencesError,
     updateError,
     lastCheckMessage,
 

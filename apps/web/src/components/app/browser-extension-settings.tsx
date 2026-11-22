@@ -10,6 +10,8 @@ import {
   useExtensionConnections,
   useExtensionPairing,
 } from "./use-extension-pairing";
+import { LoadingSkeleton } from "@/components/ui/skeleton";
+import { toast } from "@/components/ui/toast";
 
 export function BrowserExtensionSettings(): JSX.Element {
   const { connectionsQuery, revokeMutation } = useExtensionConnections();
@@ -73,9 +75,7 @@ export function BrowserExtensionSettings(): JSX.Element {
         connectionsQuery.isPending && (
           <Card>
             <CardContent className="pt-4">
-              <p className="text-body-md text-muted-foreground" role="status">
-                Checking browser connections...
-              </p>
+              <LoadingSkeleton label="Checking browser connections…" />
             </CardContent>
           </Card>
         )}
@@ -103,7 +103,11 @@ export function BrowserExtensionSettings(): JSX.Element {
           setShowAllConnections={setShowAllConnections}
           revokeIsPending={revokeMutation.isPending}
           revokeIsError={revokeMutation.isError}
-          onRevoke={(connectionId) => revokeMutation.mutate(connectionId)}
+          onRevoke={(connectionId) =>
+            revokeMutation.mutate(connectionId, {
+              onSuccess: () => toast.success("Browser access revoked."),
+            })
+          }
         />
       )}
     </div>

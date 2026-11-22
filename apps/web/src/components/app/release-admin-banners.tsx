@@ -1,10 +1,11 @@
-import { CheckCircle2, XCircle } from "lucide-react";
+import { CheckCircle2 } from "lucide-react";
 import { cleanError } from "@/components/app/release-utils";
 import { ActivityBars } from "@/components/ui/activity-bars";
 import { Button } from "@/components/ui/button";
 import type { ReleaseJob } from "@/hooks/use-release-stream";
 import { PHASE_LABELS } from "@/components/app/release-shared";
 import { statusLabel } from "@/lib/status-label";
+import { Alert } from "@/components/ui/alert";
 
 type ReleaseJobBannersProps = {
   job: ReleaseJob;
@@ -57,26 +58,12 @@ export function ReleaseJobBanners({
         </div>
       )}
       {isFailed && (
-        <div className="flex items-center gap-3 rounded-lg border border-danger/line bg-danger/tint px-3 py-3 text-body-md text-danger">
-          <XCircle className="h-4 w-4 shrink-0" />
-          <span className="min-w-0 truncate">
-            Release failed
-            {job.error ? `: ${cleanError(job.error)}` : ""}
-          </span>
-          <div className="ml-auto flex shrink-0 items-center gap-2">
-            <Button
-              size="sm"
-              variant="ghost"
-              tone="success"
-              onClick={onShowProgress}
-            >
-              Details
-            </Button>
-            <Button size="sm" variant="ghost" onClick={onDismiss}>
-              Dismiss
-            </Button>
-          </div>
-        </div>
+        <Alert
+          title="Couldn’t finish the release."
+          error={job.error ? cleanError(job.error) : undefined}
+          action={{ label: "View log", onClick: onShowProgress }}
+          secondaryAction={{ label: "Dismiss", onClick: onDismiss }}
+        />
       )}
       {isDone && watchedRelease && (
         <div className="flex items-center gap-3 rounded-lg border border-success/line bg-success/tint px-3 py-3 text-body-md text-success">

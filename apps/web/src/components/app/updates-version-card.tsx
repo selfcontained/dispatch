@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import type { ReleaseStatus } from "@/hooks/use-release-stream";
 import { formatShortDateTime } from "@/lib/format";
 import type { AppVersionInfo } from "./release-utils";
+import { LoadingSkeleton } from "@/components/ui/skeleton";
 
 type UpdatesVersionCardProps = {
   status: ReleaseStatus | null;
@@ -56,7 +57,11 @@ export function UpdatesVersionCard({
             ) : null}
           </div>
         ) : (
-          <span className="text-body-md text-muted-foreground">Loading...</span>
+          <LoadingSkeleton
+            label="Loading the current version…"
+            rows={1}
+            rowClassName="h-7 w-40"
+          />
         )}
       </div>
 

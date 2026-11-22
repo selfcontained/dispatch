@@ -69,15 +69,15 @@ One `Badge`: `tone` (neutral / success / warning / danger / info / merged) × `a
 
 ### C4 — Dialogs
 
-`DialogContent size="sm|md|lg|xl"` (400 / 560 / 720 / 960), `p-5`, radius `xl`, built-in close button top-right (`icon-sm` ghost, `aria-label="Close"`). `DialogFooter`: right-aligned, Cancel (ghost) then primary, `gap-2`; a top divider appears only when the body scrolls. Tertiary/destructive action sits left.
+`DialogContent size="sm|md|lg|xl"` (400 / 560 / 720 / 960), `p-5`, radius `xl`, built-in close button top-right (`icon-sm` ghost, `aria-label="Close"`), and `phone="fill"` for a long form or `"sheet"` for a short pick. Every dialog is `DialogHeader`, `DialogBody` (the only part that scrolls), then `DialogFooter`: right-aligned, Cancel (ghost, `DialogCancel`) then primary, `gap-2`; a top divider appears only when the body scrolls. Tertiary/destructive action sits left (`start`). Close, Esc and a click outside all close, and all three wait while `busy`. `bare` is only for full-screen viewers and editors; the command palette is a picker, not a dialog.
 
 ### C5 — Form fields and setting rows
 
-`Field` (label `body-sm` medium, control, hint `body-sm` muted, error `body-sm` danger). `SettingRow` (label + description left, control right). `OptionCard` (radio/checkbox card). All controls 36px in forms, 32px in toolbars.
+`Field` (label `body-sm` medium, control, hint `body-sm` muted, error `body-sm` danger); it supplies the control’s id, description and invalid state. `SettingRow` (label + description left, control right). `OptionCard` (checkbox, then label + description) for choices in a form or a multi-select list. All controls 36px in forms, 32px in toolbars, 44px on touch.
 
 ### C6 — Selects and pickers
 
-Fixed options → `Select`. Searchable or async → one `Combobox` (Command in Popover). Composer pickers share one `PickerList`. Highlighted item is always `surface-hover`; selected shows a check.
+Fixed options → `Select` (type jumps to a match). Searchable, async or multi-select → one `Combobox` (Command in Popover): arrows or Enter open it, typing on the trigger opens it searching, Esc closes only the picker, and every one matches with `searchRank`. A free-text field with suggestions (the folder path) keeps its input and shares the row style. Composer pickers share one `PickerList`. Highlighted item is always `surface-hover`; selected shows a check.
 
 ### C7 — Tabs and view switches
 
@@ -97,7 +97,7 @@ Two patterns only. `SegmentedControl` — switches the view of the same data, �
 
 ### C11 — Loading and empty states
 
-First load of a list or pane → `Skeleton` shaped like the content. In-flight action → one `Spinner` inside the triggering button, which stays the same width. No bare "Loading…" as a pane's only content. `EmptyState`: optional icon, `heading-sm` title, one muted sentence, at most one action, vertically centered. Empty list inside a populated screen: one muted `body-sm` line.
+First load of a list or pane → `LoadingSkeleton` shaped like the content. In-flight action → `<Button pending>`, one `Spinner` inside the button, which keeps its width and name. No bare "Loading…" as a pane's only content. `EmptyState`: optional icon, `heading-sm` title, one muted sentence, at most one action, vertically centered. Empty list inside a populated screen: one muted `body-sm` line. `ActivityBars` means an agent is working, not that data is loading.
 
 ### C12 — Time and number formatting
 
@@ -165,11 +165,11 @@ C4, plus: sentence-case titles in the form "New <thing>" / "Edit <thing>" / "Del
 
 ### I1 — Destructive confirmation
 
-One `ConfirmDialog` built on `AlertDialog`: title names the object, body states the consequence, Cancel has initial focus, the confirm button repeats the verb ("Delete column"). `danger` styling appears only on that button. `window.confirm` is banned. Reversible actions skip the dialog and offer Undo in a toast.
+One `ConfirmDialog` built on `AlertDialog`: title names the object, body states the consequence, Cancel has initial focus, the confirm button repeats the verb ("Delete column"). `danger` styling appears only on that button. A failed request stays in the dialog as an inline Alert and the same button retries. It has no close button or outside dismiss: Cancel or Esc answers it, once nothing is in flight. `window.confirm`, `prompt` and `alert` are lint errors. Reversible actions skip the dialog and offer Undo in a toast.
 
 ### I2 — Feedback: toast vs banner vs inline
 
-Toast = result of an action the user just took, transient, never the only record of a failure that needs fixing. `Alert` (tone, title, body, optional action) = a condition of the current view that persists until resolved. Field error = `Field` error slot. One danger color (F6).
+Pick by the kind of action, not by feature. Field error = `Field` error slot. A failed action on what is on screen = `Alert` beside it or in its dialog. A condition of the current view that persists until resolved = `Alert` banner (tone, title, body, up to two actions). Toast = a completed action whose result isn’t on screen, or failed background work; transient, never the only record of a failure that needs fixing. A change that stays visible gets no toast. One danger color (F6).
 
 ### I3 — Slide-overs and close behavior
 
@@ -181,7 +181,7 @@ Entry point: "New <thing>". Dialog confirm: verb + object ("Create task", "Save 
 
 ### I5 — Loading, error and empty states
 
-One `AsyncBoundary` per data region with four exclusive states. _Loading_ → `Skeleton` in the shape of the content (never text alone, never the empty state). _Error_ → `Alert` (danger): "Couldn't load <thing>." + Retry, raw server message behind a disclosure. _Empty_ → `EmptyState` (C11), shown only after a successful response; "no results" from a filter is a distinct message with a "Clear filters" action. _Ready_. App boot gets the logo, a spinner, and after 10s an explicit failure message with Retry.
+One `AsyncBoundary` per data region with four exclusive states. _Loading_ → `Skeleton` in the shape of the content (never text alone, never the empty state). _Error_ → `LoadError`, an `Alert` (danger): "Couldn’t load <thing>." + Retry, raw server message behind a disclosure. _Empty_ → `EmptyState` (C11), shown only after a successful response; "no results" from a filter is a distinct message with a "Clear filters" action. _Ready_; a failed refresh keeps it under the error, except a background poll, which fails quietly once there is content. "Not found" needs a 404 or a successful list without the item. App boot gets the logo, a spinner, and after 10s an explicit failure message with Retry.
 
 ### I6 — Mutation feedback
 
@@ -249,7 +249,7 @@ No change beyond the single brand green.
 
 ### T1 — Two toast designs
 
-One toast card: the attention design. Status toasts use the same card with the type shown by the bar, tile icon and label, not a full colour fill.
+One toast card (`ToastCard`): the attention design. Status toasts use the same card with the type shown by the bar, tile icon and label, not a full colour fill. Import `toast` from `components/ui/toast`; importing sonner anywhere else is a lint error.
 
 ### T2 — Position and what toasts cover
 
@@ -265,7 +265,7 @@ Toast types use the intent aliases from F6 (success, info, warning, danger), not
 
 ### T5 — Duration and stacking
 
-Success and info 4 seconds. Warning and error stay until dismissed, or at least 8 seconds, and are never collapsed behind another toast. At most three visible, expanded by default on phones.
+Success and info 4 seconds, attention 10, warning and error 12; an update toast stays until answered. At most three visible, always expanded. A new toast takes the place of the oldest success or info (an attention or error toast may also replace an attention toast); warnings, errors and update toasts are never displaced, and what doesn’t fit waits.
 
 ### T6 — Coverage
 
@@ -289,6 +289,7 @@ Newest first. One line per audit: date, scope, commit audited, where the report 
 
 Newest first. One line per rule added, changed or removed, with the reason.
 
+- 2026-11-22 — C4–C6, C11, I1, I2, I5, T1, T5 updated as dialogs, fields, pickers, async states and toasts landed: named the components, the viewer / palette / path-field exceptions, quiet background polls (a 5s poll would flash an alert), OptionCard for multi-select lists, and the toast priority that keeps errors readable.
 - 2026-11-22 — C1–C3, C7, C9, C10, F10 updated as the core controls landed: named `inline`, `wrap`, `link`, `field`, Chip, CountBubble, SplitButton and Hint, the touch hit areas for 24px and inline controls (44px boxes broke inline rows, and 44px overlays took taps from the controls under inline links), manual tab activation (panes fetch or attach a terminal on open), and tooltips above the image viewer (its buttons have them now).
 - 2026-11-22 — F6: danger is tuned within red per theme instead of hue 0 everywhere (one hue didn’t match the themes), with text and fill pairs held to 4.5:1.
 - 2026-11-22 — F1–F10 updated as their tokens landed: added `body-lg` and `code` (iOS zoom, inline code), `xs`, `mark` and `screen` radii (small boxes turned into circles at `sm`), named alpha and z steps for values already in use, seat and media colours; named the classes and lint rule that implement them.

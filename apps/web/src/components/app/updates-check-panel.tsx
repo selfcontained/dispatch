@@ -1,11 +1,12 @@
 import { ArrowDownToLine, CheckCircle2, ExternalLink } from "lucide-react";
-import { ActivityBars } from "@/components/ui/activity-bars";
 import { Button } from "@/components/ui/button";
 import type { ReleaseInfo, ReleaseProgress } from "@/hooks/use-release-stream";
 import type { ReleaseInfoSnapshot } from "@/hooks/use-cached-release-info";
 import { cn } from "@/lib/utils";
 import { formatShortDateTime } from "@/lib/format";
 import { formatInlineProgress, progressPercent } from "./release-utils";
+import { Alert } from "@/components/ui/alert";
+import { Spinner } from "@/components/ui/spinner";
 
 type UpdatesCheckPanelProps = {
   infoLoading: boolean;
@@ -45,12 +46,7 @@ export function UpdatesCheckPanel({
         </Button>
         {(infoLoading || lastCheckMessage) && (
           <div className="flex min-w-0 items-center gap-2 text-body-md">
-            {infoLoading && (
-              <ActivityBars
-                size={14}
-                className="shrink-0 text-muted-foreground"
-              />
-            )}
+            {infoLoading && <Spinner className="text-muted-foreground" />}
             {!infoLoading && lastCheckMessage === "Up to date" && (
               <CheckCircle2 className="h-4 w-4 shrink-0 text-success" />
             )}
@@ -80,9 +76,7 @@ export function UpdatesCheckPanel({
       )}
 
       {infoError && (
-        <div className="rounded-sm border border-danger/line bg-danger/tint px-3 py-2 text-body-md text-danger">
-          {infoError}
-        </div>
+        <Alert title="Couldn’t check for updates." error={infoError} />
       )}
 
       {displayInfo && (
@@ -118,9 +112,7 @@ export function UpdatesCheckPanel({
               )}
 
               {updateError && (
-                <div className="rounded-sm border border-danger/line bg-danger/tint px-3 py-2 text-body-md text-danger">
-                  {updateError}
-                </div>
+                <Alert title="Couldn’t start the update." error={updateError} />
               )}
 
               <Button

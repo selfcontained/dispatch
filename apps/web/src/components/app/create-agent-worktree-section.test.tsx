@@ -102,12 +102,12 @@ describe("WorktreeSection", () => {
 
     fireEvent.click(baseBranch());
     expect(baseBranch().getAttribute("aria-expanded")).toBe("true");
-    expect(screen.getByPlaceholderText("Search branches...")).toBeTruthy();
+    expect(screen.getByPlaceholderText("Search branches…")).toBeTruthy();
 
     rerender(<WorktreeSection {...defaultProps} useWorktree={false} />);
 
     expect(baseBranch().getAttribute("aria-expanded")).toBe("false");
-    expect(screen.queryByPlaceholderText("Search branches...")).toBeNull();
+    expect(screen.queryByPlaceholderText("Search branches…")).toBeNull();
     expect(baseBranch().closest("[aria-hidden]")?.hasAttribute("inert")).toBe(
       true
     );

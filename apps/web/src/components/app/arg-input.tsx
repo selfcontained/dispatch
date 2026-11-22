@@ -1,5 +1,3 @@
-import { useId } from "react";
-
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -11,6 +9,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import type { TemplateArg } from "@/hooks/use-templates";
+import { Field } from "@/components/ui/field";
 
 export function ArgInput({
   arg,
@@ -21,18 +20,12 @@ export function ArgInput({
   value: string;
   onChange: (value: string) => void;
 }): JSX.Element {
-  const inputId = useId();
-
   return (
-    <div className="space-y-2">
-      <label htmlFor={inputId} className="text-body-md text-muted-foreground">
-        {arg.name}
-        {arg.required ? <span className="ml-1 text-danger">*</span> : null}
-      </label>
+    <Field label={arg.name} required={arg.required} error={arg.error}>
       {arg.options ? (
         <div className="flex items-center gap-2">
           <Select value={value} onValueChange={onChange}>
-            <SelectTrigger id={inputId} className="h-8 text-body-md">
+            <SelectTrigger>
               <SelectValue placeholder={`Choose ${arg.name}`} />
             </SelectTrigger>
             <SelectContent>
@@ -57,7 +50,6 @@ export function ArgInput({
         </div>
       ) : arg.multiline ? (
         <Textarea
-          id={inputId}
           value={value}
           onChange={(e) => onChange(e.target.value)}
           placeholder={`Enter ${arg.name}`}
@@ -65,18 +57,11 @@ export function ArgInput({
         />
       ) : (
         <Input
-          id={inputId}
           value={value}
           onChange={(e) => onChange(e.target.value)}
           placeholder={`Enter ${arg.name}`}
-          className="h-8 text-body-md"
         />
       )}
-      {arg.error ? (
-        <p role="alert" className="text-body-sm text-danger">
-          {arg.error}
-        </p>
-      ) : null}
-    </div>
+    </Field>
   );
 }

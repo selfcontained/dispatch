@@ -15,6 +15,10 @@ import { Switch } from "@/components/ui/switch";
 import { IconButton } from "@/components/ui/icon-button";
 import { Hint } from "@/components/ui/tooltip";
 import { api } from "@/lib/api";
+import { Alert } from "@/components/ui/alert";
+import { LoadError } from "@/components/ui/async-boundary";
+import { LoadingSkeleton } from "@/components/ui/skeleton";
+import { SettingRow } from "@/components/ui/setting-row";
 
 type Status = {
   aiEnabled?: boolean;
@@ -110,30 +114,25 @@ export function RoutingSettings(): JSX.Element {
         </h2>
       </div>
       {settings.isPending && (
-        <p className="text-body-sm text-muted-foreground">Loading…</p>
+        <LoadingSkeleton label="Loading routing settings…" />
       )}
       {settings.error && (
-        <p role="alert" className="text-body-sm text-danger">
-          Couldn’t load routing settings.{" "}
-          <Button
-            variant="link"
-            size="inline"
-            onClick={() => void settings.refetch()}
-          >
-            Retry
-          </Button>
-        </p>
+        <LoadError
+          thing="routing settings"
+          error={settings.error}
+          retrying={settings.isFetching}
+          onRetry={() => void settings.refetch()}
+        />
       )}
       {data && (
-        <label className="flex items-center justify-between gap-3">
-          <span className="text-body-md font-medium">Enable Dispatch AI</span>
+        <SettingRow label="Enable Dispatch AI">
           <Switch
             aria-label="Enable Dispatch AI"
             checked={data.aiEnabled ?? data.configured}
             disabled={save.isPending || check.isPending}
             onCheckedChange={(aiEnabled) => save.mutate({ aiEnabled })}
           />
-        </label>
+        </SettingRow>
       )}
       {data && !(data.aiEnabled ?? data.configured) && data.configured && (
         <div className="flex items-center justify-between gap-3 rounded-sm border border-border p-3">
@@ -223,7 +222,8 @@ export function RoutingSettings(): JSX.Element {
                   id="routing-key"
                   type="password"
                   aria-label="OpenAI API key"
-                  className={`h-11 sm:h-9 min-w-0 ${save.error ? "ring-1 ring-danger" : ""}`}
+                  className="min-w-0"
+                  aria-invalid={Boolean(save.error) || undefined}
                   value={key}
                   disabled={save.isPending || check.isPending}
                   autoComplete="new-password"
@@ -254,7 +254,7 @@ export function RoutingSettings(): JSX.Element {
               ) : (
                 <Input
                   id="routing-key"
-                  className="h-11 sm:h-9 min-w-0 cursor-default text-muted-foreground"
+                  className="min-w-0 cursor-default text-muted-foreground"
                   aria-label="OpenAI API key is set"
                   value="••••••••••••••••"
                   readOnly
@@ -269,20 +269,11 @@ export function RoutingSettings(): JSX.Element {
                       size="sm"
                       variant="primary"
                       className="text-body-sm"
-                      disabled={
-                        save.isPending ||
-                        check.isPending ||
-                        key.trim().length < 10
-                      }
+                      pending={save.isPending}
+                      disabled={check.isPending || key.trim().length < 10}
                       onClick={() => save.mutate({ apiKey: key.trim() })}
                     >
-                      {save.isPending ? (
-                        <>
-                          <Loader2 className="animate-spin" /> Validating…
-                        </>
-                      ) : (
-                        "Validate & save"
-                      )}
+                      Validate & save
                     </Button>
                     {data.configured && (
                       <IconButton
@@ -348,9 +339,7 @@ export function RoutingSettings(): JSX.Element {
               </p>
             )}
             {check.error && (
-              <p role="alert" className="text-body-sm text-danger">
-                {check.error.message}
-              </p>
+              <Alert title="Couldn’t test the key." error={check.error} />
             )}
             <span className="sr-only" role="status">
               {check.isPending || check.data || check.error || validatedAndSaved
@@ -358,7 +347,15 @@ export function RoutingSettings(): JSX.Element {
                 : ""}
             </span>
           </div>
-          <label className="flex cursor-pointer items-center gap-3 rounded-sm border border-border px-3 py-3 transition-colors hover:bg-surface-hover">
+          <SettingRow
+            label="Route replies automatically"
+            description={
+              data.configured
+                ? "Choose the main conversation or a side thread."
+                : "Add an OpenAI API key to enable routing."
+            }
+            disabled={!data.configured}
+          >
             <Checkbox
               id="routing-enabled"
               aria-label="Route replies automatically"
@@ -371,18 +368,16 @@ export function RoutingSettings(): JSX.Element {
                 save.mutate({ mode: on === true ? "active" : "off" })
               }
             />
-            <div className="min-w-0">
-              <div className="text-body-md font-medium">
-                Route replies automatically
-              </div>
-              <p className="text-body-sm text-muted-foreground">
-                {data.configured
-                  ? "Choose the main conversation or a side thread."
-                  : "Add an OpenAI API key to enable routing."}
-              </p>
-            </div>
-          </label>
-          <label className="flex cursor-pointer items-center gap-3 rounded-sm border border-border px-3 py-3 transition-colors hover:bg-surface-hover">
+          </SettingRow>
+          <SettingRow
+            label="Smart steering"
+            description={
+              data.configured
+                ? "Steer related messages. Queue new requests."
+                : "Add an OpenAI API key to enable steering."
+            }
+            disabled={!data.configured}
+          >
             <Checkbox
               aria-label="Smart steering"
               checked={
@@ -394,16 +389,16 @@ export function RoutingSettings(): JSX.Element {
                 save.mutate({ steeringMode: on === true ? "active" : "off" })
               }
             />
-            <div className="min-w-0">
-              <div className="text-body-md font-medium">Smart steering</div>
-              <p className="text-body-sm text-muted-foreground">
-                {data.configured
-                  ? "Steer related messages. Queue new requests."
-                  : "Add an OpenAI API key to enable steering."}
-              </p>
-            </div>
-          </label>
-          <label className="flex cursor-pointer items-center gap-3 rounded-sm border border-border px-3 py-3 transition-colors hover:bg-surface-hover">
+          </SettingRow>
+          <SettingRow
+            label="Session naming"
+            description={
+              data.configured
+                ? "Send launch text, links, and document excerpts to OpenAI for a topic name."
+                : "Add an OpenAI API key to enable session naming."
+            }
+            disabled={!data.configured}
+          >
             <Checkbox
               aria-label="Session naming"
               checked={
@@ -418,16 +413,16 @@ export function RoutingSettings(): JSX.Element {
                 })
               }
             />
-            <div className="min-w-0">
-              <div className="text-body-md font-medium">Session naming</div>
-              <p className="text-body-sm text-muted-foreground">
-                {data.configured
-                  ? "Send launch text, links, and document excerpts to OpenAI for a topic name."
-                  : "Add an OpenAI API key to enable session naming."}
-              </p>
-            </div>
-          </label>
-          <label className="flex cursor-pointer items-center gap-3 rounded-sm border border-border px-3 py-3 transition-colors hover:bg-surface-hover">
+          </SettingRow>
+          <SettingRow
+            label="Merge risk assessment"
+            description={
+              data.configured
+                ? "Recommend a human read before merge. Never merges."
+                : "Add an OpenAI API key to enable merge risk."
+            }
+            disabled={!data.configured}
+          >
             <Checkbox
               aria-label="Merge risk assessment"
               checked={
@@ -439,23 +434,11 @@ export function RoutingSettings(): JSX.Element {
                 save.mutate({ mergeRiskMode: on === true ? "active" : "off" })
               }
             />
-            <div className="min-w-0">
-              <div className="text-body-md font-medium">
-                Merge risk assessment
-              </div>
-              <p className="text-body-sm text-muted-foreground">
-                {data.configured
-                  ? "Recommend a human read before merge. Never merges."
-                  : "Add an OpenAI API key to enable merge risk."}
-              </p>
-            </div>
-          </label>
+          </SettingRow>
         </div>
       )}
       {save.error && (
-        <p role="alert" className="text-body-sm text-danger">
-          Couldn’t save changes. {save.error.message}
-        </p>
+        <Alert title="Couldn’t save changes." error={save.error} />
       )}
     </section>
   );

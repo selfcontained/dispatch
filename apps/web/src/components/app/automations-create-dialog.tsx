@@ -1,6 +1,5 @@
 import { type Project, useProjectScope } from "@/hooks/use-projects";
 import { useCallback, useState } from "react";
-import { toast } from "sonner";
 
 import { TemplateConfigFields } from "@/components/app/automations-form-fields";
 import {
@@ -9,18 +8,20 @@ import {
   useTemplateDraft,
 } from "@/components/app/automations-template-draft";
 import { useCwdHistory } from "@/components/app/create-agent-dialog-utils";
-import { ActivityBars } from "@/components/ui/activity-bars";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
+  DialogBody,
+  DialogCancel,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
 import { type Template, useTemplateActions } from "@/hooks/use-templates";
 import { type AgentType } from "@/lib/agent-types";
-import { swallowEscapeFromCombobox } from "@/lib/dialog-escape";
+import { Alert } from "@/components/ui/alert";
 
 type CreateTemplateDialogProps = {
   onOpenChange: (open: boolean) => void;
@@ -58,10 +59,12 @@ function CreateTemplateDialogContent({
     directory: project?.repoRoot ?? "",
   });
   const [creating, setCreating] = useState(false);
+  const [failure, setFailure] = useState<unknown>();
   const { add: addCwdHistory } = useCwdHistory();
 
   const handleCreate = useCallback(() => {
     setCreating(true);
+    setFailure(undefined);
     addTemplate
       .mutateAsync({
         name: draft.name,
@@ -77,11 +80,8 @@ function CreateTemplateDialogContent({
         addCwdHistory(draft.directory);
         onCreated?.(template);
         onOpenChange(false);
-        toast.success("Template created.");
       })
-      .catch((err: Error) => {
-        toast.error(`Failed to create template: ${err.message}`);
-      })
+      .catch(setFailure)
       .finally(() => setCreating(false));
   }, [
     addTemplate,
@@ -98,14 +98,13 @@ function CreateTemplateDialogContent({
 
   return (
     <DialogContent
-      className="md:h-[min(760px,88vh)] md:w-[min(760px,calc(100vw-2rem))] md:max-w-none"
-      onEscapeKeyDown={(e) => {
-        swallowEscapeFromCombobox(e);
-      }}
+      size="lg"
+      phone="fill"
+      busy={creating}
       onCloseAutoFocus={onCloseAutoFocus}
     >
       <DialogHeader>
-        <DialogTitle>Create Template</DialogTitle>
+        <DialogTitle>New template</DialogTitle>
         <DialogDescription>
           A reusable agent launch configuration. Use{" "}
           <code className="rounded-sm bg-fill-hover px-1 text-body-sm">
@@ -121,28 +120,28 @@ function CreateTemplateDialogContent({
         </DialogDescription>
       </DialogHeader>
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-1">
+      <DialogBody>
         <TemplateConfigFields
           {...fieldProps}
           enabledAgentTypes={enabledAgentTypes}
           lockedLocation={projectOverride}
           autoFocusName
         />
-      </div>
-
-      <div className="flex justify-end gap-2 pt-3">
-        <Button variant="ghost" onClick={() => onOpenChange(false)}>
-          Cancel
-        </Button>
+      </DialogBody>
+      {failure ? (
+        <Alert title="Couldn’t create the template." error={failure} />
+      ) : null}
+      <DialogFooter>
+        <DialogCancel />
         <Button
           variant="primary"
           onClick={handleCreate}
-          disabled={!canCreate || creating}
+          pending={creating}
+          disabled={!canCreate}
         >
-          {creating ? <ActivityBars size={16} /> : null}
-          Create
+          Create template
         </Button>
-      </div>
+      </DialogFooter>
     </DialogContent>
   );
 }

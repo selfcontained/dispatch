@@ -29,6 +29,7 @@ import { type SettingsSection } from "@/components/app/settings-state";
 import { cn } from "@/lib/utils";
 import { RowButton } from "@/components/ui/row-button";
 import { type StatusDotTone } from "@/components/ui/status-dot";
+import { LoadingSkeleton } from "@/components/ui/skeleton";
 
 const UpdatePreview = import.meta.env.DEV
   ? lazy(() => import("./update-preview"))
@@ -240,7 +241,12 @@ export function SettingsContent({
               "simulateUpdate"
             ) ? (
               <Suspense
-                fallback={<div className="p-6">Loading update preview…</div>}
+                fallback={
+                  <LoadingSkeleton
+                    label="Loading update preview…"
+                    className="p-6"
+                  />
+                }
               >
                 <UpdatePreview />
               </Suspense>

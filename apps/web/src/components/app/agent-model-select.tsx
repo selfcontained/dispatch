@@ -5,6 +5,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Field } from "@/components/ui/field";
 
 type AgentModelOption = {
   id: string;
@@ -53,10 +54,7 @@ export function AgentModelSelect({
     (savedOption?.id === selectedValue ? savedOption.label : fallbackLabel);
 
   return (
-    <div className="space-y-1">
-      <label className="text-body-md text-muted-foreground" htmlFor={id}>
-        Model
-      </label>
+    <Field id={id} label="Model">
       <Select
         value={selectedValue}
         onOpenChange={(open) => {
@@ -72,7 +70,6 @@ export function AgentModelSelect({
         }}
       >
         <SelectTrigger
-          id={id}
           data-testid={testId}
           disabled={loading || options.length === 0}
         >
@@ -94,6 +91,6 @@ export function AgentModelSelect({
           ))}
         </SelectContent>
       </Select>
-    </div>
+    </Field>
   );
 }

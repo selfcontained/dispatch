@@ -3,6 +3,7 @@ import { Slot } from "@radix-ui/react-slot";
 import { cva, type VariantProps } from "class-variance-authority";
 
 import { cn } from "@/lib/utils";
+import { Spinner } from "./spinner";
 
 // An invisible 44px target, for the controls too small to grow on touch.
 export const touchTarget =
@@ -116,6 +117,11 @@ export interface ButtonProps
   asChild?: boolean;
   /** A toggle's state: sets `aria-pressed` and draws the selected fill. */
   pressed?: boolean;
+  /**
+   * Its request is in flight: disabled, with a spinner over the label, so
+   * the width and the accessible name hold.
+   */
+  pending?: boolean;
 }
 
 const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
@@ -127,24 +133,58 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
       size,
       wrap,
       pressed,
+      pending,
+      disabled,
       asChild = false,
+      children,
       ...props
     },
     ref
   ) => {
     const Comp = asChild ? Slot : "button";
+    const spinning = Boolean(pending) && !asChild;
+    const spinner = spinning ? (
+      <span
+        data-spinner=""
+        className={cn(
+          "absolute inset-0 flex items-center justify-center",
+          variant === "primary"
+            ? "text-primary-foreground"
+            : variant === "danger"
+              ? "text-danger-foreground"
+              : "text-foreground"
+        )}
+      >
+        <Spinner />
+      </span>
+    ) : null;
     return (
       <Comp
         className={cn(
           buttonVariants({ variant, tone, size, wrap }),
           pressed &&
             "bg-surface-selected text-primary hover:bg-surface-selected hover:text-primary",
-          className
+          className,
+          // Hidden with colour, not visibility, which would take it out of
+          // the button's accessible name.
+          spinning &&
+            "relative text-transparent [&>:not([data-spinner])]:opacity-0"
         )}
         ref={ref}
         aria-pressed={pressed}
+        aria-busy={spinning || undefined}
+        disabled={disabled || spinning}
         {...props}
-      />
+      >
+        {asChild ? (
+          children
+        ) : (
+          <>
+            {children}
+            {spinner}
+          </>
+        )}
+      </Comp>
     );
   }
 );

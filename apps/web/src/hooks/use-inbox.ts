@@ -52,10 +52,13 @@ export type Inbox = {
   checklists: InboxChecklist[];
   agentNames: Record<string, string>;
   isLoading: boolean;
+  /** The stream behind it failed to load, so it is not known to be empty. */
+  error?: Error | null;
+  retry?: () => void;
   hasOlderReviews?: boolean;
   loadingOlderReviews?: boolean;
   loadOlderReviews?: () => void;
-  reviewsError?: string | null;
+  reviewsError?: Error | null;
 };
 
 /** An agent's open question or form for people. */
@@ -241,7 +244,7 @@ export function useInbox(agentId: string | null): Inbox {
     loadOlderReviews: () => {
       void reviewFeed.fetchNextPage();
     },
-    reviewsError: reviewFeed.error?.message ?? null,
+    reviewsError: reviewFeed.error,
     checklists: derived.checklists,
     agentNames: Object.assign(
       {},
@@ -249,5 +252,9 @@ export function useInbox(agentId: string | null): Inbox {
       derived.agentNames
     ),
     isLoading: rootId !== null && feed.isLoading,
+    error: feed.error,
+    retry: () => {
+      void feed.refetch();
+    },
   };
 }

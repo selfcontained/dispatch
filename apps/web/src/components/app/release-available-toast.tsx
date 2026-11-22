@@ -1,10 +1,15 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useSyncExternalStore } from "react";
 import { useQuery } from "@tanstack/react-query";
 import type { AppVersionInfo } from "./release-utils";
 import { useAtomValue, useSetAtom } from "jotai";
 import { useNavigate } from "react-router-dom";
 import { ArrowDownToLine } from "lucide-react";
-import { toast } from "sonner";
+import { toast } from "@/components/ui/toast";
+import {
+  isVersionMismatch,
+  isVersionMismatchDismissed,
+  subscribeVersionMismatch,
+} from "@/lib/version";
 
 import { useCachedReleaseInfo } from "@/hooks/use-cached-release-info";
 import { dismissedReleaseToastAtomFamily } from "@/lib/store";
@@ -38,6 +43,12 @@ export function ReleaseAvailableToast(): null {
   const dismissedAtom = dismissedReleaseToastAtomFamily(tag ?? "__none__");
   const dismissed = useAtomValue(dismissedAtom);
   const setDismissed = useSetAtom(dismissedAtom);
+  // One update toast at a time: a server that already updated only needs
+  // this tab to reload, so that one goes first.
+  const reloadPending = useSyncExternalStore(
+    subscribeVersionMismatch,
+    () => isVersionMismatch() && !isVersionMismatchDismissed()
+  );
 
   // Track the tag of the toast that's currently visible on screen so we
   // can dismiss it explicitly when the snapshot transitions out of the
@@ -53,7 +64,8 @@ export function ReleaseAvailableToast(): null {
       snapshot !== null &&
       snapshot.updateAvailable &&
       tag !== null &&
-      !dismissed;
+      !dismissed &&
+      !reloadPending;
 
     // Tag changed (or we no longer want to show): retire the prior toast.
     const prevTag = shownTagRef.current;
@@ -78,10 +90,10 @@ export function ReleaseAvailableToast(): null {
     // Sonner dedupes by id — calling toast.info again with the same id
     // updates the existing toast in place rather than creating a new
     // one, so re-renders don't flicker.
-    toast.info(`Dispatch ${tag} is available`, {
+    toast.info(`Dispatch ${tag} is available.`, {
       id: toastId,
       duration: Infinity,
-      icon: <ArrowDownToLine className="h-4 w-4" />,
+      icon: ArrowDownToLine,
       action: {
         label: "Update now",
         onClick: async () => {
@@ -95,11 +107,7 @@ export function ReleaseAvailableToast(): null {
               body: JSON.stringify({ tag }),
             });
           } catch (err) {
-            toast.error(
-              err instanceof Error
-                ? `Couldn't start update: ${err.message}`
-                : "Couldn't start update"
-            );
+            toast.error("Couldn’t start the update.", { error: err });
             return;
           }
           navigate("/settings/updates");
@@ -124,7 +132,15 @@ export function ReleaseAvailableToast(): null {
     // the next effect run via shownTagRef. This avoids the
     // dismiss-and-recreate flicker that happens when React Query produces
     // a new snapshot reference with identical content.
-  }, [snapshot, tag, dismissed, navigate, setDismissed, versionInfo]);
+  }, [
+    snapshot,
+    tag,
+    dismissed,
+    navigate,
+    reloadPending,
+    setDismissed,
+    versionInfo,
+  ]);
 
   return null;
 }

@@ -7,6 +7,8 @@ import { type Agent } from "@/components/app/types";
 import { type AgentType } from "@/lib/agent-types";
 import { AGENT_LEFT_STATE, agentRoute } from "@/lib/agent-routes";
 import { api } from "@/lib/api";
+import { announceArchiveResult } from "@/lib/archive-feedback";
+import { toast } from "@/components/ui/toast";
 import { sortAgentsByCreatedAtDesc } from "@/lib/agent-sort";
 
 type UseAgentActionsParams = {
@@ -51,10 +53,15 @@ export function useAgentActions({
     async (agent: Agent) => {
       navigate(agentRoute(agent.id));
       ensureAuxExpanded(agent.parentAgentId ?? agent.id);
-      await api(`/api/v1/agents/${agent.id}/start`, {
-        method: "POST",
-        body: JSON.stringify({}),
-      });
+      try {
+        await api(`/api/v1/agents/${agent.id}/start`, {
+          method: "POST",
+          body: JSON.stringify({}),
+        });
+      } catch (error) {
+        toast.error(`Couldn’t resume “${agent.name}”.`, { error });
+        return;
+      }
       refreshFiles(agent.id);
     },
     [ensureAuxExpanded, navigate, refreshFiles]
@@ -84,6 +91,7 @@ export function useAgentActions({
       await api(`/api/v1/agents/${agent.id}${qs ? `?${qs}` : ""}`, {
         method: "DELETE",
       });
+      announceArchiveResult(queryClient, agent);
       // Only once accepted: a failed archive leaves the agent where it was.
       setExpandedAgentId((current) => (current === agent.id ? null : current));
       if (routeAgentId === agent.id) {
@@ -93,7 +101,7 @@ export function useAgentActions({
         });
       }
     },
-    [navigate, routeAgentId, setExpandedAgentId]
+    [navigate, queryClient, routeAgentId, setExpandedAgentId]
   );
 
   const handleAgentCreated = useCallback(

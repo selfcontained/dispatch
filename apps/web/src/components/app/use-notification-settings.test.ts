@@ -99,7 +99,7 @@ describe("useNotificationSettings — initial load", () => {
     await waitFor(() => expect(result.current.loading).toBe(false));
     expect(result.current.webNotifyEnabled).toBe(false);
     expect(result.current.webNotifyEvents).toEqual(ALL_EVENTS);
-    expect(result.current.webError).toBe("");
+    expect(result.current.webError).toBeUndefined();
   });
 });
 
@@ -122,7 +122,7 @@ describe("useNotificationSettings — browser notification toggles", () => {
     expect(result.current.webMessage).toBe(
       "Browser notification settings saved."
     );
-    expect(result.current.webError).toBe("");
+    expect(result.current.webError).toBeUndefined();
     expect(result.current.saving).toBe(false);
   });
 
@@ -153,7 +153,7 @@ describe("useNotificationSettings — browser notification toggles", () => {
 
     expect(result.current.webNotifyEnabled).toBe(false);
     expect(result.current.webNotifyEvents).toEqual(["waiting_user"]);
-    expect(result.current.webError).toBe("disk full");
+    expect(result.current.webError).toEqual(new Error("disk full"));
     expect(result.current.webMessage).toBe("");
     expect(result.current.saving).toBe(false);
   });
@@ -204,7 +204,7 @@ describe("useNotificationSettings — browser notification toggles", () => {
 
     expect(result.current.webNotifyEvents).toEqual(["waiting_user"]);
     expect(result.current.webNotifyEnabled).toBe(true);
-    expect(result.current.webError).toBe("nope");
+    expect(result.current.webError).toEqual(new Error("nope"));
     expect(result.current.saving).toBe(false);
   });
 
@@ -331,7 +331,7 @@ describe("useNotificationSettings — browser notification toggles", () => {
       await first;
     });
 
-    expect(result.current.webError).toBe("");
+    expect(result.current.webError).toBeUndefined();
     expect(result.current.webNotifyEnabled).toBe(true);
     expect(result.current.webNotifyEvents).toEqual(["waiting_user", "blocked"]);
   });

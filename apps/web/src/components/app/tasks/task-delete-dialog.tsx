@@ -1,13 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { toast } from "@/components/ui/toast";
 import { useTaskActions } from "@/hooks/use-tasks";
 
 /** Mount keyed by task ID so a late deletion cannot close another task. */
@@ -21,9 +15,7 @@ export function TaskDeleteDialog({
   const [target, setTarget] = useState<typeof task | null>(null);
   const { remove } = useTaskActions(task.projectId);
   const trigger = useRef<HTMLButtonElement>(null);
-  const content = useRef<HTMLDivElement>(null);
   const mounted = useRef(false);
-  const submitting = useRef(false);
   useEffect(() => {
     mounted.current = true;
     return () => {
@@ -31,85 +23,34 @@ export function TaskDeleteDialog({
     };
   }, []);
 
-  const confirm = async () => {
-    if (!target || submitting.current) return;
-    submitting.current = true;
-    // Keep keyboard events in this scope while both buttons are disabled.
-    content.current?.focus();
-    try {
-      await remove.mutateAsync(target.id);
-      if (mounted.current) {
-        setTarget(null);
-        close();
-      }
-    } catch {
-      // React Query retains the error for an inline retryable message.
-    } finally {
-      submitting.current = false;
-    }
-  };
-
   return (
     <>
       <Button
         ref={trigger}
         size="sm"
         variant="ghost"
-        className="ml-auto text-danger hover:bg-danger/tint hover:text-danger"
-        onClick={() => {
-          remove.reset();
-          setTarget({ ...task });
-        }}
+        tone="danger"
+        onClick={() => setTarget({ ...task })}
       >
         Delete
       </Button>
-      <AlertDialog
+      <ConfirmDialog
         open={target !== null}
         onOpenChange={(open) => {
-          if (!open && !submitting.current) setTarget(null);
+          if (!open) setTarget(null);
         }}
-      >
-        <AlertDialogContent
-          ref={content}
-          data-hotkey-disable="true"
-          onEscapeKeyDown={(event) => {
-            if (submitting.current) event.preventDefault();
-          }}
-          onCloseAutoFocus={(event) => {
-            event.preventDefault();
-            if (trigger.current?.isConnected) trigger.current.focus();
-          }}
-        >
-          <AlertDialogTitle className="text-heading-md">
-            Delete task?
-          </AlertDialogTitle>
-          <AlertDialogDescription className="break-words text-body-md text-muted-foreground">
-            Permanently delete “{target?.title}” and its conversation and
-            attachments? This cannot be undone.
-          </AlertDialogDescription>
-          {remove.error && (
-            <p role="alert" className="break-words text-body-md text-danger">
-              Could not delete the task: {remove.error.message}
-            </p>
-          )}
-          <div className="flex justify-end gap-2">
-            <AlertDialogCancel disabled={remove.isPending}>
-              Cancel
-            </AlertDialogCancel>
-            <AlertDialogAction
-              disabled={remove.isPending}
-              className="bg-danger text-danger-foreground hover:bg-danger/dense"
-              onClick={(event) => {
-                // Keep the dialog open until the request succeeds.
-                event.preventDefault();
-                void confirm();
-              }}
-            >
-              {remove.isPending ? "Deleting…" : "Delete task"}
-            </AlertDialogAction>
-          </div>
-        </AlertDialogContent>
-      </AlertDialog>
+        returnFocus={trigger}
+        title="Delete task?"
+        description={`Permanently delete “${target?.title}” and its conversation and attachments? This cannot be undone.`}
+        confirmLabel="Delete task"
+        errorTitle="Couldn’t delete the task."
+        onConfirm={async () => {
+          if (!target) return;
+          await remove.mutateAsync(target.id);
+          toast.success(`Task “${target.title}” deleted.`);
+          if (mounted.current) close();
+        }}
+      />
     </>
   );
 }

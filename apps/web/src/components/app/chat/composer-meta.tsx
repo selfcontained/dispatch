@@ -20,7 +20,10 @@ import { type Agent } from "@/components/app/types";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
+  DialogBody,
+  DialogCancel,
   DialogContent,
+  DialogFooter,
   DialogDescription,
   DialogHeader,
   DialogTitle,
@@ -71,6 +74,7 @@ import {
   reportAge,
   resetsIn,
 } from "./composer-meta-format";
+import { Alert } from "@/components/ui/alert";
 
 const CHIP_CLASS =
   "inline-flex h-6 min-w-0 items-center gap-1 rounded-md px-1.5 text-label-sm text-muted-foreground hover:bg-surface-hover hover:text-foreground focus-ring disabled-state pointer-coarse:min-h-11";
@@ -973,7 +977,7 @@ export function UseResetButton({
           </Button>
         </DialogTrigger>
       </div>
-      <DialogContent className="max-w-lg">
+      <DialogContent busy={consume.isPending}>
         <DialogHeader>
           <DialogTitle>Use a Codex limit reset?</DialogTitle>
           <DialogDescription>
@@ -981,87 +985,88 @@ export function UseResetButton({
             clears your Codex rate-limit windows right now. It cannot be undone.
           </DialogDescription>
         </DialogHeader>
-        {/* What the reset would clear: the windows as the card shows them. */}
-        <div className="space-y-1.5 rounded-md border bg-surface-subtle p-3 text-body-sm">
-          <div className="text-label-sm font-medium text-foreground">
-            Current usage
-          </div>
-          {plan.windows.map((w) => (
-            <PlanWindowRow key={w.id} window={w} now={now} />
-          ))}
-          <div className="flex justify-between text-muted-foreground">
-            <span>Credits</span>
-            <span className="tabular-nums">{formatCredits(plan.credits)}</span>
-          </div>
-        </div>
-        {resets?.items?.length ? (
-          <div className="space-y-1 text-body-sm">
+        <DialogBody className="space-y-3">
+          {/* What the reset would clear: the windows as the card shows them. */}
+          <div className="space-y-1.5 rounded-md border bg-surface-subtle p-3 text-body-sm">
             <div className="text-label-sm font-medium text-foreground">
-              Reset expirations · oldest first
+              Current usage
             </div>
-            <ul className="space-y-1" data-testid="usage-codex-reset-list">
-              {resets.items.map((item, index) => {
-                const expires = formatResetExpiryDate(item.expiresAt);
-                return (
-                  <li
-                    key={item.id}
-                    className={cn(
-                      "grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-3 py-1",
-                      plan.engine === "codex" &&
-                        available > 0 &&
-                        resetExpiresSoon(item.expiresAt, now)
-                        ? "text-primary"
-                        : "text-muted-foreground"
-                    )}
-                  >
-                    <span className="min-w-0 break-words">
-                      {item.title}
-                      {index === 0 ? " · next" : ""}
-                    </span>
-                    <span className="whitespace-nowrap tabular-nums">
-                      {expires
-                        ? expires
-                        : item.expiresAt == null
-                          ? "no expiry"
-                          : "expiry unknown"}
-                    </span>
-                  </li>
-                );
-              })}
-            </ul>
+            {plan.windows.map((w) => (
+              <PlanWindowRow key={w.id} window={w} now={now} />
+            ))}
+            <div className="flex justify-between text-muted-foreground">
+              <span>Credits</span>
+              <span className="tabular-nums">
+                {formatCredits(plan.credits)}
+              </span>
+            </div>
           </div>
-        ) : null}
-        {outcome ? (
-          <p
-            className="text-body-md"
-            role="status"
-            data-testid="usage-codex-reset-outcome"
-          >
-            {outcome}
-          </p>
-        ) : null}
+          {resets?.items?.length ? (
+            <div className="space-y-1 text-body-sm">
+              <div className="text-label-sm font-medium text-foreground">
+                Reset expirations · oldest first
+              </div>
+              <ul className="space-y-1" data-testid="usage-codex-reset-list">
+                {resets.items.map((item, index) => {
+                  const expires = formatResetExpiryDate(item.expiresAt);
+                  return (
+                    <li
+                      key={item.id}
+                      className={cn(
+                        "grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-3 py-1",
+                        plan.engine === "codex" &&
+                          available > 0 &&
+                          resetExpiresSoon(item.expiresAt, now)
+                          ? "text-primary"
+                          : "text-muted-foreground"
+                      )}
+                    >
+                      <span className="min-w-0 break-words">
+                        {item.title}
+                        {index === 0 ? " · next" : ""}
+                      </span>
+                      <span className="whitespace-nowrap tabular-nums">
+                        {expires
+                          ? expires
+                          : item.expiresAt == null
+                            ? "no expiry"
+                            : "expiry unknown"}
+                      </span>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          ) : null}
+          {outcome ? (
+            <p
+              className="text-body-md"
+              role="status"
+              data-testid="usage-codex-reset-outcome"
+            >
+              {outcome}
+            </p>
+          ) : null}
+        </DialogBody>
         {consume.error ? (
-          <p role="alert" className="text-body-md text-danger">
-            {consume.error.message}
-          </p>
+          <Alert title="Couldn’t use the reset." error={consume.error} />
         ) : null}
-        <div className="flex justify-end gap-2">
-          <Button size="stream-md" type="button" onClick={close}>
-            {outcome ? "Close" : "Cancel"}
-          </Button>
+        <DialogFooter>
+          <DialogCancel onClick={close}>
+            {outcome ? "Done" : "Cancel"}
+          </DialogCancel>
           {outcome ? null : (
             <Button
-              size="stream-md"
               type="button"
               variant="primary"
               onClick={() => consume.mutate()}
-              disabled={consume.isPending}
+              pending={consume.isPending}
               data-testid="usage-codex-reset-confirm"
             >
-              {consume.isPending ? "Resetting…" : "Use a reset"}
+              Use a reset
             </Button>
           )}
-        </div>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );

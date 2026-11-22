@@ -122,7 +122,7 @@ export function WorktreeSection({
             <div className="space-y-1">
               <label
                 htmlFor="create-agent-new-branch"
-                className="ml-8 block cursor-pointer text-body-sm text-muted-foreground"
+                className="ml-8 block cursor-pointer text-body-sm font-medium text-foreground"
               >
                 New branch
               </label>

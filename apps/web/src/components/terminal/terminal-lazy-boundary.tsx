@@ -1,4 +1,5 @@
 import { lazy, Suspense, useState } from "react";
+import { LoadingSkeleton } from "@/components/ui/skeleton";
 const TerminalPanel = lazy(() => import("./terminal-panel"));
 
 /** Defer the entire terminal bundle and first request until actually visible. */
@@ -15,9 +16,7 @@ export function TerminalLazyBoundary({
   return (
     <Suspense
       fallback={
-        <p role="status" className="p-3 text-body-sm">
-          Loading terminal…
-        </p>
+        <LoadingSkeleton label="Loading terminal…" className="w-auto p-3" />
       }
     >
       <TerminalPanel agentId={agentId} active={active} />

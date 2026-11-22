@@ -3,7 +3,6 @@ import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { useLayoutEffect, useMemo, useRef } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { ArrowLeft, X } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import { useTaskBoard, useTaskDetail } from "@/hooks/use-tasks";
 import type { Agent } from "@/components/app/types";
 import { Dialog, DialogDescription, DialogTitle } from "@/components/ui/dialog";
@@ -15,6 +14,8 @@ import {
   orderedColumns,
 } from "./task-utils";
 import { useMoveTask } from "./use-move-task";
+import { AsyncBoundary, combineResults } from "@/components/ui/async-boundary";
+import { EmptyState } from "@/components/ui/empty-state";
 
 /**
  * The task named by `?task=` as a modal over the current view, so reading
@@ -65,11 +66,7 @@ export function TaskModal({
     setParams(updated, { replace: true, state: location.state });
   };
   const close = () => setTask(null);
-  const loadError = taskQuery.error
-    ? `Could not load the task: ${taskQuery.error.message}`
-    : boardQuery.error
-      ? `Could not load the task's board: ${boardQuery.error.message}`
-      : null;
+  const loading = combineResults(taskQuery, boardQuery);
   return (
     <>
       <Dialog
@@ -146,29 +143,19 @@ export function TaskModal({
                     <X />
                   </IconButton>
                 </header>
-                {loadError ? (
-                  <div
-                    role="alert"
-                    className="flex items-center justify-between gap-3 p-4 text-body-md text-danger"
-                  >
-                    <span className="min-w-0">{loadError}</span>
-                    <Button
-                      size="sm"
-                      className="shrink-0"
-                      onClick={() => {
-                        void (taskQuery.error
-                          ? taskQuery.refetch()
-                          : boardQuery.refetch());
-                      }}
-                    >
-                      Retry
-                    </Button>
-                  </div>
-                ) : (
-                  <p className="p-4 text-body-md text-muted-foreground">
-                    Loading task…
-                  </p>
-                )}
+                <AsyncBoundary
+                  query={loading}
+                  thing="the task"
+                  className="m-4"
+                  notFound={
+                    <EmptyState
+                      title="Task not found"
+                      description="It may have been deleted, or the link may be wrong."
+                    />
+                  }
+                >
+                  {() => null}
+                </AsyncBoundary>
               </>
             )}
           </DialogPrimitive.Content>

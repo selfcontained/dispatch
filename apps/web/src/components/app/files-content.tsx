@@ -1,24 +1,28 @@
 import { type RefObject, useCallback, useRef, useState } from "react";
-import {
-  Check,
-  ExternalLink,
-  Image,
-  Upload,
-  File as FileIcon,
-  Video,
-} from "lucide-react";
+import { Check, ExternalLink, Files, Upload } from "lucide-react";
 
 import { type FileItem, type SubAgentFiles } from "@/components/app/types";
 import { FileCardList } from "@/components/app/file-item-card";
 import { OwnerSwitch } from "@/components/app/owner-switch";
-import { ActivityBars } from "@/components/ui/activity-bars";
 import { Button } from "@/components/ui/button";
 import { StatusDot } from "@/components/ui/status-dot";
 import { STARTUP_FILE_ACCEPT } from "@/lib/file-accept";
+import { Alert } from "@/components/ui/alert";
+import { LoadError } from "@/components/ui/async-boundary";
+import { EmptyState } from "@/components/ui/empty-state";
+import { LoadingSkeleton } from "@/components/ui/skeleton";
 
 const EMPTY_SUB_AGENT_FILES: SubAgentFiles[] = [];
 
+/** Where the selected agent's own list stands. */
+export type FilesState = {
+  error: unknown;
+  loading: boolean;
+  retry: () => void;
+};
+
 export type FilesContentProps = {
+  filesState?: FilesState;
   /** The files to show: the selected agent's own, or the chosen sub agent's. */
   files: FileItem[];
   /**
@@ -88,6 +92,7 @@ function LiveStreamSection({
 
 export function FilesContent({
   files,
+  filesState,
   subAgentFiles = EMPTY_SUB_AGENT_FILES,
   ownFiles = files,
   filesOwnerId = null,
@@ -104,7 +109,7 @@ export function FilesContent({
 }: FilesContentProps): JSX.Element {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
-  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [uploadError, setUploadError] = useState<unknown>();
   const [uploadSuccess, setUploadSuccess] = useState(false);
   const successTimerRef = useRef<number | null>(null);
 
@@ -113,7 +118,7 @@ export function FilesContent({
       const file = e.target.files?.[0];
       if (!file || !selectedAgentId || !onUploadFile) return;
       setUploading(true);
-      setUploadError(null);
+      setUploadError(undefined);
       setUploadSuccess(false);
       try {
         await onUploadFile(selectedAgentId, file);
@@ -125,7 +130,7 @@ export function FilesContent({
           successTimerRef.current = null;
         }, 4000);
       } catch (err) {
-        setUploadError(err instanceof Error ? err.message : "Upload failed");
+        setUploadError(err);
       } finally {
         setUploading(false);
       }
@@ -148,6 +153,7 @@ export function FilesContent({
   };
   // The parent's stream is hidden while a sub agent is shown, so it only
   // counts as content in the parent's own view.
+  const ownState = viewingSubAgent ? undefined : filesState;
   const nothingShared = files.length === 0 && (viewingSubAgent || !hasStream);
 
   return (
@@ -188,26 +194,19 @@ export function FilesContent({
               accept={STARTUP_FILE_ACCEPT}
               onChange={handleFileChange}
             />
-            <Button size="xs" disabled={uploading} onClick={triggerFilePicker}>
-              {uploading ? (
-                <ActivityBars size={12} />
-              ) : uploadSuccess ? (
-                <Check />
-              ) : (
-                <Upload />
-              )}
-              {uploading
-                ? "Uploading…"
-                : uploadSuccess
-                  ? "Shared"
-                  : "Share file"}
+            <Button size="xs" pending={uploading} onClick={triggerFilePicker}>
+              {uploadSuccess ? <Check /> : <Upload />}
+              {uploadSuccess ? "Shared" : "Share file"}
             </Button>
-            {uploadError ? (
-              <span className="truncate text-body-sm text-danger">
-                {uploadError}
-              </span>
-            ) : null}
           </div>
+          {uploadError ? (
+            <Alert
+              title="Couldn’t share the file."
+              error={uploadError}
+              className="mt-2"
+              onDismiss={() => setUploadError(undefined)}
+            />
+          ) : null}
           {uploadSuccess ? (
             <p className="mt-1 text-label-sm text-muted-foreground">
               Tell the agent about the file so it knows to look.
@@ -221,42 +220,65 @@ export function FilesContent({
         data-testid="files-panel-scroll"
         className="min-h-0 flex-1 overflow-y-auto pb-safe"
       >
+        {ownState?.error ? (
+          <LoadError
+            thing="files"
+            error={ownState.error}
+            onRetry={ownState.retry}
+            className="m-3"
+          />
+        ) : null}
         {nothingShared ? (
-          <div className="grid h-full place-items-center p-4 text-center text-body-md text-muted-foreground">
-            <div className="flex flex-col items-center gap-2">
-              <div className="flex items-center gap-8">
-                <Image className="h-8 w-8 text-muted-foreground" />
-                <Video className="h-8 w-8 text-muted-foreground" />
-                <FileIcon className="h-8 w-8 text-muted-foreground" />
-              </div>
-              <div className="mt-4">
-                {viewedSubAgent ? (
-                  viewedSubAgent.status === "pending" ? (
-                    `Loading ${viewedSubAgent.agent.name}'s files…`
-                  ) : viewedSubAgent.status === "error" ? (
-                    `Couldn't load ${viewedSubAgent.agent.name}'s files.`
-                  ) : (
-                    `${viewedSubAgent.agent.name} has not shared any files yet.`
-                  )
-                ) : selectedAgentId ? (
-                  <>
-                    No files yet.{" "}
-                    <Button
-                      variant="link"
-                      size="inline"
-                      onClick={triggerFilePicker}
-                    >
-                      Share a file
-                    </Button>{" "}
-                    or wait for agents to share screenshots, videos and
-                    documents.
-                  </>
-                ) : (
-                  "Focus an agent to view files."
-                )}
-              </div>
+          ownState?.error ? null : ownState?.loading ||
+            viewedSubAgent?.status === "pending" ? (
+            <LoadingSkeleton
+              label={
+                viewedSubAgent
+                  ? `Loading ${viewedSubAgent.agent.name}'s files…`
+                  : "Loading files…"
+              }
+              className="w-auto p-3"
+              rowClassName="h-24"
+              rows={2}
+            />
+          ) : (
+            <div className="flex h-full flex-col">
+              {viewedSubAgent?.status === "error" ? (
+                <Alert
+                  title={`Couldn’t load ${viewedSubAgent.agent.name}’s files.`}
+                  className="m-3"
+                  action={
+                    viewedSubAgent.retry
+                      ? { label: "Retry", onClick: viewedSubAgent.retry }
+                      : undefined
+                  }
+                />
+              ) : (
+                <EmptyState
+                  icon={Files}
+                  title={
+                    viewedSubAgent
+                      ? `${viewedSubAgent.agent.name} has not shared any files yet.`
+                      : selectedAgentId
+                        ? "No files yet."
+                        : "Focus an agent to view files."
+                  }
+                  description={
+                    !viewedSubAgent && selectedAgentId
+                      ? "Screenshots, videos and documents agents share show up here."
+                      : undefined
+                  }
+                  action={
+                    !viewedSubAgent && selectedAgentId && onUploadFile ? (
+                      <Button size="sm" onClick={triggerFilePicker}>
+                        Share a file
+                      </Button>
+                    ) : undefined
+                  }
+                />
+              )}
             </div>
-          </div>
+          )
         ) : (
           <FileCardList
             files={files}

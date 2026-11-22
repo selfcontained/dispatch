@@ -63,6 +63,35 @@ export default tseslint.config(
   },
   {
     files: ["src/**/*.{ts,tsx}"],
+    ignores: ["**/*.test.{ts,tsx}", "src/components/ui/toast.tsx"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          paths: [
+            "crypto",
+            "node:crypto",
+            {
+              name: "sonner",
+              message:
+                "Use toast from @/components/ui/toast, which keeps the one card, host and stack.",
+            },
+          ],
+        },
+      ],
+      "no-restricted-syntax": [
+        "error",
+        {
+          selector:
+            "CallExpression[callee.object.name=/^(window|globalThis)$/][callee.property.name=/^(confirm|prompt|alert)$/]",
+          message:
+            "Use ConfirmDialog, a Dialog with a Field, or an Alert from components/ui, not a native dialog.",
+        },
+      ],
+    },
+  },
+  {
+    files: ["src/**/*.{ts,tsx}"],
     ignores: ["**/*.test.{ts,tsx}"],
     plugins: { dispatch },
     // No exceptions today. A new one is { file, token }, naming the one file

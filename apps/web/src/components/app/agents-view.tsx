@@ -66,6 +66,7 @@ import {
   useExpandedAgent,
   useExpandedAgentSync,
 } from "@/hooks/use-expanded-agent";
+import { LoadingSkeleton } from "@/components/ui/skeleton";
 
 type AgentsViewProps = {
   enabledAgentTypes: AgentType[];
@@ -237,6 +238,7 @@ export function AgentsView({
     openLightbox,
     drawerViewportRef,
     refreshFiles,
+    filesState,
   } = useFiles(focusedAgentId, drawerPanelOpen, focusedSubAgents);
 
   const chatUnreadCount = useAgentChatUnread(focusedAgentId).unread;
@@ -434,9 +436,7 @@ export function AgentsView({
   const filesElement = filesVisible ? (
     <Suspense
       fallback={
-        <div role="status" className="p-4 text-body-md text-muted-foreground">
-          Loading files…
-        </div>
+        <LoadingSkeleton label="Loading files…" className="w-auto p-4" />
       }
     >
       <FilesPane
@@ -671,6 +671,7 @@ export function AgentsView({
               selectedAgentName={focusedAgent?.name ?? null}
               subAgentFiles={subAgentFiles}
               ownFiles={files}
+              filesState={filesState}
               filesOwnerId={filesOwnerId}
               onFilesOwnerChange={setFilesOwnerId}
               animatingFileKeys={animatingFileKeys}
@@ -736,6 +737,7 @@ export function AgentsView({
             selectedAgentName={focusedAgent?.name ?? null}
             subAgentFiles={subAgentFiles}
             ownFiles={files}
+            filesState={filesState}
             filesOwnerId={filesOwnerId}
             onFilesOwnerChange={setFilesOwnerId}
             animatingFileKeys={animatingFileKeys}

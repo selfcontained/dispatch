@@ -89,9 +89,7 @@ export function useIconColor(): {
     iconColor: data?.iconColor ?? "teal",
     setIconColor,
     isLoading: mutation.isPending,
-    error: mutation.isError
-      ? "Failed to save icon color. Please try again."
-      : null,
+    error: mutation.isError ? "The icon color wasn’t saved." : null,
     clearError,
   };
 }

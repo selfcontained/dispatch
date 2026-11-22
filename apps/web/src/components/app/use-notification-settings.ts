@@ -37,7 +37,10 @@ export function useNotificationSettings() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [webMessage, setWebMessage] = useState("");
-  const [webError, setWebError] = useState("");
+  const [webError, setWebError] = useState<unknown>();
+  const [loadError, setLoadError] = useState<unknown>();
+  const [attempt, setAttempt] = useState(0);
+  const reload = useCallback(() => setAttempt((count) => count + 1), []);
   const webNotifyEnabledRef = useRef(webNotifyEnabled);
   const webNotifyEventsRef = useRef(webNotifyEvents);
   const savedWebEnabledRef = useRef(savedWebEnabled);
@@ -46,6 +49,7 @@ export function useNotificationSettings() {
 
   useEffect(() => {
     let cancelled = false;
+    setLoading(true);
     void (async () => {
       try {
         const data = await api<NotificationSettingsResponse>(
@@ -56,8 +60,9 @@ export function useNotificationSettings() {
         setSavedWebEnabled(data.webNotifyEnabled);
         setWebNotifyEvents(data.webNotifyEvents);
         setSavedWebEvents(data.webNotifyEvents);
-      } catch {
-        // ignore — first load may fail if server is starting
+        setLoadError(undefined);
+      } catch (err) {
+        if (!cancelled) setLoadError(err);
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -65,7 +70,7 @@ export function useNotificationSettings() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [attempt]);
 
   useEffect(() => {
     webNotifyEnabledRef.current = webNotifyEnabled;
@@ -81,7 +86,7 @@ export function useNotificationSettings() {
     ): Promise<boolean> => {
       const requestId = webSaveRequestIdRef.current + 1;
       webSaveRequestIdRef.current = requestId;
-      setWebError("");
+      setWebError(undefined);
       setWebMessage("");
       setSaving(true);
       try {
@@ -108,11 +113,7 @@ export function useNotificationSettings() {
         if (webSaveRequestIdRef.current !== requestId) {
           return true;
         }
-        setWebError(
-          err instanceof Error
-            ? err.message
-            : "Failed to save browser notifications."
-        );
+        setWebError(err);
         return false;
       } finally {
         if (webSaveRequestIdRef.current === requestId) {
@@ -178,6 +179,8 @@ export function useNotificationSettings() {
 
   return {
     loading,
+    loadError,
+    reload,
     // Web/browser notifications
     webNotifyEnabled,
     webNotifyEvents,

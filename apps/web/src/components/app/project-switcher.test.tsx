@@ -27,6 +27,12 @@ const { projects } = vi.hoisted(() => ({
 vi.mock("@/hooks/use-projects", async () => {
   const { useLocation } = await import("react-router-dom");
   return {
+    useProjects: () => ({
+      data: projects,
+      error: null,
+      isFetching: false,
+      refetch: vi.fn(),
+    }),
     useProjectSelection: () => {
       const id = new URLSearchParams(useLocation().search).get("project");
       return { project: projects.find((p) => p.id === id), projects };

@@ -1,15 +1,19 @@
 import { ArgInput } from "@/components/app/arg-input";
-import { Button } from "@/components/ui/button";
 import {
   Dialog,
+  DialogBody,
+  DialogCancel,
   DialogContent,
   DialogDescription,
+  DialogFooter,
+  DialogForm,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
 import type { QuickPhrase } from "@/hooks/use-quick-phrases";
 
 import { InjectSplitButton } from "./inject-split-button";
+import { Alert } from "@/components/ui/alert";
 
 export type FillingPhrase = {
   phrase: QuickPhrase;
@@ -22,6 +26,7 @@ export function FillVariablesDialog({
   onFillChange,
   onInject,
   isPending,
+  error,
   requiredMissing,
 }: {
   filling: FillingPhrase;
@@ -29,6 +34,7 @@ export function FillVariablesDialog({
   onFillChange: (value: FillingPhrase) => void;
   onInject: (submit: boolean) => void;
   isPending: boolean;
+  error: unknown;
   requiredMissing: boolean;
 }) {
   return (
@@ -39,45 +45,47 @@ export function FillVariablesDialog({
       }}
     >
       {filling !== null ? (
-        <DialogContent className="sm:max-w-md">
+        <DialogContent size="sm" busy={isPending}>
           <DialogHeader>
             <DialogTitle>
-              {filling.phrase.label || "Fill Variables"}
+              {filling.phrase.label || "Fill variables"}
             </DialogTitle>
             <DialogDescription>
               Fill in the variables below, then inject the phrase.
             </DialogDescription>
           </DialogHeader>
-          <form
-            className="flex flex-col gap-3"
+          <DialogForm
             onSubmit={(e) => {
               e.preventDefault();
               if (!requiredMissing && !isPending) onInject(true);
             }}
           >
-            {filling.phrase.args.map((arg) => (
-              <ArgInput
-                key={arg.key}
-                arg={arg}
-                value={filling.argValues[arg.key] ?? ""}
-                onChange={(value) =>
-                  onFillChange({
-                    ...filling,
-                    argValues: { ...filling.argValues, [arg.key]: value },
-                  })
-                }
-              />
-            ))}
-            <div className="flex justify-end gap-2">
-              <Button type="button" variant="ghost" onClick={onClose}>
-                Cancel
-              </Button>
+            <DialogBody className="flex flex-col gap-3">
+              {filling.phrase.args.map((arg) => (
+                <ArgInput
+                  key={arg.key}
+                  arg={arg}
+                  value={filling.argValues[arg.key] ?? ""}
+                  onChange={(value) =>
+                    onFillChange({
+                      ...filling,
+                      argValues: { ...filling.argValues, [arg.key]: value },
+                    })
+                  }
+                />
+              ))}
+            </DialogBody>
+            {error ? (
+              <Alert title="Couldn’t send the phrase." error={error} />
+            ) : null}
+            <DialogFooter>
+              <DialogCancel />
               <InjectSplitButton
                 disabled={requiredMissing || isPending}
                 onInject={onInject}
               />
-            </div>
-          </form>
+            </DialogFooter>
+          </DialogForm>
         </DialogContent>
       ) : null}
     </Dialog>

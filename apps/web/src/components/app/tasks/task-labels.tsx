@@ -1,11 +1,8 @@
 import { TASK_LABEL_NAME_MAX_LENGTH } from "@dispatch/shared";
-import { Command as CommandPrimitive } from "cmdk";
-import { cn } from "@/lib/utils";
 import { useEffect, useRef, useState } from "react";
 import {
   Settings,
   ArrowLeft,
-  Check,
   ChevronDown,
   EyeOff,
   Plus,
@@ -18,20 +15,18 @@ import { TaskLabelBadge } from "./task-label-badge";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
-import {
-  Command,
-  CommandList,
-  CommandGroup,
-  CommandItem,
-} from "@/components/ui/command";
+  Combobox,
+  ComboboxContent,
+  ComboboxItem,
+  ComboboxTrigger,
+  searchRank,
+} from "@/components/ui/combobox";
+import { FieldError } from "@/components/ui/field";
 import { IconButton } from "@/components/ui/icon-button";
 import { RowButton } from "@/components/ui/row-button";
 import { Hint } from "@/components/ui/tooltip";
 import { ColorPicker, PROJECT_COLORS, isHexColor } from "../color-picker";
+import { failureHint } from "@/lib/errors";
 
 export function TaskLabels({ labels = [] }: { labels?: TaskLabel[] }) {
   return (
@@ -79,7 +74,9 @@ export function TaskLabelPicker({
   }, [projectId, onPendingChange]);
   const [manage, setManage] = useState(false);
   const visibility = useTaskLabelVisibility(projectId);
-  const { data, isLoading } = useTaskBoard(open ? projectId : null);
+  const { data, isLoading, isError, refetch } = useTaskBoard(
+    open ? projectId : null
+  );
   const [name, setName] = useState("");
   const [color, setColor] = useState(PROJECT_COLORS[0]!);
   const existing = data?.labels ?? [];
@@ -107,9 +104,11 @@ export function TaskLabelPicker({
   ];
   const selected = (label: TaskLabel) =>
     value.some((l) => l.name.toLowerCase() === label.name.toLowerCase());
-  const matching = options.filter((l) =>
-    l.name.toLowerCase().includes(name.trim().toLowerCase())
-  );
+  const matching = options
+    .map((label) => ({ label, rank: searchRank(label.name, name) }))
+    .filter(({ rank }) => rank > 0)
+    .sort((a, b) => b.rank - a.rank)
+    .map(({ label }) => label);
   const toggle = (label: TaskLabel) => {
     if (disabled || visibility.isPending) return;
     if (selected(label))
@@ -150,23 +149,79 @@ export function TaskLabelPicker({
   const invalid = [...name].some(
     (c) => c.charCodeAt(0) < 32 || c.charCodeAt(0) === 127
   );
+  const status =
+    matching.length || canCreate || hiddenMatch
+      ? undefined
+      : isLoading
+        ? "Loading labels…"
+        : isError && !data
+          ? "Couldn’t load labels."
+          : undefined;
+  const manageList = (
+    <div className="flex h-56 min-h-0 flex-col">
+      <div className="shrink-0 px-2 pb-1 pt-2">
+        <Input
+          aria-label="Find project labels"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="Find a label…"
+          className="h-8 min-w-0 text-body-sm"
+        />
+      </div>
+      <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-1">
+        {[...existing, ...hidden]
+          .filter((l) => searchRank(l.name, name) > 0)
+          .map((label) => (
+            <div
+              key={label.name}
+              className="flex min-h-8 items-center gap-2 px-1 text-body-sm"
+            >
+              <TaskLabelBadge label={label} />
+              {isHidden(label) ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="xs"
+                  disabled={disabled || visibility.isPending}
+                  className="ml-auto shrink-0 text-label-sm"
+                  aria-label={`Restore label ${label.name}`}
+                  onClick={() => {
+                    void setHidden(label, false);
+                  }}
+                >
+                  Restore
+                </Button>
+              ) : (
+                <IconButton
+                  tooltip="Remove from options; keep task assignments"
+                  size="icon-sm"
+                  disabled={disabled || visibility.isPending}
+                  className="ml-auto"
+                  label={`Remove label ${label.name} from options`}
+                  onClick={() => {
+                    void setHidden(label, true);
+                  }}
+                >
+                  <X aria-hidden="true" />
+                </IconButton>
+              )}
+            </div>
+          ))}
+      </div>
+    </div>
+  );
   return (
-    <Popover
+    <Combobox
       open={open}
+      search={name}
+      onSearchChange={setName}
       onOpenChange={(next) => {
         setOpen(next);
-        if (!next) {
-          setName("");
-          setManage(false);
-        }
+        if (!next) setManage(false);
       }}
     >
-      <PopoverTrigger asChild>
-        <RowButton
-          disabled={disabled}
-          aria-label="Edit labels"
-          className="min-h-7 w-auto max-w-full min-w-0 gap-1.5 px-1.5 py-1 text-body-sm text-muted-foreground"
-        >
+      <ComboboxTrigger asChild disabled={disabled} aria-label="Edit labels">
+        <RowButton className="min-h-7 w-auto max-w-full min-w-0 gap-1.5 px-1.5 py-1 text-body-sm text-muted-foreground">
           {value.length ? (
             <span className="flex min-w-0 items-center gap-2 overflow-hidden">
               {value.slice(0, 2).map((l) => (
@@ -189,168 +244,32 @@ export function TaskLabelPicker({
           )}
           <ChevronDown className="size-icon-sm shrink-0 opacity-60" />
         </RowButton>
-      </PopoverTrigger>
-      <PopoverContent
-        align="start"
-        sideOffset={4}
-        collisionPadding={8}
-        className="flex h-64 max-h-[var(--radix-popover-content-available-height)] w-64 max-w-[calc(100vw-2rem)] flex-col overflow-hidden p-0"
-      >
-        {manage ? (
-          <div className="flex min-h-0 flex-1 flex-col">
-            <div className="shrink-0 px-2 pb-1 pt-2">
-              <Input
-                aria-label="Find project labels"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="Find a label…"
-                className="h-8 min-w-0 text-body-sm"
-              />
-            </div>
-            <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-1">
-              {[...existing, ...hidden]
-                .filter((l) =>
-                  l.name.toLowerCase().includes(name.trim().toLowerCase())
-                )
-                .map((label) => (
-                  <div
-                    key={label.name}
-                    className="flex min-h-8 items-center gap-2 px-1 text-body-sm"
-                  >
-                    <TaskLabelBadge label={label} />
-                    {isHidden(label) ? (
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="xs"
-                        disabled={disabled || visibility.isPending}
-                        className="ml-auto shrink-0 text-label-sm"
-                        aria-label={`Restore label ${label.name}`}
-                        onClick={() => {
-                          void setHidden(label, false);
-                        }}
-                      >
-                        Restore
-                      </Button>
-                    ) : (
-                      <IconButton
-                        tooltip="Remove from options; keep task assignments"
-                        size="icon-sm"
-                        disabled={disabled || visibility.isPending}
-                        className="ml-auto"
-                        label={`Remove label ${label.name} from options`}
-                        onClick={() => {
-                          void setHidden(label, true);
-                        }}
-                      >
-                        <X aria-hidden="true" />
-                      </IconButton>
-                    )}
-                  </div>
-                ))}
-            </div>
-          </div>
-        ) : (
-          <div className="flex min-h-0 flex-1 flex-col">
-            <Command
-              label="Label name"
-              shouldFilter={false}
-              className={cn(
-                "rounded-md border-0 bg-transparent shadow-none backdrop-blur-none [&>div]:border-0 [&>div:has(>input)]:shrink-0",
-                canCreate ? "h-20 shrink-0" : "min-h-0 flex-1"
-              )}
-            >
-              <div className="shrink-0 px-2 pb-1 pt-2">
-                <CommandPrimitive.Input
-                  asChild
-                  value={name}
-                  onValueChange={setName}
+      </ComboboxTrigger>
+      <ComboboxContent
+        label="Label name"
+        placeholder="Find or create a label…"
+        shouldFilter={false}
+        status={status}
+        emptyMessage={canCreate ? null : "Type a name to create a label"}
+        inputProps={{
+          "aria-invalid": canCreate && tooLong,
+          "aria-describedby": "task-label-length",
+        }}
+        className="w-64"
+        panel={manage ? manageList : undefined}
+        footer={
+          <>
+            {!manage && canCreate && (
+              <div className="shrink-0 px-2 pb-2">
+                <p
+                  id="task-label-length"
+                  role={tooLong ? "alert" : undefined}
+                  className={`px-1 pb-1 text-body-sm ${tooLong ? "text-danger" : "text-muted-foreground"}`}
                 >
-                  <Input
-                    aria-label="Label name"
-                    placeholder="Find or create a label…"
-                    aria-invalid={canCreate && tooLong}
-                    aria-describedby="task-label-length"
-                    className="h-8 min-w-0 text-body-sm"
-                  />
-                </CommandPrimitive.Input>
-              </div>
-              {(matching.length > 0 || !canCreate) && (
-                <CommandList className="min-h-0 flex-1 max-h-none overflow-y-auto">
-                  <CommandGroup>
-                    {matching.map((label) => (
-                      <CommandItem
-                        key={label.name}
-                        value={label.name}
-                        aria-label={label.name}
-                        aria-description={
-                          selected(label) ? "Applied to task" : "Not applied"
-                        }
-                        disabled={
-                          disabled ||
-                          visibility.isPending ||
-                          (!selected(label) && value.length >= 20)
-                        }
-                        onSelect={() => toggle(label)}
-                        className="min-h-8 gap-2"
-                      >
-                        <TaskLabelBadge label={label} />
-                        {isHidden(label) && (
-                          <EyeOff
-                            className="h-3 w-3 shrink-0 text-muted-foreground"
-                            aria-label="Hidden from future choices"
-                          />
-                        )}
-                        {selected(label) && (
-                          <Check
-                            aria-hidden="true"
-                            className="ml-auto h-3.5 w-3.5 shrink-0 text-muted-foreground"
-                          />
-                        )}
-                      </CommandItem>
-                    ))}
-                    {hiddenMatch && !selected(hiddenMatch) && (
-                      <CommandItem
-                        value={hiddenMatch.name}
-                        aria-label={`Restore and add ${hiddenMatch.name}`}
-                        disabled={
-                          disabled || visibility.isPending || value.length >= 20
-                        }
-                        onSelect={() => {
-                          void restoreAndAdd(hiddenMatch);
-                        }}
-                        className="min-h-9 gap-2"
-                      >
-                        <TaskLabelBadge label={hiddenMatch} />
-                        <span className="ml-auto shrink-0 text-label-xs text-muted-foreground">
-                          Hidden · Restore &amp; add
-                        </span>
-                      </CommandItem>
-                    )}
-                    {!matching.length && !canCreate && !hiddenMatch && (
-                      <p className="px-2 py-3 text-body-sm text-muted-foreground">
-                        {isLoading
-                          ? "Loading labels…"
-                          : "Type a name to create a label"}
-                      </p>
-                    )}
-                  </CommandGroup>
-                </CommandList>
-              )}
-            </Command>
-            {canCreate && (
-              <p
-                id="task-label-length"
-                role={tooLong ? "alert" : undefined}
-                className="px-3 text-body-sm text-muted-foreground"
-              >
-                {tooLong
-                  ? `Use ${TASK_LABEL_NAME_MAX_LENGTH} characters or fewer`
-                  : `${name.trim().length}/${TASK_LABEL_NAME_MAX_LENGTH} characters`}
-              </p>
-            )}
-            {canCreate && (
-              <div className="shrink-0 px-2 pb-2 pt-1">
+                  {tooLong
+                    ? `Use ${TASK_LABEL_NAME_MAX_LENGTH} characters or fewer`
+                    : `${name.trim().length}/${TASK_LABEL_NAME_MAX_LENGTH} characters`}
+                </p>
                 <ColorPicker
                   value={color}
                   onChange={setColor}
@@ -382,39 +301,95 @@ export function TaskLabelPicker({
                 </Button>
               </div>
             )}
-          </div>
-        )}
-        {visibility.error && (
-          <p role="alert" className="px-3 pb-2 text-body-sm text-danger">
-            {visibility.error.message}
-          </p>
-        )}
-        <div className="flex h-8 shrink-0 items-center border-t border-border-subtle bg-surface-subtle px-2">
-          <Button
-            size="xs"
-            type="button"
-            variant="ghost"
-            aria-label={manage ? "Back to label picker" : "Manage labels"}
-            className="w-full justify-start text-label-sm"
-            onClick={() => {
-              setManage(!manage);
-              setName("");
-            }}
-          >
-            {manage ? (
-              <>
-                <ArrowLeft aria-hidden="true" />
-                Back
-              </>
-            ) : (
-              <>
-                <Settings aria-hidden="true" />
-                Manage
-              </>
+            {isError && !data && (
+              <Button
+                size="xs"
+                type="button"
+                variant="ghost"
+                className="mx-2 mb-1 shrink-0 self-start"
+                onClick={() => void refetch()}
+              >
+                Retry
+              </Button>
             )}
-          </Button>
-        </div>
-      </PopoverContent>
-    </Popover>
+            {visibility.error && (
+              <FieldError className="px-3 pb-2">
+                Couldn’t update the label. {failureHint(visibility.error)}
+              </FieldError>
+            )}
+            <div className="flex min-h-8 shrink-0 items-center border-t border-border-subtle bg-surface-subtle px-2">
+              <Button
+                size="xs"
+                type="button"
+                variant="ghost"
+                aria-label={manage ? "Back to label picker" : "Manage labels"}
+                className="w-full justify-start text-label-sm"
+                onClick={() => {
+                  setManage(!manage);
+                  setName("");
+                }}
+              >
+                {manage ? (
+                  <>
+                    <ArrowLeft aria-hidden="true" />
+                    Back
+                  </>
+                ) : (
+                  <>
+                    <Settings aria-hidden="true" />
+                    Manage
+                  </>
+                )}
+              </Button>
+            </div>
+          </>
+        }
+      >
+        {matching.map((label) => (
+          <ComboboxItem
+            key={label.name}
+            value={label.name}
+            aria-label={label.name}
+            aria-description={
+              selected(label) ? "Applied to task" : "Not applied"
+            }
+            keepOpen
+            selected={selected(label)}
+            disabled={
+              disabled ||
+              visibility.isPending ||
+              (!selected(label) && value.length >= 20)
+            }
+            onSelect={() => toggle(label)}
+            className="min-h-8"
+          >
+            <TaskLabelBadge label={label} />
+            {isHidden(label) && (
+              <EyeOff
+                className="h-3 w-3 shrink-0 text-muted-foreground"
+                aria-label="Hidden from future choices"
+              />
+            )}
+          </ComboboxItem>
+        ))}
+        {hiddenMatch && !selected(hiddenMatch) && (
+          <ComboboxItem
+            value={hiddenMatch.name}
+            aria-label={`Restore and add ${hiddenMatch.name}`}
+            keepOpen
+            disabled={disabled || visibility.isPending || value.length >= 20}
+            onSelect={() => {
+              void restoreAndAdd(hiddenMatch);
+            }}
+            className="min-h-9"
+          >
+            <TaskLabelBadge label={hiddenMatch} />
+            <span className="ml-auto shrink-0 text-label-xs text-muted-foreground">
+              Hidden · Restore &amp; add
+            </span>
+          </ComboboxItem>
+        )}
+      </ComboboxContent>
+    </Combobox>
   );
 }

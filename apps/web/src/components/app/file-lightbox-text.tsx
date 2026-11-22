@@ -4,6 +4,8 @@ import { useQuery } from "@tanstack/react-query";
 import { highlightCode } from "@/components/app/file-lightbox-syntax";
 import { LogStream } from "@/components/ui/log-stream";
 import { Markdown } from "@/components/ui/markdown";
+import { LoadError } from "@/components/ui/async-boundary";
+import { LoadingSkeleton } from "@/components/ui/skeleton";
 
 // `fileName` (stable, unlike `src`) tells a real navigation apart from an
 // in-place refresh: an agent rewriting the open file changes `src` (cache-
@@ -16,9 +18,10 @@ function useFetchedText(
   fileName: string
 ): {
   content: string | null;
-  error: string | null;
+  error: Error | null;
+  retry: () => void;
 } {
-  const { data, error, isError } = useQuery({
+  const { data, error, isError, refetch } = useQuery({
     queryKey: ["file-lightbox-text", fileName, src],
     queryFn: async () => {
       const response = await fetch(src);
@@ -38,23 +41,19 @@ function useFetchedText(
 
   return {
     content: data ?? null,
-    error: isError ? String(error) : null,
+    error: isError ? error : null,
+    retry: () => void refetch(),
   };
 }
 
 function LoadingText(): JSX.Element {
   return (
-    <div className="grid h-full place-items-center text-body-md text-[hsl(var(--log-stream-muted-foreground))]">
-      Loading...
-    </div>
-  );
-}
-
-function TextError({ error }: { error: string }): JSX.Element {
-  return (
-    <div className="grid h-full place-items-center text-body-md text-danger">
-      {error}
-    </div>
+    <LoadingSkeleton
+      label="Loading the file…"
+      className="p-4"
+      rowClassName="h-4"
+      rows={8}
+    />
   );
 }
 
@@ -98,9 +97,17 @@ export function MarkdownViewer({
   src: string;
   fileName: string;
 }): JSX.Element {
-  const { content, error } = useFetchedText(src, fileName);
+  const { content, error, retry } = useFetchedText(src, fileName);
 
-  if (error) return <TextError error={error} />;
+  if (error)
+    return (
+      <LoadError
+        thing="the file"
+        error={error}
+        onRetry={retry}
+        className="m-4"
+      />
+    );
   if (content === null) return <LoadingText />;
 
   return (
@@ -120,9 +127,17 @@ export function TextFileViewer({
   src: string;
   fileName: string;
 }): JSX.Element {
-  const { content, error } = useFetchedText(src, fileName);
+  const { content, error, retry } = useFetchedText(src, fileName);
 
-  if (error) return <TextError error={error} />;
+  if (error)
+    return (
+      <LoadError
+        thing="the file"
+        error={error}
+        onRetry={retry}
+        className="m-4"
+      />
+    );
   if (content === null) return <LoadingText />;
 
   return <TextViewer content={content} fileName={fileName} />;

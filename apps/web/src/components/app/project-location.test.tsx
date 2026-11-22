@@ -25,6 +25,12 @@ vi.mock("@/hooks/use-projects", () => ({
   useProjects: () => ({ data: projects }),
 }));
 afterEach(cleanup);
+Element.prototype.scrollIntoView = () => {};
+globalThis.ResizeObserver ??= class {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+};
 describe("project location", () => {
   it("returns to the chosen project and retains the folder field across switches", () => {
     function Form() {
@@ -44,7 +50,7 @@ describe("project location", () => {
     fireEvent.change(field, { target: { value: "/edited" } });
     fireEvent.click(screen.getByRole("radio", { name: "Project" }));
     expect(
-      screen.getByRole("button", { name: "Choose project" }).textContent
+      screen.getByRole("combobox", { name: "Choose project" }).textContent
     ).toContain("Second");
     expect(screen.getByLabelText("Folder path")).toBe(field);
     expect((field as HTMLInputElement).value).toBe("/edited");
@@ -55,11 +61,11 @@ describe("project location", () => {
         <input aria-label="Folder path" />
       </ProjectLocation>
     );
-    const trigger = screen.getByRole("button", { name: "Choose project" });
-    fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false });
-    const menu = screen.getByRole("menu");
+    const trigger = screen.getByRole("combobox", { name: "Choose project" });
+    fireEvent.keyDown(trigger, { key: "ArrowDown" });
+    const menu = screen.getByRole("listbox");
     expect(menu.className).toContain(
-      "max-h-[clamp(4rem,var(--radix-dropdown-menu-content-available-height),18rem)]"
+      "max-h-[clamp(4rem,var(--radix-select-content-available-height),18rem)]"
     );
     expect(menu.className).not.toMatch(/(^|\s)max-h-72(\s|$)/);
   });

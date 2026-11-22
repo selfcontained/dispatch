@@ -25,7 +25,7 @@ import {
   ContextLinkItem,
 } from "@/components/app/context-picker-items";
 import { useContextPickerClipboard } from "@/components/app/use-context-picker-clipboard";
-import { ActivityBars } from "@/components/ui/activity-bars";
+import { Spinner } from "@/components/ui/spinner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -85,7 +85,10 @@ function AddContextLinkForm({
 }) {
   return (
     <div className="space-y-1.5 p-1">
-      <label htmlFor={inputId} className="text-body-sm text-muted-foreground">
+      <label
+        htmlFor={inputId}
+        className="text-body-sm font-medium text-foreground"
+      >
         Link URL
       </label>
       <Input
@@ -324,7 +327,7 @@ export function ContextPicker({
               ? { "data-testid": `${testIdPrefix}-clipboard-action` }
               : {})}
           >
-            {clipboard.checking ? <ActivityBars size={12} /> : <Clipboard />}
+            {clipboard.checking ? <Spinner /> : <Clipboard />}
             Read clipboard
           </Button>
         )}
