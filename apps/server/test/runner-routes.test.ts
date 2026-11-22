@@ -72,12 +72,16 @@ describe("runner control API", () => {
     const url = "/api/v1/runners/rnr_missing/update";
     const hostToken = await ctx.auth.getOrCreateAuthToken(ctx.pool);
     const scoped = ctx.auth.createAgentMcpToken(hostToken, "agt_fixture");
-    for (const action of ["update", "force"]) {
+    for (const payload of [
+      { action: "update" },
+      { action: "force" },
+      { action: "cancel", attemptId: crypto.randomUUID() },
+    ]) {
       const denied = await ctx.app.inject({
         method: "POST",
         url,
         headers: { authorization: `Bearer ${scoped}` },
-        payload: { action },
+        payload,
       });
       expect(denied.statusCode).toBe(401);
     }

@@ -142,7 +142,7 @@ function UpdateNow({
         <Button
           type="button"
           size="sm"
-          variant="default"
+          variant="primary"
           disabled={disabled}
           aria-busy={loading || undefined}
         >
