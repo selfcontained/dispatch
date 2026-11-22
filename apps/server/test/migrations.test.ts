@@ -79,37 +79,37 @@ async function dropTasks(): Promise<void> {
     "ALTER TABLE agents DROP COLUMN IF EXISTS runner_resume_attempt_id"
   );
   await pool.query(
-    "DELETE FROM pgmigrations WHERE name IN ('0061_runner_resume_attempt', '0062_runner_update_policy')"
+    "DELETE FROM pgmigrations WHERE name IN ('0062_runner_resume_attempt', '0063_runner_update_policy')"
   );
   await pool.query(
     "ALTER TABLE agents DROP COLUMN IF EXISTS archive_checkout_state"
   );
   await pool.query(
-    "DELETE FROM pgmigrations WHERE name = '0059_archive_checkout_state'"
+    "DELETE FROM pgmigrations WHERE name = '0060_archive_checkout_state'"
   );
   await pool.query(
     "ALTER TABLE agents DROP COLUMN IF EXISTS runner_worktree_owner"
   );
   await pool.query(
-    "DELETE FROM pgmigrations WHERE name = '0057_runner_worktree_owner'"
+    "DELETE FROM pgmigrations WHERE name = '0058_runner_worktree_owner'"
   );
   await pool.query(
     "ALTER TABLE agents DROP COLUMN IF EXISTS runner_managed, DROP COLUMN IF EXISTS runner_repository, DROP COLUMN IF EXISTS runner_cleanup_pending"
   );
   await pool.query(
-    "DELETE FROM pgmigrations WHERE name = '0056_managed_runner_sessions'"
+    "DELETE FROM pgmigrations WHERE name = '0057_managed_runner_sessions'"
   );
   await pool.query(
     "ALTER TABLE agents DROP COLUMN IF EXISTS host_pending_event"
   );
   await pool.query(
-    "DELETE FROM pgmigrations WHERE name = '0052_remote_host_event'"
+    "DELETE FROM pgmigrations WHERE name = '0053_remote_host_event'"
   );
   await pool.query(
     "DROP TABLE IF EXISTS runner_connect_requests, runner_registrations, runner_authority"
   );
   await pool.query(
-    "DELETE FROM pgmigrations WHERE name IN ('0053_runner_registrations', '0054_runner_connect_requests', '0055_runner_health', '0060_clear_revoked_runners')"
+    "DELETE FROM pgmigrations WHERE name IN ('0054_runner_registrations', '0055_runner_connect_requests', '0056_runner_health', '0061_clear_revoked_runners')"
   );
   await pool.query(
     "ALTER TABLE agents DROP COLUMN name_revision, DROP COLUMN naming_requested"
@@ -168,7 +168,7 @@ async function dropTasks(): Promise<void> {
     "DELETE FROM pgmigrations WHERE name = '0042_visualization_blocks'"
   );
   await pool.query(
-    "DELETE FROM pgmigrations WHERE name = '0058_merge_risk_evidence_scope'"
+    "DELETE FROM pgmigrations WHERE name = '0059_merge_risk_evidence_scope'"
   );
   await pool.query(
     "DROP TABLE IF EXISTS merge_risk_decision_records, merge_risk_decision_daily"
