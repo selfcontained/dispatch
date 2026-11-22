@@ -336,6 +336,7 @@ type CoordinatorAgents = Pick<
   | "abandonRunnerResume"
   | "setRunnerDrainReceipt"
   | "endedRunnerResumes"
+  | "onRunnerResumeEnded"
 > & {
   runnerForce: Pick<
     AgentManager["runnerForce"],
@@ -416,6 +417,7 @@ export class RunnerUpdateCoordinator {
       options.service.onUpdateStatus((event) =>
         this.background(event.runnerId, () => this.received(event))
       ),
+      options.agents.onRunnerResumeEnded((id) => this.endResume(id)),
     ];
   }
 
@@ -1367,7 +1369,10 @@ export class RunnerUpdateCoordinator {
       retained: undefined,
       deadline: now + UPDATE_TIMING.interruptingMs,
       drain: {
-        ...(attempt.drain ?? { retainedIds: [], agents: [] }),
+        ...attempt.drain,
+        retainedIds: attempt.drain?.retainedIds ?? [],
+        // An agent started again since its stop gets a claim of its own.
+        agents: attempt.drain?.agents.filter(({ ended }) => !ended) ?? [],
         force: { snapshotBy: now + UPDATE_TIMING.snapshotMs },
       },
     };
@@ -1506,12 +1511,13 @@ export class RunnerUpdateCoordinator {
         live?.advert.pendingAttemptId
       )
         return;
-      const next = drain.agents.find((entry) => !entry.resumed);
+      // An ended entry only waits for the next tick to drop it.
+      const next = drain.agents.find((entry) => !entry.resumed && !entry.ended);
       if (next) await this.resumeAgent(runnerId, attempt.id, next);
       const interruptBy = drain.force?.interruptBy;
       await Promise.all(
         this.receipt(runnerId, attempt.id)
-          .filter((entry) => entry.resumed)
+          .filter((entry) => entry.resumed && !entry.ended)
           .map(async (entry) => {
             try {
               const told = await agents.runnerForce.continue(
@@ -1548,7 +1554,7 @@ export class RunnerUpdateCoordinator {
     const { agents: entries, result } = attempt.drain!;
     await Promise.all(
       entries
-        .filter((entry) => !entry.resumed)
+        .filter((entry) => !entry.resumed && !entry.ended)
         .map((entry) =>
           // Only a host known to be gone is a failed start.
           agents.abandonRunnerResume(runnerId, entry).catch(() => false)
@@ -1577,7 +1583,14 @@ export class RunnerUpdateCoordinator {
         runnerId,
         attemptId,
         entry,
-        () => edit((saved) => [{ ...saved, launching: true }])
+        () =>
+          this.editReceipt(runnerId, attemptId, (entries) => {
+            if (!isOwed(entries, id))
+              throw new Error("The resume is no longer owed.");
+            return entries.map((saved) =>
+              saved.id === id ? { ...saved, launching: true } : saved
+            );
+          })
       );
       await edit(({ failedAt: _, ...saved }) =>
         resumed && saved.turns?.length ? [{ ...saved, resumed: true }] : []
@@ -1606,16 +1619,45 @@ export class RunnerUpdateCoordinator {
   /** Entries a stop, archive or delete ended: nothing to resume. */
   private async endedResumes(attempt: Attempt): Promise<Set<string>> {
     const ids = attempt.drain?.agents.map(({ id }) => id) ?? [];
-    if (!ids.length) return new Set();
+    const ended = markedEnded(attempt);
+    if (!ids.length) return ended;
     try {
-      return new Set(await this.options.agents.endedRunnerResumes(ids));
+      for (const id of await this.options.agents.endedRunnerResumes(ids))
+        ended.add(id);
     } catch (error) {
       this.options.logger.warn(
         { err: error, attemptId: attempt.id },
         "could not check runner update resume entries"
       );
       // Resuming checks each one again.
-      return new Set();
+    }
+    return ended;
+  }
+
+  /**
+   * A stop, archive or delete being processed. Saved beside the runner's
+   * queue, which can spend minutes on one launch.
+   */
+  private async endResume(agentId: string) {
+    for (const [runnerId, { attempt }] of [...this.records]) {
+      if (!isOwed(this.receipt(runnerId, attempt.id), agentId)) continue;
+      const ended = () => {
+        const record = this.records.get(runnerId)!;
+        return {
+          ...record,
+          attempt: withEnded(record.attempt, new Set([agentId])),
+        };
+      };
+      try {
+        await this.save(ended);
+      } catch (error) {
+        this.options.logger.error(
+          { err: error, runnerId, agentId },
+          "could not save an ended runner update resume"
+        );
+        // The stop goes ahead, and the next write saves this.
+        this.records.set(runnerId, ended());
+      }
     }
   }
 
@@ -1663,7 +1705,7 @@ export class RunnerUpdateCoordinator {
 
   private markSent(runnerId: string, attemptId: string, id: string) {
     return this.editReceipt(runnerId, attemptId, (entries) => {
-      if (!entries.some((entry) => entry.id === id))
+      if (!isOwed(entries, id))
         throw new Error("The continuation is no longer owed.");
       return entries.map((entry) =>
         entry.id === id ? { ...entry, continuationSent: true } : entry
@@ -2032,14 +2074,15 @@ export class RunnerUpdateCoordinator {
   }
 
   /** For steps that must happen even if they cannot be saved. */
-  private async saveOrKeep(record: RunnerUpdateRecord) {
+  private async saveOrKeep(input: RunnerUpdateRecord) {
     try {
-      await this.save(record);
+      await this.save(input);
     } catch (error) {
       this.options.logger.error(
-        { err: error, runnerId: record.runnerId },
+        { err: error, runnerId: input.runnerId },
         "could not save runner update state"
       );
+      const record = this.keepEnded(input);
       this.records.set(record.runnerId, record);
       if (!record.attempt.drain)
         this.options.agents.setRunnerDrainReceipt(record.runnerId, []);
@@ -2070,7 +2113,9 @@ export class RunnerUpdateCoordinator {
     const write = this.writes
       .catch(() => {})
       .then(async () => {
-        const record = typeof input === "function" ? input() : input;
+        const record = this.keepEnded(
+          typeof input === "function" ? input() : input
+        );
         const next = new Map(this.records).set(record.runnerId, record);
         await this.options.store.write([...next.values()]);
         const hadDrain = this.records.get(record.runnerId)?.attempt.drain;
@@ -2081,6 +2126,16 @@ export class RunnerUpdateCoordinator {
       });
     this.writes = write;
     return write;
+  }
+
+  /** A write built before a stop was saved must not undo it. */
+  private keepEnded(record: RunnerUpdateRecord): RunnerUpdateRecord {
+    const saved = this.records.get(record.runnerId)?.attempt;
+    if (saved?.id !== record.attempt.id) return record;
+    const ended = markedEnded(saved);
+    return ended.size
+      ? { ...record, attempt: withEnded(record.attempt, ended) }
+      : record;
   }
 
   private enqueue<Result>(
@@ -2152,6 +2207,28 @@ function withoutResumes(attempt: Attempt, ids: Set<string>): Attempt {
   return {
     ...attempt,
     drain: { ...drain, agents: drain.agents.filter(({ id }) => !ids.has(id)) },
+  };
+}
+
+function isOwed(entries: RunnerResumeAgent[], id: string) {
+  return entries.some((entry) => entry.id === id && !entry.ended);
+}
+
+function markedEnded({ drain }: Attempt): Set<string> {
+  return new Set(drain?.agents.filter((e) => e.ended).map(({ id }) => id));
+}
+
+function withEnded(attempt: Attempt, ids: Set<string>): Attempt {
+  const { drain } = attempt;
+  if (!drain) return attempt;
+  return {
+    ...attempt,
+    drain: {
+      ...drain,
+      agents: drain.agents.map((entry) =>
+        ids.has(entry.id) ? { ...entry, ended: true } : entry
+      ),
+    },
   };
 }
 

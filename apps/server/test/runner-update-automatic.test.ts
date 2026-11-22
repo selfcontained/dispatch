@@ -51,7 +51,10 @@ async function scheduler() {
       current: () => undefined,
       release: async () => {},
     } as never,
-    agents: { settleRunnerHostRecycling: async () => {} } as never,
+    agents: {
+      settleRunnerHostRecycling: async () => {},
+      onRunnerResumeEnded: () => () => {},
+    } as never,
     artifacts: () =>
       ({
         updateEnabled: true,

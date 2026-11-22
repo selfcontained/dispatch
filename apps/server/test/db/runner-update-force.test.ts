@@ -685,6 +685,177 @@ describe("agents the user changed during the update", () => {
   });
 });
 
+describe("an agent stopped and started again during the update", () => {
+  /** Runs when the first write that matches has landed, and cuts the runner off. */
+  async function offlineWhen(at: () => unknown) {
+    world.saved.afterWrite = () => {
+      if (!at()) return;
+      world.saved.afterWrite = undefined;
+      world.disconnect();
+    };
+    world.swap();
+    await world.until(() => !world.saved.afterWrite);
+  }
+
+  it.each([
+    ["before it resumed", false, false],
+    ["before it resumed, and its new host died", false, true],
+    ["after it resumed", true, false],
+  ] as const)(
+    "gets neither a continuation nor a second host when stopped %s",
+    async (_case, resumed, dies) => {
+      const busy = await world.agent();
+      await world.working(busy);
+      await force();
+      await world.activated();
+      await offlineWhen(() =>
+        resumed
+          ? world.entry(busy.id)?.resumed
+          : world.attempt()?.phase === "resuming"
+      );
+      // Only the receipt can tell: the row will look as it did.
+      const rows = vi
+        .spyOn(world.manager, "endedRunnerResumes")
+        .mockResolvedValue([]);
+      // The runner's queue is busy, and a long window outlasted the hold.
+      const queue = Promise.withResolvers<void>();
+      const pass = (world.coordinator as any).enqueue(
+        RUNNER,
+        () => queue.promise
+      );
+      const launched = busy.launches.length;
+      await world.holds.release(RUNNER, world.attempt()!.id, "expired");
+      world.reconnect();
+      try {
+        const { cliSessionId } = (await world.manager.getAgent(busy.id))!;
+        await world.manager.stopAgent(busy.id);
+        expect(await statusOf(busy.id)).toBe("stopped");
+        await world.manager.startAgent(busy.id);
+        expect(await world.manager.getAgent(busy.id)).toMatchObject({
+          status: "running",
+          cliSessionId,
+        });
+        expect(busy.launches).toHaveLength(launched + 1);
+        if (dies) {
+          busy.alive = false;
+          world.disconnect();
+          world.reconnect();
+        }
+      } finally {
+        queue.resolve();
+        await pass;
+      }
+      await finished();
+      expect(busy.launches).toHaveLength(launched + 1);
+      expect(continuations(busy)).toEqual([]);
+      rows.mockRestore();
+    }
+  );
+
+  it.each(["stop", "archive", "delete"] as const)(
+    "records a %s on the receipt, and keeps it across a controller restart",
+    async (action) => {
+      const busy = await world.agent();
+      await world.working(busy);
+      await force();
+      await world.activated();
+      await offlineWhen(() => world.attempt()?.phase === "resuming");
+      let marked = false;
+      world.saved.afterWrite = () => {
+        if (!world.entry(busy.id)?.ended) return;
+        world.saved.afterWrite = undefined;
+        marked = true;
+        world.crash();
+      };
+      const done =
+        action === "stop"
+          ? world.manager.stopAgent(busy.id)
+          : action === "archive"
+            ? world.manager.beginArchive(busy.id)
+            : // The claim a cascade delete takes.
+              (world.manager as any)
+                .archiveDeps()
+                .claimArchive(busy.id, async () => true);
+      await done.catch(() => {});
+      expect(marked).toBe(true);
+      // Whatever the row says by then, as after a start.
+      await pool.query("UPDATE agents SET status = 'running' WHERE id = $1", [
+        busy.id,
+      ]);
+      world.reconnect();
+      await world.restart();
+      await finished();
+      expect(busy.launches).toHaveLength(1);
+      expect(continuations(busy)).toEqual([]);
+    }
+  );
+
+  it.each(["launch", "continuation"] as const)(
+    "refuses a %s that was chosen before the stop was recorded",
+    async (step) => {
+      const busy = await world.agent();
+      await world.working(busy);
+      await force();
+      await world.activated();
+      vi.spyOn(world.manager, "endedRunnerResumes").mockResolvedValue([]);
+      const ended = () => (world.coordinator as any).endResume(busy.id);
+      if (step === "launch") {
+        const resume = world.manager.resumeRunnerDrainHost.bind(world.manager);
+        world.manager.resumeRunnerDrainHost = async (...args) => {
+          await ended();
+          return resume(...args);
+        };
+      } else {
+        const sessions = world.manager.runnerForce;
+        const tell = sessions.continue.bind(sessions);
+        sessions.continue = async (...args) => {
+          await ended();
+          return tell(...args);
+        };
+      }
+      world.swap();
+      await finished();
+      expect(busy.launches).toHaveLength(step === "launch" ? 1 : 2);
+      expect(continuations(busy)).toEqual([]);
+    }
+  );
+
+  it("leaves an ended entry out when a drain becomes a forced update", async () => {
+    world.runner.incompatible = true;
+    const drained = await world.agent();
+    const blocker = await world.agent();
+    await world.working(blocker);
+    const { attemptId } = await world.coordinator.request(RUNNER, "update");
+    await world.until(() => !drained.alive && world.entry(drained.id));
+    let after: unknown = "not saved";
+    await world.holds.wait(RUNNER, "stop");
+    await (world.coordinator as any).endResume(drained.id);
+    world.saved.afterWrite = () => {
+      if (world.attempt()?.phase !== "interrupting") return;
+      world.saved.afterWrite = undefined;
+      after = world.entry(drained.id);
+    };
+    await world.coordinator.forceUpdate(RUNNER, attemptId);
+    expect(after).toBeUndefined();
+  });
+
+  it("keeps the mark through a write built before it", async () => {
+    const busy = await world.agent();
+    await world.working(busy);
+    await force();
+    await world.activated();
+    const coordinator = world.coordinator as any;
+    const stale = structuredClone(coordinator.records.get(RUNNER));
+    await coordinator.endResume(busy.id);
+    await coordinator.save(stale);
+    expect(world.entry(busy.id)?.ended).toBe(true);
+    world.swap();
+    await finished();
+    expect(busy.launches).toHaveLength(1);
+    expect(continuations(busy)).toEqual([]);
+  });
+});
+
 describe("stop and archive while a drain waits", () => {
   it("go through without the hold opening, and neither agent is resumed", async () => {
     world.runner.incompatible = true;

@@ -391,6 +391,7 @@ export class AgentManager {
   private readonly hostRecycler: RunnerHostRecycler;
   private readonly recyclingHosts = new Set<string>();
   private readonly stoppingOrArchiving = new Map<string, number>();
+  private endRunnerResume?: (id: string) => Promise<void>;
 
   private async terminateLifecycle<T>(
     id: string,
@@ -401,8 +402,15 @@ export class AgentManager {
       id,
       (this.stoppingOrArchiving.get(id) ?? 0) + 1
     );
+    const terminate = async () => {
+      // Recorded now: once it is started again, the row looks like the receipt.
+      if (this.hasRunnerDrainReceipt(id)) await this.endRunnerResume?.(id);
+      return action();
+    };
     try {
-      return await (serialize ? this.serializeLifecycle(id, action) : action());
+      return await (serialize
+        ? this.serializeLifecycle(id, terminate)
+        : terminate());
     } finally {
       const remaining = this.stoppingOrArchiving.get(id)! - 1;
       if (remaining) this.stoppingOrArchiving.set(id, remaining);
@@ -3364,6 +3372,14 @@ export class AgentManager {
     }
     if (ids.length) this.runnerDrainReceipts.set(runnerId, next);
     else this.runnerDrainReceipts.delete(runnerId);
+  }
+
+  /** Told of each stop, archive or delete of an agent with a resume receipt. */
+  onRunnerResumeEnded(listener: (id: string) => Promise<void>): () => void {
+    this.endRunnerResume = listener;
+    return () => {
+      if (this.endRunnerResume === listener) this.endRunnerResume = undefined;
+    };
   }
 
   private hasRunnerDrainReceipt(id: string): boolean {

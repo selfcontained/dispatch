@@ -51,6 +51,8 @@ export const runnerResumeAgentSchema = resumeAgentSchema
     continuationSent: z.literal(true).optional(),
     /** When resuming first failed. */
     failedAt: z.number().optional(),
+    /** A stop, archive or delete ended it for good, whatever the row says later. */
+    ended: z.literal(true).optional(),
   })
   .strict();
 export type RunnerResumeAgent = z.infer<typeof runnerResumeAgentSchema>;
