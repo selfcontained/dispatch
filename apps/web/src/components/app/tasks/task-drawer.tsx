@@ -31,10 +31,15 @@ import type { Task, TaskColumn } from "@/hooks/use-tasks";
 import { useTaskActions, useTaskDetail } from "@/hooks/use-tasks";
 import type { Agent } from "@/components/app/types";
 import { Button } from "@/components/ui/button";
-import { IconButton } from "@/components/ui/icon-button";
 import { Input } from "@/components/ui/input";
 import { CopyButton } from "@/components/ui/copy-button";
 import { Markdown } from "@/components/ui/markdown";
+import { Badge } from "@/components/ui/badge";
+import { CountBubble } from "@/components/ui/count-bubble";
+import { IconButton } from "@/components/ui/icon-button";
+import { RowButton } from "@/components/ui/row-button";
+import { StatusDot } from "@/components/ui/status-dot";
+import { Hint } from "@/components/ui/tooltip";
 import { TaskAgent } from "./task-agent";
 import { useTemplates } from "@/hooks/use-templates";
 import { CreateAgentDialog } from "@/components/app/create-agent-dialog";
@@ -58,11 +63,6 @@ import {
   formatRelativeTime,
 } from "@/lib/format";
 import { statusLabel } from "@/lib/status-label";
-import { RowButton } from "@/components/ui/row-button";
-import { Hint } from "@/components/ui/tooltip";
-import { StatusDot } from "@/components/ui/status-dot";
-import { Badge } from "@/components/ui/badge";
-import { CountBubble } from "@/components/ui/count-bubble";
 
 /** Status and Assignee share one width and one quiet field style. */
 const PROPERTY_CONTROL =

@@ -6,13 +6,13 @@ import { Bell } from "lucide-react";
 import { useState } from "react";
 import { AttentionCard } from "./attention-toast";
 import { Button } from "@/components/ui/button";
-import { IconButton } from "@/components/ui/icon-button";
 import {
   Sheet,
   SheetContent,
   SheetTitle,
   SheetTrigger,
 } from "@/components/ui/sheet";
+import { IconButton } from "@/components/ui/icon-button";
 import { api } from "@/lib/api";
 
 export function NotificationsDrawer(): JSX.Element {

@@ -33,9 +33,9 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { cn } from "@/lib/utils";
 import { RowButton } from "@/components/ui/row-button";
 import { Hint } from "@/components/ui/tooltip";
+import { cn } from "@/lib/utils";
 
 function AddContextMenu({
   onAddFile,
@@ -367,7 +367,7 @@ export function ContextPicker({
               className={cn(
                 "flex-col justify-center gap-1.5 border border-dashed px-4 py-6 text-body-md",
                 draggingFiles
-                  ? "border-info bg-info/tint text-foreground"
+                  ? "border-info bg-info/tint text-foreground hover:bg-info/tint"
                   : "border-border-subtle bg-background/veil text-muted-foreground hover:border-border hover:bg-background/soft hover:text-foreground"
               )}
             >
@@ -419,7 +419,7 @@ export function ContextPicker({
                   className={cn(
                     "h-12 w-12 justify-center border border-dashed",
                     draggingFiles
-                      ? "border-info bg-info/tint text-foreground"
+                      ? "border-info bg-info/tint text-foreground hover:bg-info/tint"
                       : "border-border-subtle bg-background/veil text-muted-foreground hover:border-border hover:bg-background/soft hover:text-foreground"
                   )}
                 >

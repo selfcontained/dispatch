@@ -24,7 +24,7 @@ function ThemePicker({
             onClick={() => setTheme(t.id)}
             className={`group w-auto rounded-lg border px-2 py-1.5 text-body-sm ${
               theme === t.id
-                ? "border-primary bg-surface-selected text-foreground"
+                ? "border-primary bg-surface-selected text-foreground hover:bg-surface-selected"
                 : "border-border bg-card text-muted-foreground hover:text-foreground"
             }`}
           >

@@ -5,9 +5,9 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ExternalLink } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { Hint } from "@/components/ui/tooltip";
 import { api } from "@/lib/api";
 import { useProjectNavigate } from "@/hooks/use-projects";
-import { Hint } from "@/components/ui/tooltip";
 
 /** Check the working tree before leaving the diff (historical files may be absent). */
 export function OpenFullFileButton({

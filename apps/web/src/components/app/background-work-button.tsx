@@ -3,15 +3,15 @@ import { useQuery } from "@tanstack/react-query";
 import { ListTree, Pause, Radio, Terminal, X } from "lucide-react";
 import type { BackgroundSnapshot } from "@dispatch/shared";
 import { api } from "@/lib/api";
-import { IconButton } from "@/components/ui/icon-button";
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { statusLabel } from "@/lib/status-label";
+import { IconButton } from "@/components/ui/icon-button";
 import { StatusDot } from "@/components/ui/status-dot";
+import { statusLabel } from "@/lib/status-label";
 
 export function BackgroundWorkButton({ agentId }: { agentId: string | null }) {
   return agentId ? (

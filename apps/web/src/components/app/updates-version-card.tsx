@@ -1,9 +1,9 @@
 import { ChevronDown, ChevronRight, ExternalLink } from "lucide-react";
 import { Markdown } from "@/components/ui/markdown";
+import { Button } from "@/components/ui/button";
 import type { ReleaseStatus } from "@/hooks/use-release-stream";
 import { formatShortDateTime } from "@/lib/format";
 import type { AppVersionInfo } from "./release-utils";
-import { Button } from "@/components/ui/button";
 
 type UpdatesVersionCardProps = {
   status: ReleaseStatus | null;
@@ -65,10 +65,10 @@ export function UpdatesVersionCard({
           <div className="flex items-center gap-2">
             <Button
               variant="ghost"
-              size="inline"
+              size="xs"
               aria-expanded={notesExpanded}
               onClick={onToggleNotes}
-              className="section-label hover:bg-transparent"
+              className="-ml-2 text-label-xs uppercase tracking-wider"
             >
               {notesExpanded ? <ChevronDown /> : <ChevronRight />}
               Release notes

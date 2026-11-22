@@ -18,11 +18,11 @@ import {
 import { ThreadPage } from "@/components/app/drawer/thread-page";
 import { useDrawerClosing } from "@/components/app/drawer";
 import { type Agent } from "@/components/app/types";
-import { IconButton } from "@/components/ui/icon-button";
 import { useDrawerRoute } from "@/hooks/use-drawer-route";
 import { useAgentRecord } from "@/hooks/use-agent-tree";
 import { useThread } from "@/hooks/use-stream";
 import { cn } from "@/lib/utils";
+import { IconButton } from "@/components/ui/icon-button";
 
 export type ThreadDrawerProps = {
   selectedAgentId: string | null;

@@ -15,7 +15,6 @@ import { useCwdHistory } from "./create-agent-dialog-utils";
 import { prepareAvatarPhoto } from "./user-avatar/prepare-avatar";
 import { AvatarCropDialog } from "./user-avatar/avatar-crop-dialog";
 import { Button } from "@/components/ui/button";
-import { IconButton } from "@/components/ui/icon-button";
 import { Input } from "@/components/ui/input";
 import {
   Dialog,
@@ -24,6 +23,7 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog";
+import { IconButton } from "@/components/ui/icon-button";
 
 export function ProjectEditor({
   project,

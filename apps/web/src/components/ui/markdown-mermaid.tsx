@@ -1,8 +1,8 @@
 import { useEffect, useId, useState } from "react";
 import { Check, Code2, Image } from "lucide-react";
 
-import { IconButton } from "@/components/ui/icon-button";
 import type { MermaidRenderTheme } from "@/components/ui/markdown-mermaid-theme";
+import { IconButton } from "@/components/ui/icon-button";
 import { useCopyText } from "@/hooks/use-copy";
 import { errorMessage } from "@/lib/errors";
 

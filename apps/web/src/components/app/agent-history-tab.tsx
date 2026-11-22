@@ -19,6 +19,10 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { CountBubble } from "@/components/ui/count-bubble";
+import { IconButton } from "@/components/ui/icon-button";
+import { Hint } from "@/components/ui/tooltip";
 import {
   formatCount,
   formatDateTime,
@@ -39,10 +43,6 @@ import {
   rangeLabel,
   type ActivityRange,
 } from "@/hooks/use-activity";
-import { IconButton } from "@/components/ui/icon-button";
-import { Hint } from "@/components/ui/tooltip";
-import { CountBubble } from "@/components/ui/count-bubble";
-import { Button } from "@/components/ui/button";
 
 // ── Helpers ─────────────────────────────────────────────────────────
 
@@ -270,7 +270,8 @@ function AgentHistoryList({
                       <div className="flex items-center gap-1.5">
                         {hasChildren ? (
                           <IconButton
-                            size="icon-xs"
+                            size="icon-sm"
+                            className="-my-1.5"
                             label={
                               isExpanded
                                 ? "Hide child agents"
@@ -282,7 +283,7 @@ function AgentHistoryList({
                             {isExpanded ? <ChevronDown /> : <ChevronRight />}
                           </IconButton>
                         ) : (
-                          <span className="w-6 flex-shrink-0" />
+                          <span className="w-7 flex-shrink-0 pointer-coarse:w-11" />
                         )}
                         <AgentSessionLink agentId={agent.id} name={agent.name}>
                           <AgentTypeIcon type={agent.type} />

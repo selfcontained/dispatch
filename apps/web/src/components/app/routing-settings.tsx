@@ -9,12 +9,12 @@ import {
   X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { IconButton } from "@/components/ui/icon-button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Switch } from "@/components/ui/switch";
-import { api } from "@/lib/api";
+import { IconButton } from "@/components/ui/icon-button";
 import { Hint } from "@/components/ui/tooltip";
+import { api } from "@/lib/api";
 
 type Status = {
   aiEnabled?: boolean;

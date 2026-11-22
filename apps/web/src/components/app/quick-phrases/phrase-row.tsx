@@ -1,10 +1,10 @@
 import { Pencil, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { IconButton } from "@/components/ui/icon-button";
 import type { QuickPhrase } from "@/hooks/use-quick-phrases";
 
 import { InjectSplitButton } from "./inject-split-button";
-import { IconButton } from "@/components/ui/icon-button";
 
 export function PhraseRow({
   phrase,

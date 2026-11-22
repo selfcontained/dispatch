@@ -183,9 +183,11 @@ it("labels each detailed check once through its status icon beside the name", as
       }}
     />
   );
-  fireEvent.click(
-    screen.getByRole("button", { name: "Check details for pull request #1" })
-  );
+  const details = screen.getByRole("button", {
+    name: "Check details for pull request #1",
+  });
+  expect(hintText(details)).toMatch(/^Checks: \S/);
+  fireEvent.click(details);
   const icon = await screen.findByRole("img", { name: "Failed" });
   expect(hintText(icon)).toBe("Failed");
   expect(icon.closest("li")?.textContent).toBe("Build");

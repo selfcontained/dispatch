@@ -1,7 +1,6 @@
 import { useAtom } from "jotai";
 import { Settings } from "lucide-react";
 
-import { IconButton } from "@/components/ui/icon-button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { TipSpot } from "@/components/tips/tip-spot";
 import {
@@ -9,6 +8,11 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import { IconButton } from "@/components/ui/icon-button";
+import {
+  SegmentedControl,
+  SegmentedControlItem,
+} from "@/components/ui/segmented-control";
 import {
   type DiffViewType,
   diffViewTypeAtom,
@@ -16,10 +20,6 @@ import {
   diffIncludeUncommittedAtom,
   diffHideTestFilesAtom,
 } from "@/lib/store";
-import {
-  SegmentedControl,
-  SegmentedControlItem,
-} from "@/components/ui/segmented-control";
 
 const VIEW_OPTIONS: { value: DiffViewType; label: string }[] = [
   { value: "unified", label: "Unified" },

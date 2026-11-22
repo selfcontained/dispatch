@@ -25,6 +25,7 @@ import type {
 } from "@/hooks/use-tasks";
 import type { Agent } from "@/components/app/types";
 import { Button } from "@/components/ui/button";
+import { StatusDot } from "@/components/ui/status-dot";
 import { TaskCard, TaskCardOverlay } from "./task-card";
 import { columnAccent, orderedColumns, tasksInColumn } from "./task-utils";
 import { Plus } from "lucide-react";
@@ -32,7 +33,6 @@ import { cn } from "@/lib/utils";
 import { ColumnTriggerStrip } from "./task-trigger-dialog";
 import { ColumnCapacity } from "./task-column-capacity";
 import { TaskColumnMenu } from "./task-column-menu";
-import { StatusDot } from "@/components/ui/status-dot";
 
 /** Hit-test the scrolled column in the DOM, then its *layout* card slots.
  * Sortable transforms are only a preview: feeding their painted positions

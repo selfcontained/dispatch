@@ -6,11 +6,11 @@ import {
   type UserAvatar,
 } from "@dispatch/shared";
 import { Button } from "@/components/ui/button";
+import { RowButton } from "@/components/ui/row-button";
 import { useSaveUserAvatar, useUserAvatarQuery } from "@/hooks/use-user-avatar";
 import { avatarLabel, UserAvatarGraphic } from "./user-avatar";
 import { prepareAvatarPhoto } from "./prepare-avatar";
 import { AvatarCropDialog } from "./avatar-crop-dialog";
-import { RowButton } from "@/components/ui/row-button";
 
 export function UserAvatarSettings() {
   const query = useUserAvatarQuery();

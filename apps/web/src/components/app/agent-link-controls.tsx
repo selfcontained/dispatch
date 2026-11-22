@@ -1,8 +1,8 @@
 import { forwardRef, type ComponentPropsWithoutRef } from "react";
 import { cn } from "@/lib/utils";
 import { Check, Copy, ExternalLink, X } from "lucide-react";
-import { IconButton } from "@/components/ui/icon-button";
 import { useCopyText } from "@/hooks/use-copy";
+import { IconButton } from "@/components/ui/icon-button";
 
 export function AgentLinkControls({
   url,

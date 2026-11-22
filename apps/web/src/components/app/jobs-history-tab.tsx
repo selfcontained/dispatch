@@ -8,13 +8,13 @@ import {
 } from "@/components/app/jobs-helpers";
 import { ActivityBars } from "@/components/ui/activity-bars";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { RowButton } from "@/components/ui/row-button";
+import { StatusDot } from "@/components/ui/status-dot";
 import { type JobRun } from "@/hooks/use-jobs";
 import { LoadError } from "@/components/app/load-error";
 import { formatDuration } from "@/lib/format";
 import { statusLabel } from "@/lib/status-label";
 import { cn } from "@/lib/utils";
-import { RowButton } from "@/components/ui/row-button";
-import { StatusDot } from "@/components/ui/status-dot";
 
 export function HistoryTab({
   runs,

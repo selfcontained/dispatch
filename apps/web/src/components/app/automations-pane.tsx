@@ -16,15 +16,15 @@ import { TemplateDetailPane } from "@/components/app/automations-template-detail
 import type { AgentType } from "@/lib/agent-types";
 import { type Agent } from "@/components/app/types";
 import { Button } from "@/components/ui/button";
-import { useTemplates, type Template } from "@/hooks/use-templates";
-import { agentRoute } from "@/lib/agent-routes";
-import { shortPath } from "@/lib/format";
-import { cn } from "@/lib/utils";
 import { IconButton } from "@/components/ui/icon-button";
 import {
   SegmentedControl,
   SegmentedControlItem,
 } from "@/components/ui/segmented-control";
+import { useTemplates, type Template } from "@/hooks/use-templates";
+import { agentRoute } from "@/lib/agent-routes";
+import { shortPath } from "@/lib/format";
+import { cn } from "@/lib/utils";
 
 type AutomationsTab = "templates" | "jobs" | "brains";
 

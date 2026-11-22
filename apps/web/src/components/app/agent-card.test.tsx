@@ -26,6 +26,7 @@ import type { StreamEntry } from "@dispatch/shared";
 
 import type { Agent } from "@/components/app/types";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { hintText } from "@/test-utils/hint";
 
 import {
   recordTurnLabel,
@@ -34,7 +35,6 @@ import {
 
 import { upcomingSchedulesKey } from "./scheduled-messages";
 import { AgentCard, type AgentCardProps } from "./agent-card";
-import { hintText } from "@/test-utils/hint";
 
 // The card renders its real header/status/details/actions children — the point
 // of these tests is that the four-file split (#803) keeps passing each child

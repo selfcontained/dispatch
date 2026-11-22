@@ -5,13 +5,13 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import { Button } from "@/components/ui/button";
 import {
   SegmentedControl,
   SegmentedControlItem,
 } from "@/components/ui/segmented-control";
-import { cn } from "@/lib/utils";
-import { Button } from "@/components/ui/button";
 import { Hint } from "@/components/ui/tooltip";
+import { cn } from "@/lib/utils";
 
 function Meter({
   index,

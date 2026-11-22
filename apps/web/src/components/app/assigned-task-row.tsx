@@ -1,10 +1,10 @@
 import { ListChecks } from "lucide-react";
 import { useLocation, useSearchParams } from "react-router-dom";
 import { useAssignedTasks, useTaskBoard } from "@/hooks/use-tasks";
+import { BLOCK_PARAM, FINDING_PARAM, THREAD_PARAM } from "@/lib/agent-routes";
 import { RowButton } from "@/components/ui/row-button";
 import { StatusDot } from "@/components/ui/status-dot";
 import { Hint } from "@/components/ui/tooltip";
-import { BLOCK_PARAM, FINDING_PARAM, THREAD_PARAM } from "@/lib/agent-routes";
 import { columnAccent, orderedColumns } from "./tasks/task-utils";
 import { TASK_MODAL_STATE, TASK_PANE_PARAM } from "./tasks/task-utils";
 

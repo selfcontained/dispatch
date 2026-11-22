@@ -21,6 +21,8 @@ import { LinkAttachment } from "@/components/app/chat/chat-attachment-views";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Markdown } from "@/components/ui/markdown";
+import { CountBubble } from "@/components/ui/count-bubble";
+import { RowButton } from "@/components/ui/row-button";
 import {
   useAnswerQuestion,
   useSetBlockState,
@@ -33,8 +35,6 @@ import type {
   Inbox,
 } from "@/hooks/use-inbox";
 import { formatRelativeTime } from "@/lib/format";
-import { RowButton } from "@/components/ui/row-button";
-import { CountBubble } from "@/components/ui/count-bubble";
 
 export type InboxPanelProps = {
   inbox: Inbox;

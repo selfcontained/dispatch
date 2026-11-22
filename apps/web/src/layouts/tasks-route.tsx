@@ -19,7 +19,6 @@ import {
   type Task,
 } from "@/hooks/use-tasks";
 import { Button } from "@/components/ui/button";
-import { IconButton } from "@/components/ui/icon-button";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -28,6 +27,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { ChipButton } from "@/components/ui/chip";
+import { IconButton } from "@/components/ui/icon-button";
+import { RowButton } from "@/components/ui/row-button";
+import {
+  SegmentedControl,
+  SegmentedControlItem,
+} from "@/components/ui/segmented-control";
+import { StatusDot } from "@/components/ui/status-dot";
+import { Hint } from "@/components/ui/tooltip";
 import { taskLayoutAtomFamily } from "@/lib/store";
 import { ColumnCapacity } from "@/components/app/tasks/task-column-capacity";
 import { TaskBoard } from "@/components/app/tasks/task-board";
@@ -44,14 +52,6 @@ import {
   visibleTasks,
 } from "@/components/app/tasks/task-utils";
 import { useTemplates } from "@/hooks/use-templates";
-import { RowButton } from "@/components/ui/row-button";
-import { Hint } from "@/components/ui/tooltip";
-import { StatusDot } from "@/components/ui/status-dot";
-import { ChipButton } from "@/components/ui/chip";
-import {
-  SegmentedControl,
-  SegmentedControlItem,
-} from "@/components/ui/segmented-control";
 
 const ATTENTION = "__attention";
 function TasksContent({ projectId }: { projectId: string }) {

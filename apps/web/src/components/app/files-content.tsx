@@ -13,8 +13,8 @@ import { FileCardList } from "@/components/app/file-item-card";
 import { OwnerSwitch } from "@/components/app/owner-switch";
 import { ActivityBars } from "@/components/ui/activity-bars";
 import { Button } from "@/components/ui/button";
-import { STARTUP_FILE_ACCEPT } from "@/lib/file-accept";
 import { StatusDot } from "@/components/ui/status-dot";
+import { STARTUP_FILE_ACCEPT } from "@/lib/file-accept";
 
 const EMPTY_SUB_AGENT_FILES: SubAgentFiles[] = [];
 

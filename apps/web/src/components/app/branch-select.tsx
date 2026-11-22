@@ -12,10 +12,10 @@ import {
   CommandLoading,
 } from "@/components/ui/command";
 import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 import { useClickOutside } from "@/hooks/use-click-outside";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
-import { Button } from "@/components/ui/button";
 
 export type BranchSelectProps = {
   cwd: string;

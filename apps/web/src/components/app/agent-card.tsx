@@ -1,6 +1,5 @@
 import React from "react";
 import { Pin, PinOff } from "lucide-react";
-import { IconButton } from "@/components/ui/icon-button";
 
 import { AgentMeta } from "@/components/app/agent-meta";
 import { AgentCardActions } from "@/components/app/agent-card-actions";
@@ -14,6 +13,7 @@ import { useCopyText } from "@/hooks/use-copy";
 import { SessionSettingsDialog } from "@/components/app/session-settings-dialog";
 import { type Agent, type AgentVisualState } from "@/components/app/types";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { IconButton } from "@/components/ui/icon-button";
 import { AnimatePresence, motion } from "framer-motion";
 
 import { lineageSeats } from "@/lib/agent-seat";

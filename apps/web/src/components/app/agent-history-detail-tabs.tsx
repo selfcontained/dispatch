@@ -49,7 +49,7 @@ export function DetailTabs({
                 <RowButton
                   key={m.id}
                   onClick={() => setLightboxFileId(m.id)}
-                  className="block overflow-hidden rounded-sm border border-border bg-surface-subtle hover:border-foreground/line"
+                  className="block overflow-hidden rounded-sm border border-border bg-surface-subtle hover:border-foreground/line hover:bg-surface-subtle"
                 >
                   {m.media === "image" ? (
                     <img

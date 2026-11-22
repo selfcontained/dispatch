@@ -8,11 +8,11 @@ import {
 } from "@/hooks/use-agent-activity";
 import { cachedAgentLineage } from "@/lib/agent-lineage";
 import { ActivityBars } from "@/components/ui/activity-bars";
+import { Hint } from "@/components/ui/tooltip";
 import { Clock } from "lucide-react";
 import { AgentSessionLink } from "@/components/app/agent-session-link";
 import { cn } from "@/lib/utils";
 import { agentQualifier } from "./task-utils";
-import { Hint } from "@/components/ui/tooltip";
 
 const STATE_LABELS: Record<AgentActivityTone, string> = {
   starting: "Starting…",

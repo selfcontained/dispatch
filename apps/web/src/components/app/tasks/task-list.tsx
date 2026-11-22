@@ -10,6 +10,9 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
+import { RowButton } from "@/components/ui/row-button";
+import { StatusDot } from "@/components/ui/status-dot";
+import { Hint } from "@/components/ui/tooltip";
 import { TaskAgent } from "./task-agent";
 import { TaskLaunching } from "./task-launching";
 import { formatRelativeCompact } from "@/lib/format";
@@ -19,9 +22,6 @@ import { ColumnCapacity } from "./task-column-capacity";
 import { TaskColumnMenu } from "./task-column-menu";
 import { ChevronDown, GitPullRequest } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { RowButton } from "@/components/ui/row-button";
-import { Hint } from "@/components/ui/tooltip";
-import { StatusDot } from "@/components/ui/status-dot";
 export function TaskList({
   board,
   tasks,

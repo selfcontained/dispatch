@@ -3,9 +3,9 @@ import { ExternalLink } from "lucide-react";
 
 import { stripTimestamp } from "@/components/app/file-utils";
 import { CopyIconButton, DownloadButton } from "@/components/ui/copy-button";
-import { useCopyText } from "@/hooks/use-copy";
-import { Hint } from "@/components/ui/tooltip";
 import { Button } from "@/components/ui/button";
+import { Hint } from "@/components/ui/tooltip";
+import { useCopyText } from "@/hooks/use-copy";
 
 const HAS_CLIPBOARD_WRITE =
   typeof ClipboardItem !== "undefined" && !!navigator.clipboard?.write;

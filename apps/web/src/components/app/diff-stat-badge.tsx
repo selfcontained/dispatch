@@ -6,9 +6,9 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { ChipButton } from "@/components/ui/chip";
 import type { DiffStats } from "@/components/app/types";
 import { cn } from "@/lib/utils";
-import { ChipButton } from "@/components/ui/chip";
 
 const FLASH_DURATION_MS = 600;
 const slotCounterProps = {

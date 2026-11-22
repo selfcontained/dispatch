@@ -5,12 +5,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import type { ReleaseChannel } from "@/hooks/use-release-stream";
-import { cn } from "@/lib/utils";
 import {
   SegmentedControl,
   SegmentedControlItem,
 } from "@/components/ui/segmented-control";
+import type { ReleaseChannel } from "@/hooks/use-release-stream";
+import { cn } from "@/lib/utils";
 
 type UpdatesPreferencesProps = {
   channel: ReleaseChannel;

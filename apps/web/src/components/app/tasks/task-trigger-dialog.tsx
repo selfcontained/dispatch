@@ -20,6 +20,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { RowButton } from "@/components/ui/row-button";
+import { Hint } from "@/components/ui/tooltip";
 import { AgentEngineFields } from "@/components/app/agent-engine-fields";
 import { CreateTemplateDialog } from "@/components/app/automations-create-dialog";
 import { useDashboardContext } from "@/components/app/dashboard-context";
@@ -34,8 +36,6 @@ import { useTaskActions } from "@/hooks/use-tasks";
 import type { AgentType } from "@/lib/agent-types";
 import { swallowEscapeFromCombobox } from "@/lib/dialog-escape";
 import { templateName } from "./task-utils";
-import { RowButton } from "@/components/ui/row-button";
-import { Hint } from "@/components/ui/tooltip";
 const NEW_TEMPLATE = "__new_template__";
 
 /**

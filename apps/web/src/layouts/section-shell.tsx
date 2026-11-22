@@ -1,9 +1,9 @@
 import { PanelRightOpen } from "lucide-react";
 import { type NavSection } from "@/components/app/sidebar-shell";
 import { NavigationSidebar } from "@/components/app/navigation-sidebar";
-import { IconButton } from "@/components/ui/icon-button";
 import { cn } from "@/lib/utils";
 import { useDashboardContext } from "@/components/app/dashboard-context";
+import { IconButton } from "@/components/ui/icon-button";
 
 export function SectionShell({
   activeSection,

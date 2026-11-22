@@ -7,10 +7,10 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { cn } from "@/lib/utils";
-import { columnAccent } from "./task-utils";
 import { RowButton } from "@/components/ui/row-button";
 import { StatusDot } from "@/components/ui/status-dot";
+import { cn } from "@/lib/utils";
+import { columnAccent } from "./task-utils";
 
 /** A bottom sheet on a phone; a small centered dialog otherwise. */
 const BOTTOM_SHEET =

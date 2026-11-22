@@ -3,8 +3,8 @@ import { Archive, Pause, Pencil, Play } from "lucide-react";
 
 import { PersonaLauncher } from "@/components/app/persona-launcher";
 import { type Agent } from "@/components/app/types";
-import { IconButton } from "@/components/ui/icon-button";
 import { type AgentType } from "@/lib/agent-types";
+import { IconButton } from "@/components/ui/icon-button";
 
 export type AgentCardActionsProps = {
   agent: Agent;

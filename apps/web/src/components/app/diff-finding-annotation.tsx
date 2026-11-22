@@ -21,9 +21,9 @@ import type {
 } from "@/components/app/diff-review-annotation-props";
 import { Button } from "@/components/ui/button";
 import { Markdown } from "@/components/ui/markdown";
+import { RowButton } from "@/components/ui/row-button";
 import { formatRelativeTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import { RowButton } from "@/components/ui/row-button";
 
 export function InlineFindingAnnotation({
   item,

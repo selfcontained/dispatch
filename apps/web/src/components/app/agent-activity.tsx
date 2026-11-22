@@ -4,6 +4,8 @@ import { Clock, Clock3, CornerDownRight } from "lucide-react";
 import { type Agent } from "@/components/app/types";
 import { TurnGlyph } from "@/components/app/chat/turn/activity-block";
 import { ActivityBars } from "@/components/ui/activity-bars";
+import { RowButton } from "@/components/ui/row-button";
+import { Hint } from "@/components/ui/tooltip";
 import { useAgentTurnLabel } from "@/hooks/use-agent-turn-label";
 import { useLocalDay } from "@/hooks/use-local-day";
 import { useJumpToTurn } from "@/hooks/use-block-jump";
@@ -15,8 +17,6 @@ import {
   scheduleTimezone,
   useUpcomingSchedule,
 } from "./scheduled-messages";
-import { RowButton } from "@/components/ui/row-button";
-import { Hint } from "@/components/ui/tooltip";
 
 function ScheduledActivity({
   agentId,

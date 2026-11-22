@@ -1,7 +1,6 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import { MessageSquare, Plus, Search } from "lucide-react";
 
-import { IconButton } from "@/components/ui/icon-button";
 import {
   Command,
   CommandEmpty,
@@ -15,6 +14,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import { IconButton } from "@/components/ui/icon-button";
 import { parseTemplateArgs, templateArgDefaults } from "@/hooks/use-templates";
 import {
   useQuickPhrases,

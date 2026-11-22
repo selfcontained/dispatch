@@ -25,9 +25,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { StatusDot } from "@/components/ui/status-dot";
 import { AssigneeSelect } from "./task-assignee-select";
 import { columnAccent } from "./task-utils";
-import { StatusDot } from "@/components/ui/status-dot";
 
 /** Centered on desktop; the whole screen on a phone. */
 export const TASK_DIALOG_MOBILE_SHEET =

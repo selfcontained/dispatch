@@ -6,9 +6,9 @@ import {
   ResizablePanel,
   ResizablePanelGroup,
 } from "@/components/ui/resizable";
+import { IconButton } from "@/components/ui/icon-button";
 import { type CenterTab, centerTabLabel } from "@/lib/center-tabs";
 import { type SplitPaneState } from "@/lib/store";
-import { IconButton } from "@/components/ui/icon-button";
 
 type CenterPaneSplitProps = {
   splitState: SplitPaneState;

@@ -12,6 +12,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { IconButton } from "@/components/ui/icon-button";
+import { Switch } from "@/components/ui/switch";
 import {
   AGENT_TYPE_LABELS,
   type AgentType,
@@ -19,8 +21,6 @@ import {
   isCliAgentType,
 } from "@/lib/agent-types";
 import { cn } from "@/lib/utils";
-import { IconButton } from "@/components/ui/icon-button";
-import { Switch } from "@/components/ui/switch";
 
 export function SwitchToggle({
   checked,

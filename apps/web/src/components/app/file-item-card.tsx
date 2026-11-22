@@ -66,7 +66,7 @@ export function FileItemCard({
         <div className="mb-2 flex items-center gap-1.5 text-body-sm text-muted-foreground">
           <span>{new Date(file.updatedAt).toLocaleString()}</span>
           {isUser ? (
-            <Badge size="sm" className="ml-auto">
+            <Badge size="sm" tone="info" className="ml-auto">
               <User />
               Shared by you
             </Badge>
@@ -87,7 +87,7 @@ export function FileItemCard({
               {stripTimestamp(file.name)}
             </span>
             <Badge size="sm" className="ml-auto">
-              {fileExtension(file.name).replace(".", "")}
+              {fileExtension(file.name).replace(".", "").toUpperCase()}
             </Badge>
           </div>
         </RowButton>
@@ -110,7 +110,7 @@ export function FileItemCard({
       ) : (
         <RowButton
           className={cn(
-            "block overflow-hidden rounded-none border-2 bg-media/veil",
+            "block overflow-hidden rounded-none border-2 bg-media/veil hover:bg-media/veil",
             unseen ? "file-thumb-unseen" : "file-thumb-seen"
           )}
           onClick={() => openLightbox(file.id)}

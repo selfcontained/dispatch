@@ -9,11 +9,11 @@ import { ChangesSettingsPopover } from "@/components/app/changes-settings-popove
 import { QuickPhrasesButton } from "@/components/app/quick-phrases";
 import { type DiffStats } from "@/components/app/types";
 import { TipSpot } from "@/components/tips/tip-spot";
-import { IconButton } from "@/components/ui/icon-button";
 import { type CenterTab, type SplitPaneState } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { Chip } from "@/components/ui/chip";
 import { CountBubble } from "@/components/ui/count-bubble";
+import { IconButton } from "@/components/ui/icon-button";
 import { Hint } from "@/components/ui/tooltip";
 
 type AgentsViewHeaderProps = {

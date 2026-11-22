@@ -7,6 +7,7 @@ import {
   CommandItem,
   CommandList,
 } from "@/components/ui/command";
+import { Button } from "@/components/ui/button";
 import { useClickOutside } from "@/hooks/use-click-outside";
 import {
   AGENT_TYPE_LABELS,
@@ -14,7 +15,6 @@ import {
   sortAgentTypes,
 } from "@/lib/agent-types";
 import { cn } from "@/lib/utils";
-import { Button } from "@/components/ui/button";
 
 type AgentTypeSelectProps = {
   value: AgentType;

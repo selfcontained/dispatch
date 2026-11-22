@@ -17,8 +17,8 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { parseTemplateArgs } from "@/hooks/use-templates";
 import { IconButton } from "@/components/ui/icon-button";
+import { parseTemplateArgs } from "@/hooks/use-templates";
 
 export type EditingPhrase = { id: string; label: string; text: string } | null;
 

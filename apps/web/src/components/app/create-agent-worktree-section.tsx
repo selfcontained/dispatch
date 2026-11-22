@@ -4,8 +4,8 @@ import { GitBranch, Info } from "lucide-react";
 import { BranchSelect } from "@/components/app/branch-select";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
-import { cn } from "@/lib/utils";
 import { IconButton } from "@/components/ui/icon-button";
+import { cn } from "@/lib/utils";
 
 type WorktreeSectionProps = {
   cwd: string;

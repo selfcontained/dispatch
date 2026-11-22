@@ -52,6 +52,7 @@ export function AppearanceSettings({
                 {items.map((t) => (
                   <RowButton
                     key={t.id}
+                    selected={theme === t.id}
                     aria-pressed={theme === t.id}
                     onClick={() => setTheme(t.id)}
                     className={cn(
@@ -121,7 +122,7 @@ export function AppearanceSettings({
               className={cn(
                 "w-14 flex-col gap-1 rounded-lg border-2 px-1 py-1.5 transition-all",
                 displayColor === c.id
-                  ? "border-foreground bg-foreground/tint"
+                  ? "border-foreground bg-foreground/tint hover:bg-foreground/tint"
                   : "border-transparent hover:border-muted-foreground/line-strong hover:bg-surface-hover"
               )}
             >

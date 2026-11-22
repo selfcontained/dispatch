@@ -2,11 +2,11 @@ import cronstrue from "cronstrue";
 import { CheckCircle2, XCircle } from "lucide-react";
 
 import { ActivityBars } from "@/components/ui/activity-bars";
-import { type JobRun, type JobRunStatus } from "@/hooks/use-jobs";
-import { formatDateTime } from "@/lib/format";
 import { Badge, type BadgeTone } from "@/components/ui/badge";
 import { type StatusDotTone } from "@/components/ui/status-dot";
 import { statusLabel } from "@/lib/status-label";
+import { type JobRun, type JobRunStatus } from "@/hooks/use-jobs";
+import { formatDateTime } from "@/lib/format";
 
 export const ACTIVE_RUN_STATUSES: JobRunStatus[] = [
   "started",

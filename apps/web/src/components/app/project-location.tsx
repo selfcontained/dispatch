@@ -7,11 +7,11 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
 } from "@/components/ui/dropdown-menu";
-import { useProjects, type Project } from "@/hooks/use-projects";
 import {
   SegmentedControl,
   SegmentedControlItem,
 } from "@/components/ui/segmented-control";
+import { useProjects, type Project } from "@/hooks/use-projects";
 export function ProjectIcon({
   project,
   className = "h-6 w-6",

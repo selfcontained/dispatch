@@ -57,7 +57,7 @@ One `--syntax-*` token set consumed by both highlighters. Split `--font-ui` and 
 
 ### C1 — Button
 
-Sizes `xs` 28 / `sm` 32 / `md` 36 and `icon-xs` 24 / `icon-sm` 28 / `icon-md` 32. Touch sizing lives in the primitive via the existing `pointer-coarse:` variant (min 44px) — never `h-11` at the call site. Also `inline` for a control inside a line of text, and `wrap` for a label that may take two lines. `icon-xs` and `inline` keep their size on touch and extend the hit area to 44px instead. Variants: `primary`, `secondary` (the default), `ghost`, `danger`, `link`, `field` (opens a picker among inputs), plus `ghost` + `tone`. No `success`. Height and padding classes on `Button`, `IconButton` and `SplitButton` are lint errors (`dispatch/controls`). The `stream-*` sizes hold the stream's geometry until task 5/6 removes them.
+Sizes `xs` 28 / `sm` 32 / `md` 36 and `icon-xs` 24 / `icon-sm` 28 / `icon-md` 32. Touch sizing lives in the primitive via the existing `pointer-coarse:` variant (min 44px) — never `h-11` at the call site. Also `inline` for a control inside a line of text, and `wrap` for a label that may take two lines. `icon-xs` keeps its size on touch and extends its hit area to 44px, so it needs about 10px clear of other controls; use `icon-sm` where it has less. `inline` extends only 4px up and down, so it never takes the tap meant for the line or control beside it; a control standing on its own uses `xs`. Variants: `primary`, `secondary` (the default), `ghost`, `danger`, `link`, `field` (opens a picker among inputs), plus `ghost` + `tone`. No `success`. Height and padding classes on `Button`, `IconButton` and `SplitButton` are lint errors (`dispatch/controls`). The `stream-*` sizes hold the stream's geometry until task 5/6 removes them.
 
 ### C2 — Raw `<button>`
 
@@ -289,7 +289,7 @@ Newest first. One line per audit: date, scope, commit audited, where the report 
 
 Newest first. One line per rule added, changed or removed, with the reason.
 
-- 2026-11-22 — C1–C3, C7, C9, C10, F10 updated as the core controls landed: named `inline`, `wrap`, `link`, `field`, Chip, CountBubble, SplitButton and Hint, the touch hit area for 24px controls (44px boxes broke inline rows), manual tab activation (panes fetch or attach a terminal on open), and tooltips above the image viewer (its buttons have them now).
+- 2026-11-22 — C1–C3, C7, C9, C10, F10 updated as the core controls landed: named `inline`, `wrap`, `link`, `field`, Chip, CountBubble, SplitButton and Hint, the touch hit areas for 24px and inline controls (44px boxes broke inline rows, and 44px overlays took taps from the controls under inline links), manual tab activation (panes fetch or attach a terminal on open), and tooltips above the image viewer (its buttons have them now).
 - 2026-11-22 — F6: danger is tuned within red per theme instead of hue 0 everywhere (one hue didn’t match the themes), with text and fill pairs held to 4.5:1.
 - 2026-11-22 — F1–F10 updated as their tokens landed: added `body-lg` and `code` (iOS zoom, inline code), `xs`, `mark` and `screen` radii (small boxes turned into circles at `sm`), named alpha and z steps for values already in use, seat and media colours; named the classes and lint rule that implement them.
 - 2026-11-22 — all rules added from the baseline audit.

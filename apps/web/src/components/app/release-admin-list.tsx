@@ -2,8 +2,8 @@ import { CheckCircle2, ExternalLink } from "lucide-react";
 import type { GitHubRelease } from "@/components/app/release-utils";
 import { ActivityBars } from "@/components/ui/activity-bars";
 import { Button } from "@/components/ui/button";
-import { formatShortDateTime } from "@/lib/format";
 import { Badge } from "@/components/ui/badge";
+import { formatShortDateTime } from "@/lib/format";
 
 type RecentReleasesProps = {
   releases: GitHubRelease[];

@@ -22,7 +22,6 @@ import { TerminalLazyBoundary } from "@/components/terminal/terminal-lazy-bounda
 import { FilesContent } from "@/components/app/files-content";
 import { InboxPanel } from "@/components/app/inbox";
 import { type Inbox } from "@/hooks/use-inbox";
-import { IconButton } from "@/components/ui/icon-button";
 import { glassPanel } from "@/lib/glass";
 import { cn } from "@/lib/utils";
 import {
@@ -38,6 +37,7 @@ import {
   drawerPinnedReserve,
 } from "@/components/app/drawer-constants";
 import { CountBubble } from "@/components/ui/count-bubble";
+import { IconButton } from "@/components/ui/icon-button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 type DrawerSharedProps = {

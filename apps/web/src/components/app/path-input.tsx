@@ -9,6 +9,9 @@ import {
 } from "lucide-react";
 
 import { ActivityBars } from "@/components/ui/activity-bars";
+import { CountBubble } from "@/components/ui/count-bubble";
+import { IconButton } from "@/components/ui/icon-button";
+import { Hint } from "@/components/ui/tooltip";
 import {
   acceptGhostCompletion,
   filterHistoryOptions,
@@ -21,9 +24,6 @@ import {
 import { useClickOutside } from "@/hooks/use-click-outside";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
-import { IconButton } from "@/components/ui/icon-button";
-import { Hint } from "@/components/ui/tooltip";
-import { CountBubble } from "@/components/ui/count-bubble";
 
 type PathInfo = {
   exists: boolean;

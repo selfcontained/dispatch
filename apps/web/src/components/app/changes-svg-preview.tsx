@@ -1,10 +1,10 @@
 import { type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { Button } from "@/components/ui/button";
 import {
   SegmentedControl,
   SegmentedControlItem,
 } from "@/components/ui/segmented-control";
-import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
 import { agentDiffQueryKey } from "@/hooks/use-agent-diff";
 

@@ -9,6 +9,7 @@ import { AgentTypeIcon } from "@/components/app/agent-type-icon";
 import { type Agent, type AgentVisualState } from "@/components/app/types";
 import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { SplitButton } from "@/components/ui/split-button";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { cachedAgentLineage } from "@/lib/agent-lineage";
 import {
@@ -28,7 +29,6 @@ import {
   toggleSidebarPin,
 } from "@/lib/agent-sidebar-pins";
 import { cn } from "@/lib/utils";
-import { SplitButton } from "@/components/ui/split-button";
 
 function dropPositionForEvent(event: DragEvent): "before" | "after" {
   const target = event.currentTarget as HTMLElement;

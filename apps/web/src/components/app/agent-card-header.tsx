@@ -6,13 +6,13 @@ import { AgentSeatBadge } from "@/components/app/agent-seat-badge";
 import { ChatUnreadBadge } from "@/components/app/chat/chat-unread-badge";
 import { type Agent } from "@/components/app/types";
 import { Badge } from "@/components/ui/badge";
-import { IconButton } from "@/components/ui/icon-button";
 import {
   Tooltip,
   Hint,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { IconButton } from "@/components/ui/icon-button";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
@@ -128,7 +128,7 @@ export function AgentCardHeader({
         </div>
         {canPromptRename ? (
           <IconButton
-            size="icon-xs"
+            size="icon-sm"
             data-agent-control="true"
             data-testid={`agent-prompt-rename-${agent.id}`}
             label="Ask agent to set a session name"

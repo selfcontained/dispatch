@@ -1,8 +1,8 @@
 import type { ReleaseJob, ReleasePhase } from "@/hooks/use-release-stream";
 import { ActivityBars } from "@/components/ui/activity-bars";
 import { LogStream } from "@/components/ui/log-stream";
-import { cn } from "@/lib/utils";
 import { StatusDot } from "@/components/ui/status-dot";
+import { cn } from "@/lib/utils";
 
 export const PHASE_LABELS: Record<ReleasePhase, string> = {
   preflight: "Pre-flight",

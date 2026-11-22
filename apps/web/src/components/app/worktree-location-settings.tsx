@@ -71,6 +71,7 @@ export function WorktreeLocationSettings(): JSX.Element {
         {OPTIONS.map((opt) => (
           <RowButton
             key={opt.value}
+            selected={worktreeLocation === opt.value}
             aria-pressed={worktreeLocation === opt.value}
             onClick={() => void handleChange(opt.value)}
             disabled={saving}

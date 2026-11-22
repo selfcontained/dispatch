@@ -30,9 +30,10 @@ import { cronError, msFromMinutes } from "@/components/app/jobs-helpers";
 import { errorMessage } from "@/lib/errors";
 import { ActivityBars } from "@/components/ui/activity-bars";
 import { Button } from "@/components/ui/button";
-import { IconButton } from "@/components/ui/icon-button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { IconButton } from "@/components/ui/icon-button";
+import { RowButton } from "@/components/ui/row-button";
 import { type AddJobConfig } from "@/hooks/use-jobs";
 import {
   type AgentType,
@@ -41,7 +42,6 @@ import {
 } from "@/lib/agent-types";
 import { swallowEscapeFromCombobox } from "@/lib/dialog-escape";
 import { cn } from "@/lib/utils";
-import { RowButton } from "@/components/ui/row-button";
 
 export function AddJobDialog({
   open,

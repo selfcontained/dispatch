@@ -12,13 +12,13 @@ import { PendingInputsButton } from "./chat/pending-inputs-button";
 import { ChatPane } from "@/components/app/chat/chat-pane";
 import { type Agent } from "@/components/app/types";
 import { agentSwitchValidationMode } from "@/lib/agent-switch-validation";
-import { IconButton } from "@/components/ui/icon-button";
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { Switch } from "@/components/ui/switch";
+import { IconButton } from "@/components/ui/icon-button";
 
 /** The Chat options popover in the Agent pane header. */
 export function ChatFiltersButton(): JSX.Element {

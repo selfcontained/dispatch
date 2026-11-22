@@ -9,8 +9,8 @@ import {
 } from "lucide-react";
 import React from "react";
 
-import { IconButton } from "@/components/ui/icon-button";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { IconButton } from "@/components/ui/icon-button";
 import { useIconColor } from "@/hooks/use-icon-color";
 import { useInstanceName } from "@/hooks/use-instance-name";
 import { cn } from "@/lib/utils";

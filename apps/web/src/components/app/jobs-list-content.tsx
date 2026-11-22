@@ -8,8 +8,8 @@ import { LoadError } from "@/components/app/load-error";
 import { shortPath } from "@/lib/format";
 import { ActivityBars } from "@/components/ui/activity-bars";
 import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
 import { RowButton } from "@/components/ui/row-button";
+import { cn } from "@/lib/utils";
 
 /** Job list content for the unified sidebar. */
 export function JobListContent({

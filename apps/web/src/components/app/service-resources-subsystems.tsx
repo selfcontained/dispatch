@@ -11,6 +11,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { ChartContainer, type ChartConfig } from "@/components/ui/chart";
+import { RowButton } from "@/components/ui/row-button";
 import type {
   ResourceSample,
   SubsystemResourceSample,
@@ -22,7 +23,6 @@ import {
   stateBadgeTone,
   stateLabel,
 } from "./service-resources-format";
-import { RowButton } from "@/components/ui/row-button";
 
 function reasonLabel(reason: SubsystemSnapshot["statusReason"]): string | null {
   if (reason === "stuck") return "A run exceeded twice its expected cadence.";

@@ -54,10 +54,10 @@ const buttonVariants = cva(
           "size-8 [&>svg]:size-icon-lg pointer-coarse:size-11"
         ),
         // Runs with the text around it and takes that text's size.
-        inline: cn(
-          touchTarget,
-          "h-auto gap-1 rounded-sm p-0 font-normal [&>svg]:size-icon-sm"
-        ),
+        // Its hit area grows 4px up and down, no further: 44px would take
+        // the taps meant for the lines and controls around it.
+        inline:
+          "relative h-auto gap-1 rounded-sm p-0 font-normal [&>svg]:size-icon-sm pointer-coarse:after:absolute pointer-coarse:after:inset-x-0 pointer-coarse:after:-inset-y-1 pointer-coarse:after:content-['']",
         // The stream's geometry until design-system task 5/6 moves it onto
         // the sizes above, which removes these four.
         "stream-md": "h-9 px-3 py-2 text-body-md",

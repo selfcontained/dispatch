@@ -19,11 +19,11 @@ import { toast, Toaster } from "sonner";
 
 import { conversationLocation } from "@/components/app/chat/conversation-location-link";
 import { Markdown } from "@/components/ui/markdown";
+import { IconButton } from "@/components/ui/icon-button";
+import { RowButton } from "@/components/ui/row-button";
 import { useAgentFocus, viewingAgentIdOf } from "@/hooks/use-agent-focus";
 import { formatRelativeTime } from "@/lib/format";
 import { agentRoute } from "@/lib/agent-routes";
-import { RowButton } from "@/components/ui/row-button";
-import { IconButton } from "@/components/ui/icon-button";
 
 export type AttentionToastEvent = Extract<
   SharedUiEvent,

@@ -1,8 +1,8 @@
 import { Plus, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { IconButton } from "@/components/ui/icon-button";
 import { Input } from "@/components/ui/input";
+import { IconButton } from "@/components/ui/icon-button";
 
 import { SwitchToggle } from "@/components/app/jobs-form-fields";
 

@@ -3,13 +3,13 @@ import { ChevronDown } from "lucide-react";
 import { useSearchParams } from "react-router-dom";
 
 import { AgentModelSettings } from "@/components/app/agent-model-settings";
-import { RowButton } from "@/components/ui/row-button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
+import { RowButton } from "@/components/ui/row-button";
 import { useAgentModelCatalog } from "@/hooks/use-agent-model-catalog";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";

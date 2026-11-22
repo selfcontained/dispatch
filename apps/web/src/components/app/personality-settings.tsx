@@ -3,10 +3,10 @@ import { LayoutGroup, motion } from "framer-motion";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { IconButton } from "@/components/ui/icon-button";
 import { RadioIndicator } from "@/components/app/radio-indicator";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
-import { IconButton } from "@/components/ui/icon-button";
 
 type Personality = {
   id: string;

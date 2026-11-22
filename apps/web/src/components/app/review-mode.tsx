@@ -13,7 +13,6 @@ import {
   X,
 } from "lucide-react";
 
-import { IconButton } from "@/components/ui/icon-button";
 import {
   Dialog,
   DialogContent,
@@ -31,8 +30,9 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { usePostBlock } from "@/hooks/use-stream";
 import type { PersistedDraftComment } from "@/lib/store";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { IconButton } from "@/components/ui/icon-button";
 
 export type DraftComment = PersistedDraftComment;
 

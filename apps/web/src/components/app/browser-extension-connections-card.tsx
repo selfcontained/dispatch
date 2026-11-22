@@ -9,10 +9,10 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { Hint } from "@/components/ui/tooltip";
 import { formatDateTime, formatRelativeTime } from "@/lib/format";
 
 import type { BrowserExtensionConnection } from "./use-extension-pairing";
-import { Hint } from "@/components/ui/tooltip";
 
 const initiallyVisibleConnections = 5;
 

@@ -26,12 +26,12 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { IconButton } from "@/components/ui/icon-button";
 import { Input } from "@/components/ui/input";
+import { IconButton } from "@/components/ui/icon-button";
+import { RowButton } from "@/components/ui/row-button";
 import { api } from "@/lib/api";
 import { FileActions } from "./file-lightbox-actions";
 import { cn } from "@/lib/utils";
-import { RowButton } from "@/components/ui/row-button";
 
 type Entry = {
   name: string;
@@ -591,6 +591,7 @@ function WorkspaceFiles({
                     aria-label={
                       search ? `${entry.name} ${entry.path}` : entry.name
                     }
+                    selected={selected === entry.path}
                     aria-selected={selected === entry.path}
                     title={entry.path}
                     aria-expanded={
@@ -600,8 +601,7 @@ function WorkspaceFiles({
                     onClick={() => choose(entry)}
                     className={cn(
                       "relative h-full gap-1.5 rounded-none pr-3 text-body-sm disabled:pointer-events-auto pointer-coarse:min-h-0",
-                      selected === entry.path &&
-                        "bg-surface-selected text-primary",
+                      selected === entry.path && "text-primary",
                       active && "ring-1 ring-inset ring-border"
                     )}
                     style={{ paddingLeft: 10 + depth * 8 }}

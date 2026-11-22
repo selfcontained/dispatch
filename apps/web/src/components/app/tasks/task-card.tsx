@@ -12,18 +12,18 @@ import { formatDateTime, formatRelativeCompact } from "@/lib/format";
 import { MENU_ITEM } from "./task-utils";
 import { TaskMoveSheet } from "./task-move-sheet";
 import { GitPullRequest, GripVertical, MoreHorizontal } from "lucide-react";
-import { IconButton } from "@/components/ui/icon-button";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { cn } from "@/lib/utils";
-import { RowButton } from "@/components/ui/row-button";
-import { Hint } from "@/components/ui/tooltip";
 import { Badge } from "@/components/ui/badge";
 import { Chip } from "@/components/ui/chip";
+import { IconButton } from "@/components/ui/icon-button";
+import { RowButton } from "@/components/ui/row-button";
+import { Hint } from "@/components/ui/tooltip";
+import { cn } from "@/lib/utils";
 
 const CARD =
   "group rounded-lg bg-surface-hover p-3 shadow-sm ring-1 ring-foreground/wash pointer-coarse:select-none [-webkit-touch-callout:none]";

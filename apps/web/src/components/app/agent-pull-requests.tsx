@@ -22,7 +22,6 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { IconButton } from "@/components/ui/icon-button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Markdown } from "@/components/ui/markdown";
@@ -32,11 +31,12 @@ import {
   PopoverContent,
   PopoverAnchor,
 } from "@/components/ui/popover";
+import { IconButton } from "@/components/ui/icon-button";
+import { Hint } from "@/components/ui/tooltip";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import type { AgentPullRequest, MergeRiskSummary } from "@dispatch/shared";
 import { statusLabel } from "@/lib/status-label";
-import { Hint } from "@/components/ui/tooltip";
 
 type Status = AgentPullRequest["status"];
 const percent = (value: number | null) =>
@@ -665,24 +665,28 @@ export function checkDuration(
   return `${seconds}s`;
 }
 
+/** The checks in a few words: "3 passed, 1 failed", or their state. */
+function checksSummary(ci?: CiSnapshot): string {
+  if (ci?.availability !== "available" || !ci.summary.total)
+    return ciPresentation(ci).label;
+  return [
+    [ci.summary.passed, "passed"],
+    [ci.summary.failed, "failed"],
+    [ci.summary.pending, "pending"],
+    [ci.summary.skipped, "skipped"],
+  ]
+    .filter(([count]) => Number(count) > 0)
+    .map(([count, name]) => `${count} ${name}`)
+    .join(", ");
+}
+
 function CompactChecks({ ci }: { ci?: CiSnapshot }) {
   const state = ciPresentation(ci);
   const Icon =
     ci?.availability === "available" && !ci.summary.failed && ci.summary.pending
       ? Clock
       : state.icon;
-  const label =
-    ci?.availability === "available" && ci.summary.total
-      ? [
-          [ci.summary.passed, "passed"],
-          [ci.summary.failed, "failed"],
-          [ci.summary.pending, "pending"],
-          [ci.summary.skipped, "skipped"],
-        ]
-          .filter(([count]) => Number(count) > 0)
-          .map(([count, name]) => `${count} ${name}`)
-          .join(", ")
-      : state.label;
+  const label = checksSummary(ci);
   return (
     <span
       role="img"
@@ -878,6 +882,7 @@ export function PullRequestRow({
               size="icon-sm"
               data-agent-control="true"
               label={`Check details for pull request ${ref.number}`}
+              tooltip={`Checks: ${checksSummary(isError ? undefined : pr.ci)}`}
               aria-haspopup="dialog"
               aria-expanded={open}
               aria-controls={open ? contentId : undefined}

@@ -18,12 +18,12 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { RowButton } from "@/components/ui/row-button";
+import { StatusDot } from "@/components/ui/status-dot";
 import { type AgentModelOption } from "@/hooks/use-agent-model-catalog";
 import { swallowEscapeFromCombobox } from "@/lib/dialog-escape";
 import { AGENT_TYPE_LABELS, type AgentType } from "@/lib/agent-types";
 import { cn } from "@/lib/utils";
-import { RowButton } from "@/components/ui/row-button";
-import { StatusDot } from "@/components/ui/status-dot";
 
 /** Mirrors MAX_LAUNCH_NOTE_LENGTH on the server. */
 const MAX_NOTE_LENGTH = 2000;
@@ -267,6 +267,7 @@ export function PersonaLauncherDialog({
                         answer to "who should look at this". */}
                     <RowButton
                       role="checkbox"
+                      selected={codeownersSelected}
                       aria-checked={codeownersSelected}
                       disabled={!codeownersAvailable}
                       onClick={() => {
@@ -320,6 +321,7 @@ export function PersonaLauncherDialog({
                         <RowButton
                           key={persona.slug}
                           role="checkbox"
+                          selected={isSelected}
                           aria-checked={isSelected}
                           onClick={() => {
                             setSelectedPersonas((prev) =>

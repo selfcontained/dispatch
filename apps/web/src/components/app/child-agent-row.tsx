@@ -16,13 +16,13 @@ import { AgentReviewIndicator } from "@/components/app/agent-review-indicator";
 import { AgentSeatBadge } from "@/components/app/agent-seat-badge";
 import { ChatUnreadBadge } from "@/components/app/chat/chat-unread-badge";
 import { type Agent, type AgentVisualState } from "@/components/app/types";
-import { IconButton } from "@/components/ui/icon-button";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { IconButton } from "@/components/ui/icon-button";
 import { cn } from "@/lib/utils";
 import { useAgentRecord } from "@/hooks/use-agent-tree";
 import { useAgentReviewSummary } from "@/hooks/use-agent-review-summary";

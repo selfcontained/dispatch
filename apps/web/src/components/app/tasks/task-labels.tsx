@@ -17,7 +17,6 @@ import { useTaskBoard, useTaskLabelVisibility } from "@/hooks/use-tasks";
 import { TaskLabelBadge } from "./task-label-badge";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { IconButton } from "@/components/ui/icon-button";
 import {
   Popover,
   PopoverContent,
@@ -29,9 +28,10 @@ import {
   CommandGroup,
   CommandItem,
 } from "@/components/ui/command";
-import { ColorPicker, PROJECT_COLORS, isHexColor } from "../color-picker";
+import { IconButton } from "@/components/ui/icon-button";
 import { RowButton } from "@/components/ui/row-button";
 import { Hint } from "@/components/ui/tooltip";
+import { ColorPicker, PROJECT_COLORS, isHexColor } from "../color-picker";
 
 export function TaskLabels({ labels = [] }: { labels?: TaskLabel[] }) {
   return (

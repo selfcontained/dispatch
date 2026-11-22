@@ -65,7 +65,11 @@ export const CenterPaneTabBar = memo(function CenterPaneTabBar({
   return (
     // Click selects, so there is no onValueChange: Radix would select on
     // mousedown, and a tab has to still be inactive to start a drag to split.
-    <Tabs value={activeTab} className="pointer-events-auto min-w-0 max-w-full">
+    <Tabs
+      // While split, the panes on screen are not the tab that was active.
+      value={isSplit ? "" : activeTab}
+      className="pointer-events-auto min-w-0 max-w-full"
+    >
       <TabsList ref={listRef} aria-label="Agent panes">
         {visibleTabs.map((tab) => {
           // Unread chat replies sit on the Agent tab while another tab is up;
@@ -76,7 +80,7 @@ export const CenterPaneTabBar = memo(function CenterPaneTabBar({
             <TabsTrigger
               key={tab.id}
               value={tab.id}
-              aria-controls={CENTER_PANE_ID}
+              aria-controls={isSplit ? undefined : CENTER_PANE_ID}
               data-testid={`center-tab-${tab.id}`}
               draggable={!isMobile && activeTab !== tab.id}
               onDragStart={(e) => handleDragStart(e, tab.id)}
