@@ -318,7 +318,9 @@ export async function runRemoteRunner(
     cert: readFileSync(config.cert),
     key: readFileSync(config.key),
   };
-  const sampleHealth = runnerHealthSampler();
+  const sampleHealth = runnerHealthSampler(
+    path.dirname(updateLayout.installed)
+  );
   // gh and git come from the workload account's own login environment, the
   // one its agent sessions get, not from whatever the system package put in
   // /usr/bin. Looked up once; a missing resolved path triggers a new lookup.
@@ -1265,7 +1267,12 @@ export async function runRemoteRunner(
           launchReconcile: true,
           ...(advert ? { selfUpdate: advert } : {}),
         });
-        updateConnection = updates.connect((frame) => safeSend(frame));
+        updateConnection = updates.connect((frame) => {
+          safeSend(frame);
+          // A commit supersedes what this connection's first sample said.
+          if (frame.phase === "confirmed" && healthInterval)
+            void reportHealth();
+        });
       });
     }).catch((error) => {
       supervisor.close();

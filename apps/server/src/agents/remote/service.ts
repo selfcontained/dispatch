@@ -184,6 +184,7 @@ type Peer = {
   managedWorkspace: boolean;
   gate: Gate;
   health?: { sample: RunnerHealth; receivedAt: Date };
+  healthStoredAt?: number;
   reportsHealth?: boolean;
   engineCapabilities: boolean;
   /** Advertised in `ready`; whether this peer answers the `"engine"` command. */
@@ -1031,13 +1032,16 @@ export class RemoteRunnerService {
         const sample = parseRunnerHealth(frame.sample);
         if (!sample) return socket.destroy();
         const receivedAt = new Date();
+        // The latest sample is served: an update's commit can follow the
+        // connection's first one within a second.
+        peer.health = { sample, receivedAt };
         // Bound storage writes from an over-eager peer.
         if (
-          peer.health &&
-          receivedAt.getTime() - peer.health.receivedAt.getTime() < 1000
+          peer.healthStoredAt !== undefined &&
+          receivedAt.getTime() - peer.healthStoredAt < 1000
         )
           return;
-        peer.health = { sample, receivedAt };
+        peer.healthStoredAt = receivedAt.getTime();
         if (gate.registrationId)
           void this.enrollment?.registry
             .recordHealth(gate.registrationId, sample, receivedAt)

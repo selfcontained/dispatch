@@ -1,6 +1,13 @@
 import { parseReadyFrame } from "@dispatch/runner-protocol";
 import { EventEmitter } from "node:events";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  utimes,
+  writeFile,
+} from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
@@ -308,6 +315,82 @@ describe("runner update fence", () => {
     expect(parseReadyFrame(rest)).toEqual(
       (({ selfUpdate: _s, ...legacy }) => legacy)(ready!)
     );
+  });
+
+  it("reports health again once an update is confirmed", async () => {
+    const at = "2026-01-10T12:00:00Z";
+    await writeFile(
+      path.join(root, "last-maintenance-failure.json"),
+      JSON.stringify({ step: "stage", exitCode: 1, at })
+    );
+    await start({
+      updateIdentity: identity,
+      updater: mockUpdater(),
+      fenceStore: memoryStore(),
+      updateLayout: {
+        config: "",
+        installed: path.join(root, "dispatch"),
+        staging: "",
+        state: root,
+      },
+    });
+    const samples = () =>
+      frames()
+        .filter((frame) => frame.type === "health")
+        .map((frame) => frame.sample);
+    emit({ type: "accept_health" });
+    await vi.waitFor(() =>
+      expect(samples()[0]?.maintenanceFailure?.at).toBe(at)
+    );
+    // What a commit does before its confirmation is reported.
+    const installed = path.join(root, "installed-release");
+    await writeFile(installed, "1:2 v1.7.28\n");
+    const later = new Date(Date.parse(at) + 60_000);
+    await utimes(installed, later, later);
+    emit({
+      type: "update_offer",
+      attemptId,
+      target: { ...target, sha256: identity.sha256 },
+      retry: false,
+    });
+    await vi.waitFor(() => expect(samples()).toHaveLength(2));
+    expect(samples()[1].maintenanceFailure).toBeUndefined();
+  });
+
+  it("samples again for nothing short of a confirmation", async () => {
+    await start({
+      updateIdentity: identity,
+      updater: mockUpdater(compatible),
+      fenceStore: memoryStore(),
+    });
+    const samples = () => frames().filter((frame) => frame.type === "health");
+    emit({ type: "accept_health" });
+    await vi.waitFor(() => expect(samples()).toHaveLength(1));
+    emit({ type: "update_offer", attemptId, target, retry: false });
+    await vi.waitFor(() =>
+      expect(statuses().at(-1)).toMatchObject({ reason: "ready" })
+    );
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(samples()).toHaveLength(1);
+  });
+
+  it("sends no health to a controller that never accepted it", async () => {
+    await start({
+      updateIdentity: identity,
+      updater: mockUpdater(),
+      fenceStore: memoryStore(),
+    });
+    emit({
+      type: "update_offer",
+      attemptId,
+      target: { ...target, sha256: identity.sha256 },
+      retry: false,
+    });
+    await vi.waitFor(() =>
+      expect(statuses().at(-1)).toMatchObject({ phase: "confirmed" })
+    );
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(frames().filter((frame) => frame.type === "health")).toEqual([]);
   });
 
   it("a supervisor restarted while fenced refuses every spawning command before it starts", async () => {

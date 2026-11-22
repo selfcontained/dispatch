@@ -94,6 +94,8 @@ systemctl() {
     start)
       if [[ -e "$root/require-startup-units" ]] && grep -q release-new "$runtime/dispatch"; then
         fixture_update_units_ready && [[ -e "$root/loaded-update-units" ]] || return 1
+        # Health drops a failure older than this record in its first sample.
+        grep -Fq " $tag" "$runtime/installed-release" || return 1
         : > "$root/candidate-saw-units"
       fi
       if [[ -e "$root/reject-new" ]] && grep -q release-new "$runtime/dispatch"; then

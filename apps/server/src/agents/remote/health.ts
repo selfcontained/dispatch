@@ -42,7 +42,33 @@ async function cgroupDirectory() {
   return root;
 }
 
-export function runnerHealthSampler() {
+/**
+ * The last failed maintenance, unless the installed build is newer than it.
+ * The installer records a build before that build first starts, and the trial
+ * helper when it commits one, so this also covers the time before the
+ * installer's own cleanup, and a success by self-update, which has none.
+ */
+async function currentMaintenanceFailure(runtime: string) {
+  const file = path.join(runtime, "last-maintenance-failure.json");
+  const diagnostic = await readMetric(file);
+  if (!diagnostic) return;
+  let failure;
+  try {
+    failure = parseMaintenanceFailure(JSON.parse(diagnostic));
+  } catch {
+    /* Health remains available if the local record is invalid. */
+  }
+  if (!failure) return;
+  const installed = await lstat(path.join(runtime, "installed-release")).catch(
+    () => null
+  );
+  // `at` is truncated to the second it happened in.
+  if (installed && Date.parse(failure.at) + 1000 <= installed.mtimeMs) return;
+  return failure;
+}
+
+/** `runtime` is the directory the installer keeps the build and records in. */
+export function runnerHealthSampler(runtime: string) {
   const group = cgroupDirectory();
   let previous: CpuReading | undefined;
   return async (liveHostDirs: string[]): Promise<RunnerHealth> => {
@@ -90,17 +116,7 @@ export function runnerHealthSampler() {
       Number(memMax) > 0 && Number(memMax) <= hostTotal && !!memCurrent;
     const memoryTotal = limited ? Number(memMax) : hostTotal;
     const memoryUsed = limited ? Number(memCurrent) : hostTotal - os.freemem();
-    let maintenanceFailure;
-    const diagnostic = await readMetric(
-      "/opt/dispatch-runner/last-maintenance-failure.json"
-    );
-    if (diagnostic) {
-      try {
-        maintenanceFailure = parseMaintenanceFailure(JSON.parse(diagnostic));
-      } catch {
-        /* Health remains available if the local record is invalid. */
-      }
-    }
+    const maintenanceFailure = await currentMaintenanceFailure(runtime);
     return {
       version: packageVersion,
       ...(gitSha ? { revision: gitSha } : {}),
