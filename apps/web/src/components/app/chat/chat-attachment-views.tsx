@@ -104,7 +104,7 @@ const LINK_ROW =
   "group/link flex w-full min-w-0 items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-surface-hover focus-ring-inset max-md:min-h-11 pointer-coarse:min-h-11";
 
 /**
- * "example/demo #12" for a pull or merge request URL, so the card says which
+ * "#12 · example/demo" for a pull or merge request URL: the number first, so the card says which
  * one it is. Null for anything else.
  */
 export function pullRequestReference(url: string): string | null {
@@ -117,7 +117,7 @@ export function pullRequestReference(url: string): string | null {
   const match = /^\/(.+?)\/(?:-\/)?(?:pull|merge_requests)\/(\d+)(?:\/|$)/.exec(
     path
   );
-  return match ? `${match[1]} #${match[2]}` : null;
+  return match ? `#${match[2]} · ${match[1]}` : null;
 }
 
 export function LinkAttachment({

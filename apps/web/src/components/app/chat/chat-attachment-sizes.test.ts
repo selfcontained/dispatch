@@ -50,11 +50,11 @@ describe("galleryTileSizes", () => {
 
 describe("pullRequestReference", () => {
   it.each([
-    ["https://github.com/example/demo/pull/12", "example/demo #12"],
-    ["https://github.com/example/demo/pull/12/files", "example/demo #12"],
+    ["https://github.com/example/demo/pull/12", "#12 · example/demo"],
+    ["https://github.com/example/demo/pull/12/files", "#12 · example/demo"],
     [
       "https://gitlab.com/group/sub/project/-/merge_requests/7",
-      "group/sub/project #7",
+      "#7 · group/sub/project",
     ],
     ["https://example.com/docs", null],
     ["not a url", null],

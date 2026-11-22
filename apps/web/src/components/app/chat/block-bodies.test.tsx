@@ -755,7 +755,7 @@ describe("LinkBlockBody", () => {
       "https://github.com/o/r/pull/12"
     );
     expect(card.textContent).toContain("Fix it");
-    expect(card.textContent).toContain("o/r #12");
+    expect(card.textContent).toContain("#12 · o/r");
   });
 
   it("renders any other link as a card with its host", () => {
