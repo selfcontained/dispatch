@@ -694,7 +694,7 @@ export function ResponsePlaceholderVisual({
                                   ACTIVITY_COLORS[c.category],
                                   latest ? 100 : 75
                                 )
-                              : `color-mix(in hsl, ${ACTIVITY_COLORS[c.rest]} 22%, hsl(var(--muted)))`,
+                              : tint(ACTIVITY_COLORS[c.rest], 36),
                           }}
                         />
                       </span>
