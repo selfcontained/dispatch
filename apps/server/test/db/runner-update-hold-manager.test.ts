@@ -707,6 +707,21 @@ describe("launches on a runner held for an update", () => {
     expect(runtime.discard).not.toHaveBeenCalled();
   });
 
+  it("retries a refused stop hook once the drain is only waiting", async () => {
+    const holds = await openHolds();
+    const runtime = spyRuntime();
+    const manager = managerOn(holds, runtime);
+    const agent = await manager.createAgent({ cwd: HELD });
+    refuseNext.set("checkoutCommand", async () => {
+      await holds.begin("r1", ATTEMPT);
+    });
+    const stopping = manager.stopAgent(agent.id);
+    await Promise.race([work.get(holds)!.blocked, stopping]);
+    holds.setDrainWaiting("r1", ATTEMPT, true);
+    expect(await stopping).toMatchObject({ status: "stopped" });
+    expect(holds.isHeld("r1")).toBe(true);
+  });
+
   it("skips retrying the refused stop hook after archive takes over", async () => {
     const holds = await openHolds();
     const runtime = spyRuntime();

@@ -430,6 +430,91 @@ describe("agents the user changed during the update", () => {
   });
 });
 
+describe("stop and archive while a drain waits", () => {
+  it("go through without the hold opening, and neither agent is resumed", async () => {
+    world.runner.incompatible = true;
+    const drained = await world.agent();
+    const keeps = await world.agent();
+    const stopping = await world.agent();
+    const archiving = await world.agent();
+    const blocker = await world.agent();
+    for (const host of [stopping, archiving, blocker])
+      await world.working(host);
+    const { attemptId } = await world.coordinator.request(RUNNER, "update");
+    await world.until(
+      () =>
+        !drained.alive && !keeps.alive && world.view()?.attempt?.agents === 3
+    );
+    expect(world.entry(drained.id)).toBeDefined();
+
+    await world.manager.stopAgent(drained.id);
+    await world.manager.stopAgent(stopping.id);
+    expect(await statusOf(stopping.id)).toBe("stopped");
+    await world.manager.beginArchive(archiving.id);
+    await world.manager.executeArchive(archiving.id, {
+      onPhaseChange() {},
+      onComplete() {},
+      onError(error) {
+        throw error;
+      },
+    });
+    await world.until(
+      () => !world.entry(drained.id) && world.view()?.attempt?.agents === 1
+    );
+    expect(world.view()?.attempt?.phase).toBe("draining");
+    expect(world.holds.isHeld(RUNNER)).toBe(true);
+    expect(stopping.alive || archiving.alive).toBe(false);
+    expect(await world.manager.getAgent(archiving.id)).toBeNull();
+
+    await world.coordinator.cancelDrain(RUNNER, attemptId);
+    await finished("deferred");
+    resumedOnce(keeps);
+    for (const host of [drained, stopping, archiving, blocker])
+      expect(host.launches).toHaveLength(1);
+    expect(await statusOf(drained.id)).toBe("stopped");
+  });
+
+  it("keeps a host restart waiting without holding up a stop", async () => {
+    world.runner.incompatible = true;
+    const busy = await world.agent();
+    await world.working(busy);
+    const { attemptId } = await world.coordinator.request(RUNNER, "update");
+    await world.until(() => world.view()?.attempt?.phase === "draining");
+    const restart = world.manager.restartHost(busy.id);
+    await world.until(() => (world.holds as any).waiters.get(RUNNER)?.length);
+    expect(busy.alive).toBe(true);
+    await world.manager.stopAgent(busy.id);
+    await world.coordinator.cancelDrain(RUNNER, attemptId);
+    await finished("deferred");
+    await restart;
+    expect(busy.launches).toHaveLength(1);
+    expect(await statusOf(busy.id)).toBe("stopped");
+  });
+
+  it("lets a stop through that began waiting before the drain did", async () => {
+    world.runner.incompatible = true;
+    const busy = await world.agent();
+    const later = await world.agent();
+    await world.working(busy);
+    await world.holds.begin(RUNNER, crypto.randomUUID());
+    const waiting = world.holds.current(RUNNER)!.attemptId;
+    const stop = world.manager.stopAgent(busy.id);
+    await world.until(() => world.holds.counts(RUNNER).stops === 1);
+    world.holds.setDrainWaiting(RUNNER, waiting, true);
+    await stop;
+    expect(await statusOf(busy.id)).toBe("stopped");
+    expect(world.holds.isHeld(RUNNER)).toBe(true);
+
+    // Fenced again: the next one waits.
+    world.holds.setDrainWaiting(RUNNER, waiting, false);
+    const next = world.manager.stopAgent(later.id);
+    await world.until(() => world.holds.counts(RUNNER).stops === 1);
+    expect(later.alive).toBe(true);
+    await world.holds.release(RUNNER, waiting, "cancelled");
+    await next;
+  });
+});
+
 describe("a controller crash", () => {
   it("after the receipt, before any interrupt", async () => {
     const busy = await world.agent();

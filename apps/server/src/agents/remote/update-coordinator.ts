@@ -241,6 +241,7 @@ type CoordinatorAgents = Pick<
   | "resumeRunnerDrainHost"
   | "abandonRunnerResume"
   | "setRunnerDrainReceipt"
+  | "endedRunnerResumes"
 > & {
   runnerForce: Pick<
     AgentManager["runnerForce"],
@@ -286,7 +287,10 @@ export class RunnerUpdateCoordinator {
   constructor(
     private readonly options: {
       service: CoordinatorService;
-      holds: Pick<RunnerUpdateHolds, "begin" | "current" | "release">;
+      holds: Pick<
+        RunnerUpdateHolds,
+        "begin" | "current" | "release" | "setDrainWaiting"
+      >;
       agents: CoordinatorAgents;
       store: RunnerUpdateStore;
       /** This controller's signed update builds, by architecture. */
@@ -1002,6 +1006,11 @@ export class RunnerUpdateCoordinator {
     epoch: number
   ) {
     const { agents } = this.options;
+    const ended = await this.endedResumes(attempt);
+    if (ended.size) {
+      attempt = withoutResumes(attempt, ended);
+      await this.save({ ...this.records.get(runnerId), runnerId, attempt });
+    }
     const drain = attempt.drain!;
     const mayStop = () =>
       !this.closed &&
@@ -1300,6 +1309,22 @@ export class RunnerUpdateCoordinator {
           .filter((saved) => saved.id === id)
           .map((saved) => ({ ...saved, failedAt })),
       ]);
+    }
+  }
+
+  /** Entries a stop, archive or delete ended: nothing to resume. */
+  private async endedResumes(attempt: Attempt): Promise<Set<string>> {
+    const ids = attempt.drain?.agents.map(({ id }) => id) ?? [];
+    if (!ids.length) return new Set();
+    try {
+      return new Set(await this.options.agents.endedRunnerResumes(ids));
+    } catch (error) {
+      this.options.logger.warn(
+        { err: error, attemptId: attempt.id },
+        "could not check runner update resume entries"
+      );
+      // Resuming checks each one again.
+      return new Set();
     }
   }
 
@@ -1628,6 +1653,11 @@ export class RunnerUpdateCoordinator {
   }
 
   private syncReceipt({ runnerId, attempt }: RunnerUpdateRecord) {
+    this.options.holds.setDrainWaiting(
+      runnerId,
+      attempt.id,
+      attempt.phase === "draining" && !attempt.outcome
+    );
     if (attempt.drain)
       this.options.agents.setRunnerDrainReceipt(
         runnerId,
@@ -1715,6 +1745,14 @@ function versionOrder(left: string, right: string) {
   } catch {
     return undefined;
   }
+}
+
+function withoutResumes(attempt: Attempt, ids: Set<string>): Attempt {
+  const drain = attempt.drain!;
+  return {
+    ...attempt,
+    drain: { ...drain, agents: drain.agents.filter(({ id }) => !ids.has(id)) },
+  };
 }
 
 function sameSessions(

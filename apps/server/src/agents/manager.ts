@@ -2770,7 +2770,8 @@ export class AgentManager {
    */
   private async whileFenced<T>(
     agent: AgentRecord,
-    step: () => Promise<T>
+    step: () => Promise<T>,
+    kind: "stop" | "other" = "other"
   ): Promise<T> {
     const placement = remotePlacement(agent.cwd);
     for (;;) {
@@ -2783,7 +2784,7 @@ export class AgentManager {
           !this.holds?.isHeld(placement.runner)
         )
           throw error;
-        await this.holds.wait(placement.runner);
+        await this.holds.wait(placement.runner, kind);
         await this.assertLifecycleCurrent(agent);
       }
     }
@@ -3252,9 +3253,26 @@ export class AgentManager {
    * A host that is not running is just started.
    */
   async restartHost(id: string): Promise<AgentRecord> {
-    return this.serializeLifecycle(id, async () =>
-      this.restartHostLocked(await this.getRequiredAgent(id))
-    );
+    let waited = false;
+    for (;;) {
+      let heldRunner: string | undefined;
+      const result = await this.serializeLifecycle(id, async () => {
+        const agent = await this.getRequiredAgent(id);
+        if (agent.status === "running") {
+          const runner = remotePlacement(agent.cwd)?.runner;
+          if (runner && this.holds?.isHeld(runner)) {
+            heldRunner = runner;
+            return agent;
+          }
+        } else if (waited) return agent;
+        return this.restartHostLocked(agent);
+      });
+      if (!heldRunner) return result;
+      // A restart can't come back until the hold opens, so unlike a stop it
+      // waits, and outside the lock so a stop or archive can still win.
+      await this.holds!.wait(heldRunner);
+      waited = true;
+    }
   }
 
   private async restartHostLocked(
@@ -3344,6 +3362,16 @@ export class AgentManager {
 
   private hasRunnerDrainReceipt(id: string): boolean {
     return [...this.runnerDrainReceipts.values()].some((ids) => ids.has(id));
+  }
+
+  /** Resume entries a stop, archive or delete has ended. */
+  async endedRunnerResumes(ids: string[]): Promise<string[]> {
+    const running = new Set(
+      (await this.updateResumeSnapshot(ids)).map(({ id }) => id)
+    );
+    return ids.filter(
+      (id) => !running.has(id) || this.stoppingOrArchiving.has(id)
+    );
   }
 
   /** Legacy identities can be absent from the runner's retained list. */
@@ -3631,7 +3659,8 @@ export class AgentManager {
     }
 
     // The stop hook and the stop run on the runner; its update fence would
-    // refuse both. Wait for a held runner first, with the agent untouched.
+    // refuse both. Wait for it first, with the agent untouched. A drain that
+    // is only waiting has no fence, and lets both through.
     if (placement && this.holds) {
       await this.holds.wait(placement.runner, "stop");
       agent = await this.getRequiredAgent(id);
@@ -3656,7 +3685,8 @@ export class AgentManager {
         agent,
         this.logger,
         { local: this.localRunner, remote: this.remote },
-        (request) => this.whileFenced({ ...agent, status: "stopping" }, request)
+        (request) =>
+          this.whileFenced({ ...agent, status: "stopping" }, request, "stop")
       );
     } catch (err) {
       if (err instanceof LifecycleSuperseded) return this.getRequiredAgent(id);
@@ -4099,7 +4129,7 @@ export class AgentManager {
           return current?.status === "archiving" && current.cwd === agent.cwd;
         },
         whileFenced: <T>(agent: AgentRecord, request: () => Promise<T>) =>
-          this.whileFenced(agent, request),
+          this.whileFenced(agent, request, "stop"),
       }),
     };
   }

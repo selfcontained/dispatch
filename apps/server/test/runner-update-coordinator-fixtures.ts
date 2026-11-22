@@ -348,6 +348,7 @@ export async function updateWorld(
         drain.resumed.push({ id, revision: runner.identity.revision });
       }),
       setRunnerDrainReceipt: vi.fn(),
+      endedRunnerResumes: vi.fn(async (): Promise<string[]> => []),
       stopRunnerHostRecycling: vi.fn(),
     };
     const coordinator = new RunnerUpdateCoordinator({
