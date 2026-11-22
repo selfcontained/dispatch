@@ -292,6 +292,52 @@ describe("a live update", () => {
     );
   });
 
+  it("shows a success only while the runner reports the confirmed build", async () => {
+    await online();
+    await updated();
+    const installed = {
+      version: target.version,
+      revision: target.revision.slice(0, 12),
+    };
+    expect(world.result()?.state).toBe("updated");
+    await world.disconnect();
+    expect(world.result()).toBeUndefined();
+    expect(world.coordinator.view(RUNNER, installed)?.result?.state).toBe(
+      "updated"
+    );
+    expect(
+      world.coordinator.view(RUNNER, { version: target.version })?.result
+    ).toBeUndefined();
+    expect(world.coordinator.view(RUNNER, identity)?.result).toBeUndefined();
+
+    // The runner was reinstalled at the same version, with a different revision.
+    world.runner.identity = {
+      ...identity,
+      version: target.version,
+    };
+    world.runner.trial = null;
+    await world.restartRunner();
+    expect(world.result()).toBeUndefined();
+    await world.disconnect();
+    expect(
+      world.coordinator.view(RUNNER, world.runner.identity)?.result
+    ).toBeUndefined();
+
+    // Newer attempts take precedence over an earlier success.
+    await world.restartController({
+      build: { version: "1.7.30", revision: "e".repeat(40) },
+    });
+    await world.connect();
+    world.runner.report = { outcome: "refused", reason: "bad_signature" };
+    await update();
+    await world.until(() => world.result()?.reason === "verify_failed");
+    await world.disconnect();
+    expect(world.coordinator.view(RUNNER, installed)?.result).toMatchObject({
+      state: "deferred",
+      version: "1.7.30",
+    });
+  });
+
   it("confirms an empty retained set without any host evidence", async () => {
     await online({ agents: 0 });
     world.hosts.reply = "gone";

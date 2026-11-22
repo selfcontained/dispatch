@@ -61,7 +61,10 @@ export async function registerRunnerRoutes(
       return {
         runners: runners.map((runner) => {
           if (runner.status === "revoked") return runner;
-          const update = deps.updates?.view(runner.id);
+          const update = deps.updates?.view(
+            runner.id,
+            runner.status === "offline" ? runner.health : undefined
+          );
           return update ? { ...runner, update } : runner;
         }),
       };

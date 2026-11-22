@@ -12,6 +12,7 @@ import type { AgentManager } from "../manager.js";
 import {
   endsUpdateAttempt,
   type RetainedSession,
+  type RunnerHealth,
   type RunnerUpdateCancelReason,
   type RunnerUpdateTarget,
   type SelfUpdateAdvert,
@@ -500,7 +501,10 @@ export class RunnerUpdateCoordinator {
     });
   }
 
-  view(runnerId: string): RunnerUpdateView | undefined {
+  view(
+    runnerId: string,
+    offlineBuild?: Pick<RunnerHealth, "version" | "revision">
+  ): RunnerUpdateView | undefined {
     const { service, agents, artifacts, build } = this.options;
     const artifactSource = artifacts();
     const record = this.records.get(runnerId);
@@ -534,7 +538,7 @@ export class RunnerUpdateCoordinator {
     if (
       last?.outcome &&
       last.outcome.state !== "needs_idle" &&
-      this.showsResult(last, last.outcome, advert)
+      this.showsResult(last, last.outcome, advert, offlineBuild)
     )
       view.result = {
         ...last.outcome,
@@ -1871,11 +1875,25 @@ export class RunnerUpdateCoordinator {
   private showsResult(
     attempt: Attempt,
     outcome: Outcome,
-    advert: SelfUpdateAdvert | undefined
+    advert: SelfUpdateAdvert | undefined,
+    offlineBuild: Pick<RunnerHealth, "version" | "revision"> | undefined
   ) {
     const { target } = attempt;
-    if (outcome.state === "updated")
-      return !advert || !target || advert.installedSha256 === target.sha256;
+    if (outcome.state === "updated") {
+      if (!target) return false;
+      if (advert)
+        return (
+          advert.version === target.version &&
+          advert.revision === target.revision &&
+          advert.installedSha256 === target.sha256
+        );
+      // Runner health reports the abbreviated revision embedded at build time.
+      return (
+        offlineBuild?.version === target.version &&
+        (offlineBuild.revision === target.revision ||
+          offlineBuild.revision === target.revision.slice(0, 12))
+      );
+    }
     // A failure is history once the runner has this build anyway.
     if (advert && this.isOwnBuild(advert)) return false;
     return (
