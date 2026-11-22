@@ -86,6 +86,150 @@ async function rolledBack() {
   await world.until(() => world.result()?.state === "rolled_back");
 }
 
+describe("manual updates with automatic updates enabled", () => {
+  async function prepareDrain() {
+    await online({ automaticUpdates: true });
+    world.drain.hosts.set(AGENT, "busy");
+    world.runner.inventory = {
+      retained: [],
+      requiresQuiescence: true,
+      live: 1,
+    };
+  }
+
+  async function waitForDrain() {
+    await world.until(
+      () => world.coordinator.view(RUNNER)?.attempt?.agents === 1
+    );
+    return world.attempt()!.id;
+  }
+
+  it.each(["after cancelling an automatic drain", "during startup settle"])(
+    "does not re-offer after manual Cancel %s",
+    async (sequence) => {
+      await prepareDrain();
+      if (sequence === "after cancelling an automatic drain") {
+        world.advance(UPDATE_TIMING.automaticSettleMs);
+        const first = await waitForDrain();
+        expect(world.attempt()?.automatic).toBe(true);
+        await world.coordinator.cancelDrain(RUNNER, first);
+        await world.until(
+          () => world.result()?.reason === "automatic_drain_cancelled"
+        );
+      }
+      const { attemptId } = await update();
+      expect(await waitForDrain()).toBe(attemptId);
+      expect(world.attempt()?.automatic).toBeUndefined();
+      await world.coordinator.cancelDrain(RUNNER, attemptId);
+      expect(world.result()?.reason).toBe("drain_cancelled");
+
+      const offers = world.sent("update_offer").length;
+      world.advance(UPDATE_TIMING.automaticSettleMs);
+      await world.coordinator.tick();
+      expect(world.sent("update_offer")).toHaveLength(offers);
+
+      await world.disconnect();
+      await world.connect();
+      world.advance(UPDATE_TIMING.automaticSpacingMs);
+      await world.coordinator.tick();
+      expect(world.sent("update_offer")).toHaveLength(offers);
+
+      await world.restartController();
+      await world.connect();
+      world.advance(UPDATE_TIMING.automaticSettleMs);
+      await world.coordinator.tick();
+      expect(world.sent("update_offer")).toHaveLength(offers);
+
+      if (sequence === "after cancelling an automatic drain") {
+        await update();
+      } else {
+        await world.restartController({
+          build: { version: "1.7.30", revision: "e".repeat(40) },
+        });
+        await world.connect();
+        world.advance(UPDATE_TIMING.automaticSettleMs);
+        await world.coordinator.tick();
+      }
+      expect(world.sent("update_offer")).toHaveLength(offers + 1);
+    }
+  );
+
+  it("pauses automatic updates after a manual drain times out", async () => {
+    await prepareDrain();
+    const { attemptId } = await update();
+    expect(await waitForDrain()).toBe(attemptId);
+    world.advance(world.attempt()!.deadline - world.now());
+    await world.until(() => world.result()?.reason === "drain_timeout");
+    await world.coordinator.tick();
+    expect(world.sent("update_offer")).toHaveLength(1);
+    expect(world.coordinator.view(RUNNER)?.available?.action).toBe("update");
+  });
+
+  it.each(["rolled_back", "verify_failed", "suppressed"])(
+    "requires Retry after a manual update ends with %s",
+    async (reason) => {
+      await online({ automaticUpdates: true });
+      if (reason === "verify_failed")
+        world.runner.report = { outcome: "refused", reason: "bad_signature" };
+      if (reason === "suppressed") world.runner.suppressed.add(target.sha256);
+      await update();
+      if (reason === "rolled_back") {
+        await world.until(() => world.phase() === "switching");
+        await world.swap();
+        await world.rollBack("boot_failed");
+      }
+      await world.until(() =>
+        reason === "rolled_back"
+          ? world.result()?.state === reason
+          : world.result()?.reason === reason
+      );
+      const offers = world.sent("update_offer").length;
+      world.advance(UPDATE_TIMING.automaticSettleMs);
+      await world.coordinator.tick();
+      expect(world.sent("update_offer")).toHaveLength(offers);
+      await expect(update()).rejects.toEqual(ineligible("needs_retry"));
+      await update("retry");
+      expect(world.sent("update_offer").at(-1)?.retry).toBe(true);
+    }
+  );
+
+  it("retries transient download deferrals at a bounded rate across restart", async () => {
+    await online({ automaticUpdates: true });
+    world.runner.report = { outcome: "refused", reason: "download_failed" };
+    const { attemptId } = await update();
+    await world.until(() => world.result()?.reason === "download_failed");
+    await world.restartController();
+    await world.connect();
+    world.advance(UPDATE_TIMING.automaticRetryMs - 1);
+    await world.coordinator.tick();
+    expect(world.attempt()?.id).toBe(attemptId);
+    world.advance(UPDATE_TIMING.automaticSpacingMs);
+    await world.until(() => world.attempt()?.automatic);
+    const retry = world.attempt()!.id;
+    expect(retry).not.toBe(attemptId);
+    await world.until(() => world.result()?.reason === "download_failed");
+    world.advance(UPDATE_TIMING.automaticRetryMs - 1);
+    await world.coordinator.tick();
+    expect(world.attempt()?.id).toBe(retry);
+    world.advance(UPDATE_TIMING.automaticSpacingMs);
+    await world.until(() => world.attempt()?.id !== retry);
+  });
+
+  it("backs off before retrying a manual update deferred while offline", async () => {
+    await online({ automaticUpdates: true });
+    const { attemptId, release } = await staging();
+    await world.disconnect();
+    release();
+    world.advance(world.attempt()!.deadline - world.now());
+    await world.until(() => world.result()?.reason === "no_response");
+    await world.connect();
+    await world.coordinator.tick();
+    expect(world.attempt()?.id).toBe(attemptId);
+    world.advance(UPDATE_TIMING.automaticRetryMs);
+    await world.until(() => world.attempt()?.automatic);
+  });
+});
+
 describe("a live update", () => {
   it("offers, fences with retained sessions, activates, confirms, releases and recycles", async () => {
     await online();
@@ -661,7 +805,7 @@ describe("outcomes", () => {
     world.runner.trial = null;
     world.runner.report = { outcome: "refused", reason: "download_failed" };
     await update("retry");
-    await world.until(() => world.result()?.reason === "verify_failed");
+    await world.until(() => world.result()?.reason === "download_failed");
     expect(world.coordinator.view(RUNNER)?.available?.action).toBe("retry");
   });
 

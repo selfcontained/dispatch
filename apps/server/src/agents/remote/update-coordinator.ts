@@ -77,6 +77,7 @@ export const UPDATE_TIMING = {
   tickMs: 1_000,
   automaticSettleMs: 15_000,
   automaticSpacingMs: 5_000,
+  automaticRetryMs: 60_000,
 } as const;
 
 /** The task-5 hold outlasts every phase it covers. */
@@ -160,8 +161,13 @@ const runnerState = z.object({
     .optional(),
   /** A build the runner suppresses until an explicit retry. */
   failed: z.object({ version: z.string(), revision: z.string() }).optional(),
+  /** A same-build pause, permanent unless a transient failure set a retry time. */
   automaticBlocked: z
-    .object({ version: z.string(), revision: z.string() })
+    .object({
+      version: z.string(),
+      revision: z.string(),
+      retryAt: z.number().optional(),
+    })
     .optional(),
 });
 export type RunnerUpdateRecord = z.infer<typeof runnerState>;
@@ -722,10 +728,13 @@ export class RunnerUpdateCoordinator {
     const { service, artifacts, build } = this.options;
     const refuse = (code: IneligibleCode, attemptId?: string) =>
       new RunnerUpdateIneligible(code, attemptId);
+    const blocked = this.records.get(runnerId)?.automaticBlocked;
     if (
       action === "automatic" &&
       (!service.automaticUpdates(runnerId) ||
-        this.isOwnBuild(this.records.get(runnerId)?.automaticBlocked))
+        (blocked &&
+          this.isOwnBuild(blocked) &&
+          (blocked.retryAt === undefined || this.now() < blocked.retryAt)))
     )
       throw refuse("not_ready");
     const running = this.active(runnerId);
@@ -966,7 +975,9 @@ export class RunnerUpdateCoordinator {
         status.reason === "cancelled" ||
         status.reason === "reattach_failed")
         ? attempt.reason
-        : (status.reason ?? "cancelled");
+        : status.downloadFailed
+          ? "download_failed"
+          : (status.reason ?? "cancelled");
     return this.finish(runnerId, attempt, {
       state: status.phase === "rolled_back" ? "rolled_back" : "deferred",
       reason,
@@ -1653,16 +1664,42 @@ export class RunnerUpdateCoordinator {
     const { target } = attempt;
     let { confirmed, failed, automaticBlocked } =
       this.records.get(runnerId) ?? {};
-    if (
-      target &&
-      attempt.automatic &&
-      outcome.state !== "updated" &&
-      outcome.state !== "rolled_back" &&
-      outcome.reason !== "suppressed" &&
-      outcome.reason !== "automatic_disabled" &&
-      outcome.reason !== "dispatch_changed"
-    )
-      automaticBlocked = { version: target.version, revision: target.revision };
+    const { state, reason } = outcome;
+    const drainCancelled =
+      reason === "automatic_drain_cancelled" ||
+      reason === "drain_cancelled" ||
+      reason === "drain_timeout";
+    if (target && state === "deferred") {
+      const transient =
+        !attempt.activated &&
+        (reason === "download_failed" ||
+          reason === "no_response" ||
+          reason === "staging_timeout" ||
+          reason === "operations_pending" ||
+          reason === "attach_unavailable" ||
+          reason === "settle_timeout");
+      if (transient) {
+        automaticBlocked = {
+          version: target.version,
+          revision: target.revision,
+          retryAt: this.now() + UPDATE_TIMING.automaticRetryMs,
+        };
+      } else if (
+        reason !== "suppressed" &&
+        reason !== "automatic_disabled" &&
+        reason !== "dispatch_changed"
+      ) {
+        if (drainCancelled || attempt.automatic) {
+          automaticBlocked = {
+            version: target.version,
+            revision: target.revision,
+          };
+        } else if (this.options.service.automaticUpdates(runnerId)) {
+          // Require explicit Retry for a failed manual update under automatic policy.
+          failed = { version: target.version, revision: target.revision };
+        }
+      }
+    }
     if (outcome.state === "updated" && target) {
       confirmed = {
         attemptId: attempt.id,

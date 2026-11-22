@@ -81,6 +81,7 @@ export const logger = {
 export async function updateWorld(
   options: {
     agents?: number;
+    automaticUpdates?: boolean;
     identity?: typeof identity;
     build?: { version: string; revision: string | null };
   } = {}
@@ -229,7 +230,11 @@ export async function updateWorld(
   function controller() {
     const service = new RemoteRunnerService();
     const internals = service as any;
-    const registration = { id: RUNNER, fingerprint: "fp" };
+    const registration = {
+      id: RUNNER,
+      fingerprint: "fp",
+      automaticUpdates: options.automaticUpdates,
+    };
     internals.enrolled.set("fp", registration);
 
     const holds = new RunnerUpdateHolds({

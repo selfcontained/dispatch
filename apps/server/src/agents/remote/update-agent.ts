@@ -116,6 +116,7 @@ type StageResult = {
   reason: RunnerUpdateReason;
   compatibility: RunnerCompatibility | null;
   floorVersion?: string;
+  downloadFailed?: true;
 };
 
 type Attempt = {
@@ -152,6 +153,12 @@ export function stageResult(
     case "already_installed":
       return { reason: "ready", compatibility: null };
     case "refused":
+      if (report.reason === "download_failed")
+        return {
+          reason: "verify_failed",
+          compatibility: null,
+          downloadFailed: true,
+        };
       if (report.reason !== "downgrade" && report.reason !== "version_conflict")
         return { reason: "verify_failed", compatibility: null };
       return {
@@ -197,6 +204,7 @@ export function createRunnerUpdateAgent(options: {
     extra: {
       reason?: RunnerUpdateReason;
       floorVersion?: string;
+      downloadFailed?: true;
       fenceCleared?: true;
       retained?: RetainedSession[];
       requiresQuiescence?: boolean;
@@ -215,6 +223,7 @@ export function createRunnerUpdateAgent(options: {
   const stageStatus = (attemptId: string, result?: StageResult) =>
     status(attemptId, "deferred", {
       reason: result?.reason ?? "staging",
+      ...(result?.downloadFailed && { downloadFailed: true }),
       ...(result?.floorVersion && { floorVersion: result.floorVersion }),
     });
   const unknown = (attemptId: string) =>

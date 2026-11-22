@@ -131,6 +131,8 @@ export type UpdateStatusFrame = {
   reason?: RunnerUpdateReason;
   /** The runner's confirmed floor. Only with reason `downgrade`. */
   floorVersion?: string;
+  /** A transient download failure, reported as verify_failed to older controllers. */
+  downloadFailed?: true;
   installed: RunnerInstalledBuild;
   /** An unreadable fence was cleared. Only with `deferred`/`cancelled`. */
   fenceCleared?: true;
@@ -348,6 +350,10 @@ export function parseUpdateStatus(value: unknown): UpdateStatusFrame | null {
       !RUNNER_UPDATE_REASONS.includes(value.reason as RunnerUpdateReason)) ||
     (value.floorVersion !== undefined &&
       (value.reason !== "downgrade" || !isVersion(value.floorVersion))) ||
+    (value.downloadFailed !== undefined &&
+      (value.downloadFailed !== true ||
+        value.phase !== "deferred" ||
+        value.reason !== "verify_failed")) ||
     (value.fenceCleared !== undefined &&
       (value.fenceCleared !== true ||
         value.phase !== "deferred" ||
@@ -382,6 +388,7 @@ export function parseUpdateStatus(value: unknown): UpdateStatusFrame | null {
       floorVersion: value.floorVersion as string,
     }),
     installed,
+    ...(value.downloadFailed === true && { downloadFailed: true }),
     ...(value.fenceCleared === true && { fenceCleared: true }),
     ...(retained && { retained }),
     ...(value.requiresQuiescence !== undefined && {
