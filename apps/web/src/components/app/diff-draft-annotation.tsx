@@ -86,7 +86,7 @@ export function InlineDraftAnnotation({
             onKeyDown={handleKeyDown}
             autoFocus
           />
-          <div className="mt-2 flex items-center justify-end gap-2">
+          <div className="mt-2 flex flex-wrap items-center justify-end gap-2">
             <Button
               type="button"
               variant="ghost"

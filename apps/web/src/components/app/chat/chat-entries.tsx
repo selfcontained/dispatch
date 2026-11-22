@@ -1584,7 +1584,8 @@ function LaunchCard({
     );
   }
   return (
-    <div
+    <BlockShell
+      level="plain"
       className="mx-3 my-4 sm:mx-4 sm:my-4"
       data-testid="chat-compact-launch"
       data-block-id={block.id}
@@ -1690,7 +1691,7 @@ function LaunchCard({
       {inThread && startupIssue ? <LaunchStartup block={block} /> : null}
       {inThread ? <LaunchBriefing block={block} ctx={ctx} /> : null}
       <LaunchReviews block={block} ctx={ctx} inThread={inThread} />
-    </div>
+    </BlockShell>
   );
 }
 

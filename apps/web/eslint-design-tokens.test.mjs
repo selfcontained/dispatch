@@ -106,14 +106,19 @@ test("allow a control's size, width, offset and pseudo-element", async () => {
   );
 });
 
-test("leave the stream and components/ui to their own sizes", async () => {
-  for (const file of [
-    "src/components/app/chat/example.tsx",
-    "src/components/ui/example.tsx",
-  ]) {
-    assert.deepEqual(
-      await controlViolations("export const a = <button />;", file),
-      []
-    );
-  }
+test("hold the stream to the controls, which components/ui defines", async () => {
+  assert.deepEqual(
+    await controlViolations(
+      "export const a = <button />;",
+      "src/components/app/chat/example.tsx"
+    ),
+    ["rawButton"]
+  );
+  assert.deepEqual(
+    await controlViolations(
+      "export const a = <button />;",
+      "src/components/ui/example.tsx"
+    ),
+    []
+  );
 });

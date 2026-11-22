@@ -124,6 +124,9 @@ function RequestDetails({ details }: { details: string }) {
     const element = line.current;
     if (element && element.scrollWidth > element.clientWidth) setOpen(true);
   }, []);
+  const raw = (
+    <pre className="whitespace-pre-wrap break-all font-mono">{details}</pre>
+  );
   return (
     <>
       {command ? (
@@ -189,12 +192,12 @@ function RequestDetails({ details }: { details: string }) {
                   <dt className="text-label-sm text-muted-foreground">
                     Raw input
                   </dt>
+                  <dd>{raw}</dd>
                 </div>
               </dl>
-            ) : null}
-            <pre className="whitespace-pre-wrap break-all font-mono">
-              {details}
-            </pre>
+            ) : (
+              raw
+            )}
           </div>
         </CollapsibleContent>
       </Collapsible>

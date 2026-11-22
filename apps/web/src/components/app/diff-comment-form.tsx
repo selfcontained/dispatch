@@ -125,9 +125,11 @@ export function InlineCommentForm({
       className="ml-3 my-3 max-w-full overflow-hidden rounded-md border border-border bg-background shadow-sm sticky left-0"
       style={stickyAnnotationStyle}
     >
-      <div className="flex items-center gap-2 border-b border-border-subtle bg-surface-subtle px-3 py-2 text-label-sm text-muted-foreground">
+      <div className="flex min-w-0 items-center gap-2 border-b border-border-subtle bg-surface-subtle px-3 py-2 text-label-sm text-muted-foreground">
         <MessageSquare className="h-3 w-3" />
-        <span className="font-medium text-foreground">Add a comment</span>
+        <span className="min-w-0 truncate font-medium text-foreground">
+          Add a comment
+        </span>
         <span className="truncate font-mono">{lineLabel}</span>
       </div>
       <div className="p-3">
@@ -144,7 +146,7 @@ export function InlineCommentForm({
           autoFocus
           disabled={submitting}
         />
-        <div className="mt-2 flex items-center justify-end gap-2">
+        <div className="mt-2 flex flex-wrap items-center justify-end gap-2">
           <Button
             type="button"
             variant="ghost"
@@ -161,11 +163,17 @@ export function InlineCommentForm({
             pending={submitting}
             disabled={!comment.trim()}
             menuDisabled={!comment.trim() || submitting}
+            // The diff column can be narrower than the label on a phone.
+            className="whitespace-normal leading-tight"
             menuLabel="More ways to send the comment"
             menuProps={{ side: "top", className: "min-w-[140px]" }}
             menu={
-              <DropdownMenuItem onClick={handleChat}>
-                <MessageSquare className="mr-2 h-3 w-3" />
+              <DropdownMenuItem
+                // The menu's default item colour is the destructive one.
+                className="flex items-center gap-2 text-foreground"
+                onClick={handleChat}
+              >
+                <MessageSquare className="size-icon-sm" aria-hidden="true" />
                 Chat
               </DropdownMenuItem>
             }
