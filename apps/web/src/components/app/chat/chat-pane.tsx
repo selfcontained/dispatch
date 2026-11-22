@@ -50,6 +50,8 @@ import {
 import { useChatFeedContext } from "@/components/app/chat/use-chat-feed-context";
 import { type Agent } from "@/components/app/types";
 import { Button } from "@/components/ui/button";
+import { Alert } from "@/components/ui/alert";
+import { IconButton } from "@/components/ui/icon-button";
 import {
   useDescendantAgentIds,
   useDeliveryAgents,
@@ -1405,8 +1407,7 @@ export function ChatPane({
                   <div className="mb-1 flex justify-center px-4">
                     <Button
                       type="button"
-                      size="stream-sm"
-                      className="h-7 text-body-sm"
+                      size="xs"
                       onClick={loadOlder}
                       disabled={feed.isFetchingOlder}
                     >
@@ -1415,24 +1416,16 @@ export function ChatPane({
                   </div>
                 ) : null}
                 {feed.error ? (
-                  <div
-                    role="alert"
-                    className="mx-4 mb-3 flex items-center justify-between gap-3 rounded-md border border-danger/line bg-danger/tint px-3 py-2 text-body-sm text-danger"
+                  <Alert
+                    className="mx-4 mb-3"
                     data-testid="chat-feed-error"
-                  >
-                    <span className="min-w-0 truncate">
-                      Couldn&apos;t load the chat: {feed.error.message}
-                    </span>
-                    <Button
-                      type="button"
-                      size="stream-sm"
-                      className="h-6 shrink-0 px-2 text-body-sm"
-                      onClick={feed.refetch}
-                      data-testid="chat-feed-retry"
-                    >
-                      Retry
-                    </Button>
-                  </div>
+                    title={`Couldn’t load the chat: ${feed.error.message}`}
+                    action={{
+                      label: "Retry",
+                      onClick: feed.refetch,
+                      testId: "chat-feed-retry",
+                    }}
+                  />
                 ) : null}
                 {/* An agent's stream needs no empty prompt: its launch card
                     arrives with it, and a prompt shown until then would
@@ -1479,29 +1472,26 @@ export function ChatPane({
                   exit={{ opacity: 0 }}
                   transition={{ duration: 0.16, ease: "easeOut" }}
                 >
-                  <Button
-                    type="button"
-                    size="stream-icon"
-                    variant="ghost"
-                    aria-label={
+                  <IconButton
+                    label={
                       pendingBelow
                         ? "New messages, jump to bottom"
                         : "Jump to bottom"
                     }
-                    title={pendingBelow ? "New messages" : "Jump to bottom"}
+                    tooltip={pendingBelow ? "New messages" : "Jump to bottom"}
                     data-testid="chat-jump-to-bottom"
                     data-pending={pendingBelow ? "true" : undefined}
-                    className="pointer-events-auto relative h-9 w-9 rounded-full border border-foreground/tint-strong bg-[hsl(var(--accent))] text-foreground shadow-elev-jump backdrop-blur transition-[color,background-color,border-color,box-shadow] duration-300 ease-in-out hover:border-foreground/line-strong hover:bg-muted hover:shadow-elev-jump-hover"
+                    className="pointer-events-auto relative rounded-full border border-foreground/tint-strong bg-[hsl(var(--accent))] text-foreground shadow-elev-jump backdrop-blur transition-[color,background-color,border-color,box-shadow] duration-300 ease-in-out hover:border-foreground/line-strong hover:bg-muted hover:shadow-elev-jump-hover"
                     onClick={jumpToBottom}
                   >
-                    <ArrowDown className="h-4 w-4" />
+                    <ArrowDown />
                     {pendingBelow ? (
                       <span
                         aria-hidden="true"
                         className="absolute right-1 top-1 h-2 w-2 rounded-full bg-status-working ring-2 ring-background"
                       />
                     ) : null}
-                  </Button>
+                  </IconButton>
                 </motion.div>
               ) : null}
             </AnimatePresence>

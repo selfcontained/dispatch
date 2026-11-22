@@ -59,13 +59,6 @@ const buttonVariants = cva(
         // the taps meant for the lines and controls around it.
         inline:
           "relative h-auto gap-1 rounded-sm p-0 font-normal [&>svg]:size-icon-sm pointer-coarse:after:absolute pointer-coarse:after:inset-x-0 pointer-coarse:after:-inset-y-1 pointer-coarse:after:content-['']",
-        // The stream's geometry until design-system task 5/6 moves it onto
-        // the sizes above, which removes these four.
-        "stream-md": "h-9 px-3 py-2 text-body-md",
-        "stream-sm": "h-8 rounded-md px-2 text-body-md",
-        "stream-meta":
-          "h-6 gap-1.5 px-1.5 text-label-sm pointer-coarse:min-h-11",
-        "stream-icon": "h-8 w-8 shrink-0 p-0 text-body-md",
       },
       /** Lets a long label wrap; the size becomes the minimum height. */
       wrap: {

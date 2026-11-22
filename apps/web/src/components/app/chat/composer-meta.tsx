@@ -18,6 +18,7 @@ import { EffortPicker } from "@/components/app/effort-picker";
 import { AgentTypeIcon } from "@/components/app/agent-type-icon";
 import { type Agent } from "@/components/app/types";
 import { Button } from "@/components/ui/button";
+import { Hint } from "@/components/ui/tooltip";
 import {
   Dialog,
   DialogBody,
@@ -75,9 +76,6 @@ import {
   resetsIn,
 } from "./composer-meta-format";
 import { Alert } from "@/components/ui/alert";
-
-const CHIP_CLASS =
-  "inline-flex h-6 min-w-0 items-center gap-1 rounded-md px-1.5 text-label-sm text-muted-foreground hover:bg-surface-hover hover:text-foreground focus-ring disabled-state pointer-coarse:min-h-11";
 
 /**
  * Controls beside the recipients under the composer: which model the session runs (a picker)
@@ -188,23 +186,26 @@ function ModelChip({
         }}
       >
         <PopoverTrigger asChild>
-          <button
-            type="button"
-            className={cn(CHIP_CLASS, "max-w-full justify-self-start")}
-            disabled={disabled}
-            title={
+          <Hint
+            label={
               running
                 ? "Change the model"
                 : "Start the agent to change its model"
             }
-            data-testid="composer-model-chip"
           >
-            <Sparkles className="h-3 w-3 shrink-0" aria-hidden="true" />
-            <span className="truncate">{label}</span>
-            {disabled ? null : (
-              <ChevronDown className="h-3 w-3 shrink-0" aria-hidden="true" />
-            )}
-          </button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="xs"
+              className="min-w-0 max-w-full justify-self-start disabled:pointer-events-auto"
+              disabled={disabled}
+              data-testid="composer-model-chip"
+            >
+              <Sparkles aria-hidden="true" />
+              <span className="truncate">{label}</span>
+              {disabled ? null : <ChevronDown aria-hidden="true" />}
+            </Button>
+          </Hint>
         </PopoverTrigger>
         <PopoverContent
           align="start"
@@ -350,38 +351,37 @@ function UsageChip({
       }}
     >
       <PopoverTrigger asChild>
-        <button
-          type="button"
-          className={cn(
-            CHIP_CLASS,
-            "shrink-0 tabular-nums",
-            !agent && "col-start-2"
-          )}
-          title={usageLabel}
-          aria-label={
-            expiring
-              ? `${usageLabel} · Codex reset credit expires within seven days`
-              : usageLabel
-          }
-          data-testid="composer-usage-chip"
-        >
-          <span className="relative inline-flex shrink-0">
-            <Gauge className="h-3 w-3" aria-hidden="true" />
-            {expiring ? (
-              <span
-                className="absolute -right-0.5 -top-0.5 h-1.5 w-1.5 rounded-full bg-primary ring-2 ring-background"
-                aria-hidden="true"
-                data-testid="composer-usage-expiry-dot"
-              />
-            ) : null}
-          </span>
-          <span className="composer-usage-full">
-            {percent === null ? "Usage" : `${percent}% left · context`}
-          </span>
-          <span className="composer-usage-short hidden">
-            {percent === null ? "Usage" : `${percent}% left`}
-          </span>
-        </button>
+        <Hint label={usageLabel}>
+          <Button
+            type="button"
+            variant="ghost"
+            size="xs"
+            className={cn("shrink-0 tabular-nums", !agent && "col-start-2")}
+            aria-label={
+              expiring
+                ? `${usageLabel} · Codex reset credit expires within seven days`
+                : usageLabel
+            }
+            data-testid="composer-usage-chip"
+          >
+            <span className="relative inline-flex shrink-0">
+              <Gauge className="h-3 w-3" aria-hidden="true" />
+              {expiring ? (
+                <span
+                  className="absolute -right-0.5 -top-0.5 h-1.5 w-1.5 rounded-full bg-primary ring-2 ring-background"
+                  aria-hidden="true"
+                  data-testid="composer-usage-expiry-dot"
+                />
+              ) : null}
+            </span>
+            <span className="composer-usage-full">
+              {percent === null ? "Usage" : `${percent}% left · context`}
+            </span>
+            <span className="composer-usage-short hidden">
+              {percent === null ? "Usage" : `${percent}% left`}
+            </span>
+          </Button>
+        </Hint>
       </PopoverTrigger>
       <PopoverContent
         align="end"
@@ -814,15 +814,15 @@ function PlanLimits({
         ) : null}
         <Button
           type="button"
-          size="stream-sm"
+          size="xs"
           variant="ghost"
-          className="h-6 shrink-0 px-1.5 text-label-sm pointer-coarse:min-h-11"
+          className="shrink-0"
           onClick={() => plans.refresh.mutate()}
           disabled={plans.refresh.isPending}
           aria-busy={busy}
           data-testid="usage-plans-refresh"
         >
-          <RefreshCw className={cn("mr-1 h-3 w-3", busy && "animate-spin")} />
+          <RefreshCw className={cn(busy && "animate-spin")} />
           Refresh
         </Button>
       </div>
@@ -968,8 +968,8 @@ export function UseResetButton({
         <DialogTrigger asChild>
           <Button
             type="button"
-            size="stream-sm"
-            className="h-6 shrink-0 self-end px-2 text-label-sm pointer-coarse:min-h-11"
+            size="xs"
+            className="shrink-0 self-end"
             disabled={available === 0}
             data-testid="usage-codex-reset"
           >

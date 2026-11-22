@@ -1,17 +1,15 @@
 import { useCallback, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ChevronDown, Loader2, MessageSquare } from "lucide-react";
+import { MessageSquare } from "lucide-react";
 
 import { useDiffEditorState } from "@/components/app/diff-editor-state";
 import { agentRoute } from "@/lib/agent-routes";
 import { api } from "@/lib/api";
 import { stickyAnnotationStyle } from "@/components/app/diff-annotation-style";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+import { Button } from "@/components/ui/button";
+import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
+import { SplitButton } from "@/components/ui/split-button";
+import { Textarea } from "@/components/ui/textarea";
 
 export function InlineCommentForm({
   agentId,
@@ -133,9 +131,11 @@ export function InlineCommentForm({
         <span className="truncate font-mono">{lineLabel}</span>
       </div>
       <div className="p-3">
-        <textarea
+        <Textarea
           ref={textareaRef}
-          className="w-full resize-none rounded-sm border border-border bg-surface-subtle px-3 py-2 text-body-sm text-foreground placeholder:text-muted-foreground focus-ring"
+          dense
+          aria-label={`Comment on ${lineLabel.toLowerCase()}`}
+          className="resize-none"
           placeholder="Leave a comment…"
           rows={3}
           value={comment}
@@ -145,46 +145,33 @@ export function InlineCommentForm({
           disabled={submitting}
         />
         <div className="mt-2 flex items-center justify-end gap-2">
-          <button
+          <Button
             type="button"
-            className="rounded-sm px-3 py-1.5 text-body-sm text-muted-foreground hover:bg-surface-hover"
+            variant="ghost"
+            size="xs"
             onClick={cancel}
             disabled={submitting}
           >
             Cancel
-          </button>
-          <DropdownMenu>
-            <div className="flex">
-              <button
-                type="button"
-                className="flex items-center gap-1 rounded-l-sm bg-primary px-3 py-1.5 text-body-sm font-medium text-primary-foreground hover:bg-primary/dense disabled-state"
-                onClick={handlePrimaryAction}
-                disabled={!comment.trim() || submitting}
-              >
-                {submitting && <Loader2 className="h-3 w-3 animate-spin" />}
-                {primaryLabel}
-              </button>
-              <DropdownMenuTrigger asChild>
-                <button
-                  type="button"
-                  className="flex items-center rounded-r-sm border-l border-primary-foreground/tint-strong bg-primary px-1.5 py-1.5 text-primary-foreground hover:bg-primary/dense disabled-state"
-                  disabled={!comment.trim() || submitting}
-                >
-                  <ChevronDown className="h-3 w-3" />
-                </button>
-              </DropdownMenuTrigger>
-            </div>
-            <DropdownMenuContent
-              align="end"
-              side="top"
-              className="min-w-[140px]"
-            >
+          </Button>
+          <SplitButton
+            variant="primary"
+            size="xs"
+            onClick={handlePrimaryAction}
+            pending={submitting}
+            disabled={!comment.trim()}
+            menuDisabled={!comment.trim() || submitting}
+            menuLabel="More ways to send the comment"
+            menuProps={{ side: "top", className: "min-w-[140px]" }}
+            menu={
               <DropdownMenuItem onClick={handleChat}>
                 <MessageSquare className="mr-2 h-3 w-3" />
                 Chat
               </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+            }
+          >
+            {primaryLabel}
+          </SplitButton>
         </div>
       </div>
     </div>

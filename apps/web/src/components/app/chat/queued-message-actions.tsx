@@ -5,6 +5,8 @@ import { recipientTimings } from "./composer-delivery";
 import { Trash2, Zap } from "lucide-react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
+import { IconButton } from "@/components/ui/icon-button";
+import { Hint } from "@/components/ui/tooltip";
 import { streamFeedQueryKey } from "@/hooks/use-stream";
 import { api } from "@/lib/api";
 
@@ -115,48 +117,45 @@ export function QueuedMessageActions({
     previousScope.current = actionScope;
     reset();
   }, [actionScope, isPending, reset]);
+  const sendNowHint = pendingDelivery
+    ? "Interrupt current work without resending this message"
+    : sendNow === "interrupt"
+      ? "Stop the current turn and deliver this message as a new turn"
+      : "Join ongoing work in this conversation";
   return (
     <>
       <div className="flex shrink-0 items-center gap-1.5">
         {canSendNow && sendNow ? (
-          <Button
-            variant="ghost"
-            tone="warning"
-            size="stream-sm"
-            className="h-6 gap-1 border border-transparent px-2 text-label-sm hover:border-warning/line-strong [@media(pointer:coarse)]:min-h-11 [@media(pointer:coarse)]:min-w-11"
-            disabled={action.isPending || action.isSuccess}
-            title={
-              pendingDelivery
-                ? "Interrupt current work without resending this message"
-                : sendNow === "interrupt"
-                  ? "Stop the current turn and deliver this message as a new turn"
-                  : "Join ongoing work in this conversation"
-            }
-            data-send-now={sendNow}
-            onClick={() => action.mutate(sendNow)}
-          >
-            {sendNow === "interrupt" ? (
-              <Zap className="h-3 w-3" aria-hidden="true" />
-            ) : null}
-            {pendingDelivery && action.isSuccess
-              ? "Interrupt requested"
-              : sendNow === "interrupt" && !pendingDelivery
-                ? "Send now (stops current turn)"
-                : "Send now"}
-          </Button>
+          <Hint label={sendNowHint}>
+            <Button
+              variant="ghost"
+              tone="warning"
+              size="xs"
+              disabled={action.isPending || action.isSuccess}
+              aria-description={sendNowHint}
+              data-send-now={sendNow}
+              onClick={() => action.mutate(sendNow)}
+            >
+              {sendNow === "interrupt" ? <Zap aria-hidden="true" /> : null}
+              {pendingDelivery && action.isSuccess
+                ? "Interrupt requested"
+                : sendNow === "interrupt" && !pendingDelivery
+                  ? "Send now (stops current turn)"
+                  : "Send now"}
+            </Button>
+          </Hint>
         ) : null}
         {!pendingDelivery ? (
-          <Button
-            variant="ghost"
-            size="stream-sm"
-            className="h-6 w-6 border border-transparent p-0 hover:border-danger/line-strong hover:bg-danger/tint-strong hover:text-danger [@media(pointer:coarse)]:min-h-11 [@media(pointer:coarse)]:min-w-11"
-            aria-label="Delete"
+          <IconButton
+            size="icon-sm"
+            className="hover:bg-danger/tint-strong hover:text-danger"
+            label="Delete"
+            tooltip="Delete this queued message so it will not be delivered"
             disabled={action.isPending || action.isSuccess}
-            title="Delete this queued message so it will not be delivered"
             onClick={() => action.mutate("delete")}
           >
-            <Trash2 className="h-3 w-3" aria-hidden="true" />
-          </Button>
+            <Trash2 aria-hidden="true" />
+          </IconButton>
         ) : null}
       </div>
       {action.isError ? (

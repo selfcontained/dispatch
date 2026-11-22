@@ -44,11 +44,22 @@ import { getClipboardFilesFromEvent } from "@/components/app/create-agent-dialog
 import { ContextChip } from "@/components/app/context-picker-items";
 import { LinkAttachment } from "@/components/app/chat/chat-attachment-views";
 import { FrontTruncatedValue } from "@/components/app/agent-meta";
-import { Badge } from "@/components/ui/badge";
+import { Badge, type BadgeTone } from "@/components/ui/badge";
+import {
+  BlockBody,
+  BlockFooter,
+  BlockHeader,
+  BlockShell,
+  type BlockShellState,
+} from "@/components/ui/block-shell";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
+import { Checkbox, CheckboxMark } from "@/components/ui/checkbox";
+import { CountBubble } from "@/components/ui/count-bubble";
+import { Field, FieldError } from "@/components/ui/field";
+import { IconButton } from "@/components/ui/icon-button";
 import { Input } from "@/components/ui/input";
 import { Markdown } from "@/components/ui/markdown";
+import { RowButton } from "@/components/ui/row-button";
 import {
   Popover,
   PopoverContent,
@@ -63,7 +74,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { StatusDot } from "@/components/ui/status-dot";
 import { Textarea } from "@/components/ui/textarea";
+import { Hint } from "@/components/ui/tooltip";
 import { formatRelativeTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
@@ -98,11 +111,6 @@ function useOpened(
 // Questions
 // ---------------------------------------------------------------------------
 
-/** Compact choices share one action strip with freeform and cancellation. */
-const ASK_CHOICE =
-  "h-auto min-h-7 max-w-full rounded-full border border-primary/line bg-primary/tint-strong text-primary px-2 py-1 text-label-sm leading-4 whitespace-normal break-words shadow-none backdrop-blur-none hover:border-primary/line-strong hover:bg-primary/line hover:text-primary";
-const ASK_ACTION = "h-7 rounded-full px-2 text-label-sm leading-4 shadow-none";
-
 type AskCancellation = {
   by?: unknown;
   at?: string;
@@ -122,10 +130,10 @@ function CanceledAskStatus({
 }): JSX.Element {
   return (
     <div
-      className="mb-2 flex items-center gap-1.5 text-label-sm font-medium text-muted-foreground"
+      className="flex items-center gap-1.5 text-body-sm font-medium text-muted-foreground"
       data-testid="chat-ask-canceled"
     >
-      <XCircle className="h-3 w-3" aria-hidden="true" />
+      <XCircle className="size-icon-sm shrink-0" aria-hidden="true" />
       {cancellation.reason
         ? `Canceled · ${cancellation.reason}`
         : "Canceled · no response is needed"}
@@ -146,9 +154,8 @@ function CancelAskButton({
   return (
     <Button
       type="button"
-      size="stream-sm"
+      size="xs"
       variant="ghost"
-      className={ASK_ACTION}
       disabled={disabled}
       data-testid="chat-ask-cancel"
       onClick={onCancel}
@@ -240,8 +247,15 @@ export function QuestionOptions({
     setWriting(false);
     requestAnimationFrame(() => choiceRef.current?.focus());
   };
+  const cancelButton = (
+    <CancelAskButton
+      label="Cancel question"
+      disabled={answering || canceling || uploading}
+      onCancel={onCancel}
+    />
+  );
   return (
-    <div className="mt-2" data-testid="chat-question-options">
+    <div className="mt-3 first:mt-0" data-testid="chat-question-options">
       {!open ? (
         cancellation ? (
           <CanceledAskStatus cancellation={cancellation} />
@@ -266,14 +280,14 @@ export function QuestionOptions({
         )
       ) : (
         <div
-          className="flex min-w-0 flex-wrap items-center gap-1.5"
+          className="min-w-0"
           data-testid="chat-needs-reply"
           role="group"
           aria-label="Answer this question"
         >
           {writing ? (
             <form
-              className="flex w-full min-w-0 max-w-xl flex-col gap-2"
+              className="w-full min-w-0 max-w-xl"
               onSubmit={(event) => {
                 event.preventDefault();
                 if (
@@ -293,127 +307,123 @@ export function QuestionOptions({
                 }
               }}
             >
-              <Textarea
-                rows={3}
-                autoFocus
-                aria-label="Your answer"
-                maxLength={20000}
-                placeholder="Your answer…"
-                value={draft.text}
-                className="min-h-24 resize-y border-primary/line bg-background/veil text-body-md shadow-none focus-ring"
-                disabled={optionsDisabled}
-                onChange={(event) =>
-                  setDraft((current) => ({
-                    ...current,
-                    text: event.target.value,
-                  }))
-                }
-                onPaste={(event) => {
-                  const files = getClipboardFilesFromEvent(event);
-                  if (files.length) {
-                    event.preventDefault();
-                    void attachFiles(files);
-                  }
-                }}
-                onKeyDown={(event) => {
-                  if (event.key === "Escape") {
-                    event.preventDefault();
-                    backToChoices();
-                  }
-                }}
-              />
-              {draft.files.length ? (
-                <fieldset
+              <BlockBody className="flex flex-col gap-2">
+                <Textarea
+                  dense
+                  rows={3}
+                  autoFocus
+                  aria-label="Your answer"
+                  maxLength={20000}
+                  placeholder="Your answer…"
+                  value={draft.text}
+                  className="min-h-24 resize-y"
                   disabled={optionsDisabled}
-                  className="flex min-w-0 flex-wrap gap-2"
-                >
-                  {draft.files.map((file) => (
-                    <ContextChip
-                      key={file.id}
-                      icon={<Paperclip />}
-                      title={file.name}
-                      onRemove={() =>
-                        setDraft((current) => ({
-                          ...current,
-                          files: current.files.filter(
-                            (item) => item.id !== file.id
-                          ),
-                        }))
-                      }
-                      removeLabel={`Remove ${file.name}`}
-                    />
-                  ))}
-                </fieldset>
-              ) : null}
-              {uploadError ? (
-                <p role="alert" className="text-body-sm text-danger">
-                  {uploadError}
-                </p>
-              ) : null}
-              <input
-                ref={fileInputRef}
-                type="file"
-                multiple
-                accept={STARTUP_FILE_ACCEPT}
-                aria-label="Attach files to answer"
-                className="hidden"
-                disabled={optionsDisabled}
-                onChange={(event) => {
-                  void attachFiles(Array.from(event.target.files ?? []));
-                  event.target.value = "";
-                }}
-              />
-              <div className="flex items-center justify-between gap-1">
+                  onChange={(event) =>
+                    setDraft((current) => ({
+                      ...current,
+                      text: event.target.value,
+                    }))
+                  }
+                  onPaste={(event) => {
+                    const files = getClipboardFilesFromEvent(event);
+                    if (files.length) {
+                      event.preventDefault();
+                      void attachFiles(files);
+                    }
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === "Escape") {
+                      event.preventDefault();
+                      backToChoices();
+                    }
+                  }}
+                />
+                {draft.files.length ? (
+                  <fieldset
+                    disabled={optionsDisabled}
+                    className="flex min-w-0 flex-wrap gap-2"
+                  >
+                    {draft.files.map((file) => (
+                      <ContextChip
+                        key={file.id}
+                        icon={<Paperclip />}
+                        title={file.name}
+                        onRemove={() =>
+                          setDraft((current) => ({
+                            ...current,
+                            files: current.files.filter(
+                              (item) => item.id !== file.id
+                            ),
+                          }))
+                        }
+                        removeLabel={`Remove ${file.name}`}
+                      />
+                    ))}
+                  </fieldset>
+                ) : null}
+                {uploadError ? <FieldError>{uploadError}</FieldError> : null}
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  multiple
+                  accept={STARTUP_FILE_ACCEPT}
+                  aria-label="Attach files to answer"
+                  className="hidden"
+                  disabled={optionsDisabled}
+                  onChange={(event) => {
+                    void attachFiles(Array.from(event.target.files ?? []));
+                    event.target.value = "";
+                  }}
+                />
+              </BlockBody>
+              <BlockFooter>
                 <Button
                   type="button"
                   variant="ghost"
-                  size="stream-sm"
-                  className={ASK_ACTION}
+                  size="xs"
                   disabled={answering || canceling || uploading}
                   onClick={backToChoices}
                 >
-                  <ChevronLeft className="mr-1 h-3.5 w-3.5" />
+                  <ChevronLeft aria-hidden="true" />
                   Back to choices
                 </Button>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="stream-sm"
-                  className={ASK_ACTION}
-                  aria-label="Attach files"
-                  title="Attach files"
-                  disabled={optionsDisabled}
-                  onClick={() => fileInputRef.current?.click()}
-                >
-                  <Paperclip className="h-3.5 w-3.5" />
-                  {uploading ? (
-                    <span className="sr-only">Uploading…</span>
-                  ) : null}
-                </Button>
-                <Button
-                  type="submit"
-                  size="stream-sm"
-                  className={cn(
-                    ASK_ACTION,
-                    "shrink-0 bg-primary text-primary-foreground hover:bg-primary/dense"
-                  )}
-                  disabled={
-                    optionsDisabled ||
-                    (!draft.text.trim() && !draft.files.length)
-                  }
-                >
-                  {answering ? "Sending…" : "Send"}
-                </Button>
-              </div>
+                {cancelButton}
+                <div className="ml-auto flex items-center gap-2">
+                  <IconButton
+                    size="icon-sm"
+                    label="Attach files"
+                    disabled={optionsDisabled}
+                    onClick={() => fileInputRef.current?.click()}
+                  >
+                    <Paperclip aria-hidden="true" />
+                    {uploading ? (
+                      <span className="sr-only">Uploading…</span>
+                    ) : null}
+                  </IconButton>
+                  <Button
+                    type="submit"
+                    size="xs"
+                    variant="primary"
+                    className="shrink-0"
+                    disabled={
+                      optionsDisabled ||
+                      (!draft.text.trim() && !draft.files.length)
+                    }
+                  >
+                    {answering ? "Sending…" : "Send"}
+                  </Button>
+                </div>
+              </BlockFooter>
             </form>
           ) : (
-            <>
+            <BlockFooter className="mt-0">
               {block.data.options.map((option, index) => (
                 <Button
                   key={`${index}-${option.value ?? option.label}`}
                   type="button"
-                  size="stream-sm"
-                  className={ASK_CHOICE}
+                  size="xs"
+                  wrap
+                  className="max-w-full break-words"
                   disabled={optionsDisabled}
                   data-testid="chat-question-option"
                   onClick={() => onAnswer(option)}
@@ -425,11 +435,7 @@ export function QuestionOptions({
                 <Button
                   ref={choiceRef}
                   type="button"
-                  size="stream-sm"
-                  className={cn(
-                    ASK_CHOICE,
-                    "border-dashed bg-surface-selected"
-                  )}
+                  size="xs"
                   disabled={optionsDisabled}
                   onClick={() => setWriting(true)}
                   data-testid="chat-question-write"
@@ -437,19 +443,9 @@ export function QuestionOptions({
                   Other…
                 </Button>
               ) : null}
-            </>
+              {cancelButton}
+            </BlockFooter>
           )}
-          <div
-            className={
-              writing ? "w-full border-t border-border-subtle pt-1" : undefined
-            }
-          >
-            <CancelAskButton
-              label="Cancel question"
-              disabled={answering || canceling || uploading}
-              onCancel={onCancel}
-            />
-          </div>
         </div>
       )}
     </div>
@@ -496,12 +492,13 @@ function FormFieldInput({
       return (
         <Textarea
           id={id}
+          dense
           value={String(value ?? "")}
           placeholder={field.placeholder}
           disabled={disabled}
           required={field.required}
           rows={3}
-          className="min-h-[3.5rem] min-w-0 border border-border-subtle bg-transparent px-2 text-body-sm shadow-none"
+          className="min-w-0"
           onChange={(e) => onChange(e.target.value)}
         />
       );
@@ -509,12 +506,13 @@ function FormFieldInput({
       return (
         <Input
           id={id}
+          dense
           type="number"
           value={String(value ?? "")}
           placeholder={field.placeholder}
           disabled={disabled}
           required={field.required}
-          className="h-7 min-w-0 max-w-[12rem] border border-border-subtle bg-transparent px-2 text-body-sm shadow-none"
+          className="min-w-0 max-w-[12rem]"
           onChange={(e) =>
             onChange(e.target.value === "" ? "" : Number(e.target.value))
           }
@@ -544,12 +542,13 @@ function FormFieldInput({
       return (
         <Input
           id={id}
+          dense
           type="text"
           value={String(value ?? "")}
           placeholder={field.placeholder}
           disabled={disabled}
           required={field.required}
-          className="h-7 min-w-0 border border-border-subtle bg-transparent px-2 text-body-sm shadow-none"
+          className="min-w-0"
           onChange={(e) => onChange(e.target.value)}
         />
       );
@@ -610,10 +609,7 @@ function FormSelectInput({
           onChange(option.value ?? option.label);
         }}
       >
-        <SelectTrigger
-          id={id}
-          className="h-7 min-w-0 max-w-[18rem] border border-border-subtle bg-transparent px-2 text-body-sm shadow-none"
-        >
+        <SelectTrigger id={id} dense className="min-w-0 max-w-[18rem]">
           <SelectValue placeholder={field.placeholder ?? "Choose…"} />
         </SelectTrigger>
         <SelectContent>
@@ -641,6 +637,9 @@ function FormSelectInput({
       </Select>
       {other ? (
         <Textarea
+          // Its own id: the Field's label names the Select above.
+          id={`${id}-other`}
+          dense
           value={String(value ?? "")}
           placeholder="Type your answer"
           aria-label={`${field.label} (other)`}
@@ -648,7 +647,7 @@ function FormSelectInput({
           required={field.required}
           autoFocus
           rows={2}
-          className="min-h-[3rem] min-w-0 border border-border-subtle bg-transparent px-2 text-body-sm shadow-none"
+          className="min-w-0"
           data-testid="chat-form-select-other-input"
           onChange={(e) => onChange(e.target.value)}
         />
@@ -708,56 +707,48 @@ export function FormBlockBody({
   };
   return (
     <form
-      className="mt-2 max-w-xl"
+      // The container its fields measure: the label sits beside its control
+      // only when the block, not the window, is wide enough.
+      className="mt-3 w-full first:mt-0 [container-type:inline-size]"
       data-testid="chat-form"
       data-open={open ? "true" : undefined}
       onSubmit={submit}
     >
-      {open ? (
-        <div
-          className={cn(
-            "mb-2 text-body-sm font-medium",
-            !block.data.title && "sr-only"
-          )}
-          data-testid="chat-needs-reply"
-        >
-          {block.data.title ?? "Fill in this form"}
-        </div>
-      ) : cancellation ? (
-        <CanceledAskStatus cancellation={cancellation} />
-      ) : (
-        <div className="mb-2 flex items-center gap-1.5 text-label-sm font-medium text-muted-foreground">
-          <Check className="h-3 w-3" />
-          {block.data.title ? `${block.data.title} · submitted` : "Submitted"}
-          {submission?.external
-            ? ` in Slack by ${submission.external.displayName}`
-            : null}
-        </div>
-      )}
-      <div className="flex flex-col gap-1.5">
+      <BlockHeader className="mb-3">
+        {open ? (
+          <div
+            className={cn("text-heading-sm", !block.data.title && "sr-only")}
+            data-testid="chat-needs-reply"
+          >
+            {block.data.title ?? "Fill in this form"}
+          </div>
+        ) : cancellation ? (
+          <CanceledAskStatus cancellation={cancellation} />
+        ) : (
+          <div className="flex items-center gap-1.5 text-body-sm font-medium text-muted-foreground">
+            <Check className="size-icon-sm" aria-hidden="true" />
+            {block.data.title ? `${block.data.title} · submitted` : "Submitted"}
+            {submission?.external
+              ? ` in Slack by ${submission.external.displayName}`
+              : null}
+          </div>
+        )}
+      </BlockHeader>
+      <BlockBody className="flex max-w-3xl flex-col gap-3">
         {block.data.fields.map((field) => {
-          const label = (
-            <label
-              htmlFor={`${formId}-${field.id}`}
-              className="min-w-0 break-words text-body-sm text-muted-foreground"
-            >
-              {field.label}
-              {field.required && open ? (
-                <span className="text-muted-foreground"> *</span>
-              ) : null}
-            </label>
-          );
           if (submission) {
             const value = submission.values[field.id];
             return (
               <div
                 key={field.id}
-                className="grid grid-cols-[minmax(0,1fr)_minmax(0,2fr)] items-baseline gap-x-3 gap-y-0.5"
+                className="flex min-w-0 flex-col gap-0.5 text-body-sm block-wide:grid block-wide:grid-cols-[minmax(0,1fr)_minmax(0,2fr)] block-wide:items-baseline block-wide:gap-x-3"
                 data-testid="chat-form-value"
                 data-field-id={field.id}
               >
-                {label}
-                <div className="whitespace-pre-wrap break-words text-body-sm text-foreground">
+                <span className="min-w-0 break-words text-muted-foreground">
+                  {field.label}
+                </span>
+                <div className="whitespace-pre-wrap break-words text-foreground">
                   {value === undefined || value === "" ? (
                     <span className="italic">—</span>
                   ) : (
@@ -767,36 +758,41 @@ export function FormBlockBody({
               </div>
             );
           }
+          const id = `${formId}-${field.id}`;
           return (
             <div
               key={field.id}
-              className="grid min-h-7 grid-cols-[minmax(0,1fr)_minmax(0,2fr)] items-center gap-x-3 gap-y-1"
               data-testid="chat-form-field"
               data-field-id={field.id}
             >
-              {label}
-              <FormFieldInput
-                id={`${formId}-${field.id}`}
-                field={field}
-                value={values[field.id]}
-                disabled={!open || disabled || submitting}
-                onChange={(value) =>
-                  setValues((prev) => ({ ...prev, [field.id]: value }))
-                }
-              />
+              <Field
+                id={id}
+                layout="responsive"
+                label={field.label}
+                required={field.required && open}
+              >
+                <FormFieldInput
+                  id={id}
+                  field={field}
+                  value={values[field.id]}
+                  disabled={!open || disabled || submitting}
+                  onChange={(value) =>
+                    setValues((prev) => ({ ...prev, [field.id]: value }))
+                  }
+                />
+              </Field>
             </div>
           );
         })}
-      </div>
+      </BlockBody>
       {open ? (
-        <div className="mt-2 flex items-center gap-1.5">
+        <BlockFooter>
           <Button
             type="submit"
-            size="stream-sm"
-            className={cn(
-              ASK_CHOICE,
-              "border-primary/line bg-surface-selected text-primary"
-            )}
+            size="xs"
+            variant="primary"
+            wrap
+            className="max-w-full"
             disabled={missing || submitting || disabled}
             data-testid="chat-form-submit"
           >
@@ -806,7 +802,7 @@ export function FormBlockBody({
             disabled={submitting || canceling}
             onCancel={onCancel}
           />
-        </div>
+        </BlockFooter>
       ) : null}
     </form>
   );
@@ -826,23 +822,15 @@ export type FindingBlock = Extract<Block, { kind: "finding" }>;
  */
 export const REVIEW_STATUS: Record<
   BlockReviewStatus,
-  { label: string; tone: "info" | "danger"; edge: string }
+  { label: string; tone: "success" | "danger"; state: BlockShellState }
 > = {
-  open: {
-    label: "Changes requested",
-    tone: "danger",
-    edge: "border-l-danger",
-  },
+  open: { label: "Changes requested", tone: "danger", state: "changes" },
   partially_resolved: {
     label: "Changes requested",
     tone: "danger",
-    edge: "border-l-danger",
+    state: "changes",
   },
-  resolved: {
-    label: "Approved",
-    tone: "info",
-    edge: "border-l-info",
-  },
+  resolved: { label: "Approved", tone: "success", state: "approved" },
 };
 
 /** A review's standing, from the finding blocks it shows. */
@@ -850,11 +838,11 @@ export function reviewStanding(review: ReviewBlock): BlockReviewStatus {
   return reviewStatus(reviewFindings(review));
 }
 
-const SEVERITY_CHIP: Record<BlockReviewSeverity, string> = {
-  blocker: "border-danger/line text-danger",
-  major: "border-warning/line text-warning",
-  minor: "border-border text-muted-foreground",
-  nit: "border-border text-faint",
+const SEVERITY_TONE: Record<BlockReviewSeverity, BadgeTone> = {
+  blocker: "danger",
+  major: "warning",
+  minor: "neutral",
+  nit: "neutral",
 };
 
 /** What a finding's record reads as: open, fixed or dismissed. */
@@ -899,14 +887,13 @@ export function summarySentence(summary: string): string {
   return (match ? match[1]! : line).replace(/[*_`]/g, "");
 }
 
-/** Colours for a finding's status pill. */
-const FINDING_STATUS_PILL: Record<FindingOutcome, string> = {
-  open: "border-warning/line bg-warning/tint text-warning",
-  fixed: "border-info/line bg-info/tint text-info",
-  dismissed: "border-border bg-surface-hover text-muted-foreground",
+const FINDING_STATUS_TONE: Record<FindingOutcome, BadgeTone> = {
+  open: "warning",
+  fixed: "success",
+  dismissed: "neutral",
 };
 
-/** A finding's outcome as a small pill: Open, Fixed or Dismissed. */
+/** A finding's outcome as a badge: Open, Fixed or Dismissed. */
 export function FindingStatusPill({
   record,
   className,
@@ -916,37 +903,35 @@ export function FindingStatusPill({
 }): JSX.Element {
   const outcome = findingOutcome(record);
   return (
-    <span
-      className={cn(
-        "inline-flex shrink-0 items-center rounded-full border px-1.5 py-px text-label-xs font-semibold uppercase tracking-wide",
-        FINDING_STATUS_PILL[outcome],
-        className
-      )}
+    <Badge
+      size="sm"
+      tone={FINDING_STATUS_TONE[outcome]}
+      className={className}
       data-testid="chat-review-finding-status"
       data-status={record?.status ?? "open"}
       data-outcome={outcome}
     >
       {FINDING_OUTCOME_LABEL[outcome]}
-    </span>
+    </Badge>
   );
 }
 
-/** A finding's severity as a small chip. */
+/** A finding's severity as a badge. */
 export function SeverityChip({
   severity,
 }: {
   severity: BlockReviewSeverity;
 }): JSX.Element {
   return (
-    <span
-      className={cn(
-        "shrink-0 rounded-full border px-1.5 py-px text-label-xs font-semibold uppercase tracking-wide",
-        SEVERITY_CHIP[severity] ?? SEVERITY_CHIP.minor
-      )}
+    <Badge
+      size="sm"
+      appearance="outline"
+      tone={SEVERITY_TONE[severity] ?? SEVERITY_TONE.minor}
+      className="capitalize"
       data-testid="chat-review-severity"
     >
       {severity}
-    </span>
+    </Badge>
   );
 }
 
@@ -970,15 +955,15 @@ function FindingPath({
     />
   );
   return onOpenPath ? (
-    <button
-      type="button"
-      className="min-w-0 max-w-full flex-1 text-left underline-offset-2 hover:text-foreground hover:underline"
-      title="Open in Changes"
-      data-testid="chat-review-finding-path"
-      onClick={() => onOpenPath(finding.path!, finding.line ?? null)}
-    >
-      {value}
-    </button>
+    <Hint label="Open in Changes">
+      <RowButton
+        className="min-w-0 max-w-full flex-1 rounded-sm underline-offset-2 hover:bg-transparent hover:underline"
+        data-testid="chat-review-finding-path"
+        onClick={() => onOpenPath(finding.path!, finding.line ?? null)}
+      >
+        {value}
+      </RowButton>
+    </Hint>
   ) : (
     <span
       className="min-w-0 max-w-full flex-1"
@@ -1026,10 +1011,10 @@ function NotedAction({
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <Button
-          size="stream-md"
+          size="xs"
           type="button"
           variant={variant}
-          className="h-9 flex-1 gap-1.5 sm:flex-none"
+          className="flex-1 sm:flex-none"
           disabled={disabled}
           data-testid={testId}
         >
@@ -1039,33 +1024,29 @@ function NotedAction({
       </PopoverTrigger>
       <PopoverContent align="start" className="w-80 p-3">
         <form className="flex flex-col gap-2" onSubmit={submit}>
-          <label
-            className="text-body-sm font-medium text-foreground"
-            htmlFor={`${testId}-note`}
-          >
-            {prompt}
-          </label>
-          <Textarea
-            id={`${testId}-note`}
-            value={note}
-            onChange={(event) => setNote(event.target.value)}
-            rows={3}
-            autoFocus
-            placeholder={required ? "Why?" : "Optional"}
-            data-testid={`${testId}-note`}
-          />
+          <Field id={`${testId}-note`} label={prompt}>
+            <Textarea
+              dense
+              value={note}
+              onChange={(event) => setNote(event.target.value)}
+              rows={3}
+              autoFocus
+              placeholder={required ? "Why?" : "Optional"}
+              data-testid={`${testId}-note`}
+            />
+          </Field>
           <div className="flex justify-end gap-2">
             <Button
               type="button"
               variant="ghost"
-              size="stream-sm"
+              size="xs"
               onClick={() => setOpen(false)}
             >
               Cancel
             </Button>
             <Button
               type="submit"
-              size="stream-sm"
+              size="xs"
               variant={variant}
               disabled={required && !note.trim()}
               data-testid={`${testId}-confirm`}
@@ -1101,20 +1082,20 @@ export function FindingActions({
       {status === "open" ? (
         <>
           <Button
-            size="stream-md"
+            size="xs"
             type="button"
             variant="primary"
-            className="h-9 flex-1 gap-1.5 sm:flex-none"
+            className="flex-1 sm:flex-none"
             disabled={disabled}
             data-testid="chat-review-resolve"
             onClick={() => onPatch({ status: "fixed" })}
           >
-            <Check className="h-4 w-4" aria-hidden="true" />
+            <Check aria-hidden="true" />
             Fixed
           </Button>
           <NotedAction
             label="Dismiss"
-            icon={<XCircle className="h-4 w-4" aria-hidden="true" />}
+            icon={<XCircle aria-hidden="true" />}
             prompt="Why set this finding aside?"
             required
             disabled={disabled}
@@ -1126,7 +1107,7 @@ export function FindingActions({
       ) : (
         <NotedAction
           label="Reopen"
-          icon={<RotateCcw className="h-4 w-4" aria-hidden="true" />}
+          icon={<RotateCcw aria-hidden="true" />}
           prompt="What still needs doing?"
           required={false}
           disabled={disabled}
@@ -1193,9 +1174,7 @@ export function FindingChangeEntry({
           {record.at ? ` · ${formatRelativeTime(record.at)}` : ""}
         </span>
         {record.note ? (
-          <Markdown className="text-body-sm text-foreground/soft">
-            {record.note}
-          </Markdown>
+          <Markdown density="compact">{record.note}</Markdown>
         ) : null}
       </div>
     </div>
@@ -1240,9 +1219,7 @@ function FindingRecordLine({
       </span>
       {record.note ? (
         <div data-testid="chat-review-finding-note">
-          <Markdown className="text-body-sm text-foreground/soft">
-            {record.note}
-          </Markdown>
+          <Markdown density="compact">{record.note}</Markdown>
         </div>
       ) : null}
     </div>
@@ -1294,9 +1271,7 @@ export function FindingDetail({
           onPatch={(patch) => onSetState(patch)}
         />
       ) : null}
-      <Markdown className="text-body-md text-foreground">
-        {finding.body}
-      </Markdown>
+      <Markdown>{finding.body}</Markdown>
     </div>
   );
 }
@@ -1346,18 +1321,18 @@ export function ReviewBlockBody({
     0
   );
   return (
-    <div
-      className={cn(
-        "mt-1 overflow-hidden rounded-md border border-border-subtle border-l-[3px] bg-card/veil",
-        standing.edge
-      )}
+    <BlockShell
+      level="ask"
+      state={standing.state}
+      padded={false}
+      className="mt-1"
       data-testid="chat-review-block"
       data-expanded={expanded ? "true" : undefined}
       data-compact={compact ? "true" : undefined}
     >
-      <button
-        type="button"
-        className="flex w-full min-w-0 flex-wrap items-center gap-x-2 gap-y-1 px-3 py-2 text-left hover:bg-surface-hover"
+      <RowButton
+        data-block-part="header"
+        className="min-w-0 flex-wrap gap-x-2 gap-y-1 rounded-none p-3"
         aria-expanded={compact ? undefined : expanded}
         aria-label={compact ? "Open the review" : undefined}
         data-testid="chat-review-header"
@@ -1387,16 +1362,19 @@ export function ReviewBlockBody({
           {findingsSummary(block)}
         </span>
         {unread > 0 ? (
-          <span
-            className="shrink-0 rounded-full bg-primary px-1.5 py-px text-label-xs font-semibold text-primary-foreground"
+          <CountBubble
+            tone="info"
+            count={unread}
             data-testid="chat-review-unread"
             aria-label={`${unread} new ${unread === 1 ? "comment" : "comments"}`}
-          >
-            {unread}
-          </span>
+          />
         ) : null}
         {compact ? (
           <>
+            <ChevronRight
+              className="size-icon-md shrink-0 text-faint"
+              aria-hidden="true"
+            />
             {block.data.summary ? (
               <span
                 className="basis-full truncate text-body-sm text-foreground/soft"
@@ -1405,18 +1383,14 @@ export function ReviewBlockBody({
                 {summarySentence(block.data.summary)}
               </span>
             ) : null}
-            <ChevronRight
-              className="ml-auto h-3.5 w-3.5 shrink-0 text-faint"
-              aria-hidden="true"
-            />
           </>
         ) : null}
-      </button>
+      </RowButton>
       {compact ? null : (
         <Collapse open={expanded} data-testid="chat-review-details">
-          <div className="border-t border-border-subtle px-3 pb-2 pt-2">
+          <BlockBody className="border-t border-border-subtle px-3 pb-2 pt-2">
             {block.data.summary ? (
-              <Markdown className="mb-2 text-body-sm text-foreground prose-p:my-0.5">
+              <Markdown density="compact" className="mb-2">
                 {block.data.summary}
               </Markdown>
             ) : null}
@@ -1467,8 +1441,10 @@ export function ReviewBlockBody({
                             </span>
                           ) : null}
                           {fresh > 0 ? (
-                            <span
-                              className="h-2 w-2 shrink-0 rounded-full bg-primary"
+                            <StatusDot
+                              tone="info"
+                              role="img"
+                              aria-hidden={false}
                               data-testid="chat-review-finding-unread"
                               aria-label={`${fresh} new`}
                             />
@@ -1495,15 +1471,14 @@ export function ReviewBlockBody({
                       data-highlighted={highlighted ? "true" : undefined}
                     >
                       {onOpenFinding ? (
-                        <button
-                          type="button"
-                          className="flex w-full min-w-0 items-center gap-2 py-2 text-left hover:bg-surface-hover"
+                        <RowButton
+                          className="min-w-0 py-2"
                           data-testid="chat-review-finding-link"
                           aria-label={`${finding.title}, ${FINDING_OUTCOME_LABEL[findingOutcome(record)]}, open finding`}
                           onClick={() => onOpenFinding(item.id)}
                         >
                           {row}
-                        </button>
+                        </RowButton>
                       ) : (
                         <div className="flex w-full min-w-0 items-center gap-2 py-2">
                           {row}
@@ -1525,10 +1500,10 @@ export function ReviewBlockBody({
                 Every finding is resolved.
               </p>
             ) : null}
-          </div>
+          </BlockBody>
         </Collapse>
       )}
-    </div>
+    </BlockShell>
   );
 }
 
@@ -1562,28 +1537,28 @@ export function TasksBlockBody({
   // unfold wins over that, and survives the row's remount on an update.
   const [expanded, setOpened] = useOpened(`tasks:${block.id}`, !allDone);
   return (
-    <div
+    <BlockShell
+      level="plain"
       className="mt-1"
       data-testid="chat-tasks-block"
       data-expanded={expanded ? "true" : undefined}
     >
       {items.length > 0 ? (
-        <button
+        <Button
           type="button"
-          className="flex items-center gap-1 text-label-sm text-muted-foreground"
+          variant="ghost"
+          size="xs"
+          className="-ml-2"
           aria-expanded={expanded}
           data-testid="chat-tasks-header"
           onClick={() => setOpened(!expanded)}
         >
           <ChevronRight
-            className={cn(
-              "h-3 w-3 shrink-0 transition-transform",
-              expanded && "rotate-90"
-            )}
+            className={cn("transition-transform", expanded && "rotate-90")}
             aria-hidden="true"
           />
           {done}/{items.length} done
-        </button>
+        </Button>
       ) : null}
       {expanded ? (
         <ul className="mt-1 flex flex-col gap-1">
@@ -1598,17 +1573,14 @@ export function TasksBlockBody({
                 data-task-id={item.id}
                 data-status={status}
               >
-                <span
+                <CheckboxMark
+                  checked={checked}
                   className={cn(
-                    "mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-xs border",
-                    checked
-                      ? "border-primary bg-primary text-primary-foreground"
-                      : status === "now"
-                        ? "border-status-working text-status-working"
-                        : "border-border"
+                    "mt-0.5",
+                    status === "now" &&
+                      "border-status-working text-status-working"
                   )}
-                  role="img"
-                  aria-label={
+                  label={
                     checked
                       ? "Done"
                       : status === "now"
@@ -1616,12 +1588,10 @@ export function TasksBlockBody({
                         : "To do"
                   }
                 >
-                  {checked ? (
-                    <Check className="h-3 w-3" aria-hidden="true" />
-                  ) : status === "now" ? (
-                    <CircleDot className="h-3 w-3" aria-hidden="true" />
+                  {status === "now" ? (
+                    <CircleDot className="size-icon-sm" aria-hidden="true" />
                   ) : null}
-                </span>
+                </CheckboxMark>
                 {/* Item text is Markdown: agents cite issues and threads as
                     links, and a bare URL in a phone-width row is unreadable. */}
                 <Markdown
@@ -1636,19 +1606,21 @@ export function TasksBlockBody({
                   {item.text}
                 </Markdown>
                 {status === "now" ? (
-                  <span
-                    className="rounded-full border border-status-working/line px-1.5 py-px text-label-xs font-semibold uppercase tracking-wide text-status-working"
+                  <Badge
+                    size="sm"
+                    tone="success"
+                    className="capitalize"
                     data-testid="chat-task-now"
                   >
                     now
-                  </span>
+                  </Badge>
                 ) : null}
               </li>
             );
           })}
         </ul>
       ) : null}
-    </div>
+    </BlockShell>
   );
 }
 

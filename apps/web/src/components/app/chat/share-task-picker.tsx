@@ -2,7 +2,6 @@ import { useState } from "react";
 import { ListTodo } from "lucide-react";
 import { useTaskBoard, useTaskDetail } from "@/hooks/use-tasks";
 import { useProjectScope } from "@/hooks/use-projects";
-import { Button } from "@/components/ui/button";
 import {
   Popover,
   PopoverContent,
@@ -15,6 +14,7 @@ import {
   CommandItem,
   CommandEmpty,
 } from "@/components/ui/command";
+import { IconButton } from "@/components/ui/icon-button";
 
 function TaskPicker({ share }: { share: (id: string) => Promise<void> }) {
   const { projectId } = useProjectScope();
@@ -97,17 +97,9 @@ export function ShareTaskPicker({
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <Button
-          type="button"
-          size="stream-icon"
-          variant="ghost"
-          title="Share task"
-          aria-label="Share task"
-          disabled={disabled}
-          className="h-9 w-9 text-muted-foreground pointer-coarse:min-h-11 pointer-coarse:min-w-11"
-        >
-          <ListTodo className="h-[18px] w-[18px]" />
-        </Button>
+        <IconButton label="Share task" disabled={disabled}>
+          <ListTodo aria-hidden="true" />
+        </IconButton>
       </PopoverTrigger>
       <PopoverContent
         align="start"

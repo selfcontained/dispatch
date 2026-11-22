@@ -165,8 +165,6 @@ export function AgentCardHeader({
         </Hint>
       ) : null}
 
-      <ChatUnreadBadge agentId={agent.id} />
-
       {needsAttention ? (
         <Hint
           label={
@@ -186,6 +184,10 @@ export function AgentCardHeader({
           </Badge>
         </Hint>
       ) : null}
+
+      {/* The slots after the name, as on a sub agent's row: state, unread,
+          resume, then the disclosure or menu. */}
+      <ChatUnreadBadge agentId={agent.id} />
 
       {isStopped && agent.status !== "archiving" ? (
         <IconButton

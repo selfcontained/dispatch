@@ -352,19 +352,14 @@ describe("JobListContent — job rows", () => {
 });
 
 describe("JobListContent — header", () => {
-  it("shows the compact header without a title when hideHeader is true", () => {
-    H.context = defaultContext([]);
-    render(<JobListContent hideHeader />);
-    expect(screen.queryByText("Jobs")).toBeNull();
-    fireEvent.click(screen.getByTestId("add-job-button"));
-    expect(H.context.openAddJob).toHaveBeenCalledTimes(1);
-  });
-
-  it("shows the full header with a title when hideHeader is false", () => {
+  it("puts the project scope's create action above the list", () => {
     H.context = defaultContext([]);
     render(<JobListContent />);
-    expect(screen.getByTestId("jobs-sidebar")).toBeTruthy();
-    fireEvent.click(screen.getByTestId("add-job-button"));
+    expect(screen.queryByText("Jobs")).toBeNull();
+    const action = screen.getByTestId("add-job-button");
+    expect(action.textContent).toContain("New job");
+    expect(screen.getByTestId("sidebar-top").contains(action)).toBe(true);
+    fireEvent.click(action);
     expect(H.context.openAddJob).toHaveBeenCalledTimes(1);
   });
 });

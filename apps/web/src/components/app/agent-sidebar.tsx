@@ -1,4 +1,4 @@
-import { ProjectSwitcher } from "./project-switcher";
+import { SidebarTop } from "./sidebar-top";
 import { useAtom } from "jotai";
 
 import {
@@ -381,14 +381,12 @@ export function AgentListContent({
 
   return (
     <div data-testid="agent-sidebar" className="flex h-full min-h-0 flex-col">
-      <div className="mt-2 flex h-14 items-center border-b border-border px-3">
-        <div className="mr-2 min-w-0 flex-1">
-          <ProjectSwitcher />
-        </div>
-        <div className="ml-auto flex items-center">
+      <SidebarTop
+        action={
           <SplitButton
             size="sm"
-            className="text-muted-foreground hover:text-foreground"
+            variant="primary"
+            className="flex-1"
             onClick={() => onOpenCreateDialog(defaultCreateType)}
             data-testid="create-agent-button"
             menuLabel="Choose agent type"
@@ -415,12 +413,12 @@ export function AgentListContent({
           >
             <AgentTypeIcon
               type={defaultCreateType}
-              className="size-icon-lg border-none bg-transparent p-0 text-foreground/soft"
+              className="size-icon-lg border-none bg-transparent p-0 text-current"
             />
-            Create
+            New agent
           </SplitButton>
-        </div>
-      </div>
+        }
+      />
 
       <div
         data-testid="agent-sidebar-scroll"

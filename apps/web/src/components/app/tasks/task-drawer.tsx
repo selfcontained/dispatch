@@ -7,7 +7,10 @@ import { TaskAttachments } from "./task-attachments";
 import { TaskDeleteDialog } from "./task-delete-dialog";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useSearchParams } from "react-router-dom";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import {
+  SegmentedControl,
+  SegmentedControlItem,
+} from "@/components/ui/segmented-control";
 import { useTaskChatUnread } from "@/hooks/use-chat-unread-summary";
 import { BLOCK_PARAM, THREAD_PARAM } from "@/lib/agent-routes";
 import {
@@ -53,7 +56,6 @@ import {
   columnAccent,
 } from "./task-utils";
 import { AgentName } from "@/components/app/agent-name";
-import { AgentSessionLink } from "@/components/app/agent-session-link";
 import {
   formatDateTime,
   formatRelativeCompact,
@@ -347,433 +349,439 @@ export function TaskDetailPanel({
         }
       >
         {(task) => (
-          <Tabs
-            value={pane}
-            onValueChange={changePane}
-            className="flex min-h-0 flex-1 flex-col"
-          >
-            <TabsList
-              aria-label="Task panes"
-              className="shrink-0 border-b border-border-subtle px-1"
-            >
-              <TabsTrigger value="details">Details</TabsTrigger>
-              <TabsTrigger value="conversation">
-                Conversation
-                {!!unread && (
-                  <CountBubble
-                    tone="info"
-                    count={unread}
-                    aria-label={`${unread} unread posts`}
-                  />
-                )}
-              </TabsTrigger>
-            </TabsList>
-            <TabsContent
-              value="details"
-              className="flex min-h-0 flex-1 flex-col data-[state=inactive]:hidden"
-            >
-              <div
-                data-testid="task-drawer-body"
-                className="min-h-0 flex-1 overflow-y-auto overscroll-contain"
+          <div className="flex min-h-0 flex-1 flex-col">
+            <div className="shrink-0 border-b border-border-subtle px-3 py-2">
+              <SegmentedControl
+                layout="fill"
+                aria-label="Task panes"
+                value={pane}
+                onValueChange={changePane}
               >
-                <div className="space-y-6 p-4">
-                  {editingTitle ? (
-                    <Input
-                      autoFocus
-                      value={title}
-                      onChange={(event) => setTitle(event.target.value)}
-                      onBlur={saveTitle}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter") saveTitle();
-                        if (event.key === "Escape") {
-                          // Cancels the edit, not the drawer.
-                          event.preventDefault();
-                          setEditingTitle(false);
-                        }
-                      }}
+                <SegmentedControlItem value="details">
+                  Details
+                </SegmentedControlItem>
+                <SegmentedControlItem value="conversation">
+                  Conversation
+                  {!!unread && (
+                    <CountBubble
+                      tone="info"
+                      count={unread}
+                      aria-label={`${unread} unread posts`}
                     />
-                  ) : (
-                    <RowButton
-                      className="-mx-1 block w-full break-words px-1 text-heading-lg leading-7"
-                      onClick={() => setEditingTitle(true)}
-                    >
-                      {task.title}
-                    </RowButton>
                   )}
-                  <section
-                    className={cn(
-                      DRAWER_SURFACE,
-                      "grid grid-cols-[88px_minmax(0,1fr)] items-center gap-x-3 gap-y-2 text-body-md"
-                    )}
-                  >
-                    <span className="text-body-sm text-muted-foreground">
-                      Labels
-                    </span>
-                    <div className="min-w-0">
-                      <TaskLabelPicker
-                        key={task.id}
-                        projectId={task.projectId}
-                        value={task.labels ?? []}
-                        disabled={actions.update.isPending}
-                        onChange={(labels) => {
-                          actions.update.mutate({ id, labels });
-                        }}
-                      />
-                    </div>
-                    <span className="text-body-sm text-muted-foreground">
-                      Status
-                    </span>
-                    {task.archivedAt ? (
-                      <span className="text-body-md text-muted-foreground">
-                        Archived · {column?.name}
-                      </span>
-                    ) : (
-                      <StatusSelect
-                        task={task}
-                        columns={columns}
-                        moveTask={moveTask}
-                        className={PROPERTY_CONTROL}
-                      />
-                    )}
-                    <span className="text-body-sm text-muted-foreground">
-                      Assignee
-                    </span>
-                    <AssigneeSelect
-                      value={task.assignedAgentId}
-                      agents={agents}
-                      projectId={projectId}
-                      onChange={(assignedAgentId) =>
-                        actions.update.mutate({ id, assignedAgentId })
-                      }
-                      onNew={() => setLaunchOpen(true)}
-                      templates={projectTemplates}
-                      onLaunchTemplate={(templateId) =>
-                        actions.launch.mutate({ id, templateId })
-                      }
-                    />
-                    <span className="text-body-sm text-muted-foreground">
-                      Created
-                    </span>
-                    <Hint label={formatDateTime(task.createdAt)}>
-                      <span className="text-body-sm">
-                        by {creator} · {formatRelativeTime(task.createdAt)}
-                      </span>
-                    </Hint>
-                  </section>
-                  {columns.some((c) => c.trigger) && (
-                    <DrawerSection label="Launch template">
-                      <TaskLaunchTemplateEditor key={task.id} task={task} />
-                    </DrawerSection>
-                  )}
-                  <DrawerSection label="Description">
-                    {editingBody ? (
-                      <Textarea
+                </SegmentedControlItem>
+              </SegmentedControl>
+            </div>
+            {pane === "details" && (
+              <section
+                aria-label="Details"
+                className="flex min-h-0 flex-1 flex-col"
+              >
+                <div
+                  data-testid="task-drawer-body"
+                  className="min-h-0 flex-1 overflow-y-auto overscroll-contain"
+                >
+                  <div className="space-y-6 p-4">
+                    {editingTitle ? (
+                      <Input
                         autoFocus
-                        aria-label="Description"
-                        className="min-h-36"
-                        value={body}
-                        onChange={(event) => setBody(event.target.value)}
-                        onBlur={saveBody}
+                        value={title}
+                        onChange={(event) => setTitle(event.target.value)}
+                        onBlur={saveTitle}
                         onKeyDown={(event) => {
-                          if (
-                            event.key === "Enter" &&
-                            (event.metaKey || event.ctrlKey)
-                          )
-                            saveBody();
+                          if (event.key === "Enter") saveTitle();
+                          if (event.key === "Escape") {
+                            // Cancels the edit, not the drawer.
+                            event.preventDefault();
+                            setEditingTitle(false);
+                          }
                         }}
                       />
                     ) : (
                       <RowButton
-                        className="-mx-2 block min-h-12 w-[calc(100%+1rem)] px-2 py-1 text-body-md text-foreground"
-                        onClick={() => setEditingBody(true)}
+                        className="-mx-1 block w-full break-words px-1 text-heading-lg leading-7"
+                        onClick={() => setEditingTitle(true)}
                       >
-                        {task.body ? (
-                          <Markdown headingAccents>{task.body}</Markdown>
-                        ) : (
-                          <span className="text-muted-foreground">
-                            Add a deliverable and acceptance criteria…
-                          </span>
-                        )}
+                        {task.title}
                       </RowButton>
                     )}
-                  </DrawerSection>
-                  {!!task.attachments?.length && (
-                    <DrawerSection label="Attachments">
-                      <TaskAttachments
-                        key={task.id}
-                        attachments={task.attachments}
-                        updatedAt={task.updatedAt}
-                      />
-                    </DrawerSection>
-                  )}
-                  <DrawerSection
-                    label="Links"
-                    action={
-                      addingLink ? null : (
-                        <Button
-                          variant="ghost"
-                          size="xs"
-                          onClick={() => setAddingLink(true)}
-                        >
-                          <Plus />
-                          Add link
-                        </Button>
-                      )
-                    }
-                  >
-                    {task.links.length > 0 && (
-                      <div className="flex flex-wrap gap-1.5">
-                        {task.links.map((link) => (
-                          <a
-                            key={link.url ?? link.label}
-                            href={link.url ?? undefined}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="inline-flex max-w-full items-center gap-1 rounded-md bg-surface-hover px-2 py-1 text-body-sm text-primary hover:bg-muted"
-                          >
-                            {link.kind === "pr" && (
-                              <GitPullRequest
-                                className="h-3 w-3 shrink-0"
-                                aria-hidden="true"
-                              />
-                            )}
-                            <span className="truncate">{link.label}</span>
-                            <ExternalLink className="h-3 w-3 shrink-0" />
-                          </a>
-                        ))}
+                    <section
+                      className={cn(
+                        DRAWER_SURFACE,
+                        "grid grid-cols-[88px_minmax(0,1fr)] items-center gap-x-3 gap-y-2 text-body-md"
+                      )}
+                    >
+                      <span className="text-body-sm text-muted-foreground">
+                        Labels
+                      </span>
+                      <div className="min-w-0">
+                        <TaskLabelPicker
+                          key={task.id}
+                          projectId={task.projectId}
+                          value={task.labels ?? []}
+                          disabled={actions.update.isPending}
+                          onChange={(labels) => {
+                            actions.update.mutate({ id, labels });
+                          }}
+                        />
                       </div>
+                      <span className="text-body-sm text-muted-foreground">
+                        Status
+                      </span>
+                      {task.archivedAt ? (
+                        <span className="text-body-md text-muted-foreground">
+                          Archived · {column?.name}
+                        </span>
+                      ) : (
+                        <StatusSelect
+                          task={task}
+                          columns={columns}
+                          moveTask={moveTask}
+                          className={PROPERTY_CONTROL}
+                        />
+                      )}
+                      <span className="text-body-sm text-muted-foreground">
+                        Assignee
+                      </span>
+                      <AssigneeSelect
+                        value={task.assignedAgentId}
+                        agents={agents}
+                        projectId={projectId}
+                        onChange={(assignedAgentId) =>
+                          actions.update.mutate({ id, assignedAgentId })
+                        }
+                        onNew={() => setLaunchOpen(true)}
+                        templates={projectTemplates}
+                        onLaunchTemplate={(templateId) =>
+                          actions.launch.mutate({ id, templateId })
+                        }
+                      />
+                      <span className="text-body-sm text-muted-foreground">
+                        Created
+                      </span>
+                      <Hint label={formatDateTime(task.createdAt)}>
+                        <span className="text-body-sm">
+                          by {creator} · {formatRelativeTime(task.createdAt)}
+                        </span>
+                      </Hint>
+                    </section>
+                    {columns.some((c) => c.trigger) && (
+                      <DrawerSection label="Launch template">
+                        <TaskLaunchTemplateEditor key={task.id} task={task} />
+                      </DrawerSection>
                     )}
-                    {addingLink && (
-                      <div className="flex flex-col gap-2 sm:flex-row">
-                        <Input
-                          aria-label="Link label"
-                          placeholder="Label"
-                          value={linkLabel}
-                          onChange={(event) => setLinkLabel(event.target.value)}
+                    <DrawerSection label="Description">
+                      {editingBody ? (
+                        <Textarea
+                          autoFocus
+                          aria-label="Description"
+                          className="min-h-36"
+                          value={body}
+                          onChange={(event) => setBody(event.target.value)}
+                          onBlur={saveBody}
+                          onKeyDown={(event) => {
+                            if (
+                              event.key === "Enter" &&
+                              (event.metaKey || event.ctrlKey)
+                            )
+                              saveBody();
+                          }}
                         />
-                        <Input
-                          aria-label="Link URL"
-                          placeholder="URL"
-                          value={linkUrl}
-                          onChange={(event) => setLinkUrl(event.target.value)}
+                      ) : (
+                        <RowButton
+                          className="-mx-2 block min-h-12 w-[calc(100%+1rem)] px-2 py-1 text-body-md text-foreground"
+                          onClick={() => setEditingBody(true)}
+                        >
+                          {task.body ? (
+                            <Markdown>{task.body}</Markdown>
+                          ) : (
+                            <span className="text-muted-foreground">
+                              Add a deliverable and acceptance criteria…
+                            </span>
+                          )}
+                        </RowButton>
+                      )}
+                    </DrawerSection>
+                    {!!task.attachments?.length && (
+                      <DrawerSection label="Attachments">
+                        <TaskAttachments
+                          key={task.id}
+                          attachments={task.attachments}
+                          updatedAt={task.updatedAt}
                         />
-                        <div className="flex gap-2">
+                      </DrawerSection>
+                    )}
+                    <DrawerSection
+                      label="Links"
+                      action={
+                        addingLink ? null : (
                           <Button
                             variant="ghost"
-                            onClick={() => setAddingLink(false)}
+                            size="xs"
+                            onClick={() => setAddingLink(true)}
                           >
-                            Cancel
+                            <Plus />
+                            Add link
                           </Button>
-                          <Button
-                            onClick={() => {
-                              if (linkLabel && linkUrl)
-                                void actions.update
-                                  .mutateAsync({
-                                    id,
-                                    links: [
-                                      ...task.links,
-                                      {
-                                        kind: "url",
-                                        label: linkLabel,
-                                        url: linkUrl,
-                                      },
-                                    ],
-                                  })
-                                  .then(
-                                    () => {
-                                      setAddingLink(false);
-                                      setLinkLabel("");
-                                      setLinkUrl("");
-                                    },
-                                    // Shown at the top, with the draft kept.
-                                    () => {}
-                                  );
-                            }}
-                          >
-                            Add
-                          </Button>
-                        </div>
-                      </div>
-                    )}
-                    {!task.links.length && !addingLink && (
-                      <p className="text-body-sm text-muted-foreground">
-                        No links
-                      </p>
-                    )}
-                  </DrawerSection>
-                  <DrawerSection label="Agents">
-                    {task.agents.length ? (
-                      <div className="space-y-1">
-                        {task.agents.map((assignment) => {
-                          const current =
-                            assignment.agentId === task.assignedAgentId;
-                          const agent = agents.find(
-                            (item) => item.id === assignment.agentId
-                          );
-                          return (
-                            <div
-                              key={assignment.agentId}
-                              data-testid={`task-agent-row-${assignment.agentId}`}
-                              className="flex items-center gap-2 rounded-lg px-1 py-0.5 hover:bg-surface-hover"
+                        )
+                      }
+                    >
+                      {task.links.length > 0 && (
+                        <div className="flex flex-wrap gap-1.5">
+                          {task.links.map((link) => (
+                            <a
+                              key={link.url ?? link.label}
+                              href={link.url ?? undefined}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="inline-flex max-w-full items-center gap-1 rounded-md bg-surface-hover px-2 py-1 text-body-sm text-primary hover:bg-muted"
                             >
-                              {agent ? (
+                              {link.kind === "pr" && (
+                                <GitPullRequest
+                                  className="h-3 w-3 shrink-0"
+                                  aria-hidden="true"
+                                />
+                              )}
+                              <span className="truncate">{link.label}</span>
+                              <ExternalLink className="h-3 w-3 shrink-0" />
+                            </a>
+                          ))}
+                        </div>
+                      )}
+                      {addingLink && (
+                        <div className="flex flex-col gap-2 sm:flex-row">
+                          <Input
+                            aria-label="Link label"
+                            placeholder="Label"
+                            value={linkLabel}
+                            onChange={(event) =>
+                              setLinkLabel(event.target.value)
+                            }
+                          />
+                          <Input
+                            aria-label="Link URL"
+                            placeholder="URL"
+                            value={linkUrl}
+                            onChange={(event) => setLinkUrl(event.target.value)}
+                          />
+                          <div className="flex gap-2">
+                            <Button
+                              variant="ghost"
+                              onClick={() => setAddingLink(false)}
+                            >
+                              Cancel
+                            </Button>
+                            <Button
+                              onClick={() => {
+                                if (linkLabel && linkUrl)
+                                  void actions.update
+                                    .mutateAsync({
+                                      id,
+                                      links: [
+                                        ...task.links,
+                                        {
+                                          kind: "url",
+                                          label: linkLabel,
+                                          url: linkUrl,
+                                        },
+                                      ],
+                                    })
+                                    .then(
+                                      () => {
+                                        setAddingLink(false);
+                                        setLinkLabel("");
+                                        setLinkUrl("");
+                                      },
+                                      // Shown at the top, with the draft kept.
+                                      () => {}
+                                    );
+                              }}
+                            >
+                              Add
+                            </Button>
+                          </div>
+                        </div>
+                      )}
+                      {!task.links.length && !addingLink && (
+                        <p className="text-body-sm text-muted-foreground">
+                          No links
+                        </p>
+                      )}
+                    </DrawerSection>
+                    <DrawerSection label="Agents">
+                      {task.agents.length ? (
+                        <div className="space-y-1">
+                          {task.agents.map((assignment) => {
+                            const current =
+                              assignment.agentId === task.assignedAgentId;
+                            const agent = agents.find(
+                              (item) => item.id === assignment.agentId
+                            );
+                            return (
+                              <div
+                                key={assignment.agentId}
+                                data-testid={`task-agent-row-${assignment.agentId}`}
+                                className="flex items-center gap-2 rounded-lg px-1 py-0.5 hover:bg-surface-hover"
+                              >
                                 <TaskAgent
                                   agent={agent}
+                                  agentId={assignment.agentId}
                                   agents={agents}
                                   projectId={projectId}
                                   fullWidth
                                 />
-                              ) : (
-                                // The live list has no archived agents.
-                                <AgentSessionLink
-                                  agentId={assignment.agentId}
-                                  projectId={projectId}
-                                  decorative={false}
-                                  className="min-w-0 truncate text-body-sm text-muted-foreground"
+                                <Hint
+                                  label={`${assignmentLabel(assignment, columns)} · ${formatDateTime(assignment.assignedAt)}`}
                                 >
-                                  <AgentName agentId={assignment.agentId} />
-                                </AgentSessionLink>
-                              )}
-                              <Hint
-                                label={`${assignmentLabel(assignment, columns)} · ${formatDateTime(assignment.assignedAt)}`}
-                              >
-                                <span className="ml-auto flex shrink-0 items-center gap-2 text-body-sm text-muted-foreground">
-                                  {current && <Badge size="sm">Assignee</Badge>}
-                                  {formatRelativeCompact(assignment.assignedAt)}
-                                </span>
-                              </Hint>
-                              <DropdownMenu>
-                                <DropdownMenuTrigger asChild>
-                                  <IconButton
-                                    size="icon-sm"
-                                    label={
-                                      agent
-                                        ? `Options for ${agent.name}`
-                                        : "Agent options"
-                                    }
-                                    aria-labelledby={
-                                      agent
-                                        ? undefined
-                                        : `agent-options-${assignment.agentId}`
-                                    }
-                                  >
-                                    {!agent && (
-                                      <span
-                                        id={`agent-options-${assignment.agentId}`}
-                                        className="sr-only"
-                                      >
-                                        Options for{" "}
-                                        <AgentName
-                                          agentId={assignment.agentId}
-                                        />
-                                      </span>
+                                  <span className="ml-auto flex shrink-0 items-center gap-2 text-body-sm text-muted-foreground">
+                                    {current && (
+                                      <Badge size="sm">Assignee</Badge>
                                     )}
-                                    <MoreHorizontal aria-hidden="true" />
-                                  </IconButton>
-                                </DropdownMenuTrigger>
-                                <DropdownMenuContent align="end">
-                                  {current ? (
+                                    {formatRelativeCompact(
+                                      assignment.assignedAt
+                                    )}
+                                  </span>
+                                </Hint>
+                                <DropdownMenu>
+                                  <DropdownMenuTrigger asChild>
+                                    <IconButton
+                                      size="icon-sm"
+                                      label={
+                                        agent
+                                          ? `Options for ${agent.name}`
+                                          : "Agent options"
+                                      }
+                                      aria-labelledby={
+                                        agent
+                                          ? undefined
+                                          : `agent-options-${assignment.agentId}`
+                                      }
+                                    >
+                                      {!agent && (
+                                        <span
+                                          id={`agent-options-${assignment.agentId}`}
+                                          className="sr-only"
+                                        >
+                                          Options for{" "}
+                                          <AgentName
+                                            agentId={assignment.agentId}
+                                          />
+                                        </span>
+                                      )}
+                                      <MoreHorizontal aria-hidden="true" />
+                                    </IconButton>
+                                  </DropdownMenuTrigger>
+                                  <DropdownMenuContent align="end">
+                                    {current ? (
+                                      <DropdownMenuItem
+                                        className={MENU_ITEM}
+                                        onSelect={() =>
+                                          actions.update.mutate({
+                                            id,
+                                            assignedAgentId: null,
+                                          })
+                                        }
+                                      >
+                                        Unassign
+                                      </DropdownMenuItem>
+                                    ) : (
+                                      <DropdownMenuItem
+                                        className={MENU_ITEM}
+                                        onSelect={() =>
+                                          actions.update.mutate({
+                                            id,
+                                            assignedAgentId: assignment.agentId,
+                                          })
+                                        }
+                                      >
+                                        Make assignee
+                                      </DropdownMenuItem>
+                                    )}
                                     <DropdownMenuItem
-                                      className={MENU_ITEM}
                                       onSelect={() =>
-                                        actions.update.mutate({
+                                        actions.removeAgent.mutate({
                                           id,
-                                          assignedAgentId: null,
+                                          agentId: assignment.agentId,
                                         })
                                       }
                                     >
-                                      Unassign
+                                      Remove from task
                                     </DropdownMenuItem>
-                                  ) : (
-                                    <DropdownMenuItem
-                                      className={MENU_ITEM}
-                                      onSelect={() =>
-                                        actions.update.mutate({
-                                          id,
-                                          assignedAgentId: assignment.agentId,
-                                        })
-                                      }
-                                    >
-                                      Make assignee
-                                    </DropdownMenuItem>
-                                  )}
-                                  <DropdownMenuItem
-                                    onSelect={() =>
-                                      actions.removeAgent.mutate({
-                                        id,
-                                        agentId: assignment.agentId,
-                                      })
-                                    }
-                                  >
-                                    Remove from task
-                                  </DropdownMenuItem>
-                                </DropdownMenuContent>
-                              </DropdownMenu>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    ) : (
-                      <p className="text-body-sm text-muted-foreground">
-                        No agents yet
-                      </p>
-                    )}
-                  </DrawerSection>
-                  <DrawerSection label="Activity">
-                    <ol className="space-y-2 border-l-2 border-border-subtle pl-3">
-                      {task.events.map((event) => (
-                        <li key={event.id} className="text-body-sm">
-                          <span className="font-medium">
-                            {event.kind === "trigger_launching"
-                              ? `Launching ${projectTemplates.find((template) => template.id === event.data.templateId)?.name ?? "agent"}`
-                              : statusLabel(event.kind)}
-                          </span>
-                          <Hint label={formatDateTime(event.createdAt)}>
-                            <span className="ml-2 text-muted-foreground">
-                              {formatRelativeTime(event.createdAt)}
+                                  </DropdownMenuContent>
+                                </DropdownMenu>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <p className="text-body-sm text-muted-foreground">
+                          No agents yet
+                        </p>
+                      )}
+                    </DrawerSection>
+                    <DrawerSection label="Activity">
+                      <ol className="space-y-2 border-l-2 border-border-subtle pl-3">
+                        {task.events.map((event) => (
+                          <li key={event.id} className="text-body-sm">
+                            <span className="font-medium">
+                              {event.kind === "trigger_launching"
+                                ? `Launching ${projectTemplates.find((template) => template.id === event.data.templateId)?.name ?? "agent"}`
+                                : statusLabel(event.kind)}
                             </span>
-                          </Hint>
-                          {typeof event.data.reason === "string" && (
-                            <p className="text-danger">{event.data.reason}</p>
-                          )}
-                        </li>
-                      ))}
-                    </ol>
-                  </DrawerSection>
+                            <Hint label={formatDateTime(event.createdAt)}>
+                              <span className="ml-2 text-muted-foreground">
+                                {formatRelativeTime(event.createdAt)}
+                              </span>
+                            </Hint>
+                            {typeof event.data.reason === "string" && (
+                              <p className="text-danger">{event.data.reason}</p>
+                            )}
+                          </li>
+                        ))}
+                      </ol>
+                    </DrawerSection>
+                  </div>
                 </div>
-              </div>
-              {task.archivedAt && (
-                <div
-                  className="border-t border-border-subtle px-3 py-2 text-body-md text-muted-foreground"
-                  role="status"
-                >
-                  Archived — restore this task to move it.
-                </div>
-              )}
-              <footer className="flex shrink-0 items-center gap-2 border-t border-border-subtle bg-card/veil px-3 py-2 pb-safe-2">
-                {task.id === id && (
-                  <TaskDeleteDialog key={id} task={task} close={close} />
+                {task.archivedAt && (
+                  <div
+                    className="border-t border-border-subtle px-3 py-2 text-body-md text-muted-foreground"
+                    role="status"
+                  >
+                    Archived — restore this task to move it.
+                  </div>
                 )}
-                <Button
-                  size="sm"
-                  className="ml-auto"
-                  pending={
-                    actions.archive?.isPending || actions.restore?.isPending
-                  }
-                  onClick={() =>
-                    task.archivedAt
-                      ? restoreTask(actions, task, { failureShownInline: true })
-                      : archiveTask(actions, task, { failureShownInline: true })
-                  }
-                >
-                  {task.archivedAt ? "Restore" : "Archive"}
-                </Button>
-              </footer>
-            </TabsContent>
-            <TabsContent
-              value="conversation"
-              forceMount
-              className="min-h-0 flex-1 data-[state=inactive]:hidden pt-2 px-2 pb-safe-2 md:px-3 md:pb-3"
+                <footer className="flex shrink-0 items-center gap-2 border-t border-border-subtle bg-card/veil px-3 py-2 pb-safe-2">
+                  {task.id === id && (
+                    <TaskDeleteDialog key={id} task={task} close={close} />
+                  )}
+                  <Button
+                    size="sm"
+                    className="ml-auto"
+                    pending={
+                      actions.archive?.isPending || actions.restore?.isPending
+                    }
+                    onClick={() =>
+                      task.archivedAt
+                        ? restoreTask(actions, task, {
+                            failureShownInline: true,
+                          })
+                        : archiveTask(actions, task, {
+                            failureShownInline: true,
+                          })
+                    }
+                  >
+                    {task.archivedAt ? "Restore" : "Archive"}
+                  </Button>
+                </footer>
+              </section>
+            )}
+            {/* Kept mounted, so its draft and scroll outlive a look at Details. */}
+            <section
+              aria-label="Conversation"
+              className={cn(
+                "min-h-0 flex-1 px-2 pb-safe-2 pt-2 md:px-3 md:pb-3",
+                pane !== "conversation" && "hidden"
+              )}
             >
               <TaskConversation
                 key={task.id}
@@ -783,8 +791,8 @@ export function TaskDetailPanel({
                 isMobile={isMobile}
                 memberIds={memberIds}
               />
-            </TabsContent>
-          </Tabs>
+            </section>
+          </div>
         )}
       </AsyncBoundary>
       {task && (

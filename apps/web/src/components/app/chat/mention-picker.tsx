@@ -2,7 +2,8 @@ import { Bell, BellOff } from "lucide-react";
 import { AgentSessionLink } from "@/components/app/agent-session-link";
 import { createPortal } from "react-dom";
 
-import { Button } from "@/components/ui/button";
+import { IconButton } from "@/components/ui/icon-button";
+import { RowButton } from "@/components/ui/row-button";
 import {
   mentionChipClasses,
   type Mentionable,
@@ -48,37 +49,24 @@ export function MentionPicker({
     >
       <div className="flex justify-end gap-1 border-b border-border px-2 py-1">
         {[false, true].map((mode) => (
-          <Button
-            variant="ghost"
-            size="stream-icon"
+          <IconButton
+            size="icon-xs"
             key={String(mode)}
-            type="button"
-            title={
+            label={
               mode
                 ? "Reference only — won’t notify"
                 : "Mention — notifies agent"
             }
-            aria-label={
-              mode
-                ? "Reference only — won’t notify"
-                : "Mention — notifies agent"
-            }
-            aria-pressed={silent === mode}
-            className={cn(
-              "size-6 rounded-sm p-1",
-              silent === mode
-                ? "bg-muted text-foreground"
-                : "text-muted-foreground hover:bg-surface-hover"
-            )}
+            pressed={silent === mode}
             onMouseDown={(event) => event.preventDefault()}
             onClick={() => onSilentChange(mode)}
           >
             {mode ? (
-              <BellOff className="size-3.5" />
+              <BellOff aria-hidden="true" />
             ) : (
-              <Bell className="size-3.5" />
+              <Bell aria-hidden="true" />
             )}
-          </Button>
+          </IconButton>
         ))}
       </div>
       <div
@@ -88,14 +76,13 @@ export function MentionPicker({
         }
       >
         {candidates.map((agent, index) => (
-          <button
+          <RowButton
             key={agent.id}
-            type="button"
             role="option"
             aria-selected={index === activeIndex}
             className={cn(
-              "flex w-full items-center gap-2 px-2 py-1.5 text-left text-body-md",
-              index === activeIndex ? "bg-muted" : "hover:bg-surface-hover"
+              "rounded-none px-2 py-1.5 text-body-md",
+              index === activeIndex && "bg-surface-hover"
             )}
             // Mouse down would take focus from the textarea and close the
             // list before the click lands.
@@ -137,7 +124,7 @@ export function MentionPicker({
                 Session
               </span>
             )}
-          </button>
+          </RowButton>
         ))}
       </div>
     </div>,

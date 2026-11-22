@@ -26,6 +26,8 @@ import {
   PopoverContent,
   PopoverAnchor,
 } from "@/components/ui/popover";
+import { IconButton } from "@/components/ui/icon-button";
+import { RowButton } from "@/components/ui/row-button";
 import { api } from "@/lib/api";
 
 const states: Record<string, string> = {
@@ -204,19 +206,15 @@ function McpInventoryPopover({
             </span>
             MCP servers{data?.status === "ok" ? ` · ${servers.length}` : ""}
           </span>
-          <Button
-            type="button"
-            variant="ghost"
-            size="stream-icon"
-            className="h-8 w-8 pointer-coarse:min-h-11 pointer-coarse:min-w-11"
-            aria-label="Refresh MCP inventory"
+          <IconButton
+            label="Refresh MCP inventory"
             disabled={query.isFetching}
             onClick={() => void query.refetch()}
           >
             <RefreshCw
-              className={`h-3 w-3 ${query.isFetching && !query.isPending ? "animate-spin text-primary motion-reduce:animate-none" : ""}`}
+              className={`${query.isFetching && !query.isPending ? "animate-spin text-primary motion-reduce:animate-none" : ""}`}
             />
-          </Button>
+          </IconButton>
         </div>
         {query.isPending ? (
           <div className="min-h-0 overflow-hidden px-2 pb-4 pt-2">
@@ -258,9 +256,7 @@ function McpInventoryPopover({
               <Button
                 ref={backButton}
                 type="button"
-                variant="ghost"
-                size="stream-sm"
-                className="h-8 px-1 text-label-sm text-foreground hover:bg-transparent pointer-coarse:min-h-11"
+                size="xs"
                 onClick={() => {
                   setSelected(null);
                   requestAnimationFrame(() =>
@@ -268,9 +264,7 @@ function McpInventoryPopover({
                   );
                 }}
               >
-                <span className="inline-flex h-6 items-center rounded-sm border border-foreground/line bg-accent px-2">
-                  Back
-                </span>
+                Back
               </Button>
               <div className="min-w-0">
                 <p className="break-words text-body-sm font-medium">
@@ -308,8 +302,9 @@ function McpInventoryPopover({
                         <Button
                           type="button"
                           variant="ghost"
-                          size="stream-sm"
-                          className="h-auto min-h-8 w-full justify-start whitespace-normal break-all px-1 text-left text-body-sm font-normal pointer-coarse:min-h-11"
+                          size="xs"
+                          wrap
+                          className="w-full justify-start break-all text-left font-normal text-foreground"
                           aria-expanded={expanded === tool.name}
                           onClick={() =>
                             setExpanded(
@@ -319,7 +314,7 @@ function McpInventoryPopover({
                         >
                           <ChevronRight
                             aria-hidden="true"
-                            className={`mr-1 h-3 w-3 shrink-0 text-muted-foreground transition-transform ${expanded === tool.name ? "rotate-90" : ""}`}
+                            className={`text-muted-foreground transition-transform ${expanded === tool.name ? "rotate-90" : ""}`}
                           />
                           {tool.name}
                         </Button>
@@ -360,9 +355,10 @@ function McpInventoryPopover({
               <Button
                 type="button"
                 variant="ghost"
-                size="stream-sm"
+                tone="warning"
+                size="xs"
                 aria-pressed={attention}
-                className="my-1 h-7 shrink-0 self-start px-1 text-label-sm text-warning pointer-coarse:min-h-11"
+                className="my-1 shrink-0 self-start"
                 onClick={() => setAttention(!attention)}
               >
                 Needs attention · {attentionCount}
@@ -375,8 +371,7 @@ function McpInventoryPopover({
               {visible.map((item) => {
                 const StatusIcon = statusIcon(item);
                 return (
-                  <Button
-                    size="stream-md"
+                  <RowButton
                     key={item.name}
                     aria-label={`${item.name} ${status(item)}`}
                     title={status(item)}
@@ -384,9 +379,7 @@ function McpInventoryPopover({
                       if (element) rows.current.set(item.name, element);
                       else rows.current.delete(item.name);
                     }}
-                    type="button"
-                    variant="ghost"
-                    className="h-9 w-full justify-start gap-2 rounded-none border-b border-border-subtle px-2 text-left font-normal pointer-coarse:min-h-11"
+                    className="min-h-9 rounded-none border-b border-border-subtle px-2 text-body-md"
                     onClick={() => {
                       setSelected(item.name);
                       setToolSearch("");
@@ -408,7 +401,7 @@ function McpInventoryPopover({
                         {item.tools!.length} tools
                       </span>
                     ) : null}
-                  </Button>
+                  </RowButton>
                 );
               })}
               {!visible.length ? (

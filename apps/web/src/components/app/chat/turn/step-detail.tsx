@@ -175,9 +175,7 @@ function DetailBody({ step }: { step: Step }): JSX.Element | null {
     case "note":
     case "notice":
     case "compaction":
-      return d.text ? (
-        <Markdown className="text-body-sm">{d.text}</Markdown>
-      ) : null;
+      return d.text ? <Markdown density="compact">{d.text}</Markdown> : null;
     default:
       return (
         <>

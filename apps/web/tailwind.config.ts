@@ -25,6 +25,14 @@ const pointerCoarse = plugin(({ addVariant }) => {
   addVariant("pointer-coarse", "@media (pointer: coarse)");
 });
 
+/**
+ * `block-wide:`: the nearest size container (`[container-type:inline-size]`)
+ * is wide enough for a label beside its control, whatever the viewport is.
+ */
+const blockWide = plugin(({ addVariant }) => {
+  addVariant("block-wide", "@container (min-width: 40rem)");
+});
+
 /** `pt-safe`, `pb-safe-2`: a safe-area inset, never less than the step. */
 const safeArea = plugin(({ matchUtilities, theme }) => {
   const side = (property: string, inset: string) => (value: string) => ({
@@ -349,5 +357,5 @@ export default {
       },
     },
   },
-  plugins: [typography, pointerCoarse, safeArea],
+  plugins: [typography, pointerCoarse, blockWide, safeArea],
 } satisfies Config;

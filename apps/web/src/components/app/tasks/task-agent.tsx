@@ -7,9 +7,12 @@ import {
   useAgentActivity,
 } from "@/hooks/use-agent-activity";
 import { cachedAgentLineage } from "@/lib/agent-lineage";
+import { useAgentName, useAgentRecord } from "@/hooks/use-agent-tree";
 import { ActivityBars } from "@/components/ui/activity-bars";
+import { StatusDot, type StatusDotTone } from "@/components/ui/status-dot";
 import { Hint } from "@/components/ui/tooltip";
 import { Clock } from "lucide-react";
+import { forwardRef, type HTMLAttributes, type ReactNode } from "react";
 import { AgentSessionLink } from "@/components/app/agent-session-link";
 import { cn } from "@/lib/utils";
 import { agentQualifier } from "./task-utils";
@@ -22,6 +25,16 @@ const STATE_LABELS: Record<AgentActivityTone, string> = {
   idle: "Idle",
   stopped: "Stopped",
   archiving: "Archiving…",
+};
+
+const STATE_DOT: Record<AgentActivityTone, StatusDotTone> = {
+  starting: "working",
+  working: "working",
+  waiting: "waiting",
+  blocked: "blocked",
+  idle: "idle",
+  stopped: "neutral",
+  archiving: "warning",
 };
 
 /**
@@ -61,6 +74,128 @@ function ActivityGlyph({
 }
 
 /**
+ * The one way an agent looks on a task: avatar, name, state, at two sizes.
+ * Compact hosts keep the first row alone.
+ */
+const AgentChipFrame = forwardRef<
+  HTMLSpanElement,
+  HTMLAttributes<HTMLSpanElement> & {
+    type?: string | null;
+    name: string;
+    qualifier?: string | null;
+    compact: boolean;
+    fullWidth: boolean;
+    indicator: ReactNode;
+    /** The second row, at the larger size. */
+    detail: ReactNode;
+  }
+>(
+  (
+    {
+      type,
+      name,
+      qualifier,
+      compact,
+      fullWidth,
+      indicator,
+      detail,
+      className,
+      ...props
+    },
+    ref
+  ) => {
+    const nameRow = (
+      <>
+        <AgentTypeIcon
+          type={type ?? "claude"}
+          className="h-4.5 w-4.5 shrink-0 rounded-full border-0 bg-transparent"
+        />
+        <span className={cn("min-w-0 truncate", compact && "max-w-28")}>
+          {name}
+        </span>
+        {qualifier ? (
+          <span className="shrink-0 text-label-xs text-muted-foreground">
+            · {qualifier}
+          </span>
+        ) : null}
+        <span className="ml-auto flex shrink-0 items-center">{indicator}</span>
+      </>
+    );
+    return (
+      <span
+        ref={ref}
+        className={cn(
+          "inline-flex min-w-0 rounded-md border px-2 text-body-sm text-foreground shadow-sm",
+          compact ? "items-center gap-2 py-1" : "flex-col gap-1 py-1.5",
+          fullWidth && "w-full",
+          className
+        )}
+        data-layout={compact ? "compact" : "stacked"}
+        {...props}
+      >
+        {compact ? (
+          nameRow
+        ) : (
+          <>
+            <span className="flex min-w-0 items-center gap-2">{nameRow}</span>
+            {detail}
+          </>
+        )}
+      </span>
+    );
+  }
+);
+AgentChipFrame.displayName = "AgentChipFrame";
+
+/**
+ * An agent the live list doesn't have, almost always archived: still the
+ * assignee, so still named, in the same chip.
+ */
+export function UnlistedTaskAgentChip({
+  agentId,
+  compact = false,
+  fullWidth = false,
+  className,
+}: {
+  agentId: string;
+  compact?: boolean;
+  fullWidth?: boolean;
+  className?: string;
+}) {
+  const name = useAgentName(agentId);
+  const record = useAgentRecord(agentId);
+  const state = record?.archived ? "Archived" : null;
+  return (
+    <Hint label={state ? `${name}\n${state}` : name}>
+      <AgentChipFrame
+        type={record?.type}
+        name={name}
+        compact={compact}
+        fullWidth={fullWidth}
+        data-testid={`task-agent-chip-${agentId}`}
+        className={cn(
+          "border-dashed border-border bg-transparent text-muted-foreground",
+          className
+        )}
+        indicator={
+          <StatusDot
+            tone="neutral"
+            {...(compact && state
+              ? { role: "img", "aria-hidden": false, "aria-label": state }
+              : {})}
+          />
+        }
+        detail={
+          <span className="flex min-h-4 min-w-0 items-center text-label-xs font-medium text-muted-foreground">
+            {state}
+          </span>
+        }
+      />
+    </Hint>
+  );
+}
+
+/**
  * An agent on a task, showing what the sidebar would: its phase or step,
  * else a child's step, else its next schedule. On cards and the drawer the
  * activity has a row of its own, kept when there is nothing to report so a
@@ -96,33 +231,20 @@ export function TaskAgentChip({
     ? `${agent.name} · started ${qualifier === "now" ? "just now" : `${qualifier} ago`}`
     : agent.name;
   const live = activity.tone === "working" || activity.tone === "starting";
-  const nameRow = (
-    <>
-      <AgentTypeIcon
-        type={agent.type ?? "claude"}
-        className="h-4.5 w-4.5 shrink-0 rounded-full border-0 bg-transparent"
-      />
-      <span className={cn("min-w-0 truncate", compact && "max-w-28")}>
-        {agent.name}
-      </span>
-      {qualifier && (
-        <span className="shrink-0 text-label-xs text-muted-foreground">
-          · {qualifier}
-        </span>
-      )}
-    </>
-  );
+  const state = activityText ?? STATE_LABELS[activity.tone];
   return (
     <Hint label={activityText ? `${name}\n${activityText}` : name}>
-      <span
+      <AgentChipFrame
+        type={agent.type}
+        name={agent.name}
+        qualifier={qualifier}
+        compact={compact}
+        fullWidth={fullWidth}
+        data-testid={`task-agent-chip-${agent.id}`}
+        // Tinted by state, so colour on a card says something: green while
+        // the agent starts or works, amber waiting on someone, red blocked,
+        // orange archiving, quiet when idle, faded and dashed once stopped.
         className={cn(
-          // Tinted by state, so colour on a card says something: green while
-          // the agent starts or works, amber waiting on someone, red blocked,
-          // orange archiving, quiet when idle, faded and dashed once stopped.
-          "inline-flex min-w-0 border text-body-sm text-foreground shadow-sm",
-          compact
-            ? "items-center gap-2 rounded-full py-1 pl-1 pr-3"
-            : "flex-col gap-1 rounded-lg px-2 py-1.5",
           live
             ? "border-status-working/line bg-status-working/tint"
             : activity.tone === "waiting"
@@ -134,90 +256,94 @@ export function TaskAgentChip({
                   : activity.tone === "stopped"
                     ? "border-dashed border-border bg-transparent text-muted-foreground"
                     : "border-border bg-background/soft",
-          fullWidth && "w-full",
           className
         )}
-        data-testid={`task-agent-chip-${agent.id}`}
-        data-layout={compact ? "compact" : "stacked"}
-      >
-        {compact ? (
-          <>
-            {nameRow}
-            <ActivityGlyph
-              agent={agent}
-              activity={activity}
-              label={activityText ?? STATE_LABELS[activity.tone]}
+        indicator={
+          compact && activity.glyph !== "none" ? (
+            <ActivityGlyph agent={agent} activity={activity} label={state} />
+          ) : (
+            <StatusDot
+              tone={STATE_DOT[activity.tone]}
+              {...(compact
+                ? { role: "img", "aria-hidden": false, "aria-label": state }
+                : {})}
             />
-          </>
-        ) : (
-          <>
-            <span className="flex min-w-0 items-center gap-2">{nameRow}</span>
-            <span
-              className={cn(
-                "flex min-h-4 min-w-0 items-center gap-1.5 text-label-xs font-medium",
-                activity.kind === "schedule"
-                  ? // The sidebar's colour for the next scheduled message.
-                    "text-heading-accent-1"
-                  : live
-                    ? "text-status-working"
-                    : activity.tone === "archiving"
-                      ? "text-warning"
-                      : activity.tone === "waiting"
-                        ? "text-status-waiting"
-                        : activity.tone === "blocked"
-                          ? "text-status-blocked"
-                          : "text-muted-foreground"
-              )}
-              data-testid={`task-agent-activity-${agent.id}`}
-            >
-              <ActivityGlyph agent={agent} activity={activity} label={null} />
-              <span className="min-w-0 truncate">
-                {activityText ?? STATE_LABELS[activity.tone]}
-              </span>
-            </span>
-          </>
-        )}
-      </span>
+          )
+        }
+        detail={
+          <span
+            className={cn(
+              "flex min-h-4 min-w-0 items-center gap-1.5 text-label-xs font-medium",
+              activity.kind === "schedule"
+                ? // The sidebar's colour for the next scheduled message.
+                  "text-heading-accent-1"
+                : live
+                  ? "text-status-working"
+                  : activity.tone === "archiving"
+                    ? "text-warning"
+                    : activity.tone === "waiting"
+                      ? "text-status-waiting"
+                      : activity.tone === "blocked"
+                        ? "text-status-blocked"
+                        : "text-muted-foreground"
+            )}
+            data-testid={`task-agent-activity-${agent.id}`}
+          >
+            <ActivityGlyph agent={agent} activity={activity} label={null} />
+            <span className="min-w-0 truncate">{state}</span>
+          </span>
+        }
+      />
     </Hint>
   );
 }
 
 export function TaskAgent({
   agent,
+  agentId,
   agents,
   projectId,
   compact = false,
   fullWidth = false,
 }: {
   agent?: Agent;
+  /** Who is assigned, also when the live list has no such agent. */
+  agentId: string | null;
   agents?: readonly Agent[];
   projectId: string;
   compact?: boolean;
   /** Fill the row, so a running step has the whole card's width. */
   fullWidth?: boolean;
 }) {
-  if (!agent)
+  if (!agentId)
     return (
       <span className="text-body-sm text-muted-foreground">Unassigned</span>
     );
   return (
     <AgentSessionLink
       decorative={false}
-      agentId={agent.id}
-      name={agent.name}
+      agentId={agentId}
+      name={agent?.name}
       projectId={projectId}
       className={cn(
-        "inline-flex min-w-0 hover:brightness-125",
-        compact ? "rounded-full" : "rounded-lg",
+        "inline-flex min-w-0 rounded-md hover:brightness-125",
         fullWidth && "w-full"
       )}
     >
-      <TaskAgentChip
-        agent={agent}
-        agents={agents}
-        compact={compact}
-        fullWidth={fullWidth}
-      />
+      {agent ? (
+        <TaskAgentChip
+          agent={agent}
+          agents={agents}
+          compact={compact}
+          fullWidth={fullWidth}
+        />
+      ) : (
+        <UnlistedTaskAgentChip
+          agentId={agentId}
+          compact={compact}
+          fullWidth={fullWidth}
+        />
+      )}
     </AgentSessionLink>
   );
 }

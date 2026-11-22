@@ -47,6 +47,7 @@ export type AlertAction = {
   onClick: () => void;
   pending?: boolean;
   disabled?: boolean;
+  testId?: string;
 };
 
 export interface AlertProps extends Omit<
@@ -82,7 +83,7 @@ export const Alert = React.forwardRef<HTMLDivElement, AlertProps>(
     const { Icon, box, text } = TONES[tone];
     const body = children ?? (error ? failureHint(error) : null);
     const actionButton = (
-      { label, onClick, pending, disabled }: AlertAction,
+      { label, onClick, pending, disabled, testId }: AlertAction,
       variant: "primary" | "ghost"
     ) => (
       <Button
@@ -92,6 +93,7 @@ export const Alert = React.forwardRef<HTMLDivElement, AlertProps>(
         pending={pending}
         disabled={disabled}
         onClick={onClick}
+        data-testid={testId}
       >
         {label}
       </Button>

@@ -6,6 +6,7 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import { Button } from "@/components/ui/button";
+import { Alert } from "@/components/ui/alert";
 import { ChevronRight } from "lucide-react";
 // Ported from @mytraai/promptkit (MytraAI/mytra-os-uis, packages/promptkit):
 // Nii Yeboah's PromptKit design. Adapted to Dispatch's tokens and shadcn.
@@ -89,6 +90,7 @@ function ResultTurnImpl({
     );
   }
   const showContent = !!turn.content;
+  const canRetry = retry?.state === "open" && !!retry.onRetry;
   return (
     <div
       // The message arrives like a new message would: after the activity
@@ -100,45 +102,42 @@ function ResultTurnImpl({
     >
       {showContent ? <ResultBody turn={turn} renderText={renderText} /> : null}
       {error && signIn ? (
-        <div
-          className="min-w-0 space-y-2 rounded-sm border border-danger/line bg-danger/tint px-3 py-2"
+        <Alert
+          className="min-w-0"
           data-testid="harness-sign-in"
+          title={`${signIn.label} is signed out on this Dispatch server.`}
         >
-          <div>
-            <p className="text-body-sm leading-[1.6] text-danger">
-              {signIn.label} is signed out on this Dispatch server.
-            </p>
-            <p className="text-label-sm text-muted-foreground">
-              Sign in and this message is sent again.
-            </p>
-          </div>
+          <p className="mb-2 text-muted-foreground">
+            Sign in and this message is sent again.
+          </p>
           {signIn.body}
-        </div>
-      ) : error && !echoesError ? (
-        <ResultText content={error.message} error />
-      ) : null}
-      {error && !signIn && retry?.state === "open" && retry.onRetry ? (
-        // Worded like a post's "Not delivered · Send again": the same
-        // failure line. "Turn" is what tells the two apart — this one runs
-        // the agent again, where that one re-sends words it never took.
-        <p
-          className="flex items-center gap-2 text-label-sm text-danger"
-          data-testid="harness-turn-failed"
+        </Alert>
+      ) : error ? (
+        <Alert
+          className="min-w-0"
+          data-testid={canRetry ? "harness-turn-failed" : "harness-turn-error"}
+          // Worded apart from a post's "Not delivered · Send again": this
+          // one runs the agent again, where that one re-sends words it
+          // never took.
+          title="The turn stopped on an error."
+          action={
+            canRetry
+              ? {
+                  label: retry.pending ? "Retrying…" : "Retry turn",
+                  disabled: retry.pending,
+                  onClick: retry.onRetry!,
+                  testId: "harness-retry-turn",
+                }
+              : undefined
+          }
         >
-          <span aria-hidden="true" className="select-none font-semibold">
-            ■
-          </span>
-          The turn stopped on an error.
-          <button
-            type="button"
-            className="underline underline-offset-2 hover:no-underline disabled-state"
-            disabled={retry.pending}
-            onClick={retry.onRetry}
-            data-testid="harness-retry-turn"
-          >
-            {retry.pending ? "Retrying…" : "Retry turn"}
-          </button>
-        </p>
+          {/* In full and open: it often carries the way to fix it. */}
+          {echoesError ? null : (
+            <p className="whitespace-pre-wrap [overflow-wrap:anywhere]">
+              {error.message}
+            </p>
+          )}
+        </Alert>
       ) : null}
       {interrupted ? (
         <p
@@ -179,12 +178,8 @@ function ResultBody({
       ) : (
         <Collapsible className="mb-2">
           <CollapsibleTrigger asChild>
-            <Button
-              variant="ghost"
-              size="stream-sm"
-              className="group h-auto gap-1 px-0 py-1 text-body-sm text-muted-foreground hover:bg-transparent"
-            >
-              <ChevronRight className="h-3 w-3 group-data-[state=open]:rotate-90" />
+            <Button variant="ghost" size="xs" className="group -ml-2">
+              <ChevronRight className="group-data-[state=open]:rotate-90" />
               Show earlier updates
             </Button>
           </CollapsibleTrigger>
@@ -200,24 +195,18 @@ function ResultBody({
 
 export function ResultText({
   content,
-  error,
   muted,
   renderText,
   streaming,
 }: {
   content: string;
-  error?: boolean;
   muted?: boolean;
   renderText?: (text: string) => ReactNode;
   streaming?: boolean;
 }): JSX.Element {
-  return error ? (
-    <p className="min-w-0 whitespace-pre-wrap text-body-sm leading-[1.6] text-danger">
-      {content}
-    </p>
-  ) : (
+  return (
     <div
-      className="min-w-0 text-body-sm leading-[1.6]"
+      className="min-w-0"
       data-testid={muted ? "harness-result-lead" : undefined}
     >
       <Markdown

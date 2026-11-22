@@ -61,8 +61,10 @@
   display: flex;
   flex-direction: column;
 }
-.metric-tile > p:last-child,
-.visualization-chart-grid > [data-kind="chart-card"] > p:last-child {
+.metric-tile > [data-block-part="footer"],
+.visualization-chart-grid
+  > [data-kind="chart-card"]
+  > [data-block-part="footer"] {
   margin-top: auto !important;
   padding-top: 8px;
 }

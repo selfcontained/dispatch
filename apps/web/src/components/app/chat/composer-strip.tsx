@@ -1,5 +1,7 @@
 import { useId, type ReactNode, type Ref } from "react";
 import { ChevronDown, ChevronRight, type LucideIcon } from "lucide-react";
+import { Card } from "@/components/ui/card";
+import { RowButton } from "@/components/ui/row-button";
 
 import { STRIP_META_CLASS } from "./composer-strip-styles";
 
@@ -28,31 +30,27 @@ export function ComposerStrip({
 }) {
   const contentId = useId();
   return (
-    <div
-      className="mb-1.5 min-w-0 rounded-md border border-border-subtle bg-surface-hover px-2 py-1.5"
-      data-testid={testId}
-    >
-      <button
+    <Card className="mb-1.5 min-w-0 px-2 py-1" data-testid={testId}>
+      <RowButton
         ref={toggleRef}
-        type="button"
         onClick={() => onOpenChange(!open)}
         aria-expanded={open}
         aria-controls={contentId}
-        className="flex w-full min-w-0 items-center gap-2 text-left focus-ring pointer-coarse:min-h-11"
+        className="min-w-0 px-1 py-1"
         data-testid={`${testId}-toggle`}
       >
         <Icon
           className="h-3 w-3 shrink-0 text-status-working"
           aria-hidden="true"
         />
-        <span className="shrink-0 text-label-sm font-medium text-foreground">
+        <span className="shrink-0 text-body-sm font-medium text-foreground">
           {title}
         </span>
         <span className={`${STRIP_META_CLASS} min-w-0`} aria-live="polite">
           {summary}
         </span>
         {!open && preview ? (
-          <span className="min-w-0 flex-1 truncate text-label-sm text-foreground/soft">
+          <span className="min-w-0 flex-1 truncate text-body-sm text-foreground/soft">
             · {preview}
           </span>
         ) : (
@@ -65,11 +63,11 @@ export function ComposerStrip({
             <ChevronRight className="h-3 w-3" />
           )}
         </span>
-      </button>
+      </RowButton>
       <div id={contentId} hidden={!open}>
         {open ? children : null}
       </div>
       {footer}
-    </div>
+    </Card>
   );
 }

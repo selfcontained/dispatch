@@ -15,6 +15,7 @@ import {
 } from "@/components/app/chat/chat-entries";
 import { MentionText } from "@/components/app/chat/mention-picker";
 import { EngineSignIn } from "@/components/app/engine-sign-in";
+import { Button } from "@/components/ui/button";
 import { ENGINE_LOGIN_LABELS, isLoginEngine } from "@/hooks/use-engine-login";
 import { mentionSpans } from "@/lib/mentions";
 import { cn } from "@/lib/utils";
@@ -183,20 +184,23 @@ export function TurnAnswer({
               </p>
             ) : (
               <EngineSignIn
+                primary
                 engine={engine}
                 since={failedAt}
                 // A sign-in that succeeded after this turn failed sends it
                 // again, wherever it was started from.
                 onSignedIn={() => onResend(block.id)}
                 extra={
-                  <button
+                  <Button
                     type="button"
-                    className="text-label-sm text-muted-foreground underline underline-offset-2 hover:no-underline"
+                    variant="ghost"
+                    size="sm"
+                    wrap
                     onClick={() => onResend(block.id)}
                     data-testid="harness-send-again"
                   >
                     Already signed in? Send again
-                  </button>
+                  </Button>
                 }
               />
             ),
@@ -376,7 +380,7 @@ export function PendingTurnLine({
         )}
       >
         <span
-          className="max-w-full truncate pt-0.5 text-label-sm font-medium text-foreground/soft"
+          className="max-w-full truncate pt-0.5 text-body-sm font-medium text-foreground/soft"
           data-testid="chat-pending-turn-author"
         >
           {identity ?? name}

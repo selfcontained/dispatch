@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
+import { RowButton } from "@/components/ui/row-button";
 
 import type { Step, StepStatus } from "./contracts";
 import { formatStepDuration } from "./format";
@@ -32,8 +33,9 @@ const STATUS_ARIA: Record<StepStatus, string> = {
   error: "failed",
 };
 
-const ROW_CLASS =
-  "flex min-w-0 w-full items-center gap-2 py-1.5 text-left focus-ring-inset";
+// Two steps of the type ramp per row: body-sm for the label, label-sm for
+// the meta beside it.
+const ROW_CLASS = "flex min-w-0 w-full items-center gap-2 py-1.5 text-left";
 
 /** One step in the step list: glyph, label, summary, duration, toggle. */
 export function StepRow({
@@ -85,7 +87,7 @@ export function StepRow({
       >
         {step.status === "pending" ? `preparing ${label}` : label}
         {server ? (
-          <span className="ml-1 text-label-xs text-muted-foreground">
+          <span className="ml-1 text-label-sm text-muted-foreground">
             {server}
           </span>
         ) : null}
@@ -101,7 +103,7 @@ export function StepRow({
         </span>
       ) : null}
       {step.durMs ? (
-        <span className="shrink-0 text-label-xs tabular-nums text-muted-foreground">
+        <span className="shrink-0 text-label-sm tabular-nums text-muted-foreground">
           {formatStepDuration(step.durMs)}
         </span>
       ) : running ? (
@@ -109,10 +111,7 @@ export function StepRow({
       ) : null}
       <span
         aria-hidden="true"
-        className={cn(
-          "w-2 shrink-0 text-label-xs text-faint",
-          !expandable && "invisible"
-        )}
+        className={cn("w-2 shrink-0 text-faint", !expandable && "invisible")}
       >
         {expanded ? (
           <ChevronDown className="h-3 w-3" />
@@ -136,15 +135,15 @@ export function StepRow({
       data-expandable={expandable ? "true" : "false"}
     >
       {expandable ? (
-        <button
-          type="button"
+        <RowButton
           onClick={onToggle}
           aria-expanded={expanded}
           aria-label={`${label}, ${STATUS_ARIA[step.status]}`}
-          className={ROW_CLASS}
+          // No hover fill: the glyph's mask has to match what is behind it.
+          className={cn(ROW_CLASS, "rounded-sm hover:bg-transparent")}
         >
           {inner}
-        </button>
+        </RowButton>
       ) : (
         <div
           className={cn(ROW_CLASS, "cursor-default")}
@@ -287,7 +286,7 @@ export function LiveDuration({
   return (
     <span
       aria-hidden="true"
-      className="shrink-0 text-label-xs tabular-nums text-muted-foreground"
+      className="shrink-0 text-label-sm tabular-nums text-muted-foreground"
     >
       {formatStepDuration(elapsed)}
     </span>

@@ -216,7 +216,6 @@ const controls = {
       sizing:
         '"{{token}}": pick a size on the control (xs, sm, md, wrap, inline, icon-xs/sm/md) instead of setting height or padding.',
       iconButton: "Use IconButton, which requires a label and shows it.",
-      streamSize: "The stream-* sizes are only for the stream.",
       title:
         "Use IconButton's tooltip or Hint. title= is only for truncated text.",
     },
@@ -269,17 +268,12 @@ const controls = {
               attribute.value,
               context.sourceCode.getScope(attribute)
             );
-          if (prop === "size") {
-            const sizes = strings();
-            if (sizes.some((size) => size.startsWith("stream-"))) {
-              report(attribute, "streamSize");
-            }
-            if (
-              name === "Button" &&
-              sizes.some((size) => size.startsWith("icon-"))
-            ) {
-              report(attribute, "iconButton");
-            }
+          if (
+            prop === "size" &&
+            name === "Button" &&
+            strings().some((size) => size.startsWith("icon-"))
+          ) {
+            report(attribute, "iconButton");
           }
           if (prop !== "className") continue;
           for (const text of strings()) {

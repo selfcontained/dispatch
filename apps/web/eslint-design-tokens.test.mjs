@@ -87,7 +87,6 @@ for (const [jsx, id] of [
   ['<Button className={cn("w-full", open && "!px-1")} />', "sizing"],
   ["<SplitButton className={SIZED} />", "sizing"],
   ['<Button size="icon-sm" />', "iconButton"],
-  ['<Button size="stream-sm" />', "streamSize"],
   ['<IconButton label="Go" title="Go" />', "title"],
 ]) {
   test(`reject ${jsx}`, async () => {

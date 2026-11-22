@@ -105,7 +105,7 @@ it.each([
     expect(button.getAttribute("data-send-now")).toBe(
       interrupt ? "interrupt" : "send-now"
     );
-    expect(button.title).toContain(
+    expect(button.getAttribute("aria-description")).toContain(
       interrupt ? "Stop the current turn" : "Join ongoing work"
     );
     fireEvent.click(button);

@@ -3,6 +3,7 @@ import { sameConversation, type PromptConversation } from "@dispatch/shared";
 import type { Agent } from "@/components/app/types";
 import type { Mentionable } from "@/lib/mentions";
 import { Button } from "@/components/ui/button";
+import { IconButton } from "@/components/ui/icon-button";
 import {
   Popover,
   PopoverContent,
@@ -102,18 +103,15 @@ export function ComposerDelivery({
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <Button
-          type="button"
-          variant="ghost"
-          size="stream-sm"
-          className="h-7 w-7 shrink-0 p-0 text-muted-foreground pointer-coarse:min-h-11 pointer-coarse:min-w-11"
-          aria-label={`Message timing: ${label}`}
+        <IconButton
+          size="icon-sm"
+          label={`Message timing: ${label}`}
+          tooltip={`${modeLabel} · ${label}`}
           aria-description={`${modeLabel} delivery mode. Open to change.`}
-          title={`${modeLabel} · ${label}`}
           data-testid="chat-composer-delivery"
         >
-          <ModeIcon className="h-4 w-4" aria-hidden="true" />
-        </Button>
+          <ModeIcon aria-hidden="true" />
+        </IconButton>
       </PopoverTrigger>
       <PopoverContent
         side="top"
@@ -152,14 +150,14 @@ export function ComposerDelivery({
               key={value}
               type="button"
               variant={mode === value ? "secondary" : "ghost"}
-              size="stream-sm"
+              size="xs"
               aria-pressed={mode === value}
               disabled={value === "interrupt" && interruptUnavailable}
               onClick={() => onMode(value)}
-              className="justify-start gap-2 pointer-coarse:min-h-11"
+              className="justify-start"
               data-testid={`chat-composer-${value}`}
             >
-              <Icon className="h-4 w-4" aria-hidden="true" />
+              <Icon aria-hidden="true" />
               {optionLabel}
             </Button>
           ))}

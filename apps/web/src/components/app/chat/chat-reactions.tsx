@@ -10,7 +10,7 @@ import type { BlockReaction } from "@dispatch/shared";
 import { AnimatePresence, MotionConfig, motion } from "framer-motion";
 import { AlertTriangle, SmilePlus } from "lucide-react";
 
-import { Button } from "@/components/ui/button";
+import { IconButton } from "@/components/ui/icon-button";
 import {
   Popover,
   PopoverContent,
@@ -24,8 +24,7 @@ import { cn } from "@/lib/utils";
  * focused, always shown on touch, and a real tap target there.
  */
 export const POST_ACTION_BUTTON = cn(
-  "h-7 w-7 p-0 hover:bg-transparent",
-  "max-sm:h-11 max-sm:w-11 [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11",
+  "hover:bg-transparent",
   "opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100",
   "max-sm:opacity-100 [@media(pointer:coarse)]:opacity-100"
 );
@@ -73,44 +72,36 @@ export function ReactionPickerButton({
     // A disabled button takes no pointer events, so the tooltip hangs on a
     // wrapper.
     return (
-      <span
-        className="inline-flex"
-        title="Reactions go to the agent, which can't receive them right now."
-        data-testid="chat-add-reaction-disabled"
-      >
-        <Button
-          type="button"
-          variant="ghost"
-          size="stream-icon"
-          className={POST_ACTION_BUTTON}
-          aria-label="Add reaction (unavailable while the agent can't receive messages)"
+      <span className="inline-flex" data-testid="chat-add-reaction-disabled">
+        <IconButton
+          size="icon-sm"
+          className={cn(POST_ACTION_BUTTON, "disabled:pointer-events-auto")}
+          label="Add reaction (unavailable while the agent can't receive messages)"
+          tooltip="Reactions go to the agent, which can't receive them right now."
           disabled
           data-testid="chat-add-reaction"
         >
           <span className={POST_ACTION_FACE}>
-            <SmilePlus className="h-3.5 w-3.5" aria-hidden="true" />
+            <SmilePlus className="size-icon-md" aria-hidden="true" />
           </span>
-        </Button>
+        </IconButton>
       </span>
     );
   }
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <Button
-          type="button"
-          variant="ghost"
-          size="stream-icon"
+        <IconButton
+          size="icon-sm"
           // Stays up while its picker is open, even once the pointer leaves.
           className={cn(POST_ACTION_BUTTON, "data-[state=open]:opacity-100")}
-          title="Add reaction"
-          aria-label="Add reaction"
+          label="Add reaction"
           data-testid="chat-add-reaction"
         >
           <span className={POST_ACTION_FACE}>
-            <SmilePlus className="h-3.5 w-3.5" aria-hidden="true" />
+            <SmilePlus className="size-icon-md" aria-hidden="true" />
           </span>
-        </Button>
+        </IconButton>
       </PopoverTrigger>
       <PopoverContent
         align="end"
@@ -158,18 +149,15 @@ export function ReactionPickerOptions({
       {REACTION_EMOJI.map((emoji, index) => {
         const selected = reacted.has(emoji);
         return (
-          <button
+          <IconButton
             key={emoji}
-            type="button"
-            className={cn(
-              "flex h-8 w-8 animate-reaction-emoji-in items-center justify-center rounded-md text-body-lg leading-none transition-[background-color,transform] hover:scale-110 hover:bg-muted motion-reduce:animate-none motion-reduce:hover:scale-100",
-              "max-sm:h-11 max-sm:w-11 [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11",
-              selected && "bg-surface-selected hover:bg-primary/tint-strong"
-            )}
-            aria-label={
+            className="animate-reaction-emoji-in text-body-lg leading-none text-foreground transition-[background-color,transform] hover:scale-110 motion-reduce:animate-none motion-reduce:hover:scale-100"
+            label={
               selected ? `Remove ${emoji} reaction` : `React with ${emoji}`
             }
-            aria-pressed={selected}
+            // The emoji is its own picture: no tooltip over the next one.
+            tooltip=""
+            pressed={selected}
             data-testid="chat-reaction-option"
             data-emoji={emoji}
             style={{ animationDelay: `${40 + index * 14}ms` }}
@@ -179,7 +167,7 @@ export function ReactionPickerOptions({
             }}
           >
             {emoji}
-          </button>
+          </IconButton>
         );
       })}
     </div>

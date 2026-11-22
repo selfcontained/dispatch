@@ -86,12 +86,12 @@ export function EffortPicker({
             disabled={disabled}
             aria-label={`Effort: ${isDefault ? defaultLabel : label}`}
             variant={compact ? "ghost" : "field"}
-            size={compact ? "stream-meta" : "md"}
+            size={compact ? "xs" : "md"}
             className={cn(
-              "text-label-sm leading-tight disabled:pointer-events-auto",
+              "disabled:pointer-events-auto",
               compact
                 ? "max-w-32 shrink-0"
-                : "w-full flex-col justify-center gap-0.5"
+                : "w-full flex-col justify-center gap-0.5 text-label-sm leading-tight"
             )}
           >
             {!isDefault && selected >= 0 ? (
