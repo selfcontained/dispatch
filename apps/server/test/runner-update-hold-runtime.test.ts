@@ -298,8 +298,11 @@ describe("runner update hold in the runtime queue", () => {
       () => outcome("accepted"),
       () => outcome("rejected")
     );
-    await settle();
-    expect(prepared).toHaveBeenCalledTimes(1);
+    // Refused, then back in the queue.
+    await vi.waitFor(() => {
+      expect(prepared).toHaveBeenCalledTimes(1);
+      expect(holds.counts("r1")).toMatchObject({ prompts: 1 });
+    });
     expect(outcome).not.toHaveBeenCalled();
     expect(built.held.prompts).toEqual([]);
     expect(holds.counts("r1")).toMatchObject({ prompts: 1 });
@@ -335,7 +338,9 @@ describe("runner update hold in the runtime queue", () => {
     });
     const otherStop = runtime.stop("agt_other", false);
     await otherStop;
-    await settle();
+    await vi.waitFor(() =>
+      expect(holds.counts("r1")).toMatchObject({ stops: 1 })
+    );
     expect(operations).toContain("stop:agt_other");
     expect(operations).not.toContain("stop:agt_held");
     expect(stopped).toBe(false);
@@ -357,7 +362,9 @@ describe("runner update hold in the runtime queue", () => {
     const heldDiscard = runtime.discard("agt_other").then(() => {
       discarded = true;
     });
-    await settle();
+    await vi.waitFor(() =>
+      expect(holds.counts("r2")).toMatchObject({ stops: 1 })
+    );
     expect(discarded).toBe(false);
     await holds.release("r2", ATTEMPT, "fence_released");
     await heldDiscard;

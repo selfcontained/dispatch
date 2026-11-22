@@ -215,7 +215,9 @@ describe("runner update holds", () => {
     holds.start();
     await holds.begin("r1", ATTEMPT);
     const released = vi.fn();
+    const releasing = Promise.withResolvers<void>();
     holds.onRelease(released);
+    holds.onRelease(() => releasing.resolve());
     let stopped = false;
     void holds.wait("r1", "stop").then(() => {
       stopped = true;
@@ -224,7 +226,8 @@ describe("runner update holds", () => {
     await vi.advanceTimersByTimeAsync(999);
     expect(released).not.toHaveBeenCalled();
     await vi.advanceTimersByTimeAsync(1);
-    await vi.waitFor(() => expect(released).toHaveBeenCalledTimes(1));
+    await releasing.promise;
+    expect(released).toHaveBeenCalledTimes(1);
     expect(released.mock.calls[0]![0]).toMatchObject({ outcome: "expired" });
     expect(stopped).toBe(true);
     expect(holds.isHeld("r1")).toBe(false);
@@ -242,12 +245,15 @@ describe("runner update holds", () => {
     await second.load();
     const released = vi.fn();
     second.onRelease(released);
+    const releasing = Promise.withResolvers<void>();
+    second.onRelease(() => releasing.resolve());
     // Loading alone opens nothing: boot recovery runs before the bound.
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(released).not.toHaveBeenCalled();
     expect(second.isHeld("r1")).toBe(true);
     second.start();
-    await vi.waitFor(() => expect(released).toHaveBeenCalledTimes(1));
+    await releasing.promise;
+    expect(released).toHaveBeenCalledTimes(1);
     expect(released.mock.calls[0]![0]).toMatchObject({
       outcome: "expired",
       launches: [expect.objectContaining({ agentId: "agt_a" })],

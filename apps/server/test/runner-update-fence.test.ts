@@ -566,12 +566,20 @@ describe("runner update fence", () => {
     await vi.waitFor(() =>
       expect(resultFor("terminal")).toMatchObject({ value: expect.any(String) })
     );
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
     await stagedAndFenced();
     // The terminal is open until its grace period ends, and the boundary
     // is reported only after it was closed with its notice.
-    await new Promise((resolve) => setTimeout(resolve, 200));
+    await vi.advanceTimersByTimeAsync(999);
     expect(child.kill).not.toHaveBeenCalled();
     expect(statuses().at(-1)?.reason).toBe("ready");
+    // Fire it from a macrotask, as a real timer is: the close is a nextTick.
+    await new Promise<void>((resolve) =>
+      setImmediate(() => {
+        vi.advanceTimersByTime(1);
+        resolve();
+      })
+    );
     await vi.waitFor(() =>
       expect(statuses().at(-1)).toMatchObject({ reason: "fence_ready" })
     );

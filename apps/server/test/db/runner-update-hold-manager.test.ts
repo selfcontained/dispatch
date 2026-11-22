@@ -22,6 +22,7 @@ import {
 
 import type { RemoteRunnerService } from "../../src/agents/remote/service.js";
 import type { AgentRuntime, RuntimeLaunch } from "../../src/agents/runtime.js";
+import { trackHoldWork } from "../helpers/hold-work.js";
 import { setupTestDb, teardownTestDb, runTestMigrations } from "./setup.js";
 
 vi.mock("../../src/shared/lib/run-command.js", () => ({
@@ -65,20 +66,21 @@ const noopLogger = {
   level: "silent",
 } as unknown as import("fastify").FastifyBaseLogger;
 
-const testConfig = {
-  host: "127.0.0.1",
-  port: 6767,
-  databaseUrl: "",
-  authToken: "test-token",
-  filesRoot: "/tmp/dispatch-test-files",
-  dispatchBinDir: "/tmp/dispatch-test-bin",
-  codexBin: "/bin/echo",
-  claudeBin: "/bin/echo",
-  opencodeBin: "/bin/opencode",
-  agentStateRoot: "/tmp/dispatch-test-agents",
-  agentRuntime: "acp",
-  tls: null,
-} satisfies import("../../src/config.js").AppConfig;
+const testConfig = (root: string) =>
+  ({
+    host: "127.0.0.1",
+    port: 6767,
+    databaseUrl: "",
+    authToken: "test-token",
+    filesRoot: path.join(root, "files"),
+    dispatchBinDir: path.join(root, "bin"),
+    codexBin: "/bin/echo",
+    claudeBin: "/bin/echo",
+    opencodeBin: "/bin/opencode",
+    agentStateRoot: path.join(root, "agents"),
+    agentRuntime: "acp",
+    tls: null,
+  }) satisfies import("../../src/config.js").AppConfig;
 
 const ATTEMPT = "11111111-1111-4111-8111-111111111111";
 const HELD = "runner://r1/@session";
@@ -88,6 +90,10 @@ let pool: Pool;
 let dir: string;
 let holdsFile: string;
 let opened: InstanceType<typeof RunnerUpdateHolds>[] = [];
+let work = new Map<
+  InstanceType<typeof RunnerUpdateHolds>,
+  ReturnType<typeof trackHoldWork>
+>();
 
 function spyRuntime() {
   let sessions = 0;
@@ -143,6 +149,7 @@ async function openHolds(boundMs?: number) {
     ...(boundMs ? { boundMs } : {}),
   });
   opened.push(holds);
+  work.set(holds, trackHoldWork(holds));
   await holds.load();
   holds.start();
   return holds;
@@ -152,7 +159,7 @@ function managerOn(
   holds: InstanceType<typeof RunnerUpdateHolds>,
   runtime: Spy
 ) {
-  return new AgentManager(pool, noopLogger, testConfig, {
+  return new AgentManager(pool, noopLogger, testConfig(dir), {
     runtime,
     remote,
     holds,
@@ -186,7 +193,11 @@ beforeEach(async () => {
   holdsFile = path.join(dir, "holds.json");
 });
 afterEach(async () => {
+  vi.useRealTimers();
   for (const holds of opened.splice(0)) holds.close();
+  // A released launch saves its outcome after the agent already reads running.
+  for (const tracked of work.values()) await tracked.settled();
+  work.clear();
   await rm(dir, { recursive: true, force: true });
 });
 
@@ -219,9 +230,8 @@ describe("launches on a runner held for an update", () => {
     expect(await statusOf(local.id)).toBe("running");
 
     await holds.release("r1", ATTEMPT, "committed");
-    await vi.waitFor(async () =>
-      expect(await statusOf(held.id)).toBe("running")
-    );
+    await work.get(holds)!.settled();
+    expect(await statusOf(held.id)).toBe("running");
     expect(launchesFor(runtime, held.id)).toEqual([
       [
         expect.objectContaining({
@@ -230,11 +240,9 @@ describe("launches on a runner held for an update", () => {
         }),
       ],
     ]);
-    await vi.waitFor(() =>
-      expect(
-        promptsFor(runtime, held.id).filter((p) => p.includes("held work"))
-      ).toHaveLength(1)
-    );
+    expect(
+      promptsFor(runtime, held.id).filter((p) => p.includes("held work"))
+    ).toHaveLength(1);
     expect(holds.counts("r1").launches).toBe(0);
   });
 
@@ -265,18 +273,13 @@ describe("launches on a runner held for an update", () => {
     expect(runtime.attach).not.toHaveBeenCalledWith(held.id);
 
     await holds.release("r1", ATTEMPT, "rolled_back");
-    await vi.waitFor(async () =>
-      expect(await statusOf(held.id)).toBe("running")
-    );
+    await work.get(holds)!.settled();
+    expect(await statusOf(held.id)).toBe("running");
     expect(launchesFor(runtime, held.id)).toHaveLength(1);
     expect(launchesFor(before, held.id)).toHaveLength(0);
-    await vi.waitFor(() =>
-      expect(
-        promptsFor(runtime, held.id).filter((p) =>
-          p.includes("survives restart")
-        )
-      ).toHaveLength(1)
-    );
+    expect(
+      promptsFor(runtime, held.id).filter((p) => p.includes("survives restart"))
+    ).toHaveLength(1);
   });
 
   it("lets a stop during the hold cancel the launch", async () => {
@@ -292,7 +295,7 @@ describe("launches on a runner held for an update", () => {
     expect(holds.counts("r1").launches).toBe(0);
 
     await holds.release("r1", ATTEMPT, "committed");
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await work.get(holds)!.settled();
     expect(launchesFor(runtime, held.id)).toHaveLength(0);
     expect(await statusOf(held.id)).toBe("stopped");
   });
@@ -308,7 +311,7 @@ describe("launches on a runner held for an update", () => {
       held.id,
     ]);
     await holds.release("r1", ATTEMPT, "committed");
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await work.get(holds)!.settled();
     expect(launchesFor(runtime, held.id)).toHaveLength(0);
   });
 
@@ -329,15 +332,12 @@ describe("launches on a runner held for an update", () => {
     expect(holds.counts("r1").launches).toBe(1);
 
     await holds.release("r1", ATTEMPT, "fence_released");
-    await vi.waitFor(async () =>
-      expect(await statusOf(agent.id)).toBe("running")
-    );
+    await work.get(holds)!.settled();
+    expect(await statusOf(agent.id)).toBe("running");
     expect(launchesFor(runtime, agent.id)).toHaveLength(2);
-    await vi.waitFor(() =>
-      expect(
-        promptsFor(runtime, agent.id).filter((p) => p.includes("refused once"))
-      ).toHaveLength(1)
-    );
+    expect(
+      promptsFor(runtime, agent.id).filter((p) => p.includes("refused once"))
+    ).toHaveLength(1);
   });
 
   it("fails any other launch error under a hold, as before", async () => {
@@ -366,7 +366,7 @@ describe("launches on a runner held for an update", () => {
       agent.id,
     ]);
     await holds.release("r1", ATTEMPT, "committed");
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await work.get(holds)!.settled();
     expect(launchesFor(runtime, agent.id)).toHaveLength(1);
     expect(await statusOf(agent.id)).toBe("stopped");
   });
@@ -393,11 +393,13 @@ describe("launches on a runner held for an update", () => {
     });
     const stop = manager.stopAgent(agent.id);
     await inside;
+    const serialize = vi.spyOn(manager as any, "serializeLifecycle");
     await holds.release("r1", ATTEMPT, "committed");
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    // Queued behind the stop before the stop may finish.
+    expect(serialize).toHaveBeenCalledWith(agent.id, expect.any(Function));
     proceed();
     await stop;
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    await work.get(holds)!.settled();
     expect(await statusOf(agent.id)).toBe("stopped");
     expect(launchesFor(runtime, agent.id)).toHaveLength(1);
   });
@@ -427,9 +429,8 @@ describe("launches on a runner held for an update", () => {
     expect((await manager.startAgent(agent.id)).status).toBe("creating");
     expect(holds.counts("r1").launches).toBe(1);
     await holds.release("r1", ATTEMPT, "committed");
-    await vi.waitFor(async () =>
-      expect(await statusOf(agent.id)).toBe("running")
-    );
+    await work.get(holds)!.settled();
+    expect(await statusOf(agent.id)).toBe("running");
     expect(launchesFor(runtime, agent.id)).toHaveLength(3);
   });
 
@@ -442,7 +443,7 @@ describe("launches on a runner held for an update", () => {
     await manager.beginArchive(held.id);
     expect(holds.counts("r1").launches).toBe(0);
     await holds.release("r1", ATTEMPT, "committed");
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await work.get(holds)!.settled();
     expect(launchesFor(runtime, held.id)).toHaveLength(0);
   });
 
@@ -463,7 +464,7 @@ describe("launches on a runner held for an update", () => {
       .then(() => {
         done = true;
       });
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await Promise.race([work.get(holds)!.blocked, archive]);
     expect(done).toBe(false);
     expect(runtime.stop).not.toHaveBeenCalled();
     expect(holds.counts("r1").stops).toBe(1);
@@ -497,8 +498,8 @@ describe("launches on a runner held for an update", () => {
         created = true;
         return agent;
       });
-    await vi.waitFor(() => expect(holds.isHeld("r1")).toBe(true));
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await Promise.race([work.get(holds)!.blocked, creating]);
+    expect(holds.isHeld("r1")).toBe(true);
     expect(created).toBe(false);
     expect(runtime.stop).not.toHaveBeenCalled();
     await holds.release("r1", ATTEMPT, "committed");
@@ -526,9 +527,8 @@ describe("launches on a runner held for an update", () => {
     expect(launchesFor(runtime, agent.id)).toHaveLength(1);
 
     await holds.release("r1", ATTEMPT, "committed");
-    await vi.waitFor(async () =>
-      expect(await statusOf(agent.id)).toBe("running")
-    );
+    await work.get(holds)!.settled();
+    expect(await statusOf(agent.id)).toBe("running");
     expect(launchesFor(runtime, agent.id).at(-1)).toEqual([
       expect.objectContaining({ resumeSessionId: "sess_1" }),
     ]);
@@ -548,7 +548,7 @@ describe("launches on a runner held for an update", () => {
     });
     await manager.stopAgent(other.id);
     expect(runtime.stop).toHaveBeenCalledWith(other.id, false);
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await Promise.race([work.get(holds)!.blocked, stopping]);
     expect(done).toBe(false);
     expect(runtime.stop).not.toHaveBeenCalledWith(held.id, false);
     expect(await statusOf(held.id)).toBe("running");
@@ -570,7 +570,8 @@ describe("launches on a runner held for an update", () => {
       await holds.begin("r1", ATTEMPT);
       const stopping = manager.stopAgent(agent.id);
       const outcome = stopping.catch((err: Error) => err);
-      await vi.waitFor(() => expect(holds.counts("r1").stops).toBe(1));
+      await Promise.race([work.get(holds)!.blocked, outcome]);
+      expect(holds.counts("r1").stops).toBe(1);
       if (status === "archiving") await manager.beginArchive(agent.id, "keep");
       else if (status === "deleted")
         await pool.query("UPDATE agents SET deleted_at = NOW() WHERE id = $1", [
@@ -695,7 +696,8 @@ describe("launches on a runner held for an update", () => {
       onComplete: vi.fn(),
       onError: vi.fn(),
     });
-    await vi.waitFor(() => expect(holds.counts("r1").stops).toBe(1));
+    await Promise.race([work.get(holds)!.blocked, archiving]);
+    expect(holds.counts("r1").stops).toBe(1);
     await pool.query("UPDATE agents SET deleted_at = NOW() WHERE id = $1", [
       agent.id,
     ]);
@@ -714,7 +716,8 @@ describe("launches on a runner held for an update", () => {
       await holds.begin("r1", ATTEMPT);
     });
     const stopping = manager.stopAgent(agent.id);
-    await vi.waitFor(() => expect(holds.isHeld("r1")).toBe(true));
+    await Promise.race([work.get(holds)!.blocked, stopping]);
+    expect(holds.isHeld("r1")).toBe(true);
     await manager.beginArchive(agent.id, "keep");
     await holds.release("r1", ATTEMPT, "committed");
     expect(await stopping).toMatchObject({ status: "archiving" });
@@ -766,8 +769,8 @@ describe("launches on a runner held for an update", () => {
           .filter(({ kind }) => kind === "checkoutCommand")
           .map(({ operation }) => operation.checkout);
       const ending = end(manager, agent.id);
-      await vi.waitFor(() => expect(holds.isHeld("r1")).toBe(true));
-      await new Promise((resolve) => setTimeout(resolve, 50));
+      await Promise.race([work.get(holds)!.blocked, ending]);
+      expect(holds.isHeld("r1")).toBe(true);
       expect(hookRequests()).toEqual(["launch"]);
       await holds.release("r1", ATTEMPT, "committed");
       await ending;
@@ -779,13 +782,18 @@ describe("launches on a runner held for an update", () => {
     const holds = await openHolds(300);
     const runtime = spyRuntime();
     const manager = managerOn(holds, runtime);
+    const expired = Promise.withResolvers<string>();
+    holds.onRelease(({ outcome }) => expired.resolve(outcome));
+    // Otherwise the bound races the launch it is meant to hold.
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     await holds.begin("r1", ATTEMPT);
     const held = await manager.createAgent({ cwd: HELD });
     expect(launchesFor(runtime, held.id)).toHaveLength(0);
-    await vi.waitFor(
-      async () => expect(await statusOf(held.id)).toBe("running"),
-      { timeout: 3000 }
-    );
+    await vi.advanceTimersByTimeAsync(300);
+    vi.useRealTimers();
+    expect(await expired.promise).toBe("expired");
+    await work.get(holds)!.settled();
+    expect(await statusOf(held.id)).toBe("running");
     expect(holds.isHeld("r1")).toBe(false);
     expect(launchesFor(runtime, held.id)).toHaveLength(1);
   });

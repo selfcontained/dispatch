@@ -363,15 +363,25 @@ describe("candidate compatibility probe", () => {
   it("kills descendants when the probe exceeds the deadline", async () => {
     const dir = await mkdtemp(path.join(tmpdir(), "runner-probe-timeout-"));
     const marker = path.join(dir, "survived");
+    const go = path.join(dir, "go");
     try {
       await expect(
         readRunnerCompatibility(
           "/bin/sh",
-          ["-c", '(sleep 0.3; touch "$1") & wait', "probe", marker],
+          [
+            "-c",
+            // Only once told to, so a late kill cannot look like a survivor.
+            '(until [ -f "$2" ]; do [ -d "$3" ] || exit; sleep 0.02; done; touch "$1") & wait',
+            "probe",
+            marker,
+            go,
+            dir,
+          ],
           compatibility.version,
           100
         )
       ).rejects.toThrow("timed out");
+      await writeFile(go, "");
       await delay(350);
       await expect(stat(marker)).rejects.toMatchObject({ code: "ENOENT" });
     } finally {

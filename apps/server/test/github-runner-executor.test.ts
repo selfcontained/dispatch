@@ -7,12 +7,20 @@ import {
   rm,
   writeFile,
 } from "node:fs/promises";
+import { once } from "node:events";
 import os from "node:os";
 import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { expect, it, vi } from "vitest";
 import { GitHubRunnerExecutor } from "../src/agents/remote/github-runner-executor.js";
 import { runnerGitArgs } from "../src/agents/remote/runner.js";
+
+/** The running sign-in printed its code, or ended without one. */
+async function codeShown(executor: GitHubRunnerExecutor) {
+  const login = executor["login"];
+  while (login && !login.code && executor["login"] === login)
+    await Promise.race([once(login.child.stderr!, "data"), login.finished]);
+}
 
 async function fixture(
   run: (input: {
@@ -193,7 +201,22 @@ esac
       undefined,
       privateHome
     );
-    await run({ executor, root, gh, env });
+    const commands = new Set<Promise<unknown>>();
+    const runCommand = executor["runCommand"].bind(executor);
+    executor["runCommand"] = (...args) => {
+      const command = runCommand(...args);
+      commands.add(command);
+      const forget = () => commands.delete(command);
+      command.then(forget, forget);
+      return command;
+    };
+    try {
+      await run({ executor, root, gh, env });
+    } finally {
+      // Sign-in and prefetched pages outlive the calls that started them.
+      await executor["stopLogin"]();
+      while (commands.size) await Promise.allSettled([...commands]);
+    }
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -218,8 +241,24 @@ it("invalidates in-flight repository searches and prevents cache refills during 
   await fixture(async ({ executor, root }) => {
     const signal = new AbortController().signal;
     const flag = (name: string) => writeFile(path.join(root, name), "");
-    const waitForFlag = (name: string) =>
-      vi.waitFor(() => access(path.join(root, name)));
+    /** The command wrote its marker, unless it ended without doing so. */
+    const waitForFlag = async (name: string, command: Promise<unknown>) => {
+      let ended = false;
+      const end = () => (ended = true);
+      command.then(end, end);
+      for (;;) {
+        const last = ended;
+        if (
+          await access(path.join(root, name)).then(
+            () => true,
+            () => false
+          )
+        )
+          return;
+        if (last) throw new Error(`ended before ${name}`);
+        await delay(20);
+      }
+    };
     const search = () =>
       executor.handle(
         { type: "repositorySearch", query: "org/project" },
@@ -229,9 +268,9 @@ it("invalidates in-flight repository searches and prevents cache refills during 
     await Promise.all([flag("hold-repositories"), flag("hold-logout")]);
 
     const beforeLogout = search().catch((error: unknown) => error);
-    await waitForFlag("repository-search-started");
+    await waitForFlag("repository-search-started", beforeLogout);
     const logout = executor.handle({ type: "logout" }, signal);
-    await waitForFlag("logout-started");
+    await waitForFlag("logout-started", logout);
     const duringLogout = search().catch((error: unknown) => error);
     await flag("release-repositories");
     await flag("release-logout");
@@ -253,7 +292,17 @@ it("returns the first twelve matches while a later repository page is pending", 
       new AbortController().signal
     );
     try {
-      const result = await Promise.race([search, delay(1500, null)]);
+      const result = await search;
+      const pageTwo = executor["repositories"]!.pages.get(2)!;
+      expect(
+        await Promise.race([
+          pageTwo.then(
+            () => "ended",
+            () => "ended"
+          ),
+          new Promise((resolve) => setImmediate(resolve, "pending")),
+        ])
+      ).toBe("pending");
       expect(result).toMatchObject({
         repositories: expect.arrayContaining([
           {
@@ -332,24 +381,23 @@ it("completes a device login without setting a global credential helper", async 
     try {
       expect(await handle("status")).toEqual({ status: "signed-out" });
       expect(await handle("login")).toMatchObject({ status: "pending" });
-      await vi.waitFor(async () =>
-        expect(await handle("status")).toEqual({
-          status: "pending",
-          code: "ABCD-1234",
-          verificationUrl: "https://github.com/login/device",
-        })
-      );
+      await codeShown(executor);
+      expect(await handle("status")).toEqual({
+        status: "pending",
+        code: "ABCD-1234",
+        verificationUrl: "https://github.com/login/device",
+      });
       expect(await handle("login")).toMatchObject({
         status: "pending",
         code: "ABCD-1234",
       });
+      const authorized = executor["login"]!.finished;
       await writeFile(path.join(root, "authorize"), "");
-      await vi.waitFor(async () =>
-        expect(await handle("status")).toEqual({
-          status: "signed-in",
-          login: "fixture-user",
-        })
-      );
+      await authorized;
+      expect(await handle("status")).toEqual({
+        status: "signed-in",
+        login: "fixture-user",
+      });
       expect(
         await readFile(path.join(root, ".gitconfig"), "utf8")
       ).not.toContain("credential");
@@ -553,31 +601,30 @@ it("clears pending device codes on cancel, disconnect and failed authorization",
       executor.handle({ type }, controller.signal);
     const pending = async () => {
       await handle("login");
-      await vi.waitFor(async () =>
-        expect(await handle("status")).toMatchObject({
-          status: "pending",
-          code: "ABCD-1234",
-        })
-      );
+      await codeShown(executor);
+      expect(await handle("status")).toMatchObject({
+        status: "pending",
+        code: "ABCD-1234",
+      });
     };
     try {
       await pending();
       expect(await handle("cancel")).toEqual({ status: "signed-out" });
       await pending();
+      const disconnected = executor["login"]!.finished;
       controller.abort();
       controller = new AbortController();
-      await vi.waitFor(async () =>
-        expect(await handle("status")).toEqual({ status: "signed-out" })
-      );
+      await disconnected;
+      expect(await handle("status")).toEqual({ status: "signed-out" });
       await pending();
+      const rejected = executor["login"]!.finished;
       await writeFile(path.join(root, "reject"), "");
-      await vi.waitFor(async () =>
-        expect(await handle("status")).toEqual({
-          status: "failed",
-          message:
-            "GitHub device authorization did not finish. Start sign-in again.",
-        })
-      );
+      await rejected;
+      expect(await handle("status")).toEqual({
+        status: "failed",
+        message:
+          "GitHub device authorization did not finish. Start sign-in again.",
+      });
     } finally {
       controller.abort();
     }
@@ -594,21 +641,20 @@ it("returns the device code and signs out with the Ubuntu 22.04 single-account C
         "gh version 2.4.0+dfsg1 (Ubuntu)"
       );
       await executor.handle({ type: "login" }, connection.signal);
-      await vi.waitFor(async () =>
-        expect(
-          await executor.handle({ type: "status" }, connection.signal)
-        ).toMatchObject({
-          status: "pending",
-          code: "ABCD-1234",
-          verificationUrl: "https://github.com/login/device",
-        })
-      );
+      await codeShown(executor);
+      expect(
+        await executor.handle({ type: "status" }, connection.signal)
+      ).toMatchObject({
+        status: "pending",
+        code: "ABCD-1234",
+        verificationUrl: "https://github.com/login/device",
+      });
+      const authorized = executor["login"]!.finished;
       await writeFile(path.join(root, "authorize"), "");
-      await vi.waitFor(async () =>
-        expect(
-          await executor.handle({ type: "status" }, connection.signal)
-        ).toMatchObject({ status: "signed-in" })
-      );
+      await authorized;
+      expect(
+        await executor.handle({ type: "status" }, connection.signal)
+      ).toMatchObject({ status: "signed-in" });
       expect(
         await executor.handle({ type: "logout" }, connection.signal)
       ).toMatchObject({ status: "signed-out" });

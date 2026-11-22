@@ -101,6 +101,7 @@ async function controller(socket: string, stateRoot: string) {
     holds,
   });
   expect(await runtime.attach(id)).toBe(true);
+  const deliveries: ReturnType<typeof runtime.prompt>[] = [];
   const service = new ScheduledMessageService(
     pool,
     {
@@ -111,7 +112,11 @@ async function controller(socket: string, stateRoot: string) {
         text: string,
         source: never,
         opts: never
-      ) => runtime.prompt(agentId, text, source, opts),
+      ) => {
+        const delivery = runtime.prompt(agentId, text, source, opts);
+        deliveries.push(delivery);
+        return delivery;
+      },
     } as unknown as AgentManager,
     {
       scheduledNoticeOutcome: async () => {},
@@ -123,7 +128,13 @@ async function controller(socket: string, stateRoot: string) {
     { warn: () => {} }
   );
   cleanup.push(() => service.stop());
-  return { holds, runtime, service };
+  /** Every submitted occurrence settled, and the service recorded it. */
+  async function delivered() {
+    await Promise.all(deliveries.map(({ settled }) => settled));
+    // The service queues its bookkeeping in the agent's order as each settles.
+    await service["serial"](id, async () => {});
+  }
+  return { holds, runtime, service, delivered };
 }
 
 async function host() {
@@ -141,30 +152,28 @@ const recurring = () => ({
   stop_when: "Deployment complete",
   max_deliveries: 20,
 });
-const settle = () => new Promise((resolve) => setTimeout(resolve, 100));
 
 describe("scheduled occurrences on a held runner", () => {
   it("keeps one pending occurrence across recurring ticks and delivers it once on release", async () => {
     const { prompts, socket, stateRoot } = await host();
-    const { holds, service } = await controller(socket, stateRoot);
+    const { holds, service, delivered } = await controller(socket, stateRoot);
     await holds.begin("r1", ATTEMPT);
     const s = await service.create(id, recurring());
     const due = Date.parse(s.deliverAt);
 
     await service.tick(due);
-    await settle();
     const first = (await service.list(id))[0]!.outstanding!;
     expect(first.phase).toBe("pending");
     expect(holds.counts("r1")).toMatchObject({ scheduled: 1 });
 
     await service.tick(due + 15 * 60 * 1000);
-    await settle();
+    expect(holds.counts("r1")).toMatchObject({ scheduled: 1 });
     const later = (await service.list(id))[0]!.outstanding!;
     expect(later).toMatchObject({ id: first.id, phase: "pending", ticks: 4 });
     expect(prompts).toEqual([]);
 
     await holds.release("r1", ATTEMPT, "committed");
-    await settle();
+    await delivered();
     expect(prompts).toHaveLength(1);
     expect(prompts[0]!.text).toContain("Schedule ID: " + s.id);
     const after = (await service.list(id))[0]!;
@@ -173,17 +182,17 @@ describe("scheduled occurrences on a held runner", () => {
 
   it("expires a held occurrence and never sends it", async () => {
     const { prompts, socket, stateRoot } = await host();
-    const { holds, service } = await controller(socket, stateRoot);
+    const { holds, service, delivered } = await controller(socket, stateRoot);
     await holds.begin("r1", ATTEMPT);
     const s = await service.create(id, recurring());
     await service.tick(Date.parse(s.deliverAt));
-    await settle();
+    expect(holds.counts("r1")).toMatchObject({ scheduled: 1 });
     await pool.query(
       "UPDATE scheduled_messages SET payload=jsonb_set(payload,'{expiresAt}',to_jsonb($2::text)) WHERE id=$1",
       [s.id, new Date(Date.now() - 1).toISOString()]
     );
     await service.tick();
-    await settle();
+    await delivered();
     expect((await service.list(id))[0]!).toMatchObject({
       status: "expired",
       outstanding: null,
@@ -191,7 +200,7 @@ describe("scheduled occurrences on a held runner", () => {
     expect(holds.counts("r1")).toMatchObject({ scheduled: 0 });
 
     await holds.release("r1", ATTEMPT, "committed");
-    await settle();
+    await delivered();
     expect(prompts).toEqual([]);
   });
 
@@ -201,7 +210,7 @@ describe("scheduled occurrences on a held runner", () => {
     await before.holds.begin("r1", ATTEMPT);
     const s = await before.service.create(id, recurring());
     await before.service.tick(Date.parse(s.deliverAt));
-    await settle();
+    expect(before.holds.counts("r1")).toMatchObject({ scheduled: 1 });
     const pending = (await before.service.list(id))[0]!.outstanding!;
     // The old process dies holding it in memory; its hold is never released.
     before.service.stop();
@@ -212,7 +221,7 @@ describe("scheduled occurrences on a held runner", () => {
     await after.service.start();
     after.service.stop();
     await after.service.tick();
-    await settle();
+    expect(after.holds.counts("r1")).toMatchObject({ scheduled: 1 });
     expect((await after.service.list(id))[0]!.outstanding).toMatchObject({
       id: pending.id,
       phase: "pending",
@@ -220,7 +229,7 @@ describe("scheduled occurrences on a held runner", () => {
     expect(prompts).toEqual([]);
 
     await after.holds.release("r1", ATTEMPT, "rolled_back");
-    await settle();
+    await after.delivered();
     expect(prompts).toHaveLength(1);
     expect((await after.service.list(id))[0]!.deliveredCount).toBe(1);
   });
