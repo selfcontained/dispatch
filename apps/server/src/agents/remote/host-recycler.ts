@@ -100,11 +100,13 @@ export class RunnerHostRecycler {
     if (!active()) return;
     const old = this.deps
       .hosts(update.runnerId)
-      .filter((host) => host.build?.revision !== update.revision);
-    run.old = new Set([...run.inFlight, ...old.map((host) => host.agentId)]);
+      .filter(
+        (host) =>
+          host.build?.revision && host.build.revision !== update.revision
+      );
+    run.old = new Set(old.map((host) => host.agentId));
     for (const host of old) {
       if (
-        !host.build?.revision ||
         !host.instanceId ||
         !host.quiesceSupported ||
         run.inFlight.has(host.agentId)

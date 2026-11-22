@@ -1,6 +1,7 @@
 import type { FastifyBaseLogger } from "fastify";
 import { afterEach, expect, it, vi } from "vitest";
 import { RunnerHostRecycler } from "../src/agents/remote/host-recycler.js";
+import type { RunnerHostIdentity } from "../src/agents/runtime.js";
 
 afterEach(() => vi.useRealTimers());
 
@@ -97,4 +98,49 @@ it("stops a running pass before settling it", async () => {
   expect(recycler.progress("r1")).not.toBeNull();
   await recycler.stopAndSettle("r1");
   expect(recycler.progress("r1")).toBeNull();
+});
+
+it("counts only hosts that report a different revision from the confirmed build", async () => {
+  vi.useFakeTimers();
+  const confirmed = { version: "1.7.29", revision: "b".repeat(40) };
+  const previous = { version: "1.7.28", revision: "a".repeat(40) };
+  const hosts: RunnerHostIdentity[] = [];
+  const recycle = vi.fn(async () => false);
+  const recycler = new RunnerHostRecycler({
+    hosts: () => hosts,
+    recycle,
+    logger: { warn: vi.fn() } as unknown as FastifyBaseLogger,
+  });
+  recycler.start({
+    runnerId: "r1",
+    attemptId: "11111111-1111-4111-8111-111111111111",
+    revision: confirmed.revision,
+    sha256: "c".repeat(64),
+  });
+
+  const fresh = {
+    agentId: "agt_fresh",
+    instanceId: "01234567-89ab-4cde-8fab-0123456789ab",
+    quiesceSupported: true,
+  };
+  hosts.push(fresh);
+  await vi.advanceTimersByTimeAsync(5_000);
+  expect(recycler.progress("r1")?.oldBuild).toBe(0);
+  expect(recycle).not.toHaveBeenCalled();
+
+  hosts[0] = { ...fresh, build: confirmed };
+  hosts.push({ ...fresh, agentId: "agt_old", build: previous });
+  await vi.advanceTimersByTimeAsync(5_000);
+  expect(recycler.progress("r1")).toEqual({
+    oldBuild: 1,
+    waiting: 1,
+    recycled: 0,
+  });
+  expect(recycle.mock.calls).toHaveLength(1);
+  expect(recycle).toHaveBeenCalledWith(
+    expect.anything(),
+    expect.objectContaining({ agentId: "agt_old" }),
+    expect.any(Function)
+  );
+  recycler.stop("r1");
 });
