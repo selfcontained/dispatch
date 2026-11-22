@@ -8,11 +8,7 @@ import {
 } from "@/components/ui/tooltip";
 
 import { ACTIVITY_COLORS, type ActivityCategory } from "./activity-category";
-import {
-  ACTIVITY_LABELS,
-  type DefragFill,
-  type DefragGlow,
-} from "./response-placeholder";
+import { ACTIVITY_LABELS, type DefragFill } from "./response-placeholder";
 
 export type FillShare = { category: ActivityCategory; count: number };
 
@@ -73,7 +69,7 @@ export function FillCount({
   glow,
 }: {
   fills: DefragFill[];
-  glow?: DefragGlow;
+  glow?: boolean;
 }): JSX.Element {
   const [open, setOpen] = useState(false);
   const openAtPress = useRef(false);
@@ -128,7 +124,11 @@ export function FillCount({
             </span>
           </span>
         </TooltipTrigger>
-        <TooltipContent side="top" className="min-w-40" data-glow={glow}>
+        <TooltipContent
+          side="top"
+          className="min-w-40"
+          data-glow={glow ? "halo-soft" : undefined}
+        >
           <div className="space-y-1 text-[11px]">
             <div className="font-medium">{times}</div>
             {mix.slice(0, 5).map((share) => (

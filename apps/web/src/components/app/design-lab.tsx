@@ -1,4 +1,3 @@
-import { NeonGlowPreview } from "./neon-glow-preview";
 import { SimulatedDefragTurn } from "./simulated-defrag-turn";
 import { useSearchParams } from "react-router-dom";
 import { CompactionComparison } from "./compaction-comparison";
@@ -50,19 +49,17 @@ export function DesignLab(): JSX.Element {
   const { theme, setTheme } = useTheme();
   const [params, setParams] = useSearchParams();
   const scene =
-    params.get("neon-glows") === "1"
-      ? "neon"
-      : params.get("turn-demo") === "1"
-        ? "turn"
-        : params.get("activity-defrag") === "1"
-          ? "activity"
-          : params.get("fill-count") === "1"
-            ? "fills"
-            : "compaction";
+    params.get("turn-demo") === "1"
+      ? "turn"
+      : params.get("activity-defrag") === "1"
+        ? "activity"
+        : params.get("fill-count") === "1"
+          ? "fills"
+          : "compaction";
   return (
     <div className="bg-background min-h-full p-4 md:p-8">
       <div className="mx-auto max-w-4xl space-y-6">
-        <h1 className="text-2xl font-semibold">Design Studio · Defrag</h1>
+        <h1 className="text-2xl font-semibold">Design Lab · Defrag</h1>
         <ThemePicker theme={theme} setTheme={setTheme} />
         <Tabs
           activationMode="manual"
@@ -71,8 +68,6 @@ export function DesignLab(): JSX.Element {
             setParams((previous) => {
               const next = new URLSearchParams(previous);
               next.delete("turn-demo");
-              if (value === "neon") next.set("neon-glows", "1");
-              else next.delete("neon-glows");
               if (value === "turn") next.set("turn-demo", "1");
               if (value === "activity") next.set("activity-defrag", "1");
               else next.delete("activity-defrag");
@@ -82,19 +77,12 @@ export function DesignLab(): JSX.Element {
             })
           }
         >
-          <TabsList
-            aria-label="Defrag studies"
-            className="grid h-auto w-full max-w-full grid-cols-2 gap-1 lg:flex lg:w-fit"
-          >
-            <TabsTrigger value="neon">Neon glows</TabsTrigger>
+          <TabsList aria-label="Defrag studies">
             <TabsTrigger value="turn">Simulated turn</TabsTrigger>
             <TabsTrigger value="compaction">Compaction</TabsTrigger>
             <TabsTrigger value="activity">Activity</TabsTrigger>
             <TabsTrigger value="fills">Fill count</TabsTrigger>
           </TabsList>
-          <TabsContent value="neon" className="mt-6">
-            <NeonGlowPreview />
-          </TabsContent>
           <TabsContent value="turn" className="mt-6">
             <SimulatedDefragTurn />
           </TabsContent>

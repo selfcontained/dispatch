@@ -1,4 +1,4 @@
-import "./neon-preview.css";
+import "./activity-glow.css";
 import {
   useCallback,
   useEffect,
@@ -126,9 +126,10 @@ export function defragCells(
   seed: string,
   categories: ActivityCategory[],
   repackAt: ReadonlySet<number> = new Set(),
-  slots = DEFAULT_SLOTS
+  slots = DEFAULT_SLOTS,
+  previousFills: DefragFill[] = []
 ): DefragCell[] {
-  return defragHistory(seed, categories, repackAt, slots).cells;
+  return defragHistory(seed, categories, repackAt, slots, previousFills).cells;
 }
 
 /** One time the grid filled up and scattered for a new pass. */
@@ -142,17 +143,21 @@ export function defragHistory(
   seed: string,
   categories: ActivityCategory[],
   repackAt: ReadonlySet<number> = new Set(),
-  slots = DEFAULT_SLOTS
+  slots = DEFAULT_SLOTS,
+  previousFills: DefragFill[] = []
 ): { cells: DefragCell[]; fills: DefragFill[] } {
   const fills: DefragFill[] = [];
   const r = rng(seedOf(seed));
   const count = Math.round(slots * (0.62 + r() * 0.14));
+  const previousMix = previousFills.at(-1)?.categories;
   const cells: DefragCell[] = Array.from({ length: count }, (_, id) => ({
     id,
     slot: 0,
-    rest: weighted(r),
+    rest:
+      previousMix?.[Math.floor((id * previousMix.length) / count)] ??
+      weighted(r),
   }));
-  let pass = -1;
+  let pass = previousFills.length - 1;
   let pr = rng(0);
   let unsorted = new Set<number>();
   let bySlot = new Map<number, DefragCell>();
@@ -391,35 +396,58 @@ export function ResponsePlaceholder({
   const categoryKey = pieces
     .map((piece) => `${piece.compaction ? "compact:" : ""}${piece.category}`)
     .join(",");
+  const modes = useMemo(
+    () => (categoryKey ? categoryKey.split(",") : []),
+    [categoryKey]
+  );
+  const reducedLayout = useMemo(() => {
+    const cache = new Map<number, DefragCell[]>();
+    return (slots: number, count: number) => {
+      let cells = cache.get(slots);
+      if (!cells) {
+        cells = defragCells(
+          seed,
+          Array(count).fill("checks"),
+          undefined,
+          slots
+        );
+        cache.set(slots, cells);
+      }
+      return cells;
+    };
+  }, [seed]);
   const buildLayout = useCallback(
-    (slots: number): DefragLayout => {
-      const modes = categoryKey ? categoryKey.split(",") : [];
+    (slots: number, previous: FillHistory) => {
+      const count = Math.round(slots * (0.62 + rng(seedOf(seed))() * 0.14));
+      const history = advanceFillHistory(previous, modes, count);
+      // A narrower grid can show only the tail of an unfinished pass.
+      const offset = Math.max(history.passStart, modes.length - count);
+      const active = modes.slice(offset);
       const starts = new Set(
-        modes.flatMap((mode, i) =>
-          mode.startsWith("compact:") && !modes[i - 1]?.startsWith("compact:")
+        active.flatMap((mode, i) =>
+          mode.startsWith("compact:") &&
+          !modes[offset + i - 1]?.startsWith("compact:")
             ? [i]
             : []
         )
       );
-      const layout = defragHistory(
+      const cells = defragCells(
         seed,
-        modes.map((mode) => mode.replace("compact:", "") as ActivityCategory),
+        active.map((mode) => mode.replace("compact:", "") as ActivityCategory),
         starts,
-        slots
+        slots,
+        history.fills
       );
+      for (const cell of cells)
+        if (cell.step !== undefined) cell.step += offset;
       return {
-        ...layout,
-        reducedCells: compactionId
-          ? defragCells(
-              seed,
-              Array.from({ length: layout.cells.length }, () => "checks"),
-              undefined,
-              slots
-            )
-          : undefined,
+        cells,
+        fills: history.fills,
+        history,
+        reducedCells: compactionId ? reducedLayout(slots, count) : undefined,
       };
     },
-    [seed, categoryKey, compactionId]
+    [seed, modes, compactionId, reducedLayout]
   );
   const sum = useActivitySum(steps);
   return (
@@ -436,23 +464,58 @@ export function ResponsePlaceholder({
   );
 }
 
+type FillHistory = {
+  processed: number;
+  passStart: number;
+  runStart: number;
+  fills: DefragFill[];
+};
+const INITIAL_HISTORY: FillHistory = {
+  processed: 0,
+  passStart: 0,
+  runStart: 0,
+  fills: [],
+};
+
+function advanceFillHistory(
+  previous: FillHistory,
+  modes: string[],
+  count: number
+): FillHistory {
+  if (previous.processed === modes.length) return previous;
+  let { runStart, passStart, fills } = previous;
+  for (let i = previous.processed; i < modes.length; i++) {
+    if (
+      modes[i]!.startsWith("compact:") &&
+      !modes[i - 1]?.startsWith("compact:")
+    ) {
+      runStart = i;
+    } else if (i - runStart >= count) {
+      const categories = modes
+        .slice(runStart, i)
+        .map((mode) => mode.replace("compact:", "") as ActivityCategory);
+      fills = [...fills, { categories }];
+      passStart = runStart = i;
+    }
+  }
+  return { processed: modes.length, passStart, runStart, fills };
+}
+
 type DefragLayout = {
   cells: DefragCell[];
-  pieces?: ResponsePiece[];
+  history?: FillHistory;
   fills?: DefragFill[];
   reducedCells?: DefragCell[];
 };
 const EMPTY_LAYOUT: DefragLayout = { cells: [] };
 const EMPTY_FILLS: DefragFill[] = [];
 
-export type DefragGlow = "halo" | "halo-tight" | "halo-soft";
-
 /** Shared presentation for live turns and the Design Studio. */
 export function ResponsePlaceholderVisual({
   cells: suppliedCells,
   buildLayout,
   quiet = false,
-  pieces: suppliedPieces,
+  pieces,
   arrivalKeys,
   textLength = 0,
   onShowProgress,
@@ -461,14 +524,12 @@ export function ResponsePlaceholderVisual({
   reducedCells: suppliedReducedCells,
   statusLabel = "Preparing response",
   fills: suppliedFills,
-  glow = "halo-soft",
 }: {
-  glow?: DefragGlow;
   /** What the turn has done so far, in place of the progress link. */
   summary?: string;
   reserveSummary?: boolean;
   cells?: DefragCell[];
-  buildLayout?: (slots: number) => DefragLayout;
+  buildLayout?: (slots: number, previous: FillHistory) => DefragLayout;
   quiet?: boolean;
   pieces: ResponsePiece[];
   arrivalKeys?: ReadonlySet<string>;
@@ -481,8 +542,10 @@ export function ResponsePlaceholderVisual({
 }): JSX.Element {
   const gridRef = useRef<HTMLDivElement>(null);
   const usesMeasuredCapacity = buildLayout !== undefined;
-  const [measuredColumns, setMeasuredColumns] = useState(MIN_COLUMNS);
-  const columns = usesMeasuredCapacity ? measuredColumns : MIN_COLUMNS;
+  const [measuredColumns, setMeasuredColumns] = useState<number | null>(null);
+  const columns = usesMeasuredCapacity
+    ? (measuredColumns ?? MIN_COLUMNS)
+    : MIN_COLUMNS;
   const [animatedColumns, setAnimatedColumns] = useState(MIN_COLUMNS);
   const reflowing = columns !== animatedColumns;
   useEffect(() => {
@@ -497,11 +560,22 @@ export function ResponsePlaceholderVisual({
       cancelAnimationFrame(restoredFrame);
     };
   }, [columns, reflowing]);
-  const layout = useMemo(
-    () => buildLayout?.(columns * ROWS) ?? EMPTY_LAYOUT,
-    [buildLayout, columns]
+  const [history, setHistory] = useChatRowState(
+    "defrag-fills",
+    INITIAL_HISTORY
   );
-  const pieces = layout.pieces ?? suppliedPieces;
+  const layout = useMemo(
+    () => buildLayout?.(columns * ROWS, history) ?? EMPTY_LAYOUT,
+    [buildLayout, columns, history]
+  );
+  useLayoutEffect(() => {
+    if (
+      measuredColumns !== null &&
+      layout.history &&
+      layout.history !== history
+    )
+      setHistory(layout.history);
+  }, [measuredColumns, layout.history, history, setHistory]);
   const newest = pieces.length - 1;
   const cells = suppliedCells ?? layout.cells;
   const fills = suppliedFills ?? layout.fills ?? EMPTY_FILLS;
@@ -515,13 +589,13 @@ export function ResponsePlaceholderVisual({
   const cellSize = `clamp(0px, calc(100cqw / ${columns} - ${CELL_GAP}px), ${MAX_CELL_SIZE}px)`;
   useLayoutEffect(() => {
     const grid = gridRef.current;
-    if (!usesMeasuredCapacity || !grid || typeof ResizeObserver === "undefined")
-      return;
+    if (!usesMeasuredCapacity || !grid) return;
     const updateColumns = (width: number) => {
       setMeasuredColumns(Math.max(MIN_COLUMNS, Math.floor(width / ROW_PITCH)));
     };
-    // Measure before the first paint, including when a preview preset remounts.
+    // Measure before the first paint, before committing the first fill history.
     updateColumns(grid.getBoundingClientRect().width);
+    if (typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver(([entry]) => {
       if (entry) updateColumns(entry.contentRect.width);
     });
@@ -589,7 +663,7 @@ export function ResponsePlaceholderVisual({
 
   return (
     <div
-      data-glow={glow}
+      data-glow="halo-soft"
       data-testid="chat-response-placeholder"
       className={`dispatch-placeholder ${quiet ? "" : "dispatch-placeholder-chase"} relative mt-3 w-full rounded-lg md:max-w-md border border-border/60 bg-muted/10 overflow-clip px-2.5 pt-2 ${hasFooter ? "pb-1" : "pb-2"} ${reducedCells ? "dispatch-defrag-reduced" : ""}`}
     >
@@ -714,7 +788,7 @@ export function ResponsePlaceholderVisual({
           {label && (
             <TooltipContent
               side="top"
-              data-glow={glow}
+              data-glow="halo-soft"
               data-neon-tooltip=""
               style={
                 {
@@ -732,7 +806,7 @@ export function ResponsePlaceholderVisual({
       </TooltipProvider>
       {hasFooter ? (
         <div className="relative mt-0.5 flex min-h-4 items-center gap-2 text-[10px] leading-4">
-          {fills.length > 0 && <FillCount fills={fills} glow={glow} />}
+          {fills.length > 0 && <FillCount fills={fills} glow />}
           {summary || reserveSummary ? (
             // The line's room is held from the start, so the counts fading in
             // move nothing.

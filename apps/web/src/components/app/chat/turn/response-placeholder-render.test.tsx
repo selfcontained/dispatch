@@ -687,3 +687,67 @@ it("reserves a new turn's grid before starting the activity animation", () => {
   act(() => vi.advanceTimersByTime(850));
   expect(view.container.querySelector("[data-defrag-cell]")).toBeTruthy();
 });
+
+it("keeps a completed narrow fill while later activity fills the wider grid", () => {
+  let resize!: (width: number) => void;
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      constructor(
+        callback: (entries: { contentRect: { width: number } }[]) => void
+      ) {
+        resize = (width) => callback([{ contentRect: { width } }]);
+      }
+      observe() {}
+      disconnect() {}
+    }
+  );
+  const seed = "neon-comparison";
+  const cache = new Map<string, unknown>();
+  const reads: Step[] = Array.from({ length: 116 }, (_, i) => ({
+    id: String(i),
+    kind: "read",
+    label: "Read",
+    status: "running",
+    startedAt: i,
+  }));
+  const show = (steps: Step[]) => (
+    <ChatRowStateContext.Provider value={cache}>
+      <ResponsePlaceholder seed={seed} steps={steps} />
+    </ChatRowStateContext.Provider>
+  );
+  const view = render(show(reads));
+  const fills = () =>
+    (cache.get("defrag-fills") as { fills: { categories: string[] }[] }).fills;
+  const narrow = defragCells(seed, []).length;
+  const wide = defragCells(seed, [], undefined, 212).length;
+  const first = { categories: Array(narrow).fill("read") };
+  expect(fills()).toEqual([first]);
+  act(() => resize(424));
+  expect(view.getByTestId("chat-response-fill-count").textContent).toContain(
+    "×1"
+  );
+  const edits: Step[] = Array.from({ length: narrow + wide - 116 }, (_, i) => ({
+    id: "edit-" + i,
+    kind: "edit",
+    label: "Edit",
+    status: "running",
+    startedAt: i + 116,
+  }));
+  view.rerender(show([...reads, ...edits]));
+  expect(fills()).toEqual([first]);
+  view.rerender(show([...reads, ...edits, { ...reads[0]!, id: "last" }]));
+  expect(fills()).toEqual([
+    first,
+    {
+      categories: [
+        ...Array(116 - narrow).fill("read"),
+        ...Array(edits.length).fill("edit"),
+      ],
+    },
+  ]);
+  act(() => resize(256));
+  expect(view.getByTestId("chat-response-fill-count").textContent).toContain(
+    "×2"
+  );
+});

@@ -1,16 +1,4 @@
 /* Share each glow across cells, fill swatches and category tooltips. */
-[data-glow="halo"] {
-  --neon-edge: 30%;
-  --neon-near: 5px;
-  --neon-far: 12px;
-  --neon-strength: 65%;
-}
-[data-glow="halo-tight"] {
-  --neon-edge: 40%;
-  --neon-near: 3px;
-  --neon-far: 7px;
-  --neon-strength: 55%;
-}
 [data-glow="halo-soft"] {
   --neon-edge: 20%;
   --neon-near: 6px;
@@ -30,17 +18,5 @@
 @media (prefers-reduced-motion: reduce) {
   [data-glow].dispatch-defrag-reduced [data-defrag-cell] > [data-neon-swatch] {
     --neon-color: var(--defrag-packed-tone);
-  }
-}
-
-.neon-comparison {
-  container: neon-comparison / inline-size;
-}
-.neon-comparison-grid {
-  grid-template-columns: minmax(0, 1fr);
-}
-@container neon-comparison (min-width: 48rem) {
-  .neon-comparison-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
