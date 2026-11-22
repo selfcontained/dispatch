@@ -517,6 +517,35 @@ describe("failure after interruption", () => {
     expect(continuations(fine)).toHaveLength(1);
     expect(broken.prompts).toEqual([]);
   });
+
+  it.each([false, true])(
+    "refuses a resume that returns a new session ID (reported as resumed: %s)",
+    async (reportedResumed) => {
+      const busy = await world.agent();
+      const { sessionId } = busy;
+      const row = async () =>
+        (
+          await pool.query("SELECT cli_session_id FROM agents WHERE id = $1", [
+            busy.id,
+          ])
+        ).rows[0].cli_session_id;
+      await world.working(busy);
+      await force();
+      await world.activated();
+      busy.resumeFails = !reportedResumed;
+      busy.sessionId = "sess_new";
+      world.swap();
+      await world.until(() => world.entry(busy.id)?.failedAt);
+      expect(busy.alive).toBe(false);
+      expect(await row()).toBe(sessionId);
+      expect(world.entry(busy.id)?.sessionId).toBe(sessionId);
+      world.advance(UPDATE_TIMING.resumeRetryMs);
+      await finished();
+      expect(await statusOf(busy.id)).toBe("error");
+      expect(await row()).toBe(sessionId);
+      expect(busy.prompts).toEqual([]);
+    }
+  );
 });
 
 describe("hosts that go down untidily", () => {

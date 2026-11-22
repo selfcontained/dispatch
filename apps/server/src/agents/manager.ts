@@ -3543,6 +3543,10 @@ export class AgentManager {
       !this.stoppingOrArchiving.has(entry.id) &&
       remotePlacement(agent.cwd)?.runner === runnerId &&
       Boolean(agent.cliSessionId) &&
+      // A resume never moves the row's ID, so the receipt's stays good. Claude
+      // and Codex can open a new session when a resume fails, but this launch
+      // passes `requireResume`: the runtime refuses a host that didn't resume
+      // the same ID, before `startAgentClaimed` writes the row.
       (entry.sessionId === undefined || agent.cliSessionId === entry.sessionId)
     );
   }
