@@ -957,23 +957,7 @@ export class AgentManager {
   ): Promise<Buffer> {
     const placement = remotePlacement(agent.cwd);
     if (!placement) {
-      const { rows } = await this.pool.query<{ id: string; files_dir: string }>(
-        `SELECT id, files_dir FROM agents
-          WHERE id <> $1 AND files_dir IS NOT NULL
-            AND files_dir <> ($2 || '/' || id)`,
-        [agent.id, this.config.filesRoot]
-      );
-      return this.localRunner.collectSessionFile(agent.id, filePath, {
-        root: this.config.filesRoot,
-        ownDir: resolveFilesDir(
-          agent.id,
-          agent.filesDir,
-          this.config.filesRoot
-        ),
-        otherDirs: rows.map((row) =>
-          resolveFilesDir(row.id, row.files_dir, this.config.filesRoot)
-        ),
-      });
+      return this.localRunner.collectSessionFile(agent.id, filePath);
     }
     if (!this.remote || !isSessionFilePath(filePath))
       throw new AgentError("Invalid runner session file path.", 400);

@@ -1038,13 +1038,6 @@
   {
     "file": "apps/server/src/agents/local-runner.ts",
     "kind": "R2 host import",
-    "detail": "apps/server/src/files/session-file",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/agents/local-runner.ts",
-    "kind": "R2 host import",
     "detail": "apps/server/src/projects/resolve-root",
     "task": "T04",
     "count": 1

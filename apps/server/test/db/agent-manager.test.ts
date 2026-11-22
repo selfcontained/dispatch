@@ -7,6 +7,7 @@ import * as gitContext from "../../src/shared/git/git-context.js";
 import { upsertPersona } from "../../src/personas/authoring.js";
 import { execFileSync } from "node:child_process";
 import {
+  link,
   mkdir,
   mkdtemp,
   readFile,
@@ -255,6 +256,57 @@ beforeEach(async () => {
 });
 
 describe("AgentManager", () => {
+  it.each([
+    { name: "another agent's file", source: null },
+    { name: "a hard link", source: "linked.txt", hardLink: true },
+    { name: "a 21 MiB file", source: "large.txt", size: 21 * 1024 * 1024 },
+    { name: "a path with dot-dot", source: "files/../note.txt" },
+    { name: "a backslash name", source: "back\\slash.txt" },
+    { name: "a file under the state root", source: "hosts/note.txt" },
+  ])("collects $name from the local filesystem", async (fixture) => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "dispatch-local-file-"));
+    const filesRoot = path.join(root, "files");
+    const agentStateRoot = path.join(root, "hosts");
+    const localManager = new AgentManager(
+      pool,
+      noopLogger,
+      { ...testConfig, filesRoot, agentStateRoot },
+      { runtime }
+    );
+    try {
+      const agent = await localManager.createAgent({
+        cwd: root,
+        useWorktree: false,
+      });
+      await mkdir(agentStateRoot, { recursive: true });
+
+      // Keep the original path so the dot-dot case reaches the filesystem.
+      let source: string;
+      if (fixture.source === null) {
+        const other = await localManager.createAgent({
+          cwd: root,
+          useWorktree: false,
+        });
+        source = path.join(other.filesDir!, "note.txt");
+      } else {
+        source = `${root}/${fixture.source}`;
+      }
+      const bytes = Buffer.alloc(fixture.size ?? 32, "a");
+      if (fixture.hardLink) {
+        const original = path.join(root, "original.txt");
+        await writeFile(original, bytes);
+        await link(original, source);
+      } else {
+        await writeFile(source, bytes);
+      }
+
+      const collected = await localManager.collectSessionFile(agent, source);
+      expect(collected.equals(bytes)).toBe(true);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("delivers a registered native composer text file through the built-in runner", async () => {
     const agent = await manager.createAgent({
       cwd: "/tmp",
