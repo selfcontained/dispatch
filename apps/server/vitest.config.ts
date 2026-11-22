@@ -24,6 +24,20 @@ process.on("exit", () => {
   rmSync(codexHome, { recursive: true, force: true });
 });
 
+// `loadConfig()` resolves the files root (and diagnostics, release stores, TLS
+// material, the server dir) from `DISPATCH_STATE_DIR`, falling back to the real
+// `~/.dispatch` (see src/state-dir.ts). Route tests that create agents through
+// a config built from it were mkdir-ing `<state>/files/<agent id>` in the
+// machine's real install directory on every run (~220 empty directories per
+// full run). Point the whole suite at a per-run temp state dir so no test can
+// write to the real home.
+const stateDir = mkdtempSync(
+  path.join(os.tmpdir(), "dispatch-server-vitest-state-")
+);
+process.on("exit", () => {
+  rmSync(stateDir, { recursive: true, force: true });
+});
+
 export default defineConfig({
   test: {
     globals: true,
@@ -31,6 +45,7 @@ export default defineConfig({
     hookTimeout: 30_000,
     env: {
       CODEX_HOME: codexHome,
+      DISPATCH_STATE_DIR: stateDir,
     },
     include: ["test/**/*.test.ts"],
     exclude: [
