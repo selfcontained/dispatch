@@ -55,24 +55,23 @@ export async function inspectAgentCheckout(
     query,
   };
   const placement = remotePlacement(agent.cwd);
-  let reply: unknown;
   if (placement) {
     if (!remote)
       throw new AgentError("The agent’s runner is unavailable.", 409);
     const { value } = await remote.requestSession(placement, operation);
     if (typeof value !== "string")
       throw new AgentError("Missing runner checkout response.", 502);
+    let reply: unknown;
     try {
       reply = JSON.parse(value);
     } catch {
       throw new AgentError("Malformed runner checkout response.", 502);
     }
-  } else {
-    reply = await inspectLocalCheckout(agent, operation);
+    if (!isCheckoutReply(reply, query))
+      throw new AgentError("Invalid runner checkout response.", 502);
+    return reply;
   }
-  if (!isCheckoutReply(reply, query))
-    throw new AgentError("Invalid runner checkout response.", 502);
-  return reply;
+  return inspectLocalCheckout(agent, operation);
 }
 
 /** Resolve the launch placement from the requester, never the display parent. */

@@ -303,6 +303,17 @@ describe("native executor base", () => {
     }
   });
 
+  it("lists an untracked nested repository for a native owner review like main", async () => {
+    put(checkout, "inner/work.txt", "nested work");
+    git(path.join(checkout, "inner"), "init", "-q");
+    const reply = await inspectAgentCheckout(agent() as AgentRecord, {
+      kind: "changes",
+      baseBranch: "main",
+    });
+    expect(reply).toMatchObject({ kind: "changes" });
+    expect(reply.kind === "changes" && reply.files).toContain("inner/");
+  });
+
   it("ignores a recorded runner base and falls back like main", async () => {
     git(repo, "branch", "trunk");
     git(checkout, "fetch", "origin", "trunk");
