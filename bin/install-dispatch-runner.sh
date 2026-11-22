@@ -766,21 +766,26 @@ update_runner() {
     maintenance_step=start
     error "New runner failed to start. Restored the previous release"
   fi
-  local previous_sha previous_revision previous_compatibility
+  local previous_sha previous_version='' previous_revision='' previous_compatibility previous_record
   install -o root -g root -d -m 0700 "$state/update"
-  previous_sha=$(sha256sum "$runtime/previous")
-  previous_sha=${previous_sha%% *}
-  previous_revision=
+  # The replaced binary names itself, whether or not its release was indexed.
   if previous_compatibility=$("$runtime/previous" runner-update-compatibility 2>/dev/null); then
+    previous_version=$(sed -nE 's/.*"version":"([0-9][0-9A-Za-z.+-]{0,63})".*/\1/p' <<< "$previous_compatibility")
     previous_revision=$(sed -nE 's/.*"revision":"([0-9a-f]{40})".*/\1/p' <<< "$previous_compatibility")
   fi
-  previous_revision=${previous_revision:-unknown}
-  local previous_record
-  previous_record=$(mktemp "$state/update/.previous-verified.XXXXXX")
-  printf '{"version":"%s","revision":"%s","sha256":"%s"}\n' \
-    "${installed#v}" "$previous_revision" "$previous_sha" > "$previous_record"
-  sync -f "$previous_record"
-  mv -fT "$previous_record" "$state/update/previous-verified.json"
+  if [[ -n "$previous_version" && -n "$previous_revision" ]]; then
+    previous_sha=$(sha256sum "$runtime/previous")
+    previous_record=$(mktemp "$state/update/.previous-verified.XXXXXX")
+    printf '{"version":"%s","revision":"%s","sha256":"%s"}\n' \
+      "$previous_version" "$previous_revision" "${previous_sha%% *}" > "$previous_record"
+    sync -f "$previous_record"
+    mv -fT "$previous_record" "$state/update/previous-verified.json"
+  else
+    # A build from before that command cannot be named. The record would
+    # otherwise describe whichever build was retained before it.
+    rm -f -- "$state/update/previous-verified.json"
+    printf 'Not recording previous-verified.json: the replaced runner cannot report its identity.\n'
+  fi
   sync -f "$state/update"
   if [[ ! "$runtime/previous" -ef "$runtime/previous-verified" ]]; then
     mv -fT "$runtime/previous" "$runtime/previous-verified"

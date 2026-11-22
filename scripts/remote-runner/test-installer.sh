@@ -261,8 +261,13 @@ for version in 1.0.0 1.0.1; do
   release="$root/releases/v$version"
   mkdir -p "$release"
   for arch in x64 arm64; do
-    cat > "$root/archive/dist/bun/dispatch-$version-bun-linux-$arch" <<'RUNNER'
-#!/usr/bin/env bash
+    binary="$root/archive/dist/bun/dispatch-$version-bun-linux-$arch"
+    printf '#!/usr/bin/env bash\nversion=%s\n' "$version" > "$binary"
+    cat >> "$binary" <<'RUNNER'
+if [[ "$*" == runner-update-compatibility ]]; then
+  printf '{"version":"%s","revision":"%040d","handoff":{"reads":[1,2],"writes":2}}\n' "$version" 7
+  exit 0
+fi
 [[ "$*" == 'connect --service https://dispatch.example' ]] || exit 1
 printf 'fixture-key\n' > "$settings/key.pem"
 printf 'fixture-cert\n' > "$settings/cert.pem"
@@ -562,6 +567,26 @@ for key in "$installed_key" "${installed_key#*:}"; do
   grep -Fq 'Refusing to downgrade Dispatch runner from v1.0.1 to v1.0.0. Use --allow-downgrade to proceed' "$fixture_root/err" || fail
   cmp "$fixture_root/self-updated-bytes" "$fixture_root/runtime/dispatch" || fail
 done
+unset fixture_root
+
+# previous-verified.json carries the replaced binary's own identity, or is
+# absent when that binary cannot report one.
+fixture_root="$root/previous-identity"
+mkdir -p "$fixture_root"
+ln -s "$root/releases" "$fixture_root/releases"
+ln -s "$root/public.pem" "$fixture_root/public.pem"
+run install v1.0.0 x64 --dedicated-user
+printf 'unreadable\n' > "$fixture_root/runtime/installed-release"
+replaced_sha=$(sha256sum "$fixture_root/runtime/dispatch")
+run update v1.0.1 x64 --allow-downgrade
+[[ "$(<"$fixture_root/state/update/previous-verified.json")" == \
+   "{\"version\":\"1.0.0\",\"revision\":\"$(printf '%040d' 7)\",\"sha256\":\"${replaced_sha%% *}\"}" ]] || fail
+printf '#!/usr/bin/env bash\nexit 1\n' > "$fixture_root/runtime/dispatch"
+cp "$fixture_root/runtime/dispatch" "$fixture_root/unidentified"
+run update v1.0.0 x64 --allow-downgrade > "$fixture_root/out"
+[[ ! -e "$fixture_root/state/update/previous-verified.json" ]] || fail
+grep -Fq 'Not recording previous-verified.json' "$fixture_root/out" || fail
+cmp "$fixture_root/unidentified" "$fixture_root/runtime/previous-verified" || fail
 unset fixture_root
 
 # Start a phase-2 layout. The new supervisor's first start must see both
