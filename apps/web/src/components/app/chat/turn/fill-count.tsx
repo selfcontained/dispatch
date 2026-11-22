@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useRef, useState, type CSSProperties } from "react";
 
 import {
   Tooltip,
@@ -8,7 +8,11 @@ import {
 } from "@/components/ui/tooltip";
 
 import { ACTIVITY_COLORS, type ActivityCategory } from "./activity-category";
-import { ACTIVITY_LABELS, type DefragFill } from "./response-placeholder";
+import {
+  ACTIVITY_LABELS,
+  type DefragFill,
+  type DefragGlow,
+} from "./response-placeholder";
 
 export type FillShare = { category: ActivityCategory; count: number };
 
@@ -64,7 +68,13 @@ const color = (category: ActivityCategory) =>
  * blocks grouped by what those laps were made of. Hover, focus or tap for the
  * breakdown.
  */
-export function FillCount({ fills }: { fills: DefragFill[] }): JSX.Element {
+export function FillCount({
+  fills,
+  glow,
+}: {
+  fills: DefragFill[];
+  glow?: DefragGlow;
+}): JSX.Element {
   const [open, setOpen] = useState(false);
   const openAtPress = useRef(false);
   const mix = fillMix(fills);
@@ -103,21 +113,37 @@ export function FillCount({ fills }: { fills: DefragFill[] }): JSX.Element {
                 <span
                   key={i}
                   data-category={category}
+                  data-neon-swatch={glow ? "" : undefined}
                   className="block h-[5px] w-1 rounded-[1px]"
-                  style={{ background: color(category) }}
+                  style={
+                    {
+                      background: color(category),
+                      "--neon-color": glow
+                        ? ACTIVITY_COLORS[category]
+                        : undefined,
+                    } as CSSProperties
+                  }
                 />
               ))}
             </span>
           </span>
         </TooltipTrigger>
-        <TooltipContent side="top" className="min-w-40">
+        <TooltipContent side="top" className="min-w-40" data-glow={glow}>
           <div className="space-y-1 text-[11px]">
             <div className="font-medium">{times}</div>
             {mix.slice(0, 5).map((share) => (
               <div key={share.category} className="flex items-center gap-1.5">
                 <span
+                  data-neon-swatch={glow ? "" : undefined}
                   className="h-2 w-2 rounded-[1.5px]"
-                  style={{ background: color(share.category) }}
+                  style={
+                    {
+                      background: color(share.category),
+                      "--neon-color": glow
+                        ? ACTIVITY_COLORS[share.category]
+                        : undefined,
+                    } as CSSProperties
+                  }
                 />
                 <span className="flex-1">
                   {ACTIVITY_LABELS[share.category]}

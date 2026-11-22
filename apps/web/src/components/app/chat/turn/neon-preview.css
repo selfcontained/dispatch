@@ -1,46 +1,39 @@
-/* Explicit preview opt-in: no change to the chat default. */
-[data-glow] [data-category] > span {
+/* Preview variants share their glow between the grid and both fill swatches. */
+[data-glow="halo"] {
+  --neon-edge: 30%;
+  --neon-near: 5px;
+  --neon-far: 12px;
+  --neon-strength: 65%;
+}
+[data-glow="halo-tight"] {
+  --neon-edge: 40%;
+  --neon-near: 3px;
+  --neon-far: 7px;
+  --neon-strength: 55%;
+}
+[data-glow="halo-soft"] {
+  --neon-edge: 20%;
+  --neon-near: 6px;
+  --neon-far: 16px;
+  --neon-strength: 48%;
+}
+[data-glow] [data-neon-swatch] {
   box-shadow:
-    inset 0 0 0 0.5px color-mix(in srgb, white 55%, var(--neon-color)),
-    0 0 3px var(--neon-color),
-    0 0 6px color-mix(in srgb, var(--neon-color) 65%, transparent);
+    inset 0 0 0 0.5px
+      color-mix(in srgb, white var(--neon-edge), var(--neon-color)),
+    0 0 var(--neon-near) var(--neon-color),
+    0 0 var(--neon-far)
+      color-mix(in srgb, var(--neon-color) var(--neon-strength), transparent);
 }
-[data-glow="halo"] [data-category] > span {
-  box-shadow:
-    inset 0 0 0 0.5px color-mix(in srgb, white 30%, var(--neon-color)),
-    0 0 5px var(--neon-color),
-    0 0 12px color-mix(in srgb, var(--neon-color) 65%, transparent);
+
+.neon-comparison {
+  container: neon-comparison / inline-size;
 }
-[data-glow="bloom"] [data-category] > span {
-  box-shadow:
-    inset 0 0 0 0.6px color-mix(in srgb, white 65%, var(--neon-color)),
-    0 0 4px var(--neon-color);
+.neon-comparison-grid {
+  grid-template-columns: minmax(0, 1fr);
 }
-[data-glow="bloom"] .dispatch-defrag-ack::after {
-  content: "";
-  display: block;
-  height: 100%;
-  border-radius: inherit;
-  animation: neon-preview-bloom 1800ms ease-out both;
-}
-@keyframes neon-preview-bloom {
-  0%,
-  65% {
-    opacity: 0;
-  }
-  76% {
-    opacity: 1;
-    box-shadow:
-      0 0 5px 1px var(--neon-color),
-      0 0 12px 2px var(--neon-color);
-  }
-  100% {
-    opacity: 0;
-    box-shadow: 0 0 4px var(--neon-color);
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  [data-glow="bloom"] .dispatch-defrag-ack::after {
-    animation: none;
+@container neon-comparison (min-width: 48rem) {
+  .neon-comparison-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }

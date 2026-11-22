@@ -18,21 +18,23 @@ const categories: ActivityCategory[] = [
   "dev",
   "other",
 ];
+const seed = "neon-comparison";
+const firstFill = defragHistory(seed, []).cells.length;
 const treatments = [
-  {
-    glow: "tube",
-    title: "Tight tube",
-    description: "Bright core, crisp edge and a tight halo.",
-  },
   {
     glow: "halo",
     title: "Diffuse halo",
-    description: "A wider wash of category-colored light.",
+    description: "The original category-colored halo.",
   },
   {
-    glow: "bloom",
-    title: "Landing bloom",
-    description: "Flares on landing, then holds a lit edge.",
+    glow: "halo-tight",
+    title: "Tight halo",
+    description: "A tighter halo with clearer cell edges.",
+  },
+  {
+    glow: "halo-soft",
+    title: "Soft halo",
+    description: "A wider halo with a softer fade.",
   },
 ] as const;
 
@@ -44,10 +46,13 @@ export function NeonGlowPreview() {
     if (!playing) return;
     const timer = window.setInterval(() => setTick((value) => value + 1), 2200);
     return () => window.clearInterval(timer);
-  }, [playing]);
+  }, [playing, replay]);
   return (
-    <section aria-label="Neon glow comparison" className="min-w-0 space-y-4">
-      <h2 className="text-xl font-semibold">Three neon glows</h2>
+    <section
+      aria-label="Neon glow comparison"
+      className="neon-comparison min-w-0 space-y-4"
+    >
+      <h2 className="text-xl font-semibold">Diffuse halo variations</h2>
       <p className="text-sm text-muted-foreground">
         Preview only. Compare the same placements in sparse and dense activity.
         Pause to inspect the settled glow; hover or tap a placed group for its
@@ -82,7 +87,7 @@ export function NeonGlowPreview() {
           : "Paused · settled glow remains lit"}{" "}
         · Placement {tick}
       </p>
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+      <div className="neon-comparison-grid grid gap-4">
         {treatments.map(({ glow, title, description }) => (
           <div
             key={`${glow}-${replay}`}
@@ -93,7 +98,7 @@ export function NeonGlowPreview() {
             <p className="text-xs text-muted-foreground">{description}</p>
             {[
               { label: "Sparse", base: 4 },
-              { label: "Dense", base: 72 },
+              { label: "Dense", base: firstFill + 72 },
             ].map(({ label, base }) => {
               const pieces = Array.from({ length: base + tick }, (_, i) => ({
                 key: `neon-${i}`,
@@ -101,7 +106,7 @@ export function NeonGlowPreview() {
                 label: `Activity ${i + 1}`,
               }));
               const { cells, fills } = defragHistory(
-                "neon-comparison",
+                seed,
                 pieces.map((piece) => piece.category)
               );
               return (

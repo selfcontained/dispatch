@@ -432,6 +432,8 @@ export function ResponsePlaceholder({
 }
 
 /** Shared presentation: the lab varies events, never the chat's frame or palette. */
+export type DefragGlow = "halo" | "halo-tight" | "halo-soft";
+
 export function ResponsePlaceholderVisual({
   cells,
   quiet = false,
@@ -447,7 +449,7 @@ export function ResponsePlaceholderVisual({
   glow,
 }: {
   /** Opt-in visual study; production keeps its existing treatment. */
-  glow?: "tube" | "halo" | "bloom";
+  glow?: DefragGlow;
   /** What the turn has done so far, in place of the progress link. */
   summary?: string;
   reserveSummary?: boolean;
@@ -527,7 +529,7 @@ export function ResponsePlaceholderVisual({
     <div
       data-glow={glow}
       data-testid="chat-response-placeholder"
-      className={`dispatch-placeholder ${quiet ? "" : "dispatch-placeholder-chase"} relative mt-3 w-full max-w-md rounded-lg border border-border/60 bg-muted/10 px-4 py-3.5 ${reducedCells ? "dispatch-defrag-reduced" : ""}`}
+      className={`dispatch-placeholder ${quiet ? "" : "dispatch-placeholder-chase"} relative mt-3 w-full max-w-md rounded-lg border border-border/60 bg-muted/10 ${glow ? "overflow-clip px-2.5 py-2" : "px-4 py-3.5"} ${reducedCells ? "dispatch-defrag-reduced" : ""}`}
     >
       {/* The status region holds only the picture; the peek control sits
           beside it, so its changing count is never announced. */}
@@ -591,7 +593,9 @@ export function ResponsePlaceholderVisual({
                         style={
                           {
                             "--neon-color":
-                              ACTIVITY_COLORS[c.category ?? c.rest],
+                              glow && c.category
+                                ? ACTIVITY_COLORS[c.category]
+                                : undefined,
                             width: `${100 / COLS}%`,
                             height: CELL_H,
                             transform: place(c.slot),
@@ -615,6 +619,7 @@ export function ResponsePlaceholderVisual({
                       >
                         <span
                           key={c.step ?? "rest"}
+                          data-neon-swatch={glow && c.category ? "" : undefined}
                           className={`block h-full rounded-[1.5px] transition-[background-color] duration-500 motion-reduce:transition-none ${piece && arrivalKeys?.has(piece.key) ? "dispatch-defrag-ack" : ""}`}
                           style={{
                             background: c.category
@@ -650,7 +655,7 @@ export function ResponsePlaceholderVisual({
       reserveSummary ||
       fills.length > 0 ? (
         <div className="relative mt-2.5 flex min-h-[14px] items-center gap-2">
-          {fills.length > 0 && <FillCount fills={fills} />}
+          {fills.length > 0 && <FillCount fills={fills} glow={glow} />}
           {summary || reserveSummary ? (
             // The line's room is held from the start, so the counts fading in
             // move nothing.
