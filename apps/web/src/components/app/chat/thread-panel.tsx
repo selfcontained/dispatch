@@ -430,7 +430,7 @@ export function ThreadPanel({
             <Button
               type="button"
               variant="ghost"
-              size="icon"
+              size="stream-icon"
               className="h-8 w-8 shrink-0"
               aria-label="Back to the channel"
               data-testid="chat-thread-close"
@@ -470,7 +470,7 @@ export function ThreadPanel({
             <Button
               type="button"
               variant="ghost"
-              size="icon"
+              size="stream-icon"
               className="h-7 w-7 shrink-0"
               aria-label="Close thread"
               data-testid="chat-thread-close"
@@ -497,8 +497,7 @@ export function ThreadPanel({
             </span>
             <Button
               type="button"
-              size="sm"
-              variant="default"
+              size="stream-sm"
               className="h-6 shrink-0 px-2 text-body-sm"
               onClick={thread.refetch}
             >

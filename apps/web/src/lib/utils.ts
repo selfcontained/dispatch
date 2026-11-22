@@ -34,6 +34,7 @@ const twMerge = extendTailwindMerge({
           ],
         },
       ],
+      size: [{ size: ["icon-sm", "icon-md", "icon-lg"] }],
       "font-size": [
         {
           text: [

@@ -1,6 +1,6 @@
 import React from "react";
 import { Pin, PinOff } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { IconButton } from "@/components/ui/icon-button";
 
 import { AgentMeta } from "@/components/app/agent-meta";
 import { AgentCardActions } from "@/components/app/agent-card-actions";
@@ -144,12 +144,9 @@ function AgentCardImpl({
   }, [nativeDragHandlers]);
 
   const pinControl = onTogglePin ? (
-    <Button
-      variant="ghost"
-      size="icon"
-      className="h-9 w-9 shrink-0 rounded-full p-0 text-muted-foreground [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11"
-      aria-label={isPinned ? "Unpin session" : "Pin session"}
-      title={isPinned ? "Unpin session" : "Pin session"}
+    <IconButton
+      className="rounded-full"
+      label={isPinned ? "Unpin session" : "Pin session"}
       data-agent-control="true"
       data-testid={`agent-pin-toggle-${agent.id}`}
       aria-pressed={isPinned}
@@ -162,7 +159,7 @@ function AgentCardImpl({
           <Pin className="h-3.5 w-3.5" />
         )}
       </span>
-    </Button>
+    </IconButton>
   ) : null;
 
   return (

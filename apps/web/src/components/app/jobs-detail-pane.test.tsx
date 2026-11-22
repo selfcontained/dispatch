@@ -268,17 +268,16 @@ describe("JobDetailPane — overview branch", () => {
 });
 
 describe("JobDetailPane — tab navigation", () => {
-  it("styles only the active tab button as active", () => {
+  it("selects only the active tab", () => {
     const job = makeJob();
     H.context = defaultContext(job);
     H.context.tab = "prompt";
     render(<JobDetailPane />);
-    expect(screen.getByRole("button", { name: /prompt/i }).className).toContain(
-      "border-primary"
-    );
-    expect(
-      screen.getByRole("button", { name: /configure/i }).className
-    ).not.toContain("border-primary");
+    const selected = (name: RegExp) =>
+      screen.getByRole("tab", { name }).getAttribute("aria-selected");
+    expect(selected(/prompt/i)).toBe("true");
+    expect(selected(/configure/i)).toBe("false");
+    expect(selected(/history/i)).toBe("false");
   });
 
   it("navigates to the bare job URL for the configure tab and to a suffixed URL for others", () => {
@@ -286,17 +285,21 @@ describe("JobDetailPane — tab navigation", () => {
     H.context = defaultContext(job);
     render(<JobDetailPane />);
 
-    fireEvent.click(screen.getByRole("button", { name: /prompt/i }));
+    fireEvent.mouseDown(screen.getByRole("tab", { name: /prompt/i }));
     expect(H.context.navigate).toHaveBeenLastCalledWith(
       "/automations/jobs/job_1/prompt"
     );
 
-    fireEvent.click(screen.getByRole("button", { name: /history/i }));
+    fireEvent.mouseDown(screen.getByRole("tab", { name: /history/i }));
     expect(H.context.navigate).toHaveBeenLastCalledWith(
       "/automations/jobs/job_1/history"
     );
 
-    fireEvent.click(screen.getByRole("button", { name: /configure/i }));
+    // The context is fixed, so Configure is still selected until it rerenders.
+    cleanup();
+    H.context.tab = "history";
+    render(<JobDetailPane />);
+    fireEvent.mouseDown(screen.getByRole("tab", { name: /configure/i }));
     expect(H.context.navigate).toHaveBeenLastCalledWith(
       "/automations/jobs/job_1"
     );
@@ -558,11 +561,11 @@ describe("JobDetailPane — just-added banner", () => {
 });
 
 describe("JobDetailPane — status badge", () => {
-  it("shows 'never run' when there is no last run status", () => {
+  it("shows 'Never run' when there is no last run status", () => {
     const job = makeJob({ lastRunStatus: null });
     H.context = defaultContext(job);
     render(<JobDetailPane />);
-    expect(screen.getByText("never run")).toBeTruthy();
+    expect(screen.getByText("Never run")).toBeTruthy();
   });
 
   it("shows the status label when a last run status exists", () => {

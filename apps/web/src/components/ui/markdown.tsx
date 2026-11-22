@@ -59,7 +59,8 @@ function CodeBlock({
         text={code}
         label="Copy code"
         copiedLabel="Code copied"
-        className="absolute right-1.5 top-1.5 h-6 w-6 rounded-sm border border-border-subtle bg-background/soft opacity-0 focus-visible:opacity-100 group-hover/code:opacity-100 [@media(pointer:coarse)]:opacity-100"
+        size="icon-xs"
+        className="absolute right-1.5 top-1.5 rounded-sm border border-border-subtle bg-background/soft opacity-0 focus-visible:opacity-100 group-hover/code:opacity-100 [@media(pointer:coarse)]:opacity-100"
         data-testid="markdown-copy-code"
       />
     </div>

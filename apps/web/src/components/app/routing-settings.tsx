@@ -9,10 +9,12 @@ import {
   X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { IconButton } from "@/components/ui/icon-button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Switch } from "@/components/ui/switch";
 import { api } from "@/lib/api";
+import { Hint } from "@/components/ui/tooltip";
 
 type Status = {
   aiEnabled?: boolean;
@@ -113,9 +115,13 @@ export function RoutingSettings(): JSX.Element {
       {settings.error && (
         <p role="alert" className="text-body-sm text-danger">
           Couldn’t load routing settings.{" "}
-          <button className="underline" onClick={() => void settings.refetch()}>
+          <Button
+            variant="link"
+            size="inline"
+            onClick={() => void settings.refetch()}
+          >
             Retry
-          </button>
+          </Button>
         </p>
       )}
       {data && (
@@ -144,7 +150,7 @@ export function RoutingSettings(): JSX.Element {
             disabled={save.isPending || check.isPending}
             onClick={() => save.mutate({ removeKey: true })}
           >
-            <Trash2 className="mr-1.5 h-3.5 w-3.5" />
+            <Trash2 />
             Remove key
           </Button>
         </div>
@@ -163,9 +169,8 @@ export function RoutingSettings(): JSX.Element {
                 className="flex items-center gap-1.5 text-body-sm font-medium"
               >
                 OpenAI API key
-                <span
-                  className="flex h-4 w-4 items-center justify-center"
-                  title={
+                <Hint
+                  label={
                     check.isPending ||
                     check.data ||
                     check.error ||
@@ -176,25 +181,27 @@ export function RoutingSettings(): JSX.Element {
                         : "No key set"
                   }
                 >
-                  {data.configured && (
-                    <TestIcon
-                      className={`h-3 w-3 transition-colors ${check.isPending ? "animate-spin text-muted-foreground" : testOk ? "text-success-ink" : testFailed ? "text-danger" : "text-muted-foreground"}`}
-                      aria-label={
-                        check.isPending ||
-                        check.data ||
-                        check.error ||
-                        validatedAndSaved
-                          ? testLabel
-                          : "API key set"
-                      }
-                    />
-                  )}
-                </span>
+                  <span className="flex h-4 w-4 items-center justify-center">
+                    {data.configured && (
+                      <TestIcon
+                        className={`h-3 w-3 transition-colors ${check.isPending ? "animate-spin text-muted-foreground" : testOk ? "text-success-ink" : testFailed ? "text-danger" : "text-muted-foreground"}`}
+                        aria-label={
+                          check.isPending ||
+                          check.data ||
+                          check.error ||
+                          validatedAndSaved
+                            ? testLabel
+                            : "API key set"
+                        }
+                      />
+                    )}
+                  </span>
+                </Hint>
               </label>
               {!editToken && (
                 <Button
                   size="sm"
-                  className="h-8 min-w-12 px-3 text-body-sm"
+                  className="min-w-12 text-body-sm"
                   aria-label="Test connection"
                   disabled={
                     (editToken ? key.trim().length < 10 : !data.configured) ||
@@ -261,7 +268,7 @@ export function RoutingSettings(): JSX.Element {
                     <Button
                       size="sm"
                       variant="primary"
-                      className="h-8 px-2 text-body-sm"
+                      className="text-body-sm"
                       disabled={
                         save.isPending ||
                         check.isPending ||
@@ -271,20 +278,16 @@ export function RoutingSettings(): JSX.Element {
                     >
                       {save.isPending ? (
                         <>
-                          <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />{" "}
-                          Validating…
+                          <Loader2 className="animate-spin" /> Validating…
                         </>
                       ) : (
                         "Validate & save"
                       )}
                     </Button>
                     {data.configured && (
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        className="h-8 w-8 shrink-0"
-                        aria-label="Cancel key edit"
-                        title="Cancel"
+                      <IconButton
+                        tooltip="Cancel"
+                        label="Cancel key edit"
                         disabled={
                           save.isPending || check.isPending || !data.configured
                         }
@@ -295,18 +298,15 @@ export function RoutingSettings(): JSX.Element {
                           save.reset();
                         }}
                       >
-                        <X className="h-3.5 w-3.5" />
-                      </Button>
+                        <X />
+                      </IconButton>
                     )}
                   </>
                 ) : (
                   <>
-                    <Button
-                      size="icon"
-                      variant="ghost"
-                      className="h-11 w-11 sm:h-8 sm:w-8 shrink-0"
-                      aria-label="Edit OpenAI API key"
-                      title="Edit key"
+                    <IconButton
+                      tooltip="Edit key"
+                      label="Edit OpenAI API key"
                       disabled={save.isPending || check.isPending}
                       onClick={() => {
                         setValidatedAndSaved(false);
@@ -314,19 +314,17 @@ export function RoutingSettings(): JSX.Element {
                         check.reset();
                       }}
                     >
-                      <Pencil className="h-3.5 w-3.5" />
-                    </Button>
-                    <Button
-                      size="icon"
-                      variant="ghost"
-                      className="h-11 w-11 sm:h-8 sm:w-8 shrink-0 hover:text-danger"
-                      aria-label="Remove OpenAI API key"
-                      title="Remove key and turn off Dispatch AI features"
+                      <Pencil />
+                    </IconButton>
+                    <IconButton
+                      tooltip="Remove key and turn off Dispatch AI features"
+                      className="hover:text-danger"
+                      label="Remove OpenAI API key"
                       disabled={save.isPending || check.isPending}
                       onClick={() => save.mutate({ removeKey: true })}
                     >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </Button>
+                      <Trash2 />
+                    </IconButton>
                   </>
                 )}
               </div>

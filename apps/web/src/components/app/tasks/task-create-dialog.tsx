@@ -27,6 +27,7 @@ import {
 } from "@/components/ui/select";
 import { AssigneeSelect } from "./task-assignee-select";
 import { columnAccent } from "./task-utils";
+import { StatusDot } from "@/components/ui/status-dot";
 
 /** Centered on desktop; the whole screen on a phone. */
 export const TASK_DIALOG_MOBILE_SHEET =
@@ -242,12 +243,8 @@ export function TaskCreateDialog({
                   {columns.map((item, index) => (
                     <SelectItem key={item.id} value={item.id}>
                       <span className="flex items-center gap-2">
-                        <span
-                          aria-hidden="true"
-                          className="h-2 w-2 shrink-0 rounded-full"
-                          style={{
-                            background: `hsl(${columnAccent(item, index)})`,
-                          }}
+                        <StatusDot
+                          color={`hsl(${columnAccent(item, index)})`}
                         />
                         {item.name}
                       </span>

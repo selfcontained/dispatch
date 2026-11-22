@@ -77,6 +77,11 @@ type TipSpotProps = {
   sideOffset?: number;
   /** Extra classes for the trigger wrapper, e.g. "flex w-full" for block-level anchors. */
   triggerClassName?: string;
+  /**
+   * Holds the tip back without unmounting the anchor, so an anchor that has
+   * focus keeps it.
+   */
+  paused?: boolean;
   children: React.ReactNode;
 };
 
@@ -86,6 +91,7 @@ export function TipSpot({
   align = "center",
   sideOffset = 8,
   triggerClassName,
+  paused = false,
   children,
 }: TipSpotProps) {
   const navigate = useNavigate();
@@ -104,12 +110,19 @@ export function TipSpot({
   }
 
   useEffect(() => {
+    if (paused) {
+      if (open) {
+        setOpen(false);
+        release(tipId, instanceId);
+      }
+      return;
+    }
     if (!shouldShowInline || open) return;
     const timer = setTimeout(() => {
       if (requestOpen(tipId, instanceId)) setOpen(true);
     }, 500);
     return () => clearTimeout(timer);
-  }, [shouldShowInline, open, tipId, instanceId, requestOpen]);
+  }, [paused, shouldShowInline, open, tipId, instanceId, requestOpen, release]);
 
   // Post-commit reachability: checked in useLayoutEffect so we read
   // the actual committed DOM (not the stale previous-commit snapshot
@@ -185,7 +198,10 @@ export function TipSpot({
   }
 
   return (
-    <Popover open={open && reachable} onOpenChange={handleOpenChange}>
+    <Popover
+      open={open && reachable && !paused}
+      onOpenChange={handleOpenChange}
+    >
       <PopoverTrigger asChild>
         <span ref={triggerRef} className={cn("inline-flex", triggerClassName)}>
           {children}

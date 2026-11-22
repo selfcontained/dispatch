@@ -184,17 +184,13 @@ describe("ChatFiltersButton", () => {
     ).toBe("Chat options");
   });
 
-  it("keeps the filter icon unchanged inside a compact visible surface", () => {
+  it("keeps the filter a compact control with a touch target", () => {
     render(<ChatFiltersButton />);
     const trigger = screen.getByTestId("chat-filters-trigger");
-    const surface = screen.getByTestId("chat-filters-surface");
-    const icon = screen.getByTestId("chat-filters-icon");
 
-    expect(trigger.className).toContain("pointer-coarse:h-11");
-    expect(trigger.className).toContain("shrink-0");
-    expect(surface.className).toContain("h-6");
-    expect(surface.className).toContain("w-6");
-    expect(icon.getAttribute("class")).toContain("h-3.5");
+    expect(trigger.className).toContain("size-7");
+    expect(trigger.className).toContain("pointer-coarse:size-11");
+    expect(trigger.className).toContain("[&>svg]:size-icon-md");
   });
 });
 

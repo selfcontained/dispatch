@@ -26,10 +26,12 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { IconButton } from "@/components/ui/icon-button";
 import { Input } from "@/components/ui/input";
 import { api } from "@/lib/api";
 import { FileActions } from "./file-lightbox-actions";
 import { cn } from "@/lib/utils";
+import { RowButton } from "@/components/ui/row-button";
 
 type Entry = {
   name: string;
@@ -463,29 +465,20 @@ function WorkspaceFiles({
           </div>
         </div>
         {!isSplit && !isMobile && (
-          <Button
-            title="Open beside Agent"
-            aria-label="Open beside Agent"
-            variant="ghost"
-            size="icon"
-            onClick={onOpenBeside}
-          >
-            <Split className="h-4 w-4" />
-          </Button>
+          <IconButton label="Open beside Agent" onClick={onOpenBeside}>
+            <Split />
+          </IconButton>
         )}
-        <Button
-          title="Refresh files and preview"
-          aria-label="Refresh files and preview"
-          variant="ghost"
-          size="icon"
+        <IconButton
+          label="Refresh files and preview"
           disabled={refreshing}
           onClick={() => {
             indexGeneration.current = String(Date.now());
             void queryClient.invalidateQueries({ queryKey: prefix });
           }}
         >
-          <RefreshCw className={cn("h-4 w-4", refreshing && "animate-spin")} />
-        </Button>
+          <RefreshCw className={cn(refreshing && "animate-spin")} />
+        </IconButton>
       </div>
       <div className="flex min-h-0 flex-1">
         {(!narrow || browse || !selected) && (
@@ -589,8 +582,7 @@ function WorkspaceFiles({
                 const { entry, depth } = row;
                 const open = expanded.includes(entry.path);
                 return (
-                  <button
-                    type="button"
+                  <RowButton
                     id={id}
                     role="treeitem"
                     tabIndex={-1}
@@ -607,7 +599,7 @@ function WorkspaceFiles({
                     disabled={entry.kind === "link" || entry.kind === "other"}
                     onClick={() => choose(entry)}
                     className={cn(
-                      "relative flex h-full w-full items-center gap-1.5 pr-3 text-left text-body-sm hover:bg-surface-hover focus-ring-inset disabled-state disabled:pointer-events-auto",
+                      "relative h-full gap-1.5 rounded-none pr-3 text-body-sm disabled:pointer-events-auto pointer-coarse:min-h-0",
                       selected === entry.path &&
                         "bg-surface-selected text-primary",
                       active && "ring-1 ring-inset ring-border"
@@ -653,7 +645,7 @@ function WorkspaceFiles({
                         </span>
                       )}
                     </span>
-                  </button>
+                  </RowButton>
                 );
               }}
             />
@@ -673,14 +665,12 @@ function WorkspaceFiles({
               <>
                 <div className="flex shrink-0 items-center gap-1 border-b px-2 py-1.5">
                   {narrow && (
-                    <Button
-                      size="icon"
-                      variant="ghost"
-                      aria-label="Browse files"
+                    <IconButton
+                      label="Browse files"
                       onClick={() => setBrowse(true)}
                     >
-                      <ArrowLeft className="h-4 w-4" />
-                    </Button>
+                      <ArrowLeft />
+                    </IconButton>
                   )}
                   <span
                     className="min-w-0 flex-1 truncate px-1 font-mono text-body-sm"

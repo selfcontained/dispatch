@@ -15,6 +15,9 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { IconButton } from "@/components/ui/icon-button";
 
 export function InlineDraftAnnotation({
   draft,
@@ -81,24 +84,26 @@ export function InlineDraftAnnotation({
             autoFocus
           />
           <div className="mt-2 flex items-center justify-end gap-2">
-            <button
+            <Button
               type="button"
-              className="rounded-sm px-3 py-1.5 text-body-sm text-muted-foreground hover:bg-surface-hover"
+              variant="ghost"
+              size="xs"
               onClick={() => {
                 setEditValue(draft.comment);
                 setEditing(false);
               }}
             >
               Cancel
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
-              className="rounded-sm bg-primary px-3 py-1.5 text-body-sm font-medium text-primary-foreground hover:bg-primary/dense disabled-state"
+              variant="primary"
+              size="xs"
               onClick={handleSave}
               disabled={!editValue.trim()}
             >
               Save
-            </button>
+            </Button>
           </div>
         </div>
       </div>
@@ -113,19 +118,16 @@ export function InlineDraftAnnotation({
       <div className="flex items-center gap-2 border-b border-border-subtle bg-surface-selected px-3 py-2 text-label-sm">
         <MessageSquarePlus className="h-3 w-3 text-primary" />
         <span className="font-medium text-foreground">Draft</span>
-        <span className="rounded-full bg-warning/tint px-1.5 py-0 text-label-xs font-medium text-warning-ink">
+        <Badge size="sm" tone="warning">
           Pending
-        </span>
+        </Badge>
         <span className="text-muted-foreground">{lineLabel}</span>
         <div className="flex-1" />
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <button
-              type="button"
-              className="flex items-center justify-center rounded-sm min-h-8 min-w-8 p-0.5 text-muted-foreground hover:bg-surface-hover hover:text-foreground"
-            >
-              <MoreHorizontal className="h-3.5 w-3.5" />
-            </button>
+            <IconButton size="icon-sm" label="Draft comment actions">
+              <MoreHorizontal />
+            </IconButton>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="min-w-[120px]">
             <DropdownMenuItem

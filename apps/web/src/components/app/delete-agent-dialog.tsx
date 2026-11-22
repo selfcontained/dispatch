@@ -232,23 +232,24 @@ export function DeleteAgentDialog({
               Cancel
             </Button>
             <Button
-              variant="default"
               disabled={deleting}
               onClick={() => void handleWorktreeChoice("keep")}
               data-testid="delete-agent-keep-worktree"
-              className="h-auto w-full min-w-0 whitespace-normal py-2 text-center"
+              wrap
+              className="w-full"
             >
-              <GitBranch className="mr-1.5 h-4 w-4" />
+              <GitBranch />
               Archive, keep worktree
             </Button>
             <Button
-              variant="destructive"
+              variant="danger"
               disabled={deleting}
               onClick={() => void handleWorktreeChoice("force")}
               data-testid="delete-agent-force-worktree"
-              className="h-auto w-full min-w-0 whitespace-normal py-2 text-center"
+              wrap
+              className="w-full"
             >
-              {deleting ? <ActivityBars size={16} className="mr-1.5" /> : null}
+              {deleting ? <ActivityBars size={16} /> : null}
               Archive and remove worktree
             </Button>
           </div>
@@ -279,16 +280,12 @@ export function DeleteAgentDialog({
             Cancel
           </Button>
           <Button
-            variant="destructive"
+            variant="danger"
             data-testid="delete-agent-confirm"
             disabled={loading || deleting}
             onClick={() => void handleConfirmDelete()}
           >
-            {loading || deleting ? (
-              <ActivityBars size={16} className="mr-1.5" />
-            ) : (
-              <Archive className="mr-1.5 h-4 w-4" />
-            )}
+            {loading || deleting ? <ActivityBars size={16} /> : <Archive />}
             Archive
           </Button>
         </div>

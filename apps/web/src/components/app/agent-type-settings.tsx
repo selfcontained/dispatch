@@ -3,7 +3,7 @@ import { ChevronDown } from "lucide-react";
 import { useSearchParams } from "react-router-dom";
 
 import { AgentModelSettings } from "@/components/app/agent-model-settings";
-import { Button } from "@/components/ui/button";
+import { RowButton } from "@/components/ui/row-button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   Collapsible,
@@ -91,10 +91,8 @@ function AgentTypeRow({
           </div>
         </label>
         <CollapsibleTrigger asChild>
-          <Button
-            type="button"
-            variant="ghost"
-            className="group h-auto min-h-11 shrink-0 gap-1.5 rounded-none px-3 text-body-sm font-normal"
+          <RowButton
+            className="group min-h-11 w-auto shrink-0 justify-center gap-1.5 rounded-none px-3 text-body-sm text-muted-foreground hover:text-foreground"
             aria-label={`${AGENT_TYPE_LABELS[agentType]} models: ${options.length} on, ${offCount} off`}
             data-testid={`agent-models-toggle-${agentType}`}
           >
@@ -110,8 +108,8 @@ function AgentTypeRow({
                 ) : null}
               </span>
             ) : null}
-            <ChevronDown className="h-3.5 w-3.5 transition-transform group-data-[state=open]:rotate-180" />
-          </Button>
+            <ChevronDown className="size-icon-md transition-transform group-data-[state=open]:rotate-180" />
+          </RowButton>
         </CollapsibleTrigger>
       </div>
       <CollapsibleContent className="border-t border-border bg-surface-subtle">

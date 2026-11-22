@@ -129,7 +129,7 @@ export function StopTurnButton({
     <Button
       ref={triggerRef}
       type="button"
-      size="icon"
+      size="stream-icon"
       variant="ghost"
       className="h-9 w-9 shrink-0 text-muted-foreground pointer-coarse:min-h-11 pointer-coarse:min-w-11"
       onClick={single ? () => stop(single) : undefined}

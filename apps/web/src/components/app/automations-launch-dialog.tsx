@@ -338,9 +338,9 @@ function LaunchTemplateDialogContent({
             }
           >
             {launchTemplate.isPending ? (
-              <ActivityBars size={16} className="mr-1.5" />
+              <ActivityBars size={16} />
             ) : (
-              <Play className="h-3.5 w-3.5 mr-1.5 fill-current" />
+              <Play className="fill-current" />
             )}
             Launch
           </Button>

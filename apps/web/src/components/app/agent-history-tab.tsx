@@ -39,6 +39,10 @@ import {
   rangeLabel,
   type ActivityRange,
 } from "@/hooks/use-activity";
+import { IconButton } from "@/components/ui/icon-button";
+import { Hint } from "@/components/ui/tooltip";
+import { CountBubble } from "@/components/ui/count-bubble";
+import { Button } from "@/components/ui/button";
 
 // ── Helpers ─────────────────────────────────────────────────────────
 
@@ -123,12 +127,14 @@ function AgentHistoryList({
             className="h-8 pl-8 text-body-sm"
           />
           {search && (
-            <button
+            <IconButton
+              size="icon-xs"
+              label="Clear search"
               onClick={() => setSearch("")}
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+              className="absolute right-1.5 top-1/2 -translate-y-1/2"
             >
-              <X className="h-3.5 w-3.5" />
-            </button>
+              <X />
+            </IconButton>
           )}
         </div>
 
@@ -137,7 +143,7 @@ function AgentHistoryList({
             value={type || "__all__"}
             onValueChange={(v) => setType(v === "__all__" ? "" : v)}
           >
-            <SelectTrigger className="h-7 w-[100px] text-label-sm">
+            <SelectTrigger className="h-7 w-[100px] text-label-sm pointer-coarse:h-11">
               <SelectValue placeholder="All types" />
             </SelectTrigger>
             <SelectContent>
@@ -152,7 +158,7 @@ function AgentHistoryList({
               value={project || "__all__"}
               onValueChange={(v) => setProject(v === "__all__" ? "" : v)}
             >
-              <SelectTrigger className="h-7 max-w-[180px] text-label-sm">
+              <SelectTrigger className="h-7 max-w-[180px] text-label-sm pointer-coarse:h-11">
                 <SelectValue placeholder="All projects" />
               </SelectTrigger>
               <SelectContent>
@@ -170,7 +176,7 @@ function AgentHistoryList({
             value={range}
             onValueChange={(v) => onRangeChange(v as ActivityRange)}
           >
-            <SelectTrigger className="h-7 w-[120px] text-label-sm">
+            <SelectTrigger className="h-7 w-[120px] text-label-sm pointer-coarse:h-11">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -183,17 +189,18 @@ function AgentHistoryList({
           </Select>
 
           {hasActiveFilters && (
-            <button
+            <Button
+              variant="ghost"
+              size="xs"
               onClick={() => {
                 setSearch("");
                 setType("");
                 setProject("");
                 onRangeChange("all");
               }}
-              className="text-label-sm text-muted-foreground hover:text-foreground"
             >
               Clear filters
-            </button>
+            </Button>
           )}
 
           {data && (
@@ -262,18 +269,20 @@ function AgentHistoryList({
                     <td className="px-3 py-3 sm:px-4">
                       <div className="flex items-center gap-1.5">
                         {hasChildren ? (
-                          <button
+                          <IconButton
+                            size="icon-xs"
+                            label={
+                              isExpanded
+                                ? "Hide child agents"
+                                : "Show child agents"
+                            }
+                            aria-expanded={isExpanded}
                             onClick={(e) => toggleExpanded(agent.id, e)}
-                            className="flex-shrink-0 rounded-sm p-0.5 text-muted-foreground hover:bg-surface-hover hover:text-foreground"
                           >
-                            {isExpanded ? (
-                              <ChevronDown className="h-3.5 w-3.5" />
-                            ) : (
-                              <ChevronRight className="h-3.5 w-3.5" />
-                            )}
-                          </button>
+                            {isExpanded ? <ChevronDown /> : <ChevronRight />}
+                          </IconButton>
                         ) : (
-                          <span className="w-[18px] flex-shrink-0" />
+                          <span className="w-6 flex-shrink-0" />
                         )}
                         <AgentSessionLink agentId={agent.id} name={agent.name}>
                           <AgentTypeIcon type={agent.type} />
@@ -285,9 +294,7 @@ function AgentHistoryList({
                           />
                         </span>
                         {hasChildren && (
-                          <span className="flex-shrink-0 flex h-4 w-4 items-center justify-center rounded-full bg-muted text-label-xs text-muted-foreground">
-                            {agent.children.length}
-                          </span>
+                          <CountBubble count={agent.children.length} />
                         )}
                       </div>
                     </td>
@@ -320,11 +327,10 @@ function AgentHistoryList({
                         "—"
                       )}
                     </td>
-                    <td
-                      className="px-2 py-2 pr-3 text-muted-foreground sm:pr-4"
-                      title={formatDateTime(agent.updatedAt)}
-                    >
-                      {formatRelativeTime(agent.updatedAt)}
+                    <td className="px-2 py-2 pr-3 text-muted-foreground sm:pr-4">
+                      <Hint label={formatDateTime(agent.updatedAt)}>
+                        <span>{formatRelativeTime(agent.updatedAt)}</span>
+                      </Hint>
                     </td>
                   </tr>
                   {hasChildren &&
@@ -340,7 +346,7 @@ function AgentHistoryList({
                           className="py-2 pl-10 pr-3 sm:pl-12 sm:pr-4"
                         >
                           <div className="flex items-center gap-2">
-                            <Badge className="h-4 px-1.5 text-label-xs font-normal">
+                            <Badge size="sm">
                               {child.persona ??
                                 (child.role === "review" ? "review" : "agent")}
                             </Badge>
@@ -357,11 +363,10 @@ function AgentHistoryList({
                             ? formatTokenCount(child.totalTokens)
                             : "—"}
                         </td>
-                        <td
-                          className="px-2 py-2 pr-3 text-muted-foreground sm:pr-4"
-                          title={formatDateTime(child.updatedAt)}
-                        >
-                          {formatRelativeTime(child.updatedAt)}
+                        <td className="px-2 py-2 pr-3 text-muted-foreground sm:pr-4">
+                          <Hint label={formatDateTime(child.updatedAt)}>
+                            <span>{formatRelativeTime(child.updatedAt)}</span>
+                          </Hint>
                         </td>
                       </tr>
                     ))}
@@ -386,10 +391,10 @@ function AgentHistoryList({
 
         {data && data.agents.length < data.total && (
           <div className="py-3 text-center">
-            <button className="text-body-sm text-muted-foreground hover:text-foreground">
+            <p className="text-body-sm text-muted-foreground">
               Showing {data.agents.length} of {data.total} agents — load more
               coming soon
-            </button>
+            </p>
           </div>
         )}
       </div>

@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import { RadioIndicator } from "@/components/app/radio-indicator";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { RowButton } from "@/components/ui/row-button";
 
 type WorktreeLocation = "sibling" | "nested";
 
@@ -68,12 +69,13 @@ export function WorktreeLocationSettings(): JSX.Element {
       </p>
       <div className="grid gap-2">
         {OPTIONS.map((opt) => (
-          <button
+          <RowButton
             key={opt.value}
+            aria-pressed={worktreeLocation === opt.value}
             onClick={() => void handleChange(opt.value)}
             disabled={saving}
             className={cn(
-              "flex items-start gap-3 rounded-md border p-3 text-left transition-colors",
+              "items-start gap-3 border p-3",
               worktreeLocation === opt.value
                 ? "border-primary bg-surface-selected"
                 : "border-border hover:border-muted-foreground/line"
@@ -88,7 +90,7 @@ export function WorktreeLocationSettings(): JSX.Element {
                 {opt.description}
               </div>
             </div>
-          </button>
+          </RowButton>
         ))}
       </div>
     </div>

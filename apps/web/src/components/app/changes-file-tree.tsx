@@ -14,6 +14,8 @@ import { AnimatePresence, motion } from "framer-motion";
 import type { DiffFile } from "@/hooks/use-agent-diff";
 import { formatCount } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { IconButton } from "@/components/ui/icon-button";
+import { RowButton } from "@/components/ui/row-button";
 
 type TreeNode = {
   name: string;
@@ -109,20 +111,16 @@ export function FileTree({
             {formatCount(files.length, "file")} changed
           </span>
         )}
-        <button
-          type="button"
+        <IconButton
+          size="icon-sm"
+          side="right"
+          label={open ? "Hide file tree" : "Show file tree"}
+          aria-expanded={open}
           onClick={onToggleOpen}
-          className={cn(
-            "shrink-0 flex items-center justify-center text-muted-foreground hover:bg-surface-hover cursor-pointer",
-            open ? "p-2" : "flex-1 py-2"
-          )}
+          className={cn("rounded-none", !open && "w-full")}
         >
-          {open ? (
-            <PanelLeftClose className="h-3.5 w-3.5" />
-          ) : (
-            <PanelLeftOpen className="h-3.5 w-3.5" />
-          )}
-        </button>
+          {open ? <PanelLeftClose /> : <PanelLeftOpen />}
+        </IconButton>
       </div>
       {open && (
         <div className="min-h-0 flex-1 overflow-y-auto py-1">
@@ -169,9 +167,9 @@ function TreeEntry({
   if (isDir) {
     return (
       <>
-        <button
-          type="button"
-          className="flex w-full items-center gap-1.5 px-2 py-1 text-left text-body-sm text-muted-foreground hover:bg-surface-hover"
+        <RowButton
+          aria-expanded={!isCollapsed}
+          className="gap-1.5 rounded-none py-1 pr-2 text-body-sm text-muted-foreground"
           style={{ paddingLeft: `${indent}px` }}
           title={node.name}
           onClick={() => onToggleDir(node.path)}
@@ -182,7 +180,7 @@ function TreeEntry({
             <ChevronDown className="h-3 w-3 shrink-0" />
           )}
           <span className="truncate">{node.name}</span>
-        </button>
+        </RowButton>
         <AnimatePresence initial={false}>
           {!isCollapsed && (
             <motion.div
@@ -215,10 +213,9 @@ function TreeEntry({
   if (!node.file) return <></>;
 
   return (
-    <button
-      type="button"
+    <RowButton
       className={cn(
-        "flex w-full items-center gap-1.5 px-2 py-1 text-left text-body-sm hover:bg-surface-hover",
+        "gap-1.5 rounded-none py-1 pr-2 text-body-sm",
         isSelected && "bg-surface-hover text-foreground"
       )}
       style={{ paddingLeft: `${indent}px` }}
@@ -227,6 +224,6 @@ function TreeEntry({
     >
       {treeFileIcon(node.file)}
       <span className="min-w-0 flex-1 truncate">{node.name}</span>
-    </button>
+    </RowButton>
   );
 }

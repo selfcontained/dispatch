@@ -186,7 +186,6 @@ export function OperationTakeover({
                 </div>
               )}
               <Button
-                variant="default"
                 onClick={onDismiss}
                 className="self-start text-muted-foreground hover:text-foreground"
               >
@@ -204,7 +203,6 @@ export function OperationTakeover({
                 </span>
               </div>
               <Button
-                variant="default"
                 onClick={onDismiss}
                 className="self-start text-muted-foreground hover:text-foreground"
               >

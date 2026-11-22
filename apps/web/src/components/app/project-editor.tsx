@@ -15,6 +15,7 @@ import { useCwdHistory } from "./create-agent-dialog-utils";
 import { prepareAvatarPhoto } from "./user-avatar/prepare-avatar";
 import { AvatarCropDialog } from "./user-avatar/avatar-crop-dialog";
 import { Button } from "@/components/ui/button";
+import { IconButton } from "@/components/ui/icon-button";
 import { Input } from "@/components/ui/input";
 import {
   Dialog,
@@ -186,15 +187,9 @@ export function ProjectEditor({
                       </p>
                       <Popover>
                         <PopoverTrigger asChild>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon"
-                            className="h-5 w-5 shrink-0"
-                            aria-label="About folder icons"
-                          >
-                            <Info className="h-3.5 w-3.5" />
-                          </Button>
+                          <IconButton size="icon-xs" label="About folder icons">
+                            <Info />
+                          </IconButton>
                         </PopoverTrigger>
                         <PopoverContent
                           className="w-64 text-body-sm"
@@ -216,11 +211,10 @@ export function ProjectEditor({
                         ref={uploadButton}
                         type="button"
                         size="sm"
-                        variant="default"
                         disabled={preparing}
                         onClick={() => uploadInput.current?.click()}
                       >
-                        <Upload className="mr-1.5 h-3.5 w-3.5" />
+                        <Upload />
                         {preparing ? "Preparing…" : "Upload"}
                       </Button>
                       <Button
@@ -279,7 +273,7 @@ export function ProjectEditor({
                   <Button
                     type="button"
                     size="sm"
-                    variant="destructive"
+                    variant="danger"
                     disabled={action.isPending}
                     onClick={() =>
                       confirmDelete

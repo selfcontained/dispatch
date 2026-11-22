@@ -13,7 +13,7 @@ import {
   X,
 } from "lucide-react";
 
-import { Button } from "@/components/ui/button";
+import { IconButton } from "@/components/ui/icon-button";
 import {
   Dialog,
   DialogContent,
@@ -31,6 +31,8 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { usePostBlock } from "@/hooks/use-stream";
 import type { PersistedDraftComment } from "@/lib/store";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 
 export type DraftComment = PersistedDraftComment;
 
@@ -125,34 +127,27 @@ export const ReviewModeBar = memo(function ReviewModeBar({
         <span className="text-body-sm font-medium text-foreground">
           Review Mode
         </span>
-        <span
-          className="rounded-full bg-surface-selected px-1.5 py-0.5 text-label-xs font-medium text-primary"
-          data-testid="review-mode-count"
-        >
+        <Badge size="sm" tone="info" data-testid="review-mode-count">
           {drafts.length} comment{drafts.length !== 1 ? "s" : ""}
-        </span>
+        </Badge>
         <span className="hidden text-label-sm text-muted-foreground sm:inline">
           Select lines in the diff to add a comment.
         </span>
         <div className="flex-1" />
-        <button
+        <Button
           type="button"
-          className="flex items-center gap-1.5 rounded-sm bg-primary px-3 py-1.5 text-body-sm font-medium text-primary-foreground hover:bg-primary/dense disabled-state"
+          variant="primary"
+          size="xs"
           disabled={rootId === null}
           data-testid="review-mode-submit"
           onClick={() => setSubmitOpen(true)}
         >
-          <Send className="h-3 w-3" />
+          <Send />
           Post review
-        </button>
-        <button
-          type="button"
-          aria-label="Cancel review"
-          className="text-body-sm text-muted-foreground hover:text-foreground"
-          onClick={handleCancel}
-        >
-          <X className="h-3.5 w-3.5" />
-        </button>
+        </Button>
+        <IconButton size="icon-sm" label="Cancel review" onClick={handleCancel}>
+          <X />
+        </IconButton>
       </div>
 
       {rootId ? (
@@ -313,16 +308,13 @@ function SubmitReviewDialog({
                       {draft.comment}
                     </div>
                   </div>
-                  <Button
-                    type="button"
-                    size="icon"
-                    variant="ghost"
-                    className="h-7 w-7 shrink-0"
-                    aria-label="Remove comment"
+                  <IconButton
+                    size="icon-sm"
+                    label="Remove comment"
                     onClick={() => onRemoveDraft(draft.id)}
                   >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </Button>
+                    <Trash2 />
+                  </IconButton>
                 </li>
               ))}
             </ol>
@@ -337,29 +329,29 @@ function SubmitReviewDialog({
             </p>
           ) : null}
           <div className="flex items-center justify-end gap-2">
-            <button
+            <Button
               type="button"
-              className="rounded-sm px-3 py-1.5 text-body-sm text-muted-foreground hover:bg-surface-hover"
+              variant="ghost"
               onClick={() => onOpenChange(false)}
             >
               Cancel
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
-              className="flex items-center gap-1.5 rounded-sm bg-primary px-3 py-1.5 text-body-sm font-medium text-primary-foreground hover:bg-primary/dense disabled-state"
+              variant="primary"
               onClick={() => void handleSubmit()}
               disabled={!canSubmit}
               data-testid="review-post"
             >
               {isPending ? (
-                <Loader2 className="h-3 w-3 animate-spin" />
+                <Loader2 className="animate-spin" />
               ) : post.isSuccess ? (
-                <CheckCircle2 className="h-3 w-3" />
+                <CheckCircle2 />
               ) : (
-                <Send className="h-3 w-3" />
+                <Send />
               )}
               Post
-            </button>
+            </Button>
           </div>
         </div>
       </DialogContent>
@@ -389,20 +381,16 @@ function CancelReviewDialog({
           </DialogDescription>
         </DialogHeader>
         <div className="flex items-center justify-end gap-2">
-          <button
+          <Button
             type="button"
-            className="rounded-sm px-3 py-1.5 text-body-sm text-muted-foreground hover:bg-surface-hover"
+            variant="ghost"
             onClick={() => onOpenChange(false)}
           >
             Keep reviewing
-          </button>
-          <button
-            type="button"
-            className="rounded-sm bg-danger px-3 py-1.5 text-body-sm font-medium text-danger-foreground hover:bg-danger/dense"
-            onClick={onConfirm}
-          >
+          </Button>
+          <Button type="button" variant="danger" onClick={onConfirm}>
             Discard
-          </button>
+          </Button>
         </div>
       </DialogContent>
     </Dialog>

@@ -162,7 +162,7 @@ describe("DiffImageView", () => {
 
     expect(queryByTestId("diff-image-overlay")).toBeNull();
     expect(
-      getByTestId("diff-image-mode:two-up").getAttribute("aria-pressed")
+      getByTestId("diff-image-mode:two-up").getAttribute("aria-checked")
     ).toBe("true");
     for (const mode of ["swipe", "onion"]) {
       expect(

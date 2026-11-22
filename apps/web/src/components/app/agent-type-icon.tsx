@@ -36,11 +36,7 @@ export function AgentTypeIcon({
 
   if (normalizedType === "unknown" || normalizedType === "opencode") {
     return (
-      <span
-        className={cn(baseClass, className)}
-        title={`${label} agent`}
-        aria-label={`${label} agent`}
-      >
+      <span className={cn(baseClass, className)} aria-label={`${label} agent`}>
         <Bot className="h-3.5 w-3.5" aria-hidden="true" />
       </span>
     );
@@ -52,11 +48,7 @@ export function AgentTypeIcon({
     normalizedType === "claude" ? "0 0 24 24" : "0 0 158.7128 157.296";
 
   return (
-    <span
-      className={cn(baseClass, className)}
-      title={`${label} agent`}
-      aria-label={`${label} agent`}
-    >
+    <span className={cn(baseClass, className)} aria-label={`${label} agent`}>
       <svg
         viewBox={viewBox}
         className="h-3.5 w-3.5"

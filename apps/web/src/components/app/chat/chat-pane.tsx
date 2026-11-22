@@ -1405,8 +1405,7 @@ export function ChatPane({
                   <div className="mb-1 flex justify-center px-4">
                     <Button
                       type="button"
-                      size="sm"
-                      variant="default"
+                      size="stream-sm"
                       className="h-7 text-body-sm"
                       onClick={loadOlder}
                       disabled={feed.isFetchingOlder}
@@ -1426,8 +1425,7 @@ export function ChatPane({
                     </span>
                     <Button
                       type="button"
-                      size="sm"
-                      variant="default"
+                      size="stream-sm"
                       className="h-6 shrink-0 px-2 text-body-sm"
                       onClick={feed.refetch}
                       data-testid="chat-feed-retry"
@@ -1483,7 +1481,7 @@ export function ChatPane({
                 >
                   <Button
                     type="button"
-                    size="icon"
+                    size="stream-icon"
                     variant="ghost"
                     aria-label={
                       pendingBelow

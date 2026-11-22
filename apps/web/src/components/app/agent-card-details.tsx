@@ -23,6 +23,7 @@ import {
   useAgentModelCatalogData,
 } from "@/hooks/use-agent-model-catalog";
 import {
+  Hint,
   Tooltip,
   TooltipContent,
   TooltipTrigger,
@@ -45,9 +46,15 @@ function CompactMetaRow({
 }): JSX.Element {
   return (
     <div className="flex min-h-7 items-center justify-between gap-3">
-      <span className="shrink-0 text-faint" title={label}>
-        {icon ?? <span className="section-label">{label}</span>}
-      </span>
+      {icon ? (
+        <Hint label={label}>
+          <span role="img" aria-label={label} className="shrink-0 text-faint">
+            {icon}
+          </span>
+        </Hint>
+      ) : (
+        <span className="shrink-0 section-label">{label}</span>
+      )}
       <div className="min-w-0 flex-1 text-left">
         {truncateStart ? (
           <FrontTruncatedValue
@@ -118,9 +125,15 @@ export function AgentCardDetails({
       </div>
       {agent.gitContext?.isWorktree ? (
         <div className="flex items-start justify-between gap-3">
-          <span className="shrink-0 text-faint" title="Branch">
-            <GitBranch className="h-3.5 w-3.5" />
-          </span>
+          <Hint label="Branch">
+            <span
+              role="img"
+              aria-label="Branch"
+              className="shrink-0 text-faint"
+            >
+              <GitBranch className="size-icon-md" />
+            </span>
+          </Hint>
           <div className="min-w-0 flex-1 text-left">
             <div className="text-muted-foreground">
               <FrontTruncatedValue
@@ -199,8 +212,8 @@ export function AgentCardDetails({
       <AgentPullRequests agentId={agent.id} agentName={agent.name} />
       <AgentPreview agentId={agent.id} />
 
-      <div className="flex items-center justify-between gap-2 pt-1">
-        <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+        <div className="flex flex-wrap items-center gap-2">
           {workspaceDir ? (
             <IdeLaunchButton path={workspaceDir} enabledIdes={enabledIdes} />
           ) : null}
@@ -209,22 +222,21 @@ export function AgentCardDetails({
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
-                  variant="ghost"
-                  size="sm"
+                  size="xs"
                   onClick={() => workspaceDir && copyWorktreePath(workspaceDir)}
                   aria-label={
                     worktreePathCopied
                       ? "Worktree path copied"
                       : `Copy worktree path: ${workspaceDir}`
                   }
-                  className="group relative h-auto min-h-6 gap-1 rounded-full border border-border bg-surface-subtle px-2 py-0.5 text-label-xs font-normal text-muted-foreground before:absolute before:inset-x-0 before:-inset-y-1.5 before:content-[''] hover:bg-surface-hover hover:text-foreground"
+                  className="group font-normal text-muted-foreground hover:text-foreground"
                 >
                   {worktreePathCopied ? (
-                    <Check className="h-3 w-3 text-info" />
+                    <Check className="text-info" />
                   ) : (
                     <>
-                      <FolderTree className="h-3 w-3 group-hover:hidden group-focus-visible:hidden" />
-                      <Copy className="hidden h-3 w-3 group-hover:block group-focus-visible:block" />
+                      <FolderTree className="group-hover:hidden group-focus-visible:hidden" />
+                      <Copy className="hidden group-hover:block group-focus-visible:block" />
                     </>
                   )}
                   <span>Worktree</span>
@@ -243,12 +255,11 @@ export function AgentCardDetails({
           ) : null}
         </div>
         {!fullAccessEnabled ? (
-          <span
-            className="text-label-xs text-muted-foreground"
-            title="Uses engine permission checks; approval requests appear in chat."
-          >
-            Restricted access
-          </span>
+          <Hint label="Uses engine permission checks; approval requests appear in chat.">
+            <span className="text-label-xs text-muted-foreground">
+              Restricted access
+            </span>
+          </Hint>
         ) : null}
       </div>
     </div>

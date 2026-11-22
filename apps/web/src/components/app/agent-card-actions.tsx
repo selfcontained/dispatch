@@ -3,7 +3,7 @@ import { Archive, Pause, Pencil, Play } from "lucide-react";
 
 import { PersonaLauncher } from "@/components/app/persona-launcher";
 import { type Agent } from "@/components/app/types";
-import { Button } from "@/components/ui/button";
+import { IconButton } from "@/components/ui/icon-button";
 import { type AgentType } from "@/lib/agent-types";
 
 export type AgentCardActionsProps = {
@@ -60,52 +60,43 @@ export function AgentCardActions({
         <div className="flex min-h-9 shrink-0 items-center gap-2 px-0.5">
           {pinControl}
           {isStopped && agent.status !== "archiving" ? (
-            <Button
-              size="sm"
-              variant="ghost-primary"
-              className="h-8 w-8 rounded-full border border-info/line bg-info/tint p-0"
-              aria-label="Resume"
-              title="Resume"
+            <IconButton
+              tone="success"
+              className="rounded-full border border-info/line bg-info/tint"
+              label="Resume"
               onClick={() => {
                 if (closeOnSessionAction) onRequestClose?.();
                 void startAgent(agent);
               }}
             >
-              <Play className="h-3.5 w-3.5" />
-            </Button>
+              <Play />
+            </IconButton>
           ) : !isStopped && agent.status !== "archiving" ? (
-            <Button
-              size="sm"
-              variant="ghost-warning"
-              className="h-8 w-8 rounded-full border border-warning/line bg-warning/tint p-0"
-              aria-label="Pause"
-              title="Pause"
+            <IconButton
+              tone="warning"
+              className="rounded-full border border-warning/line bg-warning/tint"
+              label="Pause"
               onClick={() => {
                 setStopTarget(agent);
                 setStopConfirmOpen(true);
               }}
             >
-              <Pause className="h-3.5 w-3.5" />
-            </Button>
+              <Pause />
+            </IconButton>
           ) : null}
-          <Button
-            size="sm"
-            variant="ghost"
-            className="h-8 w-8 rounded-full border border-info/line bg-info/tint p-0 text-info hover:bg-info/tint-strong hover:text-info"
+          <IconButton
+            className="rounded-full border border-info/line bg-info/tint text-info hover:bg-info/tint-strong hover:text-info"
             data-testid={`agent-session-settings-${agent.id}`}
-            aria-label="Session details"
-            title="Session details"
+            label="Session details"
             onClick={onEditSettings}
           >
-            <Pencil className="h-3.5 w-3.5" />
-          </Button>
-          <Button
-            size="sm"
-            variant="ghost-destructive"
-            className="h-8 w-8 rounded-full border border-danger/line bg-danger/tint p-0"
+            <Pencil />
+          </IconButton>
+          <IconButton
+            tone="danger"
+            className="rounded-full border border-danger/line bg-danger/tint"
             data-testid={`agent-archive-${agent.id}`}
-            aria-label="Archive"
-            title="Archive"
+            label="Archive"
             disabled={
               agent.status === "archiving" || agent.status === "creating"
             }
@@ -114,8 +105,8 @@ export function AgentCardActions({
               setDeleteConfirmOpen(true);
             }}
           >
-            <Archive className="h-3.5 w-3.5" />
-          </Button>
+            <Archive />
+          </IconButton>
         </div>
       </div>
     </div>

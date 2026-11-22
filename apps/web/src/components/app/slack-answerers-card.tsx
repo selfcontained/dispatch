@@ -165,7 +165,7 @@ export function SlackAnswerersCard({
                     disabled={action.isPending}
                     onClick={() => run("allow", a.id)}
                   >
-                    <UserCheck className="mr-2 size-3.5" aria-hidden="true" />
+                    <UserCheck aria-hidden="true" />
                     Allow
                   </Button>
                 </div>
@@ -184,15 +184,16 @@ export function SlackAnswerersCard({
                     {a.userId}
                   </span>
                 </span>
-                <Badge variant="running">Allowed</Badge>
+                <Badge tone="success">Allowed</Badge>
                 <Button
-                  variant="ghost-destructive"
+                  variant="ghost"
+                  tone="danger"
                   size="sm"
                   aria-label={`Remove ${a.displayName}`}
                   disabled={action.isPending}
                   onClick={() => run("revoke", a.id)}
                 >
-                  <X className="size-3.5" aria-hidden="true" />
+                  <X aria-hidden="true" />
                 </Button>
               </li>
             ))}
@@ -214,7 +215,7 @@ export function SlackAnswerersCard({
             disabled={action.isPending || !!missingLinkScopes?.length}
             onClick={() => run("link")}
           >
-            <Link2 className="mr-2 size-3.5" aria-hidden="true" />
+            <Link2 aria-hidden="true" />
             Link a Slack account
           </Button>
         </div>

@@ -103,28 +103,24 @@ function PluginRow({ status }: { status: PluginStatus }): JSX.Element {
           )}
         </div>
         <div className="flex shrink-0 flex-col items-end gap-1.5">
-          <Badge
-            variant={status.updateAvailable ? "running" : "default"}
-            className="max-w-36 rounded-none border-0 bg-transparent p-0 text-right text-body-sm font-normal normal-case tracking-normal"
-          >
+          <Badge tone={status.updateAvailable ? "success" : "neutral"}>
             {state}
           </Badge>
           {canAct ? (
             <Button
-              variant="default"
-              size="sm"
-              className="h-7 min-w-24 text-body-sm"
+              size="xs"
+              className="min-w-24"
               disabled={isPending}
               aria-busy={isPending}
               aria-label={`${action === "install" ? "Install" : "Update"} ${label} plugin`}
               onClick={() => mutate(status.agentType)}
             >
               {isPending ? (
-                <RefreshCw className="mr-1.5 h-3 w-3 animate-spin" />
+                <RefreshCw className="animate-spin" />
               ) : action === "install" ? (
-                <Download className="mr-1.5 h-3 w-3" />
+                <Download />
               ) : (
-                <RefreshCw className="mr-1.5 h-3 w-3" />
+                <RefreshCw />
               )}
               {isPending
                 ? action === "install"
@@ -150,9 +146,8 @@ function PluginRow({ status }: { status: PluginStatus }): JSX.Element {
           {error.message}{" "}
           <Button
             type="button"
-            variant="ghost"
-            size="sm"
-            className="h-auto p-0 text-body-sm text-danger underline"
+            variant="link"
+            size="inline"
             onClick={() => setManualOpen(true)}
           >
             Run it manually
@@ -163,11 +158,10 @@ function PluginRow({ status }: { status: PluginStatus }): JSX.Element {
         <CollapsibleTrigger asChild>
           <Button
             type="button"
-            variant="default"
-            size="sm"
-            className="group mt-2 h-7 px-2 text-body-sm text-muted-foreground hover:text-foreground"
+            size="xs"
+            className="group mt-2 text-muted-foreground hover:text-foreground"
           >
-            <ChevronDown className="mr-1 h-3.5 w-3.5 transition-transform group-data-[state=open]:rotate-180" />
+            <ChevronDown className="transition-transform group-data-[state=open]:rotate-180" />
             Manual commands
           </Button>
         </CollapsibleTrigger>
@@ -209,14 +203,11 @@ export function PluginUpdateSettings(): JSX.Element {
           <h2 className="text-heading-sm text-foreground">Dispatch plugins</h2>
           <Button
             variant="ghost"
-            size="sm"
-            className="h-7 text-body-sm"
+            size="xs"
             disabled={checking}
             onClick={() => refresh.mutate()}
           >
-            <RefreshCw
-              className={`mr-1.5 h-3.5 w-3.5 ${checking ? "animate-spin" : ""}`}
-            />
+            <RefreshCw className={checking ? "animate-spin" : undefined} />
             Check again
           </Button>
         </div>

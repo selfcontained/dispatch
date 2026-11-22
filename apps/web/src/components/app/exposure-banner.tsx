@@ -49,7 +49,7 @@ export function ExposureBanner() {
       </span>
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogTrigger asChild>
-          <Button size="sm" variant="default" className="shrink-0">
+          <Button size="sm" className="shrink-0">
             Set password
           </Button>
         </DialogTrigger>

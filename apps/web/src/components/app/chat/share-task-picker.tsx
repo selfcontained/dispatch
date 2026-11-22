@@ -99,7 +99,7 @@ export function ShareTaskPicker({
       <PopoverTrigger asChild>
         <Button
           type="button"
-          size="icon"
+          size="stream-icon"
           variant="ghost"
           title="Share task"
           aria-label="Share task"

@@ -120,8 +120,9 @@ export function QueuedMessageActions({
       <div className="flex shrink-0 items-center gap-1.5">
         {canSendNow && sendNow ? (
           <Button
-            variant="ghost-warning"
-            size="sm"
+            variant="ghost"
+            tone="warning"
+            size="stream-sm"
             className="h-6 gap-1 border border-transparent px-2 text-label-sm hover:border-warning/line-strong [@media(pointer:coarse)]:min-h-11 [@media(pointer:coarse)]:min-w-11"
             disabled={action.isPending || action.isSuccess}
             title={
@@ -147,7 +148,7 @@ export function QueuedMessageActions({
         {!pendingDelivery ? (
           <Button
             variant="ghost"
-            size="sm"
+            size="stream-sm"
             className="h-6 w-6 border border-transparent p-0 hover:border-danger/line-strong hover:bg-danger/tint-strong hover:text-danger [@media(pointer:coarse)]:min-h-11 [@media(pointer:coarse)]:min-w-11"
             aria-label="Delete"
             disabled={action.isPending || action.isSuccess}

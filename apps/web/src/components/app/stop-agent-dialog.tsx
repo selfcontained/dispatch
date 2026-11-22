@@ -73,16 +73,11 @@ export function StopAgentDialog({
             Cancel
           </Button>
           <Button
-            variant="default"
             data-testid="stop-agent-confirm"
             disabled={stopping}
             onClick={() => void handleConfirmStop()}
           >
-            {stopping ? (
-              <ActivityBars size={16} className="mr-1.5" />
-            ) : (
-              <Pause className="mr-1.5 h-4 w-4" />
-            )}
+            {stopping ? <ActivityBars size={16} /> : <Pause />}
             Pause
           </Button>
         </div>

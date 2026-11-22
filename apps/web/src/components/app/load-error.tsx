@@ -30,9 +30,8 @@ export function LoadError({
       </span>
       <Button
         type="button"
-        size="sm"
-        variant="default"
-        className="h-6 shrink-0 px-2 text-body-sm"
+        size="xs"
+        className="shrink-0"
         disabled={retrying}
         onClick={onRetry}
       >

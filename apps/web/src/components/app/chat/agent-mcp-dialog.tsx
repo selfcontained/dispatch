@@ -207,7 +207,7 @@ function McpInventoryPopover({
           <Button
             type="button"
             variant="ghost"
-            size="icon"
+            size="stream-icon"
             className="h-8 w-8 pointer-coarse:min-h-11 pointer-coarse:min-w-11"
             aria-label="Refresh MCP inventory"
             disabled={query.isFetching}
@@ -259,7 +259,7 @@ function McpInventoryPopover({
                 ref={backButton}
                 type="button"
                 variant="ghost"
-                size="sm"
+                size="stream-sm"
                 className="h-8 px-1 text-label-sm text-foreground hover:bg-transparent pointer-coarse:min-h-11"
                 onClick={() => {
                   setSelected(null);
@@ -308,7 +308,7 @@ function McpInventoryPopover({
                         <Button
                           type="button"
                           variant="ghost"
-                          size="sm"
+                          size="stream-sm"
                           className="h-auto min-h-8 w-full justify-start whitespace-normal break-all px-1 text-left text-body-sm font-normal pointer-coarse:min-h-11"
                           aria-expanded={expanded === tool.name}
                           onClick={() =>
@@ -360,7 +360,7 @@ function McpInventoryPopover({
               <Button
                 type="button"
                 variant="ghost"
-                size="sm"
+                size="stream-sm"
                 aria-pressed={attention}
                 className="my-1 h-7 shrink-0 self-start px-1 text-label-sm text-warning pointer-coarse:min-h-11"
                 onClick={() => setAttention(!attention)}
@@ -376,6 +376,7 @@ function McpInventoryPopover({
                 const StatusIcon = statusIcon(item);
                 return (
                   <Button
+                    size="stream-md"
                     key={item.name}
                     aria-label={`${item.name} ${status(item)}`}
                     title={status(item)}

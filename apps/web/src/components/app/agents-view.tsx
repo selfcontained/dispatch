@@ -65,6 +65,7 @@ import {
   useExpandedAgent,
   useExpandedAgentSync,
 } from "@/hooks/use-expanded-agent";
+import { CENTER_PANE_ID, centerTabLabel } from "@/lib/center-tabs";
 
 type AgentsViewProps = {
   enabledAgentTypes: AgentType[];
@@ -591,6 +592,9 @@ export function AgentsView({
                 openInputCount={inbox.inputs.length}
               />
               <div
+                id={CENTER_PANE_ID}
+                role={isSplit ? undefined : "tabpanel"}
+                aria-label={isSplit ? undefined : centerTabLabel(activeTab)}
                 className="relative min-h-0 flex-1"
                 onDragOver={handleContentDragOver}
                 onDragLeave={handleContentDragLeave}

@@ -74,11 +74,11 @@ function DatePickerPopover({
     <Popover open={calendarOpen} onOpenChange={setCalendarOpen}>
       <PopoverTrigger asChild>
         <Button
-          variant="default"
-          className="h-8 gap-1.5 bg-surface-subtle text-body-sm font-normal"
+          size="sm"
+          className="bg-surface-subtle text-body-sm font-normal"
           data-testid="activity-date-picker"
         >
-          <CalendarIcon className="h-3.5 w-3.5" />
+          <CalendarIcon />
           {formatLongDate(dailyDate)}
         </Button>
       </PopoverTrigger>

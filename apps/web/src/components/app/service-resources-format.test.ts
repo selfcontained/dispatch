@@ -7,7 +7,7 @@ import {
   formatMs,
   formatUptime,
   metadataLabel,
-  stateBadgeVariant,
+  stateBadgeTone,
   stateLabel,
 } from "./service-resources-format";
 
@@ -96,19 +96,19 @@ describe("stateLabel", () => {
   });
 });
 
-describe("stateBadgeVariant", () => {
+describe("stateBadgeTone", () => {
   it("maps every health state to its badge variant", () => {
     const cases: Array<[ResourceHealthState, string]> = [
-      ["healthy", "running"],
-      ["running", "running"],
-      ["degraded", "error"],
-      ["unavailable", "error"],
-      ["unknown", "stopped"],
-      ["idle", "default"],
-      ["disabled", "default"],
+      ["healthy", "success"],
+      ["running", "success"],
+      ["degraded", "danger"],
+      ["unavailable", "danger"],
+      ["unknown", "warning"],
+      ["idle", "neutral"],
+      ["disabled", "neutral"],
     ];
     for (const [state, variant] of cases) {
-      expect(stateBadgeVariant(state), state).toBe(variant);
+      expect(stateBadgeTone(state), state).toBe(variant);
     }
   });
 });

@@ -63,6 +63,13 @@ export default {
         "heading-lg": ["1.25rem", { lineHeight: "1.75rem", fontWeight: "600" }],
         display: ["1.5rem", { lineHeight: "2rem", fontWeight: "600" }],
       },
+      // One icon size per control size: sm in badges and meta, md in buttons
+      // and rows, lg in navigation and headers.
+      size: {
+        "icon-sm": "0.75rem",
+        "icon-md": "0.875rem",
+        "icon-lg": "1rem",
+      },
       // Named alpha steps for any token colour: bg-danger/tint,
       // border-danger/line. A tinted intent surface is tint fill, line
       // border, solid text; wash is for tinting a whole block.
@@ -202,7 +209,8 @@ export default {
         screen: "28px",
       },
       // One stacking order. The viewer steps sit above every other overlay
-      // because the image viewer opens from inside dialogs.
+      // because the image viewer opens from inside dialogs. Tooltips top
+      // them all: the viewer's own controls have them.
       zIndex: {
         sticky: "10",
         raised: "20",
@@ -212,12 +220,12 @@ export default {
         modal: "70",
         popover: "80",
         toast: "85",
-        tooltip: "90",
         progress: "100",
         viewer: "120",
         "viewer-modal": "130",
         "viewer-popover": "140",
         "viewer-menu": "150",
+        tooltip: "160",
       },
       keyframes: {
         // Fade new posts without moving their rendered position. The same

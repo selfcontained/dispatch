@@ -1,6 +1,6 @@
 import { Check } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { IconButton } from "@/components/ui/icon-button";
 
 export const PROJECT_COLORS = [
   "#9575ed",
@@ -31,15 +31,14 @@ export function ColorPicker({
   const swatch = (color: string, name: string) => {
     const selected = value.toLowerCase() === color;
     return (
-      <Button
-        type="button"
+      <IconButton
+        size="icon-sm"
         key={color}
-        variant="ghost"
         disabled={disabled}
-        aria-label={name}
+        label={name}
+        tooltip={color}
         aria-pressed={selected}
-        title={color}
-        className="h-7 w-7 shrink-0 rounded-full p-1"
+        className="rounded-full"
         onClick={() => onChange(color)}
       >
         <span
@@ -49,7 +48,7 @@ export function ColorPicker({
         >
           {selected && <Check className="h-3 w-3" />}
         </span>
-      </Button>
+      </IconButton>
     );
   };
 

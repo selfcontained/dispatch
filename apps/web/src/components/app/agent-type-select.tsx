@@ -14,6 +14,7 @@ import {
   sortAgentTypes,
 } from "@/lib/agent-types";
 import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
 
 type AgentTypeSelectProps = {
   value: AgentType;
@@ -61,7 +62,8 @@ export function AgentTypeSelect({
       <label className="text-body-md text-muted-foreground" htmlFor={id}>
         {label}
       </label>
-      <button
+      <Button
+        variant="field"
         ref={triggerRef}
         id={id}
         type="button"
@@ -75,10 +77,7 @@ export function AgentTypeSelect({
             if (!open) updateOpen(true);
           }
         }}
-        className={cn(
-          "flex h-9 w-full items-center justify-between rounded-md surface-inset px-3 py-2 text-body-md",
-          "focus-ring"
-        )}
+        className="w-full"
       >
         {AGENT_TYPE_LABELS[value]}
         <ChevronDown
@@ -87,7 +86,7 @@ export function AgentTypeSelect({
             open && "rotate-180"
           )}
         />
-      </button>
+      </Button>
       {open ? (
         <div className="absolute left-0 z-popover min-w-48 w-max max-w-[calc(100vw-3rem)] mt-1 rounded-md surface-overlay">
           <Command

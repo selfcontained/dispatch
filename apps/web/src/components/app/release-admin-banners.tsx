@@ -47,7 +47,8 @@ export function ReleaseJobBanners({
           </span>
           <Button
             size="sm"
-            variant="ghost-primary"
+            variant="ghost"
+            tone="success"
             className="ml-auto shrink-0"
             onClick={onShowProgress}
           >
@@ -63,7 +64,12 @@ export function ReleaseJobBanners({
             {job.error ? `: ${cleanError(job.error)}` : ""}
           </span>
           <div className="ml-auto flex shrink-0 items-center gap-2">
-            <Button size="sm" variant="ghost-primary" onClick={onShowProgress}>
+            <Button
+              size="sm"
+              variant="ghost"
+              tone="success"
+              onClick={onShowProgress}
+            >
               Details
             </Button>
             <Button size="sm" variant="ghost" onClick={onDismiss}>

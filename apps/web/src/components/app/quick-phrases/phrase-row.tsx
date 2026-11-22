@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import type { QuickPhrase } from "@/hooks/use-quick-phrases";
 
 import { InjectSplitButton } from "./inject-split-button";
+import { IconButton } from "@/components/ui/icon-button";
 
 export function PhraseRow({
   phrase,
@@ -37,9 +38,9 @@ export function PhraseRow({
           hasArgs ? (
             <Button
               type="button"
-              size="sm"
+              size="xs"
               disabled={isPending}
-              className="h-7 min-w-[5.5rem] px-2 text-body-sm"
+              className="min-w-[5.5rem]"
               onClick={onFill}
             >
               Send…
@@ -53,25 +54,19 @@ export function PhraseRow({
             />
           )
         ) : null}
-        <button
-          type="button"
-          className="rounded-sm p-1.5 text-muted-foreground hover:bg-fill-hover hover:text-foreground"
-          onClick={onEdit}
-          title="Edit phrase"
-        >
-          <Pencil className="h-3.5 w-3.5" />
-        </button>
-        <button
-          type="button"
-          className="rounded-sm p-1.5 text-muted-foreground hover:bg-fill-hover hover:text-foreground"
+        <IconButton size="icon-sm" label="Edit phrase" onClick={onEdit}>
+          <Pencil />
+        </IconButton>
+        <IconButton
+          size="icon-sm"
+          label="Delete phrase"
           onClick={() => {
             const name = phrase.label || phrase.text.slice(0, 40);
             if (window.confirm(`Delete "${name}"?`)) onDelete();
           }}
-          title="Delete phrase"
         >
-          <Trash2 className="h-3.5 w-3.5" />
-        </button>
+          <Trash2 />
+        </IconButton>
       </div>
     </div>
   );

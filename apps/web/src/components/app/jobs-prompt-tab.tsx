@@ -139,7 +139,7 @@ export function PromptTab({
                 });
             }}
           >
-            {isUpdating ? <ActivityBars size={16} className="mr-2" /> : null}
+            {isUpdating ? <ActivityBars size={16} /> : null}
             Save instructions
           </Button>
         </div>

@@ -33,6 +33,8 @@ import type {
   Inbox,
 } from "@/hooks/use-inbox";
 import { formatRelativeTime } from "@/lib/format";
+import { RowButton } from "@/components/ui/row-button";
+import { CountBubble } from "@/components/ui/count-bubble";
 
 export type InboxPanelProps = {
   inbox: Inbox;
@@ -56,11 +58,7 @@ function InboxSectionTitle({
   return (
     <div className="flex items-center gap-2 px-3 pb-1.5 pt-3 section-label">
       {children}
-      {count !== undefined && count > 0 ? (
-        <span className="rounded-full bg-muted px-1.5 py-px text-label-xs font-medium normal-case tracking-normal text-foreground/soft">
-          {count}
-        </span>
-      ) : null}
+      {count !== undefined && count > 0 ? <CountBubble count={count} /> : null}
     </div>
   );
 }
@@ -159,10 +157,11 @@ function InboxInputCard({
     >
       <div className="flex items-center justify-between gap-2 text-label-sm text-muted-foreground">
         <InboxAuthor block={block} name={authorName} />
-        <button
+        <Button
           type="button"
-          className="shrink-0 underline-offset-2 hover:underline"
-          title={formatRelativeTime(block.createdAt)}
+          variant="ghost"
+          size="inline"
+          className="shrink-0 underline-offset-2 hover:bg-transparent hover:underline"
           // An ask made in a thread opens that thread, where it was asked.
           onClick={(event) =>
             openOriginalMessage(event, onOpenBlock, block.threadId ?? block.id)
@@ -170,7 +169,7 @@ function InboxInputCard({
           data-testid="inbox-input-open"
         >
           {formatRelativeTime(block.createdAt)}
-        </button>
+        </Button>
       </div>
       {block.text ? (
         <Markdown className="mt-1 text-body-md text-foreground prose-p:my-0.5">
@@ -249,7 +248,8 @@ function InboxReviewCard({
         <Button
           type="button"
           variant="ghost"
-          className="ml-auto h-auto gap-1.5 p-0 text-label-sm font-normal hover:bg-transparent"
+          size="inline"
+          className="ml-auto text-label-sm hover:bg-transparent"
           aria-label={`Open review by ${authorName}`}
           onClick={(event) =>
             openOriginalMessage(
@@ -264,34 +264,31 @@ function InboxReviewCard({
           </span>
           <span className="flex shrink-0 items-center gap-1.5">
             {unread > 0 ? (
-              <span
-                className="rounded-full bg-primary px-1.5 py-px text-label-xs font-semibold text-primary-foreground"
+              <CountBubble
+                tone="info"
+                count={unread}
                 data-testid="inbox-review-unread"
                 aria-label={`${unread} new ${unread === 1 ? "comment" : "comments"}`}
-              >
-                {unread}
-              </span>
+              />
             ) : null}
             <ChevronRight className="h-3.5 w-3.5" aria-hidden="true" />
           </span>
         </Button>
       </div>
-      <Button
-        type="button"
-        variant="ghost"
-        className="flex h-auto w-full select-text flex-wrap items-center justify-start gap-1.5 whitespace-normal p-0 text-left font-normal hover:bg-transparent"
+      <RowButton
+        className="select-text flex-wrap gap-1.5 rounded-sm hover:bg-transparent"
         aria-label={`Open review summary by ${authorName}`}
         onClick={(event) =>
           openOriginalMessage(event, onOpenBlock, review.threadId ?? review.id)
         }
       >
-        <Badge variant={standing.variant} data-testid="inbox-review-status">
+        <Badge tone={standing.tone} data-testid="inbox-review-status">
           {standing.label}
         </Badge>
         <span className="ml-auto text-label-sm text-muted-foreground">
           {findingsSummary(review)}
         </span>
-      </Button>
+      </RowButton>
     </div>
   );
 }
@@ -327,20 +324,19 @@ function InboxChecklistCard({
         <Button
           type="button"
           variant="ghost"
-          className="ml-auto h-auto shrink-0 gap-2 p-0 text-label-sm font-normal hover:bg-transparent"
+          size="inline"
+          className="ml-auto shrink-0 text-label-sm hover:bg-transparent"
           onClick={(event) => openOriginalMessage(event, onOpenBlock, block.id)}
           aria-label={`Open ${title} by ${authorName}, ${done}/${items.length} done`}
         >
           <span className="shrink-0" data-testid="inbox-checklist-progress">
             {done}/{items.length} done
           </span>
-          <ChevronRight className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+          <ChevronRight aria-hidden="true" />
         </Button>
       </div>
-      <Button
-        type="button"
-        variant="ghost"
-        className="flex h-auto w-full select-text flex-col items-stretch gap-1 whitespace-normal p-0 text-left font-normal hover:bg-transparent"
+      <RowButton
+        className="select-text flex-col items-stretch gap-1 rounded-sm text-muted-foreground hover:bg-transparent"
         onClick={(event) => openOriginalMessage(event, onOpenBlock, block.id)}
         aria-label={`Open original checklist: ${title}`}
       >
@@ -357,7 +353,7 @@ function InboxChecklistCard({
                 ? `Next: ${next.text}`
                 : "No items yet"}
         </span>
-      </Button>
+      </RowButton>
     </div>
   );
 }
@@ -471,7 +467,6 @@ export function InboxPanel({
         <div className="px-3 py-2">
           {inbox.reviewsError ? <p role="alert">{inbox.reviewsError}</p> : null}
           <Button
-            variant="default"
             size="sm"
             disabled={inbox.loadingOlderReviews}
             onClick={inbox.loadOlderReviews}

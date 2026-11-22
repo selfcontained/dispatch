@@ -167,7 +167,7 @@ export function SharedMessageEntry({
         <CollapsibleTrigger asChild>
           <Button
             variant="ghost"
-            size="sm"
+            size="stream-sm"
             className="h-auto px-0 py-1 text-body-sm text-muted-foreground"
           >
             Provenance details

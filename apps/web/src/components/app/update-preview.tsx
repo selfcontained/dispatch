@@ -104,16 +104,11 @@ export default function UpdatePreview(): JSX.Element {
         <Button disabled={running} onClick={() => start(false)}>
           Simulate update
         </Button>
-        <Button
-          variant="default"
-          disabled={running}
-          onClick={() => start(true)}
-        >
+        <Button disabled={running} onClick={() => start(true)}>
           Simulate long wait
         </Button>
         <Button
           disabled={!running}
-          variant="default"
           onClick={() => {
             timers.current.forEach(clearTimeout);
             timers.current = [];

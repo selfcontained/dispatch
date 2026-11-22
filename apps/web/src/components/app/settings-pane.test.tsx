@@ -135,7 +135,7 @@ function renderNav(overrides: Partial<NavProps> = {}) {
     // every assertion below would pass against either source.
     apiState: "ok",
     dbState: "down",
-    serviceDotClass: (state) => `dot-for-${state}`,
+    serviceDotTone: (state) => (state === "ok" ? "success" : "danger"),
     ...overrides,
   };
   render(<SettingsNavContent {...props} />);
@@ -254,10 +254,10 @@ describe("SettingsNavContent", () => {
       "down"
     );
     expect(screen.getByTestId("service-dot-api").className).toContain(
-      "dot-for-ok"
+      "bg-success"
     );
     expect(screen.getByTestId("service-dot-db").className).toContain(
-      "dot-for-down"
+      "bg-danger"
     );
   });
 });

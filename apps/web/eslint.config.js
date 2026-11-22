@@ -68,5 +68,29 @@ export default tseslint.config(
     // No exceptions today. A new one is { file, token }, naming the one file
     // and the one class, with a comment saying why no token fits.
     rules: { "dispatch/design-tokens": ["error", { allow: [] }] },
+  },
+  {
+    files: ["src/**/*.tsx"],
+    // components/ui defines the controls. The stream moves onto them in
+    // design-system task 5/6, which drops its ignore here and the exceptions.
+    ignores: [
+      "**/*.test.tsx",
+      "src/components/ui/**",
+      "src/components/app/chat/**",
+    ],
+    plugins: { dispatch },
+    rules: {
+      "dispatch/controls": [
+        "error",
+        {
+          allow: [
+            // The diff's Add comment split button moves to SplitButton in 5/6.
+            { file: "diff-comment-form.tsx", id: "rawButton" },
+            // Effort's compact form is a chip in the composer's meta row.
+            { file: "effort-picker.tsx", id: "streamSize" },
+          ],
+        },
+      ],
+    },
   }
 );

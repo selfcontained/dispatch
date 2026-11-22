@@ -34,24 +34,20 @@ export function SoundCuesSection(): JSX.Element {
             {CUE_INTENTS.map(({ intent, label }) => (
               <Button
                 key={intent}
-                variant="default"
                 size="sm"
                 onClick={() => playCueForIntent(intent)}
                 data-testid={`sound-preview-${intent}`}
-                className="gap-1.5"
               >
-                <Play className="h-3 w-3" />
+                <Play />
                 {label}
               </Button>
             ))}
             <Button
-              variant="default"
               size="sm"
               onClick={() => playTapCue()}
               data-testid="sound-preview-tap"
-              className="gap-1.5"
             >
-              <Play className="h-3 w-3" />
+              <Play />
               Mobile tap
             </Button>
           </div>
@@ -85,7 +81,6 @@ export function TipsSection(): JSX.Element {
           </div>
         </label>
         <Button
-          variant="default"
           size="sm"
           onClick={() => {
             setDismissed([]);
@@ -95,9 +90,8 @@ export function TipsSection(): JSX.Element {
             );
           }}
           data-testid="reset-dismissed-tips"
-          className="gap-1.5"
         >
-          <RotateCcw className="h-3 w-3" />
+          <RotateCcw />
           Reset dismissed tips
         </Button>
       </div>

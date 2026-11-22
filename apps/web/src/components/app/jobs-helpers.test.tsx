@@ -11,10 +11,10 @@ import {
   humanSchedule,
   minutesFromMs,
   msFromMinutes,
-  statusClasses,
-  statusDotColor,
+  statusDotTone,
   statusIcon,
   statusTextColor,
+  statusTone,
   triggerSourceLabel,
 } from "./jobs-helpers";
 
@@ -26,41 +26,41 @@ afterEach(() => {
 
 describe("status mappers", () => {
   it("map completed to the done treatment", () => {
-    expect(statusClasses("completed")).toContain("status-done");
+    expect(statusTone("completed")).toBe("info");
     expect(statusTextColor("completed")).toBe("text-status-done");
-    expect(statusDotColor("completed")).toBe("bg-status-done");
+    expect(statusDotTone("completed")).toBe("done");
     expect(statusIcon("completed")?.type).toBe(CheckCircle2);
   });
 
   it("map every failure status to the blocked treatment", () => {
     for (const status of FAILURE_STATUSES) {
-      expect(statusClasses(status)).toContain("status-blocked");
+      expect(statusTone(status)).toBe("danger");
       expect(statusTextColor(status)).toBe("text-status-blocked");
-      expect(statusDotColor(status)).toBe("bg-status-blocked");
+      expect(statusDotTone(status)).toBe("blocked");
       expect(statusIcon(status)?.type).toBe(XCircle);
     }
   });
 
   it("map needs_input to the waiting treatment with an activity icon", () => {
-    expect(statusClasses("needs_input")).toContain("status-waiting");
+    expect(statusTone("needs_input")).toBe("warning");
     expect(statusTextColor("needs_input")).toBe("text-status-waiting");
-    expect(statusDotColor("needs_input")).toBe("bg-status-waiting");
+    expect(statusDotTone("needs_input")).toBe("waiting");
     expect(statusIcon("needs_input")?.type).toBe(ActivityBars);
   });
 
   it("map started and running to the working treatment with an activity icon", () => {
     for (const status of ["started", "running"] as const) {
-      expect(statusClasses(status)).toContain("status-working");
+      expect(statusTone(status)).toBe("success");
       expect(statusTextColor(status)).toBe("text-status-working");
-      expect(statusDotColor(status)).toBe("bg-status-working");
+      expect(statusDotTone(status)).toBe("working");
       expect(statusIcon(status)?.type).toBe(ActivityBars);
     }
   });
 
   it("fall back to muted styling and no icon for null", () => {
-    expect(statusClasses(null)).toContain("text-muted-foreground");
+    expect(statusTone(null)).toBe("neutral");
     expect(statusTextColor(null)).toBe("text-muted-foreground");
-    expect(statusDotColor(null)).toBe("bg-muted-foreground");
+    expect(statusDotTone(null)).toBe("neutral");
     expect(statusIcon(null)).toBeNull();
   });
 });

@@ -125,9 +125,8 @@ export function ReleasesAdmin(): JSX.Element {
             variant="ghost"
             size="sm"
             onClick={() => setShowProgress(false)}
-            className="gap-1.5 text-muted-foreground hover:text-foreground"
           >
-            <ArrowLeft className="h-3.5 w-3.5" />
+            <ArrowLeft />
             Back to releases
           </Button>
         </div>

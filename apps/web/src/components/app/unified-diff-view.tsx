@@ -24,6 +24,7 @@ import {
   type LineSelection,
 } from "@/components/app/unified-diff-utils";
 import { useDiffWidgets } from "@/components/app/use-diff-widgets";
+import { IconButton } from "@/components/ui/icon-button";
 
 type UnifiedDiffViewProps = DiffReviewAnnotationProps & {
   agentId: string | null;
@@ -272,18 +273,20 @@ export const UnifiedDiffView = memo(function UnifiedDiffView({
         </Diff>
       </div>
       {buttonPos !== null && !commentOpen && lineSelection && (
-        <button
-          type="button"
+        <IconButton
+          variant="primary"
+          size="icon-xs"
+          label="Comment on selected lines"
           onClick={() => onCommentOpen(true)}
-          className="absolute z-sticky flex items-center justify-center rounded-md bg-primary p-1 text-primary-foreground shadow-md hover:bg-primary/dense -translate-y-1/2"
+          className="absolute z-sticky bg-primary shadow-md"
           style={{
             top: buttonPos.top,
             left: buttonPos.left + buttonPos.width / 2,
             transform: "translate(-50%, -50%)",
           }}
         >
-          <MessageSquare className="h-3.5 w-3.5" />
-        </button>
+          <MessageSquare />
+        </IconButton>
       )}
     </div>
   );

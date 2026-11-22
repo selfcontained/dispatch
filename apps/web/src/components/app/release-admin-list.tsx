@@ -3,7 +3,7 @@ import type { GitHubRelease } from "@/components/app/release-utils";
 import { ActivityBars } from "@/components/ui/activity-bars";
 import { Button } from "@/components/ui/button";
 import { formatShortDateTime } from "@/lib/format";
-import { cn } from "@/lib/utils";
+import { Badge } from "@/components/ui/badge";
 
 type RecentReleasesProps = {
   releases: GitHubRelease[];
@@ -57,16 +57,9 @@ export function RecentReleases({
               <span className="font-mono text-body-md font-semibold text-foreground">
                 {r.tag}
               </span>
-              <span
-                className={cn(
-                  "rounded-full px-2 py-0.5 text-label-xs font-medium uppercase tracking-wide",
-                  r.isPrerelease
-                    ? "bg-warning/tint text-warning"
-                    : "bg-success/tint text-success"
-                )}
-              >
-                {r.isPrerelease ? "pre-release" : "stable"}
-              </span>
+              <Badge tone={r.isPrerelease ? "warning" : "success"}>
+                {r.isPrerelease ? "Pre-release" : "Stable"}
+              </Badge>
               <span className="text-body-sm text-muted-foreground">
                 {formatShortDateTime(r.publishedAt)}
               </span>
@@ -92,7 +85,8 @@ export function RecentReleases({
                   confirmPromoteTag !== r.tag && (
                     <Button
                       size="sm"
-                      variant="ghost-primary"
+                      variant="ghost"
+                      tone="success"
                       onClick={() => onConfirmPromoteTagChange(r.tag)}
                       disabled={promotingTag !== null}
                     >
@@ -106,7 +100,8 @@ export function RecentReleases({
                     </span>
                     <Button
                       size="sm"
-                      variant="ghost-primary"
+                      variant="ghost"
+                      tone="success"
                       onClick={() => onPromote(r.tag)}
                     >
                       Confirm

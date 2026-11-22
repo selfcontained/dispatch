@@ -6,6 +6,7 @@ import { Bell } from "lucide-react";
 import { useState } from "react";
 import { AttentionCard } from "./attention-toast";
 import { Button } from "@/components/ui/button";
+import { IconButton } from "@/components/ui/icon-button";
 import {
   Sheet,
   SheetContent,
@@ -28,9 +29,9 @@ export function NotificationsDrawer(): JSX.Element {
   return (
     <Sheet open={open} onOpenChange={setOpen}>
       <SheetTrigger asChild>
-        <Button size="icon" variant="ghost" aria-label="Notifications">
-          <Bell className="size-4" />
-        </Button>
+        <IconButton label="Notifications">
+          <Bell />
+        </IconButton>
       </SheetTrigger>
       <SheetContent aria-describedby={undefined}>
         <div className="border-b px-4 pb-4 pt-safe-4">
@@ -46,9 +47,7 @@ export function NotificationsDrawer(): JSX.Element {
               <p role="alert" className="text-body-md text-muted-foreground">
                 Couldn’t load notifications
               </p>
-              <Button variant="default" onClick={() => void history.refetch()}>
-                Retry
-              </Button>
+              <Button onClick={() => void history.refetch()}>Retry</Button>
             </div>
           ) : items?.length === 0 ? (
             <p className="p-2 text-body-md text-muted-foreground">

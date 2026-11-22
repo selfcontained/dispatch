@@ -10,7 +10,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { cn } from "@/lib/utils";
+import { Hint } from "@/components/ui/tooltip";
+import { Badge } from "@/components/ui/badge";
 
 /** Occupancy always comes from the server, including filtered/archived views. */
 export function ColumnCapacity({ column }: { column: TaskColumn }) {
@@ -23,21 +24,21 @@ export function ColumnCapacity({ column }: { column: TaskColumn }) {
         : "Full"
       : null;
   return (
-    <span
-      data-testid={`column-capacity-${column.key}`}
-      aria-label={`${column.name}: ${count} active tasks${limited ? `, limit ${column.capacity}` : ", unlimited"}${state ? `, ${state}` : ""}`}
-      title="All active tasks, including tasks hidden by filters. Archived tasks do not use capacity."
-      className={cn(
-        "inline-flex shrink-0 items-center gap-1 rounded-full bg-background/veil px-1.5 text-body-sm font-normal tabular-nums text-muted-foreground",
-        state && "bg-danger/tint text-danger"
-      )}
-    >
-      <span>
-        {count}
-        {limited ? ` / ${column.capacity}` : ""}
-      </span>
-      {state && <span className="text-label-xs">{state}</span>}
-    </span>
+    <Hint label="All active tasks, including tasks hidden by filters. Archived tasks do not use capacity.">
+      <Badge
+        size="sm"
+        tone={state === "Over limit" ? "danger" : state ? "warning" : "neutral"}
+        data-testid={`column-capacity-${column.key}`}
+        aria-label={`${column.name}: ${count} active tasks${limited ? `, limit ${column.capacity}` : ", unlimited"}${state ? `, ${state}` : ""}`}
+        className="tabular-nums"
+      >
+        <span>
+          {count}
+          {limited ? ` / ${column.capacity}` : ""}
+        </span>
+        {state && <span>{state}</span>}
+      </Badge>
+    </Hint>
   );
 }
 

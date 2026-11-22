@@ -191,24 +191,16 @@ function TemplateDetail({
           </div>
         ) : null}
         <div className="mt-4 flex flex-wrap gap-2">
-          <Button
-            className="gap-1.5"
-            disabled={launchTemplate.isPending}
-            onClick={handleLaunch}
-          >
+          <Button disabled={launchTemplate.isPending} onClick={handleLaunch}>
             {launchTemplate.isPending ? (
-              <ActivityBars size={16} className="mr-1" />
+              <ActivityBars size={16} />
             ) : (
-              <Play className="h-3.5 w-3.5 fill-current" />
+              <Play className="fill-current" />
             )}
             Launch
           </Button>
-          <Button
-            variant="default"
-            className="gap-1.5"
-            onClick={() => setDuplicateDialogOpen(true)}
-          >
-            <Copy className="h-3.5 w-3.5" />
+          <Button onClick={() => setDuplicateDialogOpen(true)}>
+            <Copy />
             Duplicate
           </Button>
         </div>
@@ -254,9 +246,7 @@ function TemplateDetail({
                 disabled={!canSave || updateTemplate.isPending}
                 onClick={handleSave}
               >
-                {updateTemplate.isPending ? (
-                  <ActivityBars size={16} className="mr-2" />
-                ) : null}
+                {updateTemplate.isPending ? <ActivityBars size={16} /> : null}
                 Save
               </Button>
             </div>
@@ -272,7 +262,7 @@ function TemplateDetail({
             </p>
             <div className="mt-3 flex justify-end">
               <Button
-                variant="destructive"
+                variant="danger"
                 size="sm"
                 disabled={removeTemplate.isPending}
                 onClick={() => {
@@ -280,7 +270,7 @@ function TemplateDetail({
                   setRemoveDialogOpen(true);
                 }}
               >
-                <Trash2 className="mr-2 h-4 w-4" />
+                <Trash2 />
                 Delete
               </Button>
             </div>
@@ -316,7 +306,7 @@ function TemplateDetail({
               Cancel
             </Button>
             <Button
-              variant="destructive"
+              variant="danger"
               onClick={handleDelete}
               disabled={removeTemplate.isPending}
             >

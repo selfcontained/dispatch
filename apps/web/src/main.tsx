@@ -3,6 +3,7 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import { RouterProvider } from "react-router-dom";
 import { router } from "./router";
+import { TooltipProvider } from "./components/ui/tooltip";
 import { initPWAUpdate } from "./lib/pwa-update";
 import "./index.css";
 
@@ -83,7 +84,9 @@ initPWAUpdate();
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
     <QueryClientProvider client={queryClient}>
-      <RouterProvider router={router} />
+      <TooltipProvider>
+        <RouterProvider router={router} />
+      </TooltipProvider>
     </QueryClientProvider>
   </React.StrictMode>
 );

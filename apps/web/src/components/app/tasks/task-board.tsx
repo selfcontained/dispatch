@@ -32,6 +32,7 @@ import { cn } from "@/lib/utils";
 import { ColumnTriggerStrip } from "./task-trigger-dialog";
 import { ColumnCapacity } from "./task-column-capacity";
 import { TaskColumnMenu } from "./task-column-menu";
+import { StatusDot } from "@/components/ui/status-dot";
 
 /** Hit-test the scrolled column in the DOM, then its *layout* card slots.
  * Sortable transforms are only a preview: feeding their painted positions
@@ -139,10 +140,7 @@ function BoardColumn({
       )}
     >
       <header className="flex items-center gap-2 border-t-2 border-[hsl(var(--col)/0.7)] bg-[hsl(var(--col)/0.08)] px-3 py-2">
-        <span
-          aria-hidden="true"
-          className="h-2 w-2 shrink-0 rounded-full bg-[hsl(var(--col))]"
-        />
+        <StatusDot color="hsl(var(--col))" />
         <h2 className="min-w-0 flex-1 truncate text-heading-sm">
           {column.name}
         </h2>
@@ -177,10 +175,10 @@ function BoardColumn({
       <div className="p-2">
         <Button
           variant="ghost"
-          className="w-full justify-start text-muted-foreground hover:bg-surface-hover"
+          className="w-full justify-start hover:bg-surface-hover"
           onClick={() => addTask(column.id)}
         >
-          <Plus className="mr-1 h-3.5 w-3.5" aria-hidden="true" />
+          <Plus aria-hidden="true" />
           Add task
         </Button>
       </div>

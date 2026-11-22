@@ -3,14 +3,9 @@ import { GitBranch, Info } from "lucide-react";
 
 import { BranchSelect } from "@/components/app/branch-select";
 import { Checkbox } from "@/components/ui/checkbox";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
+import { IconButton } from "@/components/ui/icon-button";
 
 type WorktreeSectionProps = {
   cwd: string;
@@ -70,11 +65,6 @@ export function WorktreeSection({
             checked={worktreeChecked}
             onCheckedChange={(checked) => onUseWorktreeChange(checked === true)}
             disabled={!worktreeAvailable}
-            title={
-              worktreeAvailable
-                ? "Toggle managed git worktree"
-                : "Not a git repository"
-            }
             data-testid="create-agent-worktree"
           />
           <span className="flex h-5 items-center gap-1.5 text-body-md font-medium text-foreground">
@@ -82,24 +72,17 @@ export function WorktreeSection({
             Create managed git worktree
           </span>
         </label>
-        <TooltipProvider>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                type="button"
-                aria-label="About managed worktrees"
-                className="flex h-5 shrink-0 items-center text-muted-foreground hover:text-foreground"
-              >
-                <Info className="h-3.5 w-3.5" />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent className="max-w-64">
-              {worktreeAvailable
-                ? "Creates an isolated worktree for this agent. Dispatch tracks and cleans it up when the agent is archived."
-                : "Requires a Git repository."}
-            </TooltipContent>
-          </Tooltip>
-        </TooltipProvider>
+        <IconButton
+          size="icon-xs"
+          label="About managed worktrees"
+          tooltip={
+            worktreeAvailable
+              ? "Creates an isolated worktree for this agent. Dispatch tracks and cleans it up when the agent is archived."
+              : "Requires a Git repository."
+          }
+        >
+          <Info />
+        </IconButton>
       </div>
       <div
         ref={collapsibleRef}
@@ -150,7 +133,7 @@ export function WorktreeSection({
                   onCheckedChange={(checked) =>
                     onCreateNewBranchChange(checked === true)
                   }
-                  title="Toggle new branch creation"
+                  aria-label="Toggle new branch creation"
                   data-testid="create-agent-new-branch"
                   disabled={!worktreeChecked}
                 />

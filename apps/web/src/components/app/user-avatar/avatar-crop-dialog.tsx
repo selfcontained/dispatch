@@ -137,7 +137,7 @@ export function AvatarCropDialog({
             Reset crop
           </Button>
           <div className="ml-auto flex gap-2">
-            <Button variant="default" disabled={saving} onClick={onClose}>
+            <Button disabled={saving} onClick={onClose}>
               Cancel
             </Button>
             <Button

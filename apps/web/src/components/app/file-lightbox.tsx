@@ -13,6 +13,7 @@ import {
 } from "@/components/app/file-lightbox-text";
 import { stripTimestamp } from "@/components/app/file-utils";
 import { Button } from "@/components/ui/button";
+import { IconButton } from "@/components/ui/icon-button";
 import { type FileItem } from "@/components/app/types";
 import { fileItemQueryKey } from "@/hooks/use-files";
 import { api } from "@/lib/api";
@@ -242,21 +243,18 @@ export function FileLightbox({
               <div className="mx-0.5 h-5 w-px bg-border" />
             </>
           ) : null}
-          <Button
-            aria-label="Previous file item"
+          <IconButton
+            label="Previous file item"
             data-testid="file-lightbox-prev"
             disabled={!canGoPrev}
-            size="icon"
-            variant="ghost"
             className={cn(
-              "h-11 w-11 sm:h-9 sm:w-9",
               isImage &&
                 "text-media-foreground hover:bg-media-foreground/tint-strong hover:text-media-foreground"
             )}
             onClick={() => selectIndex(currentIndex - 1)}
           >
-            <ChevronLeft className="h-6 w-6 sm:h-5 sm:w-5" />
-          </Button>
+            <ChevronLeft />
+          </IconButton>
           <span
             className={cn(
               "hidden text-body-sm tabular-nums sm:inline",
@@ -265,36 +263,30 @@ export function FileLightbox({
           >
             {totalItems > 0 ? `${currentIndex + 1}/${totalItems}` : ""}
           </span>
-          <Button
-            aria-label="Next file item"
+          <IconButton
+            label="Next file item"
             data-testid="file-lightbox-next"
             disabled={!canGoNext}
-            size="icon"
-            variant="ghost"
             className={cn(
-              "h-11 w-11 sm:h-9 sm:w-9",
               isImage &&
                 "text-media-foreground hover:bg-media-foreground/tint-strong hover:text-media-foreground"
             )}
             onClick={() => selectIndex(currentIndex + 1)}
           >
-            <ChevronRight className="h-6 w-6 sm:h-5 sm:w-5" />
-          </Button>
+            <ChevronRight />
+          </IconButton>
           <div className="mx-0.5 h-5 w-px bg-border" />
-          <Button
+          <IconButton
             ref={closeButtonRef}
-            aria-label="Close"
-            size="icon"
-            variant="ghost"
+            label="Close"
             className={cn(
-              "h-11 w-11 sm:h-9 sm:w-9",
               isImage &&
                 "text-media-foreground hover:bg-media-foreground/tint-strong hover:text-media-foreground"
             )}
             onClick={() => setFileId(null)}
           >
-            <X className="h-6 w-6 sm:h-5 sm:w-5" />
-          </Button>
+            <X />
+          </IconButton>
         </div>
       </div>
       <div

@@ -22,6 +22,7 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { IconButton } from "@/components/ui/icon-button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Markdown } from "@/components/ui/markdown";
@@ -35,6 +36,7 @@ import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import type { AgentPullRequest, MergeRiskSummary } from "@dispatch/shared";
 import { statusLabel } from "@/lib/status-label";
+import { Hint } from "@/components/ui/tooltip";
 
 type Status = AgentPullRequest["status"];
 const percent = (value: number | null) =>
@@ -115,7 +117,6 @@ function MergeRiskMarker({ risk }: { risk: MergeRiskSummary }) {
       role="img"
       data-testid="merge-risk-marker"
       aria-label={`Merge risk: ${state.label}`}
-      title={`Merge risk: ${state.label}`}
       className={cn(
         "inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center",
         riskTone(risk)
@@ -128,17 +129,15 @@ function MergeRiskMarker({ risk }: { risk: MergeRiskSummary }) {
 function MergeRiskBadge({ risk }: { risk: MergeRiskSummary }) {
   const state = riskDisplay(risk);
   return (
-    <Badge
-      data-testid="merge-risk-badge"
-      title={`Merge risk: ${state.label}`}
-      className={cn(
-        "shrink-0 px-1.5 py-0 text-label-xs normal-case tracking-normal",
-        state.badge,
-        riskTone(risk)
-      )}
-    >
-      {state.label}
-    </Badge>
+    <Hint label={`Merge risk: ${state.label}`}>
+      <Badge
+        size="sm"
+        data-testid="merge-risk-badge"
+        className={cn(state.badge, riskTone(risk))}
+      >
+        {state.label}
+      </Badge>
+    </Hint>
   );
 }
 function EvidencePercent({
@@ -286,9 +285,8 @@ function RiskExplanation({
       : CircleHelp;
   const action = (
     <Button
-      variant="default"
       size="sm"
-      className="h-8 gap-1.5 border-border bg-surface-hover px-2 text-label-sm text-foreground shadow-sm backdrop-blur-none hover:border-border hover:bg-muted aria-disabled:cursor-wait disabled-state aria-disabled:pointer-events-auto"
+      className="border-border bg-surface-hover text-label-sm text-foreground shadow-sm backdrop-blur-none hover:border-border hover:bg-muted aria-disabled:cursor-wait aria-disabled:pointer-events-auto"
       aria-disabled={query.isFetching}
       onClick={() => {
         if (query.isFetching) return;
@@ -413,18 +411,21 @@ function MergeRiskDetails({
           <h4 className="text-heading-sm">Merge risk</h4>
           <div className="flex items-center gap-2">
             <MergeRiskBadge risk={risk} />
-            <span
-              tabIndex={0}
-              aria-label={`Current CI: ${checks.label}`}
-              title={`Current CI: ${checks.label}. Risk is independent of checks; required checks must pass before merge.`}
-              className={cn(
-                "inline-flex items-center gap-1 text-label-xs",
-                checks.color
-              )}
+            <Hint
+              label={`Current CI: ${checks.label}. Risk is independent of checks; required checks must pass before merge.`}
             >
-              <ChecksIcon aria-hidden="true" className="h-3 w-3" />
-              <span>CI</span>
-            </span>
+              <span
+                tabIndex={0}
+                aria-label={`Current CI: ${checks.label}`}
+                className={cn(
+                  "inline-flex items-center gap-1 text-label-xs",
+                  checks.color
+                )}
+              >
+                <ChecksIcon aria-hidden="true" className="h-3 w-3" />
+                <span>CI</span>
+              </span>
+            </Hint>
           </div>
         </div>
         <p className="text-label-sm text-muted-foreground">{state.hint}</p>
@@ -459,60 +460,45 @@ function MergeRiskDetails({
             >
               {assessment.changeRiskLabel ?? "—"}
             </dd>
-            <dt
-              className="text-muted-foreground"
-              title="Higher means stronger review engagement."
-            >
-              Review engaged
-            </dt>
+            <Hint label="Higher means stronger review engagement.">
+              <dt className="text-muted-foreground">Review engaged</dt>
+            </Hint>
             <dd className="text-right">
               <EvidencePercent
                 value={assessment.reviewAdequate}
                 meaning="support"
               />
             </dd>
-            <dt
-              className="text-muted-foreground"
-              title="Higher means the description better matches the change."
-            >
-              Description matches
-            </dt>
+            <Hint label="Higher means the description better matches the change.">
+              <dt className="text-muted-foreground">Description matches</dt>
+            </Hint>
             <dd className="text-right">
               <EvidencePercent
                 value={assessment.descriptionMatches}
                 meaning="support"
               />
             </dd>
-            <dt
-              className="text-muted-foreground"
-              title="Likelihood of a new product surface; context, not a quality score."
-            >
-              New surface
-            </dt>
+            <Hint label="Likelihood of a new product surface; context, not a quality score.">
+              <dt className="text-muted-foreground">New surface</dt>
+            </Hint>
             <dd className="text-right">
               <EvidencePercent
                 value={assessment.newSurface}
                 meaning="context"
               />
             </dd>
-            <dt
-              className="text-muted-foreground"
-              title="Higher means a person is more likely to need to review this change."
-            >
-              Needs human review
-            </dt>
+            <Hint label="Higher means a person is more likely to need to review this change.">
+              <dt className="text-muted-foreground">Needs human review</dt>
+            </Hint>
             <dd className="text-right">
               <EvidencePercent
                 value={assessment.humanReviewProbability}
                 meaning="attention"
               />
             </dd>
-            <dt
-              className="text-muted-foreground"
-              title="Model certainty; not merge readiness."
-            >
-              Model confidence
-            </dt>
+            <Hint label="Model certainty; not merge readiness.">
+              <dt className="text-muted-foreground">Model confidence</dt>
+            </Hint>
             <dd className="text-right">
               <EvidencePercent
                 value={assessment.confidence}
@@ -586,12 +572,7 @@ function identity(url: string) {
 }
 function StatusBadge({ status }: { status: Status }) {
   return (
-    <Badge
-      className={cn(
-        "shrink-0 px-1.5 py-0 text-label-xs normal-case tracking-normal",
-        STATES[status].badge
-      )}
-    >
+    <Badge size="sm" className={STATES[status].badge}>
       {STATES[status].label}
     </Badge>
   );
@@ -706,7 +687,6 @@ function CompactChecks({ ci }: { ci?: CiSnapshot }) {
     <span
       role="img"
       aria-label={ci?.summary.total ? `Checks: ${label}` : label}
-      title={label}
       className={cn(
         "inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center",
         state.color
@@ -838,14 +818,13 @@ export function PullRequestRow({
       <PopoverAnchor virtualRef={triggerRef} />
       <div
         data-testid="agent-pr-line"
-        className="grid h-7 min-w-0 grid-cols-[14px_minmax(0,1fr)] items-center gap-3"
+        className="grid min-h-7 min-w-0 grid-cols-[14px_minmax(0,1fr)] items-center gap-3"
       >
-        <Button
-          variant="ghost"
+        <IconButton
+          tooltip="Pull request details"
           size="icon-sm"
           data-agent-control="true"
-          aria-label={`Details for pull request ${ref.number}: ${STATES[status].label}`}
-          title="Pull request details"
+          label={`Details for pull request ${ref.number}: ${STATES[status].label}`}
           onPointerDownCapture={() => {
             openOnPointerDown.current = open;
           }}
@@ -860,27 +839,26 @@ export function PullRequestRow({
             aria-hidden="true"
             className={cn("h-3.5 w-3.5", STATES[status].color)}
           />
-        </Button>
+        </IconButton>
         <div className="flex min-w-0 items-center gap-2">
-          <AgentMetadataLink
-            data-agent-control="true"
-            href={pr.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            aria-label={`Pull request ${ref.number}: ${STATES[status].label} — ${pr.title}`}
-            title={`${ref.repo} ${ref.number} · ${STATES[status].label}`}
-            className="mr-auto"
-          >
-            {ref.number === "PR" ? "PR" : `PR ${ref.number}`}
-            <span className="sr-only">{STATES[status].label}</span>
-          </AgentMetadataLink>
-          {!isError && risk && (
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              className="shrink-0"
+          <Hint label={`${ref.repo} ${ref.number} · ${STATES[status].label}`}>
+            <AgentMetadataLink
               data-agent-control="true"
-              aria-label={`Merge risk for pull request ${ref.number}: ${riskDisplay(risk).label}`}
+              href={pr.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label={`Pull request ${ref.number}: ${STATES[status].label} — ${pr.title}`}
+              className="mr-auto"
+            >
+              {ref.number === "PR" ? "PR" : `PR ${ref.number}`}
+              <span className="sr-only">{STATES[status].label}</span>
+            </AgentMetadataLink>
+          </Hint>
+          {!isError && risk && (
+            <IconButton
+              size="icon-sm"
+              data-agent-control="true"
+              label={`Merge risk for pull request ${ref.number}: ${riskDisplay(risk).label}`}
               aria-haspopup="dialog"
               aria-expanded={open}
               aria-controls={open ? contentId : undefined}
@@ -891,17 +869,15 @@ export function PullRequestRow({
               data-pr-details-trigger={contentId}
             >
               <MergeRiskMarker risk={risk} />
-            </Button>
+            </IconButton>
           )}
           {(isError ||
             pr.ci?.availability !== "available" ||
             pr.ci.summary.total > 0) && (
-            <Button
-              variant="ghost"
+            <IconButton
               size="icon-sm"
-              className="shrink-0"
               data-agent-control="true"
-              aria-label={`Check details for pull request ${ref.number}`}
+              label={`Check details for pull request ${ref.number}`}
               aria-haspopup="dialog"
               aria-expanded={open}
               aria-controls={open ? contentId : undefined}
@@ -912,7 +888,7 @@ export function PullRequestRow({
               data-pr-details-trigger={contentId}
             >
               <CompactChecks ci={isError ? undefined : pr.ci} />
-            </Button>
+            </IconButton>
           )}
           <AgentLinkControls
             url={pr.url}
@@ -1003,17 +979,18 @@ export function PullRequestRow({
                       key={`${check.name}-${index}`}
                       className="flex items-center gap-2 border-b border-border-subtle py-2 text-label-sm last:border-0"
                     >
-                      <span
-                        role="img"
-                        aria-label={result.label}
-                        title={result.label}
-                        className="shrink-0"
-                      >
-                        <CheckIcon
-                          aria-hidden="true"
-                          className={cn("h-3.5 w-3.5", result.color)}
-                        />
-                      </span>
+                      <Hint label={result.label}>
+                        <span
+                          role="img"
+                          aria-label={result.label}
+                          className="shrink-0"
+                        >
+                          <CheckIcon
+                            aria-hidden="true"
+                            className={cn("h-3.5 w-3.5", result.color)}
+                          />
+                        </span>
+                      </Hint>
                       {check.detailsUrl ? (
                         <a
                           href={check.detailsUrl}
@@ -1033,16 +1010,17 @@ export function PullRequestRow({
                         </span>
                       )}
                       {duration && (
-                        <span
-                          className="shrink-0 tabular-nums text-muted-foreground"
-                          title={
+                        <Hint
+                          label={
                             check.completedAt
                               ? "Check duration"
                               : `Elapsed at last refresh (${pr.ci!.checkedAt})`
                           }
                         >
-                          {duration}
-                        </span>
+                          <span className="shrink-0 tabular-nums text-muted-foreground">
+                            {duration}
+                          </span>
+                        </Hint>
                       )}
                     </li>
                   );
@@ -1070,15 +1048,17 @@ export function PullRequestRow({
           {(pr.ci || refresh) && (
             <div className="border-t border-border px-3 py-2 text-label-xs text-muted-foreground">
               <div className="flex items-center gap-2 whitespace-nowrap">
-                <span title={pr.ci?.checkedAt}>
-                  Last checked{" "}
-                  {pr.ci
-                    ? new Date(pr.ci.checkedAt).toLocaleTimeString([], {
-                        hour: "2-digit",
-                        minute: "2-digit",
-                      })
-                    : "Never"}
-                </span>
+                <Hint label={pr.ci?.checkedAt}>
+                  <span>
+                    Last checked{" "}
+                    {pr.ci
+                      ? new Date(pr.ci.checkedAt).toLocaleTimeString([], {
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })
+                      : "Never"}
+                  </span>
+                </Hint>
                 {refresh && <RefreshPullRequest refresh={refresh} />}
                 <span className="ml-auto">
                   Commit{" "}
@@ -1130,11 +1110,9 @@ function RefreshPullRequest({
 }) {
   return (
     <div>
-      <Button
-        variant="ghost"
+      <IconButton
         size="icon-sm"
-        aria-label="Refresh pull request checks"
-        title="Refresh pull request checks"
+        label="Refresh pull request checks"
         disabled={refresh.isPending}
         aria-busy={refresh.isPending}
         onClick={() => {
@@ -1143,9 +1121,9 @@ function RefreshPullRequest({
       >
         <RefreshCw
           aria-hidden="true"
-          className={cn("h-3 w-3", refresh.isPending && "animate-spin")}
+          className={cn(refresh.isPending && "animate-spin")}
         />
-      </Button>
+      </IconButton>
     </div>
   );
 }

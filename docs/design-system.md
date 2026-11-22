@@ -47,7 +47,7 @@ Allowed steps: 0.5, 1, 1.5, 2, 3, 4, 6, 8, 12 (2/4/6/8/12/16/24/32/48px). `2.5`�
 
 ### F10 — Focus, disabled, z-index
 
-One `focus-ring` (`focus-visible` only, 2px `ring`, no offset) and `focus-ring-inset` for rows whose container would clip it. Disabled is `disabled-state` (`opacity-50` + no pointer events); add `disabled:pointer-events-auto` only where a disabled control explains itself on hover. Named z steps: `sticky` 10, `raised` 20, `dock` 30, `drawer` 50, `drawer-panel` 60, `modal` 70, `popover` 80, `toast` 85, `tooltip` 90, `progress` 100, and `viewer` 120 to `viewer-menu` 150 for the image viewer, which opens over dialogs.
+One `focus-ring` (`focus-visible` only, 2px `ring`, no offset) and `focus-ring-inset` for rows whose container would clip it. Disabled is `disabled-state` (`opacity-50` + no pointer events); add `disabled:pointer-events-auto` only where a disabled control explains itself on hover. Named z steps: `sticky` 10, `raised` 20, `dock` 30, `drawer` 50, `drawer-panel` 60, `modal` 70, `popover` 80, `toast` 85, `progress` 100, `viewer` 120 to `viewer-menu` 150 for the image viewer, which opens over dialogs, and `tooltip` 160 over all of them.
 
 ### F11 — Syntax highlighting and fonts
 
@@ -57,15 +57,15 @@ One `--syntax-*` token set consumed by both highlighters. Split `--font-ui` and 
 
 ### C1 — Button
 
-Sizes `xs` 28 / `sm` 32 / `md` 36 and `icon-xs` 24 / `icon-sm` 28 / `icon-md` 32. Touch sizing lives in the primitive via the existing `pointer-coarse:` variant (min 44px) — never `h-11` at the call site. Variants: `primary`, `secondary` (today's default), `ghost`, `danger`, plus `ghost` + `tone`. Drop `success`. Height classes on `<Button>` are lint errors.
+Sizes `xs` 28 / `sm` 32 / `md` 36 and `icon-xs` 24 / `icon-sm` 28 / `icon-md` 32. Touch sizing lives in the primitive via the existing `pointer-coarse:` variant (min 44px) — never `h-11` at the call site. Also `inline` for a control inside a line of text, and `wrap` for a label that may take two lines. `icon-xs` and `inline` keep their size on touch and extend the hit area to 44px instead. Variants: `primary`, `secondary` (the default), `ghost`, `danger`, `link`, `field` (opens a picker among inputs), plus `ghost` + `tone`. No `success`. Height and padding classes on `Button`, `IconButton` and `SplitButton` are lint errors (`dispatch/controls`). The `stream-*` sizes hold the stream's geometry until task 5/6 removes them.
 
 ### C2 — Raw `<button>`
 
-Clickable rows use a `RowButton` primitive (full-width, `md` radius, `surface-hover`, `focus-ring-inset`); everything else is `Button`. Raw `<button>` only inside `components/ui`.
+Clickable rows use a `RowButton` primitive (full-width, `md` radius, `surface-hover`, `focus-ring-inset`); compact data that can be clicked is a `ChipButton`; a primary action with a menu of its variations is a `SplitButton`; everything else is `Button`. Raw `<button>` only inside `components/ui` (`dispatch/controls`).
 
 ### C3 — Badges, pills, status dots
 
-One `Badge`: `tone` (neutral / success / warning / danger / info / merged) × `appearance` (tint / outline) × `size` (sm / md), optional leading icon or dot. Sentence case by default. One `StatusDot` (8px; 6px in dense rows). A status renders the same way wherever it appears; tables may use dot + text, never colored text alone.
+One `Badge`: `tone` (neutral / success / warning / danger / info / merged) × `appearance` (tint / outline) × `size` (sm / md), optional leading icon or dot. Sentence case by default. One `StatusDot` (8px; 6px in dense rows). One `Chip` for data such as labels and links, and one `CountBubble` for numbers. A status renders the same way wherever it appears; tables may use dot + text, never colored text alone.
 
 ### C4 — Dialogs
 
@@ -81,7 +81,7 @@ Fixed options → `Select`. Searchable or async → one `Combobox` (Command in P
 
 ### C7 — Tabs and view switches
 
-Two patterns only. `SegmentedControl` — switches the view of the same data, ≤4 options, 32px. `Tabs` (underline) — switches content sections within a pane. Both URL-backed.
+Two patterns only. `SegmentedControl` — switches the view of the same data, ≤4 options, 32px (44px on touch), with radio semantics; `layout="grid"` is for an option picker whose items carry more than a label. `Tabs` (underline) — switches content sections within a pane, with tablist semantics: arrows move focus, Enter or Space opens. Both URL-backed where they navigate.
 
 ### C8 — Cards and panels
 
@@ -89,11 +89,11 @@ Two patterns only. `SegmentedControl` — switches the view of the same data, �
 
 ### C9 — Tooltips
 
-`IconButton` requires `label`, which sets `aria-label` and renders `Tooltip`. `title=` is allowed only on truncated text.
+`IconButton` requires `label`, which sets `aria-label` and renders `Tooltip`; `tooltip` says more when needed. Anything else that explains itself uses `Hint`, which goes inside another trigger's `asChild`, never around it. `title=` is allowed only on truncated text.
 
 ### C10 — Icons
 
-`icon-sm` 12 (badges, meta), `icon-md` 14 (buttons, rows — default), `icon-lg` 16 (navigation, headers). `size-*` syntax only.
+`icon-sm` 12 (badges, meta), `icon-md` 14 (buttons, rows — default), `icon-lg` 16 (navigation, headers). `size-*` syntax only. A control sets its icon's size: xs, sm, md and icon-sm use `icon-md`, icon-md uses `icon-lg`, icon-xs and inline use `icon-sm`.
 
 ### C11 — Loading and empty states
 
@@ -289,6 +289,7 @@ Newest first. One line per audit: date, scope, commit audited, where the report 
 
 Newest first. One line per rule added, changed or removed, with the reason.
 
+- 2026-11-22 — C1–C3, C7, C9, C10, F10 updated as the core controls landed: named `inline`, `wrap`, `link`, `field`, Chip, CountBubble, SplitButton and Hint, the touch hit area for 24px controls (44px boxes broke inline rows), manual tab activation (panes fetch or attach a terminal on open), and tooltips above the image viewer (its buttons have them now).
 - 2026-11-22 — F6: danger is tuned within red per theme instead of hue 0 everywhere (one hue didn’t match the themes), with text and fill pairs held to 4.5:1.
 - 2026-11-22 — F1–F10 updated as their tokens landed: added `body-lg` and `code` (iOS zoom, inline code), `xs`, `mark` and `screen` radii (small boxes turned into circles at `sm`), named alpha and z steps for values already in use, seat and media colours; named the classes and lint rule that implement them.
 - 2026-11-22 — all rules added from the baseline audit.

@@ -12,7 +12,7 @@ import { formatDateTime, formatRelativeCompact } from "@/lib/format";
 import { MENU_ITEM } from "./task-utils";
 import { TaskMoveSheet } from "./task-move-sheet";
 import { GitPullRequest, GripVertical, MoreHorizontal } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { IconButton } from "@/components/ui/icon-button";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -20,13 +20,17 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
+import { RowButton } from "@/components/ui/row-button";
+import { Hint } from "@/components/ui/tooltip";
+import { Badge } from "@/components/ui/badge";
+import { Chip } from "@/components/ui/chip";
 
 const CARD =
   "group rounded-lg bg-surface-hover p-3 shadow-sm ring-1 ring-foreground/wash pointer-coarse:select-none [-webkit-touch-callout:none]";
 // TouchSensor cancels quick swipes and prevents scrolling only after its hold delay.
 // Keep native panning available on the grip until then (dnd-kit Touch recommendations).
 const GRIP =
-  "-ml-1 self-start rounded-sm text-faint touch-manipulation pointer-coarse:-my-2 pointer-coarse:-ml-3 pointer-coarse:p-3";
+  "-ml-2 -mr-1 -mt-0.5 flex size-6 shrink-0 items-center justify-center self-start rounded-sm text-faint touch-manipulation";
 /**
  * A card moved from its Move to… sheet remounts in its new column; that
  * mount takes focus back, as the sheet can't reach the new card.
@@ -94,32 +98,31 @@ export function TaskCard({
       onKeyDown={handleKeyDown}
     >
       <div className="flex gap-2">
-        <button
-          type="button"
+        <IconButton
+          size="icon-xs"
+          label={`Drag ${task.title}`}
           {...sortable.attributes}
           {...sortable.listeners}
-          className={cn(GRIP, "cursor-grab hover:text-foreground")}
-          aria-label={`Drag ${task.title}`}
+          className="-ml-2 -mr-1 -mt-0.5 cursor-grab touch-manipulation self-start text-faint"
         >
-          <GripVertical className="h-4 w-4" aria-hidden="true" />
-        </button>
-        <button
-          className="line-clamp-3 min-w-0 flex-1 break-words text-left text-body-md font-medium leading-5"
+          <GripVertical aria-hidden="true" />
+        </IconButton>
+        <RowButton
+          className="relative min-w-0 flex-1 items-start rounded-sm text-body-md font-medium leading-5 hover:bg-transparent pointer-coarse:min-h-0"
           onClick={onOpen}
         >
-          {task.title}
-        </button>
+          <span className="line-clamp-3 min-w-0 break-words">{task.title}</span>
+        </RowButton>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button
+            <IconButton
               ref={actionsRef}
-              size="icon"
-              variant="ghost"
-              aria-label={`${task.title} actions`}
-              className="-mr-1.5 -mt-1 h-7 w-7 shrink-0 text-muted-foreground pointer-coarse:h-9 pointer-coarse:w-9"
+              size="icon-sm"
+              label={`${task.title} actions`}
+              className="-mr-1.5 -mt-1"
             >
-              <MoreHorizontal className="h-4 w-4" aria-hidden="true" />
-            </Button>
+              <MoreHorizontal aria-hidden="true" />
+            </IconButton>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
             <DropdownMenuItem className={MENU_ITEM} onSelect={onOpen}>
@@ -177,7 +180,7 @@ export function TaskCardOverlay({
     >
       <div className="flex gap-2">
         <span className={GRIP}>
-          <GripVertical className="h-4 w-4" aria-hidden="true" />
+          <GripVertical className="size-icon-sm" aria-hidden="true" />
         </span>
         <span className="line-clamp-3 min-w-0 flex-1 break-words text-body-md font-medium leading-5">
           {task.title}
@@ -216,9 +219,11 @@ function TaskCardDetails({
             ⚙ by <AgentName agentId={task.createdBy.agentId} />
           </span>
         ) : null}
-        <time className="ml-auto" title={formatDateTime(task.createdAt)}>
-          {formatRelativeCompact(task.createdAt)}
-        </time>
+        <Hint label={formatDateTime(task.createdAt)}>
+          <time className="ml-auto">
+            {formatRelativeCompact(task.createdAt)}
+          </time>
+        </Hint>
       </div>
       {(task.links.some((link) => link.kind === "pr") ||
         (task.latestFailure && !task.launching)) && (
@@ -232,23 +237,21 @@ function TaskCardDetails({
                 target="_blank"
                 rel="noreferrer"
                 title={link.label}
-                className="inline-flex min-w-0 max-w-full items-center gap-1 rounded-sm bg-background/veil px-1.5 py-0.5"
+                className="inline-flex min-w-0 max-w-full rounded-sm focus-ring"
                 onClick={(event) => event.stopPropagation()}
               >
-                <GitPullRequest
-                  className="h-3 w-3 shrink-0"
-                  aria-hidden="true"
-                />
-                <span className="min-w-0 truncate">{link.label}</span>
+                <Chip size="sm">
+                  <GitPullRequest aria-hidden="true" />
+                  <span className="min-w-0 truncate">{link.label}</span>
+                </Chip>
               </a>
             ))}
           {task.latestFailure && !task.launching && (
-            <span
-              className="max-w-full truncate rounded-sm bg-danger/tint px-1.5 py-0.5 text-danger"
-              title={task.latestFailure.reason}
-            >
-              ⚠ launch failed · {task.latestFailure.reason}
-            </span>
+            <Badge tone="danger" title={task.latestFailure.reason}>
+              <span className="min-w-0 truncate">
+                ⚠ launch failed · {task.latestFailure.reason}
+              </span>
+            </Badge>
           )}
         </div>
       )}

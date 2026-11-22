@@ -3,6 +3,7 @@ import { Markdown } from "@/components/ui/markdown";
 import type { ReleaseStatus } from "@/hooks/use-release-stream";
 import { formatShortDateTime } from "@/lib/format";
 import type { AppVersionInfo } from "./release-utils";
+import { Button } from "@/components/ui/button";
 
 type UpdatesVersionCardProps = {
   status: ReleaseStatus | null;
@@ -61,29 +62,29 @@ export function UpdatesVersionCard({
 
       {versionInfo?.releaseNotes && (
         <div>
-          <button
-            onClick={onToggleNotes}
-            className="flex items-center gap-1.5 section-label hover:text-foreground transition-colors"
-          >
-            {notesExpanded ? (
-              <ChevronDown className="h-3 w-3" />
-            ) : (
-              <ChevronRight className="h-3 w-3" />
-            )}
-            Release notes
+          <div className="flex items-center gap-2">
+            <Button
+              variant="ghost"
+              size="inline"
+              aria-expanded={notesExpanded}
+              onClick={onToggleNotes}
+              className="section-label hover:bg-transparent"
+            >
+              {notesExpanded ? <ChevronDown /> : <ChevronRight />}
+              Release notes
+            </Button>
             {versionInfo.releaseUrl ? (
               <a
-                className="ml-2 inline-flex items-center gap-1 text-body-sm normal-case tracking-normal text-info hover:underline"
+                className="inline-flex items-center gap-1 text-body-sm text-info hover:underline"
                 href={versionInfo.releaseUrl}
                 rel="noopener noreferrer"
                 target="_blank"
-                onClick={(e) => e.stopPropagation()}
               >
                 <ExternalLink className="h-3 w-3" />
                 GitHub
               </a>
             ) : null}
-          </button>
+          </div>
           {notesExpanded && (
             <div className="mt-2 rounded-lg border border-edge bg-fill-inset p-3">
               <div className="max-h-56 overflow-y-auto text-body-md text-muted-foreground">

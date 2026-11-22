@@ -4,38 +4,107 @@ import { cva, type VariantProps } from "class-variance-authority";
 
 import { cn } from "@/lib/utils";
 
+// An invisible 44px target, for the controls too small to grow on touch.
+export const touchTarget =
+  "relative pointer-coarse:after:absolute pointer-coarse:after:left-1/2 pointer-coarse:after:top-1/2 pointer-coarse:after:size-11 pointer-coarse:after:-translate-x-1/2 pointer-coarse:after:-translate-y-1/2 pointer-coarse:after:content-['']";
+
+const textSize =
+  "gap-1.5 [&>svg]:size-icon-md pointer-coarse:min-h-11 pointer-coarse:min-w-11";
+const iconSize = "shrink-0 p-0";
+
+// Each size owns height, padding, type, icon and touch target. Call sites
+// choose a size and never restate those (`dispatch/controls` lint rule).
 const buttonVariants = cva(
-  "inline-flex items-center justify-center whitespace-nowrap rounded-md text-body-md font-medium transition-colors focus-ring disabled-state",
+  "inline-flex items-center justify-center whitespace-nowrap rounded-md font-medium transition-colors focus-ring disabled-state [&>svg]:shrink-0",
   {
     variants: {
       variant: {
-        default:
-          "border border-edge bg-fill-raised text-foreground backdrop-blur-md shadow-elev-control hover:bg-fill-hover hover:border-edge-strong",
         primary:
           "bg-primary/soft text-primary-foreground backdrop-blur-md border border-edge-on-color shadow-elev-primary hover:bg-primary/dense hover:shadow-elev-primary-hover",
-        success:
-          "border border-success/line bg-success/soft text-background shadow-sm hover:bg-success/dense",
-        destructive: "bg-danger text-danger-foreground hover:bg-danger/dense",
+        secondary:
+          "border border-edge bg-fill-raised text-foreground backdrop-blur-md shadow-elev-control hover:bg-fill-hover hover:border-edge-strong",
         ghost:
           "text-muted-foreground hover:bg-surface-hover hover:text-foreground",
-        "ghost-primary":
-          "text-success hover:bg-success/tint-strong hover:text-success",
-        "ghost-info": "text-info hover:bg-info/tint-strong hover:text-info",
-        "ghost-destructive":
-          "text-danger hover:bg-danger/tint-strong hover:text-danger",
-        "ghost-warning":
-          "text-warning hover:bg-warning/tint-strong hover:text-warning",
+        // Opens a picker, so it reads as the inputs it sits among.
+        field:
+          "justify-between border border-edge bg-fill-inset font-normal text-foreground shadow-elev-inset backdrop-blur-md hover:bg-fill-hover",
+        danger: "bg-danger text-danger-foreground hover:bg-danger/dense",
+        link: "text-inherit underline underline-offset-2 hover:no-underline",
+      },
+      /** Colours a ghost button. */
+      tone: {
+        neutral: "",
+        primary: "",
+        success: "",
+        warning: "",
+        danger: "",
+        info: "",
       },
       size: {
-        default: "h-9 px-3 py-2",
-        sm: "h-8 rounded-md px-2",
-        icon: "h-8 w-8 shrink-0 p-0",
-        "icon-sm": "h-7 w-7 shrink-0 p-0",
+        xs: cn(textSize, "h-7 px-2 text-body-sm"),
+        sm: cn(textSize, "h-8 px-2 text-body-md"),
+        md: cn(textSize, "h-9 px-3 text-body-md"),
+        "icon-xs": cn(iconSize, touchTarget, "size-6 [&>svg]:size-icon-sm"),
+        "icon-sm": cn(
+          iconSize,
+          "size-7 [&>svg]:size-icon-md pointer-coarse:size-11"
+        ),
+        "icon-md": cn(
+          iconSize,
+          "size-8 [&>svg]:size-icon-lg pointer-coarse:size-11"
+        ),
+        // Runs with the text around it and takes that text's size.
+        inline: cn(
+          touchTarget,
+          "h-auto gap-1 rounded-sm p-0 font-normal [&>svg]:size-icon-sm"
+        ),
+        // The stream's geometry until design-system task 5/6 moves it onto
+        // the sizes above, which removes these four.
+        "stream-md": "h-9 px-3 py-2 text-body-md",
+        "stream-sm": "h-8 rounded-md px-2 text-body-md",
+        "stream-meta":
+          "h-6 gap-1.5 px-1.5 text-label-sm pointer-coarse:min-h-11",
+        "stream-icon": "h-8 w-8 shrink-0 p-0 text-body-md",
+      },
+      /** Lets a long label wrap; the size becomes the minimum height. */
+      wrap: {
+        true: "h-auto min-w-0 whitespace-normal py-1 text-center",
+        false: "",
       },
     },
+    compoundVariants: [
+      { wrap: true, size: "xs", class: "min-h-7" },
+      { wrap: true, size: "sm", class: "min-h-8" },
+      { wrap: true, size: "md", class: "min-h-9" },
+      {
+        variant: "ghost",
+        tone: "primary",
+        class: "text-primary hover:bg-primary/tint-strong hover:text-primary",
+      },
+      {
+        variant: "ghost",
+        tone: "success",
+        class: "text-success hover:bg-success/tint-strong hover:text-success",
+      },
+      {
+        variant: "ghost",
+        tone: "warning",
+        class: "text-warning hover:bg-warning/tint-strong hover:text-warning",
+      },
+      {
+        variant: "ghost",
+        tone: "danger",
+        class: "text-danger hover:bg-danger/tint-strong hover:text-danger",
+      },
+      {
+        variant: "ghost",
+        tone: "info",
+        class: "text-info hover:bg-info/tint-strong hover:text-info",
+      },
+    ],
     defaultVariants: {
-      variant: "default",
-      size: "default",
+      variant: "secondary",
+      size: "md",
     },
   }
 );
@@ -45,15 +114,35 @@ export interface ButtonProps
     React.ButtonHTMLAttributes<HTMLButtonElement>,
     VariantProps<typeof buttonVariants> {
   asChild?: boolean;
+  /** A toggle's state: sets `aria-pressed` and draws the selected fill. */
+  pressed?: boolean;
 }
 
 const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
-  ({ className, variant, size, asChild = false, ...props }, ref) => {
+  (
+    {
+      className,
+      variant,
+      tone,
+      size,
+      wrap,
+      pressed,
+      asChild = false,
+      ...props
+    },
+    ref
+  ) => {
     const Comp = asChild ? Slot : "button";
     return (
       <Comp
-        className={cn(buttonVariants({ variant, size, className }))}
+        className={cn(
+          buttonVariants({ variant, tone, size, wrap }),
+          pressed &&
+            "bg-surface-selected text-primary hover:bg-surface-selected hover:text-primary",
+          className
+        )}
         ref={ref}
+        aria-pressed={pressed}
         {...props}
       />
     );

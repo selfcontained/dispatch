@@ -200,7 +200,6 @@ function CreateAgentDialogContent({
                         form.setCreateFullAccess((current) => !current)
                       }
                       className="mt-0.5"
-                      title="Toggle full access"
                     />
                     <span className="space-y-1">
                       <span className="block text-body-md font-medium text-foreground">
@@ -226,7 +225,6 @@ function CreateAgentDialogContent({
               </Button>
               <Button
                 type="button"
-                variant="default"
                 tabIndex={0}
                 disabled={
                   form.creating || !form.locationReady || !form.createCwd.trim()
@@ -243,9 +241,7 @@ function CreateAgentDialogContent({
                 disabled={form.creating || !form.locationReady}
                 data-testid="create-agent-submit"
               >
-                {form.creating ? (
-                  <ActivityBars size={16} className="mr-1.5" />
-                ) : null}
+                {form.creating ? <ActivityBars size={16} /> : null}
                 Create
               </Button>
             </div>
@@ -334,11 +330,10 @@ function CreateAgentDialogContent({
                 type="button"
                 variant="ghost"
                 tabIndex={0}
-                className="min-h-11 px-3"
                 onClick={() => form.setStep("config")}
                 data-testid="create-agent-context-back"
               >
-                <ChevronLeft className="mr-1 h-4 w-4" />
+                <ChevronLeft />
                 Back
               </Button>
               <div className="flex gap-2">
@@ -346,7 +341,6 @@ function CreateAgentDialogContent({
                   type="button"
                   variant="ghost"
                   tabIndex={0}
-                  className="min-h-11 px-3"
                   onClick={() => setOpen(false)}
                 >
                   Cancel
@@ -355,7 +349,6 @@ function CreateAgentDialogContent({
                   type="submit"
                   variant="primary"
                   tabIndex={0}
-                  className="min-h-11 px-3"
                   disabled={
                     form.creating ||
                     !form.locationReady ||
@@ -363,9 +356,7 @@ function CreateAgentDialogContent({
                   }
                   data-testid="create-agent-context-submit"
                 >
-                  {form.creating ? (
-                    <ActivityBars size={16} className="mr-1.5" />
-                  ) : null}
+                  {form.creating ? <ActivityBars size={16} /> : null}
                   Create
                 </Button>
               </div>

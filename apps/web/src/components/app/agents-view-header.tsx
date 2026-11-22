@@ -9,9 +9,12 @@ import { ChangesSettingsPopover } from "@/components/app/changes-settings-popove
 import { QuickPhrasesButton } from "@/components/app/quick-phrases";
 import { type DiffStats } from "@/components/app/types";
 import { TipSpot } from "@/components/tips/tip-spot";
-import { Button } from "@/components/ui/button";
+import { IconButton } from "@/components/ui/icon-button";
 import { type CenterTab, type SplitPaneState } from "@/lib/store";
 import { cn } from "@/lib/utils";
+import { Chip } from "@/components/ui/chip";
+import { CountBubble } from "@/components/ui/count-bubble";
+import { Hint } from "@/components/ui/tooltip";
 
 type AgentsViewHeaderProps = {
   isMobile: boolean;
@@ -59,27 +62,28 @@ export function AgentsViewHeader({
   unseenFileCount,
   openInputCount,
 }: AgentsViewHeaderProps): JSX.Element {
+  const diffSummary = focusedDiffStats
+    ? `${focusedDiffStats.added.toLocaleString("en-US")} additions, ${focusedDiffStats.deleted.toLocaleString("en-US")} deletions`
+    : "";
   return (
     <div
       className={cn(
-        "relative z-sticky grid h-14 shrink-0 items-center bg-background px-3",
+        "relative z-sticky grid h-14 shrink-0 items-center bg-background",
         // On phones the side columns hug their buttons so the tab strip gets
         // the rest of the width (and scrolls inside it).
         isMobile
-          ? "grid-cols-[auto_minmax(0,1fr)_auto] gap-1"
-          : "grid-cols-[1fr_auto_1fr]"
+          ? "grid-cols-[auto_minmax(0,1fr)_auto] px-1"
+          : "grid-cols-[1fr_auto_1fr] px-3"
       )}
     >
-      <div className="flex items-center gap-1">
+      <div className={cn("flex items-center", !isMobile && "gap-1")}>
         {!leftPanelOpen ? (
-          <Button
-            size="icon"
-            variant="ghost"
+          <IconButton
             onClick={() => handleSetLeftPanelOpen(true)}
-            title="Open sidebar"
+            label="Open sidebar"
           >
-            <PanelRightOpen className="h-4 w-4" />
-          </Button>
+            <PanelRightOpen />
+          </IconButton>
         ) : null}
         <TipSpot tipId="quick-phrases" side="bottom" align="center">
           <QuickPhrasesButton
@@ -88,19 +92,22 @@ export function AgentsViewHeader({
         </TipSpot>
         {focusedDiffStats &&
         (focusedDiffStats.added > 0 || focusedDiffStats.deleted > 0) ? (
-          <span
-            aria-label={`${focusedDiffStats.added.toLocaleString("en-US")} additions, ${focusedDiffStats.deleted.toLocaleString("en-US")} deletions`}
-            title={`${focusedDiffStats.added.toLocaleString("en-US")} additions, ${focusedDiffStats.deleted.toLocaleString("en-US")} deletions`}
-            className="hidden items-center gap-1 whitespace-nowrap rounded-full border border-border-subtle bg-surface-subtle px-1.5 py-0.5 font-mono text-label-xs tracking-normal sm:inline-flex"
-          >
-            <span className="text-success">
-              +{formatDiffCount(focusedDiffStats.added)}
-            </span>
-            <span className="text-danger">
-              {"−"}
-              {formatDiffCount(focusedDiffStats.deleted)}
-            </span>
-          </span>
+          <Hint label={diffSummary}>
+            <Chip
+              size="sm"
+              role="img"
+              aria-label={diffSummary}
+              className="hidden font-mono sm:inline-flex"
+            >
+              <span className="text-success">
+                +{formatDiffCount(focusedDiffStats.added)}
+              </span>
+              <span className="text-danger">
+                {"−"}
+                {formatDiffCount(focusedDiffStats.deleted)}
+              </span>
+            </Chip>
+          </Hint>
         ) : null}
       </div>
       <div className="flex min-w-0 items-center justify-center">
@@ -127,30 +134,30 @@ export function AgentsViewHeader({
           </>
         ) : null}
       </div>
-      <div className="flex items-center justify-end gap-1">
+      <div
+        className={cn("flex items-center justify-end", !isMobile && "gap-1")}
+      >
         {activeTab === "changes" && !isSplit ? (
           <ChangesSettingsPopover isMobile={isMobile} />
         ) : null}
         <NotificationsDrawer />
         {hasActiveAgent && (!drawerPanelOpen || isMobile) ? (
-          <Button
-            size="icon"
-            variant="ghost"
+          <IconButton
             className="relative"
             onClick={() => setDrawerOpen(true)}
-            title="Open drawer"
+            label="Open drawer"
             data-testid="toggle-drawer"
           >
-            <PanelLeftOpen className="h-4 w-4" />
+            <PanelLeftOpen />
             {unseenFileCount + openInputCount > 0 ? (
-              <span
-                className="absolute -right-1.5 -top-1.5 min-w-5 rounded-full border border-border bg-primary px-1 text-label-xs font-semibold text-primary-foreground"
+              <CountBubble
+                tone="info"
+                count={unseenFileCount + openInputCount}
+                className="absolute -right-1 -top-1 pointer-coarse:right-0.5 pointer-coarse:top-0.5"
                 data-testid="toggle-drawer-badge"
-              >
-                {unseenFileCount + openInputCount}
-              </span>
+              />
             ) : null}
-          </Button>
+          </IconButton>
         ) : null}
       </div>
     </div>

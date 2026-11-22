@@ -7,11 +7,7 @@ import { clearCachesAndReload } from "@/lib/pwa-update";
 function ClearReloadButton() {
   return (
     <div className="fixed bottom-4 right-4">
-      <Button
-        variant="default"
-        size="sm"
-        onClick={() => void clearCachesAndReload()}
-      >
+      <Button size="sm" onClick={() => void clearCachesAndReload()}>
         Clear cache & reload
       </Button>
     </div>

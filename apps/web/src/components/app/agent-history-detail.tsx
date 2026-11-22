@@ -12,6 +12,7 @@ import { AgentTypeIcon } from "@/components/app/agent-type-icon";
 import { StatCard } from "@/components/app/stat-card";
 import { useHistoryAgentDetail } from "@/hooks/use-agent-history";
 import { DetailTabs } from "@/components/app/agent-history-detail-tabs";
+import { Button } from "@/components/ui/button";
 
 function shortModelName(model: string): string {
   return model.replace(/-\d{8}$/, "").replace("claude-", "");
@@ -29,12 +30,10 @@ export function AgentHistoryDetail({
   if (isLoading) {
     return (
       <div className="space-y-4 p-4">
-        <button
-          onClick={onBack}
-          className="flex items-center gap-1 text-body-sm text-muted-foreground hover:text-foreground"
-        >
-          <ArrowLeft className="h-3.5 w-3.5" /> Back
-        </button>
+        <Button variant="ghost" size="xs" onClick={onBack} className="-ml-2">
+          <ArrowLeft />
+          Back
+        </Button>
         <div className="space-y-3">
           {Array.from({ length: 4 }).map((_, i) => (
             <div
@@ -50,12 +49,10 @@ export function AgentHistoryDetail({
   if (isError || !data) {
     return (
       <div className="space-y-4 p-4">
-        <button
-          onClick={onBack}
-          className="flex items-center gap-1 text-body-sm text-muted-foreground hover:text-foreground"
-        >
-          <ArrowLeft className="h-3.5 w-3.5" /> Back to history
-        </button>
+        <Button variant="ghost" size="xs" onClick={onBack} className="-ml-2">
+          <ArrowLeft />
+          Back to history
+        </Button>
         <div className="flex flex-col items-center justify-center py-16 text-center text-body-md text-muted-foreground">
           <Search className="mb-3 h-8 w-8" />
           <div className="font-medium text-foreground">Agent not found</div>
@@ -81,12 +78,15 @@ export function AgentHistoryDetail({
     <div className="mx-auto max-w-5xl min-w-0 space-y-6 px-3 pt-4 pb-12 sm:space-y-8 sm:px-4 sm:pt-6 sm:pb-20 md:px-8">
       {/* Header */}
       <div>
-        <button
+        <Button
+          variant="ghost"
+          size="xs"
           onClick={onBack}
-          className="mb-3 flex items-center gap-1 text-body-sm text-muted-foreground hover:text-foreground"
+          className="mb-3 -ml-2"
         >
-          <ArrowLeft className="h-3.5 w-3.5" /> Back to history
-        </button>
+          <ArrowLeft />
+          Back to history
+        </Button>
         <div className="flex items-center gap-2">
           <AgentSessionLink agentId={agent.id} name={agent.name}>
             <AgentTypeIcon type={agent.type} />

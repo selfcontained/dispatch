@@ -1548,7 +1548,7 @@ export function ChatComposer({
                   />
                   <Button
                     type="button"
-                    size="icon"
+                    size="stream-icon"
                     variant="ghost"
                     disabled={disabled || attachmentsFull}
                     onClick={() => fileInputRef.current?.click()}
@@ -1583,7 +1583,7 @@ export function ChatComposer({
                   />
                   <Button
                     type="button"
-                    size="icon"
+                    size="stream-icon"
                     variant="ghost"
                     disabled={disabled || !mentionables?.length}
                     onMouseDown={(event) => event.preventDefault()}
@@ -1603,7 +1603,7 @@ export function ChatComposer({
                   </Button>
                   <Button
                     type="button"
-                    size="icon"
+                    size="stream-icon"
                     variant="ghost"
                     disabled={Boolean(slashUnavailableReason)}
                     onMouseDown={(event) => event.preventDefault()}
@@ -1646,8 +1646,8 @@ export function ChatComposer({
                           >
                             <Button
                               type="submit"
-                              size="icon"
-                              variant={canSend ? "success" : "ghost"}
+                              size="stream-icon"
+                              variant={canSend ? "primary" : "ghost"}
                               disabled={!canSend}
                               aria-label="Send message"
                               data-testid="chat-composer-send"

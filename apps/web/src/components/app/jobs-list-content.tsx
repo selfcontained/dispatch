@@ -3,14 +3,13 @@ import { useProjectScope } from "@/hooks/use-projects";
 import { Activity, AlarmClock, Clock } from "lucide-react";
 
 import { useJobsContext } from "@/components/app/jobs-context";
-import { statusClasses, statusIcon } from "@/components/app/jobs-helpers";
+import { JobStatusBadge } from "@/components/app/jobs-helpers";
 import { LoadError } from "@/components/app/load-error";
-import { statusLabel } from "@/lib/status-label";
 import { shortPath } from "@/lib/format";
 import { ActivityBars } from "@/components/ui/activity-bars";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { RowButton } from "@/components/ui/row-button";
 
 /** Job list content for the unified sidebar. */
 export function JobListContent({
@@ -47,12 +46,11 @@ export function JobListContent({
           </div>
           <Button
             size="sm"
-            variant="default"
             className="bg-surface-subtle text-muted-foreground hover:bg-surface-hover hover:text-foreground"
             onClick={openAddJob}
             data-testid="add-job-button"
           >
-            <AlarmClock className="mr-1 h-4 w-4" />
+            <AlarmClock />
             Create
           </Button>
         </div>
@@ -64,12 +62,11 @@ export function JobListContent({
           <div className="ml-auto flex items-center">
             <Button
               size="sm"
-              variant="default"
               className="bg-surface-subtle text-muted-foreground hover:bg-surface-hover hover:text-foreground"
               onClick={openAddJob}
               data-testid="add-job-button"
             >
-              <AlarmClock className="mr-1 h-4 w-4" />
+              <AlarmClock />
               Create
             </Button>
           </div>
@@ -107,9 +104,9 @@ export function JobListContent({
           </div>
         ) : (
           <div>
-            <button
+            <RowButton
               className={cn(
-                "flex w-full items-center gap-2 border-b border-r-4 border-border border-r-transparent px-3 py-3 text-left text-body-md text-muted-foreground transition-colors hover:bg-surface-hover",
+                "rounded-none border-b border-r-4 border-border border-r-transparent px-3 py-3 text-body-md text-muted-foreground",
                 showOverview && "border-r-primary bg-surface-hover"
               )}
               onClick={() => {
@@ -117,9 +114,9 @@ export function JobListContent({
                 onItemSelect?.();
               }}
             >
-              <Activity className="h-3.5 w-3.5" />
+              <Activity className="size-icon-md" />
               <span>Overview</span>
-            </button>
+            </RowButton>
             {jobs.map((job) => {
               const actionError = actionErrorByJobId[job.id];
               return (
@@ -148,14 +145,7 @@ export function JobListContent({
                         {shortPath(job.directory)}
                       </div>
                     </div>
-                    <Badge className={statusClasses(job.lastRunStatus)}>
-                      <span className="mr-1 hidden sm:inline-flex">
-                        {statusIcon(job.lastRunStatus)}
-                      </span>
-                      {job.lastRunStatus
-                        ? statusLabel(job.lastRunStatus)
-                        : "new"}
-                    </Badge>
+                    <JobStatusBadge status={job.lastRunStatus} empty="New" />
                   </div>
                   <div className="mt-1 flex min-w-0 items-center gap-1.5 text-body-sm text-muted-foreground">
                     <Clock className="h-3.5 w-3.5 shrink-0" />

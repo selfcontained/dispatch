@@ -4,6 +4,7 @@ import { useLayoutEffect, useMemo, useRef } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { ArrowLeft, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { IconButton } from "@/components/ui/icon-button";
 import { useTaskBoard, useTaskDetail } from "@/hooks/use-tasks";
 import type { Agent } from "@/components/app/types";
 import { Dialog, DialogDescription, DialogTitle } from "@/components/ui/dialog";
@@ -127,27 +128,23 @@ export function TaskModal({
                 {/* The panel's header waits on both queries; until then this
                   one keeps a way out, which a phone has no overlay for. */}
                 <header className="flex shrink-0 items-center gap-1 border-b border-border-subtle bg-card/veil px-2 py-1.5 pt-safe-1.5 text-body-sm text-muted-foreground">
-                  <Button
-                    size="icon"
-                    variant="ghost"
+                  <IconButton
                     onClick={close}
-                    aria-label="Close task"
+                    label="Close task"
                     className="md:hidden"
                   >
-                    <ArrowLeft className="h-4 w-4" />
-                  </Button>
+                    <ArrowLeft />
+                  </IconButton>
                   <span className="min-w-0 flex-1 truncate px-1 font-mono">
                     {id}
                   </span>
-                  <Button
-                    size="icon"
-                    variant="ghost"
+                  <IconButton
                     onClick={close}
-                    aria-label="Close task"
+                    label="Close task"
                     className="hidden md:inline-flex"
                   >
-                    <X className="h-4 w-4" />
-                  </Button>
+                    <X />
+                  </IconButton>
                 </header>
                 {loadError ? (
                   <div

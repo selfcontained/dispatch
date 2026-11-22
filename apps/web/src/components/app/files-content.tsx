@@ -14,6 +14,7 @@ import { OwnerSwitch } from "@/components/app/owner-switch";
 import { ActivityBars } from "@/components/ui/activity-bars";
 import { Button } from "@/components/ui/button";
 import { STARTUP_FILE_ACCEPT } from "@/lib/file-accept";
+import { StatusDot } from "@/components/ui/status-dot";
 
 const EMPTY_SUB_AGENT_FILES: SubAgentFiles[] = [];
 
@@ -63,16 +64,11 @@ function LiveStreamSection({
   return (
     <div className="border-b-2 border-border">
       <div className="flex items-center gap-2 px-3 py-2">
-        <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-danger" />
+        <StatusDot tone="danger" className="animate-pulse" />
         <span className="section-label text-danger">Live Stream</span>
         <div className="ml-auto">
-          <Button
-            size="sm"
-            variant="ghost"
-            className="h-6 gap-1 px-2 text-body-sm"
-            onClick={popOut}
-          >
-            <ExternalLink className="h-3 w-3" />
+          <Button size="xs" variant="ghost" onClick={popOut}>
+            <ExternalLink />
             Pop out
           </Button>
         </div>
@@ -192,19 +188,13 @@ export function FilesContent({
               accept={STARTUP_FILE_ACCEPT}
               onChange={handleFileChange}
             />
-            <Button
-              size="sm"
-              variant="default"
-              className="h-7 gap-1.5 text-body-sm"
-              disabled={uploading}
-              onClick={triggerFilePicker}
-            >
+            <Button size="xs" disabled={uploading} onClick={triggerFilePicker}>
               {uploading ? (
                 <ActivityBars size={12} />
               ) : uploadSuccess ? (
-                <Check className="h-3 w-3" />
+                <Check />
               ) : (
-                <Upload className="h-3 w-3" />
+                <Upload />
               )}
               {uploading
                 ? "Uploading…"
@@ -251,12 +241,13 @@ export function FilesContent({
                 ) : selectedAgentId ? (
                   <>
                     No files yet.{" "}
-                    <button
-                      className="underline hover:text-foreground"
+                    <Button
+                      variant="link"
+                      size="inline"
                       onClick={triggerFilePicker}
                     >
                       Share a file
-                    </button>{" "}
+                    </Button>{" "}
                     or wait for agents to share screenshots, videos and
                     documents.
                   </>

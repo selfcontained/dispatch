@@ -8,6 +8,10 @@ import {
   DropdownMenuItem,
 } from "@/components/ui/dropdown-menu";
 import { useProjects, type Project } from "@/hooks/use-projects";
+import {
+  SegmentedControl,
+  SegmentedControlItem,
+} from "@/components/ui/segmented-control";
 export function ProjectIcon({
   project,
   className = "h-6 w-6",
@@ -59,58 +63,42 @@ export function ProjectLocation({
   };
   return (
     <div className="space-y-1" data-testid="project-location">
-      <div
-        role="group"
+      <SegmentedControl
+        layout="fill"
         aria-label="Launch location type"
-        className="relative flex w-full rounded-lg border border-edge-subtle bg-fill-track p-1 shadow-elev-track"
+        value={projectId ? "project" : "folder"}
+        onValueChange={(next) =>
+          select(
+            next === "folder"
+              ? null
+              : (projects.find((p) => p.id === lastProjectId.current) ??
+                  projects[0] ??
+                  null)
+          )
+        }
       >
-        <span
-          aria-hidden="true"
-          data-testid="location-toggle-thumb"
-          className="pointer-events-none absolute inset-y-1 left-1 w-[calc((100%-8px)/2)] rounded-md border border-edge bg-fill-raised shadow-elev-control transition-transform duration-200 ease-out motion-reduce:transition-none"
-          style={{
-            transform: projectId ? "translateX(0)" : "translateX(100%)",
-          }}
-        />
-        <Button
-          type="button"
-          variant="ghost"
-          className={`relative z-sticky h-9 flex-1 rounded-sm px-3 text-body-md hover:bg-transparent ${projectId ? "text-foreground" : "text-muted-foreground"}`}
-          aria-pressed={!!projectId}
+        <SegmentedControlItem
+          value="project"
           disabled={!projects.length}
-          title={
+          className="disabled:pointer-events-auto"
+          hint={
             !projects.length
               ? "Create a project from the sidebar to use this option"
               : undefined
           }
-          onClick={() =>
-            select(
-              projects.find((p) => p.id === lastProjectId.current) ??
-                projects[0] ??
-                null
-            )
-          }
         >
           Project
-        </Button>
-        <Button
-          type="button"
-          variant="ghost"
-          className={`relative z-sticky h-9 flex-1 rounded-sm px-3 text-body-md hover:bg-transparent ${!projectId ? "text-foreground" : "text-muted-foreground"}`}
-          aria-pressed={!projectId}
-          onClick={() => select(null)}
-        >
-          Folder
-        </Button>
-      </div>
+        </SegmentedControlItem>
+        <SegmentedControlItem value="folder">Folder</SegmentedControlItem>
+      </SegmentedControl>
       {projectId && (
         <div>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button
                 type="button"
-                variant="default"
-                className="h-[38px] w-full justify-between px-3"
+                variant="field"
+                className="w-full"
                 aria-label="Choose project"
               >
                 <span className="flex min-w-0 items-center gap-2">
@@ -120,7 +108,7 @@ export function ProjectLocation({
                       (isLoading ? "Loading projects…" : "Choose a project")}
                   </span>
                 </span>
-                <ChevronDown className="h-4 w-4 shrink-0" />
+                <ChevronDown />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent

@@ -4,6 +4,7 @@ import { useState } from "react";
 
 import { type Agent } from "@/components/app/types";
 import { Button } from "@/components/ui/button";
+import { IconButton } from "@/components/ui/icon-button";
 import {
   Dialog,
   DialogContent,
@@ -13,11 +14,6 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { api } from "@/lib/api";
 
 /**
@@ -81,22 +77,15 @@ export function ChangeWorkspaceButton({
     // The trigger lives inside the Dialog root so closing (Escape, Cancel,
     // Save) returns focus to it.
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <Tooltip>
-        <DialogTrigger asChild>
-          <TooltipTrigger asChild>
-            <Button
-              variant="ghost"
-              size="sm"
-              aria-label="Change workspace"
-              data-testid={`change-workspace-${agent.id}`}
-              className="h-6 w-6 p-0 text-muted-foreground hover:text-foreground"
-            >
-              <FolderInput className="h-3.5 w-3.5" />
-            </Button>
-          </TooltipTrigger>
-        </DialogTrigger>
-        <TooltipContent>Change workspace</TooltipContent>
-      </Tooltip>
+      <DialogTrigger asChild>
+        <IconButton
+          size="icon-sm"
+          label="Change workspace"
+          data-testid={`change-workspace-${agent.id}`}
+        >
+          <FolderInput />
+        </IconButton>
+      </DialogTrigger>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Change workspace</DialogTitle>

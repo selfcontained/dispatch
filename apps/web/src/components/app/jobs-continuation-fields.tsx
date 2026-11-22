@@ -1,6 +1,7 @@
 import { Plus, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { IconButton } from "@/components/ui/icon-button";
 import { Input } from "@/components/ui/input";
 
 import { SwitchToggle } from "@/components/app/jobs-form-fields";
@@ -192,12 +193,8 @@ function LoopListField({
               placeholder={index === 0 ? placeholder : "Add another..."}
               aria-label={`${label} item ${index + 1}`}
             />
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              className="h-9 w-9 shrink-0"
-              aria-label={`Remove ${label.toLowerCase()} item ${index + 1}`}
+            <IconButton
+              label={`Remove ${label.toLowerCase()} item ${index + 1}`}
               onClick={() => {
                 const next = items.filter(
                   (_, itemIndex) => itemIndex !== index
@@ -205,20 +202,19 @@ function LoopListField({
                 onChange(next);
               }}
             >
-              <X className="h-4 w-4" />
-            </Button>
+              <X />
+            </IconButton>
           </div>
         ))}
       </div>
       <Button
         type="button"
         variant="ghost"
-        size="sm"
-        className="h-7 px-2 text-body-sm"
+        size="xs"
         disabled={!items.at(-1)?.trim()}
         onClick={() => onChange([...items, ""])}
       >
-        <Plus className="mr-1 h-3.5 w-3.5" />
+        <Plus />
         Add item
       </Button>
     </fieldset>

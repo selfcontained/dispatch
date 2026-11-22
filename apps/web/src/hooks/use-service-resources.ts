@@ -13,7 +13,7 @@ export type { SubsystemSnapshot } from "../../../server/src/observability/subsys
 
 /**
  * Every state the resource dashboard renders a badge for. `stateLabel` and
- * `stateBadgeVariant` are called with both `subsystem.state` and
+ * `stateBadgeTone` are called with both `subsystem.state` and
  * `overall.state`, so this tracks both server unions rather than restating
  * where they differ.
  */

@@ -6,6 +6,7 @@ import { repoBasename } from "@/components/app/brains-utils";
 import { encodeRepoRoot } from "@/lib/brain-encoding";
 import { shortPath } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { RowButton } from "@/components/ui/row-button";
 
 export function BrainsListContent({
   onItemSelect,
@@ -42,9 +43,9 @@ export function BrainsListContent({
           </div>
         ) : (
           <div>
-            <button
+            <RowButton
               className={cn(
-                "flex w-full items-center gap-2 border-b border-r-4 border-border border-r-transparent px-3 py-3 text-left text-body-md text-muted-foreground transition-colors hover:bg-surface-hover",
+                "rounded-none border-b border-r-4 border-border border-r-transparent px-3 py-3 text-body-md text-muted-foreground",
                 showOverview && "border-r-primary bg-surface-hover"
               )}
               onClick={() => {
@@ -52,9 +53,9 @@ export function BrainsListContent({
                 onItemSelect?.();
               }}
             >
-              <Activity className="h-3.5 w-3.5" />
+              <Activity className="size-icon-md" />
               <span>Overview</span>
-            </button>
+            </RowButton>
             {projects.map((project) => {
               const encoded = encodeRepoRoot(project.repoRoot);
               const selected = encodedRepoRoot === encoded;

@@ -99,7 +99,7 @@ export function MessageActions({
                 <Button
                   type="button"
                   variant="ghost"
-                  size="icon"
+                  size="stream-icon"
                   className={`${POST_ACTION_BUTTON} data-[state=open]:opacity-100`}
                   aria-label="Message actions"
                   ref={actionsRef}

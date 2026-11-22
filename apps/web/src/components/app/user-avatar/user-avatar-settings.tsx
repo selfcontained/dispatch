@@ -10,6 +10,7 @@ import { useSaveUserAvatar, useUserAvatarQuery } from "@/hooks/use-user-avatar";
 import { avatarLabel, UserAvatarGraphic } from "./user-avatar";
 import { prepareAvatarPhoto } from "./prepare-avatar";
 import { AvatarCropDialog } from "./avatar-crop-dialog";
+import { RowButton } from "@/components/ui/row-button";
 
 export function UserAvatarSettings() {
   const query = useUserAvatarQuery();
@@ -75,7 +76,7 @@ export function UserAvatarSettings() {
             disabled={disabled}
             onClick={() => input.current?.click()}
           >
-            <Upload className="mr-2 h-4 w-4" />
+            <Upload />
             Upload photo
           </Button>
           <p className="mt-2 text-body-sm text-muted-foreground">
@@ -104,10 +105,10 @@ export function UserAvatarSettings() {
         className="mt-4 flex flex-wrap gap-2"
       >
         {USER_AVATAR_PRESETS.map((id) => (
-          <Button
+          <RowButton
             key={id}
-            variant="ghost"
-            className="h-auto flex-col gap-1.5 border border-transparent px-3 py-2 aria-pressed:border-primary aria-pressed:bg-surface-selected"
+            selected={avatar.kind === "builtin" && avatar.id === id}
+            className="w-auto flex-col gap-1.5 border border-transparent px-3 py-2 aria-pressed:border-primary"
             disabled={disabled}
             aria-pressed={avatar.kind === "builtin" && avatar.id === id}
             aria-label={`Use ${avatarLabel(id)} avatar`}
@@ -119,7 +120,7 @@ export function UserAvatarSettings() {
               label={avatarLabel(id)}
             />
             <span className="text-body-sm">{avatarLabel(id)}</span>
-          </Button>
+          </RowButton>
         ))}
       </div>
       <div className="mt-3 flex items-center gap-3">
@@ -148,9 +149,13 @@ export function UserAvatarSettings() {
       {query.isError && (
         <p role="alert" className="mt-2 text-body-md text-danger">
           Could not load your avatar.{" "}
-          <button className="underline" onClick={() => void query.refetch()}>
+          <Button
+            variant="link"
+            size="inline"
+            onClick={() => void query.refetch()}
+          >
             Try again
-          </button>
+          </Button>
         </p>
       )}
       {(error || save.error) && (

@@ -22,6 +22,8 @@ import { type AgentModelOption } from "@/hooks/use-agent-model-catalog";
 import { swallowEscapeFromCombobox } from "@/lib/dialog-escape";
 import { AGENT_TYPE_LABELS, type AgentType } from "@/lib/agent-types";
 import { cn } from "@/lib/utils";
+import { RowButton } from "@/components/ui/row-button";
+import { StatusDot } from "@/components/ui/status-dot";
 
 /** Mirrors MAX_LAUNCH_NOTE_LENGTH on the server. */
 const MAX_NOTE_LENGTH = 2000;
@@ -139,7 +141,8 @@ export function PersonaLauncherDialog({
                     <label className="text-body-md text-muted-foreground">
                       Agent type
                     </label>
-                    <button
+                    <Button
+                      variant="field"
                       ref={typeTriggerRef}
                       type="button"
                       role="combobox"
@@ -155,10 +158,7 @@ export function PersonaLauncherDialog({
                           if (!typeDropdownOpen) setTypeDropdownOpen(true);
                         }
                       }}
-                      className={cn(
-                        "flex h-9 w-full items-center justify-between rounded-md surface-inset px-3 py-2 text-body-md",
-                        "focus-ring"
-                      )}
+                      className="w-full"
                       data-testid="launch-reviewer-agent-type"
                     >
                       <span className="flex items-center gap-2">
@@ -174,7 +174,7 @@ export function PersonaLauncherDialog({
                           typeDropdownOpen && "rotate-180"
                         )}
                       />
-                    </button>
+                    </Button>
                     {typeDropdownOpen ? (
                       <div className="absolute left-0 right-0 z-popover mt-1 rounded-md surface-overlay">
                         <Command
@@ -265,8 +265,7 @@ export function PersonaLauncherDialog({
                   >
                     {/* Owner routing leads the list: it is the repo's own
                         answer to "who should look at this". */}
-                    <button
-                      type="button"
+                    <RowButton
                       role="checkbox"
                       aria-checked={codeownersSelected}
                       disabled={!codeownersAvailable}
@@ -275,7 +274,7 @@ export function PersonaLauncherDialog({
                         onResetLaunchError();
                       }}
                       className={cn(
-                        "flex w-full items-start gap-3 rounded-md border px-3 py-3 text-left transition-colors",
+                        "items-start gap-3 border px-3 py-3",
                         codeownersSelected
                           ? "border-primary bg-surface-selected"
                           : "border-border-subtle bg-surface-subtle hover:bg-surface-hover",
@@ -311,16 +310,15 @@ export function PersonaLauncherDialog({
                           )}
                         />
                       </span>
-                    </button>
+                    </RowButton>
                     {personas.map((persona, index) => {
                       const colorVar = `var(--chart-${(index % 4) + 1})`;
                       const isSelected = selectedPersonas.includes(
                         persona.slug
                       );
                       return (
-                        <button
+                        <RowButton
                           key={persona.slug}
-                          type="button"
                           role="checkbox"
                           aria-checked={isSelected}
                           onClick={() => {
@@ -332,16 +330,16 @@ export function PersonaLauncherDialog({
                             onResetLaunchError();
                           }}
                           className={cn(
-                            "flex w-full items-start gap-3 rounded-md border px-3 py-3 text-left transition-colors",
+                            "items-start gap-3 border px-3 py-3",
                             isSelected
                               ? "border-primary bg-surface-selected"
                               : "border-border-subtle bg-surface-subtle hover:bg-surface-hover"
                           )}
                           data-testid={`launch-reviewer-persona-${persona.slug}`}
                         >
-                          <span
-                            className="mt-1.5 h-2 w-2 shrink-0 rounded-full"
-                            style={{ backgroundColor: `hsl(${colorVar})` }}
+                          <StatusDot
+                            color={`hsl(${colorVar})`}
+                            className="mt-1.5"
                           />
                           <span className="min-w-0 flex-1 space-y-1">
                             <span
@@ -372,7 +370,7 @@ export function PersonaLauncherDialog({
                               )}
                             />
                           </span>
-                        </button>
+                        </RowButton>
                       );
                     })}
                   </div>

@@ -654,6 +654,12 @@
   --seat-10-text: var(--seat-10-ink);
 }
 
+/* Its info and warning fills are too dark to carry a count's dark text. */
+[data-theme="solarized-dark"] {
+  --warning-ink: 45 100% 37%;
+  --info-ink: 205 82% 58%;
+}
+
 /* Elevation, edges and fills. Dark themes are lit from above on translucent
    white; light themes use the foreground for edges and fills, solid white for
    raised controls, and soft drop shadows with no inner shading. */
@@ -787,6 +793,13 @@
   .surface-overlay {
     @apply border border-edge-strong bg-overlay shadow-elev-overlay backdrop-blur-2xl;
   }
+}
+
+/* A hint closes when the pointer leaves its trigger, so it must not take
+   the click meant for what it happens to cover. Radix sizes a wrapper around
+   the content, which has to let go too. */
+[data-radix-popper-content-wrapper]:has(> [data-hint]) {
+  pointer-events: none;
 }
 
 html,

@@ -35,11 +35,11 @@ export function stateLabel(state: ResourceHealthState): string {
   return statusLabel(state);
 }
 
-export function stateBadgeVariant(state: ResourceHealthState) {
-  if (state === "healthy" || state === "running") return "running" as const;
-  if (state === "degraded" || state === "unavailable") return "error" as const;
-  if (state === "unknown") return "stopped" as const;
-  return "default" as const;
+export function stateBadgeTone(state: ResourceHealthState) {
+  if (state === "healthy" || state === "running") return "success" as const;
+  if (state === "degraded" || state === "unavailable") return "danger" as const;
+  if (state === "unknown") return "warning" as const;
+  return "neutral" as const;
 }
 
 export function metadataLabel(key: string): string {

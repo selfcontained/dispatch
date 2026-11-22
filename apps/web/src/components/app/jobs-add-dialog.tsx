@@ -30,6 +30,7 @@ import { cronError, msFromMinutes } from "@/components/app/jobs-helpers";
 import { errorMessage } from "@/lib/errors";
 import { ActivityBars } from "@/components/ui/activity-bars";
 import { Button } from "@/components/ui/button";
+import { IconButton } from "@/components/ui/icon-button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { type AddJobConfig } from "@/hooks/use-jobs";
@@ -40,6 +41,7 @@ import {
 } from "@/lib/agent-types";
 import { swallowEscapeFromCombobox } from "@/lib/dialog-escape";
 import { cn } from "@/lib/utils";
+import { RowButton } from "@/components/ui/row-button";
 
 export function AddJobDialog({
   open,
@@ -65,14 +67,12 @@ export function AddJobDialog({
             Create a new recurring Dispatch job.
           </DialogPrimitive.Description>
           <DialogPrimitive.Close asChild>
-            <Button
-              variant="ghost"
-              size="icon"
+            <IconButton
               className="absolute right-3 top-3 z-sticky"
-              aria-label="Close add job"
+              label="Close add job"
             >
-              <X className="h-4 w-4" />
-            </Button>
+              <X />
+            </IconButton>
           </DialogPrimitive.Close>
           {children}
         </DialogPrimitive.Content>
@@ -330,9 +330,9 @@ export function AddJobFlow({
           />
 
           <div className="min-w-0 rounded-md border border-edge bg-fill-inset p-4">
-            <button
-              type="button"
-              className="flex w-full items-center justify-between gap-3 text-left"
+            <RowButton
+              aria-expanded={advancedOpen}
+              className="justify-between gap-3 rounded-sm hover:bg-transparent"
               onClick={() => setAdvancedOpen((current) => !current)}
             >
               <div>
@@ -350,7 +350,7 @@ export function AddJobFlow({
                   advancedOpen && "rotate-180"
                 )}
               />
-            </button>
+            </RowButton>
             <div
               className={cn(
                 "grid min-w-0 overflow-hidden transition-all duration-200 ease-out",
@@ -483,7 +483,7 @@ export function AddJobFlow({
               .catch((error) => setSubmitError(errorMessage(error)));
           }}
         >
-          {isAdding ? <ActivityBars size={16} className="mr-2" /> : null}
+          {isAdding ? <ActivityBars size={16} /> : null}
           Add job
         </Button>
       </div>

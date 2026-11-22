@@ -471,7 +471,6 @@ export default function TerminalPanel({
         {(info || status === "endPending" || status === "endFailed") &&
           !finished && (
             <Button
-              variant="default"
               size="sm"
               disabled={status === "ending"}
               onClick={() => void end()}

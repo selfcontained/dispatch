@@ -6,6 +6,7 @@ import { type FileItem } from "@/components/app/types";
 import { type HistoryFile } from "@/hooks/use-agent-history";
 import { fileItemQueryKey } from "@/hooks/use-files";
 import { imageVariantSrcSet } from "@/lib/image-variants";
+import { RowButton } from "@/components/ui/row-button";
 
 export function DetailTabs({
   files,
@@ -45,10 +46,10 @@ export function DetailTabs({
           {files.length > 0 ? (
             <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
               {files.map((m) => (
-                <button
+                <RowButton
                   key={m.id}
                   onClick={() => setLightboxFileId(m.id)}
-                  className="overflow-hidden rounded-sm border border-border bg-surface-subtle text-left transition-colors hover:border-foreground/line"
+                  className="block overflow-hidden rounded-sm border border-border bg-surface-subtle hover:border-foreground/line"
                 >
                   {m.media === "image" ? (
                     <img
@@ -74,7 +75,7 @@ export function DetailTabs({
                       {m.description}
                     </p>
                   )}
-                </button>
+                </RowButton>
               ))}
             </div>
           ) : (

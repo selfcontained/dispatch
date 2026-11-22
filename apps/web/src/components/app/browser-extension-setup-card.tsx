@@ -66,7 +66,7 @@ export function BrowserExtensionSetupCard({
               onClick={() => setShowInstallGuide(true)}
             >
               <a href="/dispatch-browser-feedback.zip" download>
-                <Download className="mr-2 h-4 w-4" aria-hidden="true" />
+                <Download aria-hidden="true" />
                 Download extension ZIP
               </a>
             </Button>
@@ -78,9 +78,9 @@ export function BrowserExtensionSetupCard({
             >
               {showInstallGuide ? "Hide setup" : "Already downloaded?"}
               {showInstallGuide ? (
-                <ChevronUp className="ml-2 h-4 w-4" aria-hidden="true" />
+                <ChevronUp aria-hidden="true" />
               ) : (
-                <ChevronDown className="ml-2 h-4 w-4" aria-hidden="true" />
+                <ChevronDown aria-hidden="true" />
               )}
             </Button>
           </div>
@@ -88,11 +88,10 @@ export function BrowserExtensionSetupCard({
         {hasConnections && (
           <Button
             type="button"
-            variant="default"
             onClick={() => setShowInstallGuide((visible) => !visible)}
             aria-expanded={showInstallGuide}
           >
-            <Plus className="mr-2 h-4 w-4" aria-hidden="true" />
+            <Plus aria-hidden="true" />
             Add another browser
           </Button>
         )}
@@ -115,7 +114,7 @@ export function BrowserExtensionSetupCard({
               {hasConnections && (
                 <Button asChild variant="primary" size="sm">
                   <a href="/dispatch-browser-feedback.zip" download>
-                    <Download className="mr-2 h-3.5 w-3.5" aria-hidden="true" />
+                    <Download aria-hidden="true" />
                     Download ZIP
                   </a>
                 </Button>
@@ -171,9 +170,9 @@ export function BrowserExtensionSetupCard({
                 aria-label="Copy Dispatch URL"
               >
                 {copiedUrl ? (
-                  <Check className="h-3.5 w-3.5" aria-hidden="true" />
+                  <Check aria-hidden="true" />
                 ) : (
-                  <Copy className="h-3.5 w-3.5" aria-hidden="true" />
+                  <Copy aria-hidden="true" />
                 )}
                 <span className="ml-1.5">{copiedUrl ? "Copied" : "Copy"}</span>
               </Button>

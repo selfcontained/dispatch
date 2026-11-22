@@ -16,18 +16,13 @@ import { AgentReviewIndicator } from "@/components/app/agent-review-indicator";
 import { AgentSeatBadge } from "@/components/app/agent-seat-badge";
 import { ChatUnreadBadge } from "@/components/app/chat/chat-unread-badge";
 import { type Agent, type AgentVisualState } from "@/components/app/types";
-import { Button } from "@/components/ui/button";
+import { IconButton } from "@/components/ui/icon-button";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { useAgentRecord } from "@/hooks/use-agent-tree";
 import { useAgentReviewSummary } from "@/hooks/use-agent-review-summary";
@@ -216,25 +211,20 @@ export function ChildAgentRow({
           it keeps a dedicated Resume control, same as the top-level card.
         */}
         {isStopped ? (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                size="icon"
-                variant="ghost-primary"
-                data-agent-control="true"
-                data-testid={`child-agent-resume-${agent.id}`}
-                aria-label={`Resume ${displayName}`}
-                className="h-11 w-11 sm:h-7 sm:w-7"
-                onClick={() => {
-                  if (closeOnSessionAction) onRequestClose?.();
-                  void startAgent(agent);
-                }}
-              >
-                <Play className="h-3.5 w-3.5" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>Resume child agent</TooltipContent>
-          </Tooltip>
+          <IconButton
+            tone="success"
+            size="icon-sm"
+            data-agent-control="true"
+            data-testid={`child-agent-resume-${agent.id}`}
+            tooltip="Resume child agent"
+            label={`Resume ${displayName}`}
+            onClick={() => {
+              if (closeOnSessionAction) onRequestClose?.();
+              void startAgent(agent);
+            }}
+          >
+            <Play />
+          </IconButton>
         ) : null}
         {/*
           Session lifecycle controls: the pause/rename/archive an agent card
@@ -243,16 +233,14 @@ export function ChildAgentRow({
         */}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button
-              size="icon"
-              variant="ghost"
+            <IconButton
+              size="icon-sm"
               data-agent-control="true"
               data-testid={`child-agent-menu-${agent.id}`}
-              aria-label={`Session actions for ${displayName}`}
-              className="h-11 w-11 text-muted-foreground hover:text-foreground sm:h-7 sm:w-7"
+              label={`Session actions for ${displayName}`}
             >
-              <MoreVertical className="h-3.5 w-3.5" />
-            </Button>
+              <MoreVertical />
+            </IconButton>
           </DropdownMenuTrigger>
           {/*
             data-agent-control marks the whole content, not just the

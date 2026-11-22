@@ -146,7 +146,7 @@ function CancelAskButton({
   return (
     <Button
       type="button"
-      size="sm"
+      size="stream-sm"
       variant="ghost"
       className={ASK_ACTION}
       disabled={disabled}
@@ -367,7 +367,7 @@ export function QuestionOptions({
                 <Button
                   type="button"
                   variant="ghost"
-                  size="sm"
+                  size="stream-sm"
                   className={ASK_ACTION}
                   disabled={answering || canceling || uploading}
                   onClick={backToChoices}
@@ -378,7 +378,7 @@ export function QuestionOptions({
                 <Button
                   type="button"
                   variant="ghost"
-                  size="sm"
+                  size="stream-sm"
                   className={ASK_ACTION}
                   aria-label="Attach files"
                   title="Attach files"
@@ -392,8 +392,7 @@ export function QuestionOptions({
                 </Button>
                 <Button
                   type="submit"
-                  variant="default"
-                  size="sm"
+                  size="stream-sm"
                   className={cn(
                     ASK_ACTION,
                     "shrink-0 bg-primary text-primary-foreground hover:bg-primary/dense"
@@ -413,8 +412,7 @@ export function QuestionOptions({
                 <Button
                   key={`${index}-${option.value ?? option.label}`}
                   type="button"
-                  size="sm"
-                  variant="default"
+                  size="stream-sm"
                   className={ASK_CHOICE}
                   disabled={optionsDisabled}
                   data-testid="chat-question-option"
@@ -427,8 +425,7 @@ export function QuestionOptions({
                 <Button
                   ref={choiceRef}
                   type="button"
-                  variant="default"
-                  size="sm"
+                  size="stream-sm"
                   className={cn(
                     ASK_CHOICE,
                     "border-dashed bg-surface-selected"
@@ -795,8 +792,7 @@ export function FormBlockBody({
         <div className="mt-2 flex items-center gap-1.5">
           <Button
             type="submit"
-            size="sm"
-            variant="default"
+            size="stream-sm"
             className={cn(
               ASK_CHOICE,
               "border-primary/line bg-surface-selected text-primary"
@@ -830,21 +826,21 @@ export type FindingBlock = Extract<Block, { kind: "finding" }>;
  */
 export const REVIEW_STATUS: Record<
   BlockReviewStatus,
-  { label: string; variant: "transitional" | "error"; edge: string }
+  { label: string; tone: "info" | "danger"; edge: string }
 > = {
   open: {
     label: "Changes requested",
-    variant: "error",
+    tone: "danger",
     edge: "border-l-danger",
   },
   partially_resolved: {
     label: "Changes requested",
-    variant: "error",
+    tone: "danger",
     edge: "border-l-danger",
   },
   resolved: {
     label: "Approved",
-    variant: "transitional",
+    tone: "info",
     edge: "border-l-info",
   },
 };
@@ -1012,7 +1008,7 @@ function NotedAction({
   prompt: string;
   required: boolean;
   disabled: boolean;
-  variant: "default" | "success";
+  variant: "secondary" | "primary";
   testId: string;
   onConfirm: (note: string) => void;
 }): JSX.Element {
@@ -1030,6 +1026,7 @@ function NotedAction({
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <Button
+          size="stream-md"
           type="button"
           variant={variant}
           className="h-9 flex-1 gap-1.5 sm:flex-none"
@@ -1061,14 +1058,14 @@ function NotedAction({
             <Button
               type="button"
               variant="ghost"
-              size="sm"
+              size="stream-sm"
               onClick={() => setOpen(false)}
             >
               Cancel
             </Button>
             <Button
               type="submit"
-              size="sm"
+              size="stream-sm"
               variant={variant}
               disabled={required && !note.trim()}
               data-testid={`${testId}-confirm`}
@@ -1104,8 +1101,9 @@ export function FindingActions({
       {status === "open" ? (
         <>
           <Button
+            size="stream-md"
             type="button"
-            variant="success"
+            variant="primary"
             className="h-9 flex-1 gap-1.5 sm:flex-none"
             disabled={disabled}
             data-testid="chat-review-resolve"
@@ -1120,7 +1118,7 @@ export function FindingActions({
             prompt="Why set this finding aside?"
             required
             disabled={disabled}
-            variant="default"
+            variant="secondary"
             testId="chat-review-dismiss"
             onConfirm={(note) => onPatch({ status: "dismissed", note })}
           />
@@ -1132,7 +1130,7 @@ export function FindingActions({
           prompt="What still needs doing?"
           required={false}
           disabled={disabled}
-          variant="default"
+          variant="secondary"
           testId="chat-review-reopen"
           onConfirm={(note) =>
             onPatch(note ? { status: "open", note } : { status: "open" })
@@ -1376,7 +1374,7 @@ export function ReviewBlockBody({
         )}
         <span className="section-label">Review</span>
         <Badge
-          variant={standing.variant}
+          tone={standing.tone}
           data-testid="chat-review-status"
           data-status={reviewStatus(findings)}
         >

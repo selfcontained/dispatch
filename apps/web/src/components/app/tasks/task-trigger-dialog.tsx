@@ -34,6 +34,8 @@ import { useTaskActions } from "@/hooks/use-tasks";
 import type { AgentType } from "@/lib/agent-types";
 import { swallowEscapeFromCombobox } from "@/lib/dialog-escape";
 import { templateName } from "./task-utils";
+import { RowButton } from "@/components/ui/row-button";
+import { Hint } from "@/components/ui/tooltip";
 const NEW_TEMPLATE = "__new_template__";
 
 /**
@@ -57,30 +59,30 @@ export function ColumnTriggerStrip({
   const name = templateName(templates, column.trigger.templateId);
   return (
     <>
-      <button
-        ref={strip}
-        type="button"
-        data-testid={`task-column-trigger-${column.key}`}
-        onClick={() => setOpen(true)}
-        title="Edit trigger"
-        className={cn(
-          "flex w-full items-center gap-2 border-b border-[hsl(var(--col)/0.25)] bg-[hsl(var(--col)/0.06)] px-3 py-1.5 text-left text-body-sm transition-colors hover:bg-[hsl(var(--col)/0.14)] focus-ring-inset",
-          className
-        )}
-      >
-        <Zap
-          className="h-3.5 w-3.5 shrink-0 text-[hsl(var(--col))]"
-          aria-hidden="true"
-        />
-        <span className="min-w-0 flex-1 truncate whitespace-nowrap text-muted-foreground">
-          On entry → launches{" "}
-          <span className="font-medium text-foreground">{name}</span>
-        </span>
-        <Settings2
-          className="h-3.5 w-3.5 shrink-0 text-muted-foreground"
-          aria-hidden="true"
-        />
-      </button>
+      <Hint label="Edit trigger">
+        <RowButton
+          ref={strip}
+          data-testid={`task-column-trigger-${column.key}`}
+          onClick={() => setOpen(true)}
+          className={cn(
+            "rounded-none border-b border-[hsl(var(--col)/0.25)] bg-[hsl(var(--col)/0.06)] px-3 py-1.5 text-body-sm hover:bg-[hsl(var(--col)/0.14)]",
+            className
+          )}
+        >
+          <Zap
+            className="h-3.5 w-3.5 shrink-0 text-[hsl(var(--col))]"
+            aria-hidden="true"
+          />
+          <span className="min-w-0 flex-1 truncate whitespace-nowrap text-muted-foreground">
+            On entry → launches{" "}
+            <span className="font-medium text-foreground">{name}</span>
+          </span>
+          <Settings2
+            className="h-3.5 w-3.5 shrink-0 text-muted-foreground"
+            aria-hidden="true"
+          />
+        </RowButton>
+      </Hint>
       <TaskTriggerDialog
         column={column}
         projectId={projectId}

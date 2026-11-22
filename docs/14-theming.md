@@ -43,7 +43,7 @@ These control agent state indicators, badges, buttons, and status dots throughou
 | `--status-working` | Active/success state  | Emerald       | Agent working indicator, "running" badge, service OK dot   |
 | `--status-blocked` | Error/blocked state   | Red           | Agent blocked, error badge, live stream indicator          |
 | `--status-waiting` | Warning/pending state | Amber         | Waiting for user, reconnect indicator, full-access warning |
-| `--status-done`    | Info/complete state   | Sky blue      | Agent done, transitional badge, info buttons               |
+| `--status-done`    | Info/complete state   | Sky blue      | Agent done, info badge, info buttons                       |
 | `--status-idle`    | Neutral/idle state    | Zinc gray     | Idle agent border                                          |
 
 `status-*` renders an agent, task or run state. Anything that means success, warning, danger or info uses the intent aliases (`success`, `warning`, `danger`, `info`), which `index.css` derives from these variables. `--status-blocked` is the theme’s one red: tune it within red (hue 343–1), clearly apart from `--primary`, and give it a `--danger-ink` for red text and a `--danger-foreground` for text on the fill, both at least 4.5:1. See [design-system.md](design-system.md) for the full token set.

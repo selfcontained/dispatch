@@ -37,14 +37,12 @@ describe("project location", () => {
     }
     render(<Form />);
     const field = screen.getByLabelText("Folder path");
-    fireEvent.click(screen.getByRole("button", { name: "Folder" }));
+    fireEvent.click(screen.getByRole("radio", { name: "Folder" }));
     expect(
-      screen
-        .getByRole("button", { name: "Folder" })
-        .getAttribute("aria-pressed")
+      screen.getByRole("radio", { name: "Folder" }).getAttribute("aria-checked")
     ).toBe("true");
     fireEvent.change(field, { target: { value: "/edited" } });
-    fireEvent.click(screen.getByRole("button", { name: "Project" }));
+    fireEvent.click(screen.getByRole("radio", { name: "Project" }));
     expect(
       screen.getByRole("button", { name: "Choose project" }).textContent
     ).toContain("Second");

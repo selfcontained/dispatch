@@ -34,6 +34,7 @@ import {
 
 import { upcomingSchedulesKey } from "./scheduled-messages";
 import { AgentCard, type AgentCardProps } from "./agent-card";
+import { hintText } from "@/test-utils/hint";
 
 // The card renders its real header/status/details/actions children — the point
 // of these tests is that the four-file split (#803) keeps passing each child
@@ -485,9 +486,7 @@ describe("AgentCardHeader wiring", () => {
     const { rerender } = renderCard({
       agent: makeAgent({ status: "error", lastError: "tmux session died" }),
     });
-    expect(screen.getByText("Attention").getAttribute("title")).toBe(
-      "tmux session died"
-    );
+    expect(hintText(screen.getByText("Attention"))).toBe("tmux session died");
     expect(screen.queryByText("Job")).toBeNull();
 
     rerender({
@@ -542,9 +541,7 @@ describe("AgentCardHeader wiring", () => {
     const loopBadge = screen.getByText("Loop");
     expect(screen.queryByText("Job")).toBeNull();
 
-    expect(loopBadge.parentElement?.getAttribute("title")).toBe(
-      "Loop iteration 3 of 5"
-    );
+    expect(hintText(loopBadge)).toBe("Loop iteration 3 of 5");
 
     rerender({
       agent: makeAgent({
@@ -556,9 +553,7 @@ describe("AgentCardHeader wiring", () => {
         },
       }),
     });
-    expect(screen.getByText("Loop").parentElement?.getAttribute("title")).toBe(
-      "Loop iteration 2"
-    );
+    expect(hintText(screen.getByText("Loop"))).toBe("Loop iteration 2");
   });
 });
 
@@ -1081,7 +1076,7 @@ describe("AgentCard avatars", () => {
 
     rerender({ expandedAgentId: AGENT_ID });
     expect(screen.getByText("claude-opus-5-5")).toBeTruthy();
-    expect(screen.getByTitle("Engine")).toBeTruthy();
+    expect(screen.getByRole("img", { name: "Engine" })).toBeTruthy();
   });
 });
 
