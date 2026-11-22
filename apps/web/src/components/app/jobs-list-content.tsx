@@ -90,16 +90,16 @@ export function JobListContent({
           />
         ) : null}
         {error && allJobs.length === 0 ? null : isLoading ? (
-          <div className="flex items-center gap-2 p-4 text-sm text-muted-foreground">
+          <div className="flex items-center gap-2 p-4 text-body-md text-muted-foreground">
             <ActivityBars size={16} /> Loading jobs...
           </div>
         ) : jobs.length === 0 ? (
-          <div className="p-4 text-sm text-muted-foreground">
+          <div className="p-4 text-body-md text-muted-foreground">
             <div className="rounded-md border border-dashed border-border p-4">
               <div className="font-medium text-foreground">
                 No jobs added yet.
               </div>
-              <div className="mt-1 text-xs">
+              <div className="mt-1 text-body-sm">
                 Added jobs will appear here — run them on a schedule or on
                 demand.
               </div>
@@ -109,7 +109,7 @@ export function JobListContent({
           <div>
             <button
               className={cn(
-                "flex w-full items-center gap-2 border-b border-r-4 border-border border-r-transparent px-3 py-2.5 text-left text-sm text-muted-foreground transition-colors hover:bg-muted/40",
+                "flex w-full items-center gap-2 border-b border-r-4 border-border border-r-transparent px-3 py-2.5 text-left text-body-md text-muted-foreground transition-colors hover:bg-muted/40",
                 showOverview && "border-r-primary bg-muted/60"
               )}
               onClick={() => {
@@ -138,11 +138,11 @@ export function JobListContent({
                 >
                   <div className="flex items-center gap-2">
                     <div className="min-w-0 flex-1">
-                      <div className="truncate text-sm font-semibold leading-5">
+                      <div className="truncate text-body-md font-semibold leading-5">
                         {job.name}
                       </div>
                       <div
-                        className="truncate font-mono text-[11px] text-muted-foreground"
+                        className="truncate font-mono text-label-sm text-muted-foreground"
                         title={job.directory}
                       >
                         {shortPath(job.directory)}
@@ -157,7 +157,7 @@ export function JobListContent({
                         : "new"}
                     </Badge>
                   </div>
-                  <div className="mt-1 flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
+                  <div className="mt-1 flex min-w-0 items-center gap-1.5 text-body-sm text-muted-foreground">
                     <Clock className="h-3.5 w-3.5 shrink-0" />
                     <span className="truncate">
                       {job.schedule ? `Cron: ${job.schedule}` : "On demand"}
@@ -204,7 +204,7 @@ export function JobListContent({
                     ) : null}
                   </div>
                   {actionError ? (
-                    <div className="mt-2 rounded border border-status-blocked/30 bg-status-blocked/10 px-2 py-1 text-xs text-status-blocked">
+                    <div className="mt-2 rounded border border-status-blocked/30 bg-status-blocked/10 px-2 py-1 text-body-sm text-status-blocked">
                       {actionError}
                     </div>
                   ) : null}

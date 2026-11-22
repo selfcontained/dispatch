@@ -122,7 +122,7 @@ export function QueuedMessageActions({
           <Button
             variant="ghost-warning"
             size="sm"
-            className="h-6 gap-1 border border-transparent px-2 text-[11px] hover:border-status-waiting/40 [@media(pointer:coarse)]:min-h-11 [@media(pointer:coarse)]:min-w-11"
+            className="h-6 gap-1 border border-transparent px-2 text-label-sm hover:border-status-waiting/40 [@media(pointer:coarse)]:min-h-11 [@media(pointer:coarse)]:min-w-11"
             disabled={action.isPending || action.isSuccess}
             title={
               pendingDelivery
@@ -159,7 +159,7 @@ export function QueuedMessageActions({
         ) : null}
       </div>
       {action.isError ? (
-        <span role="alert" className="col-span-2 text-xs text-destructive">
+        <span role="alert" className="col-span-2 text-body-sm text-destructive">
           {action.error.message}
         </span>
       ) : null}

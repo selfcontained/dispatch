@@ -24,7 +24,7 @@ export function AuthLayout(): JSX.Element {
   if (authState === "loading") {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background text-muted-foreground">
-        <span className="text-sm">Connecting to server...</span>
+        <span className="text-body-md">Connecting to server...</span>
         <ClearReloadButton />
       </div>
     );

@@ -22,9 +22,9 @@ export function TaskBlockBody({
   const location = useLocation();
   if (error)
     return (
-      <div className="my-2 rounded-lg border p-3 text-sm text-muted-foreground">
+      <div className="my-2 rounded-lg border p-3 text-body-md text-muted-foreground">
         Task unavailable
-        <span className="mt-1 block font-mono text-xs">
+        <span className="mt-1 block font-mono text-body-sm">
           {block.data.taskId}
         </span>
       </div>
@@ -65,10 +65,10 @@ export function TaskBlockBody({
         className="mt-0.5 h-4 w-4 shrink-0 text-primary"
       />
       <span className="min-w-0 flex-1">
-        <span className="block break-words text-sm font-medium">
+        <span className="block break-words text-body-md font-medium">
           {task.title}
         </span>
-        <span className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+        <span className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-body-sm text-muted-foreground">
           <span>
             {[
               projects.find((project) => project.id === task.projectId)?.name ??

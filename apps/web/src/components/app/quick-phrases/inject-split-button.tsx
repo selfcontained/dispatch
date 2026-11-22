@@ -29,7 +29,7 @@ export function InjectSplitButton({
         type={isSm ? "button" : "submit"}
         size={isSm ? "sm" : "default"}
         disabled={disabled}
-        className={cn("rounded-r-none", isSm && "h-7 gap-1 px-2 text-xs")}
+        className={cn("rounded-r-none", isSm && "h-7 gap-1 px-2 text-body-sm")}
         onClick={
           isSm
             ? (e: React.MouseEvent) => {

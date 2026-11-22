@@ -32,7 +32,7 @@ export function ReleaseJobBanners({
   return (
     <>
       {releaseInFlight && (
-        <div className="flex items-center gap-3 rounded-lg border border-blue-500/30 bg-blue-500/10 px-3 py-2.5 text-sm text-blue-300">
+        <div className="flex items-center gap-3 rounded-lg border border-blue-500/30 bg-blue-500/10 px-3 py-2.5 text-body-md text-blue-300">
           <ActivityBars size={14} />
           <span>
             Releasing{" "}
@@ -56,7 +56,7 @@ export function ReleaseJobBanners({
         </div>
       )}
       {isFailed && (
-        <div className="flex items-center gap-3 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2.5 text-sm text-destructive">
+        <div className="flex items-center gap-3 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2.5 text-body-md text-destructive">
           <XCircle className="h-4 w-4 shrink-0" />
           <span className="min-w-0 truncate">
             Release failed
@@ -73,7 +73,7 @@ export function ReleaseJobBanners({
         </div>
       )}
       {isDone && watchedRelease && (
-        <div className="flex items-center gap-3 rounded-lg border border-green-500/30 bg-green-500/10 px-3 py-2.5 text-sm text-green-400">
+        <div className="flex items-center gap-3 rounded-lg border border-green-500/30 bg-green-500/10 px-3 py-2.5 text-body-md text-green-400">
           <CheckCircle2 className="h-4 w-4 shrink-0" />
           <span>
             Released <span className="font-mono font-semibold">{job.tag}</span>

@@ -104,7 +104,7 @@ export function AvatarCropDialog({
             }
           }}
         />
-        <label className="text-sm">
+        <label className="text-body-md">
           Zoom
           <Slider
             className="mt-3"
@@ -119,12 +119,12 @@ export function AvatarCropDialog({
             }
           />
         </label>
-        <p className="text-xs text-muted-foreground">
+        <p className="text-body-sm text-muted-foreground">
           We’ll crop and resize it for you. Your original photo stays on your
           device.
         </p>
         {error && (
-          <p role="alert" className="text-sm text-destructive">
+          <p role="alert" className="text-body-md text-destructive">
             {error}
           </p>
         )}

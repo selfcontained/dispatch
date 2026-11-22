@@ -634,7 +634,9 @@ export function ImageComments({
           data-testid="image-viewer-header"
           className="flex min-h-[calc(3.5rem+var(--safe-area-top))] shrink-0 items-center gap-2 border-b pl-[max(0.75rem,env(safe-area-inset-left,0px))] pr-[max(0.75rem,env(safe-area-inset-right,0px))] pt-[var(--safe-area-top)]"
         >
-          <span className="min-w-0 flex-1 truncate text-sm">{caption}</span>
+          <span className="min-w-0 flex-1 truncate text-body-md">
+            {caption}
+          </span>
           {!markup && (
             <Button
               ref={markupButton}
@@ -663,7 +665,7 @@ export function ImageComments({
               >
                 <ChevronLeft className="h-4 w-4" />
               </Button>
-              <span className="hidden text-xs text-muted-foreground sm:inline">
+              <span className="hidden text-body-sm text-muted-foreground sm:inline">
                 {positionLabel}
               </span>
               <Button
@@ -729,7 +731,7 @@ export function ImageComments({
           )}
           {loaded && markup && !hintDismissed && (
             <div className="pointer-events-none absolute inset-x-3 top-3 z-10 flex justify-center">
-              <div className="pointer-events-auto flex max-w-full items-center gap-2 rounded-xl border border-white/20 bg-black/75 py-1 pl-3 pr-1 text-xs text-white shadow-md">
+              <div className="pointer-events-auto flex max-w-full items-center gap-2 rounded-xl border border-white/20 bg-black/75 py-1 pl-3 pr-1 text-body-sm text-white shadow-md">
                 <p>Click or drag to leave a note</p>
                 <Button
                   type="button"
@@ -978,7 +980,7 @@ export function ImageComments({
                       aria-label={`Comment ${c.number}${c.sent ? ", sent" : ", draft"}`}
                     >
                       <MessageCircle className="h-4 w-4" />
-                      <span className="text-xs">{c.number}</span>
+                      <span className="text-body-sm">{c.number}</span>
                     </Button>
                   </PopoverTrigger>
                   <PopoverContent
@@ -1014,21 +1016,21 @@ export function ImageComments({
                   >
                     {c.sent ? (
                       <>
-                        <p className="whitespace-pre-wrap break-words text-sm">
+                        <p className="whitespace-pre-wrap break-words text-body-md">
                           {c.note}
                         </p>
-                        <p className="text-xs text-muted-foreground">
+                        <p className="text-body-sm text-muted-foreground">
                           Posted to{" "}
                           {agents.find((a) => a.id === c.recipient)?.name ??
                             c.recipient}
                         </p>
                         {c.delivered === false && (
-                          <p className="text-xs text-destructive">
+                          <p className="text-body-sm text-destructive">
                             Agent delivery failed. Retry from the conversation.
                           </p>
                         )}
                         <a
-                          className="block text-xs underline"
+                          className="block text-body-sm underline"
                           href={
                             c.location
                               ? (() => {
@@ -1284,7 +1286,7 @@ export function ImageComments({
           {markup && send.isError && (
             <p
               role="alert"
-              className="w-full text-center text-xs text-destructive"
+              className="w-full text-center text-body-sm text-destructive"
             >
               {send.error.message} Notes are kept. Retry sharing; if delivery is
               uncertain, check the conversation.

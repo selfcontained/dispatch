@@ -264,7 +264,7 @@ export function FilesPane({
 }) {
   if (!agentId || !workspace)
     return (
-      <div className="grid h-full place-items-center p-6 text-sm text-muted-foreground">
+      <div className="grid h-full place-items-center p-6 text-body-md text-muted-foreground">
         Select an agent with a workspace to browse files.
       </div>
     );
@@ -452,11 +452,11 @@ function WorkspaceFiles({
       <div className="flex shrink-0 items-center gap-2 border-b px-3 py-2">
         <FolderOpen className="h-4 w-4 shrink-0 text-muted-foreground" />
         <div className="min-w-0 flex-1">
-          <div className="truncate text-sm font-medium" title={workspace}>
+          <div className="truncate text-body-md font-medium" title={workspace}>
             {workspace.split("/").filter(Boolean).at(-1)}
           </div>
           <div
-            className="truncate text-[10px] text-muted-foreground"
+            className="truncate text-label-xs text-muted-foreground"
             title={workspace}
           >
             {workspace}
@@ -502,11 +502,11 @@ function WorkspaceFiles({
                 placeholder="Find files…"
                 value={filter}
                 onChange={(e) => setFilter(e.target.value)}
-                className="h-8 pl-7 text-xs"
+                className="h-8 pl-7 text-body-sm"
               />
             </div>
             {search && fileIndex.data && (
-              <p className="px-3 pb-2 text-[10px] text-muted-foreground">
+              <p className="px-3 pb-2 text-label-xs text-muted-foreground">
                 {matches.length > 200 ? "First 200 of " : ""}
                 {matches.length} matches
                 {fileIndex.data.truncated ? " · Partial index" : ""}
@@ -567,7 +567,7 @@ function WorkspaceFiles({
                 if (!("entry" in row))
                   return (
                     <div
-                      className="flex h-full items-center gap-1 truncate px-3 text-[11px] text-muted-foreground"
+                      className="flex h-full items-center gap-1 truncate px-3 text-label-sm text-muted-foreground"
                       title={row.message}
                     >
                       {row.message}
@@ -607,7 +607,7 @@ function WorkspaceFiles({
                     disabled={entry.kind === "link" || entry.kind === "other"}
                     onClick={() => choose(entry)}
                     className={cn(
-                      "relative flex h-full w-full items-center gap-1.5 pr-3 text-left text-xs hover:bg-muted/60 focus-visible:outline focus-visible:outline-1 focus-visible:outline-primary disabled:opacity-40",
+                      "relative flex h-full w-full items-center gap-1.5 pr-3 text-left text-body-sm hover:bg-muted/60 focus-visible:outline focus-visible:outline-1 focus-visible:outline-primary disabled:opacity-40",
                       selected === entry.path && "bg-primary/10 text-primary",
                       active && "ring-1 ring-inset ring-border"
                     )}
@@ -647,7 +647,7 @@ function WorkspaceFiles({
                         </span>
                       </span>
                       {search && (
-                        <span className="block truncate text-[10px] text-muted-foreground">
+                        <span className="block truncate text-label-xs text-muted-foreground">
                           {entry.path}
                         </span>
                       )}
@@ -657,11 +657,11 @@ function WorkspaceFiles({
               }}
             />
             {!rows.length && (
-              <p className="p-3 text-xs text-muted-foreground">
+              <p className="p-3 text-body-sm text-muted-foreground">
                 No filenames match.
               </p>
             )}
-            <div className="border-t px-3 py-2 text-[10px] text-muted-foreground">
+            <div className="border-t px-3 py-2 text-label-xs text-muted-foreground">
               On-demand · Manual refresh · No background scans
             </div>
           </div>
@@ -682,7 +682,7 @@ function WorkspaceFiles({
                     </Button>
                   )}
                   <span
-                    className="min-w-0 flex-1 truncate px-1 font-mono text-xs"
+                    className="min-w-0 flex-1 truncate px-1 font-mono text-body-sm"
                     title={selected}
                   >
                     {selected}
@@ -696,13 +696,13 @@ function WorkspaceFiles({
                   )}
                 </div>
                 {preview.isPending ? (
-                  <div className="p-6 text-sm text-muted-foreground">
+                  <div className="p-6 text-body-md text-muted-foreground">
                     Loading preview…
                   </div>
                 ) : preview.isError ? (
                   <div
                     role="alert"
-                    className="p-6 text-sm text-muted-foreground"
+                    className="p-6 text-body-md text-muted-foreground"
                   >
                     {preview.error.message}
                     <Button
@@ -733,7 +733,7 @@ function WorkspaceFiles({
                     />
                   </div>
                 ) : (
-                  <div className="p-6 text-sm text-muted-foreground">
+                  <div className="p-6 text-body-md text-muted-foreground">
                     {preview.data?.kind === "unsupported" &&
                       preview.data.message}
                   </div>
@@ -742,8 +742,8 @@ function WorkspaceFiles({
             ) : (
               <div className="flex flex-1 flex-col items-center justify-center gap-3 p-8 text-center text-muted-foreground">
                 <File className="h-10 w-10 opacity-30" />
-                <p className="text-sm">Select a file to preview</p>
-                <p className="max-w-64 text-xs leading-relaxed">
+                <p className="text-body-md">Select a file to preview</p>
+                <p className="max-w-64 text-body-sm leading-relaxed">
                   Browse the agent’s workspace. Folders load only when opened;
                   files stay on disk until selected.
                 </p>

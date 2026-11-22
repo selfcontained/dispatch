@@ -143,7 +143,7 @@ export function mentionChipClasses(
   silent = false
 ): string {
   return cn(
-    "agent-mention-chip box-decoration-clone rounded-full border px-1 py-0 text-xs font-medium",
+    "agent-mention-chip box-decoration-clone rounded-full border px-1 py-0 text-body-sm font-medium",
     seatClasses(seat ?? 1).face,
     silent && "saturate-[0.8] opacity-90"
   );

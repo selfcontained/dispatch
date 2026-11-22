@@ -44,7 +44,7 @@ function useFetchedText(
 
 function LoadingText(): JSX.Element {
   return (
-    <div className="grid h-full place-items-center text-sm text-[hsl(var(--log-stream-muted-foreground))]">
+    <div className="grid h-full place-items-center text-body-md text-[hsl(var(--log-stream-muted-foreground))]">
       Loading...
     </div>
   );
@@ -52,7 +52,7 @@ function LoadingText(): JSX.Element {
 
 function TextError({ error }: { error: string }): JSX.Element {
   return (
-    <div className="grid h-full place-items-center text-sm text-destructive">
+    <div className="grid h-full place-items-center text-body-md text-destructive">
       {error}
     </div>
   );
@@ -76,14 +76,14 @@ function TextViewer({
     // Don't key this on src/content.
     <LogStream className="syntax-surface min-h-full overflow-auto p-0">
       {highlightedHtml ? (
-        <pre className="p-4 text-sm leading-relaxed">
+        <pre className="p-4 text-body-md leading-relaxed">
           <code
             className="hljs"
             dangerouslySetInnerHTML={{ __html: highlightedHtml }}
           />
         </pre>
       ) : (
-        <pre className="p-4 text-sm leading-relaxed">
+        <pre className="p-4 text-body-md leading-relaxed">
           <code>{content}</code>
         </pre>
       )}

@@ -55,18 +55,18 @@ export function FileItemCard({
       {isStream ? (
         <div className="mb-2 flex items-center gap-1.5">
           <MonitorPlay className="h-3.5 w-3.5 text-status-blocked" />
-          <span className="text-xs font-semibold uppercase tracking-wide text-status-blocked">
+          <span className="section-label text-status-blocked">
             Stream recording
           </span>
-          <span className="ml-auto text-xs text-muted-foreground">
+          <span className="ml-auto text-body-sm text-muted-foreground">
             {new Date(file.updatedAt).toLocaleString()}
           </span>
         </div>
       ) : (
-        <div className="mb-2 flex items-center gap-1.5 text-xs text-muted-foreground">
+        <div className="mb-2 flex items-center gap-1.5 text-body-sm text-muted-foreground">
           <span>{new Date(file.updatedAt).toLocaleString()}</span>
           {isUser ? (
-            <span className="ml-auto flex items-center gap-1 rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold text-primary">
+            <span className="ml-auto flex items-center gap-1 rounded bg-primary/10 px-1.5 py-0.5 text-label-xs font-semibold text-primary">
               <User className="h-2.5 w-2.5" />
               Shared by you
             </span>
@@ -83,10 +83,10 @@ export function FileItemCard({
         >
           <div className="flex items-center gap-2">
             <FileText className="h-4 w-4 flex-none text-muted-foreground" />
-            <span className="truncate text-xs font-medium text-foreground">
+            <span className="truncate text-body-sm font-medium text-foreground">
               {stripTimestamp(file.name)}
             </span>
-            <span className="ml-auto flex-none rounded bg-muted px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+            <span className="ml-auto flex-none rounded bg-muted px-1.5 py-0.5 text-label-xs font-semibold uppercase tracking-wide text-muted-foreground">
               {fileExtension(file.name).replace(".", "")}
             </span>
           </div>
@@ -132,7 +132,7 @@ export function FileItemCard({
           />
         </button>
       )}
-      <div className="mt-2 text-xs text-muted-foreground">
+      <div className="mt-2 text-body-sm text-muted-foreground">
         {file.description ? <div>{file.description}</div> : null}
         <div
           className={`flex items-center justify-between gap-2${file.description ? " mt-1" : ""}`}

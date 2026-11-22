@@ -69,7 +69,7 @@ export function DuplicateTemplateDialog({
         >
           <div className="grid gap-2">
             <label
-              className="text-sm font-medium"
+              className="text-body-md font-medium"
               htmlFor="duplicate-template-name"
             >
               New template name
@@ -83,7 +83,7 @@ export function DuplicateTemplateDialog({
             />
           </div>
           {error ? (
-            <p role="alert" className="text-sm text-status-blocked">
+            <p role="alert" className="text-body-md text-status-blocked">
               {error}
             </p>
           ) : null}

@@ -82,7 +82,7 @@ export function ZoomableImage({
             data-testid="file-lightbox-zoom-reset"
             size="sm"
             variant="ghost"
-            className="h-10 min-w-16 rounded-full px-2 text-xs tabular-nums text-white hover:bg-white/15 hover:text-white"
+            className="h-10 min-w-16 rounded-full px-2 text-body-sm tabular-nums text-white hover:bg-white/15 hover:text-white"
             onClick={reset}
           >
             {Math.round(transform.scale * 100)}%

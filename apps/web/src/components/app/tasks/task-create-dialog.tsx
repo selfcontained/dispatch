@@ -32,7 +32,7 @@ import { columnAccent } from "./task-utils";
 export const TASK_DIALOG_MOBILE_SHEET =
   "max-md:inset-0 max-md:left-0 max-md:top-0 max-md:h-[100dvh] max-md:max-h-none max-md:w-full max-md:translate-x-0 max-md:translate-y-0 max-md:rounded-none";
 
-const LABEL = "block text-xs font-medium text-muted-foreground";
+const LABEL = "block text-body-sm font-medium text-muted-foreground";
 const DESCRIPTION_PLACEHOLDER = `## Deliverable
 What should exist when this is done?
 
@@ -206,7 +206,7 @@ export function TaskCreateDialog({
             <Textarea
               id="task-create-description"
               placeholder={DESCRIPTION_PLACEHOLDER}
-              className="min-h-36 resize-none font-mono text-sm md:min-h-44"
+              className="min-h-36 resize-none font-mono text-body-md md:min-h-44"
               value={body}
               onChange={(event) => setBody(event.target.value)}
               onKeyDown={(event) => {
@@ -263,7 +263,7 @@ export function TaskCreateDialog({
                 agents={agents}
                 projectId={projectId}
                 onChange={setAssignee}
-                className="h-9 max-w-none border-input bg-transparent text-sm"
+                className="h-9 max-w-none border-input bg-transparent text-body-md"
               />
             </div>
           </div>
@@ -285,12 +285,12 @@ export function TaskCreateDialog({
             />
           )}
           {error && (
-            <p role="alert" className="text-sm text-destructive">
+            <p role="alert" className="text-body-md text-destructive">
               {error}
             </p>
           )}
           <div className="mt-auto flex items-center justify-end gap-2 pb-[env(safe-area-inset-bottom)]">
-            <span className="mr-auto hidden text-xs text-muted-foreground md:inline">
+            <span className="mr-auto hidden text-body-sm text-muted-foreground md:inline">
               ⌘↵ to create from the description
             </span>
             <Button

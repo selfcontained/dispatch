@@ -590,7 +590,7 @@ export function AuthorMeta({
     >
       {engine ? (
         <span
-          className="shrink-0 rounded border border-border/70 bg-muted/40 px-1 text-[10px] font-medium text-muted-foreground"
+          className="shrink-0 rounded border border-border/70 bg-muted/40 px-1 text-label-xs font-medium text-muted-foreground"
           data-testid="chat-author-engine"
         >
           {engine}
@@ -598,7 +598,7 @@ export function AuthorMeta({
       ) : null}
       {model ? (
         <span
-          className="min-w-0 max-w-[16rem] truncate rounded border border-border/70 bg-muted/40 px-1 text-[10px] text-muted-foreground"
+          className="min-w-0 max-w-[16rem] truncate rounded border border-border/70 bg-muted/40 px-1 text-label-xs text-muted-foreground"
           title={author.model ?? undefined}
           data-testid="chat-author-model"
         >
@@ -744,7 +744,7 @@ export function Post({
   const timestamp = (
     <span className="inline-flex shrink-0 items-center gap-1">
       <span
-        className="text-[11px] text-muted-foreground"
+        className="text-label-sm text-muted-foreground"
         title={formatDateTime(at)}
         data-testid="chat-post-time"
       >
@@ -788,7 +788,7 @@ export function Post({
             deliveryIndicator ? null : (
               <span
                 // Hidden on phones: the body runs under it there.
-                className="invisible whitespace-nowrap pt-1 text-[10px] leading-none text-muted-foreground group-hover:visible max-sm:hidden"
+                className="invisible whitespace-nowrap pt-1 text-label-xs leading-none text-muted-foreground group-hover:visible max-sm:hidden"
                 title={formatDateTime(at)}
                 data-testid="chat-gutter-time"
               >
@@ -814,7 +814,7 @@ export function Post({
         {hideHeader ? (
           showRecipient || deliveryIndicator || contextLink ? (
             <div
-              className="mb-1 flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground"
+              className="mb-1 flex flex-wrap items-center gap-2 text-label-sm text-muted-foreground"
               data-testid="system-observation-receipt"
             >
               {showRecipient && side ? (
@@ -876,7 +876,7 @@ export function Post({
               : {})}
           >
             <span
-              className="max-w-full truncate text-sm font-semibold text-foreground"
+              className="max-w-full truncate text-body-md font-semibold text-foreground"
               data-testid="chat-post-author"
             >
               {author.agentId && author.kind !== "user" ? (
@@ -897,7 +897,7 @@ export function Post({
             </span>
             {showRecipient && side ? (
               <span
-                className="min-w-[8rem] max-w-full truncate text-sm text-muted-foreground"
+                className="min-w-[8rem] max-w-full truncate text-body-md text-muted-foreground"
                 data-testid="chat-side-recipient"
               >
                 <span aria-hidden="true">→ </span>
@@ -925,7 +925,7 @@ export function Post({
         )}
         <div
           className={cn(
-            "clear-both min-w-0 text-sm text-foreground",
+            "clear-both min-w-0 text-body-md text-foreground",
             POST_BODY_MEASURE,
             // On phones the body takes the avatar column's width too (w-8 +
             // gap-3); on desktop it stays indented under the author.
@@ -966,7 +966,7 @@ export function DayDivider({ label }: { label: string }): JSX.Element {
       aria-label={label}
     >
       <div className="h-px flex-1 bg-border/70" />
-      <span className="rounded-full border border-border bg-background px-2.5 py-0.5 text-[11px] font-medium text-muted-foreground">
+      <span className="rounded-full border border-border bg-background px-2.5 py-0.5 text-label-sm font-medium text-muted-foreground">
         {label}
       </span>
       <div className="h-px flex-1 bg-border/70" />
@@ -1011,7 +1011,7 @@ function ThreadLine({
   return (
     <button
       type="button"
-      className="group/thread mt-2 flex w-fit max-w-full items-center gap-2 text-[11px] leading-none disabled:cursor-default"
+      className="group/thread mt-2 flex w-fit max-w-full items-center gap-2 text-label-sm leading-none disabled:cursor-default"
       disabled={!onOpen}
       data-testid="chat-thread-line"
       data-reply-count={String(count)}
@@ -1027,7 +1027,7 @@ function ThreadLine({
             <ReplierFace key={index} who={who} ctx={ctx} />
           ))}
           {repliers.length > THREAD_FACES ? (
-            <span className="flex h-5 min-w-5 items-center justify-center rounded border border-border bg-background px-1 font-mono text-[9px] text-muted-foreground">
+            <span className="flex h-5 min-w-5 items-center justify-center rounded border border-border bg-background px-1 font-mono text-label-xs text-muted-foreground">
               +{repliers.length - THREAD_FACES}
             </span>
           ) : null}
@@ -1043,7 +1043,7 @@ function ThreadLine({
       </span>
       {unread > 0 ? (
         <span
-          className="rounded-full bg-status-done px-1.5 py-0.5 text-[10px] font-semibold text-background"
+          className="rounded-full bg-status-done px-1.5 py-0.5 text-label-xs font-semibold text-background"
           data-testid="chat-thread-unread"
         >
           {unread} new
@@ -1267,7 +1267,9 @@ function BlockBody({
       return null;
     default:
       return (
-        <p className="text-xs text-muted-foreground">Unsupported block type.</p>
+        <p className="text-body-sm text-muted-foreground">
+          Unsupported block type.
+        </p>
       );
   }
 }
@@ -1381,7 +1383,7 @@ function LaunchBriefing({
     <div className="mt-4 space-y-4" data-testid="launch-briefing">
       {block.text ? (
         <div>
-          <p className="mb-2 text-xs font-medium text-muted-foreground">
+          <p className="mb-2 text-body-sm font-medium text-muted-foreground">
             Prompt
           </p>
           <Markdown>{block.text}</Markdown>
@@ -1390,7 +1392,7 @@ function LaunchBriefing({
       <AttachmentList block={block} ctx={ctx} />
       {block.state?.instructions ? (
         <details>
-          <summary className="cursor-pointer text-xs font-medium text-muted-foreground">
+          <summary className="cursor-pointer text-body-sm font-medium text-muted-foreground">
             Instructions
           </summary>
           <div className="mt-2">
@@ -1468,7 +1470,7 @@ function LaunchStartup({
         }
       />
       {startup.failed ? (
-        <p className="mt-2 break-words text-xs text-destructive">
+        <p className="mt-2 break-words text-body-sm text-destructive">
           {startup.failed}
         </p>
       ) : null}
@@ -1509,10 +1511,10 @@ function LaunchCard({
         className="h-[26px] w-[26px] shrink-0"
       />
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-xs font-medium" title={name}>
+        <span className="block truncate text-body-sm font-medium" title={name}>
           {name}
         </span>
-        <span className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[10px] text-muted-foreground">
+        <span className="mt-0.5 flex min-w-0 items-center gap-1.5 text-label-xs text-muted-foreground">
           <span
             className={cn(
               "shrink-0",
@@ -1557,7 +1559,7 @@ function LaunchCard({
         data-kind="launch"
         data-block-id={block.id}
       >
-        <div className="flex items-center gap-1 text-xs text-muted-foreground">
+        <div className="flex items-center gap-1 text-body-sm text-muted-foreground">
           <Rocket className="h-3 w-3" aria-hidden="true" />
           Launched by{" "}
           {block.launchedByAgentId ? (
@@ -1620,7 +1622,7 @@ function LaunchCard({
             {startupIssue && !inThread && ctx.onOpenThread ? (
               <Button
                 variant="ghost"
-                className="h-auto shrink-0 px-0 py-0 text-[10px] font-normal text-destructive hover:bg-transparent hover:text-destructive hover:underline"
+                className="h-auto shrink-0 px-0 py-0 text-label-xs font-normal text-destructive hover:bg-transparent hover:text-destructive hover:underline"
                 data-testid="launch-startup-note"
                 aria-label={`${startupIssue}: Open launch thread for ${name}`}
                 onClick={() => ctx.onOpenThread?.(block.id)}
@@ -1630,7 +1632,7 @@ function LaunchCard({
             ) : (
               <span
                 className={cn(
-                  "text-[10px] font-normal uppercase tracking-[0.065em]",
+                  "section-label",
                   startupIssue ? "text-destructive" : "text-emerald-300/70"
                 )}
               >
@@ -1638,30 +1640,30 @@ function LaunchCard({
               </span>
             )}
             <span
-              className="max-w-64 truncate text-xs font-medium"
+              className="max-w-64 truncate text-body-sm font-medium"
               title={name}
             >
               <AgentSessionLink agentId={block.toAgentId!} name={name} />
             </span>
             {engine ? (
-              <span className="text-[11px] text-muted-foreground">
+              <span className="text-label-sm text-muted-foreground">
                 {engine}
               </span>
             ) : null}
             {model ? (
-              <span className="truncate text-xs font-medium" title={model}>
+              <span className="truncate text-body-sm font-medium" title={model}>
                 {ctx.modelLabel?.(type ?? null, model) ?? model}
               </span>
             ) : null}
           </div>
-          <div className="flex min-w-0 items-center justify-between gap-3.5 whitespace-nowrap text-[11px] leading-[21px] text-muted-foreground">
+          <div className="flex min-w-0 items-center justify-between gap-3.5 whitespace-nowrap text-label-sm leading-[21px] text-muted-foreground">
             {agent?.persona ? (
               <span className="truncate" title={agent.persona}>
                 {agent.persona}
               </span>
             ) : null}
             <time
-              className="shrink-0 text-[10px]"
+              className="shrink-0 text-label-xs"
               dateTime={block.createdAt}
               title={formatDateTime(block.createdAt)}
             >
@@ -1774,7 +1776,7 @@ function BlockContents({
   const failureNotice =
     failedRequest && block.toAgentId ? (
       <p
-        className="mb-2 text-sm text-destructive"
+        className="mb-2 text-body-md text-destructive"
         role="status"
         data-testid="parent-request-delivery-failure"
       >
@@ -1884,7 +1886,7 @@ function BlockContents({
       >
         {block.kind === "text" && block.data?.external ? (
           <div
-            className="text-[11px] text-muted-foreground"
+            className="text-label-sm text-muted-foreground"
             data-testid="chat-external-origin"
           >
             via Slack · not typed in Dispatch
@@ -2194,7 +2196,7 @@ function ResponseBacklink({
   const turn = { blockId, threadId };
   return (
     <Link
-      className="mb-1 inline-block text-[11px] text-muted-foreground hover:underline"
+      className="mb-1 inline-block text-label-sm text-muted-foreground hover:underline"
       to={agentTurnLocation(agentId, turn)}
       onClick={(event) => {
         if (
@@ -2227,7 +2229,7 @@ function SourceMessageLink({
   return (
     <Link
       data-testid="chat-input-source"
-      className="mb-1 inline-flex items-center gap-1 text-xs text-muted-foreground hover:underline"
+      className="mb-1 inline-flex items-center gap-1 text-body-sm text-muted-foreground hover:underline"
       to={agentTurnLocation(agentId, target)}
       onClick={(event) => {
         if (
@@ -2251,7 +2253,7 @@ function SourceMessageLink({
 function LaunchHomeLink({ agentId, name }: { agentId: string; name: string }) {
   const { unread } = useAgentChatUnread(agentId);
   return (
-    <div className="flex items-center justify-center gap-2 text-xs text-muted-foreground">
+    <div className="flex items-center justify-center gap-2 text-body-sm text-muted-foreground">
       <AgentSessionLink agentId={agentId} name={name}>
         Open agent home{unread > 0 ? ` · ${unread} unread` : ""}
       </AgentSessionLink>

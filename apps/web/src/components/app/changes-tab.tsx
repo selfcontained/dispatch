@@ -73,14 +73,14 @@ function ChangesToolbar({
         className="flex items-center gap-2 border-b border-border/50 px-3 py-1.5"
         data-testid="changes-toolbar"
       >
-        <span className="text-xs font-medium text-muted-foreground">
+        <span className="text-body-sm font-medium text-muted-foreground">
           Review
         </span>
         <div className="flex-1" />
         <Button
           type="button"
           variant="ghost"
-          className="h-8 gap-1.5 text-xs text-muted-foreground hover:text-foreground"
+          className="h-8 gap-1.5 text-body-sm text-muted-foreground hover:text-foreground"
           data-testid="changes-start-review"
           onClick={onStartReview}
         >
@@ -536,7 +536,7 @@ export const ChangesTab = memo(function ChangesTab({
         {toolbar}
         <div className="flex flex-1 items-center justify-center text-muted-foreground">
           <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-          <span className="text-sm">Loading changes…</span>
+          <span className="text-body-md">Loading changes…</span>
         </div>
       </div>
     );
@@ -556,7 +556,7 @@ export const ChangesTab = memo(function ChangesTab({
         {toolbar}
         <div className="flex flex-1 flex-col items-center justify-center gap-2 text-muted-foreground">
           <FileDiff className="h-8 w-8" />
-          <p className="text-sm">
+          <p className="text-body-md">
             {hideTestFiles && data?.files.length
               ? "No non-test changes"
               : "No changes yet"}

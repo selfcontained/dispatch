@@ -197,8 +197,8 @@ export function SlackAppSection() {
             <Slack className="size-5" aria-hidden="true" />
           </div>
           <div>
-            <h3 className="text-base font-semibold">Slack notifications</h3>
-            <p className="mt-1 max-w-lg text-sm text-muted-foreground">
+            <h3 className="text-heading-md">Slack notifications</h3>
+            <p className="mt-1 max-w-lg text-body-md text-muted-foreground">
               A direct line from your agents to your workspace.
             </p>
           </div>
@@ -228,14 +228,14 @@ export function SlackAppSection() {
         <Card className="border border-status-working/20">
           <CardHeader>
             <CardDescription>Notification destination</CardDescription>
-            <CardTitle className="flex items-center gap-2 text-base">
+            <CardTitle className="flex items-center gap-2 text-heading-md">
               <Hash
                 className="size-4 text-muted-foreground"
                 aria-hidden="true"
               />
               {query.data?.binding?.channelName}
             </CardTitle>
-            <p className="text-sm text-muted-foreground">
+            <p className="text-body-md text-muted-foreground">
               {query.data?.binding?.teamName}
             </p>
           </CardHeader>
@@ -261,7 +261,7 @@ export function SlackAppSection() {
                 {editing ? "Cancel replacement" : "Replace tokens"}
               </Button>
             </div>
-            <p className="text-xs text-muted-foreground" role="status">
+            <p className="text-body-sm text-muted-foreground" role="status">
               Socket Mode WebSocket: {statusLabel(query.data?.status ?? "")}. A
               connected socket does not verify interactive callback delivery.
             </p>
@@ -276,7 +276,7 @@ export function SlackAppSection() {
                 : "Recheck permissions"}
             </Button>
             {query.data?.callbackDiagnostic && (
-              <p className="text-xs text-muted-foreground">
+              <p className="text-body-sm text-muted-foreground">
                 Last Socket Mode callback:{" "}
                 {statusLabel(query.data.callbackDiagnostic.stage)} ·{" "}
                 {new Date(
@@ -294,7 +294,7 @@ export function SlackAppSection() {
                   <ChevronDown className="ml-2 size-3.5" aria-hidden="true" />
                 </Button>
               </CollapsibleTrigger>
-              <CollapsibleContent className="mt-2 space-y-3 text-xs text-muted-foreground">
+              <CollapsibleContent className="mt-2 space-y-3 text-body-sm text-muted-foreground">
                 <p className="break-all">
                   Dispatch link: {query.data?.binding?.baseUrl}
                 </p>
@@ -346,7 +346,7 @@ export function SlackAppSection() {
                 >
                   <span
                     className={cn(
-                      "flex size-6 shrink-0 items-center justify-center rounded-full text-xs",
+                      "flex size-6 shrink-0 items-center justify-center rounded-full text-body-sm",
                       step === index + 1
                         ? "bg-primary text-primary-foreground"
                         : step > index + 1
@@ -362,7 +362,7 @@ export function SlackAppSection() {
                   </span>
                   <span
                     className={cn(
-                      "text-xs sm:text-sm",
+                      "text-body-sm sm:text-body-md",
                       step === index + 1
                         ? "font-medium text-foreground"
                         : "text-muted-foreground"
@@ -385,7 +385,7 @@ export function SlackAppSection() {
             <Card className="border border-border">
               <CardHeader>
                 <CardDescription>Step 1 of 3</CardDescription>
-                <CardTitle className="text-base">
+                <CardTitle className="text-heading-md">
                   Your workspace. Your Slack app.
                 </CardTitle>
                 <CardDescription>
@@ -397,10 +397,10 @@ export function SlackAppSection() {
                 <div className="rounded-lg border border-border bg-muted/25 p-4">
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div>
-                      <p className="text-sm font-medium">
+                      <p className="text-body-md font-medium">
                         Copy the app manifest
                       </p>
-                      <p className="mt-1 text-xs text-muted-foreground">
+                      <p className="mt-1 text-body-sm text-muted-foreground">
                         Includes Socket Mode, buttons and forms, and thread
                         replies under Dispatch’s own messages.
                       </p>
@@ -412,7 +412,7 @@ export function SlackAppSection() {
                     />
                   </div>
                   <Disclosure label="Preview manifest">
-                    <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-all rounded bg-background/50 p-3 text-[11px]">
+                    <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-all rounded bg-background/50 p-3 text-label-sm">
                       {manifest}
                     </pre>
                   </Disclosure>
@@ -431,7 +431,7 @@ export function SlackAppSection() {
                       />
                     </a>
                   </Button>
-                  <p className="text-sm text-muted-foreground">
+                  <p className="text-body-md text-muted-foreground">
                     Choose{" "}
                     <strong className="font-medium text-foreground">
                       Create New App → From a manifest
@@ -441,7 +441,7 @@ export function SlackAppSection() {
                   </p>
                 </div>
                 <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4">
-                  <span className="text-xs text-muted-foreground">
+                  <span className="text-body-sm text-muted-foreground">
                     Already have your own app? Continue here.
                   </span>
                   <Button variant="primary" onClick={() => setStep(2)}>
@@ -457,7 +457,7 @@ export function SlackAppSection() {
             <Card className="border border-border">
               <CardHeader>
                 <CardDescription>Step 2 of 3</CardDescription>
-                <CardTitle className="text-base">
+                <CardTitle className="text-heading-md">
                   Connect with two tokens
                 </CardTitle>
                 <CardDescription>
@@ -474,7 +474,7 @@ export function SlackAppSection() {
                     />
                     <label
                       htmlFor="slack-app-token"
-                      className="text-sm font-medium"
+                      className="text-body-md font-medium"
                     >
                       App token
                     </label>
@@ -517,7 +517,7 @@ export function SlackAppSection() {
                     />
                     <label
                       htmlFor="slack-bot-token"
-                      className="text-sm font-medium"
+                      className="text-body-md font-medium"
                     >
                       Bot token
                     </label>
@@ -569,7 +569,7 @@ export function SlackAppSection() {
             <Card className="border border-border">
               <CardHeader>
                 <CardDescription>Step 3 of 3 · {workspace}</CardDescription>
-                <CardTitle className="text-base">
+                <CardTitle className="text-heading-md">
                   Choose where alerts land
                 </CardTitle>
                 <CardDescription>
@@ -579,7 +579,7 @@ export function SlackAppSection() {
               <CardContent className="space-y-4">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <label
-                    className="text-sm font-medium"
+                    className="text-body-md font-medium"
                     id="slack-channel-label"
                   >
                     Notification channel
@@ -611,14 +611,14 @@ export function SlackAppSection() {
                   </SelectContent>
                 </Select>
                 {channels.length === 0 && (
-                  <p className="rounded-lg border border-dashed border-border p-3 text-sm text-muted-foreground">
+                  <p className="rounded-lg border border-dashed border-border p-3 text-body-md text-muted-foreground">
                     No joined channels yet. Use the channel’s Add apps menu in
                     Slack to invite Dispatch, then refresh.
                   </p>
                 )}
                 <div className="space-y-2">
                   <label
-                    className="text-sm font-medium"
+                    className="text-body-md font-medium"
                     id="slack-address-label"
                   >
                     Dispatch address
@@ -639,7 +639,7 @@ export function SlackAppSection() {
                       ))}
                     </SelectContent>
                   </Select>
-                  <p className="text-xs text-muted-foreground">
+                  <p className="text-body-sm text-muted-foreground">
                     Used for links in Slack.
                   </p>
                 </div>
@@ -671,15 +671,15 @@ export function SlackAppSection() {
       {action.error && (
         <div
           role="alert"
-          className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive"
+          className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-body-md text-destructive"
         >
           <p className="font-medium">Couldn’t complete this step</p>
-          <p className="mt-1 text-xs">{action.error.message}</p>
+          <p className="mt-1 text-body-sm">{action.error.message}</p>
         </div>
       )}
       {message && (
         <p
-          className="flex items-start gap-2 text-sm text-muted-foreground"
+          className="flex items-start gap-2 text-body-md text-muted-foreground"
           role="status"
         >
           <Check className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
@@ -703,13 +703,13 @@ function Disclosure({
         <Button
           variant="ghost"
           size="sm"
-          className="h-auto max-w-full whitespace-normal px-0 py-2 text-left text-xs"
+          className="h-auto max-w-full whitespace-normal px-0 py-2 text-left text-body-sm"
         >
           {label}
           <ChevronDown className="ml-2 size-3 shrink-0" aria-hidden="true" />
         </Button>
       </CollapsibleTrigger>
-      <CollapsibleContent className="pt-1 text-xs leading-relaxed text-muted-foreground">
+      <CollapsibleContent className="pt-1 text-body-sm leading-relaxed text-muted-foreground">
         {children}
       </CollapsibleContent>
     </Collapsible>

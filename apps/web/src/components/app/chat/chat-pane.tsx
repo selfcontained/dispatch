@@ -1407,7 +1407,7 @@ export function ChatPane({
                       type="button"
                       size="sm"
                       variant="default"
-                      className="h-7 text-xs"
+                      className="h-7 text-body-sm"
                       onClick={loadOlder}
                       disabled={feed.isFetchingOlder}
                     >
@@ -1418,7 +1418,7 @@ export function ChatPane({
                 {feed.error ? (
                   <div
                     role="alert"
-                    className="mx-4 mb-3 flex items-center justify-between gap-3 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive"
+                    className="mx-4 mb-3 flex items-center justify-between gap-3 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-body-sm text-destructive"
                     data-testid="chat-feed-error"
                   >
                     <span className="min-w-0 truncate">
@@ -1428,7 +1428,7 @@ export function ChatPane({
                       type="button"
                       size="sm"
                       variant="default"
-                      className="h-6 shrink-0 px-2 text-xs"
+                      className="h-6 shrink-0 px-2 text-body-sm"
                       onClick={feed.refetch}
                       data-testid="chat-feed-retry"
                     >
@@ -1442,7 +1442,7 @@ export function ChatPane({
                 {!feed.isLoading && !feed.error && !agentId ? (
                   <div
                     className={cn(
-                      "flex flex-col items-center justify-center gap-2 px-6 text-center text-sm text-muted-foreground",
+                      "flex flex-col items-center justify-center gap-2 px-6 text-center text-body-md text-muted-foreground",
                       visibleEntries.length === 0 ? "h-full" : "mb-4 py-6"
                     )}
                     data-testid="chat-empty"
@@ -1518,7 +1518,7 @@ export function ChatPane({
               <div className="mb-1.5 flex items-center gap-2">
                 <span
                   role="alert"
-                  className="truncate text-[11px] text-destructive"
+                  className="truncate text-label-sm text-destructive"
                 >
                   {sendError}
                 </span>

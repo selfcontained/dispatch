@@ -59,7 +59,7 @@ export function SystemEventEntry({
   const time = (
     <time
       className={
-        inline ? undefined : "mt-1 block text-[11px] text-muted-foreground"
+        inline ? undefined : "mt-1 block text-label-sm text-muted-foreground"
       }
       dateTime={event.at ?? "2026-11-10T10:42:00-07:00"}
     >
@@ -75,7 +75,7 @@ export function SystemEventEntry({
     <code title={event.head}>{event.head.slice(0, 7)}</code>
   );
   const resource = event.resource && (
-    <div className="mt-3 font-sans text-sm leading-snug">
+    <div className="mt-3 font-sans text-body-md leading-snug">
       <a
         href={event.resource.url}
         target="_blank"
@@ -163,7 +163,7 @@ export function SystemEventEntry({
       <div
         role="group"
         aria-label={`Dispatch system observation: ${event.summary}`}
-        className="my-1 rounded-md border bg-card px-3 py-3 text-sm"
+        className="my-1 rounded-md border bg-card px-3 py-3 text-body-md"
       >
         <div className="flex items-start gap-2">
           {icon ?? (
@@ -182,7 +182,7 @@ export function SystemEventEntry({
             {visibleContent}
             {children}
             {/* Separators lead their item so a wrapped row never ends in "·". */}
-            <div className="mt-2.5 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[11px] text-muted-foreground">
+            <div className="mt-2.5 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-label-sm text-muted-foreground">
               {time}
               {commit && (
                 <span className="whitespace-nowrap">
@@ -200,7 +200,7 @@ export function SystemEventEntry({
       role="group"
       aria-label={`Dispatch system observation: ${event.summary}`}
       defaultOpen={event.defaultOpen}
-      className="my-1 rounded-md border bg-card px-3 py-3 text-sm"
+      className="my-1 rounded-md border bg-card px-3 py-3 text-body-md"
     >
       <div className="flex items-start gap-2">
         {icon ?? (
@@ -211,13 +211,13 @@ export function SystemEventEntry({
           {time}
           {visibleContent}
           {resource}
-          <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
+          <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-label-sm text-muted-foreground">
             {commit}
             <CollapsibleTrigger asChild>
               <Button
                 variant="ghost"
                 size="sm"
-                className="ml-auto h-5 gap-1 bg-transparent px-1 text-xs hover:bg-transparent hover:text-foreground focus-visible:bg-transparent data-[state=open]:bg-transparent"
+                className="ml-auto h-5 gap-1 bg-transparent px-1 text-body-sm hover:bg-transparent hover:text-foreground focus-visible:bg-transparent data-[state=open]:bg-transparent"
               >
                 Details
                 <ChevronDown className="size-3" />
@@ -226,10 +226,10 @@ export function SystemEventEntry({
           </div>
         </div>
       </div>
-      <CollapsibleContent className="mt-3 ml-6 border-t pt-3 font-sans text-sm leading-relaxed">
+      <CollapsibleContent className="mt-3 ml-6 border-t pt-3 font-sans text-body-md leading-relaxed">
         {event.details ? (
           <>
-            <p className="mb-1 text-xs font-medium text-muted-foreground">
+            <p className="mb-1 text-body-sm font-medium text-muted-foreground">
               Observation details
             </p>
             <div className="break-words">
@@ -239,7 +239,7 @@ export function SystemEventEntry({
         ) : null}
         {children}
         {event.category !== "info" ? (
-          <p className="mt-3 text-xs text-muted-foreground">
+          <p className="mt-3 text-body-sm text-muted-foreground">
             Informational · Not merge approval or authorization.
           </p>
         ) : null}

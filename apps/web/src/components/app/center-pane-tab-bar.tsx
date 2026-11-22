@@ -88,7 +88,7 @@ export const CenterPaneTabBar = memo(function CenterPaneTabBar({
             draggable={!isMobile && activeTab !== tab.id}
             onDragStart={(e) => handleDragStart(e, tab.id)}
             className={cn(
-              "relative flex shrink-0 items-center gap-1.5 whitespace-nowrap py-1.5 text-xs font-semibold uppercase tracking-wide transition-colors",
+              "relative flex shrink-0 items-center gap-1.5 whitespace-nowrap py-1.5 text-body-sm font-semibold uppercase tracking-wide transition-colors",
               isMobile ? "px-2.5" : "px-3",
               activeTab === tab.id
                 ? "text-foreground"
@@ -108,7 +108,7 @@ export const CenterPaneTabBar = memo(function CenterPaneTabBar({
                 <span
                   data-testid="chat-unread-count"
                   aria-label={`${chatUnreadCount} unread chat messages`}
-                  className="absolute -right-3.5 -top-1 min-w-4 rounded-full bg-primary px-1 text-center text-[9px] font-semibold leading-4 tracking-normal text-primary-foreground"
+                  className="absolute -right-3.5 -top-1 min-w-4 rounded-full bg-primary px-1 text-center text-label-xs font-semibold leading-4 tracking-normal text-primary-foreground"
                 >
                   {formatBadgeCount(chatUnreadCount)}
                 </span>

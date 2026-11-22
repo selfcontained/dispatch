@@ -162,7 +162,7 @@ export function ReactionPickerOptions({
             key={emoji}
             type="button"
             className={cn(
-              "flex h-8 w-8 animate-reaction-emoji-in items-center justify-center rounded-md text-lg leading-none transition-[background-color,transform] hover:scale-110 hover:bg-muted motion-reduce:animate-none motion-reduce:hover:scale-100",
+              "flex h-8 w-8 animate-reaction-emoji-in items-center justify-center rounded-md text-body-lg leading-none transition-[background-color,transform] hover:scale-110 hover:bg-muted motion-reduce:animate-none motion-reduce:hover:scale-100",
               "max-sm:h-11 max-sm:w-11 [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11",
               selected && "bg-primary/15 hover:bg-primary/25"
             )}
@@ -202,7 +202,7 @@ function userReactionTitle(
 }
 
 const REACTION_CHIP =
-  "inline-flex h-6 items-center rounded-full border px-2 text-sm leading-none transition-colors max-sm:h-8 max-sm:px-2.5 [@media(pointer:coarse)]:h-8 [@media(pointer:coarse)]:px-2.5";
+  "inline-flex h-6 items-center rounded-full border px-2 text-body-md leading-none transition-colors max-sm:h-8 max-sm:px-2.5 [@media(pointer:coarse)]:h-8 [@media(pointer:coarse)]:px-2.5";
 
 /** How a chip arrives and leaves: a quick pop, and neighbours slide over. */
 const CHIP_MOTION = {

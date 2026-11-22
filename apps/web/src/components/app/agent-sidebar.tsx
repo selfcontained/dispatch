@@ -448,7 +448,7 @@ export function AgentListContent({
           {agents.length === 0 ? (
             <div
               data-testid="no-agents-message"
-              className="p-4 text-sm text-muted-foreground"
+              className="p-4 text-body-md text-muted-foreground"
             >
               No agents yet.
             </div>

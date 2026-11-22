@@ -63,7 +63,7 @@ export function ConversationLocationLink({
       data-testid="turn-source-discussion"
       aria-label={`Source: ${destinationLabel}`}
       title={destinationLabel}
-      className="inline-flex shrink-0 items-center gap-1 rounded border border-primary/30 bg-primary/5 px-1 text-[10px] font-normal leading-4 text-primary transition-colors hover:border-primary/60 hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      className="inline-flex shrink-0 items-center gap-1 rounded border border-primary/30 bg-primary/5 px-1 text-label-xs font-normal leading-4 text-primary transition-colors hover:border-primary/60 hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       to={conversationLocation(source, record?.archived === true, homeId)}
     >
       <CornerUpLeft aria-hidden="true" className="size-3" />
@@ -80,7 +80,7 @@ export function ConversationReturnLink({
   const agentId = params.get(RETURN_AGENT_PARAM);
   if (params.has("thread") && !inDrawer) return null;
   return agentId ? (
-    <div className="border-b px-3 py-1 text-xs text-muted-foreground">
+    <div className="border-b px-3 py-1 text-body-sm text-muted-foreground">
       <AgentSessionLink agentId={agentId}>Back to agent home</AgentSessionLink>
     </div>
   ) : null;

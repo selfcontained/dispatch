@@ -62,7 +62,7 @@ export function EngineSignIn({
   if (signedIn) {
     return (
       <p
-        className="flex items-start gap-2 text-[12px] text-foreground"
+        className="flex items-start gap-2 text-body-sm text-foreground"
         data-testid="engine-sign-in-done"
       >
         <CheckCircle2
@@ -80,14 +80,14 @@ export function EngineSignIn({
   if (failed) {
     return (
       <div className="space-y-2" data-testid="engine-sign-in-failed">
-        <p role="alert" className="text-[12px] text-destructive">
+        <p role="alert" className="text-body-sm text-destructive">
           {flow.error?.message ?? login?.error ?? "The sign-in failed."}
         </p>
         <div className="flex flex-wrap items-center gap-3">
           <Button
             type="button"
             size="sm"
-            className="h-7 text-xs"
+            className="h-7 text-body-sm"
             onClick={startOver}
             disabled={flow.starting}
           >
@@ -105,7 +105,7 @@ export function EngineSignIn({
         <Button
           type="button"
           size="sm"
-          className="h-7 text-xs"
+          className="h-7 text-body-sm"
           onClick={() => flow.start()}
           disabled={flow.starting || !flow.loaded}
           data-testid="engine-sign-in-start"
@@ -122,7 +122,7 @@ export function EngineSignIn({
       type="button"
       size="sm"
       variant="ghost"
-      className="h-7 text-xs"
+      className="h-7 text-body-sm"
       onClick={flow.cancel}
       data-testid="engine-sign-in-cancel"
     >
@@ -135,7 +135,7 @@ export function EngineSignIn({
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p
           role="status"
-          className="flex items-center gap-2 text-[12px] text-muted-foreground"
+          className="flex items-center gap-2 text-body-sm text-muted-foreground"
         >
           <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
           {login?.status === "verifying"
@@ -150,14 +150,14 @@ export function EngineSignIn({
   return (
     <div className="min-w-0 space-y-3" data-testid="engine-sign-in-steps">
       <div className="space-y-1.5">
-        <p className="text-[12px] text-foreground">
+        <p className="text-body-sm text-foreground">
           1. Copy this link and open it in a browser.
         </p>
         <CopyBlock text={login.url} testId="engine-sign-in-url" />
       </div>
       {login.userCode ? (
         <div className="space-y-1.5">
-          <p className="text-[12px] text-foreground">
+          <p className="text-body-sm text-foreground">
             2. Sign in, then enter this code when asked.
           </p>
           <CopyBlock
@@ -166,7 +166,7 @@ export function EngineSignIn({
             large
           />
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <p className="flex items-center gap-2 text-[11.5px] text-muted-foreground">
+            <p className="flex items-center gap-2 text-label-sm text-muted-foreground">
               <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />
               Waiting for you to finish in the browser…
             </p>
@@ -175,7 +175,7 @@ export function EngineSignIn({
         </div>
       ) : (
         <div className="space-y-1.5">
-          <p className="text-[12px] text-foreground">
+          <p className="text-body-sm text-foreground">
             2. Sign in, then paste the code the page shows.
           </p>
           <form
@@ -193,13 +193,13 @@ export function EngineSignIn({
               autoCapitalize="off"
               spellCheck={false}
               aria-label="Sign-in code"
-              className="h-8 text-xs"
+              className="h-8 text-body-sm"
               data-testid="engine-sign-in-code"
             />
             <Button
               type="submit"
               size="sm"
-              className="h-8 shrink-0 text-xs"
+              className="h-8 shrink-0 text-body-sm"
               disabled={!code.trim() || flow.submitting}
               data-testid="engine-sign-in-submit"
             >
@@ -228,8 +228,8 @@ function CopyBlock({
       <code
         className={
           large
-            ? "min-w-0 flex-1 select-all px-1 font-mono text-lg tracking-widest text-foreground"
-            : "min-w-0 flex-1 select-all break-all px-1 font-mono text-[11px] leading-relaxed text-foreground"
+            ? "min-w-0 flex-1 select-all px-1 font-mono text-body-lg tracking-widest text-foreground"
+            : "min-w-0 flex-1 select-all break-all px-1 font-mono text-label-sm leading-relaxed text-foreground"
         }
         data-testid={testId}
       >

@@ -155,7 +155,7 @@ export function CommandPalette({
                 onValueChange={setSearch}
                 placeholder="Type a command…"
                 className={cn(
-                  "flex h-12 w-full bg-transparent py-3 text-sm outline-none",
+                  "flex h-12 w-full bg-transparent py-3 text-body-md outline-none",
                   "placeholder:text-muted-foreground/70"
                 )}
               />
@@ -170,7 +170,7 @@ export function CommandPalette({
                 />
               ) : (
                 <>
-                  <Command.Empty className="px-2 py-4 text-center text-xs text-muted-foreground">
+                  <Command.Empty className="px-2 py-4 text-center text-body-sm text-muted-foreground">
                     No commands found.
                   </Command.Empty>
                   <Command.Group heading="Commands" className={groupClassName}>
@@ -222,10 +222,10 @@ function ConfirmPage({
   return (
     <div className="flex flex-col gap-3 p-3">
       <div className="flex flex-col gap-0.5">
-        <span className="text-sm font-medium text-foreground">
+        <span className="text-body-md font-medium text-foreground">
           {action.title}
         </span>
-        <span className="text-xs text-muted-foreground">
+        <span className="text-body-sm text-muted-foreground">
           {action.confirm?.description}
         </span>
       </div>
@@ -240,7 +240,7 @@ function ConfirmPage({
           onSelect={onConfirm}
           forceMount
           className={cn(
-            "group flex cursor-default select-none items-center justify-center gap-2 rounded-md px-3 py-2 text-sm font-medium outline-none",
+            "group flex cursor-default select-none items-center justify-center gap-2 rounded-md px-3 py-2 text-body-md font-medium outline-none",
             "text-primary/70",
             "data-[selected=true]:bg-primary/20 data-[selected=true]:text-primary"
           )}
@@ -254,7 +254,7 @@ function ConfirmPage({
           onSelect={onBack}
           forceMount
           className={cn(
-            "group flex cursor-default select-none items-center justify-center gap-2 rounded-md px-3 py-2 text-sm outline-none",
+            "group flex cursor-default select-none items-center justify-center gap-2 rounded-md px-3 py-2 text-body-md outline-none",
             "text-muted-foreground",
             "data-[selected=true]:bg-white/[0.06] data-[selected=true]:text-foreground"
           )}
@@ -268,12 +268,12 @@ function ConfirmPage({
 
 const groupClassName = cn(
   "overflow-hidden p-1 text-foreground",
-  "[&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-xs [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-muted-foreground",
+  "[&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-body-sm [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-muted-foreground",
   "[&+[cmdk-group]]:border-t [&+[cmdk-group]]:border-border"
 );
 
 const itemClassName =
-  "group relative flex cursor-default select-none items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none";
+  "group relative flex cursor-default select-none items-center gap-2 rounded-sm px-2 py-1.5 text-body-md outline-none";
 
 const iconClassName = "h-4 w-4 shrink-0 text-muted-foreground";
 

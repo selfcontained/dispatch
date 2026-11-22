@@ -51,7 +51,7 @@ function Original({
         <>
           <Markdown variant="snapshot">{content.slice(0, LIMIT)}</Markdown>
           {content.length > LIMIT ? (
-            <p className="text-xs text-muted-foreground">
+            <p className="text-body-sm text-muted-foreground">
               Snapshot display truncated. Inspect the share reference for the
               complete original.
             </p>
@@ -63,13 +63,13 @@ function Original({
         </p>
       )}
       {finding && typeof data.path === "string" ? (
-        <p className="text-xs text-muted-foreground">
+        <p className="text-body-sm text-muted-foreground">
           {bounded(data.path)}
           {typeof data.line === "number" ? `:${data.line}` : ""}
         </p>
       ) : null}
       {options.length ? (
-        <p className="text-xs text-muted-foreground">
+        <p className="text-body-sm text-muted-foreground">
           Choices:{" "}
           {options
             .map((option) =>
@@ -95,9 +95,9 @@ export function SharedMessageEntry({
   return (
     <section
       data-testid="shared-message"
-      className="my-2 min-w-0 rounded-md border border-primary/20 px-3 py-2 text-sm [overflow-wrap:anywhere]"
+      className="my-2 min-w-0 rounded-md border border-primary/20 px-3 py-2 text-body-md [overflow-wrap:anywhere]"
     >
-      <div className="mb-1 flex flex-wrap items-baseline gap-x-2 text-xs text-muted-foreground">
+      <div className="mb-1 flex flex-wrap items-baseline gap-x-2 text-body-sm text-muted-foreground">
         <span className="font-medium text-foreground">
           {bounded(share.originalAuthor)}
         </span>
@@ -118,7 +118,7 @@ export function SharedMessageEntry({
       {share.question ? (
         <div
           data-testid="shared-message-question"
-          className="mb-2 max-h-40 overflow-auto border-l-2 pl-2 text-xs text-muted-foreground"
+          className="mb-2 max-h-40 overflow-auto border-l-2 pl-2 text-body-sm text-muted-foreground"
         >
           <p>Original question</p>
           <Markdown variant="snapshot">{bounded(share.question.text)}</Markdown>
@@ -139,7 +139,7 @@ export function SharedMessageEntry({
       </div>
       {share.message.attachments.length ? (
         <ul
-          className="mt-1 text-xs text-muted-foreground"
+          className="mt-1 text-body-sm text-muted-foreground"
           aria-label="Shared attachment metadata"
         >
           {share.message.attachments.slice(0, 20).map((attachment, index) => (
@@ -157,7 +157,7 @@ export function SharedMessageEntry({
           ))}
         </ul>
       ) : null}
-      <div className="mt-2 flex items-center gap-1 text-xs text-muted-foreground">
+      <div className="mt-2 flex items-center gap-1 text-body-sm text-muted-foreground">
         <Forward className="h-3 w-3 shrink-0" aria-hidden="true" />
         <span>
           Shared by {bounded(share.sharer)} · {bounded(share.source)}
@@ -168,12 +168,12 @@ export function SharedMessageEntry({
           <Button
             variant="ghost"
             size="sm"
-            className="h-auto px-0 py-1 text-xs text-muted-foreground"
+            className="h-auto px-0 py-1 text-body-sm text-muted-foreground"
           >
             Provenance details
           </Button>
         </CollapsibleTrigger>
-        <CollapsibleContent className="space-y-1 pt-1 text-xs text-muted-foreground">
+        <CollapsibleContent className="space-y-1 pt-1 text-body-sm text-muted-foreground">
           <p>Server-verified immutable snapshot · {share.sharedAt}</p>
           <p>
             An agent’s forward of historical content, not a new user instruction

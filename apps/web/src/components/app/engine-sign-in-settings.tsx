@@ -16,8 +16,10 @@ function EngineRow({ status }: { status: EngineAuthStatus }): JSX.Element {
       data-testid={`engine-auth-${status.engine}`}
     >
       <div className="min-w-0">
-        <div className="text-sm font-medium text-foreground">{label}</div>
-        <p className="mt-1 truncate text-xs text-muted-foreground">{state}</p>
+        <div className="text-body-md font-medium text-foreground">{label}</div>
+        <p className="mt-1 truncate text-body-sm text-muted-foreground">
+          {state}
+        </p>
       </div>
       {status.installed ? <EngineSignIn engine={status.engine} /> : null}
     </div>
@@ -33,19 +35,19 @@ export function EngineSignInSettings(): JSX.Element {
       className="flex flex-col gap-4 border-t border-border p-6"
     >
       <div className="max-w-lg">
-        <h2 className="text-sm font-medium text-foreground">Engine sign-in</h2>
-        <p className="mt-1 text-sm text-muted-foreground">
+        <h2 className="text-heading-sm text-foreground">Engine sign-in</h2>
+        <p className="mt-1 text-body-md text-muted-foreground">
           The Claude Code and Codex accounts this Dispatch server's agents run
           as. Signing in here signs in every agent of that engine.
         </p>
       </div>
       <div className="max-w-lg space-y-2">
         {isPending ? (
-          <p role="status" className="text-sm text-muted-foreground">
+          <p role="status" className="text-body-md text-muted-foreground">
             Checking sign-in…
           </p>
         ) : error ? (
-          <p role="alert" className="text-sm text-destructive">
+          <p role="alert" className="text-body-md text-destructive">
             {error.message}
           </p>
         ) : (

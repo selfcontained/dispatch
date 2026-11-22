@@ -26,7 +26,7 @@ export function PhraseRow({
 
   return (
     <div className="flex w-full items-center gap-1.5 px-2 py-1.5">
-      <span className="min-w-0 flex-1 truncate text-sm text-foreground">
+      <span className="min-w-0 flex-1 truncate text-body-md text-foreground">
         {phrase.label || phrase.text}
       </span>
       <div
@@ -39,7 +39,7 @@ export function PhraseRow({
               type="button"
               size="sm"
               disabled={isPending}
-              className="h-7 min-w-[5.5rem] px-2 text-xs"
+              className="h-7 min-w-[5.5rem] px-2 text-body-sm"
               onClick={onFill}
             >
               Send…

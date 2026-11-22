@@ -75,7 +75,7 @@ function DatePickerPopover({
       <PopoverTrigger asChild>
         <Button
           variant="default"
-          className="h-8 gap-1.5 bg-muted/30 text-xs font-normal"
+          className="h-8 gap-1.5 bg-muted/30 text-body-sm font-normal"
           data-testid="activity-date-picker"
         >
           <CalendarIcon className="h-3.5 w-3.5" />
@@ -163,7 +163,7 @@ export function ActivityPane({
                 onValueChange={(value) => setRange(value as ActivityRange)}
               >
                 <SelectTrigger
-                  className="h-8 w-[132px] bg-muted/30 text-xs"
+                  className="h-8 w-[132px] bg-muted/30 text-body-sm"
                   data-testid="activity-range-select"
                   aria-label="Activity time range"
                 >
@@ -204,12 +204,12 @@ export function ActivityPane({
               />
             )}
             {tokensLoading && (
-              <div className="flex items-center justify-center gap-2 py-12 text-sm text-muted-foreground">
+              <div className="flex items-center justify-center gap-2 py-12 text-body-md text-muted-foreground">
                 <ActivityBars size={16} /> Loading token usage…
               </div>
             )}
             {!hasTokenData && !tokensLoading && !tokensFailed && (
-              <div className="py-12 text-center text-sm text-muted-foreground">
+              <div className="py-12 text-center text-body-md text-muted-foreground">
                 No token usage yet.
               </div>
             )}
@@ -245,7 +245,7 @@ export function ActivityPane({
 
             {tokenDaily && tokenDaily.days.length > 0 && (
               <div>
-                <h2 className="mb-3 text-sm font-medium text-foreground">
+                <h2 className="mb-3 text-heading-sm text-foreground">
                   Token usage (
                   {isDaily
                     ? formatShortDate(dailyDate)
@@ -265,7 +265,7 @@ export function ActivityPane({
               <div className="grid gap-6 sm:grid-cols-2">
                 {tokenByModel && tokenByModel.length > 0 && (
                   <div>
-                    <h2 className="mb-3 text-sm font-medium text-foreground">
+                    <h2 className="mb-3 text-heading-sm text-foreground">
                       Tokens by model
                     </h2>
                     <ModelBreakdown data={tokenByModel} />
@@ -273,7 +273,7 @@ export function ActivityPane({
                 )}
                 {tokenByProject && tokenByProject.length > 0 && (
                   <div>
-                    <h2 className="mb-3 text-sm font-medium text-foreground">
+                    <h2 className="mb-3 text-heading-sm text-foreground">
                       By project
                     </h2>
                     <ProjectBreakdown data={tokenByProject} />

@@ -105,7 +105,7 @@ export function TaskAgentChip({
         {agent.name}
       </span>
       {qualifier && (
-        <span className="shrink-0 text-[10px] text-muted-foreground">
+        <span className="shrink-0 text-label-xs text-muted-foreground">
           · {qualifier}
         </span>
       )}
@@ -117,7 +117,7 @@ export function TaskAgentChip({
         // Tinted by state, so colour on a card says something: green while
         // the agent starts or works, amber waiting on someone, red blocked,
         // orange archiving, quiet when idle, faded and dashed once stopped.
-        "inline-flex min-w-0 border text-xs text-foreground shadow-sm",
+        "inline-flex min-w-0 border text-body-sm text-foreground shadow-sm",
         compact
           ? "items-center gap-2 rounded-full py-1 pl-1 pr-3"
           : "flex-col gap-1 rounded-lg px-2 py-1.5",
@@ -153,7 +153,7 @@ export function TaskAgentChip({
           <span className="flex min-w-0 items-center gap-2">{nameRow}</span>
           <span
             className={cn(
-              "flex min-h-4 min-w-0 items-center gap-1.5 text-[10px] font-medium",
+              "flex min-h-4 min-w-0 items-center gap-1.5 text-label-xs font-medium",
               activity.kind === "schedule"
                 ? // The sidebar's colour for the next scheduled message.
                   "text-heading-accent-1"
@@ -195,7 +195,9 @@ export function TaskAgent({
   fullWidth?: boolean;
 }) {
   if (!agent)
-    return <span className="text-xs text-muted-foreground">Unassigned</span>;
+    return (
+      <span className="text-body-sm text-muted-foreground">Unassigned</span>
+    );
   return (
     <AgentSessionLink
       decorative={false}

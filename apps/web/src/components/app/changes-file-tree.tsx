@@ -105,7 +105,7 @@ export function FileTree({
     >
       <div className="shrink-0 flex items-center border-b border-border/40 bg-muted/30">
         {open && (
-          <span className="flex-1 px-3 py-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">
+          <span className="flex-1 px-3 py-2 section-label whitespace-nowrap">
             {formatCount(files.length, "file")} changed
           </span>
         )}
@@ -171,7 +171,7 @@ function TreeEntry({
       <>
         <button
           type="button"
-          className="flex w-full items-center gap-1.5 px-2 py-1 text-left text-xs text-muted-foreground hover:bg-muted/40"
+          className="flex w-full items-center gap-1.5 px-2 py-1 text-left text-body-sm text-muted-foreground hover:bg-muted/40"
           style={{ paddingLeft: `${indent}px` }}
           title={node.name}
           onClick={() => onToggleDir(node.path)}
@@ -218,7 +218,7 @@ function TreeEntry({
     <button
       type="button"
       className={cn(
-        "flex w-full items-center gap-1.5 px-2 py-1 text-left text-xs hover:bg-muted/40",
+        "flex w-full items-center gap-1.5 px-2 py-1 text-left text-body-sm hover:bg-muted/40",
         isSelected && "bg-muted/60 text-foreground"
       )}
       style={{ paddingLeft: `${indent}px` }}

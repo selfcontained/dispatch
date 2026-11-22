@@ -103,7 +103,7 @@ function TabButton({
       type="button"
       onClick={onClick}
       className={cn(
-        "relative flex flex-1 items-center justify-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
+        "relative flex flex-1 items-center justify-center gap-1.5 rounded-md px-3 py-1.5 text-body-sm font-medium transition-colors",
         active ? "text-primary" : "text-muted-foreground hover:text-foreground"
       )}
     >
@@ -169,12 +169,12 @@ function TemplateListContent({
             ))}
           </div>
         ) : templates.length === 0 ? (
-          <div className="p-4 text-sm text-muted-foreground">
+          <div className="p-4 text-body-md text-muted-foreground">
             <div className="rounded-md border border-dashed border-border p-4">
               <div className="font-medium text-foreground">
                 No templates yet.
               </div>
-              <div className="mt-1 text-xs">
+              <div className="mt-1 text-body-sm">
                 Create a template to launch agents with saved configurations.
               </div>
             </div>
@@ -242,16 +242,16 @@ function TemplateListItem({
       >
         <div className="flex items-center gap-2">
           <div className="min-w-0 flex-1">
-            <div className="truncate text-sm font-semibold leading-5">
+            <div className="truncate text-body-md font-semibold leading-5">
               {template.name}
             </div>
             {template.description ? (
-              <div className="truncate text-xs text-muted-foreground">
+              <div className="truncate text-body-sm text-muted-foreground">
                 {template.description}
               </div>
             ) : (
               <div
-                className="truncate font-mono text-[11px] text-muted-foreground"
+                className="truncate font-mono text-label-sm text-muted-foreground"
                 title={template.directory}
               >
                 {shortPath(template.directory)}

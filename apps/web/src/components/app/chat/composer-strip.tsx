@@ -45,14 +45,14 @@ export function ComposerStrip({
           className="h-3 w-3 shrink-0 text-status-working"
           aria-hidden="true"
         />
-        <span className="shrink-0 text-[11px] font-medium text-foreground">
+        <span className="shrink-0 text-label-sm font-medium text-foreground">
           {title}
         </span>
         <span className={`${STRIP_META_CLASS} min-w-0`} aria-live="polite">
           {summary}
         </span>
         {!open && preview ? (
-          <span className="min-w-0 flex-1 truncate text-[11px] text-foreground/80">
+          <span className="min-w-0 flex-1 truncate text-label-sm text-foreground/80">
             · {preview}
           </span>
         ) : (

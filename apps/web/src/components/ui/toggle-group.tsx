@@ -11,8 +11,8 @@ const toggleGroupItemVariants = cva(
       // Touch-first devices get a ≥44px tap target whatever the size; the
       // track and whatever holds it grow with the segments.
       size: {
-        default: "h-8 rounded-md px-2.5 text-sm pointer-coarse:h-11",
-        sm: "h-6 rounded px-2 text-xs pointer-coarse:h-11 pointer-coarse:px-3",
+        default: "h-8 rounded-md px-2.5 text-body-md pointer-coarse:h-11",
+        sm: "h-6 rounded px-2 text-body-sm pointer-coarse:h-11 pointer-coarse:px-3",
       },
     },
     defaultVariants: {

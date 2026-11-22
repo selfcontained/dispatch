@@ -223,7 +223,7 @@ export const ComposerInput = forwardRef<
       editable: () => !current.current.disabled,
       attributes: (state) => ({
         class: cn(
-          "min-h-14 max-h-48 overflow-y-auto whitespace-pre-wrap break-words rounded-t-2xl px-4 pb-2 pt-4 text-sm leading-6 text-foreground caret-foreground outline-none pointer-coarse:text-base selection:bg-primary selection:text-primary-foreground",
+          "min-h-14 max-h-48 overflow-y-auto whitespace-pre-wrap break-words rounded-t-2xl px-4 pb-2 pt-4 text-body-md leading-6 text-foreground caret-foreground outline-none pointer-coarse:text-body-lg selection:bg-primary selection:text-primary-foreground",
           current.current.disabled && "opacity-50"
         ),
         role:

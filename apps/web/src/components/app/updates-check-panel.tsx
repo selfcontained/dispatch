@@ -45,7 +45,7 @@ export function UpdatesCheckPanel({
           Check for updates
         </Button>
         {(infoLoading || lastCheckMessage) && (
-          <div className="flex min-w-0 items-center gap-2 text-sm">
+          <div className="flex min-w-0 items-center gap-2 text-body-md">
             {infoLoading && (
               <ActivityBars
                 size={14}
@@ -81,7 +81,7 @@ export function UpdatesCheckPanel({
       )}
 
       {infoError && (
-        <div className="rounded border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+        <div className="rounded border border-destructive/30 bg-destructive/10 px-3 py-2 text-body-md text-destructive">
           {infoError}
         </div>
       )}
@@ -92,14 +92,14 @@ export function UpdatesCheckPanel({
             <div className="flex flex-col gap-3">
               <div className="flex items-center gap-2">
                 <ArrowDownToLine className="h-4 w-4 text-blue-400" />
-                <span className="text-sm text-foreground">
+                <span className="text-body-md text-foreground">
                   <span className="font-mono font-semibold">
                     {displayInfo.latestTag}
                   </span>{" "}
                   available
                 </span>
                 {displayInfo.latestRelease?.publishedAt && (
-                  <span className="text-xs text-muted-foreground">
+                  <span className="text-body-sm text-muted-foreground">
                     ·{" "}
                     {formatShortDateTime(displayInfo.latestRelease.publishedAt)}
                   </span>
@@ -111,7 +111,7 @@ export function UpdatesCheckPanel({
                   href={displayInfo.latestRelease.url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1.5 self-start text-xs text-blue-400 hover:underline"
+                  className="inline-flex items-center gap-1.5 self-start text-body-sm text-blue-400 hover:underline"
                 >
                   <ExternalLink className="h-3 w-3" />
                   View release on GitHub
@@ -119,7 +119,7 @@ export function UpdatesCheckPanel({
               )}
 
               {updateError && (
-                <div className="rounded border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                <div className="rounded border border-destructive/30 bg-destructive/10 px-3 py-2 text-body-md text-destructive">
                   {updateError}
                 </div>
               )}

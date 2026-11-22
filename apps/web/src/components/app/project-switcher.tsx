@@ -167,8 +167,10 @@ export function ProjectSwitcher({ allowAll = true }: { allowAll?: boolean }) {
                   style={{ background: p.color }}
                 />
                 <div className="min-w-0 flex-1">
-                  <div className="truncate text-sm font-medium">{p.name}</div>
-                  <div className="truncate text-xs text-muted-foreground">
+                  <div className="truncate text-body-md font-medium">
+                    {p.name}
+                  </div>
+                  <div className="truncate text-body-sm text-muted-foreground">
                     {p.repoRoot}
                   </div>
                 </div>
@@ -184,7 +186,7 @@ export function ProjectSwitcher({ allowAll = true }: { allowAll?: boolean }) {
               </div>
             ))}
             {!projects.length && (
-              <p className="py-4 text-sm text-muted-foreground">
+              <p className="py-4 text-body-md text-muted-foreground">
                 No projects yet. Folder launches always remain available.
               </p>
             )}

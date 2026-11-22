@@ -19,10 +19,8 @@ export function UpdatesReloadCard({
 }: UpdatesReloadCardProps): JSX.Element {
   return (
     <div>
-      <div className="mb-1.5 text-[10px] uppercase tracking-widest text-muted-foreground">
-        Reload
-      </div>
-      <p className="mb-3 text-sm text-muted-foreground">
+      <div className="mb-1.5 section-label">Reload</div>
+      <p className="mb-3 text-body-md text-muted-foreground">
         Reload the app to pick up the latest version.
       </p>
       <div className="inline-flex items-center">

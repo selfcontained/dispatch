@@ -46,7 +46,7 @@ export function TemplateDetailPane({
 
   if (!templateId || !template) {
     return (
-      <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+      <div className="flex h-full items-center justify-center text-body-md text-muted-foreground">
         Select a template to view details
       </div>
     );
@@ -163,20 +163,18 @@ function TemplateDetail({
     <div className="flex h-full flex-col overflow-y-auto">
       {/* Header with launch */}
       <div className="border-b border-border px-6 py-5">
-        <h2 className="text-lg font-semibold text-foreground">
-          {template.name}
-        </h2>
+        <h2 className="text-heading-lg text-foreground">{template.name}</h2>
         {template.description ? (
-          <p className="mt-0.5 text-sm text-muted-foreground">
+          <p className="mt-0.5 text-body-md text-muted-foreground">
             {template.description}
           </p>
         ) : null}
-        <p className="mt-0.5 text-xs text-muted-foreground/70">
+        <p className="mt-0.5 text-body-sm text-muted-foreground/70">
           {shortPath(template.directory)}
         </p>
 
         {savedArgs.length > 0 ? (
-          <div className="mt-3 rounded-md border border-border/60 bg-muted/15 px-3 py-2 text-xs text-muted-foreground">
+          <div className="mt-3 rounded-md border border-border/60 bg-muted/15 px-3 py-2 text-body-sm text-muted-foreground">
             <span className="font-medium text-foreground">
               Launch arguments:
             </span>{" "}
@@ -220,8 +218,10 @@ function TemplateDetail({
       <div className="flex-1 px-6 py-5">
         <div className="grid gap-4">
           <div className="rounded-md border border-white/[0.12] bg-white/[0.04] p-4">
-            <div className="text-sm font-medium">Template configuration</div>
-            <p className="mt-1 text-xs text-muted-foreground">
+            <div className="text-body-md font-medium">
+              Template configuration
+            </div>
+            <p className="mt-1 text-body-sm text-muted-foreground">
               Agent launch settings for this template.
             </p>
             <div className="mt-4">
@@ -244,7 +244,7 @@ function TemplateDetail({
             </div>
 
             {saveError ? (
-              <div className="mt-4 rounded-md border border-status-blocked/40 bg-status-blocked/10 p-3 text-sm text-status-blocked">
+              <div className="mt-4 rounded-md border border-status-blocked/40 bg-status-blocked/10 p-3 text-body-md text-status-blocked">
                 {saveError}
               </div>
             ) : null}
@@ -263,10 +263,10 @@ function TemplateDetail({
           </div>
 
           <div className="rounded-md border border-status-blocked/30 bg-status-blocked/5 p-4">
-            <div className="text-sm font-medium text-status-blocked">
+            <div className="text-body-md font-medium text-status-blocked">
               Delete template
             </div>
-            <p className="mt-1 text-xs text-muted-foreground">
+            <p className="mt-1 text-body-sm text-muted-foreground">
               Permanently remove this template. Jobs that reference it will lose
               their backing template.
             </p>
@@ -303,7 +303,10 @@ function TemplateDetail({
             </DialogDescription>
           </DialogHeader>
           {removeTemplate.error ? (
-            <p role="alert" className="break-words text-sm text-destructive">
+            <p
+              role="alert"
+              className="break-words text-body-md text-destructive"
+            >
               Couldn't delete the template: {removeTemplate.error.message}
             </p>
           ) : null}

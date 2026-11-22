@@ -21,7 +21,7 @@ export function LoadError({
     <div
       role="alert"
       className={cn(
-        "flex items-center justify-between gap-3 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive",
+        "flex items-center justify-between gap-3 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-body-sm text-destructive",
         className
       )}
     >
@@ -32,7 +32,7 @@ export function LoadError({
         type="button"
         size="sm"
         variant="default"
-        className="h-6 shrink-0 px-2 text-xs"
+        className="h-6 shrink-0 px-2 text-body-sm"
         disabled={retrying}
         onClick={onRetry}
       >

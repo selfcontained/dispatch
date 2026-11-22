@@ -94,7 +94,7 @@ export function MentionPicker({
             role="option"
             aria-selected={index === activeIndex}
             className={cn(
-              "flex w-full items-center gap-2 px-2 py-1.5 text-left text-sm",
+              "flex w-full items-center gap-2 px-2 py-1.5 text-left text-body-md",
               index === activeIndex ? "bg-muted" : "hover:bg-muted/60"
             )}
             // Mouse down would take focus from the textarea and close the
@@ -124,16 +124,16 @@ export function MentionPicker({
               </span>
             </span>
             {agent.mentionName ? (
-              <span className="shrink-0 font-mono text-[10px] text-muted-foreground">
+              <span className="shrink-0 font-mono text-label-xs text-muted-foreground">
                 {agent.id.slice(-6)}
               </span>
             ) : null}
             {agent.seat !== undefined ? (
-              <span className="shrink-0 font-mono text-[10px] text-muted-foreground">
+              <span className="shrink-0 font-mono text-label-xs text-muted-foreground">
                 @{agent.seat}
               </span>
             ) : (
-              <span className="shrink-0 text-[10px] text-muted-foreground">
+              <span className="shrink-0 text-label-xs text-muted-foreground">
                 Session
               </span>
             )}

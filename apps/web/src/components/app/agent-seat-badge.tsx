@@ -61,10 +61,10 @@ export function AgentSeatBadge({
       {seat === null ? null : (
         <span
           className={cn(
-            "absolute flex items-center justify-center font-mono font-bold tabular-nums text-white ring-2 ring-background",
+            "absolute flex items-center justify-center font-mono font-semibold tabular-nums text-white ring-2 ring-background",
             size === "md"
-              ? "-bottom-1.5 -right-1.5 h-[15px] min-w-[15px] rounded-[5px] px-[3px] text-[10px] leading-none"
-              : "-bottom-1 -right-1 h-[11px] min-w-[11px] rounded-[3px] px-0.5 text-[8px] leading-none",
+              ? "-bottom-1.5 -right-1.5 h-[15px] min-w-[15px] rounded-[5px] px-[3px] text-label-xs leading-none"
+              : "-bottom-1 -right-1 h-[11px] min-w-[11px] rounded-[3px] px-0.5 text-label-xs leading-none",
             chip
           )}
           aria-hidden

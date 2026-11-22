@@ -58,7 +58,7 @@ export function TodoList({
               className={cn(
                 STRIP_STATUS_CLASS,
                 done
-                  ? "font-bold text-status-done"
+                  ? "font-semibold text-status-done"
                   : active
                     ? "text-status-working"
                     : "text-muted-foreground/60"

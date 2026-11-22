@@ -805,14 +805,14 @@ export function ResponsePlaceholderVisual({
         </Tooltip>
       </TooltipProvider>
       {hasFooter ? (
-        <div className="relative mt-0.5 flex min-h-4 items-center gap-2 text-[10px] leading-4">
+        <div className="relative mt-0.5 flex min-h-4 items-center gap-2 text-label-xs leading-4">
           {fills.length > 0 && <FillCount fills={fills} glow />}
           {summary || reserveSummary ? (
             // The line's room is held from the start, so the counts fading in
             // move nothing.
             <span
               className={cn(
-                "ml-auto min-w-0 truncate text-[9px] tabular-nums text-muted-foreground transition-opacity duration-300 motion-reduce:transition-none",
+                "ml-auto min-w-0 truncate text-label-xs tabular-nums text-muted-foreground transition-opacity duration-300 motion-reduce:transition-none",
                 !summary && "opacity-0"
               )}
               data-testid="chat-response-activity-counts"

@@ -25,7 +25,7 @@ export function ArgInput({
 
   return (
     <div className="space-y-2">
-      <label htmlFor={inputId} className="text-sm text-muted-foreground">
+      <label htmlFor={inputId} className="text-body-md text-muted-foreground">
         {arg.name}
         {arg.required ? (
           <span className="ml-1 text-status-blocked">*</span>
@@ -34,7 +34,7 @@ export function ArgInput({
       {arg.options ? (
         <div className="flex items-center gap-2">
           <Select value={value} onValueChange={onChange}>
-            <SelectTrigger id={inputId} className="h-8 text-sm">
+            <SelectTrigger id={inputId} className="h-8 text-body-md">
               <SelectValue placeholder={`Choose ${arg.name}`} />
             </SelectTrigger>
             <SelectContent>
@@ -63,7 +63,7 @@ export function ArgInput({
           value={value}
           onChange={(e) => onChange(e.target.value)}
           placeholder={`Enter ${arg.name}`}
-          className="min-h-24 resize-y text-sm"
+          className="min-h-24 resize-y text-body-md"
         />
       ) : (
         <Input
@@ -71,11 +71,11 @@ export function ArgInput({
           value={value}
           onChange={(e) => onChange(e.target.value)}
           placeholder={`Enter ${arg.name}`}
-          className="h-8 text-sm"
+          className="h-8 text-body-md"
         />
       )}
       {arg.error ? (
-        <p role="alert" className="text-xs text-status-blocked">
+        <p role="alert" className="text-body-sm text-status-blocked">
           {arg.error}
         </p>
       ) : null}

@@ -83,16 +83,16 @@ export function IdeSettings({
   );
 
   if (loading) {
-    return <div className="p-6 text-sm text-muted-foreground">Loading...</div>;
+    return (
+      <div className="p-6 text-body-md text-muted-foreground">Loading...</div>
+    );
   }
 
   return (
     <div className="flex flex-col gap-4 p-6">
       <div>
-        <div className="mb-1.5 text-[10px] uppercase tracking-widest text-muted-foreground">
-          Available IDEs
-        </div>
-        <p className="mb-3 max-w-2xl text-sm text-muted-foreground">
+        <div className="mb-1.5 section-label">Available IDEs</div>
+        <p className="mb-3 max-w-2xl text-body-md text-muted-foreground">
           Choose which IDEs appear in the &ldquo;Open in IDE&rdquo; button on
           agent cards. Only enable IDEs you actually have installed locally. The
           button is hidden when accessing Dispatch from a non-loopback host.
@@ -113,7 +113,7 @@ export function IdeSettings({
                 data-testid={`ide-toggle-${ide}`}
               />
               <div className="min-w-0">
-                <div className="text-sm font-medium text-foreground">
+                <div className="text-body-md font-medium text-foreground">
                   {IDE_LABELS[ide]}
                 </div>
               </div>
@@ -122,7 +122,7 @@ export function IdeSettings({
         })}
       </div>
 
-      {error ? <p className="text-sm text-destructive">{error}</p> : null}
+      {error ? <p className="text-body-md text-destructive">{error}</p> : null}
     </div>
   );
 }

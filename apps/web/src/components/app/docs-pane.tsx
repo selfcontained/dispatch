@@ -220,12 +220,8 @@ export function DocsContent({
           >
             <div className="border-b border-border pb-5">
               <div>
-                <div className="text-xs font-semibold uppercase tracking-[0.24em] text-muted-foreground">
-                  {title}
-                </div>
-                <h2 className="text-2xl font-semibold tracking-tight">
-                  {active.title}
-                </h2>
+                <div className="section-label">{title}</div>
+                <h2 className="text-display tracking-tight">{active.title}</h2>
               </div>
             </div>
             <div className="grid gap-6">{active.content}</div>

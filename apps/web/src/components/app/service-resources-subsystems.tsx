@@ -52,7 +52,7 @@ function StatSparkline({
   if (data.length < 2) {
     return (
       <div
-        className="mt-2 flex h-9 items-end border-b border-dashed border-border/70 pb-1 text-[9px] uppercase tracking-wider text-muted-foreground/70"
+        className="mt-2 flex h-9 items-end border-b border-dashed border-border/70 pb-1 section-label"
         data-testid={testId}
       >
         Collecting trend…
@@ -169,16 +169,16 @@ function SubsystemRow({
           ) : (
             <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
           )}
-          <span className="truncate text-sm font-medium">
+          <span className="truncate text-body-md font-medium">
             {subsystem.label}
           </span>
         </span>
-        <span className="hidden text-xs text-muted-foreground md:block">
+        <span className="hidden text-body-sm text-muted-foreground md:block">
           {subsystem.lastDurationMs === null
             ? "—"
             : formatMs(subsystem.lastDurationMs)}
         </span>
-        <span className="hidden text-xs text-muted-foreground md:block">
+        <span className="hidden text-body-sm text-muted-foreground md:block">
           {subsystem.inFlight > 0
             ? `${subsystem.inFlight} in flight`
             : subsystem.runs > 0
@@ -195,7 +195,7 @@ function SubsystemRow({
         </Badge>
       </button>
       {expanded && (
-        <div className="bg-muted/20 px-4 pb-4 pl-10 text-xs text-muted-foreground">
+        <div className="bg-muted/20 px-4 pb-4 pl-10 text-body-sm text-muted-foreground">
           <p>{subsystem.description}</p>
           {statusReason && (
             <p className="mt-2 text-status-waiting">{statusReason}</p>
@@ -207,11 +207,9 @@ function SubsystemRow({
                   key={stat.key}
                   className="rounded-md border border-border/80 bg-background/40 px-3 pb-2 pt-2 shadow-sm"
                 >
-                  <span className="block text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-                    {stat.label}
-                  </span>
+                  <span className="block section-label">{stat.label}</span>
                   <span
-                    className={`mt-0.5 block text-sm font-semibold tabular-nums ${
+                    className={`mt-0.5 block text-body-md font-semibold tabular-nums ${
                       stat.isFailure ? "text-status-blocked" : "text-foreground"
                     }`}
                   >
@@ -250,16 +248,16 @@ export function ServiceResourcesSubsystems({
   return (
     <Card>
       <CardHeader className="pb-2">
-        <CardTitle className="flex items-center gap-2 text-sm">
+        <CardTitle className="flex items-center gap-2">
           <Server className="h-4 w-4 text-muted-foreground" />
           Runtime health
         </CardTitle>
-        <CardDescription className="text-xs">
+        <CardDescription className="text-body-sm">
           Live state for Dispatch loops, dependencies, and connection managers.
         </CardDescription>
       </CardHeader>
       <CardContent className="px-0 pb-0">
-        <div className="hidden grid-cols-[minmax(12rem,1.4fr)_minmax(7rem,0.6fr)_minmax(7rem,0.6fr)_5.5rem] gap-3 border-y border-border px-4 py-2 text-[10px] font-medium uppercase tracking-wider text-muted-foreground md:grid">
+        <div className="hidden grid-cols-[minmax(12rem,1.4fr)_minmax(7rem,0.6fr)_minmax(7rem,0.6fr)_5.5rem] gap-3 border-y border-border px-4 py-2 section-label md:grid">
           <span>Subsystem</span>
           <span>Duration</span>
           <span>Activity</span>

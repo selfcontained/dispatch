@@ -243,12 +243,15 @@ export function AttentionCard({
         </span>
         <span className="pointer-events-none min-w-0 flex-1">
           <span className="flex items-baseline justify-between gap-3">
-            <span id={`${ids}-name`} className="truncate text-sm font-semibold">
+            <span
+              id={`${ids}-name`}
+              className="truncate text-body-md font-semibold"
+            >
               {event.agentName}
             </span>
             <span
               id={`${ids}-kind`}
-              className={`shrink-0 text-[11px] font-semibold uppercase tracking-[0.14em] ${style.text}`}
+              className={`shrink-0 section-label ${style.text}`}
             >
               {style.label}
             </span>
@@ -256,7 +259,7 @@ export function AttentionCard({
           <span
             id={`${ids}-message`}
             ref={messageRef}
-            className="mt-1 block text-[13px] leading-snug text-muted-foreground"
+            className="mt-1 block text-body-sm leading-snug text-muted-foreground"
           >
             <Markdown
               variant="compact"
@@ -274,7 +277,7 @@ export function AttentionCard({
             <time
               id={`${ids}-time`}
               dateTime={createdAt}
-              className="mt-1 block text-[11px] text-muted-foreground"
+              className="mt-1 block text-label-sm text-muted-foreground"
             >
               {formatRelativeTime(createdAt)}
             </time>

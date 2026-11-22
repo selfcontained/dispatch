@@ -149,8 +149,8 @@ export function AddJobFlow({
 
   return (
     <div className="mx-auto flex min-h-0 w-full max-w-3xl flex-1 flex-col overflow-hidden p-4 md:p-8">
-      <div className="text-lg font-semibold">Create a new job</div>
-      <p className="mt-1 text-sm text-muted-foreground">
+      <div className="text-heading-md">Create a new job</div>
+      <p className="mt-1 text-body-md text-muted-foreground">
         Define an automation with a prompt — on a schedule or on demand.
       </p>
 
@@ -160,7 +160,7 @@ export function AddJobFlow({
             <div className="grid min-w-0 gap-3 md:grid-cols-2">
               <div className="min-w-0 space-y-1 md:col-span-2">
                 <label
-                  className="text-sm text-muted-foreground"
+                  className="text-body-md text-muted-foreground"
                   htmlFor="job-display-name"
                 >
                   Name
@@ -245,12 +245,12 @@ export function AddJobFlow({
                   id="create-job-effort"
                 />
               </AgentConfigRow>
-              <label className="flex items-center justify-between gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3 text-sm md:col-span-2">
+              <label className="flex items-center justify-between gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3 text-body-md md:col-span-2">
                 <span>
                   <span className="block font-medium text-foreground">
                     Show in command palette
                   </span>
-                  <span className="block text-xs text-muted-foreground">
+                  <span className="block text-body-sm text-muted-foreground">
                     Launch this job from the {"⌘"}K palette.
                   </span>
                 </span>
@@ -260,12 +260,12 @@ export function AddJobFlow({
                   ariaLabel="Show in command palette"
                 />
               </label>
-              <label className="flex items-center justify-between gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3 text-sm md:col-span-2">
+              <label className="flex items-center justify-between gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3 text-body-md md:col-span-2">
                 <span>
                   <span className="block font-medium text-foreground">
                     Single instance
                   </span>
-                  <span className="block text-xs text-muted-foreground">
+                  <span className="block text-body-sm text-muted-foreground">
                     Only allow one active run at a time.
                   </span>
                 </span>
@@ -281,12 +281,12 @@ export function AddJobFlow({
           <div className="min-w-0 rounded-md border border-border bg-muted/20 p-4">
             <div className="space-y-1">
               <label
-                className="text-sm font-medium text-foreground"
+                className="text-body-md font-medium text-foreground"
                 htmlFor="job-prompt"
               >
                 Task prompt
               </label>
-              <p className="text-xs text-muted-foreground">
+              <p className="text-body-sm text-muted-foreground">
                 What each run should work on.
               </p>
             </div>
@@ -295,14 +295,14 @@ export function AddJobFlow({
               value={prompt}
               onChange={(event) => setPrompt(event.target.value)}
               placeholder="Describe what the agent should do..."
-              className="mt-2 min-h-64 w-full rounded-md border border-white/[0.12] bg-white/[0.04] backdrop-blur-md shadow-[inset_0_2px_6px_rgba(0,0,0,0.3)] px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+              className="mt-2 min-h-64 w-full rounded-md border border-white/[0.12] bg-white/[0.04] backdrop-blur-md shadow-[inset_0_2px_6px_rgba(0,0,0,0.3)] px-3 py-2 text-body-md ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
             />
-            <label className="mt-3 flex items-center justify-between gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3 text-sm">
+            <label className="mt-3 flex items-center justify-between gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3 text-body-md">
               <span>
                 <span className="block font-medium text-foreground">
                   Self improve after each run
                 </span>
-                <span className="block text-xs text-muted-foreground">
+                <span className="block text-body-sm text-muted-foreground">
                   Let the agent update this job's saved prompt when it finds a
                   durable improvement.
                 </span>
@@ -336,8 +336,10 @@ export function AddJobFlow({
               onClick={() => setAdvancedOpen((current) => !current)}
             >
               <div>
-                <div className="text-sm font-medium">Advanced settings</div>
-                <div className="mt-1 text-xs text-muted-foreground">
+                <div className="text-body-md font-medium">
+                  Advanced settings
+                </div>
+                <div className="mt-1 text-body-sm text-muted-foreground">
                   Timeouts, worktree, permissions, and whether the agent is kept
                   after running.
                 </div>
@@ -362,7 +364,7 @@ export function AddJobFlow({
                 <div className="grid min-w-0 gap-3 md:grid-cols-2">
                   <div className="min-w-0 space-y-1">
                     <label
-                      className="text-sm text-muted-foreground"
+                      className="text-body-md text-muted-foreground"
                       htmlFor="job-timeout"
                     >
                       Run timeout, minutes
@@ -378,7 +380,7 @@ export function AddJobFlow({
                   </div>
                   <div className="min-w-0 space-y-1">
                     <label
-                      className="text-sm text-muted-foreground"
+                      className="text-body-md text-muted-foreground"
                       htmlFor="job-needs-input-timeout"
                     >
                       Wait for input, minutes
@@ -424,7 +426,7 @@ export function AddJobFlow({
           </div>
 
           {submitError ? (
-            <div className="rounded-md border border-status-blocked/40 bg-status-blocked/10 p-3 text-sm text-status-blocked">
+            <div className="rounded-md border border-status-blocked/40 bg-status-blocked/10 p-3 text-body-md text-status-blocked">
               {submitError}
             </div>
           ) : null}

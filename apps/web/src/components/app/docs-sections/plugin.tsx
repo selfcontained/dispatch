@@ -69,7 +69,7 @@ codex plugin add dispatch@dispatch`}</CodeBlock>
           never match its name, but will match a description of the spot it's
           currently in.
         </P>
-        <ul className="grid gap-1.5 pl-4 text-sm text-muted-foreground list-disc">
+        <ul className="grid gap-1.5 pl-4 text-body-md text-muted-foreground list-disc">
           <li>
             <Code>brain</Code> — something needs to outlive the session or reach
             another agent

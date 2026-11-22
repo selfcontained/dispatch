@@ -59,12 +59,10 @@ export function CreateReleaseSection({
 
   return (
     <div>
-      <div className="mb-3 text-[10px] uppercase tracking-widest text-muted-foreground">
-        Create release
-      </div>
+      <div className="mb-3 section-label">Create release</div>
 
       {releaseError && (
-        <div className="mb-3 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+        <div className="mb-3 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-body-md text-destructive">
           {releaseError}
         </div>
       )}
@@ -83,7 +81,7 @@ export function CreateReleaseSection({
               <Icon className={cn("h-3.5 w-3.5", color)} />
               <span className="capitalize">{type}</span>
               {nextTag && (
-                <span className="font-mono text-xs text-muted-foreground">
+                <span className="font-mono text-body-sm text-muted-foreground">
                   {nextTag}
                 </span>
               )}

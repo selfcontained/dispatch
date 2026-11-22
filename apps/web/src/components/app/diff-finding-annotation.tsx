@@ -109,7 +109,7 @@ export function InlineFindingAnnotation({
         <SeverityChip severity={finding.severity} />
         <span
           className={cn(
-            "min-w-0 flex-1 truncate text-xs font-medium text-foreground",
+            "min-w-0 flex-1 truncate text-body-sm font-medium text-foreground",
             record?.status === "resolved" &&
               "text-muted-foreground line-through"
           )}
@@ -117,21 +117,21 @@ export function InlineFindingAnnotation({
         >
           {finding.title}
         </span>
-        <span className="shrink-0 text-[11px] text-muted-foreground">
+        <span className="shrink-0 text-label-sm text-muted-foreground">
           {item.reviewerName}
         </span>
       </button>
       <Collapse open={expanded} data-testid="diff-finding-body">
         <div className="flex flex-col gap-2.5 border-t border-border/40 px-3 pb-3 pt-2.5">
-          <Markdown className="text-xs text-foreground/90">
+          <Markdown className="text-body-sm text-foreground/90">
             {finding.body}
           </Markdown>
           {changedBy ? (
-            <div className="text-[11px] text-muted-foreground">
+            <div className="text-label-sm text-muted-foreground">
               {changedBy}
               {record?.note ? (
                 <div data-testid="diff-finding-note">
-                  <Markdown className="text-[11px] text-foreground/80">
+                  <Markdown className="text-label-sm text-foreground/80">
                     {record.note}
                   </Markdown>
                 </div>
@@ -149,7 +149,7 @@ export function InlineFindingAnnotation({
             <Button
               type="button"
               variant="ghost"
-              className="ml-auto h-9 gap-1.5 text-xs"
+              className="ml-auto h-9 gap-1.5 text-body-sm"
               data-testid="diff-finding-open"
               // A review on a launch card opens on the card's thread.
               onClick={() => onOpen(block.threadId ?? block.id, item.findingId)}

@@ -112,16 +112,16 @@ export function ScheduledMessagesButton({
         <div className="flex items-start gap-2.5 bg-muted/30 px-4 py-3">
           <Clock className="mt-0.5 h-4 w-4 shrink-0 text-heading-accent-1" />
           <div className="min-w-0">
-            <p className="text-sm font-medium">
+            <p className="text-body-md font-medium">
               {s.status === "active"
                 ? `Next ${scheduleTime(s.nextDueAt)}`
                 : `${scheduleStatusLabels[s.status]} · ${cadence(s)}`}
             </p>
-            <p className="mt-0.5 text-xs text-muted-foreground">
+            <p className="mt-0.5 text-body-sm text-muted-foreground">
               {s.status === "active" ? cadence(s) : status}
             </p>
             {s.outstanding && (
-              <p className="mt-1 text-xs text-muted-foreground">
+              <p className="mt-1 text-body-sm text-muted-foreground">
                 {s.outstanding.phase === "accepted"
                   ? "Accepted · waiting for pickup"
                   : s.outstanding.phase === "submitting"
@@ -135,20 +135,22 @@ export function ScheduledMessagesButton({
           </div>
         </div>
         <div className="space-y-3 px-4 pb-3 pt-4">
-          <p className="whitespace-pre-wrap text-sm leading-relaxed [overflow-wrap:anywhere]">
+          <p className="whitespace-pre-wrap text-body-md leading-relaxed [overflow-wrap:anywhere]">
             {s.message}
           </p>
           {s.stopWhen && (
-            <p className="text-xs leading-relaxed text-muted-foreground [overflow-wrap:anywhere]">
+            <p className="text-body-sm leading-relaxed text-muted-foreground [overflow-wrap:anywhere]">
               <span className="font-medium">Stop when: </span>
               {s.stopWhen}
             </p>
           )}
-          <p className="text-xs leading-relaxed text-muted-foreground">
+          <p className="text-body-sm leading-relaxed text-muted-foreground">
             {s.deliveredCount} of {s.maxDeliveries} accepted · Ends{" "}
             <time dateTime={s.expiresAt}>{scheduleTime(s.expiresAt)}</time>
           </p>
-          {s.error && <p className="text-xs text-status-waiting">{s.error}</p>}
+          {s.error && (
+            <p className="text-body-sm text-status-waiting">{s.error}</p>
+          )}
         </div>
         {isCurrentSchedule(s) && (
           <div className="sticky bottom-0 flex flex-wrap items-center gap-2 border-t border-border/50 bg-[hsl(var(--card))] px-4 py-2 sm:px-5">
@@ -189,12 +191,15 @@ export function ScheduledMessagesButton({
           </div>
         )}
         {feedback?.id === s.id && (
-          <p role="status" className="px-4 pb-3 text-xs text-muted-foreground">
+          <p
+            role="status"
+            className="px-4 pb-3 text-body-sm text-muted-foreground"
+          >
             {feedback.text}
           </p>
         )}
         {mutation.error && mutation.variables?.id === s.id && (
-          <p role="alert" className="px-4 pb-3 text-xs text-destructive">
+          <p role="alert" className="px-4 pb-3 text-body-sm text-destructive">
             {mutation.error.message}
           </p>
         )}
@@ -228,7 +233,7 @@ export function ScheduledMessagesButton({
             <Button
               variant="ghost"
               size="sm"
-              className="px-0 text-xs text-primary hover:text-primary min-h-11"
+              className="px-0 text-body-sm text-primary hover:text-primary min-h-11"
               onClick={(event) => {
                 fallbackFocus.current = event.currentTarget;
               }}
@@ -253,7 +258,7 @@ export function ScheduledMessagesButton({
             >
               <Clock className="h-3.5 w-3.5 text-heading-accent-1" />
               {current.length > 1 && (
-                <span className="text-xs font-medium tabular-nums">
+                <span className="text-body-sm font-medium tabular-nums">
                   {current.length}
                 </span>
               )}
@@ -282,7 +287,7 @@ export function ScheduledMessagesButton({
           </Button>
         </DialogClose>
         <DialogHeader className="shrink-0 border-b border-border/50 px-4 py-3 pr-14 sm:px-5">
-          <DialogTitle className="flex items-center gap-2 text-base">
+          <DialogTitle className="flex items-center gap-2 text-heading-md">
             <CalendarClock className="h-4 w-4 shrink-0 text-heading-accent-1" />
             Scheduled messages
           </DialogTitle>
@@ -290,10 +295,10 @@ export function ScheduledMessagesButton({
         </DialogHeader>
         <div className="min-h-0 overflow-y-auto">
           {query.isPending ? (
-            <p className="p-7 text-sm">Loading schedules…</p>
+            <p className="p-7 text-body-md">Loading schedules…</p>
           ) : query.error ? (
             <div className="p-7">
-              <p role="alert" className="text-sm text-destructive">
+              <p role="alert" className="text-body-md text-destructive">
                 {query.error.message}
               </p>
               <Button variant="ghost" onClick={() => void query.refetch()}>
@@ -309,7 +314,7 @@ export function ScheduledMessagesButton({
                 >
                   <SelectTrigger
                     aria-label="Choose scheduled message"
-                    className="min-h-11 w-full min-w-0 text-xs"
+                    className="min-h-11 w-full min-w-0 text-body-sm"
                   >
                     <SelectValue placeholder="Choose scheduled message" />
                   </SelectTrigger>
@@ -318,7 +323,7 @@ export function ScheduledMessagesButton({
                       <SelectItem
                         key={s.id}
                         value={s.id}
-                        className="min-h-11 text-xs"
+                        className="min-h-11 text-body-sm"
                       >
                         {s.title}
                         {s.status !== "active"
@@ -329,7 +334,7 @@ export function ScheduledMessagesButton({
                   </SelectContent>
                 </Select>
                 {current.length === 0 && (
-                  <p className="mt-2 text-xs text-muted-foreground">
+                  <p className="mt-2 text-body-sm text-muted-foreground">
                     No current schedules.
                   </p>
                 )}
@@ -337,14 +342,14 @@ export function ScheduledMessagesButton({
 
               <div className="min-w-0">
                 {scheduleId && !schedules.some((s) => s.id === scheduleId) && (
-                  <p className="px-5 pt-4 text-sm text-muted-foreground">
+                  <p className="px-5 pt-4 text-body-md text-muted-foreground">
                     Schedule unavailable.
                   </p>
                 )}
                 {selected ? (
                   render(selected)
                 ) : (
-                  <div className="p-7 text-sm text-muted-foreground">
+                  <div className="p-7 text-body-md text-muted-foreground">
                     The agent’s future reminders will appear here.
                   </div>
                 )}

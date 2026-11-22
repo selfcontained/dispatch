@@ -128,13 +128,13 @@ export function SidebarShell({
             className="h-7 w-7 shrink-0 object-contain"
           />
           <div className="flex min-w-0 flex-col justify-center">
-            <div className="text-sm font-bold uppercase tracking-widest text-foreground">
+            <div className="text-body-md font-semibold uppercase tracking-widest text-foreground">
               Dispatch
             </div>
             {instanceName ? (
               <div
                 title={instanceName}
-                className="truncate text-[11px] leading-tight text-muted-foreground"
+                className="truncate text-label-sm leading-tight text-muted-foreground"
               >
                 {instanceName}
               </div>

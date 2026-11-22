@@ -196,7 +196,7 @@ export const UnifiedDiffView = memo(function UnifiedDiffView({
 
   if (!file) {
     return (
-      <div className="px-4 py-3 text-xs text-muted-foreground">
+      <div className="px-4 py-3 text-body-sm text-muted-foreground">
         Unable to parse diff
       </div>
     );
@@ -215,7 +215,7 @@ export const UnifiedDiffView = memo(function UnifiedDiffView({
     <div
       ref={diffRef}
       className={cn(
-        "changes-diff-view text-xs relative",
+        "changes-diff-view text-body-sm relative",
         "[&_.diff.diff-split]:table-fixed [&_.diff.diff-split]:w-full",
         "[&_.diff.diff-split_.diff-gutter-col]:w-10",
         "[&_.diff.diff-split_.diff-gutter]:px-1 [&_.diff.diff-split_.diff-gutter]:py-0",

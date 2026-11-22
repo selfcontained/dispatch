@@ -116,7 +116,7 @@ export function BranchSelect({
   return (
     <div className="space-y-2">
       <div className="relative" ref={cmdRef}>
-        <label className="mb-1 block text-xs text-muted-foreground">
+        <label className="mb-1 block text-body-sm text-muted-foreground">
           {baseBranchLabel}
         </label>
         <button
@@ -137,7 +137,7 @@ export function BranchSelect({
             }
           }}
           className={cn(
-            "flex h-9 w-full items-center justify-between rounded-md border border-white/[0.12] bg-white/[0.04] px-3 py-2 font-mono text-xs shadow-[inset_0_2px_6px_rgba(0,0,0,0.3)] backdrop-blur-md",
+            "flex h-9 w-full items-center justify-between rounded-md border border-white/[0.12] bg-white/[0.04] px-3 py-2 font-mono text-body-sm shadow-[inset_0_2px_6px_rgba(0,0,0,0.3)] backdrop-blur-md",
             "ring-offset-background focus:outline-none focus:ring-1 focus:ring-ring",
             disabled && "cursor-not-allowed opacity-60"
           )}
@@ -168,12 +168,12 @@ export function BranchSelect({
               <CommandInput
                 ref={inputRef}
                 placeholder="Search branches..."
-                className="font-mono text-xs"
+                className="font-mono text-body-sm"
               />
               <CommandList>
                 {branchesLoading ? (
                   <CommandLoading>
-                    <div className="flex items-center gap-2 px-2 py-3 text-xs text-muted-foreground">
+                    <div className="flex items-center gap-2 px-2 py-3 text-body-sm text-muted-foreground">
                       <ActivityBars size={12} />
                       Loading branches...
                     </div>
@@ -208,7 +208,7 @@ export function BranchSelect({
                         />
                         {branch}
                         {isMissing ? (
-                          <span className="ml-2 text-[10px] uppercase tracking-wide text-status-waiting">
+                          <span className="ml-2 text-label-xs uppercase tracking-wide text-status-waiting">
                             not found
                           </span>
                         ) : null}
@@ -222,7 +222,7 @@ export function BranchSelect({
         ) : null}
       </div>
       {fetchError ? (
-        <div className="flex items-center gap-2 text-xs text-status-blocked">
+        <div className="flex items-center gap-2 text-body-sm text-status-blocked">
           <span className="truncate">Couldn't load branches.</span>
           <button
             type="button"
@@ -234,12 +234,12 @@ export function BranchSelect({
           </button>
         </div>
       ) : savedBranchMissing ? (
-        <div className="text-xs text-status-waiting">
+        <div className="text-body-sm text-status-waiting">
           Saved branch <span className="font-mono">{baseBranch}</span> no longer
           exists on the remote — pick a new one.
         </div>
       ) : baseBranchHelper ? (
-        <p className="text-xs text-muted-foreground">{baseBranchHelper}</p>
+        <p className="text-body-sm text-muted-foreground">{baseBranchHelper}</p>
       ) : null}
       {showNewBranchInput ? (
         <Input

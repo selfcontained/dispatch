@@ -65,7 +65,7 @@ export function ScheduledMessageEntry({
           : `min-w-0 overflow-hidden rounded-lg border px-3 py-2 ${current || delivery ? "border-border bg-muted/20" : "border-border/70 bg-muted/20"}`
       }
     >
-      <div className="flex flex-wrap items-center justify-between gap-2 text-[11px]">
+      <div className="flex flex-wrap items-center justify-between gap-2 text-label-sm">
         <span
           className={`flex items-center gap-1.5 font-medium ${current || delivery ? "text-heading-accent-1" : "text-muted-foreground"}`}
         >
@@ -83,15 +83,15 @@ export function ScheduledMessageEntry({
       <div className="space-y-1.5 pt-1.5">
         {schedule ? (
           <>
-            <h3 className="text-xs font-medium text-muted-foreground tracking-tight [overflow-wrap:anywhere]">
+            <h3 className="text-body-sm font-medium text-muted-foreground tracking-tight [overflow-wrap:anywhere]">
               {schedule.title}
             </h3>
             {delivery ? (
-              <p className="whitespace-pre-wrap text-sm [overflow-wrap:anywhere]">
+              <p className="whitespace-pre-wrap text-body-md [overflow-wrap:anywhere]">
                 {presentation?.message ?? schedule.message}
               </p>
             ) : (
-              <p className="line-clamp-2 whitespace-pre-wrap text-sm leading-relaxed [overflow-wrap:anywhere]">
+              <p className="line-clamp-2 whitespace-pre-wrap text-body-md leading-relaxed [overflow-wrap:anywhere]">
                 {schedule.message}
               </p>
             )}
@@ -101,7 +101,7 @@ export function ScheduledMessageEntry({
         )}
       </div>
       {!systemEvent && delivery && deliveryStatus && (
-        <p className="mt-1 text-xs text-muted-foreground">
+        <p className="mt-1 text-body-sm text-muted-foreground">
           {deliveryStatus === "accepted"
             ? "Accepted by agent"
             : deliveryStatus === "discarded"
@@ -113,7 +113,7 @@ export function ScheduledMessageEntry({
       )}
       <div className="flex flex-wrap items-center justify-between gap-x-3 -mb-2">
         {!delivery && schedule && (
-          <div className="text-xs text-muted-foreground space-y-1">
+          <div className="text-body-sm text-muted-foreground space-y-1">
             <p>
               {cadence(schedule)}
               {upcoming ? ` · Next ${scheduleTime(upcoming)}` : ""}
@@ -156,7 +156,7 @@ export function ScheduledMessageEntry({
         />
       }
       visibleContent={
-        <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+        <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-body-sm text-muted-foreground">
           <span>
             {delivery ? (
               deliveryStatus === "uncertain" ? (

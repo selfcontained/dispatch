@@ -41,15 +41,13 @@ export function BrowserNotificationsSection({
 
   return (
     <div className="border-t border-border pt-8">
-      <h3 className="mb-1.5 text-[10px] uppercase tracking-widest text-muted-foreground">
-        Browser Notifications
-      </h3>
-      <p className="mb-3 text-sm text-muted-foreground">
+      <h3 className="mb-1.5 section-label">Browser Notifications</h3>
+      <p className="mb-3 text-body-md text-muted-foreground">
         Get native desktop or mobile notifications when agents need attention.
       </p>
 
       {!notificationsSupported ? (
-        <p className="text-sm text-muted-foreground/70">
+        <p className="text-body-md text-muted-foreground/70">
           Browser notifications are not supported in this browser.
           {isIOS && !isStandalone
             ? " On iOS/iPadOS, install Dispatch as a PWA (Add to Home Screen) to enable notifications."
@@ -61,12 +59,12 @@ export function BrowserNotificationsSection({
           {browserPermission !== "granted" ? (
             <div className="flex items-center gap-3 rounded border border-border px-3 py-2.5">
               <div className="min-w-0 flex-1">
-                <div className="text-sm text-foreground">
+                <div className="text-body-md text-foreground">
                   {browserPermission === "denied"
                     ? "Notifications blocked"
                     : "Permission required"}
                 </div>
-                <div className="text-xs text-muted-foreground">
+                <div className="text-body-sm text-muted-foreground">
                   {browserPermission === "denied"
                     ? isIOS
                       ? "Open device Settings > Notifications > Dispatch to enable, or tap Allow to re-request"
@@ -97,10 +95,10 @@ export function BrowserNotificationsSection({
               data-testid="web-notify-enabled"
             />
             <div className="min-w-0">
-              <div className="text-sm font-medium text-foreground">
+              <div className="text-body-md font-medium text-foreground">
                 Enable browser notifications
               </div>
-              <div className="text-xs text-muted-foreground">
+              <div className="text-body-sm text-muted-foreground">
                 {browserPermission === "granted"
                   ? "Show notifications when agents change status"
                   : "Grant permission above to enable"}
@@ -111,7 +109,9 @@ export function BrowserNotificationsSection({
           {/* Web event toggles */}
           {webNotifyEnabled && browserPermission === "granted" && (
             <div className="space-y-2 pl-1">
-              <div className="text-xs text-muted-foreground">Notify on:</div>
+              <div className="text-body-sm text-muted-foreground">
+                Notify on:
+              </div>
               {EVENT_OPTIONS.map(({ id, label, description }) => (
                 <label
                   key={id}
@@ -124,10 +124,10 @@ export function BrowserNotificationsSection({
                     data-testid={`web-notify-event-${id}`}
                   />
                   <div className="min-w-0">
-                    <div className="text-sm font-medium text-foreground">
+                    <div className="text-body-md font-medium text-foreground">
                       {label}
                     </div>
-                    <div className="text-xs text-muted-foreground">
+                    <div className="text-body-sm text-muted-foreground">
                       {description}
                     </div>
                   </div>
@@ -146,10 +146,10 @@ export function BrowserNotificationsSection({
             </div>
           )}
           {webError ? (
-            <p className="text-sm text-destructive">{webError}</p>
+            <p className="text-body-md text-destructive">{webError}</p>
           ) : null}
           {webMessage ? (
-            <p className="text-sm text-status-working">{webMessage}</p>
+            <p className="text-body-md text-status-working">{webMessage}</p>
           ) : null}
         </div>
       )}

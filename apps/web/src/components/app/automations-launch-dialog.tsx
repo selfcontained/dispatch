@@ -291,7 +291,7 @@ function LaunchTemplateDialogContent({
           </AgentConfigRow>
 
           {effortError ? (
-            <p role="alert" className="mt-2 text-sm text-destructive">
+            <p role="alert" className="mt-2 text-body-md text-destructive">
               {effortError}
             </p>
           ) : null}

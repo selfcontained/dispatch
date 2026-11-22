@@ -44,7 +44,7 @@ function LegacyHistory({
   const owner = useAgentRecord(launch?.streamId ?? null);
   const parent = useAgentRecord(parentId);
   return (
-    <div className="flex gap-3 border-b px-3 py-1 text-xs text-muted-foreground">
+    <div className="flex gap-3 border-b px-3 py-1 text-body-sm text-muted-foreground">
       {parent ? (
         <Link
           to={

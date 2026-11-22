@@ -72,18 +72,18 @@ export function EventCard({
   return (
     <div className="mx-3 mb-2 rounded-md border border-border bg-muted/20 p-2.5 overflow-hidden">
       <div className="flex items-center justify-between gap-2 mb-2 min-w-0">
-        <div className="flex items-center gap-1.5 text-xs min-w-0">
+        <div className="flex items-center gap-1.5 text-body-sm min-w-0">
           <span className={cn("h-2 w-2 rounded-full shrink-0", style.dot)} />
           <span
             className={cn(
-              "rounded px-1.5 py-0.5 font-mono text-[10px] shrink-0",
+              "rounded px-1.5 py-0.5 font-mono text-label-xs shrink-0",
               style.badge
             )}
           >
             {event.kind}
           </span>
         </div>
-        <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground shrink-0">
+        <div className="flex items-center gap-1.5 text-label-xs text-muted-foreground shrink-0">
           {agentId ? <AgentIdLabel agentId={agentId} /> : null}
           <CopyButton value={event.value} />
           {onDelete ? (

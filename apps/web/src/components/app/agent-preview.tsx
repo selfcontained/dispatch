@@ -31,7 +31,7 @@ export function AgentPreview({ agentId }: { agentId: string }) {
   }
   return (
     <div
-      className="flex h-7 min-w-0 items-center gap-3 text-[11px] leading-4"
+      className="flex h-7 min-w-0 items-center gap-3 text-label-sm leading-4"
       data-agent-control="true"
     >
       <Monitor

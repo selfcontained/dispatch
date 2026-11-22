@@ -22,7 +22,9 @@ export function NotificationSettings(): JSX.Element {
   } = useNotificationSettings();
 
   if (loading) {
-    return <div className="p-6 text-sm text-muted-foreground">Loading...</div>;
+    return (
+      <div className="p-6 text-body-md text-muted-foreground">Loading...</div>
+    );
   }
 
   return (

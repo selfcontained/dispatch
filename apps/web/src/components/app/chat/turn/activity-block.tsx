@@ -206,7 +206,7 @@ function FullTraceStepList({
   if (trace) return <StepList trace={trace} disclosures={disclosures} />;
   return (
     <>
-      <div className="py-2 text-xs text-muted-foreground" role="status">
+      <div className="py-2 text-body-sm text-muted-foreground" role="status">
         {error
           ? "Some details could not load. Close and reopen to try again."
           : isLoading
@@ -391,7 +391,7 @@ function ActivitySummary({
   if (!toggle || (!expanded && !line && !hasProgress)) return null;
   return (
     <div
-      className="flex min-w-0 flex-col items-start gap-1 py-1.5 pl-5 pr-1 text-[12px] leading-snug"
+      className="flex min-w-0 flex-col items-start gap-1 py-1.5 pl-5 pr-1 text-body-sm leading-snug"
       data-testid="harness-activity-explainer"
     >
       {/* Muted, fading in; a new message crosses over from the last. */}
@@ -418,7 +418,7 @@ function ActivitySummary({
             ? "chat-response-hide-progress"
             : "chat-response-show-progress"
         }
-        className="shrink-0 whitespace-nowrap rounded-sm text-[12px] text-foreground underline underline-offset-2 hover:no-underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+        className="shrink-0 whitespace-nowrap rounded-sm text-body-sm text-foreground underline underline-offset-2 hover:no-underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
       >
         {expanded ? "Show less" : "Show more"}
       </button>
@@ -431,7 +431,7 @@ function RunningGlyph(): JSX.Element {
   const { braille } = useStreamTicker(true);
   return (
     <span
-      className="text-[12px] leading-none text-status-working"
+      className="text-body-sm leading-none text-status-working"
       data-testid="harness-turn-live"
       aria-hidden="true"
     >
@@ -513,7 +513,7 @@ function SummaryRow({
           <TurnGlyph summary={summary} />
         </span>
       ) : null}
-      <span className="relative min-w-0 overflow-hidden text-[11.5px]">
+      <span className="relative min-w-0 overflow-hidden text-label-sm">
         {/* A new step name fades in over the old one's place: a keyed CSS
             fade, no layout animation, so the timer ticking around it never
             re-measures anything. */}
@@ -528,13 +528,13 @@ function SummaryRow({
           {verb}
         </span>
       </span>
-      <span className="shrink-0 text-right text-[11px] tabular-nums text-muted-foreground">
+      <span className="shrink-0 text-right text-label-sm tabular-nums text-muted-foreground">
         {thinking ? "" : `${steps} · `}
         {formatStepDuration(ms)} total
       </span>
       <span
         aria-hidden="true"
-        className="shrink-0 text-[9px] text-muted-foreground/70"
+        className="shrink-0 text-label-xs text-muted-foreground/70"
       >
         {open ? (
           <ChevronDown className="h-3 w-3" />
@@ -579,11 +579,11 @@ function ThinkingRow({
       data-testid="harness-thinking-row"
     >
       <StatusGlyph status="running" maskClass={maskClass} />
-      <span className="shrink-0 text-[12px] font-medium text-status-working">
+      <span className="shrink-0 text-body-sm font-medium text-status-working">
         thinking
       </span>
       <LiveDuration startedAt={since} />
-      <span aria-hidden="true" className="invisible w-2 shrink-0 text-[9px]">
+      <span aria-hidden="true" className="invisible w-2 shrink-0 text-label-xs">
         <ChevronRight className="h-3 w-3" />
       </span>
     </div>
@@ -655,7 +655,7 @@ function ProgressFreshness({
       >
         <Clock className="h-3 w-3" />
       </span>
-      <span className="min-w-0 truncate text-[11px] leading-5 tabular-nums text-muted-foreground">
+      <span className="min-w-0 truncate text-label-sm leading-5 tabular-nums text-muted-foreground">
         <span className="sr-only">Activity: </span>
         {freshness}
       </span>

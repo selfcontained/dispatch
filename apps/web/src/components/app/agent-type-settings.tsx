@@ -80,10 +80,10 @@ function AgentTypeRow({
             data-testid={`agent-type-toggle-${agentType}`}
           />
           <div className="min-w-0">
-            <div className="text-sm font-medium text-foreground">
+            <div className="text-body-md font-medium text-foreground">
               {AGENT_TYPE_LABELS[agentType]}
             </div>
-            <div className="text-xs text-muted-foreground">
+            <div className="text-body-sm text-muted-foreground">
               {disabled
                 ? "At least one type must stay enabled."
                 : AGENT_TYPE_DESCRIPTIONS[agentType]}
@@ -94,12 +94,12 @@ function AgentTypeRow({
           <Button
             type="button"
             variant="ghost"
-            className="group h-auto min-h-11 shrink-0 gap-1.5 rounded-none px-3 text-xs font-normal"
+            className="group h-auto min-h-11 shrink-0 gap-1.5 rounded-none px-3 text-body-sm font-normal"
             aria-label={`${AGENT_TYPE_LABELS[agentType]} models: ${options.length} on, ${offCount} off`}
             data-testid={`agent-models-toggle-${agentType}`}
           >
             {allOptions.length ? (
-              <span className="flex items-baseline gap-2 text-sm tabular-nums">
+              <span className="flex items-baseline gap-2 text-body-md tabular-nums">
                 <span className="font-semibold text-foreground">
                   {options.length}
                 </span>
@@ -200,16 +200,16 @@ export function AgentTypeSettings({
   );
 
   if (loading) {
-    return <div className="p-6 text-sm text-muted-foreground">Loading...</div>;
+    return (
+      <div className="p-6 text-body-md text-muted-foreground">Loading...</div>
+    );
   }
 
   return (
     <div className="flex flex-col gap-4 p-6">
       <div>
-        <div className="mb-1.5 text-[10px] uppercase tracking-widest text-muted-foreground">
-          Available agent types
-        </div>
-        <p className="mb-3 max-w-2xl text-sm text-muted-foreground">
+        <div className="mb-1.5 section-label">Available agent types</div>
+        <p className="mb-3 max-w-2xl text-body-md text-muted-foreground">
           Choose which agent types and models Dispatch offers for new launches.
         </p>
       </div>
@@ -242,7 +242,7 @@ export function AgentTypeSettings({
         })}
       </div>
 
-      {error ? <p className="text-sm text-destructive">{error}</p> : null}
+      {error ? <p className="text-body-md text-destructive">{error}</p> : null}
     </div>
   );
 }

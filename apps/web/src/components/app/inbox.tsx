@@ -54,10 +54,10 @@ function InboxSectionTitle({
   count?: number;
 }): JSX.Element {
   return (
-    <div className="flex items-center gap-2 px-3 pb-1.5 pt-3 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+    <div className="flex items-center gap-2 px-3 pb-1.5 pt-3 section-label">
       {children}
       {count !== undefined && count > 0 ? (
-        <span className="rounded-full bg-muted px-1.5 py-px text-[10px] font-medium normal-case tracking-normal text-foreground/80">
+        <span className="rounded-full bg-muted px-1.5 py-px text-label-xs font-medium normal-case tracking-normal text-foreground/80">
           {count}
         </span>
       ) : null}
@@ -157,7 +157,7 @@ function InboxInputCard({
       data-block-id={block.id}
       data-kind={block.kind}
     >
-      <div className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
+      <div className="flex items-center justify-between gap-2 text-label-sm text-muted-foreground">
         <InboxAuthor block={block} name={authorName} />
         <button
           type="button"
@@ -173,7 +173,7 @@ function InboxInputCard({
         </button>
       </div>
       {block.text ? (
-        <Markdown className="mt-1 text-sm text-foreground prose-p:my-0.5">
+        <Markdown className="mt-1 text-body-md text-foreground prose-p:my-0.5">
           {block.text}
         </Markdown>
       ) : null}
@@ -199,14 +199,14 @@ function InboxInputCard({
         />
       )}
       {disabledReason ? (
-        <div className="mt-1.5 text-[11px] text-muted-foreground">
+        <div className="mt-1.5 text-label-sm text-muted-foreground">
           {disabledReason}
         </div>
       ) : null}
       {error || cancelError ? (
         <div
           role="alert"
-          className="mt-1.5 text-[11px] text-destructive"
+          className="mt-1.5 text-label-sm text-destructive"
           data-testid="inbox-input-error"
         >
           {error ?? cancelError}
@@ -244,12 +244,12 @@ function InboxReviewCard({
       data-block-id={review.id}
       data-status={status}
     >
-      <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+      <div className="flex items-center gap-2 text-label-sm text-muted-foreground">
         <InboxAuthor block={review} name={authorName} />
         <Button
           type="button"
           variant="ghost"
-          className="ml-auto h-auto gap-1.5 p-0 text-[11px] font-normal hover:bg-transparent"
+          className="ml-auto h-auto gap-1.5 p-0 text-label-sm font-normal hover:bg-transparent"
           aria-label={`Open review by ${authorName}`}
           onClick={(event) =>
             openOriginalMessage(
@@ -265,7 +265,7 @@ function InboxReviewCard({
           <span className="flex shrink-0 items-center gap-1.5">
             {unread > 0 ? (
               <span
-                className="rounded-full bg-primary px-1.5 py-px text-[10px] font-semibold text-primary-foreground"
+                className="rounded-full bg-primary px-1.5 py-px text-label-xs font-semibold text-primary-foreground"
                 data-testid="inbox-review-unread"
                 aria-label={`${unread} new ${unread === 1 ? "comment" : "comments"}`}
               >
@@ -288,7 +288,7 @@ function InboxReviewCard({
         <Badge variant={standing.variant} data-testid="inbox-review-status">
           {standing.label}
         </Badge>
-        <span className="ml-auto text-[11px] text-muted-foreground">
+        <span className="ml-auto text-label-sm text-muted-foreground">
           {findingsSummary(review)}
         </span>
       </Button>
@@ -322,12 +322,12 @@ function InboxChecklistCard({
       data-block-id={block.id}
       data-complete={complete}
     >
-      <div className="flex w-full items-center gap-2 text-[11px] text-muted-foreground">
+      <div className="flex w-full items-center gap-2 text-label-sm text-muted-foreground">
         <InboxAuthor block={block} name={authorName} />
         <Button
           type="button"
           variant="ghost"
-          className="ml-auto h-auto shrink-0 gap-2 p-0 text-[11px] font-normal hover:bg-transparent"
+          className="ml-auto h-auto shrink-0 gap-2 p-0 text-label-sm font-normal hover:bg-transparent"
           onClick={(event) => openOriginalMessage(event, onOpenBlock, block.id)}
           aria-label={`Open ${title} by ${authorName}, ${done}/${items.length} done`}
         >
@@ -344,9 +344,9 @@ function InboxChecklistCard({
         onClick={(event) => openOriginalMessage(event, onOpenBlock, block.id)}
         aria-label={`Open original checklist: ${title}`}
       >
-        <span className="line-clamp-2 break-words text-sm">{title}</span>
+        <span className="line-clamp-2 break-words text-body-md">{title}</span>
         <span
-          className="line-clamp-2 break-words text-[11px] text-muted-foreground"
+          className="line-clamp-2 break-words text-label-sm text-muted-foreground"
           data-testid="inbox-checklist-current"
         >
           {complete
@@ -393,12 +393,12 @@ export function InboxPanel({
       data-open-inputs={inputs.length}
     >
       {inbox.isLoading && empty ? (
-        <div className="px-3 py-6 text-center text-xs text-muted-foreground">
+        <div className="px-3 py-6 text-center text-body-sm text-muted-foreground">
           Loading the stream…
         </div>
       ) : empty ? (
         <div
-          className="flex flex-col items-center gap-2 px-6 py-10 text-center text-xs text-muted-foreground"
+          className="flex flex-col items-center gap-2 px-6 py-10 text-center text-body-sm text-muted-foreground"
           data-testid="inbox-empty"
         >
           <InboxIcon className="h-6 w-6 opacity-60" aria-hidden="true" />

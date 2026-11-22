@@ -107,7 +107,7 @@ function SidebarTab({
       data-testid={testId}
       aria-pressed={active}
       className={cn(
-        "relative flex shrink-0 items-center gap-1.5 px-3 py-2.5 text-xs font-semibold uppercase tracking-wide transition-colors",
+        "relative flex shrink-0 items-center gap-1.5 px-3 py-2.5 text-body-sm font-semibold uppercase tracking-wide transition-colors",
         active
           ? "text-foreground"
           : "text-muted-foreground hover:text-foreground/80"
@@ -120,7 +120,7 @@ function SidebarTab({
       {badge !== undefined && badge > 0 ? (
         <span
           className={cn(
-            "absolute top-0 right-0 flex h-4 w-4 items-center justify-center rounded-full text-[8px]",
+            "absolute top-0 right-0 flex h-4 w-4 items-center justify-center rounded-full text-label-xs",
             badgeClassName ?? "bg-primary text-primary-foreground"
           )}
           data-testid={`${testId}-badge`}

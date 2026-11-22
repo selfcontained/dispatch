@@ -105,7 +105,7 @@ export function ContextFileItem({
         ) : (
           <div className="flex h-full w-full flex-col items-center justify-center text-muted-foreground">
             <FileText className="h-3.5 w-3.5" />
-            <span className="text-[8px] font-medium tracking-wide">
+            <span className="text-label-xs font-medium tracking-wide">
               {startupFileExt(file.name)}
             </span>
           </div>
@@ -126,7 +126,7 @@ export function ContextFileItem({
         ) : null}
         {noteCount ? (
           <span
-            className="pointer-events-none absolute bottom-0.5 left-0.5 flex h-4 min-w-4 items-center justify-center gap-0.5 rounded-full bg-primary px-1 text-[9px] font-semibold leading-none text-primary-foreground shadow"
+            className="pointer-events-none absolute bottom-0.5 left-0.5 flex h-4 min-w-4 items-center justify-center gap-0.5 rounded-full bg-primary px-1 text-label-xs font-semibold leading-none text-primary-foreground shadow"
             data-testid="context-file-note-count"
             aria-hidden="true"
           >
@@ -149,7 +149,7 @@ export function ContextFileItem({
         />
       </div>
       <span
-        className="w-full truncate text-[8px] leading-tight text-muted-foreground"
+        className="w-full truncate text-label-xs leading-tight text-muted-foreground"
         title={file.name}
       >
         {file.name}
@@ -193,14 +193,14 @@ export function ContextChip({
       title={tooltip ?? title}
       {...(testId ? { "data-testid": testId } : {})}
     >
-      <div className="flex items-center gap-1 text-[10px] text-foreground">
+      <div className="flex items-center gap-1 text-label-xs text-foreground">
         <span className="shrink-0 text-muted-foreground [&>svg]:h-2.5 [&>svg]:w-2.5">
           {icon}
         </span>
         <span className="truncate font-medium">{title}</span>
       </div>
       {subtitle || action ? (
-        <div className="flex min-w-0 items-center gap-1 text-[9px] text-muted-foreground">
+        <div className="flex min-w-0 items-center gap-1 text-label-xs text-muted-foreground">
           {subtitle ? <span className="truncate">{subtitle}</span> : null}
           {action}
         </div>

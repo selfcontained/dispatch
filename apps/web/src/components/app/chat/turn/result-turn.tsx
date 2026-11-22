@@ -73,11 +73,11 @@ function ResultTurnImpl({
           <ResultBody turn={turn} renderText={renderText} />
         ) : null}
         <p
-          className="flex min-w-0 items-center gap-[9px] text-[11.5px] text-muted-foreground"
+          className="flex min-w-0 items-center gap-[9px] text-label-sm text-muted-foreground"
           title={error.message}
           data-testid="harness-retried"
         >
-          <span aria-hidden="true" className="select-none font-bold">
+          <span aria-hidden="true" className="select-none font-semibold">
             ■
           </span>
           <span className="min-w-0 truncate">
@@ -105,10 +105,10 @@ function ResultTurnImpl({
           data-testid="harness-sign-in"
         >
           <div>
-            <p className="text-[12.5px] leading-[1.6] text-status-blocked">
+            <p className="text-body-sm leading-[1.6] text-status-blocked">
               {signIn.label} is signed out on this Dispatch server.
             </p>
-            <p className="text-[11.5px] text-muted-foreground">
+            <p className="text-label-sm text-muted-foreground">
               Sign in and this message is sent again.
             </p>
           </div>
@@ -122,10 +122,10 @@ function ResultTurnImpl({
         // failure line. "Turn" is what tells the two apart — this one runs
         // the agent again, where that one re-sends words it never took.
         <p
-          className="flex items-center gap-[9px] text-[11.5px] text-status-blocked"
+          className="flex items-center gap-[9px] text-label-sm text-status-blocked"
           data-testid="harness-turn-failed"
         >
-          <span aria-hidden="true" className="select-none font-bold">
+          <span aria-hidden="true" className="select-none font-semibold">
             ■
           </span>
           The turn stopped on an error.
@@ -142,10 +142,10 @@ function ResultTurnImpl({
       ) : null}
       {interrupted ? (
         <p
-          className="flex items-center gap-[9px] text-[11.5px] text-status-waiting"
+          className="flex items-center gap-[9px] text-label-sm text-status-waiting"
           data-testid="harness-interrupted"
         >
-          <span aria-hidden="true" className="select-none font-bold">
+          <span aria-hidden="true" className="select-none font-semibold">
             ■
           </span>
           Interrupted mid-turn: the agent was stopped before it finished.
@@ -182,7 +182,7 @@ function ResultBody({
             <Button
               variant="ghost"
               size="sm"
-              className="group h-auto gap-1 px-0 py-1 text-xs text-muted-foreground hover:bg-transparent"
+              className="group h-auto gap-1 px-0 py-1 text-body-sm text-muted-foreground hover:bg-transparent"
             >
               <ChevronRight className="h-3 w-3 group-data-[state=open]:rotate-90" />
               Show earlier updates
@@ -212,12 +212,12 @@ export function ResultText({
   streaming?: boolean;
 }): JSX.Element {
   return error ? (
-    <p className="min-w-0 whitespace-pre-wrap text-[12.5px] leading-[1.6] text-status-blocked">
+    <p className="min-w-0 whitespace-pre-wrap text-body-sm leading-[1.6] text-status-blocked">
       {content}
     </p>
   ) : (
     <div
-      className="min-w-0 text-[12.5px] leading-[1.6]"
+      className="min-w-0 text-body-sm leading-[1.6]"
       data-testid={muted ? "harness-result-lead" : undefined}
     >
       <Markdown

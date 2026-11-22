@@ -75,7 +75,7 @@ export function CenterPaneSplit({
         >
           <div ref={splitLeftRef} className="flex h-full flex-col">
             <div className="flex min-h-8 shrink-0 items-center justify-between gap-2 border-b border-border/40 py-1.5 pl-3 pr-6">
-              <span className="min-w-0 truncate text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              <span className="min-w-0 truncate text-body-sm font-semibold uppercase tracking-wide text-muted-foreground">
                 {centerTabLabel(splitState.left)}
               </span>
               {accessoryFor(splitState.left)}
@@ -91,7 +91,7 @@ export function CenterPaneSplit({
         >
           <div className="flex h-full flex-col">
             <div className="flex min-h-8 shrink-0 items-center justify-between gap-2 border-b border-border/40 py-1.5 pl-6 pr-3">
-              <span className="min-w-0 truncate text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              <span className="min-w-0 truncate text-body-sm font-semibold uppercase tracking-wide text-muted-foreground">
                 {centerTabLabel(splitState.right)}
               </span>
               {accessoryFor(splitState.right)}

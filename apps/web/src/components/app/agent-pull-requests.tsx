@@ -133,7 +133,7 @@ function MergeRiskBadge({ risk }: { risk: MergeRiskSummary }) {
       data-testid="merge-risk-badge"
       title={`Merge risk: ${state.label}`}
       className={cn(
-        "shrink-0 px-1.5 py-0 text-[10px] normal-case tracking-normal",
+        "shrink-0 px-1.5 py-0 text-label-xs normal-case tracking-normal",
         state.badge,
         riskTone(risk)
       )}
@@ -289,7 +289,7 @@ function RiskExplanation({
     <Button
       variant="default"
       size="sm"
-      className="h-8 gap-1.5 border-border bg-muted/70 px-2.5 text-[11px] text-foreground shadow-sm backdrop-blur-none hover:border-border hover:bg-muted aria-disabled:cursor-wait aria-disabled:opacity-60"
+      className="h-8 gap-1.5 border-border bg-muted/70 px-2.5 text-label-sm text-foreground shadow-sm backdrop-blur-none hover:border-border hover:bg-muted aria-disabled:cursor-wait aria-disabled:opacity-60"
       aria-disabled={query.isFetching}
       onClick={() => {
         if (query.isFetching) return;
@@ -309,7 +309,7 @@ function RiskExplanation({
     </Button>
   );
   return (
-    <div className="space-y-2 text-[11px] text-muted-foreground">
+    <div className="space-y-2 text-label-sm text-muted-foreground">
       {!ready && (
         <Card
           role={showNotice ? (failure ? "alert" : "status") : undefined}
@@ -365,7 +365,7 @@ function RiskExplanation({
         <>
           <Markdown
             allowedElements={EXPLANATION_ELEMENTS}
-            className="text-[11px] leading-relaxed prose-headings:mb-0.5 prose-headings:mt-2.5 prose-headings:text-[11px] prose-headings:font-semibold first:prose-headings:mt-0 prose-ul:pl-4 prose-li:my-0 prose-li:pl-0 prose-code:text-[10px] [&>*:first-child]:mt-0"
+            className="text-label-sm leading-relaxed prose-headings:mb-0.5 prose-headings:mt-2.5 prose-headings:text-label-sm prose-headings:font-semibold first:prose-headings:mt-0 prose-ul:pl-4 prose-li:my-0 prose-li:pl-0 prose-code:text-label-xs [&>*:first-child]:mt-0"
           >
             {query.data?.text ?? ""}
           </Markdown>
@@ -411,7 +411,7 @@ function MergeRiskDetails({
     <section className="space-y-3 border-t border-border p-3">
       <div className="space-y-1.5">
         <div className="flex items-center justify-between gap-3">
-          <h4 className="text-xs font-semibold">Merge risk</h4>
+          <h4 className="text-heading-sm">Merge risk</h4>
           <div className="flex items-center gap-2">
             <MergeRiskBadge risk={risk} />
             <span
@@ -419,7 +419,7 @@ function MergeRiskDetails({
               aria-label={`Current CI: ${checks.label}`}
               title={`Current CI: ${checks.label}. Risk is independent of checks; required checks must pass before merge.`}
               className={cn(
-                "inline-flex items-center gap-1 text-[10px]",
+                "inline-flex items-center gap-1 text-label-xs",
                 checks.color
               )}
             >
@@ -428,7 +428,7 @@ function MergeRiskDetails({
             </span>
           </div>
         </div>
-        <p className="text-[11px] text-muted-foreground">{state.hint}</p>
+        <p className="text-label-sm text-muted-foreground">{state.hint}</p>
       </div>
       {!risk.displayState && explanation}
       {assessment && (
@@ -437,7 +437,7 @@ function MergeRiskDetails({
             <>
               <hr className="border-border" />
               <div className="flex items-center justify-between gap-3">
-                <h5 className="text-xs font-medium text-foreground">
+                <h5 className="text-body-sm font-medium text-foreground">
                   Previous assessment
                 </h5>
                 <MergeRiskBadge risk={assessment} />
@@ -445,7 +445,7 @@ function MergeRiskDetails({
               {explanation}
             </>
           )}
-          <dl className="grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-4 gap-y-2 text-[11px]">
+          <dl className="grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-4 gap-y-2 text-label-sm">
             <dt className="text-muted-foreground">Change risk</dt>
             <dd
               className={cn(
@@ -521,7 +521,7 @@ function MergeRiskDetails({
               />
             </dd>
           </dl>
-          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] text-muted-foreground">
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-label-xs text-muted-foreground">
             <span className="font-mono">{assessment.headSha.slice(0, 7)}</span>
             <span>·</span>
             <time dateTime={assessment.assessedAt}>
@@ -589,7 +589,7 @@ function StatusBadge({ status }: { status: Status }) {
   return (
     <Badge
       className={cn(
-        "shrink-0 px-1.5 py-0 text-[10px] normal-case tracking-normal",
+        "shrink-0 px-1.5 py-0 text-label-xs normal-case tracking-normal",
         STATES[status].badge
       )}
     >
@@ -772,7 +772,7 @@ export function AgentPullRequests({
   const prs = preview ? previewPullRequests : (data?.pullRequests ?? []);
   if (!prs.length && !hasDismissError)
     return isError ? (
-      <div className="flex items-center gap-3 text-[11px] text-muted-foreground">
+      <div className="flex items-center gap-3 text-label-sm text-muted-foreground">
         <CircleHelp className="h-3.5 w-3.5 shrink-0" />
         <span>PR status unavailable</span>
       </div>
@@ -780,7 +780,7 @@ export function AgentPullRequests({
   return (
     <div data-testid={`agent-pr-row-${agentId}`} className="contents">
       {hasDismissError && (
-        <p role="alert" className="text-xs text-destructive">
+        <p role="alert" className="text-body-sm text-destructive">
           Could not dismiss PR. Please try again.
         </p>
       )}
@@ -956,15 +956,15 @@ export function PullRequestRow({
         <PopoverArrow />
         <div className="px-3 py-3">
           <div className="flex items-center justify-between gap-2">
-            <h3 className="text-sm font-semibold">Pull request {ref.number}</h3>
+            <h3 className="text-heading-sm">Pull request {ref.number}</h3>
             <StatusBadge status={status} />
           </div>
-          <p className="mt-2 text-xs font-medium">{pr.title}</p>
+          <p className="mt-2 text-body-sm font-medium">{pr.title}</p>
           <a
             href={pr.url}
             target="_blank"
             rel="noopener noreferrer"
-            className="mt-3 inline-flex items-center gap-1.5 text-[11px] text-status-done underline underline-offset-4"
+            className="mt-3 inline-flex items-center gap-1.5 text-label-sm text-status-done underline underline-offset-4"
           >
             Open on GitHub{" "}
             <ExternalLink aria-hidden="true" className="h-3 w-3" />
@@ -980,9 +980,9 @@ export function PullRequestRow({
             />
           )}
           <div className="border-t border-border p-3">
-            <h4 className="text-xs font-semibold">Checks</h4>
+            <h4 className="text-heading-sm">Checks</h4>
             {(pr.ci?.availability !== "available" || !pr.ci?.checks.length) && (
-              <p className="mt-2 text-[11px] text-muted-foreground">
+              <p className="mt-2 text-label-sm text-muted-foreground">
                 {ci.label}
               </p>
             )}
@@ -1002,7 +1002,7 @@ export function PullRequestRow({
                   return (
                     <li
                       key={`${check.name}-${index}`}
-                      className="flex items-center gap-2 border-b border-border/40 py-2 text-[11px] last:border-0"
+                      className="flex items-center gap-2 border-b border-border/40 py-2 text-label-sm last:border-0"
                     >
                       <span
                         role="img"
@@ -1053,7 +1053,7 @@ export function PullRequestRow({
           {refresh?.isPending && (
             <p
               role="status"
-              className="px-3 pb-2 text-[11px] text-muted-foreground"
+              className="px-3 pb-2 text-label-sm text-muted-foreground"
             >
               Refreshing checks…
             </p>
@@ -1061,7 +1061,7 @@ export function PullRequestRow({
           {refresh?.isError && (
             <p
               role="alert"
-              className="px-3 pb-3 break-words text-[11px] leading-relaxed text-destructive"
+              className="px-3 pb-3 break-words text-label-sm leading-relaxed text-destructive"
             >
               {refresh.error instanceof Error
                 ? refresh.error.message
@@ -1069,7 +1069,7 @@ export function PullRequestRow({
             </p>
           )}
           {(pr.ci || refresh) && (
-            <div className="border-t border-border px-3 py-2 text-[10px] text-muted-foreground">
+            <div className="border-t border-border px-3 py-2 text-label-xs text-muted-foreground">
               <div className="flex items-center gap-2 whitespace-nowrap">
                 <span title={pr.ci?.checkedAt}>
                   Last checked{" "}

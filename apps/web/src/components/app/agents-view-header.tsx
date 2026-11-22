@@ -91,7 +91,7 @@ export function AgentsViewHeader({
           <span
             aria-label={`${focusedDiffStats.added.toLocaleString("en-US")} additions, ${focusedDiffStats.deleted.toLocaleString("en-US")} deletions`}
             title={`${focusedDiffStats.added.toLocaleString("en-US")} additions, ${focusedDiffStats.deleted.toLocaleString("en-US")} deletions`}
-            className="hidden items-center gap-1 whitespace-nowrap rounded-full border border-border/50 bg-muted/30 px-1.5 py-0.5 font-mono text-[10px] tracking-normal sm:inline-flex"
+            className="hidden items-center gap-1 whitespace-nowrap rounded-full border border-border/50 bg-muted/30 px-1.5 py-0.5 font-mono text-label-xs tracking-normal sm:inline-flex"
           >
             <span className="text-status-working">
               +{formatDiffCount(focusedDiffStats.added)}
@@ -144,7 +144,7 @@ export function AgentsViewHeader({
             <PanelLeftOpen className="h-4 w-4" />
             {unseenFileCount + openInputCount > 0 ? (
               <span
-                className="absolute -right-1.5 -top-1.5 min-w-5 rounded-full border border-border bg-primary px-1 text-[10px] font-semibold text-primary-foreground"
+                className="absolute -right-1.5 -top-1.5 min-w-5 rounded-full border border-border bg-primary px-1 text-label-xs font-semibold text-primary-foreground"
                 data-testid="toggle-drawer-badge"
               >
                 {unseenFileCount + openInputCount}

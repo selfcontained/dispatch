@@ -60,7 +60,7 @@ import { statusLabel } from "@/lib/status-label";
 
 /** Status and Assignee share one width and one quiet field style. */
 const PROPERTY_CONTROL =
-  "h-8 w-full max-w-64 border-transparent bg-muted/50 text-xs hover:bg-muted";
+  "h-8 w-full max-w-64 border-transparent bg-muted/50 text-body-sm hover:bg-muted";
 
 /** The raised surface each drawer group sits on, over the pane's base. */
 const DRAWER_SURFACE =
@@ -79,9 +79,7 @@ function DrawerSection({
   return (
     <section className={cn(DRAWER_SURFACE, "space-y-2")}>
       <div className="flex min-h-7 items-center justify-between gap-2">
-        <h3 className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-          {label}
-        </h3>
+        <h3 className="section-label">{label}</h3>
         {action}
       </div>
       {children}
@@ -262,7 +260,7 @@ export function TaskDetailPanel({
     );
   return (
     <>
-      <header className="flex min-h-14 shrink-0 items-center gap-1 border-b border-border/40 pl-1.5 pr-2 pt-[var(--safe-area-top)] text-xs text-muted-foreground">
+      <header className="flex min-h-14 shrink-0 items-center gap-1 border-b border-border/40 pl-1.5 pr-2 pt-[var(--safe-area-top)] text-body-sm text-muted-foreground">
         <Button
           size="icon"
           variant="ghost"
@@ -317,7 +315,7 @@ export function TaskDetailPanel({
         </Button>
       </header>
       {isLoading && (
-        <p className="p-5 text-sm text-muted-foreground">Loading task…</p>
+        <p className="p-5 text-body-md text-muted-foreground">Loading task…</p>
       )}
       {task && (
         <Tabs
@@ -331,7 +329,7 @@ export function TaskDetailPanel({
               Conversation
               {!!unread && (
                 <span
-                  className="ml-2 rounded-full bg-primary px-1.5 text-[10px] text-primary-foreground"
+                  className="ml-2 rounded-full bg-primary px-1.5 text-label-xs text-primary-foreground"
                   aria-label={`${unread} unread posts`}
                 >
                   {unread}
@@ -361,7 +359,7 @@ export function TaskDetailPanel({
                   />
                 ) : (
                   <button
-                    className="-mx-1 w-full break-words rounded-md px-1 text-left text-xl font-semibold leading-7 hover:bg-muted/40"
+                    className="-mx-1 w-full break-words rounded-md px-1 text-left text-heading-lg leading-7 hover:bg-muted/40"
                     onClick={() => setEditingTitle(true)}
                   >
                     {task.title}
@@ -370,10 +368,12 @@ export function TaskDetailPanel({
                 <section
                   className={cn(
                     DRAWER_SURFACE,
-                    "grid grid-cols-[88px_minmax(0,1fr)] items-center gap-x-3 gap-y-2 text-sm"
+                    "grid grid-cols-[88px_minmax(0,1fr)] items-center gap-x-3 gap-y-2 text-body-md"
                   )}
                 >
-                  <span className="text-xs text-muted-foreground">Labels</span>
+                  <span className="text-body-sm text-muted-foreground">
+                    Labels
+                  </span>
                   <div className="min-w-0">
                     <TaskLabelPicker
                       key={task.id}
@@ -387,9 +387,11 @@ export function TaskDetailPanel({
                       }}
                     />
                   </div>
-                  <span className="text-xs text-muted-foreground">Status</span>
+                  <span className="text-body-sm text-muted-foreground">
+                    Status
+                  </span>
                   {task.archivedAt ? (
-                    <span className="text-sm text-muted-foreground">
+                    <span className="text-body-md text-muted-foreground">
                       Archived · {column?.name}
                     </span>
                   ) : (
@@ -400,7 +402,7 @@ export function TaskDetailPanel({
                       className={PROPERTY_CONTROL}
                     />
                   )}
-                  <span className="text-xs text-muted-foreground">
+                  <span className="text-body-sm text-muted-foreground">
                     Assignee
                   </span>
                   <AssigneeSelect
@@ -416,9 +418,11 @@ export function TaskDetailPanel({
                       void actions.launch.mutateAsync({ id, templateId })
                     }
                   />
-                  <span className="text-xs text-muted-foreground">Created</span>
+                  <span className="text-body-sm text-muted-foreground">
+                    Created
+                  </span>
                   <span
-                    className="text-xs"
+                    className="text-body-sm"
                     title={formatDateTime(task.createdAt)}
                   >
                     by {creator} · {formatRelativeTime(task.createdAt)}
@@ -433,7 +437,7 @@ export function TaskDetailPanel({
                   {editingBody ? (
                     <textarea
                       autoFocus
-                      className="min-h-36 w-full rounded-lg bg-muted/40 p-3 text-sm outline-none ring-1 ring-border/60 focus:ring-ring"
+                      className="min-h-36 w-full rounded-lg bg-muted/40 p-3 text-body-md outline-none ring-1 ring-border/60 focus:ring-ring"
                       value={body}
                       onChange={(event) => setBody(event.target.value)}
                       onBlur={saveBody}
@@ -447,7 +451,7 @@ export function TaskDetailPanel({
                     />
                   ) : (
                     <button
-                      className="-mx-2 min-h-12 w-[calc(100%+1rem)] rounded-lg px-2 py-1 text-left text-sm text-foreground hover:bg-muted/40"
+                      className="-mx-2 min-h-12 w-[calc(100%+1rem)] rounded-lg px-2 py-1 text-left text-body-md text-foreground hover:bg-muted/40"
                       onClick={() => setEditingBody(true)}
                     >
                       {task.body ? (
@@ -476,7 +480,7 @@ export function TaskDetailPanel({
                       <Button
                         variant="ghost"
                         size="sm"
-                        className="h-7 text-xs"
+                        className="h-7 text-body-sm"
                         onClick={() => setAddingLink(true)}
                       >
                         <Plus className="mr-1 h-3 w-3" />
@@ -493,7 +497,7 @@ export function TaskDetailPanel({
                           href={link.url ?? undefined}
                           target="_blank"
                           rel="noreferrer"
-                          className="inline-flex max-w-full items-center gap-1 rounded-md bg-muted/50 px-2 py-1 text-xs text-primary hover:bg-muted"
+                          className="inline-flex max-w-full items-center gap-1 rounded-md bg-muted/50 px-2 py-1 text-body-sm text-primary hover:bg-muted"
                         >
                           {link.kind === "pr" && (
                             <GitPullRequest
@@ -556,7 +560,9 @@ export function TaskDetailPanel({
                     </div>
                   )}
                   {!task.links.length && !addingLink && (
-                    <p className="text-xs text-muted-foreground">No links</p>
+                    <p className="text-body-sm text-muted-foreground">
+                      No links
+                    </p>
                   )}
                 </DrawerSection>
                 <DrawerSection label="Agents">
@@ -587,17 +593,17 @@ export function TaskDetailPanel({
                                 agentId={assignment.agentId}
                                 projectId={projectId}
                                 decorative={false}
-                                className="min-w-0 truncate text-xs text-muted-foreground"
+                                className="min-w-0 truncate text-body-sm text-muted-foreground"
                               >
                                 <AgentName agentId={assignment.agentId} />
                               </AgentSessionLink>
                             )}
                             <span
-                              className="ml-auto flex shrink-0 items-center gap-2 text-xs text-muted-foreground"
+                              className="ml-auto flex shrink-0 items-center gap-2 text-body-sm text-muted-foreground"
                               title={`${assignmentLabel(assignment, columns)} · ${formatDateTime(assignment.assignedAt)}`}
                             >
                               {current && (
-                                <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-foreground">
+                                <span className="rounded-full bg-muted px-1.5 py-0.5 text-label-xs font-medium text-foreground">
                                   Assignee
                                 </span>
                               )}
@@ -670,7 +676,7 @@ export function TaskDetailPanel({
                       })}
                     </div>
                   ) : (
-                    <p className="text-xs text-muted-foreground">
+                    <p className="text-body-sm text-muted-foreground">
                       No agents yet
                     </p>
                   )}
@@ -678,7 +684,7 @@ export function TaskDetailPanel({
                 <DrawerSection label="Activity">
                   <ol className="space-y-2 border-l-2 border-border/50 pl-3">
                     {task.events.map((event) => (
-                      <li key={event.id} className="text-xs">
+                      <li key={event.id} className="text-body-sm">
                         <span className="font-medium">
                           {event.kind === "trigger_launching"
                             ? `Launching ${projectTemplates.find((template) => template.id === event.data.templateId)?.name ?? "agent"}`
@@ -703,7 +709,7 @@ export function TaskDetailPanel({
             </div>
             {task.archivedAt && (
               <div
-                className="border-t border-border/40 px-3 py-2 text-sm text-muted-foreground"
+                className="border-t border-border/40 px-3 py-2 text-body-md text-muted-foreground"
                 role="status"
               >
                 Archived — restore this task to move it.
@@ -711,7 +717,10 @@ export function TaskDetailPanel({
             )}
             {actions.restore?.error &&
               actions.restore.variables === task.id && (
-                <p role="alert" className="px-3 py-2 text-sm text-destructive">
+                <p
+                  role="alert"
+                  className="px-3 py-2 text-body-md text-destructive"
+                >
                   {actions.restore.error.message}
                 </p>
               )}

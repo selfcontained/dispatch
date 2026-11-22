@@ -103,7 +103,7 @@ export function AgentCardHeader({
       }}
     >
       <div className="flex flex-1 min-w-0 items-center gap-1.5">
-        <div className="min-w-0 flex items-center gap-2 text-left text-sm font-semibold">
+        <div className="min-w-0 flex items-center gap-2 text-left text-body-md font-semibold">
           <Tooltip>
             <TooltipTrigger asChild>
               <span className="shrink-0">

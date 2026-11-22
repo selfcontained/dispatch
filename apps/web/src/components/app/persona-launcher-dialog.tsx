@@ -136,7 +136,7 @@ export function PersonaLauncherDialog({
                   )}
                 >
                   <div className="relative space-y-1" ref={typeCmdRef}>
-                    <label className="text-sm text-muted-foreground">
+                    <label className="text-body-md text-muted-foreground">
                       Agent type
                     </label>
                     <button
@@ -156,7 +156,7 @@ export function PersonaLauncherDialog({
                         }
                       }}
                       className={cn(
-                        "flex h-9 w-full items-center justify-between rounded-md border border-white/[0.12] bg-white/[0.04] px-3 py-2 text-sm shadow-[inset_0_2px_6px_rgba(0,0,0,0.3)] backdrop-blur-md",
+                        "flex h-9 w-full items-center justify-between rounded-md border border-white/[0.12] bg-white/[0.04] px-3 py-2 text-body-md shadow-[inset_0_2px_6px_rgba(0,0,0,0.3)] backdrop-blur-md",
                         "ring-offset-background focus:outline-none focus:ring-1 focus:ring-ring"
                       )}
                       data-testid="launch-reviewer-agent-type"
@@ -244,7 +244,7 @@ export function PersonaLauncherDialog({
                   <div className="flex items-baseline justify-between">
                     <span
                       id="launch-reviewer-personas-label"
-                      className="text-sm text-muted-foreground"
+                      className="text-body-md text-muted-foreground"
                     >
                       Personas
                     </span>
@@ -252,7 +252,7 @@ export function PersonaLauncherDialog({
                         which is otherwise only conveyed visually. */}
                     <span
                       aria-live="polite"
-                      className="text-xs text-muted-foreground"
+                      className="text-body-sm text-muted-foreground"
                       data-testid="launch-reviewer-selected-count"
                     >
                       {selectedCount > 0 ? `${selectedCount} selected` : ""}
@@ -286,10 +286,10 @@ export function PersonaLauncherDialog({
                     >
                       <GitBranch className="mt-0.5 h-4 w-4 shrink-0 text-foreground/80" />
                       <span className="min-w-0 flex-1 space-y-1">
-                        <span className="block text-sm font-medium">
+                        <span className="block text-body-md font-medium">
                           Code owners
                         </span>
-                        <span className="block text-xs text-muted-foreground">
+                        <span className="block text-body-sm text-muted-foreground">
                           {codeownersAvailable
                             ? "Route reviewers by the files this agent changed, using .agents/owners.json. Each matching owner launches once."
                             : "No .agents/owners.json in this checkout. Add ownership rules to route reviewers by changed files."}
@@ -345,13 +345,13 @@ export function PersonaLauncherDialog({
                           />
                           <span className="min-w-0 flex-1 space-y-1">
                             <span
-                              className="block text-sm font-medium"
+                              className="block text-body-md font-medium"
                               style={{ color: `hsl(${colorVar})` }}
                             >
                               {persona.name}
                             </span>
                             {persona.description ? (
-                              <span className="block text-xs text-muted-foreground">
+                              <span className="block text-body-sm text-muted-foreground">
                                 {persona.description}
                               </span>
                             ) : null}
@@ -381,10 +381,10 @@ export function PersonaLauncherDialog({
                 <div className="space-y-1">
                   <label
                     htmlFor="launch-reviewer-note"
-                    className="text-sm text-muted-foreground"
+                    className="text-body-md text-muted-foreground"
                   >
                     What should they focus on?{" "}
-                    <span className="text-xs">(optional)</span>
+                    <span className="text-body-sm">(optional)</span>
                   </label>
                   <Textarea
                     id="launch-reviewer-note"
@@ -396,10 +396,10 @@ export function PersonaLauncherDialog({
                     maxLength={MAX_NOTE_LENGTH}
                     rows={3}
                     placeholder="e.g. focus on the auth changes in session.ts — I'm unsure about the token refresh path"
-                    className="resize-none text-sm"
+                    className="resize-none text-body-md"
                     data-testid="launch-reviewer-note"
                   />
-                  <p className="text-xs text-muted-foreground">
+                  <p className="text-body-sm text-muted-foreground">
                     Added to the briefing each persona receives.
                   </p>
                 </div>
@@ -409,7 +409,7 @@ export function PersonaLauncherDialog({
             <div className="flex justify-end gap-2 pt-3">
               {launchError ? (
                 <p
-                  className="mr-auto max-w-[28rem] text-sm text-destructive"
+                  className="mr-auto max-w-[28rem] text-body-md text-destructive"
                   data-testid="launch-reviewer-error"
                 >
                   {launchError}

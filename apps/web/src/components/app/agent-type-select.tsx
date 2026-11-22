@@ -58,7 +58,7 @@ export function AgentTypeSelect({
 
   return (
     <div className="relative space-y-1" ref={cmdRef}>
-      <label className="text-sm text-muted-foreground" htmlFor={id}>
+      <label className="text-body-md text-muted-foreground" htmlFor={id}>
         {label}
       </label>
       <button
@@ -76,7 +76,7 @@ export function AgentTypeSelect({
           }
         }}
         className={cn(
-          "flex h-9 w-full items-center justify-between rounded-md border border-white/[0.12] bg-white/[0.04] px-3 py-2 text-sm shadow-[inset_0_2px_6px_rgba(0,0,0,0.3)] backdrop-blur-md",
+          "flex h-9 w-full items-center justify-between rounded-md border border-white/[0.12] bg-white/[0.04] px-3 py-2 text-body-md shadow-[inset_0_2px_6px_rgba(0,0,0,0.3)] backdrop-blur-md",
           "ring-offset-background focus:outline-none focus:ring-1 focus:ring-ring"
         )}
       >
@@ -124,7 +124,7 @@ export function AgentTypeSelect({
                     {AGENT_TYPE_LABELS[agentType]}
                     {missing?.[agentType] ? (
                       <span
-                        className="ml-auto pl-2 text-[11px] text-muted-foreground"
+                        className="ml-auto pl-2 text-label-sm text-muted-foreground"
                         data-testid="agent-type-missing"
                       >
                         not installed
@@ -139,7 +139,7 @@ export function AgentTypeSelect({
       ) : null}
       {missing?.[value] ? (
         <p
-          className="text-xs text-status-waiting"
+          className="text-body-sm text-status-waiting"
           data-testid="agent-type-missing-note"
         >
           {missing[value]!.label} is not installed. Run{" "}

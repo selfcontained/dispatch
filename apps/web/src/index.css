@@ -593,6 +593,15 @@
   @apply border-border;
 }
 
+/* Recipes built on the tokens. They sit in the components layer, so a utility
+   on the same element still overrides them. */
+@layer components {
+  /* The one uppercase eyebrow above a section or group. */
+  .section-label {
+    @apply text-label-xs font-medium uppercase tracking-wider text-muted-foreground;
+  }
+}
+
 html,
 body {
   height: 100%;
@@ -1361,7 +1370,7 @@ html[data-hidden] .animate-sidebar-nav-pulse {
 /* react-diff-view theme overrides */
 .changes-diff-view .diff {
   font-family: var(--font-terminal);
-  font-size: 12px;
+  font-size: theme("fontSize.body-sm[0]");
   line-height: 1.5;
   background: hsl(var(--diff-bg));
   color: hsl(var(--diff-fg));

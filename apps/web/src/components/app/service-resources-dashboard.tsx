@@ -51,22 +51,20 @@ function SummaryCard({
           <div className="rounded-lg border border-border bg-muted/45 p-2 text-muted-foreground">
             <Icon className="h-4 w-4" />
           </div>
-          <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-            {scope}
-          </span>
+          <span className="section-label">{scope}</span>
         </div>
-        <div className="mt-4 text-xs text-muted-foreground">{label}</div>
-        <div className="mt-1 truncate text-2xl font-semibold text-foreground">
+        <div className="mt-4 text-body-sm text-muted-foreground">{label}</div>
+        <div className="mt-1 truncate text-display text-foreground">
           {value}
         </div>
         <div
-          className={`mt-1 text-xs text-muted-foreground ${wrapDetail ? "break-words" : "truncate"}`}
+          className={`mt-1 text-body-sm text-muted-foreground ${wrapDetail ? "break-words" : "truncate"}`}
           title={detail}
         >
           {detail}
         </div>
         {description && (
-          <p className="mt-1 break-words text-xs text-muted-foreground">
+          <p className="mt-1 break-words text-body-sm text-muted-foreground">
             {description}
           </p>
         )}
@@ -120,13 +118,13 @@ export function ServiceResourcesDashboard({
           <CardContent className="flex gap-3 p-4">
             <Activity className="mt-0.5 h-4 w-4 shrink-0 text-status-waiting" />
             <div>
-              <div className="text-sm font-medium">
+              <div className="text-body-md font-medium">
                 Dispatch needs attention
               </div>
               {data.overall.reasons.map((reason) => (
                 <p
                   key={reason.code}
-                  className="mt-1 text-xs text-muted-foreground"
+                  className="mt-1 text-body-sm text-muted-foreground"
                 >
                   {reason.message}
                 </p>
@@ -243,32 +241,32 @@ export function ServiceResourcesDashboard({
       <section className="grid gap-4 md:grid-cols-2">
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="flex items-center gap-2 text-sm">
+            <CardTitle className="flex items-center gap-2">
               <GitCompareArrows className="h-4 w-4 text-muted-foreground" />{" "}
               Workload
             </CardTitle>
           </CardHeader>
-          <CardContent className="grid grid-cols-2 gap-3 text-sm">
+          <CardContent className="grid grid-cols-2 gap-3 text-body-md">
             {workloadItems.map((item) => (
               <div
                 key={item.label}
                 className={`rounded-lg border border-border bg-muted/25 p-3 ${item.wide ? "col-span-2" : ""}`}
               >
-                <div className="text-xs text-muted-foreground">
+                <div className="text-body-sm text-muted-foreground">
                   {item.label}
                 </div>
-                <div className="mt-1 text-xl font-semibold">{item.value}</div>
+                <div className="mt-1 text-heading-lg">{item.value}</div>
               </div>
             ))}
           </CardContent>
         </Card>
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="flex items-center gap-2 text-sm">
+            <CardTitle className="flex items-center gap-2">
               <Database className="h-4 w-4 text-muted-foreground" /> Capacity
             </CardTitle>
           </CardHeader>
-          <CardContent className="space-y-3 text-sm">
+          <CardContent className="space-y-3 text-body-md">
             <div className="flex items-center justify-between border-b border-border pb-3">
               <span className="text-muted-foreground">Service uptime</span>
               <span className="font-medium">
@@ -301,7 +299,7 @@ export function ServiceResourcesDashboard({
                   {formatBytes(current.artifacts?.sizeBytes ?? null)}
                 </span>
               </div>
-              <p className="mt-1 text-xs text-muted-foreground">
+              <p className="mt-1 text-body-sm text-muted-foreground">
                 Shared files and agent journals/logs across all sessions,
                 including archived sessions. Excludes database, worktrees, and
                 provider caches. Refreshes every 5 minutes.

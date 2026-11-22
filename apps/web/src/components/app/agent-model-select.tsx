@@ -54,7 +54,7 @@ export function AgentModelSelect({
 
   return (
     <div className="space-y-1">
-      <label className="text-sm text-muted-foreground" htmlFor={id}>
+      <label className="text-body-md text-muted-foreground" htmlFor={id}>
         Model
       </label>
       <Select
@@ -88,7 +88,7 @@ export function AgentModelSelect({
             <SelectItem key={option.id} value={option.id}>
               {option.label}
               {option.isNew ? (
-                <span className="ml-2 text-xs text-primary">New</span>
+                <span className="ml-2 text-body-sm text-primary">New</span>
               ) : null}
             </SelectItem>
           ))}

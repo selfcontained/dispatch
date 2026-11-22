@@ -75,7 +75,7 @@ export function DiffBlock({
   const lines = useMemo(() => diffLines(oldText, newText), [oldText, newText]);
   return (
     <pre
-      className="max-h-64 overflow-auto rounded-md bg-muted font-terminal text-[11px] leading-snug"
+      className="max-h-64 overflow-auto rounded-md bg-muted font-terminal text-label-sm leading-snug"
       data-testid="chat-activity-diff"
     >
       {lines.map((line, index) => (

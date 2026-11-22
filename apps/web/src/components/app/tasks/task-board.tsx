@@ -143,7 +143,7 @@ function BoardColumn({
           aria-hidden="true"
           className="h-2 w-2 shrink-0 rounded-full bg-[hsl(var(--col))]"
         />
-        <h2 className="min-w-0 flex-1 truncate text-sm font-semibold">
+        <h2 className="min-w-0 flex-1 truncate text-heading-sm">
           {column.name}
         </h2>
         <ColumnCapacity column={column} />

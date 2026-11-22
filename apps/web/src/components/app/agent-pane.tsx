@@ -59,7 +59,7 @@ export function ChatFiltersButton(): JSX.Element {
         className="w-64 p-3"
         data-testid="chat-filters-popover"
       >
-        <div className="mb-2 text-xs font-semibold text-foreground">
+        <div className="mb-2 text-body-sm font-semibold text-foreground">
           Chat options
         </div>
         <label
@@ -67,10 +67,10 @@ export function ChatFiltersButton(): JSX.Element {
           className="flex cursor-pointer items-center justify-between gap-4 rounded-md px-1 py-1.5"
         >
           <span className="min-w-0">
-            <span className="block text-sm font-medium text-foreground">
+            <span className="block text-body-md font-medium text-foreground">
               Your last message
             </span>
-            <span className="block text-xs text-muted-foreground">
+            <span className="block text-body-sm text-muted-foreground">
               Keep your request visible above the stream.
             </span>
           </span>
@@ -87,10 +87,10 @@ export function ChatFiltersButton(): JSX.Element {
           className="flex cursor-pointer items-center justify-between gap-4 rounded-md px-1 py-1.5"
         >
           <span className="min-w-0">
-            <span className="block text-sm font-medium text-foreground">
+            <span className="block text-body-md font-medium text-foreground">
               Show progress text
             </span>
-            <span className="block text-xs text-muted-foreground">
+            <span className="block text-body-sm text-muted-foreground">
               Read updates as the agent works. Off shows a short summary
               instead.
             </span>
@@ -173,7 +173,7 @@ export function AgentPane({
               : undefined
           }
         >
-          <span className="flex min-w-0 items-center gap-1 text-xs font-medium text-foreground">
+          <span className="flex min-w-0 items-center gap-1 text-body-sm font-medium text-foreground">
             {project ? (
               <ProjectIcon
                 project={project}
@@ -189,7 +189,7 @@ export function AgentPane({
           </span>
           {agentSwitchValidationMode ? (
             <span
-              className="text-[10px] text-muted-foreground"
+              className="text-label-xs text-muted-foreground"
               data-testid="agent-switch-validation-mode"
             >
               Validation: {agentSwitchValidationMode} fix
@@ -233,7 +233,7 @@ export function AgentPane({
           />
         ) : (
           <div
-            className="flex h-full items-center justify-center text-sm text-muted-foreground"
+            className="flex h-full items-center justify-center text-body-md text-muted-foreground"
             data-testid="agent-chat-opening"
           >
             Opening chat…

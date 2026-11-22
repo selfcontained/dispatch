@@ -40,31 +40,29 @@ export function RoutingDecisionDetails({
             : "Default kept";
   return (
     <section
-      className="space-y-2 border-t border-border/60 pt-2 text-xs"
+      className="space-y-2 border-t border-border/60 pt-2 text-body-sm"
       aria-label={`Routing for ${agentName ?? d.agentId}`}
     >
       <div className="flex items-center justify-between gap-2">
-        <h3 className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-          Reply placement
-        </h3>
-        <span className="max-w-[60%] truncate text-[10px] text-muted-foreground">
+        <h3 className="section-label">Reply placement</h3>
+        <span className="max-w-[60%] truncate text-label-xs text-muted-foreground">
           {agentName ?? d.agentId}
         </span>
       </div>
       <div className="flex flex-wrap items-center gap-2">
-        <Badge className="border-primary/30 bg-primary/10 px-2 py-0.5 text-xs normal-case tracking-normal text-primary">
+        <Badge className="border-primary/30 bg-primary/10 px-2 py-0.5 text-body-sm normal-case tracking-normal text-primary">
           {d.actual}
         </Badge>
         <span
           className={cn(
-            "text-[11px]",
+            "text-label-sm",
             applied ? "text-primary" : "text-muted-foreground"
           )}
         >
           {decision}
         </span>
       </div>
-      <p className="text-[10px] text-muted-foreground">
+      <p className="text-label-xs text-muted-foreground">
         {d.reason === "Below threshold; default preserved"
           ? "Override requirements not met"
           : d.reason === "Recommendation applied"
@@ -72,7 +70,7 @@ export function RoutingDecisionDetails({
             : d.reason}
       </p>
       <div className="space-y-1.5 rounded-md bg-muted/25 px-2 py-1.5">
-        <div className="text-[10px] text-muted-foreground">
+        <div className="text-label-xs text-muted-foreground">
           Override gate · both require ≥80%
         </div>
         {[
@@ -81,7 +79,7 @@ export function RoutingDecisionDetails({
         ].map((score) => (
           <div
             key={score.label}
-            className="grid grid-cols-[8rem_1fr_2.5rem] items-center gap-2 text-[10px]"
+            className="grid grid-cols-[8rem_1fr_2.5rem] items-center gap-2 text-label-xs"
           >
             <span className="truncate text-muted-foreground">
               {score.label}
@@ -107,11 +105,11 @@ export function RoutingDecisionDetails({
         ))}
       </div>
       <Collapsible>
-        <CollapsibleTrigger className="group flex w-full items-center justify-between py-1 text-[10px] text-muted-foreground hover:text-foreground">
+        <CollapsibleTrigger className="group flex w-full items-center justify-between py-1 text-label-xs text-muted-foreground hover:text-foreground">
           Decision details{" "}
           <ChevronDown className="h-3 w-3 transition-transform group-data-[state=open]:rotate-180" />
         </CollapsibleTrigger>
-        <CollapsibleContent className="space-y-2 pt-1 text-[10px]">
+        <CollapsibleContent className="space-y-2 pt-1 text-label-xs">
           <div className="text-muted-foreground">
             Destination preferences · total 100%
           </div>
@@ -152,7 +150,7 @@ export function RoutingDecisionDetails({
                   : `${(d.confidence * 100).toFixed(1)}% ${d.confidence >= 0.8 ? "✓" : "×"}`}
               </dd>
             </dl>
-            <p className="mt-1 text-[10px] leading-snug text-muted-foreground">
+            <p className="mt-1 text-label-xs leading-snug text-muted-foreground">
               Preferences compare destinations; confidence scores the decision
               as a whole.
             </p>
@@ -160,12 +158,12 @@ export function RoutingDecisionDetails({
         </CollapsibleContent>
       </Collapsible>
       <Collapsible className="border-t border-border/40 pt-1">
-        <CollapsibleTrigger className="group flex w-full items-center justify-between py-1 text-[10px] text-muted-foreground hover:text-foreground">
+        <CollapsibleTrigger className="group flex w-full items-center justify-between py-1 text-label-xs text-muted-foreground hover:text-foreground">
           Routing API usage{" "}
           <ChevronDown className="h-3 w-3 transition-transform group-data-[state=open]:rotate-180" />
         </CollapsibleTrigger>
         <CollapsibleContent>
-          <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 py-1 text-[10px]">
+          <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 py-1 text-label-xs">
             <dt className="text-muted-foreground">Latency · est. cost</dt>
             <dd className="text-right tabular-nums">
               {d.latencyMs === undefined

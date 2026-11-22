@@ -65,21 +65,21 @@ export function ServiceResourcesSettings(): JSX.Element {
       <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <div className="flex items-center gap-2">
-            <h1 className="text-xl font-semibold">Service resources</h1>
+            <h1 className="text-heading-lg">Service resources</h1>
             {data && collectionEnabled && (
               <Badge variant={stateBadgeVariant(data.overall.state)}>
                 {stateLabel(data.overall.state)}
               </Badge>
             )}
           </div>
-          <p className="mt-1 text-sm text-muted-foreground">
+          <p className="mt-1 text-body-md text-muted-foreground">
             Health and resource insights for Dispatch, its agents, dependencies,
             and host. Collected history resets when Dispatch restarts.
           </p>
         </div>
         <div className="flex flex-wrap items-center justify-end gap-2">
           <span
-            className="w-28 whitespace-nowrap text-right text-xs text-muted-foreground"
+            className="w-28 whitespace-nowrap text-right text-body-sm text-muted-foreground"
             data-testid="resources-updated-at"
           >
             {stale ? (
@@ -103,7 +103,7 @@ export function ServiceResourcesSettings(): JSX.Element {
             disabled={!collectionEnabled}
           >
             <SelectTrigger
-              className="h-8 w-28 text-xs"
+              className="h-8 w-28 text-body-sm"
               aria-label="Resource history window"
             >
               <SelectValue />
@@ -121,10 +121,10 @@ export function ServiceResourcesSettings(): JSX.Element {
           htmlFor="resource-collection-toggle"
           className="min-w-0 cursor-pointer"
         >
-          <span className="block text-sm font-medium text-foreground">
+          <span className="block text-body-md font-medium text-foreground">
             Collect resource metrics
           </span>
-          <span className="mt-0.5 block text-xs leading-relaxed text-muted-foreground">
+          <span className="mt-0.5 block text-body-sm leading-relaxed text-muted-foreground">
             Sample service health and resource usage every 5 seconds and retain
             up to one hour of history in memory.
           </span>
@@ -140,13 +140,13 @@ export function ServiceResourcesSettings(): JSX.Element {
       </div>
 
       {!data && !error && (
-        <div className="flex min-h-72 items-center justify-center text-sm text-muted-foreground">
+        <div className="flex min-h-72 items-center justify-center text-body-md text-muted-foreground">
           Loading service resources…
         </div>
       )}
       {!data && error && (
         <Card className="border-status-blocked/30">
-          <CardContent className="p-6 text-sm">
+          <CardContent className="p-6 text-body-md">
             <div className="font-medium text-status-blocked">
               Resources are unavailable
             </div>
@@ -181,7 +181,7 @@ export function ServiceResourcesSettings(): JSX.Element {
           {collectionMutation.error && (
             <p
               role="alert"
-              className="text-sm text-status-blocked"
+              className="text-body-md text-status-blocked"
               data-testid="resource-collection-error"
             >
               {collectionMutation.error.message}

@@ -28,7 +28,7 @@ export function AttachedAgentBanner({
         <div className="min-w-0 flex-1">
           <div
             className={cn(
-              "text-sm font-medium",
+              "text-body-md font-medium",
               attachedAgent.isActive ? "text-status-working" : "text-foreground"
             )}
           >
@@ -36,7 +36,7 @@ export function AttachedAgentBanner({
               ? "Active run is attached to a live agent session."
               : "Agent kept after completion — pick up where the run left off."}
           </div>
-          <div className="truncate text-xs text-muted-foreground">
+          <div className="truncate text-body-sm text-muted-foreground">
             <AgentSessionLink
               agentId={attachedAgent.agent.id}
               name={attachedAgent.agent.name}
@@ -70,8 +70,10 @@ export function JobAddedBanner({
 }) {
   return (
     <div className="mt-4 rounded-md border border-status-done/40 bg-status-done/10 p-4">
-      <div className="text-sm font-semibold text-status-done">Job added</div>
-      <div className="mt-1 text-sm text-muted-foreground">
+      <div className="text-body-md font-semibold text-status-done">
+        Job added
+      </div>
+      <div className="mt-1 text-body-md text-muted-foreground">
         {job.enabled && job.nextRun
           ? `Scheduled next run: ${formatJobDateTime(job.nextRun)}.`
           : job.schedule

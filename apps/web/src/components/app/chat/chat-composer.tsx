@@ -1677,7 +1677,7 @@ export function ChatComposer({
           </div>
         </div>
         {(!disabled || text.length > 0) && (
-          <div className="chat-composer-hint px-1 text-[10px] text-muted-foreground">
+          <div className="chat-composer-hint px-1 text-label-xs text-muted-foreground">
             {disabledReason ? (
               <span data-testid="chat-composer-disabled-reason">
                 {disabledReason}
@@ -1728,7 +1728,7 @@ export function ChatComposer({
               {defaultRecipients ? (
                 <TooltipProvider delayDuration={150}>
                   <div
-                    className="flex min-w-0 items-center gap-2 text-[11px] text-muted-foreground"
+                    className="flex min-w-0 items-center gap-2 text-label-sm text-muted-foreground"
                     data-testid="chat-composer-routing"
                     role="group"
                     aria-label="Message recipients"

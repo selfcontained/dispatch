@@ -38,7 +38,7 @@ export function DetailTabs({
   return (
     <>
       <div className="min-w-0">
-        <h3 className="border-b border-border pb-2 text-sm font-medium text-foreground">
+        <h3 className="border-b border-border pb-2 text-heading-sm text-foreground">
           Files {files.length > 0 && `(${files.length})`}
         </h3>
         <div className="pt-3">
@@ -65,12 +65,12 @@ export function DetailTabs({
                       loading="lazy"
                     />
                   ) : (
-                    <div className="flex aspect-video items-center justify-center text-[10px] text-muted-foreground">
+                    <div className="flex aspect-video items-center justify-center text-label-xs text-muted-foreground">
                       {m.source}
                     </div>
                   )}
                   {m.description && (
-                    <p className="truncate px-1.5 py-1 text-[10px] text-muted-foreground">
+                    <p className="truncate px-1.5 py-1 text-label-xs text-muted-foreground">
                       {m.description}
                     </p>
                   )}
@@ -78,7 +78,7 @@ export function DetailTabs({
               ))}
             </div>
           ) : (
-            <p className="py-6 text-center text-xs text-muted-foreground">
+            <p className="py-6 text-center text-body-sm text-muted-foreground">
               No files captured.
             </p>
           )}

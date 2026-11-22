@@ -77,7 +77,7 @@ export function WorktreeSection({
             }
             data-testid="create-agent-worktree"
           />
-          <span className="flex h-5 items-center gap-1.5 text-sm font-medium text-foreground">
+          <span className="flex h-5 items-center gap-1.5 text-body-md font-medium text-foreground">
             <GitBranch className="h-3.5 w-3.5" />
             Create managed git worktree
           </span>
@@ -139,7 +139,7 @@ export function WorktreeSection({
             <div className="space-y-1">
               <label
                 htmlFor="create-agent-new-branch"
-                className="ml-8 block cursor-pointer text-xs text-muted-foreground"
+                className="ml-8 block cursor-pointer text-body-sm text-muted-foreground"
               >
                 New branch
               </label>

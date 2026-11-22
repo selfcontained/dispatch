@@ -106,7 +106,7 @@ export function MermaidBlock({
     return (
       <div className="not-prose my-4 rounded-md border border-destructive/40 bg-destructive/10 p-3">
         <div className="flex items-start gap-2">
-          <p className="m-0 flex-1 text-sm font-medium text-destructive">
+          <p className="m-0 flex-1 text-body-md font-medium text-destructive">
             Mermaid render failed
           </p>
           <Button
@@ -126,7 +126,7 @@ export function MermaidBlock({
             )}
           </Button>
         </div>
-        <pre className="mt-2 overflow-x-auto whitespace-pre-wrap break-words text-xs text-destructive">
+        <pre className="mt-2 overflow-x-auto whitespace-pre-wrap break-words text-body-sm text-destructive">
           <code>{code}</code>
         </pre>
       </div>
@@ -135,7 +135,7 @@ export function MermaidBlock({
 
   if (!svg) {
     return (
-      <div className="not-prose my-4 rounded-md border border-border bg-muted/40 p-3 text-sm text-muted-foreground">
+      <div className="not-prose my-4 rounded-md border border-border bg-muted/40 p-3 text-body-md text-muted-foreground">
         <div className="flex items-center gap-2">
           <span className="h-2 w-2 rounded-full bg-primary/70 animate-pulse" />
           <span>Rendering diagram...</span>

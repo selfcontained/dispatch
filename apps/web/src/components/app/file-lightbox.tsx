@@ -222,7 +222,7 @@ export function FileLightbox({
       >
         <span
           className={cn(
-            "min-w-0 shrink truncate text-xs font-medium sm:text-sm",
+            "min-w-0 shrink truncate text-body-sm font-medium sm:text-body-md",
             isImage ? "text-white" : "text-foreground"
           )}
           title={isImage && file?.description ? displayName : undefined}
@@ -258,7 +258,7 @@ export function FileLightbox({
           </Button>
           <span
             className={cn(
-              "hidden text-xs tabular-nums sm:inline",
+              "hidden text-body-sm tabular-nums sm:inline",
               isImage ? "text-white/70" : "text-muted-foreground"
             )}
           >
@@ -312,7 +312,7 @@ export function FileLightbox({
           <div className="flex h-full min-h-screen items-center justify-center px-4 text-white">
             {showLoadError ? (
               <div className="flex flex-col items-center gap-3 text-center">
-                <p role="alert" className="text-sm text-white/70">
+                <p role="alert" className="text-body-md text-white/70">
                   Unable to load this file item.
                 </p>
                 <Button
@@ -327,7 +327,7 @@ export function FileLightbox({
               <div
                 role="status"
                 aria-live="polite"
-                className="flex items-center gap-2 text-sm text-white/70"
+                className="flex items-center gap-2 text-body-md text-white/70"
               >
                 <Loader2 className="h-4 w-4 animate-spin" />
                 Loading file…
@@ -371,10 +371,10 @@ export function FileLightbox({
         )}
       </div>
       {file && !isImage && (
-        <div className="mx-auto flex w-full max-w-4xl items-center gap-2 rounded-b-lg border border-t-0 border-border bg-surface px-2 py-1.5 text-xs text-muted-foreground sm:gap-3 sm:px-4 sm:py-2">
+        <div className="mx-auto flex w-full max-w-4xl items-center gap-2 rounded-b-lg border border-t-0 border-border bg-surface px-2 py-1.5 text-body-sm text-muted-foreground sm:gap-3 sm:px-4 sm:py-2">
           <span className="min-w-0 truncate">{caption}</span>
           {file.source ? (
-            <span className="flex-none rounded bg-muted px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide">
+            <span className="flex-none rounded bg-muted px-1.5 py-0.5 text-label-xs font-semibold uppercase tracking-wide">
               {file.source === "user" ? "your upload" : file.source}
             </span>
           ) : null}

@@ -51,8 +51,8 @@ export function BrowserExtensionSettings(): JSX.Element {
       data-testid="browser-extension-settings"
     >
       <div>
-        <h2 className="text-xl font-semibold">Connections</h2>
-        <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
+        <h2 className="text-heading-lg">Connections</h2>
+        <p className="mt-1 max-w-2xl text-body-md text-muted-foreground">
           Connect tools that can send work and context to your Dispatch agents.
         </p>
       </div>
@@ -73,7 +73,7 @@ export function BrowserExtensionSettings(): JSX.Element {
         connectionsQuery.isPending && (
           <Card>
             <CardContent className="pt-4">
-              <p className="text-sm text-muted-foreground" role="status">
+              <p className="text-body-md text-muted-foreground" role="status">
                 Checking browser connections...
               </p>
             </CardContent>

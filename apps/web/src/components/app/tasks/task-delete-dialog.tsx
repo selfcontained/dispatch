@@ -80,15 +80,18 @@ export function TaskDeleteDialog({
             if (trigger.current?.isConnected) trigger.current.focus();
           }}
         >
-          <AlertDialogTitle className="text-lg font-semibold">
+          <AlertDialogTitle className="text-heading-md">
             Delete task?
           </AlertDialogTitle>
-          <AlertDialogDescription className="break-words text-sm text-muted-foreground">
+          <AlertDialogDescription className="break-words text-body-md text-muted-foreground">
             Permanently delete “{target?.title}” and its conversation and
             attachments? This cannot be undone.
           </AlertDialogDescription>
           {remove.error && (
-            <p role="alert" className="break-words text-sm text-destructive">
+            <p
+              role="alert"
+              className="break-words text-body-md text-destructive"
+            >
               Could not delete the task: {remove.error.message}
             </p>
           )}

@@ -93,7 +93,7 @@ function ImagePanel({
 
   return (
     <div className={cn("flex min-w-0 flex-col items-center gap-2", className)}>
-      <div className="flex flex-wrap items-center justify-center gap-x-2 text-[10px] uppercase tracking-wide">
+      <div className="flex flex-wrap items-center justify-center gap-x-2 section-label">
         <span
           className={cn(
             "font-medium",
@@ -113,7 +113,7 @@ function ImagePanel({
       {blocked !== null ? (
         <div
           className={cn(
-            "flex w-full items-center justify-center rounded border border-dashed border-border/60 px-3 py-6 text-[11px] text-muted-foreground",
+            "flex w-full items-center justify-center rounded border border-dashed border-border/60 px-3 py-6 text-label-sm text-muted-foreground",
             PREVIEW_RESERVE
           )}
         >
@@ -255,7 +255,7 @@ export function DiffImageView({
                 }
                 data-testid={`diff-image-mode:${m.value}`}
                 className={cn(
-                  "whitespace-nowrap rounded-[3px] px-2.5 py-1 text-[11px] font-medium transition-colors",
+                  "whitespace-nowrap rounded-[3px] px-2.5 py-1 text-label-sm font-medium transition-colors",
                   "disabled:cursor-not-allowed disabled:opacity-50",
                   effectiveMode === m.value
                     ? "bg-background text-foreground shadow-sm"
@@ -271,7 +271,7 @@ export function DiffImageView({
         {unavailableReason !== null && unavailableReason !== "Loading…" ? (
           <p
             id={`diff-image-modes-hint-${filePath}`}
-            className="text-[10px] text-muted-foreground"
+            className="text-label-xs text-muted-foreground"
           >
             {unavailableReason}
           </p>
@@ -294,7 +294,7 @@ export function DiffImageView({
           />
           {/* 2-up captions each side itself; stacked, this is the only place
               the before/after numbers can be read. */}
-          <div className="mt-3 flex items-center justify-center gap-3 font-mono text-[10px] text-muted-foreground">
+          <div className="mt-3 flex items-center justify-center gap-3 font-mono text-label-xs text-muted-foreground">
             <span className="text-status-blocked">
               {oldDim ? `${oldDim.width}×${oldDim.height}` : "—"}
               {image.oldSize !== null ? ` · ${formatBytes(image.oldSize)}` : ""}

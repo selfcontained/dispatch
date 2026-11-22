@@ -42,7 +42,7 @@ export function TaskMoveSheet({
         }}
       >
         <DialogHeader>
-          <DialogTitle className="text-base">Move to…</DialogTitle>
+          <DialogTitle className="text-heading-md">Move to…</DialogTitle>
           <DialogDescription className="truncate">
             {task.title}
           </DialogDescription>
@@ -61,7 +61,7 @@ export function TaskMoveSheet({
                 key={column.id}
                 type="button"
                 className={cn(
-                  "flex min-h-11 w-full items-center gap-3 rounded-md px-3 text-left text-sm hover:bg-muted/60",
+                  "flex min-h-11 w-full items-center gap-3 rounded-md px-3 text-left text-body-md hover:bg-muted/60",
                   current && "font-medium"
                 )}
                 onClick={() => {

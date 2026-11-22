@@ -16,7 +16,7 @@ const SelectGroup = SelectPrimitive.Group;
 const SelectValue = SelectPrimitive.Value;
 
 export const selectTriggerClassName = cn(
-  "flex h-9 w-full items-center justify-between rounded-md px-3 py-2 text-sm",
+  "flex h-9 w-full items-center justify-between rounded-md px-3 py-2 text-body-md",
   glassInset,
   "ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring",
   "disabled:cursor-not-allowed disabled:opacity-50 [&>span]:line-clamp-1"
@@ -133,7 +133,7 @@ const SelectLabel = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <SelectPrimitive.Label
     ref={ref}
-    className={cn("py-1.5 pl-8 pr-2 text-sm font-semibold", className)}
+    className={cn("py-1.5 pl-8 pr-2 text-body-md font-semibold", className)}
     {...props}
   />
 ));
@@ -146,7 +146,7 @@ const SelectItem = React.forwardRef<
   <SelectPrimitive.Item
     ref={ref}
     className={cn(
-      "relative flex w-full cursor-default select-none items-center rounded-sm py-1.5 pl-8 pr-2 text-sm outline-none",
+      "relative flex w-full cursor-default select-none items-center rounded-sm py-1.5 pl-8 pr-2 text-body-md outline-none",
       "focus:bg-accent focus:text-accent-foreground data-[state=checked]:bg-accent/60",
       "data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
       className

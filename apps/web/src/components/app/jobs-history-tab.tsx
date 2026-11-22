@@ -46,11 +46,11 @@ export function HistoryTab({
         />
       ) : null}
       {error && runs.length === 0 ? null : loading ? (
-        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+        <div className="flex items-center gap-2 text-body-md text-muted-foreground">
           <ActivityBars size={16} /> Loading history...
         </div>
       ) : runs.length === 0 ? (
-        <div className="text-sm text-muted-foreground">No runs yet.</div>
+        <div className="text-body-md text-muted-foreground">No runs yet.</div>
       ) : (
         <div className="flex flex-col">
           {runs.map((run) => {
@@ -64,7 +64,7 @@ export function HistoryTab({
                 <button
                   type="button"
                   className={cn(
-                    "flex w-full min-w-0 items-center gap-2.5 overflow-hidden py-1.5 text-left text-xs transition-colors hover:text-foreground",
+                    "flex w-full min-w-0 items-center gap-2.5 overflow-hidden py-1.5 text-left text-body-sm transition-colors hover:text-foreground",
                     isSelected ? "text-foreground" : "text-muted-foreground"
                   )}
                   onClick={() => onSelectRun(isSelected ? "" : run.id)}
@@ -105,7 +105,7 @@ export function HistoryTab({
 function RunReport({ run }: { run: JobRun | null }) {
   if (!run) {
     return (
-      <div className="mb-2 ml-4 border-l-2 border-border pl-3 text-xs text-muted-foreground">
+      <div className="mb-2 ml-4 border-l-2 border-border pl-3 text-body-sm text-muted-foreground">
         Select a run.
       </div>
     );
@@ -113,13 +113,13 @@ function RunReport({ run }: { run: JobRun | null }) {
   return (
     <div className="mb-2 ml-[3px] border-l-2 border-border pl-4">
       {run.report?.summary && (
-        <div className="pb-1 text-xs text-muted-foreground">
+        <div className="pb-1 text-body-sm text-muted-foreground">
           {run.report.summary}
         </div>
       )}
       {run.report?.tasks.map((task, index) => (
         <div key={`${task.name}-${index}`} className="py-0.5">
-          <div className="flex items-center gap-1.5 text-xs">
+          <div className="flex items-center gap-1.5 text-body-sm">
             <span
               className={cn(
                 "h-1.5 w-1.5 shrink-0 rounded-full",
@@ -138,14 +138,14 @@ function RunReport({ run }: { run: JobRun | null }) {
             )}
           </div>
           {task.summary ? (
-            <div className="pl-3.5 text-xs text-muted-foreground/70">
+            <div className="pl-3.5 text-body-sm text-muted-foreground/70">
               {task.summary}
             </div>
           ) : null}
           {task.errors?.map((error, errorIndex) => (
             <div
               key={errorIndex}
-              className="pl-3.5 text-xs text-status-blocked"
+              className="pl-3.5 text-body-sm text-status-blocked"
             >
               {error.message}
               {error.action ? (
@@ -158,7 +158,7 @@ function RunReport({ run }: { run: JobRun | null }) {
           {task.logs?.slice(-5).map((log, logIndex) => (
             <div
               key={logIndex}
-              className="pl-3.5 font-mono text-[11px] text-muted-foreground/50"
+              className="pl-3.5 font-mono text-label-sm text-muted-foreground/50"
             >
               [{log.level}] {log.message}
             </div>
@@ -166,18 +166,18 @@ function RunReport({ run }: { run: JobRun | null }) {
         </div>
       ))}
       {run.pendingQuestion && (
-        <div className="flex items-start gap-1.5 py-1 text-xs">
+        <div className="flex items-start gap-1.5 py-1 text-body-sm">
           <MessageSquareText className="mt-0.5 h-3 w-3 shrink-0 text-status-waiting" />
           <span className="text-status-waiting">{run.pendingQuestion}</span>
         </div>
       )}
       {run.completedAt && (
-        <div className="pt-1 font-mono text-[11px] text-muted-foreground/50">
+        <div className="pt-1 font-mono text-label-sm text-muted-foreground/50">
           Completed {formatJobDateTime(run.completedAt)}
         </div>
       )}
       {!run.report && !run.pendingQuestion && (
-        <div className="text-xs text-muted-foreground">No report yet.</div>
+        <div className="text-body-sm text-muted-foreground">No report yet.</div>
       )}
     </div>
   );

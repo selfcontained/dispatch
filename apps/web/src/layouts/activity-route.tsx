@@ -17,9 +17,7 @@ export function ActivityRoute(): JSX.Element {
       sidebar={
         <div className="flex h-full min-h-0 flex-col">
           <div className="mt-2 flex h-14 items-center border-b border-border px-3">
-            <div className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-              Activity
-            </div>
+            <div className="section-label">Activity</div>
           </div>
           <nav className="min-h-0 flex-1 overflow-y-auto px-2 py-2">
             <button
@@ -29,7 +27,7 @@ export function ActivityRoute(): JSX.Element {
                 navigate("/activity/metrics", { replace: true });
               }}
               className={cn(
-                "flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-left text-sm transition-colors",
+                "flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-left text-body-md transition-colors",
                 (activityTab ?? "metrics") === "metrics"
                   ? "bg-primary/10 text-foreground border border-primary/20"
                   : "border border-transparent text-muted-foreground hover:bg-white/[0.04] hover:text-foreground"
@@ -45,7 +43,7 @@ export function ActivityRoute(): JSX.Element {
                 navigate("/activity/history", { replace: true });
               }}
               className={cn(
-                "flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-left text-sm transition-colors",
+                "flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-left text-body-md transition-colors",
                 activityTab === "history"
                   ? "bg-primary/10 text-foreground border border-primary/20"
                   : "border border-transparent text-muted-foreground hover:bg-white/[0.04] hover:text-foreground"

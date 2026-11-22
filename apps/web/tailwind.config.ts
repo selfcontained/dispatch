@@ -12,6 +12,23 @@ export default {
   content: ["./index.html", "./src/**/*.{ts,tsx}"],
   theme: {
     extend: {
+      // The type ramp. Headings carry their weight. body-lg is the 16px step
+      // touch inputs need to stop iOS zooming; code scales with its paragraph.
+      fontSize: {
+        "label-xs": ["0.625rem", "0.875rem"],
+        "label-sm": ["0.6875rem", "1rem"],
+        "body-sm": ["0.75rem", "1rem"],
+        "body-md": ["0.875rem", "1.25rem"],
+        "body-lg": ["1rem", "1.5rem"],
+        code: "0.875em",
+        "heading-sm": [
+          "0.875rem",
+          { lineHeight: "1.25rem", fontWeight: "600" },
+        ],
+        "heading-md": ["1rem", { lineHeight: "1.5rem", fontWeight: "600" }],
+        "heading-lg": ["1.25rem", { lineHeight: "1.75rem", fontWeight: "600" }],
+        display: ["1.5rem", { lineHeight: "2rem", fontWeight: "600" }],
+      },
       colors: {
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",

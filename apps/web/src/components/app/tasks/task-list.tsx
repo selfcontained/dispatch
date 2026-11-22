@@ -61,7 +61,7 @@ export function TaskList({
       <div className="mb-3 flex justify-end gap-2">
         <label
           htmlFor="task-sort"
-          className="self-center text-xs text-muted-foreground"
+          className="self-center text-body-sm text-muted-foreground"
         >
           Sort
         </label>
@@ -93,7 +93,7 @@ export function TaskList({
             <Button
               variant="ghost"
               aria-expanded={!collapsed.has(column.id)}
-              className="h-10 min-w-0 flex-1 justify-start gap-2 rounded-none px-3 text-sm font-semibold hover:bg-[hsl(var(--col)/0.14)]"
+              className="h-10 min-w-0 flex-1 justify-start gap-2 rounded-none px-3 text-body-md font-semibold hover:bg-[hsl(var(--col)/0.14)]"
               onClick={() =>
                 setCollapsed((old) => {
                   const next = new Set(old);
@@ -130,7 +130,7 @@ export function TaskList({
                 <div
                   key={task.id}
                   data-testid={`task-row-${task.id}`}
-                  className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2 gap-y-1.5 px-3 py-2 text-sm transition-colors hover:bg-muted/40 md:grid-cols-[minmax(0,2fr)_minmax(110px,1fr)_minmax(120px,1fr)_55px_minmax(80px,1fr)] md:gap-3"
+                  className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2 gap-y-1.5 px-3 py-2 text-body-md transition-colors hover:bg-muted/40 md:grid-cols-[minmax(0,2fr)_minmax(110px,1fr)_minmax(120px,1fr)_55px_minmax(80px,1fr)] md:gap-3"
                 >
                   <button
                     className="min-w-0 truncate text-left font-medium hover:underline"
@@ -160,13 +160,13 @@ export function TaskList({
                       />
                     )}
                   </div>
-                  <span className="text-right text-xs text-muted-foreground">
+                  <span className="text-right text-body-sm text-muted-foreground">
                     {formatRelativeCompact(task.createdAt)}
                   </span>
                   <div className="col-span-2 flex min-w-0 flex-wrap items-center gap-2 md:col-span-1">
                     {task.latestFailure && !task.launching && (
                       <span
-                        className="text-xs text-destructive"
+                        className="text-body-sm text-destructive"
                         title={task.latestFailure.reason}
                       >
                         ⚠ launch failed
@@ -179,7 +179,7 @@ export function TaskList({
                           key={link.url ?? link.label}
                           href={link.url ?? undefined}
                           title={link.label}
-                          className="inline-flex min-w-0 max-w-full items-center gap-1 text-xs text-primary"
+                          className="inline-flex min-w-0 max-w-full items-center gap-1 text-body-sm text-primary"
                         >
                           <GitPullRequest
                             className="h-3 w-3 shrink-0"
@@ -213,7 +213,7 @@ export function TaskList({
                 </div>
               ))}
               {!group.length && (
-                <p className="px-3 py-3 text-xs text-muted-foreground">
+                <p className="px-3 py-3 text-body-sm text-muted-foreground">
                   No tasks
                 </p>
               )}
@@ -239,7 +239,7 @@ export function StatusSelect({
     <Select value={task.columnId} onValueChange={(id) => moveTask(task, id)}>
       <SelectTrigger
         aria-label={`Status for ${task.title}`}
-        className={cn("h-8 w-32 text-xs", className)}
+        className={cn("h-8 w-32 text-body-sm", className)}
       >
         <SelectValue />
       </SelectTrigger>

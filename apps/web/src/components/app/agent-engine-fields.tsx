@@ -109,7 +109,7 @@ export function AgentEngineFields({
       </AgentConfigRow>
       {engineLine ? (
         <p
-          className="-mt-1 truncate text-xs text-muted-foreground/70"
+          className="-mt-1 truncate text-body-sm text-muted-foreground/70"
           title={engineLine}
           data-testid={idPrefix ? `${idPrefix}-engine` : "create-agent-engine"}
         >

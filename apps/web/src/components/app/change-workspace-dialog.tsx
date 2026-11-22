@@ -118,37 +118,40 @@ export function ChangeWorkspaceButton({
           {/* Scrolls on short screens so a long error can't push the
                 actions out of reach. */}
           <div className="-mx-1 flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-1">
-            <label className="flex flex-col gap-1 text-sm">
+            <label className="flex flex-col gap-1 text-body-md">
               <span className="text-muted-foreground">Directory</span>
               <Input
                 value={path}
                 onChange={(event) => setPath(event.target.value)}
                 placeholder="/absolute/path/to/checkout"
-                className="font-mono text-xs"
+                className="font-mono text-body-sm"
                 data-testid="change-workspace-path"
                 autoFocus
               />
             </label>
-            <label className="flex flex-col gap-1 text-sm">
+            <label className="flex flex-col gap-1 text-body-md">
               <span className="text-muted-foreground">
                 Base branch{" "}
-                <span className="text-xs">(optional, for the diff)</span>
+                <span className="text-body-sm">(optional, for the diff)</span>
               </span>
               <Input
                 value={baseBranch}
                 onChange={(event) => setBaseBranch(event.target.value)}
                 placeholder="Repo default"
-                className="font-mono text-xs"
+                className="font-mono text-body-sm"
                 data-testid="change-workspace-base"
               />
             </label>
             {moved ? (
-              <p className="text-xs text-muted-foreground">
+              <p className="text-body-sm text-muted-foreground">
                 Launched in <code className="break-all">{agent.cwd}</code>
               </p>
             ) : null}
             {errorMessage ? (
-              <p className="break-all text-sm text-destructive" role="alert">
+              <p
+                className="break-all text-body-md text-destructive"
+                role="alert"
+              >
                 {errorMessage}
               </p>
             ) : null}

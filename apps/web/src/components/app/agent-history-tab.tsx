@@ -120,7 +120,7 @@ function AgentHistoryList({
             placeholder="Search agents..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="h-8 pl-8 text-xs"
+            className="h-8 pl-8 text-body-sm"
           />
           {search && (
             <button
@@ -137,7 +137,7 @@ function AgentHistoryList({
             value={type || "__all__"}
             onValueChange={(v) => setType(v === "__all__" ? "" : v)}
           >
-            <SelectTrigger className="h-7 w-[100px] text-[11px]">
+            <SelectTrigger className="h-7 w-[100px] text-label-sm">
               <SelectValue placeholder="All types" />
             </SelectTrigger>
             <SelectContent>
@@ -152,7 +152,7 @@ function AgentHistoryList({
               value={project || "__all__"}
               onValueChange={(v) => setProject(v === "__all__" ? "" : v)}
             >
-              <SelectTrigger className="h-7 max-w-[180px] text-[11px]">
+              <SelectTrigger className="h-7 max-w-[180px] text-label-sm">
                 <SelectValue placeholder="All projects" />
               </SelectTrigger>
               <SelectContent>
@@ -170,7 +170,7 @@ function AgentHistoryList({
             value={range}
             onValueChange={(v) => onRangeChange(v as ActivityRange)}
           >
-            <SelectTrigger className="h-7 w-[120px] text-[11px]">
+            <SelectTrigger className="h-7 w-[120px] text-label-sm">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -190,14 +190,14 @@ function AgentHistoryList({
                 setProject("");
                 onRangeChange("all");
               }}
-              className="text-[11px] text-muted-foreground hover:text-foreground"
+              className="text-label-sm text-muted-foreground hover:text-foreground"
             >
               Clear filters
             </button>
           )}
 
           {data && (
-            <span className="ml-auto text-[11px] text-muted-foreground">
+            <span className="ml-auto text-label-sm text-muted-foreground">
               {formatCount(data.total, "agent")}
             </span>
           )}
@@ -206,9 +206,9 @@ function AgentHistoryList({
 
       {/* Table */}
       <div className="flex-1 overflow-auto">
-        <table className="w-full text-xs">
+        <table className="w-full text-body-sm">
           <thead className="sticky top-0 z-10 bg-white/[0.04] backdrop-blur-xl">
-            <tr className="border-b border-border text-left text-[11px] text-muted-foreground">
+            <tr className="border-b border-border text-left text-label-sm text-muted-foreground">
               <th
                 className="cursor-pointer px-3 py-2 font-medium sm:px-5"
                 onClick={() => toggleSort("name")}
@@ -285,7 +285,7 @@ function AgentHistoryList({
                           />
                         </span>
                         {hasChildren && (
-                          <span className="flex-shrink-0 flex h-4 w-4 items-center justify-center rounded-full bg-muted text-[10px] text-muted-foreground">
+                          <span className="flex-shrink-0 flex h-4 w-4 items-center justify-center rounded-full bg-muted text-label-xs text-muted-foreground">
                             {agent.children.length}
                           </span>
                         )}
@@ -310,7 +310,7 @@ function AgentHistoryList({
                           <span>
                             {formatTokenCount(agent.groupTotalTokens)}
                           </span>
-                          <span className="ml-1 text-[10px] text-muted-foreground/60">
+                          <span className="ml-1 text-label-xs text-muted-foreground/60">
                             ({formatTokenCount(agent.totalTokens)})
                           </span>
                         </div>
@@ -340,7 +340,7 @@ function AgentHistoryList({
                           className="py-2 pl-10 pr-3 sm:pl-12 sm:pr-5"
                         >
                           <div className="flex items-center gap-2">
-                            <Badge className="h-4 px-1.5 text-[10px] font-normal">
+                            <Badge className="h-4 px-1.5 text-label-xs font-normal">
                               {child.persona ??
                                 (child.role === "review" ? "review" : "agent")}
                             </Badge>
@@ -373,7 +373,7 @@ function AgentHistoryList({
               <tr>
                 <td
                   colSpan={5}
-                  className="px-5 py-12 text-center text-sm text-muted-foreground"
+                  className="px-5 py-12 text-center text-body-md text-muted-foreground"
                 >
                   {hasActiveFilters
                     ? "No agents match the current filters."
@@ -386,7 +386,7 @@ function AgentHistoryList({
 
         {data && data.agents.length < data.total && (
           <div className="py-3 text-center">
-            <button className="text-xs text-muted-foreground hover:text-foreground">
+            <button className="text-body-sm text-muted-foreground hover:text-foreground">
               Showing {data.agents.length} of {data.total} agents — load more
               coming soon
             </button>

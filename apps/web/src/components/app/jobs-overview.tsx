@@ -84,7 +84,7 @@ export function JobsOverview({
         <div>
           <AlarmClock className="mx-auto mb-3 h-8 w-8" />
           <div className="font-medium text-foreground">No jobs yet</div>
-          <div className="mt-1 max-w-sm text-sm">
+          <div className="mt-1 max-w-sm text-body-md">
             Use jobs for recurring maintenance, scheduled checks, and repeatable
             agent workflows — on a schedule or on demand.
           </div>
@@ -142,9 +142,7 @@ export function JobsOverview({
             <div className="flex flex-col gap-4 sm:flex-row [&>*]:sm:flex-1 [&>*]:sm:min-w-0">
               {dailyChartData.length > 0 && (
                 <div>
-                  <h3 className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                    Daily Runs
-                  </h3>
+                  <h3 className="mb-2 section-label">Daily Runs</h3>
                   <div className="h-[180px] sm:h-[220px] rounded-md border border-border bg-muted/40 p-3">
                     <DailyRunsChart data={dailyChartData} />
                   </div>
@@ -159,7 +157,7 @@ export function JobsOverview({
         {/* Upcoming */}
         {upcomingJobs.length > 0 && (
           <div>
-            <div className="mb-2 flex items-center gap-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+            <div className="mb-2 flex items-center gap-2 section-label">
               <Clock className="h-3.5 w-3.5" />
               Upcoming
             </div>
@@ -167,13 +165,13 @@ export function JobsOverview({
               {upcomingJobs.map((job) => (
                 <button
                   key={job.id}
-                  className="flex w-full items-center justify-between px-3 py-2.5 text-left text-sm transition-colors hover:bg-muted/50"
+                  className="flex w-full items-center justify-between px-3 py-2.5 text-left text-body-md transition-colors hover:bg-muted/50"
                   onClick={() => onSelectJob(job)}
                 >
                   <span className="font-medium text-foreground">
                     {job.name}
                   </span>
-                  <span className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <span className="flex items-center gap-2 text-body-sm text-muted-foreground">
                     <span title={formatDateTime(job.nextRun!)}>
                       {formatTimeUntil(job.nextRun!)}
                     </span>
@@ -190,7 +188,7 @@ export function JobsOverview({
         {/* Recent Activity */}
         {recentRuns.length > 0 && (
           <div>
-            <div className="mb-2 flex items-center gap-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+            <div className="mb-2 flex items-center gap-2 section-label">
               <Activity className="h-3.5 w-3.5" />
               Recent Activity
             </div>
@@ -202,7 +200,7 @@ export function JobsOverview({
                   return (
                     <button
                       key={run.id}
-                      className="flex w-full items-center gap-3 px-3 py-2.5 text-left text-sm transition-colors hover:bg-muted/50"
+                      className="flex w-full items-center gap-3 px-3 py-2.5 text-left text-body-md transition-colors hover:bg-muted/50"
                       onClick={() => onSelectRun(run.jobId, run.id)}
                     >
                       <span className="min-w-0 flex-1 truncate font-medium text-foreground">
@@ -210,17 +208,17 @@ export function JobsOverview({
                       </span>
                       <span
                         className={cn(
-                          "shrink-0 text-xs",
+                          "shrink-0 text-body-sm",
                           statusTextColor(run.status)
                         )}
                       >
                         {statusLabel(run.status)}
                       </span>
-                      <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+                      <span className="shrink-0 text-body-sm tabular-nums text-muted-foreground">
                         {formatDuration(run.durationMs)}
                       </span>
                       <span
-                        className="shrink-0 text-xs text-muted-foreground/60"
+                        className="shrink-0 text-body-sm text-muted-foreground/60"
                         title={formatDateTime(run.startedAt)}
                       >
                         {formatRelativeTime(run.startedAt)}
@@ -237,7 +235,7 @@ export function JobsOverview({
           <div className="flex flex-col items-center justify-center py-12 text-center text-muted-foreground">
             <AlarmClock className="mb-3 h-8 w-8" />
             <div className="font-medium text-foreground">Select a job</div>
-            <div className="mt-1 max-w-sm text-sm">
+            <div className="mt-1 max-w-sm text-body-md">
               {upcomingJobs.length > 0
                 ? "Your scheduled jobs are set up. Run history and metrics will appear here after the first run."
                 : "Run a job to start tracking activity and metrics here."}

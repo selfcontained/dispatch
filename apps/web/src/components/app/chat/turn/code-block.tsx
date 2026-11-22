@@ -130,7 +130,7 @@ export function ExpandableBlock({
           onClick={() => setExpanded((v) => !v)}
           aria-expanded={expanded}
           data-testid="harness-block-toggle"
-          className="w-full border-t border-border/40 px-2 py-1 text-left text-[10.5px] text-muted-foreground hover:text-foreground"
+          className="w-full border-t border-border/40 px-2 py-1 text-left text-label-xs text-muted-foreground hover:text-foreground"
         >
           {expanded ? "Collapse" : `Show all ${lineCount} lines`}
         </button>
@@ -174,7 +174,7 @@ export function CodeBlock({
     <ExpandableBlock lineCount={lines.length} testId="harness-code">
       <div
         className={cn(
-          "hljs grid !bg-transparent py-2 font-terminal text-[11px] leading-[1.5]",
+          "hljs grid !bg-transparent py-2 font-terminal text-label-sm leading-[1.5]",
           lineNumbers ? "grid-cols-[auto_1fr]" : "grid-cols-1"
         )}
       >
@@ -226,7 +226,7 @@ export function PathList({ text }: { text: string }): JSX.Element {
   const paths = text.split("\n").filter((l) => l.trim() !== "");
   return (
     <ExpandableBlock lineCount={paths.length} testId="harness-paths">
-      <ul className="p-2 font-terminal text-[11px] leading-[1.5]">
+      <ul className="p-2 font-terminal text-label-sm leading-[1.5]">
         {paths.map((raw, i) => {
           const p = raw.trim();
           const idx = p.lastIndexOf("/");
@@ -273,7 +273,7 @@ export function PlainBlock({
       className={className}
       testId="harness-plain"
     >
-      <pre className="whitespace-pre-wrap break-words p-2 font-terminal text-[11px] leading-[1.5] [overflow-wrap:anywhere]">
+      <pre className="whitespace-pre-wrap break-words p-2 font-terminal text-label-sm leading-[1.5] [overflow-wrap:anywhere]">
         {text}
       </pre>
     </ExpandableBlock>

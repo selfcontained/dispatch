@@ -239,10 +239,8 @@ function AgentCardImpl({
                 {childAgents.length > 0 ? (
                   <div className="space-y-1.5 border-t border-border/50 pt-2">
                     <div className="flex items-center justify-between pl-0.5 pr-2">
-                      <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/75">
-                        Sub Agents
-                      </span>
-                      <span className="text-[10px] text-muted-foreground/55">
+                      <span className="section-label">Sub Agents</span>
+                      <span className="text-label-xs text-muted-foreground/55">
                         {childAgents.length}
                       </span>
                     </div>

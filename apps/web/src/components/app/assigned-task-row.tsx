@@ -29,7 +29,7 @@ export function AssignedTaskRow({ agentId }: { agentId: string }) {
   return (
     <Button
       variant="ghost"
-      className="-mx-1.5 h-auto min-h-7 w-[calc(100%+0.75rem)] min-w-0 justify-start gap-3 rounded-md px-1.5 py-0 text-left text-xs font-normal hover:bg-muted focus-visible:ring-2"
+      className="-mx-1.5 h-auto min-h-7 w-[calc(100%+0.75rem)] min-w-0 justify-start gap-3 rounded-md px-1.5 py-0 text-left text-body-sm font-normal hover:bg-muted focus-visible:ring-2"
       title={`${current.title} — ${column.name}`}
       aria-label={`Task: ${current.title}, ${column.name}`}
       aria-haspopup="dialog"
@@ -54,7 +54,7 @@ export function AssignedTaskRow({ agentId }: { agentId: string }) {
       <span className="min-w-0 flex-1">
         <span className="block truncate text-foreground">{current.title}</span>
         <span
-          className="flex items-center gap-1 text-[10px]"
+          className="flex items-center gap-1 text-label-xs"
           style={{
             color: `hsl(${columnAccent(
               column,

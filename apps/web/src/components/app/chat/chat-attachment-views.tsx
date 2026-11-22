@@ -140,10 +140,10 @@ export function LinkAttachment({
         {icon}
       </span>
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-xs font-medium leading-4 text-foreground">
+        <span className="block truncate text-body-sm font-medium leading-4 text-foreground">
           {title ?? href}
         </span>
-        <span className="block truncate text-[10px] leading-3 text-muted-foreground">
+        <span className="block truncate text-label-xs leading-3 text-muted-foreground">
           {inApp
             ? "Opens in Dispatch"
             : title && host
@@ -272,7 +272,7 @@ export function FileAttachment({
               maxHeightPx={FEED_IMAGE_MAX_HEIGHT_PX}
             />
           </span>
-          <span className="flex items-center gap-2 px-2.5 py-1.5 text-[11px] text-muted-foreground">
+          <span className="flex items-center gap-2 px-2.5 py-1.5 text-label-sm text-muted-foreground">
             <span className="min-w-0 truncate">{attachment.fileName}</span>
             <span className="ml-auto shrink-0">
               {formatBytes(attachment.sizeBytes)}
@@ -282,7 +282,7 @@ export function FileAttachment({
         {attachment.caption ? (
           <p
             data-testid="chat-attachment-caption"
-            className="max-w-xs whitespace-pre-wrap break-words border-t border-border/70 px-2.5 py-1.5 text-xs text-muted-foreground"
+            className="max-w-xs whitespace-pre-wrap break-words border-t border-border/70 px-2.5 py-1.5 text-body-sm text-muted-foreground"
           >
             {attachment.caption}
           </p>
@@ -301,7 +301,7 @@ export function FileAttachment({
       >
         <Tile>
           {extension ? (
-            <span className="font-mono text-[10px] font-semibold uppercase leading-none">
+            <span className="font-mono text-label-xs font-semibold uppercase leading-none">
               {extension}
             </span>
           ) : (
@@ -309,10 +309,10 @@ export function FileAttachment({
           )}
         </Tile>
         <span className="min-w-0 flex-1">
-          <span className="block truncate text-sm font-medium text-foreground">
+          <span className="block truncate text-body-md font-medium text-foreground">
             {attachment.fileName}
           </span>
-          <span className="block text-[11px] text-muted-foreground">
+          <span className="block text-label-sm text-muted-foreground">
             {formatBytes(attachment.sizeBytes)}
           </span>
         </span>
@@ -331,12 +331,12 @@ function CodeAttachment({
   return (
     <AttachmentBlock className="w-full" data-testid="chat-attachment-code">
       {attachment.path ? (
-        <div className="truncate border-b border-border/70 px-2.5 py-1 font-mono text-[11px] text-muted-foreground">
+        <div className="truncate border-b border-border/70 px-2.5 py-1 font-mono text-label-sm text-muted-foreground">
           {attachment.path}
         </div>
       ) : null}
       <div className="p-1.5 [&_pre]:my-0">
-        <Markdown className="text-xs">{source}</Markdown>
+        <Markdown className="text-body-sm">{source}</Markdown>
       </div>
     </AttachmentBlock>
   );
@@ -464,7 +464,7 @@ function ImageGallery({
                 loading="lazy"
               />
               {more ? (
-                <span className="absolute inset-0 flex items-center justify-center bg-black/55 text-xl font-semibold text-white">
+                <span className="absolute inset-0 flex items-center justify-center bg-black/55 text-heading-lg text-white">
                   +{more}
                 </span>
               ) : null}
@@ -472,7 +472,7 @@ function ImageGallery({
             {attachment.caption ? (
               <figcaption
                 data-testid="chat-attachment-caption"
-                className="whitespace-pre-wrap break-words px-1 py-1.5 text-xs text-muted-foreground"
+                className="whitespace-pre-wrap break-words px-1 py-1.5 text-body-sm text-muted-foreground"
               >
                 {attachment.caption}
               </figcaption>

@@ -83,7 +83,7 @@ export function AgentIdLabel({ agentId }: { agentId: string }): JSX.Element {
   return (
     <Link
       to={`/activity/history/${agentId}`}
-      className="font-mono text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+      className="font-mono text-label-xs text-muted-foreground hover:text-foreground transition-colors"
       title={agentId}
       aria-label={`Open ${name} history`}
       onClick={(e) => e.stopPropagation()}

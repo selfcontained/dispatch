@@ -58,7 +58,7 @@ export const SplitDropZones = memo(function SplitDropZones({
       >
         <span
           className={cn(
-            "text-sm font-medium uppercase tracking-wide transition-colors",
+            "text-body-md font-medium uppercase tracking-wide transition-colors",
             activeSide === "left"
               ? "text-foreground"
               : "text-muted-foreground/60"
@@ -81,7 +81,7 @@ export const SplitDropZones = memo(function SplitDropZones({
       >
         <span
           className={cn(
-            "text-sm font-medium uppercase tracking-wide transition-colors",
+            "text-body-md font-medium uppercase tracking-wide transition-colors",
             activeSide === "right"
               ? "text-foreground"
               : "text-muted-foreground/60"

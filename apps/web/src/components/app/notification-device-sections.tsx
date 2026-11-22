@@ -15,10 +15,8 @@ export function SoundCuesSection(): JSX.Element {
   const [enabled, setEnabled] = useAtom(soundCuesEnabledAtom);
   return (
     <div>
-      <h3 className="mb-1.5 text-[10px] uppercase tracking-widest text-muted-foreground">
-        Sound Cues
-      </h3>
-      <p className="mb-3 text-sm text-muted-foreground">
+      <h3 className="mb-1.5 section-label">Sound Cues</h3>
+      <p className="mb-3 text-body-md text-muted-foreground">
         Soft tones when an agent needs input or a turn fails, plus mobile
         toolbar taps. This device only.
       </p>
@@ -29,7 +27,7 @@ export function SoundCuesSection(): JSX.Element {
             onCheckedChange={(checked) => setEnabled(checked === true)}
             data-testid="sound-cues-enabled"
           />
-          <div className="text-sm font-medium text-foreground">Enable</div>
+          <div className="text-body-md font-medium text-foreground">Enable</div>
         </label>
         {enabled && (
           <div className="grid grid-cols-2 gap-2 pl-1">
@@ -70,10 +68,8 @@ export function TipsSection(): JSX.Element {
 
   return (
     <div>
-      <h3 className="mb-1.5 text-[10px] uppercase tracking-widest text-muted-foreground">
-        Tips & Guidance
-      </h3>
-      <p className="mb-3 text-sm text-muted-foreground">
+      <h3 className="mb-1.5 section-label">Tips & Guidance</h3>
+      <p className="mb-3 text-body-md text-muted-foreground">
         Contextual tips that highlight features and link to docs. This device
         only.
       </p>
@@ -84,7 +80,9 @@ export function TipsSection(): JSX.Element {
             onCheckedChange={(checked) => setEnabled(checked === true)}
             data-testid="tips-enabled"
           />
-          <div className="text-sm font-medium text-foreground">Show tips</div>
+          <div className="text-body-md font-medium text-foreground">
+            Show tips
+          </div>
         </label>
         <Button
           variant="default"

@@ -45,7 +45,7 @@ export function SlashPicker({
           role="option"
           aria-selected={index === activeIndex}
           className={cn(
-            "flex w-full items-start gap-2 px-2 py-1.5 text-left text-sm",
+            "flex w-full items-start gap-2 px-2 py-1.5 text-left text-body-md",
             index === activeIndex ? "bg-muted" : "hover:bg-muted/60"
           )}
           onMouseDown={(event) => event.preventDefault()}
@@ -54,11 +54,11 @@ export function SlashPicker({
           data-testid="slash-option"
         >
           <span className="shrink-0 font-mono">/{command.name}</span>
-          <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
+          <span className="min-w-0 flex-1 truncate text-body-sm text-muted-foreground">
             {command.description}
             {command.inputHint ? ` · ${command.inputHint}` : ""}
           </span>
-          <span className="shrink-0 text-[10px] text-muted-foreground">
+          <span className="shrink-0 text-label-xs text-muted-foreground">
             {command.source === "dispatch" ? "Dispatch" : "Agent"}
           </span>
         </button>

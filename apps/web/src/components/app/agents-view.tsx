@@ -433,7 +433,7 @@ export function AgentsView({
   const filesElement = filesVisible ? (
     <Suspense
       fallback={
-        <div role="status" className="p-4 text-sm text-muted-foreground">
+        <div role="status" className="p-4 text-body-md text-muted-foreground">
           Loading files…
         </div>
       }

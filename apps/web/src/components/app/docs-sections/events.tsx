@@ -12,7 +12,7 @@ export function EventsContent() {
 
       <Section>
         <H3>How status is derived</H3>
-        <ul className="grid gap-1.5 pl-4 text-sm text-muted-foreground list-disc">
+        <ul className="grid gap-1.5 pl-4 text-body-md text-muted-foreground list-disc">
           <li>
             <Code>working</Code> — a turn is open: the agent is answering a
             message, running tools, or thinking. The message is the first line

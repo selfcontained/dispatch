@@ -20,7 +20,7 @@ function RepoLabel({ agentId, name }: { agentId: string; name: string }) {
       className="ml-auto flex min-w-0 max-w-full items-center gap-1"
       title={name}
     >
-      <span className="min-w-0 truncate font-mono text-[10px] text-muted-foreground/60">
+      <span className="min-w-0 truncate font-mono text-label-xs text-muted-foreground/60">
         {name}
       </span>
       {!iconError ? (
@@ -52,7 +52,7 @@ export function AgentCardPhaseStatus({
   return (
     <div
       className={cn(
-        "mt-1 flex min-w-0 items-center gap-1.5 text-xs",
+        "mt-1 flex min-w-0 items-center gap-1.5 text-body-sm",
         phase.tone === "starting" ? "text-status-working" : "text-orange-400",
         className
       )}
@@ -90,7 +90,7 @@ export function AgentCardActivity({
   const activity = useAgentActivity(agent, childAgents);
 
   return (
-    <div className="mt-1 flex min-w-0 flex-col gap-1 text-xs text-muted-foreground">
+    <div className="mt-1 flex min-w-0 flex-col gap-1 text-body-sm text-muted-foreground">
       <div
         className="flex min-h-4 min-w-0 items-center"
         data-testid={`agent-status-line-${agent.id}`}

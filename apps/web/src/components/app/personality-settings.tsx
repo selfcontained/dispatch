@@ -30,7 +30,7 @@ const NAME_MAX = 80;
 const PROMPT_MAX = 1000;
 
 const TEXTAREA_CLASSES =
-  "w-full min-h-32 rounded-md border border-white/[0.12] bg-white/[0.04] backdrop-blur-md shadow-[inset_0_2px_6px_rgba(0,0,0,0.3)] px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring resize-y";
+  "w-full min-h-32 rounded-md border border-white/[0.12] bg-white/[0.04] backdrop-blur-md shadow-[inset_0_2px_6px_rgba(0,0,0,0.3)] px-3 py-2 text-body-md ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring resize-y";
 
 export function PersonalitySettings(): JSX.Element {
   const [personalities, setPersonalities] = useState<Personality[]>([]);
@@ -183,7 +183,7 @@ export function PersonalitySettings(): JSX.Element {
         <div className="mb-3">
           <label
             htmlFor="personality-name"
-            className="mb-1.5 block text-[10px] uppercase tracking-widest text-muted-foreground"
+            className="mb-1.5 block section-label"
           >
             Name
           </label>
@@ -210,7 +210,7 @@ export function PersonalitySettings(): JSX.Element {
         <div className="mb-3">
           <label
             htmlFor="personality-prompt"
-            className="mb-1.5 block text-[10px] uppercase tracking-widest text-muted-foreground"
+            className="mb-1.5 block section-label"
           >
             Prompt
           </label>
@@ -232,7 +232,7 @@ export function PersonalitySettings(): JSX.Element {
             disabled={submitting}
             className={TEXTAREA_CLASSES}
           />
-          <p className="mt-1 text-xs text-muted-foreground">
+          <p className="mt-1 text-body-sm text-muted-foreground">
             {editing.form.prompt.length} / {PROMPT_MAX}
           </p>
         </div>
@@ -286,10 +286,10 @@ export function PersonalitySettings(): JSX.Element {
           <RadioIndicator selected={isActive} className="mt-0" />
         </button>
         <div className="min-w-0 flex-1">
-          <div className="text-sm font-medium text-foreground">
+          <div className="text-body-md font-medium text-foreground">
             {personality.name}
           </div>
-          <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
+          <p className="mt-1 line-clamp-2 text-body-sm text-muted-foreground">
             {personality.prompt}
           </p>
         </div>
@@ -321,10 +321,8 @@ export function PersonalitySettings(): JSX.Element {
   return (
     <div className="flex flex-col gap-4 p-4 md:p-6">
       <div>
-        <div className="mb-1.5 text-[10px] uppercase tracking-widest text-muted-foreground">
-          Personalities
-        </div>
-        <p className="max-w-2xl text-sm text-muted-foreground">
+        <div className="mb-1.5 section-label">Personalities</div>
+        <p className="max-w-2xl text-body-md text-muted-foreground">
           Add text to every system prompt at launch. Use it for voice or
           preferences. Not used for review personas or jobs.
         </p>
@@ -332,7 +330,7 @@ export function PersonalitySettings(): JSX.Element {
 
       {error ? (
         <div
-          className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive"
+          className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-body-md text-destructive"
           role="alert"
         >
           {error}
@@ -366,7 +364,7 @@ export function PersonalitySettings(): JSX.Element {
         ) : null}
 
         {loading && personalities.length === 0 ? (
-          <p className="text-sm text-muted-foreground">Loading…</p>
+          <p className="text-body-md text-muted-foreground">Loading…</p>
         ) : (
           <ul className="flex flex-col gap-2" data-testid="personality-list">
             {personalities.map((personality) => {

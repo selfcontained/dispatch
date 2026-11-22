@@ -114,18 +114,16 @@ export function JobAvgDuration({
 
   return (
     <div>
-      <h3 className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
-        Avg Duration
-      </h3>
+      <h3 className="mb-2 section-label">Avg Duration</h3>
       <div className="h-[180px] sm:h-[220px] rounded-md border border-border bg-muted/40 p-3 flex flex-col justify-center">
         <div className="flex flex-col gap-3 overflow-y-auto min-h-0">
           {perJob.jobs.map((job) => (
             <div key={job.name}>
               <div className="mb-1 flex items-center justify-between">
-                <span className="truncate text-xs text-muted-foreground">
+                <span className="truncate text-body-sm text-muted-foreground">
                   {job.name}
                 </span>
-                <span className="text-xs font-medium tabular-nums text-foreground">
+                <span className="text-body-sm font-medium tabular-nums text-foreground">
                   {formatDuration(job.avg)}
                 </span>
               </div>
@@ -180,15 +178,13 @@ export function RunHistoryGrid({
 
   return (
     <div>
-      <h3 className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
-        Run History
-      </h3>
+      <h3 className="mb-2 section-label">Run History</h3>
       <div className="h-[180px] sm:h-[220px] rounded-md border border-border bg-muted/40 p-3 flex flex-col justify-between">
         <TooltipProvider delayDuration={80}>
           <div className="space-y-2 overflow-y-auto min-h-0 flex-1">
             {perJob.map(({ name, runs: jobRuns }) => (
               <div key={name}>
-                <div className="mb-1 truncate text-[10px] text-muted-foreground">
+                <div className="mb-1 truncate text-label-xs text-muted-foreground">
                   {name}
                 </div>
                 <div
@@ -220,7 +216,7 @@ export function RunHistoryGrid({
                             )}
                           />
                         </TooltipTrigger>
-                        <TooltipContent side="top" className="text-xs">
+                        <TooltipContent side="top" className="text-body-sm">
                           {statusLabel(run.status)} —{" "}
                           {formatRelativeTime(run.startedAt)}
                         </TooltipContent>
@@ -232,7 +228,7 @@ export function RunHistoryGrid({
             ))}
           </div>
         </TooltipProvider>
-        <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
+        <div className="flex items-center gap-2 text-label-xs text-muted-foreground">
           <span className="flex items-center gap-1">
             <span className="inline-block h-2 w-3 bg-status-done/70" />
             Completed

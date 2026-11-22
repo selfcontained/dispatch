@@ -47,7 +47,7 @@ export function ChangesSvgPreview({
           <ToggleGroupItem value="diff">Diff</ToggleGroupItem>
         </ToggleGroup>
         {view === "preview" && (
-          <span className="text-xs text-muted-foreground">
+          <span className="text-body-sm text-muted-foreground">
             Current working tree
           </span>
         )}
@@ -55,9 +55,11 @@ export function ChangesSvgPreview({
       {view === "diff" ? (
         children
       ) : preview.isPending ? (
-        <p className="p-6 text-sm text-muted-foreground">Loading preview…</p>
+        <p className="p-6 text-body-md text-muted-foreground">
+          Loading preview…
+        </p>
       ) : preview.isError ? (
-        <div role="alert" className="p-6 text-sm">
+        <div role="alert" className="p-6 text-body-md">
           {preview.error.message}
           <Button
             variant="ghost"
@@ -76,7 +78,7 @@ export function ChangesSvgPreview({
           />
         </div>
       ) : (
-        <p className="p-6 text-sm text-muted-foreground">
+        <p className="p-6 text-body-md text-muted-foreground">
           {preview.data?.message ??
             "SVG preview unavailable. Use Diff to inspect this file."}
         </p>

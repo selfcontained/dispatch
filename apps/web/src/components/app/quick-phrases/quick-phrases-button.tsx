@@ -161,9 +161,7 @@ export function QuickPhrasesButton({
           }}
         >
           <div className="flex items-center justify-between border-b border-border px-3 py-2">
-            <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              Quick Phrases
-            </h4>
+            <h4 className="section-label">Quick Phrases</h4>
             <button
               type="button"
               className="rounded p-1.5 text-muted-foreground hover:bg-white/[0.1] hover:text-foreground"
@@ -174,7 +172,7 @@ export function QuickPhrasesButton({
             </button>
           </div>
           {!canInject ? (
-            <div className="border-b border-border/50 bg-yellow-500/5 px-3 py-1.5 text-xs text-yellow-400/90">
+            <div className="border-b border-border/50 bg-yellow-500/5 px-3 py-1.5 text-body-sm text-yellow-400/90">
               Connect to an agent session to inject phrases
             </div>
           ) : null}
@@ -187,12 +185,12 @@ export function QuickPhrasesButton({
                 onValueChange={setSearch}
                 placeholder="Search phrases..."
                 aria-label="Search quick phrases"
-                className="h-10 pl-7 text-sm"
+                className="h-10 pl-7 text-body-md"
               />
             </div>
             <CommandList className="max-h-64">
               {phrases.length === 0 ? (
-                <div className="px-3 py-4 text-center text-xs text-muted-foreground">
+                <div className="px-3 py-4 text-center text-body-sm text-muted-foreground">
                   No phrases yet
                 </div>
               ) : (

@@ -47,7 +47,7 @@ function AddContextMenu({
       <button
         type="button"
         onClick={onAddFile}
-        className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-sm text-foreground hover:bg-white/[0.1]"
+        className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-body-md text-foreground hover:bg-white/[0.1]"
       >
         <Upload className="h-3.5 w-3.5 text-muted-foreground" />
         Add file
@@ -55,7 +55,7 @@ function AddContextMenu({
       <button
         type="button"
         onClick={onAddLink}
-        className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-sm text-foreground hover:bg-white/[0.1]"
+        className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-body-md text-foreground hover:bg-white/[0.1]"
       >
         <Link2 className="h-3.5 w-3.5 text-muted-foreground" />
         Add link
@@ -85,7 +85,7 @@ function AddContextLinkForm({
 }) {
   return (
     <div className="space-y-1.5 p-1">
-      <label htmlFor={inputId} className="text-xs text-muted-foreground">
+      <label htmlFor={inputId} className="text-body-sm text-muted-foreground">
         Link URL
       </label>
       <Input
@@ -111,7 +111,7 @@ function AddContextLinkForm({
       {!isValid ? (
         <p
           id={errorId}
-          className="text-xs text-status-blocked"
+          className="text-body-sm text-status-blocked"
           {...(testIdPrefix
             ? { "data-testid": `${testIdPrefix}-link-error` }
             : {})}
@@ -289,11 +289,11 @@ export function ContextPicker({
     >
       <div className="flex items-start justify-between gap-2">
         <div>
-          <div className="flex items-center gap-1.5 text-sm font-medium text-foreground">
+          <div className="flex items-center gap-1.5 text-body-md font-medium text-foreground">
             <Paperclip className="h-3.5 w-3.5" />
             Context
           </div>
-          <p className="text-xs text-muted-foreground">{description}</p>
+          <p className="text-body-sm text-muted-foreground">{description}</p>
         </div>
         {clipboard.pasteMode ? (
           <div className="relative shrink-0">
@@ -301,13 +301,13 @@ export function ContextPicker({
               ref={clipboard.pasteRef}
               type="text"
               placeholder="Paste here"
-              className="h-7 w-32 rounded-md border border-border/70 bg-background/40 px-2 text-xs placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              className="h-7 w-32 rounded-md border border-border/70 bg-background/40 px-2 text-body-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
               onPaste={clipboard.handlePasteInput}
               onBlur={clipboard.handlePasteBlur}
             />
             {clipboard.pasteTooltip ? (
               <div
-                className="absolute right-0 top-full z-50 mt-1.5 whitespace-nowrap rounded-md border bg-popover px-2.5 py-1.5 text-xs text-popover-foreground shadow-md animate-in fade-in-0 zoom-in-95"
+                className="absolute right-0 top-full z-50 mt-1.5 whitespace-nowrap rounded-md border bg-popover px-2.5 py-1.5 text-body-sm text-popover-foreground shadow-md animate-in fade-in-0 zoom-in-95"
                 role="status"
               >
                 {clipboard.pasteTooltip}
@@ -319,7 +319,7 @@ export function ContextPicker({
             type="button"
             variant="default"
             size="sm"
-            className="h-7 shrink-0 gap-1 px-2 text-xs"
+            className="h-7 shrink-0 gap-1 px-2 text-body-sm"
             onClick={clipboard.handleCheck}
             disabled={clipboard.checking}
             {...(testIdPrefix
@@ -336,13 +336,13 @@ export function ContextPicker({
         )}
       </div>
       {error && (
-        <p role="alert" className="text-xs text-destructive">
+        <p role="alert" className="text-body-sm text-destructive">
           {error}
         </p>
       )}
       {clipboard.readFeedback ? (
         <p
-          className="text-xs text-muted-foreground"
+          className="text-body-sm text-muted-foreground"
           role="status"
           aria-live="polite"
           {...(testIdPrefix
@@ -372,7 +372,7 @@ export function ContextPicker({
                 ? { "data-testid": `${testIdPrefix}-files-button` }
                 : {})}
               className={cn(
-                "flex w-full flex-col items-center justify-center gap-1.5 rounded-md border border-dashed px-4 py-6 text-sm transition-colors",
+                "flex w-full flex-col items-center justify-center gap-1.5 rounded-md border border-dashed px-4 py-6 text-body-md transition-colors",
                 draggingFiles
                   ? "border-status-done bg-status-done/10 text-foreground"
                   : "border-border/70 bg-background/40 text-muted-foreground hover:border-border hover:bg-background/70 hover:text-foreground"
@@ -387,7 +387,7 @@ export function ContextPicker({
                 <>
                   <Plus className="h-5 w-5" />
                   <span>Add files or links</span>
-                  <span className="text-[11px] text-muted-foreground/80">
+                  <span className="text-label-sm text-muted-foreground/80">
                     Click to add, or drop a file here
                   </span>
                 </>

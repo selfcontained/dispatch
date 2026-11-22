@@ -28,12 +28,10 @@ export function UnreleasedChanges({
   return (
     <div>
       <div className="mb-1.5 flex items-center justify-between">
-        <div className="text-[10px] uppercase tracking-widest text-muted-foreground">
-          Unreleased changes
-        </div>
+        <div className="section-label">Unreleased changes</div>
         <div className="flex items-center gap-2">
           {lastCheckedAt !== null && !infoLoading && (
-            <span className="text-[10px] text-muted-foreground">
+            <span className="text-label-xs text-muted-foreground">
               Checked {formatAgo(lastCheckedAt, now)}
             </span>
           )}
@@ -53,7 +51,7 @@ export function UnreleasedChanges({
       </div>
 
       {infoLoading && (
-        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+        <div className="flex items-center gap-2 text-body-sm text-muted-foreground">
           <ActivityBars size={14} />
           {infoProgress?.label ?? "Loading..."}
           {infoProgress?.detail && (
@@ -65,7 +63,7 @@ export function UnreleasedChanges({
       )}
 
       {infoError && (
-        <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+        <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-body-md text-destructive">
           {infoError}
         </div>
       )}
@@ -73,33 +71,33 @@ export function UnreleasedChanges({
       {info && !infoLoading && (
         <>
           {info.unreleasedFetchError ? (
-            <div className="rounded-lg border border-status-waiting/30 bg-status-waiting/10 px-3 py-2 text-sm text-status-waiting">
+            <div className="rounded-lg border border-status-waiting/30 bg-status-waiting/10 px-3 py-2 text-body-md text-status-waiting">
               Couldn't refresh <span className="font-mono">origin/main</span> —
               unreleased commit info is unavailable, not necessarily zero.
-              <div className="mt-1 break-words font-mono text-xs opacity-80">
+              <div className="mt-1 break-words font-mono text-body-sm opacity-80">
                 {cleanError(info.unreleasedFetchError)}
               </div>
             </div>
           ) : info.refMissing ? (
-            <div className="rounded-lg border border-status-waiting/30 bg-status-waiting/10 px-3 py-2 text-sm text-status-waiting">
+            <div className="rounded-lg border border-status-waiting/30 bg-status-waiting/10 px-3 py-2 text-body-md text-status-waiting">
               Deployed version{" "}
               <span className="font-mono">{info.currentTag ?? "unknown"}</span>{" "}
               not found in origin — commit count unavailable.
             </div>
           ) : info.unreleasedCount === 0 ? (
-            <div className="text-sm text-muted-foreground">
+            <div className="text-body-md text-muted-foreground">
               No unreleased commits on main
             </div>
           ) : (
             <div>
-              <div className="mb-2 text-sm text-muted-foreground">
+              <div className="mb-2 text-body-md text-muted-foreground">
                 {info.unreleasedCount} unreleased{" "}
                 {info.unreleasedCount === 1 ? "commit" : "commits"} on{" "}
                 <span className="font-mono">main</span>
               </div>
               <div className="flex flex-col gap-0.5 rounded-lg border border-white/[0.12] bg-white/[0.04] p-3">
                 {info.commits.map((c) => (
-                  <div key={c.sha} className="flex gap-2 py-0.5 text-xs">
+                  <div key={c.sha} className="flex gap-2 py-0.5 text-body-sm">
                     <span className="shrink-0 font-mono text-muted-foreground">
                       {c.sha}
                     </span>
@@ -107,7 +105,7 @@ export function UnreleasedChanges({
                   </div>
                 ))}
                 {info.unreleasedCount > info.commits.length && (
-                  <div className="mt-1 text-xs text-muted-foreground">
+                  <div className="mt-1 text-body-sm text-muted-foreground">
                     +{info.unreleasedCount - info.commits.length} more
                   </div>
                 )}

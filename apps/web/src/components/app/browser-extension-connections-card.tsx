@@ -46,7 +46,7 @@ export function BrowserExtensionConnectionsCard({
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-base">Paired browsers</CardTitle>
+        <CardTitle className="text-heading-md">Paired browsers</CardTitle>
         <CardDescription>
           Each browser has its own access. Revoking one does not disconnect the
           others.
@@ -54,12 +54,12 @@ export function BrowserExtensionConnectionsCard({
       </CardHeader>
       <CardContent>
         {isPending ? (
-          <p className="text-sm text-muted-foreground" role="status">
+          <p className="text-body-md text-muted-foreground" role="status">
             Loading paired browsers...
           </p>
         ) : isError ? (
           <div className="space-y-2">
-            <p className="text-sm text-destructive" role="alert">
+            <p className="text-body-md text-destructive" role="alert">
               Could not load paired browsers.
             </p>
             <Button
@@ -73,7 +73,7 @@ export function BrowserExtensionConnectionsCard({
             </Button>
           </div>
         ) : connections.length === 0 ? (
-          <p className="rounded-md border border-dashed border-border px-3 py-4 text-sm text-muted-foreground">
+          <p className="rounded-md border border-dashed border-border px-3 py-4 text-body-md text-muted-foreground">
             Waiting for this browser to finish connecting.
           </p>
         ) : (
@@ -89,11 +89,11 @@ export function BrowserExtensionConnectionsCard({
                   aria-hidden="true"
                 />
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-medium">
+                  <p className="truncate text-body-md font-medium">
                     {connection.deviceName}
                   </p>
                   <p
-                    className="mt-0.5 text-xs text-muted-foreground"
+                    className="mt-0.5 text-body-sm text-muted-foreground"
                     title={`Paired ${formatDateTime(connection.createdAt)}; expires ${formatDateTime(connection.expiresAt)}`}
                   >
                     {connection.lastUsedAt
@@ -131,7 +131,7 @@ export function BrowserExtensionConnectionsCard({
           </div>
         )}
         {revokeIsError && (
-          <p className="mt-2 text-sm text-destructive" role="alert">
+          <p className="mt-2 text-body-md text-destructive" role="alert">
             Could not revoke that browser. Try again.
           </p>
         )}

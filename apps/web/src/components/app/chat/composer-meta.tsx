@@ -73,7 +73,7 @@ import {
 } from "./composer-meta-format";
 
 const CHIP_CLASS =
-  "inline-flex h-6 min-w-0 items-center gap-1 rounded-md px-1.5 text-[11px] text-muted-foreground hover:bg-muted/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-status-working/50 disabled:pointer-events-none disabled:opacity-60 pointer-coarse:min-h-11";
+  "inline-flex h-6 min-w-0 items-center gap-1 rounded-md px-1.5 text-label-sm text-muted-foreground hover:bg-muted/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-status-working/50 disabled:pointer-events-none disabled:opacity-60 pointer-coarse:min-h-11";
 
 /**
  * Controls beside the recipients under the composer: which model the session runs (a picker)
@@ -218,13 +218,13 @@ function ModelChip({
               }
             />
           ))}
-          <p className="text-[11px] text-muted-foreground">
+          <p className="text-label-sm text-muted-foreground">
             {setConfig.isPending
               ? "Applying…"
               : "Applies from the next turn of this session."}
           </p>
           {setConfig.error ? (
-            <p role="alert" className="text-[11px] text-destructive">
+            <p role="alert" className="text-label-sm text-destructive">
               {setConfig.error.message}
             </p>
           ) : null}
@@ -278,7 +278,7 @@ function ConfigSelect({
   const id = `composer-config-${option.id}`;
   return (
     <div className="space-y-1">
-      <label htmlFor={id} className="text-[11px] text-muted-foreground">
+      <label htmlFor={id} className="text-label-sm text-muted-foreground">
         {option.name}
       </label>
       <Select
@@ -290,7 +290,7 @@ function ConfigSelect({
       >
         <SelectTrigger
           id={id}
-          className="h-8 text-xs pointer-coarse:min-h-11"
+          className="h-8 text-body-sm pointer-coarse:min-h-11"
           data-testid={`composer-config-${option.id}`}
         >
           <SelectValue />
@@ -303,7 +303,7 @@ function ConfigSelect({
                 <SelectItem
                   key={choice.value}
                   value={choice.value}
-                  className="text-xs pointer-coarse:min-h-11"
+                  className="text-body-sm pointer-coarse:min-h-11"
                 >
                   {choice.name}
                 </SelectItem>
@@ -386,7 +386,7 @@ function UsageChip({
         // not load, so this panel brings its own: it opens like a drawer from
         // its chip, and Radix waits for the exit animation before unmounting.
         className={cn(
-          "z-[60] max-h-[70vh] w-[22rem] max-w-[calc(100vw-1rem)] space-y-4 overflow-y-auto p-3 text-xs",
+          "z-[60] max-h-[70vh] w-[22rem] max-w-[calc(100vw-1rem)] space-y-4 overflow-y-auto p-3 text-body-sm",
           "data-[state=open]:animate-usage-panel-in-up data-[state=open]:data-[side=bottom]:animate-usage-panel-in-down",
           "data-[state=closed]:animate-usage-panel-out-up data-[state=closed]:data-[side=bottom]:animate-usage-panel-out-down",
           "motion-reduce:!animate-none"
@@ -619,7 +619,7 @@ function SplitRow({
   title?: string;
 }): JSX.Element {
   return (
-    <div className="flex items-center justify-between gap-3 pl-2 text-[11px] text-muted-foreground/80">
+    <div className="flex items-center justify-between gap-3 pl-2 text-label-sm text-muted-foreground/80">
       <span className="truncate" title={title}>
         {label}
       </span>
@@ -794,12 +794,14 @@ function PlanLimits({
   return (
     <section className="space-y-3" aria-label="Plan limits">
       <div className="flex h-6 items-center justify-between gap-2">
-        <h3 className="text-[11px] font-medium text-foreground">Plan limits</h3>
+        <h3 className="text-label-sm font-medium text-foreground">
+          Plan limits
+        </h3>
         {/* A failed refresh keeps the last values; say so in the header row
             rather than in a line that pushes the cards down. */}
         {failure && plans.data ? (
           <span
-            className="ml-auto truncate text-[11px] text-destructive"
+            className="ml-auto truncate text-label-sm text-destructive"
             title={failure.message}
             data-testid="usage-plans-error"
           >
@@ -810,7 +812,7 @@ function PlanLimits({
           type="button"
           size="sm"
           variant="ghost"
-          className="h-6 shrink-0 px-1.5 text-[11px] pointer-coarse:min-h-11"
+          className="h-6 shrink-0 px-1.5 text-label-sm pointer-coarse:min-h-11"
           onClick={() => plans.refresh.mutate()}
           disabled={plans.refresh.isPending}
           aria-busy={busy}
@@ -945,7 +947,7 @@ export function UseResetButton({
       <div className="flex flex-col gap-2">
         <div
           className={cn(
-            "min-w-0 text-[11px]",
+            "min-w-0 text-label-sm",
             expiring ? "text-primary" : "text-muted-foreground/80"
           )}
           data-testid="usage-codex-reset-expiry"
@@ -964,7 +966,7 @@ export function UseResetButton({
             type="button"
             size="sm"
             variant="default"
-            className="h-6 shrink-0 self-end px-2 text-[11px] pointer-coarse:min-h-11"
+            className="h-6 shrink-0 self-end px-2 text-label-sm pointer-coarse:min-h-11"
             disabled={available === 0}
             data-testid="usage-codex-reset"
           >
@@ -981,8 +983,8 @@ export function UseResetButton({
           </DialogDescription>
         </DialogHeader>
         {/* What the reset would clear: the windows as the card shows them. */}
-        <div className="space-y-1.5 rounded-md border bg-muted/30 p-3 text-xs">
-          <div className="text-[11px] font-medium text-foreground">
+        <div className="space-y-1.5 rounded-md border bg-muted/30 p-3 text-body-sm">
+          <div className="text-label-sm font-medium text-foreground">
             Current usage
           </div>
           {plan.windows.map((w) => (
@@ -994,8 +996,8 @@ export function UseResetButton({
           </div>
         </div>
         {resets?.items?.length ? (
-          <div className="space-y-1 text-xs">
-            <div className="text-[11px] font-medium text-foreground">
+          <div className="space-y-1 text-body-sm">
+            <div className="text-label-sm font-medium text-foreground">
               Reset expirations · oldest first
             </div>
             <ul className="space-y-1" data-testid="usage-codex-reset-list">
@@ -1032,7 +1034,7 @@ export function UseResetButton({
         ) : null}
         {outcome ? (
           <p
-            className="text-sm"
+            className="text-body-md"
             role="status"
             data-testid="usage-codex-reset-outcome"
           >
@@ -1040,7 +1042,7 @@ export function UseResetButton({
           </p>
         ) : null}
         {consume.error ? (
-          <p role="alert" className="text-sm text-destructive">
+          <p role="alert" className="text-body-md text-destructive">
             {consume.error.message}
           </p>
         ) : null}
@@ -1087,7 +1089,7 @@ function PlanState({
   if (plan.limitReached) {
     return (
       <span
-        className="shrink-0 text-[11px] text-destructive"
+        className="shrink-0 text-label-sm text-destructive"
         role="status"
         title={[
           "Limit reached — requests are refused until a window resets",
@@ -1104,7 +1106,7 @@ function PlanState({
   return (
     <span
       className={cn(
-        "flex shrink-0 items-center gap-1 text-[11px] tabular-nums",
+        "flex shrink-0 items-center gap-1 text-label-sm tabular-nums",
         age === "live" ? "text-status-working" : "text-muted-foreground"
       )}
       title={[plan.unavailableReason, reported].filter(Boolean).join("\n")}
@@ -1137,7 +1139,7 @@ function PlanWindowRow({
         <span className="flex min-w-0 items-baseline gap-1.5">
           <span className="shrink-0 whitespace-nowrap">{window.label}</span>
           {resets ? (
-            <span className="truncate text-[11px] text-muted-foreground/80">
+            <span className="truncate text-label-sm text-muted-foreground/80">
               resets {resets}
             </span>
           ) : null}

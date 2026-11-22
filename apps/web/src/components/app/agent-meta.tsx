@@ -75,7 +75,7 @@ export function FrontTruncatedValue({
             ref={containerRef}
             className={cn(
               "text-foreground whitespace-nowrap overflow-hidden",
-              mono && "font-mono text-[11px]",
+              mono && "font-mono text-label-sm",
               className
             )}
             title={tooltipValue ?? value}
@@ -86,7 +86,7 @@ export function FrontTruncatedValue({
         <TooltipContent
           side="right"
           className={cn(
-            "max-w-[360px] break-all text-xs font-mono",
+            "max-w-[360px] break-all text-body-sm font-mono",
             tooltipClassName
           )}
         >
@@ -105,16 +105,14 @@ export function AgentMeta({
 }: AgentMetaProps): JSX.Element {
   return (
     <div className="grid gap-1">
-      <div className="uppercase tracking-wide text-[10px] text-muted-foreground/80">
-        {label}
-      </div>
+      <div className="section-label">{label}</div>
       {truncateStart ? (
         <FrontTruncatedValue value={value} mono={mono} />
       ) : (
         <div
           className={cn(
             "text-foreground",
-            mono && "font-mono text-[11px]",
+            mono && "font-mono text-label-sm",
             "break-all"
           )}
         >

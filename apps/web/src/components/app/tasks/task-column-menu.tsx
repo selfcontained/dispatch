@@ -165,14 +165,14 @@ export function TaskColumnMenu({
             menuButton.current?.focus();
           }}
         >
-          <AlertDialogTitle className="text-lg font-semibold">
+          <AlertDialogTitle className="text-heading-md">
             {archiveLabel} from {column.name}?
           </AlertDialogTitle>
-          <AlertDialogDescription className="text-sm text-muted-foreground">
+          <AlertDialogDescription className="text-body-md text-muted-foreground">
             Archived tasks leave the board. You can restore them from Archived.
           </AlertDialogDescription>
           {archiveError && (
-            <p role="alert" className="text-sm text-destructive">
+            <p role="alert" className="text-body-md text-destructive">
               {archiveError}
             </p>
           )}

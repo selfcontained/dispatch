@@ -21,7 +21,7 @@ function HorizontalBar({
   const pct = maxValue > 0 ? (value / maxValue) * 100 : 0;
   return (
     <div className="space-y-1">
-      <div className="flex items-center justify-between text-xs">
+      <div className="flex items-center justify-between text-body-sm">
         <span className="truncate text-foreground">{label}</span>
         <span className="ml-2 shrink-0 font-mono text-muted-foreground tabular-nums">
           {formatTokenCount(value)}

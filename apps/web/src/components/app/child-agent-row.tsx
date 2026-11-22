@@ -166,21 +166,24 @@ export function ChildAgentRow({
       <div className="min-w-0 flex-1">
         <div className="flex min-w-0 items-center gap-1.5">
           <span
-            className="min-w-0 truncate text-[11px] font-medium"
+            className="min-w-0 truncate text-label-sm font-medium"
             title={agent.name}
           >
             {displayName}
           </span>
         </div>
         {hasPhaseStatus(agent) ? (
-          <AgentCardPhaseStatus agent={agent} className="mt-0.5 text-[10px]" />
+          <AgentCardPhaseStatus
+            agent={agent}
+            className="mt-0.5 text-label-xs"
+          />
         ) : (
           <AgentActivityLabel
             scheduledFallback
             agent={agent}
             linkToTurn
             onNavigate={closeOnSessionAction ? onRequestClose : undefined}
-            className="mt-0.5 text-[10px]"
+            className="mt-0.5 text-label-xs"
           />
         )}
       </div>
