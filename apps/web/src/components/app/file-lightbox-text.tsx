@@ -25,7 +25,7 @@ function useFetchedText(
     queryKey: ["file-lightbox-text", fileName, src],
     queryFn: async () => {
       const response = await fetch(src);
-      if (!response.ok) throw new Error(`Failed to load (${response.status})`);
+      if (!response.ok) throw new Error(`Request failed (${response.status})`);
       return response.text();
     },
     placeholderData: (previousData, previousQuery) =>

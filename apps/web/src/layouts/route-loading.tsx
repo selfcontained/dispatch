@@ -35,7 +35,7 @@ export function RouteLoadError(): JSX.Element {
   return (
     <div className="flex min-h-screen items-center justify-center bg-background p-6 text-foreground">
       <Alert
-        title="This section couldn’t be loaded."
+        title="Couldn’t load the section."
         className="w-full max-w-sm"
         action={{
           label: "Reload page",

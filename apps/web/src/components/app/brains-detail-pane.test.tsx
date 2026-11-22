@@ -347,7 +347,7 @@ describe("search filter", () => {
   it("passes the typed filter down to the collection view", () => {
     mountPane();
 
-    fireEvent.change(screen.getByPlaceholderText("Filter..."), {
+    fireEvent.change(screen.getByPlaceholderText("Filter…"), {
       target: { value: "queue" },
     });
 

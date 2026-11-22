@@ -33,6 +33,7 @@ import { FileActions } from "./file-lightbox-actions";
 import { cn } from "@/lib/utils";
 import { LoadError } from "@/components/ui/async-boundary";
 import { EmptyState } from "@/components/ui/empty-state";
+import { Spinner } from "@/components/ui/spinner";
 import { LoadingSkeleton } from "@/components/ui/skeleton";
 import { toast } from "@/components/ui/toast";
 
@@ -269,9 +270,10 @@ export function FilesPane({
 }) {
   if (!agentId || !workspace)
     return (
-      <div className="grid h-full place-items-center p-6 text-body-md text-muted-foreground">
-        Select an agent with a workspace to browse files.
-      </div>
+      <EmptyState
+        title="No workspace"
+        description="Select an agent with a workspace to browse files."
+      />
     );
   return (
     <WorkspaceFiles
@@ -574,6 +576,7 @@ function WorkspaceFiles({
                       className="flex h-full items-center gap-1 truncate px-3 text-label-sm text-muted-foreground"
                       title={row.message}
                     >
+                      {row.message === "Loading…" && <Spinner />}
                       {row.message}
                       {row.retry !== undefined && (
                         <Button

@@ -146,7 +146,7 @@ export function useReleaseUpdates(stream: UseReleaseStreamResult) {
       });
       if (!res.ok) {
         const err = (await res.json()) as { error?: string };
-        setInfoError(cleanError(err.error ?? "Failed to check for updates"));
+        setInfoError(cleanError(err.error ?? "Couldn’t check for updates."));
         return;
       }
       const nextInfo = (await res.json()) as ReleaseInfo;
@@ -158,7 +158,7 @@ export function useReleaseUpdates(stream: UseReleaseStreamResult) {
       setInfoError(
         err instanceof Error
           ? cleanError(err.message)
-          : "Failed to check for updates"
+          : "Couldn’t check for updates."
       );
     } finally {
       setInfoLoading(false);
@@ -188,7 +188,7 @@ export function useReleaseUpdates(stream: UseReleaseStreamResult) {
     }
     if (!res.ok) {
       const err = (await res.json()) as { error?: string };
-      setUpdateError(cleanError(err.error ?? "Failed to start update"));
+      setUpdateError(cleanError(err.error ?? "Couldn’t start the update."));
       return;
     }
     setJob({

@@ -69,7 +69,7 @@ export function BranchSelect({
     } catch (error) {
       setRemoteBranches([]);
       setFetchError(
-        error instanceof Error ? error.message : "Couldn't load branches."
+        error instanceof Error ? error.message : "Couldn’t load branches."
       );
     } finally {
       setBranchesLoading(false);

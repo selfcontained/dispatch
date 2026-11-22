@@ -186,7 +186,7 @@ function BrainProjectDetail({
             <Input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Filter..."
+              placeholder="Filter…"
               className="h-8 w-32 pl-8 text-body-sm md:w-40"
             />
           </div>

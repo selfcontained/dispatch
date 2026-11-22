@@ -69,7 +69,7 @@ export function useReleaseAdminData(
       });
       if (!res.ok) {
         const err = (await res.json()) as { error?: string };
-        setInfoError(cleanError(err.error ?? "Failed to load release info"));
+        setInfoError(cleanError(err.error ?? "Couldn’t load release info."));
         return;
       }
       setInfo((await res.json()) as ReleaseInfo);
@@ -79,7 +79,7 @@ export function useReleaseAdminData(
       setInfoError(
         err instanceof Error
           ? cleanError(err.message)
-          : "Failed to load release info"
+          : "Couldn’t load release info."
       );
     } finally {
       setInfoLoading(false);

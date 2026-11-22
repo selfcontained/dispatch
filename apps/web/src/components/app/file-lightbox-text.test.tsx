@@ -117,7 +117,7 @@ describe("MarkdownViewer", () => {
     );
 
     await waitFor(() =>
-      expect(screen.getByText(/Failed to load/)).toBeTruthy()
+      expect(screen.getByText(/Request failed/)).toBeTruthy()
     );
   }, 10_000);
 });
