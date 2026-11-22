@@ -104,6 +104,9 @@ export type Host = {
   interrupts: number[];
   launches: { launchId?: string; resume: string | null }[];
   stops: number;
+  /** Times the runner was asked whether it is alive. */
+  asked: number;
+  attachFails: boolean;
   socket?: Duplex;
   append(event: object): void;
   startTurn(text?: string, source?: PromptSource): void;
@@ -153,6 +156,8 @@ export async function forceWorld(pool: Pool) {
       interrupts: [],
       launches: [],
       stops: 0,
+      asked: 0,
+      attachFails: false,
       append(event) {
         const entry = {
           seq: created.journal.length + 1,
@@ -332,11 +337,13 @@ export async function forceWorld(pool: Pool) {
           }
           case "attach": {
             if (!h.alive) throw new RunnerUnavailable("no host");
+            if (h.attachFails) throw new Error("attach failed");
             const socket = channel(h);
             channels.add(socket);
             return { value: true, channel: socket };
           }
           case "alive":
+            h.asked++;
             return { value: h.alive };
           case "stop":
             h.stops++;

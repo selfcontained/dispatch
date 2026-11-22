@@ -58,6 +58,8 @@ export const UPDATE_TIMING = {
   cancelMs: 15_000,
   rollbackMs: 60_000,
   confirmRetryMs: 5_000,
+  /** How often a waiting drain asks about the hosts it isn't attached to. */
+  drainProbeMs: 10_000,
   /** A forced update has this long to empty the runner. */
   interruptingMs: 3 * 60_000,
   /** For every host to attach and report its turn. */
@@ -272,6 +274,11 @@ export class RunnerUpdateCoordinator {
   private readonly trials = new Map<string, number>();
   private readonly confirms = new Map<string, number>();
   private readonly waiting = new Map<string, number>();
+  /** What a waiting drain was last told about hosts it isn't attached to. */
+  private readonly probes = new Map<
+    string,
+    { epoch: number; at: number; answers: Map<string, boolean> }
+  >();
   /** Cancelled or forced: their drain stops no more hosts. */
   private readonly endingDrains = new Set<string>();
   private readonly attaching = new Set<string>();
@@ -1024,7 +1031,25 @@ export class RunnerUpdateCoordinator {
       this.now() < attempt.deadline &&
       this.options.service.connectionEpoch(runnerId) === epoch &&
       this.options.holds.current(runnerId)?.attemptId === attempt.id;
-    const hosts = await agents.runnerDrainHosts(runnerId, drain.retainedIds);
+    let probe = this.probes.get(runnerId);
+    const now = this.now();
+    if (
+      probe?.epoch !== epoch ||
+      now - probe.at >= UPDATE_TIMING.drainProbeMs
+    ) {
+      probe = { epoch, at: now, answers: new Map() };
+      this.probes.set(runnerId, probe);
+    }
+    const known = new Set(probe.answers.keys());
+    const ask = () =>
+      agents.runnerDrainHosts(runnerId, drain.retainedIds, probe);
+    let hosts = await ask();
+    if (!hosts.length && known.size) {
+      // Only fresh answers end the wait.
+      probe.answers.clear();
+      known.clear();
+      hosts = await ask();
+    }
     if (!mayStop()) return;
     const waiting = new Set(hosts.map(({ id }) => id)).size;
     this.waiting.set(runnerId, waiting);
@@ -1046,7 +1071,8 @@ export class RunnerUpdateCoordinator {
     for (const { id, host } of hosts) {
       if (!mayStop()) return;
       if (host?.attachedEpoch !== epoch) {
-        this.attach(runnerId, id);
+        // Attaching asks the runner too, so no more often than the probe.
+        if (!known.has(id)) this.attach(runnerId, id);
         continue;
       }
       await agents.stopRunnerHostForDrain(
@@ -1460,6 +1486,7 @@ export class RunnerUpdateCoordinator {
       return;
     }
     this.waiting.delete(runnerId);
+    this.probes.delete(runnerId);
     if (attempt.drain?.force) this.options.agents.runnerForce.release(runnerId);
     const { target } = attempt;
     let { confirmed, failed } = this.records.get(runnerId) ?? {};

@@ -3376,8 +3376,17 @@ export class AgentManager {
     );
   }
 
-  /** Legacy identities can be absent from the runner's retained list. */
-  async runnerDrainHosts(runnerId: string, retainedIds: string[]) {
+  /**
+   * The runner's hosts that may still be alive. Legacy identities can be
+   * absent from its retained list. A waiting drain passes its connection and
+   * what the runner last answered: a host attached on that connection needs
+   * no question, and any other is asked only when it has no answer yet.
+   */
+  async runnerDrainHosts(
+    runnerId: string,
+    retainedIds: string[],
+    waiting?: { epoch: number; answers: Map<string, boolean> }
+  ) {
     this.runtime.wakeRunnerDrain?.(runnerId);
     const hosts = new Map(
       (this.runtime.runnerHosts?.(runnerId) ?? []).map((host) => [
@@ -3403,13 +3412,22 @@ export class AgentManager {
     ]);
     const inventory = await Promise.all(
       [...ids].map(async (id) => {
+        const host = hosts.get(id);
+        if (waiting && host?.attachedEpoch === waiting.epoch) {
+          waiting.answers.delete(id);
+          return { id, host };
+        }
+        const answer = waiting?.answers.get(id);
+        if (answer !== undefined) return answer ? { id, host } : null;
         try {
-          if ((await this.runtime.runnerHostAlive?.(runnerId, id)) === false)
-            return null;
+          const alive =
+            (await this.runtime.runnerHostAlive?.(runnerId, id)) !== false;
+          waiting?.answers.set(id, alive);
+          return alive ? { id, host } : null;
         } catch {
+          waiting?.answers.set(id, true);
           return { id, host: undefined };
         }
-        return { id, host: hosts.get(id) };
       })
     );
     return inventory.filter((entry) => entry !== null);

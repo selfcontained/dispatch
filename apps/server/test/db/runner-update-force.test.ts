@@ -516,6 +516,62 @@ describe("stop and archive while a drain waits", () => {
   });
 });
 
+describe("liveness while a drain waits", () => {
+  it("asks only about hosts it isn't attached to, and only every ten seconds", async () => {
+    world.runner.incompatible = true;
+    const busy = await world.agent();
+    const idle = await world.agent();
+    const detached = await world.agent();
+    await world.working(busy);
+    detached.attachFails = true;
+    detached.socket!.destroy();
+    await vi.waitFor(() =>
+      expect(
+        (world.manager as any).runtime
+          .runnerHosts(RUNNER)
+          .find((h: { agentId: string }) => h.agentId === detached.id)
+          ?.attachedEpoch
+      ).toBeUndefined()
+    );
+    await world.coordinator.request(RUNNER, "update");
+    await world.until(() => !idle.alive && world.view()?.attempt?.agents === 2);
+    await world.coordinator.tick();
+    // Attaches run beside the pass that started them.
+    await vi.waitFor(() =>
+      expect((world.coordinator as any).attaching.size).toBe(0)
+    );
+    const hosts = [busy, idle, detached];
+    for (const host of hosts) host.asked = 0;
+    for (let i = 0; i < 5; i++) await world.coordinator.tick();
+    expect(hosts.map(({ asked }) => asked)).toEqual([0, 0, 0]);
+
+    world.advance(UPDATE_TIMING.drainProbeMs);
+    await world.coordinator.tick();
+    expect(busy.asked).toBe(0);
+    expect(idle.asked).toBe(1);
+    expect(detached.asked).toBeGreaterThan(0);
+  });
+
+  it("ends the wait only on fresh answers", async () => {
+    world.runner.incompatible = true;
+    const busy = await world.agent();
+    const gone = await world.agent();
+    await world.working(busy);
+    await world.coordinator.request(RUNNER, "update");
+    await world.until(() => !gone.alive && world.view()?.attempt?.agents === 1);
+    await world.coordinator.tick();
+    // Back, as a launch admitted before the hold would be.
+    gone.alive = gone.attachFails = true;
+    gone.asked = 0;
+    busy.settle();
+    await world.until(() => !busy.alive && gone.asked > 0);
+    expect(world.view()?.attempt).toMatchObject({
+      phase: "draining",
+      agents: 1,
+    });
+  });
+});
+
 describe("a runner that stays offline while resuming", () => {
   /** Both hosts are down and owed a resume when the runner drops. */
   async function offlineResuming() {
