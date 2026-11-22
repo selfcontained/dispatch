@@ -6,3 +6,5 @@ export class AgentError extends Error {
     this.statusCode = statusCode;
   }
 }
+
+export class LifecycleSuperseded extends Error {}

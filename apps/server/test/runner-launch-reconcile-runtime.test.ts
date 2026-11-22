@@ -50,6 +50,7 @@ async function fixture(options: {
   reconciles?: boolean;
   /** Polls the runner stays away after each lost reply. */
   offlinePolls?: number;
+  beforeLaunchReconcile?: RuntimeLaunch["beforeLaunchReconcile"];
 }) {
   const stateRoot = mkdtempSync(path.join(os.tmpdir(), "dispatch-launch-"));
   cleanup.push(() => rmSync(stateRoot, { recursive: true, force: true }));
@@ -140,6 +141,7 @@ async function fixture(options: {
       env: {},
       pathPrefix: [],
       ...(launchId !== null && { launchId }),
+      beforeLaunchReconcile: options.beforeLaunchReconcile,
     } as RuntimeLaunch);
   return { runtime, holds, launches, available, launch };
 }
@@ -158,6 +160,25 @@ describe("a launch reply lost across a runner update", () => {
     // It waited for the runner to reconnect before sending again.
     expect(available.mock.calls.length).toBeGreaterThanOrEqual(3);
   });
+
+  it.each([false, true])(
+    "exits a superseded launch, even when the runner stays offline (%s)",
+    async (staysOffline) => {
+      const superseded = new Error(
+        "The agent changed while its runner was held."
+      );
+      const { holds, launches, launch } = await fixture({
+        outcomes: ["lost", "ok"],
+        ...(staysOffline && { offlinePolls: Number.MAX_SAFE_INTEGER }),
+        beforeLaunchReconcile: async () => {
+          throw superseded;
+        },
+      });
+      await holds.begin("r1", ATTEMPT, staysOffline ? { boundMs: 50 } : {});
+      await expect(launch()).rejects.toBe(superseded);
+      expect(launches).toEqual([{ launchId: LAUNCH }]);
+    }
+  );
 
   it("hands a fenced repeat to the caller, which holds it", async () => {
     const { holds, launches, launch } = await fixture({

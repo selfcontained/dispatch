@@ -52,7 +52,7 @@ import {
   type ArchiveCheckoutAgent,
 } from "./archive-checkout.js";
 import type { ArchiveOutcome } from "./archive-policy.js";
-import { AgentError } from "./errors.js";
+import { AgentError, LifecycleSuperseded } from "./errors.js";
 import { admitLaunch } from "./launch-admission.js";
 import { type AgentEventBus, createAgentEventBus } from "./events.js";
 import { runLifecycleHook } from "./lifecycle-hooks.js";
@@ -562,8 +562,9 @@ export class AgentManager {
       runtime: this.runtime,
       diagnostics: this.diagnostics,
       getAgent: (id) => this.getAgent(id),
-      setAgentStatus: (id, status, lastError) =>
-        this.setAgentStatus(id, status, lastError),
+      setAgentStatus: async (id, status, lastError) => {
+        await this.setAgentStatus(id, status, lastError);
+      },
       notifyBlocked: (id, message) =>
         this.emitAttention(id, "blocked", message),
       setReconnectProgress: (id, phase) => this.setReconnectProgress(id, phase),
@@ -2603,6 +2604,7 @@ export class AgentManager {
           );
         }
       } catch (error) {
+        if (error instanceof LifecycleSuperseded) throw error;
         await this.runtime
           .stop(id, true)
           .catch((err: unknown) =>
@@ -2649,7 +2651,8 @@ export class AgentManager {
             : undefined
         );
     } catch (error) {
-      await this.failLaunch(id, error);
+      if (!(error instanceof LifecycleSuperseded))
+        await this.failLaunch(id, error);
     }
   }
 
@@ -2751,8 +2754,17 @@ export class AgentManager {
         )
           throw error;
         await this.holds.wait(placement.runner);
+        await this.assertLifecycleCurrent(agent);
       }
     }
+  }
+
+  private async assertLifecycleCurrent(agent: AgentRecord): Promise<void> {
+    const current = await this.getAgent(agent.id);
+    if (current?.status !== agent.status || current.cwd !== agent.cwd)
+      throw new LifecycleSuperseded(
+        "The agent changed while its runner was held."
+      );
   }
 
   private workspaceProgress(
@@ -3045,7 +3057,11 @@ export class AgentManager {
         env,
         pathPrefix,
         resumeSessionId: opts.resumeSessionId,
-        ...(placement && opts.launchId && { launchId: opts.launchId }),
+        ...(placement &&
+          opts.launchId && {
+            launchId: opts.launchId,
+            beforeLaunchReconcile: () => this.assertLifecycleCurrent(agent),
+          }),
         ...(onWorkspaceProgress && { onWorkspaceProgress }),
       });
     } finally {
@@ -3174,6 +3190,8 @@ export class AgentManager {
       await this.populateGitContext(id);
       this.eventBus.publish(await this.getRequiredAgent(id));
     } catch (error) {
+      if (error instanceof LifecycleSuperseded)
+        return this.getRequiredAgent(id);
       if (error instanceof RecycleSuperseded) {
         await this.setAgentStatus(id, "stopped", null);
         return this.getRequiredAgent(id);
@@ -3363,7 +3381,9 @@ export class AgentManager {
     id: string,
     input: StopAgentInput
   ): Promise<AgentRecord> {
-    const agent = await this.getRequiredAgent(id);
+    let agent = await this.getRequiredAgent(id);
+    const placement = remotePlacement(agent.cwd);
+    const guard = placement && this.holds ? agent.status : undefined;
     await this.cancelSchedules?.(id).catch((err) =>
       this.logger.warn(
         { err, agentId: id },
@@ -3371,12 +3391,13 @@ export class AgentManager {
       )
     );
     const force = input.force ?? false;
+    if (guard === "archiving") return agent;
 
     // A launch still held for a runner update never reached the runner:
     // cancelling it is the whole stop.
     if (await this.holds?.takeLaunch(id)) {
-      await this.setAgentStatus(id, "stopped", null);
-      await this.setSetupPhase(id, null);
+      if (await this.setAgentStatus(id, "stopped", null, undefined, guard))
+        await this.setSetupPhase(id, null);
       return this.getRequiredAgent(id);
     }
 
@@ -3391,35 +3412,65 @@ export class AgentManager {
 
     // The stop hook and the stop run on the runner; its update fence would
     // refuse both. Wait for a held runner first, with the agent untouched.
-    const placement = remotePlacement(agent.cwd);
-    if (placement) await this.holds?.wait(placement.runner, "stop");
+    if (placement && this.holds) {
+      await this.holds.wait(placement.runner, "stop");
+      agent = await this.getRequiredAgent(id);
+      if (agent.status === "archiving" || agent.status === "stopped")
+        return agent;
+    }
 
-    await this.setAgentStatus(id, "stopping", null);
+    if (
+      !(await this.setAgentStatus(
+        id,
+        "stopping",
+        null,
+        undefined,
+        guard && agent.status
+      ))
+    )
+      return this.getRequiredAgent(id);
 
-    // Run repo-defined stop hook (best-effort, non-blocking)
-    await runLifecycleHook(
-      "stop",
-      agent,
-      this.logger,
-      { local: this.localRunner, remote: this.remote },
-      (request) => this.whileFenced(agent, request)
-    ).catch((err) =>
+    try {
+      await runLifecycleHook(
+        "stop",
+        agent,
+        this.logger,
+        { local: this.localRunner, remote: this.remote },
+        (request) => this.whileFenced({ ...agent, status: "stopping" }, request)
+      );
+    } catch (err) {
+      if (err instanceof LifecycleSuperseded) return this.getRequiredAgent(id);
       this.logger.warn(
         { err, agentId: id },
         "Stop hook failed; continuing shutdown"
-      )
-    );
+      );
+    }
 
     try {
       this.streamRecorder.beginStop(id);
       await this.runtime.stop(id, force);
       await this.streamRecorder.settleStopped(id);
-      await this.setAgentStatus(id, "stopped", null);
+      await this.setAgentStatus(
+        id,
+        "stopped",
+        null,
+        undefined,
+        guard && "stopping"
+      );
 
       this.notifyStreamWrite(id, true);
     } catch (error) {
       const message = errorMessage(error);
-      await this.setAgentStatus(id, "error", message);
+      if (
+        !(await this.setAgentStatus(
+          id,
+          "error",
+          message,
+          undefined,
+          guard && "stopping"
+        ))
+      )
+        return this.getRequiredAgent(id);
       await this.emitAttention(
         id,
         "blocked",
@@ -3663,8 +3714,9 @@ export class AgentManager {
     id: string,
     status: AgentStatus,
     lastError: string | null,
-    onUpdated?: (updatedAt: string) => void
-  ): Promise<void> {
+    onUpdated?: (updatedAt: string) => void,
+    expectedStatus?: AgentStatus
+  ): Promise<boolean> {
     if (status !== "error") this.attentionHistory.settleBlocked(id);
     if (status === "stopped" || status === "archiving")
       this.attentionHistory.permissions(id, []);
@@ -3675,12 +3727,16 @@ export class AgentManager {
           last_error = $3,
           updated_at = NOW()
       WHERE id = $1
+      ${expectedStatus === undefined ? "" : "AND deleted_at IS NULL AND status = $4"}
       RETURNING updated_at::text AS updated_at
       `,
-      [id, status, lastError]
+      expectedStatus === undefined
+        ? [id, status, lastError]
+        : [id, status, lastError, expectedStatus]
     );
 
     if (result.rowCount !== 1) {
+      if (expectedStatus !== undefined) return false;
       this.logger.warn(
         { id, status },
         "Agent status update skipped because row was missing."
@@ -3689,6 +3745,7 @@ export class AgentManager {
       onUpdated?.(result.rows[0].updated_at);
       this.eventBus.publish(await this.getRequiredAgent(id));
     }
+    return true;
   }
 
   // --- Files ---
@@ -3801,8 +3858,9 @@ export class AgentManager {
       diffStatsRefresher: this.diffStatsRefresher,
       getAgent: (id) => this.getAgent(id),
       getRequiredAgent: (id) => this.getRequiredAgent(id),
-      setAgentStatus: (id, status, lastError) =>
-        this.setAgentStatus(id, status, lastError),
+      setAgentStatus: async (id, status, lastError) => {
+        await this.setAgentStatus(id, status, lastError);
+      },
       beginStopStream: (id) => this.streamRecorder.beginStop(id),
       settleStream: (id) => this.streamRecorder.settleStopped(id),
       setArchivePhase: (id, phase) => this.setArchivePhase(id, phase),
@@ -3811,7 +3869,10 @@ export class AgentManager {
       ...(this.holds && {
         waitForRunner: async (agent: AgentRecord) => {
           const placement = remotePlacement(agent.cwd);
-          if (placement) await this.holds!.wait(placement.runner, "stop");
+          if (!placement || !this.holds!.isHeld(placement.runner)) return true;
+          await this.holds!.wait(placement.runner, "stop");
+          const current = await this.getAgent(agent.id);
+          return current?.status === "archiving" && current.cwd === agent.cwd;
         },
         whileFenced: <T>(agent: AgentRecord, request: () => Promise<T>) =>
           this.whileFenced(agent, request),

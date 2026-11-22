@@ -560,6 +560,177 @@ describe("launches on a runner held for an update", () => {
     expect(await statusOf(held.id)).toBe("stopped");
   });
 
+  it.each(["archiving", "stopped", "deleted"] as const)(
+    "leaves an agent that became %s alone after a held stop",
+    async (status) => {
+      const holds = await openHolds();
+      const runtime = spyRuntime();
+      const manager = managerOn(holds, runtime);
+      const agent = await manager.createAgent({ cwd: HELD });
+      await holds.begin("r1", ATTEMPT);
+      const stopping = manager.stopAgent(agent.id);
+      const outcome = stopping.catch((err: Error) => err);
+      await vi.waitFor(() => expect(holds.counts("r1").stops).toBe(1));
+      if (status === "archiving") await manager.beginArchive(agent.id, "keep");
+      else if (status === "deleted")
+        await pool.query("UPDATE agents SET deleted_at = NOW() WHERE id = $1", [
+          agent.id,
+        ]);
+      else
+        await pool.query(
+          "UPDATE agents SET status = 'stopped', last_error = 'newer' WHERE id = $1",
+          [agent.id]
+        );
+      const before = (
+        await pool.query("SELECT * FROM agents WHERE id = $1", [agent.id])
+      ).rows[0];
+      const queries = vi.spyOn(pool, "query");
+      try {
+        await holds.release("r1", ATTEMPT, "committed");
+        if (status === "deleted")
+          expect(await outcome).toMatchObject({ message: "Agent not found." });
+        else expect(await outcome).toMatchObject({ status });
+        expect(
+          queries.mock.calls.some(
+            ([sql]) => typeof sql === "string" && sql.includes("UPDATE agents")
+          )
+        ).toBe(false);
+      } finally {
+        queries.mockRestore();
+      }
+      expect(
+        (await pool.query("SELECT * FROM agents WHERE id = $1", [agent.id]))
+          .rows[0]
+      ).toEqual(before);
+      expect(runtime.stop).not.toHaveBeenCalled();
+    }
+  );
+
+  it("does not mark an archiving agent stopped if a late launch hold exists", async () => {
+    const holds = await openHolds();
+    const runtime = spyRuntime();
+    const manager = managerOn(holds, runtime);
+    const agent = await manager.createAgent({ cwd: HELD });
+    await holds.begin("r1", ATTEMPT);
+    await manager.beginArchive(agent.id, "keep");
+    await holds.holdLaunch("r1", {
+      agentId: agent.id,
+      kind: "start",
+      launchId: ATTEMPT,
+    });
+    expect(await manager.stopAgent(agent.id)).toMatchObject({
+      status: "archiving",
+    });
+    expect(await statusOf(agent.id)).toBe("archiving");
+    expect(runtime.stop).not.toHaveBeenCalled();
+  });
+
+  it("publishes stopping then stopped with no hold", async () => {
+    const holds = await openHolds();
+    const runtime = spyRuntime();
+    const manager = managerOn(holds, runtime);
+    const agent = await manager.createAgent({ cwd: HELD });
+    const statuses: string[] = [];
+    manager.onAgentUpdated((row) => {
+      if (row.id === agent.id) statuses.push(row.status);
+    });
+    expect(await manager.stopAgent(agent.id)).toMatchObject({
+      status: "stopped",
+    });
+    expect(statuses).toEqual(["stopping", "stopped"]);
+    expect(runtime.stop).toHaveBeenCalledExactlyOnceWith(agent.id, false);
+  });
+
+  it("does not claim stopping if archive won after the post-hold read", async () => {
+    const holds = await openHolds();
+    const runtime = spyRuntime();
+    const manager = managerOn(holds, runtime);
+    const agent = await manager.createAgent({ cwd: HELD });
+    const query = pool.query.bind(pool);
+    const intercepted = vi.spyOn(pool, "query").mockImplementation((async (
+      sql: string,
+      values?: unknown[]
+    ) => {
+      if (values?.[0] === agent.id && values[1] === "stopping")
+        await manager.beginArchive(agent.id, "keep");
+      return query(sql, values);
+    }) as typeof pool.query);
+    try {
+      expect(await manager.stopAgent(agent.id)).toMatchObject({
+        status: "archiving",
+      });
+      expect(runtime.stop).not.toHaveBeenCalled();
+    } finally {
+      intercepted.mockRestore();
+    }
+  });
+
+  it.each([false, true])(
+    "preserves an archive claimed during runtime.stop (stop failed=%s)",
+    async (fails) => {
+      const holds = await openHolds();
+      const runtime = spyRuntime();
+      const manager = managerOn(holds, runtime);
+      const agent = await manager.createAgent({ cwd: HELD });
+      runtime.stop.mockImplementationOnce(async () => {
+        await manager.beginArchive(agent.id, "keep");
+        if (fails) throw new Error("stop failed");
+      });
+      expect(await manager.stopAgent(agent.id)).toMatchObject({
+        status: "archiving",
+      });
+      expect(await statusOf(agent.id)).toBe("archiving");
+    }
+  );
+
+  it("skips archive teardown if the agent was deleted during the hold", async () => {
+    const holds = await openHolds();
+    const runtime = spyRuntime();
+    const manager = managerOn(holds, runtime);
+    const agent = await manager.createAgent({ cwd: HELD });
+    await holds.begin("r1", ATTEMPT);
+    await manager.beginArchive(agent.id, "keep");
+    const archiving = manager.executeArchive(agent.id, {
+      onPhaseChange: vi.fn(),
+      onComplete: vi.fn(),
+      onError: vi.fn(),
+    });
+    await vi.waitFor(() => expect(holds.counts("r1").stops).toBe(1));
+    await pool.query("UPDATE agents SET deleted_at = NOW() WHERE id = $1", [
+      agent.id,
+    ]);
+    await holds.release("r1", ATTEMPT, "committed");
+    await archiving;
+    expect(runtime.stop).not.toHaveBeenCalled();
+    expect(runtime.discard).not.toHaveBeenCalled();
+  });
+
+  it("skips retrying the refused stop hook after archive takes over", async () => {
+    const holds = await openHolds();
+    const runtime = spyRuntime();
+    const manager = managerOn(holds, runtime);
+    const agent = await manager.createAgent({ cwd: HELD });
+    refuseNext.set("checkoutCommand", async () => {
+      await holds.begin("r1", ATTEMPT);
+    });
+    const stopping = manager.stopAgent(agent.id);
+    await vi.waitFor(() => expect(holds.isHeld("r1")).toBe(true));
+    await manager.beginArchive(agent.id, "keep");
+    await holds.release("r1", ATTEMPT, "committed");
+    expect(await stopping).toMatchObject({ status: "archiving" });
+    const hookReads = requestSession.mock.calls
+      .map(
+        ([, operation]) =>
+          operation as { kind: string; operation?: { checkout: string } }
+      )
+      .filter(({ kind }) => kind === "checkoutCommand")
+      .map(({ operation }) => operation?.checkout);
+    expect(hookReads.filter((checkout) => checkout === "launch")).toHaveLength(
+      1
+    );
+    expect(runtime.stop).not.toHaveBeenCalled();
+  });
+
   it.each([
     ["a stop", (manager: Manager, id: string) => manager.stopAgent(id)],
     [

@@ -367,7 +367,8 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
     placement: Placement | null | undefined,
     operation: Extract<SessionLifecycleOperation, { kind: "launch" }>,
     settings: LocalLaunchSettings,
-    onProgress?: RuntimeLaunch["onWorkspaceProgress"]
+    onProgress?: RuntimeLaunch["onWorkspaceProgress"],
+    beforeReconcile?: RuntimeLaunch["beforeLaunchReconcile"]
   ): Promise<SessionResult> {
     for (let attempt = 1; ; attempt++) {
       try {
@@ -386,6 +387,7 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
         const pollMs = deps.launchRetryPollMs ?? 250;
         while (!deps.remote?.available(placement) && Date.now() < deadline)
           await new Promise((resolve) => setTimeout(resolve, pollMs));
+        await beforeReconcile?.();
         if (
           !deps.remote?.available(placement) ||
           !deps.remote.reconcilesLaunches?.(placement)
@@ -1309,13 +1311,15 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
         env,
         pathPrefix,
         onWorkspaceProgress,
+        beforeLaunchReconcile,
         ...launch
       } = input;
       const { launchExited } = await requestLaunch(
         placement,
         { kind: "launch", agentId: input.agentId, launch },
         { cwd, bins, env, pathPrefix },
-        onWorkspaceProgress
+        onWorkspaceProgress,
+        beforeLaunchReconcile
       );
       try {
         const entry = await connect(

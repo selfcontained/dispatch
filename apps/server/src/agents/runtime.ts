@@ -29,6 +29,8 @@ export type RuntimeLaunch = HostLaunch & {
   placement?: Placement;
   repository?: RunnerRepository;
   onWorkspaceProgress?: (progress: LaunchProgress) => void;
+  /** Recheck ownership after waiting for a runner whose launch reply was lost. */
+  beforeLaunchReconcile?: () => Promise<void>;
 };
 
 export type RuntimeEventListener = (

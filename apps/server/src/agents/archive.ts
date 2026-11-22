@@ -17,7 +17,7 @@ import {
 import type { RemoteRunnerService } from "./remote/service.js";
 import type { CheckoutCommandRunners } from "./checkout-commands.js";
 import { runLifecycleHook } from "./lifecycle-hooks.js";
-import { AgentError } from "./errors.js";
+import { AgentError, LifecycleSuperseded } from "./errors.js";
 import type { AgentRuntime } from "./runtime.js";
 import type {
   AgentRecord,
@@ -51,7 +51,7 @@ export type ArchiveDeps = {
     claim: () => Promise<boolean>
   ) => Promise<boolean>;
   /** Resolves once the agent's runner is not held for an update. */
-  waitForRunner?: (agent: AgentRecord) => Promise<void>;
+  waitForRunner?: (agent: AgentRecord) => Promise<boolean>;
   /** Repeats a request the runner's update fence refused, once it opens. */
   whileFenced?: <T>(
     agent: AgentRecord,
@@ -186,19 +186,20 @@ export async function executeArchive(
     // Phase: stopping — tear down session without changing agent status
     const t = Date.now();
     try {
-      await deps.waitForRunner?.(agent);
+      if ((await deps.waitForRunner?.(agent)) === false) return;
       await runLifecycleHook(
         "stop",
         agent,
         logger,
         { local: deps.localRunner, remote: deps.remote },
         deps.whileFenced && ((request) => deps.whileFenced!(agent, request))
-      ).catch((err) =>
+      ).catch((err) => {
+        if (err instanceof LifecycleSuperseded) throw err;
         logger.warn(
           { err, agentId: id },
           "Stop hook failed during archive; continuing"
-        )
-      );
+        );
+      });
       deps.beginStopStream(id);
       await runtime.stop(id, true);
       await deps.settleStream(id);
@@ -208,6 +209,7 @@ export async function executeArchive(
       else await runtime.discard(id);
       stopped = true;
     } catch (err) {
+      if (err instanceof LifecycleSuperseded) return;
       logger.warn(
         { err, agentId: id },
         "Stop during archive failed; continuing"
@@ -337,19 +339,22 @@ export async function deleteAgentDirect(
     // Not stopAgent: it writes `stopping`/`stopped`, releasing the claim above
     // and letting a fresh archive take this agent mid-teardown.
     try {
-      await deps.waitForRunner?.(agent);
+      if ((await deps.waitForRunner?.(agent)) === false) return [];
       await runLifecycleHook(
         "stop",
         agent,
         logger,
         { local: deps.localRunner, remote: deps.remote },
-        deps.whileFenced && ((request) => deps.whileFenced!(agent, request))
-      ).catch((err) =>
+        deps.whileFenced &&
+          ((request) =>
+            deps.whileFenced!({ ...agent, status: "archiving" }, request))
+      ).catch((err) => {
+        if (err instanceof LifecycleSuperseded) throw err;
         logger.warn(
           { err, agentId: id },
           "Stop hook failed during delete; continuing"
-        )
-      );
+        );
+      });
       deps.beginStopStream(id);
       await runtime.stop(id, true);
       await deps.settleStream(id);
@@ -359,6 +364,7 @@ export async function deleteAgentDirect(
       else await runtime.discard(id);
       stopped = true;
     } catch (err) {
+      if (err instanceof LifecycleSuperseded) return [];
       logger.warn(
         { err, agentId: id },
         "Stop during delete failed; continuing with deletion"

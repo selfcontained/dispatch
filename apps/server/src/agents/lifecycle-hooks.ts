@@ -10,6 +10,7 @@ import {
   REPO_TOOL_MANIFEST_PATH,
 } from "../shared/mcp/repo-tools.js";
 
+import { LifecycleSuperseded } from "./errors.js";
 import type { AgentRecord } from "./types.js";
 
 /**
@@ -78,6 +79,7 @@ export async function runLifecycleHook(
         );
       }
     } catch (err) {
+      if (err instanceof LifecycleSuperseded) throw err;
       logger.warn(
         { err, agentId: agent.id, hook: hookName, checkout },
         "Runner lifecycle hook failed; continuing shutdown"
