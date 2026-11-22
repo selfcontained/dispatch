@@ -1067,6 +1067,21 @@ describe("runner update scenarios", () => {
             event.text === marker
         )
       ).toHaveLength(1);
+      const originalTurn = remote.journal.slice(turn - 1);
+      const nextTurn = originalTurn.findIndex(
+        ({ event }, index) =>
+          index > 0 && event.type === "turn" && event.state === "started"
+      );
+      const originalSettlements = (
+        nextTurn === -1 ? originalTurn : originalTurn.slice(0, nextTurn)
+      ).flatMap(({ event }) =>
+        event.type === "turn" && event.state === "settled"
+          ? [event.stopReason]
+          : []
+      );
+      expect(originalSettlements).toEqual([
+        path === "force" ? "cancelled" : "end_turn",
+      ]);
     }
   );
 
@@ -1182,12 +1197,18 @@ describe("runner update scenarios", () => {
       expect(launched.launches).toEqual([{ launchId, resume: null }]);
       expect(launched.prompts.map(({ text }) => text)).toEqual([marker]);
       await runningInOriginalSession(launched);
-      if (path !== "live") {
-        resumedOnce(prior);
+      if (path === "live") {
+        await world.until(
+          async () =>
+            prior.launches.length === 2 &&
+            (await statusOf(prior.id)) === "running"
+        );
+      } else {
         expect(world.effects.lastIndexOf(`launch:${prior.id}`)).toBeLessThan(
           world.effects.indexOf(`launch:${queued.id}`)
         );
       }
+      recoveredOnce(prior, path);
       await runningInOriginalSession(prior);
     }
   );
