@@ -3,7 +3,7 @@ import { localAgentCaBundle } from "../../local-tls.js";
 import { withToolSearchPath } from "../../shared/lib/tool-environment.js";
 import { withEngineBinDir } from "./engine-bin-dir.js";
 import type { AcpEngineId, EngineBins } from "./engine-spec.js";
-import type { HostLaunch } from "./host-protocol.js";
+import { hostFile, type HostLaunch } from "./host-protocol.js";
 
 /** Called in the host, after the login shell and ~/.dispatch/env are loaded. */
 export function buildHostEnv(
@@ -25,19 +25,19 @@ export function buildHostEnv(
     env.NODE_EXTRA_CA_CERTS = localAgentCaBundle(
       ca,
       env.NODE_EXTRA_CA_CERTS || env.SSL_CERT_FILE,
-      path.join(stateDir, "node-ca.pem")
+      hostFile(stateDir, "nodeCa")
     );
     if (launch.engine === "codex") {
       env.CODEX_CA_CERTIFICATE = localAgentCaBundle(
         ca,
         env.CODEX_CA_CERTIFICATE || env.SSL_CERT_FILE,
-        path.join(stateDir, "codex-ca.pem")
+        hostFile(stateDir, "codexCa")
       );
     }
     env.CURL_CA_BUNDLE = localAgentCaBundle(
       ca,
       env.CURL_CA_BUNDLE || env.SSL_CERT_FILE,
-      path.join(stateDir, "curl-ca.pem")
+      hostFile(stateDir, "curlCa")
     );
   }
   env.PATH = withEngineBinDir(

@@ -9,6 +9,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   renameSync,
   rmSync,
@@ -20,6 +21,7 @@ import os from "node:os";
 import net from "node:net";
 import { once } from "node:events";
 import { spawn, execFileSync } from "node:child_process";
+import { rootCertificates } from "node:tls";
 import { pathToFileURL } from "node:url";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -28,6 +30,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import {
   encodeMessage,
+  HOST_FILES,
   ndjsonDecoder,
   type ClientMessage,
   type HostMessage,
@@ -35,6 +38,7 @@ import {
 import { embeddedBuild } from "../src/agents/build-identity.js";
 import type { DriverEvent } from "../src/agents/acp/driver.js";
 import { createAcpRuntime } from "../src/agents/acp/runtime.js";
+import { preparePersonaContext } from "../src/agents/acp/persona-context.js";
 import { createLocalRunner } from "../src/agents/local-runner.js";
 import { RunnerUnavailable } from "../src/agents/remote/service.js";
 import { RunnerUpdateHolds } from "../src/agents/remote/update-hold.js";
@@ -802,6 +806,70 @@ mock.module("node:fs/promises", () => ({
       rmSync(dir, { recursive: true, force: true });
     }
   }, 15_000);
+
+  it("lists every file a host writes into its directory", async () => {
+    const ca = path.join(cwd, "host-files-ca.pem");
+    writeFileSync(ca, rootCertificates[0]!);
+    const written = new Set<string>();
+    // Between them the two engines reach every writer.
+    for (const engine of ["codex", "opencode"] as const) {
+      const dir = mkdtempSync("/tmp/dispatch-acp-files-");
+      writeFileSync(
+        path.join(dir, HOST_FILES.launch),
+        JSON.stringify({
+          ...launchFor(`agt_files_${engine}`, cwd),
+          engine,
+          reportTurnActivity: true,
+          env: { DISPATCH_LOCAL_CA_CERTIFICATE: ca },
+          personaContext: await preparePersonaContext(
+            dir,
+            "Persona rule\n".repeat(6000)
+          ),
+        })
+      );
+      const host = spawn("bun", [mainTs, "agent-host", "--state", dir], {
+        stdio: "ignore",
+      });
+      const closed = once(host, "exit");
+      let socket: net.Socket | undefined;
+      try {
+        await until(() => existsSync(path.join(dir, HOST_FILES.session)));
+        socket = net.createConnection(path.join(dir, HOST_FILES.socket));
+        const messages: HostMessage[] = [];
+        const decode = ndjsonDecoder<HostMessage>();
+        socket.on("data", (chunk) => messages.push(...decode(chunk)));
+        await once(socket, "connect");
+        socket.write(encodeMessage({ type: "hello", fromSeq: 0 }));
+        await until(() =>
+          messages.some((m) => m.type === "welcome" && m.running)
+        );
+        const { journalId } = messages.find((m) => m.type === "welcome")!;
+        socket.write(
+          encodeMessage({
+            type: "prompt",
+            id: "hold",
+            journalId,
+            text: "hold-turn",
+          })
+        );
+        // Sample with the turn open, while the transient files still exist.
+        await until(
+          () =>
+            existsSync(path.join(dir, HOST_FILES.turnActive)) &&
+            existsSync(path.join(dir, HOST_FILES.receipts))
+        );
+        for (const name of readdirSync(dir)) written.add(name);
+      } finally {
+        socket?.destroy();
+        host.kill();
+        await closed;
+        rmSync(dir, { recursive: true, force: true });
+      }
+    }
+    // The launcher writes the log and the service CA; no host run does.
+    const { log, serviceMcpCa, ...byHost } = HOST_FILES;
+    expect([...written].sort()).toEqual(Object.values(byHost).sort());
+  }, 30_000);
 
   it("keeps a runner attachment across a passive inventory connection", async () => {
     const dir = mkdtempSync("/tmp/dispatch-acp-inventory-");

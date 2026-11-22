@@ -423,16 +423,7 @@ export async function createSessionSupervisor(
       const uid = process.getuid!();
       if (entry.uid !== uid) await chown(dir, uid, process.getgid!());
       await chmod(dir, 0o700);
-      for (const name of [
-        ...Object.values(HOST_FILES),
-        "prompt-receipts.jsonl",
-        "turn-active",
-        "service-mcp-ca.pem",
-        "node-ca.pem",
-        "codex-ca.pem",
-        "curl-ca.pem",
-        "dispatch-instructions.md",
-      ]) {
+      for (const name of Object.values(HOST_FILES)) {
         await unlink(path.join(dir, name)).catch(missingPath);
       }
     } else {
@@ -941,7 +932,7 @@ export async function createSessionSupervisor(
     progress?.({ phase: "ready" });
     const dir = path.join(hostRoot, key);
     const files = path.join(dir, "files");
-    const mcpCaPath = path.join(dir, "service-mcp-ca.pem");
+    const mcpCaPath = hostFile(dir, "serviceMcpCa");
     // The enrollment CA may live under a root-only directory. Publish just
     // the certificate into the private workload state before starting the host.
     const mcpCa = mcp ? await readFile(config.ca) : undefined;

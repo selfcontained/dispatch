@@ -1,6 +1,7 @@
 import os from "node:os";
 import path from "node:path";
 import { readFile, lstat } from "node:fs/promises";
+import { hostFile } from "../acp/host-protocol.js";
 import { gitSha, packageVersion } from "../../generated/runtime-assets.js";
 import { parseMaintenanceFailure, type RunnerHealth } from "./protocol.js";
 
@@ -80,7 +81,7 @@ export function runnerHealthSampler(runtime: string) {
       dir && readMetric(path.join(dir, "memory.current")),
       Promise.all(
         liveHostDirs.map((d) =>
-          lstat(path.join(d, "turn-active")).then(
+          lstat(hostFile(d, "turnActive")).then(
             (s) => s.isFile(),
             () => false
           )

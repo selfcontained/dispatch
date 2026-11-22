@@ -39,7 +39,11 @@ export type HostLaunch = RemoteLaunch & {
   pathPrefix: string[];
 };
 
-/** Files inside an agent's state directory. */
+/**
+ * Every file the host, or whoever launches it, writes into an agent's state
+ * directory. A runner unlinks each of them before a launch, so name a new
+ * file here and write it through `hostFile`.
+ */
 export const HOST_FILES = {
   launch: "launch.json",
   socket: "host.sock",
@@ -48,6 +52,14 @@ export const HOST_FILES = {
   journalId: "journal.id",
   session: "session.json",
   log: "host.log",
+  receipts: "prompt-receipts.jsonl",
+  turnActive: "turn-active",
+  serviceMcpCa: "service-mcp-ca.pem",
+  nodeCa: "node-ca.pem",
+  codexCa: "codex-ca.pem",
+  curlCa: "curl-ca.pem",
+  instructions: "dispatch-instructions.md",
+  personaContext: "persona-context.md",
 } as const;
 
 export function hostFile(

@@ -1,6 +1,6 @@
 import { writeFile } from "node:fs/promises";
-import path from "node:path";
 import { parse, type ParseError } from "jsonc-parser";
+import { hostFile } from "./host-protocol.js";
 
 /** Add per-agent guidance to OpenCode's native system instructions. */
 export async function openCodeInstructionsEnv(
@@ -33,7 +33,7 @@ export async function openCodeInstructionsEnv(
       "OPENCODE_CONFIG_CONTENT instructions must be an array of paths."
     );
   }
-  const file = path.join(stateDir, "dispatch-instructions.md");
+  const file = hostFile(stateDir, "instructions");
   await writeFile(file, instructions, { mode: 0o600 });
   return {
     ...env,

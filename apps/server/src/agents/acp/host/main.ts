@@ -178,7 +178,7 @@ async function main(): Promise<void> {
   // These receipts belong to this journal. A claimed operation may have
   // reached the provider even if the adapter never acknowledged pickup.
   const receipts = new Map<string, "claimed" | "accepted">();
-  const receiptFile = path.join(stateDir, "prompt-receipts.jsonl");
+  const receiptFile = hostFile(stateDir, "receipts");
   function recordReceipt(id: string, state: "claimed" | "accepted") {
     appendFileSync(
       receiptFile,
@@ -270,7 +270,7 @@ async function main(): Promise<void> {
       launch.reportTurnActivity &&
       (event.type === "turn" || event.type === "exit")
     ) {
-      const marker = path.join(stateDir, "turn-active");
+      const marker = hostFile(stateDir, "turnActive");
       try {
         if (openTurn) writeFileSync(marker, "", { flag: "wx", mode: 0o600 });
         else rmSync(marker, { force: true });

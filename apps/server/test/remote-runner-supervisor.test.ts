@@ -5,6 +5,7 @@ import { once } from "node:events";
 import {
   chmod,
   link,
+  readdir,
   mkdir,
   mkdtemp,
   open,
@@ -20,7 +21,10 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import Fastify from "fastify";
 import { buildHostEnv } from "../src/agents/acp/host-env.js";
-import type { HostLaunch } from "../src/agents/acp/host-protocol.js";
+import {
+  HOST_FILES,
+  type HostLaunch,
+} from "../src/agents/acp/host-protocol.js";
 import { issueAuthority, issueServer } from "../src/agents/remote/x509.js";
 import { createAgentMcpToken, validateAgentMcpToken } from "../src/auth.js";
 import { registerMcpRoutes } from "../src/routes/mcp.js";
@@ -529,16 +533,9 @@ describe("runner session supervision", () => {
       const sentinel = path.join(root, "outside");
       await writeFile(sentinel, "untouched");
       await symlink(sentinel, path.join(hostDir, "journal.jsonl"));
-      const staleFiles = [
-        "host.pid",
-        "prompt-receipts.jsonl",
-        "turn-active",
-        "service-mcp-ca.pem",
-        "node-ca.pem",
-        "codex-ca.pem",
-        "curl-ca.pem",
-        "dispatch-instructions.md",
-      ];
+      const staleFiles = Object.values(HOST_FILES).filter(
+        (name) => name !== "launch.json" && name !== "journal.jsonl"
+      );
       for (const name of staleFiles)
         await writeFile(path.join(hostDir, name), "stale host state");
       await runner.stop(agentId, workspace, true);
@@ -549,6 +546,7 @@ describe("runner session supervision", () => {
           code: "ENOENT",
         });
       expect(await readFile(sentinel, "utf8")).toBe("untouched");
+      expect((await readdir(hostDir)).sort()).toEqual(["files", "launch.json"]);
 
       runner.close();
       runner = await start([workspace], undefined, undefined, {

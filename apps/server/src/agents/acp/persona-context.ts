@@ -1,6 +1,6 @@
-import path from "node:path";
 import { writeFile } from "node:fs/promises";
 import { MAX_PERSONA_PROMPT_BYTES } from "../../personas/loader.js";
+import { hostFile } from "./host-protocol.js";
 
 /** Persisted launch metadata only; never forwarded to an engine CLI. */
 export const PERSONA_CONTEXT_ARG = "--dispatch-persona-context";
@@ -18,7 +18,7 @@ export async function preparePersonaContext(
   if (!context) return null;
   if (Buffer.byteLength(context, "utf8") <= MAX_PERSONA_PROMPT_BYTES)
     return context;
-  const file = path.join(stateDir, "persona-context.md");
+  const file = hostFile(stateDir, "personaContext");
   await writeFile(file, context, { mode: 0o600 });
   return `The complete persona instructions, ownership scope, and briefing exceed the inline message budget. Nothing has been trimmed. Before beginning the task, read the entire UTF-8 launch context file at ${JSON.stringify(file)}. If your file tool limits output, read it in chunks until you reach the end. If you cannot read it, report the problem to the launching agent instead of reviewing with incomplete instructions.`;
 }
