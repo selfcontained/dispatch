@@ -1853,17 +1853,18 @@ html[data-hidden] .animate-sidebar-nav-pulse {
   }
 }
 
-/* A small read/write gesture acknowledges even a piece already in its slot. */
+/* Light the block in place during the pause before it travels. */
 @keyframes dispatch-defrag-ack {
-  35% {
-    transform: translateY(-2px);
-  }
+  0%,
   100% {
-    transform: translateY(0);
+    filter: brightness(1);
+  }
+  35% {
+    filter: brightness(1.2);
   }
 }
 .dispatch-defrag-ack {
-  animation: dispatch-defrag-ack 900ms ease-in-out;
+  animation: dispatch-defrag-ack 450ms ease-in-out;
 }
 @media (prefers-reduced-motion: reduce) {
   .dispatch-defrag-ack {
