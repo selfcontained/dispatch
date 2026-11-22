@@ -52,6 +52,11 @@ export class BackgroundWorkRegistry {
     }
     if (this.items.size > 200) this.invalidate();
   }
+  isIdle(): boolean {
+    // State-only notifications also occupy the registry, even before their
+    // metadata is complete enough to show in the transcript.
+    return this.status === "supported" && this.items.size === 0;
+  }
   snapshot(): BackgroundSnapshot {
     return {
       status: this.status,

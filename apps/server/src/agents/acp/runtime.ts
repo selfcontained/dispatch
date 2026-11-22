@@ -32,6 +32,7 @@ import type {
 import type {
   AgentRuntime,
   QueuedPromptAction,
+  RunnerHostIdentity,
   RuntimeEventListener,
 } from "../runtime.js";
 import type {
@@ -50,7 +51,11 @@ import {
 import type { RunnerUpdateHolds } from "../remote/update-hold.js";
 import type { Placement } from "../remote/protocol.js";
 import type { RemoteEventInbox } from "../remote/event-inbox.js";
-import { HostClient, UpdateAcknowledgementLost } from "./host-client.js";
+import {
+  HostClient,
+  type HostQuiesceLease,
+  UpdateAcknowledgementLost,
+} from "./host-client.js";
 import { type JournalEntry } from "./host-protocol.js";
 
 /** The engine's ACP handshake can take a while on a cold adapter. */
@@ -100,6 +105,7 @@ type Waiting = {
 };
 
 type Live = {
+  agentId: string;
   remote?: boolean;
   /** The runner this host is placed on; local hosts have none. */
   runner?: string;
@@ -109,8 +115,7 @@ type Live = {
   /** Serializes submission/acceptance, not the lifetime of a turn. */
   pumping: boolean;
   /** Prompts not yet sent, oldest first. */
-  waiting: Waiting[];
-  pending: number;
+  queue: { waiting: Waiting[]; pending: number };
   /** Keep later prompts behind an outstanding scoped cancellation. */
   deliveryInterrupts: Map<number, Promise<void>>;
   turnOpen: boolean;
@@ -297,6 +302,13 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
   // Assigned below; launch() refers back to it to tear down a failed host.
   let runtime: AgentRuntime;
   const live = new Map<string, Live>();
+  const recycleHolds = new Map<string, { entry: Live; restarting: boolean }>();
+  const inputEntry = (agentId: string) =>
+    live.get(agentId) ?? recycleHolds.get(agentId)?.entry;
+  const preserving = (entry: Live) => {
+    const hold = recycleHolds.get(entry.agentId);
+    return hold?.entry === entry && hold.restarting;
+  };
   const connecting = new Map<string, Promise<Live>>();
   const listeners = new Set<RuntimeEventListener>();
 
@@ -312,7 +324,9 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
 
   /** An update holds new work for this host's runner. */
   const held = (entry: Live) =>
-    entry.runner !== undefined && deps.holds?.isHeld(entry.runner) === true;
+    entry.runner !== undefined &&
+    (deps.holds?.isHeld(entry.runner) === true ||
+      recycleHolds.has(entry.agentId));
 
   /**
    * Stop and discard start runner processes, so a held runner's fence would
@@ -435,7 +449,7 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
   }
 
   function failWaiting(entry: Live, error: Error) {
-    for (const w of entry.waiting.splice(0)) {
+    for (const w of entry.queue.waiting.splice(0)) {
       finishDecision(w, "expired");
       w.rejectAccepted(error);
       w.resolveSettled();
@@ -453,13 +467,15 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
     entry.pumping = true;
     try {
       while (
-        entry.waiting.length &&
+        entry.queue.waiting.length &&
         (!entry.remote || entry.client.isReady()) &&
         !held(entry) &&
         !entry.deliveryInterrupts.size &&
         live.get(agentId) === entry
       ) {
-        const urgent = entry.waiting.filter((w) => w.delivery === "interrupt");
+        const urgent = entry.queue.waiting.filter(
+          (w) => w.delivery === "interrupt"
+        );
         for (const w of urgent) {
           // A steering request may settle the arrival-time turn while the pump
           // is locked. Its interrupt must never migrate to a subsequent turn.
@@ -477,7 +493,7 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
             entry.turnSeq === undefined
           ) {
             for (const w of urgent.filter((w) => !w.interruptHandled)) {
-              entry.waiting.splice(entry.waiting.indexOf(w), 1);
+              entry.queue.waiting.splice(entry.queue.waiting.indexOf(w), 1);
               w.rejectAccepted(
                 new Error(
                   "This agent host cannot safely interrupt an active turn. Restart the agent and retry."
@@ -503,12 +519,12 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
                 entry.interruptedTurnSeq = undefined;
               // Preserve stored posts as failed deliveries for explicit retry.
               // Never claim settlement or dispatch concurrently after failure.
-              for (const w of entry.waiting.filter(
+              for (const w of entry.queue.waiting.filter(
                 (w) =>
                   w.delivery === "interrupt" &&
                   w.interruptTargetSeq === targetSeq
               )) {
-                entry.waiting.splice(entry.waiting.indexOf(w), 1);
+                entry.queue.waiting.splice(entry.queue.waiting.indexOf(w), 1);
                 w.rejectAccepted(
                   error instanceof Error ? error : new Error(String(error))
                 );
@@ -525,15 +541,15 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
         let batch: Waiting[];
         if (steering) {
           if (!entry.client.welcome?.steeringSupported) break;
-          const index = entry.waiting.findIndex(
+          const index = entry.queue.waiting.findIndex(
             (w) =>
               w.delivery === "auto" &&
               !w.requiresPrompt &&
               !w.steering?.pending &&
               !(
                 isUserPost(w) &&
-                entry.waiting
-                  .slice(0, entry.waiting.indexOf(w))
+                entry.queue.waiting
+                  .slice(0, entry.queue.waiting.indexOf(w))
                   .some(
                     (earlier) =>
                       isUserPost(earlier) && earlier.steering?.pending
@@ -542,10 +558,10 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
               steers(w, entry)
           );
           if (index < 0) break;
-          batch = entry.waiting.splice(index, 1);
+          batch = entry.queue.waiting.splice(index, 1);
         } else {
-          for (const w of entry.waiting) finishDecision(w, "expired");
-          batch = takeBatch(entry.waiting);
+          for (const w of entry.queue.waiting) finishDecision(w, "expired");
+          batch = takeBatch(entry.queue.waiting);
         }
         for (const w of batch) w.taken = true;
         const { text, source } = combine(batch);
@@ -582,11 +598,11 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
           }
           // Keep declined input ahead of ordinary queued work, but behind
           // interrupts that arrived while the request was pending.
-          const firstOrdinary = entry.waiting.findIndex(
+          const firstOrdinary = entry.queue.waiting.findIndex(
             (w) => w.delivery !== "interrupt"
           );
-          entry.waiting.splice(
-            firstOrdinary < 0 ? entry.waiting.length : firstOrdinary,
+          entry.queue.waiting.splice(
+            firstOrdinary < 0 ? entry.queue.waiting.length : firstOrdinary,
             0,
             ...batch
           );
@@ -721,7 +737,7 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
   /** Seq 0 marks an event the server made up (a host that vanished). */
   function emit(agentId: string, entry: Live, event: DriverEvent, seq: number) {
     if (event.type === "turn") {
-      for (const w of entry.waiting) finishDecision(w, "expired");
+      for (const w of entry.queue.waiting) finishDecision(w, "expired");
       entry.turnOpen = event.state === "started";
       entry.turnSeq = event.state === "started" ? seq : undefined;
       entry.turnBlockIds = new Set(
@@ -751,7 +767,8 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
     if (event.type === "config") entry.configOptions = event.options;
     if (event.type === "exit") {
       entry.turnOpen = false;
-      failWaiting(entry, new Error("The agent exited before delivery."));
+      if (!preserving(entry))
+        failWaiting(entry, new Error("The agent exited before delivery."));
       const waiters = entry.settleWaiters;
       entry.settleWaiters = [];
       for (const resolve of waiters) resolve();
@@ -814,14 +831,17 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
     if (placement) await deps.recoverRemoteEvent?.(agentId);
     const cursor = await deps.hostSeq(agentId);
     const entry: Live = {
+      agentId,
       remote: Boolean(placement),
       ...(placement ? { runner: placement.runner } : {}),
       client: null as unknown as HostClient,
       commands: [],
       configOptions: [],
       pumping: false,
-      waiting: [],
-      pending: 0,
+      queue: recycleHolds.get(agentId)?.entry.queue ?? {
+        waiting: [],
+        pending: 0,
+      },
       deliveryInterrupts: new Map(),
       turnOpen: false,
       selfStarted: false,
@@ -917,9 +937,11 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
         if (welcome.configOptions) entry.configOptions = welcome.configOptions;
       },
       onGone: (reason) => {
+        if (live.get(agentId) !== entry) return;
         logger.warn({ agentId, reason }, "agent host is gone");
         live.delete(agentId);
         entry.client.close();
+        if (preserving(entry)) return;
         const waiters = entry.settleWaiters;
         entry.settleWaiters = [];
         for (const resolve of waiters) resolve();
@@ -940,7 +962,11 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
     });
     live.set(agentId, entry);
     try {
-      await entry.client.connect(timeoutMs, abandoned);
+      await entry.client.connect(
+        timeoutMs,
+        abandoned,
+        recycleHolds.get(agentId)?.restarting === true
+      );
     } catch (err) {
       live.delete(agentId);
       entry.client.close();
@@ -975,7 +1001,7 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
     const settled = new Promise<void>((resolve) => {
       resolveSettled = resolve;
     }).finally(() => {
-      entry.pending -= 1;
+      entry.queue.pending -= 1;
     });
     const requiresPrompt =
       opts?.images?.some(
@@ -1016,11 +1042,11 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
           entry.interruptedTurnSeq === entry.turnSeq),
     };
     if (own.delivery === "interrupt") {
-      const firstOrdinary = entry.waiting.findIndex(
+      const firstOrdinary = entry.queue.waiting.findIndex(
         (w) => w.delivery !== "interrupt"
       );
-      entry.waiting.splice(
-        firstOrdinary < 0 ? entry.waiting.length : firstOrdinary,
+      entry.queue.waiting.splice(
+        firstOrdinary < 0 ? entry.queue.waiting.length : firstOrdinary,
         0,
         own
       );
@@ -1028,20 +1054,20 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
       // A person's post goes ahead of queued agent and system traffic,
       // behind interrupts and the person's own earlier posts. A deferred
       // batch put back at the front may sit ahead of those posts.
-      let after = entry.waiting.length;
-      while (after > 0 && !isUserPost(entry.waiting[after - 1]!)) after--;
-      const firstOther = entry.waiting.findIndex(
+      let after = entry.queue.waiting.length;
+      while (after > 0 && !isUserPost(entry.queue.waiting[after - 1]!)) after--;
+      const firstOther = entry.queue.waiting.findIndex(
         (w, i) => i >= after && w.delivery !== "interrupt" && !isUserPost(w)
       );
-      entry.waiting.splice(
-        firstOther < 0 ? entry.waiting.length : firstOther,
+      entry.queue.waiting.splice(
+        firstOther < 0 ? entry.queue.waiting.length : firstOther,
         0,
         own
       );
     } else {
-      entry.waiting.push(own);
+      entry.queue.waiting.push(own);
     }
-    entry.pending += 1;
+    entry.queue.pending += 1;
     if (
       deps.classifySteering &&
       own.delivery === "auto" &&
@@ -1107,9 +1133,9 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
     if (opts?.signal) {
       const discard = () => {
         if (own.taken) return;
-        const index = entry.waiting.indexOf(own);
+        const index = entry.queue.waiting.indexOf(own);
         if (index < 0) return;
-        entry.waiting.splice(index, 1);
+        entry.queue.waiting.splice(index, 1);
         finishDecision(own, "overridden");
         own.cancelled = true;
         own.rejectAccepted(
@@ -1141,7 +1167,7 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
     for (const entry of live.values()) {
       if (entry.runner !== runnerId) continue;
       // Taken prompts have already left the queue.
-      for (const w of entry.waiting) {
+      for (const w of entry.queue.waiting) {
         if (w.source?.scheduleId) scheduled++;
         else prompts++;
       }
@@ -1149,7 +1175,69 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
     return { prompts, scheduled };
   });
 
+  const identify = (entry: Live): RunnerHostIdentity => {
+    const welcome = entry.client.welcome;
+    return {
+      agentId: entry.agentId,
+      build: welcome?.hostBuild,
+      instanceId: welcome?.hostInstanceId,
+      quiesceSupported: welcome?.quiesceSupported === true,
+    };
+  };
+
   runtime = {
+    runnerHosts(runnerId) {
+      return [...live.values()]
+        .filter((entry) => entry.runner === runnerId)
+        .map(identify);
+    },
+
+    holdForRecycle(runnerId, host) {
+      const { agentId } = host;
+      const entry = live.get(agentId);
+      if (
+        !entry ||
+        entry.runner !== runnerId ||
+        !host.instanceId ||
+        entry.client.welcome?.hostInstanceId !== host.instanceId ||
+        entry.client.welcome?.quiesceSupported !== true ||
+        held(entry) ||
+        entry.pumping ||
+        entry.deliveryInterrupts.size
+      )
+        return null;
+      const hold = { entry, restarting: false };
+      recycleHolds.set(agentId, hold);
+      let lease: HostQuiesceLease | null = null;
+      const current = () =>
+        live.get(agentId) === entry && lease?.current() === true;
+      return {
+        async quiesce() {
+          lease = await entry.client.quiesce();
+          return current();
+        },
+        current,
+        async shutdown() {
+          if (!current()) return false;
+          hold.restarting = true;
+          const accepted = await lease!.shutdown();
+          if (!accepted) hold.restarting = false;
+          return accepted;
+        },
+        release() {
+          if (recycleHolds.get(agentId) !== hold) return;
+          lease?.release();
+          recycleHolds.delete(agentId);
+          const replacement = live.get(agentId);
+          if (replacement) void pump(agentId, replacement);
+          else
+            failWaiting(
+              entry,
+              new Error("The agent host is unavailable before delivery.")
+            );
+        },
+      };
+    },
     tracksProcesses: () => true,
     async getBackgroundWork(agentId) {
       const entry = live.get(agentId);
@@ -1224,6 +1312,16 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
         );
         const welcome = entry.client.welcome;
         if (!welcome) throw new Error("no welcome from the agent host");
+        const recycle = recycleHolds.get(input.agentId);
+        if (
+          recycle?.restarting &&
+          (!welcome.resumed || welcome.sessionId !== input.resumeSessionId)
+        ) {
+          await runtime.stop(input.agentId, false);
+          throw new Error(
+            "The replacement host could not resume the existing session."
+          );
+        }
         return { sessionId: welcome.sessionId, resumed: welcome.resumed };
       } catch (err) {
         if (placement) throw err; // A disconnected remote host may still be running.
@@ -1248,6 +1346,7 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
       if (current) return !current.remote || current.client.isReady();
       const placement = await placementOf(agentId);
       if (placement && !deps.remote?.available(placement)) return false;
+      if (recycleHolds.get(agentId)?.restarting) return false;
       if (!(await runtime.isAlive(agentId))) return false;
       try {
         await connect(agentId, ATTACH_TIMEOUT_MS);
@@ -1260,7 +1359,8 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
 
     async isAlive(agentId) {
       const entry = live.get(agentId);
-      if (entry?.client.isConnected()) return true;
+      if (entry?.client.isConnected() || recycleHolds.get(agentId)?.restarting)
+        return true;
       const placement = await placementOf(agentId);
       try {
         const { value } = await requestSession(placement, {
@@ -1278,6 +1378,15 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
     prompt(agentId, text, source, opts) {
       const entry = live.get(agentId);
       const pending = connecting.get(agentId);
+      const recycle = recycleHolds.get(agentId);
+      if (recycle)
+        return enqueuePrompt(
+          entry ?? recycle.entry,
+          agentId,
+          text,
+          source,
+          opts
+        );
       if (entry && (!entry.remote || !pending))
         return enqueuePrompt(entry, agentId, text, source, opts);
 
@@ -1307,8 +1416,8 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
 
     controlQueuedPrompt(agentIds, blockId, action) {
       const targets = agentIds.map((id) => {
-        const entry = live.get(id);
-        const prompt = entry?.waiting.find(
+        const entry = inputEntry(id);
+        const prompt = entry?.queue.waiting.find(
           (w) =>
             !w.taken &&
             !w.cancelled &&
@@ -1350,7 +1459,7 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
       for (const target of targets) {
         const { entry, prompt, act } = target!;
         finishDecision(prompt, "overridden");
-        entry.waiting.splice(entry.waiting.indexOf(prompt), 1);
+        entry.queue.waiting.splice(entry.queue.waiting.indexOf(prompt), 1);
         if (act === "delete") {
           prompt.cancelled = true;
           const error = new Error("Queued message deleted.");
@@ -1361,11 +1470,11 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
         }
         prompt.alone = true;
         // Ahead of ordinary posts, behind interrupts already waiting.
-        const firstOrdinary = entry.waiting.findIndex(
+        const firstOrdinary = entry.queue.waiting.findIndex(
           (w) => w.delivery !== "interrupt"
         );
-        entry.waiting.splice(
-          firstOrdinary < 0 ? entry.waiting.length : firstOrdinary,
+        entry.queue.waiting.splice(
+          firstOrdinary < 0 ? entry.queue.waiting.length : firstOrdinary,
           0,
           prompt
         );
@@ -1438,8 +1547,8 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
     },
 
     isBusy(agentId) {
-      const entry = live.get(agentId);
-      return entry ? entry.turnOpen || entry.pending > 0 : false;
+      const entry = inputEntry(agentId);
+      return entry ? entry.turnOpen || entry.queue.pending > 0 : false;
     },
 
     inputState(agentId) {
@@ -1469,7 +1578,8 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
       const entry = live.get(agentId);
       if (entry) {
         live.delete(agentId);
-        failWaiting(entry, new Error("The agent stopped before delivery."));
+        if (!preserving(entry))
+          failWaiting(entry, new Error("The agent stopped before delivery."));
         if (!placement) {
           try {
             entry.client.shutdown(force);
@@ -1480,6 +1590,8 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
       }
       if (!placement) await requestSession(null, operation);
       entry?.client.close();
+      const recycle = recycleHolds.get(agentId);
+      if (recycle?.restarting) await recycle.entry.events;
     },
 
     async inspectNativeHost(agentId) {

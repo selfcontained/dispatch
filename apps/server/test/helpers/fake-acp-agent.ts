@@ -230,6 +230,17 @@ export function createFakeAcpAgent(
           params: { sessionId, update },
         }) + "\n"
       ),
+    ask: (sessionId: string) =>
+      connection.requestPermission({
+        sessionId,
+        toolCall: {
+          toolCallId: "outside-turn",
+          title: "permission outside a turn",
+        },
+        options: [
+          { kind: "allow_once", name: "Allow once", optionId: "allow" },
+        ],
+      }),
     seen,
     signals,
     emit: (sessionId: string, update: acp.SessionUpdate) =>

@@ -1087,6 +1087,10 @@ export class AcpDriver {
     return this.live.get(agentId)?.mcpInventorySupported ?? false;
   }
 
+  isBackgroundIdle(agentId: string): boolean {
+    return this.live.get(agentId)?.backgroundWork.isIdle() === true;
+  }
+
   getBackgroundWork(agentId: string): BackgroundSnapshot {
     return (
       this.live.get(agentId)?.backgroundWork.snapshot() ?? {

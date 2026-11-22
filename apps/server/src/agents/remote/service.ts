@@ -368,6 +368,7 @@ export class RemoteRunnerService {
     this.connectionListeners.add(listener);
     return () => this.connectionListeners.delete(listener);
   }
+  private readonly revoking = new Set<string>();
   private readonly peers = new Map<string, Peer>();
   /** What each runner's latest approved connection advertised; kept after
    * it disconnects, for admitting launches a runner update will hold. */
@@ -1451,12 +1452,17 @@ export class RemoteRunnerService {
       );
     if (!this.enrollment)
       throw new RunnerRequestError(404, "Runner not found.");
-    const registration = await this.enrollment.registry.revoke(id);
-    if (!registration) throw new RunnerRequestError(404, "Runner not found.");
-    for (const [fingerprint, entry] of this.enrolled)
-      if (entry.id === id) this.enrolled.delete(fingerprint);
-    for (const peer of this.peers.values())
-      if (peer.gate.registrationId === id) peer.socket.destroy();
+    this.revoking.add(id);
+    try {
+      const registration = await this.enrollment.registry.revoke(id);
+      if (!registration) throw new RunnerRequestError(404, "Runner not found.");
+      for (const [fingerprint, entry] of this.enrolled)
+        if (entry.id === id) this.enrolled.delete(fingerprint);
+      for (const peer of this.peers.values())
+        if (peer.gate.registrationId === id) peer.socket.destroy();
+    } finally {
+      this.revoking.delete(id);
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -1690,7 +1696,9 @@ export class RemoteRunnerService {
     runnerId: string
   ): { advert: SelfUpdateAdvert; epoch: number } | undefined {
     const peer = this.peers.get(runnerId);
-    return peer?.gate.approved() && peer.selfUpdate
+    return !this.revoking.has(runnerId) &&
+      peer?.gate.approved() &&
+      peer.selfUpdate
       ? { advert: peer.selfUpdate, epoch: peer.epoch }
       : undefined;
   }

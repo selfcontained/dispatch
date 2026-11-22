@@ -207,10 +207,15 @@ async function main(): Promise<void> {
     "Agent executable search PATH; configure additional runtimes in ~/.dispatch/env"
   );
 
+  let lease: { socket: net.Socket; id: string } | null = null;
+  let submittedPrompts = 0;
+  let mutatingRequests = 0;
   const driver = new AcpDriver({
     logger,
-    onPermissions: (_id, requests) =>
-      send(client, { type: "permissions", requests }),
+    onPermissions: (_id, requests) => {
+      if (requests.length) lease = null;
+      send(client, { type: "permissions", requests });
+    },
   });
   // The adapters find the host CLI through an env var that wants an absolute
   // path; a bare name from config is looked up on the child's PATH here.
@@ -251,6 +256,7 @@ async function main(): Promise<void> {
   driver.onEvent((event) => {
     const entry = journal.append(event);
     if (event.type === "turn") {
+      if (event.state === "started") lease = null;
       openTurn =
         event.state === "started"
           ? { seq: entry.seq, startedAt: entry.at, source: event.source }
@@ -298,7 +304,10 @@ async function main(): Promise<void> {
   await unlink(socketPath).catch(() => {});
   const server = net.createServer((socket) => {
     const claim = () => {
-      if (client && client !== socket) client.destroy();
+      if (client !== socket) {
+        lease = null;
+        client?.destroy();
+      }
       client = socket;
     };
     // Runner inventory connects only to read kernel peer credentials.
@@ -328,11 +337,22 @@ async function main(): Promise<void> {
       logger.debug({ err: String(err) }, "host: client socket error");
     });
     socket.on("close", () => {
+      if (lease?.socket === socket) lease = null;
       if (client === socket) client = null;
     });
   });
 
+  const idle = () =>
+    running &&
+    !shuttingDown &&
+    !openTurn &&
+    submittedPrompts === 0 &&
+    mutatingRequests === 0 &&
+    driver.getPermissions(agentId).length === 0 &&
+    driver.isBackgroundIdle(agentId);
+
   async function handle(socket: net.Socket, message: ClientMessage) {
+    if (socket !== client || shuttingDown) return;
     switch (message.type) {
       case "hello": {
         send(socket, {
@@ -348,6 +368,7 @@ async function main(): Promise<void> {
           steeringSupported: driver.supportsSteering(agentId),
           interruptSupported: true,
           promptReceiptSupported: true,
+          quiesceSupported: true,
           turn: openTurn,
           journalSeq: journal.lastSeq,
           journalId: journal.id,
@@ -368,6 +389,19 @@ async function main(): Promise<void> {
           send(socket, { type: "error", message: startupError });
         return;
       }
+      case "quiesce": {
+        const canLease = !lease && idle();
+        if (canLease) lease = { socket, id: message.id };
+        send(socket, {
+          type: "quiesce_result",
+          id: message.id,
+          state: canLease ? "idle" : "busy",
+        });
+        return;
+      }
+      case "release_quiesce":
+        if (lease?.socket === socket && lease.id === message.id) lease = null;
+        return;
       case "background_work": {
         const result =
           running && message.sessionId === sessionId
@@ -426,21 +460,29 @@ async function main(): Promise<void> {
           });
           return;
         }
+        if (lease) {
+          send(socket, { type: "prompt_deferred", id: message.id });
+          return;
+        }
         // A turn the engine started itself raced this prompt: hand it back
         // to the server's queue rather than hold it here unacknowledged.
         if (openTurn && driver.hasEngineInitiatedTurn(agentId)) {
           send(socket, { type: "prompt_deferred", id: message.id });
           return;
         }
-        if (openTurn) {
+        if (openTurn || submittedPrompts) {
           send(socket, { type: "error", id: message.id, message: "busy" });
           return;
         }
         // The driver emits the turn's start, settle and error events; the
         // ack only says the adapter has the request.
         if (message.journalId) recordReceipt(message.id, "claimed");
-        driver
-          .prompt(
+        submittedPrompts++;
+        // Reserve the slot before handing off to the driver, which may
+        // itself wait for an engine-originated turn before opening ours.
+        const submit = async () => {
+          if (shuttingDown) return;
+          await driver.prompt(
             agentId,
             message.text,
             () => {
@@ -449,13 +491,30 @@ async function main(): Promise<void> {
             },
             message.source,
             message.images
-          )
+          );
+        };
+        const pending = hostIdentity
+          ? Promise.resolve().then(submit)
+          : submit();
+        void pending
           .catch((err) => {
             logger.warn({ err: String(err) }, "host: turn failed");
+          })
+          .finally(() => {
+            submittedPrompts--;
           });
         return;
       }
       case "steer": {
+        if (lease) {
+          send(socket, {
+            type: "error",
+            id: message.id,
+            message: "Host is quiesced.",
+          });
+          return;
+        }
+        mutatingRequests++;
         try {
           const outcome = await driver.steer(
             agentId,
@@ -465,6 +524,8 @@ async function main(): Promise<void> {
           send(socket, { type: "steer_result", id: message.id, outcome });
         } catch (err) {
           send(socket, { type: "error", id: message.id, message: String(err) });
+        } finally {
+          mutatingRequests--;
         }
         return;
       }
@@ -507,6 +568,15 @@ async function main(): Promise<void> {
         }
         // The driver emits the `config` event that tells the server what the
         // engine runs now; the reply only says the engine took it.
+        if (lease) {
+          send(socket, {
+            type: "error",
+            id: message.id,
+            message: "Host is quiesced.",
+          });
+          return;
+        }
+        mutatingRequests++;
         try {
           const options = await driver.setConfigOption(
             agentId,
@@ -520,12 +590,28 @@ async function main(): Promise<void> {
             id: message.id,
             message: err instanceof Error ? err.message : String(err),
           });
+        } finally {
+          mutatingRequests--;
         }
         return;
       }
-      case "shutdown":
-        await shutdown(message.force ? "SIGKILL" : "graceful");
+      case "shutdown": {
+        if ("quiesceId" in message) {
+          const ownLease =
+            lease?.socket === socket && lease.id === message.quiesceId;
+          const accepted = ownLease && idle();
+          if (ownLease) lease = null;
+          send(socket, {
+            type: "quiesce_shutdown_result",
+            id: message.quiesceId,
+            accepted,
+          });
+          if (accepted) await shutdown("graceful");
+        } else {
+          await shutdown(message.force ? "SIGKILL" : "graceful");
+        }
         return;
+      }
     }
   }
 
@@ -659,7 +745,9 @@ async function main(): Promise<void> {
       backgroundWorkSupported: true,
       steeringSupported: driver.supportsSteering(agentId),
       interruptSupported: true,
-      turn: null,
+      promptReceiptSupported: true,
+      quiesceSupported: true,
+      turn: openTurn,
       journalSeq: journal.lastSeq,
       journalId: journal.id,
       commands: driver.getCommands(agentId) ?? [],

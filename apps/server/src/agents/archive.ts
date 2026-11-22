@@ -45,6 +45,11 @@ export type ArchiveDeps = {
   /** Settle stream rows the stopped host left open, as stopped. */
   settleStream: (id: string) => Promise<number>;
   setArchivePhase: (id: string, phase: ArchivePhase) => Promise<void>;
+  /** A cascade takes its archive claim against the same lifecycle as recycle. */
+  claimArchive?: (
+    id: string,
+    claim: () => Promise<boolean>
+  ) => Promise<boolean>;
   /** Resolves once the agent's runner is not held for an update. */
   waitForRunner?: (agent: AgentRecord) => Promise<void>;
 };
@@ -299,14 +304,18 @@ export async function deleteAgentDirect(
   const mode = cascadeMode();
   // Claim before any teardown — an agent's own archive and an ancestor's
   // cascade can reach it at once. Same CAS `beginArchive` takes.
-  const claimed = await pool.query(
-    `UPDATE agents
-     SET status = 'archiving', archive_phase = 'stopping', archive_cleanup_mode = $2, updated_at = NOW()
-     WHERE id = $1 AND deleted_at IS NULL AND status != 'archiving'
-     RETURNING id`,
-    [id, mode]
-  );
-  if (claimed.rowCount === 0) {
+  const claim = async () => {
+    const result = await pool.query(
+      `UPDATE agents
+       SET status = 'archiving', archive_phase = 'stopping', archive_cleanup_mode = $2, updated_at = NOW()
+       WHERE id = $1 AND deleted_at IS NULL AND status != 'archiving'
+       RETURNING id`,
+      [id, mode]
+    );
+    return result.rowCount !== 0;
+  };
+  const claimed = await (deps.claimArchive?.(id, claim) ?? claim());
+  if (!claimed) {
     logger.info(
       { agentId: id },
       "Agent is already being archived or deleted; skipping cascade."

@@ -71,7 +71,15 @@ type PromptReceiptQuery = {
   id: string;
   journalId: string;
 };
-export type ClientMessage = SessionCommand<PromptSource> | PromptReceiptQuery;
+export type ClientMessage =
+  | SessionCommand<PromptSource>
+  | PromptReceiptQuery
+  | { type: "quiesce" | "release_quiesce"; id: string }
+  | { type: "shutdown"; quiesceId: string };
+
+function validRequestId(id: unknown): id is string {
+  return typeof id === "string" && id.length > 0 && id.length <= 128;
+}
 
 export function parseClientMessage(value: unknown): ClientMessage | null {
   if (
@@ -93,6 +101,18 @@ export function parseClientMessage(value: unknown): ClientMessage | null {
       return null;
     return { type: "prompt_receipt", id: value.id, journalId: value.journalId };
   }
+  if (value && typeof value === "object" && "type" in value) {
+    if (value.type === "quiesce" || value.type === "release_quiesce") {
+      return "id" in value && validRequestId(value.id)
+        ? { type: value.type, id: value.id }
+        : null;
+    }
+    if (value.type === "shutdown" && "quiesceId" in value) {
+      return validRequestId(value.quiesceId) && !("force" in value)
+        ? { type: "shutdown", quiesceId: value.quiesceId }
+        : null;
+    }
+  }
   const message = parseSessionCommand(value);
   if (message?.type !== "prompt" && message?.type !== "steer") return message;
   // Keep validating the legacy Dispatch source shape. Other services can
@@ -105,6 +125,7 @@ export function parseClientMessage(value: unknown): ClientMessage | null {
 type DispatchWelcome = HostWelcome & {
   hostBuild?: BuildIdentity;
   promptReceiptSupported?: true;
+  quiesceSupported?: true;
   hostInstanceId?: string;
   /** The open turn, if one is running. */
   turn: { seq: number; startedAt: string; source?: PromptSource } | null;
@@ -123,6 +144,8 @@ export type HostMessage =
       journalId: string;
       state: PromptReceiptState;
     }
+  | { type: "quiesce_result"; id: string; state: "idle" | "busy" }
+  | { type: "quiesce_shutdown_result"; id: string; accepted: boolean }
   /** A set_config took; the engine's options after it. */
   | { type: "config_set"; id: string; options: SessionConfigOption[] }
   | { type: "permissions"; requests: AgentPermissionRequest[] }

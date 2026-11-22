@@ -10,6 +10,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  renameSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -809,6 +810,202 @@ await import(${JSON.stringify(pathToFileURL(fakeAgent).href)});
       rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  it("checks live host quiescence and invalidates the lease on lost attachment", async () => {
+    const dir = mkdtempSync("/tmp/dispatch-acp-quiesce-");
+    const folder = mkdtempSync(path.join(cwd, "quiesce-"));
+    const launch = launchFor("agt_quiesce", folder);
+    launch.fullAccess = false;
+    launch.bins.adapter = {
+      bin: "bun",
+      args: [path.join(here, "helpers/recycle-acp-fixture.ts")],
+    };
+    writeFileSync(
+      path.join(dir, "launch.json"),
+      JSON.stringify({
+        ...launch,
+        hostInstanceId: "01234567-89ab-4cde-8fab-0123456789ab",
+      })
+    );
+    const host = spawn("bun", [mainTs, "agent-host", "--state", dir], {
+      stdio: "ignore",
+    });
+    const exited = once(host, "exit");
+    const clients: net.Socket[] = [];
+    async function attach() {
+      const socket = net.createConnection(path.join(dir, "host.sock"));
+      clients.push(socket);
+      const messages: HostMessage[] = [];
+      const decode = ndjsonDecoder<HostMessage>();
+      socket.on("data", (chunk) => messages.push(...decode(chunk)));
+      await once(socket, "connect");
+      const send = (...commands: ClientMessage[]) =>
+        socket.write(commands.map(encodeMessage).join(""));
+      send({ type: "hello", fromSeq: 0 });
+      await until(() =>
+        messages.some(
+          (m) =>
+            m.type === "welcome" && m.running && m.quiesceSupported === true
+        )
+      );
+      const quiesce = async (id: string, state: "idle" | "busy") => {
+        send({ type: "quiesce", id });
+        await until(() =>
+          messages.some((m) => m.type === "quiesce_result" && m.id === id)
+        );
+        expect(messages).toContainEqual({ type: "quiesce_result", id, state });
+      };
+      const shutdown = async (id: string, accepted: boolean) => {
+        send({ type: "shutdown", quiesceId: id });
+        await until(() =>
+          messages.some(
+            (m) => m.type === "quiesce_shutdown_result" && m.id === id
+          )
+        );
+        expect(messages).toContainEqual({
+          type: "quiesce_shutdown_result",
+          id,
+          accepted,
+        });
+      };
+      return { socket, messages, send, quiesce, shutdown };
+    }
+    const controlFile = path.join(folder, "recycle-command");
+    async function control(value: unknown) {
+      const next = controlFile + ".next";
+      writeFileSync(next, value === "ask" ? "ask" : JSON.stringify(value));
+      renameSync(next, controlFile);
+      await until(() => !existsSync(controlFile));
+    }
+    try {
+      await until(() => existsSync(path.join(dir, "session.json")));
+      const a = await attach();
+      await a.quiesce("release", "idle");
+      a.send(
+        { type: "release_quiesce", id: "wrong" },
+        { type: "prompt", id: "deferred", text: "must not run" }
+      );
+      await until(() => a.messages.some((m) => m.type === "prompt_deferred"));
+      a.send(
+        { type: "release_quiesce", id: "release" },
+        { type: "prompt", id: "submitted", text: "hold-turn" },
+        { type: "quiesce", id: "during-pickup" }
+      );
+      await until(() =>
+        a.messages.some(
+          (m) => m.type === "quiesce_result" && m.id === "during-pickup"
+        )
+      );
+      expect(a.messages).toContainEqual({
+        type: "quiesce_result",
+        id: "during-pickup",
+        state: "busy",
+      });
+      await until(() =>
+        a.messages.some(
+          (m) =>
+            m.type === "event" &&
+            m.event.type === "turn" &&
+            m.event.state === "settled"
+        )
+      );
+
+      await control("ask");
+      await until(() =>
+        a.messages.some(
+          (m) => m.type === "permissions" && m.requests.length > 0
+        )
+      );
+      await a.quiesce("pending-permission", "busy");
+      const permissions = a.messages.find(
+        (m) => m.type === "permissions" && m.requests.length > 0
+      );
+      if (permissions?.type !== "permissions")
+        throw new Error("missing permission");
+      a.send({
+        type: "answer_permission",
+        id: "answer",
+        requestId: permissions.requests[0]!.id,
+        optionId: "allow",
+      });
+      await until(() => existsSync(controlFile + ".answered"));
+
+      // A state-only background entry is awaiting its metadata and cannot be
+      // shown yet. It must still keep the host alive.
+      await control({
+        sessionUpdate: "async_task_state_update",
+        asyncTaskId: "watch",
+        state: "running",
+      });
+      await a.quiesce("background", "busy");
+      await control({
+        sessionUpdate: "async_task_state_update",
+        asyncTaskId: "watch",
+        state: "completed",
+      });
+
+      await a.quiesce("before-background", "idle");
+      await control({
+        sessionUpdate: "async_task_state_update",
+        asyncTaskId: "new",
+        state: "running",
+      });
+      await a.shutdown("before-background", false);
+      await control({
+        sessionUpdate: "async_task_state_update",
+        asyncTaskId: "new",
+        state: "completed",
+      });
+
+      await a.quiesce("before-self-turn", "idle");
+      await control({
+        sessionUpdate: "agent_message_chunk",
+        content: { type: "text", text: "woke itself" },
+      });
+      await until(() =>
+        a.messages.some(
+          (m) =>
+            m.type === "event" &&
+            m.event.type === "turn" &&
+            m.event.state === "started" &&
+            m.event.source?.source === "engine"
+        )
+      );
+      await a.shutdown("before-self-turn", false);
+      await a.quiesce("self-turn", "busy");
+      await control({
+        sessionUpdate: "usage_update",
+        used: 1,
+        size: 10,
+        cost: { amount: 0, currency: "USD" },
+      });
+      await until(
+        () =>
+          a.messages.filter(
+            (m) =>
+              m.type === "event" &&
+              m.event.type === "turn" &&
+              m.event.state === "settled"
+          ).length === 2
+      );
+
+      await a.quiesce("lost", "idle");
+      const disconnected = once(a.socket, "close");
+      a.socket.destroy();
+      await disconnected;
+      const b = await attach();
+      await b.shutdown("lost", false);
+      await b.quiesce("replacement-lease", "idle");
+      await b.shutdown("replacement-lease", true);
+      await exited;
+    } finally {
+      for (const client of clients) client.destroy();
+      host.kill();
+      await exited;
+      rmSync(dir, { recursive: true, force: true });
+      rmSync(folder, { recursive: true, force: true });
+    }
+  }, 20_000);
 
   const uncertain =
     "Runner connection dropped before acknowledgement; execution is unknown.";

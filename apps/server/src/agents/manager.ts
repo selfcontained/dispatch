@@ -70,6 +70,7 @@ import {
   type AgentRuntime,
   type QueuedPromptAction,
   type QueuedPromptControl,
+  type RunnerHostIdentity,
   createAgentRuntime,
 } from "./runtime.js";
 import {
@@ -122,6 +123,11 @@ import {
   RunnerUpdateFenced,
   type RemoteRunnerService,
 } from "./remote/service.js";
+import {
+  RunnerHostRecycler,
+  type ConfirmedRunnerUpdate,
+  type RunnerHostRecycleProgress,
+} from "./remote/host-recycler.js";
 import type { HeldLaunch, RunnerUpdateHolds } from "./remote/update-hold.js";
 import { buildLaunchEnv } from "./acp/launch-env.js";
 import { dispatchMcpUrl } from "./acp/mcp-url.js";
@@ -350,6 +356,9 @@ export const LAUNCH_CONTEXT_RESOLVE_TIMEOUT_MS = 5_000;
 /** Sentinel for a promise that outlived its bound. */
 const TIMED_OUT = Symbol("timed-out");
 
+class RecycleSuperseded extends Error {}
+type RecycleRestart = { mayStart(): boolean };
+
 /** Resolve with the promise's value, or `TIMED_OUT` after `ms`. */
 function withTimeout<T>(
   promise: Promise<T>,
@@ -368,6 +377,28 @@ export const UPDATE_RESUME_MESSAGE =
   "Dispatch stopped this idle agent for an update. Start it to continue if automatic resume did not finish.";
 
 export class AgentManager {
+  private readonly hostRecycler: RunnerHostRecycler;
+  private readonly recyclingHosts = new Set<string>();
+  private readonly stoppingOrArchiving = new Map<string, number>();
+
+  private async terminateLifecycle<T>(
+    id: string,
+    action: () => Promise<T>,
+    serialize = true
+  ): Promise<T> {
+    this.stoppingOrArchiving.set(
+      id,
+      (this.stoppingOrArchiving.get(id) ?? 0) + 1
+    );
+    try {
+      return await (serialize ? this.serializeLifecycle(id, action) : action());
+    } finally {
+      const remaining = this.stoppingOrArchiving.get(id)! - 1;
+      if (remaining) this.stoppingOrArchiving.set(id, remaining);
+      else this.stoppingOrArchiving.delete(id);
+    }
+  }
+
   private readonly lifecycleOperations = new Map<string, Promise<void>>();
   private async serializeLifecycle<T>(
     id: string,
@@ -516,6 +547,12 @@ export class AgentManager {
           );
         },
       });
+    this.hostRecycler = new RunnerHostRecycler({
+      hosts: (runnerId) => this.runtime.runnerHosts?.(runnerId) ?? [],
+      recycle: (update, host, active) =>
+        this.recycleRunnerHost(update, host, active),
+      logger,
+    });
     this.runtime.onEvent((agentId, event, seq, receivedRemotely) =>
       this.handleRuntimeEvent(agentId, event, seq, receivedRemotely)
     );
@@ -680,6 +717,7 @@ export class AgentManager {
       void this.diffStatsRefresher?.signal(agentId);
     }
     if (event.type === "turn" && event.state === "settled") {
+      this.hostRecycler.settled(agentId);
       // The turn may have switched branches; the sidebar reads git_context.
       void this.populateGitContext(agentId, { publishIfChanged: true }).catch(
         (err) =>
@@ -2814,6 +2852,7 @@ export class AgentManager {
       recordWorkspaceProgress?: boolean;
       /** This attempt's durable ID; only a runner launch carries it. */
       launchId?: string;
+      recycle?: RecycleRestart;
     }
   ): Promise<{ sessionId: string; resumed: boolean }> {
     if (!isAcpEngine(agent.type)) {
@@ -2973,6 +3012,8 @@ export class AgentManager {
         }
       : undefined;
     try {
+      if (opts.recycle && !opts.recycle.mayStart())
+        throw new RecycleSuperseded();
       return await this.runtime.launch({
         agentId: agent.id,
         repository: binding?.runner_repository ?? undefined,
@@ -3058,20 +3099,24 @@ export class AgentManager {
   async startAgent(id: string): Promise<AgentRecord> {
     return this.serializeLifecycle(id, () => this.claimAndStartAgent(id));
   }
-  private async claimAndStartAgent(id: string): Promise<AgentRecord> {
+  private async claimAndStartAgent(
+    id: string,
+    recycle?: RecycleRestart
+  ): Promise<AgentRecord> {
     const claimed = await this.pool.query(
       `UPDATE agents SET status = 'creating', last_error = NULL, updated_at = NOW()
        WHERE id = $1 AND status NOT IN ('creating', 'stopping', 'archiving') AND deleted_at IS NULL RETURNING id`,
       [id]
     );
     if (claimed.rows.length === 0) return this.getRequiredAgent(id);
-    return this.startAgentClaimed(id);
+    return this.startAgentClaimed(id, undefined, recycle);
   }
 
   private async startAgentClaimed(
     id: string,
     /** A released start keeps the attempt's ID. */
-    heldLaunchId?: string
+    heldLaunchId?: string,
+    recycle?: RecycleRestart
   ): Promise<AgentRecord> {
     const launchId = heldLaunchId ?? randomUUID();
     let agent = await this.getRequiredAgent(id);
@@ -3096,6 +3141,7 @@ export class AgentManager {
       }
       // A stopped job still needs its run-scoped tools and launch rules when
       // its host is recreated. Reattaching above keeps the existing context.
+      if (recycle && !recycle.mayStart()) throw new RecycleSuperseded();
       if (await this.holdLaunch(agent, "start", launchId))
         return (await this.getAgent(id)) as AgentRecord;
       const jobRun = await this.pool.query<{ id: string }>(
@@ -3109,6 +3155,7 @@ export class AgentManager {
           jobRunId: jobRun.rows[0]?.id,
           previousJobFinished: Boolean(agent.jobRun) && !jobRun.rows.length,
           launchId,
+          recycle,
         });
       } catch (error) {
         // Refused by the runner's update fence: nothing started.
@@ -3126,6 +3173,10 @@ export class AgentManager {
       await this.populateGitContext(id);
       this.eventBus.publish(await this.getRequiredAgent(id));
     } catch (error) {
+      if (error instanceof RecycleSuperseded) {
+        await this.setAgentStatus(id, "stopped", null);
+        return this.getRequiredAgent(id);
+      }
       const message = errorMessage(error);
       await this.setAgentStatus(id, "error", message);
       await this.emitAttention(
@@ -3147,31 +3198,133 @@ export class AgentManager {
    * A host that is not running is just started.
    */
   async restartHost(id: string): Promise<AgentRecord> {
-    return this.serializeLifecycle(id, async () => {
-      const agent = await this.getRequiredAgent(id);
-      if (agent.status === "running") {
-        await this.setAgentStatus(id, "stopping", null);
-        try {
-          this.streamRecorder.beginStop(id);
-          await this.runtime.stop(id, false);
-          await this.streamRecorder.settleStopped(id);
+    return this.serializeLifecycle(id, async () =>
+      this.restartHostLocked(await this.getRequiredAgent(id))
+    );
+  }
+
+  private async restartHostLocked(
+    agent: AgentRecord,
+    recycle?: RecycleRestart
+  ): Promise<AgentRecord> {
+    const { id } = agent;
+    if (agent.status === "running") {
+      // A recycled host already accepted shutdown. Keep admitting chat and
+      // schedules to the held Dispatch queue while its binding is cleaned up.
+      if (!recycle) await this.setAgentStatus(id, "stopping", null);
+      try {
+        this.streamRecorder.beginStop(id);
+        await this.runtime.stop(id, false);
+        await this.streamRecorder.settleStopped(id);
+        if (!recycle || !recycle.mayStart()) {
           await this.setAgentStatus(id, "stopped", null);
-          this.notifyStreamWrite(id, true);
-        } catch (error) {
-          const message = errorMessage(error);
-          await this.setAgentStatus(id, "error", message);
-          throw new AgentError(`Failed to restart agent: ${message}`, 500);
+          if (recycle) return this.getRequiredAgent(id);
         }
+        this.notifyStreamWrite(id, true);
+      } catch (error) {
+        const message = errorMessage(error);
+        await this.setAgentStatus(id, "error", message);
+        throw new AgentError(`Failed to restart agent: ${message}`, 500);
       }
-      return this.claimAndStartAgent(id);
-    });
+    }
+    return this.claimAndStartAgent(id, recycle);
+  }
+
+  /** Called once the update coordinator has confirmed this exact target. */
+  startRunnerHostRecycling(update: ConfirmedRunnerUpdate): void {
+    this.hostRecycler.start(update);
+  }
+
+  runnerHostRecycleProgress(
+    runnerId: string
+  ): RunnerHostRecycleProgress | null {
+    return this.hostRecycler.progress(runnerId);
+  }
+
+  /** Cancel future leases. A host that accepted shutdown still needs cleanup. */
+  stopRunnerHostRecycling(runnerId: string): void {
+    this.hostRecycler.stop(runnerId);
+  }
+
+  private async recycleRunnerHost(
+    update: ConfirmedRunnerUpdate,
+    host: RunnerHostIdentity,
+    active: () => boolean
+  ): Promise<boolean> {
+    const id = host.agentId;
+    const eligible = () => !this.stoppingOrArchiving.has(id);
+    const targetOnline = () => {
+      const advert = this.remote?.selfUpdate(update.runnerId)?.advert;
+      return (
+        advert?.revision === update.revision &&
+        advert.installedSha256 === update.sha256
+      );
+    };
+    if (!eligible() || this.lifecycleOperations.has(id) || !targetOnline())
+      return false;
+    const hold = this.runtime.holdForRecycle?.(update.runnerId, host);
+    if (!hold) return false;
+    this.recyclingHosts.add(id);
+    try {
+      if (!(await hold.quiesce()) || !eligible() || !active()) return false;
+      return await this.serializeLifecycle(id, async () => {
+        const agent = await this.getAgent(id);
+        const placement = agent && remotePlacement(agent.cwd);
+        if (
+          agent?.status !== "running" ||
+          !agent.cliSessionId ||
+          placement?.runner !== update.runnerId ||
+          !this.remote?.available(placement)
+        )
+          return false;
+
+        // There is no engine-side wait token for Dispatch children. A live
+        // child (including a reviewer) can still owe this session a reply.
+        const children = await this.pool.query(
+          `SELECT 1 FROM agents
+           WHERE (parent_agent_id = $1 OR (role = 'review' AND launched_by_agent_id = $1))
+             AND deleted_at IS NULL AND status IN ('creating', 'running', 'stopping')
+           LIMIT 1`,
+          [id]
+        );
+        if (
+          children.rows.length ||
+          !eligible() ||
+          !active() ||
+          !targetOnline() ||
+          this.holds?.isHeld(update.runnerId) ||
+          !hold.current() ||
+          !(await hold.shutdown())
+        )
+          return false;
+
+        const restarted = await this.restartHostLocked(agent, {
+          mayStart: () => eligible() && targetOnline(),
+        });
+        return (
+          restarted.status === "running" &&
+          restarted.cliSessionId === agent.cliSessionId &&
+          this.runtime
+            .runnerHosts?.(update.runnerId)
+            .some(
+              (replacement) =>
+                replacement.agentId === id &&
+                replacement.instanceId !== host.instanceId &&
+                replacement.build?.revision === update.revision
+            ) === true
+        );
+      });
+    } finally {
+      this.recyclingHosts.delete(id);
+      hold.release();
+    }
   }
 
   async stopAgent(
     id: string,
     input: StopAgentInput = {}
   ): Promise<AgentRecord> {
-    return this.serializeLifecycle(id, () =>
+    return this.terminateLifecycle(id, () =>
       this.stopAgentSerialized(id, input)
     );
   }
@@ -3250,19 +3403,25 @@ export class AgentManager {
     cleanupWorktree: WorktreeCleanupMode = "auto",
     checkoutState: string | null = null
   ): Promise<AgentRecord> {
-    await this.cancelSchedules?.(id).catch((err) =>
-      this.logger.warn(
-        { err, agentId: id },
-        "could not cancel scheduled messages"
-      )
-    );
-    // Archive wins over a launch held for a runner update.
-    await this.holds?.takeLaunch(id);
-    return beginArchiveImpl(
-      this.archiveDeps(),
+    return this.terminateLifecycle(
       id,
-      cleanupWorktree,
-      checkoutState
+      async () => {
+        await this.cancelSchedules?.(id).catch((err) =>
+          this.logger.warn(
+            { err, agentId: id },
+            "could not cancel scheduled messages"
+          )
+        );
+        // Archive wins over a launch held for a runner update.
+        await this.holds?.takeLaunch(id);
+        return beginArchiveImpl(
+          this.archiveDeps(),
+          id,
+          cleanupWorktree,
+          checkoutState
+        );
+      },
+      this.recyclingHosts.has(id)
     );
   }
 
@@ -3613,6 +3772,8 @@ export class AgentManager {
       beginStopStream: (id) => this.streamRecorder.beginStop(id),
       settleStream: (id) => this.streamRecorder.settleStopped(id),
       setArchivePhase: (id, phase) => this.setArchivePhase(id, phase),
+      claimArchive: (id, claim) =>
+        this.terminateLifecycle(id, claim, this.recyclingHosts.has(id)),
       ...(this.holds && {
         waitForRunner: async (agent: AgentRecord) => {
           const placement = remotePlacement(agent.cwd);

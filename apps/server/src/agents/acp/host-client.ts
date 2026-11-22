@@ -6,6 +6,7 @@ import type {
 } from "@dispatch/shared";
 import type { PromptImage, PromptSource } from "./prompt-source.js";
 
+import { randomUUID } from "node:crypto";
 import type { Duplex } from "node:stream";
 import { isDeepStrictEqual } from "node:util";
 
@@ -23,6 +24,18 @@ import {
 
 const RECONNECT_BASE_MS = 500;
 const RECONNECT_MAX_MS = 10_000;
+const QUIESCE_TIMEOUT_MS = 2_000;
+
+type QuiesceReply = Extract<
+  HostMessage,
+  { type: "quiesce_result" | "quiesce_shutdown_result" }
+>;
+
+export type HostQuiesceLease = {
+  current(): boolean;
+  release(): void;
+  shutdown(): Promise<boolean>;
+};
 
 export type HostWelcome = Extract<HostMessage, { type: "welcome" }>;
 
@@ -62,6 +75,10 @@ export type HostClientDeps = {
  * makes the reconnect idempotent. `close()` stops reconnecting.
  */
 export class HostClient {
+  private pendingQuiesce?: {
+    id: string;
+    finish(reply?: QuiesceReply): void;
+  };
   private readonly pendingBackground = new Map<
     string,
     {
@@ -111,6 +128,7 @@ export class HostClient {
     }
   >();
   private welcomeWaiters: Array<{
+    requireReplay: boolean;
     resolve: (w: HostWelcome) => void;
     reject: (err: Error) => void;
   }> = [];
@@ -138,7 +156,8 @@ export class HostClient {
   async connect(
     timeoutMs: number,
     /** Stop waiting early: the host process is known to be gone. */
-    abandoned: () => boolean = () => false
+    abandoned: () => boolean = () => false,
+    requireReplay = false
   ): Promise<HostWelcome> {
     const deadline = Date.now() + timeoutMs;
     let lastError = "";
@@ -150,7 +169,10 @@ export class HostClient {
       }
       try {
         await this.dial();
-        return await this.awaitRunningWelcome(deadline - Date.now());
+        return await this.awaitRunningWelcome(
+          deadline - Date.now(),
+          requireReplay
+        );
       } catch (err) {
         lastError = err instanceof Error ? err.message : String(err);
         if (this.closed || /^engine failed:/.test(lastError)) {
@@ -172,8 +194,12 @@ export class HostClient {
     }
   }
 
-  private awaitRunningWelcome(timeoutMs: number): Promise<HostWelcome> {
-    if (this.lastWelcome?.running) return Promise.resolve(this.lastWelcome);
+  private awaitRunningWelcome(
+    timeoutMs: number,
+    requireReplay: boolean
+  ): Promise<HostWelcome> {
+    if (this.lastWelcome?.running && (!requireReplay || this.isReady()))
+      return Promise.resolve(this.lastWelcome);
     return new Promise<HostWelcome>((resolve, reject) => {
       const timer = setTimeout(
         () => {
@@ -183,6 +209,7 @@ export class HostClient {
         Math.max(0, timeoutMs)
       );
       const waiter = {
+        requireReplay,
         resolve: (w: HostWelcome) => {
           clearTimeout(timer);
           resolve(w);
@@ -293,6 +320,18 @@ export class HostClient {
     });
   }
 
+  private resolveWelcomeWaiters(): void {
+    const welcome = this.lastWelcome;
+    if (!welcome?.running) return;
+    const waiters = this.welcomeWaiters;
+    this.welcomeWaiters = [];
+    for (const waiter of waiters) {
+      if (waiter.requireReplay && !this.isReady())
+        this.welcomeWaiters.push(waiter);
+      else waiter.resolve(welcome);
+    }
+  }
+
   private handle(message: HostMessage): void {
     switch (message.type) {
       case "welcome":
@@ -313,11 +352,7 @@ export class HostClient {
         this.lastWelcome = message;
         const previousPermissions = this.permissions;
         this.permissions = message.permissions ?? [];
-        if (message.running) {
-          const waiters = this.welcomeWaiters;
-          this.welcomeWaiters = [];
-          for (const w of waiters) w.resolve(message);
-        }
+        this.resolveWelcomeWaiters();
         this.deps.onWelcome(message);
 
         if (this.permissions.length || previousPermissions.length)
@@ -325,6 +360,7 @@ export class HostClient {
         return;
       case "replay_complete":
         this.replayReady = true;
+        this.resolveWelcomeWaiters();
         this.finishUpdateReattach?.(this.isReady() ? this.lastWelcome : null);
         this.deps.onReady?.();
         return;
@@ -335,6 +371,11 @@ export class HostClient {
           at: message.at,
           event: message.event,
         });
+        return;
+      case "quiesce_result":
+      case "quiesce_shutdown_result":
+        if (this.pendingQuiesce?.id === message.id)
+          this.pendingQuiesce.finish(message);
         return;
       case "background_work_result": {
         const pending = this.pendingBackground.get(message.id);
@@ -454,6 +495,7 @@ export class HostClient {
   }
 
   private failPending(err: Error, recovery?: UpdateAcknowledgementLost): void {
+    this.pendingQuiesce?.finish();
     for (const finish of this.pendingReceipts.values()) finish();
     for (const pending of this.pendingBackground.values()) pending.reject(err);
     this.pendingBackground.clear();
@@ -478,6 +520,67 @@ export class HostClient {
       throw new Error("the agent host is not connected");
     }
     this.socket.write(encodeMessage(message));
+  }
+
+  async quiesce(): Promise<HostQuiesceLease | null> {
+    const welcome = this.lastWelcome;
+    const socket = this.socket;
+    if (welcome?.quiesceSupported !== true || !socket || !this.isReady())
+      return null;
+
+    const id = randomUUID();
+    let released = false;
+    const current = () =>
+      !released && this.socket === socket && this.isCurrent(welcome);
+    const release = () => {
+      if (!released && this.socket === socket && !socket.destroyed)
+        this.send({ type: "release_quiesce", id });
+      released = true;
+    };
+    const reply = await this.requestQuiesce(id, { type: "quiesce", id });
+    if (
+      reply?.type !== "quiesce_result" ||
+      reply.state !== "idle" ||
+      !current()
+    ) {
+      release();
+      return null;
+    }
+    return {
+      current,
+      release,
+      shutdown: async () => {
+        if (!current()) return false;
+        const result = await this.requestQuiesce(id, {
+          type: "shutdown",
+          quiesceId: id,
+        });
+        return (
+          result?.type === "quiesce_shutdown_result" && result.accepted === true
+        );
+      },
+    };
+  }
+
+  private requestQuiesce(id: string, message: ClientMessage) {
+    return new Promise<QuiesceReply | undefined>((resolve) => {
+      if (this.pendingQuiesce) {
+        resolve(undefined);
+        return;
+      }
+      const timer = setTimeout(() => finish(), QUIESCE_TIMEOUT_MS);
+      const finish = (reply?: QuiesceReply) => {
+        clearTimeout(timer);
+        this.pendingQuiesce = undefined;
+        resolve(reply);
+      };
+      this.pendingQuiesce = { id, finish };
+      try {
+        this.send(message);
+      } catch {
+        finish();
+      }
+    });
   }
 
   async getBackgroundWork(): Promise<BackgroundSnapshot> {

@@ -10,6 +10,7 @@ import type {
   Placement,
   RunnerRepository,
 } from "./remote/protocol.js";
+import type { BuildIdentity } from "./build-identity.js";
 import type { HostLaunch } from "./acp/host-protocol.js";
 import type { AppConfig } from "../config.js";
 import type { DriverEvent } from "./acp/driver.js";
@@ -53,6 +54,20 @@ export type QueuedPromptAction = "delete" | "send-now" | "interrupt";
  */
 export type QueuedPromptControl = boolean | "interrupt";
 
+export type RunnerHostIdentity = {
+  agentId: string;
+  build: BuildIdentity | undefined;
+  instanceId: string | undefined;
+  quiesceSupported: boolean;
+};
+
+export type RunnerHostRecycleHold = {
+  quiesce(): Promise<boolean>;
+  current(): boolean;
+  shutdown(): Promise<boolean>;
+  release(): void;
+};
+
 export type AgentRuntime = {
   /** Whether hosts are real processes whose absence means the agent died. */
   tracksProcesses(): boolean;
@@ -63,6 +78,11 @@ export type AgentRuntime = {
   /** Reconnect to a host that outlived the server; false when it is gone. */
   attach(agentId: string): Promise<boolean>;
   isAlive(agentId: string): Promise<boolean>;
+  runnerHosts?(runnerId: string): RunnerHostIdentity[];
+  holdForRecycle?(
+    runnerId: string,
+    host: RunnerHostIdentity
+  ): RunnerHostRecycleHold | null;
   /** Inspect an existing session without starting it or submitting chat. */
   getMcpInventory(agentId: string): Promise<AgentMcpInventoryResponse>;
   getBackgroundWork?(agentId: string): Promise<BackgroundSnapshot>;
