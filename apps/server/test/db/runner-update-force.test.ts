@@ -15,6 +15,7 @@ import {
   vi,
 } from "vitest";
 
+import { RECONNECT_WARNING } from "../../src/agents/reconciler.js";
 import { UPDATE_TIMING } from "../../src/agents/remote/update-coordinator.js";
 import {
   continuationId,
@@ -512,6 +513,122 @@ describe("stop and archive while a drain waits", () => {
     expect(later.alive).toBe(true);
     await world.holds.release(RUNNER, waiting, "cancelled");
     await next;
+  });
+});
+
+describe("a runner that stays offline while resuming", () => {
+  /** Both hosts are down and owed a resume when the runner drops. */
+  async function offlineResuming() {
+    const busy = await world.agent();
+    const idle = await world.agent();
+    await world.working(busy);
+    await force();
+    await world.activated();
+    world.saved.afterWrite = () => {
+      if (world.attempt()?.phase !== "resuming") return;
+      world.saved.afterWrite = undefined;
+      world.disconnect();
+    };
+    world.swap();
+    await world.until(() => !world.saved.afterWrite);
+    await world.until(
+      () =>
+        Date.parse(world.saved.holds.holds[0]!.expiresAt) <=
+        world.attempt()!.deadline
+    );
+    expect(world.view()?.attempt).toMatchObject({
+      phase: "resuming",
+      agents: 2,
+    });
+    return { busy, idle };
+  }
+
+  it.each([false, true])(
+    "ends at the deadline and leaves its agents to the reconciler (controller restarted: %s)",
+    async (restarted) => {
+      const { busy, idle } = await offlineResuming();
+      const deadline = world.attempt()!.deadline;
+      if (restarted) world.crash();
+      world.advance(UPDATE_TIMING.resumingMs);
+      if (restarted) await world.restart();
+      await world.until(
+        () => !world.holds.isHeld(RUNNER) && !world.view()?.attempt
+      );
+
+      expect(world.attempt()).toMatchObject({
+        deadline,
+        outcome: { state: "updated" },
+      });
+      expect(world.attempt()?.drain).toBeUndefined();
+      for (const host of [busy, idle]) {
+        expect((world.manager as any).hasRunnerDrainReceipt(host.id)).toBe(
+          false
+        );
+      }
+      // Unreachable is not gone.
+      await world.manager.reconcileAgentStatuses();
+      for (const host of [busy, idle])
+        expect(await world.manager.getAgent(host.id)).toMatchObject({
+          status: "running",
+          lastError: RECONNECT_WARNING,
+        });
+      world.reconnect();
+      await world.manager.reconcileAgentStatuses();
+      for (const host of [busy, idle]) {
+        expect(await statusOf(host.id)).toBe("stopped");
+        expect(host.launches).toHaveLength(1);
+        expect(host.prompts).toEqual([]);
+      }
+    }
+  );
+
+  it.each([false, true])(
+    "resumes normally when the runner is back before it (controller restarted: %s)",
+    async (restarted) => {
+      const { busy, idle } = await offlineResuming();
+      if (restarted) world.crash();
+      world.advance(UPDATE_TIMING.resumingMs - 60_000);
+      if (restarted) await world.restart();
+      await world.coordinator.tick();
+      expect(world.view()?.attempt?.phase).toBe("resuming");
+      world.reconnect();
+      await finished();
+      resumedOnce(busy);
+      resumedOnce(idle);
+      expect(continuations(busy)).toHaveLength(1);
+    }
+  );
+
+  it("brings a cancelled drain's two-hour hold in to the deadline", async () => {
+    world.runner.incompatible = true;
+    const drained = await world.agent();
+    const busy = await world.agent();
+    await world.working(busy);
+    const { attemptId } = await world.coordinator.request(RUNNER, "update");
+    await world.until(
+      () => !drained.alive && world.view()?.attempt?.agents === 1
+    );
+    world.disconnect();
+    await world.coordinator.cancelDrain(RUNNER, attemptId);
+    const { deadline } = world.attempt()!;
+    await world.until(
+      () => Date.parse(world.saved.holds.holds[0]!.expiresAt) === deadline
+    );
+    world.reconnect();
+    await finished("deferred");
+    resumedOnce(drained);
+  });
+
+  it("fails what it can tell is gone", async () => {
+    const { busy, idle } = await offlineResuming();
+    busy.resumeFails = idle.resumeFails = true;
+    world.advance(UPDATE_TIMING.resumingMs - 60_000);
+    world.reconnect();
+    await world.until(() => world.entry(busy.id)?.failedAt);
+    world.advance(60_000);
+    await finished();
+    for (const host of [busy, idle])
+      expect(await statusOf(host.id)).toBe("error");
   });
 });
 

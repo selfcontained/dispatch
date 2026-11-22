@@ -308,6 +308,23 @@ export class RunnerUpdateHolds {
     return snapshot(hold);
   }
 
+  /** Bring this attempt's bound forward to `at`. Never moves it later. */
+  async endBy(runnerId: string, attemptId: string, at: number) {
+    const hold = this.holds.get(runnerId);
+    if (hold?.attemptId !== attemptId || Date.parse(hold.expiresAt) <= at)
+      return;
+    hold.expiresAt = new Date(at).toISOString();
+    this.arm(hold);
+    try {
+      await this.persist();
+    } catch (error) {
+      this.options.logger.error(
+        { err: error, runnerId, attemptId },
+        "could not persist a runner hold's earlier bound"
+      );
+    }
+  }
+
   /**
    * Open the gate for this attempt. True exactly once; a stale or repeated
    * release changes nothing. The record is gone before any work moves.

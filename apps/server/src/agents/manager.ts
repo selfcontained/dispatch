@@ -1329,13 +1329,15 @@ export class AgentManager {
         ORDER BY created_at`
     );
     for (const row of result.rows) {
-      // Its launch is held for a runner update and runs when that opens.
-      if (this.holds?.hasLaunch(row.id) || this.hasRunnerDrainReceipt(row.id))
-        continue;
+      // Set for a receipt's agent too: the reconciler attaches it if the
+      // update gives up resuming it.
       this.streamRecorder.setCwd(
         row.id,
         remotePlacement(row.cwd) ? row.cwd : (row.workspacePath ?? row.cwd)
       );
+      // Its launch is held for a runner update and runs when that opens.
+      if (this.holds?.hasLaunch(row.id) || this.hasRunnerDrainReceipt(row.id))
+        continue;
       const attachedToHost = await this.runtime.attach(row.id);
       if (!remotePlacement(row.cwd) && this.runtime.inspectNativeHost) {
         try {

@@ -66,6 +66,12 @@ export const UPDATE_TIMING = {
   interruptMs: 30_000,
   /** A session that still won't resume after this is a failed start. */
   resumeRetryMs: 5 * 60_000,
+  /**
+   * For all of recovery: the 20 minutes a hold allows for switch, rollback
+   * and recovery, and one whole retry after that. Past it the reconciler
+   * has the agents, however unreachable the runner is.
+   */
+  resumingMs: 25 * 60_000,
   tickMs: 1_000,
 } as const;
 
@@ -289,7 +295,7 @@ export class RunnerUpdateCoordinator {
       service: CoordinatorService;
       holds: Pick<
         RunnerUpdateHolds,
-        "begin" | "current" | "release" | "setDrainWaiting"
+        "begin" | "current" | "endBy" | "release" | "setDrainWaiting"
       >;
       agents: CoordinatorAgents;
       store: RunnerUpdateStore;
@@ -1221,11 +1227,17 @@ export class RunnerUpdateCoordinator {
   /**
    * One pass of recovery: one session resumed, and every continuation still
    * owed offered. Each agent's progress is saved, so a restart takes up
-   * where this stopped. The hold opens once no entry is left.
+   * where this stopped. The hold opens once no entry is left, or at the
+   * phase's deadline whether or not the runner can be reached.
    */
   private async resumeDrain(runnerId: string, attempt: Attempt) {
     const drain = attempt.drain!;
-    const { agents, service, logger } = this.options;
+    const { agents, holds, service, logger } = this.options;
+    if (this.now() >= attempt.deadline)
+      return this.abandonResumes(runnerId, attempt);
+    // A launch whose reply was lost waits for the runner as long as the hold
+    // lasts, so the hold must not outlast the deadline.
+    await holds.endBy(runnerId, attempt.id, attempt.deadline);
     if (drain.agents.length && service.isRegistered(runnerId)) {
       // A reconnect with an outstanding trial is not an installed build yet.
       const live = service.selfUpdate(runnerId);
@@ -1268,6 +1280,25 @@ export class RunnerUpdateCoordinator {
       attempt = this.active(runnerId)!;
     }
     return this.finish(runnerId, attempt, drain.result!);
+  }
+
+  /** Out of time: whatever is left is the ordinary reconciler's. */
+  private async abandonResumes(runnerId: string, attempt: Attempt) {
+    const { agents, logger } = this.options;
+    const { agents: entries, result } = attempt.drain!;
+    await Promise.all(
+      entries
+        .filter((entry) => !entry.resumed)
+        .map(({ id }) =>
+          // Only a host known to be gone is a failed start.
+          agents.abandonRunnerResume(runnerId, id).catch(() => false)
+        )
+    );
+    logger.warn(
+      { runnerId, attemptId: attempt.id, agents: entries.length },
+      "runner update resume reached its deadline"
+    );
+    return this.finish(runnerId, attempt, result!);
   }
 
   private async resumeAgent(
@@ -1423,6 +1454,7 @@ export class RunnerUpdateCoordinator {
       await this.record(runnerId, {
         ...attempt,
         phase: "resuming",
+        deadline: this.now() + UPDATE_TIMING.resumingMs,
         drain: { ...attempt.drain, result: outcome },
       });
       return;
@@ -1648,6 +1680,8 @@ export class RunnerUpdateCoordinator {
         "could not save runner update state"
       );
       this.records.set(record.runnerId, record);
+      if (!record.attempt.drain)
+        this.options.agents.setRunnerDrainReceipt(record.runnerId, []);
       this.syncReceipt(record);
     }
   }
