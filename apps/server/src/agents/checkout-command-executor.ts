@@ -1,9 +1,7 @@
 import { loginShellCommand } from "./acp/host-command.js";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { constants } from "node:os";
 import {
-  MAX_CHECKOUT_COMMAND_OUTPUT_BYTES,
   type CheckoutCommand,
   type CheckoutCommandFile,
   type CheckoutCommandResult,
@@ -11,24 +9,25 @@ import {
 import type { Readable } from "node:stream";
 import { repoCommandEnvironment } from "../shared/lib/tool-environment.js";
 
-function capture(stream: Readable) {
-  const limit = MAX_CHECKOUT_COMMAND_OUTPUT_BYTES;
-  const buffer = Buffer.alloc(limit);
+function capture(stream: Readable, limit = Infinity) {
+  const chunks: Buffer[] = [];
   let used = 0;
   let truncated = false;
   stream.on("data", (chunk: Buffer) => {
-    const size = chunk.copy(buffer, used);
-    used += size;
-    if (size < chunk.length) truncated = true;
+    const kept = chunk.subarray(0, limit - used);
+    if (kept.length < chunk.length) truncated = true;
+    used += kept.length;
+    chunks.push(kept);
   });
   return () => {
-    const decoded = buffer.toString("utf8", 0, used).trim();
-    const encoded = Buffer.from(decoded);
+    const text = Buffer.concat(chunks).toString("utf8").trim();
+    const encoded = Buffer.from(text);
+    if (encoded.length <= limit) return { text, truncated };
     return {
       text: new TextDecoder().decode(encoded.subarray(0, limit), {
         stream: true,
       }),
-      truncated: truncated || encoded.length > limit,
+      truncated: true,
     };
   };
 }
@@ -38,12 +37,13 @@ export async function executeCheckoutCommand(
   session: string,
   operation: CheckoutCommand,
   read: (path: string) => Promise<{ root: string; content: string | null }>,
-  cancellation?: AbortSignal,
-  loginShell?: string
+  {
+    timeoutMs,
+    outputLimit,
+    loginShell,
+  }: { timeoutMs?: number; outputLimit?: number; loginShell?: string } = {}
 ): Promise<CheckoutCommandFile | CheckoutCommandResult | null> {
-  cancellation?.throwIfAborted();
   const { root, content } = await read(operation.path);
-  cancellation?.throwIfAborted();
   const state = createHash("sha256")
     .update(
       JSON.stringify([
@@ -70,38 +70,36 @@ export async function executeCheckoutCommand(
     : { bin: command!, args };
   const child = spawn(launch.bin, launch.args, {
     cwd: root,
-    detached: cancellation !== undefined,
     env,
     stdio: ["ignore", "pipe", "pipe"],
   });
-  const stdout = capture(child.stdout);
-  const stderr = capture(child.stderr);
+  const stdout = capture(child.stdout, outputLimit);
+  const stderr = capture(child.stderr, outputLimit);
   return new Promise((resolve, reject) => {
-    const cancel = () => {
-      if (!child.pid) return;
-      try {
-        process.kill(-child.pid, "SIGKILL");
-      } catch {
-        // The process group may already have exited.
-      }
-    };
-    cancellation?.addEventListener("abort", cancel, { once: true });
-    child.once("error", () =>
-      reject(new Error("Could not start checkout command."))
-    );
-    child.once("close", (code, signal) => {
-      cancellation?.removeEventListener("abort", cancel);
-      if (cancellation?.aborted) {
-        reject(cancellation.reason);
-        return;
-      }
+    const timer =
+      timeoutMs === undefined
+        ? undefined
+        : setTimeout(() => {
+            // Only the direct child, like runCommand: what it started keeps running.
+            child.kill("SIGTERM");
+            setTimeout(() => child.kill("SIGKILL"), 5_000).unref();
+            reject(new Error("Checkout command timed out."));
+          }, timeoutMs);
+    child.once("error", (error) => {
+      clearTimeout(timer);
+      reject(error);
+    });
+    child.once("close", (code) => {
+      clearTimeout(timer);
       const output = stdout();
       const errors = stderr();
       resolve({
-        exitCode: code ?? (signal ? 128 + constants.signals[signal] : 1),
+        exitCode: code ?? 1,
         stdout: output.text,
         stderr: errors.text,
-        truncated: output.truncated || errors.truncated,
+        ...(outputLimit !== undefined && {
+          truncated: output.truncated || errors.truncated,
+        }),
       });
     });
   });

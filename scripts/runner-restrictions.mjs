@@ -113,6 +113,11 @@ const rules = [
       protocol + "checkout-command.ts",
       "MAX_CHECKOUT_COMMAND_FILE_BYTES = 256 * 1024",
     ],
+    [
+      protocol + "checkout-command.ts",
+      "MAX_CHECKOUT_COMMAND_OUTPUT_BYTES = 64 * 1024",
+    ],
+    [protocol + "checkout-command.ts", "REPO_TOOL_TIMEOUT_MS = 5 * 60_000"],
   ],
   [
     "N15",

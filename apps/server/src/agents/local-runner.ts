@@ -18,7 +18,6 @@ import { promisify } from "node:util";
 import type { FastifyBaseLogger } from "fastify";
 import {
   checkoutCommandTimeoutMs,
-  isCheckoutCommand,
   remotePlacement,
   type SessionOperation,
   type SessionLifecycleOperation,
@@ -56,7 +55,6 @@ type CheckoutCommandOperation = Extract<
 >;
 type LocalCheckoutSettings = {
   checkout: Pick<AgentRecord, "id" | "cwd" | "worktreePath" | "workspacePath">;
-  signal?: AbortSignal;
 };
 
 export type SessionResult = {
@@ -315,11 +313,10 @@ export function createLocalRunner(
           !settings ||
           !("checkout" in settings) ||
           settings.checkout.id !== agentId ||
-          remotePlacement(settings.checkout.cwd) ||
-          !isCheckoutCommand(operation.operation)
+          remotePlacement(settings.checkout.cwd)
         )
           throw new Error("Invalid native checkout command binding.");
-        const { checkout, signal } = settings;
+        const { checkout } = settings;
         const { operation: command } = operation;
         const launch = checkout.worktreePath ?? checkout.cwd;
         const moved = checkout.workspacePath;
@@ -329,31 +326,23 @@ export function createLocalRunner(
             throw new Error("The moved checkout is no longer selected.");
           return { value: "null" };
         }
-        const deadline = new AbortController();
-        const timer = setTimeout(
-          () => deadline.abort(new Error("Checkout command timed out.")),
-          checkoutCommandTimeoutMs(command.checkout)
-        );
-        try {
-          return {
-            value: JSON.stringify(
-              await executeCheckoutCommand(
-                cwd,
-                agentId,
-                command,
-                (file) =>
-                  readCheckoutCommandFile(cwd, file, {
-                    exact: command.checkout !== "effective",
-                  }),
-                signal
-                  ? AbortSignal.any([signal, deadline.signal])
-                  : deadline.signal
-              )
-            ),
-          };
-        } finally {
-          clearTimeout(timer);
-        }
+        return {
+          value: JSON.stringify(
+            await executeCheckoutCommand(
+              cwd,
+              agentId,
+              command,
+              (file) =>
+                readCheckoutCommandFile(cwd, file, {
+                  exact: command.checkout !== "effective",
+                }),
+              // Main bounds lifecycle hooks only.
+              command.checkout === "effective"
+                ? {}
+                : { timeoutMs: checkoutCommandTimeoutMs(command.checkout) }
+            )
+          ),
+        };
       }
       case "attach": {
         const channel = await new Promise<net.Socket>((resolve, reject) => {

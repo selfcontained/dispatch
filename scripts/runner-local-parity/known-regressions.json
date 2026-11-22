@@ -1,9 +1,5 @@
 {
   "findings": {
-    "audit-4.3-3": {
-      "title": "Repo tools gained a five-minute kill, 64 KiB output, argument and manifest limits, and changed exit codes and errors",
-      "task": "F1"
-    },
     "archive-shared-worktree": {
       "title": "Archiving an owner keeps a worktree another agent works in until that agent is archived",
       "task": "T20"
@@ -15,10 +11,6 @@
     "worktree-status-fields": {
       "title": "Worktree status gained ownership, owner, borrowers and checkoutState",
       "task": "T20"
-    },
-    "stop-hook-kills-children": {
-      "title": "A stop hook that times out has its whole process group killed, including what it left running",
-      "task": "T14"
     },
     "persona-catalog-caps": {
       "title": "The persona catalog stops at 100 files or 4 MiB",
@@ -93,152 +85,6 @@
       "main": "<absent>",
       "head": "false",
       "finding": "agent-record-field"
-    },
-    {
-      "field": "truncated",
-      "main": "<absent>",
-      "head": "false",
-      "finding": "audit-4.3-3"
-    },
-    {
-      "scenario": "audit-3-tool-timeout",
-      "path": "background child survived",
-      "main": "true",
-      "head": "false",
-      "finding": "audit-4.3-3"
-    },
-    {
-      "scenario": "audit-3-tool-timeout",
-      "path": "call > content > 0 > text",
-      "main": "\"started\"",
-      "head": "\"Checkout command timed out.\"",
-      "finding": "audit-4.3-3"
-    },
-    {
-      "scenario": "audit-3-tool-timeout",
-      "path": "call > isError",
-      "main": "<absent>",
-      "head": "true",
-      "finding": "audit-4.3-3"
-    },
-    {
-      "scenario": "audit-3-tool-timeout",
-      "path": "call > structuredContent",
-      "main": "{\"command\":[\"<root>/work/serve.sh\"],\"exitCode\":0,\"stderr\":\"\",\"stdout\":\"started\"}",
-      "head": "<absent>",
-      "finding": "audit-4.3-3"
-    },
-    {
-      "scenario": "audit-3-tool-limits",
-      "path": "17 KiB parameter > content > 0 > text",
-      "main": "sha256:48df0406542a9d54 \"--value vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv…",
-      "head": "\"Invalid native checkout command binding.\"",
-      "finding": "audit-4.3-3"
-    },
-    {
-      "scenario": "audit-3-tool-limits",
-      "path": "17 KiB parameter > isError",
-      "main": "<absent>",
-      "head": "true",
-      "finding": "audit-4.3-3"
-    },
-    {
-      "scenario": "audit-3-tool-limits",
-      "path": "17 KiB parameter > structuredContent",
-      "main": "sha256:f3fa020c81ac163f {\"command\":[\"echo\"],\"exitCode\":0,\"stderr\":\"\",\"stdout\":\"--value vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv…",
-      "head": "<absent>",
-      "finding": "audit-4.3-3"
-    },
-    {
-      "scenario": "audit-3-tool-limits",
-      "path": "long > content > 0 > text",
-      "main": "sha256:e98134cb93adbfe0 \"yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy…",
-      "head": "\"Invalid native checkout command binding.\"",
-      "finding": "audit-4.3-3"
-    },
-    {
-      "scenario": "audit-3-tool-limits",
-      "path": "long > isError",
-      "main": "<absent>",
-      "head": "true",
-      "finding": "audit-4.3-3"
-    },
-    {
-      "scenario": "audit-3-tool-limits",
-      "path": "long > structuredContent",
-      "main": "sha256:f882a948be05b696 {\"command\":[\"echo\",\"yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy…",
-      "head": "<absent>",
-      "finding": "audit-4.3-3"
-    },
-    {
-      "scenario": "audit-3-tool-limits",
-      "path": "lots > content > 0 > text",
-      "main": "sha256:ef0bafa037908c3d \"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx…",
-      "head": "sha256:afb3bbecac846785 \"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx…",
-      "finding": "audit-4.3-3"
-    },
-    {
-      "scenario": "audit-3-tool-limits",
-      "path": "lots > structuredContent > stdout",
-      "main": "sha256:ef0bafa037908c3d \"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx…",
-      "head": "sha256:afb3bbecac846785 \"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx…",
-      "finding": "audit-4.3-3"
-    },
-    {
-      "scenario": "audit-3-tool-limits",
-      "path": "lots > structuredContent > truncated",
-      "main": "<absent>",
-      "head": "true",
-      "finding": "audit-4.3-3"
-    },
-    {
-      "scenario": "audit-3-tool-limits",
-      "path": "lots_err > structuredContent > stderr",
-      "main": "sha256:0895611b2bcb61c6 \"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee…",
-      "head": "sha256:5f2edd4933e1a2bf \"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee…",
-      "finding": "audit-4.3-3"
-    },
-    {
-      "scenario": "audit-3-tool-limits",
-      "path": "lots_err > structuredContent > truncated",
-      "main": "<absent>",
-      "head": "true",
-      "finding": "audit-4.3-3"
-    },
-    {
-      "scenario": "audit-3-tool-limits",
-      "path": "many > content > 0 > text",
-      "main": "sha256:cfa3790e0844378b \"x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x…",
-      "head": "\"Invalid native checkout command binding.\"",
-      "finding": "audit-4.3-3"
-    },
-    {
-      "scenario": "audit-3-tool-limits",
-      "path": "many > isError",
-      "main": "<absent>",
-      "head": "true",
-      "finding": "audit-4.3-3"
-    },
-    {
-      "scenario": "audit-3-tool-limits",
-      "path": "many > structuredContent",
-      "main": "sha256:45782c853960fb6d {\"command\":[\"echo\",\"x\",\"x\",\"x\",\"x\",\"x\",\"x\",\"x\",\"x\",\"x\",\"x\",\"x\",\"x\",\"x\",\"x\",\"x\",\"x\",\"x\",\"x\",\"x\",\"x\",\"…",
-      "head": "<absent>",
-      "finding": "audit-4.3-3"
-    },
-    {
-      "scenario": "audit-3-tool-limits",
-      "path": "missing > content > 0 > text",
-      "main": "\"ENOENT: no such file or directory, posix_spawn '<root>/work/not-there'\"",
-      "head": "\"Could not start checkout command.\"",
-      "finding": "audit-4.3-3"
-    },
-    {
-      "scenario": "audit-3-tool-limits",
-      "path": "signal > structuredContent > exitCode",
-      "main": "1",
-      "head": "143",
-      "finding": "audit-4.3-3"
     },
     {
       "scenario": "audit-7-persona-catalog-caps",
@@ -414,13 +260,6 @@
       "main": "\"main\"",
       "head": "null",
       "finding": "worktree-outside-git-base"
-    },
-    {
-      "scenario": "session-stop-hook-timeout",
-      "path": "hook's child survived",
-      "main": "true",
-      "head": "false",
-      "finding": "stop-hook-kills-children"
     },
     {
       "scenario": "session-children",

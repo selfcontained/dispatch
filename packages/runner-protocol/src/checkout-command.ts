@@ -26,7 +26,8 @@ export type CheckoutCommandResult = {
   exitCode: number;
   stdout: string;
   stderr: string;
-  truncated: boolean;
+  /** Present when the executor was given an output limit. */
+  truncated?: boolean;
 };
 
 const utf8 = new TextEncoder();
@@ -91,6 +92,6 @@ export function isCheckoutCommandResult(
         typeof output === "string" &&
         fits(output, MAX_CHECKOUT_COMMAND_OUTPUT_BYTES)
     ) &&
-    typeof value.truncated === "boolean"
+    (value.truncated === undefined || typeof value.truncated === "boolean")
   );
 }

@@ -40,7 +40,7 @@ describe("runLifecycleHook", () => {
   });
 
   it.each(["effective", "launch", "moved"] as const)(
-    "uses the shared deadline for native %s checkout commands",
+    "bounds native %s checkout commands as main did: hooks 15s, repo tools never",
     async (selection) => {
       const checkout = {
         id: "agt_hook",
@@ -51,32 +51,111 @@ describe("runLifecycleHook", () => {
       const dir = selection === "launch" ? root : checkout.workspacePath;
       await repoWithStopHook(dir);
       const runner = createLocalRunner(root, logger);
+      const target = {
+        checkout: selection,
+        path: ".dispatch/tools.json",
+      } as const;
+      const read = await runner.requestSession(
+        {
+          kind: "checkoutCommand",
+          agentId: checkout.id,
+          operation: { ...target, kind: "read" },
+        },
+        { checkout }
+      );
+      const { state } = JSON.parse(String(read.value)) as { state: string };
       const timer = vi.spyOn(globalThis, "setTimeout");
       try {
         const result = await runner.requestSession(
           {
             kind: "checkoutCommand",
             agentId: checkout.id,
-            operation: {
-              kind: "read",
-              checkout: selection,
-              path: ".dispatch/tools.json",
-            },
+            operation: { ...target, kind: "run", state, argv: ["true"] },
           },
           { checkout }
         );
         expect(JSON.parse(String(result.value))).toMatchObject({
-          content: expect.stringContaining('"stop"'),
+          exitCode: 0,
         });
-        expect(timer).toHaveBeenCalledWith(
-          expect.any(Function),
-          checkoutCommandTimeoutMs(selection)
-        );
+        const delays = timer.mock.calls.map(([, delay]) => delay);
+        if (selection === "effective")
+          expect(delays.filter((delay) => (delay ?? 0) >= 1_000)).toEqual([]);
+        else expect(delays).toContain(15_000);
       } finally {
         timer.mockRestore();
       }
     }
   );
+
+  it("kills only the timed-out stop hook, leaving what it started running", async () => {
+    const launch = path.join(root, "launch");
+    await mkdir(path.join(launch, ".dispatch"), { recursive: true });
+    await writeFile(
+      path.join(launch, ".dispatch", "tools.json"),
+      JSON.stringify({
+        hooks: {
+          stop: {
+            command: [
+              "sh",
+              "-c",
+              "sleep 60 >/dev/null 2>&1 & echo $! > child.pid; wait",
+            ],
+          },
+        },
+      })
+    );
+    // Shorten only the hook's 15s deadline so the test runs in well under 15s.
+    const realSetTimeout = globalThis.setTimeout;
+    const timer = vi
+      .spyOn(globalThis, "setTimeout")
+      .mockImplementation(((
+        callback: (...args: unknown[]) => void,
+        delay?: number,
+        ...args: unknown[]
+      ) =>
+        realSetTimeout(
+          callback,
+          delay === checkoutCommandTimeoutMs("launch") ? 300 : delay,
+          ...args
+        )) as typeof setTimeout);
+    let pid: number | undefined;
+    try {
+      const warn = vi.fn();
+      await runLifecycleHook(
+        "stop",
+        {
+          id: "agt_hook",
+          cwd: launch,
+          worktreePath: launch,
+          workspacePath: null,
+        } as AgentRecord,
+        { ...logger, warn } as unknown as typeof logger,
+        { local: createLocalRunner(root, logger) }
+      );
+      timer.mockRestore();
+      expect(warn).toHaveBeenCalledWith(
+        expect.objectContaining({
+          err: expect.objectContaining({
+            message: "Checkout command timed out.",
+          }),
+        }),
+        expect.any(String)
+      );
+      pid = Number(await readFile(path.join(launch, "child.pid"), "utf8"));
+      expect(pid).toBeGreaterThan(0);
+      await new Promise((resolve) => realSetTimeout(resolve, 200));
+      expect(() => process.kill(pid!, 0)).not.toThrow();
+    } finally {
+      timer.mockRestore();
+      if (pid) {
+        try {
+          process.kill(pid, "SIGKILL");
+        } catch {
+          // Already gone.
+        }
+      }
+    }
+  });
 
   it("runs the stop hook in the launch checkout and the moved workspace", async () => {
     const launch = path.join(root, "launch");

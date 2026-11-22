@@ -177,9 +177,10 @@ describe("agent.tool_invoked", () => {
   });
 });
 
-it("cancels a native checkout command through the MCP client", async () => {
+it("leaves a native checkout command running when the MCP client cancels, as main did", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "mcp-repo-cancel-"));
   const abort = new AbortController();
+  let pid = "";
   try {
     await mkdir(path.join(root, ".dispatch"));
     await writeFile(
@@ -207,26 +208,33 @@ it("cancels a native checkout command through the MCP client", async () => {
       })
       .catch((error: unknown) => error);
     const childFile = path.join(root, "child.pid");
-    let pid = "";
     await vi.waitFor(async () => {
       pid = (await readFile(childFile, "utf8")).trim();
       expect(pid).toMatch(/^\d+$/);
     });
     abort.abort();
     expect(await result).toBeInstanceOf(Error);
-    await vi.waitFor(() => {
-      let status = "";
-      try {
-        status = execFileSync("ps", ["-o", "stat=", "-p", pid], {
-          encoding: "utf8",
-        }).trim();
-      } catch {
-        // No matching process.
-      }
-      expect(status).toMatch(/^(?:Z.*)?$/);
-    });
+    // Main ran repo tools without a cancellation signal: what they started
+    // keeps running after the client gives up.
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    let status = "";
+    try {
+      status = execFileSync("ps", ["-o", "stat=", "-p", pid], {
+        encoding: "utf8",
+      }).trim();
+    } catch {
+      // No matching process.
+    }
+    expect(status).toMatch(/^[^Z]/);
   } finally {
     abort.abort();
+    if (pid) {
+      try {
+        process.kill(Number(pid), "SIGKILL");
+      } catch {
+        // Already gone.
+      }
+    }
     await rm(root, { recursive: true, force: true });
   }
 });

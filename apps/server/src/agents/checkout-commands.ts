@@ -57,7 +57,6 @@ export async function requestCheckoutCommand(
   }
   const { value } = await runners.local.requestSession(request, {
     checkout: agent,
-    signal,
   });
   return parseResult(value) as
     | CheckoutCommandFile

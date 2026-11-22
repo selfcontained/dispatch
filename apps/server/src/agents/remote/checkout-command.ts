@@ -1,4 +1,7 @@
-import { isCheckoutCommand } from "@dispatch/runner-protocol";
+import {
+  isCheckoutCommand,
+  MAX_CHECKOUT_COMMAND_OUTPUT_BYTES,
+} from "@dispatch/runner-protocol";
 import { executeCheckoutCommand } from "../checkout-command-executor.js";
 import { readCheckoutCommandFile } from "../checkout-inspection.js";
 
@@ -29,8 +32,10 @@ export async function runCheckoutCommandCli(
           session,
           operation,
           (file) => readCheckoutCommandFile(cwd, file, { configuredRoot }),
-          undefined,
-          process.env.SHELL || "/bin/bash"
+          {
+            outputLimit: MAX_CHECKOUT_COMMAND_OUTPUT_BYTES,
+            loginShell: process.env.SHELL || "/bin/bash",
+          }
         )
       )
     );
