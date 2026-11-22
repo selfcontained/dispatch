@@ -196,6 +196,7 @@ export function createRunnerUpdateAgent(options: {
     extra: {
       reason?: RunnerUpdateReason;
       floorVersion?: string;
+      fenceCleared?: true;
       retained?: RetainedSession[];
       requiresQuiescence?: boolean;
     } = {}
@@ -624,7 +625,8 @@ export function createRunnerUpdateAgent(options: {
     frame: Extract<UpdateServiceFrame, { type: "update_cancel" }>
   ) {
     const current = admission.current;
-    if (!current && admission.unreadable) {
+    const clearsUnreadable = !current && admission.unreadable;
+    if (clearsUnreadable) {
       log(
         "Runner update fence state was unreadable; cancelled by the service."
       );
@@ -642,7 +644,10 @@ export function createRunnerUpdateAgent(options: {
       if (admission.current === current) await release(frame.attemptId);
     }
     if (attempt?.attemptId === frame.attemptId) attempt = null;
-    status(frame.attemptId, "deferred", { reason: "cancelled" });
+    status(frame.attemptId, "deferred", {
+      reason: "cancelled",
+      ...(clearsUnreadable && { fenceCleared: true }),
+    });
   }
 
   return {

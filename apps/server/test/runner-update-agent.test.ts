@@ -488,10 +488,17 @@ describe("runner update agent", () => {
     expect(s.agent.advert()).toMatchObject({ fenceUnreadable: true });
     expect(s.agent.advert()).not.toHaveProperty("pendingAttemptId");
     expect(s.admission.closed).toBe(true);
+    // Refusals while unreadable are also cancelled, but clear nothing.
+    for (const frame of [offer(), fence()]) {
+      await s.receive(frame);
+      expect(s.last()).toMatchObject({ reason: "cancelled" });
+      expect(s.last()).not.toHaveProperty("fenceCleared");
+    }
     await s.receive(cancel(otherAttempt));
     expect(s.last()).toMatchObject({
       attemptId: otherAttempt,
       reason: "cancelled",
+      fenceCleared: true,
     });
     expect(s.agent.advert()).not.toHaveProperty("fenceUnreadable");
     expect(s.admission.closed).toBe(false);
@@ -506,6 +513,7 @@ describe("runner update agent", () => {
     await s.receive(cancel());
     expect(s.admission.closed).toBe(false);
     expect(s.last()).toMatchObject({ reason: "cancelled" });
+    expect(s.last()).not.toHaveProperty("fenceCleared");
     expect(s.log).toHaveBeenCalledWith(
       expect.stringContaining("fixture clear failure")
     );

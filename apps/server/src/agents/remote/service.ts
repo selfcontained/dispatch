@@ -1063,6 +1063,11 @@ export class RemoteRunnerService {
       } else if (frame.type === "update_status" && peer.selfUpdate) {
         const status = parseUpdateStatus(frame);
         if (!status) return socket.destroy();
+        if (status.fenceCleared) {
+          // The ready advert is otherwise cached for the whole connection.
+          const { fenceUnreadable: _, ...advert } = peer.selfUpdate;
+          peer.selfUpdate = advert;
+        }
         const event = { runnerId: gate.key, epoch: peer.epoch, status };
         for (const listener of this.updateListeners) {
           try {

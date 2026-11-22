@@ -130,6 +130,8 @@ export type UpdateStatusFrame = {
   /** The runner's confirmed floor. Only with reason `downgrade`. */
   floorVersion?: string;
   installed: RunnerInstalledBuild;
+  /** An unreadable fence was cleared. Only with `deferred`/`cancelled`. */
+  fenceCleared?: true;
   retained?: RetainedSession[];
   requiresQuiescence?: boolean;
 };
@@ -318,6 +320,10 @@ export function parseUpdateStatus(value: unknown): UpdateStatusFrame | null {
       !RUNNER_UPDATE_REASONS.includes(value.reason as RunnerUpdateReason)) ||
     (value.floorVersion !== undefined &&
       (value.reason !== "downgrade" || !isVersion(value.floorVersion))) ||
+    (value.fenceCleared !== undefined &&
+      (value.fenceCleared !== true ||
+        value.phase !== "deferred" ||
+        value.reason !== "cancelled")) ||
     (value.requiresQuiescence !== undefined &&
       typeof value.requiresQuiescence !== "boolean")
   )
@@ -341,6 +347,7 @@ export function parseUpdateStatus(value: unknown): UpdateStatusFrame | null {
       floorVersion: value.floorVersion as string,
     }),
     installed,
+    ...(value.fenceCleared === true && { fenceCleared: true }),
     ...(retained && { retained }),
     ...(value.requiresQuiescence !== undefined && {
       requiresQuiescence: value.requiresQuiescence,

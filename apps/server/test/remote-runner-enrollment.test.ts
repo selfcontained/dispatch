@@ -463,6 +463,49 @@ describe("runner enrollment service", () => {
     expect(events).toHaveLength(1);
   });
 
+  it("clears a cached unreadable fence only when the runner reports it cleared", async () => {
+    const service = makeService();
+    const revision = "b".repeat(40);
+    const enrolled = await enroll(service, "unreadable-fence");
+    const id = enrolled.created.id;
+    const advert = {
+      protocol: 1,
+      os: "linux",
+      arch: "x64",
+      version: "1.7.28",
+      revision,
+      installedSha256: "c".repeat(64),
+      handoff: { reads: [1, 2], writes: 2 },
+    };
+    const peer = await dialRunner({
+      ...enrolled,
+      workspaces: ["work"],
+      label: "unreadable",
+      selfUpdate: { ...advert, fenceUnreadable: true },
+    });
+    runners.push(peer);
+    await waitFor(() => service.selfUpdate(id) !== undefined);
+    const seen: unknown[] = [];
+    const stop = service.onUpdateStatus(() =>
+      seen.push(service.selfUpdate(id)?.advert)
+    );
+    const cancelled = {
+      type: "update_status",
+      attemptId: "6f1c1d1e-2a3b-4c5d-8e9f-0a1b2c3d4e5f",
+      phase: "deferred",
+      reason: "cancelled",
+      installed: { version: "1.7.28", revision, sha256: "c".repeat(64) },
+    };
+    peer.send(cancelled);
+    await waitFor(() => seen.length === 1);
+    expect(seen[0]).toEqual({ ...advert, fenceUnreadable: true });
+    peer.send({ ...cancelled, fenceCleared: true });
+    await waitFor(() => seen.length === 2);
+    // Listeners already see the refreshed advert.
+    expect(seen[1]).toEqual(advert);
+    stop();
+  });
+
   it("rejects checkout commands on an older peer while preserving the workspace operation", async () => {
     const service = makeService(true);
     const enrolled = await enroll(service, "legacy-checkout");

@@ -267,7 +267,8 @@ minutes, plus time to flush their reply and close terminals. An activation
 request handed to the updater leaves expiry and recovery to the updater.
 
 An unreadable fence is reported in the runner's update advertisement and a
-controller cancel can clear it. The boot hook follows the durable journal and
+controller cancel can clear it. The runner's reply reports `fenceCleared`,
+which clears the flag in the controller without a reconnect. The boot hook follows the durable journal and
 leaves unreadable fence records in place for that recovery.
 
 | Trial journal           | Readable fence                                                                                                               | Unreadable fence                                                         | Fence absent                                              |

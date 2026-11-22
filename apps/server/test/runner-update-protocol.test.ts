@@ -208,6 +208,23 @@ describe("update_status", () => {
       expect(parseUpdateStatus({ ...refused, ...change })).toBeNull();
   });
 
+  it("reports a cleared fence only as a cancellation", () => {
+    const { retained: _, ...base } = status;
+    const cleared = {
+      ...base,
+      phase: "deferred",
+      reason: "cancelled",
+      fenceCleared: true,
+    };
+    expect(parseUpdateStatus(cleared)).toEqual(cleared);
+    for (const change of [
+      { fenceCleared: false },
+      { phase: "rolled_back" },
+      { reason: "ready" },
+    ])
+      expect(parseUpdateStatus({ ...cleared, ...change })).toBeNull();
+  });
+
   it("bounds the retained inventory", () => {
     const retained = Array.from({ length: MAX_UPDATE_RETAINED }, (_, n) => ({
       sessionId: `agt_${n}`,
