@@ -33,11 +33,12 @@ export function dismissVersionMismatch(): void {
   notify();
 }
 
-// Listeners fire whenever the toast's input state (mismatch flag or
-// dismissal) changes, so the component can stay in sync without owning
-// any of it locally — important because the toast may unmount and
-// remount (logout/login, Strict Mode double-mount, future layout
-// changes) and dismissal needs to survive those.
+// Listeners fire whenever the toast's input state (mismatch flag, the
+// mismatched server's version, or dismissal) changes, so the component
+// can stay in sync without owning any of it locally — important because
+// the toast may unmount and remount (logout/login, Strict Mode
+// double-mount, future layout changes) and dismissal needs to survive
+// those.
 export function subscribeVersionMismatch(listener: Listener): () => void {
   listeners.add(listener);
   return () => {
@@ -51,8 +52,12 @@ function notify(): void {
 
 export function noteServerVersion(version: string | null | undefined): void {
   if (!version) return;
+  const changed = version !== serverVersion;
   serverVersion = version;
-  if (mismatch) return;
+  if (mismatch) {
+    if (changed) notify();
+    return;
+  }
   if (version === BUILD_VERSION) return;
   mismatch = true;
   notify();

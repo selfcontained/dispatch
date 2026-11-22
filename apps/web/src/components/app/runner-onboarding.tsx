@@ -15,7 +15,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { api } from "@/lib/api";
-import { runnersQueryKey } from "@/hooks/use-runners";
+import { runnerInstallerQueryKey, runnersQueryKey } from "@/hooks/use-runners";
 
 export function RunnerCommand({
   value,
@@ -188,7 +188,7 @@ export type RunnerInstaller = {
 
 export function useRunnerInstaller(enabled: boolean) {
   return useQuery({
-    queryKey: ["runner-installer"],
+    queryKey: runnerInstallerQueryKey,
     queryFn: () => api<RunnerInstaller>("/api/v1/runners/installer"),
     enabled,
     staleTime: 300_000,

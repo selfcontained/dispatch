@@ -28,6 +28,7 @@ import {
   runnersQueryKey,
   useRunnerMutations,
   useRunners,
+  useWantedBuildRefresh,
   type Runner,
   type RunnerStatus,
 } from "@/hooks/use-runners";
@@ -350,6 +351,7 @@ function RunnerDetail({
   heading: React.RefObject<HTMLHeadingElement>;
   onRevoked: () => void;
 }) {
+  useWantedBuildRefresh(runner);
   return (
     <div className="min-w-0 divide-y divide-border" data-testid="runner-detail">
       <header className="flex items-start justify-between gap-2 pb-4">

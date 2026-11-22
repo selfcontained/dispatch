@@ -14,10 +14,11 @@ import {
   within,
 } from "@testing-library/react";
 import { MemoryRouter, useLocation } from "react-router-dom";
-import { afterEach, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { Runner } from "@/hooks/use-runners";
 import { api } from "@/lib/api";
+import { noteServerVersion } from "@/lib/version";
 import { RunnerSettings } from "./runner-settings";
 
 vi.mock("@/lib/api", () => ({
@@ -53,10 +54,12 @@ function SearchValue() {
   return <output data-testid="search">{useLocation().search}</output>;
 }
 
-function renderSettings(entry = "/settings/runners") {
-  const queryClient = new QueryClient({
+function renderSettings(
+  entry = "/settings/runners",
+  queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
-  });
+  })
+) {
   return render(
     <QueryClientProvider client={queryClient}>
       <MemoryRouter initialEntries={[entry]}>
@@ -445,4 +448,120 @@ it("polls faster while a selected runner updates and offers the action in its de
   } finally {
     vi.useRealTimers();
   }
+});
+
+describe("the wanted build in Health", () => {
+  const health = {
+    version: "1.7.28",
+    revision: "aaaaaaa",
+    sessions: 0,
+    working: 0,
+    cpuPercent: 1,
+    memoryUsed: 1,
+    memoryTotal: 2,
+  };
+  const shown: Runner = {
+    ...online,
+    engineManagement: undefined,
+    health,
+    healthReceivedAt: "2026-01-15T08:42:17.123Z",
+  };
+  const old = { version: "1.7.28", revision: "aaaaaaa", command: null };
+  const next = { version: "1.7.29", revision: "bbbbbbb", command: null };
+
+  async function openHealth() {
+    const world = { runner: shown, installer: old };
+    vi.mocked(api).mockImplementation(async (path) => {
+      if (path === "/api/runners") return { runners: [world.runner] } as never;
+      if (path === "/api/v1/runners/installer") return world.installer as never;
+      return {} as never;
+    });
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    renderSettings("/settings/runners?runner=build", client);
+    const details =
+      await screen.findByTestId<HTMLDetailsElement>("runner-health");
+    details.open = true;
+    fireEvent(details, new Event("toggle"));
+    await within(details).findByText("Wanted build");
+    world.installer = next;
+    const changes = (runner: Partial<Runner>) =>
+      act(async () => {
+        world.runner = { ...shown, ...runner };
+        await client.refetchQueries({ queryKey: ["runners"] });
+      });
+    const showsNext = () =>
+      waitFor(() => expect(details.textContent).toContain("bbbbbbb"));
+    return { world, details, changes, showsNext };
+  }
+
+  it.each<[string, Partial<Runner>]>([
+    [
+      "an update becomes available",
+      { update: { available: { version: "1.7.29", action: "update" } } },
+    ],
+    [
+      "an update starts",
+      { update: { attempt: { id: "a", phase: "staging" } } },
+    ],
+    ["an update ends", { update: { result: { state: "rolled_back" } } }],
+    [
+      "the runner reports another version",
+      { health: { ...health, version: "1.7.29" } },
+    ],
+    [
+      "the runner reports another revision",
+      { health: { ...health, revision: "ccccccc" } },
+    ],
+  ])("is read again when %s", async (_case, runner) => {
+    const { changes, showsNext } = await openHealth();
+    await changes(runner);
+    await showsNext();
+  });
+
+  it("agrees with the update that just finished", async () => {
+    const { changes, details, showsNext } = await openHealth();
+    await changes({
+      health: { ...health, version: "1.7.29", revision: "bbbbbbb" },
+      update: { result: { state: "updated", version: "1.7.29" } },
+    });
+    await showsNext();
+    await waitFor(() =>
+      expect(details.textContent).toContain("Wanted build1.7.29")
+    );
+    expect(details.textContent).toContain("Up to date");
+    expect(details.textContent).not.toContain("Runner is newer");
+  });
+
+  it("is read again each time Dispatch's version changes", async () => {
+    const { world, details, showsNext } = await openHealth();
+    act(() => noteServerVersion("1.7.29"));
+    await showsNext();
+    world.installer = { ...next, version: "1.7.30", revision: "ddddddd" };
+    act(() => noteServerVersion("1.7.30"));
+    await waitFor(() => expect(details.textContent).toContain("ddddddd"));
+    // Every response repeats the header; only a change is a signal.
+    const reads = vi.mocked(api).mock.calls.length;
+    await act(async () => noteServerVersion("1.7.30"));
+    expect(vi.mocked(api).mock.calls).toHaveLength(reads);
+  });
+
+  it("is read again when a detail opens on a cached build", async () => {
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    client.setQueryData(["runner-installer"], old);
+    vi.mocked(api).mockImplementation(async (path) => {
+      if (path === "/api/runners") return { runners: [shown] } as never;
+      if (path === "/api/v1/runners/installer") return next as never;
+      return {} as never;
+    });
+    renderSettings("/settings/runners?runner=build", client);
+    const details =
+      await screen.findByTestId<HTMLDetailsElement>("runner-health");
+    details.open = true;
+    fireEvent(details, new Event("toggle"));
+    await waitFor(() => expect(details.textContent).toContain("bbbbbbb"));
+  });
 });

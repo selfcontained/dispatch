@@ -1,8 +1,10 @@
 import { type RunnerHealth, workspaceLocator } from "@dispatch/runner-protocol";
 import type { RunnerUpdateAction, RunnerUpdateView } from "@dispatch/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect } from "react";
 
 import { api } from "@/lib/api";
+import { subscribeVersionMismatch } from "@/lib/version";
 
 export type RunnerStatus = "pending" | "online" | "offline" | "revoked";
 
@@ -24,6 +26,28 @@ export type Runner = {
 export type RunnerPairing = { id: string; command: string; expiresAt: string };
 
 export const runnersQueryKey = ["runners"] as const;
+export const runnerInstallerQueryKey = ["runner-installer"] as const;
+
+/**
+ * The wanted build is cached for minutes and follows Dispatch's build. Read
+ * it again when what is shown beside it moves, or Dispatch's version does.
+ */
+export function useWantedBuildRefresh({ health, update }: Runner) {
+  const queryClient = useQueryClient();
+  const shown = JSON.stringify([
+    health?.version,
+    health?.revision,
+    update?.available,
+    update?.attempt,
+    update?.result,
+  ]);
+  useEffect(() => {
+    const refresh = () =>
+      void queryClient.invalidateQueries({ queryKey: runnerInstallerQueryKey });
+    refresh();
+    return subscribeVersionMismatch(refresh);
+  }, [queryClient, shown]);
+}
 
 /** Locator the server stores in an agent's cwd: opaque runner id, both parts encoded. */
 export function runnerLocator(runnerId: string, workspace: string): string {
