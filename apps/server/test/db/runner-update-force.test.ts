@@ -125,6 +125,8 @@ describe("a forced update", () => {
     await finished();
     await ordinary.accepted;
     for (const host of [long, parent, idle, legacy]) resumedOnce(host);
+    // The one deliberate literal pin of the continuation wording; the matrix
+    // tests use UPDATE_CONTINUATION_MESSAGE.
     expect(long.prompts.map(({ text }) => text)).toEqual([
       "Dispatch interrupted this turn to update the runner; the user did not interrupt it. Continue from where you left off.",
       "ordinary",
@@ -1243,6 +1245,7 @@ describe("runner update scenarios", () => {
       expect(world.holds.isHeld(RUNNER)).toBe(false);
     }
   );
+
   it.each(updatePaths)(
     "keeps held work scoped over two runner disconnects during %s",
     async (path) => {

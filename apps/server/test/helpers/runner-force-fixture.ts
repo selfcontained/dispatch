@@ -117,6 +117,8 @@ export type Host = {
 };
 
 export async function forceWorld(pool: Pool) {
+  // Short on purpose: each host binds host.sock under here, and unix socket paths
+  // are capped (~104 bytes on macOS), which os.tmpdir() would overflow.
   const dir = await mkdtemp("/tmp/dr-force-");
   const hosts = new Map<string, Host>();
   const localAgents = new Map<string, number>();

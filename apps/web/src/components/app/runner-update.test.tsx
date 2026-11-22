@@ -111,6 +111,20 @@ it("replaces the update phase while offline and restores it on reconnect", () =>
   expect(text()).not.toContain("Waiting for the runner to reconnect…");
 });
 
+it("shows only the reconnect line, not the agent count, while draining offline", () => {
+  const update = {
+    attempt: { id: "a", phase: "draining", version, agents: 2 },
+  } as const;
+  const view = show(update);
+  expect(text()).toContain("Waiting on 2 agents");
+  view.update(update, "offline");
+  expect(text()).toContain("Waiting for the runner to reconnect…");
+  expect(text()).not.toContain("Waiting on");
+  expect(text()).not.toContain("2 agents");
+  // Cancel is still offered while the drain is offline.
+  expect(screen.getByRole("button", { name: "Cancel" })).toBeTruthy();
+});
+
 it("says new work waits once, and only while, it is held", () => {
   const view = show({ attempt: { id: "a", phase: "staging", version } });
   expect(text()).not.toContain("New work waits");
