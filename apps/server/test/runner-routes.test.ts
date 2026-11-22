@@ -72,15 +72,21 @@ describe("runner control API", () => {
     const url = "/api/v1/runners/rnr_missing/update";
     const hostToken = await ctx.auth.getOrCreateAuthToken(ctx.pool);
     const scoped = ctx.auth.createAgentMcpToken(hostToken, "agt_fixture");
-    const denied = await ctx.app.inject({
-      method: "POST",
-      url,
-      headers: { authorization: `Bearer ${scoped}` },
-      payload: { action: "update" },
-    });
-    expect(denied.statusCode).toBe(401);
+    for (const action of ["update", "force"]) {
+      const denied = await ctx.app.inject({
+        method: "POST",
+        url,
+        headers: { authorization: `Bearer ${scoped}` },
+        payload: { action },
+      });
+      expect(denied.statusCode).toBe(401);
+    }
     const cookie = await ctx.sessionCookie();
-    for (const payload of [{}, { action: "force" }, { action: "drain" }]) {
+    for (const payload of [
+      {},
+      { action: "force", attemptId: 7 },
+      { action: "drain" },
+    ]) {
       const invalid = await ctx.app.inject({
         method: "POST",
         url,
@@ -89,17 +95,19 @@ describe("runner control API", () => {
       });
       expect(invalid.statusCode).toBe(400);
     }
-    const missing = await ctx.app.inject({
-      method: "POST",
-      url,
-      headers: { cookie },
-      payload: { action: "update" },
-    });
-    expect(missing.statusCode).toBe(404);
-    expect(missing.json()).toEqual({
-      error: "Runner not found.",
-      code: "not_found",
-    });
+    for (const action of ["update", "force"]) {
+      const missing = await ctx.app.inject({
+        method: "POST",
+        url,
+        headers: { cookie },
+        payload: { action },
+      });
+      expect(missing.statusCode).toBe(404);
+      expect(missing.json()).toEqual({
+        error: "Runner not found.",
+        code: "not_found",
+      });
+    }
   });
 
   it("creates, lists and revokes a registration", async () => {
