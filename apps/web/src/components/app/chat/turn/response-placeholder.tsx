@@ -1,3 +1,4 @@
+import "./neon-preview.css";
 import {
   useEffect,
   useMemo,
@@ -443,7 +444,10 @@ export function ResponsePlaceholderVisual({
   reducedCells,
   statusLabel = "Preparing response",
   fills = [],
+  glow,
 }: {
+  /** Opt-in visual study; production keeps its existing treatment. */
+  glow?: "tube" | "halo" | "bloom";
   /** What the turn has done so far, in place of the progress link. */
   summary?: string;
   reserveSummary?: boolean;
@@ -521,6 +525,7 @@ export function ResponsePlaceholderVisual({
 
   return (
     <div
+      data-glow={glow}
       data-testid="chat-response-placeholder"
       className={`dispatch-placeholder ${quiet ? "" : "dispatch-placeholder-chase"} relative mt-3 w-full max-w-md rounded-lg border border-border/60 bg-muted/10 px-4 py-3.5 ${reducedCells ? "dispatch-defrag-reduced" : ""}`}
     >
@@ -585,6 +590,8 @@ export function ResponsePlaceholderVisual({
                         className="absolute left-0 top-0 pr-[2px] transition-transform duration-[900ms] ease-in-out motion-reduce:transition-none"
                         style={
                           {
+                            "--neon-color":
+                              ACTIVITY_COLORS[c.category ?? c.rest],
                             width: `${100 / COLS}%`,
                             height: CELL_H,
                             transform: place(c.slot),

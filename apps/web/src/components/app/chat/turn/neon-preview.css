@@ -1,0 +1,46 @@
+/* Explicit preview opt-in: no change to the chat default. */
+[data-glow] [data-category] > span {
+  box-shadow:
+    inset 0 0 0 0.5px color-mix(in srgb, white 55%, var(--neon-color)),
+    0 0 3px var(--neon-color),
+    0 0 6px color-mix(in srgb, var(--neon-color) 65%, transparent);
+}
+[data-glow="halo"] [data-category] > span {
+  box-shadow:
+    inset 0 0 0 0.5px color-mix(in srgb, white 30%, var(--neon-color)),
+    0 0 5px var(--neon-color),
+    0 0 12px color-mix(in srgb, var(--neon-color) 65%, transparent);
+}
+[data-glow="bloom"] [data-category] > span {
+  box-shadow:
+    inset 0 0 0 0.6px color-mix(in srgb, white 65%, var(--neon-color)),
+    0 0 4px var(--neon-color);
+}
+[data-glow="bloom"] .dispatch-defrag-ack::after {
+  content: "";
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  animation: neon-preview-bloom 1800ms ease-out both;
+}
+@keyframes neon-preview-bloom {
+  0%,
+  65% {
+    opacity: 0;
+  }
+  76% {
+    opacity: 1;
+    box-shadow:
+      0 0 5px 1px var(--neon-color),
+      0 0 12px 2px var(--neon-color);
+  }
+  100% {
+    opacity: 0;
+    box-shadow: 0 0 4px var(--neon-color);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-glow="bloom"] .dispatch-defrag-ack::after {
+    animation: none;
+  }
+}

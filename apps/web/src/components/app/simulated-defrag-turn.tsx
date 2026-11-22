@@ -1,3 +1,4 @@
+import { NeonGlowPreview } from "./neon-glow-preview";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { ResponsePlaceholder } from "./chat/turn/response-placeholder";
@@ -92,76 +93,82 @@ export function SimulatedDefragTurn() {
   });
   const notes = SCRIPT.slice(0, index + 1).filter((event) => "text" in event);
   return (
-    <section className="max-w-2xl space-y-5" aria-label="Simulated agent turn">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h2 className="text-xl font-semibold">Simulated turn</h2>
-        <div className="flex flex-wrap gap-2">
-          {!done && (
+    <>
+      <NeonGlowPreview />
+      <section
+        className="max-w-2xl space-y-5"
+        aria-label="Simulated agent turn"
+      >
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h2 className="text-xl font-semibold">Simulated turn</h2>
+          <div className="flex flex-wrap gap-2">
+            {!done && (
+              <Button
+                variant="ghost"
+                onClick={() => setPlaying((value) => !value)}
+              >
+                {playing ? "Pause" : "Play"}
+              </Button>
+            )}
             <Button
               variant="ghost"
-              onClick={() => setPlaying((value) => !value)}
+              onClick={() => {
+                setIndex(0);
+                setRowCache(new Map());
+                setTimes([Date.now()]);
+                setPlaying(true);
+              }}
             >
-              {playing ? "Pause" : "Play"}
+              Replay
             </Button>
-          )}
-          <Button
-            variant="ghost"
-            onClick={() => {
-              setIndex(0);
-              setRowCache(new Map());
-              setTimes([Date.now()]);
-              setPlaying(true);
-            }}
-          >
-            Replay
-          </Button>
-          {compacting && <Button onClick={advance}>Finish compaction</Button>}
+            {compacting && <Button onClick={advance}>Finish compaction</Button>}
+          </div>
         </div>
-      </div>
-      {compacting && (
-        <p className="text-sm text-muted-foreground">
-          Let compaction run, then finish it to watch normal work resume.
-        </p>
-      )}
-      <div className="rounded-lg bg-muted/30 p-4 text-sm">
-        Review the placeholder change, run checks, and summarize the result.
-      </div>
-      <div className="space-y-3">
-        <div className="text-sm font-medium">Dispatch agent</div>
-        {notes.map((event) => (
-          <p key={event.label} className="text-sm text-muted-foreground">
-            {"text" in event ? event.text : ""}
-          </p>
-        ))}
-        {!done && (
-          <ChatRowStateContext.Provider key={startedAt} value={rowCache}>
-            <ResponsePlaceholder
-              seed="compaction-study"
-              steps={steps}
-              textLength={notes.reduce(
-                (total, event) =>
-                  total + ("text" in event ? (event.text?.length ?? 0) : 0),
-                0
-              )}
-              animationPaused={!playing}
-            />
-          </ChatRowStateContext.Provider>
-        )}
-        <ActivityBlock
-          trace={{
-            steps,
-            startedAt,
-            ...(done
-              ? { endedAt: times[SCRIPT.length]!, finalResult: "ok" as const }
-              : {}),
-          }}
-        />
-        {done && (
-          <p className="text-sm text-status-working" role="status">
-            Turn complete · checks passed
+        {compacting && (
+          <p className="text-sm text-muted-foreground">
+            Let compaction run, then finish it to watch normal work resume.
           </p>
         )}
-      </div>
-    </section>
+        <div className="rounded-lg bg-muted/30 p-4 text-sm">
+          Review the placeholder change, run checks, and summarize the result.
+        </div>
+        <div className="space-y-3">
+          <div className="text-sm font-medium">Dispatch agent</div>
+          {notes.map((event) => (
+            <p key={event.label} className="text-sm text-muted-foreground">
+              {"text" in event ? event.text : ""}
+            </p>
+          ))}
+          {!done && (
+            <ChatRowStateContext.Provider key={startedAt} value={rowCache}>
+              <ResponsePlaceholder
+                seed="compaction-study"
+                steps={steps}
+                textLength={notes.reduce(
+                  (total, event) =>
+                    total + ("text" in event ? (event.text?.length ?? 0) : 0),
+                  0
+                )}
+                animationPaused={!playing}
+              />
+            </ChatRowStateContext.Provider>
+          )}
+          <ActivityBlock
+            trace={{
+              steps,
+              startedAt,
+              ...(done
+                ? { endedAt: times[SCRIPT.length]!, finalResult: "ok" as const }
+                : {}),
+            }}
+          />
+          {done && (
+            <p className="text-sm text-status-working" role="status">
+              Turn complete · checks passed
+            </p>
+          )}
+        </div>
+      </section>
+    </>
   );
 }
