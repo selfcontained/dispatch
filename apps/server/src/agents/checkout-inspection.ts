@@ -26,10 +26,10 @@ import path from "node:path";
 import { promisify } from "node:util";
 import {
   isCheckoutQuery,
+  UNOBSERVED_STATE,
   type CheckoutQuery,
   type CheckoutReply,
   type CheckoutState,
-  validBranch,
 } from "@dispatch/runner-protocol";
 
 import {
@@ -340,91 +340,123 @@ export async function observeScratchCheckout(
   };
 }
 
-/** Strict observation for deletion. Any Git or fingerprint failure is unknown. */
-export async function observeGitCheckout(
-  dir: string,
-  baseBranch: string | null = null
-): Promise<CheckoutState> {
-  if (baseBranch !== null && !validBranch(baseBranch))
-    throw new Error("Invalid checkout base branch");
+// Match the archive comparison against the checked-out branch's upstream.
+async function readArchiveChanges(root: string) {
+  let upstream: string | null = null;
+  const tracking = await run(
+    "git",
+    ["rev-parse", "--abbrev-ref", "@{upstream}"],
+    {
+      cwd: root,
+      allowedExitCodes: [0, 128],
+      timeoutMs: 5_000,
+    }
+  ).catch(() => null);
+  if (tracking?.exitCode === 0 && tracking.stdout) upstream = tracking.stdout;
+  const remoteBranch = upstream?.startsWith("origin/")
+    ? upstream.slice("origin/".length)
+    : "main";
+  await run("git", ["fetch", "origin", remoteBranch, "--quiet"], {
+    cwd: root,
+    allowedExitCodes: [0, 1, 128],
+    timeoutMs: 15_000,
+  });
+  const baseRef = await resolveBaseRef(root, upstream, { runCommand: run });
+  if (!baseRef) return { baseRef, changedFiles: [] };
+  const merge = await run(
+    "git",
+    ["merge-tree", "--write-tree", baseRef, "HEAD"],
+    {
+      cwd: root,
+      allowedExitCodes: [0, 1],
+      timeoutMs: 10_000,
+    }
+  );
+  const tree = await run("git", ["rev-parse", `${baseRef}^{tree}`], {
+    cwd: root,
+  });
+  const mergedTree = merge.stdout.split("\n")[0];
+  if (tree.stdout === mergedTree) return { baseRef, changedFiles: [] };
+  const diff = await run(
+    "git",
+    ["diff", "--name-only", tree.stdout, mergedTree],
+    {
+      cwd: root,
+      timeoutMs: 10_000,
+    }
+  );
+  return { baseRef, changedFiles: diff.stdout.split("\n").filter(Boolean) };
+}
+
+export async function observeGitCheckout(dir: string): Promise<CheckoutState> {
   const root = await realpath(dir);
   const cwd = { cwd: root, trimOutput: false };
-  const top = await run("git", ["rev-parse", "--show-toplevel"], cwd);
-  if (top.stdout.replace(/\n$/, "") !== root)
-    throw new Error("The bound directory is not a Git checkout root");
-  const identity = await lstat(root);
-  baseBranch ??= await recordedReviewBase(root);
-  const options = {
-    runCommand: run,
-    allowUpstreamFallback: baseBranch === null,
-  };
-  await refreshRemoteBaseRef(root, baseBranch, options);
-  const baseRef = await resolveBaseRef(root, baseBranch, options);
-  const [{ stdout: head }, branch] = await Promise.all([
-    run("git", ["rev-parse", "--verify", "HEAD"], { cwd: root }),
+  const [branch, status, { baseRef, changedFiles }] = await Promise.all([
     run("git", ["symbolic-ref", "--short", "--quiet", "HEAD"], {
       cwd: root,
       allowedExitCodes: [0, 1],
-    }),
+    }).catch(() => null),
+    run("git", ["status", "--porcelain"], {
+      cwd: root,
+      timeoutMs: 10_000,
+    }).catch(() => null),
+    readArchiveChanges(root).catch(() => ({ baseRef: null, changedFiles: [] })),
   ]);
-  // An unknown base keeps automatic cleanup off without hiding the checkout.
-  const base = baseRef
-    ? (
-        await run("git", ["rev-parse", "--verify", `${baseRef}^{commit}`], {
+
+  // The archive checks are independent. An unreadable index, for example,
+  // prevents a fingerprint but still leaves the committed comparison usable.
+  const stateId = await (async () => {
+    const top = await run("git", ["rev-parse", "--show-toplevel"], cwd);
+    if (top.stdout.replace(/\n$/, "") !== root)
+      throw new Error("The bound directory is not a Git checkout root");
+    const identity = await lstat(root);
+    const { stdout: head } = await run(
+      "git",
+      ["rev-parse", "--verify", "HEAD"],
+      { cwd: root }
+    );
+    const { stdout: base } = baseRef
+      ? await run("git", ["rev-parse", "--verify", `${baseRef}^{commit}`], {
           cwd: root,
         })
-      ).stdout
-    : head;
-  const [changes, status, staged, conflicts, merge, baseTree] =
-    await Promise.all([
+      : { stdout: head };
+    const [changes, staged, conflicts] = await Promise.all([
       collectOwnerReviewChanges(root, base, run, head),
-      run("git", ["status", "--porcelain"], { cwd: root, timeoutMs: 10_000 }),
       run(
         "git",
         ["diff", "--cached", "--raw", "--no-abbrev", "-z", head, "--"],
         cwd
       ),
       run("git", ["ls-files", "--unmerged", "-z"], cwd),
-      run("git", ["merge-tree", "--write-tree", base, head], {
-        cwd: root,
-        allowedExitCodes: [0, 1],
-      }),
-      run("git", ["rev-parse", "--verify", `${base}^{tree}`], { cwd: root }),
     ]);
-  const unpublishedHistory =
-    changes.committed.length === 0 &&
-    (
-      await run("git", ["merge-base", "--is-ancestor", head, base], {
-        cwd: root,
-        allowedExitCodes: [0, 1],
-      })
-    ).exitCode === 1;
-  const unmerged =
-    !baseRef ||
-    unpublishedHistory ||
-    merge.exitCode !== 0 ||
-    merge.stdout.split("\n")[0] !== baseTree.stdout;
-  const state = await fingerprintCheckout(
-    root,
-    base,
-    head,
-    staged.stdout,
-    conflicts.stdout,
-    changes.unstaged,
-    changes.untracked
-  );
-  const stateId = createHash("sha256")
-    .update(
-      JSON.stringify([root, identity.dev, identity.ino, branch.stdout, state])
-    )
-    .digest("hex");
+    const state = await fingerprintCheckout(
+      root,
+      base,
+      head,
+      staged.stdout,
+      conflicts.stdout,
+      changes.unstaged,
+      changes.untracked
+    );
+    return createHash("sha256")
+      .update(
+        JSON.stringify([
+          root,
+          identity.dev,
+          identity.ino,
+          branch?.stdout,
+          state,
+        ])
+      )
+      .digest("hex");
+  })().catch(() => UNOBSERVED_STATE);
   return {
     path: root,
-    branch: branch.exitCode === 0 ? branch.stdout : null,
+    branch: branch?.exitCode === 0 ? branch.stdout : null,
     stateId,
-    unmerged,
-    changedFiles: unmerged ? changes.committed : [],
-    uncommittedFiles: status.stdout.split("\n").filter(Boolean),
+    unmerged: changedFiles.length > 0,
+    changedFiles,
+    uncommittedFiles: status?.stdout.split("\n").filter(Boolean) ?? [],
   };
 }
 

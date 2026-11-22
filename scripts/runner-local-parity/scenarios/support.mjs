@@ -129,10 +129,10 @@ export async function startAgain(w, id) {
 }
 
 /** Archive, and what it came to. A refusal is an outcome, not a harness error. */
-export async function archive(w, id, cleanup = "auto") {
+export async function archive(w, id, cleanup = "auto", extraQuery = "") {
   const response = await w.api(
     "DELETE",
-    agentPath(id, `?cleanupWorktree=${cleanup}`)
+    agentPath(id, `?cleanupWorktree=${cleanup}${extraQuery}`)
   );
   if (response.status < 300)
     await w.poll(

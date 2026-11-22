@@ -1,6 +1,7 @@
 import type { FastifyBaseLogger } from "fastify";
 import {
   isCheckoutObservation,
+  UNOBSERVED_STATE,
   remotePlacement,
   type CheckoutObservation,
 } from "@dispatch/runner-protocol";
@@ -24,7 +25,7 @@ export type ArchiveCheckoutAgent = Pick<
 
 export type LocalArchiveRunner = Pick<
   ReturnType<typeof createLocalRunner>,
-  "checkoutRelease" | "requestedWorktree"
+  "canonicalPath" | "checkoutRelease" | "requestedWorktree"
 >;
 
 export async function nativeBorrowers(
@@ -123,14 +124,6 @@ export async function observeRemoteCheckout(
   return observation;
 }
 
-export async function archiveCheckoutState(pool: Pool, id: string) {
-  const { rows } = await pool.query<{ archive_checkout_state: string | null }>(
-    "SELECT archive_checkout_state FROM agents WHERE id = $1",
-    [id]
-  );
-  return rows[0]?.archive_checkout_state ?? null;
-}
-
 export async function rememberArchiveCheckoutState(
   pool: Pool,
   id: string,
@@ -145,17 +138,16 @@ export async function rememberArchiveCheckoutState(
 /** The snapshot to release, or null when the archive should keep the checkout. */
 export function archiveReleaseState(
   mode: WorktreeCleanupMode,
-  checkout: CheckoutObservation["checkout"],
-  expectedState: string | null
+  checkout: CheckoutObservation["checkout"]
 ): string | null {
-  if (!checkout || mode === "keep") return null;
-  if (expectedState !== null && checkout.stateId !== expectedState) return null;
+  if (mode === "keep") return null;
   if (
     mode === "auto" &&
+    checkout &&
     (checkout.unmerged || checkout.uncommittedFiles.length)
   )
     return null;
-  return checkout.stateId;
+  return checkout?.stateId ?? UNOBSERVED_STATE;
 }
 
 /** Finish a runner-managed checkout through the shared archive sequence. */

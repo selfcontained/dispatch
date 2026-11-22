@@ -211,6 +211,9 @@ export type CheckoutState = {
 
 export type CheckoutReleaseResult = "released" | "retained" | "inUse";
 
+/** A checkout that could not be fingerprinted for conditional release. */
+export const UNOBSERVED_STATE = "0".repeat(64);
+
 export function isCheckoutStateId(value: unknown): value is string {
   return typeof value === "string" && /^[a-f0-9]{64}$/.test(value);
 }

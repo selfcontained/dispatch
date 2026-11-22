@@ -61,9 +61,6 @@ export type CleanupGitWorktreeInput = {
   baseBranch?: string;
   updateBaseBranch?: boolean;
   deleteBranch?: boolean;
-  /** When supplied, only this ref can be deleted as the current branch. */
-  deleteBranchOnlyIf?: string;
-  verifyBeforeRemove?: (resolvedWorktreePath: string) => Promise<void>;
   force?: boolean;
   /** The branch originally created for this worktree (from DB). If the agent
    *  switched branches, this may differ from the current HEAD branch. When set
@@ -293,16 +290,10 @@ export async function cleanupGitWorktree(
     worktreeRemoveArgs.push("--force");
   }
   worktreeRemoveArgs.push(worktreePath);
-  await input.verifyBeforeRemove?.(worktreePath);
   await commandRunner("git", worktreeRemoveArgs);
 
   let deletedBranch = false;
-  if (
-    input.deleteBranch &&
-    branchName &&
-    (input.deleteBranchOnlyIf === undefined ||
-      input.deleteBranchOnlyIf === branchName)
-  ) {
+  if ((input.deleteBranch ?? false) && branchName) {
     await ensureBranchExists(repoRoot, branchName, commandRunner);
     await commandRunner("git", [
       "-C",

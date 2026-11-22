@@ -1,28 +1,4 @@
 {
-  "findings": {
-    "archive-shared-worktree": {
-      "title": "Archiving an owner keeps a worktree another agent works in until that agent is archived",
-      "task": "T20"
-    },
-    "archive-switched-branch": {
-      "title": "Archive no longer deletes the branch a worktree was switched to",
-      "task": "T20"
-    }
-  },
-  "entries": [
-    {
-      "scenario": "worktree-archive",
-      "path": "git > refs > refs/heads/switched-to",
-      "main": "<absent>",
-      "head": "\"c484f011a9da02965bf4c49ced8c0002b18b01ba\"",
-      "finding": "archive-switched-branch"
-    },
-    {
-      "scenario": "worktree-archive-shared",
-      "path": "remains for the borrower",
-      "main": "false",
-      "head": "true",
-      "finding": "archive-shared-worktree"
-    }
-  ]
+  "findings": {},
+  "entries": []
 }

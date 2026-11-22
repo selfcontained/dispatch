@@ -1,14 +1,15 @@
 import type { FastifyReply } from "fastify";
 import type { CheckoutView } from "@dispatch/runner-protocol";
 import { imageMimeType } from "../../shared/git/diff-image.js";
-import { WorkspaceError } from "../../files/workspace-view.js";
+import { workspaceViewError } from "../../files/workspace-view.js";
 import { AgentError } from "../../agents/errors.js";
 import type { AgentManager, AgentRecord } from "../../agents/manager.js";
 export async function serveCheckoutView(
   agent: AgentRecord,
   view: CheckoutView,
   manager: Pick<AgentManager, "viewCheckout">,
-  reply: FastifyReply
+  reply: FastifyReply,
+  failure?: { message: string; logMessage: string }
 ) {
   try {
     const value = await manager.viewCheckout(agent, view);
@@ -26,15 +27,13 @@ export async function serveCheckoutView(
       throw new AgentError("File not found in diff.", 404);
     return view.kind === "stats" ? { diffStats: value } : value;
   } catch (error) {
-    const status =
-      error instanceof WorkspaceError
-        ? error.status
-        : error instanceof AgentError
-          ? error.statusCode
-          : 500;
-    return reply.code(status).send({
-      error:
-        status === 500 ? "Unable to read checkout." : (error as Error).message,
-    });
+    if (error instanceof AgentError && error.statusCode !== 500)
+      return reply.code(error.statusCode).send({ error: error.message });
+    if (!failure) {
+      const mapped = workspaceViewError(error);
+      return reply.code(mapped.status).send({ error: mapped.message });
+    }
+    reply.log.warn({ err: error, agentId: agent.id }, failure.logMessage);
+    return reply.code(500).send({ error: failure.message });
   }
 }

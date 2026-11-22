@@ -22,8 +22,6 @@ const boundedGit: CommandRunner = (command, args, options) =>
     timeoutMs: options?.timeoutMs ?? 60_000,
   });
 
-class CheckoutChanged extends Error {}
-
 export function localCheckoutRelease(
   binding: LocalCheckoutBinding,
   operation: Extract<CheckoutRelease, { kind: "observe" }>
@@ -39,7 +37,7 @@ export async function localCheckoutRelease(
   const { id, worktreePath, worktreeBranch, baseBranch } = binding;
   if (operation.kind === "observe") {
     const checkout = worktreePath
-      ? await observeGitCheckout(worktreePath, baseBranch).catch(() => null)
+      ? await observeGitCheckout(worktreePath).catch(() => null)
       : null;
     return {
       ownership: worktreePath ? "owned" : "external",
@@ -58,33 +56,14 @@ export async function localCheckoutRelease(
     }
   );
   if (!entry) return "released";
-  const ownedBranch =
-    worktreeBranch && worktreeBranch !== baseBranch
-      ? worktreeBranch
-      : undefined;
-
-  try {
-    await cleanupGitWorktree(
-      {
-        cwd: worktreePath,
-        deleteBranch: ownedBranch !== undefined,
-        deleteBranchOnlyIf: ownedBranch,
-        originalBranch: ownedBranch,
-        force: true,
-        async verifyBeforeRemove(resolvedWorktreePath) {
-          const checkout = await observeGitCheckout(
-            resolvedWorktreePath,
-            baseBranch
-          ).catch(() => null);
-          if (checkout?.stateId !== operation.expectedState)
-            throw new CheckoutChanged();
-        },
-      },
-      boundedGit
-    );
-    return "released";
-  } catch (err) {
-    if (err instanceof CheckoutChanged) return "retained";
-    throw err;
-  }
+  await cleanupGitWorktree(
+    {
+      cwd: worktreePath,
+      deleteBranch: Boolean(worktreeBranch && worktreeBranch !== baseBranch),
+      force: true,
+      originalBranch: worktreeBranch,
+    },
+    boundedGit
+  );
+  return "released";
 }

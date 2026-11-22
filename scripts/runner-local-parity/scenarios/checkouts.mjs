@@ -1,6 +1,6 @@
 // Worktrees, Changes, Files, reviews and the other checkout readers.
-import { existsSync, rmSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, rmSync, writeFileSync } from "node:fs";
+import { join, resolve } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import {
   agentPath,
@@ -117,6 +117,14 @@ export const checkouts = [
     title: "Archive cleanup, for each state a worktree can be in",
     async run(w) {
       const repo = await w.repo("repo", {}, { origin: true });
+      await w.git(repo, ["branch", "keep-me"]);
+      await w.git(repo, ["branch", "release"]);
+      const release = w.path("release");
+      await w.git(repo, ["worktree", "add", "--quiet", release, "release"]);
+      w.write(release, { "release.txt": "release\n" });
+      await commitAll(w, release, "Release");
+      await w.git(release, ["push", "--quiet", "origin", "release"]);
+      await w.git(repo, ["branch", "keep-unmerged", "release"]);
       const cases = {
         clean: {},
         dirty: { files: { "dirty.txt": "dirty\n" } },
@@ -129,6 +137,17 @@ export const checkouts = [
           mode: "force",
         },
         "switched branch": { switchTo: "switched-to" },
+        "status fails": { corruptIndex: true },
+        "net-empty history": { netEmpty: true },
+        "force after a stale status": { stale: true, mode: "force" },
+        "switched to an existing branch": {
+          existing: "keep-me",
+          mode: "force",
+        },
+        "switched away from the recorded base": {
+          baseBranch: "release",
+          existing: "keep-unmerged",
+        },
         "worktree gone": { gone: true },
         "nested repository forced": { nested: true, mode: "force" },
         "untracked 17 MiB forced": {
@@ -147,22 +166,53 @@ export const checkouts = [
           cwd: repo,
           useWorktree: true,
           worktreeBranch: `case-${index++}`,
+          baseBranch: setup.baseBranch,
         });
         const tree = await worktreeOf(w, id);
         if (setup.files) w.write(tree, setup.files);
         if (setup.commit) await commitAll(w, tree, label);
         if (setup.switchTo)
           await w.git(tree, ["switch", "--quiet", "-c", setup.switchTo]);
+        if (
+          setup.baseBranch &&
+          (await agentRow(w, id))?.base_branch !== setup.baseBranch
+        )
+          throw new Error("The fixture did not record its comparison base");
+        if (setup.existing) {
+          await w.git(tree, ["switch", "--quiet", setup.existing]);
+          if (setup.mode === "force") {
+            w.write(tree, { "k.txt": "keep\n" });
+            await commitAll(w, tree, label);
+          }
+        }
+        if (setup.netEmpty) {
+          w.write(tree, { "x.txt": "temporary\n" });
+          await commitAll(w, tree, "Introduce x.txt");
+          await w.git(tree, ["rm", "x.txt"]);
+          await commitAll(w, tree, "Remove x.txt");
+        }
+        if (setup.corruptIndex) {
+          const index = await w.git(tree, ["rev-parse", "--git-path", "index"]);
+          writeFileSync(resolve(tree, index.trim()), Buffer.alloc(16, 7));
+        }
         if (setup.nested) {
           w.write(tree, { "nested/file.txt": "nested\n" });
           await w.git(join(tree, "nested"), ["init", "--quiet"]);
         }
         if (setup.gone) rmSync(tree, { recursive: true, force: true });
+        const status = await w.api("GET", agentPath(id, "/worktree-status"));
+        w.record(`${label}: status`, status);
+        if (setup.stale) w.write(tree, { "late.txt": "late\n" });
+        const token = status.body?.checkoutState ?? "1".repeat(64);
         w.record(
-          `${label}: status`,
-          await w.api("GET", agentPath(id, "/worktree-status"))
+          `${label}: archive`,
+          await archive(
+            w,
+            id,
+            setup.mode,
+            setup.stale ? `&checkoutState=${token}` : ""
+          )
         );
-        w.record(`${label}: archive`, await archive(w, id, setup.mode));
         trees[label] = tree;
       }
       await pastReconciliation();
@@ -204,6 +254,28 @@ export const checkouts = [
           w.record(`${name}: archive`, await archive(w, id));
           w.record(`${name}: directory remains`, existsSync(tree));
         }
+      const baseGone = {};
+      for (const branch of ["base-gone-clean", "base-gone-committed"]) {
+        const id = await w.agent({
+          cwd: local,
+          useWorktree: true,
+          worktreeBranch: branch,
+        });
+        baseGone[branch] = { id, tree: await worktreeOf(w, id) };
+      }
+      const committed = baseGone["base-gone-committed"].tree;
+      w.write(committed, { "x.txt": "committed\n" });
+      await commitAll(w, committed, "Commit the work");
+      await w.git(local, ["branch", "-m", "main", "trunk"]);
+      for (const [name, { id, tree }] of Object.entries(baseGone)) {
+        w.record(
+          `${name}: status`,
+          await w.api("GET", agentPath(id, "/worktree-status"))
+        );
+        w.record(`${name}: archive`, await archive(w, id));
+        w.record(`${name}: directory remains`, existsSync(tree));
+      }
+      w.record("base gone: git", await w.gitState(local));
     },
   },
   {
@@ -228,6 +300,73 @@ export const checkouts = [
       w.record("borrower archive", await archive(w, borrower));
       await pastReconciliation();
       w.record("remains afterwards", existsSync(tree));
+      w.record("git", await w.gitState(repo));
+    },
+  },
+  {
+    name: "worktree-archive-co-owner",
+    title: "Archive leaves a reviewer's or selected workspace checkout on disk",
+    async run(w) {
+      const repo = await w.repo(
+        "repo",
+        { ".agents/personas/keeper.md": persona("Keeper") },
+        { origin: true }
+      );
+      const trees = [];
+      for (const kind of ["reviewer", "workspace"]) {
+        const owner = await w.agent({
+          cwd: repo,
+          useWorktree: true,
+          worktreeBranch: kind,
+        });
+        const tree = await worktreeOf(w, owner);
+        let coOwner;
+        if (kind === "reviewer") {
+          const launcher = await w.agent({ cwd: tree });
+          await personaRoute(w, tree);
+          const result = await w.call(launcher, "launch_agent", {
+            name: "keeper",
+            persona: "keeper",
+            prompt: "Review.",
+          });
+          coOwner = result.structuredContent?.agentId;
+          if (!coOwner)
+            throw new Error(
+              `Reviewer did not launch: ${JSON.stringify(result)}`
+            );
+          await w.poll(async () => {
+            const [row] = await w.sql(
+              "SELECT role, cwd, status FROM agents WHERE id = $1",
+              [coOwner]
+            );
+            return (
+              row?.role === "review" &&
+              row.cwd === tree &&
+              row.status === "running"
+            );
+          }, "reviewer launch");
+        } else {
+          coOwner = await w.agent({ cwd: repo });
+          w.record(
+            "set workspace",
+            await w.call(coOwner, "set_workspace", { path: tree })
+          );
+          if ((await agentRow(w, coOwner))?.workspace_path !== tree)
+            throw new Error(
+              "The fixture did not select the worktree as its workspace"
+            );
+        }
+        w.record(
+          `${kind}: owner archive`,
+          await archive(w, owner, kind === "reviewer" ? "auto" : "force")
+        );
+        w.record(`${kind}: directory still in use`, existsSync(tree));
+        w.record(`${kind}: co-owner archive`, await archive(w, coOwner));
+        trees.push([kind, tree]);
+      }
+      await pastReconciliation();
+      for (const [kind, tree] of trees)
+        w.record(`${kind}: directory remains afterwards`, existsSync(tree));
       w.record("git", await w.gitState(repo));
     },
   },

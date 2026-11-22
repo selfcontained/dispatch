@@ -75,12 +75,11 @@ export function useAgentActions({
   }, []);
 
   const deleteAgent = useCallback(
-    async (agent: Agent, cleanupWorktree?: string, checkoutState?: string) => {
+    async (agent: Agent, cleanupWorktree?: string) => {
       const searchParams = new URLSearchParams();
       if (cleanupWorktree) {
         searchParams.set("cleanupWorktree", cleanupWorktree);
       }
-      if (checkoutState) searchParams.set("checkoutState", checkoutState);
       const qs = searchParams.toString();
       await api(`/api/v1/agents/${agent.id}${qs ? `?${qs}` : ""}`, {
         method: "DELETE",

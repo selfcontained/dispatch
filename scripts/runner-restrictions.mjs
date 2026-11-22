@@ -10,6 +10,14 @@ const runner = server + "agents/remote/runner.ts";
 const supervisor = server + "agents/remote/session-supervisor.ts";
 const mcp = server + "routes/mcp.ts";
 
+export const archiveReleaseRestriction = {
+  file: supervisor,
+  kind: "R7 restriction",
+  detail: "N35 Runner archive conditionally releases and defers to borrowers",
+  task: "T20",
+  count: 1,
+};
+
 const rules = [
   [
     "N1",
@@ -277,6 +285,19 @@ const rules = [
     [
       server + "agents/remote/engine-runner-executor.ts",
       "No managed ${kind} command is configured",
+    ],
+  ],
+  [
+    "N35",
+    "Runner archive conditionally releases and defers to borrowers",
+    "T20",
+    [
+      supervisor,
+      "if (observed?.stateId !== expectedState || expectedState === null) {",
+    ],
+    [
+      supervisor,
+      'if ((await checkoutBorrowers(key)).length > 0) return "inUse";',
     ],
   ],
 ];

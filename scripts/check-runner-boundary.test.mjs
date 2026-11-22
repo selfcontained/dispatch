@@ -201,6 +201,33 @@ test("ratchet allows only removals and count decreases", () => {
     assert.equal(compareHistory(baseline, next).length, 1);
 });
 
+test("the P7 runner release restriction is recorded only with the archive dialog restoration", () => {
+  const file = "apps/web/src/components/app/delete-agent-dialog.tsx";
+  const before = [
+    { file, kind: "R6 locator", detail: "runner://", task: "T38", count: 1 },
+    {
+      file,
+      kind: "R6 placement read",
+      detail: "deleteTarget?.runnerManaged",
+      task: "T38",
+      count: 1,
+    },
+  ];
+  const restriction = {
+    file: "apps/server/src/agents/remote/session-supervisor.ts",
+    kind: "R7 restriction",
+    detail: "N35 Runner archive conditionally releases and defers to borrowers",
+    task: "T20",
+    count: 1,
+  };
+  assert.deepEqual(compareHistory(before, [restriction]), []);
+  assert.equal(compareHistory([], [restriction]).length, 1);
+  assert.equal(
+    compareHistory(before, [{ ...restriction, count: 2 }]).length,
+    1
+  );
+});
+
 test("CI rejects an intermediate addition even when the final baseline shrinks", () => {
   const cwd = mkdtempSync(join(tmpdir(), "runner-boundary-history-"));
   const git = (...args) =>

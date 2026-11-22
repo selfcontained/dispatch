@@ -150,17 +150,10 @@ function harness(
   };
   const pool = {
     query: async (sql: string, params: unknown[]) => {
-      if (sql.includes("SELECT archive_checkout_state"))
-        return { rows: [{ archive_checkout_state: db.checkoutState }] };
       if (sql.includes("SET archive_checkout_state"))
         db.checkoutState = params[1] as string;
       if (sql.includes("SET archive_cleanup_mode = 'keep'"))
         db.cleanupMode = "keep";
-      if (sql.includes("workspace_path = ANY") && row.borrowed)
-        return {
-          rows: [{ id: "borrower", worktreePath: null, workspacePath: null }],
-          rowCount: 1,
-        };
       if (sql.includes("worktree_branch = $") && options.branchCoOwner)
         return { rows: [{ id: "co-owner" }], rowCount: 1 };
       return { rows: [], rowCount: 0 };
@@ -184,15 +177,14 @@ function harness(
         return { value: JSON.stringify(observation) };
       }
       if (operation.expectedState === null) return { value: "retained" };
-      if (row.borrowed) {
-        const current = await local.checkoutRelease(binding, {
-          kind: "observe",
-        });
-        if (current.checkout?.stateId !== operation.expectedState)
-          return { value: "retained" };
-        return { value: "inUse" };
-      }
-      return { value: await release(operation) };
+      if (options.releaseError) throw new Error("release failed");
+      if (row.state === "race")
+        writeFileSync(path.join(checkout, "late.txt"), "late");
+      const current = await local.checkoutRelease(binding, { kind: "observe" });
+      if (current.checkout?.stateId !== operation.expectedState)
+        return { value: "retained" };
+      if (row.borrowed) return { value: "inUse" };
+      return { value: await local.checkoutRelease(binding, operation) };
     },
   } as unknown as RemoteRunnerService;
   const agent = {
@@ -229,17 +221,16 @@ async function archive(
   };
 }
 
-/** Today's outcome. Identical on both placements for every row. */
 function expected(row: Row): Omit<Result, "rememberedState"> {
-  const authorizes =
-    row.mode !== "keep" &&
-    row.state !== "missing" &&
-    row.state !== "changed" &&
-    (row.mode === "force" || row.state === "clean" || row.state === "race");
   if (row.state === "missing") return { pending: false, removed: true };
+  const authorizes =
+    row.mode === "force" ||
+    (row.mode === "auto" && ["clean", "changed", "race"].includes(row.state));
   if (!authorizes) return { pending: false, removed: false };
-  if (row.borrowed) return { pending: true, removed: false };
-  if (row.state === "race") return { pending: false, removed: false };
+  if (row.placement === "runner") {
+    if (row.state === "race") return { pending: false, removed: false };
+    if (row.borrowed) return { pending: true, removed: false };
+  }
   return { pending: false, removed: true };
 }
 
@@ -315,6 +306,77 @@ describe("archive checkout outcome table", () => {
   });
 });
 
+describe("main's local automatic cleanup", () => {
+  const auto = {
+    placement: "local",
+    mode: "auto",
+    state: "clean",
+    borrowed: false,
+  } as const;
+
+  it("keeps a clean switched branch with work outside main despite the recorded base", async () => {
+    shape("unmerged");
+    git(repo, "branch", "release", "feature");
+    git(repo, "branch", "pre-existing", "release");
+    git(checkout, "switch", "pre-existing");
+    const h = harness(auto);
+    h.agent.baseBranch = "release";
+    const observation = await h.deps.localRunner.checkoutRelease(h.agent, {
+      kind: "observe",
+    });
+    expect(observation.checkout).toMatchObject({
+      unmerged: true,
+      uncommittedFiles: [],
+    });
+    expect(await finishCheckout(h.deps, h.agent, auto.mode, true, {})).toBe(
+      false
+    );
+    expect(existsSync(checkout)).toBe(true);
+    expect(git(repo, "branch", "--list", "pre-existing")).toContain(
+      "pre-existing"
+    );
+    expect(git(repo, "branch", "--list", "feature")).toContain("feature");
+  });
+
+  it("removes a worktree carrying commits when the comparison base is gone", async () => {
+    shape("unmerged");
+    git(repo, "branch", "-m", "main", "trunk");
+    expect(await archive(auto)).toMatchObject({
+      removed: true,
+      pending: false,
+    });
+    expect(git(repo, "branch", "--list", "feature")).toBe("");
+  });
+
+  it("removes a worktree whose commits add and then remove the same file", async () => {
+    shape("unmerged");
+    git(checkout, "rm", "draft.txt");
+    git(checkout, "commit", "-qm", "revert");
+    expect(await archive(auto)).toMatchObject({
+      removed: true,
+      pending: false,
+    });
+    expect(git(repo, "branch", "--list", "feature")).toBe("");
+  });
+
+  it.each([false, true])(
+    "ignores a failed status check while honoring committed changes=%s",
+    async (unmerged) => {
+      if (unmerged) shape("unmerged");
+      const index = path.resolve(
+        checkout,
+        git(checkout, "rev-parse", "--git-path", "index")
+      );
+      writeFileSync(index, Buffer.alloc(16, 7));
+      expect(await archive(auto)).toMatchObject({
+        removed: !unmerged,
+        pending: false,
+      });
+      expect(Boolean(git(repo, "branch", "--list", "feature"))).toBe(unmerged);
+    }
+  );
+});
+
 /** The call `retryRunnerCleanup` makes for a pending row. */
 function retry(h: Harness, row: Row) {
   const mode = (h.db.cleanupMode ?? row.mode) as WorktreeCleanupMode;
@@ -361,7 +423,7 @@ describe("restored worktree_branch co-owner guard", () => {
     }
   );
 
-  it("still defers to a live borrower before the guard", async () => {
+  it("keeps for a co-owner even when an ordinary borrower is present", async () => {
     const row = {
       placement: "local",
       mode: "force",
@@ -377,7 +439,7 @@ describe("restored worktree_branch co-owner guard", () => {
         h.agent,
         "force"
       )
-    ).toEqual({ kind: "pending", reason: "borrowed" });
+    ).toEqual({ kind: "kept", reason: "coOwner" });
   });
 });
 
@@ -395,7 +457,7 @@ describe("pending release retry", () => {
         await finishCheckout(borrowed.deps, borrowed.agent, row.mode, true, {})
       ).toBe(true);
       expect(existsSync(checkout)).toBe(true);
-      // The borrower has gone; the retry reuses the remembered authorization.
+      // The borrower has gone; the retry makes a fresh observation.
       const free = harness(row);
       free.db.checkoutState = borrowed.db.checkoutState;
       const outcome = await retry(free, row);
@@ -430,7 +492,7 @@ describe("pending release retry", () => {
     }
   );
 
-  it("keeps a pending checkout that changed before the retry", async () => {
+  it("reevaluates a pending force cleanup at retry and removes late edits", async () => {
     const row = {
       placement: "runner",
       mode: "force",
@@ -442,11 +504,9 @@ describe("pending release retry", () => {
       await finishCheckout(borrowed.deps, borrowed.agent, "force", true, {})
     ).toBe(true);
     writeFileSync(path.join(checkout, "later.txt"), "later");
-    for (const placement of ["runner", "local"] as const) {
-      const free = harness({ ...row, placement });
-      free.db.checkoutState = borrowed.db.checkoutState;
-      expect((await retry(free, { ...row, placement })).kind).toBe("kept");
-      expect(existsSync(checkout)).toBe(true);
-    }
+    const free = harness(row);
+    free.db.checkoutState = borrowed.db.checkoutState;
+    expect((await retry(free, row)).kind).toBe("released");
+    expect(existsSync(checkout)).toBe(false);
   });
 });

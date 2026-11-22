@@ -2892,6 +2892,90 @@ describe("AgentManager", () => {
       });
     }
 
+    it.each(["standard", "review"] as const)(
+      "reconciles an old borrower-deferred local archive with a live %s agent",
+      async (role) => {
+        const repo = await realpath(
+          await mkdtemp(path.join(os.tmpdir(), "archive-retry-"))
+        );
+        const tree = path.join(repo, "linked");
+        const git = (...args: string[]) =>
+          execFileSync("git", args, {
+            cwd: repo,
+            encoding: "utf8",
+            stdio: ["ignore", "pipe", "pipe"],
+          }).trim();
+        try {
+          git("init", "-b", "main");
+          git(
+            "-c",
+            "user.name=Dispatch Test",
+            "-c",
+            "user.email=test@example.test",
+            "-c",
+            "commit.gpgsign=false",
+            "commit",
+            "--allow-empty",
+            "-m",
+            "Initial"
+          );
+          git("worktree", "add", "-b", "feature", tree);
+          await pool.query(
+            `INSERT INTO agents
+              (id, name, cwd, status, worktree_path, worktree_branch, base_branch,
+               deleted_at, runner_cleanup_pending, archive_cleanup_mode, archive_checkout_state)
+             VALUES ('pending-owner', 'Owner', $1, 'stopped', $2, 'feature', 'main',
+               NOW(), true, 'force', $3)`,
+            [repo, tree, "1".repeat(64)]
+          );
+          await pool.query(
+            `INSERT INTO agents (id, name, cwd, status, role)
+             VALUES ('active-borrower', 'Borrower', $1, 'stopped', $2)`,
+            [tree, role]
+          );
+          const commandModule = "../../src/shared/lib/run-command.js";
+          const { runCommand } =
+            await import("../../src/shared/lib/run-command.js");
+          const actual = await vi.importActual<{
+            runCommand: typeof runCommand;
+          }>(commandModule);
+          const original = vi.mocked(runCommand).getMockImplementation()!;
+          await vi.mocked(runCommand).withImplementation(
+            (command, args, options) =>
+              command === "git" &&
+              args[0] === "-C" &&
+              [repo, tree].includes(args[1] ?? "")
+                ? actual.runCommand(command, args, options)
+                : original(command, args, options),
+            async () => {
+              await manager.reconcileAgentStatuses();
+              await vi.waitFor(async () => {
+                const {
+                  rows: [row],
+                } = await pool.query(
+                  `SELECT runner_cleanup_pending, archive_cleanup_mode, archive_checkout_state
+                   FROM agents WHERE id = 'pending-owner'`
+                );
+                expect(row).toEqual({
+                  runner_cleanup_pending: false,
+                  archive_cleanup_mode: null,
+                  archive_checkout_state: null,
+                });
+              });
+            }
+          );
+          expect(Boolean(await realpath(tree).catch(() => null))).toBe(
+            role === "review"
+          );
+          expect(Boolean(git("branch", "--list", "feature"))).toBe(
+            role === "review"
+          );
+        } finally {
+          await rm(repo, { recursive: true, force: true });
+        }
+      }
+    );
+
     it("should soft-delete an agent", async () => {
       const agent = await manager.createAgent({
         cwd: "/tmp",
@@ -3979,7 +4063,7 @@ describe("AgentManager", () => {
         });
 
         const runnerCwd = "runner://runner-test/@session";
-        const checkout = await observeGitCheckout(checkoutPath, "main");
+        const checkout = await observeGitCheckout(checkoutPath);
         const requestSession = vi.fn(async () => ({
           value: JSON.stringify({
             ownership: "borrowed",

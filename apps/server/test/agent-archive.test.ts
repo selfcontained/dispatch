@@ -410,11 +410,11 @@ describe("executeArchive", () => {
       await executeArchive(deps, "a1", makeCallbacks());
 
       expect(cleanupGitWorktree).toHaveBeenCalled();
-      expect(observeGitCheckout).toHaveBeenCalledWith("/tmp/wt", null);
+      expect(observeGitCheckout).not.toHaveBeenCalled();
     });
   });
 
-  it("preserves a checkout when the built-in runner cannot observe it, even in force mode", async () => {
+  it("attempts auto cleanup when the built-in runner cannot observe the checkout", async () => {
     vi.mocked(observeGitCheckout).mockRejectedValueOnce(
       new Error("Git status unavailable")
     );
@@ -422,12 +422,12 @@ describe("executeArchive", () => {
       getRequiredAgent: vi.fn().mockResolvedValue(
         makeAgent("a1", {
           worktreePath: "/tmp/wt",
-          archiveCleanupMode: "force",
+          archiveCleanupMode: "auto",
         })
       ),
     });
     await executeArchive(deps, "a1", makeCallbacks());
-    expect(cleanupGitWorktree).not.toHaveBeenCalled();
+    expect(cleanupGitWorktree).toHaveBeenCalledOnce();
   });
 
   describe("worktree cleanup decision — keep mode", () => {
@@ -1112,7 +1112,7 @@ describe("executeArchive", () => {
       });
 
       const pool = makePool(async (sql: string, params?: unknown[]) => {
-        if (sql.includes("worktree_path = ANY")) {
+        if (sql.includes("worktree_path = $2")) {
           // A second live row points at the same worktree.
           return { rows: [{ id: "other" }], rowCount: 1 };
         }

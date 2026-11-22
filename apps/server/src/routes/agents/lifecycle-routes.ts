@@ -297,7 +297,8 @@ export async function registerAgentLifecycleRoutes(
           includeUncommitted: false,
         },
         deps.agentManager,
-        reply
+        reply,
+        { message: "Failed to compute diff.", logMessage: "Agent diff failed" }
       );
     }
 
@@ -334,7 +335,8 @@ export async function registerAgentLifecycleRoutes(
         includeUncommitted: query.includeUncommitted !== "false",
       },
       deps.agentManager,
-      reply
+      reply,
+      { message: "Failed to compute diff.", logMessage: "Agent diff failed" }
     );
   });
 
@@ -371,7 +373,11 @@ export async function registerAgentLifecycleRoutes(
         includeUncommitted: query.includeUncommitted !== "false",
       },
       deps.agentManager,
-      reply
+      reply,
+      {
+        message: "Failed to compute file diff.",
+        logMessage: "Agent file diff failed",
+      }
     );
   });
 
@@ -413,7 +419,11 @@ export async function registerAgentLifecycleRoutes(
         includeUncommitted: query.includeUncommitted !== "false",
       },
       deps.agentManager,
-      reply
+      reply,
+      {
+        message: "Failed to read image.",
+        logMessage: "Agent diff image failed",
+      }
     );
   });
 

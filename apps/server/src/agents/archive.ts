@@ -79,6 +79,8 @@ async function getChildAgentIds(
   return result.rows.map((row) => row.id);
 }
 
+const WORKTREE_CLEANUP_TIMEOUT_MS = 60_000;
+
 /** Finish a local checkout through the shared archive sequence. */
 export async function cleanupAgentWorktree(
   pool: Pool,
@@ -90,14 +92,38 @@ export async function cleanupAgentWorktree(
 ): Promise<ArchiveOutcome> {
   if (!agent.worktreePath || remotePlacement(agent.cwd))
     return { kind: "kept", reason: "notManaged" };
-  return finishArchiveCheckout(
-    pool,
-    logger,
-    agent,
-    mode,
-    localArchiveExecutor(pool, agent, localRunner),
-    hooks
-  );
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      finishArchiveCheckout(
+        pool,
+        logger,
+        agent,
+        mode,
+        localArchiveExecutor(pool, agent, localRunner),
+        hooks
+      ),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(
+          () =>
+            reject(
+              new Error(
+                `Worktree cleanup timed out after ${WORKTREE_CLEANUP_TIMEOUT_MS}ms`
+              )
+            ),
+          WORKTREE_CLEANUP_TIMEOUT_MS
+        );
+      }),
+    ]);
+  } catch (err) {
+    logger.warn(
+      { err, agentId: agent.id, worktreePath: agent.worktreePath },
+      "Worktree cleanup failed; leaving on disk."
+    );
+    return { kind: "kept", reason: "failed" };
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
 
 function managedCheckout(agent: Pick<AgentRecord, "runnerManaged" | "cwd">) {

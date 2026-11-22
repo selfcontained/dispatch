@@ -4,7 +4,7 @@ import Fastify from "fastify";
 import { mkdtemp, mkdir, writeFile, symlink, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { readAgentView } from "../src/agents/checkout-runner.js";
 import { registerAgentWorkspaceRoutes } from "../src/routes/agents/workspace-routes.js";
 import type { AgentRouteDeps } from "../src/routes/agents/shared.js";
@@ -12,6 +12,7 @@ import type { AgentRouteDeps } from "../src/routes/agents/shared.js";
 describe("workspace browsing", () => {
   let root: string;
   let app: ReturnType<typeof Fastify>;
+  const viewCheckout = vi.fn(readAgentView);
   beforeEach(async () => {
     root = await mkdtemp(path.join(tmpdir(), "dispatch-files-test-"));
     await mkdir(path.join(root, "src"));
@@ -23,7 +24,7 @@ describe("workspace browsing", () => {
     app = Fastify();
     await registerAgentWorkspaceRoutes(app, {
       agentManager: {
-        viewCheckout: readAgentView,
+        viewCheckout,
         getAgent: async (id: string) =>
           id === "missing"
             ? null
@@ -44,6 +45,22 @@ describe("workspace browsing", () => {
       method: "GET",
       url: `/api/v1/agents/test/workspace?${new URLSearchParams({ path: relative, file: String(file), workspace: workspace ?? root })}`,
     });
+  it.each([
+    ["ESTALE", 409, "Directory changed. Refresh to retry."],
+    ["ENOENT", 404, "File or workspace no longer exists."],
+    ["ENOTDIR", 404, "File or workspace no longer exists."],
+    ["EACCES", 403, "This path cannot be read."],
+    ["EPERM", 403, "This path cannot be read."],
+    ["ELOOP", 403, "This path cannot be read."],
+    ["EIO", 500, "Unable to read workspace."],
+  ])("maps workspace read error %s", async (code, status, error) => {
+    viewCheckout.mockRejectedValueOnce(
+      Object.assign(new Error("fixture failure"), { code })
+    );
+    const response = await get();
+    expect(response.statusCode).toBe(status);
+    expect(response.json()).toEqual({ error });
+  });
   it("returns SVG source and image data only for detected SVG bytes", async () => {
     const text =
       '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 20"><rect width="40" height="20"/></svg>';

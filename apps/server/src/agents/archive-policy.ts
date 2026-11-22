@@ -7,10 +7,7 @@ import {
   type CheckoutReleaseResult,
 } from "@dispatch/runner-protocol";
 import {
-  archiveCheckoutState,
   archiveReleaseState,
-  nativeBorrowers,
-  observeArchiveCheckout,
   observeRemoteCheckout,
   rememberArchiveCheckoutState,
   type ArchiveCheckoutAgent,
@@ -45,19 +42,16 @@ export type ArchiveExecutor = {
   placement: ArchivePlacement;
   /** False while the executor cannot act; the release stays pending. */
   ready: boolean;
-  /**
-   * Whether a forced release with a stored snapshot is checked here first.
-   * The runner rechecks the snapshot itself when it releases.
-   */
-  observesAuthorizedRelease: boolean;
-  observe(): Promise<CheckoutObservation>;
+  observe(
+    mode: Exclude<WorktreeCleanupMode, "keep">
+  ): Promise<CheckoutObservation>;
   /** Live sessions the observation says still use the checkout. */
   borrowers(observation: CheckoutObservation | null): string[];
   /** Another live agent that would lose work if this checkout went; kept. */
   coOwner?(): Promise<string | null>;
   /**
-   * Finalize the session and remove the checkout only if it still matches
-   * `expectedState`; null keeps it. `inUse` defers, like the runner.
+   * Finalize the session and apply the removal decision. The runner checks
+   * `expectedState` before removing. Null keeps the checkout.
    */
   release(expectedState: string | null): Promise<CheckoutReleaseResult>;
   /** What an error anywhere in the sequence means. */
@@ -85,18 +79,24 @@ export async function finishArchiveCheckout(
   if (!executor.ready) return { kind: "pending", reason: "unavailable" };
   try {
     const started = Date.now();
-    const stored =
-      mode === "keep" ? null : await archiveCheckoutState(pool, agent.id);
-    const observation =
-      mode !== "keep" &&
-      (mode === "auto" || stored === null || executor.observesAuthorizedRelease)
-        ? await executor.observe()
-        : null;
+    const coOwner = await executor.coOwner?.();
+    if (coOwner) {
+      logger.warn(
+        {
+          agentId: agent.id,
+          worktreePath: agent.worktreePath,
+          worktreeBranch: agent.worktreeBranch,
+          sharedWithAgentId: coOwner,
+        },
+        "Another live agent references this worktree; leaving it on disk."
+      );
+      return { kind: "kept", reason: "coOwner" };
+    }
+    const observation = mode === "keep" ? null : await executor.observe(mode);
     const owned = observation?.ownership === "owned";
-    // Without an owned observation the stored snapshot is the authorization.
     const expectedState = owned
-      ? archiveReleaseState(mode, observation.checkout, stored)
-      : stored;
+      ? archiveReleaseState(mode, observation.checkout)
+      : null;
     if (hooks.durations && observation)
       hooks.durations.outstandingChangesCheck = Date.now() - started;
     if (expectedState !== null) {
@@ -105,19 +105,6 @@ export async function finishArchiveCheckout(
       await rememberArchiveCheckoutState(pool, agent.id, expectedState);
       if (executor.borrowers(observation).length)
         return { kind: "pending", reason: "borrowed" };
-      const coOwner = await executor.coOwner?.();
-      if (coOwner) {
-        logger.warn(
-          {
-            agentId: agent.id,
-            worktreePath: agent.worktreePath,
-            worktreeBranch: agent.worktreeBranch,
-            sharedWithAgentId: coOwner,
-          },
-          "Another live agent references this worktree; leaving it on disk."
-        );
-        return { kind: "kept", reason: "coOwner" };
-      }
       await hooks.onCleanupStart?.();
     } else if (owned) {
       // Persist the keep decision across a lost reply or server restart.
@@ -144,17 +131,30 @@ export async function finishArchiveCheckout(
   }
 }
 
-/**
- * Another live agent recorded on the same branch. Releasing deletes a branch
- * Dispatch created, which would take that agent's work.
- */
-async function branchCoOwner(pool: Pool, agent: ArchiveCheckoutAgent) {
-  if (!agent.worktreeBranch) return null;
+async function localCoOwner(
+  pool: Pool,
+  agent: ArchiveCheckoutAgent,
+  localRunner: LocalArchiveRunner
+) {
+  const worktreePath = agent.worktreePath;
+  if (!worktreePath) return null;
+  const worktreeSpellings = [
+    ...new Set([
+      worktreePath,
+      (await localRunner.canonicalPath(worktreePath)) ?? worktreePath,
+    ]),
+  ];
   const { rows } = await pool.query<{ id: string }>(
-    `SELECT id FROM agents
-     WHERE deleted_at IS NULL AND id <> $1 AND worktree_branch = $2
-     LIMIT 1`,
-    [agent.id, agent.worktreeBranch]
+    `SELECT id
+       FROM agents
+       WHERE deleted_at IS NULL
+         AND id <> $1
+         AND (worktree_path = $2
+              OR workspace_path = ANY($4::text[])
+              OR (role = 'review' AND cwd = ANY($4::text[]))
+              OR ($3::text IS NOT NULL AND worktree_branch = $3))
+       LIMIT 1`,
+    [agent.id, worktreePath, agent.worktreeBranch, worktreeSpellings]
   );
   return rows[0]?.id ?? null;
 }
@@ -164,30 +164,24 @@ export function localArchiveExecutor(
   agent: ArchiveCheckoutAgent,
   localRunner: LocalArchiveRunner
 ): ArchiveExecutor {
-  let checkoutPath: string | null = null;
   return {
     placement: "local",
     ready: true,
-    observesAuthorizedRelease: true,
-    async observe() {
-      const observation = await observeArchiveCheckout(
-        pool,
-        agent,
-        localRunner
-      );
-      checkoutPath = observation.checkout?.path ?? null;
-      return observation;
+    async observe(mode) {
+      // Force needs no Git status or fetch to authorize local removal.
+      if (mode === "force")
+        return {
+          ownership: "owned",
+          owner: agent.id,
+          borrowers: [],
+          checkout: null,
+        };
+      return localRunner.checkoutRelease(agent, { kind: "observe" });
     },
-    borrowers: (observation) => observation?.borrowers ?? [],
-    // Restores origin/main's worktree_branch co-owner guard.
-    coOwner: () => branchCoOwner(pool, agent),
+    borrowers: () => [],
+    coOwner: () => localCoOwner(pool, agent, localRunner),
     async release(expectedState) {
-      if (expectedState === null || !checkoutPath) return "retained";
-      // Recheck just before removal: a borrower may have bound since.
-      if (
-        (await nativeBorrowers(pool, agent, checkoutPath, localRunner)).length
-      )
-        return "inUse";
+      if (expectedState === null) return "retained";
       return localRunner.checkoutRelease(agent, {
         kind: "release",
         expectedState,
@@ -210,7 +204,6 @@ export function runnerArchiveExecutor(
   return {
     placement: "runner",
     ready: Boolean(stopped && remote),
-    observesAuthorizedRelease: false,
     observe() {
       if (!placement || !remote)
         throw new Error("Missing remote runner placement.");

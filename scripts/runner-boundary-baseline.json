@@ -1864,6 +1864,13 @@
   {
     "file": "apps/server/src/agents/remote/session-supervisor.ts",
     "kind": "R7 restriction",
+    "detail": "N35 Runner archive conditionally releases and defers to borrowers",
+    "task": "T20",
+    "count": 1
+  },
+  {
+    "file": "apps/server/src/agents/remote/session-supervisor.ts",
+    "kind": "R7 restriction",
     "detail": "N9 Selected workspace is confined",
     "task": "T16",
     "count": 1
@@ -3736,20 +3743,6 @@
     "detail": "form.runner",
     "task": "T38",
     "count": 4
-  },
-  {
-    "file": "apps/web/src/components/app/delete-agent-dialog.tsx",
-    "kind": "R6 locator",
-    "detail": "runner://",
-    "task": "T38",
-    "count": 1
-  },
-  {
-    "file": "apps/web/src/components/app/delete-agent-dialog.tsx",
-    "kind": "R6 placement read",
-    "detail": "deleteTarget?.runnerManaged",
-    "task": "T38",
-    "count": 1
   },
   {
     "file": "apps/web/src/components/app/files-pane.tsx",

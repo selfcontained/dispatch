@@ -649,9 +649,8 @@ describe("native runner checkout release", () => {
     };
   }
 
-  it("removes a clean switched worktree without deleting the separately owned ref", async () => {
+  it("removes a clean switched worktree and deletes the pre-existing current branch", async () => {
     git(repo, "branch", "user-owned", "main");
-    const userTip = git(repo, "rev-parse", "refs/heads/user-owned");
     git(checkout, "switch", "user-owned");
     const runner = adapter();
     const { checkout: observed } = await runner.observe();
@@ -662,7 +661,7 @@ describe("native runner checkout release", () => {
     });
     expect(await runner.release(observed!.stateId)).toBe("released");
     expect(existsSync(checkout)).toBe(false);
-    expect(git(repo, "rev-parse", "refs/heads/user-owned")).toBe(userTip);
+    expect(git(repo, "branch", "--list", "user-owned")).toBe("");
     expect(await runner.release(observed!.stateId)).toBe("released");
   });
 
@@ -703,15 +702,15 @@ describe("native runner checkout release", () => {
     expect(git(repo, "branch", "--list", "feature")).toBe("");
   });
 
-  it("preserves a checkout edited after the runner observed it", async () => {
+  it("removes a native checkout edited after the runner observed it", async () => {
     put(checkout, "draft.txt", "first version");
     const runner = adapter();
     const { checkout: observed } = await runner.observe();
     expect(observed?.uncommittedFiles).toEqual(["?? draft.txt"]);
     put(checkout, "draft.txt", "second version");
-    expect(await runner.release(observed!.stateId)).toBe("retained");
-    expect(existsSync(path.join(checkout, "draft.txt"))).toBe(true);
-    expect(git(repo, "branch", "--list", "feature")).toContain("feature");
+    expect(await runner.release(observed!.stateId)).toBe("released");
+    expect(existsSync(checkout)).toBe(false);
+    expect(git(repo, "branch", "--list", "feature")).toBe("");
   });
 });
 
@@ -758,8 +757,7 @@ describe("archive checkout parity", () => {
         },
       } as unknown as Pool;
       const shouldRelease =
-        state !== "changed" &&
-        (mode === "force" || (mode === "auto" && state === "clean"));
+        mode === "force" || (mode === "auto" && state === "clean");
       if (placement === "local") {
         await cleanupAgentWorktree(pool, logger, local, agent, mode, {});
       } else {

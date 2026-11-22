@@ -26,6 +26,7 @@ import { probeGitContext } from "../../shared/git/git-context.js";
 import type { CommandRunner } from "../../shared/lib/run-command.js";
 import {
   MANAGED_WORKSPACE,
+  UNOBSERVED_STATE,
   isOpaqueId,
   isCheckoutPath,
   isSessionFileOperation,
@@ -718,7 +719,7 @@ export async function createSessionSupervisor(
         receipt === "removing" && !(await lstat(session).catch(missingPath));
       if (!removed) {
         const observed =
-          expectedState === null
+          expectedState === null || expectedState === UNOBSERVED_STATE
             ? null
             : await describeOwnedState(key).catch(() => null);
         if (observed?.stateId !== expectedState || expectedState === null) {

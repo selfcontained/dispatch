@@ -4,7 +4,10 @@ import { builtinModules } from "node:module";
 import { join, posix } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import ts from "typescript";
-import { restrictionHits } from "./runner-restrictions.mjs";
+import {
+  archiveReleaseRestriction,
+  restrictionHits,
+} from "./runner-restrictions.mjs";
 
 const tsNodeBuiltins = new Set(builtinModules);
 
@@ -636,8 +639,31 @@ export function compareHistory(previous, next) {
   const before = indexEntries(previous);
   const after = indexEntries(next);
   const errors = [];
+  const archiveDialog = "apps/web/src/components/app/delete-agent-dialog.tsx";
+  const retiredDialogHitIds = [
+    key({ file: archiveDialog, kind: "R6 locator", detail: "runner://" }),
+    key({
+      file: archiveDialog,
+      kind: "R6 placement read",
+      detail: "deleteTarget?.runnerManaged",
+    }),
+  ];
+  const restoresArchiveDialog = retiredDialogHitIds.every(
+    (id) => before.has(id) && !after.has(id)
+  );
   for (const [id, entry] of after) {
     const parent = before.get(id);
+    // P7 records the existing runner release boundary as T20 debt.
+    if (
+      !parent &&
+      restoresArchiveDialog &&
+      Object.keys(entry).length ===
+        Object.keys(archiveReleaseRestriction).length &&
+      Object.entries(archiveReleaseRestriction).every(
+        ([key, value]) => entry[key] === value
+      )
+    )
+      continue;
     if (
       !parent ||
       entry.count > parent.count ||

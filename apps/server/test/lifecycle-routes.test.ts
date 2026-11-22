@@ -44,6 +44,28 @@ beforeEach(async () => {
   await ctx.pool.query("DELETE FROM agents");
 });
 
+it.each([
+  ["diff-stats?includeUncommitted=false", "Failed to compute diff."],
+  ["diff", "Failed to compute diff."],
+  ["diff/file?path=changed.txt", "Failed to compute file diff."],
+  ["diff/image?path=changed.png", "Failed to read image."],
+])("returns the pinned main error from %s", async (route, error) => {
+  const agent = await createAgent();
+  const read = vi
+    .spyOn(AgentManager.prototype, "viewCheckout")
+    .mockRejectedValueOnce(new Error("fixture failure"));
+  try {
+    const response = await authedInject(
+      "GET",
+      `/api/v1/agents/${agent.id}/${route}`
+    );
+    expect(response.statusCode).toBe(500);
+    expect(response.json()).toEqual({ error });
+  } finally {
+    read.mockRestore();
+  }
+});
+
 describe("GET /api/v1/agents/:id/identity", () => {
   it("roots a surviving tree at its first ancestor whose parent was purged, and leaves cycles unseated", async () => {
     await ctx.pool
