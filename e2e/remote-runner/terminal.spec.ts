@@ -131,7 +131,10 @@ for (const lane of ["native", "runner", "managed"] as const) {
       });
       const expand = session.getByTestId(`agent-expand-toggle-${agent.id}`);
       await expect(session.getByTestId("chat-pane")).toBeVisible();
-      const openSidebar = session.getByTitle("Open sidebar", { exact: true });
+      const openSidebar = session.getByRole("button", {
+        name: "Open sidebar",
+        exact: true,
+      });
       if (await openSidebar.isVisible()) await openSidebar.click();
       await expect(expand).toHaveAttribute("aria-expanded", "true");
       if (remote) {
@@ -160,7 +163,7 @@ for (const lane of ["native", "runner", "managed"] as const) {
       if (remote)
         await session
           .getByTestId("sidebar-shell")
-          .getByTitle("Close sidebar")
+          .getByRole("button", { name: "Close sidebar", exact: true })
           .click();
 
       let panel = await openTerminal(session);

@@ -332,7 +332,9 @@ export async function launchViaUi(
   } else await page.getByTestId("create-agent-cwd").fill(opts.cwd ?? "/tmp");
   if (opts.restricted) {
     // "Start in full access mode" is on by default; permission prompts need it off.
-    const full = page.getByTitle("Toggle full access");
+    const full = page.getByRole("checkbox", {
+      name: /Start in full access mode/,
+    });
     if ((await full.getAttribute("aria-checked")) === "true")
       await full.click();
     await expect(full).toHaveAttribute("aria-checked", "false");

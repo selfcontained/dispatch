@@ -124,7 +124,9 @@ test("GitHub sign-in, private checkout and sign-out belong to the selected runne
     });
     await page.keyboard.press("Escape");
     await page.setViewportSize({ width: 390, height: 844 });
-    await page.getByTitle("Open sidebar").click();
+    await page
+      .getByRole("button", { name: "Open sidebar", exact: true })
+      .click();
     await page
       .getByRole("button", { name: /Details for pull request #42: Open/i })
       .click();
