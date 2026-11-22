@@ -7,7 +7,10 @@ import {
   openLinuxDirectory,
 } from "../files/open-workspace-file.js";
 import { openWorkspaceDirectory } from "../files/workspace-directory.js";
-import { resolveRepoRoot } from "../shared/git/git-context.js";
+import {
+  resolveRepoRoot,
+  resolveWorktreeRoot,
+} from "../shared/git/git-context.js";
 import { constants } from "node:fs";
 import { lstat, open, readdir, readlink, realpath } from "node:fs/promises";
 import path from "node:path";
@@ -507,7 +510,28 @@ async function inspectionRoot(cwd: string, requireGit: boolean) {
     : probe.stdout.replace(/\n$/, "");
   if (!path.isAbsolute(root))
     throw new Error("Could not resolve checkout root");
-  return { root, hasGit: probe.exitCode === 0 };
+  return { root };
+}
+
+async function resolveInspectionRoots(cwd: string) {
+  const repositoryRoot = await resolveRepoRoot(cwd, {
+    commandRunner: run,
+  }).catch(() => null);
+  if (repositoryRoot) {
+    const checkoutRoot = await resolveWorktreeRoot(cwd, {
+      commandRunner: run,
+    }).catch(() => null);
+    return { checkoutRoot, repositoryRoot };
+  }
+  const { root } = await inspectionRoot(cwd, false);
+  return { checkoutRoot: root, repositoryRoot: null };
+}
+
+async function effectiveCommandRoot(cwd: string) {
+  const { checkoutRoot, repositoryRoot } = await resolveInspectionRoots(cwd);
+  const root = checkoutRoot ?? repositoryRoot;
+  if (!root) throw new Error("Could not resolve checkout root");
+  return root;
 }
 
 export async function readCheckoutCommandFile(
@@ -518,9 +542,7 @@ export async function readCheckoutCommandFile(
     exact = false,
   }: { configuredRoot?: string; exact?: boolean } = {}
 ) {
-  const root = exact
-    ? await realpath(cwd)
-    : (await inspectionRoot(cwd, false)).root;
+  const root = exact ? await realpath(cwd) : await effectiveCommandRoot(cwd);
   if (configuredRoot) {
     const relative = path.relative(configuredRoot, root);
     if (
@@ -562,16 +584,9 @@ export async function inspectCheckout(
     encodeReply(reply);
     return reply;
   }
-  const { root, hasGit } = await inspectionRoot(
-    cwd,
-    validated.kind === "changes"
-  );
   if (validated.kind === "roots")
-    return {
-      kind: "roots",
-      checkoutRoot: root,
-      repositoryRoot: hasGit ? await resolveRepoRoot(root) : null,
-    };
+    return { kind: "roots", ...(await resolveInspectionRoots(cwd)) };
+  const { root } = await inspectionRoot(cwd, validated.kind === "changes");
   if (validated.kind === "listFiles") {
     const canonicalRoot = await realpath(root);
     const directoryPath = path.join(

@@ -117,9 +117,13 @@ export async function resolveWorktreeRoot(
   cwd: string,
   opts: ProbeOptions = {}
 ): Promise<string> {
-  return await resolveCheckoutRoot(cwd, defaultRunCommand, {
-    timeoutMs: opts.timeoutMs ?? DEFAULT_PROBE_TIMEOUT_MS,
-  });
+  return await resolveCheckoutRoot(
+    cwd,
+    opts.commandRunner ?? defaultRunCommand,
+    {
+      timeoutMs: opts.timeoutMs ?? DEFAULT_PROBE_TIMEOUT_MS,
+    }
+  );
 }
 
 /**

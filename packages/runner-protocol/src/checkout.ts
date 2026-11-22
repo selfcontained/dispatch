@@ -22,7 +22,11 @@ export type CheckoutReply =
     }
   | { kind: "readFile"; content: string | null }
   | { kind: "listFiles"; names: string[] }
-  | { kind: "roots"; checkoutRoot: string; repositoryRoot: string | null }
+  | {
+      kind: "roots";
+      checkoutRoot: string | null;
+      repositoryRoot: string | null;
+    }
   | DefaultBranchFilesReply;
 
 export const DEFAULT_BRANCH_FILE_LIMIT = 100;
@@ -140,7 +144,7 @@ export function isCheckoutReply(
     );
   if (value.kind === "roots")
     return (
-      isCheckoutPath(value.checkoutRoot) &&
+      (value.checkoutRoot === null || isCheckoutPath(value.checkoutRoot)) &&
       (value.repositoryRoot === null || isCheckoutPath(value.repositoryRoot))
     );
   if (value.kind === "listFiles")
