@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -17,6 +18,8 @@ vi.mock("@/lib/api", () => ({ api: vi.fn() }));
 afterEach(() => {
   cleanup();
   vi.mocked(api).mockReset();
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
 const OPTIONS = [
@@ -30,8 +33,12 @@ async function show(details: string, options = OPTIONS) {
     connected: true,
     requests: [{ id: "r1", title: "Run validation", details, options }],
   });
+  const client = new QueryClient({
+    defaultOptions: { queries: { staleTime: Infinity } },
+  });
+  client.setQueryData(["agents"], [{ id: "a1", cwd: "/repo" }]);
   render(
-    <QueryClientProvider client={new QueryClient()}>
+    <QueryClientProvider client={client}>
       <PermissionRequests agentId="a1" active />
     </QueryClientProvider>
   );
@@ -63,6 +70,14 @@ it.each([
     details({ command: "ls", sandbox_permissions: "require_escalated" }),
   ],
   ["content after the input", `${details({ command: "ls" })}\n\n/etc/hosts`],
+  ["a directory outside the workspace", details({ command: "ls", cwd: "/" })],
+  ["a relative directory", details({ command: "ls", workdir: ".." })],
+  ["both command keys", details({ command: "ls", cmd: "rm -rf build" })],
+  [
+    "both directory keys",
+    details({ command: "ls", cwd: "/repo", workdir: "/" }),
+  ],
+  ["invisible characters", details({ command: "ls \u202e build" })],
   ["no command", details({ file_path: "/etc/hosts" })],
   ["input it can't read", '{\n  "command": "ls"\n… [truncated]'],
 ])("opens on %s, so it is seen before approval", async (_case, text) => {
@@ -95,4 +110,35 @@ it("never promotes a standing grant to the primary action", async () => {
     screen.getByRole("button", { name: "Always" }).className
   ).not.toContain("bg-primary");
   expect(screen.getByRole("button", { name: "Deny" })).toBeTruthy();
+});
+
+it("opens when the line stops fitting after mount, and not again after a close", async () => {
+  let resized = () => {};
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      constructor(callback: () => void) {
+        resized = callback;
+      }
+      observe() {}
+      disconnect() {}
+    }
+  );
+  let width = 500;
+  vi.spyOn(Element.prototype, "scrollWidth", "get").mockReturnValue(400);
+  vi.spyOn(Element.prototype, "clientWidth", "get").mockImplementation(
+    () => width
+  );
+  await show(details({ command: "pnpm run check" }));
+  expect(isOpen()).toBe(false);
+
+  width = 300;
+  act(() => resized());
+  expect(isOpen()).toBe(true);
+
+  // Closing changes the width (the scrollbar goes); that must not reopen it.
+  fireEvent.click(screen.getByRole("button", { name: "Full request" }));
+  width = 310;
+  act(() => resized());
+  expect(isOpen()).toBe(false);
 });

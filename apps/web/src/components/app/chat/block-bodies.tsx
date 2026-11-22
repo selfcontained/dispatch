@@ -1355,26 +1355,31 @@ export function ReviewBlockBody({
         >
           {standing.label}
         </Badge>
-        <span
-          className="ml-auto shrink-0 text-label-sm text-muted-foreground"
-          data-testid="chat-review-counts"
-        >
-          {findingsSummary(block)}
-        </span>
-        {unread > 0 ? (
-          <CountBubble
-            tone="info"
-            count={unread}
-            data-testid="chat-review-unread"
-            aria-label={`${unread} new ${unread === 1 ? "comment" : "comments"}`}
-          />
-        ) : null}
-        {compact ? (
-          <>
+        {/* One group, so a narrow header never wraps the chevron by itself. */}
+        <span className="ml-auto flex shrink-0 items-center gap-2">
+          <span
+            className="text-label-sm text-muted-foreground"
+            data-testid="chat-review-counts"
+          >
+            {findingsSummary(block)}
+          </span>
+          {unread > 0 ? (
+            <CountBubble
+              tone="info"
+              count={unread}
+              data-testid="chat-review-unread"
+              aria-label={`${unread} new ${unread === 1 ? "comment" : "comments"}`}
+            />
+          ) : null}
+          {compact ? (
             <ChevronRight
               className="size-icon-md shrink-0 text-faint"
               aria-hidden="true"
             />
+          ) : null}
+        </span>
+        {compact ? (
+          <>
             {block.data.summary ? (
               <span
                 className="basis-full truncate text-body-sm text-foreground/soft"

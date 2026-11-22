@@ -4,7 +4,7 @@ import type {
 } from "@dispatch/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronRight, ShieldCheck } from "lucide-react";
-import { useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useLayoutEffect, useRef, useState } from "react";
 
 import {
   BlockBody,
@@ -19,6 +19,8 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import { FieldError } from "@/components/ui/field";
+import type { Agent } from "@/components/app/types";
+import { fetchAgents } from "@/hooks/use-agent-tree";
 import { api } from "@/lib/api";
 
 /** The host owns pending requests; polling also recovers from reloads and server reconnects. */
@@ -60,7 +62,8 @@ export function PermissionRequests({
 /**
  * Input a command line carries on its own. Anything else a tool sends with
  * one (an escalation, a sandbox switch) changes what is being approved, so
- * the request then opens with its details showing.
+ * the request then opens with its details showing. A working directory is
+ * routine only when it is the agent's own workspace.
  */
 const ROUTINE_KEYS = new Set([
   "command",
@@ -79,8 +82,14 @@ type PermissionInput = {
   routine: boolean;
 };
 
+/** Control and format characters can make a line read as another command. */
+const INVISIBLE = /[\p{Cc}\p{Cf}\u2028\u2029]/u;
+
 /** The command in a request's details, which lead with the tool's raw JSON input. */
-function readPermissionInput(details: string): PermissionInput {
+function readPermissionInput(
+  details: string,
+  workspace: string | undefined
+): PermissionInput {
   const json = /^\{\n[\s\S]*?\n\}/.exec(details)?.[0];
   if (!json) return { routine: false };
   try {
@@ -102,6 +111,12 @@ function readPermissionInput(details: string): PermissionInput {
       cwd: typeof cwd === "string" ? cwd : undefined,
       routine:
         !!command &&
+        !INVISIBLE.test(command) &&
+        // Two keys for one thing could say two things; one line shows one.
+        !("command" in input && "cmd" in input) &&
+        !("cwd" in input && "workdir" in input) &&
+        // Where a command runs is part of what is approved.
+        (cwd === undefined || cwd === workspace) &&
         details.trim() === json &&
         Object.keys(input).every((key) => ROUTINE_KEYS.has(key)),
     };
@@ -115,14 +130,55 @@ function readPermissionInput(details: string): PermissionInput {
  * disclosure starts open whenever that line is not the whole request:
  * nobody approves what they were not shown.
  */
-function RequestDetails({ details }: { details: string }) {
-  const { command, cwd, routine } = readPermissionInput(details);
+function RequestDetails({
+  agentId,
+  details,
+}: {
+  agentId: string;
+  details: string;
+}) {
+  const selectWorkspace = useCallback(
+    (agents: Agent[]) => {
+      const agent = agents.find((item) => item.id === agentId);
+      return agent?.workspacePath ?? agent?.worktreePath ?? agent?.cwd;
+    },
+    [agentId]
+  );
+  const { data: workspace } = useQuery({
+    queryKey: ["agents"],
+    queryFn: fetchAgents,
+    select: selectWorkspace,
+    staleTime: Infinity,
+  });
+  const { command, cwd, routine } = readPermissionInput(
+    details,
+    workspace ?? undefined
+  );
   const lines = command?.trim().split("\n") ?? [];
-  const [open, setOpen] = useState(!routine || lines.length > 1);
+  const mustShow = !routine || lines.length > 1;
+  const [open, setOpen] = useState(mustShow);
   const line = useRef<HTMLElement>(null);
   useLayoutEffect(() => {
+    if (mustShow) setOpen(true);
+  }, [mustShow]);
+  useLayoutEffect(() => {
     const element = line.current;
-    if (element && element.scrollWidth > element.clientWidth) setOpen(true);
+    if (!element) return;
+    let overflowed = false;
+    // Opens when the line stops fitting, and only then: closing the request
+    // can itself change the width, which must not open it straight back up.
+    const check = () => {
+      const overflows = element.scrollWidth > element.clientWidth;
+      if (overflows && !overflowed) setOpen(true);
+      overflowed = overflows;
+    };
+    check();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(check);
+    observer.observe(element);
+    // The text's own width changes when a font loads, the box's does not.
+    if (element.firstElementChild) observer.observe(element.firstElementChild);
+    return () => observer.disconnect();
   }, []);
   const raw = (
     <pre className="whitespace-pre-wrap break-all font-mono">{details}</pre>
@@ -138,7 +194,7 @@ function RequestDetails({ details }: { details: string }) {
             className="min-w-0 flex-1 overflow-x-auto whitespace-pre rounded-sm font-mono text-body-sm focus-ring-inset"
             data-testid="permission-command"
           >
-            {lines[0]}
+            <span className="inline-block">{lines[0]}</span>
           </code>
           {lines.length > 1 ? (
             <span className="shrink-0 text-label-sm text-muted-foreground">
@@ -250,7 +306,9 @@ function PermissionRequest({
       </BlockHeader>
       <BlockBody className="mt-1">
         <p className="break-words text-body-md">{request.title}</p>
-        {request.details ? <RequestDetails details={request.details} /> : null}
+        {request.details ? (
+          <RequestDetails agentId={agentId} details={request.details} />
+        ) : null}
       </BlockBody>
       <BlockFooter>
         {request.options.map((option) => (
