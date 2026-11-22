@@ -439,6 +439,40 @@ describe("agents the user changed during the update", () => {
     expect(await statusOf(busy.id)).toBe("stopped");
   });
 
+  it("counts only the agents still wanted as resuming", async () => {
+    const kept = await world.agent();
+    const archived = await world.agent();
+    const stopped = await world.agent();
+    const deleted = await world.agent();
+    const goesLater = await world.agent();
+    await force();
+    await world.activated();
+    await world.manager.beginArchive(archived.id);
+    await world.manager.stopAgent(stopped.id);
+    await pool.query("UPDATE agents SET deleted_at = NOW() WHERE id = $1", [
+      deleted.id,
+    ]);
+    let first: number | undefined;
+    world.saved.afterWrite = () => {
+      if (world.attempt()?.phase !== "resuming") return;
+      world.saved.afterWrite = undefined;
+      first = world.attempt()!.drain!.agents.length;
+      world.disconnect();
+    };
+    world.swap();
+    await world.until(() => first !== undefined);
+    expect(first).toBe(2);
+    expect(world.view()?.attempt?.agents).toBe(2);
+
+    await world.manager.beginArchive(goesLater.id);
+    await world.until(() => world.view()?.attempt?.agents === 1);
+    world.reconnect();
+    await finished();
+    resumedOnce(kept);
+    for (const host of [archived, stopped, deleted, goesLater])
+      expect(host.launches).toHaveLength(1);
+  });
+
   it("sends no continuation to an agent stopped after it resumed", async () => {
     const busy = await world.agent();
     await world.working(busy);

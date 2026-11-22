@@ -519,7 +519,12 @@ export class RunnerUpdateCoordinator {
     if (!this.started || this.closed) return;
     await Promise.all(
       [...this.records.keys()].map(async (runnerId) => {
-        if (!this.active(runnerId) || this.ticking.has(runnerId)) return;
+        const attempt = this.active(runnerId);
+        if (!attempt) return;
+        // Beside the pass, which can spend minutes on one launch.
+        if (attempt.phase === "resuming")
+          await this.dropEndedResumes(runnerId, attempt);
+        if (this.ticking.has(runnerId)) return;
         this.ticking.add(runnerId);
         try {
           await this.enqueue(runnerId, () => this.advance(runnerId));
@@ -1386,6 +1391,22 @@ export class RunnerUpdateCoordinator {
     }
   }
 
+  /** So the count of agents being resumed is only those still wanted. */
+  private async dropEndedResumes(runnerId: string, attempt: Attempt) {
+    const ended = await this.endedResumes(attempt);
+    if (!ended.size) return;
+    try {
+      await this.editReceipt(runnerId, attempt.id, (entries) =>
+        entries.filter(({ id }) => !ended.has(id))
+      );
+    } catch (error) {
+      this.options.logger.warn(
+        { err: error, runnerId },
+        "could not drop ended runner update resume entries"
+      );
+    }
+  }
+
   private receipt(runnerId: string, attemptId: string): RunnerResumeAgent[] {
     const attempt = this.active(runnerId);
     return attempt?.id === attemptId ? (attempt.drain?.agents ?? []) : [];
@@ -1478,13 +1499,18 @@ export class RunnerUpdateCoordinator {
 
   private async finish(runnerId: string, attempt: Attempt, outcome: Outcome) {
     if (attempt.drain?.agents.length && attempt.phase !== "resuming") {
-      await this.record(runnerId, {
-        ...attempt,
-        phase: "resuming",
-        deadline: this.now() + UPDATE_TIMING.resumingMs,
-        drain: { ...attempt.drain, result: outcome },
-      });
-      return;
+      const ended = await this.endedResumes(attempt);
+      if (ended.size) attempt = withoutResumes(attempt, ended);
+      const drain = attempt.drain!;
+      if (drain.agents.length) {
+        await this.record(runnerId, {
+          ...attempt,
+          phase: "resuming",
+          deadline: this.now() + UPDATE_TIMING.resumingMs,
+          drain: { ...drain, result: outcome },
+        });
+        return;
+      }
     }
     this.waiting.delete(runnerId);
     this.probes.delete(runnerId);
