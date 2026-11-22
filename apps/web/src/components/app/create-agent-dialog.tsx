@@ -196,19 +196,24 @@ function CreateAgentDialogContent({
               )}
             </DialogBody>
             <CreateFailure error={form.submitError} />
-            <DialogFooter>
+            <DialogFooter
+              start={
+                <Button
+                  type="button"
+                  tabIndex={0}
+                  disabled={
+                    form.creating ||
+                    !form.locationReady ||
+                    !form.createCwd.trim()
+                  }
+                  data-testid="create-agent-with-context"
+                  onClick={form.enterContextStep}
+                >
+                  Add context
+                </Button>
+              }
+            >
               <DialogCancel tabIndex={0} data-testid="create-agent-cancel" />
-              <Button
-                type="button"
-                tabIndex={0}
-                disabled={
-                  form.creating || !form.locationReady || !form.createCwd.trim()
-                }
-                data-testid="create-agent-with-context"
-                onClick={form.enterContextStep}
-              >
-                Add context
-              </Button>
               <Button
                 type="submit"
                 variant="primary"

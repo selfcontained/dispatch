@@ -14,7 +14,7 @@ export type DashboardContextValue = {
   setEnabledAgentTypes: Dispatch<SetStateAction<AgentType[]>>;
   enabledIdes: IdeType[];
   setEnabledIdes: Dispatch<SetStateAction<IdeType[]>>;
-  handleLogout: () => void;
+  handleLogout: () => Promise<void>;
   isMobile: boolean;
   leftOpen: boolean;
   leftPanelOpen: boolean;

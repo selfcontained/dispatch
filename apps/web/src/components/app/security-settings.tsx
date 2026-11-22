@@ -9,7 +9,7 @@ import { Field } from "@/components/ui/field";
 import { LoadingSkeleton } from "@/components/ui/skeleton";
 
 type SecuritySettingsProps = {
-  onLogout: () => void;
+  onLogout: () => void | Promise<void>;
 };
 
 export function SecuritySettings({
@@ -22,6 +22,7 @@ export function SecuritySettings({
   const [currentPassword, setCurrentPassword] = useState("");
   const [message, setMessage] = useState("");
   const [fieldError, setFieldError] = useState("");
+  const [logoutError, setLogoutError] = useState<unknown>();
   const [failure, setFailure] = useState<unknown>();
   const [statusError, setStatusError] = useState<unknown>();
   const [attempt, setAttempt] = useState(0);
@@ -198,11 +199,25 @@ export function SecuritySettings({
           <h3 className="mb-4 section-label">Session</h3>
           <Button
             variant="danger"
-            onClick={onLogout}
+            onClick={async () => {
+              setLogoutError(undefined);
+              try {
+                await onLogout();
+              } catch (error) {
+                setLogoutError(error);
+              }
+            }}
             data-testid="logout-button"
           >
             Log out
           </Button>
+          {logoutError ? (
+            <Alert
+              title="Couldn’t log out."
+              error={logoutError}
+              className="mt-2"
+            />
+          ) : null}
         </div>
       )}
     </div>

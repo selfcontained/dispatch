@@ -161,6 +161,24 @@ describe("DialogContent", () => {
     fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
     expect(close).not.toHaveBeenCalled();
   });
+
+  it("leaves Escape to an open suggestion list in the body", () => {
+    const close = vi.fn();
+    const view = (expanded: boolean) => (
+      <Dialog open onOpenChange={close}>
+        <DialogContent aria-describedby={undefined}>
+          <DialogTitle>New agent</DialogTitle>
+          <input role="combobox" aria-expanded={expanded} aria-label="Folder" />
+        </DialogContent>
+      </Dialog>
+    );
+    const { rerender } = render(view(true));
+    fireEvent.keyDown(screen.getByRole("combobox"), { key: "Escape" });
+    expect(close).not.toHaveBeenCalled();
+    rerender(view(false));
+    fireEvent.keyDown(screen.getByRole("combobox"), { key: "Escape" });
+    expect(close).toHaveBeenCalledWith(false);
+  });
 });
 
 describe("Combobox", () => {

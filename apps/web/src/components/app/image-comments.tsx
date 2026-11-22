@@ -13,6 +13,7 @@ import {
   Plus,
   X,
 } from "lucide-react";
+import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import {
@@ -1261,13 +1262,14 @@ export function ImageComments({
             </>
           )}
           {markup && send.isError && (
-            <p
-              role="alert"
-              className="w-full text-center text-body-sm text-danger"
+            <Alert
+              title="Couldn’t share the notes."
+              error={send.error}
+              className="w-full"
             >
-              {send.error.message} Notes are kept. Retry sharing; if delivery is
-              uncertain, check the conversation.
-            </p>
+              Notes are kept. Retry sharing; if delivery is uncertain, check the
+              conversation.
+            </Alert>
           )}
         </footer>
       </DialogContent>

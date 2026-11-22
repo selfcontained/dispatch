@@ -18,7 +18,7 @@ const SelectGroup = SelectPrimitive.Group;
 const SelectValue = SelectPrimitive.Value;
 
 export const selectTriggerClassName = cn(
-  "flex h-9 w-full items-center justify-between rounded-md px-3 py-2 text-body-md",
+  "flex h-9 w-full items-center justify-between rounded-md px-3 py-2 text-left text-body-md",
   glassInset,
   "placeholder:text-muted-foreground focus-ring aria-[invalid=true]:border-danger pointer-coarse:min-h-11",
   "disabled:cursor-not-allowed disabled-state [&>span]:line-clamp-1 disabled:pointer-events-auto"

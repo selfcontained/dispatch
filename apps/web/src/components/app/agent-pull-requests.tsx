@@ -21,6 +21,7 @@ import {
   ShieldAlert,
   ShieldCheck,
 } from "lucide-react";
+import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -763,9 +764,7 @@ export function AgentPullRequests({
   return (
     <div data-testid={`agent-pr-row-${agentId}`} className="contents">
       {hasDismissError && (
-        <p role="alert" className="text-body-sm text-danger">
-          Couldn’t dismiss the PR. Try again.
-        </p>
+        <Alert title="Couldn’t dismiss the PR.">Try again.</Alert>
       )}
       {prs
         .filter((pr) => !hidden.includes(`${agentId}:${pr.url}`))
@@ -1041,14 +1040,11 @@ export function PullRequestRow({
             </p>
           )}
           {refresh?.isError && (
-            <p
-              role="alert"
-              className="px-3 pb-3 break-words text-label-sm leading-relaxed text-danger"
-            >
-              {refresh.error instanceof Error
-                ? refresh.error.message
-                : "Couldn’t refresh. Try again."}
-            </p>
+            <Alert
+              title="Couldn’t refresh the checks."
+              error={refresh.error}
+              className="mx-3 mb-3"
+            />
           )}
           {(pr.ci || refresh) && (
             <div className="border-t border-border px-3 py-2 text-label-xs text-muted-foreground">

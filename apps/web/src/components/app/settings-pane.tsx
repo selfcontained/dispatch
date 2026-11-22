@@ -143,7 +143,7 @@ export function SettingsContent({
   isAdmin,
 }: {
   activeSection: SettingsSection | null;
-  onLogout: () => void;
+  onLogout: () => void | Promise<void>;
   theme: ThemeId;
   setTheme: (id: ThemeId) => void;
   iconColor: IconColorId;

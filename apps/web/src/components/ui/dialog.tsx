@@ -63,6 +63,19 @@ export interface DialogContentProps extends React.ComponentPropsWithoutRef<
  * The close button, Esc and a click outside all close it, and all three wait
  * while `busy`. Compose it from DialogHeader, DialogBody and DialogFooter.
  */
+/**
+ * Radix hears Escape before the field does. A popover is a layer of its own,
+ * but a suggestion list drawn in the body (PathInput) has only this.
+ */
+function inOpenSuggestions(target: EventTarget | null): boolean {
+  return (
+    target instanceof Element &&
+    target.matches(
+      'input[role="combobox"][aria-expanded="true"]:not([cmdk-input])'
+    )
+  );
+}
+
 const DialogContent = React.forwardRef<
   React.ElementRef<typeof DialogPrimitive.Content>,
   DialogContentProps
@@ -98,7 +111,7 @@ const DialogContent = React.forwardRef<
           )}
           onEscapeKeyDown={(event) => {
             onEscapeKeyDown?.(event);
-            if (busy) event.preventDefault();
+            if (busy || inOpenSuggestions(event.target)) event.preventDefault();
           }}
           onInteractOutside={(event) => {
             onInteractOutside?.(event);
@@ -246,11 +259,18 @@ const DialogFooter = ({
     {...props}
   >
     {start ? (
-      <div className="mr-auto flex min-w-0 flex-wrap items-center gap-2">
-        {start}
-      </div>
-    ) : null}
-    {children}
+      <>
+        <div className="mr-auto flex min-w-0 flex-wrap items-center gap-2">
+          {start}
+        </div>
+        {/* Cancel and the primary wrap as a pair. */}
+        <div className="flex max-w-full flex-wrap items-center justify-end gap-2">
+          {children}
+        </div>
+      </>
+    ) : (
+      children
+    )}
   </div>
 );
 

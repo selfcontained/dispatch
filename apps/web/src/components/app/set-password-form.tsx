@@ -65,14 +65,13 @@ export function SetPasswordForm({
     }
   }
 
+  const tooShort = password.length > 0 && password.length < 8;
   const fields = (
     <>
       <Field
         label="Password"
-        hint="At least 8 characters."
-        error={
-          password && password.length < 8 ? "Use at least 8 characters." : null
-        }
+        hint={tooShort ? null : "At least 8 characters."}
+        error={tooShort ? "Use at least 8 characters." : null}
       >
         <Input
           type="password"

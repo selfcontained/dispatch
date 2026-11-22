@@ -16,6 +16,12 @@ export function RememberOpener({ opener }: { opener: Opener }): null {
   return null;
 }
 
+/** A phone's sidebar slides away as it opens a dialog, taking the opener along. */
+function slidAway(element: HTMLElement): boolean {
+  const { left, right } = element.getBoundingClientRect();
+  return right < 0 || left > window.innerWidth;
+}
+
 /**
  * Radix returns focus only to its own Trigger. A dialog opened from state
  * returns it to what opened it, unless the caller already placed it.
@@ -27,6 +33,7 @@ export function useReturnFocus(): {
   const opener = React.useRef<HTMLElement | null>(null);
   const restoreFocus = (event: Event) => {
     if (event.defaultPrevented || !opener.current?.isConnected) return;
+    if (slidAway(opener.current)) return;
     event.preventDefault();
     opener.current.focus({ preventScroll: true });
   };

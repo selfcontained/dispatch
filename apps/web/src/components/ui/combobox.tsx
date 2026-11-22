@@ -140,7 +140,7 @@ export const ComboboxTrigger = React.forwardRef<
           ref={forwardedRef}
           type="button"
           variant="field"
-          className={cn("w-full min-w-0", className)}
+          className={cn("w-full min-w-0 text-left", className)}
           {...control}
           {...handlers}
         >
