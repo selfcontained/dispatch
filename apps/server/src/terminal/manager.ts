@@ -18,6 +18,11 @@ export function terminalOwner(session: string): string {
 type TerminalProcess = TerminalInfo & {
   terminal: PtyProcess["terminal"] & { detach?(): void; resume?(): void };
   exited: Promise<number | null>;
+  /**
+   * Why it ended without an exit code. The panel drops its screen on close,
+   * so only the socket's close reason is seen. At most 123 bytes.
+   */
+  endReason?(): string | undefined;
   kill(): void;
 };
 
@@ -122,7 +127,11 @@ export class HumanTerminalManager {
     void process.exited.then((code) => {
       if (this.sessions.get(id) !== session) return;
       if (code === null) {
-        this.end(id, owner, "Runner terminal connection ended.");
+        this.end(
+          id,
+          owner,
+          process.endReason?.() ?? "Runner terminal connection ended."
+        );
       } else {
         if (session.socket?.readyState === 1)
           session.socket.send(JSON.stringify({ type: "exit", code }));

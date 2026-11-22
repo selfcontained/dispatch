@@ -7,11 +7,8 @@ import {
 } from "@dispatch/runner-protocol";
 import { wireFrames } from "@dispatch/runner-protocol/node";
 import type { RemoteRunnerService } from "../agents/remote/service.js";
+import { TERMINAL_UPDATE_MESSAGE } from "../agents/remote/update-admission.js";
 import type { TerminalBackend } from "./manager.js";
-
-/** Shown in the terminal when the runner closes it for a supervisor update. */
-export const RUNNER_UPDATE_TERMINAL_NOTICE =
-  "\r\n[Runner updating: this terminal was closed. Reopen it after the update.]\r\n";
 
 export function remoteTerminal(
   runner: Pick<RemoteRunnerService, "requestSession">,
@@ -29,6 +26,7 @@ export function remoteTerminal(
       if (!channel || !isTerminalInfo(info))
         throw new Error("Invalid runner terminal response.");
       let finish!: (code: number | null) => void;
+      let endReason: string | undefined;
       const exited = new Promise<number | null>((resolve) => {
         finish = resolve;
       });
@@ -42,7 +40,7 @@ export function remoteTerminal(
             output(Buffer.from(event.data, "base64"));
           else {
             if (event.type === "error" && event.reason === "update")
-              output(Buffer.from(RUNNER_UPDATE_TERMINAL_NOTICE));
+              endReason = TERMINAL_UPDATE_MESSAGE;
             finish(event.type === "exit" ? event.code : null);
             channel.destroy();
           }
@@ -52,6 +50,7 @@ export function remoteTerminal(
       return {
         ...info,
         exited,
+        endReason: () => endReason,
         kill: () => channel.destroy(),
         terminal: {
           write(data) {

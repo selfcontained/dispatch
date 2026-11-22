@@ -588,6 +588,22 @@ describe("terminal panel", () => {
     expect(screen.queryByRole("button", { name: "End terminal" })).toBeNull();
     expect(screen.getByRole("button", { name: "New terminal" })).toBeTruthy();
   });
+  it("shows why the shell was closed in the alert", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({ ok: true, json: async () => info })
+    );
+    render(<TerminalPanel agentId="agent" active />);
+    await waitFor(() => expect(Socket.instances).toHaveLength(1));
+    const socket = Socket.instances[0];
+    act(() => socket.onopen?.());
+    const reason =
+      "The runner is updating. This terminal was closed; reopen it after the update.";
+    act(() => socket.onclose?.({ code: 1000, reason } as CloseEvent));
+    expect(screen.getByRole("alert").textContent).toBe(reason);
+    expect(screen.getByRole("button", { name: "New terminal" })).toBeTruthy();
+  });
+
   it("shows the browser setup/auth error and actives no socket when rejected", async () => {
     vi.stubGlobal(
       "fetch",
