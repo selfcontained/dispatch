@@ -314,11 +314,17 @@ describe("templates", () => {
     expect(createAgent).not.toHaveBeenCalled();
   });
 
-  it("doesn't save it on a copy", async () => {
+  it("keeps it on a copy, but not on a new template", async () => {
     const { service: templates } = service();
-    await expect(templates.duplicateTemplate("tmpl_1", "Copy")).rejects.toThrow(
-      "turned off"
-    );
+    const create = vi
+      .spyOn(templates.store, "createTemplate")
+      .mockImplementation(async (input) => ({ ...stored, ...input }) as never);
+    expect(await templates.duplicateTemplate("tmpl_1", "Copy")).toMatchObject({
+      name: "Copy",
+      model: "sol",
+    });
+    await expect(templates.addTemplate(stored)).rejects.toThrow("turned off");
+    expect(create).toHaveBeenCalledOnce();
   });
 });
 

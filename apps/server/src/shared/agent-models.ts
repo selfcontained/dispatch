@@ -296,17 +296,23 @@ export type AgentConfigDefaults<T extends AgentType = AgentType> = {
  *
  * Shared by the jobs and templates create paths, which write the same six
  * columns from the same optional inputs. Throws when the model is not in the
- * resolved agent type's catalog or is turned off.
+ * resolved agent type's catalog or is turned off. `savedModel` is the model of
+ * the record being copied, which may be off.
  */
 export function applyAgentConfigDefaults<T extends AgentType = AgentType>(
-  input: AgentConfigInput<T>
+  input: AgentConfigInput<T>,
+  savedModel?: string | null
 ): AgentConfigDefaults<T> {
   const agentType = input.agentType ?? "claude";
   return {
     agentType,
     ...(input.persona !== undefined ? { persona: input.persona } : {}),
     model:
-      validateAgentModelChoice(agentType, input.model ?? undefined) ?? null,
+      validateAgentModelChoice(
+        agentType,
+        input.model ?? undefined,
+        savedModel
+      ) ?? null,
     useWorktree: input.useWorktree ?? false,
     baseBranch: input.baseBranch ?? null,
     branchName: input.branchName ?? null,

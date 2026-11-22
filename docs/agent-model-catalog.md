@@ -21,8 +21,9 @@ catalog, model ids and Default are unchanged.
   omit it, and `validateAgentModelChoice` rejects it. Use that function at any
   new place a model is chosen.
 - A **saved** choice keeps working. Launching a template, job, trigger or task
-  override, resuming an agent, and saving an unchanged value use
-  `validateAgentModel`, or pass the saved value to the choice check.
+  override, resuming an agent, saving an unchanged value, and duplicating a
+  template use `validateAgentModel`, or pass the saved value to the choice
+  check.
 - **Default** still lets the CLI choose, including a model that is off.
 - The first list an engine reports is the baseline. An id it lists later for
   the first time is New until seen in a list, and starts on or off by

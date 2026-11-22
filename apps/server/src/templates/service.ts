@@ -71,7 +71,9 @@ export class TemplateService {
 
   async addTemplate(
     input: AddTemplateInput,
-    callerFullAccess?: boolean
+    callerFullAccess?: boolean,
+    /** Internal, from the record being copied; never from HTTP/MCP input. */
+    savedModel?: string | null
   ): Promise<TemplateRecord> {
     if (input.agentType === "opencode") input = { ...input, fullAccess: true };
     assertAccessCeiling(input.fullAccess ?? false, callerFullAccess);
@@ -93,7 +95,7 @@ export class TemplateService {
       directory: input.directory,
       description: input.description ?? null,
       prompt: input.prompt ?? null,
-      ...applyAgentConfigDefaults(input),
+      ...applyAgentConfigDefaults(input, savedModel),
       effort: validateAgentEffort(
         input.agentType ?? "claude",
         input.effort,
@@ -127,7 +129,11 @@ export class TemplateService {
       updatedAt: _updatedAt,
       ...config
     } = source;
-    return this.addTemplate({ ...config, name }, callerFullAccess);
+    return this.addTemplate(
+      { ...config, name },
+      callerFullAccess,
+      source.model
+    );
   }
 
   async updateTemplate(
