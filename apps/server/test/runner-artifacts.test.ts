@@ -31,6 +31,7 @@ import * as cache from "../src/release-tarball-cache.js";
 import { registerRunnerArtifacts } from "../src/routes/runner-artifacts.js";
 import { registerRunnerInstaller } from "../src/routes/runner-installer.js";
 import * as releases from "../src/server/release-helpers.js";
+import { createRunnerArtifactSource } from "../src/server/runner-artifacts.js";
 import * as commands from "../src/shared/lib/run-command.js";
 import * as files from "../src/update-recovery/files.js";
 
@@ -808,6 +809,98 @@ describe("runner update artifacts", () => {
       }).once("error", reject);
     });
     await vi.waitFor(() => expect(served?.fd).toBe(-1));
+  });
+
+  it.each([
+    ["a manifest for another version", {}, { version: "1.2.4" }],
+    ["an archive of another build", { revision: "fedcba654321" }, {}],
+  ])(
+    "retries a dev directory that held %s once it is republished",
+    async (_case, archive, fields) => {
+      await buildFixture(archive);
+      await signFixture(inputs, keys.RUNNER_UPDATE_DEV_KEY_ID, fields);
+      dev();
+      expect((await app.inject(manifestUrl)).statusCode).toBe(503);
+      await buildFixture();
+      await signFixture(inputs, keys.RUNNER_UPDATE_DEV_KEY_ID);
+      expect((await app.inject(manifestUrl)).statusCode).toBe(200);
+    }
+  );
+
+  it("serves a republished dev build in place of the one it loaded", async () => {
+    await buildFixture();
+    await signFixture(inputs, keys.RUNNER_UPDATE_DEV_KEY_ID);
+    dev();
+    expect((await app.inject(manifestUrl)).statusCode).toBe(200);
+    await buildFixture();
+    await signFixture(inputs, keys.RUNNER_UPDATE_DEV_KEY_ID);
+    expect((await app.inject(manifestUrl)).statusCode).toBe(200);
+  });
+
+  it("retries a dev manifest republished on its own", async () => {
+    await buildFixture();
+    await signFixture(inputs, keys.RUNNER_UPDATE_DEV_KEY_ID, {
+      version: "1.2.4",
+    });
+    dev();
+    expect((await app.inject(manifestUrl)).statusCode).toBe(503);
+    await signFixture(inputs, keys.RUNNER_UPDATE_DEV_KEY_ID);
+    expect((await app.inject(manifestUrl)).statusCode).toBe(200);
+  });
+
+  it("retries a dev archive republished on its own", async () => {
+    await buildFixture();
+    const good = path.join(temp, archiveName);
+    await copyFile(path.join(inputs, archiveName), good);
+    await buildFixture({ revision: "fedcba654321" });
+    await signFixture(inputs, keys.RUNNER_UPDATE_DEV_KEY_ID);
+    dev();
+    expect((await app.inject(manifestUrl)).statusCode).toBe(503);
+    await copyFile(good, path.join(inputs, archiveName));
+    expect((await app.inject(manifestUrl)).statusCode).toBe(200);
+  });
+
+  it("keeps a dev failure while its files are unchanged", async () => {
+    await buildFixture();
+    await signFixture(inputs, keys.RUNNER_UPDATE_DEV_KEY_ID, {
+      version: "1.2.4",
+    });
+    dev();
+    expect((await app.inject(manifestUrl)).statusCode).toBe(503);
+    expect((await app.inject(manifestUrl)).statusCode).toBe(503);
+    expect(devKeys.readRunnerDevPublicKey).toHaveBeenCalledOnce();
+  });
+
+  it("retries files that were republished while it read the old ones", async () => {
+    await buildFixture();
+    await signFixture(inputs, keys.RUNNER_UPDATE_DEV_KEY_ID, {
+      version: "1.2.4",
+    });
+    dev();
+    vi.mocked(devKeys.readRunnerDevPublicKey).mockImplementationOnce(
+      async () => {
+        await signFixture(inputs, keys.RUNNER_UPDATE_DEV_KEY_ID);
+        return pem;
+      }
+    );
+    expect((await app.inject(manifestUrl)).statusCode).toBe(503);
+    expect((await app.inject(manifestUrl)).statusCode).toBe(200);
+  });
+
+  it("offers the dev install command once a missing bootstrap is published", async () => {
+    await buildFixture();
+    await rm(path.join(inputs, bootstrapName));
+    vi.stubEnv("DISPATCH_RUNNER_ARTIFACT_DEV_DIR", inputs);
+    const artifacts = createRunnerArtifactSource({
+      revision,
+      version,
+      compiled: false,
+    });
+    await expect(artifacts.get()).rejects.toThrow("Missing runner artifact");
+    expect(artifacts.preparationFailed()).toBe(true);
+    await writeFile(path.join(inputs, bootstrapName), bootstrap);
+    expect(artifacts.preparationFailed()).toBe(false);
+    await expect(artifacts.get()).resolves.toMatchObject({ source: "dev" });
   });
 
   it("rejects a changed cached executable before serving either file", async () => {

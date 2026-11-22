@@ -1,6 +1,6 @@
 import { pipeline } from "node:stream/promises";
 import { createGzip } from "node:zlib";
-import { constants, createWriteStream, type Stats } from "node:fs";
+import { constants, createWriteStream, lstatSync, type Stats } from "node:fs";
 import { lstat, mkdtemp, open, rename, rm } from "node:fs/promises";
 import path from "node:path";
 import {
@@ -137,6 +137,7 @@ export async function openRunnerArtifact(
 }
 
 const PREPARATION_RETRY_MS = 60_000;
+type PreparationFailure = { error: unknown; retryAt: number; inputs?: string };
 
 export function createRunnerArtifactSource(
   build: { revision: string; version: string; compiled: boolean },
@@ -154,7 +155,8 @@ export function createRunnerArtifactSource(
     RunnerArch | undefined,
     {
       loaded?: Promise<ArtifactSet>;
-      failure?: { error: unknown; retryAt: number };
+      inputs?: string;
+      failure?: PreparationFailure;
     }
   >();
   const updateStates = new Map<
@@ -162,12 +164,55 @@ export function createRunnerArtifactSource(
     {
       loaded?: Promise<RunnerUpdateArtifactSet>;
       evicting?: Promise<void>;
-      failure?: { error: unknown; retryAt: number };
+      inputs?: string;
+      failure?: PreparationFailure;
     }
   >();
   const filePath = (
     name: RunnerArtifactName | ReturnType<typeof runnerManifestName>
   ) => path.join(directory, name);
+
+  /**
+   * A dev directory is republished in place, so what was found in it, a
+   * failure too, lasts only as long as those files. A release's never change.
+   */
+  function devInputs(arch?: RunnerArch) {
+    if (source !== "dev") return undefined;
+    const names = arch
+      ? [BOOTSTRAP, runnerArchiveName(arch), runnerManifestName(arch)]
+      : [BOOTSTRAP];
+    return names
+      .map((name) => {
+        try {
+          const stat = lstatSync(path.join(directory, name));
+          return `${stat.dev}:${stat.ino}:${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}`;
+        } catch {
+          return "missing";
+        }
+      })
+      .join();
+  }
+
+  function stillFailed(
+    failure: PreparationFailure | undefined,
+    arch?: RunnerArch
+  ) {
+    return (
+      failure !== undefined &&
+      now() < failure.retryAt &&
+      failure.inputs === devInputs(arch)
+    );
+  }
+
+  /** Drop what was loaded from files that have since been republished. */
+  function followInputs(
+    state: { loaded?: unknown; inputs?: string },
+    arch?: RunnerArch
+  ) {
+    const inputs = devInputs(arch);
+    if (state.inputs !== inputs) state.loaded = undefined;
+    state.inputs = inputs;
+  }
 
   async function check<T>(
     names: (RunnerArtifactName | ReturnType<typeof runnerManifestName>)[],
@@ -298,8 +343,7 @@ export function createRunnerArtifactSource(
   // host's architecture, so a failing arch payload surfaces as a 503 when the
   // installer fetches it.
   function preparationFailed() {
-    const failure = states.get(undefined)?.failure;
-    return failure !== undefined && now() < failure.retryAt;
+    return stillFailed(states.get(undefined)?.failure);
   }
 
   async function get(arch?: RunnerArch) {
@@ -308,8 +352,8 @@ export function createRunnerArtifactSource(
       state = {};
       states.set(arch, state);
     }
-    if (state.failure && now() < state.failure.retryAt)
-      throw state.failure.error;
+    if (stillFailed(state.failure, arch)) throw state.failure!.error;
+    followInputs(state, arch);
     const pending = (state.loaded ??= load(arch));
     try {
       const artifacts = await pending;
@@ -323,7 +367,11 @@ export function createRunnerArtifactSource(
       return artifacts;
     } catch (error) {
       if (state.loaded === pending) {
-        state.failure = { error, retryAt: now() + PREPARATION_RETRY_MS };
+        state.failure = {
+          error,
+          retryAt: now() + PREPARATION_RETRY_MS,
+          inputs: state.inputs,
+        };
         state.loaded = undefined;
       }
       throw error;
@@ -503,8 +551,8 @@ export function createRunnerArtifactSource(
       updateStates.set(arch, state);
     }
     await state.evicting;
-    if (state.failure && now() < state.failure.retryAt)
-      throw state.failure.error;
+    if (stillFailed(state.failure, arch)) throw state.failure!.error;
+    followInputs(state, arch);
     // Revalidate the underlying archive even when an update is already loaded.
     const pending = (state.loaded ??= get(arch).then(({ files }) =>
       loadUpdate(arch, files[0]!)
@@ -524,7 +572,11 @@ export function createRunnerArtifactSource(
     } catch (error) {
       if (state.loaded === pending) {
         state.loaded = undefined;
-        state.failure = { error, retryAt: now() + PREPARATION_RETRY_MS };
+        state.failure = {
+          error,
+          retryAt: now() + PREPARATION_RETRY_MS,
+          inputs: state.inputs,
+        };
         const stale = artifacts;
         if (stale) {
           state.evicting = (async () => {
