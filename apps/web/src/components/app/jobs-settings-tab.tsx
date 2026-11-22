@@ -88,7 +88,7 @@ export function SettingsTab({
   const [model, setModel] = useState<string | null>(job.model);
   const {
     options: modelOptions,
-    offModel,
+    savedOption,
     loading: modelCatalogLoading,
     normalizeModel,
   } = useAgentModelCatalog(agentType);
@@ -281,7 +281,7 @@ export function SettingsTab({
               <AgentModelSelect
                 value={model}
                 options={modelOptions}
-                offOption={offModel(model)}
+                savedOption={savedOption(model)}
                 onChange={(value) => {
                   setModel(value);
                   setEffort(null);

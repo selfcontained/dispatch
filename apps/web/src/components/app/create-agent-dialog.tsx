@@ -126,7 +126,7 @@ function CreateAgentDialogContent({
                   model={form.createModel}
                   onModelChange={form.setCreateModel}
                   modelOptions={form.modelOptions}
-                  catalogDefault={form.defaultModel}
+                  alwaysShowModel={form.alwaysShowModel}
                   modelLoading={form.modelCatalogLoading}
                   onTypeOpenChange={setTypeDropdownOpen}
                 />

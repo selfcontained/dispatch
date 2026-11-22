@@ -15,10 +15,8 @@ type Model = {
 export type TypeAvailability = {
   autoEnable: boolean;
   off: string[];
-  /** What Default launches while the engine's own default is off. */
-  replacement: string | null;
-  /** The simulated release, and the policy in force when it was found. */
-  release: "followed" | "held" | null;
+  /** The simulated release has happened. */
+  released: boolean;
 };
 
 export type ModelAvailability = Partial<Record<AgentType, TypeAvailability>>;
@@ -26,66 +24,52 @@ export type ModelAvailability = Partial<Record<AgentType, TypeAvailability>>;
 export const INITIAL_AVAILABILITY: TypeAvailability = {
   autoEnable: true,
   off: [],
-  replacement: null,
-  release: null,
+  released: false,
 };
 
 export const modelAvailabilityAtom = atomWithLocalStorage<ModelAvailability>(
-  "dispatch:preview:model-availability",
+  "dispatch:preview:model-availability:v2",
   {}
 );
 
-/** Claude's versionless ids follow the newest model in their family. */
-export function followsLatest(
-  type: AgentType,
-  id: string,
-  state: TypeAvailability
-): boolean {
-  if (type !== "claude" || /\d/.test(id)) return false;
-  return !(id === "opus" && state.release === "held");
-}
+/** New models the person has seen in a list. */
+export const seenModelsAtom = atomWithLocalStorage<string[]>(
+  "dispatch:preview:models-seen:v2",
+  []
+);
 
 /** The catalog as it would read after the simulated release. */
 export function previewModels(
   type: AgentType,
   models: readonly Model[],
-  release: TypeAvailability["release"]
+  released: boolean,
+  seen: readonly string[]
 ): (Model & { isNew?: boolean })[] {
-  if (!release) return [...models];
-  if (type === "codex")
-    return [
-      { id: "gpt-6.3-sol", label: "GPT-6.3 Sol", isNew: true },
-      ...models,
-    ];
+  if (!released) return [...models];
+  if (type === "codex") {
+    const id = "gpt-6.3-sol";
+    return [{ id, label: "GPT-6.3 Sol", isNew: !seen.includes(id) }, ...models];
+  }
   if (type !== "claude") return [...models];
-  return models.flatMap((model) => {
-    if (model.id !== "opus") return [model];
-    return release === "followed"
+  return models.flatMap((model) =>
+    model.id === "opus"
       ? [
-          { ...model, label: "Opus 5.6", isNew: true },
+          { ...model, label: "Opus 5.6", isNew: !seen.includes("opus") },
           { ...model, id: "claude-opus-5-5" },
         ]
-      : [
-          { ...model, id: "claude-opus-5-6", label: "Opus 5.6", isNew: true },
-          model,
-        ];
-  });
+      : [model]
+  );
 }
 
 export function simulateRelease(
   type: AgentType,
   state: TypeAvailability
 ): TypeAvailability {
-  const { autoEnable, off } = state;
-  const found = type === "codex" ? "gpt-6.3-sol" : "claude-opus-5-6";
-  // An opt-out belongs to the version, so it moves when the alias moves on.
-  const carried =
-    type === "claude" && autoEnable
-      ? off.map((id) => (id === "opus" ? "claude-opus-5-5" : id))
-      : off;
-  return {
-    ...state,
-    release: autoEnable ? "followed" : "held",
-    off: autoEnable ? carried : [...carried, found],
-  };
+  // A checkbox belongs to the version, so it follows 5.5 off the alias.
+  const off =
+    type === "claude"
+      ? state.off.map((id) => (id === "opus" ? "claude-opus-5-5" : id))
+      : [...state.off];
+  if (!state.autoEnable) off.push(type === "claude" ? "opus" : "gpt-6.3-sol");
+  return { ...state, released: true, off };
 }

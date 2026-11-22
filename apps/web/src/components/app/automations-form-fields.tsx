@@ -178,7 +178,7 @@ export function TemplateConfigFields({
   const effortId = useId();
   const {
     options: modelOptions,
-    offModel,
+    savedOption,
     loading: modelCatalogLoading,
   } = useAgentModelCatalog(agentType);
   const {
@@ -215,7 +215,7 @@ export function TemplateConfigFields({
           <AgentModelSelect
             value={model}
             options={modelOptions}
-            offOption={offModel(model)}
+            savedOption={savedOption(model)}
             onChange={onModelChange}
             loading={modelCatalogLoading}
           />

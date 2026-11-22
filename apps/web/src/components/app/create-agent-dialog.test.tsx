@@ -83,22 +83,27 @@ function mount(type: (typeof types)[number], response: object = catalog) {
   return client;
 }
 
-it.each(types)("shows %s's stored default and model choices", async (type) => {
-  mount(type);
-  const model = await screen.findByRole("combobox", { name: "Model" });
-  await within(model).findByText(`${type} Second`);
-  fireEvent.keyDown(model, { key: "ArrowDown" });
-  const list = screen.getByRole("listbox");
-  expect(list.className).toContain(
-    "max-h-[clamp(4rem,var(--radix-select-content-available-height),24rem)]"
-  );
-  const choices = within(list).getAllByRole("option");
-  expect(choices.map((choice) => choice.textContent)).toEqual([
-    `${type} First`,
-    `${type} Second`,
-  ]);
-  expect(choices[1]?.getAttribute("data-state")).toBe("checked");
-});
+it.each(types)(
+  "offers Default, unnamed, before %s's model choices",
+  async (type) => {
+    mount(type);
+    const model = await screen.findByRole("combobox", { name: "Model" });
+    await within(model).findByText("Default");
+    await vi.waitFor(() => expect(model).toHaveProperty("disabled", false));
+    fireEvent.keyDown(model, { key: "ArrowDown" });
+    const list = screen.getByRole("listbox");
+    expect(list.className).toContain(
+      "max-h-[clamp(4rem,var(--radix-select-content-available-height),24rem)]"
+    );
+    const choices = within(list).getAllByRole("option");
+    expect(choices.map((choice) => choice.textContent)).toEqual([
+      "Default",
+      `${type} First`,
+      `${type} Second`,
+    ]);
+    expect(choices[0]?.getAttribute("data-state")).toBe("checked");
+  }
+);
 
 it.each(types)(
   "keeps %s's project menu out of the layout when closed and usable when open",
@@ -131,6 +136,6 @@ it("replaces the empty fallback when the open dialog receives a learned catalog"
   vi.mocked(api).mockResolvedValue(catalog);
   await act(() => client.invalidateQueries({ queryKey: ["agent-models"] }));
 
-  await within(model).findByText("opencode Second");
-  expect(model).toHaveProperty("disabled", false);
+  await vi.waitFor(() => expect(model).toHaveProperty("disabled", false));
+  await within(model).findByText("Default");
 });

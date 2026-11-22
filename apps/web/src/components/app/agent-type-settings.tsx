@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useSetAtom } from "jotai";
 import { ChevronDown } from "lucide-react";
 import { useSearchParams } from "react-router-dom";
 
@@ -15,6 +16,7 @@ import {
 } from "@/components/ui/collapsible";
 import { useAgentModelCatalog } from "@/hooks/use-agent-model-catalog";
 import { api } from "@/lib/api";
+import { seenModelsAtom } from "@/lib/model-availability-preview";
 import { cn } from "@/lib/utils";
 import {
   AGENT_TYPE_LABELS,
@@ -53,12 +55,18 @@ function AgentTypeRow({
   onOpenChange: (open: boolean) => void;
 }): JSX.Element {
   const { options, allOptions } = useAgentModelCatalog(agentType);
-  const count =
-    options.length === allOptions.length
-      ? allOptions.length
-        ? `${allOptions.length} models`
-        : "Models"
-      : `${options.length} of ${allOptions.length} models`;
+  const offCount = allOptions.length - options.length;
+  const markSeen = useSetAtom(seenModelsAtom);
+  const wasOpen = useRef(open);
+  useEffect(() => {
+    // New stays up while the list is open, and clears once it has been seen.
+    if (wasOpen.current && !open) {
+      const unseen = allOptions.filter((option) => option.isNew);
+      if (unseen.length)
+        markSeen((seen) => [...seen, ...unseen.map((option) => option.id)]);
+    }
+    wasOpen.current = open;
+  }, [allOptions, markSeen, open]);
   return (
     <Collapsible
       open={open}
@@ -94,10 +102,21 @@ function AgentTypeRow({
             type="button"
             variant="ghost"
             className="group h-auto min-h-11 shrink-0 gap-1.5 rounded-none px-3 text-xs font-normal"
-            aria-label={`${AGENT_TYPE_LABELS[agentType]}: ${count}`}
+            aria-label={`${AGENT_TYPE_LABELS[agentType]} models: ${options.length} on, ${offCount} off`}
             data-testid={`agent-models-toggle-${agentType}`}
           >
-            {count}
+            {allOptions.length ? (
+              <span className="flex items-baseline gap-2 text-sm tabular-nums">
+                <span className="font-semibold text-foreground">
+                  {options.length}
+                </span>
+                {offCount ? (
+                  <span className="text-muted-foreground line-through">
+                    {offCount}
+                  </span>
+                ) : null}
+              </span>
+            ) : null}
             <ChevronDown className="h-3.5 w-3.5 transition-transform group-data-[state=open]:rotate-180" />
           </Button>
         </CollapsibleTrigger>

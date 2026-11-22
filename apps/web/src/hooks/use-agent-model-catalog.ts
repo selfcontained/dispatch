@@ -8,11 +8,14 @@ import {
   INITIAL_AVAILABILITY,
   modelAvailabilityAtom,
   previewModels,
+  seenModelsAtom,
 } from "@/lib/model-availability-preview";
 
 export type AgentModelOption = {
   id: string;
   label: string;
+  /** Not yet seen in a list by the person. */
+  isNew?: boolean;
   effort?: import("@dispatch/shared").AgentConfigChoice[];
 };
 type CatalogResponse = {
@@ -30,15 +33,12 @@ export type AgentModelCatalog = Partial<Record<AgentType, AgentModelOption[]>>;
  * the `agent_models.changed` event, which invalidates this key (use-sse.ts).
  */
 export function useAgentModelCatalog(agentType: AgentType): {
-  /** The models turned on: what pickers offer. */
+  /** The models turned on: what can be chosen. */
   options: AgentModelOption[];
-  /** Every model the engine offers, including those turned off. */
-  allOptions: (AgentModelOption & { isNew?: boolean })[];
-  /** What Default launches. */
-  defaultModel: string | null;
-  engineDefault: string | null;
-  /** A saved id that the engine offers but is turned off. */
-  offModel: (value: string | null) => AgentModelOption | null;
+  /** Every model the engine offers: what a saved choice may still hold. */
+  allOptions: AgentModelOption[];
+  /** A saved id the engine offers, whether or not it is turned on. */
+  savedOption: (value: string | null) => AgentModelOption | null;
   loading: boolean;
   /** True only once a catalog has actually arrived — a failed fetch stays
    * false so callers don't mistake "no catalog" for "empty catalog". */
@@ -60,22 +60,22 @@ export function useAgentModelCatalog(agentType: AgentType): {
   });
 
   const loaded = data !== undefined;
-  const { off, replacement, release } =
+  const { off, released } =
     useAtomValue(modelAvailabilityAtom)[agentType] ?? INITIAL_AVAILABILITY;
+  const seen = useAtomValue(seenModelsAtom);
   const allOptions = useMemo(
-    () => previewModels(agentType, data?.models?.[agentType] ?? [], release),
-    [agentType, data, release]
+    () =>
+      previewModels(agentType, data?.models?.[agentType] ?? [], released, seen),
+    [agentType, data, released, seen]
   );
   const options = useMemo(
     () => allOptions.filter((option) => !off.includes(option.id)),
     [allOptions, off]
   );
-  const offModel = useCallback(
+  const savedOption = useCallback(
     (value: string | null) =>
-      value !== null && off.includes(value)
-        ? (allOptions.find((option) => option.id === value) ?? null)
-        : null,
-    [allOptions, off]
+      allOptions.find((option) => option.id === value) ?? null,
+    [allOptions]
   );
 
   const normalizeModel = useCallback(
@@ -88,21 +88,10 @@ export function useAgentModelCatalog(agentType: AgentType): {
     [allOptions, loaded]
   );
 
-  const reportedDefault = data?.defaults?.[agentType];
-  const engineDefault = allOptions.some(
-    (option) => option.id === reportedDefault
-  )
-    ? (reportedDefault ?? null)
-    : null;
-  const defaultModel =
-    engineDefault && off.includes(engineDefault) ? replacement : engineDefault;
-
   return {
     options,
     allOptions,
-    defaultModel,
-    engineDefault,
-    offModel,
+    savedOption,
     loading: isLoading,
     loaded,
     normalizeModel,

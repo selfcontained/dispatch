@@ -63,7 +63,7 @@ vi.mock("@/hooks/use-agent-model-catalog", () => ({
     options: [{ id: "m1", label: "Model One" }],
     loading: false,
     loaded: true,
-    offModel: () => null,
+    savedOption: () => null,
     normalizeModel: (model: string | null) => model,
   }),
 }));
