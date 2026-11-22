@@ -171,8 +171,8 @@ export type RunnerUpdateStore = {
 };
 
 /**
- * Beside `holds.json`. Losing it ends an attempt: a runner that still
- * reports one is held while that attempt is cancelled.
+ * Beside `holds.json`. Recover the most recent set-aside receipt if it is
+ * still actionable. Without a receipt, startup reconciles missing hosts.
  */
 export function fileRunnerUpdateStore(
   file: string,
@@ -181,7 +181,15 @@ export function fileRunnerUpdateStore(
   const state = privateStateFile({
     file,
     schema: stateFile,
-    unreadable: "runner update attempt state is unreadable; starting empty",
+    unreadable:
+      "Runner update attempt state is unreadable; normal agent reconciliation applies",
+    recoverRejected: ({ runners }) =>
+      runners.some(
+        ({ attempt }) =>
+          !attempt.outcome &&
+          attempt.deadline > Date.now() &&
+          Boolean(attempt.drain?.agents.length)
+      ),
     logger,
   });
   return {

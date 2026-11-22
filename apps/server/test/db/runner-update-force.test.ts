@@ -3,6 +3,9 @@
  * interrupt, exact turns cut, every session resumed once, and one
  * continuation to each agent whose turn was cut, ahead of held work.
  */
+import { mkdtemp, rename, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import type { Pool } from "pg";
 import {
   afterAll,
@@ -16,7 +19,10 @@ import {
 } from "vitest";
 
 import { RECONNECT_WARNING } from "../../src/agents/reconciler.js";
-import { UPDATE_TIMING } from "../../src/agents/remote/update-coordinator.js";
+import {
+  fileRunnerUpdateStore,
+  UPDATE_TIMING,
+} from "../../src/agents/remote/update-coordinator.js";
 import {
   continuationId,
   UPDATE_CONTINUATION_MESSAGE,
@@ -72,6 +78,52 @@ function resumedOnce(host: Host) {
   ]);
   expect(host.alive).toBe(true);
 }
+
+describe("runner receipt recovery after rolling back Dispatch", () => {
+  it.each([true, false])(
+    "reconciles after boot when the set-aside receipt is readable=%s",
+    async (readable) => {
+      const busy = await world.agent();
+      await world.working(busy);
+      await force();
+      await world.activated();
+      const directory = await mkdtemp(
+        path.join(os.tmpdir(), "runner-receipt-")
+      );
+      const file = path.join(directory, "attempts.json");
+      const rejected = `${file}.rejected-${Date.now()}`;
+      const store = fileRunnerUpdateStore(file);
+      try {
+        if (readable) {
+          await store.write(world.saved.records);
+          await rename(file, rejected);
+        } else {
+          await writeFile(rejected, "{unreadable", { mode: 0o600 });
+        }
+        world.swap();
+        await world.restart({
+          readAttempts: store.read,
+          olderBuild: !readable,
+        });
+        if (!readable) {
+          expect(await statusOf(busy.id)).toBe("stopped");
+          expect(busy.launches).toHaveLength(1);
+          expect(continuations(busy)).toHaveLength(0);
+          return;
+        }
+        await finished();
+        resumedOnce(busy);
+        expect(continuations(busy)).toHaveLength(1);
+        // Simulate subsequent normal saves and prove the backup was moved.
+        await store.write(world.saved.records);
+        await rm(file);
+        expect(await store.read()).toEqual([]);
+      } finally {
+        await rm(directory, { recursive: true, force: true });
+      }
+    }
+  );
+});
 
 describe("a forced update", () => {
   it("resumes a long turn, a waiting parent and idle agents once, and tells only the cut ones to continue, before held work", async () => {

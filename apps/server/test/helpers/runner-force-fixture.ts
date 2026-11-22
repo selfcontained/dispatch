@@ -730,8 +730,15 @@ export async function forceWorld(pool: Pool) {
     },
     crash: () => current.kill(),
     /** A new Dispatch process, as server.ts starts one. */
-    async restart({ olderBuild = false } = {}) {
+    async restart({
+      olderBuild = false,
+      readAttempts,
+    }: {
+      olderBuild?: boolean;
+      readAttempts?: () => Promise<RunnerUpdateRecord[]>;
+    } = {}) {
       current.kill();
+      if (readAttempts) saved.records = await readAttempts();
       current = controller(olderBuild ? identity : target);
       await current.holds.load();
       await current.coordinator.load();
