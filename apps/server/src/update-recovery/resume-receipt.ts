@@ -23,13 +23,15 @@ const resumeReceiptSchema = z
 export type ResumeReceipt = z.infer<typeof resumeReceiptSchema>;
 
 /**
- * A runner attempt's entry: the same running-row claim, plus progress. The
+ * A runner attempt's entry: a session claim and recovery progress. The
  * attempt keeps each one until that agent is resumed and, if its turn was
  * cut, told to continue. The local receipt above is strict and has none of
  * this.
  */
 export const runnerResumeAgentSchema = resumeAgentSchema
   .extend({
+    /** Absent in receipts written before session claims were introduced. */
+    sessionId: z.string().min(1).optional(),
     /** Turns a forced update cut or tried to: stream row, host sequence. */
     turns: z
       .array(

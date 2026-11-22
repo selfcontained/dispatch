@@ -414,7 +414,10 @@ describe("agents the user changed during the update", () => {
     await pool.query("UPDATE agents SET deleted_at = NOW() WHERE id = $1", [
       deleted.id,
     ]);
-    await world.manager.renameAgent(changed.id, "changed");
+    await pool.query("UPDATE agents SET cli_session_id = $2 WHERE id = $1", [
+      changed.id,
+      "different-session",
+    ]);
     world.swap();
     await finished();
     for (const host of all) {
@@ -799,6 +802,47 @@ describe("a runner that stays offline while resuming", () => {
     world.reconnect();
     await finished("deferred");
     resumedOnce(drained);
+  });
+
+  it.each(["drain", "force"] as const)(
+    "resumes and continues the right session after a rename during %s",
+    async (path) => {
+      const renamed = await world.agent();
+      if (path === "force") {
+        await world.working(renamed);
+        await force();
+      } else {
+        world.runner.incompatible = true;
+        await world.coordinator.request(RUNNER, "update");
+      }
+      await world.activated();
+      await pool.query(
+        "UPDATE agents SET name = 'Renamed', updated_at = clock_timestamp() WHERE id = $1",
+        [renamed.id]
+      );
+      world.swap();
+      await finished();
+      resumedOnce(renamed);
+      expect(continuations(renamed)).toHaveLength(path === "force" ? 1 : 0);
+    }
+  );
+
+  it.each([
+    "status = 'stopped'",
+    "status = 'archived'",
+    "deleted_at = now()",
+    "cwd = 'runner://another/workspace'",
+    "cli_session_id = 'other-session'",
+  ])("drops the resume when %s", async (edit) => {
+    const host = await world.agent();
+    await world.working(host);
+    await force();
+    await world.activated();
+    await pool.query(`UPDATE agents SET ${edit} WHERE id = $1`, [host.id]);
+    world.swap();
+    await finished();
+    expect(host.launches).toHaveLength(1);
+    expect(continuations(host)).toHaveLength(0);
   });
 
   it("fails what it can tell is gone", async () => {

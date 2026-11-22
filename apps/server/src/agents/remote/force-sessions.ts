@@ -82,6 +82,7 @@ export class RunnerForceSessions {
       const open = row && (attached ? live?.open : true);
       entries.push({
         ...claim,
+        sessionId: agent.cliSessionId,
         ...(open && {
           turns: [
             {
@@ -134,7 +135,12 @@ export class RunnerForceSessions {
       !turns.some((turn) => turn.id === row.id)
     )
       turns.push({ id: row.id });
-    return { ...claim, ...(turns.length && { turns: turns.slice(-16) }) };
+    if (entry?.sessionId && entry.sessionId !== agent.cliSessionId) return null;
+    return {
+      ...claim,
+      sessionId: agent.cliSessionId,
+      ...(turns.length && { turns: turns.slice(-16) }),
+    };
   }
 
   /** Stops the host and returns its row's claim as the stop left it. */
@@ -169,7 +175,14 @@ export class RunnerForceSessions {
   ): Promise<"done" | "waiting"> {
     const { runtime, turns } = this.deps;
     const { id } = entry;
-    const wanted = async () => this.resumable(await this.agentOn(runnerId, id));
+    const wanted = async () => {
+      const agent = await this.agentOn(runnerId, id);
+      return (
+        this.resumable(agent) &&
+        (entry.sessionId === undefined ||
+          agent.cliSessionId === entry.sessionId)
+      );
+    };
     if (!(await wanted())) return "done";
     const key = continuationId(attemptId, id);
     const delivering = this.deliveries.get(key);
@@ -254,7 +267,9 @@ export class RunnerForceSessions {
       : null;
   }
 
-  private resumable(agent: AgentRecord | null): boolean {
+  private resumable(
+    agent: AgentRecord | null
+  ): agent is AgentRecord & { cliSessionId: string } {
     return (
       agent?.status === "running" &&
       Boolean(agent.cliSessionId) &&

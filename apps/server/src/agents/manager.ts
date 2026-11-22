@@ -3223,8 +3223,8 @@ export class AgentManager {
       }
       const { sessionId } = started;
       await this.pool.query(
-        `UPDATE agents SET status = 'running', cli_session_id = $2, last_error = NULL, setup_phase = NULL, updated_at = NOW() WHERE id = $1`,
-        [id, sessionId]
+        `UPDATE agents SET status = 'running', cli_session_id = $2, last_error = NULL, setup_phase = NULL, runner_resume_attempt_id = $3, updated_at = NOW() WHERE id = $1`,
+        [id, sessionId, recycle?.drain ? launchId : null]
       );
       // Re-populate gitContext on every restart so drift from external git
       // activity gets picked up at start time.
@@ -3443,7 +3443,7 @@ export class AgentManager {
     host: RunnerHostIdentity,
     epoch: number,
     mayStop: () => boolean,
-    record: (entry: { id: string; updatedAt: string }) => Promise<void>
+    record: (entry: RunnerResumeAgent) => Promise<void>
   ): Promise<void> {
     const id = host.agentId;
     if (this.lifecycleOperations.has(id) || this.drainedHostHolds.has(id))
@@ -3464,7 +3464,7 @@ export class AgentManager {
         if (!(await hold.quiesce())) return;
         const [entry] = await this.updateResumeSnapshot([id]);
         if (!entry || this.stoppingOrArchiving.has(id) || !mayStop()) return;
-        await record(entry);
+        await record({ ...entry, sessionId: agent.cliSessionId });
         if (this.stoppingOrArchiving.has(id) || !hold.current() || !mayStop())
           return;
         keep = await hold.shutdown();
@@ -3476,10 +3476,8 @@ export class AgentManager {
   }
 
   /**
-   * The unchanged running row remains the claim until recovery is recorded.
-   * Launching moves that row, so an entry saved as launching also claims the
-   * host that launch left alive: a restart in between neither loses the
-   * resume nor runs it twice. False when there is nothing to resume.
+   * The running session remains the claim across unrelated row edits. An
+   * already resumed host is attached in place after a controller restart. False when there is nothing to resume.
    */
   async resumeRunnerDrainHost(
     runnerId: string,
@@ -3504,17 +3502,11 @@ export class AgentManager {
     )
       return dropped();
     return this.serializeLifecycle(id, async () => {
-      const unchanged = (
-        await this.eligibleUpdateResumes([{ id, updatedAt: entry.updatedAt }])
-      ).has(id);
+      if (!(await this.runnerResumeWanted(runnerId, entry))) return dropped();
+      const unchanged =
+        entry.sessionId !== undefined ||
+        (await this.eligibleUpdateResumes([entry])).has(id);
       if (!unchanged && !entry.launching) return dropped();
-      const agent = await this.getAgent(id);
-      if (
-        agent?.status !== "running" ||
-        !agent.cliSessionId ||
-        remotePlacement(agent.cwd)?.runner !== runnerId
-      )
-        return dropped();
       if (await this.runtime.runnerHostAlive?.(runnerId, id)) {
         if (this.drainedHostHolds.has(id))
           throw new Error("The quiesced runner host is still exiting.");
@@ -3525,7 +3517,16 @@ export class AgentManager {
         return true;
       }
       if (!unchanged || this.stoppingOrArchiving.has(id)) return dropped();
+      if (entry.launching && entry.sessionId !== undefined) {
+        const { rowCount } = await this.pool.query(
+          "SELECT 1 FROM agents WHERE id = $1 AND runner_resume_attempt_id = $2",
+          [id, attemptId]
+        );
+        // A completed launch died before its progress was saved to the file.
+        if (rowCount) return dropped();
+      }
       await beforeLaunch?.();
+      if (!(await this.runnerResumeWanted(runnerId, entry))) return dropped();
       await this.startAgentClaimed(id, attemptId, {
         drain: true,
         mayStart: () => !this.stoppingOrArchiving.has(id),
@@ -3535,15 +3536,31 @@ export class AgentManager {
     });
   }
 
+  private async runnerResumeWanted(runnerId: string, entry: RunnerResumeAgent) {
+    const agent = await this.getAgent(entry.id);
+    return (
+      agent?.status === "running" &&
+      !this.stoppingOrArchiving.has(entry.id) &&
+      remotePlacement(agent.cwd)?.runner === runnerId &&
+      Boolean(agent.cliSessionId) &&
+      (entry.sessionId === undefined || agent.cliSessionId === entry.sessionId)
+    );
+  }
+
   /**
    * A resume that kept failing ends as a failed start, so it does not keep
    * the runner's other work held. False while a host may still be alive.
    */
-  async abandonRunnerResume(runnerId: string, id: string): Promise<boolean> {
+  async abandonRunnerResume(
+    runnerId: string,
+    entry: RunnerResumeAgent
+  ): Promise<boolean> {
+    const { id } = entry;
+    if (!(await this.runnerResumeWanted(runnerId, entry))) return true;
     if ((await this.runtime.runnerHostAlive?.(runnerId, id)) !== false)
       return false;
     if (
-      !this.stoppingOrArchiving.has(id) &&
+      (await this.runnerResumeWanted(runnerId, entry)) &&
       (await this.setAgentStatus(
         id,
         "error",

@@ -1321,9 +1321,9 @@ export class RunnerUpdateCoordinator {
     await Promise.all(
       entries
         .filter((entry) => !entry.resumed)
-        .map(({ id }) =>
+        .map((entry) =>
           // Only a host known to be gone is a failed start.
-          agents.abandonRunnerResume(runnerId, id).catch(() => false)
+          agents.abandonRunnerResume(runnerId, entry).catch(() => false)
         )
     );
     logger.warn(
@@ -1362,7 +1362,7 @@ export class RunnerUpdateCoordinator {
       const failedAt = entry.failedAt ?? this.now();
       if (
         this.now() - failedAt >= UPDATE_TIMING.resumeRetryMs &&
-        (await agents.abandonRunnerResume(runnerId, id).catch(() => false))
+        (await agents.abandonRunnerResume(runnerId, entry).catch(() => false))
       )
         return edit(() => []);
       // Behind the others, so one failure holds none of them back.
