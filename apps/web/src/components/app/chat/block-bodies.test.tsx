@@ -739,7 +739,7 @@ describe("TasksBlockBody", () => {
 });
 
 describe("LinkBlockBody", () => {
-  it("renders the link as a card with its host", () => {
+  it("renders a pull request as a card with its repository and number", () => {
     render(
       <LinkBlockBody
         block={
@@ -755,6 +755,22 @@ describe("LinkBlockBody", () => {
       "https://github.com/o/r/pull/12"
     );
     expect(card.textContent).toContain("Fix it");
-    expect(card.textContent).toContain("github.com");
+    expect(card.textContent).toContain("o/r #12");
+  });
+
+  it("renders any other link as a card with its host", () => {
+    render(
+      <LinkBlockBody
+        block={
+          block({
+            id: "l2",
+            body: linkBody("https://example.com/docs", "Design notes"),
+          }) as Extract<Block, { kind: "link" }>
+        }
+      />
+    );
+    expect(screen.getByTestId("chat-link-block-card").textContent).toContain(
+      "example.com"
+    );
   });
 });
