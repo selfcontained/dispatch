@@ -25,6 +25,22 @@ const pointerCoarse = plugin(({ addVariant }) => {
   addVariant("pointer-coarse", "@media (pointer: coarse)");
 });
 
+/** `pt-safe`, `pb-safe-2`: a safe-area inset, never less than the step. */
+const safeArea = plugin(({ matchUtilities, theme }) => {
+  const side = (property: string, inset: string) => (value: string) => ({
+    [property]: `max(${value}, ${inset})`,
+  });
+  matchUtilities(
+    {
+      "pt-safe": side("paddingTop", "var(--safe-area-top)"),
+      "pr-safe": side("paddingRight", "env(safe-area-inset-right, 0px)"),
+      "pb-safe": side("paddingBottom", "env(safe-area-inset-bottom, 0px)"),
+      "pl-safe": side("paddingLeft", "env(safe-area-inset-left, 0px)"),
+    },
+    { values: { ...theme("spacing"), DEFAULT: "0px" } }
+  );
+});
+
 export default {
   darkMode: ["class"],
   content: ["./index.html", "./src/**/*.{ts,tsx}"],
@@ -167,10 +183,36 @@ export default {
         "elev-jump": "var(--elev-jump)",
         "elev-jump-hover": "var(--elev-jump-hover)",
       },
+      // xs: boxes of 20px or less (checkboxes, seat chips), which sm would
+      // turn into circles. sm: badges, menu items, chips. md: buttons, inputs,
+      // popovers, rows. lg: cards, columns, panels. xl: dialogs and sheets.
+      // mark: chart marks only. screen: follows a phone's bottom corners.
       borderRadius: {
-        lg: "0.75rem",
-        md: "0.6rem",
+        mark: "2px",
+        xs: "0.25rem",
         sm: "0.45rem",
+        md: "0.6rem",
+        lg: "0.75rem",
+        xl: "0.75rem",
+        screen: "28px",
+      },
+      // One stacking order. The viewer steps sit above every other overlay
+      // because the image viewer opens from inside dialogs.
+      zIndex: {
+        sticky: "10",
+        raised: "20",
+        dock: "30",
+        drawer: "50",
+        "drawer-panel": "60",
+        modal: "70",
+        popover: "80",
+        toast: "85",
+        tooltip: "90",
+        progress: "100",
+        viewer: "120",
+        "viewer-modal": "130",
+        "viewer-popover": "140",
+        "viewer-menu": "150",
       },
       keyframes: {
         // Fade new posts without moving their rendered position. The same
@@ -281,5 +323,5 @@ export default {
       },
     },
   },
-  plugins: [typography, pointerCoarse],
+  plugins: [typography, pointerCoarse, safeArea],
 } satisfies Config;

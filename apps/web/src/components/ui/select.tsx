@@ -18,8 +18,8 @@ const SelectValue = SelectPrimitive.Value;
 export const selectTriggerClassName = cn(
   "flex h-9 w-full items-center justify-between rounded-md px-3 py-2 text-body-md",
   glassInset,
-  "ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring",
-  "disabled:cursor-not-allowed disabled:opacity-50 [&>span]:line-clamp-1"
+  "placeholder:text-muted-foreground focus-ring",
+  "disabled:cursor-not-allowed disabled-state [&>span]:line-clamp-1 disabled:pointer-events-auto"
 );
 
 const SelectTrigger = React.forwardRef<
@@ -95,7 +95,7 @@ const SelectContent = React.forwardRef<
         <SelectPrimitive.Content
           ref={ref}
           className={cn(
-            "relative z-[80] max-h-[min(24rem,var(--radix-select-content-available-height))] min-w-[8rem] overflow-hidden rounded-md text-foreground",
+            "relative z-popover max-h-[min(24rem,var(--radix-select-content-available-height))] min-w-[8rem] overflow-hidden rounded-md text-foreground",
             glassOverlay,
             "data-[state=open]:animate-in data-[state=closed]:animate-out",
             "data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
@@ -148,7 +148,7 @@ const SelectItem = React.forwardRef<
     className={cn(
       "relative flex w-full cursor-default select-none items-center rounded-sm py-1.5 pl-8 pr-2 text-body-md outline-none",
       "focus:bg-accent focus:text-accent-foreground data-[state=checked]:bg-accent/veil",
-      "data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
+      "disabled-state",
       className
     )}
     {...props}

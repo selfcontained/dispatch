@@ -168,7 +168,7 @@ function TasksContent({ projectId }: { projectId: string }) {
     });
   };
   const sidebar = (
-    <div className="space-y-5 p-3">
+    <div className="space-y-4 p-3">
       <ProjectSwitcher allowAll={false} />
       <Button className="w-full justify-start" onClick={() => startNewTask()}>
         <Plus className="mr-2 h-4 w-4" />
@@ -238,7 +238,7 @@ function TasksContent({ projectId }: { projectId: string }) {
             {onlyColumn && (
               <button
                 data-testid="task-column-filter"
-                className="flex shrink-0 items-center gap-1.5 rounded-full bg-surface-hover py-0.5 pl-2.5 pr-1.5 text-body-sm hover:bg-muted"
+                className="flex shrink-0 items-center gap-1.5 rounded-full bg-surface-hover py-0.5 pl-2 pr-1.5 text-body-sm hover:bg-muted"
                 onClick={() => updateParam("column", null)}
                 aria-label={`Show all columns (showing only ${onlyColumn.name})`}
               >
@@ -350,12 +350,12 @@ function TasksContent({ projectId }: { projectId: string }) {
           </div>
         </header>
         {isLoading && (
-          <p className="p-5 text-body-md text-muted-foreground">
+          <p className="p-4 text-body-md text-muted-foreground">
             Loading board…
           </p>
         )}
         {error && (
-          <p className="p-5 text-body-md text-danger">
+          <p className="p-4 text-body-md text-danger">
             Could not load tasks: {error.message}
           </p>
         )}

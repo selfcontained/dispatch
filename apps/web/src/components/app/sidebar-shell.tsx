@@ -65,7 +65,7 @@ export function SidebarNavBar({
 
   return (
     <TooltipProvider delayDuration={120}>
-      <div className="flex items-center justify-around border-t border-edge py-3 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
+      <div className="flex items-center justify-around border-t border-edge py-3 pb-safe-5">
         {items.map(({ id, icon: Icon, label }) => (
           <Tooltip key={id}>
             <TooltipTrigger asChild>
@@ -120,8 +120,8 @@ export function SidebarShell({
       data-testid="sidebar-shell"
       className="flex h-full min-h-0 w-full flex-col text-foreground"
     >
-      <div className="flex min-h-14 items-center px-3 pt-[var(--safe-area-top)]">
-        <div className="flex items-center gap-2.5">
+      <div className="flex min-h-14 items-center px-3 pt-safe">
+        <div className="flex items-center gap-2">
           <img
             src={`/icons/${iconColor}/brand-icon.svg`}
             alt=""

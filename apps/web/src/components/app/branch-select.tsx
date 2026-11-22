@@ -138,7 +138,7 @@ export function BranchSelect({
           }}
           className={cn(
             "flex h-9 w-full items-center justify-between rounded-md surface-inset px-3 py-2 font-mono text-body-sm",
-            "ring-offset-background focus:outline-none focus:ring-1 focus:ring-ring",
+            "focus-ring",
             disabled && "cursor-not-allowed opacity-60"
           )}
         >
@@ -155,7 +155,7 @@ export function BranchSelect({
           )}
         </button>
         {dropdownOpen ? (
-          <div className="absolute left-0 right-0 z-[80] mt-1 rounded-md surface-overlay">
+          <div className="absolute left-0 right-0 z-popover mt-1 rounded-md surface-overlay">
             <Command
               onKeyDown={(e) => {
                 if (e.key === "Escape") {

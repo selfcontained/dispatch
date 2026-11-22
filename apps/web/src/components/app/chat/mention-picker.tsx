@@ -42,7 +42,7 @@ export function MentionPicker({
     : { left: 8, bottom: 8 };
   return createPortal(
     <div
-      className="fixed z-50 w-64 max-w-[calc(100vw-16px)] overflow-hidden rounded-md border border-border bg-popover text-popover-foreground shadow-md"
+      className="fixed z-drawer w-64 max-w-[calc(100vw-16px)] overflow-hidden rounded-md border border-border bg-popover text-popover-foreground shadow-md"
       style={style}
       data-testid="mention-picker"
     >
@@ -65,7 +65,7 @@ export function MentionPicker({
             }
             aria-pressed={silent === mode}
             className={cn(
-              "size-6 rounded p-1",
+              "size-6 rounded-sm p-1",
               silent === mode
                 ? "bg-muted text-foreground"
                 : "text-muted-foreground hover:bg-surface-hover"

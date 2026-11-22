@@ -102,7 +102,7 @@ function AgentBackgroundWork({ agentId }: { agentId: string }) {
                 return (
                   <li
                     key={item.id}
-                    className="flex min-h-9 items-center gap-2.5 px-1 py-2"
+                    className="flex min-h-9 items-center gap-2 px-1 py-2"
                   >
                     <Icon
                       className="size-3.5 shrink-0 text-muted-foreground"

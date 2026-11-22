@@ -12,7 +12,7 @@ import { columnAccent } from "./task-utils";
 
 /** A bottom sheet on a phone; a small centered dialog otherwise. */
 const BOTTOM_SHEET =
-  "max-md:inset-x-0 max-md:bottom-0 max-md:left-0 max-md:top-auto max-md:w-full max-md:max-h-[85dvh] max-md:translate-x-0 max-md:translate-y-0 max-md:rounded-b-none max-md:pb-[max(1rem,env(safe-area-inset-bottom))] md:w-[min(360px,calc(100vw-2rem))]";
+  "max-md:inset-x-0 max-md:bottom-0 max-md:left-0 max-md:top-auto max-md:w-full max-md:max-h-[85dvh] max-md:translate-x-0 max-md:translate-y-0 max-md:rounded-b-none max-md:pb-safe-4 md:w-[min(360px,calc(100vw-2rem))]";
 
 /** Move a task to another column without dragging it there. */
 export function TaskMoveSheet({

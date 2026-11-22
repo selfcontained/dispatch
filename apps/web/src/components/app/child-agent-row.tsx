@@ -81,7 +81,7 @@ export function ChildAgentRow({
   // The shared DropdownMenuItem is a plain block styled for destructive items;
   // these need inline icons and the normal foreground colour.
   const menuItemClass =
-    "flex min-h-11 items-center gap-2 text-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50 sm:min-h-0";
+    "flex min-h-11 items-center gap-2 text-foreground disabled-state sm:min-h-0";
   const isReviewAgent = agent.role === "review";
   // Persona reviewers are ordinary agents; a submitted review identifies
   // them regardless of their launch role.
@@ -340,7 +340,7 @@ export function ChildAgentRow({
               Session details
             </DropdownMenuItem>
             <DropdownMenuItem
-              className="flex min-h-11 items-center gap-2 data-[disabled]:pointer-events-none data-[disabled]:opacity-50 sm:min-h-0"
+              className="flex min-h-11 items-center gap-2 disabled-state sm:min-h-0"
               data-testid={`child-agent-archive-${agent.id}`}
               disabled={isArchiving || agent.status === "creating"}
               onSelect={() => {

@@ -47,7 +47,7 @@ function ManualCommand({ command }: { command: string }): JSX.Element {
   const [copied, copyText] = useCopyText();
   return (
     <li className="pl-1 marker:text-muted-foreground">
-      <div className="flex min-w-0 items-center gap-1 rounded bg-surface-hover py-1 pl-2 pr-1">
+      <div className="flex min-w-0 items-center gap-1 rounded-sm bg-surface-hover py-1 pl-2 pr-1">
         <code className="min-w-0 flex-1 whitespace-pre-wrap break-words font-mono text-label-sm text-foreground">
           {command}
         </code>
@@ -83,7 +83,7 @@ function PluginRow({ status }: { status: PluginStatus }): JSX.Element {
             : "Up to date";
 
   return (
-    <div className="rounded border border-border px-3 py-3">
+    <div className="rounded-sm border border-border px-3 py-3">
       <div className="flex min-h-12 items-center justify-between gap-4">
         <div className="min-w-0 flex-1">
           <div className="text-body-md font-medium text-foreground">
@@ -165,7 +165,7 @@ function PluginRow({ status }: { status: PluginStatus }): JSX.Element {
             type="button"
             variant="default"
             size="sm"
-            className="group mt-2 h-7 px-2.5 text-body-sm text-muted-foreground hover:text-foreground"
+            className="group mt-2 h-7 px-2 text-body-sm text-muted-foreground hover:text-foreground"
           >
             <ChevronDown className="mr-1 h-3.5 w-3.5 transition-transform group-data-[state=open]:rotate-180" />
             Manual commands

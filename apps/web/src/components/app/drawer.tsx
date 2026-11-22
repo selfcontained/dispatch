@@ -107,7 +107,7 @@ function SidebarTab({
       data-testid={testId}
       aria-pressed={active}
       className={cn(
-        "relative flex shrink-0 items-center gap-1.5 px-3 py-2.5 text-body-sm font-semibold uppercase tracking-wide transition-colors",
+        "relative flex shrink-0 items-center gap-1.5 px-3 py-3 text-body-sm font-semibold uppercase tracking-wide transition-colors",
         active
           ? "text-foreground"
           : "text-muted-foreground hover:text-foreground/soft"
@@ -171,7 +171,7 @@ export function DrawerContent({
       )}
     >
       {/* Chrome: the home tabs. A thread opens in a drawer of its own. */}
-      <div className="flex min-h-14 items-center pt-[var(--safe-area-top)]">
+      <div className="flex min-h-14 items-center pt-safe">
         {
           <div className="flex min-w-0 flex-1">
             <SidebarTab
@@ -405,7 +405,7 @@ function DrawerResizeHandle({
       aria-valuenow={width}
       tabIndex={0}
       data-testid="drawer-resize-handle"
-      className="group absolute inset-y-0 left-0 z-10 w-2 -translate-x-1/2 cursor-col-resize touch-none outline-none"
+      className="group absolute inset-y-0 left-0 z-sticky w-2 -translate-x-1/2 cursor-col-resize touch-none outline-none"
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={endDrag}
@@ -577,7 +577,7 @@ export function DrawerFrame({
       data-closing={closing ? "true" : undefined}
       data-resizing={dragging ? "true" : undefined}
       className={cn(
-        "fixed bottom-0 right-0 top-[var(--exposure-banner-height,0px)] z-30 transition-transform ease-out",
+        "fixed bottom-0 right-0 top-[var(--exposure-banner-height,0px)] z-dock transition-transform ease-out",
         !open && "pointer-events-none"
       )}
       style={{

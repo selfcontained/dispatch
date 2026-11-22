@@ -34,7 +34,7 @@ export function ChipRemoveButton({
       className={cn(
         "absolute flex items-start justify-end rounded-full text-muted-foreground transition-opacity hover:text-foreground focus:opacity-100 group-hover:opacity-100",
         compact
-          ? "-right-0.5 -top-0.5 z-10 h-6 w-6 p-0.5"
+          ? "-right-0.5 -top-0.5 z-sticky h-6 w-6 p-0.5"
           : "-right-2 -top-2 h-10 w-10 p-2"
       )}
       onClick={onRemove}
@@ -87,7 +87,7 @@ export function ContextFileItem({
         {preview && onOpen ? (
           <button
             type="button"
-            className="group/markup relative block h-full w-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+            className="group/markup relative block h-full w-full focus-ring-inset"
             aria-label={
               noteCount
                 ? `Mark up ${file.name}, ${noteCount} ${noteCount === 1 ? "note" : "notes"}`
@@ -189,7 +189,7 @@ export function ContextChip({
   return (
     <div
       className={cn(
-        "group relative flex h-12 max-w-[180px] flex-col justify-center gap-0.5 rounded-md border border-border-subtle bg-surface-subtle px-2 pr-7 leading-tight",
+        "group relative flex h-12 max-w-[180px] flex-col justify-center gap-0.5 rounded-md border border-border-subtle bg-surface-subtle px-2 pr-8 leading-tight",
         className
       )}
       title={tooltip ?? title}

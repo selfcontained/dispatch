@@ -141,7 +141,7 @@ export function DecisionMetricsSection({
 }) {
   const query = useDecisionMetrics(range, dailyDate);
   return (
-    <section aria-labelledby="decision-metrics-heading" className="space-y-5">
+    <section aria-labelledby="decision-metrics-heading" className="space-y-4">
       <div>
         <h2 id="decision-metrics-heading" className="text-heading-sm">
           AI decisions

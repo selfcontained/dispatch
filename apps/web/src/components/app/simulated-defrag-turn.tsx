@@ -92,7 +92,7 @@ export function SimulatedDefragTurn() {
   });
   const notes = SCRIPT.slice(0, index + 1).filter((event) => "text" in event);
   return (
-    <section className="max-w-2xl space-y-5" aria-label="Simulated agent turn">
+    <section className="max-w-2xl space-y-4" aria-label="Simulated agent turn">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 className="text-heading-lg">Simulated turn</h2>
         <div className="flex flex-wrap gap-2">

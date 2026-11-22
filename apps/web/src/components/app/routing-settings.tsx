@@ -130,7 +130,7 @@ export function RoutingSettings(): JSX.Element {
         </label>
       )}
       {data && !(data.aiEnabled ?? data.configured) && data.configured && (
-        <div className="flex items-center justify-between gap-3 rounded border border-border p-3">
+        <div className="flex items-center justify-between gap-3 rounded-sm border border-border p-3">
           <div className="min-w-0">
             <p className="text-body-sm font-medium">OpenAI API key saved</p>
             <p className="text-body-sm text-muted-foreground">
@@ -156,7 +156,7 @@ export function RoutingSettings(): JSX.Element {
             project, then validate and save it here. API usage can incur OpenAI
             charges, separate from a ChatGPT subscription.
           </p>
-          <div className="space-y-4 rounded border border-border px-3 py-3">
+          <div className="space-y-4 rounded-sm border border-border px-3 py-3">
             <div className="flex h-8 items-center justify-between gap-3">
               <label
                 htmlFor="routing-key"
@@ -360,7 +360,7 @@ export function RoutingSettings(): JSX.Element {
                 : ""}
             </span>
           </div>
-          <label className="flex cursor-pointer items-center gap-3 rounded border border-border px-3 py-2.5 transition-colors hover:bg-surface-hover">
+          <label className="flex cursor-pointer items-center gap-3 rounded-sm border border-border px-3 py-3 transition-colors hover:bg-surface-hover">
             <Checkbox
               id="routing-enabled"
               aria-label="Route replies automatically"
@@ -384,7 +384,7 @@ export function RoutingSettings(): JSX.Element {
               </p>
             </div>
           </label>
-          <label className="flex cursor-pointer items-center gap-3 rounded border border-border px-3 py-2.5 transition-colors hover:bg-surface-hover">
+          <label className="flex cursor-pointer items-center gap-3 rounded-sm border border-border px-3 py-3 transition-colors hover:bg-surface-hover">
             <Checkbox
               aria-label="Smart steering"
               checked={
@@ -405,7 +405,7 @@ export function RoutingSettings(): JSX.Element {
               </p>
             </div>
           </label>
-          <label className="flex cursor-pointer items-center gap-3 rounded border border-border px-3 py-2.5 transition-colors hover:bg-surface-hover">
+          <label className="flex cursor-pointer items-center gap-3 rounded-sm border border-border px-3 py-3 transition-colors hover:bg-surface-hover">
             <Checkbox
               aria-label="Session naming"
               checked={
@@ -429,7 +429,7 @@ export function RoutingSettings(): JSX.Element {
               </p>
             </div>
           </label>
-          <label className="flex cursor-pointer items-center gap-3 rounded border border-border px-3 py-2.5 transition-colors hover:bg-surface-hover">
+          <label className="flex cursor-pointer items-center gap-3 rounded-sm border border-border px-3 py-3 transition-colors hover:bg-surface-hover">
             <Checkbox
               aria-label="Merge risk assessment"
               checked={

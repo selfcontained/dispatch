@@ -219,7 +219,7 @@ function McpInventoryPopover({
           </Button>
         </div>
         {query.isPending ? (
-          <div className="min-h-0 overflow-hidden px-2 pb-5 pt-2">
+          <div className="min-h-0 overflow-hidden px-2 pb-4 pt-2">
             <p
               role="status"
               className="mb-4 flex items-center gap-2 text-body-sm text-primary"
@@ -268,7 +268,7 @@ function McpInventoryPopover({
                   );
                 }}
               >
-                <span className="inline-flex h-6 items-center rounded border border-foreground/line bg-accent px-2">
+                <span className="inline-flex h-6 items-center rounded-sm border border-foreground/line bg-accent px-2">
                   Back
                 </span>
               </Button>
@@ -353,7 +353,7 @@ function McpInventoryPopover({
                 placeholder="Search servers…"
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
-                className="h-8 rounded-sm pl-7 text-body-sm pointer-coarse:min-h-11 pointer-coarse:text-body-lg"
+                className="h-8 rounded-sm pl-8 text-body-sm pointer-coarse:min-h-11 pointer-coarse:text-body-lg"
               />
             </div>
             {attention || attentionCount > 0 ? (

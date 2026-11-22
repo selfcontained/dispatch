@@ -22,7 +22,7 @@ function Meter({
         <span
           key={step}
           className={cn(
-            "w-1 rounded-[1px]",
+            "w-1 rounded-mark",
             step <= index ? "bg-primary" : "bg-muted-foreground/tint-strong"
           )}
           style={{
@@ -82,7 +82,7 @@ export function EffortPicker({
           aria-label={`Effort: ${isDefault ? defaultLabel : label}`}
           title={`Reasoning effort: ${isDefault ? defaultLabel : label}`}
           className={cn(
-            "flex items-center justify-center rounded-md text-label-sm leading-tight transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50",
+            "flex items-center justify-center rounded-md text-label-sm leading-tight transition-colors focus-ring disabled:cursor-not-allowed disabled-state disabled:pointer-events-auto",
             compact
               ? "h-6 max-w-32 shrink-0 gap-1.5 px-1.5 text-muted-foreground hover:bg-surface-hover hover:text-foreground pointer-coarse:min-h-11"
               : [

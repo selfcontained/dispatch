@@ -21,7 +21,7 @@ export function RoutePendingIndicator(): JSX.Element | null {
 
   return (
     <div
-      className="pointer-events-none fixed inset-x-0 top-3 z-[100] flex justify-center"
+      className="pointer-events-none fixed inset-x-0 top-3 z-progress flex justify-center"
       role="status"
     >
       <div className="flex items-center gap-2 rounded-md border border-border bg-background px-3 py-2 text-body-md text-muted-foreground shadow-md">

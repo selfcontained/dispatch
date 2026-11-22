@@ -164,7 +164,7 @@ export function QuickPhrasesButton({
             <h4 className="section-label">Quick Phrases</h4>
             <button
               type="button"
-              className="rounded p-1.5 text-muted-foreground hover:bg-fill-hover hover:text-foreground"
+              className="rounded-sm p-1.5 text-muted-foreground hover:bg-fill-hover hover:text-foreground"
               onClick={() => setEditing({ id: "", label: "", text: "" })}
               title="Add phrase"
             >
@@ -178,14 +178,14 @@ export function QuickPhrasesButton({
           ) : null}
           <Command shouldFilter={false} loop className="bg-transparent">
             <div className="relative">
-              <Search className="pointer-events-none absolute left-4 top-1/2 z-10 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+              <Search className="pointer-events-none absolute left-4 top-1/2 z-sticky h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
               <CommandInput
                 ref={searchInputRef}
                 value={search}
                 onValueChange={setSearch}
                 placeholder="Search phrases..."
                 aria-label="Search quick phrases"
-                className="h-10 pl-7 text-body-md"
+                className="h-10 pl-8 text-body-md"
               />
             </div>
             <CommandList className="max-h-64">

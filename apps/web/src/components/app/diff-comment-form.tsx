@@ -135,7 +135,7 @@ export function InlineCommentForm({
       <div className="p-3">
         <textarea
           ref={textareaRef}
-          className="w-full resize-none rounded border border-border bg-surface-subtle px-3 py-2 text-body-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+          className="w-full resize-none rounded-sm border border-border bg-surface-subtle px-3 py-2 text-body-sm text-foreground placeholder:text-muted-foreground focus-ring"
           placeholder="Leave a comment…"
           rows={3}
           value={comment}
@@ -147,7 +147,7 @@ export function InlineCommentForm({
         <div className="mt-2 flex items-center justify-end gap-2">
           <button
             type="button"
-            className="rounded px-3 py-1.5 text-body-sm text-muted-foreground hover:bg-surface-hover"
+            className="rounded-sm px-3 py-1.5 text-body-sm text-muted-foreground hover:bg-surface-hover"
             onClick={cancel}
             disabled={submitting}
           >
@@ -157,7 +157,7 @@ export function InlineCommentForm({
             <div className="flex">
               <button
                 type="button"
-                className="flex items-center gap-1 rounded-l bg-primary px-3 py-1.5 text-body-sm font-medium text-primary-foreground hover:bg-primary/dense disabled:opacity-50"
+                className="flex items-center gap-1 rounded-l-sm bg-primary px-3 py-1.5 text-body-sm font-medium text-primary-foreground hover:bg-primary/dense disabled-state"
                 onClick={handlePrimaryAction}
                 disabled={!comment.trim() || submitting}
               >
@@ -167,7 +167,7 @@ export function InlineCommentForm({
               <DropdownMenuTrigger asChild>
                 <button
                   type="button"
-                  className="flex items-center rounded-r border-l border-primary-foreground/tint-strong bg-primary px-1.5 py-1.5 text-primary-foreground hover:bg-primary/dense disabled:opacity-50"
+                  className="flex items-center rounded-r-sm border-l border-primary-foreground/tint-strong bg-primary px-1.5 py-1.5 text-primary-foreground hover:bg-primary/dense disabled-state"
                   disabled={!comment.trim() || submitting}
                 >
                   <ChevronDown className="h-3 w-3" />

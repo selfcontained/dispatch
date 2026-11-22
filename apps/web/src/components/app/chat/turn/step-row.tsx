@@ -33,7 +33,7 @@ const STATUS_ARIA: Record<StepStatus, string> = {
 };
 
 const ROW_CLASS =
-  "flex min-w-0 w-full items-center gap-2 py-1.5 text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-status-working/line-strong";
+  "flex min-w-0 w-full items-center gap-2 py-1.5 text-left focus-ring-inset";
 
 /** One step in the step list: glyph, label, summary, duration, toggle. */
 export function StepRow({
@@ -204,7 +204,7 @@ export function StatusGlyph({
 }): JSX.Element {
   const { braille } = useStreamTicker(status === "running");
   const base = cn(
-    "z-10 flex w-3 shrink-0 items-center justify-center text-body-sm leading-none",
+    "z-sticky flex w-3 shrink-0 items-center justify-center text-body-sm leading-none",
     maskClass
   );
   switch (status) {
@@ -253,7 +253,7 @@ function NoticeGlyph({
   maskClass: string;
 }): JSX.Element {
   const base = cn(
-    "z-10 flex w-3 shrink-0 items-center justify-center leading-none",
+    "z-sticky flex w-3 shrink-0 items-center justify-center leading-none",
     maskClass
   );
   if (severity === "error") {

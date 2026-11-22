@@ -3,9 +3,11 @@
 @tailwind utilities;
 
 :root {
-  --font-terminal:
+  --font-mono:
     "JetBrains Mono", Menlo, "Apple Color Emoji", "Segoe UI Emoji",
     "Noto Color Emoji", monospace;
+  /* UI type and code type share a face today, but can diverge. */
+  --font-ui: var(--font-mono);
   --background: 55 8% 6%;
   --foreground: 60 30% 96%;
   --card: 50 8% 9%;
@@ -743,6 +745,23 @@
     @apply text-label-xs font-medium uppercase tracking-wider text-muted-foreground;
   }
 
+  /* The one focus ring; the inset form is for rows in clipping containers. */
+  .focus-ring {
+    @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring;
+  }
+  .focus-ring-inset {
+    @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring;
+  }
+
+  /* The one disabled treatment. Add disabled:pointer-events-auto where a
+     disabled control still explains itself on hover. */
+  .disabled-state:disabled,
+  .disabled-state[data-disabled=""],
+  .disabled-state[data-disabled="true"],
+  .disabled-state[aria-disabled="true"] {
+    @apply pointer-events-none opacity-50;
+  }
+
   /* The four elevations. */
   .surface-inset {
     @apply border border-edge bg-fill-inset shadow-elev-inset backdrop-blur-md;
@@ -768,7 +787,7 @@ body {
 
 body {
   @apply bg-background text-foreground antialiased;
-  font-family: var(--font-terminal);
+  font-family: var(--font-ui);
 }
 
 /* Glass atmosphere — subtle radial gradients behind all content.
@@ -1007,7 +1026,7 @@ html[data-ios-phone] #safe-area-top {
 }
 
 .terminal-font {
-  font-family: var(--font-terminal);
+  font-family: var(--font-mono);
 }
 
 html[data-theme="matrix"] aside,
@@ -1207,8 +1226,9 @@ html[data-theme="matrix"] [role="button"] {
   }
 }
 
-/* Shared by Files, stream code blocks and shared-file previews.
-   Exactly two mode-selected palettes; Changes uses its separate Prism rules.
+/* Shared by both highlighters: highlight.js (Files, stream code blocks,
+   shared-file previews) and Prism (Changes). Exactly two mode-selected
+   palettes; comments clear 4.5:1 on the diff's added and deleted lines.
    Dark colors retain Monokai's pink/green/cyan accents on neutral near-black. */
 :root {
   --syntax-bg: #101114;
@@ -1216,7 +1236,7 @@ html[data-theme="matrix"] [role="button"] {
   --syntax-keyword: #ff6b9d;
   --syntax-string: #e6db74;
   --syntax-number: #b99aff;
-  --syntax-comment: #96968e;
+  --syntax-comment: #9d9d95;
   --syntax-type: #66d9ef;
   --syntax-title: #a6e22e;
   --syntax-meta: #fdad66;
@@ -1228,7 +1248,7 @@ html[data-theme="matrix"] [role="button"] {
   --syntax-keyword: #a62659;
   --syntax-string: #37651e;
   --syntax-number: #7040a0;
-  --syntax-comment: #626870;
+  --syntax-comment: #5b6169;
   --syntax-type: #006b7a;
   --syntax-title: #795000;
   --syntax-meta: #934619;
@@ -1524,7 +1544,7 @@ html[data-hidden] .animate-sidebar-nav-pulse {
 
 /* react-diff-view theme overrides */
 .changes-diff-view .diff {
-  font-family: var(--font-terminal);
+  font-family: var(--font-mono);
   font-size: theme("fontSize.body-sm[0]");
   line-height: 1.5;
   background: hsl(var(--diff-bg));
@@ -1645,123 +1665,50 @@ html[data-hidden] .animate-sidebar-nav-pulse {
   font-style: italic;
 }
 
-/* Syntax highlighting — dark mode (GitHub Dark) */
+/* Prism tokens, on the shared --syntax-* palette. */
+.changes-diff-view .token.punctuation,
+.changes-diff-view .token.operator,
+.changes-diff-view .token.variable {
+  color: var(--syntax-fg);
+}
 .changes-diff-view .token.comment,
 .changes-diff-view .token.prolog,
 .changes-diff-view .token.doctype,
 .changes-diff-view .token.cdata {
-  color: #8b949e;
+  color: var(--syntax-comment);
 }
-.changes-diff-view .token.punctuation {
-  color: #f0f6fc;
-}
-.changes-diff-view .token.tag {
-  color: #f0f6fc;
-}
-.changes-diff-view .token.property,
 .changes-diff-view .token.constant,
 .changes-diff-view .token.symbol,
-.changes-diff-view .token.deleted {
-  color: #79c0ff;
-}
 .changes-diff-view .token.boolean,
-.changes-diff-view .token.number {
-  color: #79c0ff;
+.changes-diff-view .token.number,
+.changes-diff-view .token.entity,
+.changes-diff-view .token.url {
+  color: var(--syntax-number);
 }
 .changes-diff-view .token.string,
 .changes-diff-view .token.char,
-.changes-diff-view .token.inserted {
-  color: #a5d6ff;
+.changes-diff-view .token.attr-value,
+.changes-diff-view .token.regex {
+  color: var(--syntax-string);
 }
+.changes-diff-view .token.property,
 .changes-diff-view .token.selector,
 .changes-diff-view .token.attr-name,
-.changes-diff-view .token.builtin {
-  color: #ffa657;
-}
-.changes-diff-view .token.operator,
-.changes-diff-view .token.entity,
-.changes-diff-view .token.url {
-  color: #79c0ff;
-}
-.changes-diff-view .token.atrule,
-.changes-diff-view .token.attr-value,
-.changes-diff-view .token.keyword {
-  color: #ff7b72;
-}
-.changes-diff-view .token.function {
-  color: #d2a8ff;
-}
+.changes-diff-view .token.builtin,
 .changes-diff-view .token.class-name {
-  color: #ffa657;
+  color: var(--syntax-type);
 }
-.changes-diff-view .token.regex,
+.changes-diff-view .token.function,
+.changes-diff-view .token.inserted {
+  color: var(--syntax-title);
+}
+.changes-diff-view .token.tag,
+.changes-diff-view .token.deleted,
+.changes-diff-view .token.atrule,
+.changes-diff-view .token.keyword,
 .changes-diff-view .token.important,
-.changes-diff-view .token.variable {
-  color: #ffa657;
-}
 .changes-diff-view .token.template-string .token.interpolation {
-  color: #ff7b72;
-}
-
-/* Syntax highlighting — light mode (GitHub Light) */
-[data-theme-mode="light"] .changes-diff-view .token.comment,
-[data-theme-mode="light"] .changes-diff-view .token.prolog,
-[data-theme-mode="light"] .changes-diff-view .token.doctype,
-[data-theme-mode="light"] .changes-diff-view .token.cdata {
-  color: #59636e;
-}
-[data-theme-mode="light"] .changes-diff-view .token.punctuation {
-  color: #1f2328;
-}
-[data-theme-mode="light"] .changes-diff-view .token.tag {
-  color: #1f2328;
-}
-[data-theme-mode="light"] .changes-diff-view .token.property,
-[data-theme-mode="light"] .changes-diff-view .token.constant,
-[data-theme-mode="light"] .changes-diff-view .token.symbol,
-[data-theme-mode="light"] .changes-diff-view .token.deleted {
-  color: #0550ae;
-}
-[data-theme-mode="light"] .changes-diff-view .token.boolean,
-[data-theme-mode="light"] .changes-diff-view .token.number {
-  color: #0550ae;
-}
-[data-theme-mode="light"] .changes-diff-view .token.string,
-[data-theme-mode="light"] .changes-diff-view .token.char,
-[data-theme-mode="light"] .changes-diff-view .token.inserted {
-  color: #0a3069;
-}
-[data-theme-mode="light"] .changes-diff-view .token.selector,
-[data-theme-mode="light"] .changes-diff-view .token.attr-name,
-[data-theme-mode="light"] .changes-diff-view .token.builtin {
-  color: #953800;
-}
-[data-theme-mode="light"] .changes-diff-view .token.operator,
-[data-theme-mode="light"] .changes-diff-view .token.entity,
-[data-theme-mode="light"] .changes-diff-view .token.url {
-  color: #0550ae;
-}
-[data-theme-mode="light"] .changes-diff-view .token.atrule,
-[data-theme-mode="light"] .changes-diff-view .token.attr-value,
-[data-theme-mode="light"] .changes-diff-view .token.keyword {
-  color: #cf222e;
-}
-[data-theme-mode="light"] .changes-diff-view .token.function {
-  color: #6639ba;
-}
-[data-theme-mode="light"] .changes-diff-view .token.class-name {
-  color: #953800;
-}
-[data-theme-mode="light"] .changes-diff-view .token.regex,
-[data-theme-mode="light"] .changes-diff-view .token.important,
-[data-theme-mode="light"] .changes-diff-view .token.variable {
-  color: #953800;
-}
-[data-theme-mode="light"]
-  .changes-diff-view
-  .token.template-string
-  .token.interpolation {
-  color: #cf222e;
+  color: var(--syntax-keyword);
 }
 
 /* A block the reader jumped to (a sidebar row's current turn, a pasted
@@ -1845,7 +1792,7 @@ html[data-hidden] .animate-sidebar-nav-pulse {
       min-height: 44px;
       padding-top: 10px;
       padding-bottom: 10px;
-      border-radius: 1rem;
+      border-radius: theme("borderRadius.lg");
     }
 
     /* One line at rest means a long placeholder (a disabled reason)

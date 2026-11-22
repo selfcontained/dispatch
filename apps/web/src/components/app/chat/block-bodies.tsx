@@ -300,7 +300,7 @@ export function QuestionOptions({
                 maxLength={20000}
                 placeholder="Your answer…"
                 value={draft.text}
-                className="min-h-24 resize-y border-primary/line bg-background/veil text-body-md shadow-none focus-visible:ring-primary/line-strong"
+                className="min-h-24 resize-y border-primary/line bg-background/veil text-body-md shadow-none focus-ring"
                 disabled={optionsDisabled}
                 onChange={(event) =>
                   setDraft((current) => ({
@@ -1602,7 +1602,7 @@ export function TasksBlockBody({
               >
                 <span
                   className={cn(
-                    "mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-[4px] border",
+                    "mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-xs border",
                     checked
                       ? "border-primary bg-primary text-primary-foreground"
                       : status === "now"

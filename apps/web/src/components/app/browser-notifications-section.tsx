@@ -57,7 +57,7 @@ export function BrowserNotificationsSection({
         <div className="max-w-lg space-y-4">
           {/* Permission status + grant button */}
           {browserPermission !== "granted" ? (
-            <div className="flex items-center gap-3 rounded border border-border px-3 py-2.5">
+            <div className="flex items-center gap-3 rounded-sm border border-border px-3 py-3">
               <div className="min-w-0 flex-1">
                 <div className="text-body-md text-foreground">
                   {browserPermission === "denied"
@@ -85,7 +85,7 @@ export function BrowserNotificationsSection({
           ) : null}
 
           {/* Enable toggle */}
-          <label className="flex cursor-pointer items-center gap-3 rounded border border-border px-3 py-2.5 transition-colors hover:bg-surface-hover">
+          <label className="flex cursor-pointer items-center gap-3 rounded-sm border border-border px-3 py-3 transition-colors hover:bg-surface-hover">
             <Checkbox
               checked={webNotifyEnabled}
               disabled={browserPermission !== "granted" || saving}
@@ -115,7 +115,7 @@ export function BrowserNotificationsSection({
               {EVENT_OPTIONS.map(({ id, label, description }) => (
                 <label
                   key={id}
-                  className="flex cursor-pointer items-center gap-3 rounded border border-border px-3 py-2.5 transition-colors hover:bg-surface-hover"
+                  className="flex cursor-pointer items-center gap-3 rounded-sm border border-border px-3 py-3 transition-colors hover:bg-surface-hover"
                 >
                   <Checkbox
                     checked={webNotifyEvents.includes(id)}

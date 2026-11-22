@@ -202,7 +202,7 @@ function userReactionTitle(
 }
 
 const REACTION_CHIP =
-  "inline-flex h-6 items-center rounded-full border px-2 text-body-md leading-none transition-colors max-sm:h-8 max-sm:px-2.5 [@media(pointer:coarse)]:h-8 [@media(pointer:coarse)]:px-2.5";
+  "inline-flex h-6 items-center rounded-full border px-2 text-body-md leading-none transition-colors max-sm:h-8 max-sm:px-2 [@media(pointer:coarse)]:h-8 [@media(pointer:coarse)]:px-2";
 
 /** How a chip arrives and leaves: a quick pop, and neighbours slide over. */
 const CHIP_MOTION = {

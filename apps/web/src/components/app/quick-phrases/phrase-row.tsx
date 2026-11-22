@@ -55,7 +55,7 @@ export function PhraseRow({
         ) : null}
         <button
           type="button"
-          className="rounded p-1.5 text-muted-foreground hover:bg-fill-hover hover:text-foreground"
+          className="rounded-sm p-1.5 text-muted-foreground hover:bg-fill-hover hover:text-foreground"
           onClick={onEdit}
           title="Edit phrase"
         >
@@ -63,7 +63,7 @@ export function PhraseRow({
         </button>
         <button
           type="button"
-          className="rounded p-1.5 text-muted-foreground hover:bg-fill-hover hover:text-foreground"
+          className="rounded-sm p-1.5 text-muted-foreground hover:bg-fill-hover hover:text-foreground"
           onClick={() => {
             const name = phrase.label || phrase.text.slice(0, 40);
             if (window.confirm(`Delete "${name}"?`)) onDelete();

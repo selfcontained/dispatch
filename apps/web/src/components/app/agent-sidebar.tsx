@@ -247,16 +247,16 @@ export function AgentListContent({
                 }
               },
               className: cn(
-                "relative cursor-grab active:cursor-grabbing focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+                "relative cursor-grab active:cursor-grabbing focus-ring",
                 draggingAgentId === agent.id && "opacity-55",
                 dropTarget?.agentId === agent.id &&
                   dropTarget.position === "before" &&
                   draggingAgentId !== agent.id &&
-                  "before:absolute before:inset-x-0 before:top-0 before:z-10 before:h-0.5 before:bg-primary",
+                  "before:absolute before:inset-x-0 before:top-0 before:z-sticky before:h-0.5 before:bg-primary",
                 dropTarget?.agentId === agent.id &&
                   dropTarget.position === "after" &&
                   draggingAgentId !== agent.id &&
-                  "after:absolute after:bottom-0 after:inset-x-0 after:z-10 after:h-0.5 after:bg-primary"
+                  "after:absolute after:bottom-0 after:inset-x-0 after:z-sticky after:h-0.5 after:bg-primary"
               ),
               nativeDragHandlers: {
                 dragstart: (event) => {

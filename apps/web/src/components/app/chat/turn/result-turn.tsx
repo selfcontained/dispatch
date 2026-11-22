@@ -73,7 +73,7 @@ function ResultTurnImpl({
           <ResultBody turn={turn} renderText={renderText} />
         ) : null}
         <p
-          className="flex min-w-0 items-center gap-[9px] text-label-sm text-muted-foreground"
+          className="flex min-w-0 items-center gap-2 text-label-sm text-muted-foreground"
           title={error.message}
           data-testid="harness-retried"
         >
@@ -101,7 +101,7 @@ function ResultTurnImpl({
       {showContent ? <ResultBody turn={turn} renderText={renderText} /> : null}
       {error && signIn ? (
         <div
-          className="min-w-0 space-y-2 rounded border border-danger/line bg-danger/tint px-3 py-2"
+          className="min-w-0 space-y-2 rounded-sm border border-danger/line bg-danger/tint px-3 py-2"
           data-testid="harness-sign-in"
         >
           <div>
@@ -122,7 +122,7 @@ function ResultTurnImpl({
         // failure line. "Turn" is what tells the two apart — this one runs
         // the agent again, where that one re-sends words it never took.
         <p
-          className="flex items-center gap-[9px] text-label-sm text-danger"
+          className="flex items-center gap-2 text-label-sm text-danger"
           data-testid="harness-turn-failed"
         >
           <span aria-hidden="true" className="select-none font-semibold">
@@ -131,7 +131,7 @@ function ResultTurnImpl({
           The turn stopped on an error.
           <button
             type="button"
-            className="underline underline-offset-2 hover:no-underline disabled:opacity-60"
+            className="underline underline-offset-2 hover:no-underline disabled-state"
             disabled={retry.pending}
             onClick={retry.onRetry}
             data-testid="harness-retry-turn"
@@ -142,7 +142,7 @@ function ResultTurnImpl({
       ) : null}
       {interrupted ? (
         <p
-          className="flex items-center gap-[9px] text-label-sm text-warning"
+          className="flex items-center gap-2 text-label-sm text-warning"
           data-testid="harness-interrupted"
         >
           <span aria-hidden="true" className="select-none font-semibold">

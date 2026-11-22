@@ -30,7 +30,7 @@ const NAME_MAX = 80;
 const PROMPT_MAX = 1000;
 
 const TEXTAREA_CLASSES =
-  "w-full min-h-32 rounded-md surface-inset px-3 py-2 text-body-md ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring resize-y";
+  "w-full min-h-32 rounded-md surface-inset px-3 py-2 text-body-md placeholder:text-muted-foreground focus-ring resize-y";
 
 export function PersonalitySettings(): JSX.Element {
   const [personalities, setPersonalities] = useState<Personality[]>([]);
@@ -280,7 +280,7 @@ export function PersonalitySettings(): JSX.Element {
               ? `Deactivate ${personality.name}`
               : `Activate ${personality.name}`
           }
-          className="-m-2 flex h-9 w-9 shrink-0 items-center justify-center rounded transition-colors hover:bg-surface-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="-m-2 flex h-9 w-9 shrink-0 items-center justify-center rounded-sm transition-colors hover:bg-surface-hover focus-ring"
           data-testid={`personality-toggle-${personality.id}`}
         >
           <RadioIndicator selected={isActive} className="mt-0" />

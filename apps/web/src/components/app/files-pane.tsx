@@ -502,7 +502,7 @@ function WorkspaceFiles({
                 placeholder="Find files…"
                 value={filter}
                 onChange={(e) => setFilter(e.target.value)}
-                className="h-8 pl-7 text-body-sm"
+                className="h-8 pl-8 text-body-sm"
               />
             </div>
             {search && fileIndex.data && (
@@ -607,7 +607,7 @@ function WorkspaceFiles({
                     disabled={entry.kind === "link" || entry.kind === "other"}
                     onClick={() => choose(entry)}
                     className={cn(
-                      "relative flex h-full w-full items-center gap-1.5 pr-3 text-left text-body-sm hover:bg-surface-hover focus-visible:outline focus-visible:outline-1 focus-visible:outline-primary disabled:opacity-40",
+                      "relative flex h-full w-full items-center gap-1.5 pr-3 text-left text-body-sm hover:bg-surface-hover focus-ring-inset disabled-state disabled:pointer-events-auto",
                       selected === entry.path &&
                         "bg-surface-selected text-primary",
                       active && "ring-1 ring-inset ring-border"

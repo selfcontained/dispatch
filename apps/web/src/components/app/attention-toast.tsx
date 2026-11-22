@@ -192,8 +192,7 @@ export function AttentionCard({
   // links aren't nested inside it. It's named from the rendered text, which
   // reads as plain words with no Markdown symbols.
   const actionProps = {
-    className:
-      "absolute inset-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+    className: "absolute inset-0 focus-ring-inset",
     "aria-labelledby": [
       `${ids}-name`,
       `${ids}-kind`,
@@ -207,7 +206,7 @@ export function AttentionCard({
   };
   return (
     <div
-      className={`flex w-full items-stretch border bg-popover text-popover-foreground shadow-elev-popover transition-colors [font-family:var(--font-terminal)] ${style.border} ${style.hover} ${settled ? "opacity-50" : ""}`}
+      className={`flex w-full items-stretch border bg-popover text-popover-foreground shadow-elev-popover transition-colors [font-family:var(--font-ui)] ${style.border} ${style.hover} ${settled ? "opacity-50" : ""}`}
     >
       <span aria-hidden className={`w-1 shrink-0 ${style.bar}`} />
       <div
@@ -290,7 +289,7 @@ export function AttentionCard({
           type="button"
           aria-label="Dismiss"
           onClick={onDismiss}
-          className="shrink-0 self-start p-3 text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+          className="shrink-0 self-start p-3 text-muted-foreground transition-colors hover:text-foreground focus-ring-inset"
         >
           <X className="size-4" />
         </button>

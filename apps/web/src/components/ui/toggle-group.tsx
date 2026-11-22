@@ -5,14 +5,14 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "@/lib/utils";
 
 const toggleGroupItemVariants = cva(
-  "inline-flex items-center justify-center gap-1 whitespace-nowrap font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 data-[state=on]:bg-background data-[state=on]:text-foreground data-[state=on]:shadow-sm",
+  "inline-flex items-center justify-center gap-1 whitespace-nowrap font-medium text-muted-foreground transition-colors hover:text-foreground focus-ring disabled-state data-[state=on]:bg-background data-[state=on]:text-foreground data-[state=on]:shadow-sm",
   {
     variants: {
       // Touch-first devices get a ≥44px tap target whatever the size; the
       // track and whatever holds it grow with the segments.
       size: {
-        default: "h-8 rounded-md px-2.5 text-body-md pointer-coarse:h-11",
-        sm: "h-6 rounded px-2 text-body-sm pointer-coarse:h-11 pointer-coarse:px-3",
+        default: "h-8 rounded-md px-2 text-body-md pointer-coarse:h-11",
+        sm: "h-6 rounded-sm px-2 text-body-sm pointer-coarse:h-11 pointer-coarse:px-3",
       },
     },
     defaultVariants: {

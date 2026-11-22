@@ -262,7 +262,7 @@ function EngineRow({
                   : operation?.message}
               </p>
               {operation?.output && (
-                <pre className="max-h-60 overflow-auto whitespace-pre-wrap break-all rounded bg-muted p-3 text-body-sm">
+                <pre className="max-h-60 overflow-auto whitespace-pre-wrap break-all rounded-sm bg-muted p-3 text-body-sm">
                   {operation.output}
                 </pre>
               )}

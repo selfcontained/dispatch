@@ -43,7 +43,10 @@ export const SplitDropZones = memo(function SplitDropZones({
   if (!visible) return null;
 
   return (
-    <div className="absolute inset-0 z-30 flex" data-testid="split-drop-zones">
+    <div
+      className="absolute inset-0 z-dock flex"
+      data-testid="split-drop-zones"
+    >
       <div
         className={cn(
           "flex-1 flex items-center justify-center border-2 border-dashed rounded-l-lg m-2 mr-1 transition-colors",

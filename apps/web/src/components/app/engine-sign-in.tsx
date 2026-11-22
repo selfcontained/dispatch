@@ -224,7 +224,7 @@ function CopyBlock({
   large?: boolean;
 }): JSX.Element {
   return (
-    <div className="flex min-w-0 items-start gap-1 rounded border border-border bg-background/veil p-2">
+    <div className="flex min-w-0 items-start gap-1 rounded-sm border border-border bg-background/veil p-2">
       <code
         className={
           large

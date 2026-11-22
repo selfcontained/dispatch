@@ -23,7 +23,7 @@ export function SlashPicker({
   return createPortal(
     <div
       id={listId}
-      className="fixed z-50 w-80 max-w-[calc(100vw-16px)] overflow-hidden rounded-md border border-border bg-popover text-popover-foreground shadow-md"
+      className="fixed z-drawer w-80 max-w-[calc(100vw-16px)] overflow-hidden rounded-md border border-border bg-popover text-popover-foreground shadow-md"
       style={
         rect
           ? {

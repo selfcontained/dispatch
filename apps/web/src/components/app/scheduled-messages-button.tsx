@@ -109,7 +109,7 @@ export function ScheduledMessagesButton({
         className="flex min-w-0 flex-col"
       >
         <h3 className="sr-only">{s.title}</h3>
-        <div className="flex items-start gap-2.5 bg-surface-subtle px-4 py-3">
+        <div className="flex items-start gap-2 bg-surface-subtle px-4 py-3">
           <Clock className="mt-0.5 h-4 w-4 shrink-0 text-heading-accent-1" />
           <div className="min-w-0">
             <p className="text-body-md font-medium">
@@ -151,7 +151,7 @@ export function ScheduledMessagesButton({
           {s.error && <p className="text-body-sm text-warning">{s.error}</p>}
         </div>
         {isCurrentSchedule(s) && (
-          <div className="sticky bottom-0 flex flex-wrap items-center gap-2 border-t border-border-subtle bg-[hsl(var(--card))] px-4 py-2 sm:px-5">
+          <div className="sticky bottom-0 flex flex-wrap items-center gap-2 border-t border-border-subtle bg-[hsl(var(--card))] px-4 py-2 sm:px-4">
             {s.status !== "uncertain" && (
               <Button
                 size="sm"
@@ -284,7 +284,7 @@ export function ScheduledMessagesButton({
             <X className="h-4 w-4" />
           </Button>
         </DialogClose>
-        <DialogHeader className="shrink-0 border-b border-border-subtle px-4 py-3 pr-14 sm:px-5">
+        <DialogHeader className="shrink-0 border-b border-border-subtle px-4 py-3 pr-14">
           <DialogTitle className="flex items-center gap-2 text-heading-md">
             <CalendarClock className="h-4 w-4 shrink-0 text-heading-accent-1" />
             Scheduled messages
@@ -293,9 +293,9 @@ export function ScheduledMessagesButton({
         </DialogHeader>
         <div className="min-h-0 overflow-y-auto">
           {query.isPending ? (
-            <p className="p-7 text-body-md">Loading schedules…</p>
+            <p className="p-6 text-body-md">Loading schedules…</p>
           ) : query.error ? (
-            <div className="p-7">
+            <div className="p-6">
               <p role="alert" className="text-body-md text-danger">
                 {query.error.message}
               </p>
@@ -340,14 +340,14 @@ export function ScheduledMessagesButton({
 
               <div className="min-w-0">
                 {scheduleId && !schedules.some((s) => s.id === scheduleId) && (
-                  <p className="px-5 pt-4 text-body-md text-muted-foreground">
+                  <p className="px-4 pt-4 text-body-md text-muted-foreground">
                     Schedule unavailable.
                   </p>
                 )}
                 {selected ? (
                   render(selected)
                 ) : (
-                  <div className="p-7 text-body-md text-muted-foreground">
+                  <div className="p-6 text-body-md text-muted-foreground">
                     The agent’s future reminders will appear here.
                   </div>
                 )}

@@ -73,7 +73,7 @@ export function PromptTab({
           value={prompt}
           onChange={(event) => setPrompt(event.target.value)}
           placeholder="Describe what the agent should do..."
-          className="mt-2 h-64 min-h-48 shrink-0 w-full rounded-md surface-inset px-3 py-2 text-body-md font-mono ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+          className="mt-2 h-64 min-h-48 shrink-0 w-full rounded-md surface-inset px-3 py-2 text-body-md font-mono placeholder:text-muted-foreground focus-ring"
         />
         <label className="mt-3 flex items-center justify-between gap-3 rounded-md border border-border-subtle bg-surface-subtle px-3 py-3 text-body-md">
           <span>

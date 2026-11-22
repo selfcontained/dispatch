@@ -105,7 +105,7 @@ export function CommandPalette({
   return (
     <Dialog.Root open={open} onOpenChange={handleOpenChange}>
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-[65] bg-scrim" />
+        <Dialog.Overlay className="fixed inset-0 z-modal bg-scrim" />
         <Dialog.Content
           aria-label="Command palette"
           data-hotkey-disable="true"
@@ -116,7 +116,7 @@ export function CommandPalette({
             }
           }}
           className={cn(
-            "fixed left-1/2 top-[18%] z-[70] flex w-[min(600px,calc(100vw-2rem))] -translate-x-1/2 flex-col overflow-hidden rounded-2xl",
+            "fixed left-1/2 top-[18%] z-modal flex w-[min(600px,calc(100vw-2rem))] -translate-x-1/2 flex-col overflow-hidden rounded-xl",
             glassOverlay,
             "shadow-elev-spotlight",
             "ring-1 ring-primary/tint-strong"
@@ -295,7 +295,7 @@ function CommandPaletteItem({
       className={cn(
         itemClassName,
         "data-[selected=true]:bg-fill-hover data-[selected=true]:text-foreground",
-        "data-[disabled=true]:pointer-events-none data-[disabled=true]:opacity-50"
+        "disabled-state"
       )}
     >
       {Icon ? <Icon className={iconClassName} aria-hidden /> : null}

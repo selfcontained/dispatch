@@ -14,7 +14,7 @@ export function TaskLabelBadge({ label }: { label: TaskLabel }) {
   return (
     <Badge
       title={label.name}
-      className="min-w-0 max-w-[min(8rem,100%)] gap-1.5 rounded border-border-subtle bg-surface-subtle px-1.5 py-0 text-label-sm font-normal normal-case tracking-normal text-muted-foreground"
+      className="min-w-0 max-w-[min(8rem,100%)] gap-1.5 rounded-sm border-border-subtle bg-surface-subtle px-1.5 py-0 text-label-sm font-normal normal-case tracking-normal text-muted-foreground"
     >
       <span
         aria-hidden="true"

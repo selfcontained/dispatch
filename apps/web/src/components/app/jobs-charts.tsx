@@ -52,7 +52,7 @@ export function DailyRunsChart({
               formatter={(value, name, item) => (
                 <>
                   <div
-                    className="h-2.5 w-2.5 shrink-0 rounded-[2px]"
+                    className="h-2.5 w-2.5 shrink-0 rounded-mark"
                     style={{ backgroundColor: item.color }}
                   />
                   <div className="flex flex-1 items-center justify-between gap-4">
@@ -188,7 +188,7 @@ export function RunHistoryGrid({
                   {name}
                 </div>
                 <div
-                  className="grid gap-[1px]"
+                  className="grid gap-px"
                   style={{
                     gridTemplateColumns: `repeat(${MAX_RUN_CELLS}, 1fr)`,
                   }}

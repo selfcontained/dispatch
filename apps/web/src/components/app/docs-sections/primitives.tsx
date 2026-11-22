@@ -1,6 +1,6 @@
 export function Code({ children }: { children: React.ReactNode }) {
   return (
-    <code className="rounded bg-muted px-1.5 py-0.5 text-code font-mono text-foreground">
+    <code className="rounded-sm bg-muted px-1.5 py-0.5 text-code font-mono text-foreground">
       {children}
     </code>
   );

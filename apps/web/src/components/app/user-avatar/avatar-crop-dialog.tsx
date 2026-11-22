@@ -68,7 +68,7 @@ export function AvatarCropDialog({
           tabIndex={0}
           aria-label="Avatar crop preview. Drag or use arrow keys to position."
           data-testid="avatar-crop-preview"
-          className="mx-auto aspect-square w-full max-w-64 shrink-0 touch-none cursor-move rounded-full border border-border bg-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+          className="mx-auto aspect-square w-full max-w-64 shrink-0 touch-none cursor-move rounded-full border border-border bg-muted focus-ring"
           onPointerDown={(event) => {
             if (saving) return;
             event.currentTarget.setPointerCapture(event.pointerId);

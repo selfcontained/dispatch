@@ -223,7 +223,7 @@ export const ComposerInput = forwardRef<
       editable: () => !current.current.disabled,
       attributes: (state) => ({
         class: cn(
-          "min-h-14 max-h-48 overflow-y-auto whitespace-pre-wrap break-words rounded-t-2xl px-4 pb-2 pt-4 text-body-md leading-6 text-foreground caret-foreground outline-none pointer-coarse:text-body-lg selection:bg-primary selection:text-primary-foreground",
+          "min-h-14 max-h-48 overflow-y-auto whitespace-pre-wrap break-words rounded-t-lg px-4 pb-2 pt-4 text-body-md leading-6 text-foreground caret-foreground outline-none pointer-coarse:text-body-lg selection:bg-primary selection:text-primary-foreground",
           current.current.disabled && "opacity-50"
         ),
         role:
@@ -476,7 +476,7 @@ export const ComposerInput = forwardRef<
             id={listId}
             role="listbox"
             aria-label="Emoji shortcodes"
-            className="fixed z-50 w-64 overflow-auto rounded-md border bg-popover p-1 text-popover-foreground shadow-md"
+            className="fixed z-drawer w-64 overflow-auto rounded-md border bg-popover p-1 text-popover-foreground shadow-md"
             style={{
               left: Math.max(8, Math.min(rect.left, window.innerWidth - 264)),
               bottom: Math.max(8, window.innerHeight - rect.top + 4),

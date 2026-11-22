@@ -99,7 +99,7 @@ export function DailyTokenChart({
                     className="flex items-center gap-2 py-0.5"
                   >
                     <div
-                      className="h-2.5 w-2.5 shrink-0 rounded-[2px]"
+                      className="h-2.5 w-2.5 shrink-0 rounded-mark"
                       style={{
                         backgroundColor:
                           tokenChartConfig[p.dataKey as string]?.color,

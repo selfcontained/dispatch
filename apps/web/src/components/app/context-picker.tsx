@@ -47,7 +47,7 @@ function AddContextMenu({
       <button
         type="button"
         onClick={onAddFile}
-        className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-body-md text-foreground hover:bg-fill-hover"
+        className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-body-md text-foreground hover:bg-fill-hover"
       >
         <Upload className="h-3.5 w-3.5 text-muted-foreground" />
         Add file
@@ -55,7 +55,7 @@ function AddContextMenu({
       <button
         type="button"
         onClick={onAddLink}
-        className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-body-md text-foreground hover:bg-fill-hover"
+        className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-body-md text-foreground hover:bg-fill-hover"
       >
         <Link2 className="h-3.5 w-3.5 text-muted-foreground" />
         Add link
@@ -301,13 +301,13 @@ export function ContextPicker({
               ref={clipboard.pasteRef}
               type="text"
               placeholder="Paste here"
-              className="h-7 w-32 rounded-md border border-border-subtle bg-background/veil px-2 text-body-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              className="h-7 w-32 rounded-md border border-border-subtle bg-background/veil px-2 text-body-sm placeholder:text-muted-foreground focus-ring"
               onPaste={clipboard.handlePasteInput}
               onBlur={clipboard.handlePasteBlur}
             />
             {clipboard.pasteTooltip ? (
               <div
-                className="absolute right-0 top-full z-50 mt-1.5 whitespace-nowrap rounded-md border bg-popover px-2.5 py-1.5 text-body-sm text-popover-foreground shadow-md animate-in fade-in-0 zoom-in-95"
+                className="absolute right-0 top-full z-drawer mt-1.5 whitespace-nowrap rounded-md border bg-popover px-2 py-1.5 text-body-sm text-popover-foreground shadow-md animate-in fade-in-0 zoom-in-95"
                 role="status"
               >
                 {clipboard.pasteTooltip}

@@ -167,7 +167,7 @@ function DeliveryStatus({
         {onRetryDelivery ? (
           <button
             type="button"
-            className="underline underline-offset-2 hover:no-underline disabled:opacity-60"
+            className="underline underline-offset-2 hover:no-underline disabled-state"
             disabled={retrying}
             onClick={() => onRetryDelivery?.(block.id)}
             data-testid="chat-delivery-retry"

@@ -47,7 +47,7 @@ export function AgentModelSettings({
 
   return (
     <div data-testid={`agent-models-${agentType}`}>
-      <label className="flex min-h-11 cursor-pointer items-center justify-between gap-3 px-3 py-2.5">
+      <label className="flex min-h-11 cursor-pointer items-center justify-between gap-3 px-3 py-3">
         <span className="text-body-md">Auto-enable new models</span>
         <Switch
           aria-label={`Auto-enable new ${typeLabel} models`}

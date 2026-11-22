@@ -44,7 +44,7 @@ export function BrainsListContent({
           <div>
             <button
               className={cn(
-                "flex w-full items-center gap-2 border-b border-r-4 border-border border-r-transparent px-3 py-2.5 text-left text-body-md text-muted-foreground transition-colors hover:bg-surface-hover",
+                "flex w-full items-center gap-2 border-b border-r-4 border-border border-r-transparent px-3 py-3 text-left text-body-md text-muted-foreground transition-colors hover:bg-surface-hover",
                 showOverview && "border-r-primary bg-surface-hover"
               )}
               onClick={() => {

@@ -162,7 +162,7 @@ function TemplateDetail({
   return (
     <div className="flex h-full flex-col overflow-y-auto">
       {/* Header with launch */}
-      <div className="border-b border-border px-6 py-5">
+      <div className="border-b border-border px-6 py-4">
         <h2 className="text-heading-lg text-foreground">{template.name}</h2>
         {template.description ? (
           <p className="mt-0.5 text-body-md text-muted-foreground">
@@ -181,7 +181,7 @@ function TemplateDetail({
             {savedArgs.map((a, i) => (
               <span key={a.key}>
                 {i > 0 ? ", " : ""}
-                <span className="rounded bg-surface-selected px-1.5 py-0.5 text-primary">
+                <span className="rounded-sm bg-surface-selected px-1.5 py-0.5 text-primary">
                   {a.name}
                   {a.required ? " *" : ""}
                   {a.multiline ? " (multiline)" : ""}
@@ -215,7 +215,7 @@ function TemplateDetail({
       </div>
 
       {/* Inline-editable config form */}
-      <div className="flex-1 px-6 py-5">
+      <div className="flex-1 px-6 py-4">
         <div className="grid gap-4">
           <div className="rounded-md border border-edge bg-fill-inset p-4">
             <div className="text-body-md font-medium">

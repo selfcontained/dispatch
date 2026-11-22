@@ -89,7 +89,7 @@ export const CenterPaneTabBar = memo(function CenterPaneTabBar({
             onDragStart={(e) => handleDragStart(e, tab.id)}
             className={cn(
               "relative flex shrink-0 items-center gap-1.5 whitespace-nowrap py-1.5 text-body-sm font-semibold uppercase tracking-wide transition-colors",
-              isMobile ? "px-2.5" : "px-3",
+              isMobile ? "px-2" : "px-3",
               activeTab === tab.id
                 ? "text-foreground"
                 : "cursor-grab text-muted-foreground hover:text-foreground/soft active:cursor-grabbing"

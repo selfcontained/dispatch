@@ -140,7 +140,7 @@ export function MessageActions({
                 )}
                 {onReact && (
                   <DropdownMenuItem
-                    className="flex items-center gap-2 text-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50"
+                    className="flex items-center gap-2 text-foreground disabled-state"
                     disabled={reactionsDisabled}
                     title={
                       reactionsDisabled

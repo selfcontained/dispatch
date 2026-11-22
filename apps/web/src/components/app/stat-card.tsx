@@ -13,7 +13,7 @@ export function StatCard({
   variant?: "warning";
 }) {
   return (
-    <div className="min-w-[7rem] max-w-[14rem] flex-1 basis-[7rem] rounded-md border border-border bg-surface-subtle px-2.5 py-2 sm:px-4 sm:py-3">
+    <div className="min-w-[7rem] max-w-[14rem] flex-1 basis-[7rem] rounded-md border border-border bg-surface-subtle px-2 py-2 sm:px-4 sm:py-3">
       <p className="text-label-xs sm:text-body-sm text-muted-foreground">
         {label}
       </p>

@@ -59,7 +59,7 @@ export function ServiceResourcesSettings(): JSX.Element {
 
   return (
     <div
-      className="mx-auto w-full max-w-7xl space-y-5 px-3 pb-16 pt-4 sm:px-5 md:px-8 md:pt-6"
+      className="mx-auto w-full max-w-7xl space-y-4 px-3 pb-16 pt-4 sm:px-4 md:px-8 md:pt-6"
       data-testid="service-resources-dashboard"
     >
       <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -116,7 +116,7 @@ export function ServiceResourcesSettings(): JSX.Element {
         </div>
       </header>
 
-      <div className="flex items-center justify-between gap-4 rounded-md border border-border-subtle bg-surface-subtle px-4 py-3.5">
+      <div className="flex items-center justify-between gap-4 rounded-md border border-border-subtle bg-surface-subtle px-4 py-3">
         <label
           htmlFor="resource-collection-toggle"
           className="min-w-0 cursor-pointer"

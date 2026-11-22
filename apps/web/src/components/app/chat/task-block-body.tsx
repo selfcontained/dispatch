@@ -45,7 +45,7 @@ export function TaskBlockBody({
       type="button"
       aria-haspopup="dialog"
       data-testid="stream-task-card"
-      className="my-2 flex w-full min-w-0 items-start gap-3 rounded-lg border bg-card p-3 text-left transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      className="my-2 flex w-full min-w-0 items-start gap-3 rounded-lg border bg-card p-3 text-left transition-colors hover:bg-accent focus-ring"
       onClick={() => {
         const next = new URLSearchParams(params);
         const paging = next.has("task");

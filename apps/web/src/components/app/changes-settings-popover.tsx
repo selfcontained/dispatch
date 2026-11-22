@@ -74,7 +74,7 @@ export function ChangesSettingsPopover({
                       disabled={disabled}
                       aria-pressed={effectiveViewType === opt.value}
                       className={cn(
-                        "flex-1 rounded-[3px] px-2 py-1 text-body-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50",
+                        "flex-1 rounded-sm px-2 py-1 text-body-sm font-medium transition-colors disabled:cursor-not-allowed disabled-state disabled:pointer-events-auto",
                         effectiveViewType === opt.value
                           ? "bg-background text-foreground shadow-sm"
                           : "text-muted-foreground hover:text-foreground"

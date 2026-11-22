@@ -371,7 +371,7 @@ export function PathInput({
             }}
             placeholder={placeholder}
             data-testid={testId}
-            className="flex h-9 w-full bg-transparent pr-8 px-3 py-1 font-mono text-body-sm text-foreground placeholder:text-muted-foreground focus-visible:outline-none"
+            className="flex h-9 w-full rounded-md bg-transparent pr-8 px-3 py-1 font-mono text-body-sm text-foreground placeholder:text-muted-foreground focus-ring"
           />
           {history.length > 0 ? (
             <button
@@ -394,7 +394,7 @@ export function PathInput({
           ) : null}
         </div>
         {dropdownOpen && options.length > 0 ? (
-          <div className="absolute left-0 right-0 z-[60] mt-1.5 rounded-md surface-overlay p-1">
+          <div className="absolute left-0 right-0 z-drawer-panel mt-1.5 rounded-md surface-overlay p-1">
             <div className="px-2 py-1.5 text-label-sm font-medium text-muted-foreground">
               Suggestions
             </div>
@@ -424,7 +424,7 @@ export function PathInput({
                     onMouseDown={(event) => event.preventDefault()}
                     onMouseMove={() => setSelectedIndex(index)}
                   >
-                    <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded border border-border-subtle bg-surface-subtle">
+                    <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-sm border border-border-subtle bg-surface-subtle">
                       <PathOptionIcon iconUrl={option.iconUrl} />
                     </span>
                     <span className="min-w-0 flex-1">
@@ -437,7 +437,7 @@ export function PathInput({
                     </span>
                     {option.usageCount > 0 ? (
                       <span
-                        className="shrink-0 rounded border border-border-subtle px-1.5 py-0.5 text-label-xs text-muted-foreground"
+                        className="shrink-0 rounded-sm border border-border-subtle px-1.5 py-0.5 text-label-xs text-muted-foreground"
                         title={`${option.usageCount} uses`}
                       >
                         {option.usageCount}

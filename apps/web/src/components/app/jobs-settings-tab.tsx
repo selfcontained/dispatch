@@ -524,8 +524,8 @@ function RemoveJobDialog({
   return (
     <DialogPrimitive.Root open={open} onOpenChange={onOpenChange}>
       <DialogPrimitive.Portal>
-        <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-scrim backdrop-blur-md" />
-        <DialogPrimitive.Content className="fixed left-1/2 top-1/2 z-50 w-[min(420px,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 rounded-lg surface-overlay p-5 outline-none">
+        <DialogPrimitive.Overlay className="fixed inset-0 z-drawer bg-scrim backdrop-blur-md" />
+        <DialogPrimitive.Content className="fixed left-1/2 top-1/2 z-drawer w-[min(420px,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 rounded-lg surface-overlay p-4 outline-none">
           <DialogPrimitive.Title className="text-heading-md">
             Remove job?
           </DialogPrimitive.Title>
@@ -535,7 +535,7 @@ function RemoveJobDialog({
             this Dispatch instance? This removes its saved schedule and run
             history.
           </DialogPrimitive.Description>
-          <div className="mt-5 flex justify-end gap-2">
+          <div className="mt-4 flex justify-end gap-2">
             <DialogPrimitive.Close asChild>
               <Button variant="ghost" disabled={isRemoving}>
                 Cancel

@@ -80,7 +80,7 @@ export function SystemEventEntry({
         href={event.resource.url}
         target="_blank"
         rel="noreferrer"
-        className="min-w-0 break-words text-foreground underline decoration-border underline-offset-4 focus-visible:outline-ring"
+        className="min-w-0 break-words text-foreground underline decoration-border underline-offset-4 focus-ring"
       >
         {event.resource.label}
       </a>
@@ -119,7 +119,7 @@ export function SystemEventEntry({
         href={prUrl}
         target="_blank"
         rel="noreferrer"
-        className="min-w-0 font-medium text-foreground underline decoration-border underline-offset-4 [overflow-wrap:anywhere] focus-visible:outline-ring"
+        className="min-w-0 font-medium text-foreground underline decoration-border underline-offset-4 [overflow-wrap:anywhere] focus-ring"
       >
         {prNumber && (
           <span className="font-mono text-muted-foreground">
@@ -182,7 +182,7 @@ export function SystemEventEntry({
             {visibleContent}
             {children}
             {/* Separators lead their item so a wrapped row never ends in "·". */}
-            <div className="mt-2.5 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-label-sm text-muted-foreground">
+            <div className="mt-2 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-label-sm text-muted-foreground">
               {time}
               {commit && (
                 <span className="whitespace-nowrap">

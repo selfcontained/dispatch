@@ -352,7 +352,7 @@ export function TemplateConfigFields({
             className={cn(
               "min-h-64 resize-y",
               "ring-offset-background placeholder:text-muted-foreground",
-              "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              "focus-ring"
             )}
           />
           {prompt.trim() ? null : (
@@ -367,7 +367,7 @@ export function TemplateConfigFields({
               {detectedArgs.map((a) => (
                 <span
                   key={a.key}
-                  className="mr-1.5 inline-block rounded bg-surface-selected px-1.5 py-0.5 text-primary"
+                  className="mr-1.5 inline-block rounded-sm bg-surface-selected px-1.5 py-0.5 text-primary"
                 >
                   {a.name}
                   {a.required ? " *" : ""}

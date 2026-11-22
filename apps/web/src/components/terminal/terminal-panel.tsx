@@ -164,7 +164,7 @@ function TerminalCanvas({
   return (
     <div
       ref={element}
-      className="min-h-0 flex-1 overflow-hidden rounded bg-terminal p-2"
+      className="min-h-0 flex-1 overflow-hidden rounded-sm bg-terminal p-2"
       aria-label="Host terminal"
     />
   );
@@ -511,7 +511,7 @@ export default function TerminalPanel({
         </p>
       )}
       {status === "unavailable" && errorCode === "password_not_set" ? (
-        <div className="min-h-0 flex-1 overflow-auto rounded bg-terminal-shell p-4">
+        <div className="min-h-0 flex-1 overflow-auto rounded-sm bg-terminal-shell p-4">
           <SetPasswordForm
             onSuccess={retryAfterSetup}
             onPasswordAlreadySet={retryAfterSetup}
@@ -540,7 +540,7 @@ export default function TerminalPanel({
           )}
         </>
       ) : (
-        <div className="flex min-h-0 flex-1 items-center justify-center rounded bg-terminal-shell p-4 text-center text-body-sm text-muted-foreground">
+        <div className="flex min-h-0 flex-1 items-center justify-center rounded-sm bg-terminal-shell p-4 text-center text-body-sm text-muted-foreground">
           {finished
             ? "Choose New terminal to open a shell."
             : status === "unavailable" ||

@@ -1364,7 +1364,7 @@ export function ChatPane({
         <div className="relative flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
           {showLastMessage && (
             <div
-              className="pointer-events-none absolute inset-x-0 top-0 z-20"
+              className="pointer-events-none absolute inset-x-0 top-0 z-raised"
               data-testid="request-context-overlay"
               style={{ visibility: contextJumpId ? "hidden" : undefined }}
             >

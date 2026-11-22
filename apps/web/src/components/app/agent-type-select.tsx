@@ -77,7 +77,7 @@ export function AgentTypeSelect({
         }}
         className={cn(
           "flex h-9 w-full items-center justify-between rounded-md surface-inset px-3 py-2 text-body-md",
-          "ring-offset-background focus:outline-none focus:ring-1 focus:ring-ring"
+          "focus-ring"
         )}
       >
         {AGENT_TYPE_LABELS[value]}
@@ -89,7 +89,7 @@ export function AgentTypeSelect({
         />
       </button>
       {open ? (
-        <div className="absolute left-0 z-[80] min-w-48 w-max max-w-[calc(100vw-3rem)] mt-1 rounded-md surface-overlay">
+        <div className="absolute left-0 z-popover min-w-48 w-max max-w-[calc(100vw-3rem)] mt-1 rounded-md surface-overlay">
           <Command
             shouldFilter={false}
             ref={(el) => {

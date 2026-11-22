@@ -153,7 +153,7 @@ export function AgentActivityLabel({
       className={cn(
         "group/turn flex min-w-0 max-w-full items-center gap-1.5 rounded-sm text-left",
         "hover:underline decoration-muted-foreground/line underline-offset-2",
-        "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
+        "focus-ring",
         className
       )}
       data-testid={`agent-activity-${agent.id}`}

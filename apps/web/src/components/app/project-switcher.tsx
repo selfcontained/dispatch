@@ -163,7 +163,7 @@ export function ProjectSwitcher({ allowAll = true }: { allowAll?: boolean }) {
                 <ProjectIcon project={p} />
                 <span
                   aria-hidden
-                  className="h-6 w-1 shrink-0 rounded"
+                  className="h-6 w-1 shrink-0 rounded-sm"
                   style={{ background: p.color }}
                 />
                 <div className="min-w-0 flex-1">

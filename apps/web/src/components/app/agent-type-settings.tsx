@@ -62,12 +62,12 @@ function AgentTypeRow({
     <Collapsible
       open={open}
       onOpenChange={onOpenChange}
-      className="rounded border border-border"
+      className="rounded-sm border border-border"
     >
       <div className="flex items-stretch">
         <label
           className={cn(
-            "flex min-w-0 flex-1 items-center gap-3 px-3 py-2.5 transition-colors",
+            "flex min-w-0 flex-1 items-center gap-3 px-3 py-3 transition-colors",
             disabled
               ? "cursor-not-allowed opacity-60"
               : "cursor-pointer hover:bg-surface-hover"

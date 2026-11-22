@@ -28,7 +28,7 @@ export function AgentHistoryDetail({
 
   if (isLoading) {
     return (
-      <div className="space-y-4 p-5">
+      <div className="space-y-4 p-4">
         <button
           onClick={onBack}
           className="flex items-center gap-1 text-body-sm text-muted-foreground hover:text-foreground"
@@ -39,7 +39,7 @@ export function AgentHistoryDetail({
           {Array.from({ length: 4 }).map((_, i) => (
             <div
               key={i}
-              className="h-8 animate-pulse rounded bg-surface-subtle"
+              className="h-8 animate-pulse rounded-sm bg-surface-subtle"
             />
           ))}
         </div>
@@ -49,7 +49,7 @@ export function AgentHistoryDetail({
 
   if (isError || !data) {
     return (
-      <div className="space-y-4 p-5">
+      <div className="space-y-4 p-4">
         <button
           onClick={onBack}
           className="flex items-center gap-1 text-body-sm text-muted-foreground hover:text-foreground"
@@ -78,7 +78,7 @@ export function AgentHistoryDetail({
     tokenUsage.total_output;
 
   return (
-    <div className="mx-auto max-w-5xl min-w-0 space-y-6 px-3 pt-4 pb-12 sm:space-y-8 sm:px-5 sm:pt-6 sm:pb-20 md:px-8">
+    <div className="mx-auto max-w-5xl min-w-0 space-y-6 px-3 pt-4 pb-12 sm:space-y-8 sm:px-4 sm:pt-6 sm:pb-20 md:px-8">
       {/* Header */}
       <div>
         <button
@@ -105,7 +105,7 @@ export function AgentHistoryDetail({
           {(agent.worktreeBranch || agent.gitContext?.branch) && (
             <div className="flex items-center gap-2">
               <span className="w-16 shrink-0 text-label-sm">Branch</span>
-              <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-label-sm text-foreground">
+              <span className="rounded-sm bg-muted px-1.5 py-0.5 font-mono text-label-sm text-foreground">
                 {agent.worktreeBranch || agent.gitContext?.branch}
               </span>
             </div>

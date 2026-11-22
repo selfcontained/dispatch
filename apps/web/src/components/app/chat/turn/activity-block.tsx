@@ -418,7 +418,7 @@ function ActivitySummary({
             ? "chat-response-hide-progress"
             : "chat-response-show-progress"
         }
-        className="shrink-0 whitespace-nowrap rounded-sm text-body-sm text-foreground underline underline-offset-2 hover:no-underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+        className="shrink-0 whitespace-nowrap rounded-sm text-body-sm text-foreground underline underline-offset-2 hover:no-underline focus-ring"
       >
         {expanded ? "Show less" : "Show more"}
       </button>
@@ -502,7 +502,7 @@ function SummaryRow({
         slot
           ? "grid-cols-[12px_minmax(0,1fr)_auto_auto]"
           : "grid-cols-[minmax(0,1fr)_auto_auto]",
-        "hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-status-working/line-strong"
+        "hover:bg-surface-hover focus-ring"
       )}
     >
       {slot ? (
@@ -570,7 +570,7 @@ function ThinkingRow({
   if (!shown) return null;
   return (
     <div
-      className="flex items-center gap-[9px] py-1"
+      className="flex items-center gap-2 py-1"
       role="listitem"
       aria-label="thinking, running"
       data-testid="harness-thinking-row"
@@ -645,7 +645,7 @@ function ProgressFreshness({
     >
       <span
         className={cn(
-          "z-10 flex w-3 shrink-0 items-center justify-center text-muted-foreground",
+          "z-sticky flex w-3 shrink-0 items-center justify-center text-muted-foreground",
           maskClass
         )}
         aria-hidden="true"

@@ -29,7 +29,7 @@ export function ComposerStrip({
   const contentId = useId();
   return (
     <div
-      className="mb-1.5 min-w-0 rounded-md border border-border-subtle bg-surface-hover px-2.5 py-1.5"
+      className="mb-1.5 min-w-0 rounded-md border border-border-subtle bg-surface-hover px-2 py-1.5"
       data-testid={testId}
     >
       <button
@@ -38,7 +38,7 @@ export function ComposerStrip({
         onClick={() => onOpenChange(!open)}
         aria-expanded={open}
         aria-controls={contentId}
-        className="flex w-full min-w-0 items-center gap-2 text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-status-working/line-strong pointer-coarse:min-h-11"
+        className="flex w-full min-w-0 items-center gap-2 text-left focus-ring pointer-coarse:min-h-11"
         data-testid={`${testId}-toggle`}
       >
         <Icon

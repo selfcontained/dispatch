@@ -75,7 +75,7 @@ function PermissionRequest({
       </div>
       <p className="break-words text-body-md">{request.title}</p>
       {request.details ? (
-        <pre className="my-2 max-h-40 overflow-auto whitespace-pre-wrap break-all rounded bg-surface-hover p-2 text-body-sm">
+        <pre className="my-2 max-h-40 overflow-auto whitespace-pre-wrap break-all rounded-sm bg-surface-hover p-2 text-body-sm">
           {request.details}
         </pre>
       ) : null}

@@ -73,7 +73,7 @@ export function InlineDraftAnnotation({
         </div>
         <div className="p-3">
           <textarea
-            className="w-full resize-none rounded border border-border bg-surface-subtle px-3 py-2 text-body-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+            className="w-full resize-none rounded-sm border border-border bg-surface-subtle px-3 py-2 text-body-sm text-foreground placeholder:text-muted-foreground focus-ring"
             rows={3}
             value={editValue}
             onChange={(e) => setEditValue(e.target.value)}
@@ -83,7 +83,7 @@ export function InlineDraftAnnotation({
           <div className="mt-2 flex items-center justify-end gap-2">
             <button
               type="button"
-              className="rounded px-3 py-1.5 text-body-sm text-muted-foreground hover:bg-surface-hover"
+              className="rounded-sm px-3 py-1.5 text-body-sm text-muted-foreground hover:bg-surface-hover"
               onClick={() => {
                 setEditValue(draft.comment);
                 setEditing(false);
@@ -93,7 +93,7 @@ export function InlineDraftAnnotation({
             </button>
             <button
               type="button"
-              className="rounded bg-primary px-3 py-1.5 text-body-sm font-medium text-primary-foreground hover:bg-primary/dense disabled:opacity-50"
+              className="rounded-sm bg-primary px-3 py-1.5 text-body-sm font-medium text-primary-foreground hover:bg-primary/dense disabled-state"
               onClick={handleSave}
               disabled={!editValue.trim()}
             >
@@ -122,7 +122,7 @@ export function InlineDraftAnnotation({
           <DropdownMenuTrigger asChild>
             <button
               type="button"
-              className="flex items-center justify-center rounded min-h-8 min-w-8 p-0.5 text-muted-foreground hover:bg-surface-hover hover:text-foreground"
+              className="flex items-center justify-center rounded-sm min-h-8 min-w-8 p-0.5 text-muted-foreground hover:bg-surface-hover hover:text-foreground"
             >
               <MoreHorizontal className="h-3.5 w-3.5" />
             </button>

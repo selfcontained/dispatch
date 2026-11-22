@@ -19,10 +19,10 @@ export function ObjectCard({
   onDelete?: () => void;
 }): JSX.Element {
   return (
-    <div className="mx-3 mb-2 rounded-md border border-border bg-surface-subtle p-2.5 overflow-hidden">
+    <div className="mx-3 mb-2 rounded-md border border-border bg-surface-subtle p-2 overflow-hidden">
       <div className="flex items-center justify-between gap-2 mb-2 min-w-0">
         <div className="flex items-center gap-1.5 text-body-sm min-w-0">
-          <span className="rounded bg-chart-3/tint-strong px-1.5 py-0.5 font-mono text-chart-3 text-label-xs shrink-0">
+          <span className="rounded-sm bg-chart-3/tint-strong px-1.5 py-0.5 font-mono text-chart-3 text-label-xs shrink-0">
             {obj.collection}
           </span>
           <span className="font-medium truncate">{obj.name}</span>
@@ -44,7 +44,7 @@ export function ObjectCard({
           <RelativeTime iso={obj.updatedAt} />
         </div>
       </div>
-      <div className="rounded bg-surface-subtle px-2.5 py-2 overflow-x-auto">
+      <div className="rounded-sm bg-surface-subtle px-2 py-2 overflow-x-auto">
         <KeyValueTable
           value={{
             ...(typeof obj.value === "object" &&

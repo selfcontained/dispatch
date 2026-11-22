@@ -157,7 +157,7 @@ export function PersonaLauncherDialog({
                       }}
                       className={cn(
                         "flex h-9 w-full items-center justify-between rounded-md surface-inset px-3 py-2 text-body-md",
-                        "ring-offset-background focus:outline-none focus:ring-1 focus:ring-ring"
+                        "focus-ring"
                       )}
                       data-testid="launch-reviewer-agent-type"
                     >
@@ -176,7 +176,7 @@ export function PersonaLauncherDialog({
                       />
                     </button>
                     {typeDropdownOpen ? (
-                      <div className="absolute left-0 right-0 z-[80] mt-1 rounded-md surface-overlay">
+                      <div className="absolute left-0 right-0 z-popover mt-1 rounded-md surface-overlay">
                         <Command
                           shouldFilter={false}
                           ref={(el) => {
@@ -298,7 +298,7 @@ export function PersonaLauncherDialog({
                       <span
                         aria-hidden="true"
                         className={cn(
-                          "mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-[4px] border transition-colors",
+                          "mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-xs border transition-colors",
                           codeownersSelected
                             ? "border-primary bg-primary text-primary-foreground"
                             : "border-border bg-transparent"
@@ -359,7 +359,7 @@ export function PersonaLauncherDialog({
                           <span
                             aria-hidden="true"
                             className={cn(
-                              "mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-[4px] border transition-colors",
+                              "mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-xs border transition-colors",
                               isSelected
                                 ? "border-primary bg-primary text-primary-foreground"
                                 : "border-border bg-transparent"

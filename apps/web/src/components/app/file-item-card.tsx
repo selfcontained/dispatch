@@ -64,7 +64,7 @@ export function FileItemCard({
         <div className="mb-2 flex items-center gap-1.5 text-body-sm text-muted-foreground">
           <span>{new Date(file.updatedAt).toLocaleString()}</span>
           {isUser ? (
-            <span className="ml-auto flex items-center gap-1 rounded bg-surface-selected px-1.5 py-0.5 text-label-xs font-semibold text-primary">
+            <span className="ml-auto flex items-center gap-1 rounded-sm bg-surface-selected px-1.5 py-0.5 text-label-xs font-semibold text-primary">
               <User className="h-2.5 w-2.5" />
               Shared by you
             </span>
@@ -74,7 +74,7 @@ export function FileItemCard({
       {isText || isDocument ? (
         <button
           className={cn(
-            "block w-full overflow-hidden rounded border-2 bg-surface-hover p-3 text-left",
+            "block w-full overflow-hidden rounded-sm border-2 bg-surface-hover p-3 text-left",
             unseen ? "file-thumb-unseen" : "file-thumb-seen"
           )}
           onClick={() => openLightbox(file.id)}
@@ -84,7 +84,7 @@ export function FileItemCard({
             <span className="truncate text-body-sm font-medium text-foreground">
               {stripTimestamp(file.name)}
             </span>
-            <span className="ml-auto flex-none rounded bg-muted px-1.5 py-0.5 text-label-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            <span className="ml-auto flex-none rounded-sm bg-muted px-1.5 py-0.5 text-label-xs font-semibold uppercase tracking-wide text-muted-foreground">
               {fileExtension(file.name).replace(".", "")}
             </span>
           </div>

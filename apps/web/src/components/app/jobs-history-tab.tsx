@@ -64,7 +64,7 @@ export function HistoryTab({
                 <button
                   type="button"
                   className={cn(
-                    "flex w-full min-w-0 items-center gap-2.5 overflow-hidden py-1.5 text-left text-body-sm transition-colors hover:text-foreground",
+                    "flex w-full min-w-0 items-center gap-2 overflow-hidden py-1.5 text-left text-body-sm transition-colors hover:text-foreground",
                     isSelected ? "text-foreground" : "text-muted-foreground"
                   )}
                   onClick={() => onSelectRun(isSelected ? "" : run.id)}
@@ -111,7 +111,7 @@ function RunReport({ run }: { run: JobRun | null }) {
     );
   }
   return (
-    <div className="mb-2 ml-[3px] border-l-2 border-border pl-4">
+    <div className="mb-2 ml-0.5 border-l-2 border-border pl-4">
       {run.report?.summary && (
         <div className="pb-1 text-body-sm text-muted-foreground">
           {run.report.summary}
@@ -138,10 +138,10 @@ function RunReport({ run }: { run: JobRun | null }) {
             )}
           </div>
           {task.summary ? (
-            <div className="pl-3.5 text-body-sm text-faint">{task.summary}</div>
+            <div className="pl-4 text-body-sm text-faint">{task.summary}</div>
           ) : null}
           {task.errors?.map((error, errorIndex) => (
-            <div key={errorIndex} className="pl-3.5 text-body-sm text-danger">
+            <div key={errorIndex} className="pl-4 text-body-sm text-danger">
               {error.message}
               {error.action ? (
                 <span className="ml-2 text-muted-foreground">
@@ -153,7 +153,7 @@ function RunReport({ run }: { run: JobRun | null }) {
           {task.logs?.slice(-5).map((log, logIndex) => (
             <div
               key={logIndex}
-              className="pl-3.5 font-mono text-label-sm text-faint"
+              className="pl-4 font-mono text-label-sm text-faint"
             >
               [{log.level}] {log.message}
             </div>

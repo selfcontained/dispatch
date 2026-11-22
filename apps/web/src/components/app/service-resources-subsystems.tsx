@@ -161,7 +161,7 @@ function SubsystemRow({
         aria-expanded={expanded}
         data-testid={`subsystem-${subsystem.id}`}
       >
-        <span className="flex min-w-0 items-center gap-2.5">
+        <span className="flex min-w-0 items-center gap-2">
           {expanded ? (
             <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
           ) : (

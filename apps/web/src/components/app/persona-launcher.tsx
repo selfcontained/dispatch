@@ -145,7 +145,7 @@ export function PersonaLauncher({
           <Button
             variant="ghost"
             disabled
-            className="gap-1.5 border border-edge bg-fill-raised text-muted-foreground backdrop-blur-md disabled:pointer-events-auto disabled:opacity-60"
+            className="gap-1.5 border border-edge bg-fill-raised text-muted-foreground backdrop-blur-md disabled:pointer-events-auto disabled-state"
             data-testid="launch-reviewer-button-disabled"
           >
             <AgentTypeIcon

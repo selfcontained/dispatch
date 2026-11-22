@@ -269,7 +269,7 @@ export function TaskConversation({
   return (
     <div
       data-testid="task-conversation"
-      className="flex h-full min-h-0 flex-col overflow-hidden rounded-xl bg-card shadow-sm ring-1 ring-border-subtle"
+      className="flex h-full min-h-0 flex-col overflow-hidden rounded-lg bg-card shadow-sm ring-1 ring-border-subtle"
     >
       {thread ? (
         <>

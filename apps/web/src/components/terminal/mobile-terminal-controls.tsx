@@ -51,7 +51,7 @@ export function MobileTerminalControls({
                 type="button"
                 size="sm"
                 variant="default"
-                className="h-full w-full rounded-bl-[28px] px-2 text-body-sm"
+                className="h-full w-full rounded-bl-screen px-2 text-body-sm"
                 aria-label="Open text input"
               >
                 <Keyboard className="h-5 w-5" strokeWidth={2} />
@@ -150,7 +150,7 @@ export function MobileTerminalControls({
               type="button"
               size="sm"
               variant="default"
-              className="h-full w-full rounded-br-[28px] px-2 text-body-sm"
+              className="h-full w-full rounded-br-screen px-2 text-body-sm"
               aria-label="Send Enter"
               onClick={() => sendKey("\r")}
             >
@@ -202,7 +202,7 @@ export function MobileTerminalControls({
             aria-label="Terminal input text"
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
-            className="h-full min-h-0 w-full resize-none rounded-lg surface-inset p-3 font-mono text-body-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary focus-visible:ring-1 focus-visible:ring-primary"
+            className="h-full min-h-0 w-full resize-none rounded-lg surface-inset p-3 font-mono text-body-lg text-foreground placeholder:text-muted-foreground focus-ring"
             placeholder="Type command here..."
             autoFocus
             autoCapitalize="off"

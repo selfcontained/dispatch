@@ -288,7 +288,7 @@ function RiskExplanation({
     <Button
       variant="default"
       size="sm"
-      className="h-8 gap-1.5 border-border bg-surface-hover px-2.5 text-label-sm text-foreground shadow-sm backdrop-blur-none hover:border-border hover:bg-muted aria-disabled:cursor-wait aria-disabled:opacity-60"
+      className="h-8 gap-1.5 border-border bg-surface-hover px-2 text-label-sm text-foreground shadow-sm backdrop-blur-none hover:border-border hover:bg-muted aria-disabled:cursor-wait disabled-state aria-disabled:pointer-events-auto"
       aria-disabled={query.isFetching}
       onClick={() => {
         if (query.isFetching) return;
@@ -316,7 +316,7 @@ function RiskExplanation({
             "rounded-lg shadow-none",
             showNotice
               ? cn(
-                  "border p-2.5",
+                  "border p-2",
                   failure
                     ? "border-danger/line bg-danger/wash"
                     : "border-border bg-surface-subtle"
@@ -364,7 +364,7 @@ function RiskExplanation({
         <>
           <Markdown
             allowedElements={EXPLANATION_ELEMENTS}
-            className="text-label-sm leading-relaxed prose-headings:mb-0.5 prose-headings:mt-2.5 prose-headings:text-label-sm prose-headings:font-semibold first:prose-headings:mt-0 prose-ul:pl-4 prose-li:my-0 prose-li:pl-0 prose-code:text-label-xs [&>*:first-child]:mt-0"
+            className="text-label-sm leading-relaxed prose-headings:mb-0.5 prose-headings:mt-2 prose-headings:text-label-sm prose-headings:font-semibold first:prose-headings:mt-0 prose-ul:pl-4 prose-li:my-0 prose-li:pl-0 prose-code:text-label-xs [&>*:first-child]:mt-0"
           >
             {query.data?.text ?? ""}
           </Markdown>

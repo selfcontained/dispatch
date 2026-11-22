@@ -105,7 +105,7 @@ export function IdeSettings({
           return (
             <label
               key={ide}
-              className="flex cursor-pointer items-center gap-3 rounded border border-border px-3 py-2.5 transition-colors hover:bg-surface-hover"
+              className="flex cursor-pointer items-center gap-3 rounded-sm border border-border px-3 py-3 transition-colors hover:bg-surface-hover"
             >
               <Checkbox
                 checked={checked}

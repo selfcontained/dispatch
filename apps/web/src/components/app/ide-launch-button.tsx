@@ -124,7 +124,7 @@ export function IdeLaunchButton({
             aria-label="Open in IDE (unavailable on remote access)"
             data-testid="ide-launch-disabled"
             className={cn(
-              "rounded-full disabled:opacity-50 disabled:pointer-events-auto",
+              "rounded-full disabled-state disabled:pointer-events-auto",
               PILL_BASE
             )}
           >

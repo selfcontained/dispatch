@@ -188,12 +188,12 @@ export function SlackAppSection() {
   const connected = query.data?.status === "connected";
   return (
     <section
-      className="border-t border-border pt-8 space-y-5"
+      className="border-t border-border pt-8 space-y-4"
       aria-label="Slack app setup"
     >
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="flex items-start gap-3">
-          <div className="rounded-xl border border-border bg-surface-hover p-2.5">
+          <div className="rounded-lg border border-border bg-surface-hover p-2">
             <Slack className="size-5" aria-hidden="true" />
           </div>
           <div>
@@ -393,7 +393,7 @@ export function SlackAppSection() {
                   configuration for you.
                 </CardDescription>
               </CardHeader>
-              <CardContent className="space-y-5">
+              <CardContent className="space-y-4">
                 <div className="rounded-lg border border-border bg-surface-subtle p-4">
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div>
@@ -412,7 +412,7 @@ export function SlackAppSection() {
                     />
                   </div>
                   <Disclosure label="Preview manifest">
-                    <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-all rounded bg-background/veil p-3 text-label-sm">
+                    <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-all rounded-sm bg-background/veil p-3 text-label-sm">
                       {manifest}
                     </pre>
                   </Disclosure>
@@ -499,7 +499,7 @@ export function SlackAppSection() {
                       Scopes. Add the scope below, then generate and copy the
                       token.
                     </p>
-                    <div className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded bg-surface-hover px-3 py-2">
+                    <div className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-sm bg-surface-hover px-3 py-2">
                       <code>connections:write</code>
                       <CopyButton
                         text="connections:write"

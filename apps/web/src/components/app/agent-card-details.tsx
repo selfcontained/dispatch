@@ -110,7 +110,7 @@ export function AgentCardDetails({
   const modelCatalog = useAgentModelCatalogData();
 
   return (
-    <div className="relative flex flex-col gap-2 rounded-xl border border-border-subtle bg-background/tint-strong px-3 py-3 text-body-sm text-muted-foreground">
+    <div className="relative flex flex-col gap-2 rounded-lg border border-border-subtle bg-background/tint-strong px-3 py-3 text-body-sm text-muted-foreground">
       {/* Concentric with the rounded-xl corner: 11px inner radius minus this
           3px gap leaves the ~8px radius of the 16px-tall pill. */}
       <div className="absolute right-[3px] top-[3px]">
@@ -189,7 +189,7 @@ export function AgentCardDetails({
             mono
           />
           {personaParentName ? (
-            <div className="pl-[26px] text-label-xs text-muted-foreground">
+            <div className="pl-6 text-label-xs text-muted-foreground">
               from {personaParentName}
             </div>
           ) : null}

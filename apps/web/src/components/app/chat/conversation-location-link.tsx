@@ -63,7 +63,7 @@ export function ConversationLocationLink({
       data-testid="turn-source-discussion"
       aria-label={`Source: ${destinationLabel}`}
       title={destinationLabel}
-      className="inline-flex shrink-0 items-center gap-1 rounded border border-primary/line bg-primary/wash px-1 text-label-xs font-normal leading-4 text-primary transition-colors hover:border-primary/line-strong hover:bg-surface-selected focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      className="inline-flex shrink-0 items-center gap-1 rounded-sm border border-primary/line bg-primary/wash px-1 text-label-xs font-normal leading-4 text-primary transition-colors hover:border-primary/line-strong hover:bg-surface-selected focus-ring"
       to={conversationLocation(source, record?.archived === true, homeId)}
     >
       <CornerUpLeft aria-hidden="true" className="size-3" />

@@ -1415,7 +1415,7 @@ export function ChatComposer({
       >
         <div
           className={cn(
-            "rounded-2xl border bg-card/soft transition-colors",
+            "rounded-lg border bg-card/soft transition-colors",
             disabled
               ? "border-border opacity-70"
               : draggingFiles
@@ -1742,7 +1742,7 @@ export function ChatComposer({
                           <TooltipTrigger asChild>
                             <span
                               tabIndex={0}
-                              className="inline-flex min-w-0 max-w-full items-center gap-2 rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                              className="inline-flex min-w-0 max-w-full items-center gap-2 rounded-sm outline-none focus-ring"
                               data-testid="chat-composer-recipient"
                               data-agent-id={agent.id}
                             >

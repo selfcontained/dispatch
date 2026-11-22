@@ -39,12 +39,12 @@ export function StepDetail({
   );
   const d = stepDetailData(step);
   if (hasChildren(step)) {
-    // The same pl-[21px] the plain body below uses, so the Task step's own
+    // The same pl-5 the plain body below uses, so the Task step's own
     // arguments and the nested list line up with the parent's label rather
     // than with its glyph.
     return (
       <div
-        className="mt-1.5 space-y-2 pl-[21px]"
+        className="mt-1.5 space-y-2 pl-5"
         data-testid="harness-step-children"
       >
         <DetailBody step={step} />
@@ -83,7 +83,7 @@ export function StepDetail({
     );
   }
   return (
-    <div className="space-y-2.5 pl-[21px] pt-1 text-foreground/soft">
+    <div className="space-y-2 pl-5 pt-1 text-foreground/soft">
       <DetailBody step={step} />
       {d.truncated ? (
         <p className="text-label-sm text-muted-foreground">

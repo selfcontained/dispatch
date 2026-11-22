@@ -57,7 +57,7 @@ export function TaskList({
             : a.position - b.position
     );
   return (
-    <div data-testid="tasks-list" className="h-full overflow-auto p-3 md:p-5">
+    <div data-testid="tasks-list" className="h-full overflow-auto p-3 md:p-4">
       <div className="mb-3 flex justify-end gap-2">
         <label
           htmlFor="task-sort"
@@ -87,7 +87,7 @@ export function TaskList({
           style={
             { "--col": columnAccent(column, index) } as React.CSSProperties
           }
-          className="mb-3 overflow-hidden rounded-xl bg-card shadow-sm ring-1 ring-border-subtle"
+          className="mb-3 overflow-hidden rounded-lg bg-card shadow-sm ring-1 ring-border-subtle"
         >
           <div className="flex items-center bg-[hsl(var(--col)/0.08)] pr-2">
             <Button

@@ -62,7 +62,7 @@ export function AgentsViewHeader({
   return (
     <div
       className={cn(
-        "relative z-10 grid h-14 shrink-0 items-center bg-background px-3",
+        "relative z-sticky grid h-14 shrink-0 items-center bg-background px-3",
         // On phones the side columns hug their buttons so the tab strip gets
         // the rest of the width (and scrolls inside it).
         isMobile

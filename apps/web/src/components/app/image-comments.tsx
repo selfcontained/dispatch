@@ -614,8 +614,8 @@ export function ImageComments({
         data-testid="file-lightbox"
         aria-label={caption}
         aria-describedby={undefined}
-        className="inset-0 z-[130] h-dvh max-h-none w-screen max-w-none translate-x-0 translate-y-0 gap-0 rounded-none bg-background p-0"
-        overlayClassName="z-[125]"
+        className="inset-0 z-viewer-modal h-dvh max-h-none w-screen max-w-none translate-x-0 translate-y-0 gap-0 rounded-none bg-background p-0"
+        overlayClassName="z-viewer-modal"
         onEscapeKeyDown={(e) => {
           e.preventDefault();
           e.stopPropagation();
@@ -632,7 +632,7 @@ export function ImageComments({
             only the visible area. */}
         <header
           data-testid="image-viewer-header"
-          className="flex min-h-[calc(3.5rem+var(--safe-area-top))] shrink-0 items-center gap-2 border-b pl-[max(0.75rem,env(safe-area-inset-left,0px))] pr-[max(0.75rem,env(safe-area-inset-right,0px))] pt-[var(--safe-area-top)]"
+          className="flex min-h-[calc(3.5rem+var(--safe-area-top))] shrink-0 items-center gap-2 border-b pl-safe-3 pr-safe-3 pt-safe"
         >
           <span className="min-w-0 flex-1 truncate text-body-md">
             {caption}
@@ -730,8 +730,8 @@ export function ImageComments({
             </p>
           )}
           {loaded && markup && !hintDismissed && (
-            <div className="pointer-events-none absolute inset-x-3 top-3 z-10 flex justify-center">
-              <div className="surface-overlay pointer-events-auto flex max-w-full items-center gap-2 rounded-xl py-1 pl-3 pr-1 text-body-sm text-overlay-foreground">
+            <div className="pointer-events-none absolute inset-x-3 top-3 z-sticky flex justify-center">
+              <div className="surface-overlay pointer-events-auto flex max-w-full items-center gap-2 rounded-lg py-1 pl-3 pr-1 text-body-sm text-overlay-foreground">
                 <p>Click or drag to leave a note</p>
                 <Button
                   type="button"
@@ -985,7 +985,7 @@ export function ImageComments({
                   </PopoverTrigger>
                   <PopoverContent
                     ref={notePopover}
-                    className="z-[140] w-[min(320px,calc(100vw-24px))] space-y-3"
+                    className="z-viewer-popover w-[min(320px,calc(100vw-24px))] space-y-3"
                     onCloseAutoFocus={(e) => {
                       e.preventDefault();
                       requestAnimationFrame(() => {
@@ -1120,7 +1120,7 @@ export function ImageComments({
         </div>
         <footer
           data-testid="image-viewer-footer"
-          className="flex shrink-0 flex-wrap items-center justify-center gap-2 border-t bg-background pb-[max(0.5rem,env(safe-area-inset-bottom,0px))] pl-[max(0.5rem,env(safe-area-inset-left,0px))] pr-[max(0.5rem,env(safe-area-inset-right,0px))] pt-2"
+          className="flex shrink-0 flex-wrap items-center justify-center gap-2 border-t bg-background pb-safe-2 pl-safe-2 pr-safe-2 pt-2"
         >
           <div className="mr-auto flex justify-center">
             <div className="surface-overlay flex items-center gap-1 rounded-full p-1 text-overlay-foreground">
@@ -1239,7 +1239,7 @@ export function ImageComments({
                     </SelectValue>
                   </SelectTrigger>
                   <SelectContent
-                    className="z-[150] w-[var(--radix-select-trigger-width)] max-w-[calc(100vw-24px)]"
+                    className="z-viewer-menu w-[var(--radix-select-trigger-width)] max-w-[calc(100vw-24px)]"
                     collisionPadding={12}
                   >
                     {agents.map((a) => (

@@ -236,7 +236,7 @@ function JobDetail({
       ) : null}
 
       {detailActionError ? (
-        <div className="mt-2 rounded border border-danger/line bg-danger/tint p-2 text-body-md text-danger">
+        <div className="mt-2 rounded-sm border border-danger/line bg-danger/tint p-2 text-body-md text-danger">
           {detailActionError}
         </div>
       ) : null}
@@ -281,7 +281,7 @@ function JobDetail({
         />
       ) : null}
 
-      <div className="mt-5 flex flex-wrap items-center gap-2 border-b border-border">
+      <div className="mt-4 flex flex-wrap items-center gap-2 border-b border-border">
         <TabButton
           active={tab === "configure"}
           onClick={() => onTabChange("configure")}

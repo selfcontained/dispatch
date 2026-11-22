@@ -282,7 +282,7 @@ export function BrainCollectionView({
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
-      <div className="space-y-1 px-1 pt-4 pb-12 sm:px-2 md:px-5">
+      <div className="space-y-1 px-1 pt-4 pb-12 sm:px-2 md:px-4">
         {isCapped && !search ? (
           <div className="mx-3 mb-2 rounded-md border border-border bg-surface-subtle px-3 py-2 text-body-sm text-muted-foreground">
             Showing the first 100 items per section. Select a collection to see

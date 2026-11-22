@@ -35,7 +35,7 @@ export function CollapsibleSection({
       <div className="flex w-full items-center gap-1 pr-2">
         <button
           onClick={() => setOpen((o) => !o)}
-          className="flex min-w-0 flex-1 items-center gap-2 px-3 py-2.5 section-label hover:text-foreground transition-colors"
+          className="flex min-w-0 flex-1 items-center gap-2 px-3 py-3 section-label hover:text-foreground transition-colors"
         >
           {open ? (
             <ChevronDown className="h-3.5 w-3.5" />

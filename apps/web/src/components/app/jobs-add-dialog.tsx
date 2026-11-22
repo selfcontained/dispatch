@@ -53,10 +53,10 @@ export function AddJobDialog({
   return (
     <DialogPrimitive.Root open={open} onOpenChange={onOpenChange}>
       <DialogPrimitive.Portal>
-        <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-scrim backdrop-blur-md" />
+        <DialogPrimitive.Overlay className="fixed inset-0 z-drawer bg-scrim backdrop-blur-md" />
         <DialogPrimitive.Content
           onEscapeKeyDown={swallowEscapeFromCombobox}
-          className="fixed inset-x-2 bottom-2 top-2 z-50 flex max-h-[calc(100dvh-1rem)] flex-col overflow-hidden rounded-lg surface-overlay outline-none md:left-1/2 md:top-1/2 md:h-[min(760px,88vh)] md:w-[min(760px,calc(100vw-2rem))] md:-translate-x-1/2 md:-translate-y-1/2"
+          className="fixed inset-x-2 bottom-2 top-2 z-drawer flex max-h-[calc(100dvh-1rem)] flex-col overflow-hidden rounded-lg surface-overlay outline-none md:left-1/2 md:top-1/2 md:h-[min(760px,88vh)] md:w-[min(760px,calc(100vw-2rem))] md:-translate-x-1/2 md:-translate-y-1/2"
         >
           <DialogPrimitive.Title className="sr-only">
             Add job
@@ -68,7 +68,7 @@ export function AddJobDialog({
             <Button
               variant="ghost"
               size="icon"
-              className="absolute right-3 top-3 z-10"
+              className="absolute right-3 top-3 z-sticky"
               aria-label="Close add job"
             >
               <X className="h-4 w-4" />
@@ -295,7 +295,7 @@ export function AddJobFlow({
               value={prompt}
               onChange={(event) => setPrompt(event.target.value)}
               placeholder="Describe what the agent should do..."
-              className="mt-2 min-h-64 w-full rounded-md surface-inset px-3 py-2 text-body-md ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+              className="mt-2 min-h-64 w-full rounded-md surface-inset px-3 py-2 text-body-md placeholder:text-muted-foreground focus-ring"
             />
             <label className="mt-3 flex items-center justify-between gap-3 rounded-md border border-border-subtle bg-surface-subtle px-3 py-3 text-body-md">
               <span>

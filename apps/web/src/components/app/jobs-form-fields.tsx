@@ -40,7 +40,7 @@ export function SwitchToggle({
       disabled={disabled}
       onClick={() => onCheckedChange(!checked)}
       className={cn(
-        "inline-flex h-6 w-11 shrink-0 items-center rounded-full border border-transparent p-0.5 transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:ring-offset-background disabled:cursor-not-allowed disabled:opacity-50",
+        "inline-flex h-6 w-11 shrink-0 items-center rounded-full border border-transparent p-0.5 transition-colors focus-ring disabled:cursor-not-allowed disabled-state disabled:pointer-events-auto",
         checked ? "bg-primary" : "bg-muted"
       )}
     >
@@ -284,7 +284,7 @@ export function WebhookUrl({ secret }: { secret: string }) {
   }, [url]);
 
   return (
-    <div className="mt-2 rounded-md border border-border-subtle bg-surface-subtle px-3 py-2.5">
+    <div className="mt-2 rounded-md border border-border-subtle bg-surface-subtle px-3 py-3">
       <div className="text-body-sm font-medium text-muted-foreground">
         Webhook URL
       </div>
@@ -292,7 +292,7 @@ export function WebhookUrl({ secret }: { secret: string }) {
         <code className="min-w-0 flex-1 truncate text-body-sm">{url}</code>
         <button
           type="button"
-          className="shrink-0 rounded p-1 text-muted-foreground hover:text-foreground"
+          className="shrink-0 rounded-sm p-1 text-muted-foreground hover:text-foreground"
           onClick={copy}
           aria-label="Copy webhook URL"
         >

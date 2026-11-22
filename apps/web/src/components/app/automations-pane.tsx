@@ -114,7 +114,7 @@ function TabButton({
           transition={{ type: "spring", bounce: 0.15, duration: 0.4 }}
         />
       ) : null}
-      <span className="relative z-10 flex items-center gap-1.5">
+      <span className="relative z-sticky flex items-center gap-1.5">
         {icon}
         {label}
       </span>
@@ -262,7 +262,7 @@ function TemplateListItem({
             type="button"
             onClick={handleLaunch}
             title="Launch template"
-            className="shrink-0 rounded p-2 text-muted-foreground opacity-0 pointer-events-none transition-opacity hover:bg-fill-hover hover:text-primary group-hover:opacity-100 group-hover:pointer-events-auto"
+            className="shrink-0 rounded-sm p-2 text-muted-foreground opacity-0 pointer-events-none transition-opacity hover:bg-fill-hover hover:text-primary group-hover:opacity-100 group-hover:pointer-events-auto"
           >
             <Play className="h-3 w-3 fill-current" />
           </button>

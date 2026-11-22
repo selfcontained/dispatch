@@ -137,7 +137,7 @@ export const ReviewModeBar = memo(function ReviewModeBar({
         <div className="flex-1" />
         <button
           type="button"
-          className="flex items-center gap-1.5 rounded bg-primary px-3 py-1.5 text-body-sm font-medium text-primary-foreground hover:bg-primary/dense disabled:opacity-50"
+          className="flex items-center gap-1.5 rounded-sm bg-primary px-3 py-1.5 text-body-sm font-medium text-primary-foreground hover:bg-primary/dense disabled-state"
           disabled={rootId === null}
           data-testid="review-mode-submit"
           onClick={() => setSubmitOpen(true)}
@@ -339,14 +339,14 @@ function SubmitReviewDialog({
           <div className="flex items-center justify-end gap-2">
             <button
               type="button"
-              className="rounded px-3 py-1.5 text-body-sm text-muted-foreground hover:bg-surface-hover"
+              className="rounded-sm px-3 py-1.5 text-body-sm text-muted-foreground hover:bg-surface-hover"
               onClick={() => onOpenChange(false)}
             >
               Cancel
             </button>
             <button
               type="button"
-              className="flex items-center gap-1.5 rounded bg-primary px-3 py-1.5 text-body-sm font-medium text-primary-foreground hover:bg-primary/dense disabled:opacity-50"
+              className="flex items-center gap-1.5 rounded-sm bg-primary px-3 py-1.5 text-body-sm font-medium text-primary-foreground hover:bg-primary/dense disabled-state"
               onClick={() => void handleSubmit()}
               disabled={!canSubmit}
               data-testid="review-post"
@@ -391,14 +391,14 @@ function CancelReviewDialog({
         <div className="flex items-center justify-end gap-2">
           <button
             type="button"
-            className="rounded px-3 py-1.5 text-body-sm text-muted-foreground hover:bg-surface-hover"
+            className="rounded-sm px-3 py-1.5 text-body-sm text-muted-foreground hover:bg-surface-hover"
             onClick={() => onOpenChange(false)}
           >
             Keep reviewing
           </button>
           <button
             type="button"
-            className="rounded bg-danger px-3 py-1.5 text-body-sm font-medium text-danger-foreground hover:bg-danger/dense"
+            className="rounded-sm bg-danger px-3 py-1.5 text-body-sm font-medium text-danger-foreground hover:bg-danger/dense"
             onClick={onConfirm}
           >
             Discard

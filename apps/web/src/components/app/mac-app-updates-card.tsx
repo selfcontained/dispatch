@@ -114,13 +114,13 @@ export function MacAppUpdatesCard(): JSX.Element {
         </div>
 
         {state.phase === "recovery" && (
-          <div className="rounded border border-danger/line bg-danger/tint px-3 py-2 text-body-md text-danger">
+          <div className="rounded-sm border border-danger/line bg-danger/tint px-3 py-2 text-body-md text-danger">
             The last update didn’t finish. On the Mac, open the Dispatch menu
             bar icon and choose <strong>Retry Update Recovery</strong>.
           </div>
         )}
         {(state.error || action.error) && (
-          <div className="rounded border border-danger/line bg-danger/tint px-3 py-2 text-body-md text-danger">
+          <div className="rounded-sm border border-danger/line bg-danger/tint px-3 py-2 text-body-md text-danger">
             {action.error?.message ?? state.error}
           </div>
         )}

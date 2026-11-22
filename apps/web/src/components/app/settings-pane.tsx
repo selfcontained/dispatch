@@ -68,7 +68,7 @@ export function SettingsNavContent({
               type="button"
               onClick={() => onSectionChange(id)}
               className={cn(
-                "flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-left text-body-md transition-colors",
+                "flex w-full items-center gap-2 rounded-lg px-3 py-3 text-left text-body-md transition-colors",
                 activeSection === id
                   ? "bg-surface-selected text-foreground border border-primary/tint-strong"
                   : "border border-transparent text-muted-foreground hover:bg-fill-hover hover:text-foreground"

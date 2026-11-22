@@ -39,7 +39,7 @@ export function CopyButton({
         copyText(json);
       }}
       className={cn(
-        "rounded p-0.5 text-muted-foreground hover:text-foreground transition-colors",
+        "rounded-sm p-0.5 text-muted-foreground hover:text-foreground transition-colors",
         className
       )}
       aria-label="Copy value"
@@ -67,7 +67,7 @@ export function DeleteButton({
         e.stopPropagation();
         onClick();
       }}
-      className="inline-flex h-8 w-8 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-danger/tint hover:text-danger"
+      className="inline-flex h-8 w-8 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:bg-danger/tint hover:text-danger"
       aria-label={label}
       title={label}
     >

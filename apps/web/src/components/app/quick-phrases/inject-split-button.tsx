@@ -58,7 +58,7 @@ export function InjectSplitButton({
         </DropdownMenuTrigger>
         <DropdownMenuContent
           align="end"
-          className={cn("min-w-[180px]", insidePopover && "z-[90]")}
+          className={cn("min-w-[180px]", insidePopover && "z-tooltip")}
         >
           <DropdownMenuItem
             className="text-foreground"

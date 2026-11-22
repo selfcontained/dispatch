@@ -25,9 +25,9 @@ function Calendar({
         weekday:
           "text-muted-foreground rounded-md w-8 font-normal text-body-sm",
         week: "flex w-full mt-2",
-        day: "relative p-0 text-center text-body-md focus-within:relative focus-within:z-20",
+        day: "relative p-0 text-center text-body-md focus-within:relative focus-within:z-raised",
         day_button:
-          "inline-flex h-8 w-8 items-center justify-center rounded-md p-0 font-normal hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring aria-selected:opacity-100",
+          "inline-flex h-8 w-8 items-center justify-center rounded-md p-0 font-normal hover:bg-accent hover:text-accent-foreground focus-ring aria-selected:opacity-100",
         selected:
           "bg-primary text-primary-foreground hover:bg-primary hover:text-primary-foreground focus:bg-primary focus:text-primary-foreground [&>button]:bg-primary [&>button]:text-primary-foreground [&>button]:hover:bg-primary [&>button]:hover:text-primary-foreground",
         today: "bg-accent text-accent-foreground rounded-md",

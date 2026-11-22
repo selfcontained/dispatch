@@ -171,7 +171,7 @@ export function OperationTakeover({
 
           {isDone && (
             <div className="flex flex-col gap-3">
-              <div className="flex items-center gap-2 rounded border border-success/line bg-success/tint px-3 py-2.5 text-body-md text-success">
+              <div className="flex items-center gap-2 rounded-sm border border-success/line bg-success/tint px-3 py-3 text-body-md text-success">
                 <CheckCircle2 className="h-4 w-4 shrink-0" />
                 <span>
                   {job.jobType === "update" ? "Updated to" : "Released"}{" "}
@@ -197,7 +197,7 @@ export function OperationTakeover({
 
           {isFailed && (
             <div className="flex flex-col gap-3">
-              <div className="flex items-start gap-2 rounded border border-danger/line bg-danger/tint px-3 py-2.5 text-body-md text-danger">
+              <div className="flex items-start gap-2 rounded-sm border border-danger/line bg-danger/tint px-3 py-3 text-body-md text-danger">
                 <XCircle className="mt-0.5 h-4 w-4 shrink-0" />
                 <span>
                   {job.error ? cleanError(job.error) : "Operation failed"}

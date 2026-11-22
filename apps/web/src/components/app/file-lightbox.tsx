@@ -202,7 +202,7 @@ export function FileLightbox({
   return (
     <div
       className={cn(
-        "fixed inset-0 z-[120] bg-media/dense",
+        "fixed inset-0 z-viewer bg-media/dense",
         isImage
           ? "overflow-hidden"
           : "grid grid-cols-[minmax(0,1fr)] grid-rows-[auto_1fr_auto] p-2 sm:p-6"
@@ -214,9 +214,9 @@ export function FileLightbox({
     >
       <div
         className={cn(
-          "flex w-full items-center gap-3 overflow-hidden px-3 py-2 sm:px-4 sm:py-2.5",
+          "flex w-full items-center gap-3 overflow-hidden px-3 py-2 sm:px-4 sm:py-3",
           isImage
-            ? "absolute inset-x-0 top-0 z-10 border-b border-media-foreground/tint bg-media/veil pt-[max(0.5rem,env(safe-area-inset-top))] text-media-foreground shadow-lg backdrop-blur"
+            ? "absolute inset-x-0 top-0 z-sticky border-b border-media-foreground/tint bg-media/veil pt-safe-2 text-media-foreground shadow-lg backdrop-blur"
             : "mx-auto max-w-4xl rounded-t-lg border border-b-0 border-border bg-surface"
         )}
       >
@@ -380,7 +380,7 @@ export function FileLightbox({
         <div className="mx-auto flex w-full max-w-4xl items-center gap-2 rounded-b-lg border border-t-0 border-border bg-surface px-2 py-1.5 text-body-sm text-muted-foreground sm:gap-3 sm:px-4 sm:py-2">
           <span className="min-w-0 truncate">{caption}</span>
           {file.source ? (
-            <span className="flex-none rounded bg-muted px-1.5 py-0.5 text-label-xs font-semibold uppercase tracking-wide">
+            <span className="flex-none rounded-sm bg-muted px-1.5 py-0.5 text-label-xs font-semibold uppercase tracking-wide">
               {file.source === "user" ? "your upload" : file.source}
             </span>
           ) : null}

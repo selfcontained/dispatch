@@ -113,7 +113,7 @@ function ImagePanel({
       {blocked !== null ? (
         <div
           className={cn(
-            "flex w-full items-center justify-center rounded border border-dashed border-border-subtle px-3 py-6 text-label-sm text-muted-foreground",
+            "flex w-full items-center justify-center rounded-sm border border-dashed border-border-subtle px-3 py-6 text-label-sm text-muted-foreground",
             PREVIEW_RESERVE
           )}
         >
@@ -132,7 +132,7 @@ function ImagePanel({
             loading="lazy"
             onError={side.onError}
             onLoad={(e) => side.onLoad(readNaturalSize(e))}
-            className="diff-image-checkerboard max-h-[26rem] max-w-full rounded border border-border-subtle object-contain"
+            className="diff-image-checkerboard max-h-[26rem] max-w-full rounded-sm border border-border-subtle object-contain"
           />
         </div>
       )}
@@ -255,8 +255,8 @@ export function DiffImageView({
                 }
                 data-testid={`diff-image-mode:${m.value}`}
                 className={cn(
-                  "whitespace-nowrap rounded-[3px] px-2.5 py-1 text-label-sm font-medium transition-colors",
-                  "disabled:cursor-not-allowed disabled:opacity-50",
+                  "whitespace-nowrap rounded-sm px-2 py-1 text-label-sm font-medium transition-colors",
+                  "disabled:cursor-not-allowed disabled-state disabled:pointer-events-auto",
                   effectiveMode === m.value
                     ? "bg-background text-foreground shadow-sm"
                     : "text-muted-foreground hover:text-foreground"
@@ -342,14 +342,14 @@ function OverlayCompare({
           alt="Before"
           onError={oldSide.onError}
           onLoad={(e) => oldSide.onLoad(readNaturalSize(e))}
-          className="diff-image-checkerboard block max-h-[26rem] max-w-full rounded border border-border-subtle object-contain"
+          className="diff-image-checkerboard block max-h-[26rem] max-w-full rounded-sm border border-border-subtle object-contain"
         />
         <img
           src={newSide.src!}
           alt="After"
           onError={newSide.onError}
           onLoad={(e) => newSide.onLoad(readNaturalSize(e))}
-          className="diff-image-checkerboard absolute inset-0 h-full w-full rounded border border-border-subtle object-contain"
+          className="diff-image-checkerboard absolute inset-0 h-full w-full rounded-sm border border-border-subtle object-contain"
           style={
             mode === "swipe"
               ? { clipPath: `inset(0 0 0 ${position}%)` }

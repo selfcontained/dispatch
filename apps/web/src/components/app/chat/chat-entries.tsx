@@ -590,7 +590,7 @@ export function AuthorMeta({
     >
       {engine ? (
         <span
-          className="shrink-0 rounded border border-border-subtle bg-surface-subtle px-1 text-label-xs font-medium text-muted-foreground"
+          className="shrink-0 rounded-sm border border-border-subtle bg-surface-subtle px-1 text-label-xs font-medium text-muted-foreground"
           data-testid="chat-author-engine"
         >
           {engine}
@@ -598,7 +598,7 @@ export function AuthorMeta({
       ) : null}
       {model ? (
         <span
-          className="min-w-0 max-w-[16rem] truncate rounded border border-border-subtle bg-surface-subtle px-1 text-label-xs text-muted-foreground"
+          className="min-w-0 max-w-[16rem] truncate rounded-sm border border-border-subtle bg-surface-subtle px-1 text-label-xs text-muted-foreground"
           title={author.model ?? undefined}
           data-testid="chat-author-model"
         >
@@ -966,7 +966,7 @@ export function DayDivider({ label }: { label: string }): JSX.Element {
       aria-label={label}
     >
       <div className="h-px flex-1 bg-border-subtle" />
-      <span className="rounded-full border border-border bg-background px-2.5 py-0.5 text-label-sm font-medium text-muted-foreground">
+      <span className="rounded-full border border-border bg-background px-2 py-0.5 text-label-sm font-medium text-muted-foreground">
         {label}
       </span>
       <div className="h-px flex-1 bg-border-subtle" />
@@ -1027,7 +1027,7 @@ function ThreadLine({
             <ReplierFace key={index} who={who} ctx={ctx} />
           ))}
           {repliers.length > THREAD_FACES ? (
-            <span className="flex h-5 min-w-5 items-center justify-center rounded border border-border bg-background px-1 font-mono text-label-xs text-muted-foreground">
+            <span className="flex h-5 min-w-5 items-center justify-center rounded-xs border border-border bg-background px-1 font-mono text-label-xs text-muted-foreground">
               +{repliers.length - THREAD_FACES}
             </span>
           ) : null}
@@ -1580,7 +1580,7 @@ function LaunchCard({
   }
   return (
     <div
-      className="mx-3 my-4 sm:mx-4 sm:my-[18px]"
+      className="mx-3 my-4 sm:mx-4 sm:my-4"
       data-testid="chat-compact-launch"
       data-block-id={block.id}
     >
@@ -1601,7 +1601,7 @@ function LaunchCard({
         </div>
       )}
       <div
-        className="hidden min-w-0 items-center justify-center gap-3.5 sm:flex"
+        className="hidden min-w-0 items-center justify-center gap-3 sm:flex"
         data-testid="launch-agent-details"
       >
         <span className="h-px min-w-0 flex-1 bg-border" aria-hidden="true" />
@@ -1656,7 +1656,7 @@ function LaunchCard({
               </span>
             ) : null}
           </div>
-          <div className="flex min-w-0 items-center justify-between gap-3.5 whitespace-nowrap text-label-sm leading-[21px] text-muted-foreground">
+          <div className="flex min-w-0 items-center justify-between gap-3 whitespace-nowrap text-label-sm leading-[21px] text-muted-foreground">
             {agent?.persona ? (
               <span className="truncate" title={agent.persona}>
                 {agent.persona}

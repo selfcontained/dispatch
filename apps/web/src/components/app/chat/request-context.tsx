@@ -159,7 +159,7 @@ export function RequestContext({
             aria-expanded={open}
             aria-controls={detailId}
             onClick={() => setOpen(!open)}
-            className="col-start-1 row-start-1 flex h-7 min-w-0 flex-1 items-center gap-2 rounded-sm text-left text-label-sm font-medium text-foreground/soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring pointer-coarse:h-9"
+            className="col-start-1 row-start-1 flex h-7 min-w-0 flex-1 items-center gap-2 rounded-sm text-left text-label-sm font-medium text-foreground/soft focus-ring pointer-coarse:h-9"
           >
             <span className="shrink-0 whitespace-nowrap">
               {index === requests.length - 1

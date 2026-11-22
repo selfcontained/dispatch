@@ -81,7 +81,7 @@ export function UpdatesCheckPanel({
       )}
 
       {infoError && (
-        <div className="rounded border border-danger/line bg-danger/tint px-3 py-2 text-body-md text-danger">
+        <div className="rounded-sm border border-danger/line bg-danger/tint px-3 py-2 text-body-md text-danger">
           {infoError}
         </div>
       )}
@@ -119,7 +119,7 @@ export function UpdatesCheckPanel({
               )}
 
               {updateError && (
-                <div className="rounded border border-danger/line bg-danger/tint px-3 py-2 text-body-md text-danger">
+                <div className="rounded-sm border border-danger/line bg-danger/tint px-3 py-2 text-body-md text-danger">
                   {updateError}
                 </div>
               )}

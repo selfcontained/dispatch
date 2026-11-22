@@ -33,10 +33,10 @@ export function NotificationsDrawer(): JSX.Element {
         </Button>
       </SheetTrigger>
       <SheetContent aria-describedby={undefined}>
-        <div className="border-b px-4 pb-4 pt-[max(1rem,var(--safe-area-top))]">
+        <div className="border-b px-4 pb-4 pt-safe-4">
           <SheetTitle className="text-heading-md">Notifications</SheetTitle>
         </div>
-        <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+        <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-3 pb-safe-3">
           {history.isPending ? (
             <p role="status" className="p-2 text-body-md text-muted-foreground">
               Loading…

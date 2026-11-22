@@ -64,7 +64,7 @@ export function ColumnTriggerStrip({
         onClick={() => setOpen(true)}
         title="Edit trigger"
         className={cn(
-          "flex w-full items-center gap-2 border-b border-[hsl(var(--col)/0.25)] bg-[hsl(var(--col)/0.06)] px-3 py-1.5 text-left text-body-sm transition-colors hover:bg-[hsl(var(--col)/0.14)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+          "flex w-full items-center gap-2 border-b border-[hsl(var(--col)/0.25)] bg-[hsl(var(--col)/0.06)] px-3 py-1.5 text-left text-body-sm transition-colors hover:bg-[hsl(var(--col)/0.14)] focus-ring-inset",
           className
         )}
       >
@@ -309,7 +309,7 @@ export function TaskTriggerDialog({
               {label}
             </label>
           ))}
-          <p className="rounded bg-surface-hover p-2 text-body-sm text-muted-foreground">
+          <p className="rounded-sm bg-surface-hover p-2 text-body-sm text-muted-foreground">
             {chosen
               ? `Entering ${column.name} launches ${chosen.name}${chosen.prompt?.trim() ? "" : " with the task as its prompt"}${trigger.assign ? " and assigns the agent" : ""}.`
               : "Choose a project template to configure this column."}

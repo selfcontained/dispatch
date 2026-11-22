@@ -665,7 +665,7 @@ export function ResponsePlaceholderVisual({
     <div
       data-glow="halo-soft"
       data-testid="chat-response-placeholder"
-      className={`dispatch-placeholder ${quiet ? "" : "dispatch-placeholder-chase"} relative mt-3 w-full rounded-lg md:max-w-md border border-border-subtle bg-surface-subtle overflow-clip px-2.5 pt-2 ${hasFooter ? "pb-1" : "pb-2"} ${reducedCells ? "dispatch-defrag-reduced" : ""}`}
+      className={`dispatch-placeholder ${quiet ? "" : "dispatch-placeholder-chase"} relative mt-3 w-full rounded-lg md:max-w-md border border-border-subtle bg-surface-subtle overflow-clip px-2 pt-2 ${hasFooter ? "pb-1" : "pb-2"} ${reducedCells ? "dispatch-defrag-reduced" : ""}`}
     >
       {/* The status region holds only the picture; the peek control sits
           beside it, so its changing count is never announced. */}
@@ -767,7 +767,7 @@ export function ResponsePlaceholderVisual({
                           data-neon-swatch={
                             c.category || packed ? "" : undefined
                           }
-                          className={`mx-auto block rounded-[1.5px] transition-[background-color] duration-500 motion-reduce:transition-none ${piece && arrivalKeys?.has(piece.key) ? "dispatch-defrag-ack" : ""}`}
+                          className={`mx-auto block rounded-mark transition-[background-color] duration-500 motion-reduce:transition-none ${piece && arrivalKeys?.has(piece.key) ? "dispatch-defrag-ack" : ""}`}
                           style={{
                             width: cellSize,
                             height: cellSize,
@@ -826,7 +826,7 @@ export function ResponsePlaceholderVisual({
               onClick={onShowProgress}
               aria-label="Show progress text"
               data-testid="chat-response-show-progress"
-              className="ml-auto rounded-sm text-muted-foreground underline-offset-2 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              className="ml-auto rounded-sm text-muted-foreground underline-offset-2 hover:text-foreground hover:underline focus-ring"
             >
               Show progress · {formatChars(textLength)}
             </button>

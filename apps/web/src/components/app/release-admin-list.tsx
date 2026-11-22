@@ -52,7 +52,7 @@ export function RecentReleases({
           {releases.map((r) => (
             <div
               key={r.tag}
-              className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border border-edge bg-fill-inset px-3 py-2.5"
+              className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border border-edge bg-fill-inset px-3 py-3"
             >
               <span className="font-mono text-body-md font-semibold text-foreground">
                 {r.tag}

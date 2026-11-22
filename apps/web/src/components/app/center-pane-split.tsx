@@ -106,7 +106,7 @@ export function CenterPaneSplit({
         onClick={onExitSplit}
         title="Unsplit panes"
         data-testid="unsplit-button"
-        className="absolute top-0 z-50 flex h-8 -translate-x-1/2 cursor-pointer items-center justify-center rounded-md border bg-background px-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+        className="absolute top-0 z-drawer flex h-8 -translate-x-1/2 cursor-pointer items-center justify-center rounded-md border bg-background px-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
         style={{ left: `${splitState.sizes[0]}%` }}
       >
         <Split className="h-4 w-4 shrink-0" />

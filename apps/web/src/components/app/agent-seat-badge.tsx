@@ -36,7 +36,7 @@ export function AgentSeatBadge({
     <span
       className={cn(
         "relative flex shrink-0 items-center justify-center",
-        size === "md" ? "h-8 w-8 rounded-md" : "h-5 w-5 rounded",
+        size === "md" ? "h-8 w-8 rounded-md" : "h-5 w-5 rounded-xs",
         !type && ["border", face],
         className
       )}
@@ -63,8 +63,8 @@ export function AgentSeatBadge({
           className={cn(
             "absolute flex items-center justify-center font-mono font-semibold tabular-nums text-seat-foreground ring-2 ring-background",
             size === "md"
-              ? "-bottom-1.5 -right-1.5 h-[15px] min-w-[15px] rounded-[5px] px-[3px] text-label-xs leading-none"
-              : "-bottom-1 -right-1 h-[11px] min-w-[11px] rounded-[3px] px-0.5 text-label-xs leading-none",
+              ? "-bottom-1.5 -right-1.5 h-[15px] min-w-[15px] rounded-xs px-0.5 text-label-xs leading-none"
+              : "-bottom-1 -right-1 h-[11px] min-w-[11px] rounded-xs px-0.5 text-label-xs leading-none",
             chip
           )}
           aria-hidden

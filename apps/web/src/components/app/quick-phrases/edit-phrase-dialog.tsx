@@ -111,11 +111,11 @@ export function EditPhraseDialog({
                   <PopoverContent
                     container={dialogContentRef.current}
                     side="right"
-                    className="z-[90] w-64 px-2 py-1 text-body-sm"
+                    className="z-tooltip w-64 px-2 py-1 text-body-sm"
                   >
                     <p>
                       Variables like{" "}
-                      <code className="rounded bg-fill-hover px-1 py-0.5 text-label-sm">
+                      <code className="rounded-sm bg-fill-hover px-1 py-0.5 text-label-sm">
                         {"{{D:Name}}"}
                       </code>{" "}
                       become prompts before the phrase is sent. Add
@@ -148,7 +148,7 @@ export function EditPhraseDialog({
                     {detectedArgs.map((a) => (
                       <span
                         key={a.key}
-                        className="inline-block rounded bg-surface-selected px-1.5 py-0.5 text-primary"
+                        className="inline-block rounded-sm bg-surface-selected px-1.5 py-0.5 text-primary"
                       >
                         {a.name}
                         {a.required ? " *" : ""}

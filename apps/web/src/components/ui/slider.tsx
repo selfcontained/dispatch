@@ -24,8 +24,8 @@ const Slider = React.forwardRef<
       {...thumbProps}
       className={cn(
         "block h-3.5 w-3.5 rounded-full border border-primary/line bg-background shadow transition-colors",
-        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background",
-        "disabled:pointer-events-none disabled:opacity-50"
+        "focus-ring",
+        "disabled-state"
       )}
     />
   </SliderPrimitive.Root>

@@ -26,7 +26,7 @@ const CARD =
 // TouchSensor cancels quick swipes and prevents scrolling only after its hold delay.
 // Keep native panning available on the grip until then (dnd-kit Touch recommendations).
 const GRIP =
-  "-ml-1 self-start rounded text-faint touch-manipulation pointer-coarse:-my-2 pointer-coarse:-ml-2.5 pointer-coarse:p-2.5";
+  "-ml-1 self-start rounded-sm text-faint touch-manipulation pointer-coarse:-my-2 pointer-coarse:-ml-3 pointer-coarse:p-3";
 /**
  * A card moved from its Move to… sheet remounts in its new column; that
  * mount takes focus back, as the sheet can't reach the new card.
@@ -86,7 +86,7 @@ export function TaskCard({
       data-task-id={task.id}
       className={cn(
         CARD,
-        "transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        "transition-colors hover:bg-muted focus-ring",
         // Lifted into the drag overlay: what stays is the drop placeholder.
         sortable.isDragging && "opacity-40"
       )}
@@ -232,7 +232,7 @@ function TaskCardDetails({
                 target="_blank"
                 rel="noreferrer"
                 title={link.label}
-                className="inline-flex min-w-0 max-w-full items-center gap-1 rounded bg-background/veil px-1.5 py-0.5"
+                className="inline-flex min-w-0 max-w-full items-center gap-1 rounded-sm bg-background/veil px-1.5 py-0.5"
                 onClick={(event) => event.stopPropagation()}
               >
                 <GitPullRequest
@@ -244,7 +244,7 @@ function TaskCardDetails({
             ))}
           {task.latestFailure && !task.launching && (
             <span
-              className="max-w-full truncate rounded bg-danger/tint px-1.5 py-0.5 text-danger"
+              className="max-w-full truncate rounded-sm bg-danger/tint px-1.5 py-0.5 text-danger"
               title={task.latestFailure.reason}
             >
               ⚠ launch failed · {task.latestFailure.reason}

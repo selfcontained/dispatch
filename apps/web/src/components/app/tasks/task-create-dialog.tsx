@@ -156,7 +156,7 @@ export function TaskCreateDialog({
         }}
         onDrop={context.handleStartupDrop}
         data-testid="task-create-dialog"
-        className={`md:w-[min(600px,calc(100vw-2rem))] ${TASK_DIALOG_MOBILE_SHEET} max-md:pt-[max(1rem,var(--safe-area-top))]`}
+        className={`md:w-[min(600px,calc(100vw-2rem))] ${TASK_DIALOG_MOBILE_SHEET} max-md:pt-safe-4`}
       >
         <DialogHeader>
           <DialogTitle>New task</DialogTitle>
@@ -289,7 +289,7 @@ export function TaskCreateDialog({
               {error}
             </p>
           )}
-          <div className="mt-auto flex items-center justify-end gap-2 pb-[env(safe-area-inset-bottom)]">
+          <div className="mt-auto flex items-center justify-end gap-2 pb-safe">
             <span className="mr-auto hidden text-body-sm text-muted-foreground md:inline">
               ⌘↵ to create from the description
             </span>

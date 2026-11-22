@@ -399,7 +399,7 @@ export function ThreadPanel({
         chrome && "bg-background",
         chrome &&
           (isMobile
-            ? "absolute inset-0 z-20"
+            ? "absolute inset-0 z-raised"
             : "w-[26rem] shrink-0 border-l border-border-subtle")
       )}
       onKeyDownCapture={(event) => {

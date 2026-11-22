@@ -95,7 +95,7 @@ export function JobsOverview({
 
   return (
     <ScrollArea className="h-full">
-      <div className="mx-auto max-w-5xl space-y-6 px-3 pt-4 pb-12 sm:px-5 sm:pt-6 sm:pb-20 md:px-8">
+      <div className="mx-auto max-w-5xl space-y-6 px-3 pt-4 pb-12 sm:px-4 sm:pt-6 sm:pb-20 md:px-8">
         {/* Loading */}
         {statsLoading && !metrics && (
           <div className="flex items-center justify-center py-12">
@@ -165,7 +165,7 @@ export function JobsOverview({
               {upcomingJobs.map((job) => (
                 <button
                   key={job.id}
-                  className="flex w-full items-center justify-between px-3 py-2.5 text-left text-body-md transition-colors hover:bg-surface-hover"
+                  className="flex w-full items-center justify-between px-3 py-3 text-left text-body-md transition-colors hover:bg-surface-hover"
                   onClick={() => onSelectJob(job)}
                 >
                   <span className="font-medium text-foreground">
@@ -200,7 +200,7 @@ export function JobsOverview({
                   return (
                     <button
                       key={run.id}
-                      className="flex w-full items-center gap-3 px-3 py-2.5 text-left text-body-md transition-colors hover:bg-surface-hover"
+                      className="flex w-full items-center gap-3 px-3 py-3 text-left text-body-md transition-colors hover:bg-surface-hover"
                       onClick={() => onSelectRun(run.jobId, run.id)}
                     >
                       <span className="min-w-0 flex-1 truncate font-medium text-foreground">

@@ -12,7 +12,7 @@ function EngineRow({ status }: { status: EngineAuthStatus }): JSX.Element {
       : "Signed out";
   return (
     <div
-      className="space-y-3 rounded border border-border px-3 py-3"
+      className="space-y-3 rounded-sm border border-border px-3 py-3"
       data-testid={`engine-auth-${status.engine}`}
     >
       <div className="min-w-0">

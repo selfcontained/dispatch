@@ -307,7 +307,7 @@ function CreateAgentDialogContent({
                     className={cn(
                       "flex min-h-[180px] w-full resize-y rounded-md surface-inset px-3 py-2 text-body-md",
                       "ring-offset-background placeholder:text-muted-foreground",
-                      "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                      "focus-ring"
                     )}
                   />
                 </div>
@@ -399,7 +399,7 @@ function TaskContextCard({
   return (
     <section
       data-testid="create-agent-task"
-      className="space-y-2 rounded-md border border-border-subtle bg-surface-subtle px-3 py-2.5 text-body-md"
+      className="space-y-2 rounded-md border border-border-subtle bg-surface-subtle px-3 py-3 text-body-md"
     >
       <div className="flex items-baseline justify-between gap-3">
         <span className="min-w-0 truncate">
@@ -417,7 +417,7 @@ function TaskContextCard({
         <summary className="cursor-pointer select-none text-muted-foreground hover:text-foreground">
           What the agent is told
         </summary>
-        <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap rounded bg-background/veil p-2 font-mono text-label-sm leading-snug text-muted-foreground">
+        <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap rounded-sm bg-background/veil p-2 font-mono text-label-sm leading-snug text-muted-foreground">
           {briefing.data?.text ??
             (briefing.error ? "Could not load the briefing." : "Loading…")}
         </pre>

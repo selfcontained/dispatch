@@ -78,7 +78,7 @@ function LiveStreamSection({
         </div>
       </div>
       <div className="px-3 pb-3">
-        <div className="overflow-hidden rounded border border-border bg-media">
+        <div className="overflow-hidden rounded-sm border border-border bg-media">
           <img
             src={streamUrl}
             alt="Live browser stream"
@@ -229,7 +229,7 @@ export function FilesContent({
       <div
         ref={drawerViewportRef}
         data-testid="files-panel-scroll"
-        className="min-h-0 flex-1 overflow-y-auto pb-[env(safe-area-inset-bottom)]"
+        className="min-h-0 flex-1 overflow-y-auto pb-safe"
       >
         {nothingShared ? (
           <div className="grid h-full place-items-center p-4 text-center text-body-md text-muted-foreground">

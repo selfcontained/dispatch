@@ -148,7 +148,7 @@ export function ActivityPane({
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden bg-background">
       {/* Header with range selector */}
-      <div className="flex h-12 shrink-0 items-center gap-3 border-b border-border px-5">
+      <div className="flex h-12 shrink-0 items-center gap-3 border-b border-border px-4">
         <div className="ml-auto flex items-center gap-2">
           {tab === "metrics" && (
             <>
@@ -192,7 +192,7 @@ export function ActivityPane({
       {/* Metrics tab body */}
       {tab === "metrics" && (
         <ScrollArea className="flex-1">
-          <div className="mx-auto max-w-5xl min-w-0 overflow-hidden space-y-6 px-3 pt-4 pb-12 sm:space-y-8 sm:px-5 sm:pt-6 sm:pb-20 md:px-8">
+          <div className="mx-auto max-w-5xl min-w-0 overflow-hidden space-y-6 px-3 pt-4 pb-12 sm:space-y-8 sm:px-4 sm:pt-6 sm:pb-20 md:px-8">
             {tokensFailed && (
               <LoadError
                 message="Couldn't load token usage"

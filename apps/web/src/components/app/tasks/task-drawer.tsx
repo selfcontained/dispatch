@@ -64,7 +64,7 @@ const PROPERTY_CONTROL =
 
 /** The raised surface each drawer group sits on, over the pane's base. */
 const DRAWER_SURFACE =
-  "rounded-xl bg-card/soft p-3 shadow-sm ring-1 ring-border-subtle";
+  "rounded-lg bg-card/soft p-3 shadow-sm ring-1 ring-border-subtle";
 
 /** A drawer group: a quiet label over its content, on its own surface. */
 function DrawerSection({
@@ -260,7 +260,7 @@ export function TaskDetailPanel({
     );
   return (
     <>
-      <header className="flex min-h-14 shrink-0 items-center gap-1 border-b border-border-subtle pl-1.5 pr-2 pt-[var(--safe-area-top)] text-body-sm text-muted-foreground">
+      <header className="flex min-h-14 shrink-0 items-center gap-1 border-b border-border-subtle pl-1.5 pr-2 pt-safe text-body-sm text-muted-foreground">
         <Button
           size="icon"
           variant="ghost"
@@ -315,7 +315,7 @@ export function TaskDetailPanel({
         </Button>
       </header>
       {isLoading && (
-        <p className="p-5 text-body-md text-muted-foreground">Loading task…</p>
+        <p className="p-4 text-body-md text-muted-foreground">Loading task…</p>
       )}
       {task && (
         <Tabs
@@ -345,7 +345,7 @@ export function TaskDetailPanel({
               data-testid="task-drawer-body"
               className="min-h-0 flex-1 overflow-y-auto overscroll-contain"
             >
-              <div className="space-y-6 p-4 md:p-5">
+              <div className="space-y-6 p-4">
                 {editingTitle ? (
                   <Input
                     autoFocus
@@ -437,7 +437,7 @@ export function TaskDetailPanel({
                   {editingBody ? (
                     <textarea
                       autoFocus
-                      className="min-h-36 w-full rounded-lg bg-surface-subtle p-3 text-body-md outline-none ring-1 ring-border-subtle focus:ring-ring"
+                      className="min-h-36 w-full rounded-lg bg-surface-subtle p-3 text-body-md outline-none ring-1 ring-border-subtle focus-ring"
                       value={body}
                       onChange={(event) => setBody(event.target.value)}
                       onBlur={saveBody}
@@ -719,7 +719,7 @@ export function TaskDetailPanel({
                   {actions.restore.error.message}
                 </p>
               )}
-            <footer className="flex shrink-0 items-center gap-2 border-t border-border-subtle bg-card/veil px-3 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
+            <footer className="flex shrink-0 items-center gap-2 border-t border-border-subtle bg-card/veil px-3 py-2 pb-safe-2">
               <Button
                 size="sm"
                 variant="default"
@@ -742,7 +742,7 @@ export function TaskDetailPanel({
           <TabsContent
             value="conversation"
             forceMount
-            className="mt-0 min-h-0 flex-1 data-[state=inactive]:hidden px-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] md:px-3 md:pb-3"
+            className="mt-0 min-h-0 flex-1 data-[state=inactive]:hidden px-2 pb-safe-2 md:px-3 md:pb-3"
           >
             <TaskConversation
               key={task.id}

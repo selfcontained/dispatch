@@ -73,7 +73,7 @@ import {
 } from "./composer-meta-format";
 
 const CHIP_CLASS =
-  "inline-flex h-6 min-w-0 items-center gap-1 rounded-md px-1.5 text-label-sm text-muted-foreground hover:bg-surface-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-success/line-strong disabled:pointer-events-none disabled:opacity-60 pointer-coarse:min-h-11";
+  "inline-flex h-6 min-w-0 items-center gap-1 rounded-md px-1.5 text-label-sm text-muted-foreground hover:bg-surface-hover hover:text-foreground focus-ring disabled-state pointer-coarse:min-h-11";
 
 /**
  * Controls beside the recipients under the composer: which model the session runs (a picker)
@@ -386,7 +386,7 @@ function UsageChip({
         // not load, so this panel brings its own: it opens like a drawer from
         // its chip, and Radix waits for the exit animation before unmounting.
         className={cn(
-          "z-[60] max-h-[70vh] w-[22rem] max-w-[calc(100vw-1rem)] space-y-4 overflow-y-auto p-3 text-body-sm",
+          "z-drawer-panel max-h-[70vh] w-[22rem] max-w-[calc(100vw-1rem)] space-y-4 overflow-y-auto p-3 text-body-sm",
           "data-[state=open]:animate-usage-panel-in-up data-[state=open]:data-[side=bottom]:animate-usage-panel-in-down",
           "data-[state=closed]:animate-usage-panel-out-up data-[state=closed]:data-[side=bottom]:animate-usage-panel-out-down",
           "motion-reduce:!animate-none"

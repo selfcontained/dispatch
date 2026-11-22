@@ -376,7 +376,7 @@ export function PendingTurnLine({
         )}
       >
         <span
-          className="max-w-full truncate pt-[3px] text-label-sm font-medium text-foreground/soft"
+          className="max-w-full truncate pt-0.5 text-label-sm font-medium text-foreground/soft"
           data-testid="chat-pending-turn-author"
         >
           {identity ?? name}

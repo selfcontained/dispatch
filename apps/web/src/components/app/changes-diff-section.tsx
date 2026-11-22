@@ -286,7 +286,7 @@ const FileDiffSection = memo(function FileDiffSection({
     >
       <div
         style={{ containerType: "inline-size" }}
-        className="sticky top-0 z-10 flex items-center rounded-t-md border-b border-border-subtle bg-background/dense pr-1 backdrop-blur-sm"
+        className="sticky top-0 z-sticky flex items-center rounded-t-md border-b border-border-subtle bg-background/dense pr-1 backdrop-blur-sm"
       >
         <button
           type="button"
@@ -420,7 +420,7 @@ function FileDiffContent({
         </span>
         <button
           type="button"
-          className="rounded border border-border px-2 py-0.5 text-body-sm text-foreground hover:bg-surface-hover"
+          className="rounded-sm border border-border px-2 py-0.5 text-body-sm text-foreground hover:bg-surface-hover"
           onClick={onForceLoad}
         >
           Load diff
