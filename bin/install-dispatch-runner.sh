@@ -28,6 +28,7 @@ enrollment and workload account.
 The workload uses SUDO_USER by default. Use --user for another existing
 non-root account, or --dedicated-user to create the dispatch-runner account.
 Update preserves idle sessions on compatible runners. Exit 75 means retry after the reported activity finishes.
+Add --clear-unreadable-fence to update to set aside a damaged fence when no trial is active.
 Recover restores the previous binary after an interrupted update.
 Uninstall removes the managed service and binaries and retains enrollment and session data.
 USAGE
@@ -598,20 +599,33 @@ version_is_lower() {
 }
 
 assert_no_update_fence() {
-  [[ ! -e "$state/update/fence.json" ]] ||
+  [[ ! -e "$state/update/fence.json" && ! -L "$state/update/fence.json" ]] ||
     error "A runner update fence or trial is in progress"
 }
 
+clear_unreadable_update_fence() {
+  chmod 0700 "$stage/dispatch"
+  "$stage/dispatch" runner-update-trial clear-unreadable-fence
+}
+
 update_runner() {
-  local installed
+  local installed cleared_fence=0
   maintenance_step=prepare
-  assert_no_update_fence
+  if [[ "${clear_unreadable_fence:-0}" != 1 ]]; then assert_no_update_fence; fi
   # Keep the original tool error on the runner. Only the bounded status record
   # goes to Dispatch. The lock serializes writers, and tee must not inherit it.
   install -m 0600 /dev/null "$runtime/last-maintenance.log"
   exec 2> >(exec 9>&-; tee "$runtime/last-maintenance.log" >&2)
   [[ -f "$runtime/managed-install" && -x "$runtime/dispatch" && -f "$config" ]] ||
     error "No managed Dispatch runner is installed"
+  if [[ "${clear_unreadable_fence:-0}" == 1 &&
+        ( -e "$state/update/fence.json" || -L "$state/update/fence.json" ) ]]; then
+    maintenance_step=stage
+    stage_release
+    clear_unreadable_update_fence
+    assert_no_update_fence
+    cleared_fence=1
+  fi
   if [[ "$action" == recover || -f "$runtime/previous" ]]; then
     maintenance_step=restore
     recover_runner
@@ -622,7 +636,7 @@ update_runner() {
     error "Refusing to downgrade Dispatch runner from $installed to $tag. Use --allow-downgrade to proceed"
   fi
   maintenance_step=stage
-  stage_release
+  if [[ "$cleared_fence" == 0 ]]; then stage_release; fi
   if [[ -z "$installed" && "${allow_downgrade:-0}" != 1 ]] && ! cmp -s "$stage/dispatch" "$runtime/dispatch"; then
     # Every installer with this guard writes the record, so a missing one
     # means the runner predates it and is older than any offered build.
@@ -634,7 +648,7 @@ update_runner() {
   if ! tar -xOzf "$stage/dispatch-runner-linux-$arch.tar.gz" bin/runner-handoff-v1.py > "$stage/handoff.py" 2>/dev/null; then
     : > "$stage/handoff.py"
   fi
-  if cmp -s "$stage/dispatch" "$runtime/dispatch"; then
+  if [[ "$cleared_fence" == 0 ]] && cmp -s "$stage/dispatch" "$runtime/dispatch"; then
     record_release "$runtime/dispatch"
     maintenance_step=unit
     install_service_unit
@@ -653,7 +667,7 @@ update_runner() {
   stop_runner_for_update record_previous
   # A fence may have arrived while we were downloading or stopping. Restore
   # the old service before giving the self-updater the installer lock.
-  if [[ -e "$state/update/fence.json" ]]; then
+  if [[ -e "$state/update/fence.json" || -L "$state/update/fence.json" ]]; then
     recover_runner
     assert_no_update_fence
     error "A runner update fence interrupted manual maintenance"
@@ -749,6 +763,11 @@ parse_install_options() {
         esac
         shift 2
         ;;
+      --clear-unreadable-fence)
+        [[ "$action" == update ]] || error "--clear-unreadable-fence requires update"
+        clear_unreadable_fence=1
+        shift
+        ;;
       --allow-downgrade)
         allow_downgrade=1
         shift
@@ -770,7 +789,7 @@ uninstall_runner() {
   local was_running=0
   if systemctl is-active --quiet "$unit"; then was_running=1; fi
   stop_runner_for_update
-  if [[ -e "$state/update/fence.json" ]]; then
+  if [[ -e "$state/update/fence.json" || -L "$state/update/fence.json" ]]; then
     if [[ "$was_running" == 1 ]]; then stable_start; fi
     assert_no_update_fence
   fi

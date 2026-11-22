@@ -76,6 +76,11 @@ stat() {
 runner_probe_available() {
   [[ ! -e "$root/no-systemd-run" ]]
 }
+clear_unreadable_update_fence() {
+  # The TypeScript fixture exercises parsing, trial guards and quarantine.
+  [[ -s "$stage/dispatch" && -e "$root/allow-fence-quarantine" ]] || return 1
+  mv -fT "$state/update/fence.json" "$state/update/fence.json.unreadable-fixture"
+}
 systemctl() {
   local command="$1"
   printf '%s\n' "$*" >> "$root/systemctl"
@@ -418,8 +423,34 @@ expect_status 1 update v1.0.1
 expect_status 1 uninstall unused
 [[ $(wc -l < "$root/curl") -eq "$fetches_before_fence" ]] || fail
 cmp "$root/original" "$root/runtime/dispatch" || fail
-rm "$root/state/update/fence.json"
-run update v1.0.1
+expect_status 1 update v1.0.1 x64 --clear-unreadable-fence
+[[ -e "$root/state/update/fence.json" ]] || fail
+printf '{' > "$root/state/update/fence.json"
+touch "$root/allow-fence-quarantine"
+run update v1.0.1 x64 --clear-unreadable-fence
+[[ "$(<"$root/state/update/fence.json.unreadable-fixture")" == '{' ]] || fail
+[[ ! -e "$root/state/update/fence.json" ]] || fail
+rm "$root/allow-fence-quarantine"
+# A same-release repair still restarts the supervisor so it rereads the fence.
+# A dangling fence path must also be refused by an ordinary manual update.
+fixture_root="$root/fence-repair"
+mkdir -p "$fixture_root"
+ln -s "$root/releases" "$fixture_root/releases"
+ln -s "$root/public.pem" "$fixture_root/public.pem"
+run install v1.0.0 x64 --dedicated-user
+run connect https://dispatch.example
+ln -s nonexistent-fence-target "$fixture_root/state/update/fence.json"
+fetches_before_fence=$(wc -l < "$fixture_root/curl")
+expect_status 1 update v1.0.0
+[[ $(wc -l < "$fixture_root/curl") -eq "$fetches_before_fence" ]] || fail
+rm "$fixture_root/state/update/fence.json"
+printf '{' > "$fixture_root/state/update/fence.json"
+touch "$fixture_root/allow-fence-quarantine"
+starts_before_repair=$(grep -c '^start ' "$fixture_root/systemctl" || :)
+run update v1.0.0 x64 --clear-unreadable-fence
+[[ $(grep -c '^start ' "$fixture_root/systemctl") -gt "$starts_before_repair" ]] || fail
+unset fixture_root
+
 cmp "$root/original" "$root/runtime/previous-verified" || fail
 [[ "$root/runtime/update/activate-helper" -ef "$root/runtime/dispatch" ]] || fail
 # An update restores the release's unit and the directory modes.

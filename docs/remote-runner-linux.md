@@ -247,16 +247,30 @@ minutes, plus time to flush their reply and close terminals. An activation
 request handed to the updater leaves expiry and recovery to the updater.
 
 An unreadable fence is reported in the runner's update advertisement and a
-controller cancel can clear it. To clear a fence manually, first verify
-there is no active update trial. Stop the supervisor, preserve the private
-fence record for diagnosis, and start the supervisor again:
+controller cancel can clear it. The boot hook follows the durable journal and
+leaves unreadable fence records in place for that recovery.
 
-```sh
-sudo systemctl stop dispatch-runner.service
-sudo mv /var/lib/dispatch-runner/update/fence.json \
-  /var/lib/dispatch-runner/update/fence.json.manual-clear
-sudo systemctl start dispatch-runner.service
-```
+| Trial journal           | Readable fence                                                                                                               | Unreadable fence                                                         | Fence absent                                              |
+| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ | --------------------------------------------------------- |
+| Absent                  | Defer and clear an activating fence. Preserve a fencing or fenced record.                                                    | Start fenced and advertise `fenceUnreadable`.                            | Start normally.                                           |
+| Pre-swap                | Keep the incumbent and defer. Clear the matching activating fence.                                                           | Keep the incumbent and defer. Start with the damaged fence in place.     | Keep the incumbent and defer.                             |
+| Post-swap before commit | Restore the previous executable and clear the matching activating fence.                                                     | Restore the previous executable and leave the damaged fence in place.    | Restore the previous executable.                          |
+| Committing              | Finish the durable commit and clear the matching activating fence.                                                           | Finish the durable commit and leave the damaged fence in place.          | Finish the durable commit.                                |
+| Terminal                | Clean up trial artifacts and the matching activating fence. Defer an unrelated activating fence. Preserve other fences.      | Clean up trial artifacts and start with the damaged fence in place.      | Clean up trial artifacts and start.                       |
+| Unreadable              | Start only if the installed inode matches the activation helper or the verified predecessor. Preserve the journal and fence. | Require the same verified inode and preserve both records. Start fenced. | Require the same verified inode and preserve the journal. |
+
+The installed inode determines whether the swap happened, including a crash
+between renaming the executable and writing the next journal phase. When the
+journal is unreadable and the installed inode is unverified, the hook refuses
+startup so the administrator can inspect the preserved records.
+
+For manual recovery, run the installer from the desired fixed release with
+`update --tag vX.Y.Z --clear-unreadable-fence`. Under the installer lock, it
+uses the verified release to check the fence and trial journal. With an absent
+or terminal journal, it renames an unreadable fence to
+`fence.json.unreadable-<id>`, prints the saved path, and updates the runner.
+A readable fence, pending trial, or unreadable journal still blocks this
+recovery.
 
 ## Validate installer changes
 

@@ -11,10 +11,18 @@ import {
 import path from "node:path";
 import { promisify } from "node:util";
 import { setTimeout as pause } from "node:timers/promises";
-import { embeddedBuild, type BuildIdentity } from "../build-identity.js";
+import {
+  embeddedBuild,
+  isBuildIdentity,
+  type BuildIdentity,
+} from "../build-identity.js";
 import type { RunnerInstalledBuild, RunnerUpdateReason } from "./protocol.js";
 import type { FenceRecord } from "./update-admission.js";
-import { fileFenceStore } from "./update-fence-store.js";
+import {
+  fileFenceStore,
+  parseFenceRecord,
+  RUNNER_UPDATE_FENCE_FILE,
+} from "./update-fence-store.js";
 import { compiledRunnerUpdateKeys } from "./update-keys.js";
 import { RUNNER_UPDATE_VERSION } from "./update-manifest.js";
 import {
@@ -79,14 +87,57 @@ async function readRecord<T>(file: string, uid: number): Promise<T | null> {
   if (stat.size > 512 * 1024) throw new Error("Oversized runner trial record");
   const handle = await open(file, "r");
   try {
-    return JSON.parse(await handle.readFile("utf8")) as T;
+    const record = JSON.parse(await handle.readFile("utf8")) as T;
+    if (!record || typeof record !== "object")
+      throw new Error("Malformed runner trial record");
+    return record;
   } finally {
     await handle.close();
   }
 }
 
-export function readTrial(layout: RunnerUpdateLayout, uid = 0) {
-  return readRecord<TrialRecord>(path.join(layout.state, JOURNAL), uid);
+export async function readTrial(layout: RunnerUpdateLayout, uid = 0) {
+  const record = await readRecord<TrialRecord>(
+    path.join(layout.state, JOURNAL),
+    uid
+  );
+  if (!record) return null;
+  const fence = parseFenceRecord(record.fence, NaN);
+  if (fence?.phase !== "activating")
+    throw new Error("Malformed runner trial fence");
+  if (
+    !terminalTrial(record) &&
+    (!["prepared", "starting", "trial", "committing", "restoring"].includes(
+      record.phase
+    ) ||
+      !Number.isFinite(record.deadline) ||
+      !isBuildIdentity(record.previous) ||
+      !record.previous.revision ||
+      typeof record.previous.sha256 !== "string" ||
+      !/^[a-f0-9]{64}$/.test(record.previous.sha256))
+  )
+    throw new Error("Malformed pending runner trial");
+  return { ...record, fence };
+}
+
+/** Called by the manual installer under install.lock, using the verified release. */
+export async function clearUnreadableFence(
+  layout: RunnerUpdateLayout,
+  uid: number
+) {
+  await trusted(layout.state, "directory", uid, true);
+  const trial = await readTrial(layout, uid);
+  if (trial && !terminalTrial(trial))
+    throw new Error("A runner update trial is in progress");
+  const store = fileFenceStore(layout.state, uid);
+  const fence = await store.read().catch(() => undefined);
+  if (fence === null) return;
+  if (fence) throw new Error("A readable runner update fence is in progress");
+  const file = path.join(layout.state, RUNNER_UPDATE_FENCE_FILE);
+  const saved = `${file}.unreadable-${crypto.randomUUID()}`;
+  await rename(file, saved);
+  await syncDirectory(layout.state);
+  console.error(`Set aside unreadable runner update fence at ${saved}.`);
 }
 
 export function trialMatches(trial: TrialRecord | null, fence: FenceRecord) {
@@ -326,8 +377,15 @@ export async function runTrial(options: {
     await save(result);
     await cleanup(result);
   };
+  const readFenceForRecovery = () =>
+    store.read().catch((error: Error) => {
+      console.error(
+        `Preserving unreadable runner update fence: ${error.message}`
+      );
+      return null;
+    });
   const cleanup = async (result: Terminal) => {
-    const fence = await store.read();
+    const fence = await readFenceForRecovery();
     if (fence?.phase === "activating" && trialMatches(result, fence)) {
       await store.clear();
       await syncDirectory(layout.state);
@@ -400,10 +458,32 @@ export async function runTrial(options: {
   };
 
   await trusted(runtime, "directory", uid, false);
-  await trusted(layout.installed, "file", uid, false);
+  const installed = await trusted(layout.installed, "file", uid, false);
   await trusted(layout.staging, "directory", uid, true);
   await trusted(layout.state, "directory", uid, true);
-  const prior = await readTrial(layout, uid);
+  let prior: TrialRecord | null;
+  try {
+    prior = await readTrial(layout, uid);
+  } catch (error) {
+    if (!boot) throw error;
+    // The helper and retained predecessor pin verified inodes. Keep the
+    // damaged journal for diagnosis and leave an unknown executable offline.
+    const verified = await Promise.all(
+      [TRIAL_HELPER, "previous-verified"].map((name) =>
+        trusted(path.join(runtime, name), "file", uid, false).catch(() => null)
+      )
+    );
+    if (
+      !verified.some(
+        (stat) => stat?.dev === installed.dev && stat.ino === installed.ino
+      )
+    )
+      throw error;
+    console.error(
+      `Starting verified runner with unreadable trial journal: ${(error as Error).message}`
+    );
+    return;
+  }
   if (prior) {
     if (terminalTrial(prior)) await cleanup(prior);
     else if (prior.phase === "committing") return commit(prior);
@@ -415,7 +495,7 @@ export async function runTrial(options: {
       );
   }
 
-  const fence = await store.read();
+  const fence = await (boot ? readFenceForRecovery() : store.read());
   if (fence?.phase !== "activating") return;
   if (boot) {
     return finish({ fence, phase: "deferred", reason: "cancelled" });
@@ -552,11 +632,13 @@ export async function runRunnerUpdateTrial(argv: string[]) {
     process.platform !== "linux" ||
     process.getuid?.() !== 0 ||
     argv.length !== 1 ||
-    !["live", "boot"].includes(argv[0]!)
+    !["live", "boot", "clear-unreadable-fence"].includes(argv[0]!)
   )
     throw new Error(
       "Runner update trial requires the managed Linux installation"
     );
+  if (argv[0] === "clear-unreadable-fence")
+    return clearUnreadableFence(RUNNER_UPDATE_LAYOUT, 0);
   await runTrial({
     layout: RUNNER_UPDATE_LAYOUT,
     uid: 0,

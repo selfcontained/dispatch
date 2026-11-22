@@ -1,9 +1,12 @@
 import {
+  chmod,
   link,
   lstat,
   mkdir,
   mkdtemp,
   readFile,
+  readdir,
+  rename,
   rm,
   writeFile,
 } from "node:fs/promises";
@@ -12,6 +15,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fileFenceStore } from "../src/agents/remote/update-fence-store.js";
 import {
+  clearUnreadableFence,
   isSuppressed,
   readTrial,
   RUNNER_TRIAL_MS,
@@ -119,6 +123,138 @@ describe("durable runner trial", () => {
   });
   afterEach(async () => {
     await rm(s.root, { recursive: true, force: true });
+  });
+
+  const malformedFence = async (
+    layout: Awaited<ReturnType<typeof fixture>>["layout"]
+  ) => writeFile(path.join(layout.state, "fence.json"), "{");
+
+  it("boots with the unreadable fence intact when no trial exists", async () => {
+    await malformedFence(s.layout);
+    await s.boot();
+    await expect(s.store.read()).rejects.toThrow();
+    await expect(s.live()).rejects.toThrow();
+    expect(await s.journal()).toBeNull();
+    expect(s.system.stop).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["prepared", "deferred"],
+    ["swap-renamed", "rolled_back"],
+    ["committing", "confirmed"],
+    ["confirmed", "confirmed"],
+  ])("recovers %s with an unreadable fence", async (boundary, terminal) => {
+    s.options.checkpoint = async (phase) => {
+      if (phase === "trial") await s.confirm();
+      if (phase === boundary) throw new Error("crash fixture");
+    };
+    s.options.sleep = async () => {
+      await s.ready();
+    };
+    await expect(s.live()).rejects.toThrow("crash fixture");
+    await malformedFence(s.layout);
+    await s.boot();
+    expect(await s.journal()).toMatchObject({ phase: terminal });
+    expect(await sha256File(s.layout.installed)).toBe(
+      terminal === "confirmed" ? s.target.sha256 : s.oldSha
+    );
+    await expect(s.store.read()).rejects.toThrow();
+  });
+
+  it.each(["{", "null", "{}", '{"phase":"committing"}'])(
+    "permits an unreadable trial journal (%s) only with the verified incumbent inode at boot",
+    async (contents) => {
+      const journal = path.join(s.layout.state, "trial.json");
+      await writeFile(journal, contents, { mode: 0o600 });
+      await s.boot();
+      expect(await readFile(journal, "utf8")).toBe(contents);
+      await expect(s.live()).rejects.toThrow();
+      // Copy identical bytes to a different inode. A trusted path is not an identity.
+      await rm(s.layout.installed);
+      await writeFile(s.layout.installed, "old verified bytes", {
+        mode: 0o755,
+      });
+      await expect(s.boot()).rejects.toThrow();
+    }
+  );
+
+  it("boots a verified retained predecessor with an unreadable journal", async () => {
+    const journal = path.join(s.layout.state, "trial.json");
+    await writeFile(journal, "{", { mode: 0o600 });
+    const restored = path.join(s.layout.staging, "restored");
+    await link(s.previous, restored);
+    await rename(restored, s.layout.installed);
+    await s.boot();
+    expect((await lstat(s.layout.installed)).ino).toBe(
+      (await lstat(s.previous)).ino
+    );
+    expect(await readFile(journal, "utf8")).toBe("{");
+  });
+
+  it("rejects malformed fields in a pending trial journal", async () => {
+    const journal = path.join(s.layout.state, "trial.json");
+    const pending = {
+      fence: s.fence,
+      phase: "prepared",
+      previous: { ...identity, sha256: s.oldSha },
+      deadline: 1000,
+    };
+    await writeFile(
+      journal,
+      JSON.stringify({ ...pending, fence: { ...s.fence, phase: "fenced" } }),
+      { mode: 0o600 }
+    );
+    await expect(s.journal()).rejects.toThrow("Malformed runner trial fence");
+    for (const override of [
+      { phase: "unknown" },
+      { deadline: null },
+      { previous: { ...pending.previous, version: "" } },
+      { previous: { ...pending.previous, revision: null } },
+      { previous: { ...pending.previous, sha256: [s.oldSha] } },
+      { previous: { ...pending.previous, sha256: "bad" } },
+    ]) {
+      await writeFile(journal, JSON.stringify({ ...pending, ...override }), {
+        mode: 0o600,
+      });
+      await expect(s.journal()).rejects.toThrow(
+        "Malformed pending runner trial"
+      );
+    }
+  });
+
+  it("lets manual update quarantine a damaged fence with no pending trial", async () => {
+    const clear = () => clearUnreadableFence(s.layout, s.options.uid);
+    await expect(clear()).rejects.toThrow("readable runner update fence");
+    await malformedFence(s.layout);
+    await chmod(s.layout.state, 0o755);
+    await expect(clear()).rejects.toThrow("not a private root-owned directory");
+    await chmod(s.layout.state, 0o700);
+    const journal = path.join(s.layout.state, "trial.json");
+    await writeFile(journal, "{", { mode: 0o600 });
+    await expect(clear()).rejects.toThrow();
+    const previous = { ...identity, sha256: s.oldSha };
+    await writeFile(
+      journal,
+      JSON.stringify({
+        fence: s.fence,
+        phase: "prepared",
+        previous,
+        deadline: 1000,
+      })
+    );
+    await expect(clear()).rejects.toThrow("trial is in progress");
+    await expect(s.store.read()).rejects.toThrow();
+    await writeFile(
+      journal,
+      JSON.stringify({ fence: s.fence, phase: "deferred" })
+    );
+    await clear();
+    expect(await s.store.read()).toBeNull();
+    const saved = (await readdir(s.layout.state)).find((name) =>
+      name.startsWith("fence.json.unreadable-")
+    );
+    expect(await readFile(path.join(s.layout.state, saved!), "utf8")).toBe("{");
+    await clear();
   });
 
   async function startThen(decide: () => Promise<unknown>) {

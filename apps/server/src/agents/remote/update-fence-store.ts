@@ -13,7 +13,7 @@ import type { FenceRecord, FenceStore } from "./update-admission.js";
 export const RUNNER_UPDATE_FENCE_FILE = "fence.json";
 const MAX_FENCE_BYTES = 256 * 1024;
 
-function parseFenceRecord(
+export function parseFenceRecord(
   value: unknown,
   legacyStartedAt: number
 ): FenceRecord | null {
