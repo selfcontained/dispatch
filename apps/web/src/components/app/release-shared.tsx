@@ -3,7 +3,7 @@ import { ActivityBars } from "@/components/ui/activity-bars";
 import { LogStream } from "@/components/ui/log-stream";
 import { cn } from "@/lib/utils";
 
-const PHASE_LABELS: Record<ReleasePhase, string> = {
+export const PHASE_LABELS: Record<ReleasePhase, string> = {
   preflight: "Pre-flight",
   triggering: "Trigger workflow",
   watching: "CI running",

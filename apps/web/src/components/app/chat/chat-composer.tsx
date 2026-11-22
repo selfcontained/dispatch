@@ -980,7 +980,16 @@ export function ChatComposer({
         draftLimitError)) ?? "Send (Enter)";
 
   useEffect(() => {
-    if (autoFocus) textareaRef.current?.focus();
+    if (!autoFocus) return;
+    // This also runs when a resize leaves the mobile layout, where an open
+    // dialog may hold focus and an unsaved draft.
+    if (
+      document.activeElement?.closest(
+        '[role="dialog"][data-state="open"], [role="alertdialog"][data-state="open"]'
+      )
+    )
+      return;
+    textareaRef.current?.focus();
   }, [autoFocus]);
 
   const submit = useCallback(
