@@ -29,7 +29,10 @@ import type { AddJobInput, JobService } from "../jobs/service.js";
 import type { UpdateJobInput } from "../jobs/store.js";
 import type { TemplateService } from "../templates/service.js";
 import type { AddTemplateInput } from "../templates/store.js";
-import { runnerSaveBoundary } from "../server/runner-save-boundary.js";
+import {
+  personaScopeFor,
+  type SavedPersonaScope,
+} from "../personas/persona-scope.js";
 import { discoverRepoTools, mcpCheckoutRoots } from "../server/mcp-checkout.js";
 import type { CrudToolCallbacks } from "../shared/mcp/crud-tools.js";
 import { handleMcpRequest } from "../shared/mcp/server.js";
@@ -176,7 +179,16 @@ function buildCrudCallbacks(
   agent: AgentRecord
 ): CrudToolCallbacks {
   const callerFullAccess = agent.fullAccess === true;
-  const boundary = runnerSaveBoundary(deps.agentManager, agent);
+  const placement = remotePlacement(agent.cwd);
+  const personaScope: SavedPersonaScope | undefined = placement
+    ? (target) => {
+        const workspace = remotePlacement(target.cwd);
+        return workspace?.runner === placement.runner &&
+          workspace.workspace === placement.workspace
+          ? personaScopeFor({ manager: deps.agentManager, agent })
+          : personaScopeFor(target);
+      }
+    : undefined;
   return {
     listJobs: async (directory) => {
       const jobs = await deps.jobService.listJobs();
@@ -187,22 +199,18 @@ function buildCrudCallbacks(
     getJobById: (jobId) => deps.jobService.getJobById(jobId),
     getJobByName: (directory, name) =>
       deps.jobService.getJobByName(directory, name),
-    createJob: async (input) => {
-      boundary?.assertTarget(input);
-      return deps.jobService.addJob(
+    createJob: (input) =>
+      deps.jobService.addJob(
         input as AddJobInput,
         callerFullAccess,
-        boundary?.personaScope
-      );
-    },
-    updateJob: async (input) => {
-      boundary?.assertTarget(input);
-      return deps.jobService.updateJob(
+        personaScope
+      ),
+    updateJob: (input) =>
+      deps.jobService.updateJob(
         input as UpdateJobInput,
         callerFullAccess,
-        boundary?.personaScope
-      );
-    },
+        personaScope
+      ),
     deleteJob: (jobId) => deps.jobService.removeJob({ jobId }),
     runJob: (jobId) =>
       deps.jobService.runJob({
@@ -220,23 +228,19 @@ function buildCrudCallbacks(
       deps.templateService.getTemplate(templateId),
     getTemplateByName: (directory, name) =>
       deps.templateService.getTemplateByName(directory, name),
-    createTemplate: async (input) => {
-      boundary?.assertTarget(input);
-      return deps.templateService.addTemplate(
+    createTemplate: (input) =>
+      deps.templateService.addTemplate(
         input as AddTemplateInput,
         callerFullAccess,
-        boundary?.personaScope
-      );
-    },
-    updateTemplate: async (templateId, input) => {
-      boundary?.assertTarget(input);
-      return deps.templateService.updateTemplate(
+        personaScope
+      ),
+    updateTemplate: (templateId, input) =>
+      deps.templateService.updateTemplate(
         templateId,
         input as Partial<AddTemplateInput>,
         callerFullAccess,
-        boundary?.personaScope
-      );
-    },
+        personaScope
+      ),
     deleteTemplate: (templateId) =>
       deps.templateService.removeTemplate(templateId),
   };

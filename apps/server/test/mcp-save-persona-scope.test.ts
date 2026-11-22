@@ -1,8 +1,3 @@
-/**
- * Job and template tools as an agent calls them, through the real MCP
- * transport and services. The controller's file system and process spawns are
- * recorded: a runner agent must not cause either on a path it names.
- */
 import { randomUUID } from "node:crypto";
 import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
@@ -153,7 +148,7 @@ beforeAll(async () => {
   pool = await setupTestDb();
   await runTestMigrations();
   root = await realpath(
-    await mkdtemp(path.join(os.tmpdir(), "save-boundary-"))
+    await mkdtemp(path.join(os.tmpdir(), "save-persona-scope-"))
   );
   const project = async (name: string) =>
     (
@@ -229,39 +224,14 @@ afterAll(async () => {
 
 describe.each(routes)("a runner agent on the %s route", (route) => {
   it.each(tools)(
-    "%s refuses a controller folder unread, whether or not it exists",
-    async (tool) => {
-      const present = await controllerFolder(`${route}-${tool}`);
-      const missing = path.join(root, `${route}-${tool}-missing`);
-      const results = [];
-      for (const directory of [present, missing]) {
-        const args = await argsFor(tool, HOME);
-        disk.calls.length = 0;
-        const result = await call(
-          tool,
-          { ...args, directory, persona: "secret" },
-          route
-        );
-        expect(disk.calls.filter((entry) => entry.includes(root))).toEqual([]);
-        expect(result.error).toBe(true);
-        expect(result.text).toContain("own workspace");
-        expect(result.text).not.toContain(root);
-        expect((await saved(tool, args))?.persona ?? null).toBeNull();
-        results.push(result);
-      }
-      expect(results[0]).toEqual(results[1]);
-    }
-  );
-
-  it.each(tools)(
-    "%s resolves a persona for its workspace from the runner",
+    "%s resolves a persona in its workspace even when saving to another project",
     async (tool) => {
       caller.projectId = projectId;
       const args = await argsFor(tool, HOME);
       disk.calls.length = 0;
       const result = await call(
         tool,
-        { ...args, projectId, persona: "runner-builder" },
+        { ...args, projectId: otherProjectId, persona: "runner-builder" },
         route
       );
       expect(result.error, result.text).toBe(false);
@@ -278,58 +248,9 @@ describe.each(routes)("a runner agent on the %s route", (route) => {
   );
 });
 
-describe("a runner agent", () => {
-  it.each(tools)("%s refuses every other kind of folder", async (tool) => {
-    for (const directory of [
-      "~",
-      "relative/folder",
-      "/",
-      ` ${root}`,
-      "runner://rnr_other/@session",
-      "runner://rnr_test/elsewhere",
-      "runner://broken",
-    ]) {
-      const args = await argsFor(tool, HOME);
-      // No persona: the folder alone would later become a controller launch.
-      const result = await call(tool, { ...args, directory });
-      expect(result.error, directory).toBe(true);
-      expect(result.text).toContain("own workspace");
-    }
-  });
-
-  it.each(tools)("%s refuses another project", async (tool) => {
-    caller.projectId = projectId;
-    const args = await argsFor(tool, HOME);
-    disk.calls.length = 0;
-    const result = await call(tool, {
-      ...args,
-      projectId: otherProjectId,
-      persona: "secret",
-    });
-    expect(result.error).toBe(true);
-    expect(result.text).toContain("own project");
-    expect(disk.calls.filter((entry) => entry.includes(root))).toEqual([]);
-  });
-
-  it.each(["update_job", "update_template"])(
-    "%s does not resolve a persona in a stored controller folder",
-    async (tool) => {
-      const folder = await controllerFolder(`stored-${tool}`);
-      const args = await argsFor(tool, folder);
-      disk.calls.length = 0;
-      // A persona the runner has, so only the folder can be what refuses it.
-      const result = await call(tool, { ...args, persona: "runner-builder" });
-      expect(disk.calls.filter((entry) => entry.includes(root))).toEqual([]);
-      expect(result.error).toBe(true);
-      expect(result.text).toContain("own workspace");
-      expect(result.text).not.toContain(root);
-    }
-  );
-});
-
-describe("a local agent", () => {
+describe.each(["runner", "local"])("a %s agent", (location) => {
   it.each(tools)("%s still reads the folder it names", async (tool) => {
-    caller.cwd = root;
+    if (location === "local") caller.cwd = root;
     const folder = await controllerFolder(`local-${tool}`);
     const args = await argsFor(tool, root);
     disk.calls.length = 0;
@@ -339,7 +260,6 @@ describe("a local agent", () => {
       persona: "secret",
     });
     expect(result.error, result.text).toBe(false);
-    // Also proves the recorder sees the reads the runner cases assert absent.
     expect(disk.calls).toContain(
       path.join(folder, ".agents/personas/secret.md")
     );
@@ -349,3 +269,17 @@ describe("a local agent", () => {
     });
   });
 });
+
+it.each(["update_job", "update_template"])(
+  "%s resolves a persona in the stored controller folder for a runner caller",
+  async (tool) => {
+    const folder = await controllerFolder(`stored-${tool}`);
+    const args = await argsFor(tool, folder);
+    const result = await call(tool, { ...args, persona: "secret" });
+    expect(result.error, result.text).toBe(false);
+    expect(await saved(tool, args)).toEqual({
+      directory: folder,
+      persona: "secret",
+    });
+  }
+);
