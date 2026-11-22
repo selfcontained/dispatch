@@ -509,6 +509,11 @@ export function createLocalRunner(
       return hosted;
     },
 
+    /** The recorded pid, unverified: a failed `ps` must not read as no host. */
+    async recordedHostPid(agentId: string) {
+      const pid = await readHostPid(stateDir(agentId));
+      return pid && Number.isSafeInteger(pid) && pid > 0 ? pid : null;
+    },
     isHostPid: (agentId: string, pid: number) =>
       hostPidMatches(pid, stateDir(agentId)),
 

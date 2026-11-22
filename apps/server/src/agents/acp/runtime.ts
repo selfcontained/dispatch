@@ -1900,7 +1900,7 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
           return false;
         client.shutdown(false, true);
         const deadline = Date.now() + STOP_GRACE_MS;
-        const pid = await local.hostPid(agentId);
+        const pid = await local.recordedHostPid(agentId);
         while (
           pid &&
           (await local.isHostPid(agentId, pid)) &&

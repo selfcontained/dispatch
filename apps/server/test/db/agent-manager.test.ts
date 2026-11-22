@@ -3488,6 +3488,20 @@ describe("AgentManager", () => {
       expect(after.rows).toEqual(before.rows);
     });
 
+    it("never plain-stops a host that the idle-only stop refused at the fence", async () => {
+      const agent = await running();
+      const stopIdle = vi.fn(async () => false);
+      Object.assign(runtime, { stopIdleHostForRecovery: stopIdle });
+      runtime.listHosted.mockResolvedValue([agent.id]);
+
+      expect(await manager.stopIdleHostsForRecovery(1_000)).toEqual({
+        stopped: [],
+        remaining: [agent.id],
+      });
+      expect(stopIdle).toHaveBeenCalledExactlyOnceWith(agent.id);
+      expect(runtime.stop).not.toHaveBeenCalled();
+    });
+
     it("resumes an untouched idle agent exactly once, resuming its session without replaying prompts", async () => {
       const agent = await running();
       const snapshot = await manager.updateResumeSnapshot([agent.id]);

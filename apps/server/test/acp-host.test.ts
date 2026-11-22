@@ -26,12 +26,13 @@ import { pathToFileURL } from "node:url";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import {
   encodeMessage,
   HOST_FILES,
   ndjsonDecoder,
+  parseClientMessage,
   type HostLaunch,
   type ClientMessage,
   type HostMessage,
@@ -40,6 +41,7 @@ import { embeddedBuild } from "../src/agents/build-identity.js";
 import type { DriverEvent } from "../src/agents/acp/driver.js";
 import { createAcpRuntime } from "../src/agents/acp/runtime.js";
 import { preparePersonaContext } from "../src/agents/acp/persona-context.js";
+import { HostClient } from "../src/agents/acp/host-client.js";
 import { createLocalRunner } from "../src/agents/local-runner.js";
 import { RunnerUnavailable } from "../src/agents/remote/service.js";
 import { RunnerUpdateHolds } from "../src/agents/remote/update-hold.js";
@@ -338,15 +340,16 @@ describe("agent host", () => {
     }
   }, 30_000);
 
-  it("refuses an idle-only shutdown that arrives while a turn is open", async () => {
+  it("refuses an idle-only shutdown mid-turn, finishes the turn, then exits once idle", async () => {
     // A turn can open after probation read the welcome, so the host itself
     // must refuse. The test above never gets as far as sending the shutdown.
     const id = "agt_idle_only";
     const { runtime, seen } = runtimeWith(stateRoot, () => 0);
     await runtime.launch(launchFor(id, cwd));
-    const active = runtime.prompt(id, "sleep:60000");
+    const active = runtime.prompt(id, "sleep:2000");
     void active.settled.catch(() => {});
     let socket: net.Socket | undefined;
+    let idle: net.Socket | undefined;
     try {
       await active.accepted;
       await until(() =>
@@ -371,11 +374,80 @@ describe("agent host", () => {
       );
       expect(await reply).toBe("pong");
       expect(await runtime.isAlive(id)).toBe(true);
+
+      socket.destroy();
+      const journal = () =>
+        readFileSync(path.join(stateRoot, id, "journal.jsonl"), "utf8")
+          .trim()
+          .split("\n")
+          .map((line) => JSON.parse(line).event);
+      const settled = () =>
+        journal().find(
+          (event) => event?.type === "turn" && event.state === "settled"
+        );
+      await until(() => Boolean(settled()));
+      expect(settled()).toMatchObject({ stopReason: "end_turn" });
+      expect(settled().error).toBeFalsy();
+
+      idle = net.createConnection(path.join(stateRoot, id, "host.sock"));
+      await once(idle, "connect");
+      idle.write(encodeMessage({ type: "shutdown", idleOnly: true }));
+      await until(() => !existsSync(path.join(stateRoot, id, "host.pid")));
     } finally {
       socket?.destroy();
+      idle?.destroy();
       await runtime.stop(id, true);
     }
   }, 30_000);
+
+  it("never falls back to a plain stop when a turn opens after probation's welcome", async () => {
+    const id = "agt_recovery_race";
+    // No runtime attached: its reconnect would displace probation's client.
+    const host = createLocalRunner(stateRoot, logger);
+    const {
+      cwd: folder,
+      bins,
+      env,
+      pathPrefix,
+      ...launch
+    } = launchFor(id, cwd);
+    await host.requestSession(
+      { kind: "launch", agentId: id, launch },
+      {
+        cwd: folder,
+        bins: { ...bins, adapter: { bin: fakeAgent } },
+        env,
+        pathPrefix,
+      }
+    );
+    await until(() => existsSync(path.join(stateRoot, id, "session.json")));
+    const { runtime } = runtimeWith(stateRoot, () => 0);
+    const connect = HostClient.prototype.connect;
+    const spy = vi
+      .spyOn(HostClient.prototype, "connect")
+      .mockImplementation(async function (this: HostClient, ...args) {
+        const welcome = { ...(await connect.apply(this, args)) };
+        await this.prompt("race", "sleep:60000");
+        return welcome;
+      });
+    try {
+      expect(await runtime.stopIdleHostForRecovery!(id)).toBe(false);
+      expect(await runtime.listHosted()).toContain(id);
+    } finally {
+      spy.mockRestore();
+      await runtime.stop(id, true);
+    }
+  }, 30_000);
+
+  it.each([
+    [{ type: "shutdown", force: false, idleOnly: true }, "kept"],
+    [{ type: "shutdown", quiesceId: "lease" }, "kept"],
+    [{ type: "shutdown", idleOnly: "yes" }, "rejected"],
+  ] as const)("parses shutdown %j: %s", (message, outcome) => {
+    expect(parseClientMessage(message)).toEqual(
+      outcome === "kept" ? message : null
+    );
+  });
 
   it("does not count a foreign reused PID as an agent host", async () => {
     const id = "agt_foreign_pid";
