@@ -730,7 +730,7 @@ export function ResponsePlaceholderVisual({
             // move nothing.
             <span
               className={cn(
-                "ml-auto min-w-0 truncate tabular-nums text-muted-foreground transition-opacity duration-300 motion-reduce:transition-none",
+                "ml-auto min-w-0 truncate text-[9px] tabular-nums text-muted-foreground transition-opacity duration-300 motion-reduce:transition-none",
                 !summary && "opacity-0"
               )}
               data-testid="chat-response-activity-counts"
