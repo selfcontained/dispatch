@@ -294,7 +294,7 @@ function TemplateDetail({
         open={removeDialogOpen}
         onOpenChange={setRemoveDialogOpen}
         title={`Delete “${template.name}”?`}
-        description="Jobs that use this template will lose it. This cannot be undone."
+        description="This cannot be undone."
         confirmLabel="Delete template"
         errorTitle="Couldn’t delete the template."
         onConfirm={handleDelete}
