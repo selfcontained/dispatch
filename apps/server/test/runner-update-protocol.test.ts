@@ -259,6 +259,7 @@ describe("update_status", () => {
         interrupted: true,
       });
       expect(parseUpdateStatus(wire)).toEqual(frame);
+      expect(parseUpdateStatus(frame)).toEqual(frame);
       for (const change of [
         { interrupted: false },
         { reason: "confirm_timeout" },

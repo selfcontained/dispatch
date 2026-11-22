@@ -217,6 +217,11 @@ describe("candidate compatibility probe", () => {
       " [result signal, main signal 9]",
     ],
     [
+      "with a core dump after a successful pre-start",
+      "Result=core-dump\nExecMainCode=3\nExecMainStatus=11\nExecStartPre={ path=/bin/true ; pid=42 ; code=exited ; status=0 }\n",
+      " [result core-dump, main signal 11]",
+    ],
+    [
       "with an excessive result",
       `Result=${"x".repeat(1000)}\n`,
       ` [result ${"x".repeat(249)}]`,
