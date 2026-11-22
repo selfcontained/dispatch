@@ -37,6 +37,8 @@ export type RunnerUpdateView = {
     reason?: string;
     /** The runner's version floor, with reason `downgrade`. */
     floorVersion?: string;
+    /** Automatic updates leave this build until an operator's Update. */
+    automaticSkipped?: true;
   };
   /** Agents still on the previous build after a confirmed update. */
   previousBuildAgents?: number;

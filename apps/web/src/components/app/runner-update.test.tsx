@@ -268,6 +268,37 @@ it.each([
   }
 );
 
+it.each([
+  [true, true, true],
+  [true, undefined, false],
+  [false, true, false],
+] as const)(
+  "with automatic=%s and skipped=%s explains the paused build: %s",
+  (automatic, automaticSkipped, explained) => {
+    show(
+      {
+        result: {
+          state: "deferred",
+          version,
+          reason: "settle_timeout",
+          automaticSkipped,
+        },
+        available,
+      },
+      false,
+      automatic
+    );
+    expect(text()).toContain("Work on the runner didn’t settle in time.");
+    expect(
+      Boolean(
+        screen.queryByText(
+          "Automatic updates will skip this build. Select Update to install it."
+        )
+      )
+    ).toBe(explained);
+  }
+);
+
 it("names the floor of a refused downgrade", () => {
   show({
     result: {

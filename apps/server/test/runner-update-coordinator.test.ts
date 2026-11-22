@@ -193,28 +193,6 @@ describe("manual updates with automatic updates enabled", () => {
     }
   );
 
-  it("retries transient download deferrals at a bounded rate across restart", async () => {
-    await online({ automaticUpdates: true });
-    world.runner.report = { outcome: "refused", reason: "download_failed" };
-    const { attemptId } = await update();
-    await world.until(() => world.result()?.reason === "download_failed");
-    await world.restartController();
-    await world.connect();
-    world.advance(UPDATE_TIMING.automaticRetryMs - 1);
-    await world.coordinator.tick();
-    expect(world.attempt()?.id).toBe(attemptId);
-    world.advance(UPDATE_TIMING.automaticSpacingMs);
-    await world.until(() => world.attempt()?.automatic);
-    const retry = world.attempt()!.id;
-    expect(retry).not.toBe(attemptId);
-    await world.until(() => world.result()?.reason === "download_failed");
-    world.advance(UPDATE_TIMING.automaticRetryMs - 1);
-    await world.coordinator.tick();
-    expect(world.attempt()?.id).toBe(retry);
-    world.advance(UPDATE_TIMING.automaticSpacingMs);
-    await world.until(() => world.attempt()?.id !== retry);
-  });
-
   it("backs off before retrying a manual update deferred while offline", async () => {
     await online({ automaticUpdates: true });
     const { attemptId, release } = await staging();
@@ -225,8 +203,138 @@ describe("manual updates with automatic updates enabled", () => {
     await world.connect();
     await world.coordinator.tick();
     expect(world.attempt()?.id).toBe(attemptId);
-    world.advance(UPDATE_TIMING.automaticRetryMs);
+    world.advance(UPDATE_TIMING.automaticRetryMs[0]);
     await world.until(() => world.attempt()?.automatic);
+  });
+});
+
+describe("the automatic back-off", () => {
+  const minute = 60_000;
+  const blocked = () => world.saved.records[0]?.automaticBlocked;
+  const newer = { version: "1.7.30", revision: "e".repeat(40) };
+
+  async function automaticOnline() {
+    await online({ automaticUpdates: true });
+    world.advance(UPDATE_TIMING.automaticSettleMs);
+  }
+
+  async function nextAttempt() {
+    const previous = world.attempt()?.id;
+    await world.until(() => {
+      const attempt = world.attempt();
+      return attempt?.automatic && attempt.id !== previous;
+    });
+  }
+
+  async function failWith(reason: "download_failed" | "settle_timeout") {
+    if (reason === "download_failed")
+      world.runner.report = { outcome: "refused", reason };
+    // The runner never answers the fence, so the runner stays held.
+    else world.service.fenceUpdate = () => ({ epoch: 1 });
+    await nextAttempt();
+    if (reason === "settle_timeout") {
+      await world.until(
+        () => world.phase() === "settling" && world.holds.isHeld(RUNNER)
+      );
+      world.advance(world.attempt()!.deadline - world.now());
+    }
+    await world.until(() => world.result()?.reason === reason);
+    expect(world.holds.isHeld(RUNNER)).toBe(false);
+  }
+
+  it.each([
+    ["download_failed", [minute, 5 * minute, 30 * minute]],
+    ["settle_timeout", [5 * minute, 30 * minute]],
+  ] as const)(
+    "waits longer after each %s, across restarts, then stops",
+    async (reason, gaps) => {
+      await automaticOnline();
+      for (const [index, gap] of gaps.entries()) {
+        await failWith(reason);
+        expect(blocked()).toMatchObject({
+          failures: index + 1,
+          retryAt: world.now() + gap,
+        });
+        expect(world.result()?.automaticSkipped).toBeUndefined();
+
+        const last = world.attempt()!.id;
+        await world.restartController();
+        await world.connect();
+        world.advance(gap - 1);
+        await world.coordinator.tick();
+        expect(world.attempt()?.id).toBe(last);
+        world.advance(UPDATE_TIMING.automaticSpacingMs);
+      }
+
+      await failWith(reason);
+      const last = world.attempt()!.id;
+      expect(blocked()?.retryAt).toBeUndefined();
+      expect(world.result()?.automaticSkipped).toBe(true);
+      await world.restartController();
+      await world.connect();
+      world.advance(7 * 24 * 60 * minute);
+      await world.coordinator.tick();
+      expect(world.attempt()?.id).toBe(last);
+      expect(world.result()?.automaticSkipped).toBe(true);
+      expect(world.coordinator.view(RUNNER)?.available?.action).toBe("update");
+
+      // An operator's Update starts the count again.
+      world.runner.report = { outcome: "refused", reason: "download_failed" };
+      await update();
+      await world.until(() => world.result()?.reason === "download_failed");
+      expect(blocked()).toMatchObject({
+        failures: 1,
+        retryAt: world.now() + minute,
+      });
+    }
+  );
+
+  async function failTwice() {
+    await automaticOnline();
+    await failWith("download_failed");
+    world.advance(minute);
+    await failWith("download_failed");
+    expect(blocked()?.failures).toBe(2);
+  }
+
+  it("starts again for a different target", async () => {
+    await failTwice();
+    await world.restartController({ build: newer });
+    await world.connect();
+    world.advance(UPDATE_TIMING.automaticSettleMs);
+    await failWith("download_failed");
+    expect(blocked()).toMatchObject({
+      ...newer,
+      failures: 1,
+      retryAt: world.now() + minute,
+    });
+  });
+
+  it("forgets the count on a success", async () => {
+    await failTwice();
+    world.advance(5 * minute);
+    world.runner.report = null;
+    await nextAttempt();
+    await world.swap();
+    await world.until(() => world.result()?.state === "updated");
+    expect(blocked()).toBeUndefined();
+  });
+
+  it("counts an attempt that ends twice only once", async () => {
+    await automaticOnline();
+    let release!: () => void;
+    world.runner.staging = new Promise((resolve) => (release = resolve));
+    await nextAttempt();
+    await world.disconnect();
+    world.advance(world.attempt()!.deadline - world.now());
+    await world.until(() => world.result()?.reason === "no_response");
+    const attemptId = world.attempt()!.id;
+    const first = blocked();
+    release();
+    await world.connect();
+    world.inject({ attemptId, reason: "operations_pending" });
+    await world.until(() => world.result()?.reason === "operations_pending");
+    expect(blocked()).toEqual(first);
   });
 });
 

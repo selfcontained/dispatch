@@ -78,7 +78,12 @@ export const UPDATE_TIMING = {
   tickMs: 1_000,
   automaticSettleMs: 15_000,
   automaticSpacingMs: 5_000,
-  automaticRetryMs: 60_000,
+  /**
+   * Between automatic attempts after each consecutive transient failure. An
+   * attempt that held the runner skips the first. After the last, the build
+   * waits for an operator.
+   */
+  automaticRetryMs: [60_000, 5 * 60_000, 30 * 60_000],
 } as const;
 
 /** The task-5 hold outlasts every phase it covers. */
@@ -168,6 +173,9 @@ const runnerState = z.object({
       version: z.string(),
       revision: z.string(),
       retryAt: z.number().optional(),
+      /** Consecutive transient failures, and the attempt last counted. */
+      failures: z.number().int().positive().optional(),
+      attemptId: z.string().optional(),
     })
     .optional(),
 });
@@ -543,6 +551,8 @@ export class RunnerUpdateCoordinator {
       view.result = {
         ...last.outcome,
         ...(last.target && { version: last.target.version }),
+        ...(last.outcome.state === "deferred" &&
+          this.skipsBuild(runnerId) && { automaticSkipped: true }),
       };
     if (
       advert &&
@@ -704,11 +714,16 @@ export class RunnerUpdateCoordinator {
           phase: "staging",
           deadline: this.now() + UPDATE_TIMING.stagingMs,
         };
+        const record = this.records.get(runnerId);
         await this.save({
-          ...this.records.get(runnerId),
+          ...record,
           runnerId,
           attempt,
-          automaticBlocked: undefined,
+          // Automatic retries of a build share a count. An operator resets it.
+          automaticBlocked:
+            action === "automatic" && this.isOwnBuild(record?.automaticBlocked)
+              ? record?.automaticBlocked
+              : undefined,
         });
         this.resumed.set(runnerId, epoch);
         this.forgetTrial(runnerId);
@@ -1683,11 +1698,7 @@ export class RunnerUpdateCoordinator {
           reason === "attach_unavailable" ||
           reason === "settle_timeout");
       if (transient) {
-        automaticBlocked = {
-          version: target.version,
-          revision: target.revision,
-          retryAt: this.now() + UPDATE_TIMING.automaticRetryMs,
-        };
+        automaticBlocked = this.backOff(runnerId, attempt, target);
       } else if (
         reason !== "suppressed" &&
         reason !== "automatic_disabled" &&
@@ -1711,6 +1722,7 @@ export class RunnerUpdateCoordinator {
         sha256: target.sha256,
       };
       failed = undefined;
+      automaticBlocked = undefined;
     } else if (
       target &&
       (outcome.state === "rolled_back" || outcome.reason === "suppressed")
@@ -1731,6 +1743,33 @@ export class RunnerUpdateCoordinator {
     );
     this.release(runnerId, attempt.id, holdOutcome(outcome));
     this.resumeRecycling(runnerId);
+  }
+
+  /** The wait after this failure. Without a retry time, the build is paused. */
+  private backOff(
+    runnerId: string,
+    attempt: Attempt,
+    { version, revision }: RunnerUpdateTarget
+  ): NonNullable<RunnerUpdateRecord["automaticBlocked"]> {
+    const last = this.records.get(runnerId)?.automaticBlocked;
+    // An attempt can end again on the runner's late word. It counts once.
+    if (last?.attemptId === attempt.id) return last;
+    const failures =
+      last?.version === version && last.revision === revision
+        ? (last.failures ?? 0) + 1
+        : 1;
+    const held =
+      attempt.drain ||
+      this.options.holds.current(runnerId)?.attemptId === attempt.id;
+    const delay: number | undefined =
+      UPDATE_TIMING.automaticRetryMs[held ? failures : failures - 1];
+    return {
+      version,
+      revision,
+      failures,
+      attemptId: attempt.id,
+      ...(delay !== undefined && { retryAt: this.now() + delay }),
+    };
   }
 
   /**
@@ -1870,6 +1909,17 @@ export class RunnerUpdateCoordinator {
     const failed = this.records.get(runnerId)?.failed;
     const { version, revision } = this.options.build;
     return failed?.version === version && failed.revision === revision;
+  }
+
+  /** Paused until an operator's Update, and not already waiting for Retry. */
+  private skipsBuild(runnerId: string) {
+    const blocked = this.records.get(runnerId)?.automaticBlocked;
+    return (
+      blocked !== undefined &&
+      blocked.retryAt === undefined &&
+      this.isOwnBuild(blocked) &&
+      !this.suppressed(runnerId)
+    );
   }
 
   private showsResult(

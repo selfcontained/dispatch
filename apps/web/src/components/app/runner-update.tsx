@@ -68,6 +68,9 @@ const STOPPED: Record<string, string> = {
   revoked: "The runner’s access was revoked.",
 };
 
+const SKIPPED =
+  "Automatic updates will skip this build. Select Update to install it.";
+
 function describeResult(
   {
     state,
@@ -105,9 +108,7 @@ function describeResult(
       )
         return {
           title: `${update} was cancelled`,
-          detail: automaticUpdates
-            ? "Automatic updates will skip this build. Select Update to install it."
-            : undefined,
+          detail: automaticUpdates ? SKIPPED : undefined,
         };
       if (reason === "automatic_disabled")
         return { title: `${update} was cancelled` };
@@ -273,6 +274,14 @@ function RunnerUpdateProgress({ runner }: { runner: Runner }) {
   } else if (available) {
     title = `Update available: ${available.version}`;
   }
+  // A cancelled wait says this itself. The floor would refuse Update as well.
+  const skipped =
+    !attempt &&
+    runner.automaticUpdates &&
+    available?.action === "update" &&
+    result?.automaticSkipped &&
+    detail !== SKIPPED &&
+    result.reason !== "downgrade";
   const needsCommand =
     (!attempt && result?.state === "needs_idle") ||
     (error instanceof ApiError &&
@@ -303,6 +312,7 @@ function RunnerUpdateProgress({ runner }: { runner: Runner }) {
               {detail}
             </p>
           )}
+          {skipped && <p>{SKIPPED}</p>}
           {attempt?.held &&
             attempt.phase !== "draining" &&
             attempt.phase !== "interrupting" &&
