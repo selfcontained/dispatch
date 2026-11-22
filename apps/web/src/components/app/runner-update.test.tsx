@@ -85,10 +85,10 @@ const text = () => screen.getByTestId("runner-update").textContent;
 const version = "1.8.0";
 const available = { version, action: "update" } as const;
 
-it("offers Update with its consequence", () => {
+it("offers Update without a terminal warning", () => {
   show({ available });
   expect(text()).toContain("Update available: 1.8.0");
-  expect(text()).toContain("Updating closes open terminals on this runner.");
+  expect(text()).not.toContain("closes open terminals");
   expect(screen.getByRole("button", { name: "Update" })).toBeTruthy();
 });
 
@@ -152,7 +152,7 @@ it("asks before Update now, and forces only on the confirm", async () => {
   const dialog = await screen.findByRole("alertdialog");
   expect(dialog.textContent).toContain("Update Build machine now?");
   expect(dialog.textContent).toContain(
-    "Running turns are interrupted and resumed after the update. Open terminals close, and any tool call in progress is lost."
+    "Running turns are interrupted and resumed after the update. Any tool call in progress is lost."
   );
   fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
   expect(screen.queryByRole("alertdialog")).toBeNull();

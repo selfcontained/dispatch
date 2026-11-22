@@ -193,8 +193,8 @@ function UpdateNow({
           Update {runnerName} now?
         </AlertDialogTitle>
         <AlertDialogDescription className="text-sm text-muted-foreground">
-          Running turns are interrupted and resumed after the update. Open
-          terminals close, and any tool call in progress is lost.
+          Running turns are interrupted and resumed after the update. Any tool
+          call in progress is lost.
         </AlertDialogDescription>
         <div className="flex flex-wrap justify-end gap-2">
           <AlertDialogCancel>Cancel</AlertDialogCancel>
@@ -348,7 +348,6 @@ function RunnerUpdateProgress({ runner }: { runner: Runner }) {
                 result?.reason !== "suppressed" && (
                   <p>This build is blocked on this runner until you retry.</p>
                 )}
-              <p>Updating closes open terminals on this runner.</p>
             </>
           )}
         </div>
