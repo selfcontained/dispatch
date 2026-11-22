@@ -792,7 +792,7 @@ export function Post({
             deliveryIndicator ? null : (
               <span
                 // Hidden on phones: the body runs under it there.
-                className="invisible whitespace-nowrap pt-1 text-label-xs leading-none text-muted-foreground group-hover:visible max-sm:hidden"
+                className="invisible whitespace-nowrap pt-1 text-label-xs leading-none text-muted-foreground group-hover:visible max-sm:hidden post-narrow:hidden"
                 title={formatDateTime(at)}
                 data-testid="chat-gutter-time"
               >
@@ -852,7 +852,7 @@ export function Post({
                 "flex items-center leading-tight",
                 // Shifted, not margined: as a flex box beside the action
                 // float it ignores a negative margin.
-                !flush && "max-sm:-translate-x-11"
+                !flush && "max-sm:-translate-x-11 post-narrow:-translate-x-11"
               )}
               data-testid="chat-grouped-receipt-header"
             >
@@ -870,7 +870,7 @@ export function Post({
             // and a 2px ring) to keep the body clear of both.
             className={cn(
               "flex flex-wrap items-baseline gap-x-2 gap-y-0.5 leading-tight",
-              !flush && "max-sm:min-h-10"
+              !flush && "max-sm:min-h-10 post-narrow:min-h-10"
             )}
             {...(showRecipient && side
               ? {
@@ -933,7 +933,9 @@ export function Post({
             POST_BODY_MEASURE,
             // On phones the body takes the avatar column's width too (w-8 +
             // gap-3); on desktop it stays indented under the author.
-            !flush && !hideHeader && "max-sm:-ml-11 max-sm:max-w-none"
+            !flush &&
+              !hideHeader &&
+              "max-sm:-ml-11 max-sm:max-w-none post-narrow:-ml-11 post-narrow:max-w-none"
           )}
         >
           {children}

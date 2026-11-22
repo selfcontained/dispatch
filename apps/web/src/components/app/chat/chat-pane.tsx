@@ -1400,7 +1400,7 @@ export function ChatPane({
               onLoadCapture={() => {
                 if (isFollowing()) followBottom();
               }}
-              className="stream-surfaces-flat h-full min-w-0 max-w-full overflow-x-hidden overflow-y-auto overscroll-contain py-2 [overflow-anchor:none]"
+              className="stream-surfaces-flat h-full min-w-0 max-w-full overflow-x-hidden overflow-y-auto overscroll-contain py-2 [overflow-anchor:none] [container:post-column/inline-size]"
             >
               <div ref={contentRef} className="min-w-0 max-w-full">
                 {feed.hasOlder ? (

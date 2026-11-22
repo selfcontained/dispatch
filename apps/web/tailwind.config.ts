@@ -33,6 +33,15 @@ const blockWide = plugin(({ addVariant }) => {
   addVariant("block-wide", "@container (min-width: 40rem)");
 });
 
+/**
+ * `post-narrow:`: a stream column (`[container:post-column/inline-size]`)
+ * too narrow to spare a post's avatar gutter, such as the thread drawer, so
+ * the body runs under the avatar as it does on a phone.
+ */
+const postNarrow = plugin(({ addVariant }) => {
+  addVariant("post-narrow", "@container post-column (max-width: 34rem)");
+});
+
 /** `pt-safe`, `pb-safe-2`: a safe-area inset, never less than the step. */
 const safeArea = plugin(({ matchUtilities, theme }) => {
   const side = (property: string, inset: string) => (value: string) => ({
@@ -357,5 +366,5 @@ export default {
       },
     },
   },
-  plugins: [typography, pointerCoarse, blockWide, safeArea],
+  plugins: [typography, pointerCoarse, blockWide, postNarrow, safeArea],
 } satisfies Config;
