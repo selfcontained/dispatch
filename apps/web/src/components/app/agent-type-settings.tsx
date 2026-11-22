@@ -18,6 +18,9 @@ import {
   type AgentType,
   CLI_AGENT_TYPES,
 } from "@/lib/agent-types";
+import { Alert } from "@/components/ui/alert";
+import { LoadError } from "@/components/ui/async-boundary";
+import { LoadingSkeleton } from "@/components/ui/skeleton";
 
 type AgentTypeSettingsResponse = {
   enabledAgentTypes: AgentType[];
@@ -128,7 +131,9 @@ export function AgentTypeSettings({
   const openType =
     CLI_AGENT_TYPES.find((type) => type === searchParams.get("models")) ?? null;
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
+  const [error, setError] = useState<unknown>();
+  const [loadError, setLoadError] = useState<unknown>();
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     setAgentTypes(enabledAgentTypes);
@@ -136,21 +141,17 @@ export function AgentTypeSettings({
 
   useEffect(() => {
     let cancelled = false;
+    setLoading(true);
 
     void api<AgentTypeSettingsResponse>("/api/v1/app/settings/agent-types")
       .then((data) => {
         if (cancelled) return;
         setAgentTypes(data.enabledAgentTypes);
         onChange(data.enabledAgentTypes);
-        setError("");
+        setLoadError(undefined);
       })
       .catch((err) => {
-        if (cancelled) return;
-        setError(
-          err instanceof Error
-            ? err.message
-            : "Failed to load agent type settings."
-        );
+        if (!cancelled) setLoadError(err);
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -159,11 +160,11 @@ export function AgentTypeSettings({
     return () => {
       cancelled = true;
     };
-  }, [onChange]);
+  }, [onChange, attempt]);
 
   const toggleAgentType = useCallback(
     async (agentType: AgentType) => {
-      setError("");
+      setError(undefined);
 
       const next = agentTypes.includes(agentType)
         ? agentTypes.filter((item) => item !== agentType)
@@ -187,19 +188,29 @@ export function AgentTypeSettings({
         // Revert on failure
         setAgentTypes(agentTypes);
         onChange(agentTypes);
-        setError(
-          err instanceof Error
-            ? err.message
-            : "Failed to save agent type settings."
-        );
+        setError(err);
       }
     },
     [agentTypes, onChange]
   );
 
-  if (loading) {
+  if (loading || loadError) {
     return (
-      <div className="p-6 text-body-md text-muted-foreground">Loading...</div>
+      <div className="max-w-lg p-6">
+        {loadError ? (
+          <LoadError
+            thing="agent type settings"
+            error={loadError}
+            retrying={loading}
+            onRetry={() => setAttempt((count) => count + 1)}
+          />
+        ) : (
+          <LoadingSkeleton
+            label="Loading agent type settings…"
+            rowClassName="h-16"
+          />
+        )}
+      </div>
     );
   }
 
@@ -240,7 +251,13 @@ export function AgentTypeSettings({
         })}
       </div>
 
-      {error ? <p className="text-body-md text-danger">{error}</p> : null}
+      {error ? (
+        <Alert
+          title="Couldn’t save changes."
+          error={error}
+          className="max-w-lg"
+        />
+      ) : null}
     </div>
   );
 }

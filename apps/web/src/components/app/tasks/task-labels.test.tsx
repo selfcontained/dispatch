@@ -50,7 +50,7 @@ it("blocks successive replacement actions while an open picker is saving", () =>
     onChange,
   };
   const { rerender } = render(<TaskLabelPicker {...props} />);
-  fireEvent.click(screen.getByRole("button", { name: "Edit labels" }));
+  fireEvent.click(screen.getByRole("combobox", { name: "Edit labels" }));
   fireEvent.click(screen.getByRole("option", { name: "Alpha" }));
   expect(onChange).toHaveBeenCalledTimes(1);
   rerender(<TaskLabelPicker {...props} disabled />);
@@ -83,7 +83,7 @@ it("restores and adds a hidden search result without contradictory empty-state t
   render(
     <TaskLabelPicker projectId="project" value={[]} onChange={onChange} />
   );
-  fireEvent.click(screen.getByRole("button", { name: "Edit labels" }));
+  fireEvent.click(screen.getByRole("combobox", { name: "Edit labels" }));
   fireEvent.change(screen.getByLabelText("Label name"), {
     target: { value: "Retired" },
   });
@@ -117,7 +117,7 @@ it("shows feedback and blocks creation until an overlong name is shortened", () 
   render(
     <TaskLabelPicker projectId="project" value={[]} onChange={onChange} />
   );
-  fireEvent.click(screen.getByRole("button", { name: "Edit labels" }));
+  fireEvent.click(screen.getByRole("combobox", { name: "Edit labels" }));
   fireEvent.change(screen.getByLabelText("Label name"), {
     target: { value: "Test resource safeguards" },
   });

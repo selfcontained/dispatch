@@ -1,16 +1,5 @@
-import { useCallback, useState } from "react";
-import { Pause } from "lucide-react";
-
 import { type Agent } from "@/components/app/types";
-import { ActivityBars } from "@/components/ui/activity-bars";
-import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 
 type StopAgentDialogProps = {
   open: boolean;
@@ -27,61 +16,24 @@ export function StopAgentDialog({
   setStopTarget,
   onStop,
 }: StopAgentDialogProps): JSX.Element {
-  const [stopping, setStopping] = useState(false);
-
-  const close = useCallback(() => {
-    setOpen(false);
-    setStopTarget(null);
-  }, [setOpen, setStopTarget]);
-
-  const handleConfirmStop = useCallback(async () => {
-    if (!stopTarget) return;
-
-    setStopping(true);
-    try {
-      await onStop(stopTarget);
-      setOpen(false);
-      setStopTarget(null);
-    } finally {
-      setStopping(false);
-    }
-  }, [stopTarget, onStop, setOpen, setStopTarget]);
-
   return (
-    <Dialog
+    <ConfirmDialog
       open={open}
-      onOpenChange={(v) => {
-        if (!v) close();
+      onOpenChange={(next) => {
+        setOpen(next);
+        if (!next) setStopTarget(null);
       }}
-    >
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Pause Agent</DialogTitle>
-          <DialogDescription>
-            {stopTarget
-              ? `Pause "${stopTarget.name}"? The session will be paused. Resume it later to continue where you left off.`
-              : "Pause this agent?"}
-          </DialogDescription>
-        </DialogHeader>
-        <div className="flex justify-end gap-2">
-          <Button
-            variant="ghost"
-            data-testid="stop-agent-cancel"
-            onClick={close}
-            disabled={stopping}
-          >
-            Cancel
-          </Button>
-          <Button
-            data-testid="stop-agent-confirm"
-            disabled={stopping}
-            onClick={() => void handleConfirmStop()}
-          >
-            {stopping ? <ActivityBars size={16} /> : <Pause />}
-            Pause
-          </Button>
-        </div>
-      </DialogContent>
-    </Dialog>
+      // Pausing loses nothing: Resume picks up where it left off.
+      tone="primary"
+      title={stopTarget ? `Pause “${stopTarget.name}”?` : "Pause this agent?"}
+      description="The session will be paused. Resume it later to continue where you left off."
+      confirmLabel="Pause agent"
+      errorTitle="Couldn’t pause the agent."
+      confirmTestId="stop-agent-confirm"
+      cancelTestId="stop-agent-cancel"
+      onConfirm={async () => {
+        if (stopTarget) await onStop(stopTarget);
+      }}
+    />
   );
 }

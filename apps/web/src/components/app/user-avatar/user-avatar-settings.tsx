@@ -11,13 +11,15 @@ import { useSaveUserAvatar, useUserAvatarQuery } from "@/hooks/use-user-avatar";
 import { avatarLabel, UserAvatarGraphic } from "./user-avatar";
 import { prepareAvatarPhoto } from "./prepare-avatar";
 import { AvatarCropDialog } from "./avatar-crop-dialog";
+import { Alert } from "@/components/ui/alert";
+import { LoadError } from "@/components/ui/async-boundary";
 
 export function UserAvatarSettings() {
   const query = useUserAvatarQuery();
   const save = useSaveUserAvatar();
   const [preparing, setPreparing] = useState(false);
   const [photo, setPhoto] = useState<HTMLCanvasElement | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<unknown>();
   const input = useRef<HTMLInputElement>(null);
   const uploadButton = useRef<HTMLButtonElement>(null);
   const avatar = query.data?.avatar ?? DEFAULT_USER_AVATAR;
@@ -25,19 +27,17 @@ export function UserAvatarSettings() {
   const disabled = busy || !query.isSuccess;
 
   const choose = (next: UserAvatar) => {
-    setError(null);
+    setError(undefined);
     save.mutate(next);
   };
   const upload = async (file: File) => {
-    setError(null);
+    setError(undefined);
     save.reset();
     setPreparing(true);
     try {
       setPhoto(await prepareAvatarPhoto(file));
     } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Could not save this photo."
-      );
+      setError(err);
     } finally {
       setPreparing(false);
     }
@@ -147,22 +147,21 @@ export function UserAvatarSettings() {
         </span>
       </div>
       {query.isError && (
-        <p role="alert" className="mt-2 text-body-md text-danger">
-          Could not load your avatar.{" "}
-          <Button
-            variant="link"
-            size="inline"
-            onClick={() => void query.refetch()}
-          >
-            Try again
-          </Button>
-        </p>
+        <LoadError
+          thing="your avatar"
+          error={query.error}
+          retrying={query.isFetching}
+          onRetry={() => void query.refetch()}
+          className="mt-2"
+        />
       )}
-      {(error || save.error) && (
-        <p role="alert" className="mt-2 text-body-md text-danger">
-          {error ?? save.error?.message}
-        </p>
-      )}
+      {error || save.error ? (
+        <Alert
+          title={error ? "Couldn’t open the photo." : "Couldn’t save changes."}
+          error={error ?? save.error}
+          className="mt-2"
+        />
+      ) : null}
     </section>
   );
 }

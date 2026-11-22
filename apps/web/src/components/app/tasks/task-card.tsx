@@ -24,6 +24,7 @@ import { IconButton } from "@/components/ui/icon-button";
 import { RowButton } from "@/components/ui/row-button";
 import { Hint } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
+import { archiveTask } from "./task-feedback";
 
 const CARD =
   "group rounded-lg bg-surface-hover p-3 shadow-sm ring-1 ring-foreground/wash pointer-coarse:select-none [-webkit-touch-callout:none]";
@@ -136,7 +137,7 @@ export function TaskCard({
             </DropdownMenuItem>
             <DropdownMenuItem
               className={MENU_ITEM}
-              onSelect={() => actions.archive.mutate(task.id)}
+              onSelect={() => archiveTask(actions, task)}
             >
               Archive
             </DropdownMenuItem>

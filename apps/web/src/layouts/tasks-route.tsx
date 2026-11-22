@@ -11,7 +11,7 @@ import { SectionShell } from "./section-shell";
 import { ProjectSwitcher } from "@/components/app/project-switcher";
 import { ProjectIcon } from "@/components/app/project-location";
 import { useDashboardContext } from "@/components/app/dashboard-context";
-import { useProjectScope } from "@/hooks/use-projects";
+import { useProjects, useProjectScope } from "@/hooks/use-projects";
 import {
   useTaskActions,
   useTaskBoard,
@@ -52,6 +52,12 @@ import {
   visibleTasks,
 } from "@/components/app/tasks/task-utils";
 import { useTemplates } from "@/hooks/use-templates";
+import { Alert } from "@/components/ui/alert";
+import { AsyncBoundary } from "@/components/ui/async-boundary";
+import { EmptyState } from "@/components/ui/empty-state";
+import { LoadingSkeleton, Skeleton } from "@/components/ui/skeleton";
+import { TaskColumnNameDialog } from "@/components/app/tasks/task-column-name-dialog";
+import { restoreTask } from "@/components/app/tasks/task-feedback";
 
 const ATTENTION = "__attention";
 function TasksContent({ projectId }: { projectId: string }) {
@@ -60,19 +66,10 @@ function TasksContent({ projectId }: { projectId: string }) {
   const [params, setParams] = useSearchParams();
   const { agents, isMobile, setMobileLeftOpen } = useDashboardContext();
   const archived = params.get("view") === "archived";
-  const {
-    data: activeBoard,
-    isLoading: activeLoading,
-    error: activeError,
-  } = useTaskBoard(projectId);
-  const {
-    data: archivedBoard,
-    isLoading: archivedLoading,
-    error: archivedError,
-  } = useTaskBoard(archived ? projectId : null, true);
-  const board = archived ? archivedBoard : activeBoard;
-  const isLoading = archived ? archivedLoading : activeLoading;
-  const error = archived ? archivedError : activeError;
+  const activeQuery = useTaskBoard(projectId);
+  const archivedQuery = useTaskBoard(archived ? projectId : null, true);
+  const boardQuery = archived ? archivedQuery : activeQuery;
+  const board = boardQuery.data;
   const actions = useTaskActions(projectId);
   const [savedLayout, setSavedLayout] = useAtom(
     taskLayoutAtomFamily(projectId)
@@ -88,6 +85,7 @@ function TasksContent({ projectId }: { projectId: string }) {
     null
   );
   const [search, setSearch] = useState("");
+  const [namingColumn, setNamingColumn] = useState(false);
   const [assignee, setAssignee] = useState("all");
   const { moveTask, dialog: relaunchDialog } = useMoveTask(projectId, board);
   const { data: templates } = useTemplates();
@@ -218,16 +216,25 @@ function TasksContent({ projectId }: { projectId: string }) {
           variant="ghost"
           size="sm"
           className="mt-2 w-full justify-start"
-          onClick={() => {
-            const name = window.prompt("New column name");
-            if (name?.trim())
-              void actions.createColumn.mutateAsync({ name: name.trim() });
-          }}
+          onClick={() => setNamingColumn(true)}
         >
           <Plus /> Add column
         </Button>
       </div>
     </div>
+  );
+  const filtered =
+    Boolean(search) || assignee !== "all" || selectedLabels.size > 0;
+  const clearFilters = () => {
+    setSearch("");
+    setAssignee("all");
+    const next = new URLSearchParams(params);
+    next.delete("label");
+    next.delete("column");
+    setParams(next);
+  };
+  const archivedShown = tasks.filter(
+    (task) => !onlyColumn || task.columnId === onlyColumn.id
   );
   return (
     <SectionShell
@@ -327,109 +334,141 @@ function TasksContent({ projectId }: { projectId: string }) {
             </Select>
           </div>
         </header>
-        {isLoading && (
-          <p className="p-4 text-body-md text-muted-foreground">
-            Loading board…
-          </p>
-        )}
-        {error && (
-          <p className="p-4 text-body-md text-danger">
-            Could not load tasks: {error.message}
-          </p>
-        )}
-        {board && (
-          <div className="min-h-0 flex-1">
-            {archived ? (
-              <div className="h-full overflow-auto p-4">
-                <h2 className="mb-3 text-heading-md">Archived tasks</h2>
-                {actions.restore.error && (
-                  <p role="alert" className="mb-3 text-body-md text-danger">
-                    {actions.restore.error.message}
-                  </p>
-                )}
-                <div className="mb-3 flex flex-wrap gap-2">
-                  {columns
-                    .filter(
-                      (column) => !onlyColumn || column.id === onlyColumn.id
-                    )
-                    .map((column) => (
-                      <span
-                        key={column.id}
-                        className="inline-flex items-center gap-1 text-body-sm"
-                      >
-                        {column.name} <ColumnCapacity column={column} />
-                      </span>
-                    ))}
+        <AsyncBoundary
+          query={boardQuery}
+          thing="tasks"
+          className="m-4"
+          loading={<BoardSkeleton />}
+        >
+          {(board) => (
+            <>
+              {!archived &&
+              filtered &&
+              tasks.length === 0 &&
+              board.tasks.length > 0 ? (
+                <div
+                  role="status"
+                  className="flex shrink-0 items-center gap-2 px-3 pb-2 text-body-sm text-muted-foreground md:px-4"
+                >
+                  No tasks match the filters.
+                  <Button size="xs" variant="ghost" onClick={clearFilters}>
+                    Clear filters
+                  </Button>
                 </div>
-                {tasks.length === 0 && (
-                  <p className="text-body-md text-muted-foreground">
-                    No archived tasks.
-                  </p>
-                )}
-                {tasks
-                  .filter(
-                    (task) => !onlyColumn || task.columnId === onlyColumn.id
-                  )
-                  .map((task) => (
-                    <div
-                      key={task.id}
-                      className="flex items-center gap-3 border-b border-border-subtle py-3"
-                    >
-                      <RowButton
-                        className="min-w-0 flex-1 rounded-sm text-body-md hover:bg-transparent hover:underline"
-                        onClick={() => openTask(task.id)}
-                      >
-                        <span className="min-w-0 truncate">{task.title}</span>
-                      </RowButton>
-                      <span className="text-body-sm text-muted-foreground">
-                        {
-                          columns.find((column) => column.id === task.columnId)
-                            ?.name
-                        }
-                      </span>
-                      {task.archivedAt && (
-                        <Hint label={formatDateTime(task.archivedAt)}>
-                          <time
-                            className="text-body-sm text-muted-foreground"
-                            dateTime={task.archivedAt}
+              ) : null}
+              <div className="min-h-0 flex-1">
+                {archived ? (
+                  <div className="h-full overflow-auto p-4">
+                    <h2 className="mb-3 text-heading-md">Archived tasks</h2>
+                    {actions.restore.error && (
+                      <Alert
+                        title="Couldn’t restore the task."
+                        error={actions.restore.error}
+                        className="mb-3"
+                      />
+                    )}
+                    <div className="mb-3 flex flex-wrap gap-2">
+                      {columns
+                        .filter(
+                          (column) => !onlyColumn || column.id === onlyColumn.id
+                        )
+                        .map((column) => (
+                          <span
+                            key={column.id}
+                            className="inline-flex items-center gap-1 text-body-sm"
                           >
-                            Archived {formatRelativeCompact(task.archivedAt)}
-                          </time>
-                        </Hint>
-                      )}
-                      <Button
-                        size="sm"
-                        disabled={actions.restore.isPending}
-                        onClick={() => actions.restore.mutate(task.id)}
-                      >
-                        Restore
-                      </Button>
+                            {column.name} <ColumnCapacity column={column} />
+                          </span>
+                        ))}
                     </div>
-                  ))}
+                    {board.tasks.length === 0 ? (
+                      <EmptyState
+                        title="No archived tasks."
+                        description="Tasks you archive can be restored from here."
+                      />
+                    ) : archivedShown.length === 0 ? (
+                      <EmptyState
+                        title="No archived tasks match."
+                        action={
+                          <Button size="sm" onClick={clearFilters}>
+                            Clear filters
+                          </Button>
+                        }
+                      />
+                    ) : null}
+                    {archivedShown.map((task) => (
+                      <div
+                        key={task.id}
+                        className="flex items-center gap-3 border-b border-border-subtle py-3"
+                      >
+                        <RowButton
+                          className="min-w-0 flex-1 rounded-sm text-body-md hover:bg-transparent hover:underline"
+                          onClick={() => openTask(task.id)}
+                        >
+                          <span className="min-w-0 truncate">{task.title}</span>
+                        </RowButton>
+                        <span className="text-body-sm text-muted-foreground">
+                          {
+                            columns.find(
+                              (column) => column.id === task.columnId
+                            )?.name
+                          }
+                        </span>
+                        {task.archivedAt && (
+                          <Hint label={formatDateTime(task.archivedAt)}>
+                            <time
+                              className="text-body-sm text-muted-foreground"
+                              dateTime={task.archivedAt}
+                            >
+                              Archived {formatRelativeCompact(task.archivedAt)}
+                            </time>
+                          </Hint>
+                        )}
+                        <Button
+                          size="sm"
+                          disabled={actions.restore.isPending}
+                          onClick={() =>
+                            restoreTask(actions, task, {
+                              failureShownInline: true,
+                            })
+                          }
+                        >
+                          Restore
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                ) : layout === "board" ? (
+                  <TaskBoard
+                    board={board}
+                    tasks={tasks}
+                    agents={agents}
+                    openTask={openTask}
+                    moveTask={moveTask}
+                    addTask={(columnId) => startNewTask(columnId)}
+                    onlyColumnId={onlyColumn?.id ?? null}
+                  />
+                ) : (
+                  <TaskList
+                    board={board}
+                    tasks={tasks}
+                    agents={agents}
+                    openTask={openTask}
+                    moveTask={moveTask}
+                    onlyColumnId={onlyColumn?.id ?? null}
+                  />
+                )}
               </div>
-            ) : layout === "board" ? (
-              <TaskBoard
-                board={board}
-                tasks={tasks}
-                agents={agents}
-                openTask={openTask}
-                moveTask={moveTask}
-                addTask={(columnId) => startNewTask(columnId)}
-                onlyColumnId={onlyColumn?.id ?? null}
-              />
-            ) : (
-              <TaskList
-                board={board}
-                tasks={tasks}
-                agents={agents}
-                openTask={openTask}
-                moveTask={moveTask}
-                onlyColumnId={onlyColumn?.id ?? null}
-              />
-            )}
-          </div>
-        )}
+            </>
+          )}
+        </AsyncBoundary>
       </div>
+      {namingColumn && (
+        <TaskColumnNameDialog
+          onClose={() => setNamingColumn(false)}
+          onSave={(name) => actions.createColumn.mutateAsync({ name })}
+        />
+      )}
       {board && (
         <TaskDrawer
           id={params.get("task") ?? ""}
@@ -459,8 +498,28 @@ function TasksContent({ projectId }: { projectId: string }) {
     </SectionShell>
   );
 }
+/** Columns and cards, the board's shape. */
+function BoardSkeleton() {
+  return (
+    <LoadingSkeleton
+      label="Loading board…"
+      className="flex min-h-0 w-auto flex-1 gap-3 space-y-0 overflow-hidden p-4"
+    >
+      {[3, 2, 1].map((cards, column) => (
+        <div key={column} className="w-72 shrink-0 space-y-2">
+          <Skeleton className="h-8" />
+          {Array.from({ length: cards }, (_, card) => (
+            <Skeleton key={card} className="h-24" />
+          ))}
+        </div>
+      ))}
+    </LoadingSkeleton>
+  );
+}
+
 export function TasksRoute(): JSX.Element {
   const { projectId, projects } = useProjectScope();
+  const projectsQuery = useProjects();
   const [params, setParams] = useSearchParams();
   const { data: linkedTask } = useTaskDetail(params.get("task"));
   useEffect(() => {
@@ -484,30 +543,40 @@ export function TasksRoute(): JSX.Element {
     >
       {/* Boards are per project, so with none chosen the page is the choice. */}
       <div className="flex h-full items-center justify-center p-6">
-        <div className="w-full max-w-sm text-center">
-          <h1 className="text-heading-lg">Choose a project</h1>
-          <p className="mb-4 text-body-md text-muted-foreground">
-            {projects.length
-              ? "Each project has its own board."
-              : "Create a project from the switcher to start a board."}
-          </p>
-          <div className="space-y-1">
-            {projects.map((project) => (
-              <RowButton
-                key={project.id}
-                className="justify-center gap-3 rounded-lg border border-border-subtle bg-card/veil px-3 py-2 text-body-md"
-                onClick={() => {
-                  const next = new URLSearchParams(params);
-                  next.set("project", project.id);
-                  setParams(next);
-                }}
-              >
-                <ProjectIcon project={project} className="h-5 w-5" />
-                <span className="min-w-0 truncate">{project.name}</span>
-              </RowButton>
-            ))}
-          </div>
-        </div>
+        <AsyncBoundary
+          query={projectsQuery}
+          thing="projects"
+          loading={
+            <LoadingSkeleton label="Loading projects…" className="max-w-sm" />
+          }
+        >
+          {() => (
+            <div className="w-full max-w-sm text-center">
+              <h1 className="text-heading-lg">Choose a project</h1>
+              <p className="mb-4 text-body-md text-muted-foreground">
+                {projects.length
+                  ? "Each project has its own board."
+                  : "Create a project from the switcher to start a board."}
+              </p>
+              <div className="space-y-1">
+                {projects.map((project) => (
+                  <RowButton
+                    key={project.id}
+                    className="justify-center gap-3 rounded-lg border border-border-subtle bg-card/veil px-3 py-2 text-body-md"
+                    onClick={() => {
+                      const next = new URLSearchParams(params);
+                      next.set("project", project.id);
+                      setParams(next);
+                    }}
+                  >
+                    <ProjectIcon project={project} className="h-5 w-5" />
+                    <span className="min-w-0 truncate">{project.name}</span>
+                  </RowButton>
+                ))}
+              </div>
+            </div>
+          )}
+        </AsyncBoundary>
       </div>
     </SectionShell>
   );

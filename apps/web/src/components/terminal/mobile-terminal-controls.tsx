@@ -152,6 +152,7 @@ export function MobileTerminalControls({
       </div>
 
       <DialogContent
+        bare
         className="fixed inset-0 left-0 top-0 h-dvh max-h-none w-full translate-x-0 translate-y-0 gap-0 rounded-none border-0 bg-background/dense p-0 shadow-none backdrop-blur-sm"
         onOpenAutoFocus={(event) => {
           event.preventDefault();

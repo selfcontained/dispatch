@@ -3,6 +3,10 @@ import { useCallback, useEffect, useState } from "react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { api } from "@/lib/api";
 import { IDE_LABELS, IDE_TYPES, type IdeType } from "@/lib/ide-types";
+import { Alert } from "@/components/ui/alert";
+import { LoadError } from "@/components/ui/async-boundary";
+import { LoadingSkeleton } from "@/components/ui/skeleton";
+import { OptionCard } from "@/components/ui/setting-row";
 
 type IdeSettingsResponse = {
   enabledIdes: IdeType[];
@@ -19,7 +23,9 @@ export function IdeSettings({
 }: IdeSettingsProps): JSX.Element {
   const [ides, setIdes] = useState<IdeType[]>(enabledIdes);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
+  const [error, setError] = useState<unknown>();
+  const [loadError, setLoadError] = useState<unknown>();
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     setIdes(enabledIdes);
@@ -27,19 +33,17 @@ export function IdeSettings({
 
   useEffect(() => {
     let cancelled = false;
+    setLoading(true);
 
     void api<IdeSettingsResponse>("/api/v1/app/settings/ides")
       .then((data) => {
         if (cancelled) return;
         setIdes(data.enabledIdes);
         onChange(data.enabledIdes);
-        setError("");
+        setLoadError(undefined);
       })
       .catch((err) => {
-        if (cancelled) return;
-        setError(
-          err instanceof Error ? err.message : "Failed to load IDE settings."
-        );
+        if (!cancelled) setLoadError(err);
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -48,11 +52,11 @@ export function IdeSettings({
     return () => {
       cancelled = true;
     };
-  }, [onChange]);
+  }, [onChange, attempt]);
 
   const toggleIde = useCallback(
     async (ide: IdeType) => {
-      setError("");
+      setError(undefined);
 
       const next = ides.includes(ide)
         ? ides.filter((item) => item !== ide)
@@ -74,17 +78,26 @@ export function IdeSettings({
       } catch (err) {
         setIdes(ides);
         onChange(ides);
-        setError(
-          err instanceof Error ? err.message : "Failed to save IDE settings."
-        );
+        setError(err);
       }
     },
     [ides, onChange]
   );
 
-  if (loading) {
+  if (loading || loadError) {
     return (
-      <div className="p-6 text-body-md text-muted-foreground">Loading...</div>
+      <div className="max-w-lg p-6">
+        {loadError ? (
+          <LoadError
+            thing="IDE settings"
+            error={loadError}
+            retrying={loading}
+            onRetry={() => setAttempt((count) => count + 1)}
+          />
+        ) : (
+          <LoadingSkeleton label="Loading IDE settings…" />
+        )}
+      </div>
     );
   }
 
@@ -103,26 +116,18 @@ export function IdeSettings({
         {IDE_TYPES.map((ide) => {
           const checked = ides.includes(ide);
           return (
-            <label
-              key={ide}
-              className="flex cursor-pointer items-center gap-3 rounded-sm border border-border px-3 py-3 transition-colors hover:bg-surface-hover"
-            >
+            <OptionCard key={ide} label={IDE_LABELS[ide]}>
               <Checkbox
                 checked={checked}
                 onCheckedChange={() => void toggleIde(ide)}
                 data-testid={`ide-toggle-${ide}`}
               />
-              <div className="min-w-0">
-                <div className="text-body-md font-medium text-foreground">
-                  {IDE_LABELS[ide]}
-                </div>
-              </div>
-            </label>
+            </OptionCard>
           );
         })}
       </div>
 
-      {error ? <p className="text-body-md text-danger">{error}</p> : null}
+      {error ? <Alert title="Couldn’t save changes." error={error} /> : null}
     </div>
   );
 }

@@ -12,6 +12,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { api } from "@/lib/api";
+import { Alert } from "@/components/ui/alert";
 
 export type SlackAnswerer = {
   id: string;
@@ -224,9 +225,7 @@ export function SlackAnswerersCard({
           approvals.
         </p>
         {action.error && (
-          <p role="alert" className="text-body-md text-danger">
-            {action.error.message}
-          </p>
+          <Alert title="Couldn’t update who can answer." error={action.error} />
         )}
         {message && (
           <p role="status" className="text-body-md text-muted-foreground">

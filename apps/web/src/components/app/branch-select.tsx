@@ -1,21 +1,16 @@
-import { useCallback, useMemo, useRef, useState } from "react";
-import { Check, ChevronDown } from "lucide-react";
+import { useCallback, useMemo, useState } from "react";
 
-import { ActivityBars } from "@/components/ui/activity-bars";
 import {
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
-  CommandLoading,
-} from "@/components/ui/command";
+  Combobox,
+  ComboboxContent,
+  ComboboxItem,
+  ComboboxTrigger,
+} from "@/components/ui/combobox";
+import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { useClickOutside } from "@/hooks/use-click-outside";
+import { Spinner } from "@/components/ui/spinner";
 import { api } from "@/lib/api";
-import { cn } from "@/lib/utils";
 
 export type BranchSelectProps = {
   cwd: string;
@@ -59,12 +54,7 @@ export function BranchSelect({
   const [branchesLoading, setBranchesLoading] = useState(false);
   const [fetchedForCwd, setFetchedForCwd] = useState<string | null>(null);
   const [fetchError, setFetchError] = useState<string | null>(null);
-  const cmdRef = useRef<HTMLDivElement>(null);
-  const triggerRef = useRef<HTMLButtonElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
-  const closeDropdown = useCallback(() => setDropdownOpen(false), []);
   if (disabled && dropdownOpen) setDropdownOpen(false);
-  useClickOutside(cmdRef, dropdownOpen, closeDropdown);
 
   const fetchBranches = useCallback(async () => {
     const trimmed = cwd.trim();
@@ -79,7 +69,7 @@ export function BranchSelect({
     } catch (error) {
       setRemoteBranches([]);
       setFetchError(
-        error instanceof Error ? error.message : "Couldn't load branches."
+        error instanceof Error ? error.message : "Couldn’t load branches."
       );
     } finally {
       setBranchesLoading(false);
@@ -87,14 +77,14 @@ export function BranchSelect({
     }
   }, [cwd, disabled]);
 
-  const openDropdown = useCallback(() => {
-    if (disabled) return;
-    setDropdownOpen(true);
-    if (fetchedForCwd !== cwd.trim()) {
-      void fetchBranches();
-    }
-    requestAnimationFrame(() => inputRef.current?.focus());
-  }, [disabled, fetchBranches, fetchedForCwd, cwd, setDropdownOpen]);
+  const changeOpen = useCallback(
+    (open: boolean) => {
+      if (disabled) return;
+      setDropdownOpen(open);
+      if (open && fetchedForCwd !== cwd.trim()) void fetchBranches();
+    },
+    [disabled, fetchBranches, fetchedForCwd, cwd]
+  );
 
   // Keep the saved baseBranch selectable even if the fetched list doesn't
   // include it (branch renamed/deleted upstream). We flag it visually in
@@ -116,132 +106,87 @@ export function BranchSelect({
 
   return (
     <div className="space-y-2">
-      <div className="relative" ref={cmdRef}>
-        <label className="mb-1 block text-body-sm text-muted-foreground">
-          {baseBranchLabel}
-        </label>
-        <Button
-          variant="field"
-          ref={triggerRef}
-          type="button"
-          role="combobox"
-          tabIndex={0}
-          disabled={disabled}
-          aria-expanded={dropdownOpen}
-          data-testid={`${testIdPrefix}-base-branch`}
-          onClick={() =>
-            dropdownOpen ? setDropdownOpen(false) : openDropdown()
-          }
-          onKeyDown={(e) => {
-            if (e.key === "ArrowDown" || e.key === "Enter" || e.key === " ") {
-              e.preventDefault();
-              if (!dropdownOpen) openDropdown();
-            }
-          }}
-          className="w-full font-mono text-body-sm"
-        >
-          {baseBranch}
-          {branchesLoading ? (
-            <ActivityBars size={14} className="ml-2 shrink-0" />
+      <Field
+        label={baseBranchLabel}
+        error={
+          fetchError ? (
+            <>
+              Couldn’t load branches.{" "}
+              <Button
+                type="button"
+                variant="link"
+                size="inline"
+                onClick={() => void fetchBranches()}
+                disabled={disabled}
+              >
+                Retry
+              </Button>
+            </>
+          ) : null
+        }
+        hint={
+          fetchError ? null : savedBranchMissing ? (
+            <span className="text-warning-ink">
+              Saved branch <span className="font-mono">{baseBranch}</span> no
+              longer exists on the remote — pick a new one.
+            </span>
           ) : (
-            <ChevronDown
-              className={cn(
-                "ml-2 h-4 w-4 shrink-0 text-muted-foreground transition-transform",
-                dropdownOpen && "rotate-180"
-              )}
-            />
-          )}
-        </Button>
-        {dropdownOpen ? (
-          <div className="absolute left-0 right-0 z-popover mt-1 rounded-md surface-overlay">
-            <Command
-              onKeyDown={(e) => {
-                if (e.key === "Escape") {
-                  e.preventDefault();
-                  setDropdownOpen(false);
-                  requestAnimationFrame(() => triggerRef.current?.focus());
-                }
-              }}
-            >
-              <CommandInput
-                ref={inputRef}
-                placeholder="Search branches..."
-                className="font-mono text-body-sm"
-              />
-              <CommandList>
-                {branchesLoading ? (
-                  <CommandLoading>
-                    <div className="flex items-center gap-2 px-2 py-3 text-body-sm text-muted-foreground">
-                      <ActivityBars size={12} />
-                      Loading branches...
-                    </div>
-                  </CommandLoading>
-                ) : null}
-                <CommandEmpty>No matching branches.</CommandEmpty>
-                <CommandGroup>
-                  {allBranches.map((branch) => {
-                    const isMissing =
-                      branch === baseBranch &&
-                      remoteBranches.length > 0 &&
-                      !remoteBranches.includes(branch);
-                    return (
-                      <CommandItem
-                        key={branch}
-                        value={branch}
-                        data-testid={`${testIdPrefix}-base-branch-option`}
-                        className="font-mono"
-                        onSelect={() => {
-                          onBaseBranchChange(branch);
-                          setDropdownOpen(false);
-                          requestAnimationFrame(() =>
-                            triggerRef.current?.focus()
-                          );
-                        }}
-                      >
-                        <Check
-                          className={cn(
-                            "mr-2 h-3 w-3 shrink-0",
-                            branch === baseBranch ? "opacity-100" : "opacity-0"
-                          )}
-                        />
-                        {branch}
-                        {isMissing ? (
-                          <span className="ml-2 text-label-xs uppercase tracking-wide text-warning">
-                            not found
-                          </span>
-                        ) : null}
-                      </CommandItem>
-                    );
-                  })}
-                </CommandGroup>
-              </CommandList>
-            </Command>
-          </div>
-        ) : null}
-      </div>
-      {fetchError ? (
-        <div className="flex items-center gap-2 text-body-sm text-danger">
-          <span className="truncate">Couldn't load branches.</span>
-          <Button
-            type="button"
-            variant="link"
-            size="inline"
-            onClick={() => void fetchBranches()}
+            baseBranchHelper
+          )
+        }
+      >
+        <Combobox open={dropdownOpen} onOpenChange={changeOpen}>
+          <ComboboxTrigger
             disabled={disabled}
+            loading={branchesLoading}
+            data-testid={`${testIdPrefix}-base-branch`}
+            className="font-mono text-body-sm"
           >
-            Retry
-          </Button>
-        </div>
-      ) : savedBranchMissing ? (
-        <div className="text-body-sm text-warning">
-          Saved branch <span className="font-mono">{baseBranch}</span> no longer
-          exists on the remote — pick a new one.
-        </div>
-      ) : baseBranchHelper ? (
-        <p className="text-body-sm text-muted-foreground">{baseBranchHelper}</p>
-      ) : null}
+            {baseBranch}
+          </ComboboxTrigger>
+          <ComboboxContent
+            label="Search branches"
+            placeholder="Search branches…"
+            value={baseBranch}
+            emptyMessage="No matching branches."
+            status={
+              branchesLoading ? (
+                <>
+                  <Spinner />
+                  Loading branches…
+                </>
+              ) : undefined
+            }
+          >
+            {allBranches.map((branch) => {
+              const isMissing =
+                branch === baseBranch &&
+                remoteBranches.length > 0 &&
+                !remoteBranches.includes(branch);
+              return (
+                <ComboboxItem
+                  key={branch}
+                  value={branch}
+                  selected={branch === baseBranch}
+                  data-testid={`${testIdPrefix}-base-branch-option`}
+                  className="font-mono"
+                  onSelect={() => onBaseBranchChange(branch)}
+                >
+                  <span className="min-w-0 break-all">{branch}</span>
+                  {isMissing ? (
+                    <span className="ml-auto text-label-xs uppercase tracking-wide text-warning-ink">
+                      not found
+                    </span>
+                  ) : null}
+                </ComboboxItem>
+              );
+            })}
+          </ComboboxContent>
+        </Combobox>
+      </Field>
       {showNewBranchInput ? (
         <Input
+          aria-label="New branch name"
           value={worktreeBranch}
           onChange={(event) => onWorktreeBranchChange(event.target.value)}
           placeholder={worktreeBranchPlaceholder}

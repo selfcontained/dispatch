@@ -3,6 +3,7 @@ import { Command as CommandPrimitive } from "cmdk";
 
 import { glassOverlay } from "@/lib/glass";
 import { cn } from "@/lib/utils";
+import { pickerItem } from "./picker-styles";
 
 const Command = React.forwardRef<
   React.ElementRef<typeof CommandPrimitive>,
@@ -28,7 +29,7 @@ const CommandInput = React.forwardRef<
     <CommandPrimitive.Input
       ref={ref}
       className={cn(
-        "flex h-9 w-full rounded-md bg-transparent py-2 text-body-md outline-none",
+        "flex h-9 w-full rounded-md bg-transparent py-2 text-body-md outline-none pointer-coarse:h-11 pointer-coarse:text-body-lg",
         "placeholder:text-muted-foreground disabled:cursor-not-allowed disabled-state disabled:pointer-events-auto",
         className
       )}
@@ -81,8 +82,9 @@ const CommandItem = React.forwardRef<
   <CommandPrimitive.Item
     ref={ref}
     className={cn(
-      "relative flex cursor-default select-none items-center gap-2 rounded-sm px-2 py-1.5 text-body-sm outline-none",
-      "data-[selected=true]:bg-primary/tint-strong data-[selected=true]:text-foreground",
+      pickerItem,
+      "gap-2 px-2 py-1.5 text-body-sm",
+      "data-[selected=true]:bg-surface-hover",
       "disabled-state",
       className
     )}

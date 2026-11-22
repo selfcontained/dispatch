@@ -350,7 +350,7 @@ export default function TerminalPanel({
               reconnectAfter(250);
             } else {
               setStatus("unavailable");
-              setError("Could not reconnect to the host. Try again.");
+              setError("Couldn’t reconnect to the host. Try again.");
             }
             return;
           }

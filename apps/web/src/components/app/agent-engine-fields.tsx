@@ -24,7 +24,6 @@ type AgentEngineFieldsProps = {
   /** What is saved now, which may have been turned off since. */
   savedOption?: AgentModelOption | null;
   modelLoading: boolean;
-  onTypeOpenChange?: (open: boolean) => void;
   /** Overridden by dialogs other than Create Agent so ids stay unique. */
   idPrefix?: string;
 };
@@ -47,7 +46,6 @@ export function AgentEngineFields({
   catalogDefault,
   savedOption,
   modelLoading,
-  onTypeOpenChange,
   idPrefix,
 }: AgentEngineFieldsProps): JSX.Element {
   // Engines whose CLI this machine does not have: pickable, but the picker
@@ -80,7 +78,6 @@ export function AgentEngineFields({
           value={agentType}
           onChange={onAgentTypeChange}
           agentTypes={agentTypes}
-          onOpenChange={onTypeOpenChange}
           missing={missingEngines}
         />
 

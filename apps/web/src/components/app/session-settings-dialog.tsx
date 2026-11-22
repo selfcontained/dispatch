@@ -8,7 +8,6 @@ import {
 import { useProjects } from "@/hooks/use-projects";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { toast } from "sonner";
 
 import { AgentCardDetails } from "@/components/app/agent-card-details";
 import { AgentCardPhaseStatus } from "@/components/app/agent-card-status";
@@ -18,7 +17,11 @@ import { type Agent } from "@/components/app/types";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
+  DialogBody,
+  DialogCancel,
   DialogContent,
+  DialogFooter,
+  DialogForm,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -27,6 +30,8 @@ import { useAgentDiffStats } from "@/hooks/use-agent-diff-stats";
 import { useCopyText } from "@/hooks/use-copy";
 import { api } from "@/lib/api";
 import { type IdeType } from "@/lib/ide-types";
+import { Alert } from "@/components/ui/alert";
+import { Field } from "@/components/ui/field";
 
 const MAX_NAME_LENGTH = 120;
 
@@ -56,6 +61,7 @@ export function SessionSettingsDialog({
   const [projectId, setProjectId] = useState<string | null>(null);
   const [name, setName] = useState("");
   const [saving, setSaving] = useState(false);
+  const [failure, setFailure] = useState<unknown>();
   const inputRef = useRef<HTMLInputElement>(null);
   const queryClient = useQueryClient();
 
@@ -72,6 +78,7 @@ export function SessionSettingsDialog({
   useEffect(() => {
     if (open && agent) {
       setName(agent.name);
+      setFailure(undefined);
       setProjectId(agent.projectId ?? null);
     }
   }, [open, agent]);
@@ -84,6 +91,7 @@ export function SessionSettingsDialog({
   const handleSave = useCallback(async () => {
     if (!agent || !isDirty) return;
     setSaving(true);
+    setFailure(undefined);
     try {
       const result = await api<{ agent: Agent }>(
         `/api/v1/agents/${agent.id}/name`,
@@ -104,9 +112,7 @@ export function SessionSettingsDialog({
       );
       onOpenChange(false);
     } catch (err) {
-      toast.error("Failed to rename session.", {
-        description: err instanceof Error ? err.message : undefined,
-      });
+      setFailure(err);
     } finally {
       setSaving(false);
     }
@@ -115,7 +121,8 @@ export function SessionSettingsDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        className="w-[min(460px,calc(100vw-2rem))]"
+        busy={saving}
+        aria-describedby={undefined}
         onOpenAutoFocus={(e) => {
           // Radix's default autofocus lands on the first non-link tabbable
           // in the dialog — for a worktree agent, that's now the "Copy
@@ -132,14 +139,13 @@ export function SessionSettingsDialog({
         <DialogHeader>
           <DialogTitle>Session details</DialogTitle>
         </DialogHeader>
-        <form
-          className="flex min-h-0 flex-1 flex-col"
+        <DialogForm
           onSubmit={(e) => {
             e.preventDefault();
             void handleSave();
           }}
         >
-          <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto pr-0.5">
+          <DialogBody className="flex flex-col gap-3">
             {agent ? (
               <div className="space-y-1.5">
                 <AgentCardPhaseStatus agent={agent} />
@@ -155,8 +161,7 @@ export function SessionSettingsDialog({
                 />
               </div>
             ) : null}
-            <label className="space-y-1 text-body-md">
-              Project
+            <Field label="Project">
               <Select
                 value={projectId ?? "none"}
                 onValueChange={(v) => setProjectId(v === "none" ? null : v)}
@@ -173,43 +178,36 @@ export function SessionSettingsDialog({
                   ))}
                 </SelectContent>
               </Select>
-            </label>
-            <div className="flex flex-col gap-1.5">
-              <label
-                htmlFor="session-name"
-                className="text-body-md font-medium text-muted-foreground"
-              >
-                Name
-              </label>
+            </Field>
+            <Field
+              id="session-name"
+              label="Name"
+              hint={`${name.length}/${MAX_NAME_LENGTH} characters`}
+              error={name.trim() ? null : "Enter a name."}
+            >
               <Input
                 ref={inputRef}
-                id="session-name"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 maxLength={MAX_NAME_LENGTH}
               />
-              <span className="text-body-sm text-faint">
-                {name.length}/{MAX_NAME_LENGTH} characters
-              </span>
-            </div>
-          </div>
-          <div className="mt-4 flex shrink-0 justify-end gap-2">
-            <Button
-              type="button"
-              variant="ghost"
-              onClick={() => onOpenChange(false)}
-            >
-              Cancel
-            </Button>
+            </Field>
+          </DialogBody>
+          {failure ? (
+            <Alert title="Couldn’t save the session." error={failure} />
+          ) : null}
+          <DialogFooter>
+            <DialogCancel />
             <Button
               type="submit"
               variant="primary"
-              disabled={!isDirty || saving}
+              pending={saving}
+              disabled={!isDirty}
             >
-              {saving ? "Saving…" : "Save"}
+              Save changes
             </Button>
-          </div>
-        </form>
+          </DialogFooter>
+        </DialogForm>
       </DialogContent>
     </Dialog>
   );

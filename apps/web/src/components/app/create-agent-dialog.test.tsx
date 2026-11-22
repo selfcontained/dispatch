@@ -104,20 +104,20 @@ it.each(types)(
   "keeps %s's project menu out of the layout when closed and usable when open",
   async (type) => {
     mount(type);
-    const project = await screen.findByRole("button", {
+    const project = await screen.findByRole("combobox", {
       name: "Choose project",
     });
-    expect(screen.queryByRole("menu")).toBeNull();
+    expect(screen.queryByRole("listbox")).toBeNull();
     expect(
       project.parentElement?.previousElementSibling?.getAttribute("aria-label")
     ).toBe("Launch location type");
     fireEvent.keyDown(project, { key: "ArrowDown" });
-    const menu = screen.getByRole("menu");
+    const menu = screen.getByRole("listbox");
     expect(menu.className).toContain(
-      "max-h-[clamp(4rem,var(--radix-dropdown-menu-content-available-height),18rem)]"
+      "max-h-[clamp(4rem,var(--radix-select-content-available-height),18rem)]"
     );
     expect(
-      within(menu).getByRole("menuitem", { name: /Sample Project/ })
+      within(menu).getByRole("option", { name: /Sample Project/ })
     ).toBeDefined();
   }
 );

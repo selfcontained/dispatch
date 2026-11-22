@@ -52,10 +52,16 @@ export type Inbox = {
   checklists: InboxChecklist[];
   agentNames: Record<string, string>;
   isLoading: boolean;
+  /** The stream behind it failed to load, so it is not known to be empty. */
+  error?: Error | null;
+  retry?: () => void;
   hasOlderReviews?: boolean;
   loadingOlderReviews?: boolean;
   loadOlderReviews?: () => void;
-  reviewsError?: string | null;
+  /** Reviews that never loaded, or an older page that didn't. */
+  reviewsError?: Error | null;
+  retryReviews?: () => void;
+  retryingReviews?: boolean;
 };
 
 /** An agent's open question or form for people. */
@@ -241,7 +247,17 @@ export function useInbox(agentId: string | null): Inbox {
     loadOlderReviews: () => {
       void reviewFeed.fetchNextPage();
     },
-    reviewsError: reviewFeed.error?.message ?? null,
+    // Both feeds poll: a missed poll over content says nothing.
+    reviewsError:
+      reviewFeed.data && !reviewFeed.isFetchNextPageError
+        ? null
+        : reviewFeed.error,
+    retryReviews: () => {
+      void (reviewFeed.isFetchNextPageError
+        ? reviewFeed.fetchNextPage()
+        : reviewFeed.refetch());
+    },
+    retryingReviews: reviewFeed.isFetching,
     checklists: derived.checklists,
     agentNames: Object.assign(
       {},
@@ -249,5 +265,9 @@ export function useInbox(agentId: string | null): Inbox {
       derived.agentNames
     ),
     isLoading: rootId !== null && feed.isLoading,
+    error: feed.data ? null : feed.error,
+    retry: () => {
+      void feed.refetch();
+    },
   };
 }

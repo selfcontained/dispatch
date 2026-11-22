@@ -12,6 +12,8 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { IconButton } from "@/components/ui/icon-button";
 import { StatusDot } from "@/components/ui/status-dot";
 import { statusLabel } from "@/lib/status-label";
+import { LoadError } from "@/components/ui/async-boundary";
+import { LoadingSkeleton } from "@/components/ui/skeleton";
 
 export function BackgroundWorkButton({ agentId }: { agentId: string | null }) {
   return agentId ? (
@@ -82,9 +84,17 @@ function AgentBackgroundWork({ agentId }: { agentId: string }) {
           className="max-h-[min(60vh,calc(var(--radix-popover-content-available-height)-5rem))]"
         >
           {query.isPending ? (
-            <div
-              className="h-14 animate-pulse rounded-lg bg-surface-hover"
-              aria-label="Loading background work"
+            <LoadingSkeleton
+              label="Loading background work…"
+              rows={1}
+              rowClassName="h-14"
+            />
+          ) : query.isError && !query.data ? (
+            <LoadError
+              thing="background work"
+              error={query.error}
+              retrying={query.isFetching}
+              onRetry={() => void query.refetch()}
             />
           ) : !available ? (
             <p className="py-4 text-center text-body-md text-muted-foreground">

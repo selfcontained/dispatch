@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { Brain, Database, List, Radio, Trash2 } from "lucide-react";
-import { toast } from "sonner";
 
 import {
   useBrainObjects,
@@ -21,13 +20,10 @@ import { ObjectCard } from "@/components/app/brain-object-card";
 import { ListCard } from "@/components/app/brain-list-card";
 import { EventCard } from "@/components/app/brain-event-card";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { AsyncBoundary, combineResults } from "@/components/ui/async-boundary";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { EmptyState } from "@/components/ui/empty-state";
+import { toast } from "@/components/ui/toast";
 import { Hint } from "@/components/ui/tooltip";
 
 type DeleteTarget =
@@ -112,18 +108,13 @@ export function BrainCollectionView({
   const listFilters = collection ? { collection } : { limit: 100 };
   const eventFilters = collection ? { collection, limit: 100 } : { limit: 100 };
 
-  const { data: objects = [], isLoading: objectsLoading } = useBrainObjects(
-    repoRoot,
-    objectFilters
-  );
-  const { data: lists = [], isLoading: listsLoading } = useBrainLists(
-    repoRoot,
-    listFilters
-  );
-  const { data: events = [], isLoading: eventsLoading } = useBrainEvents(
-    repoRoot,
-    eventFilters
-  );
+  const objectsQuery = useBrainObjects(repoRoot, objectFilters);
+  const listsQuery = useBrainLists(repoRoot, listFilters);
+  const eventsQuery = useBrainEvents(repoRoot, eventFilters);
+  const { data: objects = [] } = objectsQuery;
+  const { data: lists = [] } = listsQuery;
+  const { data: events = [] } = eventsQuery;
+  const entries = combineResults(objectsQuery, listsQuery, eventsQuery);
   const {
     deleteObject,
     deleteList,
@@ -139,8 +130,6 @@ export function BrainCollectionView({
   // whether a delete empties the collection, so bulk delete is simply not
   // offered until they load rather than running on a best-effort guess.
   const scopeTotals = useBrainScopeTotals(repoRoot, collection);
-
-  const isLoading = objectsLoading || listsLoading || eventsLoading;
 
   const lowerSearch = search.toLowerCase();
   const filteredObjects = search
@@ -166,39 +155,16 @@ export function BrainCollectionView({
       )
     : events;
 
-  if (isLoading) {
-    return (
-      <div className="flex flex-1 items-center justify-center">
-        <div className="h-5 w-5 animate-spin rounded-full border-2 border-muted-foreground border-t-transparent" />
-      </div>
-    );
-  }
-
   // Only bail out when the scope is genuinely empty. If a filter merely hides
   // every row, the sections stay so their delete-all actions remain reachable.
   const scopeHasEntries = scopeTotals
     ? BRAIN_ENTRY_TYPES.some((t) => scopeCount(scopeTotals, t) > 0)
     : false;
-
-  if (
+  const nothingToShow =
     filteredObjects.length === 0 &&
     filteredLists.length === 0 &&
     filteredEvents.length === 0 &&
-    !scopeHasEntries
-  ) {
-    return (
-      <div className="flex flex-1 items-center justify-center p-8 text-center text-body-md text-muted-foreground">
-        <div className="flex flex-col items-center gap-2">
-          <Brain className="h-8 w-8" />
-          <div className="mt-4">
-            {search
-              ? "No brain data matches your filter."
-              : "No brain data in this collection yet."}
-          </div>
-        </div>
-      </div>
-    );
-  }
+    !scopeHasEntries;
 
   const isCapped =
     !collection &&
@@ -222,181 +188,191 @@ export function BrainCollectionView({
 
   const confirmDelete = async () => {
     if (!deleteTarget) return;
-    try {
-      if (deleteTarget.type === "object") {
-        await deleteObject.mutateAsync({
-          repoRoot,
-          collection: deleteTarget.object.collection,
-          name: deleteTarget.object.name,
-        });
-        toast.success("Object deleted.");
-      } else if (deleteTarget.type === "list") {
-        await deleteList.mutateAsync({
-          repoRoot,
-          collection: deleteTarget.list.collection,
-          name: deleteTarget.list.name,
-        });
-        toast.success("List deleted.");
-      } else if (deleteTarget.type === "event") {
-        await deleteEvent.mutateAsync({ repoRoot, id: deleteTarget.event.id });
-        toast.success("Event deleted.");
-      } else if (deleteTarget.type === "bulk") {
-        const { entryType } = deleteTarget;
-        const { deleted } = await deleteEntriesOfType.mutateAsync({
-          repoRoot,
-          entryType,
-          collection: deleteTarget.collection,
-        });
-        toast.success(
-          `Deleted ${deleted} ${entryTypeNoun(entryType, deleted)}.`
-        );
-        // The collection stops existing once its last entry is gone, so its
-        // pill and route go with it. scopeTotals is non-null here: the action
-        // that opened this dialog is not offered without it.
-        if (
-          deleteTarget.collection &&
-          scopeTotals &&
-          remainingAfterBulk(scopeTotals, entryType) === 0
-        ) {
-          onCollectionCleared();
-        }
-      } else {
-        const result = await deleteCollection.mutateAsync({
-          repoRoot,
-          collection: deleteTarget.collection,
-        });
-        toast.success(
-          `Deleted ${result.objects + result.lists + result.events} entries from ${deleteTarget.collection}.`
-        );
+    if (deleteTarget.type === "object") {
+      await deleteObject.mutateAsync({
+        repoRoot,
+        collection: deleteTarget.object.collection,
+        name: deleteTarget.object.name,
+      });
+      toast.success("Object deleted.");
+    } else if (deleteTarget.type === "list") {
+      await deleteList.mutateAsync({
+        repoRoot,
+        collection: deleteTarget.list.collection,
+        name: deleteTarget.list.name,
+      });
+      toast.success("List deleted.");
+    } else if (deleteTarget.type === "event") {
+      await deleteEvent.mutateAsync({ repoRoot, id: deleteTarget.event.id });
+      toast.success("Event deleted.");
+    } else if (deleteTarget.type === "bulk") {
+      const { entryType } = deleteTarget;
+      const { deleted } = await deleteEntriesOfType.mutateAsync({
+        repoRoot,
+        entryType,
+        collection: deleteTarget.collection,
+      });
+      toast.success(`Deleted ${deleted} ${entryTypeNoun(entryType, deleted)}.`);
+      // The collection stops existing once its last entry is gone, so its
+      // pill and route go with it. scopeTotals is non-null here: the action
+      // that opened this dialog is not offered without it.
+      if (
+        deleteTarget.collection &&
+        scopeTotals &&
+        remainingAfterBulk(scopeTotals, entryType) === 0
+      ) {
         onCollectionCleared();
       }
-      setDeleteTarget(null);
-    } catch {
-      toast.error("Could not delete brain data.");
+    } else {
+      const result = await deleteCollection.mutateAsync({
+        repoRoot,
+        collection: deleteTarget.collection,
+      });
+      toast.success(
+        `Deleted ${result.objects + result.lists + result.events} entries from ${deleteTarget.collection}.`
+      );
+      onCollectionCleared();
     }
+    setDeleteTarget(null);
   };
 
-  const deleting =
-    deleteObject.isPending ||
-    deleteList.isPending ||
-    deleteEvent.isPending ||
-    deleteEntriesOfType.isPending ||
-    deleteCollection.isPending;
-
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
-      <div className="space-y-1 px-1 pt-4 pb-12 sm:px-2 md:px-4">
-        {isCapped && !search ? (
-          <div className="mx-3 mb-2 rounded-md border border-border bg-surface-subtle px-3 py-2 text-body-sm text-muted-foreground">
-            Showing the first 100 items per section. Select a collection to see
-            all entries.
+    <>
+      <AsyncBoundary
+        query={entries}
+        thing="brain data"
+        className="m-4"
+        isEmpty={() => nothingToShow}
+        empty={
+          <EmptyState
+            icon={Brain}
+            title={
+              search
+                ? "No brain data matches your filter."
+                : "No brain data in this collection yet."
+            }
+            description={search ? "Change or clear the filter." : undefined}
+          />
+        }
+      >
+        {() => (
+          <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
+            <div className="space-y-1 px-1 pt-4 pb-12 sm:px-2 md:px-4">
+              {isCapped && !search ? (
+                <div className="mx-3 mb-2 rounded-md border border-border bg-surface-subtle px-3 py-2 text-body-sm text-muted-foreground">
+                  Showing the first 100 items per section. Select a collection
+                  to see all entries.
+                </div>
+              ) : null}
+
+              {collection ? (
+                <div className="mx-3 mb-2 flex justify-end">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    tone="danger"
+                    size="sm"
+                    onClick={() =>
+                      setDeleteTarget({ type: "collection", collection })
+                    }
+                  >
+                    <Trash2 />
+                    Clear collection
+                  </Button>
+                </div>
+              ) : null}
+
+              <CollapsibleSection
+                title="Objects"
+                icon={Database}
+                visibleCount={filteredObjects.length}
+                totalCount={
+                  scopeTotals ? scopeCount(scopeTotals, "objects") : undefined
+                }
+                headerAction={deleteAllAction("objects")}
+              >
+                {filteredObjects.length === 0 ? (
+                  <FilteredEmptyNote noun="objects" />
+                ) : (
+                  <>
+                    {filteredObjects.map((obj) => (
+                      <ObjectCard
+                        key={`${obj.collection}/${obj.name}`}
+                        obj={obj}
+                        agentId={obj.updatedByAgentId}
+                        revision={obj.revision}
+                        onDelete={() =>
+                          setDeleteTarget({ type: "object", object: obj })
+                        }
+                      />
+                    ))}
+                  </>
+                )}
+              </CollapsibleSection>
+
+              <CollapsibleSection
+                title="Lists"
+                icon={List}
+                visibleCount={filteredLists.length}
+                totalCount={
+                  scopeTotals ? scopeCount(scopeTotals, "lists") : undefined
+                }
+                headerAction={deleteAllAction("lists")}
+              >
+                {filteredLists.length === 0 ? (
+                  <FilteredEmptyNote noun="lists" />
+                ) : (
+                  <>
+                    {filteredLists.map((list) => (
+                      <ListCard
+                        key={`${list.collection}/${list.name}`}
+                        list={list}
+                        repoRoot={repoRoot}
+                        agentId={list.updatedByAgentId}
+                        onDelete={() => setDeleteTarget({ type: "list", list })}
+                      />
+                    ))}
+                  </>
+                )}
+              </CollapsibleSection>
+
+              <CollapsibleSection
+                title="Events"
+                icon={Radio}
+                visibleCount={filteredEvents.length}
+                totalCount={
+                  scopeTotals ? scopeCount(scopeTotals, "events") : undefined
+                }
+                headerAction={deleteAllAction("events")}
+              >
+                {filteredEvents.length === 0 ? (
+                  <FilteredEmptyNote noun="events" />
+                ) : (
+                  <>
+                    {filteredEvents.map((event) => (
+                      <EventCard
+                        key={event.id}
+                        event={event}
+                        agentId={event.agentId}
+                        onDelete={() =>
+                          setDeleteTarget({ type: "event", event })
+                        }
+                      />
+                    ))}
+                  </>
+                )}
+              </CollapsibleSection>
+            </div>
           </div>
-        ) : null}
-
-        {collection ? (
-          <div className="mx-3 mb-2 flex justify-end">
-            <Button
-              type="button"
-              variant="ghost"
-              tone="danger"
-              size="sm"
-              onClick={() =>
-                setDeleteTarget({ type: "collection", collection })
-              }
-            >
-              <Trash2 />
-              Clear collection
-            </Button>
-          </div>
-        ) : null}
-
-        <CollapsibleSection
-          title="Objects"
-          icon={Database}
-          visibleCount={filteredObjects.length}
-          totalCount={
-            scopeTotals ? scopeCount(scopeTotals, "objects") : undefined
-          }
-          headerAction={deleteAllAction("objects")}
-        >
-          {filteredObjects.length === 0 ? (
-            <FilteredEmptyNote noun="objects" />
-          ) : (
-            <>
-              {filteredObjects.map((obj) => (
-                <ObjectCard
-                  key={`${obj.collection}/${obj.name}`}
-                  obj={obj}
-                  agentId={obj.updatedByAgentId}
-                  revision={obj.revision}
-                  onDelete={() =>
-                    setDeleteTarget({ type: "object", object: obj })
-                  }
-                />
-              ))}
-            </>
-          )}
-        </CollapsibleSection>
-
-        <CollapsibleSection
-          title="Lists"
-          icon={List}
-          visibleCount={filteredLists.length}
-          totalCount={
-            scopeTotals ? scopeCount(scopeTotals, "lists") : undefined
-          }
-          headerAction={deleteAllAction("lists")}
-        >
-          {filteredLists.length === 0 ? (
-            <FilteredEmptyNote noun="lists" />
-          ) : (
-            <>
-              {filteredLists.map((list) => (
-                <ListCard
-                  key={`${list.collection}/${list.name}`}
-                  list={list}
-                  repoRoot={repoRoot}
-                  agentId={list.updatedByAgentId}
-                  onDelete={() => setDeleteTarget({ type: "list", list })}
-                />
-              ))}
-            </>
-          )}
-        </CollapsibleSection>
-
-        <CollapsibleSection
-          title="Events"
-          icon={Radio}
-          visibleCount={filteredEvents.length}
-          totalCount={
-            scopeTotals ? scopeCount(scopeTotals, "events") : undefined
-          }
-          headerAction={deleteAllAction("events")}
-        >
-          {filteredEvents.length === 0 ? (
-            <FilteredEmptyNote noun="events" />
-          ) : (
-            <>
-              {filteredEvents.map((event) => (
-                <EventCard
-                  key={event.id}
-                  event={event}
-                  agentId={event.agentId}
-                  onDelete={() => setDeleteTarget({ type: "event", event })}
-                />
-              ))}
-            </>
-          )}
-        </CollapsibleSection>
-      </div>
+        )}
+      </AsyncBoundary>
       <DeleteBrainDialog
         target={deleteTarget}
         scopeTotals={scopeTotals}
         onOpenChange={(open) => !open && setDeleteTarget(null)}
-        onConfirm={() => void confirmDelete()}
-        deleting={deleting}
+        onConfirm={confirmDelete}
       />
-    </div>
+    </>
   );
 }
 
@@ -405,14 +381,12 @@ function DeleteBrainDialog({
   scopeTotals,
   onOpenChange,
   onConfirm,
-  deleting,
 }: {
   target: DeleteTarget | null;
   /** Read live, so an agent writing entries while this is open moves the count. */
   scopeTotals: ScopeTotals | undefined;
   onOpenChange: (open: boolean) => void;
-  onConfirm: () => void;
-  deleting: boolean;
+  onConfirm: () => Promise<void>;
 }): JSX.Element {
   const bulkCount =
     target?.type === "bulk" && scopeTotals
@@ -442,32 +416,32 @@ function DeleteBrainDialog({
           }, including any hidden by the current filter. Other entry types are left alone.`
         : "This permanently deletes shared brain data for this project.";
 
+  const [confirmLabel, thing] =
+    target?.type === "collection"
+      ? ["Clear collection", "the collection"]
+      : target?.type === "bulk"
+        ? [
+            `Delete all ${entryTypeNoun(target.entryType, 2)}`,
+            `the ${entryTypeNoun(target.entryType, 2)}`,
+          ]
+        : [
+            `Delete ${target?.type ?? "entry"}`,
+            `the ${target?.type ?? "entry"}`,
+          ];
+
   return (
-    <Dialog open={target !== null} onOpenChange={onOpenChange}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>{title}</DialogTitle>
-          <DialogDescription>{description}</DialogDescription>
-        </DialogHeader>
-        <div className="flex justify-end gap-2">
-          <Button
-            type="button"
-            variant="ghost"
-            onClick={() => onOpenChange(false)}
-            disabled={deleting}
-          >
-            Cancel
-          </Button>
-          <Button
-            type="button"
-            variant="danger"
-            onClick={onConfirm}
-            disabled={deleting}
-          >
-            {deleting ? "Deleting..." : "Delete permanently"}
-          </Button>
-        </div>
-      </DialogContent>
-    </Dialog>
+    <ConfirmDialog
+      open={target !== null}
+      onOpenChange={onOpenChange}
+      title={title}
+      description={description}
+      confirmLabel={confirmLabel}
+      errorTitle={
+        target?.type === "collection"
+          ? "Couldn’t clear the collection."
+          : `Couldn’t delete ${thing}.`
+      }
+      onConfirm={onConfirm}
+    />
   );
 }

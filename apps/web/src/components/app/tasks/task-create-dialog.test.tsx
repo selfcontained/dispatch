@@ -175,7 +175,7 @@ it("keeps the form open with the error when creating fails", async () => {
   const title = screen.getByLabelText("Title");
   fireEvent.change(title, { target: { value: "Doomed" } });
   fireEvent.submit(title.closest("form")!);
-  expect((await screen.findByRole("alert")).textContent).toBe(
+  expect((await screen.findByRole("alert")).textContent).toContain(
     "Project is archived"
   );
   expect(onCreated).not.toHaveBeenCalled();
@@ -190,7 +190,7 @@ it("retries only the assignment when it fails after creating", async () => {
   pick("Assignee", /builder/);
   fireEvent.submit(title.closest("form")!);
   expect((await screen.findByRole("alert")).textContent).toContain(
-    "Task created; assigning failed — retry."
+    "Task created. Couldn’t assign it."
   );
   expect(onCreated).not.toHaveBeenCalled();
   const retry = screen.getByRole("button", { name: "Retry assignment" });
@@ -287,7 +287,7 @@ it("accepts pasted and dropped files and reports the shared file limit", () => {
 });
 
 function startRestore() {
-  fireEvent.click(screen.getByRole("button", { name: "Edit labels" }));
+  fireEvent.click(screen.getByRole("combobox", { name: "Edit labels" }));
   fireEvent.change(screen.getByLabelText("Label name"), {
     target: { value: "Retired" },
   });
@@ -313,6 +313,8 @@ it("blocks submission until Restore and add applies the intended label", async (
     (
       screen.getByRole("button", {
         name: "Restoring label…",
+        // The open label list is modal, as a Select is.
+        hidden: true,
       }) as HTMLButtonElement
     ).disabled
   ).toBe(true);
@@ -323,7 +325,8 @@ it("blocks submission until Restore and add applies the intended label", async (
   });
   await waitFor(() =>
     expect(
-      screen.getByRole("button", { name: "Edit labels" }).textContent
+      screen.getByRole("combobox", { name: "Edit labels", hidden: true })
+        .textContent
     ).toContain("Retired")
   );
   fireEvent.submit(screen.getByLabelText("Title").closest("form")!);
@@ -370,13 +373,13 @@ it("ignores a late restoration after cancelling and opening a fresh draft", asyn
     target: { value: "Fresh draft" },
   });
   expect(
-    screen.getByRole("button", { name: "Edit labels" }).textContent
+    screen.getByRole("combobox", { name: "Edit labels" }).textContent
   ).toContain("Add labels");
   await act(async () => {
     finish();
   });
   expect(
-    screen.getByRole("button", { name: "Edit labels" }).textContent
+    screen.getByRole("combobox", { name: "Edit labels" }).textContent
   ).toContain("Add labels");
   fireEvent.submit(screen.getByLabelText("Title").closest("form")!);
   await waitFor(() =>

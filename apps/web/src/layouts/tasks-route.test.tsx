@@ -29,6 +29,12 @@ const boardQuery = vi.hoisted(() =>
 );
 const viewport = vi.hoisted(() => ({ isMobile: false }));
 vi.mock("@/hooks/use-projects", () => ({
+  useProjects: () => ({
+    data: projects,
+    error: null,
+    isFetching: false,
+    refetch: vi.fn(),
+  }),
   useProjectScope: () => {
     const location = useLocation();
     const id = new URLSearchParams(location.search).get("project");

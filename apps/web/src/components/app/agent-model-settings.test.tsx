@@ -94,6 +94,8 @@ it("shows a failed save and puts the checkbox back", async () => {
   render(<AgentModelSettings agentType="codex" />, { wrapper: wrapper() });
   const astra = await screen.findByRole("checkbox", { name: /astra/ });
   fireEvent.click(astra);
-  expect((await screen.findByRole("alert")).textContent).toBe("Save failed");
+  expect((await screen.findByRole("alert")).textContent).toContain(
+    "Save failed"
+  );
   await waitFor(() => expect(astra.getAttribute("aria-checked")).toBe("true"));
 });

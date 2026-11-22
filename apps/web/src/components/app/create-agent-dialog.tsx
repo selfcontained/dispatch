@@ -3,7 +3,6 @@ import { ProjectLocation } from "./project-location";
 import { useProjectScope, useProjects } from "@/hooks/use-projects";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
-import { useState } from "react";
 import { ChevronLeft } from "lucide-react";
 
 import { AgentPersonaSelect } from "@/components/app/agent-persona-select";
@@ -13,22 +12,27 @@ import { CONTEXT_PROMPT_ID } from "@/components/app/create-agent-dialog-utils";
 import { WorktreeSection } from "@/components/app/create-agent-worktree-section";
 import { PathInput } from "@/components/app/path-input";
 import { useCreateAgentForm } from "@/components/app/use-create-agent-form";
-import { ActivityBars } from "@/components/ui/activity-bars";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
+  DialogBody,
+  DialogCancel,
   DialogContent,
   DialogDescription,
+  DialogFooter,
+  DialogForm,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { type Agent } from "@/components/app/types";
-import { useRadixPopoverZFix } from "@/hooks/use-radix-popover-z-fix";
 import { type AgentType } from "@/lib/agent-types";
-import { swallowEscapeFromCombobox } from "@/lib/dialog-escape";
-import { cn } from "@/lib/utils";
+import { Alert } from "@/components/ui/alert";
+import { AsyncBoundary } from "@/components/ui/async-boundary";
+import { Field } from "@/components/ui/field";
+import { OptionCard } from "@/components/ui/setting-row";
+import { Textarea } from "@/components/ui/textarea";
 
 type CreateAgentDialogProps = {
   open: boolean;
@@ -56,7 +60,6 @@ export function CreateAgentDialog({
         <CreateAgentDialogContent
           enabledAgentTypes={enabledAgentTypes}
           initialAgentType={initialAgentType}
-          setOpen={setOpen}
           resolveDefaultCwd={resolveDefaultCwd}
           onCreated={onCreated}
           task={task}
@@ -69,13 +72,11 @@ export function CreateAgentDialog({
 function CreateAgentDialogContent({
   enabledAgentTypes,
   initialAgentType,
-  setOpen,
   resolveDefaultCwd,
   onCreated,
   task = null,
-}: Omit<CreateAgentDialogProps, "open">): JSX.Element {
+}: Omit<CreateAgentDialogProps, "open" | "setOpen">): JSX.Element {
   const { project, projectId } = useProjectScope();
-  const [typeDropdownOpen, setTypeDropdownOpen] = useState(false);
   const form = useCreateAgentForm({
     enabledAgentTypes,
     initialAgentType,
@@ -85,20 +86,14 @@ function CreateAgentDialogContent({
     onCreated,
   });
 
-  useRadixPopoverZFix();
-
   return (
     <DialogContent
       aria-describedby={
         form.step === "config" ? undefined : "create-agent-context-description"
       }
+      busy={form.creating}
       onEscapeKeyDown={(e) => {
-        swallowEscapeFromCombobox(e);
-        if (e.defaultPrevented) return;
-        if (typeDropdownOpen) {
-          e.preventDefault();
-        }
-        if (form.step === "context") {
+        if (form.step === "context" && !form.creating) {
           e.preventDefault();
           form.setStep("config");
         }
@@ -107,159 +102,143 @@ function CreateAgentDialogContent({
       {form.step === "config" ? (
         <>
           <DialogHeader>
-            <DialogTitle>Create Agent</DialogTitle>
+            <DialogTitle>New agent</DialogTitle>
           </DialogHeader>
 
-          <form
+          <DialogForm
             data-testid="create-agent-form"
-            className="flex min-h-0 flex-col"
             onSubmit={(event) => void form.handleSubmit(event)}
           >
-            <div className="min-h-0 flex-1 overflow-y-auto px-1">
-              <div className="space-y-3">
-                <AgentEngineFields
-                  agentType={form.createType}
-                  onAgentTypeChange={form.setCreateType}
-                  agentTypes={enabledAgentTypes}
-                  effort={form.createEffort}
-                  onEffortChange={form.setCreateEffort}
-                  model={form.createModel}
-                  onModelChange={form.setCreateModel}
-                  modelOptions={form.modelOptions}
-                  catalogDefault={form.defaultModel}
-                  modelLoading={form.modelCatalogLoading}
-                  onTypeOpenChange={setTypeDropdownOpen}
-                />
+            <DialogBody className="space-y-3">
+              <AgentEngineFields
+                agentType={form.createType}
+                onAgentTypeChange={form.setCreateType}
+                agentTypes={enabledAgentTypes}
+                effort={form.createEffort}
+                onEffortChange={form.setCreateEffort}
+                model={form.createModel}
+                onModelChange={form.setCreateModel}
+                modelOptions={form.modelOptions}
+                catalogDefault={form.defaultModel}
+                modelLoading={form.modelCatalogLoading}
+              />
 
+              <Field label="Name" optional>
+                <Input
+                  autoFocus
+                  value={form.createName}
+                  onChange={(event) => form.setCreateName(event.target.value)}
+                  placeholder={
+                    task
+                      ? taskAgentName(task.title) || "agent name"
+                      : "agent name"
+                  }
+                  data-testid="create-agent-name"
+                />
+              </Field>
+
+              {task ? (
+                <TaskContextCard task={task} />
+              ) : (
                 <div className="space-y-1">
-                  <label className="text-body-md text-muted-foreground">
-                    Name <span className="text-faint">(optional)</span>
-                  </label>
-                  <Input
-                    autoFocus
-                    value={form.createName}
-                    onChange={(event) => form.setCreateName(event.target.value)}
-                    placeholder={
-                      task
-                        ? taskAgentName(task.title) || "agent name"
-                        : "agent name"
-                    }
-                    data-testid="create-agent-name"
-                  />
-                </div>
-
-                {task ? (
-                  <TaskContextCard task={task} />
-                ) : (
-                  <div className="space-y-1">
-                    <ProjectLocation
-                      projectId={form.createProjectId}
-                      rememberedProjectId={form.lastProjectId}
-                      onChange={(p) => {
-                        form.setCreateProjectId(p?.id ?? null);
-                      }}
-                    >
-                      <PathInput
-                        value={form.createCwd}
-                        onChange={form.setCreateCwd}
-                        history={form.cwdHistory}
-                        removableHistory={form.removableCwdHistory}
-                        historyMetadata={form.cwdHistoryMetadata}
-                        onRemoveHistory={form.removeCwdHistory}
-                        onPathInfoChange={form.handlePathInfoChange}
-                        data-testid="create-agent-cwd"
-                        historyItemTestId="create-agent-cwd-history-option"
-                      />
-                    </ProjectLocation>
-                  </div>
-                )}
-
-                <AgentPersonaSelect
-                  cwd={form.createCwd}
-                  value={form.createPersona}
-                  onChange={form.setCreatePersona}
-                />
-                <WorktreeSection
-                  cwd={form.createCwd}
-                  worktreeAvailable={form.worktreeAvailable}
-                  useWorktree={form.createUseWorktree}
-                  onUseWorktreeChange={form.setCreateUseWorktree}
-                  baseBranch={form.createBaseBranch}
-                  onBaseBranchChange={form.setCreateBaseBranch}
-                  worktreeBranch={form.createWorktreeBranch}
-                  onWorktreeBranchChange={form.setCreateWorktreeBranch}
-                  createNewBranch={form.createNewBranch}
-                  onCreateNewBranchChange={form.setCreateNewBranch}
-                />
-
-                {form.createType !== "opencode" && (
-                  <label className="flex cursor-pointer items-start gap-3 rounded-md border border-border-subtle bg-surface-subtle px-3 py-3">
-                    <Checkbox
-                      checked={form.createFullAccess}
-                      onCheckedChange={() =>
-                        form.setCreateFullAccess((current) => !current)
-                      }
-                      className="mt-0.5"
+                  <ProjectLocation
+                    projectId={form.createProjectId}
+                    rememberedProjectId={form.lastProjectId}
+                    onChange={(p) => {
+                      form.setCreateProjectId(p?.id ?? null);
+                    }}
+                  >
+                    <PathInput
+                      value={form.createCwd}
+                      onChange={form.setCreateCwd}
+                      history={form.cwdHistory}
+                      removableHistory={form.removableCwdHistory}
+                      historyMetadata={form.cwdHistoryMetadata}
+                      onRemoveHistory={form.removeCwdHistory}
+                      onPathInfoChange={form.handlePathInfoChange}
+                      data-testid="create-agent-cwd"
+                      historyItemTestId="create-agent-cwd-history-option"
                     />
-                    <span className="space-y-1">
-                      <span className="block text-body-md font-medium text-foreground">
-                        Start in full access mode
-                      </span>
-                      <span className="block text-body-sm text-muted-foreground">
-                        Skip permission prompts. Turn off to require approvals.
-                      </span>
-                    </span>
-                  </label>
-                )}
-              </div>
-            </div>
-            <div className="flex justify-end gap-2 pt-3">
-              <Button
-                type="button"
-                variant="ghost"
-                tabIndex={0}
-                onClick={() => setOpen(false)}
-                data-testid="create-agent-cancel"
-              >
-                Cancel
-              </Button>
-              <Button
-                type="button"
-                tabIndex={0}
-                disabled={
-                  form.creating || !form.locationReady || !form.createCwd.trim()
-                }
-                data-testid="create-agent-with-context"
-                onClick={form.enterContextStep}
-              >
-                Create with context
-              </Button>
+                  </ProjectLocation>
+                </div>
+              )}
+
+              <AgentPersonaSelect
+                cwd={form.createCwd}
+                value={form.createPersona}
+                onChange={form.setCreatePersona}
+              />
+              <WorktreeSection
+                cwd={form.createCwd}
+                worktreeAvailable={form.worktreeAvailable}
+                useWorktree={form.createUseWorktree}
+                onUseWorktreeChange={form.setCreateUseWorktree}
+                baseBranch={form.createBaseBranch}
+                onBaseBranchChange={form.setCreateBaseBranch}
+                worktreeBranch={form.createWorktreeBranch}
+                onWorktreeBranchChange={form.setCreateWorktreeBranch}
+                createNewBranch={form.createNewBranch}
+                onCreateNewBranchChange={form.setCreateNewBranch}
+              />
+
+              {form.createType !== "opencode" && (
+                <OptionCard
+                  label="Start in full access mode"
+                  description="Skip permission prompts. Turn off to require approvals."
+                >
+                  <Checkbox
+                    checked={form.createFullAccess}
+                    onCheckedChange={() =>
+                      form.setCreateFullAccess((current) => !current)
+                    }
+                  />
+                </OptionCard>
+              )}
+            </DialogBody>
+            <CreateFailure error={form.submitError} />
+            <DialogFooter
+              start={
+                <Button
+                  type="button"
+                  tabIndex={0}
+                  disabled={
+                    form.creating ||
+                    !form.locationReady ||
+                    !form.createCwd.trim()
+                  }
+                  data-testid="create-agent-with-context"
+                  onClick={form.enterContextStep}
+                >
+                  Add context
+                </Button>
+              }
+            >
+              <DialogCancel tabIndex={0} data-testid="create-agent-cancel" />
               <Button
                 type="submit"
                 variant="primary"
                 tabIndex={0}
-                disabled={form.creating || !form.locationReady}
+                pending={form.creating}
+                disabled={!form.locationReady}
                 data-testid="create-agent-submit"
               >
-                {form.creating ? <ActivityBars size={16} /> : null}
-                Create
+                Create agent
               </Button>
-            </div>
-          </form>
+            </DialogFooter>
+          </DialogForm>
         </>
       ) : (
         <>
           <DialogHeader>
-            <DialogTitle>Create with context</DialogTitle>
+            <DialogTitle>New agent with context</DialogTitle>
             <DialogDescription id="create-agent-context-description">
               Add startup instructions, files, and links for the agent to use
               when the session starts.
             </DialogDescription>
           </DialogHeader>
 
-          <form
+          <DialogForm
             data-testid="create-agent-context-form"
-            className="flex min-h-0 flex-1 flex-col"
             onSubmit={(event) => void form.handleSubmit(event)}
             onDragOver={(event) => {
               if (event.dataTransfer.types.includes("Files")) {
@@ -277,95 +256,75 @@ function CreateAgentDialogContent({
             }}
             onDrop={form.handleStartupDrop}
           >
-            <div
-              className={cn(
-                "min-h-0 flex-1 overflow-y-auto rounded-lg px-1 pb-1"
-              )}
-            >
-              <div className="space-y-3">
-                <div className="space-y-1">
-                  <label
-                    htmlFor={CONTEXT_PROMPT_ID}
-                    className="text-body-md text-muted-foreground"
-                  >
-                    Instructions
-                  </label>
-                  <textarea
-                    id={CONTEXT_PROMPT_ID}
-                    ref={form.promptTextareaRef}
-                    value={form.initialPrompt}
-                    onChange={(event) =>
-                      form.setInitialPrompt(event.target.value)
-                    }
-                    onPaste={form.handleStartupPaste}
-                    placeholder="Enter instructions for the agent..."
-                    data-testid="create-agent-initial-prompt"
-                    className={cn(
-                      "flex min-h-[180px] w-full resize-y rounded-md surface-inset px-3 py-2 text-body-md",
-                      "ring-offset-background placeholder:text-muted-foreground",
-                      "focus-ring"
-                    )}
-                  />
-                </div>
-
-                <ContextPicker
-                  error={form.attachmentError}
-                  files={form.startupFiles}
-                  links={form.startupLinks}
-                  draggingFiles={form.draggingFiles}
-                  filePreviewsRef={form.startupFilePreviewsRef}
-                  onAppendFiles={form.appendStartupFiles}
-                  onRemoveFile={form.handleRemoveStartupFile}
-                  onAddLink={form.handleAddLink}
-                  onRemoveLink={form.handleRemoveStartupLink}
-                  onClipboardText={form.handleClipboardText}
-                  onDraftInvalid={form.setContextDraftInvalid}
-                  testIdPrefix="create-agent-context"
+            <DialogBody className="space-y-3">
+              <Field id={CONTEXT_PROMPT_ID} label="Instructions">
+                <Textarea
+                  ref={form.promptTextareaRef}
+                  value={form.initialPrompt}
+                  onChange={(event) =>
+                    form.setInitialPrompt(event.target.value)
+                  }
+                  onPaste={form.handleStartupPaste}
+                  placeholder="Enter instructions for the agent..."
+                  data-testid="create-agent-initial-prompt"
+                  className="min-h-[180px] resize-y"
                 />
-              </div>
-            </div>
+              </Field>
 
-            <div className="flex justify-between gap-2 border-t border-edge-subtle pt-3">
-              <Button
-                type="button"
-                variant="ghost"
-                tabIndex={0}
-                onClick={() => form.setStep("config")}
-                data-testid="create-agent-context-back"
-              >
-                <ChevronLeft />
-                Back
-              </Button>
-              <div className="flex gap-2">
+              <ContextPicker
+                error={form.attachmentError}
+                files={form.startupFiles}
+                links={form.startupLinks}
+                draggingFiles={form.draggingFiles}
+                filePreviewsRef={form.startupFilePreviewsRef}
+                onAppendFiles={form.appendStartupFiles}
+                onRemoveFile={form.handleRemoveStartupFile}
+                onAddLink={form.handleAddLink}
+                onRemoveLink={form.handleRemoveStartupLink}
+                onClipboardText={form.handleClipboardText}
+                onDraftInvalid={form.setContextDraftInvalid}
+                testIdPrefix="create-agent-context"
+              />
+            </DialogBody>
+            <CreateFailure error={form.submitError} />
+            <DialogFooter
+              start={
                 <Button
                   type="button"
                   variant="ghost"
                   tabIndex={0}
-                  onClick={() => setOpen(false)}
+                  disabled={form.creating}
+                  onClick={() => form.setStep("config")}
+                  data-testid="create-agent-context-back"
                 >
-                  Cancel
+                  <ChevronLeft />
+                  Back
                 </Button>
-                <Button
-                  type="submit"
-                  variant="primary"
-                  tabIndex={0}
-                  disabled={
-                    form.creating ||
-                    !form.locationReady ||
-                    form.contextDraftInvalid
-                  }
-                  data-testid="create-agent-context-submit"
-                >
-                  {form.creating ? <ActivityBars size={16} /> : null}
-                  Create
-                </Button>
-              </div>
-            </div>
-          </form>
+              }
+            >
+              <DialogCancel tabIndex={0} />
+              <Button
+                type="submit"
+                variant="primary"
+                tabIndex={0}
+                pending={form.creating}
+                disabled={!form.locationReady || form.contextDraftInvalid}
+                data-testid="create-agent-context-submit"
+              >
+                Create agent
+              </Button>
+            </DialogFooter>
+          </DialogForm>
         </>
       )}
     </DialogContent>
   );
+}
+
+function CreateFailure({ error }: { error: unknown }) {
+  return error ? (
+    <Alert title="Couldn’t create the agent." error={error} />
+  ) : null;
 }
 
 /**
@@ -408,10 +367,13 @@ function TaskContextCard({
         <summary className="cursor-pointer select-none text-muted-foreground hover:text-foreground">
           What the agent is told
         </summary>
-        <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap rounded-sm bg-background/veil p-2 font-mono text-label-sm leading-snug text-muted-foreground">
-          {briefing.data?.text ??
-            (briefing.error ? "Could not load the briefing." : "Loading…")}
-        </pre>
+        <AsyncBoundary query={briefing} thing="the briefing" className="mt-2">
+          {({ text }) => (
+            <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap rounded-sm bg-background/veil p-2 font-mono text-label-sm leading-snug text-muted-foreground">
+              {text}
+            </pre>
+          )}
+        </AsyncBoundary>
       </details>
     </section>
   );

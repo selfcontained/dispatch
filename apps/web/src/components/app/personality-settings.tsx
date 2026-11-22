@@ -7,6 +7,13 @@ import { IconButton } from "@/components/ui/icon-button";
 import { RadioIndicator } from "@/components/app/radio-indicator";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { Alert } from "@/components/ui/alert";
+import { LoadError } from "@/components/ui/async-boundary";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { Field } from "@/components/ui/field";
+import { LoadingSkeleton } from "@/components/ui/skeleton";
+import { Textarea } from "@/components/ui/textarea";
+import { toast } from "@/components/ui/toast";
 
 type Personality = {
   id: string;
@@ -30,14 +37,16 @@ type EditingState =
 const NAME_MAX = 80;
 const PROMPT_MAX = 1000;
 
-const TEXTAREA_CLASSES =
-  "w-full min-h-32 rounded-md surface-inset px-3 py-2 text-body-md placeholder:text-muted-foreground focus-ring resize-y";
-
 export function PersonalitySettings(): JSX.Element {
   const [personalities, setPersonalities] = useState<Personality[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [failure, setFailure] = useState<{ title: string; error: unknown }>();
+  const [loadError, setLoadError] = useState<unknown>();
+  const [invalid, setInvalid] = useState<{ name?: string; prompt?: string }>(
+    {}
+  );
+  const [deleting, setDeleting] = useState<Personality | null>(null);
   const [editing, setEditing] = useState<EditingState>(null);
   const [submitting, setSubmitting] = useState(false);
   const nameInputRef = useRef<HTMLInputElement>(null);
@@ -64,11 +73,10 @@ export function PersonalitySettings(): JSX.Element {
       const data = await api<ListResponse>("/api/v1/personalities");
       setPersonalities(data.personalities);
       setActiveId(data.activeId);
-      setError(null);
+      setLoadError(undefined);
+      setFailure(undefined);
     } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Failed to load personalities."
-      );
+      setLoadError(err);
     } finally {
       setLoading(false);
     }
@@ -79,10 +87,14 @@ export function PersonalitySettings(): JSX.Element {
   }, [refresh]);
 
   const startCreate = useCallback(() => {
+    setInvalid({});
+    setFailure(undefined);
     setEditing({ mode: "create", form: { name: "", prompt: "" } });
   }, []);
 
   const startEdit = useCallback((personality: Personality) => {
+    setInvalid({});
+    setFailure(undefined);
     setEditing({
       mode: "edit",
       id: personality.id,
@@ -92,19 +104,22 @@ export function PersonalitySettings(): JSX.Element {
 
   const cancelEdit = useCallback(() => {
     setEditing(null);
-    setError(null);
+    setInvalid({});
+    setFailure(undefined);
   }, []);
 
   const submitForm = useCallback(async () => {
     if (!editing) return;
     const name = editing.form.name.trim();
     const prompt = editing.form.prompt;
-    if (!name) {
-      setError("Name is required.");
-      return;
-    }
-    if (!prompt.trim()) {
-      setError("Prompt is required.");
+    const missing = {
+      name: name ? undefined : "Enter a name.",
+      prompt: prompt.trim() ? undefined : "Enter a prompt.",
+    };
+    setInvalid(missing);
+    setFailure(undefined);
+    if (missing.name || missing.prompt) {
+      if (missing.name) nameInputRef.current?.focus();
       return;
     }
 
@@ -125,10 +140,9 @@ export function PersonalitySettings(): JSX.Element {
         );
       }
       setEditing(null);
-      setError(null);
       await refresh();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save.");
+      setFailure({ title: "Couldn’t save the personality.", error: err });
     } finally {
       setSubmitting(false);
     }
@@ -139,6 +153,7 @@ export function PersonalitySettings(): JSX.Element {
       const next = activeId === id ? null : id;
       const previous = activeId;
       setActiveId(next);
+      setFailure(undefined);
       try {
         await api<{ activeId: string | null }>("/api/v1/personalities/active", {
           method: "POST",
@@ -146,11 +161,10 @@ export function PersonalitySettings(): JSX.Element {
         });
       } catch (err) {
         setActiveId(previous);
-        setError(
-          err instanceof Error
-            ? err.message
-            : "Failed to set active personality."
-        );
+        setFailure({
+          title: "Couldn’t change the active personality.",
+          error: err,
+        });
       }
     },
     [activeId]
@@ -158,18 +172,11 @@ export function PersonalitySettings(): JSX.Element {
 
   const deletePersonality = useCallback(
     async (personality: Personality) => {
-      const confirmed = window.confirm(
-        `Delete personality "${personality.name}"? This cannot be undone.`
-      );
-      if (!confirmed) return;
-      try {
-        await api(`/api/v1/personalities/${personality.id}`, {
-          method: "DELETE",
-        });
-        await refresh();
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed to delete.");
-      }
+      await api(`/api/v1/personalities/${personality.id}`, {
+        method: "DELETE",
+      });
+      toast.success(`Personality “${personality.name}” deleted.`);
+      await refresh();
     },
     [refresh]
   );
@@ -181,62 +188,50 @@ export function PersonalitySettings(): JSX.Element {
         className="rounded-md border border-border bg-surface-subtle p-4"
         data-testid="personality-form"
       >
-        <div className="mb-3">
-          <label
-            htmlFor="personality-name"
-            className="mb-1.5 block section-label"
-          >
-            Name
-          </label>
+        <Field
+          id="personality-name"
+          label="Name"
+          error={invalid.name}
+          className="mb-3"
+        >
           <Input
-            id="personality-name"
             ref={nameInputRef}
             value={editing.form.name}
             maxLength={NAME_MAX}
             placeholder="e.g. Friendly, Pirate, Performance focused"
-            onChange={(e) =>
-              setEditing(
-                editing
-                  ? {
-                      ...editing,
-                      form: { ...editing.form, name: e.target.value },
-                    }
-                  : null
-              )
-            }
+            onChange={(e) => {
+              setInvalid((current) => ({ ...current, name: undefined }));
+              setEditing({
+                ...editing,
+                form: { ...editing.form, name: e.target.value },
+              });
+            }}
             disabled={submitting}
             className="max-w-md"
           />
-        </div>
-        <div className="mb-3">
-          <label
-            htmlFor="personality-prompt"
-            className="mb-1.5 block section-label"
-          >
-            Prompt
-          </label>
-          <textarea
-            id="personality-prompt"
+        </Field>
+        <Field
+          id="personality-prompt"
+          label="Prompt"
+          error={invalid.prompt}
+          hint={`${editing.form.prompt.length} / ${PROMPT_MAX}`}
+          className="mb-3"
+        >
+          <Textarea
             value={editing.form.prompt}
             maxLength={PROMPT_MAX}
             placeholder="Text to append to every agent's system prompt at launch."
-            onChange={(e) =>
-              setEditing(
-                editing
-                  ? {
-                      ...editing,
-                      form: { ...editing.form, prompt: e.target.value },
-                    }
-                  : null
-              )
-            }
+            onChange={(e) => {
+              setInvalid((current) => ({ ...current, prompt: undefined }));
+              setEditing({
+                ...editing,
+                form: { ...editing.form, prompt: e.target.value },
+              });
+            }}
             disabled={submitting}
-            className={TEXTAREA_CLASSES}
+            className="min-h-32 resize-y"
           />
-          <p className="mt-1 text-body-sm text-muted-foreground">
-            {editing.form.prompt.length} / {PROMPT_MAX}
-          </p>
-        </div>
+        </Field>
         <div className="flex justify-end gap-2">
           <Button
             type="button"
@@ -250,8 +245,9 @@ export function PersonalitySettings(): JSX.Element {
           <Button
             type="button"
             size="sm"
+            variant="primary"
             onClick={() => void submitForm()}
-            disabled={submitting}
+            pending={submitting}
             data-testid="personality-save"
           >
             {editing.mode === "create" ? "Create" : "Save"}
@@ -306,8 +302,8 @@ export function PersonalitySettings(): JSX.Element {
             type="button"
             size="sm"
             variant="ghost"
-            onClick={() => void deletePersonality(personality)}
-            className="text-danger hover:text-danger"
+            tone="danger"
+            onClick={() => setDeleting(personality)}
           >
             Delete
           </Button>
@@ -328,14 +324,18 @@ export function PersonalitySettings(): JSX.Element {
         </p>
       </div>
 
-      {error ? (
-        <div
-          className="rounded-md border border-danger/line bg-danger/tint px-3 py-2 text-body-md text-danger"
-          role="alert"
-        >
-          {error}
-        </div>
+      {loadError ? (
+        <LoadError
+          thing="personalities"
+          error={loadError}
+          retrying={loading}
+          onRetry={() => {
+            setLoading(true);
+            void refresh();
+          }}
+        />
       ) : null}
+      {failure ? <Alert {...failure} /> : null}
 
       <LayoutGroup>
         {!editing ? (
@@ -362,8 +362,12 @@ export function PersonalitySettings(): JSX.Element {
           </motion.div>
         ) : null}
 
-        {loading && personalities.length === 0 ? (
-          <p className="text-body-md text-muted-foreground">Loading…</p>
+        {loading && personalities.length === 0 && !loadError ? (
+          <LoadingSkeleton label="Loading personalities…" rowClassName="h-16" />
+        ) : !loading && !loadError && !editing && !personalities.length ? (
+          <p className="text-body-sm text-muted-foreground">
+            No personalities yet.
+          </p>
         ) : (
           <ul className="flex flex-col gap-2" data-testid="personality-list">
             {personalities.map((personality) => {
@@ -391,6 +395,20 @@ export function PersonalitySettings(): JSX.Element {
           </ul>
         )}
       </LayoutGroup>
+
+      <ConfirmDialog
+        open={deleting !== null}
+        onOpenChange={(open) => {
+          if (!open) setDeleting(null);
+        }}
+        title={`Delete “${deleting?.name ?? ""}”?`}
+        description="New agents stop getting this personality. This cannot be undone."
+        confirmLabel="Delete personality"
+        errorTitle="Couldn’t delete the personality."
+        onConfirm={async () => {
+          if (deleting) await deletePersonality(deleting);
+        }}
+      />
     </div>
   );
 }

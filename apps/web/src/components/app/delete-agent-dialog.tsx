@@ -1,19 +1,10 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { AlertTriangle, Archive, GitBranch } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 
 import { type Agent } from "@/components/app/types";
-import { ActivityBars } from "@/components/ui/activity-bars";
-import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { Alert } from "@/components/ui/alert";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { descendantAgents } from "@/lib/agent-lineage";
 import { api } from "@/lib/api";
-import { errorMessage } from "@/lib/errors";
 
 type WorktreeStatus = {
   hasWorktree: boolean;
@@ -37,6 +28,18 @@ type DeleteAgentDialogProps = {
   onDelete: (agent: Agent, cleanupWorktree?: string) => Promise<void>;
 };
 
+function FileList({ files }: { files: string[] }): JSX.Element {
+  return (
+    <ul className="mt-1 max-h-40 overflow-y-auto rounded-sm bg-surface-hover px-2 py-1.5 font-mono text-body-sm leading-relaxed text-muted-foreground">
+      {files.map((file) => (
+        <li key={file} className="break-all">
+          {file}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 export function DeleteAgentDialog({
   open,
   deleteTarget,
@@ -50,8 +53,6 @@ export function DeleteAgentDialog({
     null
   );
   const [loading, setLoading] = useState(false);
-  const [deleting, setDeleting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   // Archiving cascades to the target's sub agents, so the confirmation has to
   // say how many go with it — otherwise a parent's archive silently takes out
@@ -69,19 +70,10 @@ export function DeleteAgentDialog({
 
   // Fetch worktree status when dialog opens for an agent with a worktree
   useEffect(() => {
-    if (!open || !deleteTarget) {
-      setStep("confirm");
-      setWorktreeStatus(null);
-      setLoading(false);
-      setDeleting(false);
-      setError(null);
-      return;
-    }
-
-    if (!deleteTarget.worktreePath) {
-      setWorktreeStatus(null);
-      return;
-    }
+    setStep("confirm");
+    setWorktreeStatus(null);
+    setLoading(false);
+    if (!open || !deleteTarget?.worktreePath) return;
 
     let cancelled = false;
     setLoading(true);
@@ -104,192 +96,88 @@ export function DeleteAgentDialog({
     };
   }, [open, deleteTarget]);
 
-  const handleConfirmDelete = useCallback(async () => {
-    if (!deleteTarget) return;
+  const choosing = step === "worktree-choice" && worktreeStatus !== null;
+  const name = deleteTarget ? `“${deleteTarget.name}”` : "this agent";
+  const archive = async (cleanup: "auto" | "keep" | "force") => {
+    if (deleteTarget) await onDelete(deleteTarget, cleanup);
+  };
 
-    // If there's a worktree with unmerged commits or uncommitted changes, transition to choice step
+  const confirm = async () => {
+    if (choosing) return archive("force");
+    // Outstanding work gets a choice of what happens to the worktree.
     if (
       worktreeStatus?.hasWorktree &&
       (worktreeStatus.hasUnmergedCommits ||
         worktreeStatus.hasUncommittedChanges)
     ) {
       setStep("worktree-choice");
-      return;
+      return false;
     }
-
-    // No worktree or no unmerged commits — standard delete with auto cleanup
-    setDeleting(true);
-    setError(null);
-    try {
-      await onDelete(deleteTarget, "auto");
-      setOpen(false);
-      setDeleteTarget(null);
-    } catch (err) {
-      setError(errorMessage(err));
-    } finally {
-      setDeleting(false);
-    }
-  }, [deleteTarget, worktreeStatus, onDelete, setOpen, setDeleteTarget]);
-
-  const handleWorktreeChoice = useCallback(
-    async (cleanupMode: "keep" | "force") => {
-      if (!deleteTarget) return;
-
-      setDeleting(true);
-      setError(null);
-      try {
-        await onDelete(deleteTarget, cleanupMode);
-        setOpen(false);
-        setDeleteTarget(null);
-      } catch (err) {
-        setError(errorMessage(err));
-      } finally {
-        setDeleting(false);
-      }
-    },
-    [deleteTarget, onDelete, setOpen, setDeleteTarget]
-  );
-
-  const close = useCallback(() => {
-    setOpen(false);
-    setDeleteTarget(null);
-  }, [setOpen, setDeleteTarget]);
-
-  // Dismissing mid-request would leave a failure nowhere to show.
-  const onOpenChange = (next: boolean) => {
-    if (!deleting) setOpen(next);
+    return archive("auto");
   };
-  const failure = error ? (
-    <p role="alert" className="break-words text-body-md text-danger">
-      Couldn't archive the agent: {error}
-    </p>
-  ) : null;
-
-  if (step === "worktree-choice" && worktreeStatus) {
-    const hasUnmerged =
-      worktreeStatus.hasUnmergedCommits &&
-      worktreeStatus.changedFiles.length > 0;
-    const hasUncommitted =
-      worktreeStatus.hasUncommittedChanges &&
-      worktreeStatus.uncommittedFiles.length > 0;
-
-    return (
-      <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Worktree Has Outstanding Changes</DialogTitle>
-          </DialogHeader>
-
-          <div className="flex flex-col gap-3">
-            {hasUnmerged && (
-              <div className="flex flex-col gap-2 rounded-md border border-warning/line bg-warning/tint px-3 py-3 text-body-md text-foreground">
-                <div className="flex items-start gap-2">
-                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
-                  <span>
-                    Branch{" "}
-                    <code className="rounded-sm bg-muted px-1 py-0.5 text-body-sm">
-                      {worktreeStatus.branchName}
-                    </code>{" "}
-                    has commits not merged to origin.
-                  </span>
-                </div>
-                <div className="ml-6 max-h-40 overflow-y-auto rounded-sm bg-surface-hover px-2 py-1.5 text-body-sm font-mono leading-relaxed text-muted-foreground">
-                  {worktreeStatus.changedFiles.map((file) => (
-                    <div key={file}>{file}</div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {hasUncommitted && (
-              <div className="flex flex-col gap-2 rounded-md border border-warning/line bg-warning/tint px-3 py-3 text-body-md text-foreground">
-                <div className="flex items-start gap-2">
-                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
-                  <span>Worktree has uncommitted changes.</span>
-                </div>
-                <div className="ml-6 max-h-40 overflow-y-auto rounded-sm bg-surface-hover px-2 py-1.5 text-body-sm font-mono leading-relaxed text-muted-foreground">
-                  {worktreeStatus.uncommittedFiles.map((file) => (
-                    <div key={file}>{file}</div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            <p className="text-body-md text-muted-foreground">
-              The agent will be archived either way.
-              {cascadeNote}
-            </p>
-          </div>
-
-          {failure}
-          <div className="grid gap-2 pt-1 sm:grid-cols-[auto,minmax(0,1fr),minmax(0,1fr)]">
-            <Button
-              variant="ghost"
-              onClick={close}
-              disabled={deleting}
-              className="w-full sm:w-auto"
-            >
-              Cancel
-            </Button>
-            <Button
-              disabled={deleting}
-              onClick={() => void handleWorktreeChoice("keep")}
-              data-testid="delete-agent-keep-worktree"
-              wrap
-              className="w-full"
-            >
-              <GitBranch />
-              Archive, keep worktree
-            </Button>
-            <Button
-              variant="danger"
-              disabled={deleting}
-              onClick={() => void handleWorktreeChoice("force")}
-              data-testid="delete-agent-force-worktree"
-              wrap
-              className="w-full"
-            >
-              {deleting ? <ActivityBars size={16} /> : null}
-              Archive and remove worktree
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
-    );
-  }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Archive Agent</DialogTitle>
-          <DialogDescription>
-            {deleteTarget
-              ? `Archive "${deleteTarget.name}"? This removes the agent record and all files.${cascadeNote}`
-              : "Archive this agent?"}
-          </DialogDescription>
-        </DialogHeader>
-        {failure}
-        <div className="flex justify-end gap-2">
-          <Button
-            variant="ghost"
-            data-testid="delete-agent-cancel"
-            onClick={close}
-            disabled={deleting}
-          >
-            Cancel
-          </Button>
-          <Button
-            variant="danger"
-            data-testid="delete-agent-confirm"
-            disabled={loading || deleting}
-            onClick={() => void handleConfirmDelete()}
-          >
-            {loading || deleting ? <ActivityBars size={16} /> : <Archive />}
-            Archive
-          </Button>
-        </div>
-      </DialogContent>
-    </Dialog>
+    <ConfirmDialog
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next);
+        if (!next) setDeleteTarget(null);
+      }}
+      title={
+        choosing
+          ? `Archive ${name} with outstanding changes?`
+          : `Archive ${name}?`
+      }
+      description={
+        choosing
+          ? `The agent will be archived either way.${cascadeNote}`
+          : `This removes the agent record and all files.${cascadeNote}`
+      }
+      confirmLabel={choosing ? "Archive and remove worktree" : "Archive agent"}
+      confirmTestId={
+        choosing ? "delete-agent-force-worktree" : "delete-agent-confirm"
+      }
+      cancelTestId="delete-agent-cancel"
+      errorTitle="Couldn’t archive the agent."
+      checking={loading}
+      onConfirm={confirm}
+      alternative={
+        choosing
+          ? {
+              label: "Archive, keep worktree",
+              testId: "delete-agent-keep-worktree",
+              onConfirm: () => archive("keep"),
+            }
+          : undefined
+      }
+    >
+      {choosing && worktreeStatus ? (
+        <>
+          {worktreeStatus.hasUnmergedCommits &&
+          worktreeStatus.changedFiles.length > 0 ? (
+            <Alert
+              tone="warning"
+              title={
+                <>
+                  Branch{" "}
+                  <code className="rounded-sm bg-muted px-1 py-0.5 text-body-sm">
+                    {worktreeStatus.branchName}
+                  </code>{" "}
+                  has commits not merged to origin.
+                </>
+              }
+            >
+              <FileList files={worktreeStatus.changedFiles} />
+            </Alert>
+          ) : null}
+          {worktreeStatus.hasUncommittedChanges &&
+          worktreeStatus.uncommittedFiles.length > 0 ? (
+            <Alert tone="warning" title="Worktree has uncommitted changes.">
+              <FileList files={worktreeStatus.uncommittedFiles} />
+            </Alert>
+          ) : null}
+        </>
+      ) : null}
+    </ConfirmDialog>
   );
 }

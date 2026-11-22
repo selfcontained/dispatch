@@ -1,6 +1,7 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { RefreshCw } from "lucide-react";
-import { toast } from "sonner";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { toast } from "@/components/ui/toast";
 
 import { reloadApp } from "@/lib/pwa-update";
 import {
@@ -11,6 +12,7 @@ import {
   subscribeVersionMismatch,
 } from "@/lib/version";
 
+// Shared with the release toast, so there is one update toast at a time.
 const TOAST_ID = "dispatch-update-available";
 
 function isEditableElement(element: Element | null): element is HTMLElement {
@@ -25,19 +27,17 @@ function matches(element: HTMLElement, selectors: string[]): boolean {
 
 /**
  * Subscribes to the version-mismatch signal and surfaces it as a sticky
- * sonner toast. Returns no JSX — sonner's `<Toaster />` is responsible for
- * rendering. The toast carries a `Reload` action and persists until the
- * user dismisses it or reloads.
- *
- * The component name is preserved so existing imports keep resolving;
- * conceptually this is now an effect-only controller, not a renderer.
+ * toast, which the ToastHost renders. It carries a `Reload` action and
+ * persists until the user dismisses it or reloads. All this component
+ * renders itself is the confirmation for reloading over an open field.
  */
-export function UpdateAvailableToast(): null {
+export function UpdateAvailableToast(): JSX.Element {
+  const [confirming, setConfirming] = useState(false);
   const reloadingRef = useRef(false);
   const hadFocusedEditableRef = useRef(false);
 
   useEffect(() => {
-    const handleReload = (): void => {
+    const handleReload = (event: { preventDefault: () => void }): void => {
       const activeElement = document.activeElement;
       const hadFocusedEditable =
         hadFocusedEditableRef.current || isEditableElement(activeElement);
@@ -45,11 +45,11 @@ export function UpdateAvailableToast(): null {
 
       if (
         window.location.pathname.startsWith("/settings") &&
-        hadFocusedEditable &&
-        !window.confirm(
-          "You have a settings field open. Reloading now may discard unsaved changes. Reload anyway?"
-        )
+        hadFocusedEditable
       ) {
+        // The toast stays up until the answer.
+        event.preventDefault();
+        setConfirming(true);
         return;
       }
 
@@ -72,24 +72,19 @@ export function UpdateAvailableToast(): null {
 
       const serverVersion = getServerVersion();
       const message = serverVersion
-        ? `Server updated to ${serverVersion}. Reload to pick it up.`
-        : "Server updated. Reload to pick up the new version.";
+        ? `Server updated to ${serverVersion}.`
+        : "Server updated.";
 
       toast.info(message, {
         id: TOAST_ID,
+        description: "Reload to pick up the new version.",
         duration: Infinity,
-        icon: <RefreshCw className="h-4 w-4" />,
+        icon: RefreshCw,
         action: {
           label: "Reload",
           onClick: handleReload,
         },
-        // Capture whether an editable element was focused at the moment
-        // the user reached for the toast — sonner's Action button does not
-        // pierce through focus the way a native button would, so we sample
-        // focus on pointerdown before the toast steals it.
-        onAutoClose: () => {
-          hadFocusedEditableRef.current = false;
-        },
+        // Not called when the toast is retired from code.
         onDismiss: () => {
           dismissVersionMismatch();
         },
@@ -121,5 +116,20 @@ export function UpdateAvailableToast(): null {
     };
   }, []);
 
-  return null;
+  return (
+    <ConfirmDialog
+      open={confirming}
+      onOpenChange={setConfirming}
+      tone="primary"
+      title="Reload Dispatch?"
+      description="You have a settings field open. Reloading now may discard unsaved changes."
+      confirmLabel="Reload anyway"
+      errorTitle="Couldn’t reload."
+      onConfirm={() => {
+        if (reloadingRef.current) return;
+        reloadingRef.current = true;
+        void reloadApp();
+      }}
+    />
+  );
 }

@@ -23,7 +23,18 @@ import { JobListContent } from "./jobs-list-content";
 const H = { context: {} as Record<string, unknown> };
 
 vi.mock("@/components/app/jobs-context", () => ({
-  useJobsContext: () => H.context,
+  useJobsContext: () => {
+    const { jobs, isLoading, error, isRetrying, retry } = H.context;
+    // The jobs request, as each test's state describes it.
+    const jobsQuery = {
+      data:
+        isLoading || (error && !(jobs as unknown[]).length) ? undefined : jobs,
+      error,
+      isFetching: isRetrying,
+      refetch: retry,
+    };
+    return { ...H.context, jobsQuery };
+  },
 }));
 
 function makeJob(overrides: Partial<Job> = {}): Job {
@@ -99,13 +110,15 @@ describe("JobListContent — load states", () => {
   it("shows the error message from an Error instance", () => {
     H.context.error = new Error("network down");
     render(<JobListContent />);
-    expect(screen.getByText("Couldn't load jobs: network down")).toBeTruthy();
+    expect(screen.getByText("Couldn’t load jobs.")).toBeTruthy();
+    expect(screen.getByText("network down")).toBeTruthy();
   });
 
   it("shows a non-Error error value", () => {
     H.context.error = "some string";
     render(<JobListContent />);
-    expect(screen.getByText("Couldn't load jobs: some string")).toBeTruthy();
+    expect(screen.getByText("Couldn’t load jobs.")).toBeTruthy();
+    expect(screen.getByText("some string")).toBeTruthy();
   });
 
   it("retries a failed load", () => {
@@ -119,15 +132,16 @@ describe("JobListContent — load states", () => {
   it("shows a loading indicator before the error/empty checks when loading", () => {
     H.context.isLoading = true;
     render(<JobListContent />);
-    expect(screen.getByText("Loading jobs...")).toBeTruthy();
+    expect(screen.getByText("Loading jobs…")).toBeTruthy();
   });
 
   it("prioritizes the error state over the loading state", () => {
     H.context.isLoading = true;
     H.context.error = new Error("network down");
     render(<JobListContent />);
-    expect(screen.getByText("Couldn't load jobs: network down")).toBeTruthy();
-    expect(screen.queryByText("Loading jobs...")).toBeNull();
+    expect(screen.getByText("Couldn’t load jobs.")).toBeTruthy();
+    expect(screen.getByText("network down")).toBeTruthy();
+    expect(screen.queryByText("Loading jobs…")).toBeNull();
   });
 
   it("shows the empty state when there are no jobs", () => {

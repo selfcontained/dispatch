@@ -7,7 +7,6 @@ import {
   RunHistoryGrid,
 } from "@/components/app/jobs-charts";
 import { statusDotTone, statusTextColor } from "@/components/app/jobs-helpers";
-import { ActivityBars } from "@/components/ui/activity-bars";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { RowButton } from "@/components/ui/row-button";
 import { StatusDot } from "@/components/ui/status-dot";
@@ -23,6 +22,8 @@ import {
 } from "@/lib/format";
 import { statusLabel } from "@/lib/status-label";
 import { cn } from "@/lib/utils";
+import { EmptyState } from "@/components/ui/empty-state";
+import { LoadingSkeleton, Skeleton } from "@/components/ui/skeleton";
 
 export function JobsOverview({
   jobs,
@@ -83,15 +84,12 @@ export function JobsOverview({
 
   if (!hasAnyData) {
     return (
-      <div className="flex h-full items-center justify-center p-8 text-center text-muted-foreground">
-        <div>
-          <AlarmClock className="mx-auto mb-3 h-8 w-8" />
-          <div className="font-medium text-foreground">No jobs yet</div>
-          <div className="mt-1 max-w-sm text-body-md">
-            Use jobs for recurring maintenance, scheduled checks, and repeatable
-            agent workflows — on a schedule or on demand.
-          </div>
-        </div>
+      <div className="flex h-full flex-col">
+        <EmptyState
+          icon={AlarmClock}
+          title="No jobs yet"
+          description="Use jobs for recurring maintenance, scheduled checks, and repeatable agent workflows — on a schedule or on demand."
+        />
       </div>
     );
   }
@@ -101,9 +99,14 @@ export function JobsOverview({
       <div className="mx-auto max-w-5xl space-y-6 px-3 pt-4 pb-12 sm:px-4 sm:pt-6 sm:pb-20 md:px-8">
         {/* Loading */}
         {statsLoading && !metrics && (
-          <div className="flex items-center justify-center py-12">
-            <ActivityBars size={20} />
-          </div>
+          <LoadingSkeleton label="Loading run history…" className="space-y-6">
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 sm:gap-3">
+              {Array.from({ length: 4 }, (_, card) => (
+                <Skeleton key={card} className="h-20" />
+              ))}
+            </div>
+            <Skeleton className="h-[180px] sm:h-[220px]" />
+          </LoadingSkeleton>
         )}
 
         {/* Stats + Chart row */}
@@ -235,15 +238,15 @@ export function JobsOverview({
 
         {/* Empty metrics state — jobs exist but no runs yet */}
         {metrics && metrics.totalRuns === 0 && (
-          <div className="flex flex-col items-center justify-center py-12 text-center text-muted-foreground">
-            <AlarmClock className="mb-3 h-8 w-8" />
-            <div className="font-medium text-foreground">Select a job</div>
-            <div className="mt-1 max-w-sm text-body-md">
-              {upcomingJobs.length > 0
+          <EmptyState
+            icon={AlarmClock}
+            title="Select a job"
+            description={
+              upcomingJobs.length > 0
                 ? "Your scheduled jobs are set up. Run history and metrics will appear here after the first run."
-                : "Run a job to start tracking activity and metrics here."}
-            </div>
-          </div>
+                : "Run a job to start tracking activity and metrics here."
+            }
+          />
         )}
       </div>
     </ScrollArea>

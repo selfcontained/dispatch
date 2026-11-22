@@ -1,12 +1,13 @@
 import { type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Button } from "@/components/ui/button";
 import {
   SegmentedControl,
   SegmentedControlItem,
 } from "@/components/ui/segmented-control";
 import { api } from "@/lib/api";
 import { agentDiffQueryKey } from "@/hooks/use-agent-diff";
+import { LoadError } from "@/components/ui/async-boundary";
+import { LoadingSkeleton } from "@/components/ui/skeleton";
 
 /** Preview the current working tree only; the existing diff stays the default. */
 export function ChangesSvgPreview({
@@ -54,20 +55,20 @@ export function ChangesSvgPreview({
       {view === "diff" ? (
         children
       ) : preview.isPending ? (
-        <p className="p-6 text-body-md text-muted-foreground">
-          Loading preview…
-        </p>
+        <LoadingSkeleton
+          label="Loading preview…"
+          className="w-auto p-6"
+          rows={1}
+          rowClassName="h-32"
+        />
       ) : preview.isError ? (
-        <div role="alert" className="p-6 text-body-md">
-          {preview.error.message}
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => void preview.refetch()}
-          >
-            Retry
-          </Button>
-        </div>
+        <LoadError
+          thing="the preview"
+          error={preview.error}
+          retrying={preview.isFetching}
+          onRetry={() => void preview.refetch()}
+          className="m-3"
+        />
       ) : preview.data?.kind === "svg" && preview.data.src ? (
         <div className="grid place-items-center overflow-auto p-6">
           <img

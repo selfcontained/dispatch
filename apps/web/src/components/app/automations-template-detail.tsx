@@ -1,8 +1,7 @@
 import { useProjects } from "@/hooks/use-projects";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { Copy, Play, Trash2 } from "lucide-react";
-import { toast } from "sonner";
+import { Copy, FormInput, Play, Trash2 } from "lucide-react";
 
 import { TemplateConfigFields } from "@/components/app/automations-form-fields";
 import { DuplicateTemplateDialog } from "@/components/app/duplicate-template-dialog";
@@ -16,15 +15,12 @@ import { useCwdHistory } from "@/components/app/create-agent-dialog-utils";
 import { useAgentModelCatalog } from "@/hooks/use-agent-model-catalog";
 import type { AgentType } from "@/lib/agent-types";
 import { shortPath } from "@/lib/format";
-import { ActivityBars } from "@/components/ui/activity-bars";
+import { Alert } from "@/components/ui/alert";
+import { AsyncBoundary } from "@/components/ui/async-boundary";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { EmptyState } from "@/components/ui/empty-state";
+import { toast } from "@/components/ui/toast";
 import {
   useTemplates,
   useTemplateActions,
@@ -38,22 +34,38 @@ export function TemplateDetailPane({
   enabledAgentTypes: AgentType[];
 }): JSX.Element {
   const { templateId } = useParams<{ templateId?: string }>();
-  const { data: templates = [] } = useTemplates();
+  const query = useTemplates();
   const template = useMemo(
-    () => templates.find((t) => t.id === templateId) ?? null,
-    [templates, templateId]
+    () => query.data?.find((t) => t.id === templateId) ?? null,
+    [query.data, templateId]
   );
 
-  if (!templateId || !template) {
-    return (
-      <div className="flex h-full items-center justify-center text-body-md text-muted-foreground">
-        Select a template to view details
-      </div>
-    );
-  }
-
   return (
-    <TemplateDetail template={template} enabledAgentTypes={enabledAgentTypes} />
+    <div className="flex h-full min-h-0 flex-col">
+      <AsyncBoundary query={query} thing="templates" className="m-4">
+        {() =>
+          template ? (
+            <div className="min-h-0 flex-1">
+              <TemplateDetail
+                template={template}
+                enabledAgentTypes={enabledAgentTypes}
+              />
+            </div>
+          ) : templateId ? (
+            <EmptyState
+              title="Template not found"
+              description="It may have been deleted, or the link may be wrong."
+            />
+          ) : (
+            <EmptyState
+              icon={FormInput}
+              title="Select a template"
+              description="Its settings and launch arguments show here."
+            />
+          )
+        }
+      </AsyncBoundary>
+    </div>
   );
 }
 
@@ -94,14 +106,16 @@ function TemplateDetail({
     [hasLocationEdit, locationEdit, template.projectId, template.directory]
   );
   const { normalizeModel } = useAgentModelCatalog(draft.agentType);
-  const [saveError, setSaveError] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<unknown>();
+  const [saved, setSaved] = useState(false);
   const [duplicateDialogOpen, setDuplicateDialogOpen] = useState(false);
   const [removeDialogOpen, setRemoveDialogOpen] = useState(false);
   const [launchDialogOpen, setLaunchDialogOpen] = useState(false);
 
   useEffect(() => {
     setDraft(templateDraftFrom(template));
-    setSaveError(null);
+    setSaveError(undefined);
+    setSaved(false);
     setDuplicateDialogOpen(false);
     setRemoveDialogOpen(false);
     setLaunchDialogOpen(false);
@@ -120,7 +134,8 @@ function TemplateDetail({
   const canSave = !!draft.name.trim() && !!location.directory.trim();
 
   const handleSave = useCallback(() => {
-    setSaveError(null);
+    setSaveError(undefined);
+    setSaved(false);
     updateTemplate
       .mutateAsync({
         id: template.id,
@@ -133,9 +148,9 @@ function TemplateDetail({
       .then(() => {
         addCwdHistory(location.directory);
         setLocationEdit(null);
-        toast.success("Settings saved.");
+        setSaved(true);
       })
-      .catch((err: Error) => setSaveError(err.message));
+      .catch(setSaveError);
   }, [
     updateTemplate,
     template.id,
@@ -146,17 +161,11 @@ function TemplateDetail({
     location,
   ]);
 
-  const handleDelete = useCallback(() => {
-    removeTemplate
-      .mutateAsync(template.id)
-      .then(() => {
-        setRemoveDialogOpen(false);
-        navigate("/automations");
-        toast.success(`Template "${template.name}" deleted.`);
-      })
-      .catch(() => {
-        // The mutation keeps the error, which the open dialog shows.
-      });
+  const handleDelete = useCallback(async () => {
+    await removeTemplate.mutateAsync(template.id);
+    setRemoveDialogOpen(false);
+    navigate("/automations");
+    toast.success(`Template “${template.name}” deleted.`);
   }, [removeTemplate, template, navigate]);
 
   return (
@@ -191,12 +200,8 @@ function TemplateDetail({
           </div>
         ) : null}
         <div className="mt-4 flex flex-wrap gap-2">
-          <Button disabled={launchTemplate.isPending} onClick={handleLaunch}>
-            {launchTemplate.isPending ? (
-              <ActivityBars size={16} />
-            ) : (
-              <Play className="fill-current" />
-            )}
+          <Button pending={launchTemplate.isPending} onClick={handleLaunch}>
+            <Play className="fill-current" />
             Launch
           </Button>
           <Button onClick={() => setDuplicateDialogOpen(true)}>
@@ -236,17 +241,27 @@ function TemplateDetail({
             </div>
 
             {saveError ? (
-              <div className="mt-4 rounded-md border border-danger/line bg-danger/tint p-3 text-body-md text-danger">
-                {saveError}
-              </div>
+              <Alert
+                title="Couldn’t save the template."
+                error={saveError}
+                className="mt-4"
+              />
             ) : null}
-            <div className="mt-4 flex justify-end">
+            <div className="mt-4 flex items-center justify-end gap-3">
+              {saved ? (
+                <span
+                  role="status"
+                  className="text-body-sm text-muted-foreground"
+                >
+                  Saved.
+                </span>
+              ) : null}
               <Button
                 variant="primary"
-                disabled={!canSave || updateTemplate.isPending}
+                pending={updateTemplate.isPending}
+                disabled={!canSave}
                 onClick={handleSave}
               >
-                {updateTemplate.isPending ? <ActivityBars size={16} /> : null}
                 Save
               </Button>
             </div>
@@ -265,10 +280,7 @@ function TemplateDetail({
                 variant="danger"
                 size="sm"
                 disabled={removeTemplate.isPending}
-                onClick={() => {
-                  removeTemplate.reset();
-                  setRemoveDialogOpen(true);
-                }}
+                onClick={() => setRemoveDialogOpen(true)}
               >
                 <Trash2 />
                 Delete
@@ -278,43 +290,15 @@ function TemplateDetail({
         </div>
       </div>
 
-      <Dialog
+      <ConfirmDialog
         open={removeDialogOpen}
-        onOpenChange={(next) => {
-          if (!removeTemplate.isPending) setRemoveDialogOpen(next);
-        }}
-      >
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle>Delete template</DialogTitle>
-            <DialogDescription>
-              Are you sure you want to delete &ldquo;{template.name}&rdquo;?
-              This cannot be undone.
-            </DialogDescription>
-          </DialogHeader>
-          {removeTemplate.error ? (
-            <p role="alert" className="break-words text-body-md text-danger">
-              Couldn't delete the template: {removeTemplate.error.message}
-            </p>
-          ) : null}
-          <div className="flex justify-end gap-2">
-            <Button
-              variant="ghost"
-              onClick={() => setRemoveDialogOpen(false)}
-              disabled={removeTemplate.isPending}
-            >
-              Cancel
-            </Button>
-            <Button
-              variant="danger"
-              onClick={handleDelete}
-              disabled={removeTemplate.isPending}
-            >
-              {removeTemplate.isPending ? "Deleting…" : "Delete"}
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
+        onOpenChange={setRemoveDialogOpen}
+        title={`Delete “${template.name}”?`}
+        description="This cannot be undone."
+        confirmLabel="Delete template"
+        errorTitle="Couldn’t delete the template."
+        onConfirm={handleDelete}
+      />
       <DuplicateTemplateDialog
         key={template.id}
         template={template}

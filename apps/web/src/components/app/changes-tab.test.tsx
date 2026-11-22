@@ -385,7 +385,9 @@ describe("ChangesTab", () => {
     buffers.set("draft:draft-1:editing", true);
     buffers.set("draft:draft-1:text", "another stale edit");
     fireEvent.click(screen.getByRole("button", { name: "Cancel review" }));
-    fireEvent.click(await screen.findByRole("button", { name: "Discard" }));
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Discard review" })
+    );
     expect([...buffers.keys()]).toEqual(["new:2:3"]);
     callDiffViewProp("src/app.ts", "onStartReview");
     callDiffViewProp(
@@ -499,9 +501,8 @@ describe("ChangesTab", () => {
     renderTab({ files: [], diffFailures: 1 });
 
     const alert = await screen.findByRole("alert");
-    expect(alert.textContent).toContain(
-      "Couldn't load changes: Failed to compute diff."
-    );
+    expect(alert.textContent).toContain("Couldn’t load changes.");
+    expect(alert.textContent).toContain("Failed to compute diff.");
     expect(screen.queryByText("No changes yet")).toBeNull();
 
     fireEvent.click(within(alert).getByRole("button", { name: "Retry" }));
@@ -762,7 +763,9 @@ describe("ChangesTab", () => {
     expect(screen.getByText("1 comment")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Cancel review" }));
-    fireEvent.click(await screen.findByRole("button", { name: "Discard" }));
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Discard review" })
+    );
 
     expect(screen.queryByText("Review Mode")).toBeNull();
     expect(store.get(reviewDraftAtomFamily(AGENT_ID))).toEqual({
@@ -887,7 +890,7 @@ describe("ChangesTab file diff content", () => {
     ).toBe(false);
 
     fireEvent.click(screen.getByRole("button", { name: "Load diff" }));
-    expect(await screen.findByText("Loading…")).toBeTruthy();
+    expect(await screen.findByText("Loading the diff…")).toBeTruthy();
 
     const fileRequest = apiMock.mock.calls
       .map(([path]) => String(path))

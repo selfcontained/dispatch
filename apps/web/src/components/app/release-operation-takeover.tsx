@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from "react";
-import { CheckCircle2, ExternalLink, XCircle } from "lucide-react";
+import { CheckCircle2, ExternalLink } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { OperationLog, PhaseProgress } from "@/components/app/release-shared";
 import type { ReleaseJob } from "@/hooks/use-release-stream";
 import { cleanError, formatProgressLabel } from "./release-utils";
+import { Alert } from "@/components/ui/alert";
 
 type OperationTakeoverProps = {
   job: ReleaseJob;
@@ -196,12 +197,9 @@ export function OperationTakeover({
 
           {isFailed && (
             <div className="flex flex-col gap-3">
-              <div className="flex items-start gap-2 rounded-sm border border-danger/line bg-danger/tint px-3 py-3 text-body-md text-danger">
-                <XCircle className="mt-0.5 h-4 w-4 shrink-0" />
-                <span>
-                  {job.error ? cleanError(job.error) : "Operation failed"}
-                </span>
-              </div>
+              <Alert
+                title={job.error ? cleanError(job.error) : "Operation failed."}
+              />
               <Button
                 onClick={onDismiss}
                 className="self-start text-muted-foreground hover:text-foreground"

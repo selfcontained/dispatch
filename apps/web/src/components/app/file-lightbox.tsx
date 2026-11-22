@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, type ComponentProps } from "react";
 import { useInRouterContext, useNavigate } from "react-router-dom";
 import { agentTurnLocation } from "@/lib/agent-routes";
 import { useQuery } from "@tanstack/react-query";
-import { ChevronLeft, ChevronRight, Loader2, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, X } from "lucide-react";
 
 import { FileActions } from "@/components/app/file-lightbox-actions";
 import { ImageComments } from "@/components/app/image-comments";
@@ -18,6 +18,7 @@ import { type FileItem } from "@/components/app/types";
 import { fileItemQueryKey } from "@/hooks/use-files";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { Spinner } from "@/components/ui/spinner";
 
 type FileLightboxProps = {
   fileId: number | null;
@@ -311,7 +312,7 @@ export function FileLightbox({
                   role="alert"
                   className="text-body-md text-media-foreground/soft"
                 >
-                  Unable to load this file item.
+                  Couldn’t load this file.
                 </p>
                 <Button
                   variant="ghost"
@@ -327,7 +328,7 @@ export function FileLightbox({
                 aria-live="polite"
                 className="flex items-center gap-2 text-body-md text-media-foreground/soft"
               >
-                <Loader2 className="h-4 w-4 animate-spin" />
+                <Spinner className="size-icon-lg" />
                 Loading file…
               </div>
             )}

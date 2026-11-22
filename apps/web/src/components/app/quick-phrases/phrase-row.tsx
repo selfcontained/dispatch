@@ -57,14 +57,7 @@ export function PhraseRow({
         <IconButton size="icon-sm" label="Edit phrase" onClick={onEdit}>
           <Pencil />
         </IconButton>
-        <IconButton
-          size="icon-sm"
-          label="Delete phrase"
-          onClick={() => {
-            const name = phrase.label || phrase.text.slice(0, 40);
-            if (window.confirm(`Delete "${name}"?`)) onDelete();
-          }}
-        >
+        <IconButton size="icon-sm" label="Delete phrase" onClick={onDelete}>
           <Trash2 />
         </IconButton>
       </div>

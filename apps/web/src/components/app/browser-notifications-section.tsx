@@ -4,13 +4,15 @@ import {
   EVENT_OPTIONS,
   type NotifyEventType,
 } from "@/components/app/notification-settings-constants";
+import { Alert } from "@/components/ui/alert";
+import { OptionCard, SettingRow } from "@/components/ui/setting-row";
 
 type BrowserNotificationsSectionProps = {
   webNotifyEnabled: boolean;
   webNotifyEvents: NotifyEventType[];
   browserPermission: NotificationPermission;
   saving: boolean;
-  webError: string;
+  webError: unknown;
   webMessage: string;
   onRequestPermission: () => void;
   onToggleWebNotifyEnabled: (checked: boolean) => void;
@@ -85,7 +87,15 @@ export function BrowserNotificationsSection({
           ) : null}
 
           {/* Enable toggle */}
-          <label className="flex cursor-pointer items-center gap-3 rounded-sm border border-border px-3 py-3 transition-colors hover:bg-surface-hover">
+          <SettingRow
+            label="Enable browser notifications"
+            description={
+              browserPermission === "granted"
+                ? "Show notifications when agents change status"
+                : "Grant permission above to enable"
+            }
+            disabled={browserPermission !== "granted"}
+          >
             <Checkbox
               checked={webNotifyEnabled}
               disabled={browserPermission !== "granted" || saving}
@@ -94,17 +104,7 @@ export function BrowserNotificationsSection({
               }
               data-testid="web-notify-enabled"
             />
-            <div className="min-w-0">
-              <div className="text-body-md font-medium text-foreground">
-                Enable browser notifications
-              </div>
-              <div className="text-body-sm text-muted-foreground">
-                {browserPermission === "granted"
-                  ? "Show notifications when agents change status"
-                  : "Grant permission above to enable"}
-              </div>
-            </div>
-          </label>
+          </SettingRow>
 
           {/* Web event toggles */}
           {webNotifyEnabled && browserPermission === "granted" && (
@@ -113,25 +113,14 @@ export function BrowserNotificationsSection({
                 Notify on:
               </div>
               {EVENT_OPTIONS.map(({ id, label, description }) => (
-                <label
-                  key={id}
-                  className="flex cursor-pointer items-center gap-3 rounded-sm border border-border px-3 py-3 transition-colors hover:bg-surface-hover"
-                >
+                <OptionCard key={id} label={label} description={description}>
                   <Checkbox
                     checked={webNotifyEvents.includes(id)}
                     disabled={saving}
                     onCheckedChange={() => void onToggleWebEvent(id)}
                     data-testid={`web-notify-event-${id}`}
                   />
-                  <div className="min-w-0">
-                    <div className="text-body-md font-medium text-foreground">
-                      {label}
-                    </div>
-                    <div className="text-body-sm text-muted-foreground">
-                      {description}
-                    </div>
-                  </div>
-                </label>
+                </OptionCard>
               ))}
               <div className="pt-1">
                 <Button
@@ -145,10 +134,12 @@ export function BrowserNotificationsSection({
             </div>
           )}
           {webError ? (
-            <p className="text-body-md text-danger">{webError}</p>
+            <Alert title="Couldn’t save changes." error={webError} />
           ) : null}
           {webMessage ? (
-            <p className="text-body-md text-success">{webMessage}</p>
+            <p role="status" className="text-body-md text-success-ink">
+              {webMessage}
+            </p>
           ) : null}
         </div>
       )}

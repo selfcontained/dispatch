@@ -12,7 +12,7 @@ import type { PluginStatus } from "@/hooks/use-plugin-status";
 import { PluginUpdateSettings } from "./plugin-update-settings";
 
 vi.mock("@/lib/api", () => ({ api: vi.fn() }));
-vi.mock("sonner", () => ({
+vi.mock("@/components/ui/toast", () => ({
   toast: { success: vi.fn(), warning: vi.fn(), error: vi.fn() },
 }));
 const { api } = await import("@/lib/api");

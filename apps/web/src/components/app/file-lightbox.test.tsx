@@ -268,7 +268,7 @@ describe("FileLightbox", () => {
     );
 
     expect((await screen.findByRole("alert")).textContent).toContain(
-      "Unable to load this file item."
+      "Couldn’t load this file."
     );
     fireEvent.click(screen.getByRole("button", { name: "Try again" }));
 

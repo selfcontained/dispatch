@@ -1,19 +1,30 @@
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
+import { LoadError } from "@/components/ui/async-boundary";
 
 export function CertificateTrustSettings(): JSX.Element | null {
-  const { data } = useQuery({
+  const { data, error, isFetching, refetch } = useQuery({
     queryKey: ["certificate-trust"],
     queryFn: async (): Promise<{ available: boolean }> => {
       const response = await fetch("/api/v1/system/certificate-trust", {
         credentials: "include",
       });
-      if (!response.ok) throw new Error("Could not check certificate setup.");
+      if (!response.ok) throw new Error("The certificate setup check failed.");
       return response.json();
     },
     staleTime: 60_000,
   });
 
+  if (error && !data)
+    return (
+      <LoadError
+        thing="certificate setup"
+        error={error}
+        retrying={isFetching}
+        onRetry={() => void refetch()}
+        className="max-w-lg"
+      />
+    );
   if (!data?.available) return null;
 
   return (

@@ -61,7 +61,7 @@ describe("MarkdownViewer", () => {
     // The old heading must still be on screen immediately after the src
     // change (no unmount to the loading placeholder) ...
     expect(screen.getByText("v1")).toBeTruthy();
-    expect(screen.queryByText("Loading...")).toBeNull();
+    expect(screen.queryByText("Loading the file…")).toBeNull();
 
     // ... and once the new fetch resolves, it swaps in place on the same
     // node — that's the actual property scrollTop preservation depends on.
@@ -89,7 +89,9 @@ describe("MarkdownViewer", () => {
     // Different fileName — a real navigation via the prev/next arrows.
     rerender(<MarkdownViewer src="/files/other.md?t=1" fileName="other.md" />);
 
-    await waitFor(() => expect(screen.getByText("Loading...")).toBeTruthy());
+    await waitFor(() =>
+      expect(screen.getByText("Loading the file…")).toBeTruthy()
+    );
     expect(screen.queryByText("v1")).toBeNull();
 
     resolveFetch(new Response("# other", { status: 200 }));
@@ -115,7 +117,7 @@ describe("MarkdownViewer", () => {
     );
 
     await waitFor(() =>
-      expect(screen.getByText(/Failed to load/)).toBeTruthy()
+      expect(screen.getByText(/Request failed/)).toBeTruthy()
     );
   }, 10_000);
 });

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import type { GitHubRelease } from "@/components/app/release-utils";
 import { cleanError } from "@/components/app/release-utils";
 import type { ReleaseInfo } from "@/hooks/use-release-stream";
+import { ApiError } from "@/lib/api";
 
 export type UseReleaseAdminDataResult = {
   info: ReleaseInfo | null;
@@ -11,6 +12,7 @@ export type UseReleaseAdminDataResult = {
   now: number;
   releases: GitHubRelease[];
   releasesLoading: boolean;
+  releasesError: unknown;
   promotingTag: string | null;
   promotionUrl: string | null;
   confirmPromoteTag: string | null;
@@ -42,6 +44,7 @@ export function useReleaseAdminData(
   const [now, setNow] = useState(() => Date.now());
   const [releases, setReleases] = useState<GitHubRelease[]>([]);
   const [releasesLoading, setReleasesLoading] = useState(false);
+  const [releasesError, setReleasesError] = useState<unknown>();
   const [promotingTag, setPromotingTag] = useState<string | null>(null);
   const [confirmPromoteTag, setConfirmPromoteTag] = useState<string | null>(
     null
@@ -66,7 +69,7 @@ export function useReleaseAdminData(
       });
       if (!res.ok) {
         const err = (await res.json()) as { error?: string };
-        setInfoError(cleanError(err.error ?? "Failed to load release info"));
+        setInfoError(cleanError(err.error ?? "Couldn’t load release info."));
         return;
       }
       setInfo((await res.json()) as ReleaseInfo);
@@ -76,31 +79,38 @@ export function useReleaseAdminData(
       setInfoError(
         err instanceof Error
           ? cleanError(err.message)
-          : "Failed to load release info"
+          : "Couldn’t load release info."
       );
     } finally {
       setInfoLoading(false);
     }
   }, [streamClientId]);
 
-  const fetchReleases = useCallback(async (): Promise<
-    GitHubRelease[] | null
-  > => {
-    setReleasesLoading(true);
-    try {
-      const res = await fetch("/api/v1/releases");
-      if (res.ok) {
-        const data = (await res.json()) as { releases: GitHubRelease[] };
-        setReleases(data.releases);
-        return data.releases;
+  // `quiet` is the promotion poll's: it runs over a list that already loaded.
+  const fetchReleases = useCallback(
+    async (quiet = false): Promise<GitHubRelease[] | null> => {
+      setReleasesLoading(true);
+      try {
+        const res = await fetch("/api/v1/releases");
+        if (res.ok) {
+          const data = (await res.json()) as { releases: GitHubRelease[] };
+          setReleases(data.releases);
+          setReleasesError(undefined);
+          return data.releases;
+        }
+        if (!quiet)
+          setReleasesError(
+            new ApiError(res.status, `${res.status} ${res.statusText}`.trim())
+          );
+      } catch (err) {
+        if (!quiet) setReleasesError(err);
+      } finally {
+        setReleasesLoading(false);
       }
-    } catch {
-      /* ignore */
-    } finally {
-      setReleasesLoading(false);
-    }
-    return null;
-  }, []);
+      return null;
+    },
+    []
+  );
 
   const refresh = useCallback(() => {
     void fetchInfo();
@@ -118,9 +128,9 @@ export function useReleaseAdminData(
     return () => clearInterval(timer);
   }, []);
 
+  // Rejects when it didn't start, so the confirmation can show why.
   const promote = useCallback(async (tag: string) => {
     setPromotingTag(tag);
-    setConfirmPromoteTag(null);
     setPromoteError(null);
     try {
       const res = await fetch("/api/v1/release/promote", {
@@ -128,32 +138,31 @@ export function useReleaseAdminData(
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ tag }),
       });
-      if (res.ok) {
-        const body = (await res.json()) as { workflowUrl?: string };
-        setPromotion({
-          tag,
-          url: body.workflowUrl ?? null,
-          startedAt: Date.now(),
-        });
-        return;
+      if (!res.ok) {
+        const err = (await res.json()) as { error?: string };
+        throw new ApiError(
+          res.status,
+          cleanError(err.error ?? `${tag} wasn’t promoted.`)
+        );
       }
-      const err = (await res.json()) as { error?: string };
-      setPromoteError(cleanError(err.error ?? `Failed to promote ${tag}`));
+      const body = (await res.json()) as { workflowUrl?: string };
+      setPromotion({
+        tag,
+        url: body.workflowUrl ?? null,
+        startedAt: Date.now(),
+      });
+      setConfirmPromoteTag(null);
     } catch (err) {
-      setPromoteError(
-        err instanceof Error
-          ? cleanError(err.message)
-          : `Failed to promote ${tag}`
-      );
+      setPromotingTag(null);
+      throw err;
     }
-    setPromotingTag(null);
   }, []);
 
   useEffect(() => {
     if (!promotion) return;
     let cancelled = false;
     const check = async () => {
-      const latest = await fetchReleases();
+      const latest = await fetchReleases(true);
       if (cancelled) return;
       const release = latest?.find((r) => r.tag === promotion.tag);
       if (release && !release.isPrerelease) {
@@ -185,6 +194,7 @@ export function useReleaseAdminData(
     now,
     releases,
     releasesLoading,
+    releasesError,
     promotingTag,
     promotionUrl: promotion?.url ?? null,
     confirmPromoteTag,

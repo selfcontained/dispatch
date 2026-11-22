@@ -95,6 +95,7 @@ function stubHook(overrides: Partial<ReleaseUpdates> = {}): void {
       infoLoading: false,
       infoError: null,
       updateError: null,
+      preferencesError: undefined,
       lastCheckMessage: null,
       displayInfo: null,
       updateJob: null,

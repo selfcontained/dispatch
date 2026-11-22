@@ -20,7 +20,7 @@ const { navigate, api, error } = vi.hoisted(() => ({
 }));
 vi.mock("@/hooks/use-projects", () => ({ useProjectNavigate: () => navigate }));
 vi.mock("@/lib/api", () => ({ api }));
-vi.mock("sonner", () => ({ toast: { error } }));
+vi.mock("@/components/ui/toast", () => ({ toast: { error } }));
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
@@ -157,7 +157,10 @@ describe("View file", () => {
     fireEvent.click(screen.getByRole("button"));
     await waitFor(() =>
       expect(error).toHaveBeenCalledWith(
-        expect.stringContaining("Full file unavailable")
+        expect.stringContaining("Couldn’t open"),
+        expect.objectContaining({
+          description: "It’s unavailable in the working tree.",
+        })
       )
     );
     expect(navigate).not.toHaveBeenCalled();

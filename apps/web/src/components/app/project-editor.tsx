@@ -18,12 +18,20 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   Dialog,
+  DialogBody,
+  DialogCancel,
   DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogForm,
   DialogHeader,
   DialogTitle,
-  DialogDescription,
 } from "@/components/ui/dialog";
 import { IconButton } from "@/components/ui/icon-button";
+import { Alert } from "@/components/ui/alert";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { Field } from "@/components/ui/field";
+import { toast } from "@/components/ui/toast";
 
 export function ProjectEditor({
   project,
@@ -47,7 +55,7 @@ export function ProjectEditor({
   );
   const [photo, setPhoto] = useState<HTMLCanvasElement | null>(null);
   const [preparing, setPreparing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<unknown>();
   const [confirmDelete, setConfirmDelete] = useState(false);
   const uploadInput = useRef<HTMLInputElement>(null);
   const uploadButton = useRef<HTMLButtonElement>(null);
@@ -86,10 +94,10 @@ export function ProjectEditor({
           if (!open && !photo) onClose();
         }}
       >
-        <DialogContent>
+        <DialogContent busy={action.isPending && !confirmDelete}>
           <DialogHeader>
             <DialogTitle>
-              {project ? "Edit project" : "Create project"}
+              {project ? "Edit project" : "New project"}
             </DialogTitle>
             <DialogDescription className="sr-only">
               {project
@@ -97,8 +105,7 @@ export function ProjectEditor({
                 : "Organize sessions and templates around a folder."}
             </DialogDescription>
           </DialogHeader>
-          <form
-            className="flex min-h-0 flex-1 flex-col"
+          <DialogForm
             onSubmit={(e) => {
               e.preventDefault();
               if (!validColor) return;
@@ -108,12 +115,8 @@ export function ProjectEditor({
               );
             }}
           >
-            <div
-              className="-m-1 min-h-0 flex-1 space-y-4 overflow-y-auto p-1"
-              data-testid="project-editor-body"
-            >
-              <label className="block space-y-1 text-body-md">
-                <span>Name</span>
+            <DialogBody className="space-y-4" data-testid="project-editor-body">
+              <Field label="Name">
                 <Input
                   value={name}
                   onChange={(e) => setName(e.target.value)}
@@ -121,10 +124,10 @@ export function ProjectEditor({
                   required
                   autoComplete="off"
                 />
-              </label>
+              </Field>
               {project ? (
-                <div className="space-y-1 text-body-md">
-                  <span>Folder</span>
+                <div className="space-y-1.5">
+                  <p className="text-body-sm font-medium">Folder</p>
                   <p
                     title={repoRoot}
                     className="truncate text-body-sm text-muted-foreground"
@@ -142,7 +145,7 @@ export function ProjectEditor({
                 />
               )}
               <fieldset className="space-y-2">
-                <legend className="text-body-md">Icon</legend>
+                <legend className="text-body-sm font-medium">Icon</legend>
                 <div className="flex items-center gap-3">
                   <div
                     className="flex h-16 w-16 shrink-0 items-center justify-center rounded-lg border border-border bg-surface-subtle"
@@ -181,9 +184,11 @@ export function ProjectEditor({
                           ? "Custom upload"
                           : preview.isFetching && !preview.data
                             ? "Loading icon…"
-                            : preview.data?.dataUrl
-                              ? "From folder"
-                              : "No folder icon"}
+                            : preview.isError
+                              ? "Couldn’t load the icon"
+                              : preview.data?.dataUrl
+                                ? "From folder"
+                                : "No folder icon"}
                       </p>
                       <Popover>
                         <PopoverTrigger asChild>
@@ -240,22 +245,16 @@ export function ProjectEditor({
                     e.target.value = "";
                     if (!file) return;
                     setPreparing(true);
-                    setError(null);
+                    setError(undefined);
                     void prepareAvatarPhoto(file)
                       .then(setPhoto)
-                      .catch((err) =>
-                        setError(
-                          err instanceof Error
-                            ? err.message
-                            : "Could not open image."
-                        )
-                      )
+                      .catch(setError)
                       .finally(() => setPreparing(false));
                   }}
                 />
               </fieldset>
               <fieldset className="space-y-2">
-                <legend className="text-body-md">Color</legend>
+                <legend className="text-body-sm font-medium">Color</legend>
                 <ColorPicker
                   value={color}
                   onChange={setManualColor}
@@ -263,54 +262,40 @@ export function ProjectEditor({
                   label="Project color"
                 />
               </fieldset>
-              {(error || action.error) && (
-                <p role="alert" className="text-body-md text-danger">
-                  {error ?? action.error?.message}
-                </p>
-              )}
-              {project && (
-                <div className="flex flex-wrap items-center gap-3 rounded-lg bg-surface-subtle p-3">
+            </DialogBody>
+            {error ? (
+              <Alert title="Couldn’t open the image." error={error} />
+            ) : action.error && !action.variables?.remove ? (
+              <Alert
+                title={
+                  project
+                    ? "Couldn’t save the project."
+                    : "Couldn’t create the project."
+                }
+                error={action.error}
+              />
+            ) : null}
+            <DialogFooter
+              data-testid="project-editor-footer"
+              start={
+                project ? (
                   <Button
                     type="button"
-                    size="sm"
-                    variant="danger"
+                    variant="ghost"
+                    tone="danger"
                     disabled={action.isPending}
-                    onClick={() =>
-                      confirmDelete
-                        ? action.mutate(
-                            { id: project.id, remove: true },
-                            { onSuccess: onSaved }
-                          )
-                        : setConfirmDelete(true)
-                    }
+                    onClick={() => setConfirmDelete(true)}
                   >
-                    {confirmDelete ? "Confirm delete" : "Delete project"}
+                    Delete project
                   </Button>
-                  <p className="min-w-32 flex-1 text-body-sm text-muted-foreground">
-                    Ungroups sessions and templates. Files are kept.
-                  </p>
-                  {confirmDelete && (
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => setConfirmDelete(false)}
-                    >
-                      Keep project
-                    </Button>
-                  )}
-                </div>
-              )}
-            </div>
-            <div
-              className="mt-4 flex shrink-0 justify-end gap-2 border-t border-border pt-3"
-              data-testid="project-editor-footer"
+                ) : null
+              }
             >
-              <Button type="button" variant="ghost" onClick={onClose}>
-                Cancel
-              </Button>
+              <DialogCancel />
               <Button
+                type="submit"
                 variant="primary"
+                pending={action.isPending && !confirmDelete}
                 disabled={
                   action.isPending ||
                   preparing ||
@@ -319,10 +304,25 @@ export function ProjectEditor({
                   !repoRoot.trim()
                 }
               >
-                {project ? "Save" : "Create project"}
+                {project ? "Save changes" : "Create project"}
               </Button>
-            </div>
-          </form>
+            </DialogFooter>
+          </DialogForm>
+          {project && (
+            <ConfirmDialog
+              open={confirmDelete}
+              onOpenChange={setConfirmDelete}
+              title={`Delete “${project.name}”?`}
+              description="Ungroups sessions and templates. Files are kept."
+              confirmLabel="Delete project"
+              errorTitle="Couldn’t delete the project."
+              onConfirm={async () => {
+                await action.mutateAsync({ id: project.id, remove: true });
+                toast.success(`Project “${project.name}” deleted.`);
+                onSaved();
+              }}
+            />
+          )}
         </DialogContent>
       </Dialog>
       {photo && (

@@ -1,15 +1,10 @@
 import { useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { AsyncBoundary, quietPoll } from "@/components/ui/async-boundary";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { SettingRow } from "@/components/ui/setting-row";
+import { LoadingSkeleton, Skeleton } from "@/components/ui/skeleton";
 import {
   Select,
   SelectContent,
@@ -31,7 +26,8 @@ export function ServiceResourcesSettings(): JSX.Element {
   const [pendingCollectionEnabled, setPendingCollectionEnabled] = useState<
     boolean | null
   >(null);
-  const { data, error, refetch, dataUpdatedAt } = useServiceResources(window);
+  const query = useServiceResources(window);
+  const { data, dataUpdatedAt } = query;
   const collectionMutation = useSetServiceResourcesCollection();
   const collectionEnabled = data?.collectionEnabled ?? false;
   const stale =
@@ -41,21 +37,7 @@ export function ServiceResourcesSettings(): JSX.Element {
   const confirmationOpen = pendingCollectionEnabled !== null;
   const confirmingEnable = pendingCollectionEnabled === true;
 
-  const closeConfirmation = () => {
-    collectionMutation.reset();
-    setPendingCollectionEnabled(null);
-  };
-  const requestCollectionChange = (enabled: boolean) => {
-    collectionMutation.reset();
-    setPendingCollectionEnabled(enabled);
-  };
-  const confirmCollectionChange = () => {
-    if (pendingCollectionEnabled === null) return;
-
-    collectionMutation.mutate(pendingCollectionEnabled, {
-      onSuccess: closeConfirmation,
-    });
-  };
+  const closeConfirmation = () => setPendingCollectionEnabled(null);
 
   return (
     <div
@@ -116,101 +98,69 @@ export function ServiceResourcesSettings(): JSX.Element {
         </div>
       </header>
 
-      <div className="flex items-center justify-between gap-4 rounded-md border border-border-subtle bg-surface-subtle px-4 py-3">
-        <label
-          htmlFor="resource-collection-toggle"
-          className="min-w-0 cursor-pointer"
-        >
-          <span className="block text-body-md font-medium text-foreground">
-            Collect resource metrics
-          </span>
-          <span className="mt-0.5 block text-body-sm leading-relaxed text-muted-foreground">
-            Sample service health and resource usage every 5 seconds and retain
-            up to one hour of history in memory.
-          </span>
-        </label>
+      <SettingRow
+        label="Collect resource metrics"
+        description="Sample service health and resource usage every 5 seconds and retain up to one hour of history in memory."
+      >
         <Switch
           id="resource-collection-toggle"
           checked={collectionEnabled}
-          onCheckedChange={requestCollectionChange}
+          onCheckedChange={setPendingCollectionEnabled}
           disabled={!data || collectionMutation.isPending}
           aria-label="Collect resource metrics"
           data-testid="resource-collection-toggle"
         />
-      </div>
+      </SettingRow>
 
-      {!data && !error && (
-        <div className="flex min-h-72 items-center justify-center text-body-md text-muted-foreground">
-          Loading service resources…
-        </div>
-      )}
-      {!data && error && (
-        <Card className="border-danger/line">
-          <CardContent className="p-6 text-body-md">
-            <div className="font-medium text-danger">
-              Resources are unavailable
-            </div>
-            <p className="mt-1 text-muted-foreground">{error.message}</p>
-            <Button className="mt-4" size="sm" onClick={() => void refetch()}>
-              Try again
-            </Button>
-          </CardContent>
-        </Card>
-      )}
-      {data && collectionEnabled && <ServiceResourcesDashboard data={data} />}
+      <AsyncBoundary
+        query={quietPoll(query)}
+        thing="service resources"
+        loading={
+          <LoadingSkeleton
+            label="Loading service resources…"
+            className="grid gap-3 space-y-0 sm:grid-cols-3"
+          >
+            {Array.from({ length: 3 }, (_, card) => (
+              <Skeleton key={card} className="h-32" />
+            ))}
+          </LoadingSkeleton>
+        }
+      >
+        {(data) =>
+          collectionEnabled ? <ServiceResourcesDashboard data={data} /> : null
+        }
+      </AsyncBoundary>
 
-      <Dialog
+      <ConfirmDialog
         open={confirmationOpen}
         onOpenChange={(open) => {
-          if (!open && !collectionMutation.isPending) closeConfirmation();
+          if (!open) closeConfirmation();
         }}
-      >
-        <DialogContent data-testid="resource-collection-confirmation">
-          <DialogHeader>
-            <DialogTitle>
-              {confirmingEnable
-                ? "Start collecting resource metrics?"
-                : "Stop collecting resource metrics?"}
-            </DialogTitle>
-            <DialogDescription>
-              {confirmingEnable
-                ? "Dispatch will sample service health and resource usage every 5 seconds and retain up to one hour of history in memory."
-                : "Resource history currently held in memory will be cleared, and no new service metrics will be collected until you turn this back on."}
-            </DialogDescription>
-          </DialogHeader>
-          {collectionMutation.error && (
-            <p
-              role="alert"
-              className="text-body-md text-danger"
-              data-testid="resource-collection-error"
-            >
-              {collectionMutation.error.message}
-            </p>
-          )}
-          <div className="flex justify-end gap-2">
-            <Button
-              variant="ghost"
-              onClick={closeConfirmation}
-              disabled={collectionMutation.isPending}
-              data-testid="resource-collection-cancel"
-            >
-              Cancel
-            </Button>
-            <Button
-              variant={confirmingEnable ? "primary" : "danger"}
-              onClick={confirmCollectionChange}
-              disabled={collectionMutation.isPending}
-              data-testid="resource-collection-confirm"
-            >
-              {collectionMutation.isPending
-                ? "Saving…"
-                : confirmingEnable
-                  ? "Start collecting"
-                  : "Stop collecting"}
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
+        data-testid="resource-collection-confirmation"
+        tone={confirmingEnable ? "primary" : "danger"}
+        title={
+          confirmingEnable
+            ? "Start collecting resource metrics?"
+            : "Stop collecting resource metrics?"
+        }
+        description={
+          confirmingEnable
+            ? "Dispatch will sample service health and resource usage every 5 seconds and retain up to one hour of history in memory."
+            : "Resource history currently held in memory will be cleared, and no new service metrics will be collected until you turn this back on."
+        }
+        confirmLabel={confirmingEnable ? "Start collecting" : "Stop collecting"}
+        errorTitle={
+          confirmingEnable
+            ? "Couldn’t start collecting."
+            : "Couldn’t stop collecting."
+        }
+        confirmTestId="resource-collection-confirm"
+        cancelTestId="resource-collection-cancel"
+        onConfirm={async () => {
+          if (pendingCollectionEnabled !== null)
+            await collectionMutation.mutateAsync(pendingCollectionEnabled);
+        }}
+      />
     </div>
   );
 }

@@ -24,6 +24,9 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { Alert } from "@/components/ui/alert";
+import { LoadError } from "@/components/ui/async-boundary";
+import { failureHint } from "@/lib/errors";
 
 type EngineUpdates = { engines: EngineStatus[]; canManage?: boolean };
 function InstallationDetails({
@@ -233,11 +236,11 @@ function EngineRow({
             </p>
           )}
           {showRequestError && (
-            <p role="alert" className="text-body-md text-danger">
+            <Alert title="Couldn’t start the update." error={update.error}>
               {update.error instanceof ApiError
-                ? update.error.message
+                ? failureHint(update.error)
                 : "The update request could not be confirmed. The server may still be updating. Recheck status before retrying."}
-            </p>
+            </Alert>
           )}
           {(showRequestError ||
             (operation && operation.status !== "succeeded")) && (
@@ -318,12 +321,12 @@ export function EngineUpdatesCard(): JSX.Element {
           </div>
         )}
         {query.isError && (
-          <div role="alert">
-            <p>Unable to check engines: {query.error.message}</p>
-            <Button size="sm" onClick={() => void query.refetch()}>
-              Retry
-            </Button>
-          </div>
+          <LoadError
+            thing="engines"
+            error={query.error}
+            retrying={query.isFetching}
+            onRetry={() => void query.refetch()}
+          />
         )}
         {query.data?.engines.map((engine) => (
           <EngineRow

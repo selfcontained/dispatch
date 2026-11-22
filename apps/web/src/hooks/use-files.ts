@@ -48,11 +48,17 @@ function combineSubAgentFiles(
   results: Array<{
     data?: FileItem[];
     status: "pending" | "error" | "success";
+    refetch?: () => unknown;
   }>
-): Array<{ files: FileItem[]; status: "pending" | "error" | "success" }> {
+): Array<{
+  files: FileItem[];
+  status: "pending" | "error" | "success";
+  retry?: () => void;
+}> {
   return results.map((result) => ({
     files: result.data ?? EMPTY_FILES,
     status: result.status,
+    retry: result.refetch as (() => void) | undefined,
   }));
 }
 
@@ -94,9 +100,12 @@ export function useFiles(
   const previousFileKeysRef = useRef<Set<string>>(new Set());
   const clearFileAnimTimerRef = useRef<number | null>(null);
 
-  const { data: ownFiles = EMPTY_FILES, refetch: refetchFiles } = useQuery<
-    FileItem[]
-  >({
+  const {
+    data: ownFiles = EMPTY_FILES,
+    refetch: refetchFiles,
+    error: filesError,
+    isLoading: filesLoading,
+  } = useQuery<FileItem[]>({
     queryKey: ["files", selectedAgentId],
     queryFn: () => fetchFiles(selectedAgentId as string),
     enabled: !!selectedAgentId,
@@ -105,6 +114,16 @@ export function useFiles(
     refetchOnWindowFocus: true,
     refetchOnReconnect: true,
   });
+
+  /** The selected agent's own list: failed or loading is not "no files". */
+  const filesState = useMemo(
+    () => ({
+      error: filesError,
+      loading: filesLoading,
+      retry: () => void refetchFiles(),
+    }),
+    [filesError, filesLoading, refetchFiles]
+  );
 
   const subAgentQueries = useQueries({
     queries: subAgents.map((agent) => ({
@@ -137,6 +156,7 @@ export function useFiles(
           ownerAgentId: agent.id,
         })),
         status: subAgentQueries[index]?.status ?? "pending",
+        retry: subAgentQueries[index]?.retry,
       })),
     [subAgents, subAgentQueries]
   );
@@ -440,6 +460,7 @@ export function useFiles(
       setLightboxFileId,
       openLightbox,
       drawerViewportRef: drawerViewportRef as RefObject<HTMLDivElement>,
+      filesState,
       refreshFiles,
     }),
     [
@@ -455,6 +476,7 @@ export function useFiles(
       lightboxSelection,
       setLightboxFileId,
       openLightbox,
+      filesState,
       refreshFiles,
     ]
   );

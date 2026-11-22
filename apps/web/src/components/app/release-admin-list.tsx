@@ -1,19 +1,26 @@
 import { CheckCircle2, ExternalLink } from "lucide-react";
 import type { GitHubRelease } from "@/components/app/release-utils";
-import { ActivityBars } from "@/components/ui/activity-bars";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { formatShortDateTime } from "@/lib/format";
+import { Alert } from "@/components/ui/alert";
+import { LoadError } from "@/components/ui/async-boundary";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { LoadingSkeleton } from "@/components/ui/skeleton";
+import { Spinner } from "@/components/ui/spinner";
 
 type RecentReleasesProps = {
   releases: GitHubRelease[];
   releasesLoading: boolean;
+  releasesError: unknown;
+  onRetry: () => void;
   promoteError: string | null;
   promotingTag: string | null;
   promotionUrl: string | null;
   confirmPromoteTag: string | null;
   onConfirmPromoteTagChange: (tag: string | null) => void;
-  onPromote: (tag: string) => void;
+  /** Rejects when the promotion didn't start. */
+  onPromote: (tag: string) => Promise<void>;
 };
 
 /**
@@ -23,6 +30,8 @@ type RecentReleasesProps = {
 export function RecentReleases({
   releases,
   releasesLoading,
+  releasesError,
+  onRetry,
   promoteError,
   promotingTag,
   promotionUrl,
@@ -35,17 +44,24 @@ export function RecentReleases({
       <div className="mb-3 section-label">Recent releases</div>
 
       {promoteError && (
-        <div className="mb-3 rounded-lg border border-danger/line bg-danger/tint px-3 py-2 text-body-md text-danger">
-          {promoteError}
-        </div>
+        <Alert
+          title="Couldn’t confirm the promotion."
+          error={promoteError}
+          className="mb-3"
+        />
       )}
 
-      {releasesLoading && releases.length === 0 && (
-        <div className="flex items-center gap-2 text-body-sm text-muted-foreground">
-          <ActivityBars size={14} />
-          Loading...
-        </div>
-      )}
+      {releasesError ? (
+        <LoadError
+          thing="releases"
+          error={releasesError}
+          retrying={releasesLoading}
+          onRetry={onRetry}
+          className="mb-3"
+        />
+      ) : releasesLoading && releases.length === 0 ? (
+        <LoadingSkeleton label="Loading releases…" rowClassName="h-12" />
+      ) : null}
 
       {releases.length > 0 && (
         <div className="flex flex-col gap-1">
@@ -66,7 +82,7 @@ export function RecentReleases({
               <div className="ml-auto flex max-w-full flex-wrap items-center justify-end gap-2">
                 {r.isPrerelease && promotingTag === r.tag && (
                   <span className="flex items-center gap-1.5 text-body-sm text-muted-foreground">
-                    <ActivityBars size={12} />
+                    <Spinner />
                     Promoting…
                     {promotionUrl && (
                       <a
@@ -80,40 +96,16 @@ export function RecentReleases({
                     )}
                   </span>
                 )}
-                {r.isPrerelease &&
-                  promotingTag !== r.tag &&
-                  confirmPromoteTag !== r.tag && (
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      tone="success"
-                      onClick={() => onConfirmPromoteTagChange(r.tag)}
-                      disabled={promotingTag !== null}
-                    >
-                      Promote
-                    </Button>
-                  )}
-                {r.isPrerelease && confirmPromoteTag === r.tag && (
-                  <>
-                    <span className="text-body-sm text-muted-foreground">
-                      Mark stable + latest?
-                    </span>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      tone="success"
-                      onClick={() => onPromote(r.tag)}
-                    >
-                      Confirm
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => onConfirmPromoteTagChange(null)}
-                    >
-                      Cancel
-                    </Button>
-                  </>
+                {r.isPrerelease && promotingTag !== r.tag && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    tone="success"
+                    onClick={() => onConfirmPromoteTagChange(r.tag)}
+                    disabled={promotingTag !== null}
+                  >
+                    Promote
+                  </Button>
                 )}
                 {!r.isPrerelease && (
                   <CheckCircle2 className="h-3.5 w-3.5 text-success/veil" />
@@ -132,11 +124,24 @@ export function RecentReleases({
         </div>
       )}
 
-      {!releasesLoading && releases.length === 0 && (
-        <div className="text-body-md text-muted-foreground">
-          No releases found
-        </div>
+      {!releasesLoading && !releasesError && releases.length === 0 && (
+        <p className="text-body-sm text-muted-foreground">No releases found.</p>
       )}
+
+      <ConfirmDialog
+        open={confirmPromoteTag !== null}
+        onOpenChange={(open) => {
+          if (!open) onConfirmPromoteTagChange(null);
+        }}
+        tone="primary"
+        title={`Promote ${confirmPromoteTag ?? "release"}?`}
+        description="It’s marked stable and becomes the latest release for everyone on the stable channel."
+        confirmLabel="Promote release"
+        errorTitle="Couldn’t promote the release."
+        onConfirm={async () => {
+          if (confirmPromoteTag) await onPromote(confirmPromoteTag);
+        }}
+      />
     </div>
   );
 }

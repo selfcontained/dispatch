@@ -92,6 +92,7 @@ export type SubAgentFiles = {
   files: FileItem[];
   /** The child's files query state, so an unresolved fetch is not shown as "nothing shared". */
   status: "pending" | "error" | "success";
+  retry?: () => void;
 };
 
 export type ConnState = "connected" | "reconnecting" | "disconnected";

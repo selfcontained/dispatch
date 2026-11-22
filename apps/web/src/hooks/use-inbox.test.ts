@@ -447,6 +447,60 @@ describe("useInbox", () => {
   });
 });
 
+describe("useInbox load failures", () => {
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+  });
+  const page = {
+    entries: [],
+    hasMore: false,
+    nextCursor: null,
+    unreadCount: 0,
+  };
+  const mount = (queryClient: QueryClient) =>
+    renderHook(() => useInbox(ROOT), {
+      wrapper: ({ children }: { children: ReactNode }) =>
+        createElement(QueryClientProvider, { client: queryClient }, children),
+    });
+  const client = () =>
+    new QueryClient({ defaultOptions: { queries: { retry: false } } });
+
+  it("keeps a failed poll quiet once there is content", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("offline")));
+    const queryClient = client();
+    const cached = { pageParams: [null], pages: [page] };
+    queryClient.setQueryData(["inbox-reviews", ROOT], cached);
+    queryClient.setQueryData(["stream", ROOT], cached);
+    const { result } = mount(queryClient);
+    await vi.waitFor(() => {
+      for (const key of ["inbox-reviews", "stream"])
+        expect(queryClient.getQueryState([key, ROOT])?.error).toBeTruthy();
+    });
+    await act(() => new Promise((resolve) => setTimeout(resolve, 10)));
+    expect(result.current.reviewsError).toBeNull();
+    expect(result.current.error).toBeNull();
+  });
+
+  it("retries a failed first page of reviews", async () => {
+    let up = false;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        if (!up) throw new Error("offline");
+        return new Response(JSON.stringify(page), {
+          headers: { "content-type": "application/json" },
+        });
+      })
+    );
+    const { result } = mount(client());
+    await vi.waitFor(() => expect(result.current.reviewsError).toBeTruthy());
+    up = true;
+    act(() => result.current.retryReviews?.());
+    await vi.waitFor(() => expect(result.current.reviewsError).toBeNull());
+  });
+});
+
 describe("checklist progress derivation", () => {
   const checklist = (id: string, by = ROOT, extra: Partial<Block> = {}) =>
     block({

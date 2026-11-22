@@ -53,17 +53,14 @@ export function ExposureBanner() {
             Set password
           </Button>
         </DialogTrigger>
-        <DialogContent>
+        <DialogContent size="sm">
           <DialogHeader>
             <DialogTitle>Set a Dispatch password</DialogTitle>
             <DialogDescription>
               Require a password to control Dispatch from your network.
             </DialogDescription>
           </DialogHeader>
-          <SetPasswordForm onSuccess={() => setOpen(false)} />
-          <Button variant="ghost" onClick={() => setOpen(false)}>
-            Cancel
-          </Button>
+          <SetPasswordForm inDialog onSuccess={() => setOpen(false)} />
         </DialogContent>
       </Dialog>
     </div>

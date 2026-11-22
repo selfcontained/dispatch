@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { Navigate, useNavigate, useParams } from "react-router-dom";
 import { Brain, Search, Trash2 } from "lucide-react";
-import { toast } from "sonner";
 
 import { useBrainCollections, useBrainActions } from "@/hooks/use-brain";
 import { BrainCollectionView } from "@/components/app/brains-collection-view";
@@ -16,13 +15,10 @@ import {
 } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { EmptyState } from "@/components/ui/empty-state";
+import { LoadError } from "@/components/ui/async-boundary";
+import { toast } from "@/components/ui/toast";
 import { ChipButton } from "@/components/ui/chip";
 import { CountBubble } from "@/components/ui/count-bubble";
 
@@ -60,15 +56,12 @@ export function BrainsDetailPane(): JSX.Element {
 
 function BrainsOverview(): JSX.Element {
   return (
-    <div className="flex h-full items-center justify-center p-8 text-center text-muted-foreground">
-      <div>
-        <Brain className="mx-auto mb-3 h-8 w-8" />
-        <div className="font-medium text-foreground">Brain Explorer</div>
-        <div className="mt-1 max-w-sm text-body-md">
-          Select a project to inspect its shared brain memory — objects, lists,
-          and events organized by collection.
-        </div>
-      </div>
+    <div className="flex h-full flex-col">
+      <EmptyState
+        icon={Brain}
+        title="Brain Explorer"
+        description="Select a project to inspect its shared brain memory — objects, lists, and events organized by collection."
+      />
     </div>
   );
 }
@@ -83,23 +76,20 @@ function BrainProjectDetail({
   selectedCollection: string | null;
 }): JSX.Element {
   const navigate = useNavigate();
+  const collectionsQuery = useBrainCollections(repoRoot);
   const { data: collections = [], isLoading: collectionsLoading } =
-    useBrainCollections(repoRoot);
+    collectionsQuery;
   const [search, setSearch] = useState("");
   const [projectDeleteOpen, setProjectDeleteOpen] = useState(false);
   const { deleteProject } = useBrainActions();
 
   const confirmProjectDelete = async () => {
-    try {
-      const result = await deleteProject.mutateAsync({ repoRoot });
-      toast.success(
-        `Deleted ${result.objects + result.lists + result.events} entries from this project.`
-      );
-      setProjectDeleteOpen(false);
-      navigate("/automations/brains", { replace: true });
-    } catch {
-      toast.error("Could not delete project brain data.");
-    }
+    const result = await deleteProject.mutateAsync({ repoRoot });
+    toast.success(
+      `Deleted ${result.objects + result.lists + result.events} entries from this project.`
+    );
+    setProjectDeleteOpen(false);
+    navigate("/automations/brains", { replace: true });
   };
 
   return (
@@ -196,13 +186,22 @@ function BrainProjectDetail({
             <Input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Filter..."
+              placeholder="Filter…"
               className="h-8 w-32 pl-8 text-body-sm md:w-40"
             />
           </div>
         </div>
       </div>
 
+      {collectionsQuery.error ? (
+        <LoadError
+          thing="collections"
+          error={collectionsQuery.error}
+          retrying={collectionsQuery.isFetching}
+          onRetry={() => void collectionsQuery.refetch()}
+          className="m-3 mb-0"
+        />
+      ) : null}
       <BrainCollectionView
         repoRoot={repoRoot}
         collection={selectedCollection}
@@ -211,35 +210,15 @@ function BrainProjectDetail({
           navigate(`/automations/brains/${encodedRepoRoot}`, { replace: true })
         }
       />
-      <Dialog open={projectDeleteOpen} onOpenChange={setProjectDeleteOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Clear this project?</DialogTitle>
-            <DialogDescription>
-              This permanently deletes every object, list, and event in all
-              collections for this project.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="flex justify-end gap-2">
-            <Button
-              type="button"
-              variant="ghost"
-              onClick={() => setProjectDeleteOpen(false)}
-              disabled={deleteProject.isPending}
-            >
-              Cancel
-            </Button>
-            <Button
-              type="button"
-              variant="danger"
-              onClick={() => void confirmProjectDelete()}
-              disabled={deleteProject.isPending}
-            >
-              {deleteProject.isPending ? "Deleting..." : "Delete permanently"}
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
+      <ConfirmDialog
+        open={projectDeleteOpen}
+        onOpenChange={setProjectDeleteOpen}
+        title={`Clear “${repoBasename(repoRoot)}”?`}
+        description="This permanently deletes every object, list, and event in all collections for this project."
+        confirmLabel="Clear project"
+        errorTitle="Couldn’t clear the project."
+        onConfirm={confirmProjectDelete}
+      />
     </div>
   );
 }

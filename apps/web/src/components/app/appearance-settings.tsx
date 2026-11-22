@@ -5,7 +5,7 @@ import { DEFAULT_THEME_ID, type ThemeId, THEMES } from "@/hooks/use-theme";
 import { cn } from "@/lib/utils";
 import { RowButton } from "@/components/ui/row-button";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { Alert } from "@/components/ui/alert";
 
 export function AppearanceSettings({
   theme,
@@ -145,12 +145,12 @@ export function AppearanceSettings({
           ))}
         </div>
         {iconColorError ? (
-          <p className="mt-2 text-body-sm text-danger">
-            {iconColorError}{" "}
-            <Button variant="link" size="inline" onClick={clearIconColorError}>
-              Dismiss
-            </Button>
-          </p>
+          <Alert
+            title="Couldn’t save changes."
+            error={iconColorError}
+            onDismiss={clearIconColorError}
+            className="mt-2"
+          />
         ) : (
           <p className="mt-2 text-body-sm text-faint">
             Changing the icon color will reload the page. PWA users may need to

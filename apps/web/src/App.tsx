@@ -30,7 +30,6 @@ import { TipsVersionInit } from "@/components/tips/tips-version-init";
 import { ReleaseAvailableToast } from "@/components/app/release-available-toast";
 import { UpdateAvailableToast } from "@/components/app/update-available-toast";
 import { ExposureBanner } from "@/components/app/exposure-banner";
-import { Toaster } from "sonner";
 
 type RouteHandle = {
   navSection?: NavSection;
@@ -206,16 +205,6 @@ export function DashboardLayout(): JSX.Element {
       <AttentionToasts isMobile={isMobile} />
       <ReleaseAvailableToast />
       <UpdateAvailableToast />
-      {/* Color tokens, close button, and action button styling live in
-          `index.css` under `[data-sonner-toaster]` — `richColors` is what
-          tells sonner to apply the type-specific (--success-*, --error-*,
-          etc) tokens we set there. */}
-      <Toaster
-        position="bottom-right"
-        closeButton
-        richColors
-        toastOptions={{ duration: 3000 }}
-      />
     </TipQueueProvider>
   );
 }

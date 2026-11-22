@@ -35,6 +35,9 @@ import type {
   Inbox,
 } from "@/hooks/use-inbox";
 import { formatRelativeTime } from "@/lib/format";
+import { LoadError } from "@/components/ui/async-boundary";
+import { EmptyState } from "@/components/ui/empty-state";
+import { LoadingSkeleton } from "@/components/ui/skeleton";
 
 export type InboxPanelProps = {
   inbox: Inbox;
@@ -388,22 +391,26 @@ export function InboxPanel({
       data-testid="inbox"
       data-open-inputs={inputs.length}
     >
-      {inbox.isLoading && empty ? (
-        <div className="px-3 py-6 text-center text-body-sm text-muted-foreground">
-          Loading the stream…
-        </div>
-      ) : empty ? (
-        <div
-          className="flex flex-col items-center gap-2 px-6 py-10 text-center text-body-sm text-muted-foreground"
+      {inbox.error ? (
+        <LoadError
+          thing="the Inbox"
+          error={inbox.error}
+          className="m-3"
+          onRetry={() => inbox.retry?.()}
+        />
+      ) : inbox.isLoading && empty ? (
+        <LoadingSkeleton
+          label="Loading the stream…"
+          className="w-auto p-3"
+          rowClassName="h-16"
+        />
+      ) : empty && !inbox.reviewsError ? (
+        <EmptyState
           data-testid="inbox-empty"
-        >
-          <InboxIcon className="h-6 w-6 opacity-60" aria-hidden="true" />
-          <div className="text-foreground/soft">Nothing waiting on you.</div>
-          <div>
-            Questions and forms {agentName ?? "the agent"} asks show up here
-            until you answer them, along with its checklists and links.
-          </div>
-        </div>
+          icon={InboxIcon}
+          title="Nothing waiting on you."
+          description={`Questions and forms ${agentName ?? "the agent"} asks show up here until you answer them, along with its checklists and links.`}
+        />
       ) : null}
       {inputs.length > 0 && rootId ? (
         <div data-testid="inbox-inputs">
@@ -463,17 +470,22 @@ export function InboxPanel({
           ))}
         </div>
       ) : null}
-      {inbox.hasOlderReviews || inbox.reviewsError ? (
+      {inbox.reviewsError ? (
+        <LoadError
+          thing="reviews"
+          error={inbox.reviewsError}
+          className="mx-3 my-2"
+          retrying={inbox.retryingReviews}
+          onRetry={() => inbox.retryReviews?.()}
+        />
+      ) : inbox.hasOlderReviews ? (
         <div className="px-3 py-2">
-          {inbox.reviewsError ? <p role="alert">{inbox.reviewsError}</p> : null}
           <Button
             size="sm"
-            disabled={inbox.loadingOlderReviews}
+            pending={inbox.loadingOlderReviews}
             onClick={inbox.loadOlderReviews}
           >
-            {inbox.loadingOlderReviews
-              ? "Loading reviews…"
-              : "Load older reviews"}
+            Load older reviews
           </Button>
         </div>
       ) : null}

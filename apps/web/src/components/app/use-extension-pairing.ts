@@ -161,7 +161,7 @@ export function useExtensionPairing(
       : await connectionsQuery.refetch();
     if (!baselineResult.data) {
       setError(
-        "Could not load existing browser connections. Check your connection and try again."
+        "Couldn’t load existing browser connections. Check your connection and try again."
       );
       setApprovalState("error");
       return;
@@ -182,7 +182,7 @@ export function useExtensionPairing(
       );
 
       if (!response.ok) {
-        let message = "Could not approve this browser extension connection.";
+        let message = "Couldn’t approve this browser extension connection.";
         try {
           const body = (await response.json()) as { error?: string };
           message = body.error ?? message;
@@ -197,7 +197,7 @@ export function useExtensionPairing(
       setApprovalState("waiting");
     } catch {
       setError(
-        "Unable to reach the server. Check your connection and try again."
+        "Couldn’t reach the server. Check your connection and try again."
       );
       setApprovalState("error");
     }

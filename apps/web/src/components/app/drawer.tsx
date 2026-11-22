@@ -19,7 +19,7 @@ import { ChevronRight, Pin, PinOff, X } from "lucide-react";
 import { type FileItem, type SubAgentFiles } from "@/components/app/types";
 import { type DrawerTab, drawerWidthAtom } from "@/lib/store";
 import { TerminalLazyBoundary } from "@/components/terminal/terminal-lazy-boundary";
-import { FilesContent } from "@/components/app/files-content";
+import { FilesContent, type FilesState } from "@/components/app/files-content";
 import { InboxPanel } from "@/components/app/inbox";
 import { type Inbox } from "@/hooks/use-inbox";
 import { glassPanel } from "@/lib/glass";
@@ -49,6 +49,7 @@ type DrawerSharedProps = {
   /** The selected agent's own files when `files` is showing a sub agent's. */
   ownFiles?: FileItem[];
   filesOwnerId?: string | null;
+  filesState?: FilesState;
   onFilesOwnerChange?: (ownerId: string | null) => void;
   animatingFileKeys: Set<string>;
   drawerViewportRef: RefObject<HTMLDivElement>;
@@ -95,6 +96,7 @@ export function DrawerContent({
   subAgentFiles,
   ownFiles,
   filesOwnerId,
+  filesState,
   onFilesOwnerChange,
   animatingFileKeys,
   drawerViewportRef,
@@ -232,6 +234,7 @@ export function DrawerContent({
               files={files}
               ownFiles={ownFiles}
               subAgentFiles={subAgentFiles}
+              filesState={filesState}
               filesOwnerId={filesOwnerId}
               onFilesOwnerChange={onFilesOwnerChange}
               selectedAgentId={selectedAgentId}

@@ -6,6 +6,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import {
   MemoryRouter,
@@ -33,7 +34,7 @@ import { BrainsDetailPane } from "./brains-detail-pane";
 vi.mock("@/lib/api", () => ({ api: vi.fn() }));
 // Toaster is stubbed alongside toast so that a component pulled into the tree
 // later fails on its own terms rather than as "Element type is invalid".
-vi.mock("sonner", () => ({
+vi.mock("@/components/ui/toast", () => ({
   toast: { success: vi.fn(), error: vi.fn() },
   Toaster: () => null,
 }));
@@ -65,7 +66,7 @@ vi.mock("@/components/app/brains-collection-view", () => ({
 }));
 
 const { api } = await import("@/lib/api");
-const { toast } = await import("sonner");
+const { toast } = await import("@/components/ui/toast");
 const apiMock = vi.mocked(api);
 const toastSuccess = vi.mocked(toast.success);
 const toastError = vi.mocked(toast.error);
@@ -184,7 +185,9 @@ function openProjectDelete() {
 }
 
 function confirmButton(): HTMLElement {
-  return screen.getByRole("button", { name: /Delete permanently|Deleting/ });
+  return within(screen.getByRole("alertdialog")).getByRole("button", {
+    name: "Clear project",
+  });
 }
 
 beforeEach(() => {
@@ -344,7 +347,7 @@ describe("search filter", () => {
   it("passes the typed filter down to the collection view", () => {
     mountPane();
 
-    fireEvent.change(screen.getByPlaceholderText("Filter..."), {
+    fireEvent.change(screen.getByPlaceholderText("Filter…"), {
       target: { value: "queue" },
     });
 
@@ -356,11 +359,11 @@ describe("clear project", () => {
   it("keeps the confirmation closed until the action is pressed", () => {
     mountPane();
 
-    expect(screen.queryByText("Clear this project?")).toBeNull();
+    expect(screen.queryByText("Clear “dispatch”?")).toBeNull();
 
     openProjectDelete();
 
-    expect(screen.getByText("Clear this project?")).toBeTruthy();
+    expect(screen.getByText("Clear “dispatch”?")).toBeTruthy();
   });
 
   it("deletes nothing when the confirmation is cancelled", async () => {
@@ -370,7 +373,7 @@ describe("clear project", () => {
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
 
     await waitFor(() =>
-      expect(screen.queryByText("Clear this project?")).toBeNull()
+      expect(screen.queryByText("Clear “dispatch”?")).toBeNull()
     );
     expect(deleteCalls()).toHaveLength(0);
   });
@@ -424,15 +427,14 @@ describe("clear project", () => {
     openProjectDelete();
     fireEvent.click(confirmButton());
 
-    await waitFor(() =>
-      expect(toastError).toHaveBeenCalledWith(
-        "Could not delete project brain data."
-      )
-    );
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("Couldn’t clear the project.");
+    expect(alert.textContent).toContain("boom");
+    expect(toastError).not.toHaveBeenCalled();
     // Navigating away on a failed delete would hide a project that still has
     // all of its data.
     expect(locationPath()).toBe(`/automations/brains/${ENCODED}`);
-    expect(screen.getByText("Clear this project?")).toBeTruthy();
+    expect(screen.getByText("Clear “dispatch”?")).toBeTruthy();
     expect(toastSuccess).not.toHaveBeenCalled();
   });
 
@@ -450,12 +452,9 @@ describe("clear project", () => {
 
     // A second confirm click during the request would fire a second DELETE.
     await waitFor(() =>
-      expect(screen.getByRole("button", { name: "Deleting..." })).toBeTruthy()
+      expect(confirmButton().getAttribute("aria-busy")).toBe("true")
     );
-    expect(
-      (screen.getByRole("button", { name: "Deleting..." }) as HTMLButtonElement)
-        .disabled
-    ).toBe(true);
+    expect((confirmButton() as HTMLButtonElement).disabled).toBe(true);
     expect(
       (screen.getByRole("button", { name: "Cancel" }) as HTMLButtonElement)
         .disabled

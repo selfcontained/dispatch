@@ -69,13 +69,17 @@ it("shows a failed delete in the dialog and can retry it", async () => {
   );
 
   fireEvent.click(await screen.findByRole("button", { name: "Delete" }));
-  const dialog = screen.getByRole("dialog");
-  fireEvent.click(within(dialog).getByRole("button", { name: "Delete" }));
+  const dialog = screen.getByRole("alertdialog");
+  fireEvent.click(
+    within(dialog).getByRole("button", { name: "Delete template" })
+  );
   expect((await within(dialog).findByRole("alert")).textContent).toContain(
     "Delete broke"
   );
 
-  fireEvent.click(within(dialog).getByRole("button", { name: "Delete" }));
+  fireEvent.click(
+    within(dialog).getByRole("button", { name: "Delete template" })
+  );
   await waitFor(() => expect(screen.getByText("Templates home")).toBeTruthy());
   expect(attempts).toBe(2);
 });

@@ -29,6 +29,10 @@ import {
   toggleSidebarPin,
 } from "@/lib/agent-sidebar-pins";
 import { cn } from "@/lib/utils";
+import { useQuery } from "@tanstack/react-query";
+import { agentListQuery } from "@/hooks/use-agents";
+import { AsyncBoundary } from "@/components/ui/async-boundary";
+import { EmptyState } from "@/components/ui/empty-state";
 
 function dropPositionForEvent(event: DragEvent): "before" | "after" {
   const target = event.currentTarget as HTMLElement;
@@ -424,12 +428,7 @@ export function AgentListContent({
       >
         <TooltipProvider delayDuration={120}>
           {agents.length === 0 ? (
-            <div
-              data-testid="no-agents-message"
-              className="p-4 text-body-md text-muted-foreground"
-            >
-              No agents yet.
-            </div>
+            <AgentListEmpty />
           ) : (
             <React.Fragment>
               <p id="agent-sidebar-reorder-instructions" className="sr-only">
@@ -486,5 +485,30 @@ export function AgentListContent({
         </TooltipProvider>
       </div>
     </div>
+  );
+}
+
+/** Why the list has no agents: loading, failed, or really none. */
+function AgentListEmpty(): JSX.Element {
+  // Observes what the dashboard fetched; it never starts a fetch of its own.
+  const query = useQuery({ ...agentListQuery, enabled: false });
+  // Only a request in flight or failed is not an answer.
+  const answered = !query.error && !query.isFetching;
+  return (
+    <AsyncBoundary
+      query={{ ...query, data: query.data ?? (answered ? [] : undefined) }}
+      thing="agents"
+      className="m-3"
+      isEmpty={() => true}
+      empty={
+        <EmptyState
+          data-testid="no-agents-message"
+          title="No agents yet."
+          description="Create one to start a session."
+        />
+      }
+    >
+      {() => null}
+    </AsyncBoundary>
   );
 }

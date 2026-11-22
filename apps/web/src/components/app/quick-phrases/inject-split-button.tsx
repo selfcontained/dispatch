@@ -16,12 +16,13 @@ export function InjectSplitButton({
   insidePopover?: boolean;
 }) {
   const isSm = size === "sm";
-  const label = isSm ? "Send" : "Send & Submit";
+  const label = isSm ? "Send" : "Send & submit";
 
   return (
     <SplitButton
       type={isSm ? "button" : "submit"}
       size={isSm ? "xs" : "md"}
+      variant={isSm ? "secondary" : "primary"}
       disabled={disabled}
       menuLabel="More ways to send"
       menuProps={{

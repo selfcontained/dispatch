@@ -20,7 +20,8 @@ import {
   type CliAgentType,
   isCliAgentType,
 } from "@/lib/agent-types";
-import { cn } from "@/lib/utils";
+import { Field } from "@/components/ui/field";
+import { OptionCard, SettingRow } from "@/components/ui/setting-row";
 
 export function SwitchToggle({
   checked,
@@ -65,44 +66,35 @@ export function JobScheduleField({
   onEnabledChange: (enabled: boolean) => void;
 }) {
   return (
-    <div className="min-w-0 space-y-1">
-      <label className="text-body-md text-muted-foreground" htmlFor={id}>
-        Cron schedule <span className="text-faint">(optional)</span>
-      </label>
-      <Input
+    <div className="min-w-0 space-y-2">
+      <Field
         id={id}
-        value={schedule}
-        onChange={(event) => onScheduleChange(event.target.value)}
-        placeholder="*/30 * * * *"
-        className="font-mono text-body-sm"
-      />
-      {scheduleError ? (
-        <div className="text-body-sm text-danger">{scheduleError}</div>
-      ) : null}
-      {!scheduleError && schedule.trim() ? (
-        <div className="text-body-sm text-muted-foreground">
-          {humanSchedule(schedule)}
-        </div>
-      ) : null}
-      {!schedule.trim() ? (
-        <div className="text-body-sm text-muted-foreground">
-          Leave blank for an on-demand job.
-        </div>
-      ) : null}
+        label="Cron schedule"
+        optional
+        error={scheduleError}
+        hint={
+          schedule.trim()
+            ? scheduleError
+              ? null
+              : humanSchedule(schedule)
+            : "Leave blank for an on-demand job."
+        }
+      >
+        <Input
+          value={schedule}
+          onChange={(event) => onScheduleChange(event.target.value)}
+          placeholder="*/30 * * * *"
+          className="font-mono text-body-sm"
+        />
+      </Field>
       {showEnabled && (schedule.trim() || showEnabledWithoutSchedule) ? (
-        <label className="mt-2 flex items-center justify-between gap-3 rounded-md border border-border-subtle bg-surface-subtle px-3 py-3 text-body-md">
-          <span>
-            <span className="block font-medium text-foreground">Enabled</span>
-            <span className="block text-body-sm text-muted-foreground">
-              {enabledHelperText}
-            </span>
-          </span>
+        <SettingRow label="Enabled" description={enabledHelperText}>
           <SwitchToggle
             checked={enabled}
             onCheckedChange={onEnabledChange}
             ariaLabel="Enable job"
           />
-        </label>
+        </SettingRow>
       ) : null}
     </div>
   );
@@ -118,8 +110,7 @@ export function JobAgentTypeField({
   onChange: (value: CliAgentType) => void;
 }) {
   return (
-    <div className="min-w-0 space-y-1">
-      <label className="text-body-md text-muted-foreground">Agent type</label>
+    <Field label="Agent type">
       <Select
         value={value}
         onValueChange={(next) => onChange(next as CliAgentType)}
@@ -135,7 +126,7 @@ export function JobAgentTypeField({
           ))}
         </SelectContent>
       </Select>
-    </div>
+    </Field>
   );
 }
 
@@ -159,36 +150,35 @@ export function JobWorktreeOption({
   testIdPrefix?: string;
 }) {
   return (
-    <div className="space-y-2 rounded-md border border-border-subtle bg-surface-subtle px-3 py-3 md:col-span-2">
-      <label className="flex cursor-pointer items-start gap-3">
-        <Checkbox
-          checked={checked}
-          onCheckedChange={() => onCheckedChange(!checked)}
-          className="mt-0.5"
-        />
-        <span className="space-y-1">
-          <span className="flex items-center gap-1.5 text-body-md font-medium text-foreground">
-            <GitBranch className="h-3.5 w-3.5" />
-            Run in a git worktree
-          </span>
-          <span className="block text-body-sm text-muted-foreground">
-            Creates an isolated worktree and branch when this job runs.
-          </span>
+    <OptionCard
+      className="md:col-span-2"
+      label={
+        <span className="flex items-center gap-1.5">
+          <GitBranch className="size-icon-md" />
+          Run in a git worktree
         </span>
-      </label>
-      {checked ? (
-        <div className="ml-8 w-[calc(100%-2rem)]">
-          <BranchSelect
-            cwd={cwd}
-            baseBranch={baseBranch}
-            onBaseBranchChange={onBaseBranchChange}
-            worktreeBranch={branchName}
-            onWorktreeBranchChange={onBranchNameChange}
-            testIdPrefix={testIdPrefix ?? "job-worktree"}
-          />
-        </div>
-      ) : null}
-    </div>
+      }
+      description="Creates an isolated worktree and branch when this job runs."
+      details={
+        checked ? (
+          <div className="ml-8">
+            <BranchSelect
+              cwd={cwd}
+              baseBranch={baseBranch}
+              onBaseBranchChange={onBaseBranchChange}
+              worktreeBranch={branchName}
+              onWorktreeBranchChange={onBranchNameChange}
+              testIdPrefix={testIdPrefix ?? "job-worktree"}
+            />
+          </div>
+        ) : null
+      }
+    >
+      <Checkbox
+        checked={checked}
+        onCheckedChange={() => onCheckedChange(!checked)}
+      />
+    </OptionCard>
   );
 }
 
@@ -204,28 +194,21 @@ export function JobKeepAgentOption({
   helperText?: string;
 }) {
   return (
-    <label
-      className={cn(
-        "flex items-start gap-3 rounded-md border border-border-subtle bg-surface-subtle px-3 py-3 md:col-span-2",
-        disabled ? "cursor-not-allowed opacity-70" : "cursor-pointer"
-      )}
+    <OptionCard
+      className="md:col-span-2"
+      disabled={disabled}
+      label="Keep agent after run completes"
+      description={
+        helperText ??
+        "The agent stays in your Agents list so you can continue the session after the job finishes."
+      }
     >
       <Checkbox
         checked={checked}
         onCheckedChange={() => onCheckedChange(!checked)}
         disabled={disabled}
-        className="mt-0.5"
       />
-      <span className="space-y-1">
-        <span className="block text-body-md font-medium text-foreground">
-          Keep agent after run completes
-        </span>
-        <span className="block text-body-sm text-muted-foreground">
-          {helperText ??
-            "The agent stays in your Agents list so you can continue the session after the job finishes."}
-        </span>
-      </span>
-    </label>
+    </OptionCard>
   );
 }
 
@@ -237,22 +220,16 @@ export function JobFullAccessOption({
   onCheckedChange: (checked: boolean) => void;
 }) {
   return (
-    <label className="flex cursor-pointer items-start gap-3 rounded-md border border-border-subtle bg-surface-subtle px-3 py-3 md:col-span-2">
+    <OptionCard
+      className="md:col-span-2"
+      label="Run in full access mode"
+      description="Starts the selected agent with its most permissive supported execution mode."
+    >
       <Checkbox
         checked={checked}
         onCheckedChange={() => onCheckedChange(!checked)}
-        className="mt-0.5"
       />
-      <span className="space-y-1">
-        <span className="block text-body-md font-medium text-foreground">
-          Run in full access mode
-        </span>
-        <span className="block text-body-sm text-muted-foreground">
-          Starts the selected agent with its most permissive supported execution
-          mode.
-        </span>
-      </span>
-    </label>
+    </OptionCard>
   );
 }
 

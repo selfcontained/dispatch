@@ -6,6 +6,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -28,10 +29,12 @@ import { BrainCollectionView } from "./brains-collection-view";
 // those is decided from unfiltered scope totals rather than the rendered rows,
 // so a stubbed card tree could not tell the two apart.
 vi.mock("@/lib/api", () => ({ api: vi.fn() }));
-vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
+vi.mock("@/components/ui/toast", () => ({
+  toast: { success: vi.fn(), error: vi.fn() },
+}));
 
 const { api } = await import("@/lib/api");
-const { toast } = await import("sonner");
+const { toast } = await import("@/components/ui/toast");
 const apiMock = vi.mocked(api);
 const toastSuccess = vi.mocked(toast.success);
 const toastError = vi.mocked(toast.error);
@@ -209,7 +212,11 @@ async function openBulk(entryType: "objects" | "lists" | "events") {
 }
 
 function confirmDelete() {
-  fireEvent.click(screen.getByRole("button", { name: "Delete permanently" }));
+  // The last button: Cancel, then the action.
+  const buttons = within(screen.getByRole("alertdialog")).getAllByRole(
+    "button"
+  );
+  fireEvent.click(buttons[buttons.length - 1]);
 }
 
 beforeEach(() => {
@@ -431,9 +438,10 @@ describe("failure handling", () => {
     await openBulk("objects");
     confirmDelete();
 
-    await waitFor(() =>
-      expect(toastError).toHaveBeenCalledWith("Could not delete brain data.")
-    );
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("Couldn’t delete the objects.");
+    expect(alert.textContent).toContain("500 Internal Server Error");
+    expect(toastError).not.toHaveBeenCalled();
     expect(toastSuccess).not.toHaveBeenCalled();
     // Still open, so the operator can retry without hunting for the button.
     expect(

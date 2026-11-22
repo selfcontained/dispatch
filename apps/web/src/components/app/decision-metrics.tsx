@@ -1,8 +1,9 @@
 import type { DecisionMetrics, MergeRiskMetrics } from "@dispatch/shared";
 import { useDecisionMetrics, type ActivityRange } from "@/hooks/use-activity";
 import { StatCard } from "./stat-card";
-import { LoadError } from "@/components/app/load-error";
 import { formatLatency } from "@/lib/format";
+import { AsyncBoundary, quietPoll } from "@/components/ui/async-boundary";
+import { LoadingSkeleton } from "@/components/ui/skeleton";
 
 function Metrics({
   title,
@@ -152,30 +153,25 @@ export function DecisionMetricsSection({
           accuracy. Costs are estimates, not billing.
         </p>
       </div>
-      {query.isPending && (
-        <p className="text-body-sm text-muted-foreground">
-          Loading decision metrics…
-        </p>
-      )}
-      {query.error && (
-        <LoadError
-          message="Couldn't load decision metrics"
-          error={query.error}
-          retrying={query.isFetching}
-          onRetry={() => void query.refetch()}
-        />
-      )}
-      {query.data && (
-        <>
-          <Metrics title="Reply routing" data={query.data.routing} />
-          <Metrics
-            title="Message steering"
-            data={query.data.steering}
-            steering
+      <AsyncBoundary
+        query={quietPoll(query)}
+        thing="decision metrics"
+        loading={
+          <LoadingSkeleton
+            label="Loading decision metrics…"
+            rowClassName="h-20"
+            rows={2}
           />
-          {query.data.mergeRisk && <MergeRisk data={query.data.mergeRisk} />}
-        </>
-      )}
+        }
+      >
+        {(data) => (
+          <>
+            <Metrics title="Reply routing" data={data.routing} />
+            <Metrics title="Message steering" data={data.steering} steering />
+            {data.mergeRisk && <MergeRisk data={data.mergeRisk} />}
+          </>
+        )}
+      </AsyncBoundary>
     </section>
   );
 }
