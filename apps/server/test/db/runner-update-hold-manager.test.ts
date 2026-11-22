@@ -45,6 +45,8 @@ vi.mock("../../src/agents/workspace-prep.js", () => ({
 }));
 
 const { AgentManager } = await import("../../src/agents/manager.js");
+type Manager = InstanceType<typeof AgentManager>;
+const { deleteAgentDirect } = await import("../../src/agents/archive.js");
 const { createInertRuntime } = await import("../../src/agents/runtime.js");
 const { RunnerUpdateFenced } =
   await import("../../src/agents/remote/service.js");
@@ -557,6 +559,50 @@ describe("launches on a runner held for an update", () => {
     expect(runtime.stop).toHaveBeenCalledWith(held.id, false);
     expect(await statusOf(held.id)).toBe("stopped");
   });
+
+  it.each([
+    ["a stop", (manager: Manager, id: string) => manager.stopAgent(id)],
+    [
+      "an archive",
+      async (manager: Manager, id: string) => {
+        await manager.beginArchive(id, "keep");
+        await manager.executeArchive(id, {
+          onPhaseChange: () => {},
+          onComplete: () => {},
+          onError: () => {},
+        });
+      },
+    ],
+    [
+      "a cascade",
+      (manager: Manager, id: string) =>
+        deleteAgentDirect((manager as any).archiveDeps(), id),
+    ],
+  ] as const)(
+    "finishes the hook of %s that the fence landed in",
+    async (_case, end) => {
+      const holds = await openHolds();
+      const runtime = spyRuntime();
+      const manager = managerOn(holds, runtime);
+      const agent = await manager.createAgent({ cwd: HELD });
+      // The hold begins at `ready`, the fence straight after it.
+      refuseNext.set("checkoutCommand", async () => {
+        await holds.begin("r1", ATTEMPT);
+      });
+      const hookRequests = () =>
+        requestSession.mock.calls
+          .map(([, operation]) => operation as any)
+          .filter(({ kind }) => kind === "checkoutCommand")
+          .map(({ operation }) => operation.checkout);
+      const ending = end(manager, agent.id);
+      await vi.waitFor(() => expect(holds.isHeld("r1")).toBe(true));
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(hookRequests()).toEqual(["launch"]);
+      await holds.release("r1", ATTEMPT, "committed");
+      await ending;
+      expect(hookRequests()).toEqual(["launch", "launch", "moved"]);
+    }
+  );
 
   it("runs held launches at the bound when the hold is never released", async () => {
     const holds = await openHolds(300);

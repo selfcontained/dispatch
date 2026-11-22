@@ -146,9 +146,10 @@ branch. A public HTTPS URL or an empty session folder works without signing in.
 ## Update or recover
 
 A runner that supports self-update shows **Update** in its Settings when
-Dispatch serves a newer version. Dispatch holds new work for that runner, the
-runner switches under its running agents, and each agent moves to the new
-build when it is next idle. Open terminals close. A failed update returns to
+Dispatch serves a newer version. Work goes on while the runner downloads and
+verifies it. Then Dispatch holds new work for that runner, the runner switches
+under its running agents, and each agent moves to the new build when it is
+next idle. Open terminals close. A failed update returns to
 the previous build, and that build needs **Retry** to install again. Dispatch
 never offers a runner an older build or another build of the version it has.
 

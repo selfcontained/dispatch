@@ -132,6 +132,41 @@ describe("runLifecycleHook", () => {
   });
 });
 
+it("puts each of a hook's runner requests through the fence retry", async () => {
+  const refused = new Set(["read", "run"]);
+  const kinds: string[] = [];
+  const requestSession = vi.fn(async (_placement, { operation }) => {
+    kinds.push(`${operation.checkout} ${operation.kind}`);
+    if (refused.delete(operation.kind)) throw new Error("fenced");
+    const content = JSON.stringify({ hooks: { stop: { command: ["true"] } } });
+    return {
+      value: JSON.stringify(
+        operation.kind === "read"
+          ? { content, state: "a".repeat(64) }
+          : { exitCode: 0, stderr: "", stdout: "", truncated: false }
+      ),
+    };
+  });
+  await runLifecycleHook(
+    "stop",
+    { id: "session", cwd: "runner://machine/work" } as AgentRecord,
+    logger,
+    {
+      local: createLocalRunner("/tmp/runner-hooks-unused", logger),
+      remote: { requestSession } as unknown as RemoteRunnerService,
+    },
+    (request) => request().catch(request)
+  );
+  expect(kinds).toEqual([
+    "launch read",
+    "launch read",
+    "launch run",
+    "launch run",
+    "moved read",
+    "moved run",
+  ]);
+});
+
 it("reports a runner hook failure and still runs the moved checkout on each teardown attempt", async () => {
   const warn = vi.fn();
   const call = vi.fn(async (_placement, { operation }) => {

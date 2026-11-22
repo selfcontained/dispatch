@@ -31,7 +31,8 @@ import { compareRunnerVersions } from "./update-verify.js";
  * and from any of them an outcome: updated, rolled_back, deferred or
  * needs_idle. Each step is saved before the frame that causes it is sent, so
  * a restarted Dispatch or a reconnected runner resumes the same attempt or
- * ends it. The runner owns the swap and its rollback; this only asks,
+ * ends it. Work goes on while the runner stages, and is held from `ready`,
+ * before the fence is asked for. The runner owns the swap and its rollback; this only asks,
  * observes and confirms. It never drains, forces or picks an update itself.
  */
 
@@ -52,7 +53,7 @@ export const UPDATE_TIMING = {
   tickMs: 1_000,
 } as const;
 
-/** The task-5 hold outlasts every phase above. */
+/** The task-5 hold outlasts every phase it covers. */
 export const UPDATE_HOLD_BOUND_MS = 20 * 60_000;
 
 const targetSchema = z.object({
@@ -321,6 +322,8 @@ export class RunnerUpdateCoordinator {
           id: attempt.id,
           phase: attempt.phase,
           ...(attempt.target && { version: attempt.target.version }),
+          ...(this.options.holds.current(runnerId)?.attemptId ===
+            attempt.id && { held: true }),
         },
       };
 
@@ -398,8 +401,8 @@ export class RunnerUpdateCoordinator {
       sha256,
       revision: build.revision!,
     };
-    // A restart already past host shutdown must finish before work is held,
-    // or it would wait on the hold with its agent down.
+    // A restart already past host shutdown must finish before the attempt
+    // starts, or it could meet the hold at `ready` with its agent down.
     this.opening.add(runnerId);
     try {
       await agents.settleRunnerHostRecycling(runnerId);
@@ -413,15 +416,6 @@ export class RunnerUpdateCoordinator {
           deadline: this.now() + UPDATE_TIMING.stagingMs,
         };
         await this.save({ ...this.records.get(runnerId), runnerId, attempt });
-        try {
-          await this.holdFor(runnerId, attempt.id);
-        } catch (error) {
-          await this.finish(runnerId, attempt, {
-            state: "deferred",
-            reason: "state_unsaved",
-          });
-          throw error;
-        }
         this.resumed.set(runnerId, epoch);
         this.forgetTrial(runnerId);
         logger.info(
@@ -503,14 +497,12 @@ export class RunnerUpdateCoordinator {
       return;
     }
 
-    try {
-      await this.holdFor(runnerId, attempt.id);
-    } catch (error) {
-      this.options.logger.error(
-        { err: error, runnerId },
-        "could not restore the runner update hold"
-      );
-      return this.cancel(runnerId, attempt, "state_unsaved");
+    // Nothing waits on an attempt the runner is not fenced for and was not
+    // asked to fence.
+    if (pending || attempt.phase === "settling" || attempt.activated) {
+      if (!(await this.holdOrCancel(runnerId, attempt))) return;
+    } else {
+      this.releaseOther(runnerId, attempt.id);
     }
     switch (attempt.phase) {
       case "cancelling":
@@ -681,6 +673,8 @@ export class RunnerUpdateCoordinator {
           };
           if (!(await this.step(runnerId, attempt, settling))) return;
         } else if (phase !== "settling") return;
+        // Staged: work waits from here, before anything can be refused.
+        if (!(await this.holdOrCancel(runnerId, attempt))) return;
         this.send(runnerId, () =>
           service.fenceUpdate(runnerId, attempt.id, true, epoch)
         );
@@ -874,12 +868,32 @@ export class RunnerUpdateCoordinator {
       );
   }
 
+  /** False when the hold could not be saved, which ends the attempt. */
+  private async holdOrCancel(runnerId: string, attempt: Attempt) {
+    try {
+      await this.holdFor(runnerId, attempt.id);
+      return true;
+    } catch (error) {
+      this.options.logger.error(
+        { err: error, runnerId },
+        "could not hold the runner for its update"
+      );
+      await this.cancel(runnerId, attempt, "state_unsaved");
+      return false;
+    }
+  }
+
   private async holdFor(runnerId: string, attemptId: string) {
-    const { holds } = this.options;
-    const other = holds.current(runnerId);
+    this.releaseOther(runnerId, attemptId);
+    await this.options.holds.begin(runnerId, attemptId, {
+      boundMs: UPDATE_HOLD_BOUND_MS,
+    });
+  }
+
+  private releaseOther(runnerId: string, attemptId: string) {
+    const other = this.options.holds.current(runnerId);
     if (other && other.attemptId !== attemptId)
       this.release(runnerId, other.attemptId, "fence_released");
-    await holds.begin(runnerId, attemptId, { boundMs: UPDATE_HOLD_BOUND_MS });
   }
 
   /** Move hosts to the last confirmed build while the runner still runs it. */

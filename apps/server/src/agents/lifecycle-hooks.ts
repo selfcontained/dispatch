@@ -31,20 +31,24 @@ export type LifecycleHookName = "stop";
  *
  * Runs with `DISPATCH_AGENT_ID` exported in env so the hook can
  * disambiguate which agent triggered it. 15-second hard timeout.
+ *
+ * A runner's update fence can land between any two of its requests:
+ * `whileFenced` repeats the refused one once the runner's hold opens.
  */
 export async function runLifecycleHook(
   hookName: LifecycleHookName,
   agent: AgentRecord,
   logger: FastifyBaseLogger,
-  runners: CheckoutCommandRunners
+  runners: CheckoutCommandRunners,
+  whileFenced: <T>(request: () => Promise<T>) => Promise<T> = (request) =>
+    request()
 ): Promise<void> {
   for (const checkout of ["launch", "moved"] as const) {
     try {
       const target = { checkout, path: REPO_TOOL_MANIFEST_PATH };
-      const file = await requestCheckoutCommand(runners, agent, {
-        ...target,
-        kind: "read",
-      });
+      const file = await whileFenced(() =>
+        requestCheckoutCommand(runners, agent, { ...target, kind: "read" })
+      );
       const hook =
         file && parseRepoHooks(parseRepoToolFile(file.content))[hookName];
       if (!hook) continue;
@@ -52,12 +56,14 @@ export async function runLifecycleHook(
         { agentId: agent.id, hook: hookName, checkout },
         "Running lifecycle hook"
       );
-      const result = await requestCheckoutCommand(runners, agent, {
-        ...target,
-        kind: "run",
-        state: file.state,
-        argv: hook.command,
-      });
+      const result = await whileFenced(() =>
+        requestCheckoutCommand(runners, agent, {
+          ...target,
+          kind: "run",
+          state: file.state,
+          argv: hook.command,
+        })
+      );
       if (result.exitCode !== 0) {
         logger.warn(
           {

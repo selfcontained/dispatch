@@ -159,7 +159,7 @@ export function RunnerUpdateStatus({ runner }: { runner: Runner }) {
               {detail}
             </p>
           )}
-          {attempt && <p>New work waits until the update finishes.</p>}
+          {attempt?.held && <p>New work waits until the update finishes.</p>}
           {!attempt && previousBuildAgents ? (
             <p>
               {previousBuildAgents}{" "}

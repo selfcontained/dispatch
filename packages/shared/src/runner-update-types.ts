@@ -18,7 +18,13 @@ export type RunnerUpdateResultState =
 export type RunnerUpdateView = {
   /** An update Dispatch can run now, and the action that starts it. */
   available?: { version: string; action: RunnerUpdateAction };
-  attempt?: { id: string; phase: RunnerUpdatePhaseView; version?: string };
+  attempt?: {
+    id: string;
+    phase: RunnerUpdatePhaseView;
+    version?: string;
+    /** New work for the runner waits: from staged until the attempt ends. */
+    held?: boolean;
+  };
   result?: {
     state: RunnerUpdateResultState;
     version?: string;

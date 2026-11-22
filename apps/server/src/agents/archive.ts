@@ -52,6 +52,11 @@ export type ArchiveDeps = {
   ) => Promise<boolean>;
   /** Resolves once the agent's runner is not held for an update. */
   waitForRunner?: (agent: AgentRecord) => Promise<void>;
+  /** Repeats a request the runner's update fence refused, once it opens. */
+  whileFenced?: <T>(
+    agent: AgentRecord,
+    request: () => Promise<T>
+  ) => Promise<T>;
 };
 
 /**
@@ -182,10 +187,13 @@ export async function executeArchive(
     const t = Date.now();
     try {
       await deps.waitForRunner?.(agent);
-      await runLifecycleHook("stop", agent, logger, {
-        local: deps.localRunner,
-        remote: deps.remote,
-      }).catch((err) =>
+      await runLifecycleHook(
+        "stop",
+        agent,
+        logger,
+        { local: deps.localRunner, remote: deps.remote },
+        deps.whileFenced && ((request) => deps.whileFenced!(agent, request))
+      ).catch((err) =>
         logger.warn(
           { err, agentId: id },
           "Stop hook failed during archive; continuing"
@@ -330,10 +338,13 @@ export async function deleteAgentDirect(
     // and letting a fresh archive take this agent mid-teardown.
     try {
       await deps.waitForRunner?.(agent);
-      await runLifecycleHook("stop", agent, logger, {
-        local: deps.localRunner,
-        remote: deps.remote,
-      }).catch((err) =>
+      await runLifecycleHook(
+        "stop",
+        agent,
+        logger,
+        { local: deps.localRunner, remote: deps.remote },
+        deps.whileFenced && ((request) => deps.whileFenced!(agent, request))
+      ).catch((err) =>
         logger.warn(
           { err, agentId: id },
           "Stop hook failed during delete; continuing"

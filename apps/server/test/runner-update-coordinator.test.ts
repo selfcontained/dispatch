@@ -1,7 +1,7 @@
 import { mkdtemp, readdir, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   fileRunnerUpdateStore,
@@ -93,8 +93,9 @@ describe("a live update", () => {
       available: { version: target.version, action: "update" },
     });
     const { attemptId } = await update();
-    expect(world.holds.current(RUNNER)?.attemptId).toBe(attemptId);
     await world.until(() => world.runner.trial?.phase === "prepared");
+    expect(world.holds.current(RUNNER)?.attemptId).toBe(attemptId);
+    expect(world.coordinator.view(RUNNER)?.attempt?.held).toBe(true);
     expect(world.agents.startRunnerHostRecycling).not.toHaveBeenCalled();
     expect(world.attempt()).toMatchObject({
       id: attemptId,
@@ -172,11 +173,29 @@ describe("a live update", () => {
     );
   });
 
-  it("begins that hold before the offer leaves", async () => {
+  it("lets work through while the runner stages", async () => {
+    await online();
+    const begin = vi.spyOn(world.holds, "begin");
+    const { attemptId, release } = await staging();
+    await world.settle();
+    expect(begin).not.toHaveBeenCalled();
+    expect(world.holds.isHeld(RUNNER)).toBe(false);
+    expect(world.admission.closed).toBe(false);
+    expect(world.coordinator.view(RUNNER)?.attempt).toEqual({
+      id: attemptId,
+      phase: "staging",
+      version: target.version,
+    });
+    release();
+    await world.until(() => world.holds.isHeld(RUNNER));
+  });
+
+  it("begins that hold at ready, before the fence is asked for", async () => {
     await online();
     const order: string[] = [];
     const begin = world.holds.begin.bind(world.holds);
     world.holds.begin = async (...args) => {
+      order.push(world.attempt()!.phase);
       const hold = await begin(...args);
       order.push("held");
       expect(Date.parse(hold.expiresAt) - Date.parse(hold.beganAt)).toBe(
@@ -189,8 +208,14 @@ describe("a live update", () => {
       order.push(world.saved.records.length ? "saved" : "unsaved", "offered");
       return offer(...args);
     };
+    const fence = world.service.fenceUpdate.bind(world.service);
+    world.service.fenceUpdate = (...args) => {
+      order.push("fence");
+      return fence(...args);
+    };
     await update();
-    expect(order).toEqual(["held", "saved", "offered"]);
+    await world.until(() => order.includes("fence"));
+    expect(order).toEqual(["saved", "offered", "settling", "held", "fence"]);
   });
 });
 
@@ -294,7 +319,7 @@ describe("requests", () => {
     await expect(update()).rejects.toEqual(ineligible("update_in_progress"));
   });
 
-  it("settles recycling before holding and does not restart it meanwhile", async () => {
+  it("settles recycling before the attempt and does not restart it meanwhile", async () => {
     await online();
     await updated();
     await world.restartController({
@@ -312,13 +337,17 @@ describe("requests", () => {
     const request = update();
     await world.until(() => settled);
     expect(world.holds.isHeld(RUNNER)).toBe(false);
+    const offers = world.sent("update_offer").length;
     // A reconnect while the pass settles must not start it again.
     await world.connect();
     await world.settle();
     expect(world.agents.startRunnerHostRecycling).not.toHaveBeenCalled();
+    expect(world.sent("update_offer")).toHaveLength(offers);
     settled();
     await request;
-    expect(world.holds.isHeld(RUNNER)).toBe(true);
+    // Nor while the runner stages, when nothing is held yet.
+    await world.connect();
+    await world.settle();
     expect(world.agents.startRunnerHostRecycling).not.toHaveBeenCalled();
   });
 
@@ -794,27 +823,30 @@ describe("outcomes", () => {
 });
 
 describe("deadlines", () => {
-  it("cancels staging, and holds until the runner answers", async () => {
+  it("cancels staging without ever holding work", async () => {
     await online();
     await staging();
+    const begin = vi.spyOn(world.holds, "begin");
     world.advance(UPDATE_TIMING.stagingMs - 1);
     await world.settle();
     expect(world.sent("update_cancel")).toEqual([]);
     world.advance(1);
     await world.until(() => world.result()?.reason === "staging_timeout");
     expect(world.sent("update_cancel")[0].reason).toBe("policy_changed");
+    expect(begin).not.toHaveBeenCalled();
     expect(world.holds.isHeld(RUNNER)).toBe(false);
   });
 
   it("stays held until the cancel is answered or its bound passes", async () => {
     await online();
-    await staging();
+    await settling();
     world.service.cancelUpdate = () => ({ epoch: 1 });
-    world.advance(UPDATE_TIMING.stagingMs);
+    world.advance(UPDATE_TIMING.attachMs);
     await world.until(() => world.phase() === "cancelling");
     expect(world.holds.isHeld(RUNNER)).toBe(true);
+    expect(world.coordinator.view(RUNNER)?.attempt?.held).toBe(true);
     world.advance(UPDATE_TIMING.cancelMs);
-    await world.until(() => world.result()?.reason === "staging_timeout");
+    await world.until(() => world.result()?.reason === "attach_unavailable");
     expect(world.holds.isHeld(RUNNER)).toBe(false);
   });
 
@@ -927,14 +959,18 @@ describe("deadlines", () => {
 });
 
 describe("Dispatch restarts", () => {
-  it("resumes while staging", async () => {
+  it("resumes while staging, still without a hold", async () => {
     await online();
     const { attemptId, release } = await staging();
     await world.restartController();
-    expect(world.holds.current(RUNNER)?.attemptId).toBe(attemptId);
     expect(world.phase()).toBe("staging");
     await world.connect();
+    await world.settle();
+    expect(world.holds.isHeld(RUNNER)).toBe(false);
     release();
+    await world.until(
+      () => world.holds.current(RUNNER)?.attemptId === attemptId
+    );
     await world.swap();
     await world.until(() => world.result()?.state === "updated");
     expect(world.attempt()?.id).toBe(attemptId);
@@ -1037,15 +1073,17 @@ describe("Dispatch restarts", () => {
     }
   );
 
-  it("finishes cancelling", async () => {
+  it("finishes cancelling, without holding for a cancel of staging", async () => {
     await online();
     await staging();
     world.service.cancelUpdate = () => ({ epoch: 1 });
     world.advance(UPDATE_TIMING.stagingMs);
     await world.until(() => world.phase() === "cancelling");
     await world.restartController();
+    const begin = vi.spyOn(world.holds, "begin");
     await world.connect();
     await world.until(() => world.result()?.reason === "staging_timeout");
+    expect(begin).not.toHaveBeenCalled();
     expect(world.sent("update_cancel")).toHaveLength(1);
   });
 
@@ -1101,6 +1139,69 @@ describe("runner reconnects", () => {
     await world.until(
       () => world.holds.current(RUNNER)?.attemptId === attemptId
     );
+  });
+
+  it("holds again while settling on a runner that lost its fence", async () => {
+    await online();
+    const attemptId = await settling();
+    await world.disconnect();
+    await world.holds.release(RUNNER, attemptId, "expired");
+    world.runner.fence.record = null;
+    world.runner.staging = new Promise(() => {});
+    await world.restartRunner();
+    await world.until(
+      () => world.holds.current(RUNNER)?.attemptId === attemptId
+    );
+  });
+
+  it("holds an attempt saved as staging that the runner is fenced for", async () => {
+    await online();
+    const attemptId = await settling();
+    const { retained: _, ...attempt } = world.saved.records[0]!.attempt;
+    world.saved.records[0]!.attempt = { ...attempt, phase: "staging" };
+    world.saved.holds = { holds: [], resuming: [] };
+    await world.restartController();
+    await world.connect();
+    await world.until(
+      () => world.holds.current(RUNNER)?.attemptId === attemptId
+    );
+  });
+
+  it("holds an activated attempt until its outcome is learned", async () => {
+    await online();
+    const attemptId = await confirming();
+    await world.disconnect();
+    await world.holds.release(RUNNER, attemptId, "expired");
+    world.runner.fence.record = null;
+    world.runner.trial = null;
+    world.service.cancelUpdate = () => ({ epoch: 1 });
+    await world.restartRunner();
+    await world.until(
+      () => world.holds.current(RUNNER)?.attemptId === attemptId
+    );
+  });
+
+  it("opens another attempt's hold while its own is staging", async () => {
+    await online();
+    await staging();
+    await world.holds.begin(RUNNER, "7f1c1d1e-2a3b-4c5d-8e9f-0a1b2c3d4e5f");
+    expect(world.coordinator.view(RUNNER)?.attempt?.held).toBeUndefined();
+    await world.connect();
+    await world.until(() => !world.holds.isHeld(RUNNER));
+    expect(world.phase()).toBe("staging");
+  });
+
+  it("cancels what it cannot hold again", async () => {
+    await online();
+    const attemptId = await settling();
+    await world.disconnect();
+    await world.holds.release(RUNNER, attemptId, "expired");
+    world.holds.begin = async () => {
+      throw new Error("hold failed");
+    };
+    await world.connect();
+    await world.until(() => world.result()?.reason === "state_unsaved");
+    expect(world.sent("update_offer")).toHaveLength(1);
   });
 
   it("replaces a hold left by another attempt with its own", async () => {
@@ -1355,14 +1456,15 @@ describe("saving", () => {
     expect(world.holds.isHeld(RUNNER)).toBe(false);
   });
 
-  it("starts nothing it cannot hold", async () => {
+  it("fences nothing it cannot hold", async () => {
     await online();
     world.holds.begin = async () => {
       throw new Error("hold failed");
     };
-    await expect(update()).rejects.toThrow("hold failed");
-    expect(world.runner.frames).toEqual([]);
-    expect(world.attempt()?.outcome?.reason).toBe("state_unsaved");
+    await update();
+    await world.until(() => world.result()?.reason === "state_unsaved");
+    expect(world.sent("update_fence")).toEqual([]);
+    expect(world.admission.closed).toBe(false);
   });
 
   it("keeps a private file and sets a damaged one aside", async () => {

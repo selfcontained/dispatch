@@ -82,8 +82,15 @@ it.each([
   show({ attempt: { id: "a", phase, version } });
   expect(text()).toContain("Updating to 1.8.0");
   expect(text()).toContain(progress);
-  expect(text()).toContain("New work waits until the update finishes.");
+  expect(text()).not.toContain("New work waits");
   expect(screen.queryByRole("button")).toBeNull();
+});
+
+it("says new work waits once, and only while, it is held", () => {
+  const view = show({ attempt: { id: "a", phase: "staging", version } });
+  expect(text()).not.toContain("New work waits");
+  view.update({ attempt: { id: "a", phase: "settling", version, held: true } });
+  expect(text()).toContain("New work waits until the update finishes.");
 });
 
 it.each([

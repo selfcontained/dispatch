@@ -2731,8 +2731,9 @@ export class AgentManager {
   }
 
   /**
-   * A step after the host is up that the fence refused: the host exists, so
-   * wait for the hold in place and try the same step again.
+   * A step the fence refused partway through work that was admitted before
+   * it: nothing of the step started, so wait for the hold in place and try
+   * the same step again.
    */
   private async whileFenced<T>(
     agent: AgentRecord,
@@ -3396,10 +3397,13 @@ export class AgentManager {
     await this.setAgentStatus(id, "stopping", null);
 
     // Run repo-defined stop hook (best-effort, non-blocking)
-    await runLifecycleHook("stop", agent, this.logger, {
-      local: this.localRunner,
-      remote: this.remote,
-    }).catch((err) =>
+    await runLifecycleHook(
+      "stop",
+      agent,
+      this.logger,
+      { local: this.localRunner, remote: this.remote },
+      (request) => this.whileFenced(agent, request)
+    ).catch((err) =>
       this.logger.warn(
         { err, agentId: id },
         "Stop hook failed; continuing shutdown"
@@ -3809,6 +3813,8 @@ export class AgentManager {
           const placement = remotePlacement(agent.cwd);
           if (placement) await this.holds!.wait(placement.runner, "stop");
         },
+        whileFenced: <T>(agent: AgentRecord, request: () => Promise<T>) =>
+          this.whileFenced(agent, request),
       }),
     };
   }
