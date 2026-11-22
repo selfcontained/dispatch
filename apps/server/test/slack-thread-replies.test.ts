@@ -8,6 +8,8 @@ import {
 } from "../src/notifications/slack-answers.js";
 import { QuestionAlerts } from "../src/notifications/question-alerts.js";
 import { notifyForm } from "../src/notifications/notify-form.js";
+import { SlackNotifier } from "../src/notifications/slack.js";
+import { PNG_BYTES } from "./helpers/file-bytes.js";
 import type { AgentRecord } from "../src/agents/manager.js";
 import {
   SlackDeliveryUnknownError,
@@ -402,6 +404,41 @@ describe("notify({ replyTo }): the agent answers in the Slack thread", () => {
     expect(
       (await pool.query(`SELECT 1 FROM slack_thread_replies`)).rowCount
     ).toBe(1);
+  });
+
+  it("uses the session reader for explicit and current-turn thread notifications", async () => {
+    const { answers, calls, replies } = build();
+    const { parent, post } = await followUp(answers, A, "screenshot?");
+    const notifier = new SlackNotifier(pool, null as never);
+    Object.assign(notifier, { app: { settings: async () => ({ binding }) } });
+    notifier.setThreadReply((agent, input) => replies.reply(agent, input));
+    notifier.setTurnPost(async () => post.id);
+    const agent = { id: A, name: "builder-7" } as AgentRecord;
+    const missingOnRunner = await notifier.sendNotification(
+      agent,
+      { message: "Screenshot", replyTo: post.id, images: [png] },
+      async () => {
+        throw new Error("Image missing on runner");
+      }
+    );
+    expect(missingOnRunner).toMatchObject({ sent: false });
+    expect(calls.uploads).toEqual([]);
+    expect(calls.posted).toEqual([]);
+
+    const runnerImage = "/runner/files/shot.png";
+    const sent = await notifier.sendNotification(
+      agent,
+      { message: "Screenshot", images: [runnerImage] },
+      async (source) => {
+        expect(source).toBe(runnerImage);
+        return PNG_BYTES;
+      }
+    );
+    expect(sent).toEqual({ sent: true });
+    expect(calls.uploads).toEqual([
+      { name: "shot.png", bytes: PNG_BYTES.length },
+    ]);
+    expect(calls.posted.map((message) => message.threadTs)).toEqual([parent]);
   });
 
   it("any message in a thread names that thread: replies go under its root", async () => {

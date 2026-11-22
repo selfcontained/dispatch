@@ -4,7 +4,12 @@ import {
   SlackRetryError,
 } from "./slack-app.js";
 import { notifyMessage, type SlackBlock as KitBlock } from "./slack-blocks.js";
-import { imageBlocks, loadImages, sendWithImages } from "./slack-images.js";
+import {
+  imageBlocks,
+  loadImages,
+  sendWithImages,
+  type ReadNotifyImage,
+} from "./slack-images.js";
 import type { Pool } from "pg";
 import type { FastifyBaseLogger } from "fastify";
 
@@ -114,6 +119,7 @@ export class SlackNotifier {
       message: string;
       title?: string;
       images?: string[];
+      readSessionImage?: ReadNotifyImage;
     }
   ) => Promise<NotifyResult>;
   setThreadReply(fn: NonNullable<SlackNotifier["threadReply"]>) {
@@ -280,7 +286,8 @@ export class SlackNotifier {
    */
   async sendNotification(
     agent: AgentRecord,
-    input: NotifyInput
+    input: NotifyInput,
+    readSessionImage?: ReadNotifyImage
   ): Promise<NotifyResult> {
     // Rate limit check
     if (this.isRateLimited(agent.id)) {
@@ -328,6 +335,7 @@ export class SlackNotifier {
         message: input.message,
         title: input.title,
         images: input.images,
+        ...(readSessionImage && { readSessionImage }),
       });
     };
 
@@ -375,7 +383,7 @@ export class SlackNotifier {
 
     const appSettings = await this.app.settings();
     if (appSettings.binding) {
-      const loaded = await loadImages(input.images);
+      const loaded = await loadImages(input.images, readSessionImage);
       if ("error" in loaded)
         return { sent: false, reason: `${loaded.error} Nothing was sent.` };
       const pictures = await imageBlocks(this.app, loaded.images);

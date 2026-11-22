@@ -1,5 +1,10 @@
 import { createHash, randomUUID } from "node:crypto";
-import { imageBlocks, loadImages, sendWithImages } from "./slack-images.js";
+import {
+  imageBlocks,
+  loadImages,
+  sendWithImages,
+  type ReadNotifyImage,
+} from "./slack-images.js";
 import type { Pool } from "pg";
 import type { Block } from "@dispatch/shared";
 import type { PromptSource } from "../agents/acp/prompt-source.js";
@@ -209,6 +214,7 @@ export class SlackThreadReplies {
     agent: { id: string; name?: string | null },
     input: Pick<NotifyInput, "message" | "title" | "images"> & {
       replyTo: string;
+      readSessionImage?: ReadNotifyImage;
     }
   ): Promise<NotifyResult> {
     const row = await this.replyProvenance(input.replyTo, agent.id);
@@ -229,7 +235,7 @@ export class SlackThreadReplies {
         reason:
           "That Slack thread is no longer linked to this Dispatch (Slack was reconnected or the message removed). Nothing was sent; reply in Dispatch instead.",
       };
-    const loaded = await loadImages(input.images);
+    const loaded = await loadImages(input.images, input.readSessionImage);
     if ("error" in loaded)
       return { sent: false, reason: `${loaded.error} Nothing was sent.` };
     const title = input.title?.trim();

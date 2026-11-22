@@ -15,6 +15,8 @@ import { clip, type SlackBlock } from "./slack-blocks.js";
 export const IMAGE_LIMITS = { count: 4, bytes: 5 * 1024 * 1024 } as const;
 const TYPES = new Set([".png", ".jpg", ".jpeg", ".gif"]);
 
+export type ReadNotifyImage = (path: string) => Promise<Uint8Array>;
+
 export type LoadedImage = { name: string; bytes: Uint8Array; digest: string };
 
 /** PNG, JPEG or GIF by content, not by name. */
@@ -28,13 +30,14 @@ function isImage(bytes: Uint8Array) {
 }
 
 /**
- * Agent-named image files (absolute paths on this machine, as `post`
- * attachments take them). Returns the images to send, or the reason none
+ * Agent-named image files (absolute paths on the agent’s machine).
+ * Returns the images to send, or the reason none
  * can be; nothing partial: a bad path refuses the whole set so the agent
  * can fix it rather than silently losing one.
  */
 export async function loadImages(
-  paths: string[] | undefined
+  paths: string[] | undefined,
+  readSessionImage?: ReadNotifyImage
 ): Promise<{ images: LoadedImage[] } | { error: string }> {
   if (!paths?.length) return { images: [] };
   if (paths.length > IMAGE_LIMITS.count)
@@ -48,15 +51,21 @@ export async function loadImages(
       return { error: `Slack shows png, jpg or gif images only: ${name}.` };
     let bytes: Uint8Array;
     try {
-      // Checks apply to the file actually read, not a name or a symlink.
-      const real = await realpath(path);
-      if (!TYPES.has(extname(real).toLowerCase()))
-        return { error: `Slack shows png, jpg or gif images only: ${name}.` };
-      const info = await stat(real);
-      if (!info.isFile()) return { error: `Not a file: ${name}.` };
-      if (info.size > IMAGE_LIMITS.bytes)
-        return { error: `Image over 5 MB: ${name}.` };
-      bytes = new Uint8Array(await readFile(real));
+      if (readSessionImage) {
+        bytes = await readSessionImage(path);
+        if (bytes.byteLength > IMAGE_LIMITS.bytes)
+          return { error: `Image over 5 MB: ${name}.` };
+      } else {
+        // Checks apply to the file actually read, not a name or a symlink.
+        const real = await realpath(path);
+        if (!TYPES.has(extname(real).toLowerCase()))
+          return { error: `Slack shows png, jpg or gif images only: ${name}.` };
+        const info = await stat(real);
+        if (!info.isFile()) return { error: `Not a file: ${name}.` };
+        if (info.size > IMAGE_LIMITS.bytes)
+          return { error: `Image over 5 MB: ${name}.` };
+        bytes = new Uint8Array(await readFile(real));
+      }
     } catch {
       return { error: `Can't read image: ${name}.` };
     }

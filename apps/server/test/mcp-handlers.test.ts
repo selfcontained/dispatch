@@ -1,3 +1,4 @@
+import path from "node:path";
 import { setRunnerModelCatalogSource } from "../src/shared/agent-models.js";
 import { BUILT_IN_PERSONA_SUMMARIES } from "../src/personas/built-in.js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -65,11 +66,17 @@ vi.mock("../src/shared/files.js", async (importOriginal) => ({
   resolveFilesDir: vi.fn(() => "/tmp/files/agt_test1"),
 }));
 
-vi.mock("node:fs/promises", () => ({
-  writeFile: vi.fn(async () => {}),
-  mkdir: vi.fn(async () => {}),
-  unlink: vi.fn(async () => {}),
-}));
+vi.mock("node:fs/promises", async (importOriginal) => {
+  const fs = await importOriginal<typeof import("node:fs/promises")>();
+  return {
+    ...fs,
+    readFile: vi.fn(fs.readFile),
+    realpath: vi.fn(fs.realpath),
+    writeFile: vi.fn(async () => {}),
+    mkdir: vi.fn(async () => {}),
+    unlink: vi.fn(async () => {}),
+  };
+});
 
 import {
   createMcpHandlers,
@@ -83,7 +90,9 @@ import {
 import { GENERIC_REVIEW_PERSONA_SLUG } from "../src/personas/built-in.js";
 import { getEnabledAgentTypes } from "../src/agent-type-settings.js";
 import { resolveFilesDir } from "../src/shared/files.js";
-import { writeFile } from "node:fs/promises";
+import { readFile, realpath, writeFile } from "node:fs/promises";
+import { SlackNotifier } from "../src/notifications/slack.js";
+import { IMAGE_LIMITS } from "../src/notifications/slack-images.js";
 import { BINARY_BYTES, PNG_BYTES } from "./helpers/file-bytes.js";
 
 function templateRecord(overrides: Record<string, unknown> = {}) {
@@ -263,6 +272,91 @@ describe("createMcpHandlers", () => {
       await handlers.sendNotify("agt_test1", input as any);
       expect(deps.agentManager.getAgent).toHaveBeenCalledWith("agt_test1");
       expect(deps.slackNotifier.sendNotification).toHaveBeenCalled();
+    });
+
+    it("reads notify images only on the caller's machine", async () => {
+      const fs =
+        await vi.importActual<typeof import("node:fs/promises")>(
+          "node:fs/promises"
+        );
+      const dir = await fs.mkdtemp("/tmp/dispatch-notify-");
+      try {
+        const controllerPath = path.join(dir, "controller.png");
+        const runnerPath = path.join(dir, "runner.png");
+        await fs.writeFile(controllerPath, PNG_BYTES);
+        const localAgent = await deps.agentManager.getAgent();
+        const runnerAgent = {
+          ...localAgent,
+          cwd: "runner://runner-test/@session",
+        };
+        const notifier = new SlackNotifier(deps.pool, deps.appLog);
+        const uploadImage = vi.fn(async () => "F1");
+        const postBlocks = vi.fn(async () => ({
+          channelId: "C1",
+          timestamp: "1.1",
+          generation: "g",
+        }));
+        Object.assign(notifier, {
+          app: {
+            settings: async () => ({
+              binding: { baseUrl: "https://dispatch.test" },
+            }),
+            postBlocks,
+            uploadImage,
+            hasScope: () => true,
+          },
+        });
+        deps.slackNotifier.sendNotification.mockImplementation(
+          notifier.sendNotification.bind(notifier)
+        );
+
+        deps.agentManager.getAgent.mockResolvedValue(runnerAgent);
+        const collect = deps.agentManager.collectSessionFile;
+        collect.mockRejectedValueOnce(new Error("No such file on runner"));
+        const send = (source: string) =>
+          handlers.sendNotify("agt_test1", {
+            message: "hello",
+            images: [source],
+          });
+        expect(await send(controllerPath)).toEqual({
+          sent: false,
+          reason: "Can't read image: controller.png. Nothing was sent.",
+        });
+        expect(collect).toHaveBeenLastCalledWith(runnerAgent, controllerPath);
+        expect(uploadImage).not.toHaveBeenCalled();
+        expect(postBlocks).not.toHaveBeenCalled();
+
+        collect.mockResolvedValueOnce(PNG_BYTES);
+        expect(await send(runnerPath)).toMatchObject({ sent: true });
+        expect(collect).toHaveBeenLastCalledWith(runnerAgent, runnerPath);
+        expect(uploadImage).toHaveBeenLastCalledWith(PNG_BYTES, "runner.png");
+        expect(postBlocks).toHaveBeenCalledTimes(1);
+
+        collect.mockResolvedValueOnce(Buffer.alloc(IMAGE_LIMITS.bytes + 1));
+        expect(await send(runnerPath)).toMatchObject({
+          sent: false,
+          reason: expect.stringContaining("Image over 5 MB"),
+        });
+        collect.mockResolvedValueOnce(BINARY_BYTES);
+        expect(await send(runnerPath)).toMatchObject({
+          sent: false,
+          reason: expect.stringContaining("Not a png, jpg or gif image"),
+        });
+        expect(realpath).not.toHaveBeenCalled();
+        expect(readFile).not.toHaveBeenCalled();
+        expect(uploadImage).toHaveBeenCalledTimes(1);
+
+        deps.agentManager.getAgent.mockResolvedValue(localAgent);
+        expect(await send(controllerPath)).toMatchObject({ sent: true });
+        expect(realpath).toHaveBeenCalledWith(controllerPath);
+        expect(collect).toHaveBeenCalledTimes(4);
+        expect(uploadImage).toHaveBeenLastCalledWith(
+          new Uint8Array(PNG_BYTES),
+          "controller.png"
+        );
+      } finally {
+        await fs.rm(dir, { recursive: true, force: true });
+      }
     });
 
     it("throws when agent not found", async () => {
