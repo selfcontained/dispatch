@@ -1418,13 +1418,15 @@ export class StreamService {
   ): Promise<{ held: boolean }> {
     await this.requireAgent(agentId);
     await this.canDeliver(agentId, false);
-    return this.injectDetached({
+    const logContext = { agentId, reason: "dispatch-prompt" };
+    const { held } = this.injectDetached({
       agentId,
       envelope: input.text,
       record: async () => undefined,
-      logContext: { agentId, reason: "dispatch-prompt" },
+      logContext,
       source: { source: "system", text: input.description },
     });
+    return { held: held || (await this.updateHeld(agentId, logContext)) };
   }
 
   /**
@@ -2055,7 +2057,10 @@ export class StreamService {
         // runtime queues a prompt with no delivery given.
         delivery: "auto",
       });
-      held = held || result.held;
+      held =
+        held ||
+        result.held ||
+        (await this.updateHeld(agentId, { blockId: finding.id }));
     }
     return { held };
   }
@@ -4563,7 +4568,10 @@ export class StreamService {
             ? "queue"
             : (own.delivery ?? block.data?.delivery ?? "auto"),
       });
-      held = held || result.held;
+      held =
+        held ||
+        result.held ||
+        (await this.updateHeld(agentId, { blockId: block.id }));
     }
     return { held };
   }
@@ -4681,16 +4689,7 @@ export class StreamService {
         // doing its job, so keep waiting.
         if (this.delivery().activeTurn(agentId)) continue;
         // Held for a runner update, which is bounded: the queue again.
-        const updateHeld = await this.delivery()
-          .updateHeld?.(agentId)
-          .catch((error: unknown) => {
-            this.log.warn(
-              { err: error, agentId, ...logContext },
-              "stream: could not check runner update hold"
-            );
-            return false;
-          });
-        if (updateHeld) continue;
+        if (await this.updateHeld(agentId, logContext)) continue;
         this.log.warn(
           { agentId, ...logContext },
           "stream: the engine never took this prompt; marking it undelivered"
@@ -4706,6 +4705,25 @@ export class StreamService {
         return;
       }
     })();
+  }
+
+  /**
+   * A runner update can defer a prompt before it reaches any queue, so the
+   * agent's own busy state alone doesn't say it is held.
+   */
+  private async updateHeld(
+    agentId: string,
+    logContext: Record<string, string>
+  ): Promise<boolean> {
+    try {
+      return (await this.delivery().updateHeld?.(agentId)) === true;
+    } catch (error) {
+      this.log.warn(
+        { err: error, agentId, ...logContext },
+        "stream: could not check runner update hold"
+      );
+      return false;
+    }
   }
 
   async recoverPendingDeliveries(): Promise<string[]> {

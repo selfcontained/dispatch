@@ -5810,6 +5810,25 @@ describe("StreamService delivery that is never taken", () => {
     });
   });
 
+  it.each([
+    ["a runner update holds it", async () => true, true],
+    ["nothing holds it, as for a local agent", async () => false, false],
+    ["there is no hold to ask about", undefined, false],
+  ] as const)(
+    "reports an idle agent's post held only while %s",
+    async (_, updateHeld, held) => {
+      const { svc } = build({ held: false, updateHeld });
+      const post = await svc.sendUserPost(A, { text: "during the update" });
+      expect(post.held).toBe(held);
+      const prompt = await svc.promptAgent(A, {
+        text: "check in",
+        description: "Check in",
+      });
+      expect(prompt.held).toBe(held);
+      await svc.waitForInFlightDeliveries(1_000);
+    }
+  );
+
   it("keeps waiting while a runner update holds the queue", async () => {
     vi.useFakeTimers();
     const { svc } = build({ gate: never, updateHeld: async () => true });
