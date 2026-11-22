@@ -404,7 +404,8 @@ export class RunnerUpdateCoordinator {
     const valid = (attempt: Attempt | undefined): attempt is Attempt =>
       attempt !== undefined &&
       attempt.id === (attemptId ?? asked?.id) &&
-      (attempt.force === true || attempt.phase === "draining");
+      // The second is a repeat of the same click.
+      (attempt.phase === "draining" || attempt.phase === "interrupting");
     const refuse = () =>
       attemptId
         ? new RunnerUpdateIneligible("stale_drain")

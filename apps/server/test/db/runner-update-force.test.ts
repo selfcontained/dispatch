@@ -181,6 +181,32 @@ describe("a forced update", () => {
     expect(continuations(busy)).toHaveLength(1);
   });
 
+  it.each([
+    "staging",
+    "settling",
+    "cancelling",
+    "resuming",
+    "switching",
+    "confirming",
+  ] as const)("is not asked for again while %s", async (phase) => {
+    const { attemptId } = await force();
+    await world.activated();
+    const records = (world.coordinator as any).records;
+    const record = records.get(RUNNER);
+    records.set(RUNNER, {
+      ...record,
+      attempt: { ...record.attempt, phase },
+    });
+    await expect(
+      world.coordinator.forceUpdate(RUNNER, attemptId)
+    ).rejects.toMatchObject({ code: "stale_drain" });
+    await expect(force()).rejects.toMatchObject({
+      code: "update_in_progress",
+    });
+    records.set(RUNNER, record);
+    await updated();
+  });
+
   it("does not share an attempt with a plain update", async () => {
     const plain = world.coordinator.request(RUNNER, "update");
     const forced = world.coordinator.forceUpdate(RUNNER);
