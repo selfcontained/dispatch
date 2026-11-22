@@ -170,9 +170,8 @@ describe("recordEngineModels", () => {
     const stored = p.query.mock.calls.find(
       (c) =>
         String(c[0]).includes("INSERT INTO settings") &&
-        (c[1] as string[])[0] === "agent_models:local:claude"
+        (c[1] as string[])[0] === "agent_models:claude"
     )?.[1] as [string, string];
-    expect(stored[0]).toBe("agent_models:local:claude");
     expect(JSON.parse(stored[1]).models).toHaveLength(2);
   });
 
@@ -230,7 +229,7 @@ describe("recordEngineModels", () => {
     p.query.mockImplementation((_sql, args) =>
       Promise.resolve({
         rows:
-          args[0] === "agent_models:local:codex"
+          args[0] === "agent_models:codex"
             ? [{ value: JSON.stringify(stored) }]
             : [],
       })
@@ -254,7 +253,7 @@ describe("recordEngineModels", () => {
     expect(p.query).toHaveBeenCalledWith(
       expect.stringContaining("INSERT INTO settings"),
       [
-        "agent_models:local:codex",
+        "agent_models:codex",
         expect.stringContaining('"defaultModel":"gpt-6.1-sol"'),
       ]
     );
@@ -355,8 +354,7 @@ describe("recordEngineModels", () => {
     const reload = {
       query: vi.fn().mockImplementation((_sql, args) =>
         Promise.resolve({
-          rows:
-            args[0] === "agent_models:local:codex" ? [{ value: stored }] : [],
+          rows: args[0] === "agent_models:codex" ? [{ value: stored }] : [],
         })
       ),
     };

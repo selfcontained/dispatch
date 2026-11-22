@@ -12,8 +12,8 @@ import {
 import { AGENT_TYPES, type AgentType } from "../shared/agent-types.js";
 import { recordListedModels } from "./model-availability.js";
 
-/** Old catalog keys could contain enrolled observations without provenance. */
-const settingKey = (agentType: AgentType) => `agent_models:local:${agentType}`;
+/** The settings key an engine's learned list lives under. */
+const settingKey = (agentType: AgentType) => `agent_models:${agentType}`;
 
 type StoredEngineModels = {
   models: AgentModelOption[];
