@@ -10,6 +10,9 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
+import { RowButton } from "@/components/ui/row-button";
+import { StatusDot } from "@/components/ui/status-dot";
+import { Hint } from "@/components/ui/tooltip";
 import { TaskAgent } from "./task-agent";
 import { TaskLaunching } from "./task-launching";
 import { formatRelativeCompact } from "@/lib/format";
@@ -93,7 +96,7 @@ export function TaskList({
             <Button
               variant="ghost"
               aria-expanded={!collapsed.has(column.id)}
-              className="h-10 min-w-0 flex-1 justify-start gap-2 rounded-none px-3 text-body-md font-semibold hover:bg-[hsl(var(--col)/0.14)]"
+              className="min-w-0 flex-1 justify-start rounded-none font-semibold hover:bg-[hsl(var(--col)/0.14)]"
               onClick={() =>
                 setCollapsed((old) => {
                   const next = new Set(old);
@@ -106,14 +109,11 @@ export function TaskList({
               <ChevronDown
                 aria-hidden="true"
                 className={cn(
-                  "h-4 w-4 text-muted-foreground transition-transform",
+                  "text-muted-foreground transition-transform",
                   collapsed.has(column.id) && "-rotate-90"
                 )}
               />
-              <span
-                aria-hidden="true"
-                className="h-2 w-2 shrink-0 rounded-full bg-[hsl(var(--col))]"
-              />
+              <StatusDot color="hsl(var(--col))" />
               <span className="min-w-0 truncate">{column.name}</span>
               <ColumnCapacity column={column} />
             </Button>
@@ -132,13 +132,13 @@ export function TaskList({
                   data-testid={`task-row-${task.id}`}
                   className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2 gap-y-1.5 px-3 py-2 text-body-md transition-colors hover:bg-surface-hover md:grid-cols-[minmax(0,2fr)_minmax(110px,1fr)_minmax(120px,1fr)_55px_minmax(80px,1fr)] md:gap-3"
                 >
-                  <button
-                    className="min-w-0 truncate text-left font-medium hover:underline"
+                  <RowButton
+                    className="block min-w-0 rounded-sm font-medium hover:bg-transparent hover:underline"
                     onClick={() => openTask(task.id)}
                   >
-                    {task.title}
+                    <span className="block truncate">{task.title}</span>
                     <TaskLabels labels={task.labels} />
-                  </button>
+                  </RowButton>
                   <div className="hidden md:block">
                     <StatusSelect
                       task={task}
@@ -165,12 +165,11 @@ export function TaskList({
                   </span>
                   <div className="col-span-2 flex min-w-0 flex-wrap items-center gap-2 md:col-span-1">
                     {task.latestFailure && !task.launching && (
-                      <span
-                        className="text-body-sm text-danger"
-                        title={task.latestFailure.reason}
-                      >
-                        ⚠ launch failed
-                      </span>
+                      <Hint label={task.latestFailure.reason}>
+                        <span className="text-body-sm text-danger">
+                          ⚠ launch failed
+                        </span>
+                      </Hint>
                     )}
                     {task.links
                       .filter((link) => link.kind === "pr")

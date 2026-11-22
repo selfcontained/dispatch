@@ -9,6 +9,9 @@ import {
 } from "lucide-react";
 
 import { ActivityBars } from "@/components/ui/activity-bars";
+import { CountBubble } from "@/components/ui/count-bubble";
+import { IconButton } from "@/components/ui/icon-button";
+import { Hint } from "@/components/ui/tooltip";
 import {
   acceptGhostCompletion,
   filterHistoryOptions,
@@ -374,10 +377,11 @@ export function PathInput({
             className="flex h-9 w-full rounded-md bg-transparent pr-8 px-3 py-1 font-mono text-body-sm text-foreground placeholder:text-muted-foreground focus-ring"
           />
           {history.length > 0 ? (
-            <button
-              type="button"
+            <IconButton
+              size="icon-xs"
+              label="Show suggestions"
               tabIndex={-1}
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground"
+              className="absolute right-1.5 top-1/2 -translate-y-1/2"
               onClick={() => {
                 setDropdownOpen((prev) => !prev);
                 inputRef.current?.focus();
@@ -386,11 +390,11 @@ export function PathInput({
             >
               <ChevronDown
                 className={cn(
-                  "h-4 w-4 transition-transform",
+                  "transition-transform",
                   dropdownOpen && "rotate-180"
                 )}
               />
-            </button>
+            </IconButton>
           ) : null}
         </div>
         {dropdownOpen && options.length > 0 ? (
@@ -436,25 +440,22 @@ export function PathInput({
                       </span>
                     </span>
                     {option.usageCount > 0 ? (
-                      <span
-                        className="shrink-0 rounded-sm border border-border-subtle px-1.5 py-0.5 text-label-xs text-muted-foreground"
-                        title={`${option.usageCount} uses`}
-                      >
-                        {option.usageCount}
-                      </span>
+                      <Hint label={`${option.usageCount} uses`}>
+                        <CountBubble count={option.usageCount} />
+                      </Hint>
                     ) : null}
                     {onRemoveHistory && isRemovableOption ? (
-                      <button
-                        type="button"
-                        className="ml-auto shrink-0 p-0.5 text-muted-foreground opacity-0 hover:text-foreground group-data-[selected=true]:opacity-100"
+                      <IconButton
+                        size="icon-xs"
+                        label="Remove from history"
+                        className="ml-auto opacity-0 focus-visible:opacity-100 group-data-[selected=true]:opacity-100 pointer-coarse:opacity-100"
                         onClick={(e) => {
                           e.stopPropagation();
                           onRemoveHistory(option.path);
                         }}
-                        title="Remove from history"
                       >
-                        <X className="h-3 w-3" />
-                      </button>
+                        <X />
+                      </IconButton>
                     ) : null}
                   </div>
                 );

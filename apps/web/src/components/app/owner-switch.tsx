@@ -6,6 +6,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { CountBubble } from "@/components/ui/count-bubble";
 
 export type OwnerSwitchEntry = {
   agent: SubAgentRef;
@@ -72,19 +73,9 @@ export function OwnerSwitch({
   const counts = (option: { count: number; unseen: number }) => (
     <>
       {option.unseen > 0 ? (
-        <span
-          aria-hidden
-          className="shrink-0 rounded-full bg-danger px-1.5 text-label-xs font-semibold tabular-nums text-danger-foreground"
-        >
-          {option.unseen}
-        </span>
+        <CountBubble aria-hidden tone="info" count={option.unseen} />
       ) : null}
-      <span
-        aria-hidden
-        className="shrink-0 rounded-full bg-muted px-1.5 text-label-xs tabular-nums text-muted-foreground"
-      >
-        {option.count}
-      </span>
+      <CountBubble aria-hidden count={option.count} />
       <span className="sr-only">
         {option.unseen > 0 ? `${option.unseen} unseen, ` : ""}
         {option.count} {option.count === 1 ? itemNoun[0] : itemNoun[1]}

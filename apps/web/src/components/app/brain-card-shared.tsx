@@ -4,19 +4,18 @@ import { Check, Copy, History, Trash2 } from "lucide-react";
 import { useCopyText } from "@/hooks/use-copy";
 import { useAgentName } from "@/hooks/use-agent-tree";
 import { formatDateTime, formatRelativeTime } from "@/lib/format";
-import { cn } from "@/lib/utils";
+import { IconButton } from "@/components/ui/icon-button";
+import { Hint } from "@/components/ui/tooltip";
 
 // ── Shared primitives ──────────────────────────────────────────
 
 export function RelativeTime({ iso }: { iso: string }): JSX.Element {
   return (
-    <time
-      dateTime={iso}
-      title={formatDateTime(iso)}
-      className="text-muted-foreground whitespace-nowrap"
-    >
-      {formatRelativeTime(iso)}
-    </time>
+    <Hint label={formatDateTime(iso)}>
+      <time dateTime={iso} className="text-muted-foreground whitespace-nowrap">
+        {formatRelativeTime(iso)}
+      </time>
+    </Hint>
   );
 }
 
@@ -32,24 +31,18 @@ export function CopyButton({
     typeof value === "string" ? value : JSON.stringify(value, null, 2);
 
   return (
-    <button
-      type="button"
+    <IconButton
+      size="icon-xs"
+      label="Copy value"
+      tooltip={copied ? "Copied" : "Copy value"}
       onClick={(e) => {
         e.stopPropagation();
         copyText(json);
       }}
-      className={cn(
-        "rounded-sm p-0.5 text-muted-foreground hover:text-foreground transition-colors",
-        className
-      )}
-      aria-label="Copy value"
+      className={className}
     >
-      {copied ? (
-        <Check className="h-3 w-3 text-success" />
-      ) : (
-        <Copy className="h-3 w-3" />
-      )}
-    </button>
+      {copied ? <Check className="text-success" /> : <Copy />}
+    </IconButton>
   );
 }
 
@@ -61,18 +54,17 @@ export function DeleteButton({
   onClick: () => void;
 }): JSX.Element {
   return (
-    <button
-      type="button"
+    <IconButton
+      size="icon-sm"
+      label={label}
       onClick={(e) => {
         e.stopPropagation();
         onClick();
       }}
-      className="inline-flex h-8 w-8 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:bg-danger/tint hover:text-danger"
-      aria-label={label}
-      title={label}
+      className="hover:bg-danger/tint hover:text-danger"
     >
-      <Trash2 className="h-3 w-3" />
-    </button>
+      <Trash2 />
+    </IconButton>
   );
 }
 
@@ -81,18 +73,19 @@ export function DeleteButton({
 export function AgentIdLabel({ agentId }: { agentId: string }): JSX.Element {
   const name = useAgentName(agentId);
   return (
-    <Link
-      to={`/activity/history/${agentId}`}
-      className="font-mono text-label-xs text-muted-foreground hover:text-foreground transition-colors"
-      title={agentId}
-      aria-label={`Open ${name} history`}
-      onClick={(e) => e.stopPropagation()}
-    >
-      <History className="inline h-3 w-3 sm:hidden" />
-      <span className="hidden max-w-40 truncate align-bottom sm:inline-block">
-        {name}
-      </span>
-    </Link>
+    <Hint label={agentId}>
+      <Link
+        to={`/activity/history/${agentId}`}
+        className="font-mono text-label-xs text-muted-foreground hover:text-foreground transition-colors"
+        aria-label={`Open ${name} history`}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <History className="inline h-3 w-3 sm:hidden" />
+        <span className="hidden max-w-40 truncate align-bottom sm:inline-block">
+          {name}
+        </span>
+      </Link>
+    </Hint>
   );
 }
 

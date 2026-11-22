@@ -20,6 +20,8 @@ import {
   DialogTrigger,
   DialogClose,
 } from "@/components/ui/dialog";
+import { IconButton } from "@/components/ui/icon-button";
+import { Hint } from "@/components/ui/tooltip";
 import {
   upcomingSchedulesKey,
   cadence,
@@ -155,17 +157,12 @@ export function ScheduledMessagesButton({
             {s.status !== "uncertain" && (
               <Button
                 size="sm"
-                className="min-h-11"
                 disabled={mutation.isPending}
                 onClick={() =>
                   action(s, s.status === "paused" ? "resume" : "pause")
                 }
               >
-                {s.status === "paused" ? (
-                  <Play className="mr-1.5 h-3.5 w-3.5" />
-                ) : (
-                  <Pause className="mr-1.5 h-3.5 w-3.5" />
-                )}
+                {s.status === "paused" ? <Play /> : <Pause />}
                 {pending && mutation.variables?.action !== "cancel"
                   ? s.status === "paused"
                     ? "Resuming…"
@@ -177,8 +174,8 @@ export function ScheduledMessagesButton({
             )}
             <Button
               size="sm"
-              variant="ghost-destructive"
-              className="min-h-11"
+              variant="ghost"
+              tone="danger"
               disabled={mutation.isPending}
               onClick={() => action(s, "cancel")}
             >
@@ -231,7 +228,7 @@ export function ScheduledMessagesButton({
             <Button
               variant="ghost"
               size="sm"
-              className="px-0 text-body-sm text-primary hover:text-primary min-h-11"
+              className="text-body-sm text-primary hover:text-primary"
               onClick={(event) => {
                 fallbackFocus.current = event.currentTarget;
               }}
@@ -239,28 +236,29 @@ export function ScheduledMessagesButton({
               {ended ? "View schedule" : "Manage schedule"}
             </Button>
           ) : (
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="h-7 gap-1.5 rounded-md px-2 text-heading-accent-1 hover:bg-muted pointer-coarse:h-11"
-              aria-label={`Scheduled messages, ${stateLabel}`}
-              title={`Scheduled messages, ${stateLabel}`}
-              data-testid="scheduled-messages-trigger"
-              onClick={(event) => {
-                fallbackFocus.current =
-                  event.currentTarget.parentElement?.querySelector<HTMLElement>(
-                    '[data-testid="chat-filters-trigger"]'
-                  ) ?? null;
-              }}
-            >
-              <Clock className="h-3.5 w-3.5 text-heading-accent-1" />
-              {current.length > 1 && (
-                <span className="text-body-sm font-medium tabular-nums">
-                  {current.length}
-                </span>
-              )}
-            </Button>
+            <Hint label={`Scheduled messages, ${stateLabel}`}>
+              <Button
+                type="button"
+                variant="ghost"
+                size="xs"
+                className="text-heading-accent-1 hover:bg-muted"
+                aria-label={`Scheduled messages, ${stateLabel}`}
+                data-testid="scheduled-messages-trigger"
+                onClick={(event) => {
+                  fallbackFocus.current =
+                    event.currentTarget.parentElement?.querySelector<HTMLElement>(
+                      '[data-testid="chat-filters-trigger"]'
+                    ) ?? null;
+                }}
+              >
+                <Clock className="text-heading-accent-1" />
+                {current.length > 1 && (
+                  <span className="text-body-sm font-medium tabular-nums">
+                    {current.length}
+                  </span>
+                )}
+              </Button>
+            </Hint>
           )}
         </DialogTrigger>
       )}
@@ -275,14 +273,12 @@ export function ScheduledMessagesButton({
         }}
       >
         <DialogClose asChild>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="absolute right-2 top-2 h-11 w-11"
-            aria-label="Close scheduled messages"
+          <IconButton
+            className="absolute right-2 top-2"
+            label="Close scheduled messages"
           >
-            <X className="h-4 w-4" />
-          </Button>
+            <X />
+          </IconButton>
         </DialogClose>
         <DialogHeader className="shrink-0 border-b border-border-subtle px-4 py-3 pr-14">
           <DialogTitle className="flex items-center gap-2 text-heading-md">

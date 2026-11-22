@@ -12,6 +12,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { IconButton } from "@/components/ui/icon-button";
+import { Switch } from "@/components/ui/switch";
 import {
   AGENT_TYPE_LABELS,
   type AgentType,
@@ -32,25 +34,12 @@ export function SwitchToggle({
   disabled?: boolean;
 }) {
   return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={checked}
+    <Switch
+      checked={checked}
       aria-label={ariaLabel}
       disabled={disabled}
-      onClick={() => onCheckedChange(!checked)}
-      className={cn(
-        "inline-flex h-6 w-11 shrink-0 items-center rounded-full border border-transparent p-0.5 transition-colors focus-ring disabled:cursor-not-allowed disabled-state disabled:pointer-events-auto",
-        checked ? "bg-primary" : "bg-muted"
-      )}
-    >
-      <span
-        className={cn(
-          "h-5 w-5 rounded-full bg-background shadow-sm transition-transform",
-          checked ? "translate-x-5" : "translate-x-0"
-        )}
-      />
-    </button>
+      onCheckedChange={onCheckedChange}
+    />
   );
 }
 
@@ -176,7 +165,6 @@ export function JobWorktreeOption({
           checked={checked}
           onCheckedChange={() => onCheckedChange(!checked)}
           className="mt-0.5"
-          title="Toggle git worktree"
         />
         <span className="space-y-1">
           <span className="flex items-center gap-1.5 text-body-md font-medium text-foreground">
@@ -227,7 +215,6 @@ export function JobKeepAgentOption({
         onCheckedChange={() => onCheckedChange(!checked)}
         disabled={disabled}
         className="mt-0.5"
-        title="Keep agent after run completes"
       />
       <span className="space-y-1">
         <span className="block text-body-md font-medium text-foreground">
@@ -255,7 +242,6 @@ export function JobFullAccessOption({
         checked={checked}
         onCheckedChange={() => onCheckedChange(!checked)}
         className="mt-0.5"
-        title="Toggle full access"
       />
       <span className="space-y-1">
         <span className="block text-body-md font-medium text-foreground">
@@ -290,18 +276,14 @@ export function WebhookUrl({ secret }: { secret: string }) {
       </div>
       <div className="mt-1 flex items-center gap-2">
         <code className="min-w-0 flex-1 truncate text-body-sm">{url}</code>
-        <button
-          type="button"
-          className="shrink-0 rounded-sm p-1 text-muted-foreground hover:text-foreground"
+        <IconButton
+          size="icon-sm"
+          label="Copy webhook URL"
+          tooltip={copied ? "Copied" : "Copy webhook URL"}
           onClick={copy}
-          aria-label="Copy webhook URL"
         >
-          {copied ? (
-            <Check className="h-3.5 w-3.5 text-info" />
-          ) : (
-            <Copy className="h-3.5 w-3.5" />
-          )}
-        </button>
+          {copied ? <Check className="text-success" /> : <Copy />}
+        </IconButton>
       </div>
       <div className="mt-1 text-label-sm text-faint">
         POST to this URL to trigger a run. No auth header required.

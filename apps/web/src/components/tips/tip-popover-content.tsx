@@ -1,6 +1,8 @@
 import { Sparkles, X } from "lucide-react";
 
 import type { Tip } from "@/lib/tips/tips";
+import { Button } from "@/components/ui/button";
+import { IconButton } from "@/components/ui/icon-button";
 
 type TipPopoverContentProps = {
   tip: Tip;
@@ -24,33 +26,34 @@ export function TipPopoverContent({
             {tip.title}
           </span>
         </div>
-        <button
-          onClick={onDismiss}
-          className="shrink-0 rounded-sm p-0.5 text-faint transition-colors hover:text-foreground"
-        >
-          <X className="h-3.5 w-3.5" />
-        </button>
+        <IconButton size="icon-xs" label="Dismiss tip" onClick={onDismiss}>
+          <X />
+        </IconButton>
       </div>
       <p className="mb-2 text-body-sm leading-relaxed text-muted-foreground">
         {tip.body}
       </p>
       <div className="flex items-center justify-between">
         {tip.docsSection ? (
-          <button
+          <Button
+            size="inline"
+            variant="ghost"
             onClick={() => onOpenDocs?.(tip.docsSection!)}
-            className="text-label-sm text-status-merged/soft transition-colors hover:text-status-merged"
+            className="text-label-sm text-status-merged hover:bg-transparent hover:text-status-merged hover:underline"
           >
             Learn more →
-          </button>
+          </Button>
         ) : (
           <span />
         )}
-        <button
+        <Button
+          size="inline"
+          variant="ghost"
           onClick={onDisableAll}
-          className="text-label-xs text-faint transition-colors hover:text-muted-foreground"
+          className="text-label-xs hover:bg-transparent"
         >
           Don't show tips
-        </button>
+        </Button>
       </div>
     </div>
   );

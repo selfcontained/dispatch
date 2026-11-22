@@ -10,7 +10,6 @@ import {
 import { MoreHorizontal } from "lucide-react";
 import type { TaskBoard, TaskColumn } from "@/hooks/use-tasks";
 import { useTaskActions } from "@/hooks/use-tasks";
-import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -18,6 +17,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { IconButton } from "@/components/ui/icon-button";
 import { cn } from "@/lib/utils";
 import { MENU_ITEM, orderedColumns } from "./task-utils";
 import { TaskCapacityDialog } from "./task-column-capacity";
@@ -63,15 +63,13 @@ export function TaskColumnMenu({
     <>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button
+          <IconButton
             ref={menuButton}
-            size="icon"
-            variant="ghost"
-            aria-label={`${column.name} menu`}
-            className="h-7 w-7 text-muted-foreground"
+            size="icon-sm"
+            label={`${column.name} menu`}
           >
-            <MoreHorizontal className="h-4 w-4" aria-hidden="true" />
-          </Button>
+            <MoreHorizontal aria-hidden="true" />
+          </IconButton>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
           <DropdownMenuItem

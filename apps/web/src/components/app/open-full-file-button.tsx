@@ -5,6 +5,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ExternalLink } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { Hint } from "@/components/ui/tooltip";
 import { api } from "@/lib/api";
 import { useProjectNavigate } from "@/hooks/use-projects";
 
@@ -44,47 +45,50 @@ export function OpenFullFileButton({
   const [pending, setPending] = useState(false);
   const unavailable = deleted || !agentId || !workspace;
   return (
-    <Button
-      variant="ghost"
-      size="sm"
-      className="h-7 shrink-0 gap-1 px-2 text-body-sm"
-      disabled={unavailable || pending}
-      aria-label={`View file: ${path}`}
-      title={
+    <Hint
+      label={
         unavailable ? "Full file unavailable in the working tree" : "View file"
       }
-      onClick={async () => {
-        if (unavailable || pending) return;
-        const version = ++requestVersion.current;
-        const key = location.key;
-        const current = () =>
-          alive.current &&
-          version === requestVersion.current &&
-          key === routeKey.current;
-        setPending(true);
-        try {
-          await api(
-            `/api/v1/agents/${encodeURIComponent(agentId)}/workspace?${new URLSearchParams({ workspace, path, file: "true" })}`
-          );
-          if (!current()) return;
-          const params = new URLSearchParams(window.location.search);
-          for (const key of ["file", "line", "path", "finding"])
-            params.delete(key);
-          params.set("files.path", path);
-          setBrowser((old) => ({ ...old, browse: false }));
-          navigate(`/agents/${encodeURIComponent(agentId)}/files?${params}`);
-        } catch {
-          if (current())
-            toast.error(`Full file unavailable in the working tree: ${path}`);
-        } finally {
-          setPending(false);
-        }
-      }}
     >
-      <ExternalLink className="h-3.5 w-3.5" />
-      <span className="hidden [@container(min-width:360px)]:inline">
-        View file
-      </span>
-    </Button>
+      <Button
+        variant="ghost"
+        size="xs"
+        className="shrink-0 disabled:pointer-events-auto"
+        disabled={unavailable || pending}
+        aria-label={`View file: ${path}`}
+        onClick={async () => {
+          if (unavailable || pending) return;
+          const version = ++requestVersion.current;
+          const key = location.key;
+          const current = () =>
+            alive.current &&
+            version === requestVersion.current &&
+            key === routeKey.current;
+          setPending(true);
+          try {
+            await api(
+              `/api/v1/agents/${encodeURIComponent(agentId)}/workspace?${new URLSearchParams({ workspace, path, file: "true" })}`
+            );
+            if (!current()) return;
+            const params = new URLSearchParams(window.location.search);
+            for (const key of ["file", "line", "path", "finding"])
+              params.delete(key);
+            params.set("files.path", path);
+            setBrowser((old) => ({ ...old, browse: false }));
+            navigate(`/agents/${encodeURIComponent(agentId)}/files?${params}`);
+          } catch {
+            if (current())
+              toast.error(`Full file unavailable in the working tree: ${path}`);
+          } finally {
+            setPending(false);
+          }
+        }}
+      >
+        <ExternalLink />
+        <span className="hidden [@container(min-width:360px)]:inline">
+          View file
+        </span>
+      </Button>
+    </Hint>
   );
 }

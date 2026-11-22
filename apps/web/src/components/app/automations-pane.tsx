@@ -4,7 +4,6 @@ import { useProjectNavigate } from "@/hooks/use-projects";
 import { useCallback, useState } from "react";
 import { useLocation, useParams } from "react-router-dom";
 import { AlarmClock, Brain, FormInput, Play } from "lucide-react";
-import { motion } from "framer-motion";
 
 import { JobsProvider } from "@/components/app/jobs-context";
 import { JobListContent } from "@/components/app/jobs-list-content";
@@ -17,6 +16,11 @@ import { TemplateDetailPane } from "@/components/app/automations-template-detail
 import type { AgentType } from "@/lib/agent-types";
 import { type Agent } from "@/components/app/types";
 import { Button } from "@/components/ui/button";
+import { IconButton } from "@/components/ui/icon-button";
+import {
+  SegmentedControl,
+  SegmentedControlItem,
+} from "@/components/ui/segmented-control";
 import { useTemplates, type Template } from "@/hooks/use-templates";
 import { agentRoute } from "@/lib/agent-routes";
 import { shortPath } from "@/lib/format";
@@ -52,26 +56,25 @@ function AutomationsSidebar({
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="mt-2 flex h-14 items-center border-b border-border px-3">
-        <div className="flex w-full gap-1 rounded-lg bg-fill-inset p-0.5">
-          <TabButton
-            active={activeTab === "templates"}
-            onClick={() => onTabChange("templates")}
-            icon={<FormInput className="h-3.5 w-3.5" />}
-            label="Templates"
-          />
-          <TabButton
-            active={activeTab === "jobs"}
-            onClick={() => onTabChange("jobs")}
-            icon={<AlarmClock className="h-3.5 w-3.5" />}
-            label="Jobs"
-          />
-          <TabButton
-            active={activeTab === "brains"}
-            onClick={() => onTabChange("brains")}
-            icon={<Brain className="h-3.5 w-3.5" />}
-            label="Brains"
-          />
-        </div>
+        <SegmentedControl
+          layout="fill"
+          aria-label="Automations"
+          value={activeTab}
+          onValueChange={onTabChange}
+        >
+          <SegmentedControlItem value="templates" className="px-1">
+            <FormInput />
+            Templates
+          </SegmentedControlItem>
+          <SegmentedControlItem value="jobs" className="px-1">
+            <AlarmClock />
+            Jobs
+          </SegmentedControlItem>
+          <SegmentedControlItem value="brains" className="px-1">
+            <Brain />
+            Brains
+          </SegmentedControlItem>
+        </SegmentedControl>
       </div>
       {activeTab === "templates" ? (
         <TemplateListContent
@@ -84,41 +87,6 @@ function AutomationsSidebar({
         <BrainsListContent onItemSelect={onItemSelect} />
       )}
     </div>
-  );
-}
-
-function TabButton({
-  active,
-  onClick,
-  icon,
-  label,
-}: {
-  active: boolean;
-  onClick: () => void;
-  icon: React.ReactNode;
-  label: string;
-}): JSX.Element {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(
-        "relative flex flex-1 items-center justify-center gap-1.5 rounded-md px-3 py-1.5 text-body-sm font-medium transition-colors",
-        active ? "text-primary" : "text-muted-foreground hover:text-foreground"
-      )}
-    >
-      {active ? (
-        <motion.div
-          layoutId="automations-tab-indicator"
-          className="absolute inset-0 rounded-md bg-surface-selected"
-          transition={{ type: "spring", bounce: 0.15, duration: 0.4 }}
-        />
-      ) : null}
-      <span className="relative z-sticky flex items-center gap-1.5">
-        {icon}
-        {label}
-      </span>
-    </button>
   );
 }
 
@@ -148,13 +116,8 @@ function TemplateListContent({
         <div className="min-w-0 flex-1">
           <ProjectSwitcher />
         </div>
-        <Button
-          size="sm"
-          variant="default"
-          className="bg-surface-subtle text-muted-foreground hover:bg-surface-hover hover:text-foreground"
-          onClick={() => setShowCreate(true)}
-        >
-          <FormInput className="mr-1 h-4 w-4" />
+        <Button size="sm" onClick={() => setShowCreate(true)}>
+          <FormInput />
           Create
         </Button>
       </div>
@@ -258,14 +221,14 @@ function TemplateListItem({
               </div>
             )}
           </div>
-          <button
-            type="button"
+          <IconButton
+            size="icon-sm"
+            label="Launch template"
             onClick={handleLaunch}
-            title="Launch template"
-            className="shrink-0 rounded-sm p-2 text-muted-foreground opacity-0 pointer-events-none transition-opacity hover:bg-fill-hover hover:text-primary group-hover:opacity-100 group-hover:pointer-events-auto"
+            className="opacity-0 transition-opacity hover:text-primary focus-visible:opacity-100 group-hover:opacity-100 pointer-coarse:opacity-100"
           >
-            <Play className="h-3 w-3 fill-current" />
-          </button>
+            <Play className="fill-current" />
+          </IconButton>
         </div>
       </div>
       <LaunchTemplateDialog

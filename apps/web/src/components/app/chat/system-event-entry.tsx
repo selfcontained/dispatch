@@ -138,19 +138,18 @@ export function SystemEventEntry({
         </span>
       )}
       {event.risk && (
-        <Badge variant="default" className={MERGE_RISK[event.risk].badge}>
+        <Badge className={MERGE_RISK[event.risk].badge}>
           {MERGE_RISK[event.risk].label}
         </Badge>
       )}
       {status && !inline && (
         <Badge
-          variant="default"
-          className={
+          tone={
             status === "Failing"
-              ? "border-danger/line bg-danger/tint text-danger"
+              ? "danger"
               : status === "Passing"
-                ? "border-success/line bg-success/tint text-success"
-                : "text-muted-foreground"
+                ? "success"
+                : "neutral"
           }
         >
           {status}
@@ -216,7 +215,7 @@ export function SystemEventEntry({
             <CollapsibleTrigger asChild>
               <Button
                 variant="ghost"
-                size="sm"
+                size="stream-sm"
                 className="ml-auto h-5 gap-1 bg-transparent px-1 text-body-sm hover:bg-transparent hover:text-foreground focus-visible:bg-transparent data-[state=open]:bg-transparent"
               >
                 Details

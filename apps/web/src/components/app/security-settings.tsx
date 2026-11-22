@@ -154,7 +154,7 @@ export function SecuritySettings({
         <div>
           <h3 className="mb-4 section-label">Session</h3>
           <Button
-            variant="destructive"
+            variant="danger"
             onClick={onLogout}
             data-testid="logout-button"
           >

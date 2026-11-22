@@ -181,7 +181,7 @@ function ResultBody({
           <CollapsibleTrigger asChild>
             <Button
               variant="ghost"
-              size="sm"
+              size="stream-sm"
               className="group h-auto gap-1 px-0 py-1 text-body-sm text-muted-foreground hover:bg-transparent"
             >
               <ChevronRight className="h-3 w-3 group-data-[state=open]:rotate-90" />

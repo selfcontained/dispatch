@@ -1,4 +1,5 @@
-// Keeps class strings on the design tokens (tailwind.config.ts, src/index.css).
+// Keeps class strings on the design tokens (tailwind.config.ts, src/index.css)
+// and call sites on the shared controls (src/components/ui).
 // Tailwind only sees classes written out in literals, so checking every string
 // and template literal covers className, cn(), cva and class constants alike.
 
@@ -154,4 +155,146 @@ const designTokens = {
   },
 };
 
-export default { rules: { "design-tokens": designTokens } };
+const CONTROLS = new Set(["Button", "IconButton", "SplitButton"]);
+const TITLED = new Set([
+  ...CONTROLS,
+  "RowButton",
+  "ChipButton",
+  "SegmentedControlItem",
+  "button",
+]);
+const SIZING = /^(?:(?:h|min-h|max-h|size)-|p[xytrblse]?-)/;
+
+/** The string literals an attribute can render, following local constants. */
+function classStrings(node, scope, seen = new Set()) {
+  if (!node || typeof node !== "object" || seen.has(node)) return [];
+  seen.add(node);
+  const read = (child) => classStrings(child, scope, seen);
+  switch (node.type) {
+    case "Literal":
+      return typeof node.value === "string" ? [node.value] : [];
+    case "TemplateLiteral":
+      return [
+        ...node.quasis.map(({ value }) => value.cooked ?? value.raw),
+        ...node.expressions.flatMap(read),
+      ];
+    case "JSXExpressionContainer":
+      return read(node.expression);
+    case "CallExpression":
+      return node.arguments.flatMap(read);
+    case "ConditionalExpression":
+      return [...read(node.consequent), ...read(node.alternate)];
+    case "LogicalExpression":
+      return node.operator === "&&"
+        ? read(node.right)
+        : [...read(node.left), ...read(node.right)];
+    case "BinaryExpression":
+      return node.operator === "+"
+        ? [...read(node.left), ...read(node.right)]
+        : [];
+    case "ArrayExpression":
+      return node.elements.flatMap(read);
+    case "Identifier":
+      for (let current = scope; current; current = current.upper) {
+        const variable = current.set.get(node.name);
+        if (variable) return read(variable.defs[0]?.node.init);
+      }
+      return [];
+    default:
+      return [];
+  }
+}
+
+// Holds call sites to the shared controls in src/components/ui.
+const controls = {
+  meta: {
+    type: "problem",
+    docs: { description: "Use the shared controls without resizing them" },
+    messages: {
+      rawButton:
+        "Use Button, IconButton, RowButton or ChipButton from components/ui.",
+      sizing:
+        '"{{token}}": pick a size on the control (xs, sm, md, wrap, inline, icon-xs/sm/md) instead of setting height or padding.',
+      iconButton: "Use IconButton, which requires a label and shows it.",
+      streamSize: "The stream-* sizes are only for the stream.",
+      title:
+        "Use IconButton's tooltip or Hint. title= is only for truncated text.",
+    },
+    schema: [
+      {
+        type: "object",
+        properties: {
+          // Exceptions name one file and one message id.
+          allow: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                file: { type: "string" },
+                id: { type: "string" },
+              },
+              required: ["file", "id"],
+              additionalProperties: false,
+            },
+          },
+        },
+        additionalProperties: false,
+      },
+    ],
+  },
+  create(context) {
+    const filename = context.filename.replaceAll("\\", "/");
+    const allowed = new Set(
+      (context.options[0]?.allow ?? [])
+        .filter(({ file }) => filename.endsWith(`/${file}`))
+        .map(({ id }) => id)
+    );
+    const report = (node, messageId, data) => {
+      if (!allowed.has(messageId)) context.report({ node, messageId, data });
+    };
+    return {
+      JSXOpeningElement(node) {
+        const name = node.name.type === "JSXIdentifier" ? node.name.name : "";
+        if (!TITLED.has(name)) return;
+        if (name === "button") report(node, "rawButton");
+        for (const attribute of node.attributes) {
+          if (attribute.type !== "JSXAttribute") continue;
+          const prop = attribute.name.name;
+          if (prop === "title" && name !== "RowButton") {
+            report(attribute, "title");
+          }
+          if (!CONTROLS.has(name)) continue;
+          const strings = () =>
+            classStrings(
+              attribute.value,
+              context.sourceCode.getScope(attribute)
+            );
+          if (prop === "size") {
+            const sizes = strings();
+            if (sizes.some((size) => size.startsWith("stream-"))) {
+              report(attribute, "streamSize");
+            }
+            if (
+              name === "Button" &&
+              sizes.some((size) => size.startsWith("icon-"))
+            ) {
+              report(attribute, "iconButton");
+            }
+          }
+          if (prop !== "className") continue;
+          for (const text of strings()) {
+            for (const token of text.split(/\s+/)) {
+              // A pseudo-element's box (after:size-7) is not the control's.
+              if (/(?:^|:)(?:before|after):/.test(token)) continue;
+              if (SIZING.test(baseOf(token))) {
+                report(attribute, "sizing", { token });
+              }
+            }
+          }
+        }
+      },
+    };
+  },
+};
+
+export default { rules: { "design-tokens": designTokens, controls } };

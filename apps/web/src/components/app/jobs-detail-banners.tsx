@@ -44,7 +44,7 @@ export function AttachedAgentBanner({
           </div>
         </div>
         <Button size="sm" onClick={() => void onOpenAgent(attachedAgent.agent)}>
-          <Terminal className="mr-2 h-4 w-4" />
+          <Terminal />
           Open session
         </Button>
       </div>
@@ -88,20 +88,19 @@ export function JobAddedBanner({
           }
           onClick={onRunNow}
         >
-          <Play className="mr-2 h-4 w-4" />
+          <Play />
           Run now
         </Button>
         {!job.enabled ? (
           <Button
             size="sm"
-            variant="default"
             disabled={!job.schedule && !job.continuationEnabled}
             onClick={onEnable}
           >
             {job.continuationEnabled ? "Enable job" : "Enable schedule"}
           </Button>
         ) : null}
-        <Button size="sm" variant="default" onClick={onEditSettings}>
+        <Button size="sm" onClick={onEditSettings}>
           Edit settings
         </Button>
         <Button size="sm" variant="ghost" onClick={onViewHistory}>

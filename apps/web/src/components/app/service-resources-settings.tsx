@@ -24,7 +24,7 @@ import {
   useServiceResources,
 } from "@/hooks/use-service-resources";
 import { ServiceResourcesDashboard } from "./service-resources-dashboard";
-import { stateBadgeVariant, stateLabel } from "./service-resources-format";
+import { stateBadgeTone, stateLabel } from "./service-resources-format";
 
 export function ServiceResourcesSettings(): JSX.Element {
   const [window, setWindow] = useState<ResourceWindow>("1h");
@@ -67,7 +67,7 @@ export function ServiceResourcesSettings(): JSX.Element {
           <div className="flex items-center gap-2">
             <h1 className="text-heading-lg">Service resources</h1>
             {data && collectionEnabled && (
-              <Badge variant={stateBadgeVariant(data.overall.state)}>
+              <Badge tone={stateBadgeTone(data.overall.state)}>
                 {stateLabel(data.overall.state)}
               </Badge>
             )}
@@ -197,7 +197,7 @@ export function ServiceResourcesSettings(): JSX.Element {
               Cancel
             </Button>
             <Button
-              variant={confirmingEnable ? "primary" : "destructive"}
+              variant={confirmingEnable ? "primary" : "danger"}
               onClick={confirmCollectionChange}
               disabled={collectionMutation.isPending}
               data-testid="resource-collection-confirm"

@@ -96,7 +96,7 @@ export function RequestContext({
       <div className="pointer-events-auto w-fit bg-background px-3 py-1 sm:px-4">
         <Button
           variant="ghost"
-          size="sm"
+          size="stream-sm"
           disabled={loading || (seekingLatest && !error)}
           onClick={() => {
             setSeekingLatest(true);
@@ -175,7 +175,7 @@ export function RequestContext({
           </button>
           <Button
             variant="ghost"
-            size="icon"
+            size="stream-icon"
             className="col-start-2 row-start-1 h-7 w-7 shrink-0 pointer-coarse:h-9 pointer-coarse:w-9 sm:col-start-3"
             aria-label="Previous message"
             disabled={busy || (index === 0 && !hasOlder)}
@@ -192,7 +192,7 @@ export function RequestContext({
           </Button>
           <Button
             variant="ghost"
-            size="icon"
+            size="stream-icon"
             className="col-start-3 row-start-1 h-7 w-7 shrink-0 pointer-coarse:h-9 pointer-coarse:w-9 sm:col-start-4"
             aria-label="Next message"
             disabled={busy || index === requests.length - 1}
@@ -255,7 +255,7 @@ export function RequestContext({
               </time>
               <Button
                 variant="ghost"
-                size="sm"
+                size="stream-sm"
                 className="h-6 rounded-sm px-0 text-label-sm font-normal hover:bg-transparent hover:underline pointer-coarse:h-8"
                 onClick={() => onJump(request.id)}
               >

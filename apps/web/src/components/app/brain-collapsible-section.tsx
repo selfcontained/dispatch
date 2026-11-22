@@ -1,5 +1,7 @@
 import { useState } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
+import { CountBubble } from "@/components/ui/count-bubble";
+import { RowButton } from "@/components/ui/row-button";
 
 export function CollapsibleSection({
   title,
@@ -33,9 +35,10 @@ export function CollapsibleSection({
   return (
     <div className="border-b border-border last:border-b-0">
       <div className="flex w-full items-center gap-1 pr-2">
-        <button
+        <RowButton
+          aria-expanded={open}
           onClick={() => setOpen((o) => !o)}
-          className="flex min-w-0 flex-1 items-center gap-2 px-3 py-3 section-label hover:text-foreground transition-colors"
+          className="min-w-0 flex-1 rounded-none px-3 py-3 section-label hover:text-foreground"
         >
           {open ? (
             <ChevronDown className="h-3.5 w-3.5" />
@@ -44,10 +47,15 @@ export function CollapsibleSection({
           )}
           <Icon className="h-3.5 w-3.5" />
           <span>{title}</span>
-          <span className="ml-auto rounded-full bg-muted px-1.5 py-0.5 text-label-xs font-medium">
-            {visibleCount === total ? total : `${visibleCount} / ${total}`}
-          </span>
-        </button>
+          <CountBubble
+            className="ml-auto"
+            count={
+              visibleCount === total
+                ? String(total)
+                : `${visibleCount} / ${total}`
+            }
+          />
+        </RowButton>
         {headerAction}
       </div>
       {open ? <div className="pb-2">{children}</div> : null}

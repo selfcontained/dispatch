@@ -108,7 +108,7 @@ export function FillCountStudy(): JSX.Element {
             {playing ? "Pause" : "Play"}
           </Button>
           <Button
-            variant={fast ? "default" : "ghost"}
+            variant={fast ? "secondary" : "ghost"}
             aria-pressed={fast}
             onClick={() => {
               setFast((v) => !v);
@@ -135,7 +135,7 @@ export function FillCountStudy(): JSX.Element {
               <Button
                 key={n}
                 size="sm"
-                variant={fills.length === n ? "default" : "ghost"}
+                variant={fills.length === n ? "secondary" : "ghost"}
                 onClick={() => {
                   setLength(lengthFor(n));
                   setFast(false);

@@ -5,6 +5,8 @@ import { DefragActivityCheckpoint } from "./defrag-activity-checkpoint";
 import { FillCountStudy } from "./fill-count-study";
 import { THEMES, useTheme, type ThemeId } from "@/hooks/use-theme";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { RowButton } from "@/components/ui/row-button";
+import { Hint } from "@/components/ui/tooltip";
 
 function ThemePicker({
   theme,
@@ -17,27 +19,27 @@ function ThemePicker({
     <div className="flex flex-wrap items-center gap-2">
       <span className="mr-1 section-label">Theme</span>
       {THEMES.map((t) => (
-        <button
-          key={t.id}
-          onClick={() => setTheme(t.id)}
-          className={`group flex items-center gap-2 rounded-lg border px-2 py-1.5 text-body-sm transition-colors ${
-            theme === t.id
-              ? "border-primary bg-surface-selected text-foreground"
-              : "border-border bg-card text-muted-foreground hover:text-foreground"
-          }`}
-          title={t.description}
-        >
-          <span className="flex gap-0.5">
-            {t.swatches.slice(0, 3).map((swatch, i) => (
-              <span
-                key={i}
-                className="h-3 w-3 rounded-sm border border-media/tint-strong"
-                style={{ backgroundColor: swatch }}
-              />
-            ))}
-          </span>
-          {t.label}
-        </button>
+        <Hint key={t.id} label={t.description}>
+          <RowButton
+            onClick={() => setTheme(t.id)}
+            className={`group w-auto rounded-lg border px-2 py-1.5 text-body-sm ${
+              theme === t.id
+                ? "border-primary bg-surface-selected text-foreground hover:bg-surface-selected"
+                : "border-border bg-card text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            <span className="flex gap-0.5">
+              {t.swatches.slice(0, 3).map((swatch, i) => (
+                <span
+                  key={i}
+                  className="h-3 w-3 rounded-sm border border-media/tint-strong"
+                  style={{ backgroundColor: swatch }}
+                />
+              ))}
+            </span>
+            {t.label}
+          </RowButton>
+        </Hint>
       ))}
     </div>
   );

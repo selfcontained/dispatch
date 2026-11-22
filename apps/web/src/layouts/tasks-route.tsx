@@ -27,6 +27,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { ChipButton } from "@/components/ui/chip";
+import { IconButton } from "@/components/ui/icon-button";
+import { RowButton } from "@/components/ui/row-button";
+import {
+  SegmentedControl,
+  SegmentedControlItem,
+} from "@/components/ui/segmented-control";
+import { StatusDot } from "@/components/ui/status-dot";
+import { Hint } from "@/components/ui/tooltip";
 import { taskLayoutAtomFamily } from "@/lib/store";
 import { ColumnCapacity } from "@/components/app/tasks/task-column-capacity";
 import { TaskBoard } from "@/components/app/tasks/task-board";
@@ -171,51 +180,51 @@ function TasksContent({ projectId }: { projectId: string }) {
     <div className="space-y-4 p-3">
       <ProjectSwitcher allowAll={false} />
       <Button className="w-full justify-start" onClick={() => startNewTask()}>
-        <Plus className="mr-2 h-4 w-4" />
+        <Plus />
         New task
       </Button>
       <div>
         <h2 className="mb-2 px-2 section-label">Columns</h2>
         {columns.map((column, index) => (
-          <button
+          <RowButton
             key={column.id}
             data-testid={`task-nav-column-${column.key}`}
             aria-pressed={onlyColumn?.id === column.id}
             className={cn(
-              "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-body-md hover:bg-surface-hover",
+              "px-2 py-1.5 text-body-md",
               onlyColumn?.id === column.id && "bg-surface-hover font-medium"
             )}
             onClick={() => showColumn(column.id)}
           >
-            <span
-              aria-hidden="true"
-              className="h-2 w-2 shrink-0 rounded-full"
-              style={{ background: `hsl(${columnAccent(column, index)})` }}
-            />
+            <StatusDot color={`hsl(${columnAccent(column, index)})`} />
             <span className="min-w-0 flex-1 truncate">{column.name}</span>
             {column.trigger && (
-              <span
-                title={`Launches ${templateName(templates, column.trigger.templateId)} when a task enters`}
-                aria-label={`Launches ${templateName(templates, column.trigger.templateId)} when a task enters`}
-                className="inline-flex text-muted-foreground"
+              <Hint
+                label={`Launches ${templateName(templates, column.trigger.templateId)} when a task enters`}
               >
-                <Zap className="h-3.5 w-3.5" aria-hidden="true" />
-              </span>
+                <span
+                  role="img"
+                  aria-label={`Launches ${templateName(templates, column.trigger.templateId)} when a task enters`}
+                  className="inline-flex text-muted-foreground"
+                >
+                  <Zap className="size-icon-md" aria-hidden="true" />
+                </span>
+              </Hint>
             )}
             <ColumnCapacity column={column} />
-          </button>
+          </RowButton>
         ))}
         <Button
           variant="ghost"
           size="sm"
-          className="mt-2 w-full justify-start text-muted-foreground"
+          className="mt-2 w-full justify-start"
           onClick={() => {
             const name = window.prompt("New column name");
             if (name?.trim())
               void actions.createColumn.mutateAsync({ name: name.trim() });
           }}
         >
-          <Plus className="mr-1 h-3.5 w-3.5" /> Add column
+          <Plus /> Add column
         </Button>
       </div>
     </div>
@@ -236,86 +245,55 @@ function TasksContent({ projectId }: { projectId: string }) {
               </span>
             </h1>
             {onlyColumn && (
-              <button
+              <ChipButton
                 data-testid="task-column-filter"
-                className="flex shrink-0 items-center gap-1.5 rounded-full bg-surface-hover py-0.5 pl-2 pr-1.5 text-body-sm hover:bg-muted"
+                className="max-w-32 shrink"
                 onClick={() => updateParam("column", null)}
                 aria-label={`Show all columns (showing only ${onlyColumn.name})`}
               >
-                <span
-                  aria-hidden="true"
-                  className="h-2 w-2 rounded-full"
-                  style={{
-                    background: `hsl(${columnAccent(onlyColumn, columns.indexOf(onlyColumn))})`,
-                  }}
+                <StatusDot
+                  color={`hsl(${columnAccent(onlyColumn, columns.indexOf(onlyColumn))})`}
                 />
-                {onlyColumn.name}
-                <X
-                  className="h-3 w-3 text-muted-foreground"
-                  aria-hidden="true"
-                />
-              </button>
+                <span className="min-w-0 truncate">{onlyColumn.name}</span>
+                <X aria-hidden="true" />
+              </ChipButton>
             )}
-            <Button
-              size="icon"
-              variant="ghost"
+            <IconButton
               className="md:hidden"
-              aria-label="New task"
+              label="New task"
               onClick={() => startNewTask()}
             >
-              <Plus className="h-4 w-4" />
-            </Button>
+              <Plus />
+            </IconButton>
             <Button
               size="sm"
-              variant={archived ? "default" : "ghost"}
-              // Ghost reserves the 1px border the selected variant draws, so
-              // toggling never changes the control's size.
-              className={cn(
-                archived
-                  ? "bg-primary/tint-strong text-primary ring-1 ring-primary/line hover:bg-primary/tint-strong"
-                  : "border border-transparent"
-              )}
-              aria-pressed={archived}
+              variant="ghost"
+              pressed={archived}
               onClick={() => updateParam("view", archived ? null : "archived")}
             >
               Archived
             </Button>
-            <div className="flex shrink-0 rounded-lg bg-surface-hover p-0.5 md:order-last">
-              <Button
-                size="sm"
-                variant={layout === "board" ? "default" : "ghost"}
-                aria-pressed={layout === "board"}
-                onClick={() => setLayout("board")}
-                aria-label="Board layout"
-                className={cn(
-                  "h-7 px-2",
-                  layout !== "board" && "border border-transparent"
-                )}
-              >
-                <LayoutGrid className="h-4 w-4 md:mr-1" />
+            <SegmentedControl
+              aria-label="Layout"
+              className="shrink-0 md:order-last"
+              value={layout}
+              onValueChange={setLayout}
+            >
+              <SegmentedControlItem value="board" aria-label="Board layout">
+                <LayoutGrid />
                 <span className="hidden md:inline">Board</span>
-              </Button>
-              <Button
-                size="sm"
-                variant={layout === "list" ? "default" : "ghost"}
-                aria-pressed={layout === "list"}
-                onClick={() => setLayout("list")}
-                aria-label="List layout"
-                className={cn(
-                  "h-7 px-2",
-                  layout !== "list" && "border border-transparent"
-                )}
-              >
-                <List className="h-4 w-4 md:mr-1" />
+              </SegmentedControlItem>
+              <SegmentedControlItem value="list" aria-label="List layout">
+                <List />
                 <span className="hidden md:inline">List</span>
-              </Button>
-            </div>
+              </SegmentedControlItem>
+            </SegmentedControl>
           </div>
           <div className="flex min-w-0 flex-wrap items-center gap-2 md:flex-nowrap">
             <Input
               aria-label="Search tasks"
               placeholder="Search tasks"
-              className="h-8 min-w-0 flex-1 basis-full md:w-44 md:flex-none md:basis-auto"
+              className="h-8 min-w-0 flex-1 basis-full md:w-44 md:flex-none md:basis-auto pointer-coarse:h-11"
               value={search}
               onChange={(event) => setSearch(event.target.value)}
             />
@@ -328,7 +306,7 @@ function TasksContent({ projectId }: { projectId: string }) {
             <Select value={assignee} onValueChange={setAssignee}>
               <SelectTrigger
                 aria-label="Filter by assignee"
-                className="h-8 w-40 min-w-0 flex-1 basis-0 md:flex-none md:basis-auto"
+                className="h-8 w-40 min-w-0 flex-1 basis-0 md:flex-none md:basis-auto pointer-coarse:h-11"
               >
                 <SelectValue />
               </SelectTrigger>
@@ -397,12 +375,12 @@ function TasksContent({ projectId }: { projectId: string }) {
                       key={task.id}
                       className="flex items-center gap-3 border-b border-border-subtle py-3"
                     >
-                      <button
-                        className="min-w-0 flex-1 truncate text-left text-body-md hover:underline"
+                      <RowButton
+                        className="min-w-0 flex-1 rounded-sm text-body-md hover:bg-transparent hover:underline"
                         onClick={() => openTask(task.id)}
                       >
-                        {task.title}
-                      </button>
+                        <span className="min-w-0 truncate">{task.title}</span>
+                      </RowButton>
                       <span className="text-body-sm text-muted-foreground">
                         {
                           columns.find((column) => column.id === task.columnId)
@@ -410,17 +388,17 @@ function TasksContent({ projectId }: { projectId: string }) {
                         }
                       </span>
                       {task.archivedAt && (
-                        <time
-                          className="text-body-sm text-muted-foreground"
-                          dateTime={task.archivedAt}
-                          title={formatDateTime(task.archivedAt)}
-                        >
-                          Archived {formatRelativeCompact(task.archivedAt)}
-                        </time>
+                        <Hint label={formatDateTime(task.archivedAt)}>
+                          <time
+                            className="text-body-sm text-muted-foreground"
+                            dateTime={task.archivedAt}
+                          >
+                            Archived {formatRelativeCompact(task.archivedAt)}
+                          </time>
+                        </Hint>
                       )}
                       <Button
                         size="sm"
-                        variant="default"
                         disabled={actions.restore.isPending}
                         onClick={() => actions.restore.mutate(task.id)}
                       >
@@ -515,9 +493,9 @@ export function TasksRoute(): JSX.Element {
           </p>
           <div className="space-y-1">
             {projects.map((project) => (
-              <button
+              <RowButton
                 key={project.id}
-                className="flex w-full items-center justify-center gap-3 rounded-lg border border-border-subtle bg-card/veil px-3 py-2 text-body-md hover:bg-surface-hover"
+                className="justify-center gap-3 rounded-lg border border-border-subtle bg-card/veil px-3 py-2 text-body-md"
                 onClick={() => {
                   const next = new URLSearchParams(params);
                   next.set("project", project.id);
@@ -526,7 +504,7 @@ export function TasksRoute(): JSX.Element {
               >
                 <ProjectIcon project={project} className="h-5 w-5" />
                 <span className="min-w-0 truncate">{project.name}</span>
-              </button>
+              </RowButton>
             ))}
           </div>
         </div>

@@ -9,6 +9,7 @@ import {
 } from "@/components/app/brain-card-shared";
 import { useBrainListItems, type BrainList } from "@/hooks/use-brain";
 import { cn } from "@/lib/utils";
+import { RowButton } from "@/components/ui/row-button";
 
 // ── List card with inline items ─────────────────────────────────
 
@@ -112,14 +113,14 @@ export function ListCard({
             />
           ))}
           {!expanded && list.itemCount > 5 ? (
-            <button
+            <RowButton
               onClick={() => setExpanded(true)}
-              className="w-full px-2 py-1.5 text-label-xs text-muted-foreground hover:text-foreground transition-colors text-center"
+              className="justify-center rounded-none px-2 py-1.5 text-label-xs text-muted-foreground hover:text-foreground"
             >
               {list.itemCount <= 50
                 ? `Show all ${list.itemCount} items`
                 : `Show first 50 of ${list.itemCount} items`}
-            </button>
+            </RowButton>
           ) : null}
         </div>
       ) : null}

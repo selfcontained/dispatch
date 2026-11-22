@@ -19,6 +19,8 @@ import { toast, Toaster } from "sonner";
 
 import { conversationLocation } from "@/components/app/chat/conversation-location-link";
 import { Markdown } from "@/components/ui/markdown";
+import { IconButton } from "@/components/ui/icon-button";
+import { RowButton } from "@/components/ui/row-button";
 import { useAgentFocus, viewingAgentIdOf } from "@/hooks/use-agent-focus";
 import { formatRelativeTime } from "@/lib/format";
 import { agentRoute } from "@/lib/agent-routes";
@@ -192,7 +194,8 @@ export function AttentionCard({
   // links aren't nested inside it. It's named from the rendered text, which
   // reads as plain words with no Markdown symbols.
   const actionProps = {
-    className: "absolute inset-0 focus-ring-inset",
+    className:
+      "absolute inset-0 rounded-none hover:bg-transparent focus-ring-inset",
     "aria-labelledby": [
       `${ids}-name`,
       `${ids}-kind`,
@@ -232,7 +235,7 @@ export function AttentionCard({
             {...actionProps}
           />
         ) : (
-          <button type="button" onClick={onOpen} {...actionProps} />
+          <RowButton onClick={onOpen} {...actionProps} />
         )}
         <span
           aria-hidden
@@ -285,14 +288,13 @@ export function AttentionCard({
       </div>
 
       {onDismiss ? (
-        <button
-          type="button"
-          aria-label="Dismiss"
+        <IconButton
+          label="Dismiss"
           onClick={onDismiss}
-          className="shrink-0 self-start p-3 text-muted-foreground transition-colors hover:text-foreground focus-ring-inset"
+          className="m-1 self-start focus-ring-inset"
         >
-          <X className="size-4" />
-        </button>
+          <X />
+        </IconButton>
       ) : null}
     </div>
   );

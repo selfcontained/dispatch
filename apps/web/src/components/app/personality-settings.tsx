@@ -3,6 +3,7 @@ import { LayoutGroup, motion } from "framer-motion";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { IconButton } from "@/components/ui/icon-button";
 import { RadioIndicator } from "@/components/app/radio-indicator";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -271,20 +272,19 @@ export function PersonalitySettings(): JSX.Element {
             : "border-border hover:border-muted-foreground/line"
         )}
       >
-        <button
-          type="button"
+        <IconButton
           onClick={() => void toggleActive(personality.id)}
           aria-pressed={isActive}
-          aria-label={
+          label={
             isActive
               ? `Deactivate ${personality.name}`
               : `Activate ${personality.name}`
           }
-          className="-m-2 flex h-9 w-9 shrink-0 items-center justify-center rounded-sm transition-colors hover:bg-surface-hover focus-ring"
+          className="-m-2"
           data-testid={`personality-toggle-${personality.id}`}
         >
           <RadioIndicator selected={isActive} className="mt-0" />
-        </button>
+        </IconButton>
         <div className="min-w-0 flex-1">
           <div className="text-body-md font-medium text-foreground">
             {personality.name}
@@ -343,7 +343,6 @@ export function PersonalitySettings(): JSX.Element {
             <Button
               type="button"
               size="sm"
-              variant="default"
               onClick={startCreate}
               data-testid="personality-new"
             >

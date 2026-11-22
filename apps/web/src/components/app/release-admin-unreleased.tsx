@@ -1,7 +1,7 @@
 import { RefreshCw } from "lucide-react";
 import { cleanError, formatAgo } from "@/components/app/release-utils";
 import { ActivityBars } from "@/components/ui/activity-bars";
-import { Button } from "@/components/ui/button";
+import { IconButton } from "@/components/ui/icon-button";
 import type { ReleaseInfo, ReleaseProgress } from "@/hooks/use-release-stream";
 import { cn } from "@/lib/utils";
 
@@ -35,18 +35,14 @@ export function UnreleasedChanges({
               Checked {formatAgo(lastCheckedAt, now)}
             </span>
           )}
-          <Button
-            variant="ghost"
-            size="icon"
-            aria-label="Refresh unreleased changes"
-            title="Refresh"
+          <IconButton
+            tooltip="Refresh"
+            label="Refresh unreleased changes"
             onClick={onRefresh}
             disabled={infoLoading}
           >
-            <RefreshCw
-              className={cn("h-3.5 w-3.5", infoLoading && "animate-spin")}
-            />
-          </Button>
+            <RefreshCw className={cn(infoLoading && "animate-spin")} />
+          </IconButton>
         </div>
       </div>
 

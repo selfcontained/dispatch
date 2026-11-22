@@ -81,7 +81,7 @@ export function ReactionPickerButton({
         <Button
           type="button"
           variant="ghost"
-          size="icon"
+          size="stream-icon"
           className={POST_ACTION_BUTTON}
           aria-label="Add reaction (unavailable while the agent can't receive messages)"
           disabled
@@ -100,7 +100,7 @@ export function ReactionPickerButton({
         <Button
           type="button"
           variant="ghost"
-          size="icon"
+          size="stream-icon"
           // Stays up while its picker is open, even once the pointer leaves.
           className={cn(POST_ACTION_BUTTON, "data-[state=open]:opacity-100")}
           title="Add reaction"

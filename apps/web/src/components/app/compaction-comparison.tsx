@@ -106,7 +106,6 @@ export function CompactionComparison() {
             Load nearly green
           </Button>
           <Button
-            variant="default"
             aria-pressed={compacting}
             onClick={() => setCompacting(!compacting)}
           >

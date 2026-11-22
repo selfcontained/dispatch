@@ -45,6 +45,7 @@ import {
   SelectContent,
   SelectItem,
 } from "@/components/ui/select";
+import { IconButton } from "@/components/ui/icon-button";
 import { FileActions } from "./file-lightbox-actions";
 
 export type ImageShareLocation = {
@@ -641,54 +642,43 @@ export function ImageComments({
             <Button
               ref={markupButton}
               size="sm"
-              variant="default"
               disabled={!loaded}
               onClick={() => {
                 setMarkup(true);
                 setMode("comment");
               }}
             >
-              <Pencil className="mr-2 h-4 w-4" />
+              <Pencil />
               Markup
             </Button>
           )}
           {!compose && (
             <>
               <FileActions src={src} fileName={fileName} />
-              <Button
-                size="icon"
-                variant="ghost"
-                aria-label="Previous image"
+              <IconButton
+                label="Previous image"
                 data-testid="file-lightbox-prev"
                 disabled={!onPrevious || busy || !!selected}
                 onClick={onPrevious}
               >
-                <ChevronLeft className="h-4 w-4" />
-              </Button>
+                <ChevronLeft />
+              </IconButton>
               <span className="hidden text-body-sm text-muted-foreground sm:inline">
                 {positionLabel}
               </span>
-              <Button
-                size="icon"
-                variant="ghost"
-                aria-label="Next image"
+              <IconButton
+                label="Next image"
                 data-testid="file-lightbox-next"
                 disabled={!onNext || busy || !!selected}
                 onClick={onNext}
               >
-                <ChevronRight className="h-4 w-4" />
-              </Button>
+                <ChevronRight />
+              </IconButton>
             </>
           )}
-          <Button
-            size="icon"
-            variant="ghost"
-            aria-label="Close image"
-            disabled={busy}
-            onClick={close}
-          >
-            <X className="h-4 w-4" />
-          </Button>
+          <IconButton label="Close image" disabled={busy} onClick={close}>
+            <X />
+          </IconButton>
         </header>
         <div
           ref={setStageElement}
@@ -733,13 +723,10 @@ export function ImageComments({
             <div className="pointer-events-none absolute inset-x-3 top-3 z-sticky flex justify-center">
               <div className="surface-overlay pointer-events-auto flex max-w-full items-center gap-2 rounded-lg py-1 pl-3 pr-1 text-body-sm text-overlay-foreground">
                 <p>Click or drag to leave a note</p>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="h-8 w-8 shrink-0 rounded-lg text-overlay-foreground hover:bg-fill-hover hover:text-overlay-foreground"
+                <IconButton
+                  className="rounded-lg text-overlay-foreground hover:bg-fill-hover hover:text-overlay-foreground"
                   data-image-markup-hint
-                  aria-label="Dismiss markup hint"
+                  label="Dismiss markup hint"
                   onPointerDown={(e) => e.stopPropagation()}
                   onClick={(e) => {
                     e.stopPropagation();
@@ -749,8 +736,8 @@ export function ImageComments({
                     else svg.current?.focus();
                   }}
                 >
-                  <X className="h-4 w-4" aria-hidden="true" />
-                </Button>
+                  <X aria-hidden="true" />
+                </IconButton>
               </div>
             </div>
           )}
@@ -967,9 +954,9 @@ export function ImageComments({
                 >
                   <PopoverTrigger asChild>
                     <Button
-                      size="icon"
-                      variant={selected === c.id ? "primary" : "default"}
-                      className={`absolute h-8 w-10 rounded-full border text-seat-foreground ${seatClasses(c.number).chip} ${selected === c.id ? "ring-2 ring-media-foreground" : ""}`}
+                      size="sm"
+                      variant={selected === c.id ? "primary" : "secondary"}
+                      className={`absolute min-w-10 rounded-full border text-seat-foreground ${seatClasses(c.number).chip} ${selected === c.id ? "ring-2 ring-media-foreground" : ""}`}
                       style={{
                         borderColor: seatClasses(c.number).color,
                         left: Math.max(0, Math.min(stageSize.width - 40, left)),
@@ -979,7 +966,7 @@ export function ImageComments({
                       disabled={busy}
                       aria-label={`Comment ${c.number}${c.sent ? ", sent" : ", draft"}`}
                     >
-                      <MessageCircle className="h-4 w-4" />
+                      <MessageCircle />
                       <span className="text-body-sm">{c.number}</span>
                     </Button>
                   </PopoverTrigger>
@@ -1071,7 +1058,7 @@ export function ImageComments({
                           {newComment.current !== c.id && (
                             <Button
                               size="sm"
-                              variant="destructive"
+                              variant="danger"
                               className="mr-auto"
                               disabled={frozen}
                               onClick={() => {
@@ -1125,39 +1112,34 @@ export function ImageComments({
           <div className="mr-auto flex justify-center">
             <div className="surface-overlay flex items-center gap-1 rounded-full p-1 text-overlay-foreground">
               {markup && (
-                <Button
-                  size="icon"
-                  variant="ghost"
+                <IconButton
                   className="text-overlay-foreground"
-                  aria-label="Comment mode"
-                  aria-pressed={mode === "comment"}
+                  label="Comment mode"
+                  pressed={mode === "comment"}
                   onClick={() => setMode("comment")}
                 >
-                  <MessageCircle className="h-4 w-4" />
-                </Button>
+                  <MessageCircle />
+                </IconButton>
               )}
-              <Button
-                size="icon"
-                variant="ghost"
+              <IconButton
                 className="text-overlay-foreground"
-                aria-label="Pan image"
-                aria-pressed={mode === "pan"}
+                label="Pan image"
+                pressed={mode === "pan"}
                 onClick={() => setMode("pan")}
               >
-                <Hand className="h-4 w-4" />
-              </Button>
-              <Button
-                size="icon"
-                variant="ghost"
+                <Hand />
+              </IconButton>
+              <IconButton
                 className="text-overlay-foreground"
-                aria-label="Zoom out"
+                label="Zoom out"
                 onClick={() => setZoom((z) => Math.max(1, z / 1.5))}
               >
-                <Minus className="h-4 w-4" />
-              </Button>
+                <Minus />
+              </IconButton>
               <Button
                 variant="ghost"
-                className="text-overlay-foreground"
+                size="sm"
+                className="text-overlay-foreground tabular-nums"
                 aria-label="Fit image"
                 onClick={() => {
                   setZoom(1);
@@ -1166,15 +1148,13 @@ export function ImageComments({
               >
                 {Math.round(zoom * 100)}%
               </Button>
-              <Button
-                size="icon"
-                variant="ghost"
+              <IconButton
                 className="text-overlay-foreground"
-                aria-label="Zoom in"
+                label="Zoom in"
                 onClick={() => setZoom((z) => Math.min(8, z * 1.5))}
               >
-                <Plus className="h-4 w-4" />
-              </Button>
+                <Plus />
+              </IconButton>
             </div>
           </div>
           {compose && (
@@ -1225,11 +1205,7 @@ export function ImageComments({
                 >
                   <SelectTrigger
                     aria-label="Agent"
-                    className="h-auto min-h-9 w-full [&>span]:line-clamp-none"
-                    title={
-                      agents.find((a) => a.id === shareRecipient)?.name ??
-                      shareRecipient
-                    }
+                    className="h-auto min-h-8 w-full py-1 [&>span]:line-clamp-none pointer-coarse:min-h-11"
                   >
                     <SelectValue placeholder="Choose agent">
                       <span className="block whitespace-normal break-words text-left">

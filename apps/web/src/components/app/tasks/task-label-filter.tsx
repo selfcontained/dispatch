@@ -11,8 +11,6 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { TaskLabelBadge } from "./task-label-badge";
-import { selectTriggerClassName } from "@/components/ui/select";
-import { cn } from "@/lib/utils";
 
 /** Repeated label URL parameters compose with the board's existing navigation. */
 export function TaskLabelFilter({ labels }: { labels: TaskLabel[] }) {
@@ -56,13 +54,11 @@ export function TaskLabelFilter({ labels }: { labels: TaskLabel[] }) {
     >
       <PopoverTrigger asChild>
         <Button
+          size="sm"
           type="button"
-          variant="ghost"
+          variant="field"
           aria-label="Filter by labels"
-          className={cn(
-            selectTriggerClassName,
-            "h-8 w-36 min-w-0 flex-1 basis-0 gap-2 md:flex-none md:basis-auto text-foreground font-normal hover:bg-fill-hover"
-          )}
+          className="w-36 min-w-0 flex-1 basis-0 md:flex-none md:basis-auto"
         >
           <span className="truncate">
             {selected.length === 0 ? (
@@ -79,7 +75,7 @@ export function TaskLabelFilter({ labels }: { labels: TaskLabel[] }) {
               `Labels · ${selected.length}`
             )}
           </span>
-          <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
+          <ChevronDown className="text-muted-foreground" />
         </Button>
       </PopoverTrigger>
       <PopoverContent
@@ -130,9 +126,10 @@ export function TaskLabelFilter({ labels }: { labels: TaskLabel[] }) {
             Match any selected
           </span>
           <Button
+            size="xs"
             type="button"
             variant="ghost"
-            className="h-6 px-1 text-label-sm text-muted-foreground"
+            className="text-label-sm"
             disabled={!selected.length}
             onClick={() => change([])}
           >

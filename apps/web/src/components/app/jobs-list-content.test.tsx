@@ -197,13 +197,13 @@ describe("JobListContent — job rows", () => {
     );
   });
 
-  it("shows 'new' for a job that has never run and the status label otherwise", () => {
+  it("shows 'New' for a job that has never run and the status label otherwise", () => {
     const neverRun = makeJob({ id: "job_1", lastRunStatus: null });
     const ran = makeJob({ id: "job_2", lastRunStatus: "failed" });
     H.context = defaultContext([neverRun, ran]);
     render(<JobListContent />);
     expect(screen.getByTestId(`job-row-${neverRun.id}`).textContent).toContain(
-      "new"
+      "New"
     );
     expect(screen.getByTestId(`job-row-${ran.id}`).textContent).toContain(
       "Failed"

@@ -6,12 +6,13 @@ import { AgentSeatBadge } from "@/components/app/agent-seat-badge";
 import { ChatUnreadBadge } from "@/components/app/chat/chat-unread-badge";
 import { type Agent } from "@/components/app/types";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import {
   Tooltip,
+  Hint,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { IconButton } from "@/components/ui/icon-button";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
@@ -126,143 +127,115 @@ export function AgentCardHeader({
           </span>
         </div>
         {canPromptRename ? (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                size="icon"
-                variant="ghost"
-                data-agent-control="true"
-                data-testid={`agent-prompt-rename-${agent.id}`}
-                aria-label="Ask agent to set a session name"
-                className="h-6 w-6 shrink-0 text-faint hover:text-foreground [@media(pointer:coarse)]:h-10 [@media(pointer:coarse)]:w-10"
-                disabled={renamePromptPending}
-                onClick={() => {
-                  void promptAgentToRename();
-                }}
-              >
-                <Tag className="h-3 w-3" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>
-              Ask agent to name session
-              <br />
-              <span className="text-muted-foreground">
-                Queues a name request in the agent's stream
-              </span>
-            </TooltipContent>
-          </Tooltip>
+          <IconButton
+            size="icon-sm"
+            data-agent-control="true"
+            data-testid={`agent-prompt-rename-${agent.id}`}
+            label="Ask agent to set a session name"
+            tooltip={
+              <>
+                Ask agent to name session
+                <br />
+                <span className="text-muted-foreground">
+                  Queues a name request in the agent's stream
+                </span>
+              </>
+            }
+            className="text-faint hover:text-foreground"
+            disabled={renamePromptPending}
+            onClick={() => {
+              void promptAgentToRename();
+            }}
+          >
+            <Tag />
+          </IconButton>
         ) : null}
       </div>
 
       {isPinned ? (
-        <span
-          role="img"
-          aria-label="Pinned session"
-          title="Pinned session"
-          className="shrink-0 text-primary"
-          data-testid={`agent-pinned-${agent.id}`}
-        >
-          <Pin aria-hidden="true" className="h-3.5 w-3.5" />
-        </span>
+        <Hint label="Pinned session">
+          <span
+            role="img"
+            aria-label="Pinned session"
+            className="shrink-0 text-primary"
+            data-testid={`agent-pinned-${agent.id}`}
+          >
+            <Pin aria-hidden="true" className="h-3.5 w-3.5" />
+          </span>
+        </Hint>
       ) : null}
 
       <ChatUnreadBadge agentId={agent.id} />
 
       {needsAttention ? (
-        <Badge
-          className="border-status-blocked/line bg-status-blocked/tint text-status-blocked"
-          title={
+        <Hint
+          label={
             agent.lastError ??
             "Agent entered an error state and may need attention."
           }
         >
-          Attention
-        </Badge>
+          <Badge tone="danger">Attention</Badge>
+        </Hint>
       ) : null}
 
       {isJobAgent ? (
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <span
-              className="inline-flex"
-              title={isLoopJob ? loopTooltip : "Job-spawned agent"}
-            >
-              <Badge className="border-status-working/line bg-status-working/tint text-status-working">
-                {isLoopJob ? (
-                  <Repeat2 className="mr-1 h-3 w-3" />
-                ) : (
-                  <AlarmClock className="mr-1 h-3 w-3" />
-                )}
-                {isLoopJob ? "Loop" : "Job"}
-              </Badge>
-            </span>
-          </TooltipTrigger>
-          <TooltipContent>
-            {isLoopJob ? loopTooltip : "Job-spawned agent"}
-          </TooltipContent>
-        </Tooltip>
+        <Hint label={isLoopJob ? loopTooltip : "Job-spawned agent"}>
+          <Badge tone="success">
+            {isLoopJob ? <Repeat2 /> : <AlarmClock />}
+            {isLoopJob ? "Loop" : "Job"}
+          </Badge>
+        </Hint>
       ) : null}
 
       {isStopped && agent.status !== "archiving" ? (
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              size="icon"
-              variant="ghost-primary"
-              data-agent-control="true"
-              aria-label="Resume session"
-              className="ml-auto"
-              onClick={() => {
-                if (closeOnSessionAction) onRequestClose?.();
-                void startAgent(agent);
-              }}
-            >
-              <Play className="h-3.5 w-3.5" />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>
-            Resume
-            <br />
-            <span className="text-muted-foreground">Resume agent session</span>
-          </TooltipContent>
-        </Tooltip>
+        <IconButton
+          tone="success"
+          data-agent-control="true"
+          label="Resume session"
+          tooltip={
+            <>
+              Resume
+              <br />
+              <span className="text-muted-foreground">
+                Resume agent session
+              </span>
+            </>
+          }
+          className="ml-auto"
+          onClick={() => {
+            if (closeOnSessionAction) onRequestClose?.();
+            void startAgent(agent);
+          }}
+        >
+          <Play />
+        </IconButton>
       ) : null}
 
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            size="icon"
-            variant="ghost"
-            data-agent-control="true"
-            data-testid={`agent-expand-toggle-${agent.id}`}
-            aria-label={
-              isExpanded ? "Hide session details" : "Show session details"
-            }
-            aria-expanded={isExpanded}
-            onClick={() => {
-              // If collapsing while a child persona is connected, detach it
-              if (
-                isExpanded &&
-                connectedAgentId &&
-                childAgents.some((c) => c.id === connectedAgentId)
-              ) {
-                closeAgent();
-              }
-              toggleAgentDetails(agent.id);
-            }}
-          >
-            <ChevronDown
-              className={cn(
-                "h-3.5 w-3.5 transition-transform duration-200",
-                isExpanded && "rotate-180"
-              )}
-            />
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent>
-          {isExpanded ? "Hide details" : "Show details"}
-        </TooltipContent>
-      </Tooltip>
+      <IconButton
+        data-agent-control="true"
+        data-testid={`agent-expand-toggle-${agent.id}`}
+        label={isExpanded ? "Hide session details" : "Show session details"}
+        tooltip={isExpanded ? "Hide details" : "Show details"}
+        aria-expanded={isExpanded}
+        onClick={() => {
+          // If collapsing while a child persona is connected, detach it
+          if (
+            isExpanded &&
+            connectedAgentId &&
+            childAgents.some((c) => c.id === connectedAgentId)
+          ) {
+            closeAgent();
+          }
+          toggleAgentDetails(agent.id);
+        }}
+      >
+        <ChevronDown
+          className={cn(
+            "transition-transform duration-200",
+            isExpanded && "rotate-180"
+          )}
+        />
+      </IconButton>
     </div>
   );
 }

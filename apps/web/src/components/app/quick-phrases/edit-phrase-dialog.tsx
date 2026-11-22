@@ -17,6 +17,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import { IconButton } from "@/components/ui/icon-button";
 import { parseTemplateArgs } from "@/hooks/use-templates";
 
 export type EditingPhrase = { id: string; label: string; text: string } | null;
@@ -99,14 +100,15 @@ export function EditPhraseDialog({
                   onOpenChange={setVariableHelpOpen}
                 >
                   <PopoverTrigger asChild>
-                    <button
-                      type="button"
-                      aria-label="Phrase variable help"
-                      className="text-faint hover:text-muted-foreground"
+                    <IconButton
+                      size="icon-xs"
+                      label="Phrase variable help"
+                      // The popover it opens on hover is its tooltip.
+                      tooltip=""
                       onMouseEnter={() => setVariableHelpOpen(true)}
                     >
-                      <Info className="h-3 w-3" />
-                    </button>
+                      <Info />
+                    </IconButton>
                   </PopoverTrigger>
                   <PopoverContent
                     container={dialogContentRef.current}

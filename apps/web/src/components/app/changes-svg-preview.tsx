@@ -1,7 +1,10 @@
 import { type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Button } from "@/components/ui/button";
+import {
+  SegmentedControl,
+  SegmentedControlItem,
+} from "@/components/ui/segmented-control";
 import { api } from "@/lib/api";
 import { agentDiffQueryKey } from "@/hooks/use-agent-diff";
 
@@ -34,18 +37,14 @@ export function ChangesSvgPreview({
   return (
     <div>
       <div className="flex flex-wrap items-center gap-2 border-b px-3 py-2">
-        <ToggleGroup
-          type="single"
-          size="sm"
+        <SegmentedControl
           value={view}
-          onValueChange={(value) => {
-            if (value) onViewChange(value);
-          }}
+          onValueChange={onViewChange}
           aria-label={`SVG view: ${path}`}
         >
-          <ToggleGroupItem value="preview">Preview</ToggleGroupItem>
-          <ToggleGroupItem value="diff">Diff</ToggleGroupItem>
-        </ToggleGroup>
+          <SegmentedControlItem value="preview">Preview</SegmentedControlItem>
+          <SegmentedControlItem value="diff">Diff</SegmentedControlItem>
+        </SegmentedControl>
         {view === "preview" && (
           <span className="text-body-sm text-muted-foreground">
             Current working tree

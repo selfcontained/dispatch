@@ -13,17 +13,15 @@ import { PromptTab } from "@/components/app/jobs-prompt-tab";
 import { SettingsTab } from "@/components/app/jobs-settings-tab";
 import {
   ACTIVE_RUN_STATUSES,
-  statusClasses,
-  statusIcon,
+  JobStatusBadge,
 } from "@/components/app/jobs-helpers";
 import { LoadError } from "@/components/app/load-error";
 import { ActivityBars } from "@/components/ui/activity-bars";
-import { statusLabel } from "@/lib/status-label";
 import { errorMessage } from "@/lib/errors";
 import { shortPath } from "@/lib/format";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { type UpdateJobConfig, type Job } from "@/hooks/use-jobs";
 import { type AgentType } from "@/lib/agent-types";
 import { cn } from "@/lib/utils";
@@ -203,7 +201,10 @@ function JobDetail({
     <div className={cn("flex h-full min-h-0 flex-col p-4 md:p-6", className)}>
       <div className="flex flex-wrap items-start gap-3">
         <div className="min-w-0 flex-1">
-          <h2 className="truncate text-heading-lg">{job.name}</h2>
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
+            <h2 className="min-w-0 truncate text-heading-lg">{job.name}</h2>
+            <JobStatusBadge status={job.lastRunStatus} />
+          </div>
           <div
             className="mt-1 truncate font-mono text-body-sm text-muted-foreground"
             title={job.directory}
@@ -220,7 +221,7 @@ function JobDetail({
           }
           onClick={handleRunNow}
         >
-          <Play className="mr-2 h-4 w-4" />
+          <Play />
           Run now
         </Button>
       </div>
@@ -281,96 +282,63 @@ function JobDetail({
         />
       ) : null}
 
-      <div className="mt-4 flex flex-wrap items-center gap-2 border-b border-border">
-        <TabButton
-          active={tab === "configure"}
-          onClick={() => onTabChange("configure")}
-          icon={<Settings className="h-4 w-4" />}
+      <Tabs
+        value={tab}
+        onValueChange={(next) => onTabChange(next as DetailTab)}
+        className="mt-4 flex min-h-0 flex-1 flex-col"
+      >
+        <TabsList
+          aria-label="Job sections"
+          className="shrink-0 border-b border-border"
         >
-          Configure
-        </TabButton>
-        <TabButton
-          active={tab === "prompt"}
-          onClick={() => onTabChange("prompt")}
-          icon={<MessageSquareText className="h-4 w-4" />}
-        >
-          Prompt
-        </TabButton>
-        <TabButton
-          active={tab === "history"}
-          onClick={() => onTabChange("history")}
-          icon={<History className="h-4 w-4" />}
-        >
-          History
-        </TabButton>
-        <Badge
-          className={cn("mb-2 self-center", statusClasses(job.lastRunStatus))}
-        >
-          <span className="mr-1">{statusIcon(job.lastRunStatus)}</span>
-          {job.lastRunStatus ? statusLabel(job.lastRunStatus) : "never run"}
-        </Badge>
-      </div>
-
-      {tab === "history" ? (
-        <div className="min-h-0 flex-1">
-          <HistoryTab
-            runs={history.data?.runs ?? []}
-            loading={history.isPending}
-            error={history.error}
-            retrying={history.isFetching}
-            onRetry={() => void history.refetch()}
-            selectedRunId={selectedRunId}
-            onSelectRun={onSelectRun}
-          />
-        </div>
-      ) : tab === "configure" ? (
-        <ScrollArea className="min-h-0 flex-1 pr-1">
-          <SettingsTab
-            job={job}
-            enabledAgentTypes={enabledAgentTypes}
-            onUpdateJob={onUpdateJob}
-            onRemoveJob={onRemoveJob}
-            isUpdating={isUpdating}
-            isRemoving={isRemoving}
-          />
-        </ScrollArea>
-      ) : (
-        <div className="min-h-0 flex-1 overflow-y-auto pr-1">
-          <PromptTab
-            job={job}
-            onUpdateJob={onUpdateJob}
-            isUpdating={isUpdating}
-          />
-        </div>
-      )}
+          <TabsTrigger value="configure">
+            <Settings />
+            Configure
+          </TabsTrigger>
+          <TabsTrigger value="prompt">
+            <MessageSquareText />
+            Prompt
+          </TabsTrigger>
+          <TabsTrigger value="history">
+            <History />
+            History
+          </TabsTrigger>
+        </TabsList>
+        <TabsContent value={tab} className="flex min-h-0 flex-1 flex-col">
+          {tab === "history" ? (
+            <div className="min-h-0 flex-1">
+              <HistoryTab
+                runs={history.data?.runs ?? []}
+                loading={history.isPending}
+                error={history.error}
+                retrying={history.isFetching}
+                onRetry={() => void history.refetch()}
+                selectedRunId={selectedRunId}
+                onSelectRun={onSelectRun}
+              />
+            </div>
+          ) : tab === "configure" ? (
+            <ScrollArea className="min-h-0 flex-1 pr-1">
+              <SettingsTab
+                job={job}
+                enabledAgentTypes={enabledAgentTypes}
+                onUpdateJob={onUpdateJob}
+                onRemoveJob={onRemoveJob}
+                isUpdating={isUpdating}
+                isRemoving={isRemoving}
+              />
+            </ScrollArea>
+          ) : (
+            <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+              <PromptTab
+                job={job}
+                onUpdateJob={onUpdateJob}
+                isUpdating={isUpdating}
+              />
+            </div>
+          )}
+        </TabsContent>
+      </Tabs>
     </div>
-  );
-}
-
-function TabButton({
-  active,
-  onClick,
-  icon,
-  children,
-}: {
-  active: boolean;
-  onClick: () => void;
-  icon: React.ReactNode;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      className={cn(
-        "flex items-center gap-2 border-b-2 px-3 py-2 text-body-md transition-colors",
-        active
-          ? "border-primary text-foreground"
-          : "border-transparent text-muted-foreground hover:text-foreground"
-      )}
-      onClick={onClick}
-    >
-      {icon}
-      {children}
-    </button>
   );
 }

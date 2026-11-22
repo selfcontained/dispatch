@@ -34,6 +34,12 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { CopyButton } from "@/components/ui/copy-button";
 import { Markdown } from "@/components/ui/markdown";
+import { Badge } from "@/components/ui/badge";
+import { CountBubble } from "@/components/ui/count-bubble";
+import { IconButton } from "@/components/ui/icon-button";
+import { RowButton } from "@/components/ui/row-button";
+import { StatusDot } from "@/components/ui/status-dot";
+import { Hint } from "@/components/ui/tooltip";
 import { TaskAgent } from "./task-agent";
 import { useTemplates } from "@/hooks/use-templates";
 import { CreateAgentDialog } from "@/components/app/create-agent-dialog";
@@ -261,23 +267,13 @@ export function TaskDetailPanel({
   return (
     <>
       <header className="flex min-h-14 shrink-0 items-center gap-1 border-b border-border-subtle pl-1.5 pr-2 pt-safe text-body-sm text-muted-foreground">
-        <Button
-          size="icon"
-          variant="ghost"
-          onClick={close}
-          aria-label="Close task"
-          className="md:hidden"
-        >
-          <ArrowLeft className="h-4 w-4" />
-        </Button>
+        <IconButton onClick={close} label="Close task" className="md:hidden">
+          <ArrowLeft />
+        </IconButton>
         <span className="flex min-w-0 flex-1 items-center gap-2 px-1">
           {column && (
-            <span
-              aria-hidden="true"
-              className="h-2 w-2 shrink-0 rounded-full"
-              style={{
-                background: `hsl(${columnAccent(column, columns.indexOf(column))})`,
-              }}
+            <StatusDot
+              color={`hsl(${columnAccent(column, columns.indexOf(column))})`}
             />
           )}
           <span className="truncate">
@@ -285,34 +281,28 @@ export function TaskDetailPanel({
           </span>
           <CopyButton text={id} label="Copy task ID" className="shrink-0" />
         </span>
-        <Button
-          size="icon"
-          variant="ghost"
+        <IconButton
           disabled={index <= 0}
           onClick={() => openTask(peers[index - 1].id)}
-          aria-label="Previous task"
+          label="Previous task"
         >
-          <ChevronLeft className="h-4 w-4" />
-        </Button>
-        <Button
-          size="icon"
-          variant="ghost"
+          <ChevronLeft />
+        </IconButton>
+        <IconButton
           disabled={index < 0 || index >= peers.length - 1}
           onClick={() => openTask(peers[index + 1].id)}
-          aria-label="Next task"
+          label="Next task"
         >
-          <ChevronRight className="h-4 w-4" />
-        </Button>
+          <ChevronRight />
+        </IconButton>
         {headerAction}
-        <Button
-          size="icon"
-          variant="ghost"
+        <IconButton
           onClick={close}
-          aria-label="Close task"
+          label="Close task"
           className="hidden md:inline-flex"
         >
-          <X className="h-4 w-4" />
-        </Button>
+          <X />
+        </IconButton>
       </header>
       {isLoading && (
         <p className="p-4 text-body-md text-muted-foreground">Loading task…</p>
@@ -323,23 +313,25 @@ export function TaskDetailPanel({
           onValueChange={changePane}
           className="flex min-h-0 flex-1 flex-col"
         >
-          <TabsList aria-label="Task panes" className="mx-3 my-2 shrink-0">
+          <TabsList
+            aria-label="Task panes"
+            className="shrink-0 border-b border-border-subtle px-1"
+          >
             <TabsTrigger value="details">Details</TabsTrigger>
             <TabsTrigger value="conversation">
               Conversation
               {!!unread && (
-                <span
-                  className="ml-2 rounded-full bg-primary px-1.5 text-label-xs text-primary-foreground"
+                <CountBubble
+                  tone="info"
+                  count={unread}
                   aria-label={`${unread} unread posts`}
-                >
-                  {unread}
-                </span>
+                />
               )}
             </TabsTrigger>
           </TabsList>
           <TabsContent
             value="details"
-            className="mt-0 flex min-h-0 flex-1 flex-col data-[state=inactive]:hidden"
+            className="flex min-h-0 flex-1 flex-col data-[state=inactive]:hidden"
           >
             <div
               data-testid="task-drawer-body"
@@ -358,12 +350,12 @@ export function TaskDetailPanel({
                     }}
                   />
                 ) : (
-                  <button
-                    className="-mx-1 w-full break-words rounded-md px-1 text-left text-heading-lg leading-7 hover:bg-surface-hover"
+                  <RowButton
+                    className="-mx-1 block w-full break-words px-1 text-heading-lg leading-7"
                     onClick={() => setEditingTitle(true)}
                   >
                     {task.title}
-                  </button>
+                  </RowButton>
                 )}
                 <section
                   className={cn(
@@ -421,12 +413,11 @@ export function TaskDetailPanel({
                   <span className="text-body-sm text-muted-foreground">
                     Created
                   </span>
-                  <span
-                    className="text-body-sm"
-                    title={formatDateTime(task.createdAt)}
-                  >
-                    by {creator} · {formatRelativeTime(task.createdAt)}
-                  </span>
+                  <Hint label={formatDateTime(task.createdAt)}>
+                    <span className="text-body-sm">
+                      by {creator} · {formatRelativeTime(task.createdAt)}
+                    </span>
+                  </Hint>
                 </section>
                 {columns.some((c) => c.trigger) && (
                   <DrawerSection label="Launch template">
@@ -450,8 +441,8 @@ export function TaskDetailPanel({
                       }}
                     />
                   ) : (
-                    <button
-                      className="-mx-2 min-h-12 w-[calc(100%+1rem)] rounded-lg px-2 py-1 text-left text-body-md text-foreground hover:bg-surface-hover"
+                    <RowButton
+                      className="-mx-2 block min-h-12 w-[calc(100%+1rem)] px-2 py-1 text-body-md text-foreground"
                       onClick={() => setEditingBody(true)}
                     >
                       {task.body ? (
@@ -461,7 +452,7 @@ export function TaskDetailPanel({
                           Add a deliverable and acceptance criteria…
                         </span>
                       )}
-                    </button>
+                    </RowButton>
                   )}
                 </DrawerSection>
                 {!!task.attachments?.length && (
@@ -479,11 +470,10 @@ export function TaskDetailPanel({
                     addingLink ? null : (
                       <Button
                         variant="ghost"
-                        size="sm"
-                        className="h-7 text-body-sm"
+                        size="xs"
                         onClick={() => setAddingLink(true)}
                       >
-                        <Plus className="mr-1 h-3 w-3" />
+                        <Plus />
                         Add link
                       </Button>
                     )
@@ -598,40 +588,40 @@ export function TaskDetailPanel({
                                 <AgentName agentId={assignment.agentId} />
                               </AgentSessionLink>
                             )}
-                            <span
-                              className="ml-auto flex shrink-0 items-center gap-2 text-body-sm text-muted-foreground"
-                              title={`${assignmentLabel(assignment, columns)} · ${formatDateTime(assignment.assignedAt)}`}
+                            <Hint
+                              label={`${assignmentLabel(assignment, columns)} · ${formatDateTime(assignment.assignedAt)}`}
                             >
-                              {current && (
-                                <span className="rounded-full bg-muted px-1.5 py-0.5 text-label-xs font-medium text-foreground">
-                                  Assignee
-                                </span>
-                              )}
-                              {formatRelativeCompact(assignment.assignedAt)}
-                            </span>
+                              <span className="ml-auto flex shrink-0 items-center gap-2 text-body-sm text-muted-foreground">
+                                {current && <Badge size="sm">Assignee</Badge>}
+                                {formatRelativeCompact(assignment.assignedAt)}
+                              </span>
+                            </Hint>
                             <DropdownMenu>
                               <DropdownMenuTrigger asChild>
-                                <Button
-                                  size="icon"
-                                  variant="ghost"
-                                  className="h-7 w-7 shrink-0 text-muted-foreground"
-                                  aria-label={
+                                <IconButton
+                                  size="icon-sm"
+                                  label={
                                     agent
                                       ? `Options for ${agent.name}`
-                                      : undefined
+                                      : "Agent options"
+                                  }
+                                  aria-labelledby={
+                                    agent
+                                      ? undefined
+                                      : `agent-options-${assignment.agentId}`
                                   }
                                 >
                                   {!agent && (
-                                    <span className="sr-only">
+                                    <span
+                                      id={`agent-options-${assignment.agentId}`}
+                                      className="sr-only"
+                                    >
                                       Options for{" "}
                                       <AgentName agentId={assignment.agentId} />
                                     </span>
                                   )}
-                                  <MoreHorizontal
-                                    className="h-4 w-4"
-                                    aria-hidden="true"
-                                  />
-                                </Button>
+                                  <MoreHorizontal aria-hidden="true" />
+                                </IconButton>
                               </DropdownMenuTrigger>
                               <DropdownMenuContent align="end">
                                 {current ? (
@@ -690,12 +680,11 @@ export function TaskDetailPanel({
                             ? `Launching ${projectTemplates.find((template) => template.id === event.data.templateId)?.name ?? "agent"}`
                             : statusLabel(event.kind)}
                         </span>
-                        <span
-                          className="ml-2 text-muted-foreground"
-                          title={formatDateTime(event.createdAt)}
-                        >
-                          {formatRelativeTime(event.createdAt)}
-                        </span>
+                        <Hint label={formatDateTime(event.createdAt)}>
+                          <span className="ml-2 text-muted-foreground">
+                            {formatRelativeTime(event.createdAt)}
+                          </span>
+                        </Hint>
                         {typeof event.data.reason === "string" && (
                           <p className="text-danger">{event.data.reason}</p>
                         )}
@@ -722,7 +711,6 @@ export function TaskDetailPanel({
             <footer className="flex shrink-0 items-center gap-2 border-t border-border-subtle bg-card/veil px-3 py-2 pb-safe-2">
               <Button
                 size="sm"
-                variant="default"
                 disabled={
                   actions.archive?.isPending || actions.restore?.isPending
                 }
@@ -742,7 +730,7 @@ export function TaskDetailPanel({
           <TabsContent
             value="conversation"
             forceMount
-            className="mt-0 min-h-0 flex-1 data-[state=inactive]:hidden px-2 pb-safe-2 md:px-3 md:pb-3"
+            className="min-h-0 flex-1 data-[state=inactive]:hidden pt-2 px-2 pb-safe-2 md:px-3 md:pb-3"
           >
             <TaskConversation
               key={task.id}

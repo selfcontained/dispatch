@@ -70,7 +70,7 @@ function ChangesToolbar({
   return (
     <TooltipProvider delayDuration={200}>
       <div
-        className="flex items-center gap-2 border-b border-border-subtle px-3 py-1.5"
+        className="flex flex-wrap items-center gap-2 border-b border-border-subtle px-3 py-1.5"
         data-testid="changes-toolbar"
       >
         <span className="text-body-sm font-medium text-muted-foreground">
@@ -78,13 +78,13 @@ function ChangesToolbar({
         </span>
         <div className="flex-1" />
         <Button
+          size="sm"
           type="button"
           variant="ghost"
-          className="h-8 gap-1.5 text-body-sm text-muted-foreground hover:text-foreground"
           data-testid="changes-start-review"
           onClick={onStartReview}
         >
-          <MessageSquarePlus className="h-3.5 w-3.5" />
+          <MessageSquarePlus />
           Leave a review
         </Button>
         <PersonaLauncher

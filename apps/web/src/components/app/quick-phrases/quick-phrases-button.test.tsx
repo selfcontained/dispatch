@@ -508,7 +508,7 @@ describe("create, edit, and delete", () => {
     await openPicker();
     const initialGets = listGetCount();
 
-    fireEvent.click(screen.getByTitle("Add phrase"));
+    fireEvent.click(screen.getByRole("button", { name: "Add phrase" }));
     await screen.findByRole("heading", { name: "Add Phrase" });
 
     fireEvent.change(screen.getByLabelText("Phrase text"), {
@@ -539,7 +539,7 @@ describe("create, edit, and delete", () => {
     renderPicker();
     await openPicker();
 
-    fireEvent.click(screen.getByTitle("Add phrase"));
+    fireEvent.click(screen.getByRole("button", { name: "Add phrase" }));
     await screen.findByRole("heading", { name: "Add Phrase" });
     fireEvent.change(screen.getByLabelText("Label (optional)"), {
       target: { value: "  My Label  " },
@@ -567,7 +567,7 @@ describe("create, edit, and delete", () => {
     serveGet([]);
     renderPicker();
     await openPicker();
-    fireEvent.click(screen.getByTitle("Add phrase"));
+    fireEvent.click(screen.getByRole("button", { name: "Add phrase" }));
     await screen.findByRole("heading", { name: "Add Phrase" });
 
     const save = screen.getByRole("button", {
@@ -588,7 +588,7 @@ describe("create, edit, and delete", () => {
     serveGet([]);
     renderPicker();
     await openPicker();
-    fireEvent.click(screen.getByTitle("Add phrase"));
+    fireEvent.click(screen.getByRole("button", { name: "Add phrase" }));
     await screen.findByRole("heading", { name: "Add Phrase" });
 
     fireEvent.change(screen.getByLabelText("Phrase text"), {
@@ -605,7 +605,7 @@ describe("create, edit, and delete", () => {
     await openPicker();
     await screen.findByText("Deploy");
 
-    fireEvent.click(screen.getAllByTitle("Edit phrase")[0]);
+    fireEvent.click(screen.getAllByRole("button", { name: "Edit phrase" })[0]);
     await screen.findByRole("heading", { name: "Edit Phrase" });
     expect(
       (screen.getByLabelText("Label (optional)") as HTMLInputElement).value
@@ -643,7 +643,9 @@ describe("create, edit, and delete", () => {
       .mockReturnValueOnce(false)
       .mockReturnValueOnce(true);
 
-    const deleteButton = screen.getAllByTitle("Delete phrase")[0];
+    const deleteButton = screen.getAllByRole("button", {
+      name: "Delete phrase",
+    })[0];
     fireEvent.click(deleteButton);
     await flushMicrotasks();
     expect(

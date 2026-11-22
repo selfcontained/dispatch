@@ -1,7 +1,6 @@
 import { useAtom } from "jotai";
 import { Settings } from "lucide-react";
 
-import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { TipSpot } from "@/components/tips/tip-spot";
 import {
@@ -9,6 +8,11 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import { IconButton } from "@/components/ui/icon-button";
+import {
+  SegmentedControl,
+  SegmentedControlItem,
+} from "@/components/ui/segmented-control";
 import {
   type DiffViewType,
   diffViewTypeAtom,
@@ -16,7 +20,6 @@ import {
   diffIncludeUncommittedAtom,
   diffHideTestFilesAtom,
 } from "@/lib/store";
-import { cn } from "@/lib/utils";
 
 const VIEW_OPTIONS: { value: DiffViewType; label: string }[] = [
   { value: "unified", label: "Unified" },
@@ -44,50 +47,38 @@ export function ChangesSettingsPopover({
     <TipSpot tipId="uncommitted-diff" side="bottom" align="end" sideOffset={4}>
       <Popover>
         <PopoverTrigger asChild>
-          <Button
-            size="icon"
-            variant="ghost"
-            title="Diff settings"
+          <IconButton
+            label="Diff settings"
             data-testid="changes-settings-button"
           >
-            <Settings className="h-4 w-4" />
-          </Button>
+            <Settings />
+          </IconButton>
         </PopoverTrigger>
         <PopoverContent align="end" side="bottom" className="w-64 p-3">
           <div className="space-y-3">
             <div className="space-y-1.5">
               <span className="section-label">Diff view</span>
-              <div
-                role="group"
+              <SegmentedControl
+                layout="fill"
                 aria-label="Diff view"
                 aria-describedby={
                   isMobile ? "mobile-diff-view-hint" : undefined
                 }
-                className="flex rounded-md border border-border-subtle bg-surface-subtle p-0.5"
+                value={effectiveViewType}
+                onValueChange={(next) => {
+                  if (!isMobile) setViewType(next);
+                }}
               >
-                {VIEW_OPTIONS.map((opt) => {
-                  const disabled = isMobile && opt.value === "split";
-                  return (
-                    <button
-                      key={opt.value}
-                      type="button"
-                      disabled={disabled}
-                      aria-pressed={effectiveViewType === opt.value}
-                      className={cn(
-                        "flex-1 rounded-sm px-2 py-1 text-body-sm font-medium transition-colors disabled:cursor-not-allowed disabled-state disabled:pointer-events-auto",
-                        effectiveViewType === opt.value
-                          ? "bg-background text-foreground shadow-sm"
-                          : "text-muted-foreground hover:text-foreground"
-                      )}
-                      onClick={() => {
-                        if (!isMobile) setViewType(opt.value);
-                      }}
-                    >
-                      {opt.label}
-                    </button>
-                  );
-                })}
-              </div>
+                {VIEW_OPTIONS.map((opt) => (
+                  <SegmentedControlItem
+                    key={opt.value}
+                    value={opt.value}
+                    disabled={isMobile && opt.value === "split"}
+                  >
+                    {opt.label}
+                  </SegmentedControlItem>
+                ))}
+              </SegmentedControl>
               {isMobile ? (
                 <p
                   id="mobile-diff-view-hint"

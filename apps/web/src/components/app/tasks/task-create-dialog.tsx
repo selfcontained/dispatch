@@ -25,6 +25,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { StatusDot } from "@/components/ui/status-dot";
 import { AssigneeSelect } from "./task-assignee-select";
 import { columnAccent } from "./task-utils";
 
@@ -242,12 +243,8 @@ export function TaskCreateDialog({
                   {columns.map((item, index) => (
                     <SelectItem key={item.id} value={item.id}>
                       <span className="flex items-center gap-2">
-                        <span
-                          aria-hidden="true"
-                          className="h-2 w-2 shrink-0 rounded-full"
-                          style={{
-                            background: `hsl(${columnAccent(item, index)})`,
-                          }}
+                        <StatusDot
+                          color={`hsl(${columnAccent(item, index)})`}
                         />
                         {item.name}
                       </span>

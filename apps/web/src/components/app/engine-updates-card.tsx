@@ -143,18 +143,18 @@ function EngineRow({
           </span>
           <span className="flex h-7 w-full items-center sm:w-72">
             {running ? (
-              <Badge variant="running">Updating…</Badge>
+              <Badge tone="success">Updating…</Badge>
             ) : operation?.status === "interrupted" ? (
-              <Badge variant="error">Update interrupted</Badge>
+              <Badge tone="danger">Update interrupted</Badge>
             ) : operation?.status === "failed" ? (
-              <Badge variant="error">Update failed</Badge>
+              <Badge tone="danger">Update failed</Badge>
             ) : metadata?.latestPending ? (
               <Skeleton
                 className="h-6 w-40"
                 aria-label="Checking for updates"
               />
             ) : metadata?.available ? (
-              <Badge variant="transitional">Update available</Badge>
+              <Badge tone="info">Update available</Badge>
             ) : null}
           </span>
         </CollapsibleTrigger>

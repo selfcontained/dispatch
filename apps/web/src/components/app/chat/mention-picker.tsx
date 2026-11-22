@@ -50,7 +50,7 @@ export function MentionPicker({
         {[false, true].map((mode) => (
           <Button
             variant="ghost"
-            size="icon"
+            size="stream-icon"
             key={String(mode)}
             type="button"
             title={

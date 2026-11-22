@@ -275,7 +275,7 @@ describe("preferences and reload", () => {
     stubHook();
     renderSection();
 
-    fireEvent.click(screen.getByRole("button", { name: "preview" }));
+    fireEvent.click(screen.getByRole("radio", { name: "Preview" }));
     expect(handlers.handleChannelChange).toHaveBeenCalledWith("preview");
 
     fireEvent.click(screen.getByTestId("auto-update-mode-select"));

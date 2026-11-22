@@ -8,11 +8,12 @@ import { useSettingsState } from "@/components/app/settings-state";
 import { type ServiceState } from "@/components/app/types";
 import { SectionShell } from "./section-shell";
 import { useDashboardContext } from "@/components/app/dashboard-context";
+import { type StatusDotTone } from "@/components/ui/status-dot";
 
-export function serviceDotClass(state: ServiceState): string {
-  if (state === "ok") return "bg-success";
-  if (state === "down") return "bg-danger";
-  return "bg-warning";
+export function serviceDotTone(state: ServiceState): StatusDotTone {
+  if (state === "ok") return "success";
+  if (state === "down") return "danger";
+  return "warning";
 }
 
 export function SettingsRoute(): JSX.Element {
@@ -49,7 +50,7 @@ export function SettingsRoute(): JSX.Element {
           }}
           apiState={context.apiState}
           dbState={context.dbState}
-          serviceDotClass={serviceDotClass}
+          serviceDotTone={serviceDotTone}
         />
       }
     >

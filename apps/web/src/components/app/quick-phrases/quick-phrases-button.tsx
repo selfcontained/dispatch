@@ -1,7 +1,6 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import { MessageSquare, Plus, Search } from "lucide-react";
 
-import { Button } from "@/components/ui/button";
 import {
   Command,
   CommandEmpty,
@@ -15,6 +14,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import { IconButton } from "@/components/ui/icon-button";
 import { parseTemplateArgs, templateArgDefaults } from "@/hooks/use-templates";
 import {
   useQuickPhrases,
@@ -142,15 +142,13 @@ export function QuickPhrasesButton({
     <>
       <Popover open={open} onOpenChange={handleOpenChange}>
         <PopoverTrigger asChild>
-          <Button
-            size="icon"
-            variant="ghost"
+          <IconButton
             className="pointer-events-auto"
-            title="Quick phrases"
+            label="Quick phrases"
             data-testid="quick-phrases-button"
           >
-            <MessageSquare className="h-4 w-4" />
-          </Button>
+            <MessageSquare />
+          </IconButton>
         </PopoverTrigger>
         <PopoverContent
           align="start"
@@ -162,14 +160,13 @@ export function QuickPhrasesButton({
         >
           <div className="flex items-center justify-between border-b border-border px-3 py-2">
             <h4 className="section-label">Quick Phrases</h4>
-            <button
-              type="button"
-              className="rounded-sm p-1.5 text-muted-foreground hover:bg-fill-hover hover:text-foreground"
+            <IconButton
+              size="icon-sm"
+              label="Add phrase"
               onClick={() => setEditing({ id: "", label: "", text: "" })}
-              title="Add phrase"
             >
-              <Plus className="h-4 w-4" />
-            </button>
+              <Plus />
+            </IconButton>
           </div>
           {!canInject ? (
             <div className="border-b border-border-subtle bg-warning/wash px-3 py-1.5 text-body-sm text-warning">

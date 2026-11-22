@@ -9,6 +9,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { Hint } from "@/components/ui/tooltip";
 import { formatDateTime, formatRelativeTime } from "@/lib/format";
 
 import type { BrowserExtensionConnection } from "./use-extension-pairing";
@@ -92,25 +93,26 @@ export function BrowserExtensionConnectionsCard({
                   <p className="truncate text-body-md font-medium">
                     {connection.deviceName}
                   </p>
-                  <p
-                    className="mt-0.5 text-body-sm text-muted-foreground"
-                    title={`Paired ${formatDateTime(connection.createdAt)}; expires ${formatDateTime(connection.expiresAt)}`}
+                  <Hint
+                    label={`Paired ${formatDateTime(connection.createdAt)}; expires ${formatDateTime(connection.expiresAt)}`}
                   >
-                    {connection.lastUsedAt
-                      ? `Last used ${formatRelativeTime(connection.lastUsedAt)}`
-                      : `Paired ${formatRelativeTime(connection.createdAt)}`}
-                  </p>
+                    <p className="mt-0.5 text-body-sm text-muted-foreground">
+                      {connection.lastUsedAt
+                        ? `Last used ${formatRelativeTime(connection.lastUsedAt)}`
+                        : `Paired ${formatRelativeTime(connection.createdAt)}`}
+                    </p>
+                  </Hint>
                 </div>
                 <Button
                   type="button"
                   variant="ghost"
                   size="sm"
-                  className="shrink-0 gap-1.5 text-danger hover:text-danger"
+                  className="shrink-0 text-danger hover:text-danger"
                   aria-label={`Revoke ${connection.deviceName}`}
                   disabled={revokeIsPending}
                   onClick={() => onRevoke(connection.id)}
                 >
-                  <Unplug className="h-3.5 w-3.5" aria-hidden="true" />
+                  <Unplug aria-hidden="true" />
                   Revoke
                 </Button>
               </div>

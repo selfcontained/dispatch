@@ -1,19 +1,19 @@
 import { type ReactNode } from "react";
 
-import { cn } from "@/lib/utils";
+import { StatusDot, type StatusDotTone } from "@/components/ui/status-dot";
 
 type ServiceStatusProps = {
   icon: ReactNode;
   label: string;
   value: string;
-  dotClass: string;
+  dotTone: StatusDotTone;
 };
 
 export function ServiceStatus({
   icon,
   label,
   value,
-  dotClass,
+  dotTone,
 }: ServiceStatusProps): JSX.Element {
   return (
     <div
@@ -24,9 +24,9 @@ export function ServiceStatus({
         {icon}
       </span>
       <span>{label}</span>
-      <span
+      <StatusDot
         data-testid={`service-dot-${label.toLowerCase()}`}
-        className={cn("h-2.5 w-2.5 rounded-full", dotClass)}
+        tone={dotTone}
       />
       <span className="hidden truncate uppercase sm:inline">{value}</span>
     </div>

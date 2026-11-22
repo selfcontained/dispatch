@@ -43,7 +43,6 @@ export function TemplateWorktreeOption({
           checked={checked}
           onCheckedChange={() => onCheckedChange(!checked)}
           className="mt-0.5"
-          title="Toggle git worktree"
         />
         <span className="space-y-1">
           <span className="flex items-center gap-1.5 text-body-md font-medium text-foreground">
@@ -84,7 +83,6 @@ export function TemplateFullAccessOption({
         checked={checked}
         onCheckedChange={() => onCheckedChange(!checked)}
         className="mt-0.5"
-        title="Toggle full access"
       />
       <span className="space-y-1">
         <span className="block text-body-md font-medium text-foreground">

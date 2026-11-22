@@ -59,7 +59,7 @@ function SummaryCard({
         </div>
         <div
           className={`mt-1 text-body-sm text-muted-foreground ${wrapDetail ? "break-words" : "truncate"}`}
-          title={detail}
+          title={wrapDetail ? undefined : detail}
         >
           {detail}
         </div>

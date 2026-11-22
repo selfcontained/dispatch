@@ -14,6 +14,9 @@ import {
   startupLinkLabel,
 } from "@/components/app/create-agent-dialog-clipboard";
 import { cn } from "@/lib/utils";
+import { IconButton } from "@/components/ui/icon-button";
+import { RowButton } from "@/components/ui/row-button";
+import { Hint } from "@/components/ui/tooltip";
 
 /** The × that hangs off a chip's top-right corner. */
 export function ChipRemoveButton({
@@ -29,22 +32,22 @@ export function ChipRemoveButton({
   compact?: boolean;
 }): JSX.Element {
   return (
-    <button
-      type="button"
+    <IconButton
+      size="icon-xs"
       className={cn(
-        "absolute flex items-start justify-end rounded-full text-muted-foreground transition-opacity hover:text-foreground focus:opacity-100 group-hover:opacity-100",
+        "absolute rounded-full opacity-100 transition-opacity hover:bg-transparent",
         compact
-          ? "-right-0.5 -top-0.5 z-sticky h-6 w-6 p-0.5"
-          : "-right-2 -top-2 h-10 w-10 p-2"
+          ? "-right-1 -top-1 z-sticky pointer-coarse:after:size-7"
+          : "-right-2 -top-2"
       )}
       onClick={onRemove}
-      aria-label={label}
+      label={label}
       {...(testId ? { "data-testid": testId } : {})}
     >
       <span className="rounded-full border border-border-subtle bg-background p-0.5">
-        <X className="h-2.5 w-2.5" />
+        <X className="size-icon-sm" />
       </span>
-    </button>
+    </IconButton>
   );
 }
 
@@ -82,26 +85,29 @@ export function ContextFileItem({
             ? "border-danger/line-strong"
             : "border-border-subtle"
         )}
-        title={status === "failed" ? `Upload failed: ${file.name}` : file.name}
       >
         {preview && onOpen ? (
-          <button
-            type="button"
-            className="group/markup relative block h-full w-full focus-ring-inset"
-            aria-label={
-              noteCount
-                ? `Mark up ${file.name}, ${noteCount} ${noteCount === 1 ? "note" : "notes"}`
-                : `Mark up ${file.name}`
-            }
-            title="Mark up"
-            onClick={onOpen}
-          >
-            <img src={preview} alt="" className="h-full w-full object-cover" />
-            <span
-              className="absolute inset-0 bg-media/line opacity-0 transition-opacity group-hover/markup:opacity-100 group-focus-visible/markup:opacity-100"
-              aria-hidden="true"
-            />
-          </button>
+          <Hint label="Mark up">
+            <RowButton
+              className="group/markup relative block h-full rounded-none"
+              aria-label={
+                noteCount
+                  ? `Mark up ${file.name}, ${noteCount} ${noteCount === 1 ? "note" : "notes"}`
+                  : `Mark up ${file.name}`
+              }
+              onClick={onOpen}
+            >
+              <img
+                src={preview}
+                alt=""
+                className="h-full w-full object-cover"
+              />
+              <span
+                className="absolute inset-0 bg-media/line opacity-0 transition-opacity group-hover/markup:opacity-100 group-focus-visible/markup:opacity-100"
+                aria-hidden="true"
+              />
+            </RowButton>
+          </Hint>
         ) : preview ? (
           <img src={preview} alt="" className="h-full w-full object-cover" />
         ) : (
@@ -113,18 +119,22 @@ export function ContextFileItem({
           </div>
         )}
         {status ? (
-          <div
-            className={cn(
-              "absolute inset-0 flex items-center justify-center bg-background/soft",
-              status === "failed" ? "text-danger" : "text-foreground"
-            )}
+          <Hint
+            label={status === "failed" ? `Upload failed: ${file.name}` : ""}
           >
-            {status === "failed" ? (
-              <AlertTriangle className="h-4 w-4" />
-            ) : (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            )}
-          </div>
+            <div
+              className={cn(
+                "absolute inset-0 flex items-center justify-center bg-background/soft",
+                status === "failed" ? "text-danger" : "text-foreground"
+              )}
+            >
+              {status === "failed" ? (
+                <AlertTriangle className="h-4 w-4" />
+              ) : (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              )}
+            </div>
+          </Hint>
         ) : null}
         {noteCount ? (
           <span

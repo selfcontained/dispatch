@@ -81,8 +81,8 @@ export function TaskBlockBody({
               .filter(Boolean)
               .join(" · ")}
           </span>
-          {done && <Badge variant="default">Done</Badge>}
-          {task.archivedAt && <Badge variant="stopped">Archived</Badge>}
+          {done && <Badge>Done</Badge>}
+          {task.archivedAt && <Badge tone="warning">Archived</Badge>}
         </span>
       </span>
     </button>

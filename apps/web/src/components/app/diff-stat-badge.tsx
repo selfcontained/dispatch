@@ -6,6 +6,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { ChipButton } from "@/components/ui/chip";
 import type { DiffStats } from "@/components/app/types";
 import { cn } from "@/lib/utils";
 
@@ -95,8 +96,8 @@ export function DiffStatBadge({
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <button
-          type="button"
+        <ChipButton
+          size="sm"
           data-agent-control="true"
           data-testid="diff-stat-badge"
           onClick={(event) => {
@@ -105,8 +106,7 @@ export function DiffStatBadge({
             onRefresh();
           }}
           className={cn(
-            "inline-flex shrink-0 items-center gap-1 rounded-full border px-2 py-0.5 font-mono text-label-xs leading-none transition-colors",
-            "border-border bg-background/soft text-muted-foreground hover:bg-background hover:text-foreground",
+            "font-mono",
             flash && "border-success/line-strong bg-success/tint"
           )}
           aria-label="Refresh diff stats"
@@ -135,7 +135,7 @@ export function DiffStatBadge({
               />
             )}
           </span>
-        </button>
+        </ChipButton>
       </TooltipTrigger>
       <TooltipContent>
         <div>

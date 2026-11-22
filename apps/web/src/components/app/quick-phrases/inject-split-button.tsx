@@ -1,12 +1,7 @@
-import { ChevronDown, Play } from "lucide-react";
+import { Play } from "lucide-react";
 
-import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
+import { SplitButton } from "@/components/ui/split-button";
 import { cn } from "@/lib/utils";
 
 export function InjectSplitButton({
@@ -24,50 +19,34 @@ export function InjectSplitButton({
   const label = isSm ? "Send" : "Send & Submit";
 
   return (
-    <div className={cn("flex items-stretch", isSm && "min-w-[5.5rem]")}>
-      <Button
-        type={isSm ? "button" : "submit"}
-        size={isSm ? "sm" : "default"}
-        disabled={disabled}
-        className={cn("rounded-r-none", isSm && "h-7 gap-1 px-2 text-body-sm")}
-        onClick={
-          isSm
-            ? (e: React.MouseEvent) => {
-                e.preventDefault();
-                onInject(true);
-              }
-            : undefined
-        }
-      >
-        {isSm ? <Play className="h-2.5 w-2.5 fill-current" /> : null}
-        {label}
-      </Button>
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button
-            type="button"
-            size={isSm ? "sm" : "default"}
-            disabled={disabled}
-            className={cn(
-              "rounded-l-none border-l border-l-edge-strong px-1.5",
-              isSm && "h-7"
-            )}
-          >
-            <ChevronDown className={cn(isSm ? "h-3 w-3" : "h-3.5 w-3.5")} />
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent
-          align="end"
-          className={cn("min-w-[180px]", insidePopover && "z-tooltip")}
+    <SplitButton
+      type={isSm ? "button" : "submit"}
+      size={isSm ? "xs" : "md"}
+      disabled={disabled}
+      menuLabel="More ways to send"
+      menuProps={{
+        className: cn("min-w-[180px]", insidePopover && "z-tooltip"),
+      }}
+      menu={
+        <DropdownMenuItem
+          className="text-foreground"
+          onSelect={() => onInject(false)}
         >
-          <DropdownMenuItem
-            className="text-foreground"
-            onSelect={() => onInject(false)}
-          >
-            Paste without submitting
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
-    </div>
+          Paste without submitting
+        </DropdownMenuItem>
+      }
+      className={cn(isSm && "min-w-16")}
+      onClick={
+        isSm
+          ? (e: React.MouseEvent) => {
+              e.preventDefault();
+              onInject(true);
+            }
+          : undefined
+      }
+    >
+      {isSm ? <Play className="fill-current" /> : null}
+      {label}
+    </SplitButton>
   );
 }

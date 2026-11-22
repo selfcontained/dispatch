@@ -8,6 +8,7 @@ import {
 } from "@/hooks/use-agent-activity";
 import { cachedAgentLineage } from "@/lib/agent-lineage";
 import { ActivityBars } from "@/components/ui/activity-bars";
+import { Hint } from "@/components/ui/tooltip";
 import { Clock } from "lucide-react";
 import { AgentSessionLink } from "@/components/app/agent-session-link";
 import { cn } from "@/lib/utils";
@@ -112,71 +113,72 @@ export function TaskAgentChip({
     </>
   );
   return (
-    <span
-      className={cn(
-        // Tinted by state, so colour on a card says something: green while
-        // the agent starts or works, amber waiting on someone, red blocked,
-        // orange archiving, quiet when idle, faded and dashed once stopped.
-        "inline-flex min-w-0 border text-body-sm text-foreground shadow-sm",
-        compact
-          ? "items-center gap-2 rounded-full py-1 pl-1 pr-3"
-          : "flex-col gap-1 rounded-lg px-2 py-1.5",
-        live
-          ? "border-status-working/line bg-status-working/tint"
-          : activity.tone === "waiting"
-            ? "border-status-waiting/line bg-status-waiting/tint"
-            : activity.tone === "blocked"
-              ? "border-status-blocked/line bg-status-blocked/tint"
-              : activity.tone === "archiving"
-                ? "border-warning/line bg-warning/tint"
-                : activity.tone === "stopped"
-                  ? "border-dashed border-border bg-transparent text-muted-foreground"
-                  : "border-border bg-background/soft",
-        fullWidth && "w-full",
-        className
-      )}
-      data-testid={`task-agent-chip-${agent.id}`}
-      data-layout={compact ? "compact" : "stacked"}
-      title={activityText ? `${name}\n${activityText}` : name}
-    >
-      {compact ? (
-        <>
-          {nameRow}
-          <ActivityGlyph
-            agent={agent}
-            activity={activity}
-            label={activityText ?? STATE_LABELS[activity.tone]}
-          />
-        </>
-      ) : (
-        <>
-          <span className="flex min-w-0 items-center gap-2">{nameRow}</span>
-          <span
-            className={cn(
-              "flex min-h-4 min-w-0 items-center gap-1.5 text-label-xs font-medium",
-              activity.kind === "schedule"
-                ? // The sidebar's colour for the next scheduled message.
-                  "text-heading-accent-1"
-                : live
-                  ? "text-status-working"
-                  : activity.tone === "archiving"
-                    ? "text-warning"
-                    : activity.tone === "waiting"
-                      ? "text-status-waiting"
-                      : activity.tone === "blocked"
-                        ? "text-status-blocked"
-                        : "text-muted-foreground"
-            )}
-            data-testid={`task-agent-activity-${agent.id}`}
-          >
-            <ActivityGlyph agent={agent} activity={activity} label={null} />
-            <span className="min-w-0 truncate">
-              {activityText ?? STATE_LABELS[activity.tone]}
+    <Hint label={activityText ? `${name}\n${activityText}` : name}>
+      <span
+        className={cn(
+          // Tinted by state, so colour on a card says something: green while
+          // the agent starts or works, amber waiting on someone, red blocked,
+          // orange archiving, quiet when idle, faded and dashed once stopped.
+          "inline-flex min-w-0 border text-body-sm text-foreground shadow-sm",
+          compact
+            ? "items-center gap-2 rounded-full py-1 pl-1 pr-3"
+            : "flex-col gap-1 rounded-lg px-2 py-1.5",
+          live
+            ? "border-status-working/line bg-status-working/tint"
+            : activity.tone === "waiting"
+              ? "border-status-waiting/line bg-status-waiting/tint"
+              : activity.tone === "blocked"
+                ? "border-status-blocked/line bg-status-blocked/tint"
+                : activity.tone === "archiving"
+                  ? "border-warning/line bg-warning/tint"
+                  : activity.tone === "stopped"
+                    ? "border-dashed border-border bg-transparent text-muted-foreground"
+                    : "border-border bg-background/soft",
+          fullWidth && "w-full",
+          className
+        )}
+        data-testid={`task-agent-chip-${agent.id}`}
+        data-layout={compact ? "compact" : "stacked"}
+      >
+        {compact ? (
+          <>
+            {nameRow}
+            <ActivityGlyph
+              agent={agent}
+              activity={activity}
+              label={activityText ?? STATE_LABELS[activity.tone]}
+            />
+          </>
+        ) : (
+          <>
+            <span className="flex min-w-0 items-center gap-2">{nameRow}</span>
+            <span
+              className={cn(
+                "flex min-h-4 min-w-0 items-center gap-1.5 text-label-xs font-medium",
+                activity.kind === "schedule"
+                  ? // The sidebar's colour for the next scheduled message.
+                    "text-heading-accent-1"
+                  : live
+                    ? "text-status-working"
+                    : activity.tone === "archiving"
+                      ? "text-warning"
+                      : activity.tone === "waiting"
+                        ? "text-status-waiting"
+                        : activity.tone === "blocked"
+                          ? "text-status-blocked"
+                          : "text-muted-foreground"
+              )}
+              data-testid={`task-agent-activity-${agent.id}`}
+            >
+              <ActivityGlyph agent={agent} activity={activity} label={null} />
+              <span className="min-w-0 truncate">
+                {activityText ?? STATE_LABELS[activity.tone]}
+              </span>
             </span>
-          </span>
-        </>
-      )}
-    </span>
+          </>
+        )}
+      </span>
+    </Hint>
   );
 }
 

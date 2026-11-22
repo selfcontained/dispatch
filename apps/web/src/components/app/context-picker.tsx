@@ -33,6 +33,8 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import { RowButton } from "@/components/ui/row-button";
+import { Hint } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
 function AddContextMenu({
@@ -44,22 +46,20 @@ function AddContextMenu({
 }) {
   return (
     <div className="flex flex-col">
-      <button
-        type="button"
+      <RowButton
         onClick={onAddFile}
-        className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-body-md text-foreground hover:bg-fill-hover"
+        className="rounded-sm px-2 py-1.5 text-body-md text-foreground hover:bg-fill-hover"
       >
         <Upload className="h-3.5 w-3.5 text-muted-foreground" />
         Add file
-      </button>
-      <button
-        type="button"
+      </RowButton>
+      <RowButton
         onClick={onAddLink}
-        className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-body-md text-foreground hover:bg-fill-hover"
+        className="rounded-sm px-2 py-1.5 text-body-md text-foreground hover:bg-fill-hover"
       >
         <Link2 className="h-3.5 w-3.5 text-muted-foreground" />
         Add link
-      </button>
+      </RowButton>
     </div>
   );
 }
@@ -121,12 +121,11 @@ function AddContextLinkForm({
       ) : null}
       <div className="flex justify-between gap-2">
         <Button type="button" variant="ghost" size="sm" onClick={onBack}>
-          <ChevronLeft className="mr-1 h-3 w-3" />
+          <ChevronLeft />
           Back
         </Button>
         <Button
           type="button"
-          variant="default"
           size="sm"
           onClick={onSubmit}
           disabled={value.trim().length === 0 || !isValid}
@@ -317,20 +316,15 @@ export function ContextPicker({
         ) : (
           <Button
             type="button"
-            variant="default"
-            size="sm"
-            className="h-7 shrink-0 gap-1 px-2 text-body-sm"
+            size="xs"
+            className="shrink-0"
             onClick={clipboard.handleCheck}
             disabled={clipboard.checking}
             {...(testIdPrefix
               ? { "data-testid": `${testIdPrefix}-clipboard-action` }
               : {})}
           >
-            {clipboard.checking ? (
-              <ActivityBars size={12} className="mr-0.5" />
-            ) : (
-              <Clipboard className="h-3 w-3" />
-            )}
+            {clipboard.checking ? <ActivityBars size={12} /> : <Clipboard />}
             Read clipboard
           </Button>
         )}
@@ -366,15 +360,14 @@ export function ContextPicker({
       {!hasContextItems ? (
         <Popover open={addOpen} onOpenChange={handleAddOpenChange}>
           <PopoverTrigger asChild>
-            <button
-              type="button"
+            <RowButton
               {...(testIdPrefix
                 ? { "data-testid": `${testIdPrefix}-files-button` }
                 : {})}
               className={cn(
-                "flex w-full flex-col items-center justify-center gap-1.5 rounded-md border border-dashed px-4 py-6 text-body-md transition-colors",
+                "flex-col justify-center gap-1.5 border border-dashed px-4 py-6 text-body-md",
                 draggingFiles
-                  ? "border-info bg-info/tint text-foreground"
+                  ? "border-info bg-info/tint text-foreground hover:bg-info/tint"
                   : "border-border-subtle bg-background/veil text-muted-foreground hover:border-border hover:bg-background/soft hover:text-foreground"
               )}
             >
@@ -392,7 +385,7 @@ export function ContextPicker({
                   </span>
                 </>
               )}
-            </button>
+            </RowButton>
           </PopoverTrigger>
           <PopoverContent align="start" className="w-72 p-1">
             {popoverContent}
@@ -417,25 +410,26 @@ export function ContextPicker({
           ))}
           <Popover open={addOpen} onOpenChange={handleAddOpenChange}>
             <PopoverTrigger asChild>
-              <button
-                type="button"
-                aria-label="Add context"
-                {...(testIdPrefix
-                  ? { "data-testid": `${testIdPrefix}-files-button` }
-                  : {})}
-                className={cn(
-                  "flex h-12 w-12 items-center justify-center rounded-md border border-dashed transition-colors",
-                  draggingFiles
-                    ? "border-info bg-info/tint text-foreground"
-                    : "border-border-subtle bg-background/veil text-muted-foreground hover:border-border hover:bg-background/soft hover:text-foreground"
-                )}
-              >
-                {draggingFiles ? (
-                  <Upload className="h-4 w-4" />
-                ) : (
-                  <Plus className="h-4 w-4" />
-                )}
-              </button>
+              <Hint label="Add context">
+                <RowButton
+                  aria-label="Add context"
+                  {...(testIdPrefix
+                    ? { "data-testid": `${testIdPrefix}-files-button` }
+                    : {})}
+                  className={cn(
+                    "h-12 w-12 justify-center border border-dashed",
+                    draggingFiles
+                      ? "border-info bg-info/tint text-foreground hover:bg-info/tint"
+                      : "border-border-subtle bg-background/veil text-muted-foreground hover:border-border hover:bg-background/soft hover:text-foreground"
+                  )}
+                >
+                  {draggingFiles ? (
+                    <Upload className="h-4 w-4" />
+                  ) : (
+                    <Plus className="h-4 w-4" />
+                  )}
+                </RowButton>
+              </Hint>
             </PopoverTrigger>
             <PopoverContent align="start" className="w-72 p-1">
               {popoverContent}

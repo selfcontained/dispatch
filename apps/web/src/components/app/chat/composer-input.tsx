@@ -486,6 +486,7 @@ export const ComposerInput = forwardRef<
           >
             {candidates.map(([alias, emoji], index) => (
               <Button
+                size="stream-md"
                 key={alias}
                 type="button"
                 variant="ghost"

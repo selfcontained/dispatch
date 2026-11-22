@@ -461,7 +461,7 @@ export function SettingsTab({
                 });
             }}
           >
-            {isUpdating ? <ActivityBars size={16} className="mr-2" /> : null}
+            {isUpdating ? <ActivityBars size={16} /> : null}
             Save
           </Button>
         </div>
@@ -474,7 +474,7 @@ export function SettingsTab({
         </p>
         <div className="mt-3 flex flex-wrap justify-end gap-2">
           <Button
-            variant="destructive"
+            variant="danger"
             size="sm"
             disabled={isRemoving}
             onClick={() => {
@@ -482,7 +482,7 @@ export function SettingsTab({
               setRemoveDialogOpen(true);
             }}
           >
-            <Trash2 className="mr-2 h-4 w-4" />
+            <Trash2 />
             Remove
           </Button>
         </div>
@@ -541,16 +541,8 @@ function RemoveJobDialog({
                 Cancel
               </Button>
             </DialogPrimitive.Close>
-            <Button
-              variant="destructive"
-              disabled={isRemoving}
-              onClick={onConfirm}
-            >
-              {isRemoving ? (
-                <ActivityBars size={16} className="mr-2" />
-              ) : (
-                <Trash2 className="mr-2 h-4 w-4" />
-              )}
+            <Button variant="danger" disabled={isRemoving} onClick={onConfirm}>
+              {isRemoving ? <ActivityBars size={16} /> : <Trash2 />}
               Remove
             </Button>
           </div>

@@ -7,6 +7,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { RowButton } from "@/components/ui/row-button";
+import { StatusDot } from "@/components/ui/status-dot";
 import { cn } from "@/lib/utils";
 import { columnAccent } from "./task-utils";
 
@@ -57,11 +59,10 @@ export function TaskMoveSheet({
           {columns.map((column, index) => {
             const current = column.id === task.columnId;
             return (
-              <button
+              <RowButton
                 key={column.id}
-                type="button"
                 className={cn(
-                  "flex min-h-11 w-full items-center gap-3 rounded-md px-3 text-left text-body-md hover:bg-surface-hover",
+                  "min-h-11 gap-3 px-3 text-body-md",
                   current && "font-medium"
                 )}
                 onClick={() => {
@@ -69,11 +70,7 @@ export function TaskMoveSheet({
                   if (!current) onMove(column.id);
                 }}
               >
-                <span
-                  aria-hidden="true"
-                  className="h-2.5 w-2.5 shrink-0 rounded-full"
-                  style={{ background: `hsl(${columnAccent(column, index)})` }}
-                />
+                <StatusDot color={`hsl(${columnAccent(column, index)})`} />
                 <span className="min-w-0 flex-1 truncate">{column.name}</span>
                 {current && (
                   <>
@@ -84,7 +81,7 @@ export function TaskMoveSheet({
                     />
                   </>
                 )}
-              </button>
+              </RowButton>
             );
           })}
         </div>

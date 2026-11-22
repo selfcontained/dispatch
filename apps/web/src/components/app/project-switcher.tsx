@@ -81,8 +81,7 @@ export function ProjectSwitcher({ allowAll = true }: { allowAll?: boolean }) {
           <Button
             ref={trigger}
             size="sm"
-            variant="default"
-            className="w-full min-w-0 justify-between gap-2 px-2 text-muted-foreground hover:text-foreground"
+            className="w-full min-w-0 justify-between text-muted-foreground hover:text-foreground"
             aria-label="Filter by project"
           >
             <span className="flex min-w-0 items-center gap-2">
@@ -96,7 +95,7 @@ export function ProjectSwitcher({ allowAll = true }: { allowAll?: boolean }) {
                   (allowAll ? "All projects" : "Choose a project")}
               </span>
             </span>
-            <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+            <ChevronDown className="text-muted-foreground" />
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent
@@ -176,11 +175,10 @@ export function ProjectSwitcher({ allowAll = true }: { allowAll?: boolean }) {
                 </div>
                 <Button
                   size="sm"
-                  variant="default"
                   aria-label={`Edit ${p.name}`}
                   onClick={() => setEdit(p)}
                 >
-                  <Pencil className="mr-1.5 h-3 w-3" />
+                  <Pencil />
                   Edit
                 </Button>
               </div>
@@ -193,7 +191,7 @@ export function ProjectSwitcher({ allowAll = true }: { allowAll?: boolean }) {
           </div>
           <div className="flex justify-between gap-2 pt-2">
             <Button onClick={() => setEdit("new")}>
-              <Plus className="mr-2 h-4 w-4" />
+              <Plus />
               Create project
             </Button>
             <Button variant="ghost" onClick={() => setManage(false)}>

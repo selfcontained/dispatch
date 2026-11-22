@@ -277,10 +277,10 @@ export function TaskConversation({
             <Button
               variant="ghost"
               size="sm"
-              className="h-8 text-body-sm"
+              className="text-body-sm"
               onClick={() => setThread(null)}
             >
-              <ArrowLeft className="mr-1 h-3.5 w-3.5" aria-hidden="true" />
+              <ArrowLeft aria-hidden="true" />
               Conversation
             </Button>
           </div>
@@ -320,11 +320,7 @@ export function TaskConversation({
                   <span className="min-w-0 truncate">
                     Couldn&apos;t load the conversation: {feed.error.message}
                   </span>
-                  <Button
-                    size="sm"
-                    className="h-6 shrink-0 px-2 text-body-sm"
-                    onClick={feed.refetch}
-                  >
+                  <Button size="xs" className="shrink-0" onClick={feed.refetch}>
                     Retry
                   </Button>
                 </div>
@@ -332,8 +328,7 @@ export function TaskConversation({
               {feed.hasOlder ? (
                 <div className="mb-1 flex justify-center">
                   <Button
-                    size="sm"
-                    className="h-7 text-body-sm"
+                    size="xs"
                     onClick={feed.loadOlder}
                     disabled={feed.isFetchingOlder}
                   >

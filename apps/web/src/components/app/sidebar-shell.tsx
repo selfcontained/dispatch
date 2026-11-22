@@ -9,13 +9,8 @@ import {
 } from "lucide-react";
 import React from "react";
 
-import { Button } from "@/components/ui/button";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
+import { TooltipProvider } from "@/components/ui/tooltip";
+import { IconButton } from "@/components/ui/icon-button";
 import { useIconColor } from "@/hooks/use-icon-color";
 import { useInstanceName } from "@/hooks/use-instance-name";
 import { cn } from "@/lib/utils";
@@ -40,12 +35,6 @@ export function SidebarNavBar({
   pulsingNavItem,
   triggerNavAnimation,
 }: SidebarNavBarProps): JSX.Element {
-  const navButtonClassName = (navItem: string, active = false): string =>
-    cn(
-      "rounded-md p-2 transition-colors hover:bg-surface-hover hover:text-foreground",
-      active ? "text-primary hover:text-primary/soft" : "text-muted-foreground"
-    );
-
   const triggerNavAnimationForKey = (
     event: React.KeyboardEvent<HTMLButtonElement>,
     navItem: string
@@ -67,26 +56,22 @@ export function SidebarNavBar({
     <TooltipProvider delayDuration={120}>
       <div className="flex items-center justify-around border-t border-edge py-3 pb-safe-5">
         {items.map(({ id, icon: Icon, label }) => (
-          <Tooltip key={id}>
-            <TooltipTrigger asChild>
-              <button
-                onPointerDown={() => triggerNavAnimation?.(id)}
-                onKeyDown={(event) => triggerNavAnimationForKey(event, id)}
-                onClick={() => onNavigate(id)}
-                aria-label={label}
-                data-testid={`${id}-button`}
-                className={cn(
-                  navButtonClassName(id, activeSection === id),
-                  pulsingNavItem === id && "animate-sidebar-nav-pulse"
-                )}
-              >
-                <span className="flex items-center justify-center">
-                  <Icon className="h-5 w-5" />
-                </span>
-              </button>
-            </TooltipTrigger>
-            <TooltipContent>{label}</TooltipContent>
-          </Tooltip>
+          <IconButton
+            key={id}
+            side="top"
+            onPointerDown={() => triggerNavAnimation?.(id)}
+            onKeyDown={(event) => triggerNavAnimationForKey(event, id)}
+            onClick={() => onNavigate(id)}
+            label={label}
+            aria-current={activeSection === id ? "page" : undefined}
+            data-testid={`${id}-button`}
+            className={cn(
+              activeSection === id && "text-primary hover:text-primary/soft",
+              pulsingNavItem === id && "animate-sidebar-nav-pulse"
+            )}
+          >
+            <Icon />
+          </IconButton>
         ))}
       </div>
     </TooltipProvider>
@@ -143,18 +128,9 @@ export function SidebarShell({
         </div>
         {onRequestClose ? (
           <div className="ml-auto">
-            <Button
-              size="icon"
-              variant="ghost"
-              onClick={onRequestClose}
-              title="Close sidebar"
-            >
-              {closeButtonIcon === "chevron" ? (
-                <ChevronLeft className="h-4 w-4" />
-              ) : (
-                <X className="h-4 w-4" />
-              )}
-            </Button>
+            <IconButton onClick={onRequestClose} label="Close sidebar">
+              {closeButtonIcon === "chevron" ? <ChevronLeft /> : <X />}
+            </IconButton>
           </div>
         ) : null}
       </div>

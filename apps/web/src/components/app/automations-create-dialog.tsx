@@ -139,7 +139,7 @@ function CreateTemplateDialogContent({
           onClick={handleCreate}
           disabled={!canCreate || creating}
         >
-          {creating ? <ActivityBars size={16} className="mr-1.5" /> : null}
+          {creating ? <ActivityBars size={16} /> : null}
           Create
         </Button>
       </div>

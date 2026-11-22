@@ -810,7 +810,7 @@ function PlanLimits({
         ) : null}
         <Button
           type="button"
-          size="sm"
+          size="stream-sm"
           variant="ghost"
           className="h-6 shrink-0 px-1.5 text-label-sm pointer-coarse:min-h-11"
           onClick={() => plans.refresh.mutate()}
@@ -964,8 +964,7 @@ export function UseResetButton({
         <DialogTrigger asChild>
           <Button
             type="button"
-            size="sm"
-            variant="default"
+            size="stream-sm"
             className="h-6 shrink-0 self-end px-2 text-label-sm pointer-coarse:min-h-11"
             disabled={available === 0}
             data-testid="usage-codex-reset"
@@ -1047,11 +1046,12 @@ export function UseResetButton({
           </p>
         ) : null}
         <div className="flex justify-end gap-2">
-          <Button type="button" variant="default" onClick={close}>
+          <Button size="stream-md" type="button" onClick={close}>
             {outcome ? "Close" : "Cancel"}
           </Button>
           {outcome ? null : (
             <Button
+              size="stream-md"
               type="button"
               variant="primary"
               onClick={() => consume.mutate()}

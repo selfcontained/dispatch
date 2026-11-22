@@ -135,7 +135,6 @@ export function BrowserNotificationsSection({
               ))}
               <div className="pt-1">
                 <Button
-                  variant="default"
                   size="sm"
                   onClick={onTestWebNotification}
                   data-testid="test-web-notification"

@@ -71,3 +71,50 @@ test("leave test fixtures alone", async () => {
     []
   );
 });
+
+async function controlViolations(source, filePath = "src/example.tsx") {
+  const [result] = await eslint.lintText(source, { filePath });
+  return result.messages
+    .filter(({ ruleId }) => ruleId === "dispatch/controls")
+    .map(({ messageId }) => messageId);
+}
+
+for (const [jsx, id] of [
+  ["<button>Go</button>", "rawButton"],
+  ['<Button className="h-7" />', "sizing"],
+  ['<Button className="sm:min-h-11" />', "sizing"],
+  ['<IconButton label="Go" className="size-9" />', "sizing"],
+  ['<Button className={cn("w-full", open && "!px-1")} />', "sizing"],
+  ["<SplitButton className={SIZED} />", "sizing"],
+  ['<Button size="icon-sm" />', "iconButton"],
+  ['<Button size="stream-sm" />', "streamSize"],
+  ['<IconButton label="Go" title="Go" />', "title"],
+]) {
+  test(`reject ${jsx}`, async () => {
+    assert.deepEqual(
+      await controlViolations(`const SIZED = "py-2"; export const a = ${jsx};`),
+      [id]
+    );
+  });
+}
+
+test("allow a control's size, width, offset and pseudo-element", async () => {
+  assert.deepEqual(
+    await controlViolations(
+      'export const a = <Button size="xs" className="-mt-1 w-full after:size-7" />;'
+    ),
+    []
+  );
+});
+
+test("leave the stream and components/ui to their own sizes", async () => {
+  for (const file of [
+    "src/components/app/chat/example.tsx",
+    "src/components/ui/example.tsx",
+  ]) {
+    assert.deepEqual(
+      await controlViolations("export const a = <button />;", file),
+      []
+    );
+  }
+});

@@ -11,6 +11,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { ChartContainer, type ChartConfig } from "@/components/ui/chart";
+import { RowButton } from "@/components/ui/row-button";
 import type {
   ResourceSample,
   SubsystemResourceSample,
@@ -19,7 +20,7 @@ import type {
 import {
   formatMs,
   metadataLabel,
-  stateBadgeVariant,
+  stateBadgeTone,
   stateLabel,
 } from "./service-resources-format";
 
@@ -154,9 +155,8 @@ function SubsystemRow({
   ];
   return (
     <div className="border-b border-border last:border-b-0">
-      <button
-        type="button"
-        className="grid w-full grid-cols-[1fr_auto] items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-surface-hover md:grid-cols-[minmax(12rem,1.4fr)_minmax(7rem,0.6fr)_minmax(7rem,0.6fr)_5.5rem]"
+      <RowButton
+        className="grid grid-cols-[1fr_auto] gap-3 rounded-none px-4 py-3 md:grid-cols-[minmax(12rem,1.4fr)_minmax(7rem,0.6fr)_minmax(7rem,0.6fr)_5.5rem]"
         onClick={() => setExpanded((value) => !value)}
         aria-expanded={expanded}
         data-testid={`subsystem-${subsystem.id}`}
@@ -187,11 +187,11 @@ function SubsystemRow({
         </span>
         <Badge
           className="justify-self-end"
-          variant={stateBadgeVariant(subsystem.state)}
+          tone={stateBadgeTone(subsystem.state)}
         >
           {stateLabel(subsystem.state)}
         </Badge>
-      </button>
+      </RowButton>
       {expanded && (
         <div className="bg-surface-subtle px-4 pb-4 pl-10 text-body-sm text-muted-foreground">
           <p>{subsystem.description}</p>

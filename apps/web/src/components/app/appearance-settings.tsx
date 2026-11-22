@@ -3,6 +3,9 @@ import { useEffect, useState } from "react";
 import { type IconColorId, ICON_COLOR_OPTIONS } from "@/hooks/use-icon-color";
 import { DEFAULT_THEME_ID, type ThemeId, THEMES } from "@/hooks/use-theme";
 import { cn } from "@/lib/utils";
+import { RowButton } from "@/components/ui/row-button";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 
 export function AppearanceSettings({
   theme,
@@ -47,11 +50,13 @@ export function AppearanceSettings({
               </div>
               <div className="grid gap-3 sm:grid-cols-2">
                 {items.map((t) => (
-                  <button
+                  <RowButton
                     key={t.id}
+                    selected={theme === t.id}
+                    aria-pressed={theme === t.id}
                     onClick={() => setTheme(t.id)}
                     className={cn(
-                      "flex items-start gap-3 rounded-md border p-3 text-left transition-colors",
+                      "items-start gap-3 border p-3",
                       theme === t.id
                         ? "border-primary bg-surface-selected"
                         : "border-border hover:border-muted-foreground/line"
@@ -72,16 +77,14 @@ export function AppearanceSettings({
                           {t.label}
                         </div>
                         {t.id === DEFAULT_THEME_ID && (
-                          <span className="rounded-sm border border-border bg-surface-subtle px-1.5 py-0.5 text-label-xs font-medium uppercase tracking-wider text-muted-foreground">
-                            Default
-                          </span>
+                          <Badge size="sm">Default</Badge>
                         )}
                       </div>
                       <div className="text-body-sm text-muted-foreground">
                         {t.description}
                       </div>
                     </div>
-                  </button>
+                  </RowButton>
                 ))}
               </div>
             </div>
@@ -104,7 +107,7 @@ export function AppearanceSettings({
           aria-label="Icon color"
         >
           {ICON_COLOR_OPTIONS.map((c) => (
-            <button
+            <RowButton
               key={c.id}
               role="radio"
               aria-checked={displayColor === c.id}
@@ -117,9 +120,9 @@ export function AppearanceSettings({
                 }
               }}
               className={cn(
-                "flex w-14 flex-col items-center gap-1 rounded-lg border-2 px-1 py-1.5 transition-all",
+                "w-14 flex-col gap-1 rounded-lg border-2 px-1 py-1.5 transition-all",
                 displayColor === c.id
-                  ? "border-foreground bg-foreground/tint"
+                  ? "border-foreground bg-foreground/tint hover:bg-foreground/tint"
                   : "border-transparent hover:border-muted-foreground/line-strong hover:bg-surface-hover"
               )}
             >
@@ -138,18 +141,15 @@ export function AppearanceSettings({
               >
                 {c.label}
               </span>
-            </button>
+            </RowButton>
           ))}
         </div>
         {iconColorError ? (
           <p className="mt-2 text-body-sm text-danger">
             {iconColorError}{" "}
-            <button
-              onClick={clearIconColorError}
-              className="underline hover:no-underline"
-            >
+            <Button variant="link" size="inline" onClick={clearIconColorError}>
               Dismiss
-            </button>
+            </Button>
           </p>
         ) : (
           <p className="mt-2 text-body-sm text-faint">

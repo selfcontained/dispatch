@@ -12,14 +12,13 @@ import { PendingInputsButton } from "./chat/pending-inputs-button";
 import { ChatPane } from "@/components/app/chat/chat-pane";
 import { type Agent } from "@/components/app/types";
 import { agentSwitchValidationMode } from "@/lib/agent-switch-validation";
-import { Button } from "@/components/ui/button";
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { Switch } from "@/components/ui/switch";
-import { cn } from "@/lib/utils";
+import { IconButton } from "@/components/ui/icon-button";
 
 /** The Chat options popover in the Agent pane header. */
 export function ChatFiltersButton(): JSX.Element {
@@ -33,26 +32,14 @@ export function ChatFiltersButton(): JSX.Element {
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <Button
-          type="button"
-          size="icon"
-          variant="ghost"
-          aria-label={filtersLabel}
-          title={filtersLabel}
+        <IconButton
+          size="icon-sm"
+          label={filtersLabel}
           data-testid="chat-filters-trigger"
-          className={cn(
-            "group h-7 w-7 shrink-0 rounded-full p-0 hover:bg-transparent focus-visible:ring-0 pointer-coarse:h-11 pointer-coarse:w-11"
-          )}
+          className="rounded-full"
         >
-          <span
-            data-testid="chat-filters-surface"
-            className={cn(
-              "flex h-6 w-6 items-center justify-center rounded-full transition-colors group-hover:bg-surface-hover group-focus-visible:ring-2 group-focus-visible:ring-ring"
-            )}
-          >
-            <Settings data-testid="chat-filters-icon" className="h-3.5 w-3.5" />
-          </span>
-        </Button>
+          <Settings data-testid="chat-filters-icon" />
+        </IconButton>
       </PopoverTrigger>
       <PopoverContent
         align="end"

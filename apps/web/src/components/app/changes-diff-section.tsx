@@ -27,6 +27,8 @@ import { DiffEditorStateContext } from "@/components/app/diff-editor-state";
 import { DiffImageView } from "@/components/app/diff-image-view";
 import { UnifiedDiffView } from "@/components/app/unified-diff-view";
 import { type LineSelection } from "@/components/app/unified-diff-utils";
+import { Button } from "@/components/ui/button";
+import { RowButton } from "@/components/ui/row-button";
 
 function statusIcon(file: DiffFile): JSX.Element {
   if (file.image) {
@@ -288,9 +290,9 @@ const FileDiffSection = memo(function FileDiffSection({
         style={{ containerType: "inline-size" }}
         className="sticky top-0 z-sticky flex items-center rounded-t-md border-b border-border-subtle bg-background/dense pr-1 backdrop-blur-sm"
       >
-        <button
-          type="button"
-          className="flex min-w-0 flex-1 items-center gap-2 px-3 py-2 text-left text-body-sm hover:bg-surface-hover"
+        <RowButton
+          aria-expanded={!collapsed}
+          className="min-w-0 flex-1 rounded-none px-3 py-2 text-body-sm"
           onClick={() => onToggleCollapse(file.path)}
         >
           {collapsed ? (
@@ -316,7 +318,7 @@ const FileDiffSection = memo(function FileDiffSection({
               <span className="ml-1 text-danger">−{file.deleted}</span>
             ) : null}
           </span>
-        </button>
+        </RowButton>
         <OpenFullFileButton
           key={`${agentId}:${workspace}`}
           requestVersion={requestVersion}
@@ -418,13 +420,9 @@ function FileDiffContent({
           Large file ({file.added > 0 ? `+${file.added}` : ""}
           {file.deleted > 0 ? ` −${file.deleted}` : ""}) — diff truncated
         </span>
-        <button
-          type="button"
-          className="rounded-sm border border-border px-2 py-0.5 text-body-sm text-foreground hover:bg-surface-hover"
-          onClick={onForceLoad}
-        >
+        <Button size="xs" type="button" onClick={onForceLoad}>
           Load diff
-        </button>
+        </Button>
       </div>
     );
   }

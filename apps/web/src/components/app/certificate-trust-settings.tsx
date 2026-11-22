@@ -27,16 +27,10 @@ export function CertificateTrustSettings(): JSX.Element | null {
         in Settings.
       </p>
       <div className="flex flex-wrap gap-3">
-        <Button
-          asChild
-          className="h-auto min-h-9 whitespace-normal text-center"
-        >
+        <Button asChild wrap>
           <a href="/trust">Set up certificate trust</a>
         </Button>
-        <Button
-          asChild
-          className="h-auto min-h-9 whitespace-normal text-center"
-        >
+        <Button asChild wrap>
           <a href="/trust/dispatch.mobileconfig">
             Download Apple trust profile
           </a>

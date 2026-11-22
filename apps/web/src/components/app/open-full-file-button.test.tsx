@@ -11,6 +11,7 @@ import {
 import { Provider } from "jotai";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { OpenFullFileButton } from "./open-full-file-button";
+import { hintText } from "@/test-utils/hint";
 
 const { navigate, api, error } = vi.hoisted(() => ({
   navigate: vi.fn(),
@@ -165,7 +166,7 @@ describe("View file", () => {
     mount(true);
     const button = screen.getByRole("button") as HTMLButtonElement;
     expect(button.disabled).toBe(true);
-    expect(button.title).toContain("unavailable");
+    expect(hintText(button)).toContain("unavailable");
     fireEvent.click(button);
     expect(api).not.toHaveBeenCalled();
     expect(navigate).not.toHaveBeenCalled();

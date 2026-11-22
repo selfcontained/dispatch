@@ -23,6 +23,9 @@ export const CENTER_TABS: readonly CenterTabDef[] = [
   { id: "files", label: "Files", route: (id) => `/agents/${id}/files` },
 ];
 
+/** The element the center tab bar controls. */
+export const CENTER_PANE_ID = "center-pane";
+
 const BY_ID: ReadonlyMap<CenterTab, CenterTabDef> = new Map(
   CENTER_TABS.map((tab) => [tab.id, tab])
 );

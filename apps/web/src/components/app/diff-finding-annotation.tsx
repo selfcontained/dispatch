@@ -21,6 +21,7 @@ import type {
 } from "@/components/app/diff-review-annotation-props";
 import { Button } from "@/components/ui/button";
 import { Markdown } from "@/components/ui/markdown";
+import { RowButton } from "@/components/ui/row-button";
 import { formatRelativeTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
@@ -91,10 +92,9 @@ export function InlineFindingAnnotation({
       data-outcome={outcome}
       data-expanded={expanded ? "true" : "false"}
     >
-      <button
-        type="button"
+      <RowButton
         aria-expanded={expanded}
-        className="flex w-full items-center gap-2 px-3 py-2 text-left outline-none hover:bg-surface-hover focus-ring"
+        className="rounded-none px-3 py-2"
         data-testid="diff-finding-header"
         onClick={() => setExpanded((value) => !value)}
       >
@@ -120,7 +120,7 @@ export function InlineFindingAnnotation({
         <span className="shrink-0 text-label-sm text-muted-foreground">
           {item.reviewerName}
         </span>
-      </button>
+      </RowButton>
       <Collapse open={expanded} data-testid="diff-finding-body">
         <div className="flex flex-col gap-2 border-t border-border-subtle px-3 pb-3 pt-3">
           <Markdown className="text-body-sm text-foreground">
@@ -149,12 +149,12 @@ export function InlineFindingAnnotation({
             <Button
               type="button"
               variant="ghost"
-              className="ml-auto h-9 gap-1.5 text-body-sm"
+              className="ml-auto text-body-sm"
               data-testid="diff-finding-open"
               // A review on a launch card opens on the card's thread.
               onClick={() => onOpen(block.threadId ?? block.id, item.findingId)}
             >
-              <MessageSquare className="h-3.5 w-3.5" aria-hidden="true" />
+              <MessageSquare aria-hidden="true" />
               Discussion
             </Button>
           </div>

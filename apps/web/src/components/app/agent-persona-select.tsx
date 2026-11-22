@@ -60,7 +60,6 @@ export function AgentPersonaSelect({
             <SelectItem
               value="__warnings__"
               disabled
-              title={data.warnings.join("\n")}
               className="max-w-[min(24rem,80vw)] whitespace-normal"
             >
               {data.warnings[0]}

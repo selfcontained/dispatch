@@ -11,6 +11,10 @@ import {
 } from "@/lib/store";
 import type { DiffFileStatus } from "@/hooks/use-agent-diff";
 import { Slider } from "@/components/ui/slider";
+import {
+  SegmentedControl,
+  SegmentedControlItem,
+} from "@/components/ui/segmented-control";
 
 type Side = "old" | "new";
 
@@ -237,37 +241,27 @@ export function DiffImageView({
   return (
     <div className="bg-surface-subtle px-4 py-4">
       <div className="mb-3 flex flex-col items-center gap-1">
-        <div
-          role="group"
+        <SegmentedControl
           aria-label="Image comparison mode"
-          className="flex rounded-md border border-border-subtle bg-surface-subtle p-0.5"
+          aria-describedby={
+            unavailableReason !== null
+              ? `diff-image-modes-hint-${filePath}`
+              : undefined
+          }
+          value={effectiveMode}
+          onValueChange={setMode}
         >
-          {MODES.map((m) => {
-            const disabled = m.value !== "two-up" && unavailableReason !== null;
-            return (
-              <button
-                key={m.value}
-                type="button"
-                disabled={disabled}
-                aria-pressed={effectiveMode === m.value}
-                aria-describedby={
-                  disabled ? `diff-image-modes-hint-${filePath}` : undefined
-                }
-                data-testid={`diff-image-mode:${m.value}`}
-                className={cn(
-                  "whitespace-nowrap rounded-sm px-2 py-1 text-label-sm font-medium transition-colors",
-                  "disabled:cursor-not-allowed disabled-state disabled:pointer-events-auto",
-                  effectiveMode === m.value
-                    ? "bg-background text-foreground shadow-sm"
-                    : "text-muted-foreground hover:text-foreground"
-                )}
-                onClick={() => setMode(m.value)}
-              >
-                {m.label}
-              </button>
-            );
-          })}
-        </div>
+          {MODES.map((m) => (
+            <SegmentedControlItem
+              key={m.value}
+              value={m.value}
+              disabled={m.value !== "two-up" && unavailableReason !== null}
+              data-testid={`diff-image-mode:${m.value}`}
+            >
+              {m.label}
+            </SegmentedControlItem>
+          ))}
+        </SegmentedControl>
         {unavailableReason !== null && unavailableReason !== "Loading…" ? (
           <p
             id={`diff-image-modes-hint-${filePath}`}

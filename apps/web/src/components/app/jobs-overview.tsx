@@ -6,9 +6,12 @@ import {
   JobAvgDuration,
   RunHistoryGrid,
 } from "@/components/app/jobs-charts";
-import { statusTextColor } from "@/components/app/jobs-helpers";
+import { statusDotTone, statusTextColor } from "@/components/app/jobs-helpers";
 import { ActivityBars } from "@/components/ui/activity-bars";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { RowButton } from "@/components/ui/row-button";
+import { StatusDot } from "@/components/ui/status-dot";
+import { Hint } from "@/components/ui/tooltip";
 import { StatCard } from "@/components/app/stat-card";
 import { type Job, type JobStats } from "@/hooks/use-jobs";
 import {
@@ -163,23 +166,23 @@ export function JobsOverview({
             </div>
             <div className="divide-y divide-border rounded-md border border-border bg-surface-subtle">
               {upcomingJobs.map((job) => (
-                <button
+                <RowButton
                   key={job.id}
-                  className="flex w-full items-center justify-between px-3 py-3 text-left text-body-md transition-colors hover:bg-surface-hover"
+                  className="justify-between rounded-none px-3 py-3 text-body-md"
                   onClick={() => onSelectJob(job)}
                 >
                   <span className="font-medium text-foreground">
                     {job.name}
                   </span>
                   <span className="flex items-center gap-2 text-body-sm text-muted-foreground">
-                    <span title={formatDateTime(job.nextRun!)}>
-                      {formatTimeUntil(job.nextRun!)}
-                    </span>
+                    <Hint label={formatDateTime(job.nextRun!)}>
+                      <span>{formatTimeUntil(job.nextRun!)}</span>
+                    </Hint>
                     <span className="hidden text-faint sm:inline">
                       {formatDayTime(job.nextRun!)}
                     </span>
                   </span>
-                </button>
+                </RowButton>
               ))}
             </div>
           </div>
@@ -198,9 +201,9 @@ export function JobsOverview({
                 .slice(0, 8)
                 .map((run) => {
                   return (
-                    <button
+                    <RowButton
                       key={run.id}
-                      className="flex w-full items-center gap-3 px-3 py-3 text-left text-body-md transition-colors hover:bg-surface-hover"
+                      className="gap-3 rounded-none px-3 py-3 text-body-md"
                       onClick={() => onSelectRun(run.jobId, run.id)}
                     >
                       <span className="min-w-0 flex-1 truncate font-medium text-foreground">
@@ -208,22 +211,22 @@ export function JobsOverview({
                       </span>
                       <span
                         className={cn(
-                          "shrink-0 text-body-sm",
+                          "flex shrink-0 items-center gap-1.5 text-body-sm",
                           statusTextColor(run.status)
                         )}
                       >
+                        <StatusDot tone={statusDotTone(run.status)} size="sm" />
                         {statusLabel(run.status)}
                       </span>
                       <span className="shrink-0 text-body-sm tabular-nums text-muted-foreground">
                         {formatDuration(run.durationMs)}
                       </span>
-                      <span
-                        className="shrink-0 text-body-sm text-faint"
-                        title={formatDateTime(run.startedAt)}
-                      >
-                        {formatRelativeTime(run.startedAt)}
-                      </span>
-                    </button>
+                      <Hint label={formatDateTime(run.startedAt)}>
+                        <span className="shrink-0 text-body-sm text-faint">
+                          {formatRelativeTime(run.startedAt)}
+                        </span>
+                      </Hint>
+                    </RowButton>
                   );
                 })}
             </div>

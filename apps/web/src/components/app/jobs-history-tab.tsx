@@ -2,12 +2,14 @@ import { MessageSquareText } from "lucide-react";
 
 import {
   formatJobDateTime,
-  statusDotColor,
+  statusDotTone,
   statusTextColor,
   triggerSourceLabel,
 } from "@/components/app/jobs-helpers";
 import { ActivityBars } from "@/components/ui/activity-bars";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { RowButton } from "@/components/ui/row-button";
+import { StatusDot } from "@/components/ui/status-dot";
 import { type JobRun } from "@/hooks/use-jobs";
 import { LoadError } from "@/components/app/load-error";
 import { formatDuration } from "@/lib/format";
@@ -61,20 +63,16 @@ export function HistoryTab({
               run.status === "needs_input";
             return (
               <div key={run.id}>
-                <button
-                  type="button"
+                <RowButton
                   className={cn(
-                    "flex w-full min-w-0 items-center gap-2 overflow-hidden py-1.5 text-left text-body-sm transition-colors hover:text-foreground",
+                    "min-w-0 overflow-hidden py-1.5 text-body-sm hover:text-foreground",
                     isSelected ? "text-foreground" : "text-muted-foreground"
                   )}
                   onClick={() => onSelectRun(isSelected ? "" : run.id)}
                 >
-                  <span
-                    className={cn(
-                      "h-2 w-2 shrink-0 rounded-full",
-                      statusDotColor(run.status),
-                      isActive && "animate-pulse"
-                    )}
+                  <StatusDot
+                    tone={statusDotTone(run.status)}
+                    className={cn(isActive && "animate-pulse")}
                   />
                   <span
                     className={cn(
@@ -91,7 +89,7 @@ export function HistoryTab({
                     {formatDuration(run.durationMs)}
                   </span>
                   <span className="opacity-40">{triggerSourceLabel(run)}</span>
-                </button>
+                </RowButton>
                 {isSelected && <RunReport run={run} />}
               </div>
             );
@@ -120,15 +118,15 @@ function RunReport({ run }: { run: JobRun | null }) {
       {run.report?.tasks.map((task, index) => (
         <div key={`${task.name}-${index}`} className="py-0.5">
           <div className="flex items-center gap-1.5 text-body-sm">
-            <span
-              className={cn(
-                "h-1.5 w-1.5 shrink-0 rounded-full",
+            <StatusDot
+              size="sm"
+              tone={
                 task.status === "success"
-                  ? "bg-status-done"
+                  ? "done"
                   : task.status === "error"
-                    ? "bg-status-blocked"
-                    : "bg-muted-foreground"
-              )}
+                    ? "blocked"
+                    : "neutral"
+              }
             />
             <span className="font-medium">{task.name}</span>
             {task.status === "error" && (

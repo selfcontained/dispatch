@@ -105,7 +105,7 @@ export function ComposerDelivery({
         <Button
           type="button"
           variant="ghost"
-          size="sm"
+          size="stream-sm"
           className="h-7 w-7 shrink-0 p-0 text-muted-foreground pointer-coarse:min-h-11 pointer-coarse:min-w-11"
           aria-label={`Message timing: ${label}`}
           aria-description={`${modeLabel} delivery mode. Open to change.`}
@@ -151,8 +151,8 @@ export function ComposerDelivery({
             <Button
               key={value}
               type="button"
-              variant={mode === value ? "default" : "ghost"}
-              size="sm"
+              variant={mode === value ? "secondary" : "ghost"}
+              size="stream-sm"
               aria-pressed={mode === value}
               disabled={value === "interrupt" && interruptUnavailable}
               onClick={() => onMode(value)}

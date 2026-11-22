@@ -76,7 +76,6 @@ export function CreateReleaseSection({
               key={type}
               onClick={() => onConfirmTypeChange(type)}
               disabled={releaseInFlight}
-              className="gap-1.5"
             >
               <Icon className={cn("h-3.5 w-3.5", color)} />
               <span className="capitalize">{type}</span>

@@ -83,7 +83,7 @@ function PermissionRequest({
         {request.options.map((option) => (
           <Button
             key={option.optionId}
-            size="sm"
+            size="stream-sm"
             variant="ghost"
             className={`h-auto min-h-8 max-w-full justify-start whitespace-normal break-words px-0 py-1.5 text-left font-normal underline-offset-4 hover:bg-transparent hover:underline pointer-coarse:min-h-11 ${option.kind.startsWith("reject") ? "text-muted-foreground" : "text-primary hover:text-primary"}`}
             disabled={!connected || answer.isPending}
@@ -94,7 +94,7 @@ function PermissionRequest({
         ))}
         {!request.options.some((option) => option.kind.startsWith("reject")) ? (
           <Button
-            size="sm"
+            size="stream-sm"
             variant="ghost"
             className="h-auto min-h-8 justify-start px-0 py-1.5 text-left font-normal underline-offset-4 hover:bg-transparent hover:underline pointer-coarse:min-h-11"
             disabled={!connected || answer.isPending}

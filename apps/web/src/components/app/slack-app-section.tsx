@@ -204,22 +204,16 @@ export function SlackAppSection() {
           </div>
         </div>
         <Badge
-          variant={
+          dot
+          tone={
             connected
-              ? "running"
+              ? "success"
               : query.data?.status === "credentials_rejected" || query.isError
-                ? "error"
-                : "default"
+                ? "danger"
+                : "neutral"
           }
-          className="gap-1.5"
           role="status"
         >
-          <span
-            className={cn(
-              "size-1.5 rounded-full",
-              connected ? "bg-success" : "bg-current"
-            )}
-          />
           {status}
         </Badge>
       </div>
@@ -242,7 +236,7 @@ export function SlackAppSection() {
           <CardContent className="space-y-4">
             <div className="flex flex-wrap gap-2">
               <Button disabled={action.isPending} onClick={() => run("test")}>
-                <Radio className="mr-2 size-3.5" aria-hidden="true" />
+                <Radio aria-hidden="true" />
                 Send test
               </Button>
               <Button
@@ -266,7 +260,6 @@ export function SlackAppSection() {
               connected socket does not verify interactive callback delivery.
             </p>
             <Button
-              variant="default"
               size="sm"
               disabled={action.isPending}
               onClick={() => run("recheck")}
@@ -289,9 +282,9 @@ export function SlackAppSection() {
             )}
             <Collapsible>
               <CollapsibleTrigger asChild>
-                <Button variant="ghost" size="sm" className="px-0">
+                <Button variant="ghost" size="sm">
                   Connection details
-                  <ChevronDown className="ml-2 size-3.5" aria-hidden="true" />
+                  <ChevronDown aria-hidden="true" />
                 </Button>
               </CollapsibleTrigger>
               <CollapsibleContent className="mt-2 space-y-3 text-body-sm text-muted-foreground">
@@ -304,12 +297,13 @@ export function SlackAppSection() {
                   notification was read.
                 </p>
                 <Button
-                  variant="ghost-destructive"
+                  variant="ghost"
+                  tone="danger"
                   size="sm"
                   disabled={action.isPending}
                   onClick={() => run("disconnect")}
                 >
-                  <Unplug className="mr-2 size-3.5" aria-hidden="true" />
+                  <Unplug aria-hidden="true" />
                   Disconnect and clear tokens
                 </Button>
               </CollapsibleContent>
@@ -446,7 +440,7 @@ export function SlackAppSection() {
                   </span>
                   <Button variant="primary" onClick={() => setStep(2)}>
                     App created
-                    <ArrowRight className="ml-2 size-3.5" aria-hidden="true" />
+                    <ArrowRight aria-hidden="true" />
                   </Button>
                 </div>
               </CardContent>
@@ -478,7 +472,7 @@ export function SlackAppSection() {
                     >
                       App token
                     </label>
-                    <Badge className="ml-auto normal-case">xapp</Badge>
+                    <Badge className="ml-auto">xapp</Badge>
                   </div>
                   <Input
                     id="slack-app-token"
@@ -521,7 +515,7 @@ export function SlackAppSection() {
                     >
                       Bot token
                     </label>
-                    <Badge className="ml-auto normal-case">xoxb</Badge>
+                    <Badge className="ml-auto">xoxb</Badge>
                   </div>
                   <Input
                     id="slack-bot-token"
@@ -558,7 +552,7 @@ export function SlackAppSection() {
                     onClick={() => run("validate", { botToken, appToken })}
                   >
                     {action.isPending ? "Validating…" : "Validate tokens"}
-                    <ArrowRight className="ml-2 size-3.5" aria-hidden="true" />
+                    <ArrowRight aria-hidden="true" />
                   </Button>
                 </div>
               </CardContent>
@@ -659,7 +653,7 @@ export function SlackAppSection() {
                     }
                   >
                     {action.isPending ? "Connecting…" : "Enable notifications"}
-                    <ArrowRight className="ml-2 size-3.5" aria-hidden="true" />
+                    <ArrowRight aria-hidden="true" />
                   </Button>
                 </div>
               </CardContent>
@@ -703,10 +697,11 @@ function Disclosure({
         <Button
           variant="ghost"
           size="sm"
-          className="h-auto max-w-full whitespace-normal px-0 py-2 text-left text-body-sm"
+          wrap
+          className="-ml-2 max-w-full justify-start text-left text-body-sm"
         >
           {label}
-          <ChevronDown className="ml-2 size-3 shrink-0" aria-hidden="true" />
+          <ChevronDown aria-hidden="true" />
         </Button>
       </CollapsibleTrigger>
       <CollapsibleContent className="pt-1 text-body-sm leading-relaxed text-muted-foreground">

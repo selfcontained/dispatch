@@ -1,4 +1,3 @@
-import { Button } from "@/components/ui/button";
 import {
   Select,
   SelectContent,
@@ -6,6 +5,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  SegmentedControl,
+  SegmentedControlItem,
+} from "@/components/ui/segmented-control";
 import type { ReleaseChannel } from "@/hooks/use-release-stream";
 import { cn } from "@/lib/utils";
 
@@ -38,28 +41,15 @@ export function UpdatesPreferences({
           Stable gets promoted releases. Preview gets every release as soon as
           it ships.
         </p>
-        <div
-          className={cn(
-            "inline-flex",
-            channelSaving && "opacity-50 pointer-events-none"
-          )}
+        <SegmentedControl
+          aria-label="Release channel"
+          value={channel}
+          disabled={channelSaving}
+          onValueChange={onChannelChange}
         >
-          {(["stable", "preview"] as ReleaseChannel[]).map((ch) => (
-            <Button
-              key={ch}
-              size="sm"
-              variant={channel === ch ? "primary" : "default"}
-              onClick={() => onChannelChange(ch)}
-              className={cn(
-                "capitalize",
-                ch === "stable" && "rounded-r-none border-r-0",
-                ch === "preview" && "rounded-l-none border-l border-edge"
-              )}
-            >
-              {ch}
-            </Button>
-          ))}
-        </div>
+          <SegmentedControlItem value="stable">Stable</SegmentedControlItem>
+          <SegmentedControlItem value="preview">Preview</SegmentedControlItem>
+        </SegmentedControl>
       </div>
 
       <div>

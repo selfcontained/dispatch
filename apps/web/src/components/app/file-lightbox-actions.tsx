@@ -3,6 +3,8 @@ import { ExternalLink } from "lucide-react";
 
 import { stripTimestamp } from "@/components/app/file-utils";
 import { CopyIconButton, DownloadButton } from "@/components/ui/copy-button";
+import { Button } from "@/components/ui/button";
+import { Hint } from "@/components/ui/tooltip";
 import { useCopyText } from "@/hooks/use-copy";
 
 const HAS_CLIPBOARD_WRITE =
@@ -87,21 +89,25 @@ export function FileActions({
       onClick={(event) => event.stopPropagation()}
     >
       {isHtml && (
-        <a
-          href={src}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-body-sm font-medium text-muted-foreground transition-colors hover:bg-surface-hover hover:text-foreground"
-          title="Open in new tab"
-          data-testid="file-lightbox-open-tab"
-        >
-          <ExternalLink className="h-3.5 w-3.5" />
-          <span className="hidden sm:inline">Open in tab</span>
-        </a>
+        <Hint label="Open in new tab">
+          <Button asChild variant="ghost" size="sm">
+            <a
+              href={src}
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label="Open in tab"
+              data-testid="file-lightbox-open-tab"
+            >
+              <ExternalLink className="size-icon-md" />
+              <span className="hidden sm:inline">Open in tab</span>
+            </a>
+          </Button>
+        </Hint>
       )}
-      <DownloadButton src={src} fileName={displayName} />
+      <DownloadButton size="icon-md" src={src} fileName={displayName} />
       {showCopy && (
         <CopyIconButton
+          size="icon-md"
           copied={showCopied}
           onCopy={handleCopy}
           label={copyLabel}

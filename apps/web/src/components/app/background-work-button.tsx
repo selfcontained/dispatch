@@ -3,13 +3,14 @@ import { useQuery } from "@tanstack/react-query";
 import { ListTree, Pause, Radio, Terminal, X } from "lucide-react";
 import type { BackgroundSnapshot } from "@dispatch/shared";
 import { api } from "@/lib/api";
-import { Button } from "@/components/ui/button";
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { IconButton } from "@/components/ui/icon-button";
+import { StatusDot } from "@/components/ui/status-dot";
 import { statusLabel } from "@/lib/status-label";
 
 export function BackgroundWorkButton({ agentId }: { agentId: string | null }) {
@@ -40,15 +41,15 @@ function AgentBackgroundWork({ agentId }: { agentId: string }) {
     <Popover open={open} onOpenChange={setOpen}>
       {(items.length > 0 || open) && (
         <PopoverTrigger asChild>
-          <Button
+          <IconButton
+            tooltip={`Background work (${items.length})`}
+            tone="success"
             data-background-work-trigger=""
-            variant="ghost-primary"
             size="icon-sm"
-            aria-label={`Background work ${items.length}`}
-            title={`Background work (${items.length})`}
+            label={`Background work ${items.length}`}
           >
-            <ListTree className="size-4" aria-hidden="true" />
-          </Button>
+            <ListTree aria-hidden="true" />
+          </IconButton>
         </PopoverTrigger>
       )}
       <PopoverContent
@@ -65,15 +66,13 @@ function AgentBackgroundWork({ agentId }: { agentId: string }) {
           <h2 id={titleId} className="text-heading-md">
             Background work
           </h2>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-7"
-            aria-label="Close background work"
+          <IconButton
+            size="icon-sm"
+            label="Close background work"
             onClick={() => setOpen(false)}
           >
-            <X className="size-4" />
-          </Button>
+            <X />
+          </IconButton>
         </div>
         <p id={descriptionId} className="sr-only">
           Commands and monitors reported by this agent's current session.
@@ -124,10 +123,7 @@ function AgentBackgroundWork({ agentId }: { agentId: string }) {
                       {item.state === "paused" ? (
                         <Pause className="size-3" aria-hidden="true" />
                       ) : (
-                        <span
-                          className="size-1.5 rounded-full bg-current"
-                          aria-hidden="true"
-                        />
+                        <StatusDot size="sm" tone="current" />
                       )}
                       {statusLabel(item.state)}
                     </span>

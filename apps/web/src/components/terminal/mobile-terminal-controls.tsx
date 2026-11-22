@@ -45,16 +45,15 @@ export function MobileTerminalControls({
     >
       <div className="relative border-t-2 border-border bg-surface px-2 py-2 md:hidden">
         <div className="flex min-h-[4.5rem] items-stretch gap-2">
-          <div className="min-w-0 flex-1">
+          <div className="grid min-w-0 flex-1">
             <DialogTrigger asChild>
               <Button
                 type="button"
                 size="sm"
-                variant="default"
-                className="h-full w-full rounded-bl-screen px-2 text-body-sm"
+                className="w-full rounded-bl-screen text-body-sm"
                 aria-label="Open text input"
               >
-                <Keyboard className="h-5 w-5" strokeWidth={2} />
+                <Keyboard strokeWidth={2} />
               </Button>
             </DialogTrigger>
           </div>
@@ -64,8 +63,7 @@ export function MobileTerminalControls({
               <Button
                 type="button"
                 size="sm"
-                variant="default"
-                className="h-8 shrink-0 px-3 text-body-sm"
+                className="shrink-0 text-body-sm"
                 aria-label="Send Escape"
                 onClick={() => sendKey("\u001b")}
               >
@@ -74,9 +72,8 @@ export function MobileTerminalControls({
               <Button
                 type="button"
                 size="sm"
-                variant="default"
                 className={cn(
-                  "h-8 shrink-0 px-3 text-body-sm",
+                  "shrink-0 text-body-sm",
                   ctrlArmed &&
                     "ring-2 ring-primary bg-primary/tint-strong text-primary"
                 )}
@@ -92,8 +89,7 @@ export function MobileTerminalControls({
               <Button
                 type="button"
                 size="sm"
-                variant="default"
-                className="h-8 shrink-0 px-3 text-body-sm"
+                className="shrink-0 text-body-sm"
                 aria-label="Send Tab"
                 onClick={() => sendKey("\t")}
               >
@@ -105,8 +101,7 @@ export function MobileTerminalControls({
               <Button
                 type="button"
                 size="sm"
-                variant="default"
-                className="h-8 w-10 shrink-0 px-0 text-body-lg"
+                className="w-10 shrink-0 text-body-lg"
                 aria-label="Send Arrow Left"
                 onClick={() => sendKey("\u001b[D")}
               >
@@ -115,8 +110,7 @@ export function MobileTerminalControls({
               <Button
                 type="button"
                 size="sm"
-                variant="default"
-                className="h-8 w-10 shrink-0 px-0 text-body-lg"
+                className="w-10 shrink-0 text-body-lg"
                 aria-label="Send Arrow Up"
                 onClick={() => sendKey("\u001b[A")}
               >
@@ -125,8 +119,7 @@ export function MobileTerminalControls({
               <Button
                 type="button"
                 size="sm"
-                variant="default"
-                className="h-8 w-10 shrink-0 px-0 text-body-lg"
+                className="w-10 shrink-0 text-body-lg"
                 aria-label="Send Arrow Down"
                 onClick={() => sendKey("\u001b[B")}
               >
@@ -135,8 +128,7 @@ export function MobileTerminalControls({
               <Button
                 type="button"
                 size="sm"
-                variant="default"
-                className="h-8 w-10 shrink-0 px-0 text-body-lg"
+                className="w-10 shrink-0 text-body-lg"
                 aria-label="Send Arrow Right"
                 onClick={() => sendKey("\u001b[C")}
               >
@@ -145,12 +137,11 @@ export function MobileTerminalControls({
             </div>
           </div>
 
-          <div className="min-w-0 flex-1">
+          <div className="grid min-w-0 flex-1">
             <Button
               type="button"
               size="sm"
-              variant="default"
-              className="h-full w-full rounded-br-screen px-2 text-body-sm"
+              className="w-full rounded-br-screen text-body-sm"
               aria-label="Send Enter"
               onClick={() => sendKey("\r")}
             >
@@ -172,7 +163,7 @@ export function MobileTerminalControls({
           <Button
             type="button"
             variant="ghost"
-            className="h-11 shrink-0 px-3 text-body-md"
+            className="shrink-0"
             onClick={close}
           >
             Cancel
@@ -180,7 +171,7 @@ export function MobileTerminalControls({
           <Button
             type="button"
             variant="primary"
-            className="h-11 px-4 text-body-md font-medium"
+            className="font-medium"
             onClick={submit}
           >
             Submit

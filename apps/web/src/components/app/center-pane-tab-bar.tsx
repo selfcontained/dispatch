@@ -1,10 +1,11 @@
 import { memo, useCallback, useEffect, useRef } from "react";
 
 import { TipSpot } from "@/components/tips/tip-spot";
-import { formatBadgeCount } from "@/lib/format";
-import { CENTER_TABS, type CenterTab } from "@/lib/center-tabs";
+import { CENTER_PANE_ID, CENTER_TABS, type CenterTab } from "@/lib/center-tabs";
 import { type SplitPaneState } from "@/lib/store";
 import { cn } from "@/lib/utils";
+import { CountBubble } from "@/components/ui/count-bubble";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 export const TAB_DRAG_MIME = "application/x-dispatch-tab";
 
@@ -62,83 +63,70 @@ export const CenterPaneTabBar = memo(function CenterPaneTabBar({
   if (visibleTabs.length === 0) return <div />;
 
   return (
-    <div
-      ref={listRef}
-      role="tablist"
-      className={cn(
-        "pointer-events-auto flex items-center",
-        // Four tabs overflow a 320px phone; let the strip scroll instead of
-        // clipping, and hide the scrollbar it would otherwise draw.
-        isMobile &&
-          "max-w-full overflow-x-auto overscroll-x-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-      )}
+    // Click selects, so there is no onValueChange: Radix would select on
+    // mousedown, and a tab has to still be inactive to start a drag to split.
+    <Tabs
+      // While split, the panes on screen are not the tab that was active.
+      value={isSplit ? "" : activeTab}
+      className="pointer-events-auto min-w-0 max-w-full"
     >
-      {visibleTabs.map((tab) => {
-        // Unread chat replies sit on the Agent tab while another tab is up;
-        // with the Agent tab active the feed itself is being read.
-        const showChatUnread =
-          tab.id === "agent" && activeTab !== "agent" && chatUnreadCount > 0;
-        const button = (
-          <button
-            key={tab.id}
-            type="button"
-            role="tab"
-            aria-selected={activeTab === tab.id}
-            data-testid={`center-tab-${tab.id}`}
-            draggable={!isMobile && activeTab !== tab.id}
-            onDragStart={(e) => handleDragStart(e, tab.id)}
-            className={cn(
-              "relative flex shrink-0 items-center gap-1.5 whitespace-nowrap py-1.5 text-body-sm font-semibold uppercase tracking-wide transition-colors",
-              isMobile ? "px-2" : "px-3",
-              activeTab === tab.id
-                ? "text-foreground"
-                : "cursor-grab text-muted-foreground hover:text-foreground/soft active:cursor-grabbing"
-            )}
-            onClick={() => {
-              if (isSplit) {
-                // Clicking a tab in center bar while split exits split mode
-                // and shows that tab full-width (per spec)
-              }
-              onTabChange(tab.id);
-            }}
-          >
-            <span className="relative pb-1.5 -mb-1.5">
-              {tab.label}
-              {showChatUnread ? (
-                <span
-                  data-testid="chat-unread-count"
-                  aria-label={`${chatUnreadCount} unread chat messages`}
-                  className="absolute -right-3.5 -top-1 min-w-4 rounded-full bg-primary px-1 text-center text-label-xs font-semibold leading-4 tracking-normal text-primary-foreground"
-                >
-                  {formatBadgeCount(chatUnreadCount)}
-                </span>
-              ) : null}
-              {activeTab === tab.id && !isSplit ? (
-                <span className="absolute bottom-0 left-0 right-0 h-0.5 rounded-full bg-foreground" />
-              ) : null}
-            </span>
-          </button>
-        );
-
-        if (
-          tab.id === "changes" &&
-          activeTab !== tab.id &&
-          !isMobile &&
-          !isSplit
-        )
-          return (
-            <TipSpot
+      <TabsList ref={listRef} aria-label="Agent panes">
+        {visibleTabs.map((tab) => {
+          // Unread chat replies sit on the Agent tab while another tab is up;
+          // with the Agent tab active the feed itself is being read.
+          const showChatUnread =
+            tab.id === "agent" && activeTab !== "agent" && chatUnreadCount > 0;
+          const trigger = (
+            <TabsTrigger
               key={tab.id}
-              tipId="split-tabs"
-              side="bottom"
-              align="center"
+              value={tab.id}
+              aria-controls={isSplit ? undefined : CENTER_PANE_ID}
+              data-testid={`center-tab-${tab.id}`}
+              draggable={!isMobile && activeTab !== tab.id}
+              onDragStart={(e) => handleDragStart(e, tab.id)}
+              className={cn(
+                // Phones fit all three tabs between two sets of 44px buttons.
+                isMobile &&
+                  "min-w-11 px-1.5 text-body-sm after:inset-x-1.5 max-sm:px-1",
+                activeTab !== tab.id &&
+                  !isMobile &&
+                  "cursor-grab active:cursor-grabbing"
+              )}
+              onClick={() => onTabChange(tab.id)}
             >
-              {button}
-            </TipSpot>
+              <span className="relative">
+                {tab.label}
+                {showChatUnread ? (
+                  <CountBubble
+                    tone="info"
+                    count={chatUnreadCount}
+                    data-testid="chat-unread-count"
+                    aria-label={`${chatUnreadCount} unread chat messages`}
+                    className="absolute -right-3.5 -top-1.5"
+                  />
+                ) : null}
+              </span>
+            </TabsTrigger>
           );
 
-        return button;
-      })}
-    </div>
+          if (tab.id === "changes" && !isMobile)
+            return (
+              // Always wrapped: adding or dropping the wrapper on selection
+              // would remount the tab and lose the keyboard's focus.
+              <TipSpot
+                key={tab.id}
+                tipId="split-tabs"
+                paused={activeTab === tab.id || isSplit}
+                side="bottom"
+                align="center"
+              >
+                {trigger}
+              </TipSpot>
+            );
+
+          return trigger;
+        })}
+      </TabsList>
+    </Tabs>
   );
 });

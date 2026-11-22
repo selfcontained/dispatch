@@ -6,6 +6,8 @@ import { FileActions } from "@/components/app/file-lightbox";
 import { fileExtension, stripTimestamp } from "@/components/app/file-utils";
 import { imageVariantSrcSet, imageVariantUrl } from "@/lib/image-variants";
 import { cn } from "@/lib/utils";
+import { RowButton } from "@/components/ui/row-button";
+import { Badge } from "@/components/ui/badge";
 
 /**
  * How wide the preview is laid out: the browser measures it (`auto`, with
@@ -64,17 +66,17 @@ export function FileItemCard({
         <div className="mb-2 flex items-center gap-1.5 text-body-sm text-muted-foreground">
           <span>{new Date(file.updatedAt).toLocaleString()}</span>
           {isUser ? (
-            <span className="ml-auto flex items-center gap-1 rounded-sm bg-surface-selected px-1.5 py-0.5 text-label-xs font-semibold text-primary">
-              <User className="h-2.5 w-2.5" />
+            <Badge size="sm" tone="info" className="ml-auto">
+              <User />
               Shared by you
-            </span>
+            </Badge>
           ) : null}
         </div>
       )}
       {isText || isDocument ? (
-        <button
+        <RowButton
           className={cn(
-            "block w-full overflow-hidden rounded-sm border-2 bg-surface-hover p-3 text-left",
+            "block overflow-hidden rounded-sm border-2 bg-surface-hover p-3",
             unseen ? "file-thumb-unseen" : "file-thumb-seen"
           )}
           onClick={() => openLightbox(file.id)}
@@ -84,11 +86,11 @@ export function FileItemCard({
             <span className="truncate text-body-sm font-medium text-foreground">
               {stripTimestamp(file.name)}
             </span>
-            <span className="ml-auto flex-none rounded-sm bg-muted px-1.5 py-0.5 text-label-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              {fileExtension(file.name).replace(".", "")}
-            </span>
+            <Badge size="sm" className="ml-auto">
+              {fileExtension(file.name).replace(".", "").toUpperCase()}
+            </Badge>
           </div>
-        </button>
+        </RowButton>
       ) : file.media === "video" ? (
         <div
           className={cn(
@@ -106,9 +108,9 @@ export function FileItemCard({
           />
         </div>
       ) : (
-        <button
+        <RowButton
           className={cn(
-            "block w-full overflow-hidden border-2 bg-media/veil",
+            "block overflow-hidden rounded-none border-2 bg-media/veil hover:bg-media/veil",
             unseen ? "file-thumb-unseen" : "file-thumb-seen"
           )}
           onClick={() => openLightbox(file.id)}
@@ -128,7 +130,7 @@ export function FileItemCard({
               !loaded && "h-[260px]"
             )}
           />
-        </button>
+        </RowButton>
       )}
       <div className="mt-2 text-body-sm text-muted-foreground">
         {file.description ? <div>{file.description}</div> : null}

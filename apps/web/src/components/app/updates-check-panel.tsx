@@ -37,7 +37,6 @@ export function UpdatesCheckPanel({
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
         <Button
           size="sm"
-          variant="default"
           onClick={onCheckForUpdates}
           disabled={infoLoading}
           className="self-start text-muted-foreground hover:text-foreground"

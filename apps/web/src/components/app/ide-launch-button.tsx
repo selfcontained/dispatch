@@ -1,20 +1,11 @@
-import { ChevronDown, Code2 } from "lucide-react";
+import { Code2 } from "lucide-react";
 import { siCursor } from "simple-icons";
 import { useAtom } from "jotai";
 import { Link } from "react-router-dom";
 
-import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
+import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
+import { IconButton } from "@/components/ui/icon-button";
+import { SplitButton } from "@/components/ui/split-button";
 import { preferredIdeAtom } from "@/lib/store";
 import { type IdeType, IDE_LABELS, IDE_TYPES } from "@/lib/ide-types";
 import { cn } from "@/lib/utils";
@@ -48,7 +39,7 @@ function IdeIcon({
   return (
     <svg
       viewBox={meta.viewBox}
-      className={cn("h-3 w-3", className)}
+      className={cn("size-icon-md", className)}
       fill="currentColor"
       aria-hidden="true"
       dangerouslySetInnerHTML={{ __html: `<path d="${meta.path}" />` }}
@@ -67,9 +58,6 @@ function buildIdeUrl(ide: IdeType, path: string): string {
   return `${IDE_META[ide].scheme}://file${encoded}`;
 }
 
-const PILL_BASE =
-  "h-auto min-h-6 border border-border bg-surface-subtle px-2 py-0.5 text-muted-foreground hover:bg-surface-hover hover:text-foreground";
-
 export function IdeLaunchButton({
   path,
   enabledIdes = [],
@@ -82,28 +70,21 @@ export function IdeLaunchButton({
   const orderedEnabled = IDE_TYPES.filter((ide) => enabledIdes.includes(ide));
 
   // Empty-state CTA: when on loopback with no IDEs enabled, show a discoverable
-  // pill that links into Settings → Workspace so users find the toggle.
+  // button that links into Settings → Workspace so users find the toggle.
   if (onLoopback && orderedEnabled.length === 0) {
     return (
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            asChild
-            variant="ghost"
-            size="sm"
-            aria-label="Configure IDEs in Settings"
-            data-testid="ide-launch-cta"
-            className={cn("group rounded-full", PILL_BASE)}
-          >
-            <Link to="/settings/workspace">
-              <Code2 className="h-3 w-3" />
-            </Link>
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent>
-          Open in IDE — enable an IDE in Settings → Workspace
-        </TooltipContent>
-      </Tooltip>
+      <IconButton
+        asChild
+        variant="secondary"
+        size="icon-sm"
+        label="Configure IDEs in Settings"
+        tooltip="Open in IDE — enable an IDE in Settings → Workspace"
+        data-testid="ide-launch-cta"
+      >
+        <Link to="/settings/workspace">
+          <Code2 className="size-icon-md" />
+        </Link>
+      </IconButton>
     );
   }
 
@@ -115,26 +96,17 @@ export function IdeLaunchButton({
       orderedEnabled[0] ??
       (IDE_TYPES.includes(preferredIde) ? preferredIde : "vscode");
     return (
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            variant="ghost"
-            size="sm"
-            disabled
-            aria-label="Open in IDE (unavailable on remote access)"
-            data-testid="ide-launch-disabled"
-            className={cn(
-              "rounded-full disabled-state disabled:pointer-events-auto",
-              PILL_BASE
-            )}
-          >
-            <IdeIcon ide={fallbackIde} className="h-3 w-3" />
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent>
-          Open in IDE does not work when accessing Dispatch remotely
-        </TooltipContent>
-      </Tooltip>
+      <IconButton
+        variant="secondary"
+        size="icon-sm"
+        disabled
+        label="Open in IDE (unavailable on remote access)"
+        tooltip="Open in IDE does not work when accessing Dispatch remotely"
+        data-testid="ide-launch-disabled"
+        className="disabled:pointer-events-auto"
+      >
+        <IdeIcon ide={fallbackIde} />
+      </IconButton>
     );
   }
 
@@ -146,50 +118,18 @@ export function IdeLaunchButton({
   const showPicker = orderedEnabled.length > 1;
 
   return (
-    <div className="inline-flex items-center">
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            asChild
-            variant="ghost"
-            size="sm"
-            aria-label={`Open in ${IDE_LABELS[activeIde]}`}
-            data-testid="ide-launch-button"
-            className={cn(
-              "group relative",
-              PILL_BASE,
-              "before:absolute before:inset-y-[-12px] before:left-[-8px] before:content-['']",
-              showPicker
-                ? "rounded-l-full rounded-r-none border-r-0 before:right-0"
-                : "rounded-full before:right-[-8px]"
-            )}
-          >
-            <a href={launchUrl}>
-              <IdeIcon ide={activeIde} className="h-3 w-3" />
-            </a>
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent>Open in {IDE_LABELS[activeIde]}</TooltipContent>
-      </Tooltip>
-      {showPicker ? (
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button
-              variant="ghost"
-              size="sm"
-              aria-label="Choose IDE"
-              data-testid="ide-launch-dropdown"
-              className={cn(
-                "relative rounded-l-none rounded-r-full px-1.5",
-                PILL_BASE,
-                "before:absolute before:inset-y-[-12px] before:left-0 before:right-[-8px] before:content-['']"
-              )}
-            >
-              <ChevronDown className="h-3 w-3" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="start">
-            {orderedEnabled.map((ide) => (
+    <SplitButton
+      asChild
+      size="xs"
+      aria-label={`Open in ${IDE_LABELS[activeIde]}`}
+      hint={`Open in ${IDE_LABELS[activeIde]}`}
+      data-testid="ide-launch-button"
+      menuLabel="Choose IDE"
+      menuTestId="ide-launch-dropdown"
+      menuProps={{ align: "start" }}
+      menu={
+        showPicker
+          ? orderedEnabled.map((ide) => (
               <DropdownMenuItem
                 key={ide}
                 asChild
@@ -203,15 +143,18 @@ export function IdeLaunchButton({
                 >
                   <IdeIcon
                     ide={ide}
-                    className="h-3.5 w-3.5 shrink-0 text-muted-foreground"
+                    className="size-icon-md shrink-0 text-muted-foreground"
                   />
                   <span>Open in {IDE_LABELS[ide]}</span>
                 </a>
               </DropdownMenuItem>
-            ))}
-          </DropdownMenuContent>
-        </DropdownMenu>
-      ) : null}
-    </div>
+            ))
+          : null
+      }
+    >
+      <a href={launchUrl}>
+        <IdeIcon ide={activeIde} />
+      </a>
+    </SplitButton>
   );
 }

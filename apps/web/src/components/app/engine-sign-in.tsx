@@ -86,8 +86,7 @@ export function EngineSignIn({
         <div className="flex flex-wrap items-center gap-3">
           <Button
             type="button"
-            size="sm"
-            className="h-7 text-body-sm"
+            size="xs"
             onClick={startOver}
             disabled={flow.starting}
           >
@@ -104,8 +103,7 @@ export function EngineSignIn({
       <div className="flex flex-wrap items-center gap-3">
         <Button
           type="button"
-          size="sm"
-          className="h-7 text-body-sm"
+          size="xs"
           onClick={() => flow.start()}
           disabled={flow.starting || !flow.loaded}
           data-testid="engine-sign-in-start"
@@ -120,9 +118,8 @@ export function EngineSignIn({
   const cancel = (
     <Button
       type="button"
-      size="sm"
+      size="xs"
       variant="ghost"
-      className="h-7 text-body-sm"
       onClick={flow.cancel}
       data-testid="engine-sign-in-cancel"
     >
@@ -199,7 +196,7 @@ export function EngineSignIn({
             <Button
               type="submit"
               size="sm"
-              className="h-8 shrink-0 text-body-sm"
+              className="shrink-0 text-body-sm"
               disabled={!code.trim() || flow.submitting}
               data-testid="engine-sign-in-submit"
             >

@@ -6,6 +6,7 @@ import {
   ResizablePanel,
   ResizablePanelGroup,
 } from "@/components/ui/resizable";
+import { IconButton } from "@/components/ui/icon-button";
 import { type CenterTab, centerTabLabel } from "@/lib/center-tabs";
 import { type SplitPaneState } from "@/lib/store";
 
@@ -75,7 +76,7 @@ export function CenterPaneSplit({
         >
           <div ref={splitLeftRef} className="flex h-full flex-col">
             <div className="flex min-h-8 shrink-0 items-center justify-between gap-2 border-b border-border-subtle py-1.5 pl-3 pr-6">
-              <span className="min-w-0 truncate text-body-sm font-semibold uppercase tracking-wide text-muted-foreground">
+              <span className="min-w-0 truncate text-body-sm font-medium text-muted-foreground">
                 {centerTabLabel(splitState.left)}
               </span>
               {accessoryFor(splitState.left)}
@@ -91,7 +92,7 @@ export function CenterPaneSplit({
         >
           <div className="flex h-full flex-col">
             <div className="flex min-h-8 shrink-0 items-center justify-between gap-2 border-b border-border-subtle py-1.5 pl-6 pr-3">
-              <span className="min-w-0 truncate text-body-sm font-semibold uppercase tracking-wide text-muted-foreground">
+              <span className="min-w-0 truncate text-body-sm font-medium text-muted-foreground">
                 {centerTabLabel(splitState.right)}
               </span>
               {accessoryFor(splitState.right)}
@@ -100,17 +101,17 @@ export function CenterPaneSplit({
           </div>
         </ResizablePanel>
       </ResizablePanelGroup>
-      <button
+      <IconButton
         ref={splitButtonRef}
-        type="button"
+        variant="secondary"
         onClick={onExitSplit}
-        title="Unsplit panes"
+        label="Unsplit panes"
         data-testid="unsplit-button"
-        className="absolute top-0 z-drawer flex h-8 -translate-x-1/2 cursor-pointer items-center justify-center rounded-md border bg-background px-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+        className="absolute top-0 z-drawer -translate-x-1/2 bg-background hover:bg-muted"
         style={{ left: `${splitState.sizes[0]}%` }}
       >
-        <Split className="h-4 w-4 shrink-0" />
-      </button>
+        <Split />
+      </IconButton>
     </div>
   );
 }

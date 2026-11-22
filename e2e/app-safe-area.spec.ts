@@ -140,13 +140,21 @@ for (const device of [
       );
       // Empty mobile views keep the global header available, with navigation closed.
       if (device.width >= 768)
-        await page.getByTitle("Close sidebar", { exact: true }).first().click();
+        await page
+          .getByRole("button", { name: "Close sidebar", exact: true })
+          .first()
+          .click();
       await insideFrame(
         page.getByRole("button", { name: "Notifications", exact: true })
       );
-      const open = page.getByTitle("Open sidebar", { exact: true });
+      const open = page.getByRole("button", {
+        name: "Open sidebar",
+        exact: true,
+      });
       await insideFrame(open);
-      await insideFrame(page.getByTitle("Chat options", { exact: true }));
+      await insideFrame(
+        page.getByRole("button", { name: "Chat options", exact: true })
+      );
       const composer = page.getByTestId("chat-composer-input");
       await insideFrame(composer);
       // The collapsed empty composer should reach the bottom of the usable
@@ -169,7 +177,9 @@ for (const device of [
       await expect(
         page.getByRole("textbox", { name: "Instance name", exact: true })
       ).toBeVisible();
-      const close = page.getByTitle("Close sidebar", { exact: true }).first();
+      const close = page
+        .getByRole("button", { name: "Close sidebar", exact: true })
+        .first();
       if (device.width >= 768) await close.click();
       await insideFrame(open);
       await open.click();

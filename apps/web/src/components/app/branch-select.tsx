@@ -12,6 +12,7 @@ import {
   CommandLoading,
 } from "@/components/ui/command";
 import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 import { useClickOutside } from "@/hooks/use-click-outside";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -119,7 +120,8 @@ export function BranchSelect({
         <label className="mb-1 block text-body-sm text-muted-foreground">
           {baseBranchLabel}
         </label>
-        <button
+        <Button
+          variant="field"
           ref={triggerRef}
           type="button"
           role="combobox"
@@ -136,11 +138,7 @@ export function BranchSelect({
               if (!dropdownOpen) openDropdown();
             }
           }}
-          className={cn(
-            "flex h-9 w-full items-center justify-between rounded-md surface-inset px-3 py-2 font-mono text-body-sm",
-            "focus-ring",
-            disabled && "cursor-not-allowed opacity-60"
-          )}
+          className="w-full font-mono text-body-sm"
         >
           {baseBranch}
           {branchesLoading ? (
@@ -153,7 +151,7 @@ export function BranchSelect({
               )}
             />
           )}
-        </button>
+        </Button>
         {dropdownOpen ? (
           <div className="absolute left-0 right-0 z-popover mt-1 rounded-md surface-overlay">
             <Command
@@ -224,14 +222,15 @@ export function BranchSelect({
       {fetchError ? (
         <div className="flex items-center gap-2 text-body-sm text-danger">
           <span className="truncate">Couldn't load branches.</span>
-          <button
+          <Button
             type="button"
+            variant="link"
+            size="inline"
             onClick={() => void fetchBranches()}
             disabled={disabled}
-            className="underline underline-offset-2 hover:no-underline"
           >
             Retry
-          </button>
+          </Button>
         </div>
       ) : savedBranchMissing ? (
         <div className="text-body-sm text-warning">

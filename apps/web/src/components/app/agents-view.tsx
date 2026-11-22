@@ -46,6 +46,7 @@ import { glassPanel } from "@/lib/glass";
 import { type NavSection } from "@/components/app/sidebar-shell";
 import { type Agent, type AgentVisualState } from "@/components/app/types";
 import { GlassSidebar } from "@/components/ui/glass-sidebar";
+import { CENTER_PANE_ID, centerTabLabel } from "@/lib/center-tabs";
 import { NavigationSidebar } from "@/components/app/navigation-sidebar";
 import { uploadAgentFile } from "@/lib/file-upload";
 import { type AgentType } from "@/lib/agent-types";
@@ -591,6 +592,9 @@ export function AgentsView({
                 openInputCount={inbox.inputs.length}
               />
               <div
+                id={CENTER_PANE_ID}
+                role={isSplit ? undefined : "tabpanel"}
+                aria-label={isSplit ? undefined : centerTabLabel(activeTab)}
                 className="relative min-h-0 flex-1"
                 onDragOver={handleContentDragOver}
                 onDragLeave={handleContentDragLeave}

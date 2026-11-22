@@ -645,7 +645,7 @@ export function ReplyInThreadButton({
     <Button
       type="button"
       variant="ghost"
-      size="icon"
+      size="stream-icon"
       className={POST_ACTION_BUTTON}
       onClick={onClick}
       title="Reply in thread"
@@ -1587,6 +1587,7 @@ function LaunchCard({
       <LaunchHomeLink agentId={block.toAgentId!} name={name} />
       {!inThread && ctx.onOpenThread ? (
         <Button
+          size="stream-md"
           variant="ghost"
           className="flex h-auto min-h-11 w-full items-center gap-2 rounded-md px-1 py-2 text-left sm:hidden"
           data-testid="launch-open-thread-mobile"
@@ -1621,6 +1622,7 @@ function LaunchCard({
           <div className="flex min-w-0 items-center gap-2 whitespace-nowrap leading-[21px]">
             {startupIssue && !inThread && ctx.onOpenThread ? (
               <Button
+                size="stream-md"
                 variant="ghost"
                 className="h-auto shrink-0 px-0 py-0 text-label-xs font-normal text-danger hover:bg-transparent hover:text-danger hover:underline"
                 data-testid="launch-startup-note"
@@ -1675,7 +1677,7 @@ function LaunchCard({
         {!inThread && ctx.onOpenThread ? (
           <Button
             variant="ghost"
-            size="icon"
+            size="stream-icon"
             className="h-8 w-8 shrink-0 text-muted-foreground"
             data-testid="launch-open-thread"
             onClick={() => ctx.onOpenThread?.(block.id)}

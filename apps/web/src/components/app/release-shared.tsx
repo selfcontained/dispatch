@@ -1,6 +1,7 @@
 import type { ReleaseJob, ReleasePhase } from "@/hooks/use-release-stream";
 import { ActivityBars } from "@/components/ui/activity-bars";
 import { LogStream } from "@/components/ui/log-stream";
+import { StatusDot } from "@/components/ui/status-dot";
 import { cn } from "@/lib/utils";
 
 export const PHASE_LABELS: Record<ReleasePhase, string> = {
@@ -40,12 +41,18 @@ export function PhaseProgress({
             const done = phaseIndex > i || job.phase === "done";
             return (
               <div key={phase} className="flex items-center gap-3">
-                <div
+                <StatusDot
+                  tone={
+                    current && isFailed
+                      ? "danger"
+                      : current && !done
+                        ? "warning"
+                        : done
+                          ? "success"
+                          : "neutral"
+                  }
                   className={cn(
-                    "h-2 w-2 rounded-full shrink-0",
-                    done && "bg-success",
-                    current && !isFailed && "animate-pulse bg-warning",
-                    current && isFailed && "bg-danger",
+                    current && !isFailed && "animate-pulse",
                     !done && !current && "bg-muted"
                   )}
                 />

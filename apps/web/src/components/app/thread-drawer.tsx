@@ -18,11 +18,11 @@ import {
 import { ThreadPage } from "@/components/app/drawer/thread-page";
 import { useDrawerClosing } from "@/components/app/drawer";
 import { type Agent } from "@/components/app/types";
-import { Button } from "@/components/ui/button";
 import { useDrawerRoute } from "@/hooks/use-drawer-route";
 import { useAgentRecord } from "@/hooks/use-agent-tree";
 import { useThread } from "@/hooks/use-stream";
 import { cn } from "@/lib/utils";
+import { IconButton } from "@/components/ui/icon-button";
 
 export type ThreadDrawerProps = {
   selectedAgentId: string | null;
@@ -226,17 +226,9 @@ export function ThreadDrawer({
       >
         <div className="flex min-h-14 items-center gap-1 pl-1.5 pr-2 pt-safe">
           {depth > 1 ? (
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              className="h-8 w-8 shrink-0"
-              aria-label="Back"
-              data-testid="drawer-back"
-              onClick={back}
-            >
-              <ArrowLeft className="h-4 w-4" aria-hidden="true" />
-            </Button>
+            <IconButton label="Back" data-testid="drawer-back" onClick={back}>
+              <ArrowLeft aria-hidden="true" />
+            </IconButton>
           ) : (
             <span className="w-2" aria-hidden="true" />
           )}
@@ -266,18 +258,14 @@ export function ThreadDrawer({
               </div>
             ) : null}
           </div>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="h-7 w-7 shrink-0"
-            aria-label="Close"
-            title="Close"
+          <IconButton
+            size="icon-sm"
+            label="Close"
             data-testid="drawer-close"
             onClick={closeAll}
           >
-            <X className="h-4 w-4" aria-hidden="true" />
-          </Button>
+            <X aria-hidden="true" />
+          </IconButton>
         </div>
         <ConversationReturnLink inDrawer />
         <MotionConfig reducedMotion="user">

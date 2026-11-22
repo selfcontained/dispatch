@@ -23,7 +23,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { cn } from "@/lib/utils";
+import { ChipButton } from "@/components/ui/chip";
+import { CountBubble } from "@/components/ui/count-bubble";
 
 export function BrainsDetailPane(): JSX.Element {
   const { encodedRepoRoot, collection } = useParams<{
@@ -118,11 +119,12 @@ function BrainProjectDetail({
           </div>
           <Button
             type="button"
-            variant="ghost-destructive"
+            variant="ghost"
+            tone="danger"
             size="sm"
             onClick={() => setProjectDeleteOpen(true)}
           >
-            <Trash2 className="mr-1.5 h-3.5 w-3.5" />
+            <Trash2 />
             Clear project
           </Button>
         </div>
@@ -229,7 +231,7 @@ function BrainProjectDetail({
             </Button>
             <Button
               type="button"
-              variant="destructive"
+              variant="danger"
               onClick={() => void confirmProjectDelete()}
               disabled={deleteProject.isPending}
             >
@@ -254,27 +256,9 @@ function CollectionPill({
   onClick: () => void;
 }): JSX.Element {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(
-        "flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1 text-body-sm font-medium transition-colors",
-        active
-          ? "bg-surface-selected text-primary"
-          : "text-muted-foreground hover:bg-surface-hover hover:text-foreground"
-      )}
-    >
+    <ChipButton selected={active} aria-pressed={active} onClick={onClick}>
       {label}
-      {count !== undefined ? (
-        <span
-          className={cn(
-            "rounded-full px-1.5 py-0.5 text-label-xs",
-            active ? "bg-primary/tint-strong" : "bg-muted"
-          )}
-        >
-          {count}
-        </span>
-      ) : null}
-    </button>
+      {count !== undefined ? <CountBubble count={String(count)} /> : null}
+    </ChipButton>
   );
 }
