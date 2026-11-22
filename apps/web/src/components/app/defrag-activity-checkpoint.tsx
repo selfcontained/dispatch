@@ -1,4 +1,3 @@
-import { NeonGlowPreview } from "./neon-glow-preview";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { ActivityBlock } from "./chat/turn/activity-block";
@@ -18,55 +17,52 @@ export function DefragActivityCheckpoint() {
   ]);
   const [count, setCount] = useState(0);
   return (
-    <>
-      <NeonGlowPreview />
-      <section className="max-w-xl space-y-4">
-        <h1 className="text-xl font-semibold">Defrag activity</h1>
-        <div className="flex flex-wrap gap-2">
-          <Button
-            onClick={() => {
-              const id = count + 1;
-              setCount(id);
-              setSteps((previous) => [
-                {
-                  ...previous[0]!,
-                  children: [
-                    ...(previous[0]!.children ?? []),
-                    {
-                      id: `command-${id}`,
-                      kind: "execute",
-                      label: `command ${id}`,
-                      status: "running",
-                      startedAt: Date.now(),
-                      detail: { input: { command: "git status" } },
-                    },
-                  ],
-                },
-              ]);
-            }}
-          >
-            Add nested command
-          </Button>
-          <Button
-            onClick={() =>
-              setSteps((previous) =>
-                previous.map((step) => ({
-                  ...step,
+    <section className="max-w-xl space-y-4">
+      <h1 className="text-xl font-semibold">Defrag activity</h1>
+      <div className="flex flex-wrap gap-2">
+        <Button
+          onClick={() => {
+            const id = count + 1;
+            setCount(id);
+            setSteps((previous) => [
+              {
+                ...previous[0]!,
+                children: [
+                  ...(previous[0]!.children ?? []),
+                  {
+                    id: `command-${id}`,
+                    kind: "execute",
+                    label: `command ${id}`,
+                    status: "running",
+                    startedAt: Date.now(),
+                    detail: { input: { command: "git status" } },
+                  },
+                ],
+              },
+            ]);
+          }}
+        >
+          Add nested command
+        </Button>
+        <Button
+          onClick={() =>
+            setSteps((previous) =>
+              previous.map((step) => ({
+                ...step,
+                status: "ok",
+                children: step.children?.map((child) => ({
+                  ...child,
                   status: "ok",
-                  children: step.children?.map((child) => ({
-                    ...child,
-                    status: "ok",
-                  })),
-                }))
-              )
-            }
-          >
-            Complete commands
-          </Button>
-        </div>
-        <ResponsePlaceholder seed="activity-checkpoint" steps={steps} />
-        <ActivityBlock trace={{ steps, startedAt: steps[0]!.startedAt }} />
-      </section>
-    </>
+                })),
+              }))
+            )
+          }
+        >
+          Complete commands
+        </Button>
+      </div>
+      <ResponsePlaceholder seed="activity-checkpoint" steps={steps} />
+      <ActivityBlock trace={{ steps, startedAt: steps[0]!.startedAt }} />
+    </section>
   );
 }

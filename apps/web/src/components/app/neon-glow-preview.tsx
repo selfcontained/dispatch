@@ -21,18 +21,18 @@ const categories: ActivityCategory[] = [
 const treatments = [
   {
     glow: "tube",
-    title: "1 · Tight tube",
+    title: "Tight tube",
     description: "Bright core, crisp edge and a tight halo.",
   },
   {
     glow: "halo",
-    title: "2 · Diffuse halo",
+    title: "Diffuse halo",
     description: "A wider wash of category-colored light.",
   },
   {
     glow: "bloom",
-    title: "3 · Landing bloom",
-    description: "A brief flare on arrival, settling to a lit edge.",
+    title: "Landing bloom",
+    description: "Flares on landing, then holds a lit edge.",
   },
 ] as const;
 
@@ -46,8 +46,8 @@ export function NeonGlowPreview() {
     return () => window.clearInterval(timer);
   }, [playing]);
   return (
-    <section aria-label="Neon glow comparison" className="max-w-2xl space-y-5">
-      <h1 className="text-xl font-semibold">Three neon glows</h1>
+    <section aria-label="Neon glow comparison" className="min-w-0 space-y-4">
+      <h2 className="text-xl font-semibold">Three neon glows</h2>
       <p className="text-sm text-muted-foreground">
         Preview only. Compare the same placements in sparse and dense activity.
         Pause to inspect the settled glow; hover or tap a placed group for its
@@ -82,43 +82,47 @@ export function NeonGlowPreview() {
           : "Paused · settled glow remains lit"}{" "}
         · Placement {tick}
       </p>
-      {treatments.map(({ glow, title, description }) => (
-        <div
-          key={`${glow}-${replay}`}
-          className="space-y-2 border-t border-border pt-4"
-          data-treatment={glow}
-        >
-          <h2 className="font-medium">{title}</h2>
-          <p className="text-xs text-muted-foreground">{description}</p>
-          {[
-            { label: "Sparse", base: 4 },
-            { label: "Dense", base: 72 },
-          ].map(({ label, base }) => {
-            const pieces = Array.from({ length: base + tick }, (_, i) => ({
-              key: `neon-${i}`,
-              category: categories[i % categories.length]!,
-              label: `Activity ${i + 1}`,
-            }));
-            const { cells, fills } = defragHistory(
-              "neon-comparison",
-              pieces.map((piece) => piece.category)
-            );
-            return (
-              <div key={label}>
-                <h3 className="text-xs text-muted-foreground">{label}</h3>
-                <ResponsePlaceholderVisual
-                  glow={glow}
-                  cells={cells}
-                  fills={fills}
-                  pieces={pieces}
-                  arrivalKeys={tick ? new Set([pieces.at(-1)!.key]) : undefined}
-                  summary={`${pieces.length} activities`}
-                />
-              </div>
-            );
-          })}
-        </div>
-      ))}
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+        {treatments.map(({ glow, title, description }) => (
+          <div
+            key={`${glow}-${replay}`}
+            className="grid min-w-0 grid-rows-subgrid row-span-4 gap-y-3 rounded-lg border border-border p-3"
+            data-treatment={glow}
+          >
+            <h3 className="font-medium">{title}</h3>
+            <p className="text-xs text-muted-foreground">{description}</p>
+            {[
+              { label: "Sparse", base: 4 },
+              { label: "Dense", base: 72 },
+            ].map(({ label, base }) => {
+              const pieces = Array.from({ length: base + tick }, (_, i) => ({
+                key: `neon-${i}`,
+                category: categories[i % categories.length]!,
+                label: `Activity ${i + 1}`,
+              }));
+              const { cells, fills } = defragHistory(
+                "neon-comparison",
+                pieces.map((piece) => piece.category)
+              );
+              return (
+                <div key={label} className="min-w-0">
+                  <h4 className="text-xs text-muted-foreground">{label}</h4>
+                  <ResponsePlaceholderVisual
+                    glow={glow}
+                    cells={cells}
+                    fills={fills}
+                    pieces={pieces}
+                    arrivalKeys={
+                      tick ? new Set([pieces.at(-1)!.key]) : undefined
+                    }
+                    summary={`${pieces.length} activities`}
+                  />
+                </div>
+              );
+            })}
+          </div>
+        ))}
+      </div>
     </section>
   );
 }
