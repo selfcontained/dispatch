@@ -469,6 +469,20 @@ export function ResponsePlaceholderVisual({
   const newest = pieces.length - 1;
   const gridRef = useRef<HTMLDivElement>(null);
   const [columns, setColumns] = useState(MIN_COLUMNS);
+  const [animatedColumns, setAnimatedColumns] = useState(MIN_COLUMNS);
+  const reflowing = columns !== animatedColumns;
+  useEffect(() => {
+    if (!reflowing) return;
+    // Paint the new slot positions with no transition before turning motion back on.
+    let restoredFrame = 0;
+    const reflowFrame = requestAnimationFrame(() => {
+      restoredFrame = requestAnimationFrame(() => setAnimatedColumns(columns));
+    });
+    return () => {
+      cancelAnimationFrame(reflowFrame);
+      cancelAnimationFrame(restoredFrame);
+    };
+  }, [columns, reflowing]);
   const cellSize = `clamp(0px, calc(100cqw / ${columns} - ${CELL_GAP}px), ${MAX_CELL_SIZE}px)`;
   useEffect(() => {
     const grid = gridRef.current;
@@ -615,7 +629,12 @@ export function ResponsePlaceholderVisual({
                         }
                         data-category={c.category}
                         data-compaction={piece?.compaction || undefined}
-                        className="absolute left-0 top-0 transition-transform duration-[900ms] ease-in-out motion-reduce:transition-none"
+                        className={cn(
+                          "absolute left-0 top-0",
+                          reflowing
+                            ? "transition-none"
+                            : "transition-transform duration-[900ms] ease-in-out motion-reduce:transition-none"
+                        )}
                         style={
                           {
                             "--neon-color": c.category
