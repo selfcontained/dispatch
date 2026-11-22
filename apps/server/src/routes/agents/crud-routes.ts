@@ -29,7 +29,7 @@ import {
   CLAUDE_FULL_ACCESS_ARG,
   type AgentRouteDeps,
 } from "./shared.js";
-import { validateAgentModel } from "../../shared/agent-models.js";
+import { validateAgentModelChoice } from "../../shared/agent-models.js";
 import { getDirectoryIconPath } from "../../shared/directory-icon-cache.js";
 
 export async function registerAgentCrudRoutes(
@@ -352,7 +352,7 @@ export async function registerAgentCrudRoutes(
     let model: string | undefined;
     let effort: Effort | null;
     try {
-      model = validateAgentModel(
+      model = validateAgentModelChoice(
         agentType,
         typeof body.model === "string" ? body.model : undefined
       );

@@ -22,6 +22,7 @@ import {
   type FileItem,
 } from "@/components/app/types";
 import { agentDiffQueryKey } from "@/hooks/use-agent-diff";
+import { MODEL_AVAILABILITY_MUTATION_KEY } from "@/hooks/use-model-availability";
 import {
   applyStreamRead,
   bumpReplyCount,
@@ -802,7 +803,16 @@ export function useSSE(authState: AuthState): void {
         }
 
         if (payload.type === "agent_models.changed") {
-          void queryClient.invalidateQueries({ queryKey: ["agent-models"] });
+          // Mid-save the cache is ahead of the server, and a read would undo
+          // the toggles still queued. The last save reads the catalog again.
+          if (
+            !queryClient.isMutating({
+              mutationKey: MODEL_AVAILABILITY_MUTATION_KEY,
+            })
+          )
+            void queryClient.invalidateQueries({ queryKey: ["agent-models"] });
+          // A running agent's model choices follow the same filter.
+          void queryClient.invalidateQueries({ queryKey: ["agent-config"] });
           return;
         }
 

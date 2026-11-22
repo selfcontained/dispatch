@@ -13,7 +13,7 @@ import {
   withRemaining,
   type UsageWatchService,
 } from "../../agents/usage-watches.js";
-import { getAgentModelOptions } from "../agent-models.js";
+import { selectableAgentModels } from "../agent-models.js";
 import { CLI_AGENT_TYPES } from "../agent-types.js";
 import { jsonText } from "./response.js";
 import { toToolError } from "./tool-error.js";
@@ -281,7 +281,7 @@ export function registerUsageTools(
             type: engine,
             enabled: enabled.includes(engine),
             ...verdict(plan, windows),
-            models: getAgentModelOptions(engine),
+            models: selectableAgentModels(engine),
             windows,
             ...(plan?.spend
               ? {

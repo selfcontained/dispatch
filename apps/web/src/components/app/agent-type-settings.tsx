@@ -1,6 +1,16 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { ChevronDown } from "lucide-react";
+import { useSearchParams } from "react-router-dom";
 
+import { AgentModelSettings } from "@/components/app/agent-model-settings";
+import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
+import { useAgentModelCatalog } from "@/hooks/use-agent-model-catalog";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import {
@@ -29,38 +39,85 @@ function AgentTypeRow({
   checked,
   disabled,
   onToggle,
+  open,
+  onOpenChange,
 }: {
   agentType: AgentType;
   checked: boolean;
   disabled: boolean;
   onToggle: () => void;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
 }): JSX.Element {
+  const { options, allOptions } = useAgentModelCatalog(agentType);
+  const offCount = allOptions.length - options.length;
+  const wasOpen = useRef(open);
+  useEffect(() => {
+    // New stays up while the list is open, and clears once it has been seen.
+    if (wasOpen.current && !open)
+      allOptions.forEach((option) => option.markSeen?.());
+    wasOpen.current = open;
+  }, [allOptions, open]);
   return (
-    <label
-      className={cn(
-        "flex items-center gap-3 rounded border border-border px-3 py-2.5 transition-colors",
-        disabled
-          ? "cursor-not-allowed opacity-60"
-          : "cursor-pointer hover:bg-muted/50"
-      )}
+    <Collapsible
+      open={open}
+      onOpenChange={onOpenChange}
+      className="rounded border border-border"
     >
-      <Checkbox
-        checked={checked}
-        disabled={disabled}
-        onCheckedChange={onToggle}
-        data-testid={`agent-type-toggle-${agentType}`}
-      />
-      <div className="min-w-0">
-        <div className="text-sm font-medium text-foreground">
-          {AGENT_TYPE_LABELS[agentType]}
-        </div>
-        <div className="text-xs text-muted-foreground">
-          {disabled
-            ? "At least one type must stay enabled."
-            : AGENT_TYPE_DESCRIPTIONS[agentType]}
-        </div>
+      <div className="flex items-stretch">
+        <label
+          className={cn(
+            "flex min-w-0 flex-1 items-center gap-3 px-3 py-2.5 transition-colors",
+            disabled
+              ? "cursor-not-allowed opacity-60"
+              : "cursor-pointer hover:bg-muted/50"
+          )}
+        >
+          <Checkbox
+            checked={checked}
+            disabled={disabled}
+            onCheckedChange={onToggle}
+            data-testid={`agent-type-toggle-${agentType}`}
+          />
+          <div className="min-w-0">
+            <div className="text-sm font-medium text-foreground">
+              {AGENT_TYPE_LABELS[agentType]}
+            </div>
+            <div className="text-xs text-muted-foreground">
+              {disabled
+                ? "At least one type must stay enabled."
+                : AGENT_TYPE_DESCRIPTIONS[agentType]}
+            </div>
+          </div>
+        </label>
+        <CollapsibleTrigger asChild>
+          <Button
+            type="button"
+            variant="ghost"
+            className="group h-auto min-h-11 shrink-0 gap-1.5 rounded-none px-3 text-xs font-normal"
+            aria-label={`${AGENT_TYPE_LABELS[agentType]} models: ${options.length} on, ${offCount} off`}
+            data-testid={`agent-models-toggle-${agentType}`}
+          >
+            {allOptions.length ? (
+              <span className="flex items-baseline gap-2 text-sm tabular-nums">
+                <span className="font-semibold text-foreground">
+                  {options.length}
+                </span>
+                {offCount ? (
+                  <span className="text-muted-foreground line-through">
+                    {offCount}
+                  </span>
+                ) : null}
+              </span>
+            ) : null}
+            <ChevronDown className="h-3.5 w-3.5 transition-transform group-data-[state=open]:rotate-180" />
+          </Button>
+        </CollapsibleTrigger>
       </div>
-    </label>
+      <CollapsibleContent className="border-t border-border bg-muted/20">
+        <AgentModelSettings agentType={agentType} />
+      </CollapsibleContent>
+    </Collapsible>
   );
 }
 
@@ -69,6 +126,9 @@ export function AgentTypeSettings({
   onChange,
 }: AgentTypeSettingsProps): JSX.Element {
   const [agentTypes, setAgentTypes] = useState<AgentType[]>(enabledAgentTypes);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const openType =
+    CLI_AGENT_TYPES.find((type) => type === searchParams.get("models")) ?? null;
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -150,8 +210,7 @@ export function AgentTypeSettings({
           Available agent types
         </div>
         <p className="mb-3 max-w-2xl text-sm text-muted-foreground">
-          Choose which agent runtimes can be created from the app. Disabled
-          types are removed from the create-agent dialog.
+          Choose which agent types and models Dispatch offers for new launches.
         </p>
       </div>
 
@@ -166,6 +225,18 @@ export function AgentTypeSettings({
               checked={checked}
               disabled={disabled}
               onToggle={() => void toggleAgentType(agentType)}
+              open={openType === agentType}
+              onOpenChange={(open) =>
+                setSearchParams(
+                  (params) => {
+                    const next = new URLSearchParams(params);
+                    if (open) next.set("models", agentType);
+                    else next.delete("models");
+                    return next;
+                  },
+                  { replace: true }
+                )
+              }
             />
           );
         })}

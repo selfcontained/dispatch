@@ -90,6 +90,7 @@ function LaunchTemplateDialogContent({
   });
   const {
     options: modelOptions,
+    savedOption,
     loading: modelCatalogLoading,
     loaded: modelCatalogLoaded,
   } = useAgentModelCatalog(agentType);
@@ -158,7 +159,7 @@ function LaunchTemplateDialogContent({
     // stand.
     const launchModel = !modelCatalogLoaded
       ? undefined
-      : modelOptions.some((option) => option.id === model)
+      : savedOption(model)
         ? model
         : null;
     launchTemplate
@@ -189,7 +190,7 @@ function LaunchTemplateDialogContent({
     effort,
     effortError,
     modelCatalogLoaded,
-    modelOptions,
+    savedOption,
     navigate,
     onOpenChange,
     startupFiles,
@@ -273,6 +274,7 @@ function LaunchTemplateDialogContent({
               <AgentModelSelect
                 value={model}
                 options={modelOptions}
+                savedOption={savedOption(model)}
                 onChange={handleModelChange}
                 loading={modelCatalogLoading}
                 id="launch-template-model"

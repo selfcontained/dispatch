@@ -16,7 +16,7 @@ import {
   CLI_AGENT_TYPES,
   getEnabledAgentTypes,
 } from "../agent-type-settings.js";
-import { validateAgentModel } from "../shared/agent-models.js";
+import { validateAgentModelChoice } from "../shared/agent-models.js";
 import type { JobService } from "../jobs/service.js";
 import type { TemplateService } from "../templates/service.js";
 import { templateWorktreeConfig } from "../templates/worktree-config.js";
@@ -474,13 +474,13 @@ async function handleLaunchAgent(
   // this the MCP path silently forced "sibling".
   const worktreeLocation = await getWorktreeLocation(deps.pool);
 
-  const model = validateAgentModel(
+  const templateModel =
+    template?.agentType === agentType ? template.model : undefined;
+  // The template's own model is a saved choice; any other is a new one.
+  const model = validateAgentModelChoice(
     agentType as (typeof CLI_AGENT_TYPES)[number],
-    (input.model !== undefined
-      ? input.model
-      : template?.agentType === agentType
-        ? template.model
-        : undefined) ?? undefined
+    (input.model !== undefined ? input.model : templateModel) ?? undefined,
+    templateModel
   );
   const effort = validateAgentEffort(
     agentType as (typeof CLI_AGENT_TYPES)[number],

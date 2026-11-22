@@ -73,7 +73,7 @@
 
 `type` is the engine, `claude` or `codex`, and defaults to `codex` if omitted. The type must be enabled in app settings.
 
-`model` optionally pins the agent to an id from the curated per-type catalog (`GET /agent-models`); ids outside the catalog are rejected with 400, and omitting the field uses the CLI default. When `model` is set, any explicit `--model`/`-m` flags in `agentArgs` are stripped in its favor. The model persists with the agent and is reused on resume.
+`model` optionally pins the agent to an id from the curated per-type catalog (`GET /agent-models`); ids outside the catalog, or turned off in Settings → Agents, are rejected with 400, and omitting the field uses the CLI default. When `model` is set, any explicit `--model`/`-m` flags in `agentArgs` are stripped in its favor. The model persists with the agent and is reused on resume.
 
 `useWorktree` requests a managed git worktree; `createNewBranch` (default: true when worktree is created) controls whether a fresh branch named `worktreeBranch` forks from `baseBranch`, or `baseBranch` itself is checked out in the worktree — in which case `worktreeBranch` is ignored. Placement (sibling vs. `.dispatch/worktrees/`) comes from the instance-wide setting at `/agents/settings`, not from this payload. `autoReview` adds the Autonomous Review rule to the agent's launch guidance: before finishing it opens a draft PR, launches reviewer personas with `launch_agent`, and works the `review` blocks they post back. `initialPrompt` is piped into the agent CLI as its first user turn.
 
@@ -338,15 +338,16 @@ Returns `204` regardless of whether the notification was still pending.
 
 ## Settings
 
-| Method | Path                        | Description                                                           |
-| ------ | --------------------------- | --------------------------------------------------------------------- |
-| GET    | `/agents/settings`          | Get agent settings (worktree location, icon color, instance name)     |
-| POST   | `/agents/settings`          | Update agent settings (all fields optional)                           |
-| GET    | `/app/settings/agent-types` | Get enabled agent types                                               |
-| POST   | `/app/settings/agent-types` | Set enabled agent types (`claude`, `codex`)                           |
-| GET    | `/app/settings/ides`        | Get enabled IDE integrations                                          |
-| POST   | `/app/settings/ides`        | Set enabled IDE integrations                                          |
-| GET    | `/agent-models`             | Curated per-type model catalog (`{ models: { claude: [...], ... } }`) |
+| Method | Path                         | Description                                                       |
+| ------ | ---------------------------- | ----------------------------------------------------------------- |
+| GET    | `/agents/settings`           | Get agent settings (worktree location, icon color, instance name) |
+| POST   | `/agents/settings`           | Update agent settings (all fields optional)                       |
+| GET    | `/app/settings/agent-types`  | Get enabled agent types                                           |
+| POST   | `/app/settings/agent-types`  | Set enabled agent types (`claude`, `codex`)                       |
+| GET    | `/app/settings/ides`         | Get enabled IDE integrations                                      |
+| POST   | `/app/settings/ides`         | Set enabled IDE integrations                                      |
+| GET    | `/agent-models`              | Per-type model catalog, defaults and filter                       |
+| PATCH  | `/app/settings/agent-models` | Edit a type's filter                                              |
 
 Avatar settings use authenticated GET/PUT `/app/settings/user-avatar`. Both return
 `{ avatar }`; PUT accepts the same envelope. An avatar is

@@ -71,6 +71,7 @@ import { registerBrowserOriginProtection } from "./browser-origin.js";
 import { createPool, createServiceResourcesProbePool } from "./db/client.js";
 import { runMigrations } from "./db/migrate.js";
 import { loadLearnedAgentModels } from "./agents/engine-models.js";
+import { loadModelAvailability } from "./agents/model-availability.js";
 import { deleteSetting, getSetting, setSetting } from "./db/settings.js";
 import { detectFileType } from "./files/file-type.js";
 import { fileMetadataFromBuffer } from "./files/metadata.js";
@@ -1080,6 +1081,8 @@ async function registerRoutes() {
 
   await registerScheduledMessageRoutes(app, scheduledMessages);
   await registerSystemRoutes(app, {
+    publishModelsChanged: (agentType) =>
+      uiEventBroker.publish({ type: "agent_models.changed", agentType }),
     slackAnswers,
     notificationLinkOrigins: () => {
       const primary = app.server.address();
@@ -1343,6 +1346,7 @@ export async function initializeApp(options?: {
   config.authToken = await getOrCreateAuthToken(pool);
   // The model lists engines published in earlier sessions, for the pickers.
   await loadLearnedAgentModels(pool);
+  await loadModelAvailability(pool);
   serviceResources.setCollectionEnabled(
     await readServiceResourcesCollectionEnabled(pool)
   );

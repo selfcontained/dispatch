@@ -1848,7 +1848,18 @@ describe("useSSE message handling", () => {
       ["brain"],
       ["tasks"],
       ["agent-models"],
+      ["agent-config"],
     ]);
+  });
+
+  it("doesn't reread the model catalog over filter edits still saving", () => {
+    const { emit, invalidateQueries, queryClient } = renderMessages();
+    vi.spyOn(queryClient, "isMutating").mockReturnValue(1);
+    emit({ type: "agent_models.changed", agentType: "codex" });
+    expect(invalidatedKeys(invalidateQueries)).toEqual([["agent-config"]]);
+    expect(queryClient.isMutating).toHaveBeenCalledWith({
+      mutationKey: ["agent-model-availability"],
+    });
   });
 
   it("invalidates project membership collections when a project changes", () => {

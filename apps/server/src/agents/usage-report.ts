@@ -9,7 +9,9 @@ import type { Pool } from "pg";
 
 /** The engine's select options, flattened for the picker; other kinds are skipped. */
 export function toAgentConfigOptions(
-  options: readonly SessionConfigOption[]
+  options: readonly SessionConfigOption[],
+  /** Models turned off: not offered, though the one in use still shows. */
+  disabledModels: readonly string[] = []
 ): AgentConfigOption[] {
   const out: AgentConfigOption[] = [];
   for (const option of options) {
@@ -29,12 +31,20 @@ export function toAgentConfigOptions(
       if ("group" in entry) entry.options.forEach((o) => add(o, entry.name));
       else add(entry);
     }
+    const currentValue = String(option.currentValue);
+    const isModel = option.id === "model" || option.category === "model";
     out.push({
       id: option.id,
       name: option.name,
       category: option.category ?? null,
-      currentValue: String(option.currentValue),
-      choices,
+      currentValue,
+      choices:
+        isModel && disabledModels.length
+          ? choices.filter(
+              ({ value }) =>
+                value === currentValue || !disabledModels.includes(value)
+            )
+          : choices,
     });
   }
   return out;

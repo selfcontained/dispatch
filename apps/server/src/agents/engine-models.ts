@@ -10,6 +10,7 @@ import {
   type AgentModelOption,
 } from "../shared/agent-models.js";
 import { AGENT_TYPES, type AgentType } from "../shared/agent-types.js";
+import { recordListedModels } from "./model-availability.js";
 
 /** The settings key an engine's learned list lives under. */
 const settingKey = (agentType: AgentType) => `agent_models:${agentType}`;
@@ -136,6 +137,12 @@ async function learnEngineCatalog(
   report: EngineModelReport
 ): Promise<boolean> {
   if (report.choices.length === 0) return false;
+  // Before the list is published, so a model that starts off is never offered.
+  const filterChanged = await recordListedModels(
+    pool,
+    agent.type,
+    report.choices.map(({ id }) => id)
+  );
   const previous = getAgentModelOptions(agent.type);
   const effortOption = options.find(
     (o) =>
@@ -164,6 +171,7 @@ async function learnEngineCatalog(
   const defaultModel =
     agent.model === null ? report.current : agentModelDefaults()[agent.type];
   const modelsChanged =
+    filterChanged ||
     !sameModels(previous, report.choices) ||
     defaultModel !== agentModelDefaults()[agent.type];
   setLearnedAgentModels(agent.type, report.choices, defaultModel);

@@ -286,6 +286,7 @@ export function TaskTriggerDialog({
               setTrigger((old) => ({ ...old, model, effort: null }))
             }
             modelOptions={models.options}
+            savedOption={models.savedOption(trigger.model)}
             modelLoading={models.loading}
             onTypeOpenChange={setTypeDropdownOpen}
           />

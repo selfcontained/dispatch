@@ -22,7 +22,11 @@ import { AGENT_TYPES, type AgentType } from "../agent-type-settings.js";
 import type { AgentRecord } from "../agents/types.js";
 import type { StreamService, TaskStreamRoot } from "../chat/service.js";
 import { ProjectStore, type ProjectRecord } from "../projects/store.js";
-import { validateAgentModel } from "../shared/agent-models.js";
+import {
+  assertModelSelectable,
+  validateAgentModel,
+  validateAgentModelChoice,
+} from "../shared/agent-models.js";
 import { errorMessage } from "../shared/lib/error-message.js";
 import { resolveTemplateLaunch } from "../templates/resolve-launch.js";
 import { resolveLaunchPersona } from "../personas/resolve.js";
@@ -559,7 +563,9 @@ export class TaskService {
    */
   async validateTrigger(
     project: ProjectRecord,
-    trigger: TaskColumnTriggerInput
+    trigger: TaskColumnTriggerInput,
+    /** The trigger being edited, whose model may be saved again. */
+    previous?: TaskColumnTrigger | null
   ): Promise<TaskColumnTrigger> {
     const template = await this.deps.getTemplate(trigger.templateId);
     if (!template) throw invalid(`Template ${trigger.templateId} not found.`);
@@ -583,6 +589,16 @@ export class TaskService {
           agentType ?? template.agentType,
           trigger.model ?? undefined
         ) ?? null;
+      if (model) {
+        const type = agentType ?? template.agentType;
+        const saved =
+          (type === template.agentType && model === template.model) ||
+          (previous?.model === model &&
+            type ===
+              (previous.agentType ??
+                (await this.deps.getTemplate(previous.templateId))?.agentType));
+        if (!saved) assertModelSelectable(type, model);
+      }
       const resolved = resolveTemplateLaunch(template, {
         agentType: agentType ?? undefined,
         model: model ?? undefined,
@@ -719,7 +735,11 @@ export class TaskService {
         "launchModel must be a model id; send launchAgentType: null to clear the override."
       );
     try {
-      const model = validateAgentModel(agentType, requested);
+      const model = validateAgentModelChoice(
+        agentType,
+        requested,
+        current?.launchAgentType === agentType ? current.launchModel : null
+      );
       if (!model) throw new Error(`Model "${requested}" is not supported.`);
       return { launchAgentType: agentType, launchModel: model };
     } catch (error) {
@@ -871,7 +891,7 @@ export class TaskService {
       patch.trigger =
         input.trigger === null
           ? null
-          : await this.validateTrigger(project, input.trigger);
+          : await this.validateTrigger(project, input.trigger, column.trigger);
     const updated = await this.store.transaction(async (db) => {
       if (input.isDone)
         await this.store.lockProjectColumns(column.projectId, db);

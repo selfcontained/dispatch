@@ -3,15 +3,24 @@ import { useCallback, useMemo } from "react";
 
 import { type AgentType } from "@/lib/agent-types";
 import { api } from "@/lib/api";
+import {
+  type ModelAvailability,
+  useUpdateModelAvailability,
+} from "@/hooks/use-model-availability";
 
 export type AgentModelOption = {
   id: string;
   label: string;
+  /** Not yet seen in a list by the person. */
+  isNew?: boolean;
+  /** Clears New; set only while the option is new. */
+  markSeen?: () => void;
   effort?: import("@dispatch/shared").AgentConfigChoice[];
 };
 type CatalogResponse = {
   models: AgentModelCatalog;
   defaults?: Partial<Record<AgentType, string>>;
+  availability?: Partial<Record<AgentType, ModelAvailability>>;
 };
 export type AgentModelCatalog = Partial<Record<AgentType, AgentModelOption[]>>;
 
@@ -24,8 +33,15 @@ export type AgentModelCatalog = Partial<Record<AgentType, AgentModelOption[]>>;
  * the `agent_models.changed` event, which invalidates this key (use-sse.ts).
  */
 export function useAgentModelCatalog(agentType: AgentType): {
+  /** The models turned on: what can be chosen. */
   options: AgentModelOption[];
+  /** Every model the engine offers: what a saved choice may still hold. */
+  allOptions: AgentModelOption[];
+  /** A saved id the engine offers, whether or not it is turned on. */
+  savedOption: (value: string | null) => AgentModelOption | null;
   defaultModel: string | null;
+  /** Whether a newly listed model starts on. */
+  autoEnable: boolean;
   loading: boolean;
   /** True only once a catalog has actually arrived — a failed fetch stays
    * false so callers don't mistake "no catalog" for "empty catalog". */
@@ -47,17 +63,42 @@ export function useAgentModelCatalog(agentType: AgentType): {
   });
 
   const loaded = data !== undefined;
-  const options = useMemo(
-    () => data?.models?.[agentType] ?? [],
-    [agentType, data]
+  const { mutate } = useUpdateModelAvailability();
+  const availability = data?.availability?.[agentType];
+  const allOptions = useMemo((): AgentModelOption[] => {
+    const models = data?.models?.[agentType] ?? [];
+    const unseen = availability?.unseen ?? [];
+    if (unseen.length === 0) return models;
+    return models.map((option) =>
+      unseen.includes(option.id)
+        ? {
+            ...option,
+            isNew: true,
+            markSeen: () => mutate({ agentType, seen: [option.id] }),
+          }
+        : option
+    );
+  }, [agentType, availability, data, mutate]);
+  const options = useMemo(() => {
+    const disabled = availability?.disabled ?? [];
+    return disabled.length
+      ? allOptions.filter((option) => !disabled.includes(option.id))
+      : allOptions;
+  }, [allOptions, availability]);
+  const savedOption = useCallback(
+    (value: string | null) =>
+      allOptions.find((option) => option.id === value) ?? null,
+    [allOptions]
   );
 
   const normalizeModel = useCallback(
     (value: string | null): string | null =>
-      loaded && value !== null && !options.some((option) => option.id === value)
+      loaded &&
+      value !== null &&
+      !allOptions.some((option) => option.id === value)
         ? null
         : value,
-    [loaded, options]
+    [allOptions, loaded]
   );
 
   const reportedDefault = data?.defaults?.[agentType];
@@ -65,7 +106,16 @@ export function useAgentModelCatalog(agentType: AgentType): {
     ? (reportedDefault ?? null)
     : null;
 
-  return { options, defaultModel, loading: isLoading, loaded, normalizeModel };
+  return {
+    options,
+    allOptions,
+    savedOption,
+    defaultModel,
+    autoEnable: availability?.autoEnable ?? true,
+    loading: isLoading,
+    loaded,
+    normalizeModel,
+  };
 }
 
 /**

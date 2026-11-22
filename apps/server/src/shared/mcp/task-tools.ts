@@ -77,14 +77,16 @@ const launchAgentTypeSchema = z
     "Runtime for this task's trigger launches only; wins over its launch template and column automation without editing either. Needs an explicit launchModel (a stored one is kept if valid for it). Omit to keep; null clears runtime and model to inherit."
   );
 
-const launchModelSchema = z
-  .string()
-  .min(1)
-  .nullable()
-  .describe(
-    "Model for launchAgentType, required with it and validated for that runtime; no default is ever substituted and invalid pairs are rejected with nothing changed. Omit to keep. Null is accepted only with launchAgentType: null (clears the override). " +
-      describeAgentModelCatalog(AGENT_TYPES)
-  );
+// Built per registration: the catalog and its filter change while serving.
+const launchModelSchema = () =>
+  z
+    .string()
+    .min(1)
+    .nullable()
+    .describe(
+      "Model for launchAgentType, required with it and validated for that runtime; no default is ever substituted and invalid pairs are rejected with nothing changed. Omit to keep. Null is accepted only with launchAgentType: null (clears the override). " +
+        describeAgentModelCatalog(AGENT_TYPES)
+    );
 
 const linkSchema = z.object({
   kind: z.enum(["pr", "branch", "url"]),
@@ -405,7 +407,7 @@ export function registerTaskTools(
             ),
           launchTemplateId: launchTemplateIdSchema.optional(),
           launchAgentType: launchAgentTypeSchema.optional(),
-          launchModel: launchModelSchema.optional(),
+          launchModel: launchModelSchema().optional(),
           title: z.string().min(1).max(500),
           body: z
             .string()
@@ -474,7 +476,7 @@ export function registerTaskTools(
             ),
           launchTemplateId: launchTemplateIdSchema.optional(),
           launchAgentType: launchAgentTypeSchema.optional(),
-          launchModel: launchModelSchema.optional(),
+          launchModel: launchModelSchema().optional(),
           title: z.string().min(1).max(500).optional(),
           body: z.string().max(50_000).optional(),
           column: z.string().min(1).optional().describe("Column key."),

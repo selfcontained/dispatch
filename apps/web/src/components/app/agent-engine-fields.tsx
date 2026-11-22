@@ -21,6 +21,8 @@ type AgentEngineFieldsProps = {
   modelOptions: readonly AgentModelOption[];
   /** Pass null to show the engine setting when there is no known default. */
   catalogDefault?: string | null;
+  /** What is saved now, which may have been turned off since. */
+  savedOption?: AgentModelOption | null;
   modelLoading: boolean;
   onTypeOpenChange?: (open: boolean) => void;
   /** Overridden by dialogs other than Create Agent so ids stay unique. */
@@ -43,6 +45,7 @@ export function AgentEngineFields({
   onModelChange,
   modelOptions,
   catalogDefault,
+  savedOption,
   modelLoading,
   onTypeOpenChange,
   idPrefix,
@@ -88,6 +91,7 @@ export function AgentEngineFields({
             value={model}
             options={modelOptions}
             catalogDefault={catalogDefault}
+            savedOption={savedOption}
             onChange={onModelChange}
             loading={modelLoading}
           />

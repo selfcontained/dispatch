@@ -13,6 +13,7 @@ import { sanitizeAgentName } from "../shared/lib/agent-strings.js";
 import { renderTemplatePrompt } from "./launch-prompt.js";
 import {
   applyAgentConfigDefaults,
+  assertModelSelectable,
   resolveAgentModelForUpdate,
 } from "../shared/agent-models.js";
 import {
@@ -70,7 +71,9 @@ export class TemplateService {
 
   async addTemplate(
     input: AddTemplateInput,
-    callerFullAccess?: boolean
+    callerFullAccess?: boolean,
+    /** Internal, from the record being copied; never from HTTP/MCP input. */
+    savedModel?: string | null
   ): Promise<TemplateRecord> {
     if (input.agentType === "opencode") input = { ...input, fullAccess: true };
     assertAccessCeiling(input.fullAccess ?? false, callerFullAccess);
@@ -92,7 +95,7 @@ export class TemplateService {
       directory: input.directory,
       description: input.description ?? null,
       prompt: input.prompt ?? null,
-      ...applyAgentConfigDefaults(input),
+      ...applyAgentConfigDefaults(input, savedModel),
       effort: validateAgentEffort(
         input.agentType ?? "claude",
         input.effort,
@@ -126,7 +129,11 @@ export class TemplateService {
       updatedAt: _updatedAt,
       ...config
     } = source;
-    return this.addTemplate({ ...config, name }, callerFullAccess);
+    return this.addTemplate(
+      { ...config, name },
+      callerFullAccess,
+      source.model
+    );
   }
 
   async updateTemplate(
@@ -247,6 +254,15 @@ export class TemplateService {
     const stored =
       input.resolvedTemplate ??
       (await this.store.getTemplate(input.templateId));
+    // A task's snapshot was checked when its choice was saved.
+    if (stored && !input.resolvedTemplate) {
+      const type = input.agentType ?? stored.agentType;
+      assertModelSelectable(
+        type,
+        input.model,
+        type === stored.agentType ? stored.model : null
+      );
+    }
     const template = stored ? resolveTemplateLaunch(stored, input) : null;
     if (!template) {
       throw new Error(`Template ${input.templateId} not found.`);
