@@ -67,6 +67,7 @@ export class DefaultBranchFiles {
 
   private async readFiles(cwd: string, commit: string, directories: string[]) {
     const files: DefaultBranchFilesReply["files"] = [];
+    const warnings: string[] = [];
     let truncated = false;
     let bytes = 1024; // Envelope and metadata.
     for (const directory of directories) {
@@ -92,6 +93,12 @@ export class DefaultBranchFiles {
           .slice(0, tab)
           .trim()
           .split(/\s+/);
+        // A committed symlink is not a file the catalog can read; say so, as
+        // before, instead of skipping it silently.
+        if (kind === "blob" && mode === "120000" && name.endsWith(".md"))
+          warnings.push(
+            `Could not load persona ${directory}/${name}: unsupported file or larger than 256 KiB.`
+          );
         if (
           kind !== "blob" ||
           !["100644", "100755"].includes(mode) ||
@@ -108,7 +115,7 @@ export class DefaultBranchFiles {
           continue;
         }
         if (files.length >= DEFAULT_BRANCH_FILE_LIMIT)
-          return { files, truncated: true };
+          return { files, truncated: true, warnings };
         const content = await this.git(cwd, ["cat-file", "blob", blob]);
         if (Buffer.byteLength(content) > 256 * 1024) {
           truncated = true;
@@ -117,11 +124,11 @@ export class DefaultBranchFiles {
         const file = { path: filePath, content };
         bytes += Buffer.byteLength(JSON.stringify(file)) + 1;
         if (bytes > DEFAULT_BRANCH_REPLY_BYTES)
-          return { files, truncated: true };
+          return { files, truncated: true, warnings };
         files.push(file);
       }
     }
-    return { files, truncated };
+    return { files, truncated, warnings };
   }
 
   private async refresh(
@@ -279,16 +286,19 @@ export class DefaultBranchFiles {
       .then((s) => this.now() - s.mtimeMs < LOCK_TTL_MS)
       .catch(() => false);
     const refreshing = this.pending.has(file) || locked;
+    const { warnings: fileWarnings, ...listing } = cached?.commit
+      ? await this.readFiles(cwd, cached.commit, directories).catch(() => ({
+          files: [],
+          truncated: true,
+          warnings: [] as string[],
+        }))
+      : { files: [], truncated: false, warnings: [] as string[] };
     return {
       kind: "defaultBranchFiles",
       hasOrigin: true,
-      ...(cached?.commit
-        ? await this.readFiles(cwd, cached.commit, directories).catch(() => ({
-            files: [],
-            truncated: true,
-          }))
-        : { files: [], truncated: false }),
+      ...listing,
       warnings: [
+        ...fileWarnings,
         ...(this.unavailable.has(file)
           ? [
               "Could not store default branch metadata. Check repository cache permissions.",

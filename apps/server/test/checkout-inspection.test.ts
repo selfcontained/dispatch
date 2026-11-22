@@ -508,24 +508,14 @@ JSON
     });
   });
 
-  it("refuses escaping paths, Git metadata, symlinks, FIFOs and oversized files", async () => {
+  it("refuses escaping paths, Git metadata, FIFOs and oversized files", async () => {
     put(fixture, "outside/info", "outside");
     put(checkout, "oversized", "x".repeat(256 * 1024 + 1));
-    symlinkSync(
-      path.join(fixture, "outside"),
-      path.join(checkout, "directory-link")
-    );
-    symlinkSync(
-      path.join(fixture, "outside/info"),
-      path.join(checkout, "file-link")
-    );
     execFileSync("mkfifo", [path.join(checkout, "pipe")]);
     for (const file of [
       "../outside/info",
       path.join(fixture, "outside/info"),
       ".git",
-      "directory-link/info",
-      "file-link",
       "pipe",
       "oversized",
     ]) {
@@ -533,6 +523,32 @@ JSON
         inspect(checkout, { kind: "readFile", path: file })
       ).rejects.toThrow();
     }
+  });
+
+  it("follows symlinked configuration files and directories, as a plain read does", async () => {
+    put(fixture, "outside/info", "outside");
+    put(checkout, "config/tools.json", "tools");
+    put(checkout, ".agents/real/keeper.md", "keeper");
+    symlinkSync(
+      path.join(fixture, "outside/info"),
+      path.join(checkout, "file-link")
+    );
+    symlinkSync("config", path.join(checkout, "directory-link"));
+    symlinkSync("gone", path.join(checkout, "broken-link"));
+    symlinkSync("real", path.join(checkout, ".agents/personas"));
+    symlinkSync("keeper.md", path.join(checkout, ".agents/real/alias.md"));
+    for (const [file, content] of [
+      ["file-link", "outside"],
+      ["directory-link/tools.json", "tools"],
+      [".agents/personas/keeper.md", "keeper"],
+      ["broken-link", null],
+    ] as const)
+      expect(await inspect(checkout, { kind: "readFile", path: file })).toEqual(
+        { kind: "readFile", content }
+      );
+    expect(
+      await inspect(checkout, { kind: "listFiles", path: ".agents/personas" })
+    ).toEqual({ kind: "listFiles", names: ["alias.md", "keeper.md"] });
   });
 
   it("rejects oversized Git output", async () => {

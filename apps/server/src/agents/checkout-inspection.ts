@@ -6,13 +6,20 @@ import {
   openRegularFile,
   openLinuxDirectory,
 } from "../files/open-workspace-file.js";
-import { openWorkspaceDirectory } from "../files/workspace-directory.js";
 import {
   resolveRepoRoot,
   resolveWorktreeRoot,
 } from "../shared/git/git-context.js";
 import { constants } from "node:fs";
-import { lstat, open, readdir, readlink, realpath } from "node:fs/promises";
+import {
+  lstat,
+  open,
+  opendir,
+  readdir,
+  readlink,
+  realpath,
+  stat as statPath,
+} from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 import {
@@ -122,7 +129,12 @@ async function readWorktreeFile(
   segments: string[]
 ): Promise<string | null> {
   try {
-    const file = await openRegularFile(root, segments);
+    // Configuration files may be symlinks, as they were before the runner
+    // protocol: follow them like a plain read of the path would.
+    const file = await open(
+      path.join(root, ...segments),
+      constants.O_RDONLY | constants.O_NONBLOCK
+    );
     try {
       const stat = await file.stat();
       if (!stat.isFile()) throw new Error("Expected a regular worktree file");
@@ -590,23 +602,28 @@ export async function inspectCheckout(
       ...validateFilePath(validated.path)
     );
     try {
-      const { directory, verify } = await openWorkspaceDirectory(
-        canonicalRoot,
-        directoryPath
-      );
+      // Persona directories and files may be symlinks: list through them.
+      const directory = await opendir(directoryPath);
       const names: string[] = [];
       let scanned = 0;
-      for await (const entry of directory) {
-        if (++scanned > 1024)
-          throw new Error("Checkout directory contains too many entries");
-        if (
-          entry.isFile() &&
-          !entry.name.includes("\\") &&
-          entry.name.toLowerCase() !== ".git"
-        )
-          names.push(entry.name);
+      try {
+        for await (const entry of directory) {
+          if (++scanned > 1024)
+            throw new Error("Checkout directory contains too many entries");
+          if (entry.name.includes("\\") || entry.name.toLowerCase() === ".git")
+            continue;
+          if (
+            entry.isFile() ||
+            (entry.isSymbolicLink() &&
+              (await statPath(path.join(directoryPath, entry.name))
+                .then((target) => target.isFile())
+                .catch(() => false)))
+          )
+            names.push(entry.name);
+        }
+      } finally {
+        await directory.close().catch(() => undefined);
       }
-      await verify();
       const reply = { kind: "listFiles" as const, names: names.sort() };
       encodeReply(reply);
       return reply;

@@ -401,13 +401,6 @@
   {
     "file": "apps/server/src/agents/checkout-inspection.ts",
     "kind": "R2 host import",
-    "detail": "apps/server/src/files/workspace-directory",
-    "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/agents/checkout-inspection.ts",
-    "kind": "R2 host import",
     "detail": "apps/server/src/shared/git/base-ref",
     "task": "T04",
     "count": 1

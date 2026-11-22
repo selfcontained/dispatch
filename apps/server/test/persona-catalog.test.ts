@@ -12,6 +12,7 @@ import {
   readdir,
   readFile,
   rm,
+  symlink,
   writeFile,
 } from "node:fs/promises";
 import os from "node:os";
@@ -339,6 +340,21 @@ describe("shared remote persona catalog", () => {
     const result = await cache.get(checkout, true);
     expect(result.personas.map((p) => p.slug)).toEqual(["replacement"]);
     expect(result.warnings.join()).toContain("bad.md");
+  });
+  it("names a committed persona symlink in a warning instead of skipping it", async () => {
+    await publish("one");
+    await symlink("builder.md", path.join(author, ".agents/personas/alias.md"));
+    await git(author, "add", ".");
+    await git(author, "commit", "-m", "symlink");
+    await git(author, "push");
+    const result = await new PersonaCatalogCache(runner, () => now).get(
+      checkout,
+      true
+    );
+    expect(result.personas.map((p) => p.slug)).toEqual(["builder"]);
+    expect(result.warnings).toEqual([
+      "Could not load persona .agents/personas/alias.md: unsupported file or larger than 256 KiB.",
+    ]);
   });
   it("uses worktree overrides for existing agents but the catalog for new launches", async () => {
     await publish("remote");
