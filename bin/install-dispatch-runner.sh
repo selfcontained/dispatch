@@ -28,7 +28,8 @@ enrollment and workload account.
 The workload uses SUDO_USER by default. Use --user for another existing
 non-root account, or --dedicated-user to create the dispatch-runner account.
 Update preserves idle sessions on compatible runners. Exit 75 means retry after the reported activity finishes.
-Add --clear-unreadable-fence to update to set aside a damaged fence when no trial is active.
+Add --clear-unreadable-fence to update, or to install on a managed runner, to set
+aside a damaged fence when no trial is active.
 Recover restores the previous binary after an interrupted update.
 Uninstall removes the managed service and binaries and retains enrollment and session data.
 USAGE
@@ -825,7 +826,6 @@ parse_install_options() {
         shift 2
         ;;
       --clear-unreadable-fence)
-        [[ "$action" == update ]] || error "--clear-unreadable-fence requires update"
         clear_unreadable_fence=1
         shift
         ;;
@@ -879,6 +879,9 @@ run_action() {
       printf 'Keeping the configured workload account. Account options apply only to the first install.\n' >&2
     fi
     action=update
+  fi
+  if [[ "$action" == install && "${clear_unreadable_fence:-0}" == 1 ]]; then
+    error "--clear-unreadable-fence requires an installed runner"
   fi
   case "$action" in
     install) stage_release; install_runner ;;

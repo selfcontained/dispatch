@@ -264,8 +264,17 @@ between renaming the executable and writing the next journal phase. When the
 journal is unreadable and the installed inode is unverified, the hook refuses
 startup so the administrator can inspect the preserved records.
 
-For manual recovery, run the installer from the desired fixed release with
-`update --tag vX.Y.Z --clear-unreadable-fence`. Under the installer lock, it
+For manual recovery, add the recovery flag to the command copied from
+Settings:
+
+```sh
+curl … | sudo bash -s -- --clear-unreadable-fence
+```
+
+Add `--allow-unverified-dev-build` as well for a dev controller. To use a
+fixed release instead, run its installer with
+`update --tag vX.Y.Z --clear-unreadable-fence`. `install` accepts the flag only
+where a managed runner is installed. Under the installer lock, the installer
 uses the verified release to check the fence and trial journal. With an absent
 or terminal journal, it renames an unreadable fence to
 `fence.json.unreadable-<id>`, prints the saved path, and updates the runner.

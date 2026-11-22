@@ -463,6 +463,19 @@ touch "$fixture_root/allow-fence-quarantine"
 starts_before_repair=$(grep -c '^start ' "$fixture_root/systemctl" || :)
 run update v1.0.0 x64 --clear-unreadable-fence
 [[ $(grep -c '^start ' "$fixture_root/systemctl") -gt "$starts_before_repair" ]] || fail
+# The copied command always runs install. It reaches the same recovery.
+printf '{' > "$fixture_root/state/update/fence.json"
+starts_before_repair=$(grep -c '^start ' "$fixture_root/systemctl" || :)
+run apply v1.0.0 x64 --clear-unreadable-fence
+[[ ! -e "$fixture_root/state/update/fence.json" ]] || fail
+[[ $(grep -c '^start ' "$fixture_root/systemctl") -gt "$starts_before_repair" ]] || fail
+fixture_root="$root/fence-unmanaged"
+mkdir -p "$fixture_root"
+ln -s "$root/releases" "$fixture_root/releases"
+ln -s "$root/public.pem" "$fixture_root/public.pem"
+expect_status 1 apply v1.0.0 x64 --dedicated-user --clear-unreadable-fence 2> "$fixture_root/err"
+grep -Fq -- '--clear-unreadable-fence requires an installed runner' "$fixture_root/err" || fail
+[[ ! -e "$fixture_root/runtime/dispatch" && ! -e "$fixture_root/curl" ]] || fail
 unset fixture_root
 
 cmp "$root/original" "$root/runtime/previous-verified" || fail

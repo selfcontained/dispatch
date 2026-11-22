@@ -316,6 +316,18 @@ describe.each(["sh", "bash", "dash"])(
       );
     });
 
+    it("passes fence recovery through the copied command's install", async () => {
+      const script = runnerInstallScript(release);
+      expect(script).toContain("[--clear-unreadable-fence]");
+      const { code, log } = await pipe(script, ["--clear-unreadable-fence"], {
+        shell,
+      });
+      expect(code).toBe(0);
+      expect(log.at(-1)).toMatch(
+        /^installer install .* --clear-unreadable-fence$/
+      );
+    });
+
     it("does not run a dev bootstrap whose digest differs", async () => {
       await writeFile(
         path.join(temp, "served/install-dispatch-runner.sh"),

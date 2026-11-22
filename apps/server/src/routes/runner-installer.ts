@@ -101,7 +101,7 @@ export function runnerInstallScript(input: RunnerInstallScript) {
   const lines = [
     "{",
     `# Installs or updates a Dispatch runner from ${build}.`,
-    `# Options: ${command.replace(/ \| sudo bash$/, " | sudo bash -s -- [--user USER | --dedicated-user] [--allow-downgrade]")}`,
+    `# Options: ${command.replace(/ \| sudo bash$/, " | sudo bash -s -- [--user USER | --dedicated-user] [--allow-downgrade] [--clear-unreadable-fence]")}`,
     "dispatch_runner_install() (",
     "  set -eu",
     `  [ "$(id -u)" = 0 ] || ${fail(`error: Run this as root: ${command}`)}`,
