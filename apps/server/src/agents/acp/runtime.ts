@@ -720,7 +720,10 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
             submitted &&
             !(
               error instanceof UpdateAcknowledgementLost &&
-              entry.client.isReady()
+              entry.client.isReady() &&
+              (error.receipt === "claimed" ||
+                (error.receipt === undefined &&
+                  entry.client.welcome?.turn != null))
             )
           )
             entry.turnOpen = false;

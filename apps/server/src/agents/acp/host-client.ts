@@ -43,7 +43,10 @@ const UNKNOWN_EXECUTION =
   "Runner connection dropped before acknowledgement; execution is unknown.";
 
 export class UpdateAcknowledgementLost extends Error {
-  constructor(readonly reattached: Promise<HostWelcome | null>) {
+  constructor(
+    readonly reattached: Promise<HostWelcome | null>,
+    readonly receipt?: PromptReceiptState
+  ) {
     super(UNKNOWN_EXECUTION);
   }
 }
@@ -700,16 +703,15 @@ export class HostClient {
       if (!(error instanceof UpdateAcknowledgementLost) || !journalId)
         throw error;
       const welcome = await error.reattached;
-      if (
-        welcome?.promptReceiptSupported !== true ||
-        welcome.journalId !== journalId ||
-        !this.isCurrent(welcome)
-      )
-        throw error;
+      if (!welcome || !this.isCurrent(welcome)) throw error;
+      if (welcome.journalId !== journalId)
+        throw new UpdateAcknowledgementLost(error.reattached, "rotated");
+      if (welcome.promptReceiptSupported !== true) throw error;
       const state = await this.queryPromptReceipt(id, journalId);
       if (!this.isCurrent(welcome)) throw error;
       if (state === "accepted") return "accepted";
-      if (state !== "unclaimed" || mayReplay?.() === false) throw error;
+      if (state !== "unclaimed" || mayReplay?.() === false)
+        throw new UpdateAcknowledgementLost(error.reattached, state);
       // The host atomically checks the same ID and journal again before
       // claiming, so even a query-to-send race cannot submit twice.
       return this.sendPrompt(command);

@@ -1142,6 +1142,7 @@ await import(${JSON.stringify(pathToFileURL(fakeAgent).href)});
   it.each([
     "unclaimed",
     "claimed",
+    "claimed-without-receipt",
     "accepted",
     "rotated",
     "old-host",
@@ -1157,7 +1158,7 @@ await import(${JSON.stringify(pathToFileURL(fakeAgent).href)});
     async (mode) => {
       const f = await updateFixture();
       const fifo = path.join(f.folder, "image.png");
-      const claimed = mode === "claimed";
+      const claimed = mode === "claimed" || mode === "claimed-without-receipt";
       const unclaimed = [
         "unclaimed",
         "unheld",
@@ -1211,9 +1212,21 @@ await import(${JSON.stringify(pathToFileURL(fakeAgent).href)});
           if (message.type === "prompt_receipt_result") {
             if (mode === "silent-receipt") return false;
             if (mode === "receipt-channel-lost") queueMicrotask(drop);
-            if (mode === "wrong-receipt-journal")
+            if (
+              mode === "wrong-receipt-journal" ||
+              mode === "claimed-without-receipt"
+            )
               return { ...message, journalId: "wrong" };
           }
+          if (
+            message.type === "welcome" &&
+            dropped &&
+            (mode === "aborted" || mode === "rotated")
+          )
+            return {
+              ...message,
+              turn: { seq: 0, startedAt: new Date().toISOString() },
+            };
           if (message.type === "welcome" && mode === "old-host")
             return { ...message, promptReceiptSupported: undefined };
           if (
@@ -1285,8 +1298,26 @@ await import(${JSON.stringify(pathToFileURL(fakeAgent).href)});
             state: unclaimed ? "unclaimed" : claimed ? "claimed" : "accepted",
           });
         } else expect(queries).toEqual([]);
+        const queued = [
+          "aborted",
+          "rotated",
+          "silent-receipt",
+          "claimed",
+          "claimed-without-receipt",
+        ].includes(mode)
+          ? f.runtime.prompt(f.id, "next prompt", undefined, {
+              delivery: "queue",
+            })
+          : undefined;
+        void queued?.accepted.catch(() => {});
+        const sentNext = () =>
+          f.commands.some(
+            (m) => m.type === "prompt" && m.text === "next prompt"
+          );
         if (claimed) {
+          await f.holds.release("update-runner", attempt, "committed");
           expect(f.runtime.hasOpenTurn(f.id)).toBe(true);
+          expect(sentNext()).toBe(false);
           releaseImage = writeFile(fifo, "image");
           await releaseImage;
         }
@@ -1297,10 +1328,17 @@ await import(${JSON.stringify(pathToFileURL(fakeAgent).href)});
             )
           );
           expect(
-            f.seen.flatMap(({ event }) =>
-              event.type === "turn" ? [event.state] : []
-            )
+            f.seen
+              .flatMap(({ event }) =>
+                event.type === "turn" ? [event.state] : []
+              )
+              .slice(0, claimed ? 2 : undefined)
           ).toEqual(["started", "settled"]);
+        }
+        if (mode === "silent-receipt") {
+          expect(
+            f.replies.filter((m) => m.type === "welcome").at(-1)?.turn
+          ).toBeNull();
         }
         if (mode === "rotated") {
           const welcomes = f.replies.filter((m) => m.type === "welcome");
@@ -1312,8 +1350,16 @@ await import(${JSON.stringify(pathToFileURL(fakeAgent).href)});
           ).toHaveLength(0);
         }
         expect(f.invocations()).toBe(unclaimed && mode !== "unclaimed" ? 0 : 1);
+        if (queued) {
+          if (!claimed)
+            await f.holds.release("update-runner", attempt, "committed");
+          await until(sentNext);
+          await queued.accepted;
+          await queued.settled;
+          expect(f.runtime.isBusy(f.id)).toBe(false);
+        }
       } finally {
-        if (claimed && !releaseImage && f.tap.offline)
+        if (claimed && !releaseImage)
           void writeFile(fifo, "image").catch(() => {});
         await f.close();
       }
