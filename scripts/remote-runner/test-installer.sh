@@ -486,6 +486,30 @@ cmp "$fixture_root/retained" "$fixture_root/runtime/previous-verified" || fail
 cmp "$fixture_root/retained.json" "$fixture_root/state/update/previous-verified.json" || fail
 [[ ! -e "$fixture_root/runtime/previous" ]] || fail
 ! cmp -s "$fixture_root/runtime/previous-verified" "$fixture_root/runtime/dispatch" || fail
+# A refusal leaves the fence where the supervisor read it: a refused downgrade,
+# an unknown installed version and a busy runner all come before it is set
+# aside, so none can leave a supervisor fenced by a file that is gone.
+printf '{' > "$fixture_root/state/update/fence.json"
+expect_status 1 update v1.0.0 x64 --clear-unreadable-fence
+[[ "$(<"$fixture_root/state/update/fence.json")" == '{' ]] || fail
+cp "$fixture_root/runtime/installed-release" "$fixture_root/release-record"
+printf '0:0 v1.0.1\n' > "$fixture_root/runtime/installed-release"
+expect_status 1 update v1.0.0 x64 --clear-unreadable-fence
+[[ "$(<"$fixture_root/state/update/fence.json")" == '{' ]] || fail
+cp "$fixture_root/release-record" "$fixture_root/runtime/installed-release"
+touch "$fixture_root/busy" "$fixture_root/running"
+expect_status 75 update v1.0.1 x64 --clear-unreadable-fence
+[[ "$(<"$fixture_root/state/update/fence.json")" == '{' && ! -e "$fixture_root/frozen" ]] || fail
+rm "$fixture_root/busy"
+# A fence the helper will not set aside refuses before the supervisor stops.
+rm "$fixture_root/allow-fence-quarantine"
+signals_before_refusal=$(grep -c '^kill ' "$fixture_root/systemctl" || :)
+expect_status 1 update v1.0.1 x64 --clear-unreadable-fence
+[[ -e "$fixture_root/running" && ! -e "$fixture_root/frozen" && ! -e "$fixture_root/runtime/previous" ]] || fail
+[[ $(grep -c '^kill ' "$fixture_root/systemctl" || :) -eq "$signals_before_refusal" ]] || fail
+touch "$fixture_root/allow-fence-quarantine"
+run update v1.0.1 x64 --clear-unreadable-fence
+[[ ! -e "$fixture_root/state/update/fence.json" ]] || fail
 fixture_root="$root/fence-unmanaged"
 mkdir -p "$fixture_root"
 ln -s "$root/releases" "$fixture_root/releases"

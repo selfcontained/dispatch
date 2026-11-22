@@ -520,7 +520,13 @@ check_session_handoff() {
     defer "retry after the reported activity finishes"
 }
 
+# The last step before the old supervisor is stopped: nothing after it
+# refuses, so a fence set aside here always gets the restart that rereads it.
 record_previous() {
+  if [[ "${clearing_fence:-0}" == 1 ]]; then
+    clear_unreadable_update_fence
+    assert_no_update_fence
+  fi
   install -m 0600 "$stage/handoff.py" "$runtime/previous-handoff.py"
   ln "$runtime/dispatch" "$runtime/previous"
   sync -f "$runtime"
@@ -710,7 +716,7 @@ clear_unreadable_update_fence() {
 }
 
 update_runner() {
-  local installed cleared_fence=0
+  local installed clearing_fence=0
   maintenance_step=prepare
   if [[ "${clear_unreadable_fence:-0}" != 1 ]]; then assert_no_update_fence; fi
   # Keep the original tool error on the runner. Only the bounded status record
@@ -721,11 +727,7 @@ update_runner() {
     error "No managed Dispatch runner is installed"
   if [[ "${clear_unreadable_fence:-0}" == 1 &&
         ( -e "$state/update/fence.json" || -L "$state/update/fence.json" ) ]]; then
-    maintenance_step=stage
-    stage_release
-    clear_unreadable_update_fence
-    assert_no_update_fence
-    cleared_fence=1
+    clearing_fence=1
   fi
   if [[ "$action" == recover || -f "$runtime/previous" ]]; then
     maintenance_step=restore
@@ -737,7 +739,7 @@ update_runner() {
     error "Refusing to downgrade Dispatch runner from $installed to $tag. Use --allow-downgrade to proceed"
   fi
   maintenance_step=stage
-  if [[ "$cleared_fence" == 0 ]]; then stage_release; fi
+  stage_release
   if [[ -z "$installed" && "${allow_downgrade:-0}" != 1 ]] && ! cmp -s "$stage/dispatch" "$runtime/dispatch"; then
     # Every installer with this guard writes the record, so a missing one
     # means the runner predates it and is older than any offered build.
@@ -749,7 +751,7 @@ update_runner() {
   if ! tar -xOzf "$stage/dispatch-runner-linux-$arch.tar.gz" bin/runner-handoff-v1.py > "$stage/handoff.py" 2>/dev/null; then
     : > "$stage/handoff.py"
   fi
-  if [[ "$cleared_fence" == 0 ]] && cmp -s "$stage/dispatch" "$runtime/dispatch"; then
+  if [[ "$clearing_fence" == 0 ]] && cmp -s "$stage/dispatch" "$runtime/dispatch"; then
     record_release "$runtime/dispatch"
     maintenance_step=unit
     install_service_unit
