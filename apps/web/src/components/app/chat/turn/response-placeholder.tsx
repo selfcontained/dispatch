@@ -431,9 +431,9 @@ export function ResponsePlaceholder({
   );
 }
 
-/** Shared presentation: the lab varies events, never the chat's frame or palette. */
 export type DefragGlow = "halo" | "halo-tight" | "halo-soft";
 
+/** Shared presentation for live turns and the Design Studio. */
 export function ResponsePlaceholderVisual({
   cells,
   quiet = false,
@@ -446,9 +446,8 @@ export function ResponsePlaceholderVisual({
   reducedCells,
   statusLabel = "Preparing response",
   fills = [],
-  glow,
+  glow = "halo-soft",
 }: {
-  /** Opt-in visual study; production keeps its existing treatment. */
   glow?: DefragGlow;
   /** What the turn has done so far, in place of the progress link. */
   summary?: string;
@@ -529,7 +528,7 @@ export function ResponsePlaceholderVisual({
     <div
       data-glow={glow}
       data-testid="chat-response-placeholder"
-      className={`dispatch-placeholder ${quiet ? "" : "dispatch-placeholder-chase"} relative mt-3 w-full max-w-md rounded-lg border border-border/60 bg-muted/10 ${glow ? "overflow-clip px-2.5 py-2" : "px-4 py-3.5"} ${reducedCells ? "dispatch-defrag-reduced" : ""}`}
+      className={`dispatch-placeholder ${quiet ? "" : "dispatch-placeholder-chase"} relative mt-3 w-full max-w-md rounded-lg border border-border/60 bg-muted/10 overflow-clip px-2.5 py-2 ${reducedCells ? "dispatch-defrag-reduced" : ""}`}
     >
       {/* The status region holds only the picture; the peek control sits
           beside it, so its changing count is never announced. */}
@@ -578,6 +577,10 @@ export function ResponsePlaceholderVisual({
                     const latest = c.step === newest;
                     const piece =
                       c.step === undefined ? undefined : pieces[c.step];
+                    const packed = reducedCells?.[c.id];
+                    const packedColor = packed
+                      ? ACTIVITY_COLORS[packed.category ?? packed.rest]
+                      : undefined;
                     return (
                       <span
                         key={c.id}
@@ -592,34 +595,30 @@ export function ResponsePlaceholderVisual({
                         className="absolute left-0 top-0 pr-[2px] transition-transform duration-[900ms] ease-in-out motion-reduce:transition-none"
                         style={
                           {
-                            "--neon-color":
-                              glow && c.category
-                                ? ACTIVITY_COLORS[c.category]
-                                : undefined,
+                            "--neon-color": c.category
+                              ? ACTIVITY_COLORS[c.category]
+                              : undefined,
                             width: `${100 / COLS}%`,
                             height: CELL_H,
                             transform: place(c.slot),
                             // The newest block lights where it is first, then travels.
                             transitionDelay: latest ? "450ms" : "0ms",
                             zIndex: latest ? 2 : 1,
-                            "--defrag-packed-transform": reducedCells
-                              ? place(reducedCells[c.id]!.slot)
+                            "--defrag-packed-transform": packed
+                              ? place(packed.slot)
                               : undefined,
-                            "--defrag-packed-color": reducedCells
-                              ? tint(
-                                  ACTIVITY_COLORS[
-                                    reducedCells[c.id]!.category ??
-                                      reducedCells[c.id]!.rest
-                                  ],
-                                  75
-                                )
+                            "--defrag-packed-color": packedColor
+                              ? tint(packedColor, 75)
                               : undefined,
+                            "--defrag-packed-tone": packedColor,
                           } as CSSProperties
                         }
                       >
                         <span
                           key={c.step ?? "rest"}
-                          data-neon-swatch={glow && c.category ? "" : undefined}
+                          data-neon-swatch={
+                            c.category || packed ? "" : undefined
+                          }
                           className={`block h-full rounded-[1.5px] transition-[background-color] duration-500 motion-reduce:transition-none ${piece && arrivalKeys?.has(piece.key) ? "dispatch-defrag-ack" : ""}`}
                           style={{
                             background: c.category
@@ -639,11 +638,16 @@ export function ResponsePlaceholderVisual({
           {label && (
             <TooltipContent
               side="top"
-              style={{
-                color: anchor.color,
-                borderColor: tint(anchor.color, 45),
-                background: `color-mix(in srgb, ${anchor.color} 12%, hsl(var(--card)))`,
-              }}
+              data-glow={glow}
+              data-neon-tooltip=""
+              style={
+                {
+                  "--neon-color": anchor.color,
+                  color: anchor.color,
+                  borderColor: tint(anchor.color, 45),
+                  background: `color-mix(in srgb, ${anchor.color} 12%, hsl(var(--card)))`,
+                } as CSSProperties
+              }
             >
               {label}
             </TooltipContent>

@@ -1,4 +1,4 @@
-/* Preview variants share their glow between the grid and both fill swatches. */
+/* Share each glow across cells, fill swatches and category tooltips. */
 [data-glow="halo"] {
   --neon-edge: 30%;
   --neon-near: 5px;
@@ -17,13 +17,20 @@
   --neon-far: 16px;
   --neon-strength: 48%;
 }
-[data-glow] [data-neon-swatch] {
+[data-glow] [data-neon-swatch],
+[data-glow][data-neon-tooltip] {
   box-shadow:
     inset 0 0 0 0.5px
       color-mix(in srgb, white var(--neon-edge), var(--neon-color)),
     0 0 var(--neon-near) var(--neon-color),
     0 0 var(--neon-far)
       color-mix(in srgb, var(--neon-color) var(--neon-strength), transparent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-glow].dispatch-defrag-reduced [data-defrag-cell] > [data-neon-swatch] {
+    --neon-color: var(--defrag-packed-tone);
+  }
 }
 
 .neon-comparison {
