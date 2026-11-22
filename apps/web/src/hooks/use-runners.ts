@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 
 import { api } from "@/lib/api";
-import { subscribeVersionMismatch } from "@/lib/version";
+import { subscribeServerVersion } from "@/lib/version";
 
 export type RunnerStatus = "pending" | "online" | "offline" | "revoked";
 
@@ -45,7 +45,7 @@ export function useWantedBuildRefresh({ health, update }: Runner) {
     const refresh = () =>
       void queryClient.invalidateQueries({ queryKey: runnerInstallerQueryKey });
     refresh();
-    return subscribeVersionMismatch(refresh);
+    return subscribeServerVersion(refresh);
   }, [queryClient, shown]);
 }
 
