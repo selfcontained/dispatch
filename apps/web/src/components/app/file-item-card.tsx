@@ -92,7 +92,7 @@ export function FileItemCard({
       ) : file.media === "video" ? (
         <div
           className={cn(
-            "block w-full overflow-hidden border-2 bg-black/60",
+            "block w-full overflow-hidden border-2 bg-media/veil",
             unseen ? "file-thumb-unseen" : "file-thumb-seen"
           )}
         >
@@ -108,7 +108,7 @@ export function FileItemCard({
       ) : (
         <button
           className={cn(
-            "block w-full overflow-hidden border-2 bg-black/60",
+            "block w-full overflow-hidden border-2 bg-media/veil",
             unseen ? "file-thumb-unseen" : "file-thumb-seen"
           )}
           onClick={() => openLightbox(file.id)}

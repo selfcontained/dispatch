@@ -87,7 +87,7 @@ export function EffortPicker({
               ? "h-6 max-w-32 shrink-0 gap-1.5 px-1.5 text-muted-foreground hover:bg-surface-hover hover:text-foreground pointer-coarse:min-h-11"
               : [
                   glassInset,
-                  "h-9 w-full flex-col gap-0.5 px-1 hover:bg-white/[0.1]",
+                  "h-9 w-full flex-col gap-0.5 px-1 hover:bg-fill-hover",
                 ]
           )}
         >

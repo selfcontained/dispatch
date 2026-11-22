@@ -61,7 +61,7 @@ export function AppearanceSettings({
                       {t.swatches.map((color, i) => (
                         <span
                           key={i}
-                          className="block h-4 w-4 rounded-full border border-white/10"
+                          className="block h-4 w-4 rounded-full border border-edge-subtle"
                           style={{ backgroundColor: color }}
                         />
                       ))}

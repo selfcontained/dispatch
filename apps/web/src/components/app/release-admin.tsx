@@ -120,7 +120,7 @@ export function ReleasesAdmin(): JSX.Element {
   if (showProgress && createJob) {
     return (
       <div className="flex h-full min-h-0 flex-col">
-        <div className="flex items-center gap-2 border-b border-white/[0.12] px-4 py-2">
+        <div className="flex items-center gap-2 border-b border-edge px-4 py-2">
           <Button
             variant="ghost"
             size="sm"
@@ -182,7 +182,7 @@ export function ReleasesAdmin(): JSX.Element {
         onRelease={(versionType) => void handleRelease(versionType)}
       />
 
-      <div className="border-t border-white/[0.12]" />
+      <div className="border-t border-edge" />
 
       <RecentReleases
         releases={releases}

@@ -62,12 +62,12 @@ export function ProjectLocation({
       <div
         role="group"
         aria-label="Launch location type"
-        className="relative flex w-full rounded-lg border border-white/[0.08] bg-black/20 p-1 shadow-[inset_0_1px_3px_rgba(0,0,0,0.25)]"
+        className="relative flex w-full rounded-lg border border-edge-subtle bg-fill-track p-1 shadow-elev-track"
       >
         <span
           aria-hidden="true"
           data-testid="location-toggle-thumb"
-          className="pointer-events-none absolute inset-y-1 left-1 w-[calc((100%-8px)/2)] rounded-md border border-white/[0.12] bg-white/[0.06] shadow-[0_1px_4px_rgba(0,0,0,0.3),inset_0_1px_0_rgba(255,255,255,0.06)] transition-transform duration-200 ease-out motion-reduce:transition-none"
+          className="pointer-events-none absolute inset-y-1 left-1 w-[calc((100%-8px)/2)] rounded-md border border-edge bg-fill-raised shadow-elev-control transition-transform duration-200 ease-out motion-reduce:transition-none"
           style={{
             transform: projectId ? "translateX(0)" : "translateX(100%)",
           }}

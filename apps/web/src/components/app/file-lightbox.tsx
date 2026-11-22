@@ -202,7 +202,7 @@ export function FileLightbox({
   return (
     <div
       className={cn(
-        "fixed inset-0 z-[120] bg-black/90",
+        "fixed inset-0 z-[120] bg-media/dense",
         isImage
           ? "overflow-hidden"
           : "grid grid-cols-[minmax(0,1fr)] grid-rows-[auto_1fr_auto] p-2 sm:p-6"
@@ -216,14 +216,14 @@ export function FileLightbox({
         className={cn(
           "flex w-full items-center gap-3 overflow-hidden px-3 py-2 sm:px-4 sm:py-2.5",
           isImage
-            ? "absolute inset-x-0 top-0 z-10 border-b border-white/10 bg-black/65 pt-[max(0.5rem,env(safe-area-inset-top))] text-white shadow-lg backdrop-blur"
+            ? "absolute inset-x-0 top-0 z-10 border-b border-media-foreground/tint bg-media/veil pt-[max(0.5rem,env(safe-area-inset-top))] text-media-foreground shadow-lg backdrop-blur"
             : "mx-auto max-w-4xl rounded-t-lg border border-b-0 border-border bg-surface"
         )}
       >
         <span
           className={cn(
             "min-w-0 shrink truncate text-body-sm font-medium sm:text-body-md",
-            isImage ? "text-white" : "text-foreground"
+            isImage ? "text-media-foreground" : "text-foreground"
           )}
           title={isImage && file?.description ? displayName : undefined}
         >
@@ -250,7 +250,8 @@ export function FileLightbox({
             variant="ghost"
             className={cn(
               "h-11 w-11 sm:h-9 sm:w-9",
-              isImage && "text-white hover:bg-white/15 hover:text-white"
+              isImage &&
+                "text-media-foreground hover:bg-media-foreground/tint-strong hover:text-media-foreground"
             )}
             onClick={() => selectIndex(currentIndex - 1)}
           >
@@ -259,7 +260,7 @@ export function FileLightbox({
           <span
             className={cn(
               "hidden text-body-sm tabular-nums sm:inline",
-              isImage ? "text-white/70" : "text-muted-foreground"
+              isImage ? "text-media-foreground/soft" : "text-muted-foreground"
             )}
           >
             {totalItems > 0 ? `${currentIndex + 1}/${totalItems}` : ""}
@@ -272,7 +273,8 @@ export function FileLightbox({
             variant="ghost"
             className={cn(
               "h-11 w-11 sm:h-9 sm:w-9",
-              isImage && "text-white hover:bg-white/15 hover:text-white"
+              isImage &&
+                "text-media-foreground hover:bg-media-foreground/tint-strong hover:text-media-foreground"
             )}
             onClick={() => selectIndex(currentIndex + 1)}
           >
@@ -286,7 +288,8 @@ export function FileLightbox({
             variant="ghost"
             className={cn(
               "h-11 w-11 sm:h-9 sm:w-9",
-              isImage && "text-white hover:bg-white/15 hover:text-white"
+              isImage &&
+                "text-media-foreground hover:bg-media-foreground/tint-strong hover:text-media-foreground"
             )}
             onClick={() => setFileId(null)}
           >
@@ -300,24 +303,27 @@ export function FileLightbox({
             ? "absolute inset-0"
             : "mx-auto min-h-0 w-full max-w-4xl overflow-auto border-x border-border",
           isDocument || isHtml
-            ? "bg-white"
+            ? "bg-paper"
             : isMarkdown
               ? "bg-background"
               : isText
                 ? "syntax-surface"
-                : "bg-black"
+                : "bg-media"
         )}
       >
         {!file ? (
-          <div className="flex h-full min-h-screen items-center justify-center px-4 text-white">
+          <div className="flex h-full min-h-screen items-center justify-center px-4 text-media-foreground">
             {showLoadError ? (
               <div className="flex flex-col items-center gap-3 text-center">
-                <p role="alert" className="text-body-md text-white/70">
+                <p
+                  role="alert"
+                  className="text-body-md text-media-foreground/soft"
+                >
                   Unable to load this file item.
                 </p>
                 <Button
                   variant="ghost"
-                  className="border-white/30 bg-transparent text-white hover:bg-white/15 hover:text-white"
+                  className="border-media-foreground/line bg-transparent text-media-foreground hover:bg-media-foreground/tint-strong hover:text-media-foreground"
                   onClick={() => void refetch()}
                 >
                   Try again
@@ -327,7 +333,7 @@ export function FileLightbox({
               <div
                 role="status"
                 aria-live="polite"
-                className="flex items-center gap-2 text-body-md text-white/70"
+                className="flex items-center gap-2 text-body-md text-media-foreground/soft"
               >
                 <Loader2 className="h-4 w-4 animate-spin" />
                 Loading file…

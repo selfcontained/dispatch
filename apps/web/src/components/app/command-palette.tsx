@@ -105,7 +105,7 @@ export function CommandPalette({
   return (
     <Dialog.Root open={open} onOpenChange={handleOpenChange}>
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-[65] bg-black/60" />
+        <Dialog.Overlay className="fixed inset-0 z-[65] bg-scrim" />
         <Dialog.Content
           aria-label="Command palette"
           data-hotkey-disable="true"
@@ -118,7 +118,7 @@ export function CommandPalette({
           className={cn(
             "fixed left-1/2 top-[18%] z-[70] flex w-[min(600px,calc(100vw-2rem))] -translate-x-1/2 flex-col overflow-hidden rounded-2xl",
             glassOverlay,
-            "shadow-[0_24px_80px_-12px_rgba(0,0,0,0.6),0_0_60px_-12px_hsl(var(--primary)/0.35)]",
+            "shadow-elev-spotlight",
             "ring-1 ring-primary/tint-strong"
           )}
         >
@@ -256,7 +256,7 @@ function ConfirmPage({
           className={cn(
             "group flex cursor-default select-none items-center justify-center gap-2 rounded-md px-3 py-2 text-body-md outline-none",
             "text-muted-foreground",
-            "data-[selected=true]:bg-white/[0.06] data-[selected=true]:text-foreground"
+            "data-[selected=true]:bg-fill-hover data-[selected=true]:text-foreground"
           )}
         >
           Cancel
@@ -294,7 +294,7 @@ function CommandPaletteItem({
       disabled={action.disabled}
       className={cn(
         itemClassName,
-        "data-[selected=true]:bg-white/[0.08] data-[selected=true]:text-foreground",
+        "data-[selected=true]:bg-fill-hover data-[selected=true]:text-foreground",
         "data-[disabled=true]:pointer-events-none data-[disabled=true]:opacity-50"
       )}
     >

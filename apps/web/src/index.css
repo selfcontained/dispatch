@@ -641,6 +641,96 @@
   --seat-10-text: var(--seat-10-ink);
 }
 
+/* Elevation, edges and fills. Dark themes are lit from above on translucent
+   white; light themes use the foreground for edges and fills, solid white for
+   raised controls, and soft drop shadows with no inner shading. */
+:root {
+  --edge-subtle: hsl(0 0% 100% / 0.08);
+  --edge: hsl(0 0% 100% / 0.12);
+  --edge-strong: hsl(0 0% 100% / 0.19);
+  --edge-on-color: hsl(0 0% 100% / 0.15);
+  --fill-inset: hsl(0 0% 100% / 0.04);
+  --fill-raised: hsl(0 0% 100% / 0.06);
+  --fill-hover: hsl(0 0% 100% / 0.09);
+  --fill-track: hsl(0 0% 0% / 0.2);
+  --fill-wash: hsl(0 0% 100% / 0.065);
+  --scrim: hsl(0 0% 0% / 0.5);
+  --overlay: var(--card);
+  --overlay-foreground: var(--foreground);
+
+  /* Media backdrops are black, and documents white, whatever the theme. */
+  --media: 0 0% 0%;
+  --media-foreground: 0 0% 100%;
+  --paper: 0 0% 100%;
+  --terminal: 240 11.1% 7.1%;
+  --terminal-shell: var(--terminal);
+
+  --elev-inset: inset 0 2px 6px rgb(0 0 0 / 0.3);
+  --elev-track: inset 0 1px 3px rgb(0 0 0 / 0.25);
+  --elev-panel:
+    inset 0 1px 0 rgb(255 255 255 / 0.08),
+    inset 0 -1px 0 rgb(255 255 255 / 0.04);
+  --elev-control:
+    0 1px 4px rgb(0 0 0 / 0.2), inset 0 1px 0 rgb(255 255 255 / 0.06);
+  --elev-raised:
+    0 4px 24px rgb(0 0 0 / 0.3), inset 0 1px 0 rgb(255 255 255 / 0.12);
+  --elev-overlay:
+    0 16px 64px rgb(0 0 0 / 0.5), inset 0 1px 0 rgb(255 255 255 / 0.15);
+  --elev-popover: 0 16px 64px rgb(0 0 0 / 0.5);
+  --elev-floating: 0 4px 16px rgb(0 0 0 / 0.3);
+  --elev-primary:
+    0 2px 8px rgb(0 0 0 / 0.25), 0 0 20px hsl(var(--primary) / 0.25),
+    inset 0 1px 0 rgb(255 255 255 / 0.15);
+  --elev-primary-hover:
+    0 2px 8px rgb(0 0 0 / 0.25), 0 0 32px hsl(var(--primary) / 0.35);
+  --elev-spotlight:
+    0 24px 80px -12px rgb(0 0 0 / 0.6),
+    0 0 60px -12px hsl(var(--primary) / 0.35);
+  --elev-sticky:
+    0 12px 20px -4px rgb(0 0 0 / 0.75), 0 28px 56px -8px rgb(0 0 0 / 0.65),
+    inset 0 1px 0 rgb(255 255 255 / 0.15);
+  --elev-side: -8px 0 24px -12px rgb(0 0 0 / 0.35);
+  --elev-jump:
+    0 4px 14px rgb(0 0 0 / 0.35), 0 0 14px hsl(var(--foreground) / 0),
+    inset 0 1px 0 hsl(var(--foreground) / 0.08);
+  --elev-jump-hover:
+    0 4px 14px rgb(0 0 0 / 0.35), 0 0 14px hsl(var(--foreground) / 0.16),
+    inset 0 1px 0 hsl(var(--foreground) / 0.08);
+}
+[data-theme-mode="light"] {
+  --shade: 220 30% 12%;
+  --edge-subtle: hsl(var(--foreground) / 0.1);
+  --edge: hsl(var(--foreground) / 0.2);
+  --edge-strong: hsl(var(--foreground) / 0.24);
+  --edge-on-color: transparent;
+  --fill-inset: hsl(var(--popover) / 0.7);
+  --fill-raised: hsl(var(--popover));
+  --fill-hover: hsl(var(--foreground) / 0.07);
+  --fill-track: hsl(var(--foreground) / 0.06);
+  --fill-wash: hsl(0 0% 0% / 0.045);
+  --terminal-shell: var(--surface);
+
+  --elev-inset: 0 0 #0000;
+  --elev-track: 0 0 #0000;
+  --elev-panel: 0 0 #0000;
+  --elev-control: 0 1px 2px hsl(var(--shade) / 0.08);
+  --elev-raised: 0 1px 3px hsl(var(--shade) / 0.08);
+  --elev-overlay: 0 12px 32px -8px hsl(var(--shade) / 0.22);
+  --elev-popover: 0 8px 24px -6px hsl(var(--shade) / 0.2);
+  --elev-floating: 0 2px 8px hsl(var(--shade) / 0.14);
+  --elev-primary: 0 1px 2px hsl(var(--shade) / 0.12);
+  --elev-primary-hover: 0 2px 6px hsl(var(--shade) / 0.16);
+  --elev-spotlight: 0 20px 48px -12px hsl(var(--shade) / 0.25);
+  --elev-sticky: 0 6px 12px -6px hsl(var(--shade) / 0.18);
+  --elev-side: -6px 0 16px -12px hsl(var(--shade) / 0.2);
+  --elev-jump:
+    0 2px 8px hsl(var(--shade) / 0.14), 0 0 14px hsl(var(--shade) / 0),
+    inset 0 1px 0 hsl(var(--shade) / 0);
+  --elev-jump-hover:
+    0 2px 8px hsl(var(--shade) / 0.2), 0 0 14px hsl(var(--shade) / 0.06),
+    inset 0 1px 0 hsl(var(--shade) / 0);
+}
+
 * {
   @apply border-border;
 }
@@ -651,6 +741,21 @@
   /* The one uppercase eyebrow above a section or group. */
   .section-label {
     @apply text-label-xs font-medium uppercase tracking-wider text-muted-foreground;
+  }
+
+  /* The four elevations. */
+  .surface-inset {
+    @apply border border-edge bg-fill-inset shadow-elev-inset backdrop-blur-md;
+  }
+  /* Edge colour only: each side of a panel picks which borders it draws. */
+  .surface-panel {
+    @apply border-edge-strong bg-card shadow-elev-panel;
+  }
+  .surface-raised {
+    @apply border border-edge bg-fill-raised shadow-elev-raised backdrop-blur-xl;
+  }
+  .surface-overlay {
+    @apply border border-edge-strong bg-overlay shadow-elev-overlay backdrop-blur-2xl;
   }
 }
 
@@ -1394,7 +1499,7 @@ html[data-hidden] .animate-sidebar-nav-pulse {
 /* Tip popover — remove inset shadow and backdrop-blur so the SVG arrow
    fill matches the popover background exactly. */
 .tip-popover {
-  box-shadow: 0 16px 64px rgba(0, 0, 0, 0.5) !important;
+  box-shadow: var(--elev-popover) !important;
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
   animation-duration: 300ms !important;
@@ -1687,16 +1792,10 @@ html[data-hidden] .animate-sidebar-nav-pulse {
 
 /* User messages use a neutral wash; the avatar carries their identity. */
 .chat-user-wash {
-  background-color: rgb(255 255 255 / 6.5%);
+  background-color: var(--fill-wash);
 }
 .chat-user-wash:hover {
-  background-color: rgb(255 255 255 / 9%);
-}
-[data-theme-mode="light"] .chat-user-wash {
-  background-color: rgb(0 0 0 / 4.5%);
-}
-[data-theme-mode="light"] .chat-user-wash:hover {
-  background-color: rgb(0 0 0 / 6.5%);
+  background-color: var(--fill-hover);
 }
 
 /* The mobile reading state keeps the actual editor mounted, so the first

@@ -71,7 +71,7 @@ export function UpdatesCheckPanel({
 
       {infoLoading && progressPercent(infoProgress) !== null && (
         <div className="max-w-[40rem]">
-          <div className="h-1.5 overflow-hidden rounded-full bg-white/[0.08]">
+          <div className="h-1.5 overflow-hidden rounded-full bg-fill-hover">
             <div
               className="h-full rounded-full bg-info transition-[width] duration-200"
               style={{ width: `${progressPercent(infoProgress)}%` }}

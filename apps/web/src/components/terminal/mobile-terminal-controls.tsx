@@ -202,7 +202,7 @@ export function MobileTerminalControls({
             aria-label="Terminal input text"
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
-            className="h-full min-h-0 w-full resize-none rounded-lg border border-white/[0.12] bg-white/[0.04] backdrop-blur-md shadow-[inset_0_2px_6px_rgba(0,0,0,0.3)] p-3 font-mono text-body-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary focus-visible:ring-1 focus-visible:ring-primary"
+            className="h-full min-h-0 w-full resize-none rounded-lg surface-inset p-3 font-mono text-body-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary focus-visible:ring-1 focus-visible:ring-primary"
             placeholder="Type command here..."
             autoFocus
             autoCapitalize="off"

@@ -98,7 +98,7 @@ export function ContextFileItem({
           >
             <img src={preview} alt="" className="h-full w-full object-cover" />
             <span
-              className="absolute inset-0 bg-black/25 opacity-0 transition-opacity group-hover/markup:opacity-100 group-focus-visible/markup:opacity-100"
+              className="absolute inset-0 bg-media/line opacity-0 transition-opacity group-hover/markup:opacity-100 group-focus-visible/markup:opacity-100"
               aria-hidden="true"
             />
           </button>

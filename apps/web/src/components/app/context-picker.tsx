@@ -47,7 +47,7 @@ function AddContextMenu({
       <button
         type="button"
         onClick={onAddFile}
-        className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-body-md text-foreground hover:bg-white/[0.1]"
+        className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-body-md text-foreground hover:bg-fill-hover"
       >
         <Upload className="h-3.5 w-3.5 text-muted-foreground" />
         Add file
@@ -55,7 +55,7 @@ function AddContextMenu({
       <button
         type="button"
         onClick={onAddLink}
-        className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-body-md text-foreground hover:bg-white/[0.1]"
+        className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-body-md text-foreground hover:bg-fill-hover"
       >
         <Link2 className="h-3.5 w-3.5 text-muted-foreground" />
         Add link

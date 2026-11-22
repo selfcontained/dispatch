@@ -52,7 +52,7 @@ function AutomationsSidebar({
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="mt-2 flex h-14 items-center border-b border-border px-3">
-        <div className="flex w-full gap-1 rounded-lg bg-white/[0.04] p-0.5">
+        <div className="flex w-full gap-1 rounded-lg bg-fill-inset p-0.5">
           <TabButton
             active={activeTab === "templates"}
             onClick={() => onTabChange("templates")}
@@ -262,7 +262,7 @@ function TemplateListItem({
             type="button"
             onClick={handleLaunch}
             title="Launch template"
-            className="shrink-0 rounded p-2 text-muted-foreground opacity-0 pointer-events-none transition-opacity hover:bg-white/[0.08] hover:text-primary group-hover:opacity-100 group-hover:pointer-events-auto"
+            className="shrink-0 rounded p-2 text-muted-foreground opacity-0 pointer-events-none transition-opacity hover:bg-fill-hover hover:text-primary group-hover:opacity-100 group-hover:pointer-events-auto"
           >
             <Play className="h-3 w-3 fill-current" />
           </button>

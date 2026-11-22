@@ -76,7 +76,7 @@ export function AgentTypeSelect({
           }
         }}
         className={cn(
-          "flex h-9 w-full items-center justify-between rounded-md border border-white/[0.12] bg-white/[0.04] px-3 py-2 text-body-md shadow-[inset_0_2px_6px_rgba(0,0,0,0.3)] backdrop-blur-md",
+          "flex h-9 w-full items-center justify-between rounded-md surface-inset px-3 py-2 text-body-md",
           "ring-offset-background focus:outline-none focus:ring-1 focus:ring-ring"
         )}
       >
@@ -89,7 +89,7 @@ export function AgentTypeSelect({
         />
       </button>
       {open ? (
-        <div className="absolute left-0 z-[80] min-w-48 w-max max-w-[calc(100vw-3rem)] mt-1 rounded-md border border-white/[0.2] bg-[hsl(var(--card))] shadow-[0_16px_64px_rgba(0,0,0,0.5),inset_0_1px_0_rgba(255,255,255,0.15)] backdrop-blur-2xl">
+        <div className="absolute left-0 z-[80] min-w-48 w-max max-w-[calc(100vw-3rem)] mt-1 rounded-md surface-overlay">
           <Command
             shouldFilter={false}
             ref={(el) => {

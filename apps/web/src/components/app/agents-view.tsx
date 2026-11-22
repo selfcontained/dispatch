@@ -651,11 +651,7 @@ export function AgentsView({
               openLightbox={openLightbox}
               onOpenPath={handleOpenPath}
               isMobile={false}
-              className={cn(
-                "rounded-l-lg border-l",
-                !drawerPinned && "shadow-2xl",
-                glassPanel
-              )}
+              className={cn("rounded-l-lg border-l", glassPanel)}
             />
           </DrawerFrame>
           {!isMobile ? (

@@ -98,6 +98,32 @@ export default {
         success: intent("success"),
         info: intent("info"),
         seat: { ...seats, foreground: "hsl(0 0% 100% / <alpha-value>)" },
+        edge: {
+          DEFAULT: "var(--edge)",
+          subtle: "var(--edge-subtle)",
+          strong: "var(--edge-strong)",
+          "on-color": "var(--edge-on-color)",
+        },
+        fill: {
+          inset: "var(--fill-inset)",
+          raised: "var(--fill-raised)",
+          hover: "var(--fill-hover)",
+          track: "var(--fill-track)",
+        },
+        scrim: "var(--scrim)",
+        overlay: {
+          DEFAULT: token("overlay"),
+          foreground: token("overlay-foreground"),
+        },
+        media: {
+          DEFAULT: token("media"),
+          foreground: token("media-foreground"),
+        },
+        paper: token("paper"),
+        terminal: {
+          DEFAULT: token("terminal"),
+          shell: token("terminal-shell"),
+        },
         engine: {
           codex: "hsl(var(--engine-codex) / <alpha-value>)",
           claude: "hsl(var(--engine-claude) / <alpha-value>)",
@@ -123,6 +149,23 @@ export default {
           1: "hsl(var(--heading-accent-1) / <alpha-value>)",
           2: "hsl(var(--heading-accent-2) / <alpha-value>)",
         },
+      },
+      boxShadow: {
+        "elev-inset": "var(--elev-inset)",
+        "elev-track": "var(--elev-track)",
+        "elev-panel": "var(--elev-panel)",
+        "elev-control": "var(--elev-control)",
+        "elev-raised": "var(--elev-raised)",
+        "elev-overlay": "var(--elev-overlay)",
+        "elev-popover": "var(--elev-popover)",
+        "elev-floating": "var(--elev-floating)",
+        "elev-primary": "var(--elev-primary)",
+        "elev-primary-hover": "var(--elev-primary-hover)",
+        "elev-spotlight": "var(--elev-spotlight)",
+        "elev-sticky": "var(--elev-sticky)",
+        "elev-side": "var(--elev-side)",
+        "elev-jump": "var(--elev-jump)",
+        "elev-jump-hover": "var(--elev-jump-hover)",
       },
       borderRadius: {
         lg: "0.75rem",
@@ -203,19 +246,17 @@ export default {
         },
         "mobile-toolbar-flash": {
           "0%": {
-            backgroundColor: "rgba(255,255,255,0.06)",
-            boxShadow:
-              "0 1px 4px rgba(0,0,0,0.2), inset 0 1px 0 rgba(255,255,255,0.06)",
+            backgroundColor: "var(--fill-raised)",
+            boxShadow: "var(--elev-control)",
           },
           "18%": {
-            backgroundColor: "rgba(190,240,255,0.14)",
+            backgroundColor: "hsl(var(--info) / 0.14)",
             boxShadow:
-              "0 1px 4px rgba(0,0,0,0.2), inset 0 0 0 1px rgba(190,240,255,0.22), inset 0 1px 0 rgba(255,255,255,0.06), 0 0 30px rgba(100,190,255,0.12)",
+              "var(--elev-control), inset 0 0 0 1px hsl(var(--info) / 0.22), 0 0 30px hsl(var(--info) / 0.12)",
           },
           "100%": {
-            backgroundColor: "rgba(255,255,255,0.06)",
-            boxShadow:
-              "0 1px 4px rgba(0,0,0,0.2), inset 0 1px 0 rgba(255,255,255,0.06)",
+            backgroundColor: "var(--fill-raised)",
+            boxShadow: "var(--elev-control)",
           },
         },
       },

@@ -93,7 +93,7 @@ export function UnreleasedChanges({
                 {info.unreleasedCount === 1 ? "commit" : "commits"} on{" "}
                 <span className="font-mono">main</span>
               </div>
-              <div className="flex flex-col gap-0.5 rounded-lg border border-white/[0.12] bg-white/[0.04] p-3">
+              <div className="flex flex-col gap-0.5 rounded-lg border border-edge bg-fill-inset p-3">
                 {info.commits.map((c) => (
                   <div key={c.sha} className="flex gap-2 py-0.5 text-body-sm">
                     <span className="shrink-0 font-mono text-muted-foreground">

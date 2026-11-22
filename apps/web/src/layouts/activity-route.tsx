@@ -30,7 +30,7 @@ export function ActivityRoute(): JSX.Element {
                 "flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-left text-body-md transition-colors",
                 (activityTab ?? "metrics") === "metrics"
                   ? "bg-surface-selected text-foreground border border-primary/tint-strong"
-                  : "border border-transparent text-muted-foreground hover:bg-white/[0.04] hover:text-foreground"
+                  : "border border-transparent text-muted-foreground hover:bg-fill-hover hover:text-foreground"
               )}
             >
               <BarChart3 className="h-3.5 w-3.5 shrink-0" />
@@ -46,7 +46,7 @@ export function ActivityRoute(): JSX.Element {
                 "flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-left text-body-md transition-colors",
                 activityTab === "history"
                   ? "bg-surface-selected text-foreground border border-primary/tint-strong"
-                  : "border border-transparent text-muted-foreground hover:bg-white/[0.04] hover:text-foreground"
+                  : "border border-transparent text-muted-foreground hover:bg-fill-hover hover:text-foreground"
               )}
             >
               <History className="h-3.5 w-3.5 shrink-0" />

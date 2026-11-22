@@ -217,7 +217,7 @@ function TemplateDetail({
       {/* Inline-editable config form */}
       <div className="flex-1 px-6 py-5">
         <div className="grid gap-4">
-          <div className="rounded-md border border-white/[0.12] bg-white/[0.04] p-4">
+          <div className="rounded-md border border-edge bg-fill-inset p-4">
             <div className="text-body-md font-medium">
               Template configuration
             </div>

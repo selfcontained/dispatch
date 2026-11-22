@@ -78,7 +78,7 @@ function LiveStreamSection({
         </div>
       </div>
       <div className="px-3 pb-3">
-        <div className="overflow-hidden rounded border border-border bg-black">
+        <div className="overflow-hidden rounded border border-border bg-media">
           <img
             src={streamUrl}
             alt="Live browser stream"

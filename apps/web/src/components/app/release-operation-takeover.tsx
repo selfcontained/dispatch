@@ -74,7 +74,7 @@ export function OperationTakeover({
       {/* Left column — controls */}
       <div
         className={cn(
-          "flex md:w-[360px] shrink-0 flex-col overflow-y-auto border-b md:border-b-0 md:border-r border-white/[0.12] p-4 md:p-6",
+          "flex md:w-[360px] shrink-0 flex-col overflow-y-auto border-b md:border-b-0 md:border-r border-edge p-4 md:p-6",
           job.jobType === "update"
             ? "h-[496px] gap-4 md:h-full md:gap-6"
             : "gap-6"
@@ -92,7 +92,7 @@ export function OperationTakeover({
             <div
               className={cn(
                 job.jobType === "update" && "h-full",
-                "rounded-lg border border-white/[0.12] bg-white/[0.04] p-3"
+                "rounded-lg border border-edge bg-fill-inset p-3"
               )}
             >
               <div className="section-label">Current step</div>
@@ -113,7 +113,7 @@ export function OperationTakeover({
                 progress.bytesReceived !== null &&
                 progress.bytesReceived !== undefined &&
                 progress.totalBytes > 0 && (
-                  <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-white/[0.08]">
+                  <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-fill-hover">
                     <div
                       className="h-full rounded-full bg-info transition-[width] duration-200"
                       style={{

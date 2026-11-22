@@ -253,7 +253,7 @@ export function TemplateConfigFields({
       {lockedLocation ? (
         <div className="space-y-1" data-testid="locked-location">
           <label className="text-body-md text-muted-foreground">Project</label>
-          <div className="rounded-md border border-white/[0.08] bg-black/20 px-3 py-2 text-body-md">
+          <div className="rounded-md border border-edge-subtle bg-fill-track px-3 py-2 text-body-md">
             {lockedLocation.name ? (
               <div className="truncate">{lockedLocation.name}</div>
             ) : null}

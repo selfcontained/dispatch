@@ -61,7 +61,7 @@ export function TaskLabelFilter({ labels }: { labels: TaskLabel[] }) {
           aria-label="Filter by labels"
           className={cn(
             selectTriggerClassName,
-            "h-8 w-36 min-w-0 flex-1 basis-0 gap-2 md:flex-none md:basis-auto text-foreground font-normal hover:bg-white/[0.04]"
+            "h-8 w-36 min-w-0 flex-1 basis-0 gap-2 md:flex-none md:basis-auto text-foreground font-normal hover:bg-fill-hover"
           )}
         >
           <span className="truncate">

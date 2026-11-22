@@ -91,7 +91,7 @@ function MobileSidebar({
       {/* Backdrop */}
       <div
         className={cn(
-          "fixed inset-x-0 bottom-0 top-[var(--exposure-banner-height,0px)] z-50 bg-black/50 backdrop-blur-md transition-opacity duration-300",
+          "fixed inset-x-0 bottom-0 top-[var(--exposure-banner-height,0px)] z-50 bg-scrim backdrop-blur-md transition-opacity duration-300",
           open ? "opacity-100" : "pointer-events-none opacity-0"
         )}
         onClick={() => onOpenChange(false)}

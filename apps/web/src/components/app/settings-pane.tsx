@@ -71,7 +71,7 @@ export function SettingsNavContent({
                 "flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-left text-body-md transition-colors",
                 activeSection === id
                   ? "bg-surface-selected text-foreground border border-primary/tint-strong"
-                  : "border border-transparent text-muted-foreground hover:bg-white/[0.04] hover:text-foreground"
+                  : "border border-transparent text-muted-foreground hover:bg-fill-hover hover:text-foreground"
               )}
             >
               <Icon className="h-3.5 w-3.5 shrink-0" />

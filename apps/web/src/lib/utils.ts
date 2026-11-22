@@ -23,6 +23,11 @@ const twMerge = extendTailwindMerge({
           ],
         },
       ],
+      shadow: [
+        {
+          shadow: [(value: string) => value.startsWith("elev-")],
+        },
+      ],
     },
   },
 });

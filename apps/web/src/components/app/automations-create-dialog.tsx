@@ -108,11 +108,11 @@ function CreateTemplateDialogContent({
         <DialogTitle>Create Template</DialogTitle>
         <DialogDescription>
           A reusable agent launch configuration. Use{" "}
-          <code className="rounded bg-white/[0.08] px-1 text-body-sm">
+          <code className="rounded bg-fill-hover px-1 text-body-sm">
             {"{{D:Arg Name}}"}
           </code>{" "}
           in the prompt for optional runtime arguments, with modifiers like{" "}
-          <code className="rounded bg-white/[0.08] px-1 text-body-sm">
+          <code className="rounded bg-fill-hover px-1 text-body-sm">
             {"{{D:Arg Name|required|multiline}}"}
           </code>
           . Prefill with <code>{"|default=main"}</code> or offer a dropdown with{" "}

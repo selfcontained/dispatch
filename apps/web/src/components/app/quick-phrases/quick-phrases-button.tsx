@@ -164,7 +164,7 @@ export function QuickPhrasesButton({
             <h4 className="section-label">Quick Phrases</h4>
             <button
               type="button"
-              className="rounded p-1.5 text-muted-foreground hover:bg-white/[0.1] hover:text-foreground"
+              className="rounded p-1.5 text-muted-foreground hover:bg-fill-hover hover:text-foreground"
               onClick={() => setEditing({ id: "", label: "", text: "" })}
               title="Add phrase"
             >

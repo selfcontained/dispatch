@@ -1493,7 +1493,7 @@ export function ChatPane({
                     title={pendingBelow ? "New messages" : "Jump to bottom"}
                     data-testid="chat-jump-to-bottom"
                     data-pending={pendingBelow ? "true" : undefined}
-                    className="pointer-events-auto relative h-9 w-9 rounded-full border border-foreground/tint-strong bg-[hsl(var(--accent))] text-foreground shadow-[0_4px_14px_rgb(0_0_0/0.35),0_0_14px_hsl(var(--foreground)/0),inset_0_1px_0_hsl(var(--foreground)/0.08)] backdrop-blur transition-[color,background-color,border-color,box-shadow] duration-300 ease-in-out hover:border-foreground/line-strong hover:bg-muted hover:shadow-[0_4px_14px_rgb(0_0_0/0.35),0_0_14px_hsl(var(--foreground)/0.16),inset_0_1px_0_hsl(var(--foreground)/0.08)]"
+                    className="pointer-events-auto relative h-9 w-9 rounded-full border border-foreground/tint-strong bg-[hsl(var(--accent))] text-foreground shadow-elev-jump backdrop-blur transition-[color,background-color,border-color,box-shadow] duration-300 ease-in-out hover:border-foreground/line-strong hover:bg-muted hover:shadow-elev-jump-hover"
                     onClick={jumpToBottom}
                   >
                     <ArrowDown className="h-4 w-4" />

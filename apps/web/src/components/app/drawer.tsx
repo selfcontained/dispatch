@@ -614,11 +614,7 @@ export function Drawer({
         closeButtonIcon="chevron"
         pinned={pinned}
         onTogglePin={onTogglePin}
-        className={cn(
-          "rounded-l-lg border-l",
-          !pinned && "shadow-2xl",
-          glassPanel
-        )}
+        className={cn("rounded-l-lg border-l", glassPanel)}
       />
     </DrawerFrame>
   );

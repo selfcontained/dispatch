@@ -199,7 +199,7 @@ export function SettingsTab({
           {enabledError}
         </div>
       ) : null}
-      <div className="rounded-md border border-white/[0.12] bg-white/[0.04] p-4">
+      <div className="rounded-md border border-edge bg-fill-inset p-4">
         <div className="text-body-md font-medium">Job configuration</div>
         <p className="mt-1 text-body-sm text-muted-foreground">
           These values are used when the schedule or Run button starts this job.
@@ -524,8 +524,8 @@ function RemoveJobDialog({
   return (
     <DialogPrimitive.Root open={open} onOpenChange={onOpenChange}>
       <DialogPrimitive.Portal>
-        <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/50 backdrop-blur-md" />
-        <DialogPrimitive.Content className="fixed left-1/2 top-1/2 z-50 w-[min(420px,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 rounded-lg border border-white/[0.2] bg-[hsl(var(--card))] backdrop-blur-2xl p-5 shadow-[0_16px_64px_rgba(0,0,0,0.5),inset_0_1px_0_rgba(255,255,255,0.15)] outline-none">
+        <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-scrim backdrop-blur-md" />
+        <DialogPrimitive.Content className="fixed left-1/2 top-1/2 z-50 w-[min(420px,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 rounded-lg surface-overlay p-5 outline-none">
           <DialogPrimitive.Title className="text-heading-md">
             Remove job?
           </DialogPrimitive.Title>

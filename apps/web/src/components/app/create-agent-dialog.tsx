@@ -305,7 +305,7 @@ function CreateAgentDialogContent({
                     placeholder="Enter instructions for the agent..."
                     data-testid="create-agent-initial-prompt"
                     className={cn(
-                      "flex min-h-[180px] w-full resize-y rounded-md border border-white/[0.12] bg-white/[0.04] px-3 py-2 text-body-md shadow-[inset_0_2px_6px_rgba(0,0,0,0.3)] backdrop-blur-md",
+                      "flex min-h-[180px] w-full resize-y rounded-md surface-inset px-3 py-2 text-body-md",
                       "ring-offset-background placeholder:text-muted-foreground",
                       "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                     )}
@@ -329,7 +329,7 @@ function CreateAgentDialogContent({
               </div>
             </div>
 
-            <div className="flex justify-between gap-2 border-t border-white/[0.08] pt-3">
+            <div className="flex justify-between gap-2 border-t border-edge-subtle pt-3">
               <Button
                 type="button"
                 variant="ghost"

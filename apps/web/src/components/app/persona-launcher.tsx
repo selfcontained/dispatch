@@ -145,7 +145,7 @@ export function PersonaLauncher({
           <Button
             variant="ghost"
             disabled
-            className="gap-1.5 border border-white/[0.12] bg-white/[0.06] text-muted-foreground backdrop-blur-md disabled:pointer-events-auto disabled:opacity-60"
+            className="gap-1.5 border border-edge bg-fill-raised text-muted-foreground backdrop-blur-md disabled:pointer-events-auto disabled:opacity-60"
             data-testid="launch-reviewer-button-disabled"
           >
             <AgentTypeIcon
@@ -198,7 +198,7 @@ export function PersonaLauncher({
       variant="ghost"
       disabled={disabled || launchMutation.isPending}
       className={cn(
-        "gap-1.5 border border-white/[0.12] bg-white/[0.06] text-muted-foreground backdrop-blur-md hover:bg-white/[0.1] hover:text-foreground disabled:pointer-events-auto",
+        "gap-1.5 border border-edge bg-fill-raised text-muted-foreground backdrop-blur-md hover:bg-fill-hover hover:text-foreground disabled:pointer-events-auto",
         showReviewAgentTypePicker && "rounded-r-none border-r-0"
       )}
       data-testid="launch-reviewer-button"
@@ -230,7 +230,7 @@ export function PersonaLauncher({
               <Button
                 variant="ghost"
                 disabled={disabled || launchMutation.isPending}
-                className="rounded-l-none border border-white/[0.12] bg-white/[0.06] backdrop-blur-md px-1 text-muted-foreground hover:bg-white/[0.1] hover:text-foreground"
+                className="rounded-l-none border border-edge bg-fill-raised backdrop-blur-md px-1 text-muted-foreground hover:bg-fill-hover hover:text-foreground"
                 data-testid="launch-reviewer-type-dropdown"
               >
                 <ChevronDown className="h-3.5 w-3.5" />

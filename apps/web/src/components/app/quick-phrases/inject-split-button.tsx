@@ -49,7 +49,7 @@ export function InjectSplitButton({
             size={isSm ? "sm" : "default"}
             disabled={disabled}
             className={cn(
-              "rounded-l-none border-l border-l-white/20 px-1.5",
+              "rounded-l-none border-l border-l-edge-strong px-1.5",
               isSm && "h-7"
             )}
           >

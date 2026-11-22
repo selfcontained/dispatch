@@ -38,7 +38,7 @@ export function UpdatesReloadCard({
             <Button
               size="sm"
               variant="default"
-              className="rounded-l-none border-l border-white/[0.12] px-1 text-muted-foreground hover:text-foreground"
+              className="rounded-l-none border-l border-edge px-1 text-muted-foreground hover:text-foreground"
             >
               <ChevronDown className="h-3.5 w-3.5" />
             </Button>

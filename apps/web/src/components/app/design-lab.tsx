@@ -31,7 +31,7 @@ function ThemePicker({
             {t.swatches.slice(0, 3).map((swatch, i) => (
               <span
                 key={i}
-                className="h-3 w-3 rounded-sm border border-black/20"
+                className="h-3 w-3 rounded-sm border border-media/tint-strong"
                 style={{ backgroundColor: swatch }}
               />
             ))}

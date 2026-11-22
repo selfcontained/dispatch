@@ -128,7 +128,7 @@ export function TaskDrawerShell({
     <DrawerFrame open={open} pinned={false} testId="task-drawer-wrapper">
       <div
         className={cn(
-          "flex h-full min-h-0 flex-col rounded-l-lg border-l text-foreground shadow-2xl",
+          "flex h-full min-h-0 flex-col rounded-l-lg border-l text-foreground",
           glassPanel
         )}
       >

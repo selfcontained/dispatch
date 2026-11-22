@@ -53,8 +53,7 @@ export function UpdatesPreferences({
               className={cn(
                 "capitalize",
                 ch === "stable" && "rounded-r-none border-r-0",
-                ch === "preview" &&
-                  "rounded-l-none border-l border-white/[0.12]"
+                ch === "preview" && "rounded-l-none border-l border-edge"
               )}
             >
               {ch}

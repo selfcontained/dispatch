@@ -693,7 +693,7 @@ export function ImageComments({
         <div
           ref={setStageElement}
           data-testid="image-viewer-stage"
-          className="relative min-h-0 flex-1 overflow-hidden bg-black/90"
+          className="relative min-h-0 flex-1 overflow-hidden bg-media/dense"
         >
           <img
             ref={image}
@@ -722,7 +722,7 @@ export function ImageComments({
           {!loaded && (
             <p
               role={loadError ? "alert" : "status"}
-              className="absolute inset-0 flex items-center justify-center text-white"
+              className="absolute inset-0 flex items-center justify-center text-media-foreground"
             >
               {loadError
                 ? "Unable to load image. Close and try again."
@@ -731,13 +731,13 @@ export function ImageComments({
           )}
           {loaded && markup && !hintDismissed && (
             <div className="pointer-events-none absolute inset-x-3 top-3 z-10 flex justify-center">
-              <div className="pointer-events-auto flex max-w-full items-center gap-2 rounded-xl border border-white/20 bg-black/75 py-1 pl-3 pr-1 text-body-sm text-white shadow-md">
+              <div className="surface-overlay pointer-events-auto flex max-w-full items-center gap-2 rounded-xl py-1 pl-3 pr-1 text-body-sm text-overlay-foreground">
                 <p>Click or drag to leave a note</p>
                 <Button
                   type="button"
                   variant="ghost"
                   size="icon"
-                  className="h-8 w-8 shrink-0 rounded-lg text-white hover:bg-white/20 hover:text-white"
+                  className="h-8 w-8 shrink-0 rounded-lg text-overlay-foreground hover:bg-fill-hover hover:text-overlay-foreground"
                   data-image-markup-hint
                   aria-label="Dismiss markup hint"
                   onPointerDown={(e) => e.stopPropagation()}
@@ -969,7 +969,7 @@ export function ImageComments({
                     <Button
                       size="icon"
                       variant={selected === c.id ? "primary" : "default"}
-                      className={`absolute h-8 w-10 rounded-full border text-white ${seatClasses(c.number).chip} ${selected === c.id ? "ring-2 ring-white" : ""}`}
+                      className={`absolute h-8 w-10 rounded-full border text-seat-foreground ${seatClasses(c.number).chip} ${selected === c.id ? "ring-2 ring-media-foreground" : ""}`}
                       style={{
                         borderColor: seatClasses(c.number).color,
                         left: Math.max(0, Math.min(stageSize.width - 40, left)),
@@ -1123,12 +1123,12 @@ export function ImageComments({
           className="flex shrink-0 flex-wrap items-center justify-center gap-2 border-t bg-background pb-[max(0.5rem,env(safe-area-inset-bottom,0px))] pl-[max(0.5rem,env(safe-area-inset-left,0px))] pr-[max(0.5rem,env(safe-area-inset-right,0px))] pt-2"
         >
           <div className="mr-auto flex justify-center">
-            <div className="flex items-center gap-1 rounded-full border border-white/20 bg-black/80 p-1 text-white">
+            <div className="surface-overlay flex items-center gap-1 rounded-full p-1 text-overlay-foreground">
               {markup && (
                 <Button
                   size="icon"
                   variant="ghost"
-                  className="text-white"
+                  className="text-overlay-foreground"
                   aria-label="Comment mode"
                   aria-pressed={mode === "comment"}
                   onClick={() => setMode("comment")}
@@ -1139,7 +1139,7 @@ export function ImageComments({
               <Button
                 size="icon"
                 variant="ghost"
-                className="text-white"
+                className="text-overlay-foreground"
                 aria-label="Pan image"
                 aria-pressed={mode === "pan"}
                 onClick={() => setMode("pan")}
@@ -1149,7 +1149,7 @@ export function ImageComments({
               <Button
                 size="icon"
                 variant="ghost"
-                className="text-white"
+                className="text-overlay-foreground"
                 aria-label="Zoom out"
                 onClick={() => setZoom((z) => Math.max(1, z / 1.5))}
               >
@@ -1157,7 +1157,7 @@ export function ImageComments({
               </Button>
               <Button
                 variant="ghost"
-                className="text-white"
+                className="text-overlay-foreground"
                 aria-label="Fit image"
                 onClick={() => {
                   setZoom(1);
@@ -1169,7 +1169,7 @@ export function ImageComments({
               <Button
                 size="icon"
                 variant="ghost"
-                className="text-white"
+                className="text-overlay-foreground"
                 aria-label="Zoom in"
                 onClick={() => setZoom((z) => Math.min(8, z * 1.5))}
               >

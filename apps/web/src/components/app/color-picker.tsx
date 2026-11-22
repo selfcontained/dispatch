@@ -44,7 +44,7 @@ export function ColorPicker({
       >
         <span
           aria-hidden="true"
-          className="flex h-5 w-5 items-center justify-center rounded-full border border-black/10 text-black"
+          className="flex h-5 w-5 items-center justify-center rounded-full border border-media/tint text-media"
           style={{ backgroundColor: color }}
         >
           {selected && <Check className="h-3 w-3" />}

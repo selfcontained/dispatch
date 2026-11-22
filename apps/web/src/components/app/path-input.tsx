@@ -299,7 +299,7 @@ export function PathInput({
       ) : null}
 
       <div className="relative" ref={cmdRef}>
-        <div className="relative rounded-md border border-white/[0.12] bg-white/[0.04] backdrop-blur-md shadow-[inset_0_2px_6px_rgba(0,0,0,0.3)]">
+        <div className="relative rounded-md surface-inset">
           {/* Ghost autocomplete overlay */}
           {ghostSuffix && value.trim() ? (
             <div
@@ -394,7 +394,7 @@ export function PathInput({
           ) : null}
         </div>
         {dropdownOpen && options.length > 0 ? (
-          <div className="absolute left-0 right-0 z-[60] mt-1.5 rounded-md border border-white/[0.2] bg-[hsl(var(--card))] p-1 shadow-[0_16px_64px_rgba(0,0,0,0.5),inset_0_1px_0_rgba(255,255,255,0.15)] backdrop-blur-2xl">
+          <div className="absolute left-0 right-0 z-[60] mt-1.5 rounded-md surface-overlay p-1">
             <div className="px-2 py-1.5 text-label-sm font-medium text-muted-foreground">
               Suggestions
             </div>

@@ -115,7 +115,7 @@ export function EditPhraseDialog({
                   >
                     <p>
                       Variables like{" "}
-                      <code className="rounded bg-white/[0.08] px-1 py-0.5 text-label-sm">
+                      <code className="rounded bg-fill-hover px-1 py-0.5 text-label-sm">
                         {"{{D:Name}}"}
                       </code>{" "}
                       become prompts before the phrase is sent. Add

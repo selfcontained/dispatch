@@ -133,8 +133,7 @@ export function RequestContext({
       className={cn(
         glassOverlay,
         "pointer-events-auto shrink-0 rounded-b-lg border-t-0 bg-popover/line backdrop-blur-md",
-        open &&
-          "shadow-[0_12px_20px_-4px_rgba(0,0,0,0.75),0_28px_56px_-8px_rgba(0,0,0,0.65),inset_0_1px_0_rgba(255,255,255,0.15)]"
+        open && "shadow-elev-sticky"
       )}
     >
       <div
@@ -150,7 +149,7 @@ export function RequestContext({
         <div
           className={cn(
             open
-              ? "-mx-3 flex items-center gap-1 border-b border-white/5 px-3 sm:-mx-4 sm:px-4"
+              ? "-mx-3 flex items-center gap-1 border-b border-edge-subtle px-3 sm:-mx-4 sm:px-4"
               : "contents"
           )}
         >
@@ -243,7 +242,7 @@ export function RequestContext({
         {open && (
           <div
             data-testid="request-context-detail"
-            className="-mx-3 border-t border-white/5 px-3 pb-1 pt-1 sm:-mx-4 sm:px-4"
+            className="-mx-3 border-t border-edge-subtle px-3 pb-1 pt-1 sm:-mx-4 sm:px-4"
           >
             <div className="mt-1 flex items-center justify-between gap-3">
               <time className="text-label-sm text-muted-foreground">

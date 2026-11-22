@@ -11,7 +11,7 @@ const SheetContent = React.forwardRef<
   React.ComponentPropsWithoutRef<typeof SheetPrimitive.Content>
 >(({ className, children, ...props }, ref) => (
   <SheetPrimitive.Portal>
-    <SheetPrimitive.Overlay className="notifications-sheet-overlay fixed inset-0 z-[80] bg-black/50" />
+    <SheetPrimitive.Overlay className="notifications-sheet-overlay fixed inset-0 z-[80] bg-scrim" />
     <SheetPrimitive.Content
       ref={ref}
       className={cn(

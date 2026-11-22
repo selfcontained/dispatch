@@ -153,7 +153,7 @@ describe("ComposerInput plain-text editing", () => {
     expect(input.className).toContain("pointer-coarse:text-body-lg");
     expect(
       screen.getAllByTestId("chat-composer-mention")[0]!.className
-    ).toContain("text-xs");
+    ).toContain("text-body-sm");
   });
   it("maps plain-text selection offsets across lines and emoji", () => {
     const text = "Hi 😀\n@reviewer tail\nlast";

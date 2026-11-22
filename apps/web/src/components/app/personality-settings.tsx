@@ -30,7 +30,7 @@ const NAME_MAX = 80;
 const PROMPT_MAX = 1000;
 
 const TEXTAREA_CLASSES =
-  "w-full min-h-32 rounded-md border border-white/[0.12] bg-white/[0.04] backdrop-blur-md shadow-[inset_0_2px_6px_rgba(0,0,0,0.3)] px-3 py-2 text-body-md ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring resize-y";
+  "w-full min-h-32 rounded-md surface-inset px-3 py-2 text-body-md ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring resize-y";
 
 export function PersonalitySettings(): JSX.Element {
   const [personalities, setPersonalities] = useState<Personality[]>([]);

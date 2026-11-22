@@ -464,7 +464,7 @@ function ImageGallery({
                 loading="lazy"
               />
               {more ? (
-                <span className="absolute inset-0 flex items-center justify-center bg-black/55 text-heading-lg text-white">
+                <span className="absolute inset-0 flex items-center justify-center bg-scrim text-heading-lg text-media-foreground">
                   +{more}
                 </span>
               ) : null}

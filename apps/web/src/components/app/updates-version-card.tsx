@@ -85,7 +85,7 @@ export function UpdatesVersionCard({
             ) : null}
           </button>
           {notesExpanded && (
-            <div className="mt-2 rounded-lg border border-white/[0.12] bg-white/[0.04] p-3">
+            <div className="mt-2 rounded-lg border border-edge bg-fill-inset p-3">
               <div className="max-h-56 overflow-y-auto text-body-md text-muted-foreground">
                 <Markdown>{versionInfo.releaseNotes}</Markdown>
               </div>
