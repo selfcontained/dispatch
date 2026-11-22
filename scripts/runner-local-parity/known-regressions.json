@@ -1,0 +1,2082 @@
+{
+  "findings": {
+    "audit-4.3-1": {
+      "title": "Posting by path refuses files main could read: another session's, task attachments, hard links, over 20 MiB, dot-dot, odd names, state and files roots",
+      "task": "F1"
+    },
+    "audit-4.3-2": {
+      "title": "Symlinked tools manifests, persona and owner files are rejected, so tools, hooks, personas and reviews vanish",
+      "task": "F1"
+    },
+    "audit-4.3-3": {
+      "title": "Repo tools gained a five-minute kill, kill on disconnect, 64 KiB output, argument and manifest limits, and changed exit codes and errors",
+      "task": "F1"
+    },
+    "audit-4.3-5": {
+      "title": "A slow checkout loses both MCP roots, and with them Brain, persona and repo tools",
+      "task": "F1"
+    },
+    "audit-4.3-6": {
+      "title": "A folder outside Git has a checkout root, so repo tools and persona authoring appear there",
+      "task": "F1"
+    },
+    "audit-4.3-7": {
+      "title": "Owner, persona and hook reads gained 256 KiB, 1024-entry and 4 MiB caps",
+      "task": "F1"
+    },
+    "archive-force-keeps-worktree": {
+      "title": "Forced archive leaves the worktree and branch on disk for good when it holds a nested repository or over 16 MiB untracked",
+      "task": "T20"
+    },
+    "worktree-status-unavailable": {
+      "title": "Worktree status is 503 \"on the owning runner\" for a missing worktree, a nested repository or over 16 MiB untracked",
+      "task": "T20"
+    },
+    "worktree-status-format": {
+      "title": "Uncommitted files lose their git status prefix in worktree status",
+      "task": "T20"
+    },
+    "archive-shared-worktree": {
+      "title": "Archiving an owner keeps a worktree another agent works in until that agent is archived",
+      "task": "T20"
+    },
+    "archive-switched-branch": {
+      "title": "Archive no longer deletes the branch a worktree was switched to",
+      "task": "T20"
+    },
+    "worktree-status-fields": {
+      "title": "Worktree status gained ownership, owner, borrowers and checkoutState",
+      "task": "T20"
+    },
+    "stop-hook-kills-children": {
+      "title": "A stop hook that times out has its whole process group killed, including what it left running",
+      "task": "T14"
+    },
+    "owner-review-fingerprint": {
+      "title": "Owner reviews fail with over 10,000 dirty files, over 16 MiB untracked, or a nested repository",
+      "task": "T35"
+    },
+    "owner-review-briefing": {
+      "title": "Owner reviews add reviewedState and a new preamble in every reviewer briefing",
+      "task": "T36"
+    },
+    "persona-catalog-caps": {
+      "title": "The persona catalog stops at 100 files or 4 MiB",
+      "task": "T35"
+    },
+    "persona-catalog-warning": {
+      "title": "An oversized default-branch persona is reported as an incomplete listing, without naming the file",
+      "task": "T35"
+    },
+    "worktree-launch-failure": {
+      "title": "A child whose worktree cannot be created ends stopped, not error and blocked, with a different message",
+      "task": "T25"
+    },
+    "worktree-outside-git-base": {
+      "title": "A worktree request outside Git records no base branch, where main records main",
+      "task": "T25"
+    },
+    "changes-path-rules": {
+      "title": "A changed file with a backslash in its name cannot be opened in Changes",
+      "task": "T09"
+    },
+    "changes-unchanged-file": {
+      "title": "The file diff of an unchanged file is 404, where main returns it as added",
+      "task": "T09"
+    },
+    "changes-image-response": {
+      "title": "Diff images are no longer cached for 30 seconds and carry a revision",
+      "task": "T09"
+    },
+    "files-error-text": {
+      "title": "Files refuses bad paths with different text",
+      "task": "T09"
+    },
+    "icon-no-content": {
+      "title": "A missing repository or project icon is 204, not 404",
+      "task": "T15"
+    },
+    "branches-default": {
+      "title": "The branch list gained defaultBranch",
+      "task": "T17"
+    },
+    "tool-descriptions": {
+      "title": "launch_agent and set_workspace describe runners to every local agent",
+      "task": "T36"
+    },
+    "agent-record-field": {
+      "title": "Every local agent record gained runnerManaged",
+      "task": "T07"
+    },
+    "schema-version": {
+      "title": "The signed readiness answer reports the branch's 11 extra migrations. Needs an owner decision to become intended",
+      "task": "T40"
+    }
+  },
+  "entries": [
+    {
+      "field": "borrowers",
+      "main": "<absent>",
+      "head": "[\"<agent:2>\"]",
+      "finding": "worktree-status-fields"
+    },
+    {
+      "field": "borrowers",
+      "main": "<absent>",
+      "head": "[]",
+      "finding": "worktree-status-fields"
+    },
+    {
+      "field": "checkoutState",
+      "main": "<absent>",
+      "head": "\"<checkout-state>\"",
+      "finding": "worktree-status-fields"
+    },
+    {
+      "field": "owner",
+      "main": "<absent>",
+      "head": "\"<agent:11>\"",
+      "finding": "worktree-status-fields"
+    },
+    {
+      "field": "owner",
+      "main": "<absent>",
+      "head": "\"<agent:1>\"",
+      "finding": "worktree-status-fields"
+    },
+    {
+      "field": "owner",
+      "main": "<absent>",
+      "head": "\"<agent:2>\"",
+      "finding": "worktree-status-fields"
+    },
+    {
+      "field": "owner",
+      "main": "<absent>",
+      "head": "\"<agent:3>\"",
+      "finding": "worktree-status-fields"
+    },
+    {
+      "field": "owner",
+      "main": "<absent>",
+      "head": "\"<agent:4>\"",
+      "finding": "worktree-status-fields"
+    },
+    {
+      "field": "owner",
+      "main": "<absent>",
+      "head": "\"<agent:5>\"",
+      "finding": "worktree-status-fields"
+    },
+    {
+      "field": "owner",
+      "main": "<absent>",
+      "head": "\"<agent:6>\"",
+      "finding": "worktree-status-fields"
+    },
+    {
+      "field": "owner",
+      "main": "<absent>",
+      "head": "\"<agent:7>\"",
+      "finding": "worktree-status-fields"
+    },
+    {
+      "field": "owner",
+      "main": "<absent>",
+      "head": "null",
+      "finding": "worktree-status-fields"
+    },
+    {
+      "field": "ownership",
+      "main": "<absent>",
+      "head": "\"external\"",
+      "finding": "worktree-status-fields"
+    },
+    {
+      "field": "ownership",
+      "main": "<absent>",
+      "head": "\"owned\"",
+      "finding": "worktree-status-fields"
+    },
+    {
+      "field": "revision",
+      "main": "<absent>",
+      "head": "\"<image-revision>\"",
+      "finding": "changes-image-response"
+    },
+    {
+      "field": "runnerManaged",
+      "main": "<absent>",
+      "head": "false",
+      "finding": "agent-record-field"
+    },
+    {
+      "field": "truncated",
+      "main": "<absent>",
+      "head": "false",
+      "finding": "audit-4.3-3"
+    },
+    {
+      "scenario": "audit-1-sharing",
+      "path": "post: 21 MiB > content > 0 > text",
+      "main": "{\"createdAt\":\"<time>\",\"id\":\"<uuid:1>\",\"kind\":\"file\",\"replyTo\":null,\"streamId\":\"<agent:1>\",\"threadId\":null}",
+      "head": "\"Session files are limited to 20 MiB.\"",
+      "finding": "audit-4.3-1"
+    },
+    {
+      "scenario": "audit-1-sharing",
+      "path": "post: 21 MiB > isError",
+      "main": "<absent>",
+      "head": "true",
+      "finding": "audit-4.3-1"
+    },
+    {
+      "scenario": "audit-1-sharing",
+      "path": "post: 21 MiB > structuredContent",
+      "main": "{\"createdAt\":\"<time>\",\"id\":\"<uuid:1>\",\"kind\":\"file\",\"replyTo\":null,\"streamId\":\"<agent:1>\",\"threadId\":null}",
+      "head": "<absent>",
+      "finding": "audit-4.3-1"
+    },
+    {
+      "scenario": "audit-1-sharing",
+      "path": "post: backslash in the name > content > 0 > text",
+      "main": "{\"createdAt\":\"<time>\",\"id\":\"<uuid:1>\",\"kind\":\"file\",\"replyTo\":null,\"streamId\":\"<agent:1>\",\"threadId\":null}",
+      "head": "\"Invalid session output file path.\"",
+      "finding": "audit-4.3-1"
+    },
+    {
+      "scenario": "audit-1-sharing",
+      "path": "post: backslash in the name > isError",
+      "main": "<absent>",
+      "head": "true",
+      "finding": "audit-4.3-1"
+    },
+    {
+      "scenario": "audit-1-sharing",
+      "path": "post: backslash in the name > structuredContent",
+      "main": "{\"createdAt\":\"<time>\",\"id\":\"<uuid:1>\",\"kind\":\"file\",\"replyTo\":null,\"streamId\":\"<agent:1>\",\"threadId\":null}",
+      "head": "<absent>",
+      "finding": "audit-4.3-1"
+    },
+    {
+      "scenario": "audit-1-sharing",
+      "path": "post: directory > content > 0 > text",
+      "main": "\"EISDIR: illegal operation on a directory, read\"",
+      "head": "\"Expected a regular worktree file\"",
+      "finding": "audit-4.3-1"
+    },
+    {
+      "scenario": "audit-1-sharing",
+      "path": "post: dot-dot in the path > content > 0 > text",
+      "main": "{\"createdAt\":\"<time>\",\"id\":\"<uuid:1>\",\"kind\":\"file\",\"replyTo\":null,\"streamId\":\"<agent:1>\",\"threadId\":null}",
+      "head": "\"Invalid session output file path.\"",
+      "finding": "audit-4.3-1"
+    },
+    {
+      "scenario": "audit-1-sharing",
+      "path": "post: dot-dot in the path > isError",
+      "main": "<absent>",
+      "head": "true",
+      "finding": "audit-4.3-1"
+    },
+    {
+      "scenario": "audit-1-sharing",
+      "path": "post: dot-dot in the path > structuredContent",
+      "main": "{\"createdAt\":\"<time>\",\"id\":\"<uuid:1>\",\"kind\":\"file\",\"replyTo\":null,\"streamId\":\"<agent:1>\",\"threadId\":null}",
+      "head": "<absent>",
+      "finding": "audit-4.3-1"
+    },
+    {
+      "scenario": "audit-1-sharing",
+      "path": "post: file of a child > content > 0 > text",
+      "main": "{\"createdAt\":\"<time>\",\"id\":\"<uuid:1>\",\"kind\":\"file\",\"replyTo\":null,\"streamId\":\"<agent:1>\",\"threadId\":null}",
+      "head": "\"File path is outside the session's permitted files.\"",
+      "finding": "audit-4.3-1"
+    },
+    {
+      "scenario": "audit-1-sharing",
+      "path": "post: file of a child > isError",
+      "main": "<absent>",
+      "head": "true",
+      "finding": "audit-4.3-1"
+    },
+    {
+      "scenario": "audit-1-sharing",
+      "path": "post: file of a child > structuredContent",
+      "main": "{\"createdAt\":\"<time>\",\"id\":\"<uuid:1>\",\"kind\":\"file\",\"replyTo\":null,\"streamId\":\"<agent:1>\",\"threadId\":null}",
+      "head": "<absent>",
+      "finding": "audit-4.3-1"
+    },
+    {
+      "scenario": "audit-1-sharing",
+      "path": "post: file of another agent > content > 0 > text",
+      "main": "{\"createdAt\":\"<time>\",\"id\":\"<uuid:1>\",\"kind\":\"file\",\"replyTo\":null,\"streamId\":\"<agent:1>\",\"threadId\":null}",
+      "head": "\"File path is outside the session's permitted files.\"",
+      "finding": "audit-4.3-1"
+    },
+    {
+      "scenario": "audit-1-sharing",
+      "path": "post: file of another agent > isError",
+      "main": "<absent>",
+      "head": "true",
+      "finding": "audit-4.3-1"
+    },
+    {
+      "scenario": "audit-1-sharing",
+      "path": "post: file of another agent > structuredContent",
+      "main": "{\"createdAt\":\"<time>\",\"id\":\"<uuid:1>\",\"kind\":\"file\",\"replyTo\":null,\"streamId\":\"<agent:1>\",\"threadId\":null}",
+      "head": "<absent>",
+      "finding": "audit-4.3-1"
+    },
+    {
+      "scenario": "audit-1-sharing",
+      "path": "post: hard link > content > 0 > text",
+      "main": "{\"createdAt\":\"<time>\",\"id\":\"<uuid:1>\",\"kind\":\"file\",\"replyTo\":null,\"streamId\":\"<agent:1>\",\"threadId\":null}",
+      "head": "\"Hard-linked files cannot be collected.\"",
+      "finding": "audit-4.3-1"
+    },
+    {
+      "scenario": "audit-1-sharing",
+      "path": "post: hard link > isError",
+      "main": "<absent>",
+      "head": "true",
+      "finding": "audit-4.3-1"
+    },
+    {
+      "scenario": "audit-1-sharing",
+      "path": "post: hard link > structuredContent",
+      "main": "{\"createdAt\":\"<time>\",\"id\":\"<uuid:1>\",\"kind\":\"file\",\"replyTo\":null,\"streamId\":\"<agent:1>\",\"threadId\":null}",
+      "head": "<absent>",
+      "finding": "audit-4.3-1"
+    },
+    {
+      "scenario": "audit-1-sharing",
+      "path": "post: line break in the name > content > 0 > text",
+      "main": "{\"createdAt\":\"<time>\",\"id\":\"<uuid:1>\",\"kind\":\"file\",\"replyTo\":null,\"streamId\":\"<agent:1>\",\"threadId\":null}",
+      "head": "\"Invalid session output file path.\"",
+      "finding": "audit-4.3-1"
+    },
+    {
+      "scenario": "audit-1-sharing",
+      "path": "post: line break in the name > isError",
+      "main": "<absent>",
+      "head": "true",
+      "finding": "audit-4.3-1"
+    },
+    {
+      "scenario": "audit-1-sharing",
+      "path": "post: line break in the name > structuredContent",
+      "main": "{\"createdAt\":\"<time>\",\"id\":\"<uuid:1>\",\"kind\":\"file\",\"replyTo\":null,\"streamId\":\"<agent:1>\",\"threadId\":null}",
+      "head": "<absent>",
+      "finding": "audit-4.3-1"
+    },
+    {
+      "scenario": "audit-1-sharing",
+      "path": "post: loose in the files root > content > 0 > text",
+      "main": "{\"createdAt\":\"<time>\",\"id\":\"<uuid:1>\",\"kind\":\"file\",\"replyTo\":null,\"streamId\":\"<agent:1>\",\"threadId\":null}",
+      "head": "\"File path is outside the session's permitted files.\"",
+      "finding": "audit-4.3-1"
+    },
+    {
+      "scenario": "audit-1-sharing",
+      "path": "post: loose in the files root > isError",
+      "main": "<absent>",
+      "head": "true",
+      "finding": "audit-4.3-1"
+    },
+    {
+      "scenario": "audit-1-sharing",
+      "path": "post: loose in the files root > structuredContent",
+      "main": "{\"createdAt\":\"<time>\",\"id\":\"<uuid:1>\",\"kind\":\"file\",\"replyTo\":null,\"streamId\":\"<agent:1>\",\"threadId\":null}",
+      "head": "<absent>",
+      "finding": "audit-4.3-1"
+    },
+    {
+      "scenario": "audit-1-sharing",
+      "path": "post: missing > content > 0 > text",
+      "main": "\"ENOENT: no such file or directory, open '<root>/work/missing.txt'\"",
+      "head": "\"ENOENT: no such file or directory, lstat '<root>/work/missing.txt'\"",
+      "finding": "audit-4.3-1"
+    },
+    {
+      "scenario": "audit-1-sharing",
+      "path": "post: task attachment > content > 0 > text",
+      "main": "{\"createdAt\":\"<time>\",\"id\":\"<uuid:1>\",\"kind\":\"file\",\"replyTo\":null,\"streamId\":\"<agent:1>\",\"threadId\":null}",
+      "head": "\"File path is outside the session's permitted files.\"",
+      "finding": "audit-4.3-1"
+    },
+    {
+      "scenario": "audit-1-sharing",
+      "path": "post: task attachment > isError",
+      "main": "<absent>",
+      "head": "true",
+      "finding": "audit-4.3-1"
+    },
+    {
+      "scenario": "audit-1-sharing",
+      "path": "post: task attachment > structuredContent",
+      "main": "{\"createdAt\":\"<time>\",\"id\":\"<uuid:1>\",\"kind\":\"file\",\"replyTo\":null,\"streamId\":\"<agent:1>\",\"threadId\":null}",
+      "head": "<absent>",
+      "finding": "audit-4.3-1"
+    },
+    {
+      "scenario": "audit-1-sharing",
+      "path": "post: under the agent state root > content > 0 > text",
+      "main": "{\"createdAt\":\"<time>\",\"id\":\"<uuid:1>\",\"kind\":\"file\",\"replyTo\":null,\"streamId\":\"<agent:1>\",\"threadId\":null}",
+      "head": "\"File path is outside the session's permitted files.\"",
+      "finding": "audit-4.3-1"
+    },
+    {
+      "scenario": "audit-1-sharing",
+      "path": "post: under the agent state root > isError",
+      "main": "<absent>",
+      "head": "true",
+      "finding": "audit-4.3-1"
+    },
+    {
+      "scenario": "audit-1-sharing",
+      "path": "post: under the agent state root > structuredContent",
+      "main": "{\"createdAt\":\"<time>\",\"id\":\"<uuid:1>\",\"kind\":\"file\",\"replyTo\":null,\"streamId\":\"<agent:1>\",\"threadId\":null}",
+      "head": "<absent>",
+      "finding": "audit-4.3-1"
+    },
+    {
+      "scenario": "audit-2-symlinks-repo-tools",
+      "path": "directory: call > content > 0 > text",
+      "main": "\"ok\"",
+      "head": "\"MCP error -32602: Tool repo_echo not found\"",
+      "finding": "audit-4.3-2"
+    },
+    {
+      "scenario": "audit-2-symlinks-repo-tools",
+      "path": "directory: call > isError",
+      "main": "<absent>",
+      "head": "true",
+      "finding": "audit-4.3-2"
+    },
+    {
+      "scenario": "audit-2-symlinks-repo-tools",
+      "path": "directory: call > structuredContent",
+      "main": "{\"command\":[\"echo\",\"ok\"],\"exitCode\":0,\"stderr\":\"\",\"stdout\":\"ok\"}",
+      "head": "<absent>",
+      "finding": "audit-4.3-2"
+    },
+    {
+      "scenario": "audit-2-symlinks-repo-tools",
+      "path": "directory: tools > repo_echo",
+      "main": "true",
+      "head": "<absent>",
+      "finding": "audit-4.3-2"
+    },
+    {
+      "scenario": "audit-2-symlinks-repo-tools",
+      "path": "file inside the repo: call > content > 0 > text",
+      "main": "\"ok\"",
+      "head": "\"MCP error -32602: Tool repo_echo not found\"",
+      "finding": "audit-4.3-2"
+    },
+    {
+      "scenario": "audit-2-symlinks-repo-tools",
+      "path": "file inside the repo: call > isError",
+      "main": "<absent>",
+      "head": "true",
+      "finding": "audit-4.3-2"
+    },
+    {
+      "scenario": "audit-2-symlinks-repo-tools",
+      "path": "file inside the repo: call > structuredContent",
+      "main": "{\"command\":[\"echo\",\"ok\"],\"exitCode\":0,\"stderr\":\"\",\"stdout\":\"ok\"}",
+      "head": "<absent>",
+      "finding": "audit-4.3-2"
+    },
+    {
+      "scenario": "audit-2-symlinks-repo-tools",
+      "path": "file inside the repo: tools > repo_echo",
+      "main": "true",
+      "head": "<absent>",
+      "finding": "audit-4.3-2"
+    },
+    {
+      "scenario": "audit-2-symlinks-repo-tools",
+      "path": "file outside the repo: call > content > 0 > text",
+      "main": "\"ok\"",
+      "head": "\"MCP error -32602: Tool repo_echo not found\"",
+      "finding": "audit-4.3-2"
+    },
+    {
+      "scenario": "audit-2-symlinks-repo-tools",
+      "path": "file outside the repo: call > isError",
+      "main": "<absent>",
+      "head": "true",
+      "finding": "audit-4.3-2"
+    },
+    {
+      "scenario": "audit-2-symlinks-repo-tools",
+      "path": "file outside the repo: call > structuredContent",
+      "main": "{\"command\":[\"echo\",\"ok\"],\"exitCode\":0,\"stderr\":\"\",\"stdout\":\"ok\"}",
+      "head": "<absent>",
+      "finding": "audit-4.3-2"
+    },
+    {
+      "scenario": "audit-2-symlinks-repo-tools",
+      "path": "file outside the repo: hook ran",
+      "main": "true",
+      "head": "false",
+      "finding": "audit-4.3-2"
+    },
+    {
+      "scenario": "audit-2-symlinks-repo-tools",
+      "path": "file outside the repo: tools > repo_echo",
+      "main": "true",
+      "head": "<absent>",
+      "finding": "audit-4.3-2"
+    },
+    {
+      "scenario": "audit-2-symlinks-personas-owners",
+      "path": "owners file: owner plan > content > 0 > text",
+      "main": "\"Selected 1 code owner reviewer(s); no reviewers launched. 0 file(s) lack an explicit owner.\"",
+      "head": "\"Expected a regular worktree file\"",
+      "finding": "audit-4.3-2"
+    },
+    {
+      "scenario": "audit-2-symlinks-personas-owners",
+      "path": "owners file: owner plan > isError",
+      "main": "<absent>",
+      "head": "true",
+      "finding": "audit-4.3-2"
+    },
+    {
+      "scenario": "audit-2-symlinks-personas-owners",
+      "path": "owners file: owner plan > structuredContent",
+      "main": "sha256:ea953784b4d1da7b {\"baseRef\":\"origin/main\",\"changedFiles\":[\"changed.txt\"],\"failures\":[],\"launched\":[],\"omittedOwners\":…",
+      "head": "<absent>",
+      "finding": "audit-4.3-2"
+    },
+    {
+      "scenario": "audit-2-symlinks-personas-owners",
+      "path": "persona directory: owner plan > content > 0 > text",
+      "main": "\"Selected 1 code owner reviewer(s); no reviewers launched. 0 file(s) lack an explicit owner.\"",
+      "head": "\"Could not read persona .agents/personas/keeper.md: ELOOP: too many symbolic links encountered, open '<root>/work/persona-dir/.agents/personas/keeper.md'\"",
+      "finding": "audit-4.3-2"
+    },
+    {
+      "scenario": "audit-2-symlinks-personas-owners",
+      "path": "persona directory: owner plan > isError",
+      "main": "<absent>",
+      "head": "true",
+      "finding": "audit-4.3-2"
+    },
+    {
+      "scenario": "audit-2-symlinks-personas-owners",
+      "path": "persona directory: owner plan > structuredContent",
+      "main": "sha256:ea953784b4d1da7b {\"baseRef\":\"origin/main\",\"changedFiles\":[\"changed.txt\"],\"failures\":[],\"launched\":[],\"omittedOwners\":…",
+      "head": "<absent>",
+      "finding": "audit-4.3-2"
+    },
+    {
+      "scenario": "audit-2-symlinks-personas-owners",
+      "path": "persona directory: persona launch > content > 0 > text",
+      "main": "sha256:624824518a86a0b3 \"Launched agent \\\"keeper\\\" (<agent:launched-1>). Dispatch will send you a new prompt when this perso…",
+      "head": "\"Could not read persona .agents/personas/keeper.md: ELOOP: too many symbolic links encountered, open '<root>/work/persona-dir/.agents/personas/keeper.md'\"",
+      "finding": "audit-4.3-2"
+    },
+    {
+      "scenario": "audit-2-symlinks-personas-owners",
+      "path": "persona directory: persona launch > isError",
+      "main": "<absent>",
+      "head": "true",
+      "finding": "audit-4.3-2"
+    },
+    {
+      "scenario": "audit-2-symlinks-personas-owners",
+      "path": "persona directory: persona launch > structuredContent",
+      "main": "{\"agentId\":\"<agent:launched-1>\",\"name\":\"keeper\",\"personaType\":\"review\"}",
+      "head": "<absent>",
+      "finding": "audit-4.3-2"
+    },
+    {
+      "scenario": "audit-2-symlinks-personas-owners",
+      "path": "persona directory: personas > content > 0 > text > personas",
+      "main": "sha256:8467cb9545eab317 [{\"description\":\"The Keeper persona\",\"name\":\"Keeper\",\"slug\":\"keeper\",\"type\":\"review\"},{\"description\"…",
+      "head": "sha256:90cfee24e60f0547 [{\"description\":\"Built-in generalist reviewer — correctness, clarity, and fit with the surrounding c…",
+      "finding": "audit-4.3-2"
+    },
+    {
+      "scenario": "audit-2-symlinks-personas-owners",
+      "path": "persona directory: personas > content > 0 > text > warnings",
+      "main": "sha256:dd5fb6467cca6f57 [\"Default-branch persona catalog is refreshing in the background. This list contains currently avail…",
+      "head": "sha256:9fdf934c6b1b806a [\"Could not list personas in .agents/personas: Directory links are not followed.\",\"Default-branch pe…",
+      "finding": "audit-4.3-2"
+    },
+    {
+      "scenario": "audit-2-symlinks-personas-owners",
+      "path": "persona directory: personas > structuredContent > personas",
+      "main": "sha256:8467cb9545eab317 [{\"description\":\"The Keeper persona\",\"name\":\"Keeper\",\"slug\":\"keeper\",\"type\":\"review\"},{\"description\"…",
+      "head": "sha256:90cfee24e60f0547 [{\"description\":\"Built-in generalist reviewer — correctness, clarity, and fit with the surrounding c…",
+      "finding": "audit-4.3-2"
+    },
+    {
+      "scenario": "audit-2-symlinks-personas-owners",
+      "path": "persona directory: personas > structuredContent > warnings",
+      "main": "sha256:dd5fb6467cca6f57 [\"Default-branch persona catalog is refreshing in the background. This list contains currently avail…",
+      "head": "sha256:9fdf934c6b1b806a [\"Could not list personas in .agents/personas: Directory links are not followed.\",\"Default-branch pe…",
+      "finding": "audit-4.3-2"
+    },
+    {
+      "scenario": "audit-2-symlinks-personas-owners",
+      "path": "persona file: owner plan > content > 0 > text",
+      "main": "\"Selected 1 code owner reviewer(s); no reviewers launched. 0 file(s) lack an explicit owner.\"",
+      "head": "\"Could not read persona .agents/personas/keeper.md: Expected a regular worktree file\"",
+      "finding": "audit-4.3-2"
+    },
+    {
+      "scenario": "audit-2-symlinks-personas-owners",
+      "path": "persona file: owner plan > isError",
+      "main": "<absent>",
+      "head": "true",
+      "finding": "audit-4.3-2"
+    },
+    {
+      "scenario": "audit-2-symlinks-personas-owners",
+      "path": "persona file: owner plan > structuredContent",
+      "main": "sha256:ea953784b4d1da7b {\"baseRef\":\"origin/main\",\"changedFiles\":[\"changed.txt\"],\"failures\":[],\"launched\":[],\"omittedOwners\":…",
+      "head": "<absent>",
+      "finding": "audit-4.3-2"
+    },
+    {
+      "scenario": "audit-2-symlinks-personas-owners",
+      "path": "persona file: persona launch > content > 0 > text",
+      "main": "sha256:624824518a86a0b3 \"Launched agent \\\"keeper\\\" (<agent:launched-1>). Dispatch will send you a new prompt when this perso…",
+      "head": "\"Could not read persona .agents/personas/keeper.md: Expected a regular worktree file\"",
+      "finding": "audit-4.3-2"
+    },
+    {
+      "scenario": "audit-2-symlinks-personas-owners",
+      "path": "persona file: persona launch > isError",
+      "main": "<absent>",
+      "head": "true",
+      "finding": "audit-4.3-2"
+    },
+    {
+      "scenario": "audit-2-symlinks-personas-owners",
+      "path": "persona file: persona launch > structuredContent",
+      "main": "{\"agentId\":\"<agent:launched-1>\",\"name\":\"keeper\",\"personaType\":\"review\"}",
+      "head": "<absent>",
+      "finding": "audit-4.3-2"
+    },
+    {
+      "scenario": "audit-2-symlinks-personas-owners",
+      "path": "persona file: personas > content > 0 > text > personas",
+      "main": "sha256:8467cb9545eab317 [{\"description\":\"The Keeper persona\",\"name\":\"Keeper\",\"slug\":\"keeper\",\"type\":\"review\"},{\"description\"…",
+      "head": "sha256:90cfee24e60f0547 [{\"description\":\"Built-in generalist reviewer — correctness, clarity, and fit with the surrounding c…",
+      "finding": "audit-4.3-2"
+    },
+    {
+      "scenario": "audit-2-symlinks-personas-owners",
+      "path": "persona file: personas > structuredContent > personas",
+      "main": "sha256:8467cb9545eab317 [{\"description\":\"The Keeper persona\",\"name\":\"Keeper\",\"slug\":\"keeper\",\"type\":\"review\"},{\"description\"…",
+      "head": "sha256:90cfee24e60f0547 [{\"description\":\"Built-in generalist reviewer — correctness, clarity, and fit with the surrounding c…",
+      "finding": "audit-4.3-2"
+    },
+    {
+      "scenario": "audit-2-symlinks-personas-owners",
+      "path": "persona file: route > body > warnings",
+      "main": "[\"Could not load persona .agents/personas/keeper.md: unsupported file or larger than 256 KiB.\"]",
+      "head": "<absent>",
+      "finding": "audit-4.3-2"
+    },
+    {
+      "scenario": "audit-3-tool-timeout",
+      "path": "background child survived",
+      "main": "true",
+      "head": "false",
+      "finding": "audit-4.3-3"
+    },
+    {
+      "scenario": "audit-3-tool-timeout",
+      "path": "call > content > 0 > text",
+      "main": "\"started\"",
+      "head": "\"Checkout command timed out.\"",
+      "finding": "audit-4.3-3"
+    },
+    {
+      "scenario": "audit-3-tool-timeout",
+      "path": "call > isError",
+      "main": "<absent>",
+      "head": "true",
+      "finding": "audit-4.3-3"
+    },
+    {
+      "scenario": "audit-3-tool-timeout",
+      "path": "call > structuredContent",
+      "main": "{\"command\":[\"<root>/work/serve.sh\"],\"exitCode\":0,\"stderr\":\"\",\"stdout\":\"started\"}",
+      "head": "<absent>",
+      "finding": "audit-4.3-3"
+    },
+    {
+      "scenario": "audit-3-tool-limits",
+      "path": "17 KiB parameter > content > 0 > text",
+      "main": "sha256:48df0406542a9d54 \"--value vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv…",
+      "head": "\"Invalid native checkout command binding.\"",
+      "finding": "audit-4.3-3"
+    },
+    {
+      "scenario": "audit-3-tool-limits",
+      "path": "17 KiB parameter > isError",
+      "main": "<absent>",
+      "head": "true",
+      "finding": "audit-4.3-3"
+    },
+    {
+      "scenario": "audit-3-tool-limits",
+      "path": "17 KiB parameter > structuredContent",
+      "main": "sha256:f3fa020c81ac163f {\"command\":[\"echo\"],\"exitCode\":0,\"stderr\":\"\",\"stdout\":\"--value vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv…",
+      "head": "<absent>",
+      "finding": "audit-4.3-3"
+    },
+    {
+      "scenario": "audit-3-tool-limits",
+      "path": "long > content > 0 > text",
+      "main": "sha256:e98134cb93adbfe0 \"yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy…",
+      "head": "\"Invalid native checkout command binding.\"",
+      "finding": "audit-4.3-3"
+    },
+    {
+      "scenario": "audit-3-tool-limits",
+      "path": "long > isError",
+      "main": "<absent>",
+      "head": "true",
+      "finding": "audit-4.3-3"
+    },
+    {
+      "scenario": "audit-3-tool-limits",
+      "path": "long > structuredContent",
+      "main": "sha256:f882a948be05b696 {\"command\":[\"echo\",\"yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy…",
+      "head": "<absent>",
+      "finding": "audit-4.3-3"
+    },
+    {
+      "scenario": "audit-3-tool-limits",
+      "path": "lots > content > 0 > text",
+      "main": "sha256:ef0bafa037908c3d \"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx…",
+      "head": "sha256:afb3bbecac846785 \"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx…",
+      "finding": "audit-4.3-3"
+    },
+    {
+      "scenario": "audit-3-tool-limits",
+      "path": "lots > structuredContent > stdout",
+      "main": "sha256:ef0bafa037908c3d \"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx…",
+      "head": "sha256:afb3bbecac846785 \"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx…",
+      "finding": "audit-4.3-3"
+    },
+    {
+      "scenario": "audit-3-tool-limits",
+      "path": "lots > structuredContent > truncated",
+      "main": "<absent>",
+      "head": "true",
+      "finding": "audit-4.3-3"
+    },
+    {
+      "scenario": "audit-3-tool-limits",
+      "path": "lots_err > structuredContent > stderr",
+      "main": "sha256:0895611b2bcb61c6 \"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee…",
+      "head": "sha256:5f2edd4933e1a2bf \"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee…",
+      "finding": "audit-4.3-3"
+    },
+    {
+      "scenario": "audit-3-tool-limits",
+      "path": "lots_err > structuredContent > truncated",
+      "main": "<absent>",
+      "head": "true",
+      "finding": "audit-4.3-3"
+    },
+    {
+      "scenario": "audit-3-tool-limits",
+      "path": "many > content > 0 > text",
+      "main": "sha256:cfa3790e0844378b \"x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x…",
+      "head": "\"Invalid native checkout command binding.\"",
+      "finding": "audit-4.3-3"
+    },
+    {
+      "scenario": "audit-3-tool-limits",
+      "path": "many > isError",
+      "main": "<absent>",
+      "head": "true",
+      "finding": "audit-4.3-3"
+    },
+    {
+      "scenario": "audit-3-tool-limits",
+      "path": "many > structuredContent",
+      "main": "sha256:45782c853960fb6d {\"command\":[\"echo\",\"x\",\"x\",\"x\",\"x\",\"x\",\"x\",\"x\",\"x\",\"x\",\"x\",\"x\",\"x\",\"x\",\"x\",\"x\",\"x\",\"x\",\"x\",\"x\",\"x\",\"…",
+      "head": "<absent>",
+      "finding": "audit-4.3-3"
+    },
+    {
+      "scenario": "audit-3-tool-limits",
+      "path": "missing > content > 0 > text",
+      "main": "\"ENOENT: no such file or directory, posix_spawn '<root>/work/not-there'\"",
+      "head": "\"Could not start checkout command.\"",
+      "finding": "audit-4.3-3"
+    },
+    {
+      "scenario": "audit-3-tool-limits",
+      "path": "signal > structuredContent > exitCode",
+      "main": "1",
+      "head": "143",
+      "finding": "audit-4.3-3"
+    },
+    {
+      "scenario": "audit-3-manifest-size",
+      "path": "call > content > 0 > text",
+      "main": "\"ok\"",
+      "head": "\"MCP error -32602: Tool repo_echo not found\"",
+      "finding": "audit-4.3-3"
+    },
+    {
+      "scenario": "audit-3-manifest-size",
+      "path": "call > isError",
+      "main": "<absent>",
+      "head": "true",
+      "finding": "audit-4.3-3"
+    },
+    {
+      "scenario": "audit-3-manifest-size",
+      "path": "call > structuredContent",
+      "main": "{\"command\":[\"echo\",\"ok\"],\"exitCode\":0,\"stderr\":\"\",\"stdout\":\"ok\"}",
+      "head": "<absent>",
+      "finding": "audit-4.3-3"
+    },
+    {
+      "scenario": "audit-3-manifest-size",
+      "path": "hook ran",
+      "main": "true",
+      "head": "false",
+      "finding": "audit-4.3-3"
+    },
+    {
+      "scenario": "audit-3-manifest-size",
+      "path": "tools > repo_echo",
+      "main": "true",
+      "head": "<absent>",
+      "finding": "audit-4.3-3"
+    },
+    {
+      "scenario": "audit-5-roots",
+      "path": "git 6s: brain > content > 0 > text",
+      "main": "{\"objects\":[]}",
+      "head": "\"MCP error -32602: Tool brain_list_objects not found\"",
+      "finding": "audit-4.3-5"
+    },
+    {
+      "scenario": "audit-5-roots",
+      "path": "git 6s: brain > isError",
+      "main": "<absent>",
+      "head": "true",
+      "finding": "audit-4.3-5"
+    },
+    {
+      "scenario": "audit-5-roots",
+      "path": "git 6s: brain > structuredContent",
+      "main": "{\"objects\":[]}",
+      "head": "<absent>",
+      "finding": "audit-4.3-5"
+    },
+    {
+      "scenario": "audit-5-roots",
+      "path": "git 6s: tools > brain_append_event",
+      "main": "true",
+      "head": "<absent>",
+      "finding": "audit-4.3-5"
+    },
+    {
+      "scenario": "audit-5-roots",
+      "path": "git 6s: tools > brain_delete_events",
+      "main": "true",
+      "head": "<absent>",
+      "finding": "audit-4.3-5"
+    },
+    {
+      "scenario": "audit-5-roots",
+      "path": "git 6s: tools > brain_delete_object",
+      "main": "true",
+      "head": "<absent>",
+      "finding": "audit-4.3-5"
+    },
+    {
+      "scenario": "audit-5-roots",
+      "path": "git 6s: tools > brain_get_event",
+      "main": "true",
+      "head": "<absent>",
+      "finding": "audit-4.3-5"
+    },
+    {
+      "scenario": "audit-5-roots",
+      "path": "git 6s: tools > brain_get_list_item",
+      "main": "true",
+      "head": "<absent>",
+      "finding": "audit-4.3-5"
+    },
+    {
+      "scenario": "audit-5-roots",
+      "path": "git 6s: tools > brain_get_object",
+      "main": "true",
+      "head": "<absent>",
+      "finding": "audit-4.3-5"
+    },
+    {
+      "scenario": "audit-5-roots",
+      "path": "git 6s: tools > brain_list_delete",
+      "main": "true",
+      "head": "<absent>",
+      "finding": "audit-4.3-5"
+    },
+    {
+      "scenario": "audit-5-roots",
+      "path": "git 6s: tools > brain_list_get",
+      "main": "true",
+      "head": "<absent>",
+      "finding": "audit-4.3-5"
+    },
+    {
+      "scenario": "audit-5-roots",
+      "path": "git 6s: tools > brain_list_objects",
+      "main": "true",
+      "head": "<absent>",
+      "finding": "audit-4.3-5"
+    },
+    {
+      "scenario": "audit-5-roots",
+      "path": "git 6s: tools > brain_list_push",
+      "main": "true",
+      "head": "<absent>",
+      "finding": "audit-4.3-5"
+    },
+    {
+      "scenario": "audit-5-roots",
+      "path": "git 6s: tools > brain_list_remove",
+      "main": "true",
+      "head": "<absent>",
+      "finding": "audit-4.3-5"
+    },
+    {
+      "scenario": "audit-5-roots",
+      "path": "git 6s: tools > brain_list_set",
+      "main": "true",
+      "head": "<absent>",
+      "finding": "audit-4.3-5"
+    },
+    {
+      "scenario": "audit-5-roots",
+      "path": "git 6s: tools > brain_query_events",
+      "main": "true",
+      "head": "<absent>",
+      "finding": "audit-4.3-5"
+    },
+    {
+      "scenario": "audit-5-roots",
+      "path": "git 6s: tools > brain_store_object",
+      "main": "true",
+      "head": "<absent>",
+      "finding": "audit-4.3-5"
+    },
+    {
+      "scenario": "audit-5-roots",
+      "path": "git 6s: tools > persona_upsert",
+      "main": "true",
+      "head": "<absent>",
+      "finding": "audit-4.3-5"
+    },
+    {
+      "scenario": "audit-5-roots",
+      "path": "git 6s: tools > persona_validate",
+      "main": "true",
+      "head": "<absent>",
+      "finding": "audit-4.3-5"
+    },
+    {
+      "scenario": "audit-5-roots",
+      "path": "git 6s: tools > repo_echo",
+      "main": "true",
+      "head": "<absent>",
+      "finding": "audit-4.3-5"
+    },
+    {
+      "scenario": "audit-6-non-git-folder",
+      "path": "folder > .agents/personas/written.md",
+      "main": "<absent>",
+      "head": "{\"mode\":420,\"text\":\"---\\ntype: task\\nname: Written\\ndescription: Written by the tool\\n---\\n\\nCheck the folder.\\n\"}",
+      "finding": "audit-4.3-6"
+    },
+    {
+      "scenario": "audit-6-non-git-folder",
+      "path": "persona upsert > content > 0 > text",
+      "main": "\"MCP error -32602: Tool persona_upsert not found\"",
+      "head": "\"Created .agents/personas/written.md.\"",
+      "finding": "audit-4.3-6"
+    },
+    {
+      "scenario": "audit-6-non-git-folder",
+      "path": "persona upsert > isError",
+      "main": "true",
+      "head": "<absent>",
+      "finding": "audit-4.3-6"
+    },
+    {
+      "scenario": "audit-6-non-git-folder",
+      "path": "persona upsert > structuredContent",
+      "main": "<absent>",
+      "head": "{\"content\":\"---\\ntype: task\\nname: Written\\ndescription: Written by the tool\\n---\\n\\nCheck the folder.\\n\",\"created\":true,\"path\":\".agents/personas/written.md\"}",
+      "finding": "audit-4.3-6"
+    },
+    {
+      "scenario": "audit-6-non-git-folder",
+      "path": "personas > content > 0 > text > personas",
+      "main": "sha256:90cfee24e60f0547 [{\"description\":\"Built-in generalist reviewer — correctness, clarity, and fit with the surrounding c…",
+      "head": "sha256:86c83ff958941adc [{\"description\":\"The Keeper persona\",\"name\":\"Keeper\",\"slug\":\"keeper\",\"type\":\"review\"},{\"description\"…",
+      "finding": "audit-4.3-6"
+    },
+    {
+      "scenario": "audit-6-non-git-folder",
+      "path": "personas > structuredContent > personas",
+      "main": "sha256:90cfee24e60f0547 [{\"description\":\"Built-in generalist reviewer — correctness, clarity, and fit with the surrounding c…",
+      "head": "sha256:86c83ff958941adc [{\"description\":\"The Keeper persona\",\"name\":\"Keeper\",\"slug\":\"keeper\",\"type\":\"review\"},{\"description\"…",
+      "finding": "audit-4.3-6"
+    },
+    {
+      "scenario": "audit-6-non-git-folder",
+      "path": "repo tool > content > 0 > text",
+      "main": "\"MCP error -32602: Tool repo_echo not found\"",
+      "head": "\"ok\"",
+      "finding": "audit-4.3-6"
+    },
+    {
+      "scenario": "audit-6-non-git-folder",
+      "path": "repo tool > isError",
+      "main": "true",
+      "head": "<absent>",
+      "finding": "audit-4.3-6"
+    },
+    {
+      "scenario": "audit-6-non-git-folder",
+      "path": "repo tool > structuredContent",
+      "main": "<absent>",
+      "head": "{\"command\":[\"echo\",\"ok\"],\"exitCode\":0,\"stderr\":\"\",\"stdout\":\"ok\",\"truncated\":false}",
+      "finding": "audit-4.3-6"
+    },
+    {
+      "scenario": "audit-6-non-git-folder",
+      "path": "tools > persona_upsert",
+      "main": "<absent>",
+      "head": "true",
+      "finding": "audit-4.3-6"
+    },
+    {
+      "scenario": "audit-6-non-git-folder",
+      "path": "tools > persona_validate",
+      "main": "<absent>",
+      "head": "true",
+      "finding": "audit-4.3-6"
+    },
+    {
+      "scenario": "audit-6-non-git-folder",
+      "path": "tools > repo_echo",
+      "main": "<absent>",
+      "head": "true",
+      "finding": "audit-4.3-6"
+    },
+    {
+      "scenario": "audit-7-read-caps",
+      "path": "1031 directory entries > content > 0 > text > personas",
+      "main": "sha256:8467cb9545eab317 [{\"description\":\"The Keeper persona\",\"name\":\"Keeper\",\"slug\":\"keeper\",\"type\":\"review\"},{\"description\"…",
+      "head": "sha256:90cfee24e60f0547 [{\"description\":\"Built-in generalist reviewer — correctness, clarity, and fit with the surrounding c…",
+      "finding": "audit-4.3-7"
+    },
+    {
+      "scenario": "audit-7-read-caps",
+      "path": "1031 directory entries > content > 0 > text > warnings",
+      "main": "<absent>",
+      "head": "[\"Could not list personas in .agents/personas: Checkout directory contains too many entries\"]",
+      "finding": "audit-4.3-7"
+    },
+    {
+      "scenario": "audit-7-read-caps",
+      "path": "1031 directory entries > structuredContent > personas",
+      "main": "sha256:8467cb9545eab317 [{\"description\":\"The Keeper persona\",\"name\":\"Keeper\",\"slug\":\"keeper\",\"type\":\"review\"},{\"description\"…",
+      "head": "sha256:90cfee24e60f0547 [{\"description\":\"Built-in generalist reviewer — correctness, clarity, and fit with the surrounding c…",
+      "finding": "audit-4.3-7"
+    },
+    {
+      "scenario": "audit-7-read-caps",
+      "path": "1031 directory entries > structuredContent > warnings",
+      "main": "<absent>",
+      "head": "[\"Could not list personas in .agents/personas: Checkout directory contains too many entries\"]",
+      "finding": "audit-4.3-7"
+    },
+    {
+      "scenario": "audit-7-read-caps",
+      "path": "hook ran",
+      "main": "true",
+      "head": "false",
+      "finding": "audit-4.3-7"
+    },
+    {
+      "scenario": "audit-7-read-caps",
+      "path": "owners file > content > 0 > text",
+      "main": "\"Selected 1 code owner reviewer(s); no reviewers launched. 0 file(s) lack an explicit owner.\"",
+      "head": "\"Checkout file is too large\"",
+      "finding": "audit-4.3-7"
+    },
+    {
+      "scenario": "audit-7-read-caps",
+      "path": "owners file > isError",
+      "main": "<absent>",
+      "head": "true",
+      "finding": "audit-4.3-7"
+    },
+    {
+      "scenario": "audit-7-read-caps",
+      "path": "owners file > structuredContent",
+      "main": "{\"baseRef\":\"origin/main\",\"changedFiles\":[\"changed.txt\"],\"failures\":[],\"launched\":[],\"owners\":[{\"files\":[\"changed.txt\"],\"persona\":\"keeper\"}],\"uncoveredFiles\":[]}",
+      "head": "<absent>",
+      "finding": "audit-4.3-7"
+    },
+    {
+      "scenario": "audit-7-read-caps",
+      "path": "persona in owner plan > content > 0 > text",
+      "main": "\"Selected 1 code owner reviewer(s); no reviewers launched. 0 file(s) lack an explicit owner.\"",
+      "head": "\"Could not read persona .agents/personas/keeper.md: Checkout file is too large\"",
+      "finding": "audit-4.3-7"
+    },
+    {
+      "scenario": "audit-7-read-caps",
+      "path": "persona in owner plan > isError",
+      "main": "<absent>",
+      "head": "true",
+      "finding": "audit-4.3-7"
+    },
+    {
+      "scenario": "audit-7-read-caps",
+      "path": "persona in owner plan > structuredContent",
+      "main": "sha256:ea953784b4d1da7b {\"baseRef\":\"origin/main\",\"changedFiles\":[\"changed.txt\"],\"failures\":[],\"launched\":[],\"omittedOwners\":…",
+      "head": "<absent>",
+      "finding": "audit-4.3-7"
+    },
+    {
+      "scenario": "audit-7-read-caps",
+      "path": "persona list > content > 0 > text > personas",
+      "main": "sha256:8467cb9545eab317 [{\"description\":\"The Keeper persona\",\"name\":\"Keeper\",\"slug\":\"keeper\",\"type\":\"review\"},{\"description\"…",
+      "head": "sha256:90cfee24e60f0547 [{\"description\":\"Built-in generalist reviewer — correctness, clarity, and fit with the surrounding c…",
+      "finding": "audit-4.3-7"
+    },
+    {
+      "scenario": "audit-7-read-caps",
+      "path": "persona list > content > 0 > text > warnings",
+      "main": "sha256:dd5fb6467cca6f57 [\"Default-branch persona catalog is refreshing in the background. This list contains currently avail…",
+      "head": "sha256:d774417a119c7e9d [\"Could not load persona .agents/personas/keeper.md: Checkout file is too large\",\"Default-branch per…",
+      "finding": "audit-4.3-7"
+    },
+    {
+      "scenario": "audit-7-read-caps",
+      "path": "persona list > structuredContent > personas",
+      "main": "sha256:8467cb9545eab317 [{\"description\":\"The Keeper persona\",\"name\":\"Keeper\",\"slug\":\"keeper\",\"type\":\"review\"},{\"description\"…",
+      "head": "sha256:90cfee24e60f0547 [{\"description\":\"Built-in generalist reviewer — correctness, clarity, and fit with the surrounding c…",
+      "finding": "audit-4.3-7"
+    },
+    {
+      "scenario": "audit-7-read-caps",
+      "path": "persona list > structuredContent > warnings",
+      "main": "sha256:dd5fb6467cca6f57 [\"Default-branch persona catalog is refreshing in the background. This list contains currently avail…",
+      "head": "sha256:d774417a119c7e9d [\"Could not load persona .agents/personas/keeper.md: Checkout file is too large\",\"Default-branch per…",
+      "finding": "audit-4.3-7"
+    },
+    {
+      "scenario": "audit-7-persona-catalog-caps",
+      "path": "105 personas: route > body > personas",
+      "main": "sha256:fc4e0010802c554d [{\"body\":\"Review carefully.\",\"description\":\"The p000 persona\",\"name\":\"p000\",\"slug\":\"p000\",\"type\":\"re…",
+      "head": "sha256:7759f398bc104b47 [{\"body\":\"Review carefully.\",\"description\":\"The p000 persona\",\"name\":\"p000\",\"slug\":\"p000\",\"type\":\"re…",
+      "finding": "persona-catalog-caps"
+    },
+    {
+      "scenario": "audit-7-persona-catalog-caps",
+      "path": "105 personas: route > body > warnings",
+      "main": "<absent>",
+      "head": "[\"Persona catalog exceeds the 100-file or 4 MiB limit.\",\"Persona catalog exceeds the 100-file or 4 MiB limit.\"]",
+      "finding": "persona-catalog-caps"
+    },
+    {
+      "scenario": "audit-7-persona-catalog-caps",
+      "path": "105 personas: tool > content > 0 > text > personas",
+      "main": "sha256:7ba52bca528afb0c [{\"description\":\"The p000 persona\",\"name\":\"p000\",\"slug\":\"p000\",\"type\":\"review\"},{\"description\":\"The …",
+      "head": "sha256:1b1a39584241fa1a [{\"description\":\"The p000 persona\",\"name\":\"p000\",\"slug\":\"p000\",\"type\":\"review\"},{\"description\":\"The …",
+      "finding": "persona-catalog-caps"
+    },
+    {
+      "scenario": "audit-7-persona-catalog-caps",
+      "path": "105 personas: tool > content > 0 > text > warnings",
+      "main": "<absent>",
+      "head": "[\"Persona catalog exceeds the 100-file or 4 MiB limit.\"]",
+      "finding": "persona-catalog-caps"
+    },
+    {
+      "scenario": "audit-7-persona-catalog-caps",
+      "path": "105 personas: tool > structuredContent > personas",
+      "main": "sha256:7ba52bca528afb0c [{\"description\":\"The p000 persona\",\"name\":\"p000\",\"slug\":\"p000\",\"type\":\"review\"},{\"description\":\"The …",
+      "head": "sha256:1b1a39584241fa1a [{\"description\":\"The p000 persona\",\"name\":\"p000\",\"slug\":\"p000\",\"type\":\"review\"},{\"description\":\"The …",
+      "finding": "persona-catalog-caps"
+    },
+    {
+      "scenario": "audit-7-persona-catalog-caps",
+      "path": "105 personas: tool > structuredContent > warnings",
+      "main": "<absent>",
+      "head": "[\"Persona catalog exceeds the 100-file or 4 MiB limit.\"]",
+      "finding": "persona-catalog-caps"
+    },
+    {
+      "scenario": "audit-7-persona-catalog-caps",
+      "path": "4.4 MiB of personas: route > body > personas",
+      "main": "sha256:454931537f372a17 [{\"body\":\"yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy…",
+      "head": "sha256:1b7a5f80947bb483 [{\"body\":\"yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy…",
+      "finding": "persona-catalog-caps"
+    },
+    {
+      "scenario": "audit-7-persona-catalog-caps",
+      "path": "4.4 MiB of personas: route > body > warnings",
+      "main": "<absent>",
+      "head": "[\"Persona catalog exceeds the 100-file or 4 MiB limit.\",\"Persona catalog exceeds the 100-file or 4 MiB limit.\"]",
+      "finding": "persona-catalog-caps"
+    },
+    {
+      "scenario": "audit-7-persona-catalog-caps",
+      "path": "4.4 MiB of personas: tool > content > 0 > text > personas",
+      "main": "sha256:8cff0758d4855657 [{\"description\":\"The large00 persona\",\"name\":\"large00\",\"slug\":\"large00\",\"type\":\"review\"},{\"descripti…",
+      "head": "sha256:b04ff98837096deb [{\"description\":\"The large00 persona\",\"name\":\"large00\",\"slug\":\"large00\",\"type\":\"review\"},{\"descripti…",
+      "finding": "persona-catalog-caps"
+    },
+    {
+      "scenario": "audit-7-persona-catalog-caps",
+      "path": "4.4 MiB of personas: tool > content > 0 > text > warnings",
+      "main": "<absent>",
+      "head": "[\"Persona catalog exceeds the 100-file or 4 MiB limit.\"]",
+      "finding": "persona-catalog-caps"
+    },
+    {
+      "scenario": "audit-7-persona-catalog-caps",
+      "path": "4.4 MiB of personas: tool > structuredContent > personas",
+      "main": "sha256:8cff0758d4855657 [{\"description\":\"The large00 persona\",\"name\":\"large00\",\"slug\":\"large00\",\"type\":\"review\"},{\"descripti…",
+      "head": "sha256:b04ff98837096deb [{\"description\":\"The large00 persona\",\"name\":\"large00\",\"slug\":\"large00\",\"type\":\"review\"},{\"descripti…",
+      "finding": "persona-catalog-caps"
+    },
+    {
+      "scenario": "audit-7-persona-catalog-caps",
+      "path": "4.4 MiB of personas: tool > structuredContent > warnings",
+      "main": "<absent>",
+      "head": "[\"Persona catalog exceeds the 100-file or 4 MiB limit.\"]",
+      "finding": "persona-catalog-caps"
+    },
+    {
+      "scenario": "audit-7-changes-reply-cap",
+      "path": "plan > content > 0 > text",
+      "main": "\"Selected 1 code owner reviewer(s); no reviewers launched. 0 file(s) lack an explicit owner.\"",
+      "head": "\"Checkout inspection git failed: ERR_CHILD_PROCESS_STDIO_MAXBUFFER\"",
+      "finding": "audit-4.3-7"
+    },
+    {
+      "scenario": "audit-7-changes-reply-cap",
+      "path": "plan > isError",
+      "main": "<absent>",
+      "head": "true",
+      "finding": "audit-4.3-7"
+    },
+    {
+      "scenario": "audit-7-changes-reply-cap",
+      "path": "plan > structuredContent",
+      "main": "sha256:1d9cfdf5968f3a53 {\"baseRef\":\"origin/main\",\"changedFiles\":[\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa…",
+      "head": "<absent>",
+      "finding": "audit-4.3-7"
+    },
+    {
+      "scenario": "session-lifecycle",
+      "path": "GET /repo-icon > body",
+      "main": "{\"error\":\"No repo icon.\"}",
+      "head": "null",
+      "finding": "icon-no-content"
+    },
+    {
+      "scenario": "session-lifecycle",
+      "path": "GET /repo-icon > headers > content-type",
+      "main": "\"application/json; charset=utf-8\"",
+      "head": "<absent>",
+      "finding": "icon-no-content"
+    },
+    {
+      "scenario": "session-lifecycle",
+      "path": "GET /repo-icon > status",
+      "main": "404",
+      "head": "204",
+      "finding": "icon-no-content"
+    },
+    {
+      "scenario": "session-tool-surface",
+      "path": "agent route > launch_agent > inputSchema > properties > cwd > description",
+      "main": "sha256:11b9d20f9c151c2c \"Working directory for the new agent. Defaults to the template’s directory when supplied, otherwise …",
+      "head": "sha256:abb700bb0d4aa8de \"For native launches, defaults to the template directory or the caller’s workspace. A runner caller …",
+      "finding": "tool-descriptions"
+    },
+    {
+      "scenario": "session-tool-surface",
+      "path": "agent route > set_workspace > description",
+      "main": "sha256:4e15a587d2e75fa2 \"Tell Dispatch which directory you are working in when it is no longer the one you launched in — for…",
+      "head": "sha256:d0c2034710d0fb99 \"Tell Dispatch which directory you are working in when it is no longer the one you launched in — for…",
+      "finding": "tool-descriptions"
+    },
+    {
+      "scenario": "session-tool-surface",
+      "path": "agent route > set_workspace > inputSchema > properties > baseBranch > description",
+      "main": "\"Branch the diff compares against. Defaults to the launch base in the same repo, else the repo's default branch.\"",
+      "head": "\"Branch the diff compares against. If omitted, Dispatch uses the selected checkout’s normal comparison base.\"",
+      "finding": "tool-descriptions"
+    },
+    {
+      "scenario": "session-tool-surface",
+      "path": "agent route > set_workspace > inputSchema > properties > path > description",
+      "main": "\"Absolute path of the directory you now work in. Inside a git checkout, its root is used.\"",
+      "head": "\"Absolute directory on your session’s machine. Inside a git checkout, its root is used.\"",
+      "finding": "tool-descriptions"
+    },
+    {
+      "scenario": "session-tool-surface",
+      "path": "job route > launch_agent > inputSchema > properties > cwd > description",
+      "main": "sha256:11b9d20f9c151c2c \"Working directory for the new agent. Defaults to the template’s directory when supplied, otherwise …",
+      "head": "sha256:abb700bb0d4aa8de \"For native launches, defaults to the template directory or the caller’s workspace. A runner caller …",
+      "finding": "tool-descriptions"
+    },
+    {
+      "scenario": "session-tool-surface",
+      "path": "job route > set_workspace > description",
+      "main": "sha256:4e15a587d2e75fa2 \"Tell Dispatch which directory you are working in when it is no longer the one you launched in — for…",
+      "head": "sha256:d0c2034710d0fb99 \"Tell Dispatch which directory you are working in when it is no longer the one you launched in — for…",
+      "finding": "tool-descriptions"
+    },
+    {
+      "scenario": "session-tool-surface",
+      "path": "job route > set_workspace > inputSchema > properties > baseBranch > description",
+      "main": "\"Branch the diff compares against. Defaults to the launch base in the same repo, else the repo's default branch.\"",
+      "head": "\"Branch the diff compares against. If omitted, Dispatch uses the selected checkout’s normal comparison base.\"",
+      "finding": "tool-descriptions"
+    },
+    {
+      "scenario": "session-tool-surface",
+      "path": "job route > set_workspace > inputSchema > properties > path > description",
+      "main": "\"Absolute path of the directory you now work in. Inside a git checkout, its root is used.\"",
+      "head": "\"Absolute directory on your session’s machine. Inside a git checkout, its root is used.\"",
+      "finding": "tool-descriptions"
+    },
+    {
+      "scenario": "session-create-validation",
+      "path": "worktree outside git > body > agent > baseBranch",
+      "main": "\"main\"",
+      "head": "null",
+      "finding": "worktree-outside-git-base"
+    },
+    {
+      "scenario": "session-create-validation",
+      "path": "worktree outside git: settled > base_branch",
+      "main": "\"main\"",
+      "head": "null",
+      "finding": "worktree-outside-git-base"
+    },
+    {
+      "scenario": "session-stop-hook-timeout",
+      "path": "hook's child survived",
+      "main": "true",
+      "head": "false",
+      "finding": "stop-hook-kills-children"
+    },
+    {
+      "scenario": "session-children",
+      "path": "agents > body > agents > 3 > activity",
+      "main": "\"blocked\"",
+      "head": "\"stopped\"",
+      "finding": "worktree-launch-failure"
+    },
+    {
+      "scenario": "session-children",
+      "path": "agents > body > agents > 3 > lastError",
+      "main": "sha256:617e80bf2649013e \"Command failed (git -C <root>/work/repo worktree add <root>/work/repo-main-b28b7a main), exitCode=1…",
+      "head": "\"Worktree creation failed: The requested branch is already checked out in another worktree.\"",
+      "finding": "worktree-launch-failure"
+    },
+    {
+      "scenario": "session-children",
+      "path": "agents > body > agents > 3 > status",
+      "main": "\"error\"",
+      "head": "\"stopped\"",
+      "finding": "worktree-launch-failure"
+    },
+    {
+      "scenario": "session-children",
+      "path": "list_agents > content > 0 > text > agents > 3 > status",
+      "main": "\"error\"",
+      "head": "\"stopped\"",
+      "finding": "worktree-launch-failure"
+    },
+    {
+      "scenario": "session-children",
+      "path": "list_agents > structuredContent > agents > 3 > status",
+      "main": "\"error\"",
+      "head": "\"stopped\"",
+      "finding": "worktree-launch-failure"
+    },
+    {
+      "scenario": "session-children",
+      "path": "worktree on the branch in use > content > 0 > text",
+      "main": "sha256:d3f0c13304ac82f0 \"Failed to create agent: Command failed (git -C <root>/work/repo worktree add <root>/work/repo-main-…",
+      "head": "\"Worktree creation failed: The requested branch is already checked out in another worktree.\"",
+      "finding": "worktree-launch-failure"
+    },
+    {
+      "scenario": "worktree-archive",
+      "path": "broken symlink forced: status > body > uncommittedFiles > 0",
+      "main": "\"?? dangling\"",
+      "head": "\"dangling\"",
+      "finding": "worktree-status-format"
+    },
+    {
+      "scenario": "worktree-archive",
+      "path": "dirty forced: status > body > uncommittedFiles > 0",
+      "main": "\"?? dirty.txt\"",
+      "head": "\"dirty.txt\"",
+      "finding": "worktree-status-format"
+    },
+    {
+      "scenario": "worktree-archive",
+      "path": "dirty: status > body > uncommittedFiles > 0",
+      "main": "\"?? dirty.txt\"",
+      "head": "\"dirty.txt\"",
+      "finding": "worktree-status-format"
+    },
+    {
+      "scenario": "worktree-archive",
+      "path": "git > branchConfig > branch.case-8.merge",
+      "main": "<absent>",
+      "head": "\"refs/heads/main\"",
+      "finding": "archive-force-keeps-worktree"
+    },
+    {
+      "scenario": "worktree-archive",
+      "path": "git > branchConfig > branch.case-8.remote",
+      "main": "<absent>",
+      "head": "\"origin\"",
+      "finding": "archive-force-keeps-worktree"
+    },
+    {
+      "scenario": "worktree-archive",
+      "path": "git > branchConfig > branch.case-9.merge",
+      "main": "<absent>",
+      "head": "\"refs/heads/main\"",
+      "finding": "archive-force-keeps-worktree"
+    },
+    {
+      "scenario": "worktree-archive",
+      "path": "git > branchConfig > branch.case-9.remote",
+      "main": "<absent>",
+      "head": "\"origin\"",
+      "finding": "archive-force-keeps-worktree"
+    },
+    {
+      "scenario": "worktree-archive",
+      "path": "git > refs > refs/heads/case-8",
+      "main": "<absent>",
+      "head": "\"c484f011a9da02965bf4c49ced8c0002b18b01ba\"",
+      "finding": "archive-force-keeps-worktree"
+    },
+    {
+      "scenario": "worktree-archive",
+      "path": "git > refs > refs/heads/case-9",
+      "main": "<absent>",
+      "head": "\"c484f011a9da02965bf4c49ced8c0002b18b01ba\"",
+      "finding": "archive-force-keeps-worktree"
+    },
+    {
+      "scenario": "worktree-archive",
+      "path": "git > refs > refs/heads/switched-to",
+      "main": "<absent>",
+      "head": "\"c484f011a9da02965bf4c49ced8c0002b18b01ba\"",
+      "finding": "archive-switched-branch"
+    },
+    {
+      "scenario": "worktree-archive",
+      "path": "git > worktrees > <root>/work/repo-case-8",
+      "main": "<absent>",
+      "head": "[\"HEAD c484f011a9da02965bf4c49ced8c0002b18b01ba\",\"branch refs/heads/case-8\"]",
+      "finding": "archive-force-keeps-worktree"
+    },
+    {
+      "scenario": "worktree-archive",
+      "path": "git > worktrees > <root>/work/repo-case-9",
+      "main": "<absent>",
+      "head": "[\"HEAD c484f011a9da02965bf4c49ced8c0002b18b01ba\",\"branch refs/heads/case-9\"]",
+      "finding": "archive-force-keeps-worktree"
+    },
+    {
+      "scenario": "worktree-archive",
+      "path": "nested repository forced: directory remains",
+      "main": "false",
+      "head": "true",
+      "finding": "archive-force-keeps-worktree"
+    },
+    {
+      "scenario": "worktree-archive",
+      "path": "nested repository forced: status > body > branchName",
+      "main": "\"case-8\"",
+      "head": "<absent>",
+      "finding": "worktree-status-unavailable"
+    },
+    {
+      "scenario": "worktree-archive",
+      "path": "nested repository forced: status > body > changedFiles",
+      "main": "[]",
+      "head": "<absent>",
+      "finding": "worktree-status-unavailable"
+    },
+    {
+      "scenario": "worktree-archive",
+      "path": "nested repository forced: status > body > error",
+      "main": "<absent>",
+      "head": "\"Checkout status is unavailable on the owning runner.\"",
+      "finding": "worktree-status-unavailable"
+    },
+    {
+      "scenario": "worktree-archive",
+      "path": "nested repository forced: status > body > hasUncommittedChanges",
+      "main": "true",
+      "head": "<absent>",
+      "finding": "worktree-status-unavailable"
+    },
+    {
+      "scenario": "worktree-archive",
+      "path": "nested repository forced: status > body > hasUnmergedCommits",
+      "main": "false",
+      "head": "<absent>",
+      "finding": "worktree-status-unavailable"
+    },
+    {
+      "scenario": "worktree-archive",
+      "path": "nested repository forced: status > body > hasWorktree",
+      "main": "true",
+      "head": "<absent>",
+      "finding": "worktree-status-unavailable"
+    },
+    {
+      "scenario": "worktree-archive",
+      "path": "nested repository forced: status > body > uncommittedFiles",
+      "main": "[\"?? nested/\"]",
+      "head": "<absent>",
+      "finding": "worktree-status-unavailable"
+    },
+    {
+      "scenario": "worktree-archive",
+      "path": "nested repository forced: status > body > worktreePath",
+      "main": "\"<root>/work/repo-case-8\"",
+      "head": "<absent>",
+      "finding": "worktree-status-unavailable"
+    },
+    {
+      "scenario": "worktree-archive",
+      "path": "nested repository forced: status > status",
+      "main": "200",
+      "head": "503",
+      "finding": "worktree-status-unavailable"
+    },
+    {
+      "scenario": "worktree-archive",
+      "path": "untracked 17 MiB forced: directory remains",
+      "main": "false",
+      "head": "true",
+      "finding": "archive-force-keeps-worktree"
+    },
+    {
+      "scenario": "worktree-archive",
+      "path": "untracked 17 MiB forced: status > body > branchName",
+      "main": "\"case-9\"",
+      "head": "<absent>",
+      "finding": "worktree-status-unavailable"
+    },
+    {
+      "scenario": "worktree-archive",
+      "path": "untracked 17 MiB forced: status > body > changedFiles",
+      "main": "[]",
+      "head": "<absent>",
+      "finding": "worktree-status-unavailable"
+    },
+    {
+      "scenario": "worktree-archive",
+      "path": "untracked 17 MiB forced: status > body > error",
+      "main": "<absent>",
+      "head": "\"Checkout status is unavailable on the owning runner.\"",
+      "finding": "worktree-status-unavailable"
+    },
+    {
+      "scenario": "worktree-archive",
+      "path": "untracked 17 MiB forced: status > body > hasUncommittedChanges",
+      "main": "true",
+      "head": "<absent>",
+      "finding": "worktree-status-unavailable"
+    },
+    {
+      "scenario": "worktree-archive",
+      "path": "untracked 17 MiB forced: status > body > hasUnmergedCommits",
+      "main": "false",
+      "head": "<absent>",
+      "finding": "worktree-status-unavailable"
+    },
+    {
+      "scenario": "worktree-archive",
+      "path": "untracked 17 MiB forced: status > body > hasWorktree",
+      "main": "true",
+      "head": "<absent>",
+      "finding": "worktree-status-unavailable"
+    },
+    {
+      "scenario": "worktree-archive",
+      "path": "untracked 17 MiB forced: status > body > uncommittedFiles",
+      "main": "[\"?? big.bin\"]",
+      "head": "<absent>",
+      "finding": "worktree-status-unavailable"
+    },
+    {
+      "scenario": "worktree-archive",
+      "path": "untracked 17 MiB forced: status > body > worktreePath",
+      "main": "\"<root>/work/repo-case-9\"",
+      "head": "<absent>",
+      "finding": "worktree-status-unavailable"
+    },
+    {
+      "scenario": "worktree-archive",
+      "path": "untracked 17 MiB forced: status > status",
+      "main": "200",
+      "head": "503",
+      "finding": "worktree-status-unavailable"
+    },
+    {
+      "scenario": "worktree-archive",
+      "path": "worktree gone: status > body > branchName",
+      "main": "null",
+      "head": "<absent>",
+      "finding": "worktree-status-unavailable"
+    },
+    {
+      "scenario": "worktree-archive",
+      "path": "worktree gone: status > body > changedFiles",
+      "main": "[]",
+      "head": "<absent>",
+      "finding": "worktree-status-unavailable"
+    },
+    {
+      "scenario": "worktree-archive",
+      "path": "worktree gone: status > body > error",
+      "main": "<absent>",
+      "head": "\"Checkout status is unavailable on the owning runner.\"",
+      "finding": "worktree-status-unavailable"
+    },
+    {
+      "scenario": "worktree-archive",
+      "path": "worktree gone: status > body > hasUncommittedChanges",
+      "main": "false",
+      "head": "<absent>",
+      "finding": "worktree-status-unavailable"
+    },
+    {
+      "scenario": "worktree-archive",
+      "path": "worktree gone: status > body > hasUnmergedCommits",
+      "main": "false",
+      "head": "<absent>",
+      "finding": "worktree-status-unavailable"
+    },
+    {
+      "scenario": "worktree-archive",
+      "path": "worktree gone: status > body > hasWorktree",
+      "main": "true",
+      "head": "<absent>",
+      "finding": "worktree-status-unavailable"
+    },
+    {
+      "scenario": "worktree-archive",
+      "path": "worktree gone: status > body > uncommittedFiles",
+      "main": "[]",
+      "head": "<absent>",
+      "finding": "worktree-status-unavailable"
+    },
+    {
+      "scenario": "worktree-archive",
+      "path": "worktree gone: status > body > worktreePath",
+      "main": "\"<root>/work/repo-case-7\"",
+      "head": "<absent>",
+      "finding": "worktree-status-unavailable"
+    },
+    {
+      "scenario": "worktree-archive",
+      "path": "worktree gone: status > status",
+      "main": "200",
+      "head": "503",
+      "finding": "worktree-status-unavailable"
+    },
+    {
+      "scenario": "worktree-archive-no-remote",
+      "path": "no remote dirty: status > body > uncommittedFiles > 0",
+      "main": "\"?? dirty.txt\"",
+      "head": "\"dirty.txt\"",
+      "finding": "worktree-status-format"
+    },
+    {
+      "scenario": "worktree-archive-shared",
+      "path": "remains for the borrower",
+      "main": "false",
+      "head": "true",
+      "finding": "archive-shared-worktree"
+    },
+    {
+      "scenario": "changes",
+      "path": "backslash file > body > added",
+      "main": "1",
+      "head": "<absent>",
+      "finding": "changes-path-rules"
+    },
+    {
+      "scenario": "changes",
+      "path": "backslash file > body > deleted",
+      "main": "0",
+      "head": "<absent>",
+      "finding": "changes-path-rules"
+    },
+    {
+      "scenario": "changes",
+      "path": "backslash file > body > diff",
+      "main": "\"diff --git a/back\\\\slash.txt b/back\\\\slash.txt\\nnew file mode 100644\\n--- /dev/null\\n+++ b/back\\\\slash.txt\\n@@ -0,0 +1,1 @@\\n+backslash\"",
+      "head": "<absent>",
+      "finding": "changes-path-rules"
+    },
+    {
+      "scenario": "changes",
+      "path": "backslash file > body > error",
+      "main": "<absent>",
+      "head": "\"Invalid workspace path or options.\"",
+      "finding": "changes-path-rules"
+    },
+    {
+      "scenario": "changes",
+      "path": "backslash file > body > path",
+      "main": "\"back\\\\slash.txt\"",
+      "head": "<absent>",
+      "finding": "changes-path-rules"
+    },
+    {
+      "scenario": "changes",
+      "path": "backslash file > body > status",
+      "main": "\"added\"",
+      "head": "<absent>",
+      "finding": "changes-path-rules"
+    },
+    {
+      "scenario": "changes",
+      "path": "backslash file > status",
+      "main": "200",
+      "head": "400",
+      "finding": "changes-path-rules"
+    },
+    {
+      "scenario": "changes",
+      "path": "file not changed > body > added",
+      "main": "1",
+      "head": "<absent>",
+      "finding": "changes-unchanged-file"
+    },
+    {
+      "scenario": "changes",
+      "path": "file not changed > body > deleted",
+      "main": "0",
+      "head": "<absent>",
+      "finding": "changes-unchanged-file"
+    },
+    {
+      "scenario": "changes",
+      "path": "file not changed > body > diff",
+      "main": "\"diff --git a/README.md b/README.md\\nnew file mode 100644\\n--- /dev/null\\n+++ b/README.md\\n@@ -0,0 +1,1 @@\\n+fixture\"",
+      "head": "<absent>",
+      "finding": "changes-unchanged-file"
+    },
+    {
+      "scenario": "changes",
+      "path": "file not changed > body > error",
+      "main": "<absent>",
+      "head": "\"File not found in diff.\"",
+      "finding": "changes-unchanged-file"
+    },
+    {
+      "scenario": "changes",
+      "path": "file not changed > body > path",
+      "main": "\"README.md\"",
+      "head": "<absent>",
+      "finding": "changes-unchanged-file"
+    },
+    {
+      "scenario": "changes",
+      "path": "file not changed > body > status",
+      "main": "\"added\"",
+      "head": "<absent>",
+      "finding": "changes-unchanged-file"
+    },
+    {
+      "scenario": "changes",
+      "path": "file not changed > status",
+      "main": "200",
+      "head": "404",
+      "finding": "changes-unchanged-file"
+    },
+    {
+      "scenario": "changes",
+      "path": "new image > headers > cache-control",
+      "main": "\"private, max-age=30\"",
+      "head": "\"private, no-cache\"",
+      "finding": "changes-image-response"
+    },
+    {
+      "scenario": "changes",
+      "path": "old image > headers > cache-control",
+      "main": "\"private, max-age=30\"",
+      "head": "\"private, no-cache\"",
+      "finding": "changes-image-response"
+    },
+    {
+      "scenario": "changes",
+      "path": "untracked image > headers > cache-control",
+      "main": "\"private, max-age=30\"",
+      "head": "\"private, no-cache\"",
+      "finding": "changes-image-response"
+    },
+    {
+      "scenario": "files-pane",
+      "path": "absolute > body > error",
+      "main": "\"Invalid workspace path.\"",
+      "head": "\"Invalid workspace path or options.\"",
+      "finding": "files-error-text"
+    },
+    {
+      "scenario": "files-pane",
+      "path": "backslash > body > error",
+      "main": "\"Invalid workspace path.\"",
+      "head": "\"Invalid workspace path or options.\"",
+      "finding": "files-error-text"
+    },
+    {
+      "scenario": "files-pane",
+      "path": "escape > body > error",
+      "main": "\"Invalid workspace path.\"",
+      "head": "\"Invalid workspace path or options.\"",
+      "finding": "files-error-text"
+    },
+    {
+      "scenario": "files-pane",
+      "path": "git directory > body > error",
+      "main": "\"Invalid workspace path.\"",
+      "head": "\"Invalid workspace path or options.\"",
+      "finding": "files-error-text"
+    },
+    {
+      "scenario": "set-workspace",
+      "path": "outside git: tools > persona_upsert",
+      "main": "<absent>",
+      "head": "true",
+      "finding": "audit-4.3-6"
+    },
+    {
+      "scenario": "set-workspace",
+      "path": "outside git: tools > persona_validate",
+      "main": "<absent>",
+      "head": "true",
+      "finding": "audit-4.3-6"
+    },
+    {
+      "scenario": "owner-reviews",
+      "path": "17 MiB untracked > content > 0 > text",
+      "main": "\"Selected 1 code owner reviewer(s); no reviewers launched. 0 file(s) lack an explicit owner.\"",
+      "head": "\"Dirty file contents exceed the checkout fingerprint limit\"",
+      "finding": "owner-review-fingerprint"
+    },
+    {
+      "scenario": "owner-reviews",
+      "path": "17 MiB untracked > isError",
+      "main": "<absent>",
+      "head": "true",
+      "finding": "owner-review-fingerprint"
+    },
+    {
+      "scenario": "owner-reviews",
+      "path": "17 MiB untracked > structuredContent",
+      "main": "sha256:11dba068ae93491b {\"baseRef\":\"origin/main\",\"changedFiles\":[\"big.bin\",\"changed.txt\"],\"failures\":[],\"launched\":[],\"owner…",
+      "head": "<absent>",
+      "finding": "owner-review-fingerprint"
+    },
+    {
+      "scenario": "owner-reviews",
+      "path": "backslash file > structuredContent > reviewedState",
+      "main": "<absent>",
+      "head": "{\"head\":\"46d890c6d238d875deacd55f31a9a929bddfc5d4\",\"stateId\":\"<checkout-state>\"}",
+      "finding": "owner-review-briefing"
+    },
+    {
+      "scenario": "owner-reviews",
+      "path": "launch > structuredContent > reviewedState",
+      "main": "<absent>",
+      "head": "{\"head\":\"46d890c6d238d875deacd55f31a9a929bddfc5d4\",\"stateId\":\"<checkout-state>\"}",
+      "finding": "owner-review-briefing"
+    },
+    {
+      "scenario": "owner-reviews",
+      "path": "nested repository > content > 0 > text",
+      "main": "\"Selected 1 code owner reviewer(s); no reviewers launched. 0 file(s) lack an explicit owner.\"",
+      "head": "\"Checkout fingerprint cannot inspect a dirty directory or submodule\"",
+      "finding": "owner-review-fingerprint"
+    },
+    {
+      "scenario": "owner-reviews",
+      "path": "nested repository > isError",
+      "main": "<absent>",
+      "head": "true",
+      "finding": "owner-review-fingerprint"
+    },
+    {
+      "scenario": "owner-reviews",
+      "path": "nested repository > structuredContent",
+      "main": "sha256:8bed1f9b628102f1 {\"baseRef\":\"origin/main\",\"changedFiles\":[\"changed.txt\",\"inner/\"],\"failures\":[],\"launched\":[],\"owners…",
+      "head": "<absent>",
+      "finding": "owner-review-fingerprint"
+    },
+    {
+      "scenario": "owner-reviews",
+      "path": "no remote > structuredContent > reviewedState",
+      "main": "<absent>",
+      "head": "{\"head\":\"d3c0696bb4bad191777d08a676032472e6526473\",\"stateId\":\"<checkout-state>\"}",
+      "finding": "owner-review-briefing"
+    },
+    {
+      "scenario": "owner-reviews",
+      "path": "plan > structuredContent > reviewedState",
+      "main": "<absent>",
+      "head": "{\"head\":\"46d890c6d238d875deacd55f31a9a929bddfc5d4\",\"stateId\":\"<checkout-state>\"}",
+      "finding": "owner-review-briefing"
+    },
+    {
+      "scenario": "owner-reviews",
+      "path": "reviewers > 0 > persona_context",
+      "main": "sha256:54781055ea170d55 \"## Code ownership scope\\nYou were selected as keeper. The review base is origin/main. Paths are rep…",
+      "head": "sha256:f6aab49db2a7c688 \"Inspect the shared checkout without modifying it. Report findings to the launcher.\\nCheckout record…",
+      "finding": "owner-review-briefing"
+    },
+    {
+      "scenario": "owner-reviews-many-files",
+      "path": "plan > content > 0 > text",
+      "main": "\"Selected 1 code owner reviewer(s); no reviewers launched. 0 file(s) lack an explicit owner.\"",
+      "head": "\"Too many dirty files to fingerprint the checkout\"",
+      "finding": "owner-review-fingerprint"
+    },
+    {
+      "scenario": "owner-reviews-many-files",
+      "path": "plan > isError",
+      "main": "<absent>",
+      "head": "true",
+      "finding": "owner-review-fingerprint"
+    },
+    {
+      "scenario": "owner-reviews-many-files",
+      "path": "plan > structuredContent",
+      "main": "sha256:6f7bea1555e0baa9 {\"baseRef\":\"origin/main\",\"changedFiles\":[\"changed.txt\",\"many/0.txt\",\"many/1.txt\",\"many/10.txt\",\"many…",
+      "head": "<absent>",
+      "finding": "owner-review-fingerprint"
+    },
+    {
+      "scenario": "personas-default-branch",
+      "path": "route > body > warnings > 0",
+      "main": "\"Could not load persona .agents/personas/oversize.md: unsupported file or larger than 256 KiB.\"",
+      "head": "\"The default-branch file listing was incomplete.\"",
+      "finding": "persona-catalog-warning"
+    },
+    {
+      "scenario": "personas-default-branch",
+      "path": "tool > content > 0 > text > warnings > 0",
+      "main": "\"Could not load persona .agents/personas/oversize.md: unsupported file or larger than 256 KiB.\"",
+      "head": "\"The default-branch file listing was incomplete.\"",
+      "finding": "persona-catalog-warning"
+    },
+    {
+      "scenario": "personas-default-branch",
+      "path": "tool > structuredContent > warnings > 0",
+      "main": "\"Could not load persona .agents/personas/oversize.md: unsupported file or larger than 256 KiB.\"",
+      "head": "\"The default-branch file listing was incomplete.\"",
+      "finding": "persona-catalog-warning"
+    },
+    {
+      "scenario": "system-probes",
+      "path": "branches: origin > body > defaultBranch",
+      "main": "<absent>",
+      "head": "\"main\"",
+      "finding": "branches-default"
+    },
+    {
+      "scenario": "system-probes",
+      "path": "project icon: folder > status",
+      "main": "404",
+      "head": "204",
+      "finding": "icon-no-content"
+    },
+    {
+      "scenario": "system-probes",
+      "path": "project icon: without icon > status",
+      "main": "404",
+      "head": "204",
+      "finding": "icon-no-content"
+    },
+    {
+      "scenario": "upgrade-protected",
+      "path": "readiness > body > database > migrations > count",
+      "main": "52",
+      "head": "63",
+      "finding": "schema-version"
+    },
+    {
+      "scenario": "upgrade-protected",
+      "path": "readiness > body > database > migrations > latest",
+      "main": "\"0052_agent_name_revision\"",
+      "head": "\"0063_runner_update_policy\"",
+      "finding": "schema-version"
+    },
+    {
+      "scenario": "upgrade-probation-surviving-hosts",
+      "path": "readiness once idle > body > database > migrations > count",
+      "main": "52",
+      "head": "63",
+      "finding": "schema-version"
+    },
+    {
+      "scenario": "upgrade-probation-surviving-hosts",
+      "path": "readiness once idle > body > database > migrations > latest",
+      "main": "\"0052_agent_name_revision\"",
+      "head": "\"0063_runner_update_policy\"",
+      "finding": "schema-version"
+    },
+    {
+      "scenario": "upgrade-abandoned-trial",
+      "path": "readiness > body > database > migrations > count",
+      "main": "52",
+      "head": "63",
+      "finding": "schema-version"
+    },
+    {
+      "scenario": "upgrade-abandoned-trial",
+      "path": "readiness > body > database > migrations > latest",
+      "main": "\"0052_agent_name_revision\"",
+      "head": "\"0063_runner_update_policy\"",
+      "finding": "schema-version"
+    }
+  ]
+}

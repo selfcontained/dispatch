@@ -1,0 +1,137 @@
+[
+  {
+    "name": "run root",
+    "bound": "root",
+    "replace": "<root>",
+    "why": "Each side has its own temporary directory."
+  },
+  {
+    "name": "oracle directory",
+    "bound": "oracle",
+    "replace": "<oracle>",
+    "why": "The shared build and fixture directory of one run."
+  },
+  {
+    "name": "machine",
+    "bound": "machine",
+    "replace": "<machine>",
+    "why": "This machine's host name and Node directory. Not product output."
+  },
+  {
+    "name": "scratch database",
+    "bound": "database",
+    "replace": "<database>",
+    "why": "Each side has its own scratch database."
+  },
+  {
+    "name": "build revision",
+    "bound": "builds",
+    "replace": "<build>",
+    "why": "The two sides are different commits by definition."
+  },
+  {
+    "name": "instance secret",
+    "bound": "secrets",
+    "replace": "<secret>",
+    "why": "Generated per database. Also keeps credentials out of reports."
+  },
+  {
+    "name": "loopback port",
+    "bound": "port",
+    "replace": "<port>",
+    "why": "Each instance listens on a free port.",
+    "keys": ["port", "DISPATCH_PORT"]
+  },
+  {
+    "name": "agent id",
+    "bound": "agents",
+    "pattern": "\\bagt[_-][0-9a-f]{12}\\b",
+    "replace": "<agent>",
+    "why": "Random, also inside default branch, directory and reviewer names. Agents the scenario created are numbered by creation, those Dispatch launched by first appearance in a step."
+  },
+  {
+    "name": "uuid",
+    "pattern": "\\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\\b",
+    "replace": "<uuid>",
+    "numbered": true,
+    "why": "Random. Numbered by first appearance in a step, so references in that step still have to agree."
+  },
+  {
+    "name": "timestamp",
+    "pattern": "\\b\\d{4}-\\d\\d-\\d\\d[T ]\\d\\d:\\d\\d:\\d\\d(?:\\.\\d+)?(?:Z|[+-]\\d\\d(?::?\\d\\d)?)",
+    "replace": "<time>",
+    "why": "Clock."
+  },
+  {
+    "name": "file name timestamp",
+    "pattern": "\\d{4}-\\d\\d-\\d\\d-\\d\\d-\\d\\d-\\d\\d-\\d{3}",
+    "replace": "<file-time>",
+    "why": "Stored file names contain the clock."
+  },
+  {
+    "name": "fixture session id",
+    "pattern": "\\bfake_(?:claude|codex|opencode|gemini)_\\d{13}\\b",
+    "replace": "<session>",
+    "numbered": true,
+    "why": "The fixture adapter names sessions by the clock."
+  },
+  {
+    "name": "epoch milliseconds",
+    "keys": ["computedAt", "updatedAt"],
+    "type": "number",
+    "valuePattern": "^1\\d{12}$",
+    "replace": "<epoch-ms>",
+    "why": "Clock, in the two fields that use numbers for it."
+  },
+  {
+    "name": "duration",
+    "keys": ["durMs", "probeMs", "durationMs"],
+    "type": "number",
+    "replace": "<duration>",
+    "why": "Timing is outside what the oracle can see (E7)."
+  },
+  {
+    "name": "process id",
+    "keys": ["pid"],
+    "type": "number",
+    "replace": "<pid>",
+    "why": "Process identity in signed update responses."
+  },
+  {
+    "name": "database oid",
+    "keys": ["oid"],
+    "type": "string",
+    "valuePattern": "^\\d+$",
+    "replace": "<oid>",
+    "why": "Each side has its own scratch database."
+  },
+  {
+    "name": "image change token",
+    "keys": ["revision"],
+    "type": "string",
+    "valuePattern": "^[0-9a-f.-]+$",
+    "replace": "<image-revision>",
+    "why": "Inode and file times. Whether the field is there is still compared."
+  },
+  {
+    "name": "checkout state id",
+    "keys": ["stateId", "checkoutState"],
+    "type": "string",
+    "valuePattern": "^[0-9a-f]{64}$",
+    "replace": "<checkout-state>",
+    "why": "A hash over the temporary path and inode. Whether the field is there is still compared."
+  },
+  {
+    "name": "checkout state id in text",
+    "pattern": "(?<=state ID )[0-9a-f]{64}",
+    "replace": "<checkout-state>",
+    "why": "The same hash, inside a review briefing."
+  },
+  {
+    "name": "task and column id",
+    "pattern": "\\b(?:tsk|tcol)_[0-9a-f]{12}\\b",
+    "replace": "<task-id>",
+    "numbered": true,
+    "why": "Random. Numbered by first appearance in a step."
+  }
+]

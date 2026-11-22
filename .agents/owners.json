@@ -41,6 +41,8 @@
         "packages/runner-protocol/**",
         ".husky/pre-commit",
         "scripts/check-runner-boundary*.mjs",
+        "scripts/runner-local-parity*.mjs",
+        "scripts/runner-local-parity/**",
         "scripts/runner-boundary-baseline.json",
         "scripts/runner-restrictions.mjs",
         "docs/04-agent-lifecycle.md",
