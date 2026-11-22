@@ -1445,8 +1445,9 @@ html[data-hidden] .animate-sidebar-nav-pulse {
    specificity and would otherwise win.
 
    Each type maps to the intent of the same name (error is danger).
-   Each typed toast uses the intent color as the bg with `--background`
-   text for contrast, so the toast reads as a colored alert surface. */
+   Each typed toast uses the intent color as the bg, so the toast reads as a
+   colored alert surface. Text is `--background`, except error, which uses
+   `--danger-foreground` because the background doesn't read on every red. */
 [data-sonner-toaster][data-sonner-theme] {
   /* Default ("normal") toast — neutral card surface. */
   --normal-bg: hsl(var(--card)) !important;
