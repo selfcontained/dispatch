@@ -4680,7 +4680,16 @@ export class StreamService {
         // doing its job, so keep waiting.
         if (this.delivery().activeTurn(agentId)) continue;
         // Held for a runner update, which is bounded: the queue again.
-        if (await this.delivery().updateHeld?.(agentId)) continue;
+        const updateHeld = await this.delivery()
+          .updateHeld?.(agentId)
+          .catch((error: unknown) => {
+            this.log.warn(
+              { err: error, agentId, ...logContext },
+              "stream: could not check runner update hold"
+            );
+            return false;
+          });
+        if (updateHeld) continue;
         this.log.warn(
           { agentId, ...logContext },
           "stream: the engine never took this prompt; marking it undelivered"

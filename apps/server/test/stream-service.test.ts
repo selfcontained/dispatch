@@ -5755,25 +5755,35 @@ describe("StreamService delivery that is never taken", () => {
     vi.useRealTimers();
   });
 
-  it("gives up on a prompt an idle engine never takes, so the post can be retried", async () => {
-    vi.useFakeTimers();
-    const { svc } = build({ gate: never });
-    const res = await svc.sendUserPost(A, { text: "are you there?" });
-    expect(res.block.delivered).toBeNull();
-    expect(res.held).toBe(true); // The fake queue includes this very prompt.
-    // Nothing has taken it, and the agent is not busy: past the bound it
-    // reads as undelivered rather than sending forever.
-    await vi.advanceTimersByTimeAsync(95_000);
-    // The give-up writes to the database, which is real work the timer
-    // flush does not wait for.
-    vi.useRealTimers();
-    let row = await svc.store.getById(res.block.id);
-    for (let i = 0; i < 50 && row?.delivered === null; i += 1) {
-      await new Promise((resolve) => setTimeout(resolve, 20));
-      row = await svc.store.getById(res.block.id);
+  it.each([
+    ["the local path", vi.fn().mockResolvedValue(false)],
+    [
+      "a failed runner hold lookup",
+      vi.fn().mockRejectedValue(new Error("DB unavailable")),
+    ],
+  ] as const)(
+    "marks an unaccepted idle prompt undelivered with %s",
+    async (_, updateHeld) => {
+      vi.useFakeTimers();
+      const { svc } = build({ gate: never, updateHeld });
+      const res = await svc.sendUserPost(A, { text: "are you there?" });
+      expect(res.block.delivered).toBeNull();
+      expect(res.held).toBe(true); // The fake queue includes this very prompt.
+      // Nothing has taken it, and the agent is not busy: past the bound it
+      // reads as undelivered rather than sending forever.
+      await vi.advanceTimersByTimeAsync(95_000);
+      // The give-up writes to the database, which is real work the timer
+      // flush does not wait for.
+      vi.useRealTimers();
+      let row = await svc.store.getById(res.block.id);
+      for (let i = 0; i < 50 && row?.delivered === null; i += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        row = await svc.store.getById(res.block.id);
+      }
+      expect(row).toMatchObject({ delivered: false });
+      expect(updateHeld).toHaveBeenCalledTimes(1);
     }
-    expect(row).toMatchObject({ delivered: false });
-  });
+  );
 
   it("gives up on multiple unaccepted prompts without treating their queue as active work", async () => {
     vi.useFakeTimers();
