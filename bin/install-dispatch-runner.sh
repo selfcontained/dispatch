@@ -665,6 +665,32 @@ assert_no_update_fence() {
     error "A runner update fence or trial is in progress"
 }
 
+retain_previous_verified() {
+  local previous_sha previous_version='' previous_revision='' previous_compatibility previous_record
+  # The replaced binary names itself, whether or not its release was indexed.
+  if previous_compatibility=$("$runtime/previous" runner-update-compatibility 2>/dev/null); then
+    previous_version=$(sed -nE 's/.*"version":"([0-9][0-9A-Za-z.+-]{0,63})".*/\1/p' <<< "$previous_compatibility")
+    previous_revision=$(sed -nE 's/.*"revision":"([0-9a-f]{40})".*/\1/p' <<< "$previous_compatibility")
+  fi
+  if [[ -n "$previous_version" && -n "$previous_revision" ]]; then
+    previous_sha=$(sha256sum "$runtime/previous")
+    previous_record=$(mktemp "$state/update/.previous-verified.XXXXXX")
+    printf '{"version":"%s","revision":"%s","sha256":"%s"}\n' \
+      "$previous_version" "$previous_revision" "${previous_sha%% *}" > "$previous_record"
+    sync -f "$previous_record"
+    mv -fT "$previous_record" "$state/update/previous-verified.json"
+  else
+    # A build from before that command cannot be named. The record would
+    # otherwise describe whichever build was retained before it.
+    rm -f -- "$state/update/previous-verified.json"
+    printf 'Not recording previous-verified.json: the replaced runner cannot report its identity.\n'
+  fi
+  sync -f "$state/update"
+  if [[ ! "$runtime/previous" -ef "$runtime/previous-verified" ]]; then
+    mv -fT "$runtime/previous" "$runtime/previous-verified"
+  fi
+}
+
 # Only the operator's --allow-downgrade reaches this. Self-update has no path
 # that lowers the floor.
 set_update_floor() {
@@ -766,32 +792,14 @@ update_runner() {
     maintenance_step=start
     error "New runner failed to start. Restored the previous release"
   fi
-  local previous_sha previous_version='' previous_revision='' previous_compatibility previous_record
   install -o root -g root -d -m 0700 "$state/update"
-  # The replaced binary names itself, whether or not its release was indexed.
-  if previous_compatibility=$("$runtime/previous" runner-update-compatibility 2>/dev/null); then
-    previous_version=$(sed -nE 's/.*"version":"([0-9][0-9A-Za-z.+-]{0,63})".*/\1/p' <<< "$previous_compatibility")
-    previous_revision=$(sed -nE 's/.*"revision":"([0-9a-f]{40})".*/\1/p' <<< "$previous_compatibility")
+  # A repair replaces the build with itself. The last distinct verified build
+  # stays the rollback target.
+  if ! cmp -s "$runtime/previous" "$runtime/dispatch"; then
+    retain_previous_verified
   fi
-  if [[ -n "$previous_version" && -n "$previous_revision" ]]; then
-    previous_sha=$(sha256sum "$runtime/previous")
-    previous_record=$(mktemp "$state/update/.previous-verified.XXXXXX")
-    printf '{"version":"%s","revision":"%s","sha256":"%s"}\n' \
-      "$previous_version" "$previous_revision" "${previous_sha%% *}" > "$previous_record"
-    sync -f "$previous_record"
-    mv -fT "$previous_record" "$state/update/previous-verified.json"
-  else
-    # A build from before that command cannot be named. The record would
-    # otherwise describe whichever build was retained before it.
-    rm -f -- "$state/update/previous-verified.json"
-    printf 'Not recording previous-verified.json: the replaced runner cannot report its identity.\n'
-  fi
-  sync -f "$state/update"
-  if [[ ! "$runtime/previous" -ef "$runtime/previous-verified" ]]; then
-    mv -fT "$runtime/previous" "$runtime/previous-verified"
-  fi
-  # The recovery record outlives this write, so an interrupted downgrade is
-  # redone by running the same command again.
+  # The same command finishes an interrupted downgrade: it either recovers and
+  # repeats the update, or finds the release installed and sets the floor.
   if [[ "${allow_downgrade:-0}" == 1 ]]; then set_update_floor; fi
   rm -f -- "$runtime/previous" "$runtime/previous-handoff.py" "$runtime/previous-active"
   rm -rf -- "$runtime/previous-units"

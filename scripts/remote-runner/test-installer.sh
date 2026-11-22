@@ -474,6 +474,18 @@ starts_before_repair=$(grep -c '^start ' "$fixture_root/systemctl" || :)
 run apply v1.0.0 x64 --clear-unreadable-fence
 [[ ! -e "$fixture_root/state/update/fence.json" ]] || fail
 [[ $(grep -c '^start ' "$fixture_root/systemctl") -gt "$starts_before_repair" ]] || fail
+# The repair keeps the last distinct build, and its record, as the target.
+run update v1.0.1
+cp "$fixture_root/state/update/previous-verified.json" "$fixture_root/retained.json"
+cp "$fixture_root/runtime/previous-verified" "$fixture_root/retained"
+retained_inode=$(ls -i "$fixture_root/runtime/previous-verified")
+printf '{' > "$fixture_root/state/update/fence.json"
+run update v1.0.1 x64 --clear-unreadable-fence
+[[ "$(ls -i "$fixture_root/runtime/previous-verified")" == "$retained_inode" ]] || fail
+cmp "$fixture_root/retained" "$fixture_root/runtime/previous-verified" || fail
+cmp "$fixture_root/retained.json" "$fixture_root/state/update/previous-verified.json" || fail
+[[ ! -e "$fixture_root/runtime/previous" ]] || fail
+! cmp -s "$fixture_root/runtime/previous-verified" "$fixture_root/runtime/dispatch" || fail
 fixture_root="$root/fence-unmanaged"
 mkdir -p "$fixture_root"
 ln -s "$root/releases" "$fixture_root/releases"

@@ -185,6 +185,12 @@ The controller cannot lower the floor. A refused update reports the floor as
 `floorVersion` in its status and in `last-stage.json`, and names it in the
 staging unit's journal.
 
+A successful update that changes the build keeps the replaced executable as
+`/opt/dispatch-runner/previous-verified` and records its version, revision and
+digest in `previous-verified.json`. A build too old to report its identity is
+kept without that record. A repair that reinstalls the same build leaves both
+as they were.
+
 The updater retains the previous executable through startup and restores it
 if the replacement fails to start. Settings shows **Online** after reconnection.
 Enrollment, settings, workspace bindings, and managed checkouts are retained.
