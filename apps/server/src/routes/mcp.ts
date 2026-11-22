@@ -232,7 +232,6 @@ function buildCrudCallbacks(
       deps.templateService.addTemplate(
         input as AddTemplateInput,
         callerFullAccess,
-        undefined,
         personaScope
       ),
     updateTemplate: (templateId, input) =>

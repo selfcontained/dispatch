@@ -78,9 +78,9 @@ export class TemplateService {
   async addTemplate(
     input: AddTemplateInput,
     callerFullAccess?: boolean,
+    personaScope: SavedPersonaScope = personaScopeFor,
     /** Internal, from the record being copied; never from HTTP/MCP input. */
-    savedModel?: string | null,
-    personaScope: SavedPersonaScope = personaScopeFor
+    savedModel?: string | null
   ): Promise<TemplateRecord> {
     if (input.agentType === "opencode") input = { ...input, fullAccess: true };
     assertAccessCeiling(input.fullAccess ?? false, callerFullAccess);
@@ -146,6 +146,7 @@ export class TemplateService {
     return this.addTemplate(
       { ...config, name },
       callerFullAccess,
+      undefined,
       source.model
     );
   }
