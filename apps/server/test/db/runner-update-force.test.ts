@@ -111,7 +111,7 @@ describe("runner receipt recovery after rolling back Dispatch", () => {
           expect(continuations(busy)).toHaveLength(0);
           return;
         }
-        await finished();
+        await world.until(() => Boolean(world.attempt()?.outcome));
         resumedOnce(busy);
         expect(continuations(busy)).toHaveLength(1);
         // Simulate subsequent normal saves and prove the backup was moved.
@@ -123,6 +123,114 @@ describe("runner receipt recovery after rolling back Dispatch", () => {
       }
     }
   );
+});
+
+describe("automatic runner updates", () => {
+  const enable = async () => {
+    await world.coordinator.setAutomatic(RUNNER, true);
+    world.advance(UPDATE_TIMING.automaticSettleMs + 1);
+    await world.coordinator.tick();
+  };
+  const offers = () =>
+    world.runner.frames.filter(({ type }) => type === "offer");
+
+  it("does not offer until it has a trusted build", async () => {
+    world.runner.trust = false;
+    await enable();
+    expect(offers()).toEqual([]);
+    world.runner.trust = true;
+    world.advance(UPDATE_TIMING.automaticSpacingMs);
+    await world.until(() => offers().length === 1);
+  });
+
+  it("honors opt-out during staging", async () => {
+    world.runner.holdStaging = true;
+    await enable();
+    await world.until(() => offers().length === 1);
+    await world.coordinator.setAutomatic(RUNNER, false);
+    await finished("deferred");
+    // Ready frames from the old offer can arrive after cancel.
+    world.report("deferred", "ready");
+    world.report("deferred", "ready");
+    world.advance(UPDATE_TIMING.automaticSpacingMs);
+    await world.coordinator.tick();
+    expect(world.runner.frames.map(({ type }) => type)).toEqual([
+      "offer",
+      "cancel",
+    ]);
+    expect(world.view()?.available?.action).toBe("update");
+  });
+
+  it.each(["cancel", "opt-out"] as const)(
+    "releases an automatic drain after %s without interrupting the busy agent",
+    async (action) => {
+      const idle = await world.agent();
+      const busy = await world.agent();
+      await world.working(busy);
+      world.runner.incompatible = true;
+      await enable();
+      await world.until(
+        () => !idle.alive && world.view()?.attempt?.agents === 1
+      );
+      const { id, automatic } = world.attempt()!;
+      expect(automatic).toBe(true);
+      expect(busy.alive).toBe(true);
+      expect(world.attempt()?.force).toBeUndefined();
+      if (action === "cancel") await world.coordinator.cancelDrain(RUNNER, id);
+      else await world.coordinator.setAutomatic(RUNNER, false);
+      await finished("deferred");
+      resumedOnce(idle);
+      expect(continuations(busy)).toHaveLength(0);
+      world.advance(UPDATE_TIMING.automaticSpacingMs);
+      await world.coordinator.tick();
+      expect(offers()).toHaveLength(1);
+      expect(world.view()?.result?.reason).toBe(
+        action === "cancel" ? "automatic_drain_cancelled" : "automatic_disabled"
+      );
+      await world.coordinator.request(RUNNER, "update");
+      expect(offers()).toHaveLength(2);
+    }
+  );
+
+  it("ignores an interruption marker on an automatic offer", async () => {
+    const busy = await world.agent();
+    await world.working(busy);
+    world.runner.incompatible = true;
+    world.saved.beforeWrite = (records) => {
+      const attempt = records[0]?.attempt;
+      if (attempt?.automatic && attempt.phase === "staging")
+        attempt.force = true;
+    };
+    await enable();
+    await world.until(() => world.view()?.attempt?.phase !== "staging");
+    expect(world.view()?.attempt?.phase).toBe("draining");
+    expect(busy.alive).toBe(true);
+    expect(continuations(busy)).toHaveLength(0);
+  });
+
+  it("leaves an activated attempt alone on opt-out", async () => {
+    await enable();
+    await world.activated();
+    await world.coordinator.setAutomatic(RUNNER, false);
+    world.swap();
+    await finished();
+    expect(world.runner.frames.some(({ type }) => type === "cancel")).toBe(
+      false
+    );
+  });
+
+  it("suppresses a failed target until an explicit retry", async () => {
+    await enable();
+    await world.activated();
+    world.rollBack();
+    await finished("rolled_back");
+    world.advance(UPDATE_TIMING.automaticSpacingMs);
+    await world.coordinator.tick();
+    expect(offers()).toHaveLength(1);
+    expect(world.view()?.available?.action).toBe("retry");
+    await world.coordinator.request(RUNNER, "retry");
+    expect(offers()).toHaveLength(2);
+  });
 });
 
 describe("a forced update", () => {

@@ -550,6 +550,7 @@ describe("runner enrollment service", () => {
         id: created.id,
         name: "alpha",
         status: "pending",
+        automaticUpdates: true,
         engineManagement: false,
         githubManagement: false,
         workspaces: [],
@@ -607,11 +608,34 @@ describe("runner enrollment service", () => {
         id: created.id,
         name: "alpha",
         status: "online",
+        automaticUpdates: true,
         engineManagement: false,
         githubManagement: false,
         workspaces: ["proof"],
       },
     ]);
+  });
+
+  it("defaults an existing registration to automatic and persists a per-runner opt-out", async () => {
+    const service = makeService();
+    const { created } = await enroll(service, "existing");
+    await pool.query(
+      "UPDATE runner_registrations SET settings = '{}' WHERE id = $1",
+      [created.id]
+    );
+    expect(service.automaticUpdates(created.id)).toBe(true);
+    await service.setAutomaticUpdates(created.id, false);
+    expect(service.automaticUpdates(created.id)).toBe(false);
+    expect(await new RunnerRegistry(pool).active()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: created.id, automaticUpdates: false }),
+      ])
+    );
+    expect(await service.list()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: created.id, automaticUpdates: false }),
+      ])
+    );
   });
 
   it("stores a negotiated runner-pushed sample under the peer identity and retains it offline", async () => {

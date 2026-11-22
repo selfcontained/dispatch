@@ -21,6 +21,7 @@ export type Runner = {
   health?: RunnerHealth;
   healthReceivedAt?: string;
   update?: RunnerUpdateView;
+  automaticUpdates?: boolean;
 };
 
 export type RunnerPairing = { id: string; command: string; expiresAt: string };
@@ -88,6 +89,19 @@ export function useRunnerName(runnerId: string | undefined) {
   return runnerId
     ? (data?.find((runner) => runner.id === runnerId)?.name ?? "Remote runner")
     : undefined;
+}
+
+export function useRunnerUpdatePolicy(runnerId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (automatic: boolean) =>
+      api<{ automatic: boolean }>(
+        `/api/v1/runners/${encodeURIComponent(runnerId)}/update-policy`,
+        { method: "PATCH", body: JSON.stringify({ automatic }) }
+      ),
+    onSettled: () =>
+      queryClient.invalidateQueries({ queryKey: runnersQueryKey }),
+  });
 }
 
 export function useStartRunnerUpdate(runnerId: string) {

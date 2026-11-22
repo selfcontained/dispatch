@@ -124,6 +124,7 @@ export type RunnerSummary = {
   id: string;
   name: string;
   status: RunnerStatus;
+  automaticUpdates?: boolean;
   health?: RunnerHealth;
   healthReceivedAt?: string;
   /** Whether this (online) peer advertised support for engine management. */
@@ -1359,6 +1360,9 @@ export class RemoteRunnerService {
       runners.push({
         id: registration.id,
         name: registration.name,
+        ...(!registration.revoked && {
+          automaticUpdates: registration.automaticUpdates,
+        }),
         status: registration.revoked
           ? "revoked"
           : !registration.enrolled
@@ -1390,6 +1394,17 @@ export class RemoteRunnerService {
       });
     }
     return runners;
+  }
+
+  automaticUpdates(id: string): boolean {
+    return this.registrationById(id)?.automaticUpdates === true;
+  }
+
+  async setAutomaticUpdates(id: string, automatic: boolean): Promise<void> {
+    if (!(await this.enrollment?.registry.setAutomaticUpdates(id, automatic)))
+      throw new RunnerRequestError(404, "Runner not found.");
+    const enrolled = this.registrationById(id);
+    if (enrolled) enrolled.automaticUpdates = automatic;
   }
 
   async createRegistration(name: unknown, hostHint?: string) {

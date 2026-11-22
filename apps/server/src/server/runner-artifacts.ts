@@ -599,6 +599,9 @@ export function createRunnerArtifactSource(
     enabled: Boolean(devDir || (compiled && tag)),
     kind: source,
     updateEnabled,
+    updateUnavailable: (arch: RunnerArch) =>
+      (source === "release" && productionRunnerUpdateKeys.size === 0) ||
+      stillFailed(updateStates.get(arch)?.failure, arch),
     preparationFailed,
     get,
     getUpdate,

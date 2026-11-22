@@ -11,7 +11,12 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { Button, LoadingButton } from "@/components/ui/button";
-import { useStartRunnerUpdate, type Runner } from "@/hooks/use-runners";
+import { Switch } from "@/components/ui/switch";
+import {
+  useRunnerUpdatePolicy,
+  useStartRunnerUpdate,
+  type Runner,
+} from "@/hooks/use-runners";
 import { ApiError } from "@/lib/api";
 import { RunnerCommand, useRunnerInstaller } from "./runner-onboarding";
 
@@ -91,6 +96,14 @@ function describeResult({
           "The runner restored its previous build.",
       };
     case "deferred":
+      if (reason === "automatic_drain_cancelled")
+        return {
+          title: `${update} was cancelled`,
+          detail:
+            "Automatic updates will skip this build. Select Update to install it.",
+        };
+      if (reason === "automatic_disabled")
+        return { title: `${update} was cancelled` };
       if (reason === "drain_cancelled")
         return { title: `${update} was cancelled` };
       if (reason === "downgrade")
@@ -182,6 +195,36 @@ function UpdateNow({
 }
 
 export function RunnerUpdateStatus({ runner }: { runner: Runner }) {
+  const policy = useRunnerUpdatePolicy(runner.id);
+  const policyId = `automatic-updates-${runner.id}`;
+  return (
+    <>
+      {runner.automaticUpdates !== undefined && (
+        <div className="space-y-2">
+          <div className="flex items-center justify-between gap-3">
+            <label htmlFor={policyId} className="text-sm font-medium">
+              Update automatically
+            </label>
+            <Switch
+              id={policyId}
+              checked={runner.automaticUpdates}
+              disabled={policy.isPending}
+              onCheckedChange={(automatic) => policy.mutate(automatic)}
+            />
+          </div>
+          {policy.error && (
+            <p role="alert" className="text-xs text-destructive">
+              {policy.error.message}
+            </p>
+          )}
+        </div>
+      )}
+      <RunnerUpdateProgress runner={runner} />
+    </>
+  );
+}
+
+function RunnerUpdateProgress({ runner }: { runner: Runner }) {
   const start = useStartRunnerUpdate(runner.id);
   const { attempt, available, result, previousBuildAgents } =
     runner.update ?? {};

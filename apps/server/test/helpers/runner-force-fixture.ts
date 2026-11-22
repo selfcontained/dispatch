@@ -140,7 +140,13 @@ export async function forceWorld(pool: Pool) {
   let connections = 1;
   let installed = { ...identity };
   let pending: string | undefined;
-  const runner = { incompatible: false, frames: [] as any[] };
+  const runner = {
+    automatic: false,
+    trust: true,
+    holdStaging: false,
+    incompatible: false,
+    frames: [] as any[],
+  };
 
   function host(id: string): Host {
     const existing = hosts.get(id);
@@ -442,6 +448,10 @@ export async function forceWorld(pool: Pool) {
       });
     const service = {
       isRegistered: () => true,
+      automaticUpdates: () => runner.automatic,
+      async setAutomaticUpdates(_id: string, automatic: boolean) {
+        runner.automatic = automatic;
+      },
       connectedRunnerIds: () => (epoch === undefined ? [] : [RUNNER]),
       connectionEpoch: remote.connectionEpoch,
       selfUpdate: () =>
@@ -469,7 +479,8 @@ export async function forceWorld(pool: Pool) {
         return () => (receive = undefined);
       },
       offerUpdate(_runner: string, attemptId: string) {
-        status({ attemptId, phase: "deferred", reason: "ready" });
+        if (!runner.holdStaging)
+          status({ attemptId, phase: "deferred", reason: "ready" });
         return frame({ type: "offer", attemptId });
       },
       fenceUpdate(_runner: string, attemptId: string, retainSessions: boolean) {
@@ -510,8 +521,10 @@ export async function forceWorld(pool: Pool) {
       agents: manager,
       artifacts: () =>
         ({
-          updateEnabled: true,
-          getUpdate: async () => ({ manifest: { sha256: target.sha256 } }),
+          updateEnabled: runner.trust,
+          getUpdate: async () => ({
+            manifest: { sha256: target.sha256, version: build.version },
+          }),
         }) as never,
       build: { version: build.version, revision: build.revision },
       logger,

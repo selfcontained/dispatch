@@ -26,7 +26,7 @@ import { privateStateFile } from "./update-state-file.js";
 import { compareRunnerVersions } from "./update-verify.js";
 
 /*
- * Dispatch's side of an operator-requested runner update. One attempt per
+ * Dispatch's side of a runner update. One attempt per
  * runner:
  *
  *   staging ─ready→ settling ─fence_ready→ switching ─trial→ confirming
@@ -75,6 +75,8 @@ export const UPDATE_TIMING = {
    */
   resumingMs: 25 * 60_000,
   tickMs: 1_000,
+  automaticSettleMs: 15_000,
+  automaticSpacingMs: 5_000,
 } as const;
 
 /** The task-5 hold outlasts every phase it covers. */
@@ -101,6 +103,7 @@ const attemptSchema = z.object({
   /** Absent only for a runner's attempt that Dispatch has no record of. */
   target: targetSchema.optional(),
   retry: z.boolean(),
+  automatic: z.literal(true).optional(),
   /** An operator asked to interrupt rather than wait. Never set otherwise. */
   force: z.literal(true).optional(),
   phase: z.enum([
@@ -157,6 +160,9 @@ const runnerState = z.object({
     .optional(),
   /** A build the runner suppresses until an explicit retry. */
   failed: z.object({ version: z.string(), revision: z.string() }).optional(),
+  automaticBlocked: z
+    .object({ version: z.string(), revision: z.string() })
+    .optional(),
 });
 export type RunnerUpdateRecord = z.infer<typeof runnerState>;
 
@@ -232,6 +238,8 @@ export class RunnerUpdateIneligible extends RunnerRequestError {
 type CoordinatorService = Pick<
   RemoteRunnerService,
   | "activateUpdate"
+  | "automaticUpdates"
+  | "setAutomaticUpdates"
   | "cancelUpdate"
   | "confirmUpdate"
   | "connectedRunnerIds"
@@ -296,6 +304,9 @@ export class RunnerUpdateCoordinator {
   private writes: Promise<void> = Promise.resolve();
   private readonly unsubscribe: Array<() => unknown>;
   private timer?: ReturnType<typeof setInterval>;
+  private nextAutomaticAt = 0;
+  private schedulingAutomatic = false;
+  private readonly checkAutomaticAfter = new Map<string, number>();
   private started = false;
   private closed = false;
   private markStarted!: () => void;
@@ -316,7 +327,10 @@ export class RunnerUpdateCoordinator {
       store: RunnerUpdateStore;
       /** This controller's signed update builds, by architecture. */
       artifacts: () =>
-        | Pick<RunnerArtifactSource, "getUpdate" | "updateEnabled">
+        | Pick<
+            RunnerArtifactSource,
+            "getUpdate" | "updateEnabled" | "updateUnavailable"
+          >
         | undefined;
       /** This controller's own build, the only one it offers or confirms. */
       build: { version: string; revision: string | null };
@@ -366,6 +380,7 @@ export class RunnerUpdateCoordinator {
     }
     if (this.closed) return;
     this.started = true;
+    this.nextAutomaticAt = this.now() + UPDATE_TIMING.automaticSettleMs;
     this.markStarted();
     for (const runnerId of new Set([
       ...this.records.keys(),
@@ -428,7 +443,7 @@ export class RunnerUpdateCoordinator {
           await this.save({
             ...this.records.get(runnerId),
             runnerId,
-            attempt: this.interrupting(attempt),
+            attempt: this.interrupting({ ...attempt, automatic: undefined }),
           });
           this.options.logger.info(
             { runnerId, attemptId: attempt.id },
@@ -458,7 +473,9 @@ export class RunnerUpdateCoordinator {
         // The incompatible fence was released before the waiting phase.
         await this.finish(runnerId, attempt, {
           state: "deferred",
-          reason: "drain_cancelled",
+          reason: attempt.automatic
+            ? "automatic_drain_cancelled"
+            : "drain_cancelled",
         });
         return { attemptId };
       });
@@ -467,8 +484,19 @@ export class RunnerUpdateCoordinator {
     }
   }
 
+  async setAutomatic(runnerId: string, automatic: boolean): Promise<void> {
+    if (!this.started) throw new RunnerUpdateIneligible("not_ready");
+    return this.enqueue(runnerId, async () => {
+      await this.options.service.setAutomaticUpdates(runnerId, automatic);
+      this.checkAutomaticAfter.delete(runnerId);
+      const attempt = this.active(runnerId);
+      if (attempt && !automatic) await this.recheckAutomatic(runnerId, attempt);
+    });
+  }
+
   view(runnerId: string): RunnerUpdateView | undefined {
     const { service, agents, artifacts, build } = this.options;
+    const artifactSource = artifacts();
     const record = this.records.get(runnerId);
     const advert = service.selfUpdate(runnerId)?.advert;
     const attempt = this.active(runnerId);
@@ -510,7 +538,8 @@ export class RunnerUpdateCoordinator {
       advert &&
       build.revision &&
       !advert.pendingAttemptId &&
-      artifacts()?.updateEnabled &&
+      artifactSource?.updateEnabled &&
+      !artifactSource.updateUnavailable?.(advert.arch) &&
       versionOrder(build.version, advert.version) === 1
     )
       view.available = {
@@ -525,8 +554,9 @@ export class RunnerUpdateCoordinator {
   /** One pass over the live attempts: evidence, then deadlines. */
   async tick(): Promise<void> {
     if (!this.started || this.closed) return;
-    await Promise.all(
-      [...this.records.keys()].map(async (runnerId) => {
+    await Promise.all([
+      this.scheduleAutomatic(),
+      ...[...this.records.keys()].map(async (runnerId) => {
         const attempt = this.active(runnerId);
         if (!attempt) return;
         // Beside the pass, which can spend minutes on one launch.
@@ -544,15 +574,79 @@ export class RunnerUpdateCoordinator {
         } finally {
           this.ticking.delete(runnerId);
         }
-      })
-    );
+      }),
+    ]);
+  }
+
+  private async scheduleAutomatic(): Promise<void> {
+    const now = this.now();
+    if (
+      this.schedulingAutomatic ||
+      now < this.nextAutomaticAt ||
+      [...this.records.values()].some(
+        ({ attempt }) => attempt.automatic && !attempt.outcome
+      )
+    )
+      return;
+    this.schedulingAutomatic = true;
+    try {
+      for (const runnerId of this.options.service.connectedRunnerIds()) {
+        if (this.requests.has(runnerId) || this.active(runnerId)) continue;
+        if (now < (this.checkAutomaticAfter.get(runnerId) ?? 0)) continue;
+        try {
+          this.eligible(runnerId, "automatic");
+          await this.open(runnerId, "automatic");
+          this.nextAutomaticAt = this.now() + UPDATE_TIMING.automaticSpacingMs;
+          return;
+        } catch (error) {
+          if (!(error instanceof RunnerUpdateIneligible))
+            this.options.logger.warn(
+              { err: error, runnerId },
+              "Automatic runner offer failed"
+            );
+          // Avoid repeatedly preparing an unavailable artifact. A ready event
+          // or policy change resets this check for just the affected runner.
+          this.checkAutomaticAfter.set(
+            runnerId,
+            now + UPDATE_TIMING.automaticSpacingMs
+          );
+        }
+      }
+    } finally {
+      this.schedulingAutomatic = false;
+    }
+  }
+
+  /** Before activation, abandon automatic work that is no longer wanted. */
+  private async recheckAutomatic(
+    runnerId: string,
+    attempt: Attempt
+  ): Promise<boolean> {
+    if (
+      !attempt.automatic ||
+      attempt.activated ||
+      attempt.phase === "cancelling" ||
+      attempt.phase === "resuming"
+    )
+      return true;
+    const reason = !this.isOwnBuild(attempt.target)
+      ? "dispatch_changed"
+      : !this.options.service.automaticUpdates(runnerId)
+        ? "automatic_disabled"
+        : undefined;
+    if (!reason) return true;
+    // A waiting drain has no fence. Release it even if the runner is offline.
+    if (attempt.phase === "draining")
+      await this.finish(runnerId, attempt, { state: "deferred", reason });
+    else await this.cancel(runnerId, attempt, reason);
+    return false;
   }
 
   // --- Requests ---
 
   private async open(
     runnerId: string,
-    action: RunnerUpdateAction | "force"
+    action: RunnerUpdateAction | "force" | "automatic"
   ): Promise<{ attemptId: string }> {
     const { service, agents, artifacts, build, logger } = this.options;
     if (!service.isRegistered(runnerId))
@@ -560,9 +654,11 @@ export class RunnerUpdateCoordinator {
     if (!this.started) throw new RunnerUpdateIneligible("not_ready");
     const { arch } = this.eligible(runnerId, action).advert;
     let sha256: string;
+    let signedVersion: string;
     try {
       const { manifest } = await artifacts()!.getUpdate(arch);
       sha256 = manifest.sha256;
+      signedVersion = manifest.version;
     } catch (error) {
       logger.warn(
         { err: error, runnerId, arch },
@@ -584,15 +680,26 @@ export class RunnerUpdateCoordinator {
       await agents.settleRunnerHostRecycling(runnerId);
       return await this.enqueue(runnerId, async () => {
         const { advert, epoch } = this.eligible(runnerId, action);
+        if (
+          action === "automatic" &&
+          (!this.isOwnBuild(target) || signedVersion !== build.version)
+        )
+          throw new RunnerUpdateIneligible("no_artifact");
         const attempt: Attempt = {
           id: randomUUID(),
+          ...(action === "automatic" && { automatic: true }),
           target,
           retry: action === "retry",
           ...(action === "force" && { force: true }),
           phase: "staging",
           deadline: this.now() + UPDATE_TIMING.stagingMs,
         };
-        await this.save({ ...this.records.get(runnerId), runnerId, attempt });
+        await this.save({
+          ...this.records.get(runnerId),
+          runnerId,
+          attempt,
+          automaticBlocked: undefined,
+        });
         this.resumed.set(runnerId, epoch);
         this.forgetTrial(runnerId);
         logger.info(
@@ -608,10 +715,19 @@ export class RunnerUpdateCoordinator {
     }
   }
 
-  private eligible(runnerId: string, action: RunnerUpdateAction | "force") {
+  private eligible(
+    runnerId: string,
+    action: RunnerUpdateAction | "force" | "automatic"
+  ) {
     const { service, artifacts, build } = this.options;
     const refuse = (code: IneligibleCode, attemptId?: string) =>
       new RunnerUpdateIneligible(code, attemptId);
+    if (
+      action === "automatic" &&
+      (!service.automaticUpdates(runnerId) ||
+        this.isOwnBuild(this.records.get(runnerId)?.automaticBlocked))
+    )
+      throw refuse("not_ready");
     const running = this.active(runnerId);
     if (running) throw refuse("update_in_progress", running.id);
     if (service.connectionEpoch(runnerId) === undefined)
@@ -621,7 +737,13 @@ export class RunnerUpdateCoordinator {
     const { advert } = live;
     if (advert.pendingAttemptId)
       throw refuse("update_in_progress", advert.pendingAttemptId);
-    if (!build.revision || !artifacts()?.updateEnabled)
+    const artifactSource = artifacts();
+    if (
+      !build.revision ||
+      !artifactSource?.updateEnabled ||
+      (action === "automatic" &&
+        artifactSource.updateUnavailable?.(advert.arch))
+    )
       throw refuse("no_artifact");
     const order = versionOrder(build.version, advert.version);
     if (order === undefined) throw refuse("unsupported");
@@ -647,10 +769,12 @@ export class RunnerUpdateCoordinator {
     }
     if (this.resumed.get(runnerId) === epoch) return;
     this.resumed.set(runnerId, epoch);
+    this.checkAutomaticAfter.delete(runnerId);
     this.forgetTrial(runnerId);
     const advert = service.selfUpdate(runnerId)?.advert;
     const pending = advert?.pendingAttemptId;
     let attempt = this.active(runnerId);
+    if (attempt && !(await this.recheckAutomatic(runnerId, attempt))) return;
 
     if (attempt?.phase === "resuming") {
       if (pending && pending !== attempt.id)
@@ -767,6 +891,8 @@ export class RunnerUpdateCoordinator {
       return;
     const ended = endsUpdateAttempt(status);
     const { target, outcome } = attempt;
+    if (!outcome && !ended && !(await this.recheckAutomatic(runnerId, attempt)))
+      return;
 
     if (status.phase === "confirmed") {
       if (
@@ -896,7 +1022,7 @@ export class RunnerUpdateCoordinator {
     switch (status.reason) {
       case "ready": {
         if (attempt.retained) return;
-        if (phase === "staging" && attempt.force)
+        if (phase === "staging" && attempt.force && !attempt.automatic)
           return this.startInterrupting(runnerId, attempt);
         if (phase === "staging") {
           const settling: Attempt = {
@@ -945,6 +1071,7 @@ export class RunnerUpdateCoordinator {
     const attempt = this.active(runnerId);
     if (!attempt) return;
     const { service } = this.options;
+    if (!(await this.recheckAutomatic(runnerId, attempt))) return;
     if (attempt.phase === "resuming")
       return this.resumeDrain(runnerId, attempt);
     if (!service.isRegistered(runnerId))
@@ -1524,7 +1651,18 @@ export class RunnerUpdateCoordinator {
     this.probes.delete(runnerId);
     if (attempt.drain?.force) this.options.agents.runnerForce.release(runnerId);
     const { target } = attempt;
-    let { confirmed, failed } = this.records.get(runnerId) ?? {};
+    let { confirmed, failed, automaticBlocked } =
+      this.records.get(runnerId) ?? {};
+    if (
+      target &&
+      attempt.automatic &&
+      outcome.state !== "updated" &&
+      outcome.state !== "rolled_back" &&
+      outcome.reason !== "suppressed" &&
+      outcome.reason !== "automatic_disabled" &&
+      outcome.reason !== "dispatch_changed"
+    )
+      automaticBlocked = { version: target.version, revision: target.revision };
     if (outcome.state === "updated" && target) {
       confirmed = {
         attemptId: attempt.id,
@@ -1543,6 +1681,7 @@ export class RunnerUpdateCoordinator {
       attempt: { ...attempt, drain: undefined, outcome },
       ...(confirmed && { confirmed }),
       ...(failed && { failed }),
+      ...(automaticBlocked && { automaticBlocked }),
     });
     this.forgetTrial(runnerId);
     this.options.logger.info(

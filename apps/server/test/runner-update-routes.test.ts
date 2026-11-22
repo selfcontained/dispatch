@@ -18,6 +18,7 @@ const runner = (id: string, status: string) => ({
 
 async function routes() {
   const updates = {
+    setAutomatic: vi.fn(async () => {}),
     request: vi.fn(async () => ({ attemptId: "attempt" })),
     forceUpdate: vi.fn(async () => ({ attemptId: "forced" })),
     view: vi.fn((id: string) =>
@@ -27,6 +28,13 @@ async function routes() {
     ),
   };
   app = Fastify();
+  app.addHook("onRequest", async (request, reply) => {
+    if (
+      request.method === "PATCH" &&
+      request.headers.authorization !== "Bearer test"
+    )
+      return reply.code(401).send();
+  });
   await registerRunnerRoutes(app, {
     runners: {
       list: async () => [
@@ -41,6 +49,24 @@ async function routes() {
 }
 
 describe("runner update routes", () => {
+  it("requires auth and a boolean to change a runner's update policy", async () => {
+    const { app, updates } = await routes();
+    const patch = (payload: object, auth: boolean) =>
+      app.inject({
+        method: "PATCH",
+        url: "/api/v1/runners/capable/update-policy",
+        headers: auth ? { authorization: "Bearer test" } : {},
+        payload,
+      });
+    expect((await patch({ automatic: false }, false)).statusCode).toBe(401);
+    expect((await patch({ automatic: "false" }, true)).statusCode).toBe(400);
+    expect(updates.setAutomatic).not.toHaveBeenCalled();
+    expect((await patch({ automatic: false }, true)).json()).toEqual({
+      automatic: false,
+    });
+    expect(updates.setAutomatic).toHaveBeenCalledWith("capable", false);
+  });
+
   it("returns the attempt", async () => {
     const { app, updates } = await routes();
     const reply = await app.inject({

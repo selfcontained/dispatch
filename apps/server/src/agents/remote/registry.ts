@@ -26,6 +26,7 @@ export type Registration = {
   workspaces: string[];
   managedWorkspace: boolean;
   enrolled: boolean;
+  automaticUpdates: boolean;
   revoked: boolean;
   codeExpiresAt: Date | null;
   health?: RunnerHealth;
@@ -40,6 +41,7 @@ type Row = {
   workspaces: string[];
   managed_workspace: boolean;
   enrolled_at: Date | null;
+  settings?: { automaticUpdates?: boolean };
   revoked_at: Date | null;
   code_expires_at: Date | null;
   health: RunnerHealth | null;
@@ -117,6 +119,7 @@ function registration(row: Row): Registration {
     workspaces: row.workspaces,
     managedWorkspace: row.managed_workspace,
     enrolled: Boolean(row.enrolled_at),
+    automaticUpdates: row.settings?.automaticUpdates !== false,
     revoked: Boolean(row.revoked_at),
     codeExpiresAt: row.code_expires_at,
     health: row.health ?? undefined,
@@ -237,6 +240,16 @@ export class RunnerRegistry {
       [ids]
     );
     return rowCount ?? 0;
+  }
+
+  async setAutomaticUpdates(id: string, automatic: boolean): Promise<boolean> {
+    const result = await this.pool.query(
+      `UPDATE runner_registrations
+          SET settings = jsonb_set(settings, '{automaticUpdates}', to_jsonb($2::boolean))
+        WHERE id = $1 AND revoked_at IS NULL`,
+      [id, automatic]
+    );
+    return result.rowCount === 1;
   }
 
   async active(): Promise<Registration[]> {
@@ -553,6 +566,7 @@ export class RunnerRegistry {
         workspaces: [],
         managedWorkspace: false,
         enrolled: true,
+        automaticUpdates: true,
         revoked: false,
         codeExpiresAt: null,
       };

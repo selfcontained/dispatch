@@ -67,6 +67,23 @@ export async function registerRunnerRoutes(
       };
     });
 
+    app.patch(`${base}/:id/update-policy`, async (request, reply) => {
+      const { id } = request.params as { id: string };
+      const { automatic } = (request.body ?? {}) as { automatic?: unknown };
+      if (typeof automatic !== "boolean")
+        return reply
+          .code(400)
+          .send({ error: "The automatic setting must be a boolean." });
+      if (!deps.updates)
+        return reply.code(404).send({ error: "Runner not found." });
+      try {
+        await deps.updates.setAutomatic(id, automatic);
+        return { automatic };
+      } catch (error) {
+        return fail(reply, error);
+      }
+    });
+
     app.post(`${base}/:id/update`, async (request, reply) => {
       const { id } = request.params as { id: string };
       const { action, attemptId } = (request.body ?? {}) as {

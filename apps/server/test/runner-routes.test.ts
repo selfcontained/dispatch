@@ -157,6 +157,7 @@ describe("runner control API", () => {
           id: body.id,
           name: "lima",
           status: "pending",
+          automaticUpdates: true,
           engineManagement: false,
           githubManagement: false,
           workspaces: [],
