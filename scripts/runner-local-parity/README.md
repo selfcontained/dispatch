@@ -39,6 +39,16 @@ difference. An entry may instead be `{field, main: "<absent>", head, finding}`
 for one field the head adds to a record that many scenarios return. It never
 excuses a changed or missing value.
 
+An intended entry cites an owner decision and has one of three shapes:
+`{scenario, path, main, head, decision}` for one exact difference;
+`{field, decision}` for a field the head adds to records everywhere, with any
+value (it never excuses a changed or missing value); or
+`{consequence, decision}` for a difference computed from the built trees. The
+only consequence is `migrations`: readiness reporting each side's own
+migration count and latest name, read from `apps/server/src/db/migrations`.
+A field-wide entry hides every value of that field, so add one only with an
+owner decision.
+
 ## When it fails
 
 - **Unexpected:** the change altered what local users see. Fix the change.

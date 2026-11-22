@@ -54,27 +54,92 @@ export function validateLedgers({ known, intended }, scenarioNames) {
   for (const id of Object.keys(known.findings))
     if (!known.entries.some((entry) => entry.finding === id))
       problems.push(`known: finding ${id} has no entries left; delete it`);
+  const wide = new Set();
   for (const entry of intended) {
-    check(entry, "intended", ["scenario", "main", "head", "decision"]);
+    const name = label(entry);
+    if (entry.field !== undefined || entry.consequence !== undefined) {
+      // A whole field, or a consequence of the feature: never a place.
+      if (["scenario", "path", "main", "head"].some((key) => key in entry))
+        problems.push(
+          `intended: ${name} may not name a scenario, path, main or head`
+        );
+      if (entry.field !== undefined && entry.consequence !== undefined)
+        problems.push(`intended: ${name} is both a field and a consequence`);
+      if (
+        entry.consequence !== undefined &&
+        !Object.hasOwn(consequences, entry.consequence)
+      )
+        problems.push(`intended: ${name} is not a known consequence`);
+      if (
+        entry.field !== undefined &&
+        (typeof entry.field !== "string" || !entry.field.trim())
+      )
+        problems.push(`intended: ${name} has no field`);
+      if (wide.has(name)) problems.push(`intended: ${name} is listed twice`);
+      wide.add(name);
+    } else check(entry, "intended", ["scenario", "main", "head", "decision"]);
     if (!/^(D[1-6]|Owner \d{4}-\d\d-\d\d):/.test(entry.decision ?? ""))
       problems.push(
-        `intended: ${entry.scenario} must cite an owner decision (D1-D6, or "Owner <date>:")`
+        `intended: ${name} must cite an owner decision (D1-D6, or "Owner <date>:")`
       );
   }
   return problems;
 }
 
-/** Every difference must match one entry exactly, and every entry one difference. */
-export function evaluate(found, { known, intended }, ran, complete = true) {
+/**
+ * Differences that follow from the feature existing, each computed from the
+ * built trees rather than listed. `facts` is what `buildSide` read.
+ */
+const consequences = {
+  // The readiness answer reports each side's own migrations.
+  migrations(item, facts) {
+    const sides = facts?.migrations;
+    if (!sides?.main || !sides?.head) return false;
+    const path = item.path.split(" > ");
+    const key = path.at(-1);
+    if (
+      path.length < 3 ||
+      path.at(-3) !== "database" ||
+      path.at(-2) !== "migrations" ||
+      !["count", "latest"].includes(key)
+    )
+      return false;
+    return (
+      item.main === JSON.stringify(sides.main[key]) &&
+      item.head === JSON.stringify(sides.head[key])
+    );
+  },
+};
+
+const lastSegment = (item) => item.path.split(" > ").at(-1);
+
+/**
+ * Every difference must match one entry, and every entry one difference.
+ * Order: known exact, intended exact, known field, intended field, intended
+ * consequence. `facts` holds what the consequences are computed from.
+ */
+export function evaluate(
+  found,
+  { known, intended },
+  ran,
+  complete = true,
+  facts = {}
+) {
+  const isWide = (entry) =>
+    entry.field !== undefined || entry.consequence !== undefined;
   const index = (entries) =>
     new Map(
       entries
-        .filter((entry) => ran.has(entry.scenario))
+        .filter((entry) => !isWide(entry) && ran.has(entry.scenario))
         .map((entry) => [exact(entry), entry])
     );
   const knownLeft = index(known.entries);
   const intendedLeft = index(intended);
   const fields = known.entries.filter((entry) => entry.field);
+  const intendedFields = intended.filter((entry) => entry.field !== undefined);
+  const intendedConsequences = intended.filter(
+    (entry) => entry.consequence !== undefined
+  );
   const fieldsSeen = new Set();
   const result = { known: [], intended: [], unexpected: [] };
   for (const item of found) {
@@ -90,20 +155,41 @@ export function evaluate(found, { known, intended }, ran, complete = true) {
         (entry) =>
           item.main === entry.main &&
           item.head === entry.head &&
-          item.path.split(" > ").at(-1) === entry.field
+          lastSegment(item) === entry.field
       );
-      if (!field) {
+      if (field) {
+        result.known.push({ ...item, finding: field.finding });
+        fieldsSeen.add(field);
+        continue;
+      }
+      // An intended field excuses only an addition, whatever its value.
+      const intendedField = intendedFields.find(
+        (entry) =>
+          item.main === ABSENT &&
+          item.head !== ABSENT &&
+          lastSegment(item) === entry.field
+      );
+      const consequence =
+        intendedField ??
+        intendedConsequences.find((entry) =>
+          consequences[entry.consequence]?.(item, facts)
+        );
+      if (!consequence) {
         result.unexpected.push(item);
         continue;
       }
-      result.known.push({ ...item, finding: field.finding });
-      fieldsSeen.add(field);
+      result.intended.push({ ...item, decision: consequence.decision });
+      fieldsSeen.add(consequence);
     }
   }
   result.stale = [...knownLeft.values(), ...intendedLeft.values()];
-  // Only a whole run can say that a field entry matches nothing.
+  // Only a whole run can say that a field or consequence matches nothing.
   if (complete)
-    result.stale.push(...fields.filter((entry) => !fieldsSeen.has(entry)));
+    result.stale.push(
+      ...[...fields, ...intendedFields, ...intendedConsequences].filter(
+        (entry) => !fieldsSeen.has(entry)
+      )
+    );
   return result;
 }
 
@@ -142,10 +228,12 @@ export function assertShrinks(previous, next, pinMoved = false) {
     );
 }
 
-export const label = (entry) =>
-  entry.field
-    ? `(every scenario) > ${entry.field}`
-    : `${entry.scenario} > ${entry.path}`;
+export function label(entry) {
+  if (entry.consequence !== undefined)
+    return `(consequence) > ${entry.consequence}`;
+  if (entry.field !== undefined) return `(every scenario) > ${entry.field}`;
+  return `${entry.scenario} > ${entry.path}`;
+}
 
 const git = (args, cwd = root) =>
   execFileSync("git", args, {

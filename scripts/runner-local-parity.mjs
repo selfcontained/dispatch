@@ -253,7 +253,14 @@ async function main() {
       results.flatMap((item) => item.found),
       values.control ? { known: { entries: [] }, intended: [] } : ledgers,
       ran,
-      !filter && !values.control
+      !filter && !values.control,
+      // Each side's own migrations; under --control both sides are the pin.
+      {
+        migrations: {
+          main: built.main.migrations,
+          head: built.head.migrations,
+        },
+      }
     );
     const summary = {
       mode: values.control ? "control" : "parity",

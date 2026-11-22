@@ -254,6 +254,136 @@ test("ledger entries need an owner", () => {
   );
 });
 
+const decision = "Owner 2026-11-22: approved";
+const migrationFacts = (head = { count: 63, latest: "0063_runner" }) => ({
+  migrations: { main: { count: 52, latest: "0052_agent" }, head },
+});
+
+test("an intended field excuses that field added with any value, never a changed one", () => {
+  const wide = { field: "runnerManaged", decision };
+  const run = (found, complete = true) =>
+    evaluate(
+      found,
+      { known: known([]), intended: [wide] },
+      new Set(["sharing"]),
+      complete
+    );
+  const added = {
+    scenario: "sharing",
+    path: "agents > 0 > runnerManaged",
+    main: "<absent>",
+    head: "false",
+  };
+  for (const head of ["false", "true"]) {
+    const result = run([{ ...added, head }]);
+    assert.equal(result.intended.length, 1);
+    assert.equal(result.unexpected.length, 0);
+  }
+  for (const change of [
+    { main: "true" },
+    { main: "false", head: "true" },
+    { main: "false", head: "<absent>" },
+    { path: "agents > 0 > other" },
+  ])
+    assert.equal(run([{ ...added, ...change }]).unexpected.length, 1);
+  assert.equal(run([]).stale.length, 1);
+  assert.equal(run([], false).stale.length, 0);
+});
+
+test("the migrations consequence follows each side's own migrations", () => {
+  const wide = { consequence: "migrations", decision };
+  const run = (found, facts = migrationFacts(), complete = true) =>
+    evaluate(
+      found,
+      { known: known([]), intended: [wide] },
+      new Set(["upgrade"]),
+      complete,
+      facts
+    );
+  const count = {
+    scenario: "upgrade",
+    path: "readiness > body > database > migrations > count",
+    main: "52",
+    head: "63",
+  };
+  const latest = {
+    ...count,
+    path: "readiness > body > database > migrations > latest",
+    main: '"0052_agent"',
+    head: '"0063_runner"',
+  };
+  assert.equal(run([count, latest]).intended.length, 2);
+  // One more migration on the head: the entry follows it unedited.
+  const added = { count: 64, latest: "0064_more" };
+  const grown = run(
+    [
+      { ...count, head: "64" },
+      { ...latest, head: '"0064_more"' },
+    ],
+    migrationFacts(added)
+  );
+  assert.equal(grown.intended.length, 2);
+  assert.equal(grown.unexpected.length, 0);
+  for (const wrong of [
+    { ...count, head: "62" },
+    { ...count, main: "51" },
+    { ...latest, head: '"0062_other"' },
+    { ...count, path: "readiness > body > migrations > count" },
+    { ...count, path: "readiness > body > database > migrations > other" },
+  ])
+    assert.equal(run([wrong]).unexpected.length, 1);
+  // Without the built trees' facts, nothing is excused.
+  assert.equal(run([count], {}).unexpected.length, 1);
+  assert.equal(run([]).stale.length, 1);
+  assert.equal(run([], migrationFacts(), false).stale.length, 0);
+});
+
+test("intended entries have one of three shapes, each with an owner decision", () => {
+  const problems = (intended) =>
+    validateLedgers(
+      { known: { findings: {}, entries: [] }, intended },
+      new Set(["sharing"])
+    ).join("\n");
+  assert.equal(
+    problems([
+      { field: "runnerManaged", decision },
+      { consequence: "migrations", decision },
+      { ...entry, decision },
+    ]),
+    ""
+  );
+  assert.match(problems([{ field: "runnerManaged" }]), /owner decision/);
+  assert.match(problems([{ consequence: "migrations" }]), /owner decision/);
+  assert.match(problems([{ ...entry, finding: undefined }]), /no decision/);
+  for (const key of ["scenario", "path", "main", "head"])
+    assert.match(
+      problems([{ field: "runnerManaged", decision, [key]: "x" }]),
+      /may not name/
+    );
+  assert.match(
+    problems([{ consequence: "migrations", decision, head: "x" }]),
+    /may not name/
+  );
+  assert.match(
+    problems([{ consequence: "schema", decision }]),
+    /not a known consequence/
+  );
+  assert.match(
+    problems([
+      { field: "runnerManaged", decision },
+      { field: "runnerManaged", decision },
+    ]),
+    /listed twice/
+  );
+  assert.match(
+    problems([
+      { consequence: "migrations", decision },
+      { consequence: "migrations", decision },
+    ]),
+    /listed twice/
+  );
+});
+
 test("the checked-in ledgers are valid", () => {
   assert.deepEqual(
     validateLedgers({

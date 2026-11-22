@@ -8,10 +8,6 @@
       "title": "Archive no longer deletes the branch a worktree was switched to",
       "task": "T20"
     },
-    "worktree-status-fields": {
-      "title": "Worktree status gained ownership, owner, borrowers and checkoutState",
-      "task": "T20"
-    },
     "worktree-launch-failure": {
       "title": "A child whose worktree cannot be created ends stopped, not error and blocked, with a different message",
       "task": "T25"
@@ -27,53 +23,9 @@
     "branches-default": {
       "title": "The branch list gained defaultBranch",
       "task": "T17"
-    },
-    "agent-record-field": {
-      "title": "Every local agent record gained runnerManaged",
-      "task": "T07"
-    },
-    "schema-version": {
-      "title": "The signed readiness answer reports the branch's 11 extra migrations. Needs an owner decision to become intended",
-      "task": "T40"
     }
   },
   "entries": [
-    {
-      "field": "borrowers",
-      "main": "<absent>",
-      "head": "[\"<agent:2>\"]",
-      "finding": "worktree-status-fields"
-    },
-    {
-      "field": "borrowers",
-      "main": "<absent>",
-      "head": "[]",
-      "finding": "worktree-status-fields"
-    },
-    {
-      "field": "checkoutState",
-      "main": "<absent>",
-      "head": "\"<checkout-state>\"",
-      "finding": "worktree-status-fields"
-    },
-    {
-      "field": "ownership",
-      "main": "<absent>",
-      "head": "\"external\"",
-      "finding": "worktree-status-fields"
-    },
-    {
-      "field": "ownership",
-      "main": "<absent>",
-      "head": "\"owned\"",
-      "finding": "worktree-status-fields"
-    },
-    {
-      "field": "runnerManaged",
-      "main": "<absent>",
-      "head": "false",
-      "finding": "agent-record-field"
-    },
     {
       "scenario": "session-lifecycle",
       "path": "GET /repo-icon > body",
@@ -185,48 +137,6 @@
       "main": "404",
       "head": "204",
       "finding": "icon-no-content"
-    },
-    {
-      "scenario": "upgrade-protected",
-      "path": "readiness > body > database > migrations > count",
-      "main": "52",
-      "head": "63",
-      "finding": "schema-version"
-    },
-    {
-      "scenario": "upgrade-protected",
-      "path": "readiness > body > database > migrations > latest",
-      "main": "\"0052_agent_name_revision\"",
-      "head": "\"0063_runner_update_policy\"",
-      "finding": "schema-version"
-    },
-    {
-      "scenario": "upgrade-probation-surviving-hosts",
-      "path": "readiness once idle > body > database > migrations > count",
-      "main": "52",
-      "head": "63",
-      "finding": "schema-version"
-    },
-    {
-      "scenario": "upgrade-probation-surviving-hosts",
-      "path": "readiness once idle > body > database > migrations > latest",
-      "main": "\"0052_agent_name_revision\"",
-      "head": "\"0063_runner_update_policy\"",
-      "finding": "schema-version"
-    },
-    {
-      "scenario": "upgrade-abandoned-trial",
-      "path": "readiness > body > database > migrations > count",
-      "main": "52",
-      "head": "63",
-      "finding": "schema-version"
-    },
-    {
-      "scenario": "upgrade-abandoned-trial",
-      "path": "readiness > body > database > migrations > latest",
-      "main": "\"0052_agent_name_revision\"",
-      "head": "\"0063_runner_update_policy\"",
-      "finding": "schema-version"
     }
   ]
 }

@@ -61,12 +61,12 @@ export function report(run) {
   const list = (title, entries) => {
     if (!entries.length) return;
     lines.push("", `## ${title}`, "");
-    for (const entry of entries)
-      lines.push(
-        `- ${label(entry)}`,
-        `  - main: ${entry.main}`,
-        `  - head: ${entry.head}`
-      );
+    for (const entry of entries) {
+      lines.push(`- ${label(entry)}`);
+      // A field or consequence entry has no values of its own.
+      if (entry.main !== undefined) lines.push(`  - main: ${entry.main}`);
+      if (entry.head !== undefined) lines.push(`  - head: ${entry.head}`);
+    }
   };
   list("Unexpected differences", run.unexpected);
   list(

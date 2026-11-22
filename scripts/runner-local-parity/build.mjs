@@ -6,6 +6,7 @@ import {
   existsSync,
   lstatSync,
   mkdirSync,
+  readdirSync,
   readlinkSync,
   rmSync,
   symlinkSync,
@@ -82,7 +83,21 @@ async function exportWorkingTree(directory) {
   }
 }
 
-/** Without `ref`, builds the working tree. Returns the binary and its revision. */
+/** The migrations this tree ships: their count and the last one's name. */
+export function readMigrations(directory) {
+  const names = readdirSync(join(directory, "apps/server/src/db/migrations"))
+    .filter((name) => name.endsWith(".sql"))
+    .sort();
+  return {
+    count: names.length,
+    latest: names.length ? names.at(-1).slice(0, -".sql".length) : null,
+  };
+}
+
+/**
+ * Without `ref`, builds the working tree. Returns the binary, its revision
+ * and its migrations.
+ */
 export async function buildSide({ name, ref, root, signal }) {
   const commit = await resolveCommit(ref ?? "HEAD");
   const directory = join(root, `build-${name}`);
@@ -91,6 +106,7 @@ export async function buildSide({ name, ref, root, signal }) {
   try {
     if (ref) await exportCommit(commit, directory, signal);
     else await exportWorkingTree(directory);
+    const migrations = readMigrations(directory);
 
     // The binary embeds its revision. Point a throwaway repository at this
     // commit, reading objects from the real one and writing nothing to it.
@@ -143,7 +159,7 @@ export async function buildSide({ name, ref, root, signal }) {
       { cwd: directory, signal }
     );
     if (!existsSync(binary)) throw new Error(`No ${name} binary was produced`);
-    return { binary, commit };
+    return { binary, commit, migrations };
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }

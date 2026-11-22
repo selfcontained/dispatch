@@ -1,1 +1,22 @@
-[]
+[
+  {
+    "field": "runnerManaged",
+    "decision": "Owner 2026-11-22: placement on agent records is intended"
+  },
+  {
+    "field": "ownership",
+    "decision": "Owner 2026-11-22: worktree status ownership, borrowers and checkoutState are intended"
+  },
+  {
+    "field": "borrowers",
+    "decision": "Owner 2026-11-22: worktree status ownership, borrowers and checkoutState are intended"
+  },
+  {
+    "field": "checkoutState",
+    "decision": "Owner 2026-11-22: worktree status ownership, borrowers and checkoutState are intended"
+  },
+  {
+    "consequence": "migrations",
+    "decision": "Owner 2026-11-22: the branch's own migrations are a direct consequence of the feature"
+  }
+]
