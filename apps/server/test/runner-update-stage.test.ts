@@ -467,6 +467,26 @@ describe("runner update staging", () => {
     expect(requests).toEqual([]);
   });
 
+  it("names the floor in a refusal and never lowers it for an offer", async () => {
+    const file = path.join(layout.state, "floor.json");
+    const floor = JSON.stringify({ version: "1.4.0", sha256: "a".repeat(64) });
+    await writeFile(file, floor, { mode: 0o600 });
+    await expect(stageRunnerUpdate(instance, options())).rejects.toMatchObject({
+      reason: "downgrade",
+      floorVersion: "1.4.0",
+      message: expect.stringContaining("confirmed floor 1.4.0"),
+    });
+    expect(await readFile(file, "utf8")).toBe(floor);
+    const same = JSON.stringify({ version: "1.3.0", sha256: "a".repeat(64) });
+    await writeFile(file, same);
+    await expect(stageRunnerUpdate(instance, options())).rejects.toMatchObject({
+      reason: "version_conflict",
+      floorVersion: "1.3.0",
+      message: expect.stringContaining("confirmed floor 1.3.0"),
+    });
+    expect(await readFile(file, "utf8")).toBe(same);
+  });
+
   it("treats the installed digest as already installed", async () => {
     const result = await stageRunnerUpdate(
       runnerUpdateInstance({

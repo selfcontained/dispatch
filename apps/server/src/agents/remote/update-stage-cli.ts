@@ -128,6 +128,8 @@ export async function runRunnerUpdateStage(argv: string[]) {
     await recordResult(layout.state, trustedUid, {
       outcome: "refused",
       reason,
+      ...(refused &&
+        error.floorVersion && { floorVersion: error.floorVersion }),
       ...(target && { target }),
     });
     process.exitCode = refused ? STAGE_EXIT.refused : STAGE_EXIT.failed;

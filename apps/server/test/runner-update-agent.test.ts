@@ -130,6 +130,23 @@ describe("runner update agent", () => {
     await vi.waitFor(() => expect(s.last()?.reason).toBe(reason));
   });
 
+  it.each(["downgrade", "version_conflict"])(
+    "reports the floor with a %s refusal, its replay and a fence request",
+    async (reason) => {
+      const s = await setup({
+        report: { outcome: "refused", reason, floorVersion: "1.7.31" },
+      });
+      const refused = { reason: "downgrade", floorVersion: "1.7.31" };
+      await s.receive(offer());
+      await vi.waitFor(() => expect(s.last()).toMatchObject(refused));
+      for (const frame of [offer(), fence()]) {
+        s.sent.length = 0;
+        await s.receive(frame);
+        expect(s.last()).toMatchObject(refused);
+      }
+    }
+  );
+
   it("refuses a probe for another revision", () => {
     expect(
       stageResult(
@@ -668,6 +685,24 @@ describe("staging record", () => {
       outcome: "refused",
       reason: "downgrade",
     });
+    for (const [floorVersion, expected] of [
+      ["1.7.31", { floorVersion: "1.7.31" }],
+      ["latest", {}],
+      [`1.7.${"1".repeat(64)}`, {}],
+    ] as const) {
+      await write({
+        outcome: "refused",
+        reason: "downgrade",
+        floorVersion,
+        target: named,
+        at: new Date(now).toISOString(),
+      });
+      expect(await readStageRecord(layout, target, now, uid)).toEqual({
+        outcome: "refused",
+        reason: "downgrade",
+        ...expected,
+      });
+    }
     await write({
       outcome: "refused",
       reason: "downgrade",

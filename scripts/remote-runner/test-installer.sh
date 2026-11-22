@@ -505,6 +505,47 @@ run install v1.0.0
 [[ $(grep -c '^enable --now ' "$root/systemctl") == 1 ]] || fail
 cp -R "$root/settings" "$root/original-settings"
 
+# An operator downgrade is the only installer path that moves the floor, and
+# only once it has succeeded.
+fixture_root="$root/floor"
+mkdir -p "$fixture_root"
+ln -s "$root/releases" "$fixture_root/releases"
+ln -s "$root/public.pem" "$fixture_root/public.pem"
+run install v1.0.0 x64 --dedicated-user
+run connect https://dispatch.example
+floor="$fixture_root/state/update/floor.json"
+high_floor='{"version":"9.9.9","sha256":"fixture"}'
+expect_floor() {
+  local sha
+  sha=$(sha256sum "$fixture_root/runtime/dispatch")
+  [[ "$(<"$floor")" == "{\"version\":\"$1\",\"sha256\":\"${sha%% *}\"}" ]]
+}
+printf '%s' "$high_floor" > "$floor"
+run update v1.0.0
+[[ "$(<"$floor")" == "$high_floor" ]] || fail
+run update v1.0.0 x64 --allow-downgrade > "$fixture_root/out"
+expect_floor 1.0.0 || fail
+[[ $(grep -Fxc 'Self-update version floor set to v1.0.0 (--allow-downgrade).' "$fixture_root/out") -eq 1 ]] || fail
+[[ -n "$(find "$floor" -perm 0600 -print)" ]] || fail
+printf '%s' "$high_floor" > "$floor"
+touch "$fixture_root/reject-new"
+expect_status 1 update v1.0.1 x64 --allow-downgrade
+[[ "$(<"$floor")" == "$high_floor" ]] || fail
+rm "$fixture_root/reject-new"
+run update v1.0.1
+[[ "$(<"$floor")" == "$high_floor" ]] || fail
+run apply v1.0.0 x64 --allow-downgrade
+expect_floor 1.0.0 || fail
+[[ -z "$(find "$fixture_root/state/update" -name '.floor.*' -print)" ]] || fail
+# Uninstall retains the floor, so a later install can also need the authority.
+printf '%s' "$high_floor" > "$floor"
+run uninstall unused
+run install v1.0.0
+[[ "$(<"$floor")" == "$high_floor" ]] || fail
+run install v1.0.0 x64 --allow-downgrade
+expect_floor 1.0.0 || fail
+unset fixture_root
+
 # Start a phase-2 layout. The new supervisor's first start must see both
 # loaded update units and the helper. A failed start restores the old layout.
 fixture_root="$root/phase-two"

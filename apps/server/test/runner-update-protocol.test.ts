@@ -196,6 +196,18 @@ describe("update_status", () => {
     expect(parsed).toEqual(status);
   });
 
+  it("carries the floor only on a downgrade refusal", () => {
+    const refused = { ...status, reason: "downgrade", floorVersion: "1.7.31" };
+    expect(parseUpdateStatus(refused)).toEqual(refused);
+    for (const change of [
+      { reason: "ready" },
+      { floorVersion: "latest" },
+      { floorVersion: null },
+      { floorVersion: `1.${"0".repeat(64)}` },
+    ])
+      expect(parseUpdateStatus({ ...refused, ...change })).toBeNull();
+  });
+
   it("bounds the retained inventory", () => {
     const retained = Array.from({ length: MAX_UPDATE_RETAINED }, (_, n) => ({
       sessionId: `agt_${n}`,

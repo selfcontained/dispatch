@@ -62,14 +62,20 @@ export type RunnerUpdateRefusal =
 export class RunnerUpdateRefused extends Error {
   constructor(
     readonly reason: RunnerUpdateRefusal,
-    message: string
+    message: string,
+    /** The confirmed floor, when a version check refused the request. */
+    readonly floorVersion?: string
   ) {
     super(message);
   }
 }
 
-function refuse(reason: RunnerUpdateRefusal, message: string): never {
-  throw new RunnerUpdateRefused(reason, message);
+function refuse(
+  reason: RunnerUpdateRefusal,
+  message: string,
+  floorVersion?: string
+): never {
+  throw new RunnerUpdateRefused(reason, message, floorVersion);
 }
 
 export function runnerUpdateInstance(request: RunnerUpdateRequest) {
@@ -310,7 +316,8 @@ export async function syncDirectory(directory: string) {
 
 /**
  * The lowest version this runner may run. Kept by the updater alone and
- * seeded from the installed build; the controller cannot lower it.
+ * seeded from the installed build; the controller cannot lower it. Only an
+ * operator's manual install with --allow-downgrade resets it.
  */
 export async function confirmedFloor(
   layout: RunnerUpdateLayout,
@@ -550,17 +557,20 @@ export async function stageRunnerUpdate(
     await pruneStaging(layout);
     return { outcome: "already_installed", target: request };
   }
+  const versions = `installed ${installed.version}, confirmed floor ${floor.version}`;
   for (const known of [installed, floor]) {
     const order = compareRunnerVersions(request.version, known.version);
     if (order < 0)
       refuse(
         "downgrade",
-        `Refusing ${request.version}: below ${known.version}`
+        `Refusing ${request.version}: below ${known.version} (${versions})`,
+        floor.version
       );
     if (order === 0 && known.sha256 !== request.sha256)
       refuse(
         "version_conflict",
-        `Refusing a different build of version ${request.version}`
+        `Refusing a different build of version ${request.version} (${versions})`,
+        floor.version
       );
   }
 

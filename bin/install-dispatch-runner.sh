@@ -13,6 +13,7 @@ Usage:
   install-dispatch-runner.sh uninstall
 
 Add --allow-downgrade to install or update to permit replacing a newer runner.
+It also sets the self-update version floor to the installed release.
 
 SOURCE takes the release from a Dispatch controller instead of GitHub:
   --source URL [--cacert FILE]
@@ -470,6 +471,7 @@ install_runner() {
     ln -s "$runtime/runner-cli" "$command_path"
   fi
   systemctl daemon-reload
+  if [[ "${allow_downgrade:-0}" == 1 ]]; then set_update_floor; fi
   printf 'Runner installed. Use the connect command from Dispatch Settings to enroll.\n'
 }
 
@@ -660,6 +662,19 @@ assert_no_update_fence() {
     error "A runner update fence or trial is in progress"
 }
 
+# Only the operator's --allow-downgrade reaches this. Self-update has no path
+# that lowers the floor.
+set_update_floor() {
+  local sha record
+  sha=$(sha256sum "$runtime/dispatch")
+  record=$(mktemp "$state/update/.floor.XXXXXX")
+  printf '{"version":"%s","sha256":"%s"}\n' "${tag#v}" "${sha%% *}" > "$record"
+  sync -f "$record"
+  mv -fT "$record" "$state/update/floor.json"
+  sync -f "$state/update"
+  printf 'Self-update version floor set to %s (--allow-downgrade).\n' "$tag"
+}
+
 clear_unreadable_update_fence() {
   chmod 0700 "$stage/dispatch"
   "$stage/dispatch" runner-update-trial clear-unreadable-fence
@@ -712,6 +727,7 @@ update_runner() {
     install_update_unit
     install_managed_tools
     systemctl daemon-reload
+    if [[ "${allow_downgrade:-0}" == 1 ]]; then set_update_floor; fi
     printf 'Runner already has the requested release.\n'
     return
   fi
@@ -766,6 +782,9 @@ update_runner() {
   if [[ ! "$runtime/previous" -ef "$runtime/previous-verified" ]]; then
     mv -fT "$runtime/previous" "$runtime/previous-verified"
   fi
+  # The recovery record outlives this write, so an interrupted downgrade is
+  # redone by running the same command again.
+  if [[ "${allow_downgrade:-0}" == 1 ]]; then set_update_floor; fi
   rm -f -- "$runtime/previous" "$runtime/previous-handoff.py" "$runtime/previous-active"
   rm -rf -- "$runtime/previous-units"
   sync -f "$runtime"

@@ -171,6 +171,20 @@ An active turn, an unrelated runner operation, an incompatible release, or a
 custom stop policy that could terminate agents defers the update with exit 75.
 Retry after the reported activity finishes.
 
+A manual install or update never lowers the self-update version floor unless
+you pass `--allow-downgrade`. With that flag, a successful run sets the floor
+to the installed release and prints the new floor, also when the release was
+already installed. Use it when the runner refuses controller updates as
+`downgrade` after a manual downgrade:
+
+```sh
+curl … | sudo bash -s -- --allow-downgrade
+```
+
+The controller cannot lower the floor. A refused update reports the floor as
+`floorVersion` in its status and in `last-stage.json`, and names it in the
+staging unit's journal.
+
 The updater retains the previous executable through startup and restores it
 if the replacement fails to start. Settings shows **Online** after reconnection.
 Enrollment, settings, workspace bindings, and managed checkouts are retained.

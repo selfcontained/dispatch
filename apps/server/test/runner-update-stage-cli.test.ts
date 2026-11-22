@@ -5,7 +5,9 @@ import { expect, it, vi } from "vitest";
 import { runRunnerUpdateStage } from "../src/agents/remote/update-stage-cli.js";
 import { probeStagedRunner } from "../src/agents/remote/update-probe.js";
 import {
+  parseRunnerUpdateInstance,
   RUNNER_UPDATE_LAYOUT,
+  RunnerUpdateRefused,
   stageRunnerUpdate,
 } from "../src/agents/remote/update-verify.js";
 
@@ -51,6 +53,39 @@ it("records and logs a probe failure without refusing the staged candidate", asy
     expect(
       JSON.parse(await readFile(path.join(state, "last-stage.json"), "utf8"))
     ).toMatchObject(expected);
+  } finally {
+    process.exitCode = exitCode;
+    vi.unstubAllEnvs();
+    vi.restoreAllMocks();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+it("records and logs the floor with a downgrade refusal", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "runner-stage-cli-"));
+  const state = path.join(root, RUNNER_UPDATE_LAYOUT.state);
+  vi.stubEnv("DISPATCH_RUNNER_UPDATE_TEST_ROOT", root);
+  const log = vi.spyOn(console, "error").mockImplementation(() => {});
+  const exitCode = process.exitCode;
+  const instance = `1.7.29_linux_x64_${"a".repeat(64)}`;
+  const message = "Refusing 1.7.29: below 1.7.31";
+  vi.mocked(stageRunnerUpdate).mockRejectedValue(
+    new RunnerUpdateRefused("downgrade", message, "1.7.31")
+  );
+  try {
+    await mkdir(state, { recursive: true, mode: 0o700 });
+    await runRunnerUpdateStage([instance]);
+    expect(log).toHaveBeenCalledWith(
+      `Runner update staging refused (downgrade): ${message}`
+    );
+    expect(
+      JSON.parse(await readFile(path.join(state, "last-stage.json"), "utf8"))
+    ).toMatchObject({
+      outcome: "refused",
+      reason: "downgrade",
+      floorVersion: "1.7.31",
+      target: parseRunnerUpdateInstance(instance),
+    });
   } finally {
     process.exitCode = exitCode;
     vi.unstubAllEnvs();

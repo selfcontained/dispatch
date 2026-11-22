@@ -316,6 +316,21 @@ describe.each(["sh", "bash", "dash"])(
       );
     });
 
+    it("leaves downgrade authority to the operator", async () => {
+      for (const script of [
+        runnerInstallScript(release),
+        runnerInstallScript({ ...release, dev }),
+      ]) {
+        const { code, log } = await pipe(
+          script,
+          ["--allow-unverified-dev-build"],
+          { shell }
+        );
+        expect(code).toBe(0);
+        expect(log.at(-1)).not.toContain("--allow-downgrade");
+      }
+    });
+
     it("passes fence recovery through the copied command's install", async () => {
       const script = runnerInstallScript(release);
       expect(script).toContain("[--clear-unreadable-fence]");

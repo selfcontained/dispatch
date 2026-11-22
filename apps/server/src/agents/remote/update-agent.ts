@@ -58,7 +58,7 @@ export type StageReport =
       compatibility: RunnerCompatibility | null;
     }
   | { outcome: "already_installed" }
-  | { outcome: "refused"; reason: string };
+  | { outcome: "refused"; reason: string; floorVersion?: string };
 
 /**
  * Staging and activation run in separate fixed systemd units. The durable
@@ -114,6 +114,7 @@ export type HandoffInventory = {
 type StageResult = {
   reason: RunnerUpdateReason;
   compatibility: RunnerCompatibility | null;
+  floorVersion?: string;
 };
 
 type Attempt = {
@@ -150,12 +151,12 @@ export function stageResult(
     case "already_installed":
       return { reason: "ready", compatibility: null };
     case "refused":
+      if (report.reason !== "downgrade" && report.reason !== "version_conflict")
+        return { reason: "verify_failed", compatibility: null };
       return {
-        reason:
-          report.reason === "downgrade" || report.reason === "version_conflict"
-            ? "downgrade"
-            : "verify_failed",
+        reason: "downgrade",
         compatibility: null,
+        ...(report.floorVersion && { floorVersion: report.floorVersion }),
       };
   }
 }
@@ -194,6 +195,7 @@ export function createRunnerUpdateAgent(options: {
     phase: RunnerUpdatePhase,
     extra: {
       reason?: RunnerUpdateReason;
+      floorVersion?: string;
       retained?: RetainedSession[];
       requiresQuiescence?: boolean;
     } = {}
@@ -206,6 +208,11 @@ export function createRunnerUpdateAgent(options: {
       installed: installed(),
     });
   }
+  const stageStatus = (attemptId: string, result?: StageResult) =>
+    status(attemptId, "deferred", {
+      reason: result?.reason ?? "staging",
+      ...(result?.floorVersion && { floorVersion: result.floorVersion }),
+    });
   const unknown = (attemptId: string) =>
     status(attemptId, "deferred", { reason: "cancelled" });
 
@@ -343,9 +350,7 @@ export function createRunnerUpdateAgent(options: {
         current.result = stageResult(report, current.target);
         // A persisted fence for this attempt reports through the fence.
         if (admission.current?.attemptId === current.attemptId) return;
-        status(current.attemptId, "deferred", {
-          reason: current.result.reason,
-        });
+        stageStatus(current.attemptId, current.result);
       });
   }
 
@@ -394,9 +399,7 @@ export function createRunnerUpdateAgent(options: {
     if (attempt?.attemptId === frame.attemptId) {
       if (!sameTarget(attempt.target, frame.target))
         return unknown(frame.attemptId);
-      return status(frame.attemptId, "deferred", {
-        reason: attempt.result?.reason ?? "staging",
-      });
+      return stageStatus(frame.attemptId, attempt.result);
     }
     if (frame.target.arch !== identity!.arch)
       return status(frame.attemptId, "deferred", { reason: "verify_failed" });
@@ -483,9 +486,7 @@ export function createRunnerUpdateAgent(options: {
     if (admission.unreadable || attempt?.attemptId !== frame.attemptId)
       return unknown(frame.attemptId);
     if (attempt.result?.reason !== "ready")
-      return status(frame.attemptId, "deferred", {
-        reason: attempt.result?.reason ?? "staging",
-      });
+      return stageStatus(frame.attemptId, attempt.result);
     const draining = admission.fence({
       format: 1,
       attemptId: attempt.attemptId,
@@ -785,11 +786,17 @@ export async function readStageRecord(
     }
     case "already_installed":
       return { outcome: "already_installed" };
-    case "refused":
+    case "refused": {
+      const floor = record.floorVersion;
       return {
         outcome: "refused",
         reason: typeof record.reason === "string" ? record.reason : "failed",
+        // The protocol bounds a version to 64 characters.
+        ...(typeof floor === "string" &&
+          floor.length <= 64 &&
+          RUNNER_UPDATE_VERSION.test(floor) && { floorVersion: floor }),
       };
+    }
     default:
       return null;
   }

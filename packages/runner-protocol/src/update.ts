@@ -127,6 +127,8 @@ export type UpdateStatusFrame = {
   attemptId: string;
   phase: RunnerUpdatePhase;
   reason?: RunnerUpdateReason;
+  /** The runner's confirmed floor. Only with reason `downgrade`. */
+  floorVersion?: string;
   installed: RunnerInstalledBuild;
   retained?: RetainedSession[];
   requiresQuiescence?: boolean;
@@ -314,6 +316,8 @@ export function parseUpdateStatus(value: unknown): UpdateStatusFrame | null {
     ) ||
     (value.reason !== undefined &&
       !RUNNER_UPDATE_REASONS.includes(value.reason as RunnerUpdateReason)) ||
+    (value.floorVersion !== undefined &&
+      (value.reason !== "downgrade" || !isVersion(value.floorVersion))) ||
     (value.requiresQuiescence !== undefined &&
       typeof value.requiresQuiescence !== "boolean")
   )
@@ -332,6 +336,9 @@ export function parseUpdateStatus(value: unknown): UpdateStatusFrame | null {
     phase: value.phase,
     ...(value.reason !== undefined && {
       reason: value.reason as RunnerUpdateReason,
+    }),
+    ...(value.floorVersion !== undefined && {
+      floorVersion: value.floorVersion as string,
     }),
     installed,
     ...(retained && { retained }),
