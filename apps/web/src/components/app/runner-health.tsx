@@ -85,6 +85,15 @@ export function sameRevision(a: string, b: string) {
   return short!.length >= 7 && long!.startsWith(short!);
 }
 
+/** Dispatch is updating this runner, can, or already shows the command. */
+function updatesItself({ update }: Runner) {
+  return Boolean(
+    update?.attempt ||
+    update?.available ||
+    update?.result?.state === "needs_idle"
+  );
+}
+
 export function RunnerHealthDetails({ runner }: { runner: Runner }) {
   const { health, healthReceivedAt } = runner;
   const [open, setOpen] = useState(false);
@@ -198,7 +207,7 @@ export function RunnerHealthDetails({ runner }: { runner: Runner }) {
           />
         </div>
       )}
-      {updateAvailable && target.command && (
+      {updateAvailable && target.command && !updatesItself(runner) && (
         <div className="mt-3 text-xs">
           <RunnerCommand value={target.command} label="Update" />
         </div>

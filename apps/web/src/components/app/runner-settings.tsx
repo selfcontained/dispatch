@@ -36,6 +36,7 @@ import { cn } from "@/lib/utils";
 import { RunnerGitHubAccount } from "./runner-github-account";
 import { isRunnerHealthFresh, RunnerHealthDetails } from "./runner-health";
 import { RunnerOnboarding, RunnerPairingRequests } from "./runner-onboarding";
+import { RunnerUpdateStatus } from "./runner-update";
 
 const STATUS_LABEL: Record<RunnerStatus, string> = {
   pending: "Waiting to pair",
@@ -408,6 +409,7 @@ function RunnerDetail({
       </section>
 
       <div className="space-y-2 py-4">
+        <RunnerUpdateStatus runner={runner} />
         <RunnerHealthDetails runner={runner} />
         {runner.workspaces.length > 0 && !runner.managedWorkspace && (
           <p className="break-words text-xs text-muted-foreground">

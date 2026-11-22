@@ -20,7 +20,10 @@ import type { Runner } from "@/hooks/use-runners";
 import { api } from "@/lib/api";
 import { RunnerSettings } from "./runner-settings";
 
-vi.mock("@/lib/api", () => ({ api: vi.fn() }));
+vi.mock("@/lib/api", () => ({
+  api: vi.fn(),
+  ApiError: class extends Error {},
+}));
 vi.mock("./runner-github-account", () => ({
   RunnerGitHubAccount: ({ runner }: { runner: Runner }) => (
     <p>GitHub for {runner.name}</p>
@@ -403,4 +406,43 @@ it("clears the displayed revoked runners and shows the empty roster", async () =
   expect(
     screen.queryByRole("button", { name: "Clear revoked runners" })
   ).toBeNull();
+});
+
+it("polls faster while a selected runner updates and offers the action in its detail", async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  try {
+    let reads = 0;
+    vi.mocked(api).mockImplementation(async (path) => {
+      if (path !== "/api/runners") return {} as never;
+      reads++;
+      return {
+        runners: [
+          reads === 1
+            ? {
+                ...online,
+                engineManagement: false,
+                update: { attempt: { id: "a", phase: "staging" } },
+              }
+            : {
+                ...online,
+                engineManagement: false,
+                update: { available: { version: "1.8.0", action: "update" } },
+              },
+        ],
+      } as never;
+    });
+    renderSettings("/settings/runners?runner=build");
+    expect(await screen.findByText("Runner update in progress")).toBeTruthy();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2_100);
+    });
+    expect(await screen.findByTestId("runner-update-build")).toBeTruthy();
+    const readsAfterUpdate = reads;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2_100);
+    });
+    expect(reads).toBe(readsAfterUpdate);
+  } finally {
+    vi.useRealTimers();
+  }
 });

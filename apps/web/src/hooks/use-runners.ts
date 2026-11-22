@@ -1,4 +1,5 @@
 import { type RunnerHealth, workspaceLocator } from "@dispatch/runner-protocol";
+import type { RunnerUpdateAction, RunnerUpdateView } from "@dispatch/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api } from "@/lib/api";
@@ -17,6 +18,7 @@ export type Runner = {
   repositoryPicker?: boolean;
   health?: RunnerHealth;
   healthReceivedAt?: string;
+  update?: RunnerUpdateView;
 };
 
 export type RunnerPairing = { id: string; command: string; expiresAt: string };
@@ -44,7 +46,13 @@ export function useRunners(
             : "/api/runners"
         )
       ).runners,
-    refetchInterval: options.poll ? 5000 : false,
+    refetchInterval: (query) => {
+      if (!options.poll) return false;
+      // An update's phases last seconds.
+      return query.state.data?.some((runner) => runner.update?.attempt)
+        ? 2000
+        : 5000;
+    },
   });
 }
 
@@ -56,6 +64,20 @@ export function useRunnerName(runnerId: string | undefined) {
   return runnerId
     ? (data?.find((runner) => runner.id === runnerId)?.name ?? "Remote runner")
     : undefined;
+}
+
+export function useStartRunnerUpdate(runnerId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (action: RunnerUpdateAction) =>
+      api<{ attemptId: string }>(
+        `/api/v1/runners/${encodeURIComponent(runnerId)}/update`,
+        { method: "POST", body: JSON.stringify({ action }) }
+      ),
+    // A refusal also means the runner's state moved on.
+    onSettled: () =>
+      queryClient.invalidateQueries({ queryKey: runnersQueryKey }),
+  });
 }
 
 export function useRunnerMutations() {
