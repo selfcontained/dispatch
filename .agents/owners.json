@@ -328,6 +328,7 @@
         "apps/web/eslint.config.js",
         "apps/web/tailwind.config.ts",
         "apps/web/package.json",
+        "docs/design-system.md",
         "e2e/settings.spec.ts",
         "e2e/changes-virtualization.spec.ts",
         "e2e/sidebar-pins.spec.ts",
