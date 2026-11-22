@@ -437,15 +437,15 @@ describe("confirmation evidence", () => {
     expect(world.sent("update_confirm")).toEqual([]);
   });
 
-  it("forgets the trial report of an earlier connection", async () => {
+  it("needs a trial report on this connection, however good the attach", async () => {
     await online();
     const attemptId = await confirming();
     await world.disconnect();
     // The next supervisor has not reached the trial yet.
     world.runner.trial = { ...world.runner.trial!, phase: "starting" } as never;
-    world.hosts.reply = "ready";
+    world.agents.isRunnerSessionAttached = () => true;
     await world.connect();
-    await world.settle(1_500);
+    await world.settle(300);
     expect(world.sent("update_confirm")).toEqual([]);
     expect(world.attempt()?.id).toBe(attemptId);
   });
@@ -935,7 +935,8 @@ describe("Dispatch restarts", () => {
     // No fence on the runner any more, and the new report is still to come.
     world.runner.fence.record = null;
     world.runner.staging = new Promise(() => {});
-    world.hosts.reply = "ready";
+    // Good evidence alone must not switch on the old report.
+    world.agents.isRunnerSessionAttached = () => true;
     await world.restartRunner();
     await world.settle(300);
     expect(world.sent("update_activate")).toEqual([]);
@@ -1077,6 +1078,20 @@ describe("runner reconnects", () => {
     );
   });
 
+  it("replaces a hold left by another attempt with its own", async () => {
+    await online();
+    const attemptId = await confirming();
+    const [hold] = world.saved.holds.holds;
+    world.saved.holds.holds = [
+      { ...hold!, attemptId: "7f1c1d1e-2a3b-4c5d-8e9f-0a1b2c3d4e5f" },
+    ];
+    await world.restartController();
+    await world.connect();
+    await world.until(
+      () => world.holds.current(RUNNER)?.attemptId === attemptId
+    );
+  });
+
   it("holds and cancels a pending attempt it has no record of", async () => {
     await online();
     const attemptId = await confirming();
@@ -1101,6 +1116,20 @@ describe("runner reconnects", () => {
       "pendingAttemptId"
     );
     expect(world.sent("update_confirm")).toEqual([]);
+  });
+
+  it("holds a pending attempt until the runner answers the cancel", async () => {
+    await online();
+    const attemptId = await confirming();
+    world.saved.records = [];
+    world.saved.holds = { holds: [], resuming: [] };
+    await world.restartController();
+    world.service.cancelUpdate = () => ({ epoch: 1 });
+    await world.connect();
+    await world.until(() => world.phase() === "cancelling");
+    await world.until(
+      () => world.holds.current(RUNNER)?.attemptId === attemptId
+    );
   });
 
   it("adopts a commit of an attempt it has no record of", async () => {
