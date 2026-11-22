@@ -45,7 +45,9 @@ const COLS = 32;
 const ROWS = 4;
 const SLOTS = COLS * ROWS;
 const CELL_GAP = 2;
-const CELL_SIZE = `max(0px, calc(100cqw / ${COLS} - ${CELL_GAP}px))`;
+const MAX_CELL_SIZE = 7.5;
+const ROW_PITCH = MAX_CELL_SIZE + CELL_GAP;
+const CELL_SIZE = `clamp(0px, calc(100cqw / ${COLS} - ${CELL_GAP}px), ${MAX_CELL_SIZE}px)`;
 
 /** Small seeded PRNG: random per turn, stable while that turn runs. */
 function rng(seed: number): () => number {
@@ -238,20 +240,21 @@ export function sequenceCategories(
   return out;
 }
 
-/** Both axes use the same pitch, measured against the grid's width. */
+/** Measure columns against the grid width and keep row spacing independent. */
 export function place(slot: number): string {
   const x = slot % COLS;
   const y = Math.floor(slot / COLS);
-  return `translate(calc(${x} * 100cqw / ${COLS}), calc(${y} * 100cqw / ${COLS}))`;
+  return `translate(calc(${x} * 100cqw / ${COLS}), ${y * ROW_PITCH}px)`;
 }
 const tint = (color: string, alpha: number) =>
   `color-mix(in srgb, ${color} ${alpha}%, transparent)`;
 
-// Each mask tile matches one square grid pitch, including its right/bottom gap.
-const slotMask = `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100%25' height='100%25'%3E%3Crect style='width:calc(100%25 - ${CELL_GAP}px);height:calc(100%25 - ${CELL_GAP}px)' rx='1.5'/%3E%3C/svg%3E")`;
+// Center each empty square in its column, just like the moving cells.
+const slotSize = `clamp(0px, calc(100vw - ${CELL_GAP}px), ${MAX_CELL_SIZE}px)`;
+const slotMask = `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100%25' height='100%25'%3E%3Crect style='x:calc((100%25 - ${slotSize}) / 2);width:${slotSize};height:${slotSize}' rx='1.5'/%3E%3C/svg%3E")`;
 const slotStyle: CSSProperties = {
   maskImage: slotMask,
-  maskSize: `${100 / COLS}% ${100 / ROWS}%`,
+  maskSize: `${100 / COLS}% ${ROW_PITCH}px`,
   maskRepeat: "repeat",
 };
 
@@ -490,8 +493,8 @@ export function ResponsePlaceholderVisual({
       .map((cell) => ({ cell, rect: cell.getBoundingClientRect() }));
     const hit = candidates.find(
       ({ rect }) =>
-        event.clientX >= rect.left - CELL_GAP / 2 &&
-        event.clientX < rect.right + CELL_GAP / 2 &&
+        event.clientX >= rect.left &&
+        event.clientX < rect.right &&
         event.clientY >= rect.top - CELL_GAP / 2 &&
         event.clientY < rect.bottom + CELL_GAP / 2
     );
@@ -522,7 +525,7 @@ export function ResponsePlaceholderVisual({
     <div
       data-glow={glow}
       data-testid="chat-response-placeholder"
-      className={`dispatch-placeholder ${quiet ? "" : "dispatch-placeholder-chase"} relative mt-3 w-full max-w-[326px] rounded-lg border border-border/60 bg-muted/10 overflow-clip px-2.5 py-2 ${reducedCells ? "dispatch-defrag-reduced" : ""}`}
+      className={`dispatch-placeholder ${quiet ? "" : "dispatch-placeholder-chase"} relative mt-3 w-full max-w-md rounded-lg border border-border/60 bg-muted/10 overflow-clip px-2.5 py-2 ${reducedCells ? "dispatch-defrag-reduced" : ""}`}
     >
       {/* The status region holds only the picture; the peek control sits
           beside it, so its changing count is never announced. */}
@@ -548,8 +551,8 @@ export function ResponsePlaceholderVisual({
             role="status"
             aria-label={statusLabel}
             className="relative w-full"
-            // The container `place()` measures both axes against.
-            style={{ aspectRatio: COLS / ROWS, containerType: "inline-size" }}
+            // The container `place()` measures columns against.
+            style={{ height: ROWS * ROW_PITCH, containerType: "inline-size" }}
           >
             <TooltipTrigger asChild>
               <span
@@ -592,8 +595,8 @@ export function ResponsePlaceholderVisual({
                             "--neon-color": c.category
                               ? ACTIVITY_COLORS[c.category]
                               : undefined,
-                            width: CELL_SIZE,
-                            height: CELL_SIZE,
+                            width: `${100 / COLS}%`,
+                            height: MAX_CELL_SIZE,
                             transform: place(c.slot),
                             // The newest block lights where it is first, then travels.
                             transitionDelay: latest ? "450ms" : "0ms",
@@ -613,8 +616,10 @@ export function ResponsePlaceholderVisual({
                           data-neon-swatch={
                             c.category || packed ? "" : undefined
                           }
-                          className={`block h-full rounded-[1.5px] transition-[background-color] duration-500 motion-reduce:transition-none ${piece && arrivalKeys?.has(piece.key) ? "dispatch-defrag-ack" : ""}`}
+                          className={`mx-auto block rounded-[1.5px] transition-[background-color] duration-500 motion-reduce:transition-none ${piece && arrivalKeys?.has(piece.key) ? "dispatch-defrag-ack" : ""}`}
                           style={{
+                            width: CELL_SIZE,
+                            height: CELL_SIZE,
                             background: c.category
                               ? tint(
                                   ACTIVITY_COLORS[c.category],

@@ -589,20 +589,20 @@ function tooltipFixture(compaction = false, reduced = false) {
   view.container
     .querySelectorAll<HTMLElement>("[data-defrag-cell]")
     .forEach((cell, i) => {
-      vi.spyOn(cell, "getBoundingClientRect").mockReturnValue(rect(i * 7, 5));
+      vi.spyOn(cell, "getBoundingClientRect").mockReturnValue(rect(i * 7, 7));
     });
   return { ...view, grid };
 }
 
 it("hovers the whole colour run including gaps, centers its category and hides on muted cells", async () => {
   const view = tooltipFixture();
-  fireEvent.pointerMove(view.grid, { clientX: 12.5, clientY: 15.5 });
+  fireEvent.pointerMove(view.grid, { clientX: 11.5, clientY: 15.5 });
   expect((await view.findByRole("tooltip")).textContent).toBe("Reading files");
   expect(
     view.container
       .querySelector("[aria-hidden=true][data-state]")
       ?.getAttribute("style")
-  ).toContain("width: 12px");
+  ).toContain("width: 14px");
   expect(view.container.querySelector("[title]")).toBeNull();
   fireEvent.pointerMove(view.grid, { clientX: 17, clientY: 12 });
   expect(view.queryByRole("tooltip")).toBeNull();
@@ -667,12 +667,12 @@ it("moves blocks to offsets measured against the grid, not the block's own box",
   expect(grid.style.containerType).toBe("inline-size");
   const cells = [...grid.querySelectorAll<HTMLElement>("[data-defrag-cell]")];
   const tile = grid.querySelector<HTMLElement>("[style*='mask-size']")!;
-  expect(tile.style.maskSize).toBe("3.125% 25%");
+  expect(tile.style.maskSize).toBe("3.125% 9.5px");
   expect(cells.length).toBeGreaterThan(0);
   for (const cell of cells) {
     // A 32-column grid and an 8px row pitch match the repeated background.
     expect(cell.style.transform).toMatch(
-      /^translate\(calc\(\d+ \* 100cqw \/ 32\), calc\([0-3] \* 100cqw \/ 32\)\)$/
+      /^translate\(calc\(\d+ \* 100cqw \/ 32\), (0|9\.5|19|28\.5)px\)$/
     );
   }
 });
