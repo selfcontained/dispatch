@@ -41,11 +41,10 @@ import {
 import { AgentsViewDialogs } from "@/components/app/agents-view-dialogs";
 import { Drawer, DrawerContent, DrawerFrame } from "@/components/app/drawer";
 import { drawerPinnedReserve } from "@/components/app/drawer-constants";
-import { ThreadDrawer } from "@/components/app/thread-drawer";
-import { glassPanel } from "@/lib/glass";
+import { THREAD_KEEP_OPEN, ThreadDrawer } from "@/components/app/thread-drawer";
 import { type NavSection } from "@/components/app/sidebar-shell";
 import { type Agent, type AgentVisualState } from "@/components/app/types";
-import { GlassSidebar } from "@/components/ui/glass-sidebar";
+import { Sheet } from "@/components/ui/sheet";
 import { CENTER_PANE_ID, centerTabLabel } from "@/lib/center-tabs";
 import { NavigationSidebar } from "@/components/app/navigation-sidebar";
 import { uploadAgentFile } from "@/lib/file-upload";
@@ -150,6 +149,10 @@ export function AgentsView({
   const drawerRoute = useDrawerRoute();
   const { openThread: openDrawerThread, closeAll: closeDrawerPages } =
     drawerRoute;
+  // Escape leaves a finding for its review before it leaves the thread.
+  const escapeThread = drawerRoute.findingId
+    ? drawerRoute.back
+    : closeDrawerPages;
   const [taskPaneParams] = useSearchParams();
   const threadDrawerOpen =
     drawerRoute.depth > 0 && hasActiveAgent && !taskPaneParams.has("task");
@@ -640,24 +643,30 @@ export function AgentsView({
         </main>
 
         <div className="hidden shrink-0 md:flex">
-          <DrawerFrame
-            open={threadDrawerOpen}
-            pinned={drawerPinned}
-            pinnedReserve={pinnedReserve}
-            testId="thread-drawer-wrapper"
-          >
-            <ThreadDrawer
-              selectedAgentId={focusedAgentId}
-              selectedAgentName={focusedAgent?.name ?? null}
-              rootId={inbox.rootId}
-              agentNameById={agentNameById}
-              agent={focusedAgent}
-              openLightbox={openLightbox}
-              onOpenPath={handleOpenPath}
-              isMobile={false}
-              className={cn("rounded-l-lg border-l", glassPanel)}
-            />
-          </DrawerFrame>
+          {!isMobile ? (
+            <DrawerFrame
+              open={threadDrawerOpen}
+              pinned={drawerPinned}
+              pinnedReserve={pinnedReserve}
+              // Pinned or not, a thread is a visit: click away and it's gone.
+              dismissable
+              onClose={closeDrawerPages}
+              onEscape={escapeThread}
+              keepOpen={THREAD_KEEP_OPEN}
+              testId="thread-drawer-wrapper"
+            >
+              <ThreadDrawer
+                selectedAgentId={focusedAgentId}
+                selectedAgentName={focusedAgent?.name ?? null}
+                rootId={inbox.rootId}
+                agentNameById={agentNameById}
+                agent={focusedAgent}
+                openLightbox={openLightbox}
+                onOpenPath={handleOpenPath}
+                isMobile={false}
+              />
+            </DrawerFrame>
+          ) : null}
           {!isMobile ? (
             <Drawer
               drawerOpen={
@@ -697,13 +706,12 @@ export function AgentsView({
       </div>
 
       {isMobile ? (
-        <GlassSidebar
+        <Sheet
           open={threadDrawerOpen}
           onOpenChange={(open) => {
             if (!open) closeDrawerPages();
           }}
-          side="right"
-          mobile={true}
+          onEscape={escapeThread}
           label="Thread"
         >
           <ThreadDrawer
@@ -716,18 +724,16 @@ export function AgentsView({
             onOpenPath={handleOpenPath}
             isMobile
           />
-        </GlassSidebar>
+        </Sheet>
       ) : null}
 
       {isMobile ? (
-        <GlassSidebar
+        <Sheet
           open={mobileDrawerOpen}
           onOpenChange={(open) => {
             if (open) setMobileLeftOpen(false);
             setMobileDrawerOpen(open);
           }}
-          side="right"
-          mobile={true}
           label="Drawer"
         >
           <DrawerContent
@@ -755,7 +761,7 @@ export function AgentsView({
             agentNameById={agentNameById}
             onOpenBlock={handleOpenBlock}
           />
-        </GlassSidebar>
+        </Sheet>
       ) : null}
 
       <TaskModal agents={agents} isMobile={isMobile} />

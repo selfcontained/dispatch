@@ -1,5 +1,7 @@
 import { RefreshCw, Trash2 } from "lucide-react";
 import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
+import { SettingsGroup } from "@/components/app/settings-layout";
+import { SettingRow } from "@/components/ui/setting-row";
 import { SplitButton } from "@/components/ui/split-button";
 
 type UpdatesReloadCardProps = {
@@ -13,28 +15,30 @@ export function UpdatesReloadCard({
   onClearCacheAndReload,
 }: UpdatesReloadCardProps): JSX.Element {
   return (
-    <div>
-      <div className="mb-1.5 section-label">Reload</div>
-      <p className="mb-3 text-body-md text-muted-foreground">
-        Reload the app to pick up the latest version.
-      </p>
-      <SplitButton
-        size="sm"
-        onClick={onReload}
-        menuLabel="More reload options"
-        menu={
-          <DropdownMenuItem
-            onClick={onClearCacheAndReload}
-            className="flex items-center whitespace-nowrap text-muted-foreground"
-          >
-            <Trash2 className="mr-2 size-icon-md" />
-            Clear cache & reload
-          </DropdownMenuItem>
-        }
+    <SettingsGroup title="Reload">
+      <SettingRow
+        layout="action"
+        label="Reload the app"
+        description="Picks up the latest version."
       >
-        <RefreshCw />
-        Reload
-      </SplitButton>
-    </div>
+        <SplitButton
+          size="sm"
+          onClick={onReload}
+          menuLabel="More reload options"
+          menu={
+            <DropdownMenuItem
+              onClick={onClearCacheAndReload}
+              className="flex items-center whitespace-nowrap text-muted-foreground"
+            >
+              <Trash2 className="mr-2 size-icon-md" />
+              Clear cache & reload
+            </DropdownMenuItem>
+          }
+        >
+          <RefreshCw />
+          Reload
+        </SplitButton>
+      </SettingRow>
+    </SettingsGroup>
   );
 }

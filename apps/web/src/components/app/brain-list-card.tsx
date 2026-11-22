@@ -1,5 +1,6 @@
 import { useState } from "react";
 
+import { panelFrame } from "@/components/ui/card";
 import {
   AgentIdLabel,
   CopyButton,
@@ -83,7 +84,7 @@ export function ListCard({
   const allItemValues = items.map((item) => item.value);
 
   return (
-    <div className="mx-3 mb-2 rounded-md border border-border bg-surface-subtle p-2 overflow-hidden">
+    <div className={cn(panelFrame, "mx-3 mb-2 overflow-hidden p-2")}>
       <div className="flex items-center justify-between gap-2 mb-2 min-w-0">
         <div className="flex items-center gap-1.5 text-body-sm min-w-0">
           <span className="rounded-sm bg-chart-4/tint-strong px-1.5 py-0.5 font-mono text-chart-4 text-label-xs shrink-0">

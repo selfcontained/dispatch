@@ -1,8 +1,7 @@
-import { NotificationsDrawer } from "@/components/app/notifications-drawer";
 import { TaskLabelFilter } from "@/components/app/tasks/task-label-filter";
 import { BLOCK_PARAM, THREAD_PARAM } from "@/lib/agent-routes";
 import { useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useSearchParams, type NavigateOptions } from "react-router-dom";
 import { useAtom } from "jotai";
 import { LayoutGrid, List, Plus, X, Zap } from "lucide-react";
 import { formatDateTime, formatRelativeCompact } from "@/lib/format";
@@ -57,6 +56,8 @@ import { AsyncBoundary } from "@/components/ui/async-boundary";
 import { EmptyState } from "@/components/ui/empty-state";
 import { LoadingSkeleton, Skeleton } from "@/components/ui/skeleton";
 import { TaskColumnNameDialog } from "@/components/app/tasks/task-column-name-dialog";
+import { PageContent, PageHeader } from "@/components/ui/page-header";
+import { panelFrame } from "@/components/ui/card";
 import { restoreTask } from "@/components/app/tasks/task-feedback";
 
 const ATTENTION = "__attention";
@@ -122,7 +123,11 @@ function TasksContent({ projectId }: { projectId: string }) {
   const attentionCount = board
     ? board.tasks.filter((task) => needsAttention(task, attention)).length
     : 0;
-  const updateParam = (name: string, value: string | null) => {
+  const updateParam = (
+    name: string,
+    value: string | null,
+    options?: NavigateOptions
+  ) => {
     const next = new URLSearchParams(params);
     if (value) next.set(name, value);
     else next.delete(name);
@@ -131,7 +136,7 @@ function TasksContent({ projectId }: { projectId: string }) {
       next.delete(BLOCK_PARAM);
       next.delete(THREAD_PARAM);
     }
-    setParams(next);
+    setParams(next, options);
   };
   const openTask = (id: string) => updateParam("task", id);
   const setLayout = (value: "board" | "list") => {
@@ -237,34 +242,22 @@ function TasksContent({ projectId }: { projectId: string }) {
     (task) => !onlyColumn || task.columnId === onlyColumn.id
   );
   return (
-    <SectionShell
-      activeSection="tasks"
-      headerActions={<NotificationsDrawer />}
-      sidebar={sidebar}
-    >
-      <div className="flex min-h-0 flex-1 flex-col">
-        <header className="flex flex-col gap-2 px-3 py-2 md:flex-row md:items-center md:px-4 md:py-3">
-          <div className="flex min-w-0 items-center gap-2 md:mr-auto">
-            <h1 className="min-w-0 flex-1 truncate text-heading-lg">
-              Tasks{" "}
-              <span className="text-body-md font-normal text-muted-foreground">
-                · {project?.name}
-              </span>
-            </h1>
-            {onlyColumn && (
-              <ChipButton
-                data-testid="task-column-filter"
-                className="max-w-32 shrink"
-                onClick={() => updateParam("column", null)}
-                aria-label={`Show all columns (showing only ${onlyColumn.name})`}
-              >
-                <StatusDot
-                  color={`hsl(${columnAccent(onlyColumn, columns.indexOf(onlyColumn))})`}
-                />
-                <span className="min-w-0 truncate">{onlyColumn.name}</span>
-                <X aria-hidden="true" />
-              </ChipButton>
-            )}
+    <SectionShell activeSection="tasks" sidebar={sidebar}>
+      <PageHeader title="Tasks" context={project?.name} />
+      <PageContent mode="full">
+        <div
+          role="group"
+          aria-label="Board filters"
+          className="flex shrink-0 flex-wrap items-center gap-2 px-4 py-2"
+        >
+          <div className="flex min-w-0 basis-full items-center gap-2 md:basis-auto">
+            <Input
+              aria-label="Search tasks"
+              placeholder="Search tasks"
+              className="h-8 min-w-0 flex-1 md:w-44 md:flex-none pointer-coarse:h-11"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+            />
             <IconButton
               className="md:hidden"
               label="New task"
@@ -272,38 +265,8 @@ function TasksContent({ projectId }: { projectId: string }) {
             >
               <Plus />
             </IconButton>
-            <Button
-              size="sm"
-              variant="ghost"
-              pressed={archived}
-              onClick={() => updateParam("view", archived ? null : "archived")}
-            >
-              Archived
-            </Button>
-            <SegmentedControl
-              aria-label="Layout"
-              className="shrink-0 md:order-last"
-              value={layout}
-              onValueChange={setLayout}
-            >
-              <SegmentedControlItem value="board" aria-label="Board layout">
-                <LayoutGrid />
-                <span className="hidden md:inline">Board</span>
-              </SegmentedControlItem>
-              <SegmentedControlItem value="list" aria-label="List layout">
-                <List />
-                <span className="hidden md:inline">List</span>
-              </SegmentedControlItem>
-            </SegmentedControl>
           </div>
-          <div className="flex min-w-0 flex-wrap items-center gap-2 md:flex-nowrap">
-            <Input
-              aria-label="Search tasks"
-              placeholder="Search tasks"
-              className="h-8 min-w-0 flex-1 basis-full md:w-44 md:flex-none md:basis-auto pointer-coarse:h-11"
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-            />
+          <div className="flex min-w-0 basis-full items-center gap-2 md:basis-auto">
             <TaskLabelFilter
               labels={[
                 ...(board?.labels ?? []),
@@ -333,7 +296,45 @@ function TasksContent({ projectId }: { projectId: string }) {
               </SelectContent>
             </Select>
           </div>
-        </header>
+          {onlyColumn && (
+            <ChipButton
+              data-testid="task-column-filter"
+              className="max-w-32 shrink"
+              onClick={() => updateParam("column", null)}
+              aria-label={`Show all columns (showing only ${onlyColumn.name})`}
+            >
+              <StatusDot
+                color={`hsl(${columnAccent(onlyColumn, columns.indexOf(onlyColumn))})`}
+              />
+              <span className="min-w-0 truncate">{onlyColumn.name}</span>
+              <X aria-hidden="true" />
+            </ChipButton>
+          )}
+          <Button
+            size="sm"
+            variant="ghost"
+            className="ml-auto"
+            pressed={archived}
+            onClick={() => updateParam("view", archived ? null : "archived")}
+          >
+            Archived
+          </Button>
+          <SegmentedControl
+            aria-label="Layout"
+            className="shrink-0"
+            value={layout}
+            onValueChange={setLayout}
+          >
+            <SegmentedControlItem value="board" aria-label="Board layout">
+              <LayoutGrid />
+              <span className="hidden md:inline">Board</span>
+            </SegmentedControlItem>
+            <SegmentedControlItem value="list" aria-label="List layout">
+              <List />
+              <span className="hidden md:inline">List</span>
+            </SegmentedControlItem>
+          </SegmentedControl>
+        </div>
         <AsyncBoundary
           query={boardQuery}
           thing="tasks"
@@ -399,10 +400,11 @@ function TasksContent({ projectId }: { projectId: string }) {
                     {archivedShown.map((task) => (
                       <div
                         key={task.id}
-                        className="flex items-center gap-3 border-b border-border-subtle py-3"
+                        className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-border-subtle py-3"
                       >
                         <RowButton
-                          className="min-w-0 flex-1 rounded-sm text-body-md hover:bg-transparent hover:underline"
+                          data-opens-task=""
+                          className="min-w-0 flex-1 basis-full rounded-sm sm:basis-0 text-body-md hover:bg-transparent hover:underline"
                           onClick={() => openTask(task.id)}
                         >
                           <span className="min-w-0 truncate">{task.title}</span>
@@ -462,7 +464,7 @@ function TasksContent({ projectId }: { projectId: string }) {
             </>
           )}
         </AsyncBoundary>
-      </div>
+      </PageContent>
       {namingColumn && (
         <TaskColumnNameDialog
           onClose={() => setNamingColumn(false)}
@@ -477,7 +479,9 @@ function TasksContent({ projectId }: { projectId: string }) {
           columns={columns}
           boardTasks={board.tasks}
           agents={agents}
-          close={() => updateParam("task", null)}
+          // At once, not in a transition: the press that dismissed it may
+          // be on a control that edits the URL, and must see it closed.
+          close={() => updateParam("task", null, { flushSync: true })}
           openTask={openTask}
           moveTask={moveTask}
           isMobile={isMobile}
@@ -534,15 +538,15 @@ export function TasksRoute(): JSX.Element {
   ) : (
     <SectionShell
       activeSection="tasks"
-      headerActions={<NotificationsDrawer />}
       sidebar={
         <div className="p-3">
           <ProjectSwitcher allowAll={false} />
         </div>
       }
     >
+      <PageHeader title="Tasks" />
       {/* Boards are per project, so with none chosen the page is the choice. */}
-      <div className="flex h-full items-center justify-center p-6">
+      <PageContent className="flex min-h-full flex-col items-center justify-center">
         <AsyncBoundary
           query={projectsQuery}
           thing="projects"
@@ -552,7 +556,7 @@ export function TasksRoute(): JSX.Element {
         >
           {() => (
             <div className="w-full max-w-sm text-center">
-              <h1 className="text-heading-lg">Choose a project</h1>
+              <h2 className="text-heading-md">Choose a project</h2>
               <p className="mb-4 text-body-md text-muted-foreground">
                 {projects.length
                   ? "Each project has its own board."
@@ -562,7 +566,10 @@ export function TasksRoute(): JSX.Element {
                 {projects.map((project) => (
                   <RowButton
                     key={project.id}
-                    className="justify-center gap-3 rounded-lg border border-border-subtle bg-card/veil px-3 py-2 text-body-md"
+                    className={cn(
+                      panelFrame,
+                      "justify-center gap-3 px-3 py-2 text-body-md"
+                    )}
                     onClick={() => {
                       const next = new URLSearchParams(params);
                       next.set("project", project.id);
@@ -577,7 +584,7 @@ export function TasksRoute(): JSX.Element {
             </div>
           )}
         </AsyncBoundary>
-      </div>
+      </PageContent>
     </SectionShell>
   );
 }

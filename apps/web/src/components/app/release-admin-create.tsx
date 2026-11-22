@@ -1,5 +1,6 @@
 import { ShieldCheck, Sparkles, Zap } from "lucide-react";
 import { bumpVersion } from "@/components/app/release-utils";
+import { SettingsGroup } from "@/components/app/settings-layout";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import type {
@@ -51,9 +52,7 @@ export function CreateReleaseSection({
   }
 
   return (
-    <div>
-      <div className="mb-3 section-label">Create release</div>
-
+    <SettingsGroup title="Create release">
       <div className="flex flex-wrap gap-2">
         {(["patch", "minor", "major"] as ReleaseVersionType[]).map((type) => {
           const { icon: Icon, color } = VERSION_CONFIG[type];
@@ -108,6 +107,6 @@ export function CreateReleaseSection({
           if (confirmType) await onRelease(confirmType);
         }}
       />
-    </div>
+    </SettingsGroup>
   );
 }

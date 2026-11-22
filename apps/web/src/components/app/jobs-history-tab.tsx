@@ -6,7 +6,6 @@ import {
   statusTextColor,
   triggerSourceLabel,
 } from "@/components/app/jobs-helpers";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { RowButton } from "@/components/ui/row-button";
 import { StatusDot } from "@/components/ui/status-dot";
 import { type JobRun } from "@/hooks/use-jobs";
@@ -33,7 +32,7 @@ export function HistoryTab({
     ? (runs.find((run) => run.id === selectedRunId) ?? null)
     : null;
   return (
-    <ScrollArea className="mt-4 min-h-0 h-full pr-1">
+    <div className="mt-4 min-w-0">
       <AsyncBoundary
         query={query}
         thing="history"
@@ -92,7 +91,7 @@ export function HistoryTab({
           </div>
         )}
       </AsyncBoundary>
-    </ScrollArea>
+    </div>
   );
 }
 

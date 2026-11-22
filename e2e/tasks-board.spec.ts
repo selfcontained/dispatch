@@ -78,7 +78,10 @@ test("create a task, move it to Ready and open its launched agent", async ({
     const response = await created;
     expect(response.ok()).toBeTruthy();
     const task = await response.json();
-    await page.getByRole("button", { name: "Close task" }).last().click();
+    await page
+      .getByTestId("task-drawer")
+      .getByRole("button", { name: "Close", exact: true })
+      .click();
     const card = page.getByTestId(`task-card-${task.id}`);
     await card
       .getByRole("button", { name: "Ship the task journey actions" })

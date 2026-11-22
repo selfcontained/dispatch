@@ -1,15 +1,15 @@
 import {
-  Activity,
   CircleGauge,
   Cpu,
   Database,
-  GitCompareArrows,
   HardDrive,
   MemoryStick,
   Users,
 } from "lucide-react";
 
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Panel } from "@/components/ui/card";
+import { Alert } from "@/components/ui/alert";
+import { DashboardSection } from "@/components/ui/dashboard";
 import type { ServiceResourcesResponse } from "@/hooks/use-service-resources";
 import { ResourceChart } from "./service-resources-chart";
 import {
@@ -42,34 +42,31 @@ function SummaryCard({
   scope: "Dispatch" | "Agents" | "Dependency" | "Host";
 }) {
   return (
-    <Card
-      className="min-w-0"
+    <Panel
       data-testid={`resource-card-${label.toLowerCase().replaceAll(" ", "-")}`}
     >
-      <CardContent className="p-4">
-        <div className="flex items-start justify-between gap-3">
-          <div className="rounded-lg border border-border bg-surface-subtle p-2 text-muted-foreground">
-            <Icon className="h-4 w-4" />
-          </div>
-          <span className="section-label">{scope}</span>
+      <div className="flex items-start justify-between gap-3">
+        <div className="text-muted-foreground">
+          <Icon className="h-4 w-4" />
         </div>
-        <div className="mt-4 text-body-sm text-muted-foreground">{label}</div>
-        <div className="mt-1 truncate text-display text-foreground">
-          {value}
-        </div>
-        <div
-          className={`mt-1 text-body-sm text-muted-foreground ${wrapDetail ? "break-words" : "truncate"}`}
-          title={wrapDetail ? undefined : detail}
-        >
-          {detail}
-        </div>
-        {description && (
-          <p className="mt-1 break-words text-body-sm text-muted-foreground">
-            {description}
-          </p>
-        )}
-      </CardContent>
-    </Card>
+        <span className="section-label">{scope}</span>
+      </div>
+      <div className="mt-3 text-body-sm text-muted-foreground">{label}</div>
+      <div className="mt-1 break-words text-heading-lg text-foreground sm:text-display">
+        {value}
+      </div>
+      <div
+        className={`mt-1 text-body-sm text-muted-foreground ${wrapDetail ? "break-words" : "truncate"}`}
+        title={wrapDetail ? undefined : detail}
+      >
+        {detail}
+      </div>
+      {description && (
+        <p className="mt-1 break-words text-body-sm text-muted-foreground">
+          {description}
+        </p>
+      )}
+    </Panel>
   );
 }
 
@@ -114,27 +111,14 @@ export function ServiceResourcesDashboard({
   return (
     <>
       {data.overall.reasons.length > 0 && (
-        <Card className="border-warning/line bg-warning/wash">
-          <CardContent className="flex gap-3 p-4">
-            <Activity className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
-            <div>
-              <div className="text-body-md font-medium">
-                Dispatch needs attention
-              </div>
-              {data.overall.reasons.map((reason) => (
-                <p
-                  key={reason.code}
-                  className="mt-1 text-body-sm text-muted-foreground"
-                >
-                  {reason.message}
-                </p>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
+        <Alert tone="warning" title="Dispatch needs attention">
+          {data.overall.reasons.map((reason) => (
+            <p key={reason.code}>{reason.message}</p>
+          ))}
+        </Alert>
       )}
 
-      <section className="grid grid-cols-2 gap-3 lg:grid-cols-3 xl:grid-cols-6">
+      <section className="grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-3">
         <SummaryCard
           icon={Cpu}
           label="Dispatch CPU"
@@ -198,7 +182,7 @@ export function ServiceResourcesDashboard({
         />
       </section>
 
-      <section className="grid gap-4 lg:grid-cols-2">
+      <section className="grid gap-8 lg:grid-cols-2 lg:gap-4">
         <ResourceChart
           title="CPU history"
           description="CPU uses one-core percentages (can exceed 100%). Dispatch is interval usage; agents use the OS ps average. Host load uses the right axis."
@@ -238,19 +222,13 @@ export function ServiceResourcesDashboard({
         series={data.series}
       />
 
-      <section className="grid gap-4 md:grid-cols-2">
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="flex items-center gap-2">
-              <GitCompareArrows className="h-4 w-4 text-muted-foreground" />{" "}
-              Workload
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="grid grid-cols-2 gap-3 text-body-md">
+      <section className="grid gap-8 md:grid-cols-2 md:gap-4">
+        <DashboardSection title="Workload">
+          <Panel className="grid grid-cols-2 gap-4 text-body-md">
             {workloadItems.map((item) => (
               <div
                 key={item.label}
-                className={`rounded-lg border border-border bg-surface-subtle p-3 ${item.wide ? "col-span-2" : ""}`}
+                className={item.wide ? "col-span-2" : undefined}
               >
                 <div className="text-body-sm text-muted-foreground">
                   {item.label}
@@ -258,22 +236,17 @@ export function ServiceResourcesDashboard({
                 <div className="mt-1 text-heading-lg">{item.value}</div>
               </div>
             ))}
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="flex items-center gap-2">
-              <Database className="h-4 w-4 text-muted-foreground" /> Capacity
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3 text-body-md">
-            <div className="flex items-center justify-between border-b border-border pb-3">
+          </Panel>
+        </DashboardSection>
+        <DashboardSection title="Capacity">
+          <Panel className="space-y-3 text-body-md">
+            <div className="flex items-center justify-between gap-3 border-b border-border-subtle pb-3">
               <span className="text-muted-foreground">Service uptime</span>
               <span className="font-medium">
                 {formatUptime(current.server.uptimeSeconds)}
               </span>
             </div>
-            <div className="flex items-center justify-between border-b border-border pb-3">
+            <div className="flex items-center justify-between gap-3 border-b border-border-subtle pb-3">
               <span className="text-muted-foreground">Database pool</span>
               <span className="font-medium">
                 {current.database.pool.total - current.database.pool.idle}/
@@ -281,7 +254,7 @@ export function ServiceResourcesDashboard({
                 {current.database.pool.total} open
               </span>
             </div>
-            <div className="flex items-center justify-between border-b border-border pb-3">
+            <div className="flex items-center justify-between gap-3 border-b border-border-subtle pb-3">
               <span className="text-muted-foreground">Database on disk</span>
               <span className="font-medium">
                 {formatBytes(current.database.sizeBytes)}
@@ -310,7 +283,7 @@ export function ServiceResourcesDashboard({
                     : " Waiting for a scan."}
               </p>
             </div>
-            <div className="flex items-center justify-between border-b border-border pb-3">
+            <div className="flex items-center justify-between gap-3 border-b border-border-subtle pb-3">
               <span className="text-muted-foreground">Requests (1 min)</span>
               <span className="font-medium">
                 {current.http.requestsPerMinute}
@@ -320,8 +293,8 @@ export function ServiceResourcesDashboard({
               <span className="text-muted-foreground">Host CPUs</span>
               <span className="font-medium">{current.host.cpuCount}</span>
             </div>
-          </CardContent>
-        </Card>
+          </Panel>
+        </DashboardSection>
       </section>
     </>
   );

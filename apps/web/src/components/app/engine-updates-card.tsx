@@ -17,13 +17,8 @@ import type { EngineStatus, EngineUpdateOperation } from "@/hooks/use-engines";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { SettingsGroup } from "@/components/app/settings-layout";
+import { Panel } from "@/components/ui/card";
 import { Alert } from "@/components/ui/alert";
 import { LoadError } from "@/components/ui/async-boundary";
 import { failureHint } from "@/lib/errors";
@@ -124,7 +119,10 @@ function EngineRow({
   const showRequestError = update.isError && !reconciled;
   const managed = engine.installed && canManage && metadata?.canUpdate;
   return (
-    <section className="border-t pt-2" aria-label={engine.label}>
+    <section
+      className="border-t border-border-subtle pt-2 first:border-t-0 first:pt-0"
+      aria-label={engine.label}
+    >
       <Collapsible open={open} onOpenChange={setOpen}>
         <CollapsibleTrigger className="flex w-full flex-wrap items-center gap-2 py-2 text-left text-body-md hover:text-foreground transition-colors">
           {open ? (
@@ -293,15 +291,11 @@ export function EngineUpdatesCard(): JSX.Element {
         : 5_000,
   });
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Engines</CardTitle>
-        <CardDescription>
-          Updates apply to new launches and restarts. Existing agents keep their
-          current binary.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4">
+    <SettingsGroup
+      title="Engines"
+      description="Updates apply to new launches and restarts. Existing agents keep their current binary."
+    >
+      <Panel className="space-y-2">
         {query.isPending && (
           <div
             aria-label="Checking engine installations"
@@ -309,7 +303,10 @@ export function EngineUpdatesCard(): JSX.Element {
             className="space-y-4"
           >
             {[0, 1, 2].map((row) => (
-              <div key={row} className="border-t pt-2">
+              <div
+                key={row}
+                className="border-t border-border-subtle pt-2 first:border-t-0 first:pt-0"
+              >
                 <div className="flex flex-wrap items-center gap-2 py-2">
                   <Skeleton className="h-5 w-48" />
                   <span className="flex h-7 w-full items-center sm:w-72">
@@ -335,7 +332,7 @@ export function EngineUpdatesCard(): JSX.Element {
             canManage={query.data?.canManage === true}
           />
         ))}
-      </CardContent>
-    </Card>
+      </Panel>
+    </SettingsGroup>
   );
 }

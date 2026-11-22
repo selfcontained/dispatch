@@ -1,12 +1,9 @@
 import { useTaskDrawerTarget } from "./use-task-drawer-target";
-import * as DialogPrimitive from "@radix-ui/react-dialog";
-import { useLayoutEffect, useMemo, useRef } from "react";
+import { useMemo } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
-import { ArrowLeft, X } from "lucide-react";
 import { useTaskBoard, useTaskDetail } from "@/hooks/use-tasks";
 import type { Agent } from "@/components/app/types";
-import { Dialog, DialogDescription, DialogTitle } from "@/components/ui/dialog";
-import { IconButton } from "@/components/ui/icon-button";
+import { SheetHeader } from "@/components/ui/sheet";
 import { TaskDrawerShell, TaskDetailPanel } from "./task-drawer";
 import {
   TASK_MODAL_STATE,
@@ -17,8 +14,11 @@ import { useMoveTask } from "./use-move-task";
 import { AsyncBoundary, combineResults } from "@/components/ui/async-boundary";
 import { EmptyState } from "@/components/ui/empty-state";
 
+/** An agent's task row switches the task rather than closing it. */
+const SWITCHES_TASK = '[aria-haspopup="dialog"][aria-label^="Task: "]';
+
 /**
- * The task named by `?task=` as a modal over the current view, so reading
+ * The task named by `?task=` as a sheet beside the current view, so reading
  * it never leaves the stream. Closing drops the param and nothing else.
  */
 export function TaskModal({
@@ -36,17 +36,10 @@ export function TaskModal({
   const projectId = task?.projectId ?? null;
   const boardQuery = useTaskBoard(projectId);
   const board = boardQuery.data;
-  const contentRef = useRef<HTMLDivElement>(null);
-  const openerRef = useRef<HTMLElement | null>(null);
   const columns = useMemo(() => (board ? orderedColumns(board) : []), [board]);
   const { moveTask, dialog } = useMoveTask(projectId ?? "", board);
   const location = useLocation();
   const navigate = useNavigate();
-  useLayoutEffect(() => {
-    if (!id && contentRef.current?.contains(document.activeElement)) {
-      openerRef.current?.focus({ preventScroll: true });
-    }
-  }, [id]);
   // Paging between tasks replaces the entry; closing pops the one opening
   // pushed, so Back after closing leaves rather than reopening. A deep link
   // has no such entry and drops the param in place.
@@ -66,48 +59,36 @@ export function TaskModal({
     setParams(updated, { replace: true, state: location.state });
   };
   const close = () => setTask(null);
+  // A press outside may be on a link, and popping history would race the
+  // navigation it starts, so that way out drops the param in place.
+  const dismiss = () => {
+    const updated = new URLSearchParams(params);
+    updated.delete("task");
+    updated.delete(TASK_PANE_PARAM);
+    // At once, so the pressed control sees the URL without the task.
+    setParams(updated, { replace: true, flushSync: true });
+  };
   const loading = combineResults(taskQuery, boardQuery);
   return (
     <>
-      <Dialog
-        modal={false}
-        open={Boolean(target)}
-        onOpenChange={(open) => {
-          if (!open && id) setTask(null);
-        }}
+      <TaskDrawerShell
+        open={Boolean(id)}
+        isMobile={isMobile}
+        close={close}
+        onOutsidePress={dismiss}
+        dialog
+        autoFocus
+        label={task?.title ?? "Task"}
+        keepOpen={SWITCHES_TASK}
       >
-        <TaskDrawerShell open={Boolean(id)} isMobile={isMobile} close={close}>
-          <DialogPrimitive.Content
-            ref={contentRef}
-            onInteractOutside={(event) => event.preventDefault()}
+        {target ? (
+          <div
             data-testid="task-modal"
-            onOpenAutoFocus={() => {
-              openerRef.current =
-                document.activeElement instanceof HTMLElement
-                  ? document.activeElement
-                  : null;
-            }}
-            onCloseAutoFocus={(event) => event.preventDefault()}
+            className="flex h-full min-h-0 flex-col overflow-hidden"
             aria-hidden={!id || undefined}
             {...(!id ? { inert: "" } : {})}
-            // An attachment preview inside the conversation closes on Escape
-            // itself; Radix sees the key first and would close the task.
-            onEscapeKeyDown={(event) => {
-              if (
-                !id ||
-                document.querySelector('[data-testid="file-lightbox"]')
-              )
-                event.preventDefault();
-            }}
-            className="flex h-full min-h-0 flex-col overflow-hidden outline-none"
           >
-            <DialogTitle className="sr-only">
-              {task?.title ?? "Task"}
-            </DialogTitle>
-            <DialogDescription className="sr-only">
-              The task, beside the stream you were reading.
-            </DialogDescription>
-            {target && projectId && board ? (
+            {projectId && board ? (
               <TaskDetailPanel
                 id={target}
                 active={Boolean(id)}
@@ -124,25 +105,7 @@ export function TaskModal({
               <>
                 {/* The panel's header waits on both queries; until then this
                   one keeps a way out, which a phone has no overlay for. */}
-                <header className="flex shrink-0 items-center gap-1 border-b border-border-subtle bg-card/veil px-2 py-1.5 pt-safe-1.5 text-body-sm text-muted-foreground">
-                  <IconButton
-                    onClick={close}
-                    label="Close task"
-                    className="md:hidden"
-                  >
-                    <ArrowLeft />
-                  </IconButton>
-                  <span className="min-w-0 flex-1 truncate px-1 font-mono">
-                    {id}
-                  </span>
-                  <IconButton
-                    onClick={close}
-                    label="Close task"
-                    className="hidden md:inline-flex"
-                  >
-                    <X />
-                  </IconButton>
-                </header>
+                <SheetHeader title={id ?? "Task"} onClose={close} />
                 <AsyncBoundary
                   query={loading}
                   thing="the task"
@@ -158,9 +121,9 @@ export function TaskModal({
                 </AsyncBoundary>
               </>
             )}
-          </DialogPrimitive.Content>
-        </TaskDrawerShell>
-      </Dialog>
+          </div>
+        ) : null}
+      </TaskDrawerShell>
       {dialog}
     </>
   );

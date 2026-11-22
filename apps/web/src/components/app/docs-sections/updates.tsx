@@ -44,8 +44,8 @@ export function UpdatesContent() {
         </P>
         <P>
           Automatic checks can be turned off via the{" "}
-          <strong>Automatic updates</strong> dropdown on the Updates page.
-          Updates never install automatically — the toast only notifies.
+          <strong>Check for updates automatically</strong> switch on the Updates
+          page. Updates never install automatically — the toast only notifies.
         </P>
       </Section>
 

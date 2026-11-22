@@ -43,8 +43,6 @@ export const dialogWidth = {
 const PHONE = {
   center: "",
   fill: "max-md:inset-0 max-md:h-dvh max-md:max-h-none max-md:w-full max-md:translate-x-0 max-md:translate-y-0 max-md:rounded-none max-md:pb-safe-4 max-md:pt-safe-4",
-  sheet:
-    "max-md:inset-x-0 max-md:bottom-0 max-md:top-auto max-md:max-h-[85dvh] max-md:w-full max-md:translate-x-0 max-md:translate-y-0 max-md:rounded-b-none max-md:pb-safe-4",
 };
 
 export interface DialogContentProps extends React.ComponentPropsWithoutRef<
@@ -52,7 +50,7 @@ export interface DialogContentProps extends React.ComponentPropsWithoutRef<
 > {
   overlayClassName?: string;
   size?: keyof typeof dialogWidth;
-  /** On a phone: centred, the whole screen for a long form, or a bottom sheet. */
+  /** On a phone: centred, or the whole screen for a long form. A short pick is a Sheet. */
   phone?: keyof typeof PHONE;
   busy?: boolean;
   /** A full-screen viewer or editor that draws its own frame and close. */

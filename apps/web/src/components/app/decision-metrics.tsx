@@ -1,5 +1,6 @@
 import type { DecisionMetrics, MergeRiskMetrics } from "@dispatch/shared";
 import { useDecisionMetrics, type ActivityRange } from "@/hooks/use-activity";
+import { DashboardSection, StatGrid } from "@/components/ui/dashboard";
 import { StatCard } from "./stat-card";
 import { formatLatency } from "@/lib/format";
 import { AsyncBoundary, quietPoll } from "@/components/ui/async-boundary";
@@ -17,7 +18,7 @@ function Metrics({
   return (
     <div className="space-y-3">
       <h3 className="text-heading-sm">{title}</h3>
-      <div className="flex flex-wrap gap-2 sm:gap-3">
+      <StatGrid>
         <StatCard
           label="API attempts"
           value={data.attempts}
@@ -63,7 +64,7 @@ function Metrics({
               : "Usage-based estimate"
           }
         />
-      </div>
+      </StatGrid>
       {data.attempts === 0 && (
         <p className="text-body-sm text-muted-foreground">
           No decisions in this range. Enable{" "}
@@ -78,7 +79,7 @@ function MergeRisk({ data }: { data: MergeRiskMetrics }) {
   return (
     <div className="space-y-3">
       <h3 className="text-heading-sm">Merge risk</h3>
-      <div className="flex flex-wrap gap-2 sm:gap-3">
+      <StatGrid>
         <StatCard
           label="API attempts"
           value={data.attempts}
@@ -114,7 +115,7 @@ function MergeRisk({ data }: { data: MergeRiskMetrics }) {
               : "Usage-based estimate"
           }
         />
-      </div>
+      </StatGrid>
       {data.explanations && data.explanations.attempts > 0 && (
         <p className="text-body-sm text-muted-foreground">
           Explanations: {data.explanations.attempts} attempts · $
@@ -142,17 +143,11 @@ export function DecisionMetricsSection({
 }) {
   const query = useDecisionMetrics(range, dailyDate);
   return (
-    <section aria-labelledby="decision-metrics-heading" className="space-y-4">
-      <div>
-        <h2 id="decision-metrics-heading" className="text-heading-sm">
-          AI decisions
-        </h2>
-        <p className="mt-1 text-body-sm text-muted-foreground">
-          Selected time range, limited to retained diagnostics: up to 14 days
-          and 2,000 records per feature. Counts describe delivery, not decision
-          accuracy. Costs are estimates, not billing.
-        </p>
-      </div>
+    <DashboardSection
+      title="AI decisions"
+      range="selected range"
+      description="Limited to retained diagnostics: up to 14 days and 2,000 records per feature. Counts describe delivery, not decision accuracy. Costs are estimates, not billing."
+    >
       <AsyncBoundary
         query={quietPoll(query)}
         thing="decision metrics"
@@ -172,6 +167,6 @@ export function DecisionMetricsSection({
           </>
         )}
       </AsyncBoundary>
-    </section>
+    </DashboardSection>
   );
 }

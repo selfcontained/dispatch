@@ -15,6 +15,7 @@ import {
   cleanError,
   type AppVersionInfo,
 } from "@/components/app/release-utils";
+import { useAutoSave } from "@/hooks/use-auto-save";
 import { errorMessage } from "@/lib/errors";
 
 const LOAD_PREFERENCES_FAILED = "Couldn’t load update preferences.";
@@ -46,11 +47,9 @@ export function useReleaseUpdates(stream: UseReleaseStreamResult) {
   const versionInfo = versionQuery.data ?? null;
   const [notesExpanded, setNotesExpanded] = useState(false);
   const [channel, setChannel] = useState<ReleaseChannel>("stable");
-  const [channelSaving, setChannelSaving] = useState(false);
   const [autoUpdateMode, setAutoUpdateMode] = useState<"off" | "check">(
     "check"
   );
-  const [autoUpdateSaving, setAutoUpdateSaving] = useState(false);
   const [info, setInfo] = useState<ReleaseInfo | null>(null);
   const [infoLoading, setInfoLoading] = useState(false);
   const [infoError, setInfoError] = useState<string | null>(null);
@@ -62,11 +61,31 @@ export function useReleaseUpdates(stream: UseReleaseStreamResult) {
   const [lastCheckMessage, setLastCheckMessage] = useState<string | null>(null);
   const reloadingRef = useRef(false);
 
+  const channelSave = useAutoSave<ReleaseChannel, "channel">(
+    async (_, value) => {
+      await api("/api/v1/release/channel", {
+        method: "POST",
+        body: JSON.stringify({ channel: value }),
+      });
+      setChannel(value);
+      setInfo(null);
+    }
+  );
+  const modeSave = useAutoSave<"off" | "check", "mode">(async (_, mode) => {
+    await api("/api/v1/release/auto-update-mode", {
+      method: "POST",
+      body: JSON.stringify({ mode }),
+    });
+    setAutoUpdateMode(mode);
+  });
+  const shownChannel = channelSave.value("channel", channel);
+  const { save: saveChannel } = channelSave;
+  const { save: saveMode } = modeSave;
   const cachedInfoQuery = useCachedReleaseInfo();
   const cachedSnapshot = cachedInfoQuery.data?.snapshot ?? null;
 
   const cachedSnapshotForChannel =
-    cachedSnapshot && cachedSnapshot.channel === channel
+    cachedSnapshot && cachedSnapshot.channel === shownChannel
       ? cachedSnapshot
       : null;
   const displayInfo: ReleaseInfo | ReleaseInfoSnapshot | null =
@@ -96,42 +115,13 @@ export function useReleaseUpdates(stream: UseReleaseStreamResult) {
   }, []);
 
   const handleAutoUpdateModeChange = useCallback(
-    async (next: "off" | "check") => {
-      setAutoUpdateMode(next);
-      setPreferencesError(undefined);
-      setAutoUpdateSaving(true);
-      try {
-        await api("/api/v1/release/auto-update-mode", {
-          method: "POST",
-          body: JSON.stringify({ mode: next }),
-        });
-      } catch (error) {
-        setPreferencesError({ title: "Couldn’t save changes.", error });
-        setAutoUpdateMode((prev) => (prev === "off" ? "check" : "off"));
-      } finally {
-        setAutoUpdateSaving(false);
-      }
-    },
-    []
+    (next: "off" | "check") => saveMode("mode", next),
+    [saveMode]
   );
-
-  const handleChannelChange = useCallback(async (value: ReleaseChannel) => {
-    setChannel(value);
-    setPreferencesError(undefined);
-    setChannelSaving(true);
-    try {
-      await api("/api/v1/release/channel", {
-        method: "POST",
-        body: JSON.stringify({ channel: value }),
-      });
-      setInfo(null);
-    } catch (error) {
-      setPreferencesError({ title: "Couldn’t save changes.", error });
-      setChannel((prev) => (prev === "stable" ? "preview" : "stable"));
-    } finally {
-      setChannelSaving(false);
-    }
-  }, []);
+  const handleChannelChange = useCallback(
+    (value: ReleaseChannel) => saveChannel("channel", value),
+    [saveChannel]
+  );
 
   const handleCheckForUpdates = async () => {
     setInfoLoading(true);
@@ -249,10 +239,10 @@ export function useReleaseUpdates(stream: UseReleaseStreamResult) {
     retryVersionInfo: () => void versionQuery.refetch(),
     notesExpanded,
     setNotesExpanded,
-    channel,
-    channelSaving,
-    autoUpdateMode,
-    autoUpdateSaving,
+    channel: shownChannel,
+    channelStatus: channelSave.status("channel"),
+    autoUpdateMode: modeSave.value("mode", autoUpdateMode),
+    autoUpdateStatus: modeSave.status("mode"),
     infoLoading,
     infoError,
     preferencesError,

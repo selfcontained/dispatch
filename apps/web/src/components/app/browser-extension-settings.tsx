@@ -11,6 +11,7 @@ import {
   useExtensionPairing,
 } from "./use-extension-pairing";
 import { LoadingSkeleton } from "@/components/ui/skeleton";
+import { SettingsGroup } from "@/components/app/settings-layout";
 import { toast } from "@/components/ui/toast";
 
 export function BrowserExtensionSettings(): JSX.Element {
@@ -48,68 +49,63 @@ export function BrowserExtensionSettings(): JSX.Element {
   const hasConnections = connections.length > 0;
 
   return (
-    <div
-      className="mx-auto w-full max-w-4xl space-y-6 p-4 md:p-6"
+    <SettingsGroup
+      title="Browser feedback"
       data-testid="browser-extension-settings"
     >
-      <div>
-        <h2 className="text-heading-lg">Connections</h2>
-        <p className="mt-1 max-w-2xl text-body-md text-muted-foreground">
-          Connect tools that can send work and context to your Dispatch agents.
-        </p>
-      </div>
-
-      {(hasPairingRequest || approvalState === "connected") && (
-        <BrowserExtensionPairingCard
-          approvalState={approvalState}
-          pairingRequestIsValid={pairingRequestIsValid}
-          code={code}
-          error={error}
-          onApprove={() => void approvePairing()}
-          onCheckAgain={() => setApprovalState("waiting")}
-        />
-      )}
-
-      {!hasPairingRequest &&
-        approvalState !== "connected" &&
-        connectionsQuery.isPending && (
-          <Card>
-            <CardContent className="pt-4">
-              <LoadingSkeleton label="Checking browser connections…" />
-            </CardContent>
-          </Card>
-        )}
-
-      {!hasPairingRequest &&
-        approvalState !== "connected" &&
-        !connectionsQuery.isPending &&
-        !connectionsQuery.isError && (
-          <BrowserExtensionSetupCard
-            connectionCount={connections.length}
-            showInstallGuide={showInstallGuide}
-            setShowInstallGuide={setShowInstallGuide}
-            copiedUrl={copiedUrl}
-            onCopyUrl={copyText}
+      <div className="space-y-4">
+        {(hasPairingRequest || approvalState === "connected") && (
+          <BrowserExtensionPairingCard
+            approvalState={approvalState}
+            pairingRequestIsValid={pairingRequestIsValid}
+            code={code}
+            error={error}
+            onApprove={() => void approvePairing()}
+            onCheckAgain={() => setApprovalState("waiting")}
           />
         )}
 
-      {(hasConnections || hasPairingRequest || connectionsQuery.isError) && (
-        <BrowserExtensionConnectionsCard
-          connections={connections}
-          isPending={connectionsQuery.isPending}
-          isError={connectionsQuery.isError}
-          onRetry={() => void connectionsQuery.refetch()}
-          showAllConnections={showAllConnections}
-          setShowAllConnections={setShowAllConnections}
-          revokeIsPending={revokeMutation.isPending}
-          revokeIsError={revokeMutation.isError}
-          onRevoke={(connectionId) =>
-            revokeMutation.mutate(connectionId, {
-              onSuccess: () => toast.success("Browser access revoked."),
-            })
-          }
-        />
-      )}
-    </div>
+        {!hasPairingRequest &&
+          approvalState !== "connected" &&
+          connectionsQuery.isPending && (
+            <Card>
+              <CardContent className="pt-4">
+                <LoadingSkeleton label="Checking browser connections…" />
+              </CardContent>
+            </Card>
+          )}
+
+        {!hasPairingRequest &&
+          approvalState !== "connected" &&
+          !connectionsQuery.isPending &&
+          !connectionsQuery.isError && (
+            <BrowserExtensionSetupCard
+              connectionCount={connections.length}
+              showInstallGuide={showInstallGuide}
+              setShowInstallGuide={setShowInstallGuide}
+              copiedUrl={copiedUrl}
+              onCopyUrl={copyText}
+            />
+          )}
+
+        {(hasConnections || hasPairingRequest || connectionsQuery.isError) && (
+          <BrowserExtensionConnectionsCard
+            connections={connections}
+            isPending={connectionsQuery.isPending}
+            isError={connectionsQuery.isError}
+            onRetry={() => void connectionsQuery.refetch()}
+            showAllConnections={showAllConnections}
+            setShowAllConnections={setShowAllConnections}
+            revokeIsPending={revokeMutation.isPending}
+            revokeIsError={revokeMutation.isError}
+            onRevoke={(connectionId) =>
+              revokeMutation.mutate(connectionId, {
+                onSuccess: () => toast.success("Browser access revoked."),
+              })
+            }
+          />
+        )}
+      </div>
+    </SettingsGroup>
   );
 }

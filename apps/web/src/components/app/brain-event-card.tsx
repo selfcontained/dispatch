@@ -4,6 +4,7 @@ import {
   DeleteButton,
   RelativeTime,
 } from "@/components/app/brain-card-shared";
+import { panelFrame } from "@/components/ui/card";
 import { KeyValueTable } from "@/components/app/brain-key-value-table";
 import type { BrainEvent } from "@/hooks/use-brain";
 import { cn } from "@/lib/utils";
@@ -71,7 +72,7 @@ export function EventCard({
   const allEntries = { ...(payload as Record<string, unknown>), ...meta };
 
   return (
-    <div className="mx-3 mb-2 rounded-md border border-border bg-surface-subtle p-2 overflow-hidden">
+    <div className={cn(panelFrame, "mx-3 mb-2 overflow-hidden p-2")}>
       <div className="flex items-center justify-between gap-2 mb-2 min-w-0">
         <div className="flex items-center gap-1.5 text-body-sm min-w-0">
           <StatusDot className={style.dot} />

@@ -69,11 +69,11 @@ One `Badge`: `tone` (neutral / success / warning / danger / info / merged) × `a
 
 ### C4 — Dialogs
 
-`DialogContent size="sm|md|lg|xl"` (400 / 560 / 720 / 960), `p-5`, radius `xl`, built-in close button top-right (`icon-sm` ghost, `aria-label="Close"`), and `phone="fill"` for a long form or `"sheet"` for a short pick. Every dialog is `DialogHeader`, `DialogBody` (the only part that scrolls), then `DialogFooter`: right-aligned, Cancel (ghost, `DialogCancel`) then primary, `gap-2`; a top divider appears only when the body scrolls. Tertiary/destructive action sits left (`start`). Close, Esc and a click outside all close, and all three wait while `busy`. `bare` is only for full-screen viewers and editors; the command palette is a picker, not a dialog.
+`DialogContent size="sm|md|lg|xl"` (400 / 560 / 720 / 960), `p-5`, radius `xl`, built-in close button top-right (`icon-sm` ghost, `aria-label="Close"`), and `phone="fill"` for a long form. A short pick is a `Sheet` (I3). Every dialog is `DialogHeader`, `DialogBody` (the only part that scrolls), then `DialogFooter`: right-aligned, Cancel (ghost, `DialogCancel`) then primary, `gap-2`; a top divider appears only when the body scrolls. Tertiary/destructive action sits left (`start`). Close, Esc and a click outside all close, and all three wait while `busy`. `bare` is only for full-screen viewers and editors; the command palette is a picker, not a dialog.
 
 ### C5 — Form fields and setting rows
 
-`Field` (label `body-sm` medium, control, hint `body-sm` muted, error `body-sm` danger); it supplies the control’s id, description and invalid state. `SettingRow` (label + description left, control right). `OptionCard` (checkbox, then label + description) for choices in a form or a multi-select list. All controls 36px in forms, 32px in toolbars, 44px on touch.
+`Field` (label `body-sm` medium, control, hint `body-sm` muted, error `body-sm` danger); it supplies the control’s id, description and invalid state. `SettingRow` (label + description left, control right) with four layouts: `toggle` (the whole row toggles), `field` (under its label on a phone), `action` (buttons) and `group` (a picker that needs the full width). Pass `status` from `useAutoSave` and the row reports the save (A9). `OptionCard` (checkbox, then label + description) for choices in a form or a multi-select list. All controls 36px in forms, 32px in toolbars, 44px on touch.
 
 ### C6 — Selects and pickers
 
@@ -85,7 +85,7 @@ Two patterns only. `SegmentedControl` — switches the view of the same data, �
 
 ### C8 — Cards and panels
 
-`Card` = raised surface, radius `lg`, `p-4`. `Panel` = flat grouped region, `border-subtle` + `surface-subtle`, radius `lg`, `p-3`. No box inside a box of the same level.
+One `Card` with two variants. `raised` (the default) = a thing with a title and content, radius `lg`, `p-4`. `panel` = a flat grouped region, `border-subtle` + `surface-subtle`, radius `lg`; `Panel` is that variant at `p-3`, or `p-0` for a list of rows. `tone` (accent / working / info / success / warning / danger) tints either for a state. A clickable element that needs the flat frame takes `panelFrame`. A panel can sit in a raised card. No box inside a box of the same level.
 
 ### C9 — Tooltips
 
@@ -135,7 +135,7 @@ As C7 — `Tabs` (underline, sentence case, optional icon) for sections of a pag
 
 ### L1 — Page shell and headers
 
-`PageHeader` on every route: title (`heading-lg`) + context left, filters and actions right, fixed 56px. Two content modes: `contained` (max 960px, centered — dashboards, settings, forms) and `full` (boards, chat, diffs). Settings moves to `contained`.
+`PageHeader` on every route under the app shell: title (`heading-lg`) + context left, one muted line of description, filters and actions right, 56px. The shell supplies its first control (open sidebar) and its last (notifications). On a phone the title may take two lines and the actions take a second row. A workspace whose tabs stand in for the title (an agent) passes them as `center`, and the title is read out. A board with more filters than the row holds puts them on a toolbar under the header. Two content modes, both `PageContent`: `contained` (`max-w-page`, 960px, centered — dashboards, settings, forms; prose inside it stops at `max-w-reading`) and `full` (boards, chat, diffs). Login sits outside the shell and has no header.
 
 ### L2 — Sidebar structure
 
@@ -143,7 +143,7 @@ Fixed order: section switch (if any) → scope selector → one primary "New <th
 
 ### L3 — Dashboard sections and charts
 
-Chart section title = `heading-sm`, sentence case, range as muted suffix. All series colors from `chart-1…6` via `ui/chart`; one `Legend`; one `Meter` for horizontal ratio bars. A color means the same series across a page.
+`DashboardSection`: title = `heading-sm`, sentence case, range as muted suffix. Figures are `StatCard`s in a `StatGrid`; every chart is drawn in one `ChartFrame`. All series colors from `chart-1…6` via `ui/chart`, except a run’s failed and waiting states, which keep their status colour; one `Legend`, which `ChartLegendContent` renders; one `Meter` for horizontal ratio bars. A color means the same series across a page.
 
 ### L4 — Control density
 
@@ -151,11 +151,11 @@ Three densities — inline/dense 28, toolbar 32, form 36 — never mixed in one 
 
 ### L5 — Mobile
 
-Touch targets from primitives (C1). Stat grids are 2 columns below `sm`. Safe-area utilities from F9. Every `contained` page uses a 16px gutter on mobile.
+Touch targets from primitives (C1). Stat grids are 2 columns below `sm`. Safe-area utilities from F9. Every `contained` page uses a 16px gutter on mobile. No page scrolls sideways at 390px; only a board, a tab strip or code scrolls inside itself.
 
 ### L6 — Settings pages
 
-Every Settings page: `PageHeader` title + one-line description, `contained` width, sections as `SectionLabel` + `SettingRow`s. An on/off setting that applies immediately is a `Switch`; `Checkbox` is for multi-select lists and forms with a Save.
+Every Settings page is a `SettingsPage`: `PageHeader` title + one-line description, `contained` width, sections as `SettingsGroup` (the section label) + `SettingRow`s. An on/off setting that applies immediately is a `Switch`; `Checkbox` is for multi-select lists and forms with a Save.
 
 ### L7 — Dialog anatomy as built
 
@@ -173,11 +173,17 @@ Pick by the kind of action, not by feature. Field error = `Field` error slot. A 
 
 ### I3 — Slide-overs and close behavior
 
-One `Sheet` primitive (right on desktop, bottom on mobile) underneath all of them; feature classes leave the primitive. Close is always top-right, Esc closes the topmost layer, focus returns to the trigger.
+One `Sheet` under every slide-over: notifications, the agent drawer, threads, tasks, navigation on a phone, and short picks (`side="bottom"`: from the bottom on a phone, the right on desktop). One way out, three times over:
+
+- Close is always top-right (`SheetClose`, labelled "Close").
+- Esc closes the topmost layer. A sheet that stacks pages steps back one first, and a control that handles Esc itself calls `preventDefault`.
+- A press outside closes it. Over a scrim it stops there. A sheet beside a live page lets the press act on what was pressed, and `keepOpen` names the controls that switch what the sheet shows. With a popover open, the first press closes only the popover.
+
+Focus returns to the opener. Content that must outlive a close (a terminal, a draft) stays mounted. A pinned drawer is a column, not a slide-over, so only its button closes it. Feature classes stay out of the primitive. A sheet that closes by editing the URL navigates with `flushSync`, so the pressed control sees it closed.
 
 ### I4 — Action vocabulary and placement
 
-Entry point: "New <thing>". Dialog confirm: verb + object ("Create task", "Save changes", "Delete column"). Settings: toggles and selects save on change with an inline "Saved" tick; free-text and multi-field groups get an explicit Save, disabled until dirty.
+Entry point: "New <thing>". Dialog confirm: verb + object ("Create task", "Save changes", "Delete column"). Settings auto-save (A9). A secret, a password or a new record is a form with its own verb ("Validate & save", "Change password", "Create").
 
 ### I5 — Loading, error and empty states
 
@@ -227,7 +233,7 @@ Overlay toolbars use an elevation token, not black/white literals. One control h
 
 ### A9 — Settings save behaviour (verified)
 
-Keep auto-save as the one model. One inline status per setting row: a brief "Saved" on success, and one error wording with Retry on failure. This answers the open question in task 6, item 4.
+Auto-save is the one model: text saves on blur (Enter blurs), switches, checkboxes and choices on click. `useAutoSave` gives each row one status and `SettingRow` shows it: "Saved" for 2 seconds once the server confirms, or "Couldn’t save changes." with Retry. A failed toggle shows what is saved again and Retry sends what was intended; a failed or invalid text edit stays in its field and Retry sends what is there now (`useTextSetting`). Device-local settings need no status.
 
 ### A10 — Toasts and silent failures
 
@@ -289,6 +295,7 @@ Newest first. One line per audit: date, scope, commit audited, where the report 
 
 Newest first. One line per rule added, changed or removed, with the reason.
 
+- 2026-11-22 — C4, C5, C8, L1, L3, L5, L6, I3, I4, A9 updated as the page shell, cards, dashboards, Settings and slide-overs landed: named the components, gave the board toolbar, phone second row, run-state chart colours and pinned drawer their exceptions, moved short picks from Dialog to Sheet, and dropped explicit Save from I4 (A9 found auto-save is the one model).
 - 2026-11-22 — C4–C6, C11, I1, I2, I5, T1, T5 updated as dialogs, fields, pickers, async states and toasts landed: named the components, the viewer / palette / path-field exceptions, quiet background polls (a 5s poll would flash an alert), OptionCard for multi-select lists, and the toast priority that keeps errors readable.
 - 2026-11-22 — C1–C3, C7, C9, C10, F10 updated as the core controls landed: named `inline`, `wrap`, `link`, `field`, Chip, CountBubble, SplitButton and Hint, the touch hit areas for 24px and inline controls (44px boxes broke inline rows, and 44px overlays took taps from the controls under inline links), manual tab activation (panes fetch or attach a terminal on open), and tooltips above the image viewer (its buttons have them now).
 - 2026-11-22 — F6: danger is tuned within red per theme instead of hue 0 everywhere (one hue didn’t match the themes), with text and fill pairs held to 4.5:1.

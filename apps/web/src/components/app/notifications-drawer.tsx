@@ -5,12 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Bell } from "lucide-react";
 import { useState } from "react";
 import { AttentionCard } from "./attention-toast";
-import {
-  Sheet,
-  SheetContent,
-  SheetTitle,
-  SheetTrigger,
-} from "@/components/ui/sheet";
+import { Sheet, SheetHeader } from "@/components/ui/sheet";
 import { IconButton } from "@/components/ui/icon-button";
 import { api } from "@/lib/api";
 import { AsyncBoundary, quietPoll } from "@/components/ui/async-boundary";
@@ -30,16 +25,23 @@ export function NotificationsDrawer(): JSX.Element {
   const region = quietPoll(history);
   const items = history.data?.filter((item) => !dismissed[item.toastId]);
   return (
-    <Sheet open={open} onOpenChange={setOpen}>
-      <SheetTrigger asChild>
-        <IconButton label="Notifications">
-          <Bell />
-        </IconButton>
-      </SheetTrigger>
-      <SheetContent aria-describedby={undefined}>
-        <div className="border-b px-4 pb-4 pt-safe-4">
-          <SheetTitle className="text-heading-md">Notifications</SheetTitle>
-        </div>
+    <>
+      <IconButton
+        label="Notifications"
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        onClick={() => setOpen(true)}
+      >
+        <Bell />
+      </IconButton>
+      <Sheet
+        open={open}
+        onOpenChange={setOpen}
+        keepMounted={false}
+        size="md"
+        label="Notifications"
+      >
+        <SheetHeader title="Notifications" onClose={() => setOpen(false)} />
         <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-3 pb-safe-3">
           <AsyncBoundary
             query={region}
@@ -84,7 +86,7 @@ export function NotificationsDrawer(): JSX.Element {
             }
           </AsyncBoundary>
         </div>
-      </SheetContent>
-    </Sheet>
+      </Sheet>
+    </>
   );
 }

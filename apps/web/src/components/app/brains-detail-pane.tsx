@@ -16,6 +16,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { PageContent, PageHeader } from "@/components/ui/page-header";
 import { EmptyState } from "@/components/ui/empty-state";
 import { LoadError } from "@/components/ui/async-boundary";
 import { toast } from "@/components/ui/toast";
@@ -56,12 +57,15 @@ export function BrainsDetailPane(): JSX.Element {
 
 function BrainsOverview(): JSX.Element {
   return (
-    <div className="flex h-full flex-col">
-      <EmptyState
-        icon={Brain}
-        title="Brain Explorer"
-        description="Select a project to inspect its shared brain memory — objects, lists, and events organized by collection."
-      />
+    <div className="flex h-full min-h-0 min-w-0 flex-col">
+      <PageHeader title="Brains" />
+      <PageContent mode="full">
+        <EmptyState
+          icon={Brain}
+          title="Brain Explorer"
+          description="Select a project to inspect its shared brain memory — objects, lists, and events organized by collection."
+        />
+      </PageContent>
     </div>
   );
 }
@@ -93,20 +97,15 @@ function BrainProjectDetail({
   };
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-background">
-      <div className="border-b border-border px-4 py-3 md:px-6">
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <h2 className="truncate text-heading-lg">
-              {repoBasename(repoRoot)}
-            </h2>
-            <div
-              className="mt-0.5 truncate font-mono text-body-sm text-muted-foreground"
-              title={repoRoot}
-            >
-              {repoRoot}
-            </div>
-          </div>
+    <div className="flex h-full min-h-0 min-w-0 flex-col bg-background">
+      <PageHeader
+        title={repoBasename(repoRoot)}
+        description={
+          <span className="font-mono" title={repoRoot}>
+            {repoRoot}
+          </span>
+        }
+        actions={
           <Button
             type="button"
             variant="ghost"
@@ -117,99 +116,105 @@ function BrainProjectDetail({
             <Trash2 />
             Clear project
           </Button>
-        </div>
-      </div>
-
-      <div className="border-b border-border px-4 md:px-6">
-        <div className="flex items-center gap-3 py-2">
-          <span className="hidden shrink-0 text-label-sm font-medium text-muted-foreground md:block">
-            Collections
-          </span>
-
-          {/* Mobile: dropdown */}
-          <div className="min-w-0 flex-1 md:hidden">
-            <Select
-              value={selectedCollection ?? "__all__"}
-              onValueChange={(val) => {
-                if (val === "__all__") {
-                  navigate(`/automations/brains/${encodedRepoRoot}`);
-                } else {
-                  navigate(
-                    `/automations/brains/${encodedRepoRoot}/${encodeURIComponent(val)}`
-                  );
-                }
-              }}
-            >
-              <SelectTrigger className="h-8 text-body-sm">
-                <SelectValue placeholder="All collections" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="__all__">All collections</SelectItem>
-                {collectionsLoading
-                  ? null
-                  : collections.map((col) => (
-                      <SelectItem key={col.collection} value={col.collection}>
-                        {col.collection} (
-                        {col.objectCount + col.listCount + col.eventCount})
-                      </SelectItem>
-                    ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          {/* Desktop: pills */}
-          <div className="hidden min-w-0 flex-1 items-center gap-1 overflow-x-auto scrollbar-none md:flex">
-            <CollectionPill
-              label="All"
-              active={selectedCollection === null}
-              onClick={() => navigate(`/automations/brains/${encodedRepoRoot}`)}
-            />
-            {collectionsLoading
-              ? null
-              : collections.map((col) => (
-                  <CollectionPill
-                    key={col.collection}
-                    label={col.collection}
-                    count={col.objectCount + col.listCount + col.eventCount}
-                    active={selectedCollection === col.collection}
-                    onClick={() =>
-                      navigate(
-                        `/automations/brains/${encodedRepoRoot}/${encodeURIComponent(col.collection)}`
-                      )
-                    }
-                  />
-                ))}
-          </div>
-
-          <div className="relative shrink-0">
-            <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Filter…"
-              className="h-8 w-32 pl-8 text-body-sm md:w-40"
-            />
-          </div>
-        </div>
-      </div>
-
-      {collectionsQuery.error ? (
-        <LoadError
-          thing="collections"
-          error={collectionsQuery.error}
-          retrying={collectionsQuery.isFetching}
-          onRetry={() => void collectionsQuery.refetch()}
-          className="m-3 mb-0"
-        />
-      ) : null}
-      <BrainCollectionView
-        repoRoot={repoRoot}
-        collection={selectedCollection}
-        search={search}
-        onCollectionCleared={() =>
-          navigate(`/automations/brains/${encodedRepoRoot}`, { replace: true })
         }
       />
+
+      <PageContent mode="full">
+        <div className="shrink-0 border-b border-border-subtle px-4 md:px-6">
+          <div className="flex items-center gap-3 py-2">
+            <span className="hidden shrink-0 text-label-sm font-medium text-muted-foreground md:block">
+              Collections
+            </span>
+
+            {/* Mobile: dropdown */}
+            <div className="min-w-0 flex-1 md:hidden">
+              <Select
+                value={selectedCollection ?? "__all__"}
+                onValueChange={(val) => {
+                  if (val === "__all__") {
+                    navigate(`/automations/brains/${encodedRepoRoot}`);
+                  } else {
+                    navigate(
+                      `/automations/brains/${encodedRepoRoot}/${encodeURIComponent(val)}`
+                    );
+                  }
+                }}
+              >
+                <SelectTrigger className="h-8 text-body-sm">
+                  <SelectValue placeholder="All collections" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__all__">All collections</SelectItem>
+                  {collectionsLoading
+                    ? null
+                    : collections.map((col) => (
+                        <SelectItem key={col.collection} value={col.collection}>
+                          {col.collection} (
+                          {col.objectCount + col.listCount + col.eventCount})
+                        </SelectItem>
+                      ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Desktop: pills */}
+            <div className="hidden min-w-0 flex-1 items-center gap-1 overflow-x-auto scrollbar-none md:flex">
+              <CollectionPill
+                label="All"
+                active={selectedCollection === null}
+                onClick={() =>
+                  navigate(`/automations/brains/${encodedRepoRoot}`)
+                }
+              />
+              {collectionsLoading
+                ? null
+                : collections.map((col) => (
+                    <CollectionPill
+                      key={col.collection}
+                      label={col.collection}
+                      count={col.objectCount + col.listCount + col.eventCount}
+                      active={selectedCollection === col.collection}
+                      onClick={() =>
+                        navigate(
+                          `/automations/brains/${encodedRepoRoot}/${encodeURIComponent(col.collection)}`
+                        )
+                      }
+                    />
+                  ))}
+            </div>
+
+            <div className="relative shrink-0">
+              <Search className="pointer-events-none absolute z-sticky left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Filter…"
+                className="h-8 w-32 pl-8 text-body-sm md:w-40"
+              />
+            </div>
+          </div>
+        </div>
+
+        {collectionsQuery.error ? (
+          <LoadError
+            thing="collections"
+            error={collectionsQuery.error}
+            retrying={collectionsQuery.isFetching}
+            onRetry={() => void collectionsQuery.refetch()}
+            className="m-3 mb-0"
+          />
+        ) : null}
+        <BrainCollectionView
+          repoRoot={repoRoot}
+          collection={selectedCollection}
+          search={search}
+          onCollectionCleared={() =>
+            navigate(`/automations/brains/${encodedRepoRoot}`, {
+              replace: true,
+            })
+          }
+        />
+      </PageContent>
       <ConfirmDialog
         open={projectDeleteOpen}
         onOpenChange={setProjectDeleteOpen}

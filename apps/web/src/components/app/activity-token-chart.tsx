@@ -61,7 +61,7 @@ export function DailyTokenChart({
 
   if (chartData.length === 0) {
     return (
-      <div className="flex h-40 items-center justify-center text-body-md text-muted-foreground">
+      <div className="flex h-full items-center justify-center text-body-md text-muted-foreground">
         No token data yet
       </div>
     );
@@ -70,7 +70,7 @@ export function DailyTokenChart({
   return (
     <ChartContainer
       config={tokenChartConfig}
-      className="aspect-[1.5/1] sm:aspect-[2.5/1] w-full"
+      className="aspect-auto min-h-0 w-full flex-1"
     >
       <ComposedChart data={chartData} barCategoryGap="20%">
         <CartesianGrid vertical={false} />
@@ -129,9 +129,7 @@ export function DailyTokenChart({
             );
           }}
         />
-        <ChartLegend
-          content={<ChartLegendContent className="flex-wrap gap-2 sm:gap-4" />}
-        />
+        <ChartLegend content={<ChartLegendContent />} />
         {TOKEN_ORDER.map((key) => (
           <Bar
             key={key}

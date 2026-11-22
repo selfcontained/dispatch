@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import type { ReleaseJob } from "@/hooks/use-release-stream";
 import { PHASE_LABELS } from "@/components/app/release-shared";
 import { statusLabel } from "@/lib/status-label";
+import { Card } from "@/components/ui/card";
 import { Alert } from "@/components/ui/alert";
 
 type ReleaseJobBannersProps = {
@@ -33,7 +34,11 @@ export function ReleaseJobBanners({
   return (
     <>
       {releaseInFlight && (
-        <div className="flex items-center gap-3 rounded-lg border border-info/line bg-info/tint px-3 py-3 text-body-md text-info">
+        <Card
+          variant="panel"
+          tone="info"
+          className="flex flex-wrap items-center gap-3 p-3 text-body-md text-info"
+        >
           <ActivityBars size={14} />
           <span>
             Releasing{" "}
@@ -55,7 +60,7 @@ export function ReleaseJobBanners({
           >
             View progress
           </Button>
-        </div>
+        </Card>
       )}
       {isFailed && (
         <Alert
@@ -66,7 +71,11 @@ export function ReleaseJobBanners({
         />
       )}
       {isDone && watchedRelease && (
-        <div className="flex items-center gap-3 rounded-lg border border-success/line bg-success/tint px-3 py-3 text-body-md text-success">
+        <Card
+          variant="panel"
+          tone="success"
+          className="flex flex-wrap items-center gap-3 p-3 text-body-md text-success"
+        >
           <CheckCircle2 className="h-4 w-4 shrink-0" />
           <span>
             Released <span className="font-mono font-semibold">{job.tag}</span>
@@ -79,7 +88,7 @@ export function ReleaseJobBanners({
           >
             Dismiss
           </Button>
-        </div>
+        </Card>
       )}
     </>
   );

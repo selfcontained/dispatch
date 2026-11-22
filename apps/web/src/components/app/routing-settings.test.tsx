@@ -72,17 +72,17 @@ async function show() {
       <RoutingSettings />
     </QueryClientProvider>
   );
-  await screen.findByRole("checkbox", { name: "Route replies automatically" });
+  await screen.findByRole("switch", { name: "Route replies automatically" });
 }
 const writes = () =>
   apiMock.mock.calls
     .filter(([, init]) => init?.method === "PUT")
     .map(([, init]) => JSON.parse(init!.body as string));
-it("uses a checkbox and a masked DB token with inline edit and cancel", async () => {
+it("uses a switch and a masked DB token with inline edit and cancel", async () => {
   await show();
   expect(
     screen
-      .getByRole("checkbox", { name: "Route replies automatically" })
+      .getByRole("switch", { name: "Route replies automatically" })
       .getAttribute("aria-checked")
   ).toBe("true");
   const masked = screen.getByLabelText(
@@ -104,23 +104,23 @@ it("uses a checkbox and a masked DB token with inline edit and cancel", async ()
 it("toggles active/off without changing the token", async () => {
   await show();
   fireEvent.click(
-    screen.getByRole("checkbox", { name: "Route replies automatically" })
+    screen.getByRole("switch", { name: "Route replies automatically" })
   );
   await waitFor(() =>
     expect(
       screen
-        .getByRole("checkbox", { name: "Route replies automatically" })
+        .getByRole("switch", { name: "Route replies automatically" })
         .getAttribute("aria-checked")
     ).toBe("false")
   );
   expect(writes()).toEqual([{ mode: "off" }]);
   fireEvent.click(
-    screen.getByRole("checkbox", { name: "Route replies automatically" })
+    screen.getByRole("switch", { name: "Route replies automatically" })
   );
   await waitFor(() =>
     expect(
       screen
-        .getByRole("checkbox", { name: "Route replies automatically" })
+        .getByRole("switch", { name: "Route replies automatically" })
         .getAttribute("aria-checked")
     ).toBe("true")
   );
@@ -146,7 +146,7 @@ it("removes the token and turns routing off in the same request", async () => {
   );
   await waitFor(() =>
     expect(
-      screen.queryByRole("checkbox", { name: "Route replies automatically" })
+      screen.queryByRole("switch", { name: "Route replies automatically" })
     ).toBeNull()
   );
   expect(writes()).toEqual([{ removeKey: true }]);
@@ -162,7 +162,7 @@ it("keeps enablement disabled until an unconfigured token is saved", async () =>
   await show();
   expect(
     (
-      screen.getByRole("checkbox", {
+      screen.getByRole("switch", {
         name: "Route replies automatically",
       }) as HTMLButtonElement
     ).disabled
@@ -252,7 +252,7 @@ it("supports Escape to discard and Enter to save a token edit", async () => {
 
 it("toggles steering independently of reply routing", async () => {
   await show();
-  const steering = screen.getByRole("checkbox", {
+  const steering = screen.getByRole("switch", {
     name: "Smart steering",
   });
   fireEvent.click(steering);
@@ -262,7 +262,7 @@ it("toggles steering independently of reply routing", async () => {
   expect(writes().at(-1)).toEqual({ steeringMode: "active" });
   expect(
     screen
-      .getByRole("checkbox", { name: "Route replies automatically" })
+      .getByRole("switch", { name: "Route replies automatically" })
       .getAttribute("aria-checked")
   ).toBe("true");
   fireEvent.click(steering);
@@ -314,7 +314,7 @@ it("shows a green success check after validation/save and clears it on edit", as
 
 it("toggles merge risk assessment on its own setting", async () => {
   await show();
-  const mergeRisk = screen.getByRole("checkbox", {
+  const mergeRisk = screen.getByRole("switch", {
     name: "Merge risk assessment",
   });
   expect(mergeRisk.getAttribute("aria-checked")).toBe("false");
@@ -325,7 +325,7 @@ it("toggles merge risk assessment on its own setting", async () => {
   expect(writes().at(-1)).toEqual({ mergeRiskMode: "active" });
   expect(
     screen
-      .getByRole("checkbox", { name: "Smart steering" })
+      .getByRole("switch", { name: "Smart steering" })
       .getAttribute("aria-checked")
   ).toBe("false");
 });
@@ -378,12 +378,12 @@ it("removes a saved key while AI stays off without enabling any features", async
       .getByRole("switch", { name: "Enable Dispatch AI" })
       .getAttribute("aria-checked")
   ).toBe("false");
-  expect(screen.queryByRole("checkbox")).toBeNull();
+  expect(screen.getAllByRole("switch")).toHaveLength(1);
 });
 
 it("saves session naming independently and retains it across master disable and remount", async () => {
   await show();
-  const naming = () => screen.getByRole("checkbox", { name: "Session naming" });
+  const naming = () => screen.getByRole("switch", { name: "Session naming" });
   expect(naming().getAttribute("aria-checked")).toBe("false");
   fireEvent.click(naming());
   await waitFor(() =>
@@ -392,9 +392,7 @@ it("saves session naming independently and retains it across master disable and 
   expect(writes().at(-1)).toEqual({ sessionNamingMode: "active" });
   fireEvent.click(screen.getByRole("switch", { name: "Enable Dispatch AI" }));
   await waitFor(() =>
-    expect(
-      screen.queryByRole("checkbox", { name: "Session naming" })
-    ).toBeNull()
+    expect(screen.queryByRole("switch", { name: "Session naming" })).toBeNull()
   );
   fireEvent.click(screen.getByRole("switch", { name: "Enable Dispatch AI" }));
   await waitFor(() =>

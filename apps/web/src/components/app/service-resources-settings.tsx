@@ -12,6 +12,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { useAutoSave } from "@/hooks/use-auto-save";
 import { Switch } from "@/components/ui/switch";
 import {
   type ResourceWindow,
@@ -19,6 +20,7 @@ import {
   useServiceResources,
 } from "@/hooks/use-service-resources";
 import { ServiceResourcesDashboard } from "./service-resources-dashboard";
+import { SettingsGroup, SettingsPage } from "./settings-layout";
 import { stateBadgeTone, stateLabel } from "./service-resources-format";
 
 export function ServiceResourcesSettings(): JSX.Element {
@@ -29,6 +31,9 @@ export function ServiceResourcesSettings(): JSX.Element {
   const query = useServiceResources(window);
   const { data, dataUpdatedAt } = query;
   const collectionMutation = useSetServiceResourcesCollection();
+  const autoSave = useAutoSave<boolean, "collection">((_, enabled) =>
+    collectionMutation.mutateAsync(enabled)
+  );
   const collectionEnabled = data?.collectionEnabled ?? false;
   const stale =
     collectionEnabled &&
@@ -40,28 +45,19 @@ export function ServiceResourcesSettings(): JSX.Element {
   const closeConfirmation = () => setPendingCollectionEnabled(null);
 
   return (
-    <div
-      className="mx-auto w-full max-w-7xl space-y-4 px-3 pb-16 pt-4 sm:px-4 md:px-8 md:pt-6"
-      data-testid="service-resources-dashboard"
-    >
-      <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <div className="flex items-center gap-2">
-            <h1 className="text-heading-lg">Service resources</h1>
-            {data && collectionEnabled && (
-              <Badge tone={stateBadgeTone(data.overall.state)}>
-                {stateLabel(data.overall.state)}
-              </Badge>
-            )}
-          </div>
-          <p className="mt-1 text-body-md text-muted-foreground">
-            Health and resource insights for Dispatch, its agents, dependencies,
-            and host. Collected history resets when Dispatch restarts.
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center justify-end gap-2">
+    <SettingsPage
+      page="resources"
+      status={
+        data && collectionEnabled ? (
+          <Badge tone={stateBadgeTone(data.overall.state)}>
+            {stateLabel(data.overall.state)}
+          </Badge>
+        ) : null
+      }
+      actions={
+        <>
           <span
-            className="w-28 whitespace-nowrap text-right text-body-sm text-muted-foreground"
+            className="whitespace-nowrap text-body-sm text-muted-foreground"
             data-testid="resources-updated-at"
           >
             {stale ? (
@@ -95,72 +91,87 @@ export function ServiceResourcesSettings(): JSX.Element {
               <SelectItem value="1h">1 hour</SelectItem>
             </SelectContent>
           </Select>
-        </div>
-      </header>
-
-      <SettingRow
-        label="Collect resource metrics"
-        description="Sample service health and resource usage every 5 seconds and retain up to one hour of history in memory."
-      >
-        <Switch
-          id="resource-collection-toggle"
-          checked={collectionEnabled}
-          onCheckedChange={setPendingCollectionEnabled}
-          disabled={!data || collectionMutation.isPending}
-          aria-label="Collect resource metrics"
-          data-testid="resource-collection-toggle"
-        />
-      </SettingRow>
-
-      <AsyncBoundary
-        query={quietPoll(query)}
-        thing="service resources"
-        loading={
-          <LoadingSkeleton
-            label="Loading service resources…"
-            className="grid gap-3 space-y-0 sm:grid-cols-3"
+        </>
+      }
+    >
+      <div className="space-y-8" data-testid="service-resources-dashboard">
+        <SettingsGroup
+          title="Collection"
+          description="Collected history resets when Dispatch restarts."
+        >
+          <SettingRow
+            label="Collect resource metrics"
+            description="Sample service health and resource usage every 5 seconds and retain up to one hour of history in memory."
+            status={autoSave.status("collection")}
           >
-            {Array.from({ length: 3 }, (_, card) => (
-              <Skeleton key={card} className="h-32" />
-            ))}
-          </LoadingSkeleton>
-        }
-      >
-        {(data) =>
-          collectionEnabled ? <ServiceResourcesDashboard data={data} /> : null
-        }
-      </AsyncBoundary>
+            <Switch
+              id="resource-collection-toggle"
+              checked={collectionEnabled}
+              onCheckedChange={setPendingCollectionEnabled}
+              disabled={!data || collectionMutation.isPending}
+              aria-label="Collect resource metrics"
+              data-testid="resource-collection-toggle"
+            />
+          </SettingRow>
+        </SettingsGroup>
 
-      <ConfirmDialog
-        open={confirmationOpen}
-        onOpenChange={(open) => {
-          if (!open) closeConfirmation();
-        }}
-        data-testid="resource-collection-confirmation"
-        tone={confirmingEnable ? "primary" : "danger"}
-        title={
-          confirmingEnable
-            ? "Start collecting resource metrics?"
-            : "Stop collecting resource metrics?"
-        }
-        description={
-          confirmingEnable
-            ? "Dispatch will sample service health and resource usage every 5 seconds and retain up to one hour of history in memory."
-            : "Resource history currently held in memory will be cleared, and no new service metrics will be collected until you turn this back on."
-        }
-        confirmLabel={confirmingEnable ? "Start collecting" : "Stop collecting"}
-        errorTitle={
-          confirmingEnable
-            ? "Couldn’t start collecting."
-            : "Couldn’t stop collecting."
-        }
-        confirmTestId="resource-collection-confirm"
-        cancelTestId="resource-collection-cancel"
-        onConfirm={async () => {
-          if (pendingCollectionEnabled !== null)
-            await collectionMutation.mutateAsync(pendingCollectionEnabled);
-        }}
-      />
-    </div>
+        <AsyncBoundary
+          query={quietPoll(query)}
+          thing="service resources"
+          loading={
+            <LoadingSkeleton
+              label="Loading service resources…"
+              className="grid gap-3 space-y-0 sm:grid-cols-3"
+            >
+              {Array.from({ length: 3 }, (_, card) => (
+                <Skeleton key={card} className="h-32" />
+              ))}
+            </LoadingSkeleton>
+          }
+        >
+          {(data) =>
+            collectionEnabled ? <ServiceResourcesDashboard data={data} /> : null
+          }
+        </AsyncBoundary>
+
+        <ConfirmDialog
+          open={confirmationOpen}
+          onOpenChange={(open) => {
+            if (!open) closeConfirmation();
+          }}
+          data-testid="resource-collection-confirmation"
+          tone={confirmingEnable ? "primary" : "danger"}
+          title={
+            confirmingEnable
+              ? "Start collecting resource metrics?"
+              : "Stop collecting resource metrics?"
+          }
+          description={
+            confirmingEnable
+              ? "Dispatch will sample service health and resource usage every 5 seconds and retain up to one hour of history in memory."
+              : "Resource history currently held in memory will be cleared, and no new service metrics will be collected until you turn this back on."
+          }
+          confirmLabel={
+            confirmingEnable ? "Start collecting" : "Stop collecting"
+          }
+          errorTitle={
+            confirmingEnable
+              ? "Couldn’t start collecting."
+              : "Couldn’t stop collecting."
+          }
+          confirmTestId="resource-collection-confirm"
+          cancelTestId="resource-collection-cancel"
+          onConfirm={async () => {
+            if (pendingCollectionEnabled === null) return;
+            const result = await autoSave.save(
+              "collection",
+              pendingCollectionEnabled
+            );
+            // The dialog stays, with the reason and the same button to retry.
+            if (!result.ok) throw result.error;
+          }}
+        />
+      </div>
+    </SettingsPage>
   );
 }

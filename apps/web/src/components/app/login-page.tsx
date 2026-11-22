@@ -3,7 +3,6 @@ import { Navigate, useNavigate } from "react-router-dom";
 import {
   Card,
   CardHeader,
-  CardTitle,
   CardDescription,
   CardContent,
 } from "@/components/ui/card";
@@ -93,7 +92,7 @@ export function LoginPage({ onAuthenticated }: LoginPageProps): JSX.Element {
     <div className="flex min-h-screen items-center justify-center bg-background p-4">
       <Card className="w-full max-w-sm">
         <CardHeader>
-          <CardTitle>Dispatch</CardTitle>
+          <h1 className="text-heading-md">Dispatch</h1>
           <CardDescription>Enter your password to continue.</CardDescription>
         </CardHeader>
         <CardContent>

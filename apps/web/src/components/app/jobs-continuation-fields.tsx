@@ -63,7 +63,7 @@ export function LoopSetup({
     Boolean(continuationMaxIterations(draft.maxIterations));
 
   return (
-    <section className="rounded-md border border-border-subtle bg-surface-subtle p-4 text-body-md">
+    <section className="min-w-0 text-body-md">
       <div className="mb-3">
         <h3 className="text-heading-sm text-foreground">Loop setup</h3>
       </div>

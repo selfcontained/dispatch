@@ -166,7 +166,7 @@ describe("ReleasesAdmin — unreleased changes", () => {
     });
 
     expect(
-      await screen.findByText(/unreleased commit info is unavailable/)
+      await screen.findByText(/unreleased commit info is unavailable/i)
     ).toBeTruthy();
     // cleanError strips the wrapper and the `fatal:` prefix.
     expect(screen.getByText("no upstream")).toBeTruthy();

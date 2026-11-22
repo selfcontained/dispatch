@@ -18,6 +18,7 @@ import {
   CardDescription,
   CardHeader,
   CardTitle,
+  Panel,
 } from "@/components/ui/card";
 
 type BrowserExtensionSetupCardProps = {
@@ -45,7 +46,7 @@ export function BrowserExtensionSetupCard({
           <Chrome className="h-5 w-5" aria-hidden="true" />
         </div>
         <div className="min-w-0 flex-1 space-y-1.5">
-          <CardTitle className="text-heading-md">
+          <CardTitle>
             {hasConnections
               ? "Dispatch Browser Feedback"
               : "Try browser feedback"}
@@ -97,10 +98,7 @@ export function BrowserExtensionSetupCard({
         )}
 
         {showInstallGuide && (
-          <div
-            className="space-y-4 rounded-lg border border-border bg-background/veil p-4"
-            data-testid="extension-install-guide"
-          >
+          <Panel className="space-y-4" data-testid="extension-install-guide">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div className="min-w-0 flex-[1_1_16rem]">
                 <p className="text-body-md font-medium">
@@ -121,7 +119,7 @@ export function BrowserExtensionSetupCard({
               )}
             </div>
             <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,15rem),1fr))] gap-3">
-              <div className="min-w-0 rounded-lg border border-border p-3">
+              <div className="min-w-0">
                 <FolderOpen
                   className="mb-2 h-4 w-4 text-primary"
                   aria-hidden="true"
@@ -134,7 +132,7 @@ export function BrowserExtensionSetupCard({
                   access it.
                 </p>
               </div>
-              <div className="min-w-0 rounded-lg border border-border p-3">
+              <div className="min-w-0">
                 <Puzzle
                   className="mb-2 h-4 w-4 text-primary"
                   aria-hidden="true"
@@ -145,7 +143,7 @@ export function BrowserExtensionSetupCard({
                   enable Developer mode, then choose Load unpacked.
                 </p>
               </div>
-              <div className="min-w-0 rounded-lg border border-border p-3">
+              <div className="min-w-0">
                 <Chrome
                   className="mb-2 h-4 w-4 text-primary"
                   aria-hidden="true"
@@ -157,7 +155,7 @@ export function BrowserExtensionSetupCard({
                 </p>
               </div>
             </div>
-            <div className="flex items-center gap-2 rounded-md border border-border bg-background px-3 py-2">
+            <div className="flex items-center gap-2 rounded-md bg-surface-hover px-3 py-2">
               <code className="min-w-0 flex-1 truncate text-body-sm">
                 {dispatchUrl}
               </code>
@@ -177,7 +175,7 @@ export function BrowserExtensionSetupCard({
                 <span className="ml-1.5">{copiedUrl ? "Copied" : "Copy"}</span>
               </Button>
             </div>
-          </div>
+          </Panel>
         )}
       </CardContent>
     </Card>

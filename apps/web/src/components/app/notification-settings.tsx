@@ -19,18 +19,14 @@ export function NotificationSettings(): JSX.Element {
     toggleWebNotifyEnabled,
     handleRequestPermission,
     handleTestWebNotification,
-    saving,
+    saveStatus,
     webMessage,
-    webError,
   } = useNotificationSettings();
 
   return (
-    <div className="flex flex-col gap-8 overflow-y-auto p-6">
+    <>
       <SoundCuesSection />
-
-      <div className="border-t border-border pt-8">
-        <TipsSection />
-      </div>
+      <TipsSection />
 
       <AsyncBoundary
         query={{
@@ -46,8 +42,7 @@ export function NotificationSettings(): JSX.Element {
             webNotifyEnabled={webNotifyEnabled}
             webNotifyEvents={webNotifyEvents}
             browserPermission={browserPermission}
-            saving={saving}
-            webError={webError}
+            saveStatus={saveStatus}
             webMessage={webMessage}
             onRequestPermission={handleRequestPermission}
             onToggleWebNotifyEnabled={toggleWebNotifyEnabled}
@@ -58,6 +53,6 @@ export function NotificationSettings(): JSX.Element {
       </AsyncBoundary>
 
       <SlackAppSection />
-    </div>
+    </>
   );
 }

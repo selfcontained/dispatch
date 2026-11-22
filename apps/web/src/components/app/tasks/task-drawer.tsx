@@ -1,7 +1,6 @@
 import { useTaskDrawerTarget } from "./use-task-drawer-target";
 import { DrawerFrame } from "../drawer";
-import { GlassSidebar } from "@/components/ui/glass-sidebar";
-import { glassPanel } from "@/lib/glass";
+import { Sheet, SheetClose, type SheetProps } from "@/components/ui/sheet";
 import { TaskLabelPicker } from "./task-labels";
 import { TaskLaunchTemplateEditor } from "./task-launch-template";
 import { TaskAttachments } from "./task-attachments";
@@ -12,8 +11,6 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { useTaskChatUnread } from "@/hooks/use-chat-unread-summary";
 import { BLOCK_PARAM, THREAD_PARAM } from "@/lib/agent-routes";
 import {
-  ArrowLeft,
-  X,
   ChevronLeft,
   ChevronRight,
   ExternalLink,
@@ -73,6 +70,10 @@ import { Textarea } from "@/components/ui/textarea";
 const PROPERTY_CONTROL =
   "h-8 w-full max-w-64 border-transparent bg-surface-hover text-body-sm hover:bg-muted [[data-theme-mode=light]_&]:border-edge";
 
+/** On the board, a press on these switches the task rather than closing it. */
+const OPENS_A_TASK =
+  '[data-testid^="task-card-"], [data-testid^="task-row-"], [data-opens-task]';
+
 /** The raised surface each drawer group sits on, over the pane's base. */
 const DRAWER_SURFACE =
   "rounded-lg bg-card/soft p-3 shadow-sm ring-1 ring-border-subtle";
@@ -111,41 +112,41 @@ export type TaskDetailProps = {
 
 /** Shared task drawer shell on the board and over an agent session. */
 export function TaskDrawerShell({
-  open,
   isMobile,
   close,
-  children,
-}: {
-  open: boolean;
+  ...sheet
+}: Pick<
+  SheetProps,
+  | "open"
+  | "children"
+  | "label"
+  | "dialog"
+  | "autoFocus"
+  | "keepOpen"
+  | "onOutsidePress"
+> & {
   isMobile: boolean;
   close: () => void;
-  children: React.ReactNode;
 }) {
   if (isMobile)
     return (
-      <GlassSidebar
-        open={open}
-        onOpenChange={(value) => {
-          if (!value) close();
-        }}
-        side="right"
-        mobile
+      <Sheet
         label="Task"
-      >
-        {children}
-      </GlassSidebar>
+        {...sheet}
+        dialog
+        autoFocus
+        onOpenChange={(open) => {
+          if (!open) close();
+        }}
+      />
     );
   return (
-    <DrawerFrame open={open} pinned={false} testId="task-drawer-wrapper">
-      <div
-        className={cn(
-          "flex h-full min-h-0 flex-col rounded-l-lg border-l text-foreground",
-          glassPanel
-        )}
-      >
-        {children}
-      </div>
-    </DrawerFrame>
+    <DrawerFrame
+      {...sheet}
+      pinned={false}
+      onClose={close}
+      testId="task-drawer-wrapper"
+    />
   );
 }
 
@@ -158,7 +159,12 @@ export function TaskDrawer({
   const heldProps = useRef(props);
   if (open && props.id) heldProps.current = props;
   return (
-    <TaskDrawerShell open={open} isMobile={props.isMobile} close={props.close}>
+    <TaskDrawerShell
+      open={open}
+      isMobile={props.isMobile}
+      close={props.close}
+      keepOpen={OPENS_A_TASK}
+    >
       <aside
         data-testid="task-drawer"
         aria-label="Task"
@@ -286,10 +292,7 @@ export function TaskDetailPanel({
   const failed = taskFailure(actions, id);
   return (
     <>
-      <header className="flex min-h-14 shrink-0 items-center gap-1 border-b border-border-subtle pl-1.5 pr-2 pt-safe text-body-sm text-muted-foreground">
-        <IconButton onClick={close} label="Close task" className="md:hidden">
-          <ArrowLeft />
-        </IconButton>
+      <header className="flex min-h-14 shrink-0 items-center gap-1 border-b border-border-subtle pl-2 pr-2 pt-safe text-body-sm text-muted-foreground">
         <span className="flex min-w-0 flex-1 items-center gap-2 px-1">
           {column && (
             <StatusDot
@@ -316,13 +319,7 @@ export function TaskDetailPanel({
           <ChevronRight />
         </IconButton>
         {headerAction}
-        <IconButton
-          onClick={close}
-          label="Close task"
-          className="hidden md:inline-flex"
-        >
-          <X />
-        </IconButton>
+        <SheetClose onClick={close} />
       </header>
       {failed && (
         <Alert
@@ -388,7 +385,11 @@ export function TaskDetailPanel({
                       onBlur={saveTitle}
                       onKeyDown={(event) => {
                         if (event.key === "Enter") saveTitle();
-                        if (event.key === "Escape") setEditingTitle(false);
+                        if (event.key === "Escape") {
+                          // Cancels the edit, not the drawer.
+                          event.preventDefault();
+                          setEditingTitle(false);
+                        }
                       }}
                     />
                   ) : (

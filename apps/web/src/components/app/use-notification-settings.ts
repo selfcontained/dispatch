@@ -4,20 +4,34 @@ import {
   getNotificationPermission,
   requestNotificationPermission,
 } from "@/lib/web-notifications";
-import type {
-  NotificationSettingsResponse,
-  NotifyEventType,
+import { useAutoSave } from "@/hooks/use-auto-save";
+import {
+  EVENT_OPTIONS,
+  type NotificationSettingsResponse,
+  type NotifyEventType,
 } from "@/components/app/notification-settings-constants";
 
+type Saved = Pick<
+  NotificationSettingsResponse,
+  "webNotifyEnabled" | "webNotifyEvents"
+>;
+/** One per row: the switch, and each event it covers. */
+export type WebNotifySetting = "enabled" | NotifyEventType;
+
 export function useNotificationSettings() {
-  // Web notification settings
-  const [webNotifyEnabled, setWebNotifyEnabled] = useState(false);
-  const [savedWebEnabled, setSavedWebEnabled] = useState(false);
-  const [webNotifyEvents, setWebNotifyEvents] = useState<NotifyEventType[]>([
-    "waiting_user",
-    "blocked",
-  ]);
-  const [savedWebEvents, setSavedWebEvents] = useState<NotifyEventType[]>([]);
+  const [saved, setSaved] = useState<Saved>({
+    webNotifyEnabled: false,
+    webNotifyEvents: ["waiting_user", "blocked"],
+  });
+  // What the server last confirmed, read by a save when its turn comes.
+  const savedRef = useRef(saved);
+  const adopt = useCallback((data: Saved) => {
+    savedRef.current = {
+      webNotifyEnabled: data.webNotifyEnabled,
+      webNotifyEvents: data.webNotifyEvents,
+    };
+    setSaved(savedRef.current);
+  }, []);
   const [browserPermission, setBrowserPermission] =
     useState<NotificationPermission>(getNotificationPermission());
 
@@ -35,17 +49,10 @@ export function useNotificationSettings() {
   }, []);
 
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
   const [webMessage, setWebMessage] = useState("");
-  const [webError, setWebError] = useState<unknown>();
   const [loadError, setLoadError] = useState<unknown>();
   const [attempt, setAttempt] = useState(0);
   const reload = useCallback(() => setAttempt((count) => count + 1), []);
-  const webNotifyEnabledRef = useRef(webNotifyEnabled);
-  const webNotifyEventsRef = useRef(webNotifyEvents);
-  const savedWebEnabledRef = useRef(savedWebEnabled);
-  const savedWebEventsRef = useRef(savedWebEvents);
-  const webSaveRequestIdRef = useRef(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -56,10 +63,7 @@ export function useNotificationSettings() {
           "/api/v1/notifications/settings"
         );
         if (cancelled) return;
-        setWebNotifyEnabled(data.webNotifyEnabled);
-        setSavedWebEnabled(data.webNotifyEnabled);
-        setWebNotifyEvents(data.webNotifyEvents);
-        setSavedWebEvents(data.webNotifyEvents);
+        adopt(data);
         setLoadError(undefined);
       } catch (err) {
         if (!cancelled) setLoadError(err);
@@ -70,98 +74,43 @@ export function useNotificationSettings() {
     return () => {
       cancelled = true;
     };
-  }, [attempt]);
+  }, [attempt, adopt]);
 
-  useEffect(() => {
-    webNotifyEnabledRef.current = webNotifyEnabled;
-    webNotifyEventsRef.current = webNotifyEvents;
-    savedWebEnabledRef.current = savedWebEnabled;
-    savedWebEventsRef.current = savedWebEvents;
-  }, [savedWebEnabled, savedWebEvents, webNotifyEnabled, webNotifyEvents]);
-
-  const persistWebNotificationSettings = useCallback(
-    async (
-      nextEnabled: boolean,
-      nextEvents: NotifyEventType[]
-    ): Promise<boolean> => {
-      const requestId = webSaveRequestIdRef.current + 1;
-      webSaveRequestIdRef.current = requestId;
-      setWebError(undefined);
-      setWebMessage("");
-      setSaving(true);
-      try {
-        const data = await api<NotificationSettingsResponse>(
+  const autoSave = useAutoSave<boolean, WebNotifySetting>(
+    async (setting, on) => {
+      const { webNotifyEnabled, webNotifyEvents } = savedRef.current;
+      const body: Saved =
+        setting === "enabled"
+          ? { webNotifyEnabled: on, webNotifyEvents }
+          : {
+              webNotifyEnabled,
+              webNotifyEvents: on
+                ? [...webNotifyEvents.filter((e) => e !== setting), setting]
+                : webNotifyEvents.filter((e) => e !== setting),
+            };
+      adopt(
+        await api<NotificationSettingsResponse>(
           "/api/v1/notifications/settings",
-          {
-            method: "POST",
-            body: JSON.stringify({
-              webNotifyEnabled: nextEnabled,
-              webNotifyEvents: nextEvents,
-            }),
-          }
-        );
-        if (webSaveRequestIdRef.current !== requestId) {
-          return true;
-        }
-        setSavedWebEnabled(data.webNotifyEnabled);
-        setSavedWebEvents(data.webNotifyEvents);
-        setWebNotifyEnabled(data.webNotifyEnabled);
-        setWebNotifyEvents(data.webNotifyEvents);
-        setWebMessage("Browser notification settings saved.");
-        return true;
-      } catch (err) {
-        if (webSaveRequestIdRef.current !== requestId) {
-          return true;
-        }
-        setWebError(err);
-        return false;
-      } finally {
-        if (webSaveRequestIdRef.current === requestId) {
-          setSaving(false);
-        }
-      }
-    },
-    []
-  );
-
-  const toggleWebEvent = useCallback(
-    async (eventType: NotifyEventType) => {
-      const previousEnabled = webNotifyEnabledRef.current;
-      const previousEvents = webNotifyEventsRef.current;
-      const nextEvents = previousEvents.includes(eventType)
-        ? previousEvents.filter((e) => e !== eventType)
-        : [...previousEvents, eventType];
-
-      setWebNotifyEvents(nextEvents);
-      const saved = await persistWebNotificationSettings(
-        previousEnabled,
-        nextEvents
+          { method: "POST", body: JSON.stringify(body) }
+        )
       );
-      if (!saved) {
-        setWebNotifyEnabled(savedWebEnabledRef.current);
-        setWebNotifyEvents(savedWebEventsRef.current);
-      }
-    },
-    [persistWebNotificationSettings]
+    }
+  );
+  const { save } = autoSave;
+
+  const webNotifyEvents = EVENT_OPTIONS.map(({ id }) => id).filter((id) =>
+    autoSave.value(id, saved.webNotifyEvents.includes(id))
   );
 
-  const toggleWebNotifyEnabled = useCallback(
-    async (checked: boolean) => {
-      const previousEvents = webNotifyEventsRef.current;
-      const nextEnabled = checked;
+  const toggleWebEvent = async (event: NotifyEventType): Promise<void> => {
+    setWebMessage("");
+    await save(event, !webNotifyEvents.includes(event));
+  };
 
-      setWebNotifyEnabled(nextEnabled);
-      const saved = await persistWebNotificationSettings(
-        nextEnabled,
-        previousEvents
-      );
-      if (!saved) {
-        setWebNotifyEnabled(savedWebEnabledRef.current);
-        setWebNotifyEvents(savedWebEventsRef.current);
-      }
-    },
-    [persistWebNotificationSettings]
-  );
+  const toggleWebNotifyEnabled = async (checked: boolean): Promise<void> => {
+    setWebMessage("");
+    await save("enabled", checked);
+  };
 
   const handleRequestPermission = useCallback(async () => {
     const result = await requestNotificationPermission();
@@ -182,15 +131,14 @@ export function useNotificationSettings() {
     loadError,
     reload,
     // Web/browser notifications
-    webNotifyEnabled,
+    webNotifyEnabled: autoSave.value("enabled", saved.webNotifyEnabled),
     webNotifyEvents,
     browserPermission,
     toggleWebEvent,
     toggleWebNotifyEnabled,
+    saveStatus: autoSave.status,
     handleRequestPermission,
     handleTestWebNotification,
-    saving,
     webMessage,
-    webError,
   };
 }

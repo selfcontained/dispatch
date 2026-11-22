@@ -120,7 +120,7 @@ export function ReleasesAdmin(): JSX.Element {
   // running server-side either way.
   if (showProgress && createJob) {
     return (
-      <div className="flex h-full min-h-0 flex-col">
+      <div className="flex h-[70dvh] min-h-96 flex-col">
         <div className="flex items-center gap-2 border-b border-edge px-4 py-2">
           <Button
             variant="ghost"
@@ -148,7 +148,7 @@ export function ReleasesAdmin(): JSX.Element {
   }
 
   return (
-    <div className="flex flex-col gap-6 p-4 md:p-6">
+    <div className="space-y-8">
       {/* In-flight / finished release banner — page stays usable */}
       {createJob && (
         <ReleaseJobBanners
@@ -180,8 +180,6 @@ export function ReleasesAdmin(): JSX.Element {
         onConfirmTypeChange={setConfirmType}
         onRelease={handleRelease}
       />
-
-      <div className="border-t border-edge" />
 
       <RecentReleases
         releases={releases}

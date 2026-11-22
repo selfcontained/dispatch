@@ -10,6 +10,8 @@ import { Button } from "@/components/ui/button";
 import { useAgentRecord } from "@/hooks/use-agent-tree";
 import { useBlockJump } from "@/hooks/use-block-jump";
 import { useStreamFeed, useThread } from "@/hooks/use-stream";
+import { panelFrame } from "@/components/ui/card";
+import { cn } from "@/lib/utils";
 import { LoadError } from "@/components/ui/async-boundary";
 import { EmptyState } from "@/components/ui/empty-state";
 import { LoadingSkeleton } from "@/components/ui/skeleton";
@@ -127,7 +129,10 @@ export function ArchivedConversation({
       />
       <div
         ref={scrollRef}
-        className="stream-surfaces-flat h-[min(65vh,48rem)] min-h-64 overflow-y-auto rounded-lg border border-border py-2"
+        className={cn(
+          panelFrame,
+          "stream-surfaces-flat h-[min(65vh,48rem)] min-h-64 overflow-y-auto py-2"
+        )}
         data-testid="archived-conversation-scroll"
       >
         {loading ? (

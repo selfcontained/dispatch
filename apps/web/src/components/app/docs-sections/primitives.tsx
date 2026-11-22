@@ -16,7 +16,7 @@ export function CodeBlock({ children }: { children: string }) {
 
 export function P({ children }: { children: React.ReactNode }) {
   return (
-    <p className="text-body-md leading-relaxed text-muted-foreground">
+    <p className="break-words text-body-md leading-relaxed text-muted-foreground">
       {children}
     </p>
   );
@@ -37,5 +37,5 @@ export function H3({
 }
 
 export function Section({ children }: { children: React.ReactNode }) {
-  return <div className="grid gap-3">{children}</div>;
+  return <div className="grid min-w-0 gap-3 [&>*]:min-w-0">{children}</div>;
 }

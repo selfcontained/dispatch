@@ -17,6 +17,8 @@ import {
   useUpdatePlugin,
   type PluginStatus,
 } from "@/hooks/use-plugin-status";
+import { SettingsGroup } from "@/components/app/settings-layout";
+import { Panel } from "@/components/ui/card";
 import { Alert } from "@/components/ui/alert";
 import { LoadError } from "@/components/ui/async-boundary";
 import { LoadingSkeleton } from "@/components/ui/skeleton";
@@ -86,7 +88,7 @@ function PluginRow({ status }: { status: PluginStatus }): JSX.Element {
             : "Up to date";
 
   return (
-    <div className="rounded-sm border border-border px-3 py-3">
+    <Panel>
       <div className="flex min-h-12 items-center justify-between gap-4">
         <div className="min-w-0 flex-1">
           <div className="text-body-md font-medium text-foreground">
@@ -174,7 +176,7 @@ function PluginRow({ status }: { status: PluginStatus }): JSX.Element {
           </p>
         </CollapsibleContent>
       </Collapsible>
-    </div>
+    </Panel>
   );
 }
 
@@ -184,55 +186,46 @@ export function PluginUpdateSettings(): JSX.Element {
   const refresh = useRefreshPluginStatus();
   const checking = isFetching || refresh.isPending;
   return (
-    <section
+    <SettingsGroup
       aria-label="Dispatch plugins"
-      className="flex flex-col gap-4 border-t border-border p-6"
+      title="Dispatch plugins"
+      description="Skills for your enabled Claude Code and Codex CLIs. Install or update on this Dispatch server, then start a fresh agent session to load them."
+      actions={
+        <Button
+          variant="ghost"
+          size="xs"
+          disabled={checking}
+          onClick={() => refresh.mutate()}
+        >
+          <RefreshCw className={checking ? "animate-spin" : undefined} />
+          Check again
+        </Button>
+      }
     >
-      <div className="max-w-lg">
-        <div className="flex items-center justify-between gap-3">
-          <h2 className="text-heading-sm text-foreground">Dispatch plugins</h2>
-          <Button
-            variant="ghost"
-            size="xs"
-            disabled={checking}
-            onClick={() => refresh.mutate()}
-          >
-            <RefreshCw className={checking ? "animate-spin" : undefined} />
-            Check again
-          </Button>
-        </div>
-        <p className="mt-1 text-body-md text-muted-foreground">
-          Skills for your enabled Claude Code and Codex CLIs. Install or update
-          on this Dispatch server, then start a fresh agent session to load
-          them.
+      {isPending ? (
+        <LoadingSkeleton
+          label="Checking plugin versions…"
+          rows={2}
+          rowClassName="h-20"
+        />
+      ) : null}
+      {error || refresh.error ? (
+        <LoadError
+          thing="plugin status"
+          error={error ?? refresh.error}
+          retrying={checking}
+          onRetry={() => refresh.mutate()}
+        />
+      ) : null}
+      {data?.statuses.map((status) => (
+        <PluginRow key={status.agentType} status={status} />
+      ))}
+      {data?.statuses.length === 0 ? (
+        <p className="text-body-md text-muted-foreground">
+          Enable Claude Code or Codex in Settings → Agents to manage its
+          Dispatch plugin.
         </p>
-      </div>
-      <div className="max-w-lg space-y-2">
-        {isPending ? (
-          <LoadingSkeleton
-            label="Checking plugin versions…"
-            rows={2}
-            rowClassName="h-20"
-          />
-        ) : null}
-        {error || refresh.error ? (
-          <LoadError
-            thing="plugin status"
-            error={error ?? refresh.error}
-            retrying={checking}
-            onRetry={() => refresh.mutate()}
-          />
-        ) : null}
-        {data?.statuses.map((status) => (
-          <PluginRow key={status.agentType} status={status} />
-        ))}
-        {data?.statuses.length === 0 ? (
-          <p className="text-body-md text-muted-foreground">
-            Enable Claude Code or Codex in Settings → Agents to manage its
-            Dispatch plugin.
-          </p>
-        ) : null}
-      </div>
-    </section>
+      ) : null}
+    </SettingsGroup>
   );
 }

@@ -28,9 +28,9 @@ export function UpdatesSection({ stream }: UpdatesSectionProps): JSX.Element {
     notesExpanded,
     setNotesExpanded,
     channel,
-    channelSaving,
+    channelStatus,
     autoUpdateMode,
-    autoUpdateSaving,
+    autoUpdateStatus,
     infoLoading,
     infoError,
     updateError,
@@ -70,15 +70,13 @@ export function UpdatesSection({ stream }: UpdatesSectionProps): JSX.Element {
   }
 
   return (
-    <div className="flex flex-col gap-6 p-4 md:p-6">
+    <div className="space-y-8">
       <UpdatesVersionCard
         status={status}
         versionInfo={versionInfo}
         notesExpanded={notesExpanded}
         onToggleNotes={() => setNotesExpanded(!notesExpanded)}
       />
-
-      <div className="border-t border-edge" />
 
       {!versionInfo ? (
         versionInfoError ? (
@@ -100,10 +98,10 @@ export function UpdatesSection({ stream }: UpdatesSectionProps): JSX.Element {
         <>
           <UpdatesPreferences
             channel={channel}
-            channelSaving={channelSaving}
+            channelStatus={channelStatus}
             onChannelChange={(ch) => void handleChannelChange(ch)}
             autoUpdateMode={autoUpdateMode}
-            autoUpdateSaving={autoUpdateSaving}
+            autoUpdateStatus={autoUpdateStatus}
             onAutoUpdateModeChange={(mode) =>
               void handleAutoUpdateModeChange(mode)
             }
@@ -123,8 +121,6 @@ export function UpdatesSection({ stream }: UpdatesSectionProps): JSX.Element {
           />
         </>
       )}
-
-      <div className="border-t border-edge" />
 
       <EngineUpdatesCard />
 

@@ -247,7 +247,7 @@ export function WebhookUrl({ secret }: { secret: string }) {
   }, [url]);
 
   return (
-    <div className="mt-2 rounded-md border border-border-subtle bg-surface-subtle px-3 py-3">
+    <div className="mt-2 min-w-0 border-t border-border-subtle pt-3">
       <div className="text-body-sm font-medium text-muted-foreground">
         Webhook URL
       </div>

@@ -10,15 +10,17 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Switch } from "@/components/ui/switch";
 import { IconButton } from "@/components/ui/icon-button";
 import { Hint } from "@/components/ui/tooltip";
 import { api } from "@/lib/api";
+import { SettingsGroup } from "@/components/app/settings-layout";
+import { Panel } from "@/components/ui/card";
+import { useAutoSave } from "@/hooks/use-auto-save";
 import { Alert } from "@/components/ui/alert";
 import { LoadError } from "@/components/ui/async-boundary";
 import { LoadingSkeleton } from "@/components/ui/skeleton";
-import { SettingRow } from "@/components/ui/setting-row";
+import { SaveFailure, SettingRow } from "@/components/ui/setting-row";
 
 type Status = {
   aiEnabled?: boolean;
@@ -37,6 +39,13 @@ type Status = {
 };
 const endpoint = "/api/v1/experiments/routing";
 const queryKey = ["routing-experiment-settings"];
+type Toggle =
+  | "aiEnabled"
+  | "mode"
+  | "steeringMode"
+  | "sessionNamingMode"
+  | "mergeRiskMode";
+
 export function RoutingSettings(): JSX.Element {
   const [key, setKey] = useState("");
   const [editing, setEditing] = useState(false);
@@ -57,15 +66,7 @@ export function RoutingSettings(): JSX.Element {
       }),
   });
   const save = useMutation({
-    mutationFn: (body: {
-      aiEnabled?: boolean;
-      mode?: "off" | "active";
-      steeringMode?: "off" | "active";
-      mergeRiskMode?: "off" | "active";
-      sessionNamingMode?: "off" | "active";
-      apiKey?: string;
-      removeKey?: boolean;
-    }) =>
+    mutationFn: (body: { apiKey?: string; removeKey?: boolean }) =>
       api<Status>(`${endpoint}/settings`, {
         method: "PUT",
         body: JSON.stringify(body),
@@ -85,7 +86,24 @@ export function RoutingSettings(): JSX.Element {
       check.reset();
     },
   });
+  // Apart from the key's mutation, whose state is the key editor's.
+  const autoSave = useAutoSave<boolean, Toggle>(async (name, on) => {
+    const saved = await api<Status>(`${endpoint}/settings`, {
+      method: "PUT",
+      body: JSON.stringify(
+        name === "aiEnabled"
+          ? { aiEnabled: on }
+          : { [name]: on ? "active" : "off" }
+      ),
+    });
+    client.setQueryData(queryKey, saved);
+    check.reset();
+  });
   const data = settings.data;
+  const aiOn = autoSave.value(
+    "aiEnabled",
+    Boolean(data && (data.aiEnabled ?? data.configured))
+  );
   const editToken = editing || data?.configured === false;
   const testOk = check.data?.status === "ok" || validatedAndSaved;
   const testFailed = !!check.error || (!!check.data && !testOk);
@@ -104,15 +122,7 @@ export function RoutingSettings(): JSX.Element {
         ? XCircle
         : CheckCircle2;
   return (
-    <section
-      className="m-4 max-w-xl space-y-4 rounded-lg border border-border p-4 md:m-6 md:p-6"
-      aria-labelledby="routing-settings-heading"
-    >
-      <div>
-        <h2 id="routing-settings-heading" className="text-heading-sm">
-          Dispatch AI
-        </h2>
-      </div>
+    <SettingsGroup title="Dispatch AI">
       {settings.isPending && (
         <LoadingSkeleton label="Loading routing settings…" />
       )}
@@ -125,23 +135,24 @@ export function RoutingSettings(): JSX.Element {
         />
       )}
       {data && (
-        <SettingRow label="Enable Dispatch AI">
+        <SettingRow
+          label="Enable Dispatch AI"
+          status={autoSave.status("aiEnabled")}
+        >
           <Switch
             aria-label="Enable Dispatch AI"
-            checked={data.aiEnabled ?? data.configured}
+            checked={aiOn}
             disabled={save.isPending || check.isPending}
-            onCheckedChange={(aiEnabled) => save.mutate({ aiEnabled })}
+            onCheckedChange={(on) => void autoSave.save("aiEnabled", on)}
           />
         </SettingRow>
       )}
-      {data && !(data.aiEnabled ?? data.configured) && data.configured && (
-        <div className="flex items-center justify-between gap-3 rounded-sm border border-border p-3">
-          <div className="min-w-0">
-            <p className="text-body-sm font-medium">OpenAI API key saved</p>
-            <p className="text-body-sm text-muted-foreground">
-              AI features are off. Your saved key is retained.
-            </p>
-          </div>
+      {data && !aiOn && data.configured && (
+        <SettingRow
+          layout="action"
+          label="OpenAI API key saved"
+          description="AI features are off. Your saved key is retained."
+        >
           <Button
             size="sm"
             variant="ghost"
@@ -152,16 +163,16 @@ export function RoutingSettings(): JSX.Element {
             <Trash2 />
             Remove key
           </Button>
-        </div>
+        </SettingRow>
       )}
-      {data && (data.aiEnabled ?? data.configured) && (
-        <div className="space-y-3">
+      {data && aiOn && (
+        <div className="space-y-2">
           <p className="text-body-sm text-muted-foreground">
             Dispatch AI requires an OpenAI API key. Create a key in your OpenAI
             project, then validate and save it here. API usage can incur OpenAI
             charges, separate from a ChatGPT subscription.
           </p>
-          <div className="space-y-4 rounded-sm border border-border px-3 py-3">
+          <Panel className="space-y-4">
             <div className="flex h-8 items-center justify-between gap-3">
               <label
                 htmlFor="routing-key"
@@ -237,6 +248,7 @@ export function RoutingSettings(): JSX.Element {
                   placeholder="Enter key"
                   onKeyDown={(e) => {
                     if (e.key === "Escape") {
+                      e.preventDefault();
                       save.reset();
                       check.reset();
                       setEditing(false);
@@ -346,7 +358,7 @@ export function RoutingSettings(): JSX.Element {
                 ? testLabel
                 : ""}
             </span>
-          </div>
+          </Panel>
           <SettingRow
             label="Route replies automatically"
             description={
@@ -355,18 +367,19 @@ export function RoutingSettings(): JSX.Element {
                 : "Add an OpenAI API key to enable routing."
             }
             disabled={!data.configured}
+            status={autoSave.status("mode")}
           >
-            <Checkbox
-              id="routing-enabled"
+            <Switch
               aria-label="Route replies automatically"
               checked={
                 data.configured &&
-                (data.routingPreference ?? data.mode) === "active"
+                autoSave.value(
+                  "mode",
+                  (data.routingPreference ?? data.mode) === "active"
+                )
               }
               disabled={save.isPending || check.isPending || !data.configured}
-              onCheckedChange={(on) =>
-                save.mutate({ mode: on === true ? "active" : "off" })
-              }
+              onCheckedChange={(on) => void autoSave.save("mode", on)}
             />
           </SettingRow>
           <SettingRow
@@ -377,17 +390,19 @@ export function RoutingSettings(): JSX.Element {
                 : "Add an OpenAI API key to enable steering."
             }
             disabled={!data.configured}
+            status={autoSave.status("steeringMode")}
           >
-            <Checkbox
+            <Switch
               aria-label="Smart steering"
               checked={
                 data.configured &&
-                (data.steeringPreference ?? data.steeringMode) === "active"
+                autoSave.value(
+                  "steeringMode",
+                  (data.steeringPreference ?? data.steeringMode) === "active"
+                )
               }
               disabled={save.isPending || check.isPending || !data.configured}
-              onCheckedChange={(on) =>
-                save.mutate({ steeringMode: on === true ? "active" : "off" })
-              }
+              onCheckedChange={(on) => void autoSave.save("steeringMode", on)}
             />
           </SettingRow>
           <SettingRow
@@ -398,19 +413,21 @@ export function RoutingSettings(): JSX.Element {
                 : "Add an OpenAI API key to enable session naming."
             }
             disabled={!data.configured}
+            status={autoSave.status("sessionNamingMode")}
           >
-            <Checkbox
+            <Switch
               aria-label="Session naming"
               checked={
                 data.configured &&
-                (data.sessionNamingPreference ?? data.sessionNamingMode) ===
-                  "active"
+                autoSave.value(
+                  "sessionNamingMode",
+                  (data.sessionNamingPreference ?? data.sessionNamingMode) ===
+                    "active"
+                )
               }
               disabled={save.isPending || check.isPending || !data.configured}
               onCheckedChange={(on) =>
-                save.mutate({
-                  sessionNamingMode: on === true ? "active" : "off",
-                })
+                void autoSave.save("sessionNamingMode", on)
               }
             />
           </SettingRow>
@@ -422,24 +439,35 @@ export function RoutingSettings(): JSX.Element {
                 : "Add an OpenAI API key to enable merge risk."
             }
             disabled={!data.configured}
+            status={autoSave.status("mergeRiskMode")}
           >
-            <Checkbox
+            <Switch
               aria-label="Merge risk assessment"
               checked={
                 data.configured &&
-                (data.mergeRiskPreference ?? data.mergeRiskMode) === "active"
+                autoSave.value(
+                  "mergeRiskMode",
+                  (data.mergeRiskPreference ?? data.mergeRiskMode) === "active"
+                )
               }
-              disabled={save.isPending || !data.configured}
-              onCheckedChange={(on) =>
-                save.mutate({ mergeRiskMode: on === true ? "active" : "off" })
-              }
+              disabled={save.isPending || check.isPending || !data.configured}
+              onCheckedChange={(on) => void autoSave.save("mergeRiskMode", on)}
             />
           </SettingRow>
         </div>
       )}
       {save.error && (
-        <Alert title="Couldn’t save changes." error={save.error} />
+        <SaveFailure
+          status={{
+            state: "failed",
+            error: save.error,
+            // A rejected key is edited and saved again; a removal can repeat.
+            retry: save.variables?.removeKey
+              ? () => save.mutate({ removeKey: true })
+              : undefined,
+          }}
+        />
       )}
-    </section>
+    </SettingsGroup>
   );
 }
