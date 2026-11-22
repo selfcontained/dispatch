@@ -589,22 +589,22 @@ function tooltipFixture(compaction = false, reduced = false) {
   view.container
     .querySelectorAll<HTMLElement>("[data-defrag-cell]")
     .forEach((cell, i) => {
-      vi.spyOn(cell, "getBoundingClientRect").mockReturnValue(rect(i * 10, 10));
+      vi.spyOn(cell, "getBoundingClientRect").mockReturnValue(rect(i * 7, 5));
     });
   return { ...view, grid };
 }
 
 it("hovers the whole colour run including gaps, centers its category and hides on muted cells", async () => {
   const view = tooltipFixture();
-  fireEvent.pointerMove(view.grid, { clientX: 19.5, clientY: 16 });
+  fireEvent.pointerMove(view.grid, { clientX: 12.5, clientY: 15.5 });
   expect((await view.findByRole("tooltip")).textContent).toBe("Reading files");
   expect(
     view.container
       .querySelector("[aria-hidden=true][data-state]")
       ?.getAttribute("style")
-  ).toContain("width: 20px");
+  ).toContain("width: 12px");
   expect(view.container.querySelector("[title]")).toBeNull();
-  fireEvent.pointerMove(view.grid, { clientX: 25, clientY: 12 });
+  fireEvent.pointerMove(view.grid, { clientX: 17, clientY: 12 });
   expect(view.queryByRole("tooltip")).toBeNull();
 });
 
@@ -633,7 +633,7 @@ it("names compaction rather than the shared checks category", async () => {
 it("labels the reduced-motion compaction override even on previously muted pieces", async () => {
   vi.stubGlobal("matchMedia", () => ({ matches: true }));
   const view = tooltipFixture(false, true);
-  fireEvent.pointerMove(view.grid, { clientX: 25, clientY: 12 });
+  fireEvent.pointerMove(view.grid, { clientX: 17, clientY: 12 });
   expect((await view.findByRole("tooltip")).textContent).toBe("Compaction");
 });
 
@@ -667,12 +667,12 @@ it("moves blocks to offsets measured against the grid, not the block's own box",
   expect(grid.style.containerType).toBe("inline-size");
   const cells = [...grid.querySelectorAll<HTMLElement>("[data-defrag-cell]")];
   const tile = grid.querySelector<HTMLElement>("[style*='mask-size']")!;
-  expect(tile.style.maskSize).toBe("3.125% 8px");
+  expect(tile.style.maskSize).toBe("3.125% 25%");
   expect(cells.length).toBeGreaterThan(0);
   for (const cell of cells) {
     // A 32-column grid and an 8px row pitch match the repeated background.
     expect(cell.style.transform).toMatch(
-      /^translate\(calc\(\d+ \* 100cqw \/ 32\), (0|8|16|24)px\)$/
+      /^translate\(calc\(\d+ \* 100cqw \/ 32\), calc\([0-3] \* 100cqw \/ 32\)\)$/
     );
   }
 });
