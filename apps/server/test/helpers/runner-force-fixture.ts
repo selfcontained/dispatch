@@ -4,10 +4,10 @@
  * their journal and prompt receipts across a relaunch as a runner's do.
  */
 import { randomUUID } from "node:crypto";
-import { mkdtemp, rm } from "node:fs/promises";
-import os from "node:os";
+import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import path from "node:path";
 import { Duplex } from "node:stream";
+import { fileURLToPath } from "node:url";
 
 import type { FastifyBaseLogger } from "fastify";
 import type { Pool } from "pg";
@@ -92,6 +92,9 @@ export type Host = {
   instanceId: string;
   /** A pre-phase-3 host has neither a lease nor receipts. */
   legacy: boolean;
+  build: { version: string; revision: string };
+  recyclable: boolean;
+  openPrompt?: string;
   onInterrupt: Interrupt;
   stopFails: boolean;
   /** The channel drops before the stop's exit event is forwarded. */
@@ -114,8 +117,9 @@ export type Host = {
 };
 
 export async function forceWorld(pool: Pool) {
-  const dir = await mkdtemp(path.join(os.tmpdir(), "dispatch-force-"));
+  const dir = await mkdtemp("/tmp/dr-force-");
   const hosts = new Map<string, Host>();
+  const localAgents = new Map<string, number>();
   const saved = {
     records: [] as RunnerUpdateRecord[],
     holds: { holds: [], resuming: [] } as RunnerHoldState,
@@ -145,6 +149,8 @@ export async function forceWorld(pool: Pool) {
       alive: false,
       instanceId: randomUUID(),
       legacy: false,
+      recyclable: true,
+      build: { version: installed.version, revision: installed.revision },
       onInterrupt: "cancel",
       stopFails: false,
       stopLosesExit: false,
@@ -213,9 +219,11 @@ export async function forceWorld(pool: Pool) {
             journalSeq: h.journal.length,
             journalId: `journal_${h.id}`,
             interruptSupported: true,
+            steeringSupported: true,
             ...(!h.legacy && {
               hostInstanceId: h.instanceId,
-              quiesceSupported: true as const,
+              hostBuild: h.build,
+              quiesceSupported: h.recyclable,
               promptReceiptSupported: true as const,
             }),
           } as HostMessage);
@@ -252,6 +260,14 @@ export async function forceWorld(pool: Pool) {
           h.receipts.set(message.id, "accepted");
           h.startTurn(message.text, message.source);
           send({ type: "prompt_accepted", id: message.id });
+          if (message.text !== h.openPrompt) h.settle();
+        } else if (message.type === "steer") {
+          h.prompts.push({
+            id: message.id,
+            text: message.text,
+            source: message.source,
+          });
+          send({ type: "steer_result", id: message.id, outcome: "injected" });
           h.settle();
         } else if (message.type === "interrupt") {
           effects.push(`interrupt:${h.id}`);
@@ -278,6 +294,8 @@ export async function forceWorld(pool: Pool) {
             accepted: !h.turn,
           });
           if (!h.turn) exit(h);
+        } else if (message.type === "release_quiesce") {
+          // The scripted host has no persistent quiesce lease.
         }
       }
     });
@@ -304,7 +322,7 @@ export async function forceWorld(pool: Pool) {
     setImmediate(() => socket?.destroy());
   }
 
-  function controller() {
+  function controller(build = target) {
     let dead = false;
     const guard = () => {
       if (dead || epoch === undefined) throw new RunnerUnavailable("offline");
@@ -317,7 +335,7 @@ export async function forceWorld(pool: Pool) {
       originFor: () => "https://example.test",
       supportsSessionFiles: () => true,
       reconcilesLaunches: () => true,
-      selfUpdate: () => undefined,
+      selfUpdate: () => service.selfUpdate(),
       async requestSession(
         _placement: unknown,
         operation: { kind: string; agentId: string; launch?: any }
@@ -331,7 +349,13 @@ export async function forceWorld(pool: Pool) {
             const { launchId, resumeSessionId } = operation.launch;
             h.launches.push({ launchId, resume: resumeSessionId ?? null });
             effects.push(`launch:${h.id}`);
-            if (!h.alive) h.instanceId = randomUUID();
+            if (!h.alive) {
+              h.instanceId = randomUUID();
+              h.build = {
+                version: installed.version,
+                revision: installed.revision,
+              };
+            }
             h.alive = true;
             return { value: true };
           }
@@ -468,6 +492,7 @@ export async function forceWorld(pool: Pool) {
         return frame({ type: "activate", attemptId });
       },
       confirmUpdate(_runner: string, attemptId: string) {
+        pending = undefined;
         status({ attemptId, phase: "confirmed" });
         return frame({ type: "confirm", attemptId });
       },
@@ -486,7 +511,7 @@ export async function forceWorld(pool: Pool) {
           updateEnabled: true,
           getUpdate: async () => ({ manifest: { sha256: target.sha256 } }),
         }) as never,
-      build: { version: target.version, revision: target.revision },
+      build: { version: build.version, revision: build.revision },
       logger,
       now,
       store: {
@@ -552,12 +577,13 @@ export async function forceWorld(pool: Pool) {
     advance(ms: number) {
       offset += ms;
     },
-    async agent(options: { legacy?: boolean } = {}) {
+    async agent(options: { legacy?: boolean; recyclable?: boolean } = {}) {
       const agent = await current.manager.createAgent(
         { cwd: PLACE },
         {
           beforeLaunch: async (id) => {
             host(id).legacy = options.legacy === true;
+            host(id).recyclable = options.recyclable ?? true;
           },
         }
       );
@@ -573,6 +599,62 @@ export async function forceWorld(pool: Pool) {
       await recorded();
       h.prompts.length = 0;
       return h;
+    },
+    async localAgent() {
+      const cwd = path.join(dir, "local");
+      await mkdir(cwd, { recursive: true });
+      vi.stubEnv(
+        "DISPATCH_AGENT_HOST_COMMAND",
+        JSON.stringify([
+          "bun",
+          fileURLToPath(new URL("../../src/main.ts", import.meta.url)),
+          "agent-host",
+        ])
+      );
+      vi.stubEnv(
+        "DISPATCH_ACP_ADAPTER_COMMAND",
+        JSON.stringify([
+          "bun",
+          fileURLToPath(new URL("./recycle-acp-fixture.ts", import.meta.url)),
+        ])
+      );
+      const id = `agt_local_${randomUUID().slice(0, 12)}`;
+      await pool.query(
+        `INSERT INTO agents (id, name, type, status, cwd, worktree_path)
+         VALUES ($1, $1, 'claude', 'stopped', $2, $2)`,
+        [id, cwd]
+      );
+      const agent = await current.manager.startAgent(id);
+      const hostDir = path.join(dir, "agents", id);
+      const pidFile = path.join(hostDir, "host.pid");
+      const pid = Number(await readFile(pidFile, "utf8"));
+      localAgents.set(id, pid);
+      return {
+        async assertContinues(marker: string) {
+          await current.manager.promptAgent(id, marker).settled;
+          const journal = await readFile(
+            path.join(hostDir, "journal.jsonl"),
+            "utf8"
+          );
+          const events = journal
+            .trim()
+            .split("\n")
+            .map((line) => JSON.parse(line).event);
+          expect(
+            events.filter(
+              (event) =>
+                event?.type === "turn" &&
+                event.state === "started" &&
+                event.text === marker
+            )
+          ).toHaveLength(1);
+          expect(Number(await readFile(pidFile, "utf8"))).toBe(pid);
+          expect(await current.manager.getAgent(id)).toMatchObject({
+            status: "running",
+            cliSessionId: agent.cliSessionId,
+          });
+        },
+      };
     },
     /** An open turn Dispatch has recorded. */
     async working(h: Host, source?: PromptSource) {
@@ -621,7 +703,7 @@ export async function forceWorld(pool: Pool) {
         attemptId: api.attempt()!.id,
         phase: "activating",
         reason: "trial",
-        retained: [],
+        retained: api.attempt()!.retained ?? [],
       });
     },
     rollBack() {
@@ -646,9 +728,9 @@ export async function forceWorld(pool: Pool) {
     },
     crash: () => current.kill(),
     /** A new Dispatch process, as server.ts starts one. */
-    async restart() {
+    async restart({ olderBuild = false } = {}) {
       current.kill();
-      current = controller();
+      current = controller(olderBuild ? identity : target);
       await current.holds.load();
       await current.coordinator.load();
       await current.manager.restoreRunningAgents();
@@ -664,6 +746,14 @@ export async function forceWorld(pool: Pool) {
       for (const hold of saved.holds.holds)
         await current.holds.release(hold.runnerId, hold.attemptId, "cancelled");
       await current.work.settled();
+      await current.manager.settleRunnerHostRecycling(RUNNER);
+      for (const [id, pid] of localAgents) {
+        await current.manager.stopAgent(id, { force: true });
+        await vi.waitFor(() => {
+          expect(() => process.kill(pid, 0)).toThrow();
+        });
+      }
+      if (localAgents.size) vi.unstubAllEnvs();
       await recorded().catch(() => {});
       current.kill();
       await rm(dir, { recursive: true, force: true });

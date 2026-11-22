@@ -10,8 +10,7 @@ import { privateStateFile } from "./update-state-file.js";
  * reaching the runner. Prompts and scheduled occurrences wait in the agent
  * runtime's own queue (the same gate a disconnected runner uses), launches
  * are recorded here before any attempt is made, and stop/discard wait on
- * the gate, except while a drain waits for its agents: the runner is not
- * fenced then. Nothing here decides when to update; a coordinator begins a
+ * the gate, except while a drain waits for its agents or agents are resuming. Nothing here decides when to update; a coordinator begins a
  * hold for one attempt and releases it with an outcome.
  *
  * A hold is bounded: it opens by itself at `expiresAt` (outcome `expired`)
@@ -188,8 +187,11 @@ export class RunnerUpdateHolds {
   private readonly releaseListeners = new Set<
     (release: RunnerHoldRelease) => void | Promise<void>
   >();
-  /** Runner → the attempt whose drain is waiting, so it isn't fenced. */
-  private readonly drainWaits = new Map<string, string>();
+  /** Phases in which Stop and Archive can proceed without opening the hold. */
+  private readonly stopPhases = new Map<
+    string,
+    { attemptId: string; phase: "draining" | "resuming" }
+  >();
   private readonly counters = new Set<
     (runnerId: string) => Partial<HeldCounts>
   >();
@@ -337,7 +339,7 @@ export class RunnerUpdateHolds {
     const hold = this.holds.get(runnerId);
     if (!hold || hold.attemptId !== attemptId) return false;
     this.holds.delete(runnerId);
-    this.drainWaits.delete(runnerId);
+    this.stopPhases.delete(runnerId);
     clearTimeout(hold.timer);
     // Recorded with the release, in the same write.
     this.resuming.push(...hold.launches.map((l) => ({ ...l, runnerId })));
@@ -387,16 +389,20 @@ export class RunnerUpdateHolds {
   }
 
   /**
-   * Whether this attempt's drain is waiting. Not persisted: the coordinator
+   * The phase permitting Stop and Archive. Not persisted: the coordinator
    * restates it from its saved phase, before it sends that phase's frame.
    */
-  setDrainWaiting(runnerId: string, attemptId: string, waiting: boolean) {
-    if (!waiting) {
-      if (this.drainWaits.get(runnerId) === attemptId)
-        this.drainWaits.delete(runnerId);
+  setStopPhase(
+    runnerId: string,
+    attemptId: string,
+    phase: "draining" | "resuming" | undefined
+  ) {
+    if (!phase) {
+      if (this.stopPhases.get(runnerId)?.attemptId === attemptId)
+        this.stopPhases.delete(runnerId);
       return;
     }
-    this.drainWaits.set(runnerId, attemptId);
+    this.stopPhases.set(runnerId, { attemptId, phase });
     if (!this.stopsPass(runnerId)) return;
     // A stop that began waiting before the runner released its fence.
     const queue = this.waiters.get(runnerId) ?? [];
@@ -412,12 +418,21 @@ export class RunnerUpdateHolds {
 
   private stopsPass(runnerId: string): boolean {
     const hold = this.holds.get(runnerId);
-    return !!hold && this.drainWaits.get(runnerId) === hold.attemptId;
+    return (
+      !!hold && this.stopPhases.get(runnerId)?.attemptId === hold.attemptId
+    );
+  }
+
+  isResuming(runnerId: string): boolean {
+    return (
+      this.stopsPass(runnerId) &&
+      this.stopPhases.get(runnerId)?.phase === "resuming"
+    );
   }
 
   /**
    * Resolves once the runner is not held (now, if it is not). A stop also
-   * resolves while a drain is waiting.
+   * resolves while a drain is waiting or agents are resuming.
    */
   wait(runnerId: string, kind: "stop" | "other" = "other"): Promise<void> {
     if (!this.holds.has(runnerId)) return Promise.resolve();

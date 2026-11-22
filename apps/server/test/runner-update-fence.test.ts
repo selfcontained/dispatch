@@ -471,48 +471,48 @@ describe("runner update fence", () => {
     expect(() => options.hostCommand("/state/hosts/agt_one")).not.toThrow();
   });
 
-  it("flushes the reply of work admitted before the fence ahead of fence_ready", async () => {
-    await start({
-      updateIdentity: identity,
-      updater: mockUpdater(compatible),
-      fenceStore: memoryStore(),
-    });
-    let finish!: (value: string) => void;
-    supervisor.withCommandCheckout.mockReturnValue(
-      new Promise((resolve) => (finish = resolve))
-    );
-    emit({ type: "update_offer", attemptId, target, retry: false });
-    await vi.waitFor(() =>
-      expect(statuses().at(-1)).toMatchObject({ reason: "ready" })
-    );
-    // Admitted in frame order, just before the fence.
-    request("admitted", fencedCommands.checkoutCommand);
-    emit({ type: "update_fence", attemptId, retainSessions: true });
-    request("late", fencedCommands.checkoutCommand);
-    expect(resultFor("late")).toMatchObject({ code: "update-fenced" });
-    expect(supervisor.withCommandCheckout).toHaveBeenCalledOnce();
+  it.each([true, false])(
+    "flushes one admitted checkout command before fence_ready (retain sessions: %s)",
+    async (retainSessions) => {
+      await start({
+        updateIdentity: identity,
+        updater: mockUpdater(compatible),
+        fenceStore: memoryStore(),
+      });
+      let finish!: (value: string) => void;
+      supervisor.withCommandCheckout.mockReturnValue(
+        new Promise((resolve) => (finish = resolve))
+      );
+      emit({ type: "update_offer", attemptId, target, retry: false });
+      await vi.waitFor(() =>
+        expect(statuses().at(-1)).toMatchObject({ reason: "ready" })
+      );
+      // Admitted in frame order, just before the fence.
+      request("admitted", fencedCommands.checkoutCommand);
+      emit({ type: "update_fence", attemptId, retainSessions });
+      request("late", fencedCommands.checkoutCommand);
+      expect(resultFor("late")).toMatchObject({ code: "update-fenced" });
+      expect(supervisor.withCommandCheckout).toHaveBeenCalledOnce();
 
-    autoFlush = false;
-    await new Promise((resolve) => setTimeout(resolve, 10));
-    expect(statuses().at(-1)?.reason).toBe("ready");
-    finish('{"ok":true}');
-    await vi.waitFor(() => expect(resultFor("admitted")).toBeDefined());
-    // Produced but not yet handed to the transport: still not ready.
-    await new Promise((resolve) => setTimeout(resolve, 10));
-    expect(statuses().at(-1)?.reason).toBe("ready");
-    autoFlush = true;
-    for (const flush of pendingFlush.splice(0)) flush();
-    await vi.waitFor(() =>
-      expect(statuses().at(-1)).toMatchObject({ reason: "fence_ready" })
-    );
-    const order = frames().map((f) => f.id ?? f.reason);
-    expect(order.indexOf("admitted")).toBeLessThan(
-      order.indexOf("fence_ready")
-    );
-    expect(supervisor.inspectHandoff).toHaveBeenCalledWith(
-      compatible.outcome === "staged" && compatible.compatibility!.handoff
-    );
-  });
+      autoFlush = false;
+      expect(statuses().at(-1)?.reason).toBe("ready");
+      finish('{"ok":true}');
+      await vi.waitFor(() => expect(resultFor("admitted")).toBeDefined());
+      // Produced but not yet handed to the transport: still not ready.
+      expect(pendingFlush).toHaveLength(1);
+      expect(statuses().at(-1)?.reason).toBe("ready");
+      autoFlush = true;
+      for (const flush of pendingFlush.splice(0)) flush();
+      await vi.waitFor(() =>
+        expect(statuses().at(-1)).toMatchObject({ reason: "fence_ready" })
+      );
+      const order = frames().map((f) => f.id ?? f.reason);
+      expect(order.indexOf("admitted")).toBeLessThan(
+        order.indexOf("fence_ready")
+      );
+      expect(supervisor.withCommandCheckout).toHaveBeenCalledOnce();
+    }
+  );
 
   it("defers and reopens admission when admitted work outlives its deadline", async () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
@@ -538,65 +538,104 @@ describe("runner update fence", () => {
     );
   });
 
-  it("closes an open terminal with the update reason after a grace period", async () => {
-    await start({
-      updateIdentity: identity,
-      updater: mockUpdater(compatible),
-      fenceStore: memoryStore(),
-      terminalGraceMs: 1_000,
-    });
-    supervisor.checkoutDirectory.mockResolvedValue("/fixture");
-    const stdout = new PassThrough();
-    const stdin = new PassThrough();
-    const child = Object.assign(new EventEmitter(), {
-      stdout,
-      stdin,
-      kill: vi.fn(),
-    });
-    spawnChild.mockReturnValue(child);
-    request("terminal", fencedCommands.openTerminal);
-    await vi.waitFor(() => expect(spawnChild).toHaveBeenCalledOnce());
-    expect(spawnChild.mock.calls[0]![1]).toContain("runner-terminal");
-    stdout.write(
-      JSON.stringify({
-        type: "ready",
-        info: { cwd: "/fixture", host: "runner", user: "fixture" },
-      }) + "\n"
-    );
-    await vi.waitFor(() =>
-      expect(resultFor("terminal")).toMatchObject({ value: expect.any(String) })
-    );
-    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
-    await stagedAndFenced();
-    // The terminal is open until its grace period ends, and the boundary
-    // is reported only after it was closed with its notice.
-    await vi.advanceTimersByTimeAsync(999);
-    expect(child.kill).not.toHaveBeenCalled();
-    expect(statuses().at(-1)?.reason).toBe("ready");
-    // Fire it from a macrotask, as a real timer is: the close is a nextTick.
-    await new Promise<void>((resolve) =>
-      setImmediate(() => {
-        vi.advanceTimersByTime(1);
-        resolve();
-      })
-    );
-    await vi.waitFor(() =>
-      expect(statuses().at(-1)).toMatchObject({ reason: "fence_ready" })
-    );
-    expect(child.kill).toHaveBeenCalled();
-    const events = frames()
-      .filter((f) => f.type === "data" && f.id === "terminal")
-      .map((f) => JSON.parse(Buffer.from(f.data, "base64").toString()));
-    expect(events).toContainEqual({
-      type: "error",
-      message: expect.stringContaining("runner is updating"),
-      reason: "update",
-    });
-    const all = frames();
-    expect(
-      all.findIndex((f) => f.type === "close" && f.id === "terminal")
-    ).toBeLessThan(all.findIndex((f) => f.reason === "fence_ready"));
-    // Nothing new starts after the fence.
-    expect(spawnChild).toHaveBeenCalledOnce();
-  });
+  it.each([true, false])(
+    "closes one terminal with the update reason and reopens on the new supervisor (retain sessions: %s)",
+    async (retainSessions) => {
+      await start({
+        updateIdentity: identity,
+        updater: mockUpdater(compatible),
+        fenceStore: memoryStore(),
+        terminalGraceMs: 1_000,
+      });
+      supervisor.checkoutDirectory.mockResolvedValue("/fixture");
+      const shell = () =>
+        Object.assign(new EventEmitter(), {
+          stdout: new PassThrough(),
+          stdin: new PassThrough(),
+          kill: vi.fn(),
+        });
+      const child = shell();
+      const { stdout } = child;
+      spawnChild.mockReturnValue(child);
+      request("terminal", fencedCommands.openTerminal);
+      await vi.waitFor(() => expect(spawnChild).toHaveBeenCalledOnce());
+      expect(spawnChild.mock.calls[0]![1]).toContain("runner-terminal");
+      stdout.write(
+        JSON.stringify({
+          type: "ready",
+          info: { cwd: "/fixture", host: "runner", user: "fixture" },
+        }) + "\n"
+      );
+      await vi.waitFor(() =>
+        expect(resultFor("terminal")).toMatchObject({
+          value: expect.any(String),
+        })
+      );
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+      await stagedAndFenced(retainSessions);
+      // The terminal is open until its grace period ends, and the boundary
+      // is reported only after it was closed with its notice.
+      await vi.advanceTimersByTimeAsync(999);
+      expect(child.kill).not.toHaveBeenCalled();
+      expect(statuses().at(-1)?.reason).toBe("ready");
+      // Fire it from a macrotask, as a real timer is: the close is a nextTick.
+      await new Promise<void>((resolve) =>
+        setImmediate(() => {
+          vi.advanceTimersByTime(1);
+          resolve();
+        })
+      );
+      await vi.waitFor(() =>
+        expect(statuses().at(-1)).toMatchObject({ reason: "fence_ready" })
+      );
+      expect(child.kill).toHaveBeenCalledOnce();
+      const events = frames()
+        .filter((f) => f.type === "data" && f.id === "terminal")
+        .map((f) => JSON.parse(Buffer.from(f.data, "base64").toString()));
+      expect(events).toContainEqual({
+        type: "error",
+        message: expect.stringContaining("runner is updating"),
+        reason: "update",
+      });
+      const all = frames();
+      expect(
+        all.findIndex((f) => f.type === "close" && f.id === "terminal")
+      ).toBeLessThan(all.findIndex((f) => f.reason === "fence_ready"));
+      request("too-early", fencedCommands.openTerminal);
+      expect(resultFor("too-early")).toMatchObject({ code: "update-fenced" });
+      expect(spawnChild).toHaveBeenCalledOnce();
+
+      // End the retired supervisor and start another link on the new build.
+      vi.useRealTimers();
+      socket.emit("close");
+      await running;
+      dial.mockClear();
+      await start({
+        updateIdentity: {
+          ...identity,
+          version: target.version,
+          revision: target.revision,
+          sha256: target.sha256,
+        },
+        updater: mockUpdater(),
+        fenceStore: memoryStore(),
+      });
+      const reopened = shell();
+      spawnChild.mockReturnValue(reopened);
+      request("reopened", fencedCommands.openTerminal);
+      await vi.waitFor(() => expect(spawnChild).toHaveBeenCalledTimes(2));
+      reopened.stdout.write(
+        JSON.stringify({
+          type: "ready",
+          info: { cwd: "/fixture", host: "runner", user: "fixture" },
+        }) + "\n"
+      );
+      await vi.waitFor(() =>
+        expect(resultFor("reopened")).toMatchObject({
+          value: expect.any(String),
+        })
+      );
+      expect(reopened.kill).not.toHaveBeenCalled();
+    }
+  );
 });

@@ -717,7 +717,7 @@ describe("launches on a runner held for an update", () => {
     });
     const stopping = manager.stopAgent(agent.id);
     await Promise.race([work.get(holds)!.blocked, stopping]);
-    holds.setDrainWaiting("r1", ATTEMPT, true);
+    holds.setStopPhase("r1", ATTEMPT, "draining");
     expect(await stopping).toMatchObject({ status: "stopped" });
     expect(holds.isHeld("r1")).toBe(true);
   });

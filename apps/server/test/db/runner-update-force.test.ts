@@ -561,13 +561,13 @@ describe("stop and archive while a drain waits", () => {
     const waiting = world.holds.current(RUNNER)!.attemptId;
     const stop = world.manager.stopAgent(busy.id);
     await world.until(() => world.holds.counts(RUNNER).stops === 1);
-    world.holds.setDrainWaiting(RUNNER, waiting, true);
+    world.holds.setStopPhase(RUNNER, waiting, "draining");
     await stop;
     expect(await statusOf(busy.id)).toBe("stopped");
     expect(world.holds.isHeld(RUNNER)).toBe(true);
 
     // Fenced again: the next one waits.
-    world.holds.setDrainWaiting(RUNNER, waiting, false);
+    world.holds.setStopPhase(RUNNER, waiting, undefined);
     const next = world.manager.stopAgent(later.id);
     await world.until(() => world.holds.counts(RUNNER).stops === 1);
     expect(later.alive).toBe(true);
@@ -712,6 +712,70 @@ describe("a runner that stays offline while resuming", () => {
       resumedOnce(busy);
       resumedOnce(idle);
       expect(continuations(busy)).toHaveLength(1);
+    }
+  );
+
+  it.each(["drain", "force"] as const)(
+    "completes Stop and Archive during offline %s recovery without resuming either agent",
+    async (path) => {
+      const stopped = await world.agent();
+      const archived = await world.agent();
+      const kept = await world.agent();
+      if (path === "force") {
+        for (const host of [stopped, archived, kept]) await world.working(host);
+        await force();
+      } else {
+        world.runner.incompatible = true;
+        await world.coordinator.request(RUNNER, "update");
+      }
+      await world.activated();
+      world.saved.afterWrite = () => {
+        if (world.attempt()?.phase !== "resuming") return;
+        world.saved.afterWrite = undefined;
+        world.disconnect();
+      };
+      world.swap();
+      await world.until(() => world.view()?.attempt?.phase === "resuming");
+      expect(world.view()?.attempt?.agents).toBe(3);
+
+      const stop = world.manager.stopAgent(stopped.id);
+      await world.manager.beginArchive(archived.id, "keep");
+      let deleted: string[] | undefined;
+      const archive = world.manager.executeArchive(archived.id, {
+        onPhaseChange() {},
+        onComplete(ids) {
+          deleted = ids;
+        },
+        onError(error) {
+          throw error;
+        },
+      });
+      try {
+        await world.until(
+          async () =>
+            deleted !== undefined && (await statusOf(stopped.id)) === "stopped",
+          2_000
+        );
+        expect(deleted).toEqual([archived.id]);
+        expect(await world.manager.getAgent(archived.id)).toBeNull();
+        await world.until(() => world.view()?.attempt?.agents === 1);
+        expect(world.holds.isHeld(RUNNER)).toBe(true);
+        expect(world.entry(stopped.id)).toBeUndefined();
+        expect(world.entry(archived.id)).toBeUndefined();
+      } finally {
+        world.reconnect();
+        await finished();
+        await Promise.allSettled([stop, archive]);
+      }
+      expect((await stop).status).toBe("stopped");
+      await archive;
+      resumedOnce(kept);
+      expect(continuations(kept)).toHaveLength(path === "force" ? 1 : 0);
+      for (const host of [stopped, archived]) {
+        expect(host.alive).toBe(false);
+        expect(host.launches).toHaveLength(1);
+        expect(host.prompts).toEqual([]);
+      }
     }
   );
 
@@ -919,4 +983,335 @@ describe("a controller crash", () => {
     await finished();
     expect(continuations(busy)).toHaveLength(1);
   });
+});
+
+const updatePaths = ["live", "drain", "force"] as const;
+type UpdatePath = (typeof updatePaths)[number];
+
+async function startUpdate(path: UpdatePath) {
+  world.runner.incompatible = path === "drain";
+  return path === "force"
+    ? force()
+    : world.coordinator.request(RUNNER, "update");
+}
+
+async function swapOverNewConnection(attemptId: string) {
+  world.disconnect();
+  world.reconnect(attemptId);
+  world.swap();
+  await finished();
+}
+
+async function runningInOriginalSession(host: Host) {
+  expect(await world.manager.getAgent(host.id)).toMatchObject({
+    status: "running",
+    cliSessionId: host.sessionId,
+  });
+}
+
+function recoveredOnce(host: Host, path: UpdatePath) {
+  if (path !== "live") return resumedOnce(host);
+  expect(host.launches.slice(1)).toEqual([
+    { launchId: expect.any(String), resume: host.sessionId },
+  ]);
+  expect(host.launches[1]!.launchId).not.toBe(host.launches[0]!.launchId);
+}
+
+describe("runner update scenarios", () => {
+  it.each(updatePaths)(
+    "delivers a long turn once and preserves its session through %s",
+    async (path) => {
+      const remote = await world.agent();
+      const local = await world.localAgent();
+      const marker = crypto.randomUUID();
+      remote.openPrompt = marker;
+      await world.prompt(remote, marker).accepted;
+      await world.recorded();
+      const turn = remote.turn!.seq;
+      const instance = remote.instanceId;
+
+      const { attemptId } = await startUpdate(path);
+      await world.until(() => world.holds.isHeld(RUNNER));
+      await local.assertContinues(`local-${marker}`);
+      if (path === "drain") {
+        await world.until(() => world.view()?.attempt?.phase === "draining");
+        expect(world.view()?.attempt?.agents).toBe(1);
+        expect(world.effects).not.toContain("activate");
+        remote.settle();
+      }
+      await world.activated();
+      await swapOverNewConnection(attemptId);
+
+      if (path === "live") {
+        expect(remote.instanceId).toBe(instance);
+        expect(remote.turn?.seq).toBe(turn);
+        expect(remote.launches).toHaveLength(1);
+        remote.settle();
+        await world.until(() => remote.launches.length === 2);
+      }
+      await world.recorded();
+      recoveredOnce(remote, path);
+      await runningInOriginalSession(remote);
+      expect(remote.interrupts).toEqual(path === "force" ? [turn] : []);
+      expect(continuations(remote).map(({ id }) => id)).toEqual(
+        path === "force" ? [continuationId(attemptId, remote.id)] : []
+      );
+      expect(remote.prompts.filter(({ text }) => text === marker)).toHaveLength(
+        1
+      );
+      expect(
+        remote.journal.filter(
+          ({ event }) =>
+            event.type === "turn" &&
+            event.state === "started" &&
+            event.text === marker
+        )
+      ).toHaveLength(1);
+    }
+  );
+
+  it.each(updatePaths)(
+    "delivers an awaited child reply once to the original parent session through %s",
+    async (path) => {
+      const parent = await world.agent();
+      const child = await world.agent();
+      // Seed the persisted relationship used to protect a waiting parent.
+      // The standalone launcher cannot create a child on this workspace.
+      await pool.query("UPDATE agents SET parent_agent_id = $1 WHERE id = $2", [
+        parent.id,
+        child.id,
+      ]);
+      const local = await world.localAgent();
+      const marker = crypto.randomUUID();
+      const turn = await world.working(parent);
+      await world.working(child);
+      const originalInstance = parent.instanceId;
+      const reply = () =>
+        world.manager.promptAgent(
+          parent.id,
+          marker,
+          {
+            source: "agent",
+            senderId: child.id,
+            senderName: "Child",
+            text: marker,
+            awaited: true,
+          },
+          { delivery: "auto" }
+        );
+
+      const { attemptId } = await startUpdate(path);
+      await world.until(() => world.holds.isHeld(RUNNER));
+      await local.assertContinues(`local-${marker}`);
+      if (path === "drain") {
+        await world.until(() => world.view()?.attempt?.agents === 2);
+        child.settle();
+        const delivered = reply();
+        await world.until(() => parent.prompts.length === 1);
+        await delivered.settled;
+        expect(parent.instanceId).toBe(originalInstance);
+      }
+      await world.activated();
+      const queued = path === "force" ? reply() : undefined;
+      await swapOverNewConnection(attemptId);
+      if (path === "live") {
+        expect(parent.instanceId).toBe(originalInstance);
+        expect(parent.turn?.seq).toBe(turn);
+        expect(child.alive).toBe(true);
+        child.settle();
+        const delivered = reply();
+        await world.until(() => parent.prompts.length === 1);
+        await delivered.settled;
+        expect(parent.instanceId).toBe(originalInstance);
+        await world.manager.stopAgent(child.id);
+        await world.until(() => parent.launches.length === 2);
+      }
+      if (queued) {
+        await world.until(() => parent.prompts.length === 2);
+        await queued.settled;
+      }
+      await world.recorded();
+      recoveredOnce(parent, path);
+      expect(parent.prompts.map(({ text }) => text)).toEqual(
+        path === "force" ? [UPDATE_CONTINUATION_MESSAGE, marker] : [marker]
+      );
+      expect(parent.prompts.at(-1)?.source).toMatchObject({
+        source: "agent",
+        senderId: child.id,
+      });
+      expect(parent.interrupts).toEqual(path === "force" ? [turn] : []);
+      await runningInOriginalSession(parent);
+      if (path === "live") expect(await statusOf(child.id)).toBe("stopped");
+      else await runningInOriginalSession(child);
+    }
+  );
+
+  it.each(updatePaths)(
+    "preserves a held launch ID and starts its host once after %s recovery",
+    async (path) => {
+      const prior = await world.agent();
+      const local = await world.localAgent();
+      const marker = crypto.randomUUID();
+      if (path === "drain") await world.working(prior);
+      const { attemptId } = await startUpdate(path);
+      if (path === "drain") {
+        await world.until(() => world.view()?.attempt?.agents === 1);
+      } else {
+        await world.activated();
+      }
+      const queued = await world.manager.createAgent({
+        cwd: `runner://${RUNNER}/@session`,
+        initialPrompt: marker,
+      });
+      const [{ launchId }] = world.holds.current(RUNNER)!.launches;
+      expect(world.hosts.get(queued.id)?.launches ?? []).toEqual([]);
+      await local.assertContinues(`local-${marker}`);
+      if (path === "drain") {
+        expect(world.hosts.get(queued.id)?.launches ?? []).toEqual([]);
+        prior.settle();
+        await world.activated();
+      }
+
+      await swapOverNewConnection(attemptId);
+      await world.until(
+        async () =>
+          world.hosts.get(queued.id)?.prompts.length &&
+          (await statusOf(queued.id)) === "running"
+      );
+      const launched = world.hosts.get(queued.id)!;
+      expect(launched.launches).toEqual([{ launchId, resume: null }]);
+      expect(launched.prompts.map(({ text }) => text)).toEqual([marker]);
+      await runningInOriginalSession(launched);
+      if (path !== "live") {
+        resumedOnce(prior);
+        expect(world.effects.lastIndexOf(`launch:${prior.id}`)).toBeLessThan(
+          world.effects.indexOf(`launch:${queued.id}`)
+        );
+      }
+      await runningInOriginalSession(prior);
+    }
+  );
+
+  it.each(updatePaths)(
+    "retains or resumes the original session exactly once after a failed %s trial",
+    async (path) => {
+      const remote = await world.agent();
+      const local = await world.localAgent();
+      const marker = crypto.randomUUID();
+      const instance = remote.instanceId;
+      if (path === "force") await world.working(remote);
+      const { attemptId } = await startUpdate(path);
+      await world.activated();
+      const held = world.prompt(remote, marker);
+      expect(remote.prompts).toEqual([]);
+      await local.assertContinues(`local-${marker}`);
+      world.rollBack();
+      await finished("rolled_back");
+      await held.accepted;
+      if (path === "live") {
+        expect(remote.instanceId).toBe(instance);
+        expect(remote.launches).toHaveLength(1);
+      } else {
+        resumedOnce(remote);
+      }
+      expect(continuations(remote).map(({ id }) => id)).toEqual(
+        path === "force" ? [continuationId(attemptId, remote.id)] : []
+      );
+      expect(remote.prompts.filter(({ text }) => text === marker)).toHaveLength(
+        1
+      );
+      await runningInOriginalSession(remote);
+      expect(world.holds.isHeld(RUNNER)).toBe(false);
+    }
+  );
+  it.each(updatePaths)(
+    "keeps held work scoped over two runner disconnects during %s",
+    async (path) => {
+      const remote = await world.agent();
+      const local = await world.localAgent();
+      const marker = crypto.randomUUID();
+      const seq = await world.working(remote);
+      const instance = remote.instanceId;
+      const { attemptId } = await startUpdate(path);
+      if (path === "drain") {
+        await world.until(() => world.view()?.attempt?.agents === 1);
+      } else {
+        await world.activated();
+      }
+      const held = world.prompt(remote, marker);
+      world.disconnect();
+      await world.coordinator.tick();
+      expect(world.holds.isHeld(RUNNER)).toBe(true);
+      expect(remote.prompts).toEqual([]);
+      await local.assertContinues(`local-${marker}`);
+
+      world.reconnect(path === "drain" ? undefined : attemptId);
+      if (path === "drain") {
+        expect(world.view()?.attempt?.phase).toBe("draining");
+        expect(world.view()?.attempt?.agents).toBe(1);
+        remote.settle();
+        await world.activated();
+      }
+
+      world.saved.afterWrite = () => {
+        if (world.attempt()?.phase !== "confirming") return;
+        world.saved.afterWrite = undefined;
+        world.disconnect();
+      };
+      world.swap();
+      await world.until(() => !world.saved.afterWrite);
+      expect(world.holds.isHeld(RUNNER)).toBe(true);
+      expect(remote.launches).toHaveLength(1);
+      expect(remote.prompts).toEqual([]);
+      world.reconnect(attemptId);
+      world.swap();
+      await finished();
+
+      if (path === "live") {
+        expect(remote.instanceId).toBe(instance);
+        expect(remote.turn?.seq).toBe(seq);
+        remote.settle();
+      }
+      await held.accepted;
+      await runningInOriginalSession(remote);
+      if (path !== "live") resumedOnce(remote);
+      expect(remote.interrupts).toEqual(path === "force" ? [seq] : []);
+      expect(remote.prompts.map(({ text }) => text)).toEqual(
+        path === "force" ? [UPDATE_CONTINUATION_MESSAGE, marker] : [marker]
+      );
+    }
+  );
+
+  it.each(updatePaths)(
+    "serves the same session with an older schema-aware controller after %s",
+    async (path) => {
+      const remote = await world.agent({ recyclable: path !== "live" });
+      const local = await world.localAgent();
+      const marker = crypto.randomUUID();
+      if (path !== "drain") await world.working(remote);
+      const { attemptId } = await startUpdate(path);
+      await world.activated();
+      await local.assertContinues(`local-before-${marker}`);
+      await swapOverNewConnection(attemptId);
+      const instance = remote.instanceId;
+      const launches = [...remote.launches];
+      expect(world.attempt()?.drain).toBeUndefined();
+      const frameCount = world.runner.frames.length;
+
+      await world.restart({ olderBuild: true });
+      await world.until(() => !world.holds.isHeld(RUNNER));
+      if (path === "live") remote.settle();
+      await world.prompt(remote, marker).accepted;
+      await local.assertContinues(`local-after-${marker}`);
+      expect(world.runner.frames.slice(frameCount)).toEqual([]);
+      expect(world.view()?.available).toBeUndefined();
+      expect(world.attempt()?.drain).toBeUndefined();
+      expect(remote.instanceId).toBe(instance);
+      expect(remote.launches).toEqual(launches);
+      expect(remote.prompts.map(({ text }) => text)).toEqual(
+        path === "force" ? [UPDATE_CONTINUATION_MESSAGE, marker] : [marker]
+      );
+      await runningInOriginalSession(remote);
+    }
+  );
 });

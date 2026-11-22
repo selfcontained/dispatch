@@ -302,7 +302,7 @@ export class RunnerUpdateCoordinator {
       service: CoordinatorService;
       holds: Pick<
         RunnerUpdateHolds,
-        "begin" | "current" | "endBy" | "release" | "setDrainWaiting"
+        "begin" | "current" | "endBy" | "release" | "setStopPhase"
       >;
       agents: CoordinatorAgents;
       store: RunnerUpdateStore;
@@ -1741,10 +1741,13 @@ export class RunnerUpdateCoordinator {
   }
 
   private syncReceipt({ runnerId, attempt }: RunnerUpdateRecord) {
-    this.options.holds.setDrainWaiting(
+    this.options.holds.setStopPhase(
       runnerId,
       attempt.id,
-      attempt.phase === "draining" && !attempt.outcome
+      !attempt.outcome &&
+        (attempt.phase === "draining" || attempt.phase === "resuming")
+        ? attempt.phase
+        : undefined
     );
     if (attempt.drain)
       this.options.agents.setRunnerDrainReceipt(

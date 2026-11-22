@@ -278,7 +278,7 @@ export type AcpRuntimeDeps = {
   /** Runner update holds: new work for a held runner waits in the queue. */
   holds?: Pick<
     RunnerUpdateHolds,
-    "isHeld" | "current" | "wait" | "onRelease" | "countWith"
+    "isHeld" | "current" | "wait" | "onRelease" | "countWith" | "isResuming"
   >;
   remoteInbox?: Pick<RemoteEventInbox, "receive" | "projected">;
   recoverRemoteEvent?: (agentId: string) => Promise<void>;
@@ -362,8 +362,11 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
         if (
           error instanceof RunnerUpdateFenced &&
           deps.holds?.isHeld(placement.runner)
-        )
+        ) {
+          if (deps.holds.isResuming(placement.runner))
+            await deps.holds.wait(placement.runner);
           continue;
+        }
         throw error;
       }
     }

@@ -121,6 +121,7 @@ import {
 import { parseRepository } from "./remote/repository.js";
 import {
   RunnerRevoked,
+  RunnerUnavailable,
   RunnerUpdateFenced,
   type RemoteRunnerService,
 } from "./remote/service.js";
@@ -2786,7 +2787,10 @@ export class AgentManager {
           !this.holds?.isHeld(placement.runner)
         )
           throw error;
-        await this.holds.wait(placement.runner, kind);
+        await this.holds.wait(
+          placement.runner,
+          this.holds.isResuming(placement.runner) ? "other" : kind
+        );
         await this.assertLifecycleCurrent(agent);
       }
     }
@@ -3630,13 +3634,18 @@ export class AgentManager {
     id: string,
     input: StopAgentInput = {}
   ): Promise<AgentRecord> {
+    // The coordinator may prune the receipt as soon as it sees the stop claim.
+    const stoppingDuringResume = [...this.runnerDrainReceipts].some(
+      ([runnerId, ids]) => ids.has(id) && this.holds?.isResuming(runnerId)
+    );
     return this.terminateLifecycle(id, () =>
-      this.stopAgentSerialized(id, input)
+      this.stopAgentSerialized(id, input, stoppingDuringResume)
     );
   }
   private async stopAgentSerialized(
     id: string,
-    input: StopAgentInput
+    input: StopAgentInput,
+    stoppingDuringResume: boolean
   ): Promise<AgentRecord> {
     let agent = await this.getRequiredAgent(id);
     const placement = remotePlacement(agent.cwd);
@@ -3667,9 +3676,9 @@ export class AgentManager {
       return this.getRequiredAgent(id);
     }
 
+    const hasResume = placement && this.hasRunnerDrainReceipt(id);
     if (
-      placement &&
-      this.hasRunnerDrainReceipt(id) &&
+      hasResume &&
       (await this.runtime
         .runnerHostAlive?.(placement.runner, id)
         .catch(() => true)) === false
@@ -3680,7 +3689,7 @@ export class AgentManager {
 
     // The stop hook and the stop run on the runner; its update fence would
     // refuse both. Wait for it first, with the agent untouched. A drain that
-    // is only waiting has no fence, and lets both through.
+    // is waiting or resuming lets both through.
     if (placement && this.holds) {
       await this.holds.wait(placement.runner, "stop");
       agent = await this.getRequiredAgent(id);
@@ -3718,7 +3727,17 @@ export class AgentManager {
 
     try {
       this.streamRecorder.beginStop(id);
-      await this.runtime.stop(id, force);
+      await this.runtime.stop(id, force).catch((error: unknown) => {
+        // Commit the Stop locally if the runner is offline. This invalidates
+        // the resume receipt and reconciliation can stop any surviving host.
+        if (
+          !(error instanceof RunnerUnavailable) ||
+          !stoppingDuringResume ||
+          !placement ||
+          this.remote?.available(placement)
+        )
+          throw error;
+      });
       await this.streamRecorder.settleStopped(id);
       await this.setAgentStatus(
         id,
