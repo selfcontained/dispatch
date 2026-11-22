@@ -9,7 +9,7 @@
       "task": "F1"
     },
     "audit-4.3-3": {
-      "title": "Repo tools gained a five-minute kill, kill on disconnect, 64 KiB output, argument and manifest limits, and changed exit codes and errors",
+      "title": "Repo tools gained a five-minute kill, 64 KiB output, argument and manifest limits, and changed exit codes and errors",
       "task": "F1"
     },
     "audit-4.3-5": {
@@ -25,7 +25,7 @@
       "task": "F1"
     },
     "archive-force-keeps-worktree": {
-      "title": "Forced archive leaves the worktree and branch on disk for good when it holds a nested repository or over 16 MiB untracked",
+      "title": "Forced archive leaves the worktree and branch on disk, also past the cleanup retry, when it holds a nested repository or over 16 MiB untracked",
       "task": "T20"
     },
     "worktree-status-unavailable": {
