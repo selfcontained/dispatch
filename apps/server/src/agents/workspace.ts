@@ -156,17 +156,6 @@ export function createWorkspacePreparation(logger: FastifyBaseLogger) {
       baseBranch: base,
       worktreePath,
       createNewBranch: request.createNewBranch,
-    }).catch((error: unknown) => {
-      if (
-        error instanceof Error &&
-        !(error instanceof GitWorktreeError) &&
-        /already (?:checked out|used by worktree)/i.test(error.message)
-      )
-        throw new GitWorktreeError(
-          "The requested branch is already checked out in another worktree.",
-          409
-        );
-      throw error;
     });
     return {
       path: result.worktreePath,

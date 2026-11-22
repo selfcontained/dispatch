@@ -159,7 +159,6 @@ it.each([
 
       await expect(listLocalRemoteBranches(cwd)).resolves.toEqual({
         branches: [branch],
-        defaultBranch: branch,
       });
       const local = await resolveCheckoutIntent(
         {},

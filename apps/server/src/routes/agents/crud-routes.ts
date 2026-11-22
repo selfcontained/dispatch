@@ -155,8 +155,9 @@ export async function registerAgentCrudRoutes(
 
     const baseDir = agent.launchCwd ?? agent.gitContext?.repoRoot ?? agent.cwd;
     const iconRelPath = await getDirectoryIconPath(deps.pool, baseDir);
-    // No icon is an empty answer, not an error: pickers request it blind.
-    if (!iconRelPath) return reply.code(204).send();
+    if (!iconRelPath) {
+      return reply.code(404).send({ error: "No repo icon." });
+    }
 
     const ext = path.extname(iconRelPath).toLowerCase();
     if (!ALLOWED_ICON_EXTENSIONS.has(ext)) {
@@ -171,7 +172,7 @@ export async function registerAgentCrudRoutes(
       realBaseDir = await realpath(baseDir);
       realIconPath = await realpath(iconAbsPath);
     } catch {
-      return reply.code(204).send();
+      return reply.code(404).send({ error: "Icon file not found." });
     }
 
     if (

@@ -2125,19 +2125,8 @@ export class AgentManager {
     const p = await this.prepareCreateInputs(
       input,
       directory?.cwd ?? input.cwd,
-      localGit
-        ? {
-            defaultBranch: async () => "main",
-            repository: () =>
-              this.localRunner
-                .inferRepositoryUrl(localGit)
-                .catch(() => undefined),
-            pullRequestHead: (target) =>
-              getPullRequestHead({ cwd: localGit, ...target }),
-            // A local worktree checks out branches from its own origin.
-            forkPullRequests: false,
-          }
-        : placement && derivedRepositoryUrl && remote
+      placement
+        ? derivedRepositoryUrl && remote
           ? {
               defaultBranch: () =>
                 runnerDefaultBranch(derivedRepositoryUrl, (owner, repo) =>
@@ -2153,6 +2142,20 @@ export class AgentManager {
                 ),
             }
           : {}
+        : {
+            // Main records `main` even where there is no repository.
+            defaultBranch: async () => "main",
+            ...(localGit && {
+              repository: () =>
+                this.localRunner
+                  .inferRepositoryUrl(localGit)
+                  .catch(() => undefined),
+              pullRequestHead: (target) =>
+                getPullRequestHead({ cwd: localGit, ...target }),
+              // A local worktree checks out branches from its own origin.
+              forkPullRequests: false,
+            }),
+          }
     );
     if (derivedRepositoryUrl && p.checkout) {
       runnerRepository = {

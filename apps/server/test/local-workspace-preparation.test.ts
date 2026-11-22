@@ -81,7 +81,8 @@ it("prepares native folders, direct checkouts and independent worktrees", async 
         },
         progress
       )
-    ).rejects.toMatchObject({ statusCode: 409 });
+      // Main's answer: Git's own message, not a mapped 409.
+    ).rejects.toThrow(/Command failed \(git .* worktree add .*already/s);
 
     const request = {
       name: "Work",

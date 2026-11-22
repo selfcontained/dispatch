@@ -1,7 +1,6 @@
 import os from "node:os";
 import path from "node:path";
 import { readdir, stat } from "node:fs/promises";
-import { localDefaultBranch } from "../shared/git/default-branch.js";
 import { runCommand } from "../shared/lib/run-command.js";
 import { resolveTilde } from "../shared/lib/resolve-tilde.js";
 import { shouldSkipAutomaticMacPathProbe } from "../shared/mac-path-privacy.js";
@@ -116,5 +115,5 @@ export async function listLocalRemoteBranches(input: string) {
       if (b === "master") return 1;
       return a.localeCompare(b);
     });
-  return { branches, defaultBranch: await localDefaultBranch(cwd) };
+  return { branches };
 }

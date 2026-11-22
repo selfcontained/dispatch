@@ -298,14 +298,14 @@ describe("GET /api/v1/agents/:id/repo-icon", () => {
     expect(res.json().error).toContain("Agent not found");
   });
 
-  it("answers 204 with no body when the agent has no repo icon", async () => {
+  it("returns 404 when agent has no repo icon", async () => {
     const agent = await createAgent();
     const res = await authedInject(
       "GET",
       `/api/v1/agents/${agent.id}/repo-icon`
     );
-    expect(res.statusCode).toBe(204);
-    expect(res.body).toBe("");
+    expect(res.statusCode).toBe(404);
+    expect(res.json().error).toContain("No repo icon");
   });
 });
 

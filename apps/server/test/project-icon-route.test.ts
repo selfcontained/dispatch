@@ -44,10 +44,10 @@ const icon = (id: string) =>
   app.inject({ method: "GET", url: `/api/v1/projects/${id}/icon?v=1` });
 
 describe("GET /api/v1/projects/:id/icon", () => {
-  it("answers 204 with no body for a project without an icon", async () => {
+  it("answers 404 with no body for a project without an icon", async () => {
     for (const repoRoot of [root, "runner://rnr_icon/@session"]) {
       const res = await icon(await project(repoRoot));
-      expect(res.statusCode).toBe(204);
+      expect(res.statusCode).toBe(404);
       expect(res.body).toBe("");
     }
   });

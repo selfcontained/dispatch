@@ -7,102 +7,9 @@
     "archive-switched-branch": {
       "title": "Archive no longer deletes the branch a worktree was switched to",
       "task": "T20"
-    },
-    "worktree-launch-failure": {
-      "title": "A child whose worktree cannot be created ends stopped, not error and blocked, with a different message",
-      "task": "T25"
-    },
-    "worktree-outside-git-base": {
-      "title": "A worktree request outside Git records no base branch, where main records main",
-      "task": "T25"
-    },
-    "icon-no-content": {
-      "title": "A missing repository or project icon is 204, not 404",
-      "task": "T15"
-    },
-    "branches-default": {
-      "title": "The branch list gained defaultBranch",
-      "task": "T17"
     }
   },
   "entries": [
-    {
-      "scenario": "session-lifecycle",
-      "path": "GET /repo-icon > body",
-      "main": "{\"error\":\"No repo icon.\"}",
-      "head": "null",
-      "finding": "icon-no-content"
-    },
-    {
-      "scenario": "session-lifecycle",
-      "path": "GET /repo-icon > headers > content-type",
-      "main": "\"application/json; charset=utf-8\"",
-      "head": "<absent>",
-      "finding": "icon-no-content"
-    },
-    {
-      "scenario": "session-lifecycle",
-      "path": "GET /repo-icon > status",
-      "main": "404",
-      "head": "204",
-      "finding": "icon-no-content"
-    },
-    {
-      "scenario": "session-create-validation",
-      "path": "worktree outside git > body > agent > baseBranch",
-      "main": "\"main\"",
-      "head": "null",
-      "finding": "worktree-outside-git-base"
-    },
-    {
-      "scenario": "session-create-validation",
-      "path": "worktree outside git: settled > base_branch",
-      "main": "\"main\"",
-      "head": "null",
-      "finding": "worktree-outside-git-base"
-    },
-    {
-      "scenario": "session-children",
-      "path": "agents > body > agents > 3 > activity",
-      "main": "\"blocked\"",
-      "head": "\"stopped\"",
-      "finding": "worktree-launch-failure"
-    },
-    {
-      "scenario": "session-children",
-      "path": "agents > body > agents > 3 > lastError",
-      "main": "sha256:617e80bf2649013e \"Command failed (git -C <root>/work/repo worktree add <root>/work/repo-main-b28b7a main), exitCode=1…",
-      "head": "\"Worktree creation failed: The requested branch is already checked out in another worktree.\"",
-      "finding": "worktree-launch-failure"
-    },
-    {
-      "scenario": "session-children",
-      "path": "agents > body > agents > 3 > status",
-      "main": "\"error\"",
-      "head": "\"stopped\"",
-      "finding": "worktree-launch-failure"
-    },
-    {
-      "scenario": "session-children",
-      "path": "list_agents > content > 0 > text > agents > 3 > status",
-      "main": "\"error\"",
-      "head": "\"stopped\"",
-      "finding": "worktree-launch-failure"
-    },
-    {
-      "scenario": "session-children",
-      "path": "list_agents > structuredContent > agents > 3 > status",
-      "main": "\"error\"",
-      "head": "\"stopped\"",
-      "finding": "worktree-launch-failure"
-    },
-    {
-      "scenario": "session-children",
-      "path": "worktree on the branch in use > content > 0 > text",
-      "main": "sha256:d3f0c13304ac82f0 \"Failed to create agent: Command failed (git -C <root>/work/repo worktree add <root>/work/repo-main-…",
-      "head": "\"Worktree creation failed: The requested branch is already checked out in another worktree.\"",
-      "finding": "worktree-launch-failure"
-    },
     {
       "scenario": "worktree-archive",
       "path": "git > refs > refs/heads/switched-to",
@@ -116,27 +23,6 @@
       "main": "false",
       "head": "true",
       "finding": "archive-shared-worktree"
-    },
-    {
-      "scenario": "system-probes",
-      "path": "branches: origin > body > defaultBranch",
-      "main": "<absent>",
-      "head": "\"main\"",
-      "finding": "branches-default"
-    },
-    {
-      "scenario": "system-probes",
-      "path": "project icon: folder > status",
-      "main": "404",
-      "head": "204",
-      "finding": "icon-no-content"
-    },
-    {
-      "scenario": "system-probes",
-      "path": "project icon: without icon > status",
-      "main": "404",
-      "head": "204",
-      "finding": "icon-no-content"
     }
   ]
 }
