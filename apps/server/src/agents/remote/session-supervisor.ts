@@ -13,12 +13,13 @@ import {
   rename,
   rm,
   rmdir,
+  unlink,
   writeFile,
 } from "node:fs/promises";
 import { createConnection } from "node:net";
 import path from "node:path";
 import type { BuildIdentity } from "../build-identity.js";
-import { hostFile, type HostLaunch } from "../acp/host-protocol.js";
+import { HOST_FILES, hostFile, type HostLaunch } from "../acp/host-protocol.js";
 import { observeBoundCheckout } from "../checkout-observation.js";
 import { probeGitContext } from "../../shared/git/git-context.js";
 import type { CommandRunner } from "../../shared/lib/run-command.js";
@@ -409,6 +410,42 @@ export async function createSessionSupervisor(
     }
     await asWorkload("/usr/bin/find", [dir, "-mindepth", "1", "-delete"]);
     await rmdir(dir);
+  }
+
+  async function resetGuestHost(dir: string, files: string) {
+    const entry = await lstat(dir).catch(missingPath);
+    if (entry) {
+      if (!entry.isDirectory())
+        throw new Error("Invalid runner session directory.");
+      // The supervisor owns the parent of dir. Take back dir before changing
+      // its entries so the workload cannot swap in links during setup.
+      const uid = process.getuid!();
+      if (entry.uid !== uid) await chown(dir, uid, process.getgid!());
+      await chmod(dir, 0o700);
+      for (const name of [
+        ...Object.values(HOST_FILES),
+        "prompt-receipts.jsonl",
+        "turn-active",
+        "service-mcp-ca.pem",
+        "node-ca.pem",
+        "codex-ca.pem",
+        "curl-ca.pem",
+        "dispatch-instructions.md",
+      ]) {
+        await unlink(path.join(dir, name)).catch(missingPath);
+      }
+    } else {
+      await mkdir(dir, { mode: 0o700 });
+    }
+
+    const shared = await lstat(files).catch(missingPath);
+    if (shared) {
+      if (!shared.isDirectory())
+        throw new Error("Invalid runner session files directory.");
+    } else {
+      await mkdir(files, { mode: 0o700 });
+      await chown(files, config.uid, config.gid);
+    }
   }
 
   async function checkedDirectory(dir: string) {
@@ -931,18 +968,14 @@ export async function createSessionSupervisor(
       reportTurnActivity: true,
       hostInstanceId: hostIdentity.hostInstanceId,
     };
-    // Write only into a fresh directory: a previous CLI account could have
-    // replaced anything under its old host directory with symlinks.
-    await removeGuestDirectory(dir);
-    await mkdir(dir, { mode: 0o700 });
-    await mkdir(files, { mode: 0o700 });
-    await chown(files, config.uid, config.gid);
+    await resetGuestHost(dir, files);
     if (mcpCa) {
-      await writeFile(mcpCaPath, mcpCa, { mode: 0o600 });
+      await writeFile(mcpCaPath, mcpCa, { mode: 0o600, flag: "wx" });
       await chown(mcpCaPath, config.uid, config.gid);
     }
     await writeFile(hostFile(dir, "launch"), JSON.stringify(launch), {
       mode: 0o600,
+      flag: "wx",
     });
     await chown(hostFile(dir, "launch"), config.uid, config.gid);
     await chown(dir, config.uid, config.gid);

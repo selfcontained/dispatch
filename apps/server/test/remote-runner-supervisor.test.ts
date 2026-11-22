@@ -196,7 +196,7 @@ describe("runner session supervision", () => {
     prepareDependencies?: (cwd: string) => Promise<boolean>,
     workload?: Pick<
       Parameters<typeof createSessionSupervisor>[0],
-      "env" | "bins" | "hostCommand" | "mayStartProcess"
+      "env" | "bins" | "hostCommand" | "mayStartProcess" | "build"
     >
   ) {
     supervisor = await createSessionSupervisor(
@@ -482,6 +482,88 @@ describe("runner session supervision", () => {
         await expect(recovered.launch(launch(workspace), root)).rejects.toThrow(
           "archived"
         );
+    }
+  );
+
+  it.each(["discard", "archive"] as const)(
+    "keeps shared files through stop/start, restart, update resume and reconciliation until %s",
+    async (cleanup) => {
+      const workspace = "configured";
+      const command = launch(workspace);
+      let runner = await start([workspace]);
+      await runner.launch(command, root);
+      const hostDir = path.join(state, "hosts", agentId);
+      const files = path.join(hostDir, "files");
+      const report = path.join(files, "nested", "report.md");
+      await mkdir(path.dirname(report));
+      await writeFile(report, "agent report");
+
+      await runner.stop(agentId, workspace, false);
+      expect(await readFile(report, "utf8")).toBe("agent report");
+      await runner.launch(command, root);
+      expect(await readFile(report, "utf8")).toBe("agent report");
+
+      const sentinel = path.join(root, "outside");
+      await writeFile(sentinel, "untouched");
+      await symlink(sentinel, path.join(hostDir, "journal.jsonl"));
+      const staleFiles = [
+        "host.pid",
+        "prompt-receipts.jsonl",
+        "turn-active",
+        "service-mcp-ca.pem",
+        "node-ca.pem",
+        "codex-ca.pem",
+        "curl-ca.pem",
+        "dispatch-instructions.md",
+      ];
+      for (const name of staleFiles)
+        await writeFile(path.join(hostDir, name), "stale host state");
+      await runner.stop(agentId, workspace, true);
+      await runner.launch(command, root);
+      expect(await readFile(report, "utf8")).toBe("agent report");
+      for (const name of [...staleFiles, "journal.jsonl"])
+        await expect(stat(path.join(hostDir, name))).rejects.toMatchObject({
+          code: "ENOENT",
+        });
+      expect(await readFile(sentinel, "utf8")).toBe("untouched");
+
+      runner.close();
+      runner = await start([workspace], undefined, undefined, {
+        build: { version: "1.7.29", revision: "b".repeat(40) },
+      });
+      expect(await runner.alive(agentId, workspace)).toBe(true);
+      expect(await readFile(report, "utf8")).toBe("agent report");
+      await runner.stop(agentId, workspace, true);
+      const resume = {
+        ...command,
+        launch: {
+          ...command.launch,
+          resumeSessionId: "engine-session",
+          launchId: "f95d6e6d-9c31-4d95-a3c0-4db17c260790",
+        },
+      };
+      await runner.launch(resume, root);
+      expect(JSON.parse(await readFile(record, "utf8")).hostBuild.version).toBe(
+        "1.7.29"
+      );
+      expect(await readFile(report, "utf8")).toBe("agent report");
+      await runner.launch(resume, root);
+      expect(processes.spawn).toHaveBeenCalledTimes(4);
+      await runner.stop(agentId, workspace, true);
+      await runner.launch(resume, root);
+      expect(processes.spawn).toHaveBeenCalledTimes(5);
+      expect(await readFile(report, "utf8")).toBe("agent report");
+
+      await runner.stop(agentId, workspace, true);
+      if (cleanup === "discard") await runner.discard(agentId, workspace);
+      else
+        expect(
+          await runner.checkoutRelease(agentId, workspace, {
+            kind: "release",
+            expectedState: null,
+          })
+        ).toBe("released");
+      await expect(stat(files)).rejects.toMatchObject({ code: "ENOENT" });
     }
   );
 
