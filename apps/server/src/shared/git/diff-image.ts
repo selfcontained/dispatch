@@ -32,7 +32,7 @@ export type ImageSide = "old" | "new";
  * worth of images; paths absent from the tree simply don't come back, which is
  * exactly the "did not exist on this side" answer the caller wants.
  */
-type ImageVersion = { size: number; revision: string };
+type ImageVersion = { size: number };
 async function treeImages(
   worktreePath: string,
   ref: string,
@@ -54,7 +54,7 @@ async function treeImages(
     const meta = record.slice(0, tabIndex).trim().split(/\s+/);
     const size = Number.parseInt(meta[3] ?? "", 10);
     if (!Number.isFinite(size)) continue;
-    sizes.set(record.slice(tabIndex + 1), { size, revision: meta[2]! });
+    sizes.set(record.slice(tabIndex + 1), { size });
   }
   return sizes;
 }
@@ -71,13 +71,8 @@ async function worktreeImageVersion(
       path.relative(worktreePath, resolved).split(path.sep)
     );
     try {
-      const info = await handle.stat({ bigint: true });
-      return info.isFile()
-        ? {
-            size: Number(info.size),
-            revision: [info.ino, info.ctimeNs, info.mtimeNs].join("-"),
-          }
-        : null;
+      const info = await handle.stat();
+      return info.isFile() ? { size: info.size } : null;
     } finally {
       await handle.close();
     }
@@ -148,7 +143,6 @@ export async function collectImageInfo(
     info.set(entry.path, {
       oldSize: oldSide?.size ?? null,
       newSize: newSide?.size ?? null,
-      revision: [oldSide?.revision, newSide?.revision].join("."),
     });
   }
 

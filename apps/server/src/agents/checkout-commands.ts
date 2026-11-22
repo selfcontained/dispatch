@@ -39,19 +39,36 @@ export async function requestCheckoutCommand(
     agentId: agent.id,
     operation,
   } as const;
-  if (placement && !runners.remote)
-    throw new Error("The session runner is unavailable.");
-  const { value } = await (placement
-    ? runners.remote!.requestSession(placement, request, undefined, signal)
-    : runners.local.requestSession(request, { checkout: agent, signal }));
-  let result: unknown;
-  try {
-    if (typeof value === "string") result = JSON.parse(value);
-  } catch {
-    // Invalid replies are reported below.
+  if (placement) {
+    if (!runners.remote) throw new Error("The session runner is unavailable.");
+    const { value } = await runners.remote.requestSession(
+      placement,
+      request,
+      undefined,
+      signal
+    );
+    // The wire's limits belong to its decoder, not to the local runner.
+    const result = parseResult(value);
+    if (operation.kind === "read" && isCheckoutCommandFile(result))
+      return result;
+    if (operation.kind === "run" && isCheckoutCommandResult(result))
+      return result;
+    throw new Error("Invalid runner checkout command response.");
   }
-  if (operation.kind === "read" && isCheckoutCommandFile(result)) return result;
-  if (operation.kind === "run" && isCheckoutCommandResult(result))
-    return result;
-  throw new Error("Invalid runner checkout command response.");
+  const { value } = await runners.local.requestSession(request, {
+    checkout: agent,
+    signal,
+  });
+  return parseResult(value) as
+    | CheckoutCommandFile
+    | CheckoutCommandResult
+    | null;
+}
+
+function parseResult(value: unknown): unknown {
+  try {
+    return typeof value === "string" ? JSON.parse(value) : undefined;
+  } catch {
+    throw new Error("Invalid runner checkout command response.");
+  }
 }

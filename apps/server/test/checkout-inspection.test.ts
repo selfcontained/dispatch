@@ -336,7 +336,7 @@ describe("native executor base", () => {
 describe.each([
   ["in process", inspectCheckout],
   ["CLI", subprocess],
-] as const)("checkout inspection %s", (_name, inspect) => {
+] as const)("checkout inspection %s", (name, inspect) => {
   it("discovers ignored configuration and handles non-Git folders", async () => {
     put(checkout, ".gitignore", ".config/\n");
     put(checkout, ".config/profile.txt", "checkout profile");
@@ -512,16 +512,14 @@ JSON
     });
   });
 
-  it("refuses escaping paths, Git metadata, FIFOs and oversized files", async () => {
+  it("refuses escaping paths, Git metadata and FIFOs", async () => {
     put(fixture, "outside/info", "outside");
-    put(checkout, "oversized", "x".repeat(256 * 1024 + 1));
     execFileSync("mkfifo", [path.join(checkout, "pipe")]);
     for (const file of [
       "../outside/info",
       path.join(fixture, "outside/info"),
       ".git",
       "pipe",
-      "oversized",
     ]) {
       await expect(
         inspect(checkout, { kind: "readFile", path: file })
@@ -555,7 +553,7 @@ JSON
     ).toEqual({ kind: "listFiles", names: ["alias.md", "keeper.md"] });
   });
 
-  it("rejects oversized Git output", async () => {
+  it("bounds the encoded reply to large Git output only in the CLI", async () => {
     const realGit = execFileSync("which", ["git"], { encoding: "utf8" }).trim();
     vi.stubEnv("CHECKOUT_TEST_GIT", realGit);
     vi.stubEnv("CHECKOUT_TEST_NODE", process.execPath);
@@ -569,9 +567,14 @@ exec "$CHECKOUT_TEST_GIT" "$@"
 `,
       { mode: 0o755 }
     );
-    await expect(
-      inspect(checkout, { kind: "changes", baseBranch: "main" })
-    ).rejects.toThrow(/MAXBUFFER/);
+    const result = inspect(checkout, { kind: "changes", baseBranch: "main" });
+    if (name === "CLI") {
+      await expect(result).rejects.toThrow(
+        "Checkout inspection reply is too large"
+      );
+    } else {
+      await expect(result).resolves.toMatchObject({ kind: "changes" });
+    }
   });
 
   it("fails clearly when no base resolves", async () => {
@@ -595,6 +598,19 @@ exec "$CHECKOUT_TEST_GIT" "$@"
       inspect(fixture, { kind: "changes", baseBranch: "main" })
     ).rejects.toThrow(/not a git repository/);
   });
+});
+
+it("returns a large local file in full and bounds the CLI reply", async () => {
+  const content = "x".repeat(4 * 1024 * 1024);
+  put(checkout, "oversized", content);
+  const query = { kind: "readFile", path: "oversized" } as const;
+  expect(await inspectCheckout(checkout, query)).toEqual({
+    kind: "readFile",
+    content,
+  });
+  await expect(subprocess(checkout, query)).rejects.toThrow(
+    "Checkout inspection reply is too large"
+  );
 });
 
 it("rejects malformed and oversized stdin with stderr and no reply", () => {

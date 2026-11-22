@@ -20,7 +20,6 @@ function relative(path: unknown) {
   return (
     typeof path === "string" &&
     path.length <= 4096 &&
-    !path.includes("\\") &&
     !path.includes("\0") &&
     path
       .split("/")

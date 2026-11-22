@@ -43,7 +43,6 @@ import { childProcessEnv } from "../shared/process/child-environment.js";
 
 const MAX_QUERY_BYTES = 16 * 1024;
 const MAX_REPLY_BYTES = 4 * 1024 * 1024;
-const MAX_FILE_BYTES = 256 * 1024;
 const MAX_SCRATCH_ENTRIES = 10_000;
 const MAX_ERROR_BYTES = 4 * 1024;
 const execFileAsync = promisify(execFile);
@@ -59,7 +58,7 @@ const run: CommandRunner = async (command, args, options = {}) => {
       GH_PROMPT_DISABLED: "1",
       ...options.env,
     },
-    maxBuffer: MAX_REPLY_BYTES,
+    maxBuffer: Infinity,
     timeout: options.timeoutMs ?? 5_000,
     killSignal: "SIGKILL",
   })
@@ -107,7 +106,6 @@ function validateFilePath(file: string): string[] {
   const segments = file.split("/");
   if (
     file.includes("\0") ||
-    file.includes("\\") ||
     /^[a-z]:/i.test(file) ||
     segments.some(
       (segment) =>
@@ -136,22 +134,7 @@ async function readWorktreeFile(
     try {
       const stat = await file.stat();
       if (!stat.isFile()) throw new Error("Expected a regular worktree file");
-      if (stat.size > MAX_FILE_BYTES)
-        throw new Error("Checkout file is too large");
-      // Enforce the limit even if the file grows after stat.
-      const bytes = Buffer.alloc(MAX_FILE_BYTES + 1);
-      let size = 0;
-      while (size < bytes.length) {
-        const { bytesRead } = await file.read(
-          bytes,
-          size,
-          bytes.length - size,
-          size
-        );
-        if (bytesRead === 0) return bytes.toString("utf8", 0, size);
-        size += bytesRead;
-      }
-      throw new Error("Checkout file is too large");
+      return await file.readFile("utf8");
     } finally {
       await file.close();
     }
@@ -533,7 +516,6 @@ export async function inspectCheckout(
       validated.directories,
       validated.waitForRefresh
     );
-    encodeReply(reply);
     return reply;
   }
   if (validated.kind === "roots")
@@ -549,13 +531,9 @@ export async function inspectCheckout(
       // Persona directories and files may be symlinks: list through them.
       const directory = await opendir(directoryPath);
       const names: string[] = [];
-      let scanned = 0;
       try {
         for await (const entry of directory) {
-          if (++scanned > 1024)
-            throw new Error("Checkout directory contains too many entries");
-          if (entry.name.includes("\\") || entry.name.toLowerCase() === ".git")
-            continue;
+          if (entry.name.toLowerCase() === ".git") continue;
           if (
             entry.isFile() ||
             (entry.isSymbolicLink() &&
@@ -574,7 +552,6 @@ export async function inspectCheckout(
         }
       }
       const reply = { kind: "listFiles" as const, names: names.sort() };
-      encodeReply(reply);
       return reply;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT")
@@ -597,7 +574,6 @@ export async function inspectCheckout(
             validateFilePath(validated.path)
           ),
         };
-  encodeReply(reply);
   return reply;
 }
 

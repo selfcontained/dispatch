@@ -4,10 +4,6 @@
       "title": "Repo tools gained a five-minute kill, 64 KiB output, argument and manifest limits, and changed exit codes and errors",
       "task": "F1"
     },
-    "audit-4.3-7": {
-      "title": "Owner, persona and hook reads gained 256 KiB, 1024-entry and 4 MiB caps",
-      "task": "F1"
-    },
     "archive-shared-worktree": {
       "title": "Archiving an owner keeps a worktree another agent works in until that agent is archived",
       "task": "T20"
@@ -39,22 +35,6 @@
     "worktree-outside-git-base": {
       "title": "A worktree request outside Git records no base branch, where main records main",
       "task": "T25"
-    },
-    "changes-path-rules": {
-      "title": "A changed file with a backslash in its name cannot be opened in Changes",
-      "task": "T09"
-    },
-    "changes-unchanged-file": {
-      "title": "The file diff of an unchanged file is 404, where main returns it as added",
-      "task": "T09"
-    },
-    "changes-image-response": {
-      "title": "Diff images are no longer cached for 30 seconds and carry a revision",
-      "task": "T09"
-    },
-    "files-error-text": {
-      "title": "Files refuses bad paths with different text",
-      "task": "T09"
     },
     "icon-no-content": {
       "title": "A missing repository or project icon is 204, not 404",
@@ -107,12 +87,6 @@
       "main": "<absent>",
       "head": "\"owned\"",
       "finding": "worktree-status-fields"
-    },
-    {
-      "field": "revision",
-      "main": "<absent>",
-      "head": "\"<image-revision>\"",
-      "finding": "changes-image-response"
     },
     {
       "field": "runnerManaged",
@@ -267,146 +241,6 @@
       "finding": "audit-4.3-3"
     },
     {
-      "scenario": "audit-3-manifest-size",
-      "path": "call > content > 0 > text",
-      "main": "\"ok\"",
-      "head": "\"MCP error -32602: Tool repo_echo not found\"",
-      "finding": "audit-4.3-3"
-    },
-    {
-      "scenario": "audit-3-manifest-size",
-      "path": "call > isError",
-      "main": "<absent>",
-      "head": "true",
-      "finding": "audit-4.3-3"
-    },
-    {
-      "scenario": "audit-3-manifest-size",
-      "path": "call > structuredContent",
-      "main": "{\"command\":[\"echo\",\"ok\"],\"exitCode\":0,\"stderr\":\"\",\"stdout\":\"ok\"}",
-      "head": "<absent>",
-      "finding": "audit-4.3-3"
-    },
-    {
-      "scenario": "audit-3-manifest-size",
-      "path": "hook ran",
-      "main": "true",
-      "head": "false",
-      "finding": "audit-4.3-3"
-    },
-    {
-      "scenario": "audit-3-manifest-size",
-      "path": "tools > repo_echo",
-      "main": "true",
-      "head": "<absent>",
-      "finding": "audit-4.3-3"
-    },
-    {
-      "scenario": "audit-7-read-caps",
-      "path": "1031 directory entries > content > 0 > text > personas",
-      "main": "sha256:8467cb9545eab317 [{\"description\":\"The Keeper persona\",\"name\":\"Keeper\",\"slug\":\"keeper\",\"type\":\"review\"},{\"description\"…",
-      "head": "sha256:90cfee24e60f0547 [{\"description\":\"Built-in generalist reviewer — correctness, clarity, and fit with the surrounding c…",
-      "finding": "audit-4.3-7"
-    },
-    {
-      "scenario": "audit-7-read-caps",
-      "path": "1031 directory entries > content > 0 > text > warnings",
-      "main": "<absent>",
-      "head": "[\"Could not list personas in .agents/personas: Checkout directory contains too many entries\"]",
-      "finding": "audit-4.3-7"
-    },
-    {
-      "scenario": "audit-7-read-caps",
-      "path": "1031 directory entries > structuredContent > personas",
-      "main": "sha256:8467cb9545eab317 [{\"description\":\"The Keeper persona\",\"name\":\"Keeper\",\"slug\":\"keeper\",\"type\":\"review\"},{\"description\"…",
-      "head": "sha256:90cfee24e60f0547 [{\"description\":\"Built-in generalist reviewer — correctness, clarity, and fit with the surrounding c…",
-      "finding": "audit-4.3-7"
-    },
-    {
-      "scenario": "audit-7-read-caps",
-      "path": "1031 directory entries > structuredContent > warnings",
-      "main": "<absent>",
-      "head": "[\"Could not list personas in .agents/personas: Checkout directory contains too many entries\"]",
-      "finding": "audit-4.3-7"
-    },
-    {
-      "scenario": "audit-7-read-caps",
-      "path": "hook ran",
-      "main": "true",
-      "head": "false",
-      "finding": "audit-4.3-7"
-    },
-    {
-      "scenario": "audit-7-read-caps",
-      "path": "owners file > content > 0 > text",
-      "main": "\"Selected 1 code owner reviewer(s); no reviewers launched. 0 file(s) lack an explicit owner.\"",
-      "head": "\"Checkout file is too large\"",
-      "finding": "audit-4.3-7"
-    },
-    {
-      "scenario": "audit-7-read-caps",
-      "path": "owners file > isError",
-      "main": "<absent>",
-      "head": "true",
-      "finding": "audit-4.3-7"
-    },
-    {
-      "scenario": "audit-7-read-caps",
-      "path": "owners file > structuredContent",
-      "main": "{\"baseRef\":\"origin/main\",\"changedFiles\":[\"changed.txt\"],\"failures\":[],\"launched\":[],\"owners\":[{\"files\":[\"changed.txt\"],\"persona\":\"keeper\"}],\"uncoveredFiles\":[]}",
-      "head": "<absent>",
-      "finding": "audit-4.3-7"
-    },
-    {
-      "scenario": "audit-7-read-caps",
-      "path": "persona in owner plan > content > 0 > text",
-      "main": "\"Selected 1 code owner reviewer(s); no reviewers launched. 0 file(s) lack an explicit owner.\"",
-      "head": "\"Could not read persona .agents/personas/keeper.md: Checkout file is too large\"",
-      "finding": "audit-4.3-7"
-    },
-    {
-      "scenario": "audit-7-read-caps",
-      "path": "persona in owner plan > isError",
-      "main": "<absent>",
-      "head": "true",
-      "finding": "audit-4.3-7"
-    },
-    {
-      "scenario": "audit-7-read-caps",
-      "path": "persona in owner plan > structuredContent",
-      "main": "sha256:ea953784b4d1da7b {\"baseRef\":\"origin/main\",\"changedFiles\":[\"changed.txt\"],\"failures\":[],\"launched\":[],\"omittedOwners\":…",
-      "head": "<absent>",
-      "finding": "audit-4.3-7"
-    },
-    {
-      "scenario": "audit-7-read-caps",
-      "path": "persona list > content > 0 > text > personas",
-      "main": "sha256:8467cb9545eab317 [{\"description\":\"The Keeper persona\",\"name\":\"Keeper\",\"slug\":\"keeper\",\"type\":\"review\"},{\"description\"…",
-      "head": "sha256:90cfee24e60f0547 [{\"description\":\"Built-in generalist reviewer — correctness, clarity, and fit with the surrounding c…",
-      "finding": "audit-4.3-7"
-    },
-    {
-      "scenario": "audit-7-read-caps",
-      "path": "persona list > content > 0 > text > warnings",
-      "main": "sha256:dd5fb6467cca6f57 [\"Default-branch persona catalog is refreshing in the background. This list contains currently avail…",
-      "head": "sha256:d774417a119c7e9d [\"Could not load persona .agents/personas/keeper.md: Checkout file is too large\",\"Default-branch per…",
-      "finding": "audit-4.3-7"
-    },
-    {
-      "scenario": "audit-7-read-caps",
-      "path": "persona list > structuredContent > personas",
-      "main": "sha256:8467cb9545eab317 [{\"description\":\"The Keeper persona\",\"name\":\"Keeper\",\"slug\":\"keeper\",\"type\":\"review\"},{\"description\"…",
-      "head": "sha256:90cfee24e60f0547 [{\"description\":\"Built-in generalist reviewer — correctness, clarity, and fit with the surrounding c…",
-      "finding": "audit-4.3-7"
-    },
-    {
-      "scenario": "audit-7-read-caps",
-      "path": "persona list > structuredContent > warnings",
-      "main": "sha256:dd5fb6467cca6f57 [\"Default-branch persona catalog is refreshing in the background. This list contains currently avail…",
-      "head": "sha256:d774417a119c7e9d [\"Could not load persona .agents/personas/keeper.md: Checkout file is too large\",\"Default-branch per…",
-      "finding": "audit-4.3-7"
-    },
-    {
       "scenario": "audit-7-persona-catalog-caps",
       "path": "105 personas: route > body > personas",
       "main": "sha256:fc4e0010802c554d [{\"body\":\"Review carefully.\",\"description\":\"The p000 persona\",\"name\":\"p000\",\"slug\":\"p000\",\"type\":\"re…",
@@ -489,27 +323,6 @@
       "main": "<absent>",
       "head": "[\"Persona catalog exceeds the 100-file or 4 MiB limit.\"]",
       "finding": "persona-catalog-caps"
-    },
-    {
-      "scenario": "audit-7-changes-reply-cap",
-      "path": "plan > content > 0 > text",
-      "main": "\"Selected 1 code owner reviewer(s); no reviewers launched. 0 file(s) lack an explicit owner.\"",
-      "head": "\"Checkout inspection git failed: ERR_CHILD_PROCESS_STDIO_MAXBUFFER\"",
-      "finding": "audit-4.3-7"
-    },
-    {
-      "scenario": "audit-7-changes-reply-cap",
-      "path": "plan > isError",
-      "main": "<absent>",
-      "head": "true",
-      "finding": "audit-4.3-7"
-    },
-    {
-      "scenario": "audit-7-changes-reply-cap",
-      "path": "plan > structuredContent",
-      "main": "sha256:1d9cfdf5968f3a53 {\"baseRef\":\"origin/main\",\"changedFiles\":[\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa…",
-      "head": "<absent>",
-      "finding": "audit-4.3-7"
     },
     {
       "scenario": "session-lifecycle",
@@ -664,153 +477,6 @@
       "main": "false",
       "head": "true",
       "finding": "archive-shared-worktree"
-    },
-    {
-      "scenario": "changes",
-      "path": "backslash file > body > added",
-      "main": "1",
-      "head": "<absent>",
-      "finding": "changes-path-rules"
-    },
-    {
-      "scenario": "changes",
-      "path": "backslash file > body > deleted",
-      "main": "0",
-      "head": "<absent>",
-      "finding": "changes-path-rules"
-    },
-    {
-      "scenario": "changes",
-      "path": "backslash file > body > diff",
-      "main": "\"diff --git a/back\\\\slash.txt b/back\\\\slash.txt\\nnew file mode 100644\\n--- /dev/null\\n+++ b/back\\\\slash.txt\\n@@ -0,0 +1,1 @@\\n+backslash\"",
-      "head": "<absent>",
-      "finding": "changes-path-rules"
-    },
-    {
-      "scenario": "changes",
-      "path": "backslash file > body > error",
-      "main": "<absent>",
-      "head": "\"Invalid workspace path or options.\"",
-      "finding": "changes-path-rules"
-    },
-    {
-      "scenario": "changes",
-      "path": "backslash file > body > path",
-      "main": "\"back\\\\slash.txt\"",
-      "head": "<absent>",
-      "finding": "changes-path-rules"
-    },
-    {
-      "scenario": "changes",
-      "path": "backslash file > body > status",
-      "main": "\"added\"",
-      "head": "<absent>",
-      "finding": "changes-path-rules"
-    },
-    {
-      "scenario": "changes",
-      "path": "backslash file > status",
-      "main": "200",
-      "head": "400",
-      "finding": "changes-path-rules"
-    },
-    {
-      "scenario": "changes",
-      "path": "file not changed > body > added",
-      "main": "1",
-      "head": "<absent>",
-      "finding": "changes-unchanged-file"
-    },
-    {
-      "scenario": "changes",
-      "path": "file not changed > body > deleted",
-      "main": "0",
-      "head": "<absent>",
-      "finding": "changes-unchanged-file"
-    },
-    {
-      "scenario": "changes",
-      "path": "file not changed > body > diff",
-      "main": "\"diff --git a/README.md b/README.md\\nnew file mode 100644\\n--- /dev/null\\n+++ b/README.md\\n@@ -0,0 +1,1 @@\\n+fixture\"",
-      "head": "<absent>",
-      "finding": "changes-unchanged-file"
-    },
-    {
-      "scenario": "changes",
-      "path": "file not changed > body > error",
-      "main": "<absent>",
-      "head": "\"File not found in diff.\"",
-      "finding": "changes-unchanged-file"
-    },
-    {
-      "scenario": "changes",
-      "path": "file not changed > body > path",
-      "main": "\"README.md\"",
-      "head": "<absent>",
-      "finding": "changes-unchanged-file"
-    },
-    {
-      "scenario": "changes",
-      "path": "file not changed > body > status",
-      "main": "\"added\"",
-      "head": "<absent>",
-      "finding": "changes-unchanged-file"
-    },
-    {
-      "scenario": "changes",
-      "path": "file not changed > status",
-      "main": "200",
-      "head": "404",
-      "finding": "changes-unchanged-file"
-    },
-    {
-      "scenario": "changes",
-      "path": "new image > headers > cache-control",
-      "main": "\"private, max-age=30\"",
-      "head": "\"private, no-cache\"",
-      "finding": "changes-image-response"
-    },
-    {
-      "scenario": "changes",
-      "path": "old image > headers > cache-control",
-      "main": "\"private, max-age=30\"",
-      "head": "\"private, no-cache\"",
-      "finding": "changes-image-response"
-    },
-    {
-      "scenario": "changes",
-      "path": "untracked image > headers > cache-control",
-      "main": "\"private, max-age=30\"",
-      "head": "\"private, no-cache\"",
-      "finding": "changes-image-response"
-    },
-    {
-      "scenario": "files-pane",
-      "path": "absolute > body > error",
-      "main": "\"Invalid workspace path.\"",
-      "head": "\"Invalid workspace path or options.\"",
-      "finding": "files-error-text"
-    },
-    {
-      "scenario": "files-pane",
-      "path": "backslash > body > error",
-      "main": "\"Invalid workspace path.\"",
-      "head": "\"Invalid workspace path or options.\"",
-      "finding": "files-error-text"
-    },
-    {
-      "scenario": "files-pane",
-      "path": "escape > body > error",
-      "main": "\"Invalid workspace path.\"",
-      "head": "\"Invalid workspace path or options.\"",
-      "finding": "files-error-text"
-    },
-    {
-      "scenario": "files-pane",
-      "path": "git directory > body > error",
-      "main": "\"Invalid workspace path.\"",
-      "head": "\"Invalid workspace path or options.\"",
-      "finding": "files-error-text"
     },
     {
       "scenario": "personas-default-branch",

@@ -151,7 +151,7 @@ export function isCheckoutReply(
     return (
       Array.isArray(value.names) &&
       value.names.length <= 1024 &&
-      value.names.every((name) => relativePath(name) && !/[\\/]/.test(name))
+      value.names.every((name) => relativePath(name) && !name.includes("/"))
     );
   return (
     typeof value.baseRef === "string" &&

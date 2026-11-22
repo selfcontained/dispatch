@@ -18,7 +18,7 @@ export async function serveCheckoutView(
         throw new AgentError("Image not available.", 404);
       return reply
         .header("X-Content-Type-Options", "nosniff")
-        .header("Cache-Control", "private, no-cache")
+        .header("Cache-Control", "private, max-age=30")
         .type(mime)
         .send(Buffer.from(value, "base64"));
     }

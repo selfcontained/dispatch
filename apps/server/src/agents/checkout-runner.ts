@@ -149,7 +149,7 @@ async function readAgentViewData(
   comparisonBase: string | null
 ): Promise<unknown> {
   if (!isCheckoutView(view))
-    throw new AgentError("Invalid workspace path or options.", 400);
+    throw new AgentError("Invalid workspace path.", 400);
   const query =
     "baseBranch" in view
       ? { ...view, baseBranch: view.baseBranch ?? comparisonBase }
