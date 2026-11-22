@@ -6,16 +6,19 @@ import {
   JobAvgDuration,
   RunHistoryGrid,
 } from "@/components/app/jobs-charts";
-import {
-  formatTimeUntil,
-  formatTimeUntilDate,
-  statusTextColor,
-} from "@/components/app/jobs-helpers";
+import { statusTextColor } from "@/components/app/jobs-helpers";
 import { ActivityBars } from "@/components/ui/activity-bars";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { StatCard } from "@/components/app/stat-card";
 import { type Job, type JobStats } from "@/hooks/use-jobs";
-import { formatDuration, formatRelativeTime } from "@/lib/format";
+import {
+  formatDateTime,
+  formatDayTime,
+  formatDuration,
+  formatRelativeTime,
+  formatTimeUntil,
+} from "@/lib/format";
+import { statusLabel } from "@/lib/status-label";
 import { cn } from "@/lib/utils";
 
 export function JobsOverview({
@@ -171,9 +174,11 @@ export function JobsOverview({
                     {job.name}
                   </span>
                   <span className="flex items-center gap-2 text-xs text-muted-foreground">
-                    <span>{formatTimeUntil(job.nextRun!)}</span>
+                    <span title={formatDateTime(job.nextRun!)}>
+                      {formatTimeUntil(job.nextRun!)}
+                    </span>
                     <span className="hidden text-muted-foreground/60 sm:inline">
-                      {formatTimeUntilDate(job.nextRun!)}
+                      {formatDayTime(job.nextRun!)}
                     </span>
                   </span>
                 </button>
@@ -205,16 +210,19 @@ export function JobsOverview({
                       </span>
                       <span
                         className={cn(
-                          "shrink-0 text-xs capitalize",
+                          "shrink-0 text-xs",
                           statusTextColor(run.status)
                         )}
                       >
-                        {run.status}
+                        {statusLabel(run.status)}
                       </span>
                       <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
                         {formatDuration(run.durationMs)}
                       </span>
-                      <span className="shrink-0 text-xs text-muted-foreground/60">
+                      <span
+                        className="shrink-0 text-xs text-muted-foreground/60"
+                        title={formatDateTime(run.startedAt)}
+                      >
                         {formatRelativeTime(run.startedAt)}
                       </span>
                     </button>

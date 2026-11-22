@@ -16,12 +16,15 @@ import {
   statusClasses,
   statusIcon,
 } from "@/components/app/jobs-helpers";
+import { LoadError } from "@/components/app/load-error";
+import { ActivityBars } from "@/components/ui/activity-bars";
+import { statusLabel } from "@/lib/status-label";
 import { errorMessage } from "@/lib/errors";
 import { shortPath } from "@/lib/format";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { type UpdateJobConfig, type Job, type JobRun } from "@/hooks/use-jobs";
+import { type UpdateJobConfig, type Job } from "@/hooks/use-jobs";
 import { type AgentType } from "@/lib/agent-types";
 import { cn } from "@/lib/utils";
 
@@ -29,6 +32,10 @@ import { cn } from "@/lib/utils";
 export function JobDetailPane(): JSX.Element {
   const {
     jobs,
+    isLoading,
+    error,
+    retry,
+    isRetrying,
     selectedJob,
     tab,
     history,
@@ -49,8 +56,29 @@ export function JobDetailPane(): JSX.Element {
 
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background">
+      {error ? (
+        <LoadError
+          message="Couldn't load jobs"
+          error={error}
+          onRetry={retry}
+          retrying={isRetrying}
+          className="m-3"
+        />
+      ) : !selectedJob && jobs.length > 0 && jobStats.error ? (
+        <LoadError
+          message="Couldn't load run history"
+          error={jobStats.error}
+          onRetry={() => void jobStats.refetch()}
+          retrying={jobStats.isFetching}
+          className="m-3"
+        />
+      ) : null}
       <div className="min-h-0 flex-1 overflow-hidden">
-        {selectedJob ? (
+        {isLoading ? (
+          <div className="flex h-full items-center justify-center gap-2 text-sm text-muted-foreground">
+            <ActivityBars size={16} /> Loading jobs…
+          </div>
+        ) : error && jobs.length === 0 ? null : selectedJob ? (
           <div className="flex h-full min-h-0 flex-col">
             <JobDetail
               className="min-h-0 flex-1"
@@ -61,8 +89,7 @@ export function JobDetailPane(): JSX.Element {
                   `/automations/jobs/${selectedJob.id}${nextTab === "configure" ? "" : `/${nextTab}`}`
                 );
               }}
-              history={history.data?.runs ?? []}
-              historyLoading={history.isLoading}
+              history={history}
               selectedRunId={routeRunId ?? null}
               onSelectRun={(runId) => {
                 navigate(
@@ -98,7 +125,7 @@ export function JobDetailPane(): JSX.Element {
             <JobsOverview
               jobs={jobs}
               stats={jobStats.data ?? null}
-              statsLoading={jobStats.isLoading}
+              statsLoading={jobStats.isPending}
               onSelectJob={selectJob}
               onSelectRun={(jobId, runId) =>
                 navigate(`/automations/jobs/${jobId}/history/${runId}`)
@@ -117,7 +144,6 @@ function JobDetail({
   tab,
   onTabChange,
   history,
-  historyLoading,
   attachedAgent,
   onOpenAgent,
   onRunNow,
@@ -136,8 +162,7 @@ function JobDetail({
   job: Job;
   tab: DetailTab;
   onTabChange: (tab: DetailTab) => void;
-  history: JobRun[];
-  historyLoading: boolean;
+  history: ReturnType<typeof useJobsContext>["history"];
   selectedRunId: string | null;
   onSelectRun: (runId: string) => void;
   attachedAgent: { agent: Agent; isActive: boolean } | null;
@@ -282,15 +307,18 @@ function JobDetail({
           className={cn("mb-2 self-center", statusClasses(job.lastRunStatus))}
         >
           <span className="mr-1">{statusIcon(job.lastRunStatus)}</span>
-          {job.lastRunStatus ?? "never run"}
+          {job.lastRunStatus ? statusLabel(job.lastRunStatus) : "never run"}
         </Badge>
       </div>
 
       {tab === "history" ? (
         <div className="min-h-0 flex-1">
           <HistoryTab
-            runs={history}
-            loading={historyLoading}
+            runs={history.data?.runs ?? []}
+            loading={history.isPending}
+            error={history.error}
+            retrying={history.isFetching}
+            onRetry={() => void history.refetch()}
             selectedRunId={selectedRunId}
             onSelectRun={onSelectRun}
           />

@@ -3,6 +3,7 @@ import { AgentSessionLink } from "./agent-session-link";
 import { ArrowLeft, Search } from "lucide-react";
 
 import {
+  formatDateTime,
   formatDuration,
   formatTokenCount,
   shortProjectName,
@@ -92,18 +93,7 @@ export function AgentHistoryDetail({
           </h2>
         </div>
         <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
-          <span>
-            {new Date(agent.createdAt).toLocaleDateString(undefined, {
-              month: "short",
-              day: "numeric",
-              year: "numeric",
-            })}{" "}
-            at{" "}
-            {new Date(agent.createdAt).toLocaleTimeString(undefined, {
-              hour: "2-digit",
-              minute: "2-digit",
-            })}
-          </span>
+          <span>{formatDateTime(agent.createdAt)}</span>
           <span>{formatDuration(durationMs)}</span>
         </div>
 

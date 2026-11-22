@@ -3,6 +3,7 @@ import { cleanError } from "@/components/app/release-utils";
 import { ActivityBars } from "@/components/ui/activity-bars";
 import { Button } from "@/components/ui/button";
 import type { ReleaseJob } from "@/hooks/use-release-stream";
+import { statusLabel } from "@/lib/status-label";
 
 type ReleaseJobBannersProps = {
   job: ReleaseJob;
@@ -41,7 +42,7 @@ export function ReleaseJobBanners({
                 <span className="font-mono">{job.tag}</span>
               </>
             )}{" "}
-            — {job.phase}
+            — {statusLabel(job.phase)}
           </span>
           <Button
             size="sm"

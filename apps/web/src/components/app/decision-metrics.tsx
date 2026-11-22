@@ -1,10 +1,9 @@
 import type { DecisionMetrics, MergeRiskMetrics } from "@dispatch/shared";
 import { useDecisionMetrics, type ActivityRange } from "@/hooks/use-activity";
 import { StatCard } from "./stat-card";
-import { Button } from "@/components/ui/button";
+import { LoadError } from "@/components/app/load-error";
+import { formatLatency } from "@/lib/format";
 
-const ms = (value: number | null) =>
-  value === null ? "—" : `${Math.round(value)} ms`;
 function Metrics({
   title,
   data,
@@ -47,8 +46,8 @@ function Metrics({
         />
         <StatCard
           label="API latency"
-          value={ms(data.medianMs)}
-          sub={`p95 ${ms(data.p95Ms)}`}
+          value={formatLatency(data.medianMs)}
+          sub={`p95 ${formatLatency(data.p95Ms)}`}
         />
         <StatCard
           label="Known estimated API cost"
@@ -98,8 +97,8 @@ function MergeRisk({ data }: { data: MergeRiskMetrics }) {
         <StatCard label="API failures" value={data.failures} />
         <StatCard
           label="API latency"
-          value={ms(data.medianMs)}
-          sub={`p95 ${ms(data.p95Ms)}`}
+          value={formatLatency(data.medianMs)}
+          sub={`p95 ${formatLatency(data.p95Ms)}`}
         />
         <StatCard
           label="Known estimated API cost"
@@ -159,16 +158,12 @@ export function DecisionMetricsSection({
         </p>
       )}
       {query.error && (
-        <div role="alert" className="text-xs text-destructive">
-          Couldn’t load decision metrics.{" "}
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => void query.refetch()}
-          >
-            Retry
-          </Button>
-        </div>
+        <LoadError
+          message="Couldn't load decision metrics"
+          error={query.error}
+          retrying={query.isFetching}
+          onRetry={() => void query.refetch()}
+        />
       )}
       {query.data && (
         <>

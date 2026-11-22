@@ -200,6 +200,16 @@ export function useAgentRecord(agentId: string | null): AgentIdentity | null {
       : null;
 }
 
+/**
+ * An agent's name, live or archived. The id stands in only once the lookup has
+ * settled without one, so it never flashes ahead of the name.
+ */
+export function useAgentName(agentId: string): string {
+  const { isPending } = useQuery(agentIdentityOptions(agentId));
+  const record = useAgentRecord(agentId);
+  return record?.name?.trim() || (isPending ? "…" : agentId);
+}
+
 /** Live recipient snapshots for conversation-aware composer timing. */
 export function useDeliveryAgents(): readonly Agent[] {
   return (

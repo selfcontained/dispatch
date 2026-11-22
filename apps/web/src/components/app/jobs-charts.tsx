@@ -1,7 +1,8 @@
 import { useMemo } from "react";
 import { Bar, BarChart, XAxis } from "recharts";
 
-import { formatDuration } from "@/lib/format";
+import { formatDuration, formatRelativeTime } from "@/lib/format";
+import { statusLabel } from "@/lib/status-label";
 import {
   ChartContainer,
   ChartLegend,
@@ -17,7 +18,6 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { type JobRunStatus } from "@/hooks/use-jobs";
-import { formatRelativeTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 const dailyRunsChartConfig = {
@@ -221,7 +221,8 @@ export function RunHistoryGrid({
                           />
                         </TooltipTrigger>
                         <TooltipContent side="top" className="text-xs">
-                          {run.status} — {formatRelativeTime(run.startedAt)}
+                          {statusLabel(run.status)} —{" "}
+                          {formatRelativeTime(run.startedAt)}
                         </TooltipContent>
                       </Tooltip>
                     );

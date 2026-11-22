@@ -2,31 +2,20 @@ import { Link } from "react-router-dom";
 import { Check, Copy, History, Trash2 } from "lucide-react";
 
 import { useCopyText } from "@/hooks/use-copy";
+import { AgentName } from "@/components/app/agent-name";
+import { formatDateTime, formatRelativeTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 // ── Shared primitives ──────────────────────────────────────────
 
-export function formatRelative(date: Date): string {
-  const diffMs = Date.now() - date.getTime();
-  const diffMin = Math.floor(diffMs / 60_000);
-  const diffHr = Math.floor(diffMin / 60);
-  const diffDay = Math.floor(diffHr / 24);
-
-  if (diffMin < 1) return "just now";
-  if (diffMin < 60) return `${diffMin}m ago`;
-  if (diffHr < 24) return `${diffHr}h ago`;
-  return `${diffDay}d ago`;
-}
-
 export function RelativeTime({ iso }: { iso: string }): JSX.Element {
-  const date = new Date(iso);
   return (
     <time
       dateTime={iso}
-      title={date.toLocaleString()}
+      title={formatDateTime(iso)}
       className="text-muted-foreground whitespace-nowrap"
     >
-      {formatRelative(date)}
+      {formatRelativeTime(iso)}
     </time>
   );
 }
@@ -98,7 +87,9 @@ export function AgentIdLabel({ agentId }: { agentId: string }): JSX.Element {
       onClick={(e) => e.stopPropagation()}
     >
       <History className="inline h-3 w-3 sm:hidden" />
-      <span className="hidden sm:inline">{agentId.slice(0, 12)}</span>
+      <span className="hidden max-w-40 truncate align-bottom sm:inline-block">
+        <AgentName agentId={agentId} />
+      </span>
     </Link>
   );
 }

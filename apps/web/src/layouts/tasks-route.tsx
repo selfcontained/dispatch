@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useAtom } from "jotai";
 import { LayoutGrid, List, Plus, X, Zap } from "lucide-react";
+import { formatDateTime, formatRelativeCompact } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { SectionShell } from "./section-shell";
 import { ProjectSwitcher } from "@/components/app/project-switcher";
@@ -39,7 +40,6 @@ import {
   TASK_PANE_PARAM,
   orderedColumns,
   templateName,
-  taskAge,
   visibleTasks,
 } from "@/components/app/tasks/task-utils";
 import { useTemplates } from "@/hooks/use-templates";
@@ -413,9 +413,9 @@ function TasksContent({ projectId }: { projectId: string }) {
                         <time
                           className="text-xs text-muted-foreground"
                           dateTime={task.archivedAt}
-                          title={new Date(task.archivedAt).toLocaleString()}
+                          title={formatDateTime(task.archivedAt)}
                         >
-                          Archived {taskAge(task.archivedAt)}
+                          Archived {formatRelativeCompact(task.archivedAt)}
                         </time>
                       )}
                       <Button

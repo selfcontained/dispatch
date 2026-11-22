@@ -35,6 +35,8 @@ export function useAgentDiff(
 ): {
   data: DiffResponse | undefined;
   isLoading: boolean;
+  error: Error | null;
+  isFetching: boolean;
   refresh: () => void;
 } {
   const queryClient = useQueryClient();
@@ -64,7 +66,14 @@ export function useAgentDiff(
     }
   }, [agentId, queryClient]);
 
-  return { data: query.data, isLoading: query.isLoading, refresh };
+  return {
+    data: query.data,
+    // Pending, not just fetching: a paused retry has no changes to report yet.
+    isLoading: enabled && !!agentId && query.isPending,
+    error: query.error,
+    isFetching: query.isFetching,
+    refresh,
+  };
 }
 
 export function useAgentFileDiff(

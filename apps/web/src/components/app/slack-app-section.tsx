@@ -38,6 +38,7 @@ import {
 import { api } from "@/lib/api";
 import { SlackAnswerersCard, type SlackAnswerer } from "./slack-answerers-card";
 import { SlackTimingCard } from "./slack-timing-card";
+import { statusLabel } from "@/lib/status-label";
 
 type Channel = { id: string; name: string; private: boolean };
 type State = {
@@ -181,7 +182,9 @@ export function SlackAppSection() {
   const showSetup = !configured || editing;
   const status = query.isError
     ? "Unavailable"
-    : query.data?.status.replaceAll("_", " ") || "Loading";
+    : query.data?.status
+      ? statusLabel(query.data.status)
+      : "Loading";
   const connected = query.data?.status === "connected";
   return (
     <section
@@ -259,8 +262,8 @@ export function SlackAppSection() {
               </Button>
             </div>
             <p className="text-xs text-muted-foreground" role="status">
-              Socket Mode WebSocket: {query.data?.status.replaceAll("_", " ")}.
-              A connected socket does not verify interactive callback delivery.
+              Socket Mode WebSocket: {statusLabel(query.data?.status ?? "")}. A
+              connected socket does not verify interactive callback delivery.
             </p>
             <Button
               variant="default"
@@ -275,7 +278,7 @@ export function SlackAppSection() {
             {query.data?.callbackDiagnostic && (
               <p className="text-xs text-muted-foreground">
                 Last Socket Mode callback:{" "}
-                {query.data.callbackDiagnostic.stage.replaceAll("_", " ")} ·{" "}
+                {statusLabel(query.data.callbackDiagnostic.stage)} ·{" "}
                 {new Date(
                   query.data.callbackDiagnostic.at
                 ).toLocaleTimeString()}

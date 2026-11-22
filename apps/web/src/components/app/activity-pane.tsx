@@ -17,7 +17,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { formatTokenCount } from "@/lib/format";
+import { LoadError } from "@/components/app/load-error";
+import { ActivityBars } from "@/components/ui/activity-bars";
+import {
+  formatCount,
+  formatLongDate,
+  formatShortDate,
+  formatTokenCount,
+} from "@/lib/format";
 import { StatCard } from "@/components/app/stat-card";
 import {
   ACTIVITY_RANGES,
@@ -72,11 +79,7 @@ function DatePickerPopover({
           data-testid="activity-date-picker"
         >
           <CalendarIcon className="h-3.5 w-3.5" />
-          {new Date(dailyDate + "T00:00:00").toLocaleDateString(undefined, {
-            month: "short",
-            day: "numeric",
-            year: "numeric",
-          })}
+          {formatLongDate(dailyDate)}
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-auto bg-muted p-0 shadow-lg" align="end">
@@ -121,10 +124,20 @@ export function ActivityPane({
   const isDaily = range === "daily";
   const dailyDateParam = isDaily ? dailyDate : undefined;
 
-  const { data: tokenStats } = useTokenStats(range, dailyDateParam);
-  const { data: tokenDaily } = useTokenDaily(range, dailyDateParam);
-  const { data: tokenByModel } = useTokenByModel(range, dailyDateParam);
-  const { data: tokenByProject } = useTokenByProject(range, dailyDateParam);
+  const statsQuery = useTokenStats(range, dailyDateParam);
+  const dailyQuery = useTokenDaily(range, dailyDateParam);
+  const modelQuery = useTokenByModel(range, dailyDateParam);
+  const projectQuery = useTokenByProject(range, dailyDateParam);
+  const { data: tokenStats } = statsQuery;
+  const { data: tokenDaily } = dailyQuery;
+  const { data: tokenByModel } = modelQuery;
+  const { data: tokenByProject } = projectQuery;
+  // The four requests fill one region: it is empty only once all succeeded.
+  const tokenQueries = [statsQuery, dailyQuery, modelQuery, projectQuery];
+  const failedQueries = tokenQueries.filter((query) => query.isError);
+  const tokensFailed = failedQueries.length > 0;
+  const tokensLoading =
+    !tokensFailed && tokenQueries.some((query) => query.isPending);
   const totalTokens = tokenStats
     ? tokenStats.total_input +
       tokenStats.total_cache_creation +
@@ -180,6 +193,21 @@ export function ActivityPane({
       {tab === "metrics" && (
         <ScrollArea className="flex-1">
           <div className="mx-auto max-w-5xl min-w-0 overflow-hidden space-y-6 px-3 pt-4 pb-12 sm:space-y-8 sm:px-5 sm:pt-6 sm:pb-20 md:px-8">
+            {tokensFailed && (
+              <LoadError
+                message="Couldn't load token usage"
+                error={failedQueries[0].error}
+                retrying={failedQueries.some((query) => query.isFetching)}
+                onRetry={() =>
+                  failedQueries.forEach((query) => void query.refetch())
+                }
+              />
+            )}
+            {tokensLoading && (
+              <div className="flex items-center justify-center gap-2 py-12 text-sm text-muted-foreground">
+                <ActivityBars size={16} /> Loading token usage…
+              </div>
+            )}
             {hasTokenData && tokenStats && (
               <div className="flex flex-wrap gap-2 sm:gap-3">
                 <StatCard
@@ -205,7 +233,7 @@ export function ActivityPane({
                 <StatCard
                   label="Sessions"
                   value={tokenStats.total_sessions}
-                  sub={`${tokenStats.total_messages} messages`}
+                  sub={formatCount(tokenStats.total_messages, "message")}
                 />
               </div>
             )}
@@ -215,10 +243,7 @@ export function ActivityPane({
                 <h2 className="mb-3 text-sm font-medium text-foreground">
                   Token usage (
                   {isDaily
-                    ? new Date(dailyDate + "T00:00:00").toLocaleDateString(
-                        undefined,
-                        { month: "short", day: "numeric" }
-                      )
+                    ? formatShortDate(dailyDate)
                     : rangeLabel(range).toLowerCase()}
                   )
                 </h2>
@@ -254,7 +279,7 @@ export function ActivityPane({
 
             <DecisionMetricsSection range={range} dailyDate={dailyDateParam} />
 
-            {!hasTokenData && (
+            {!hasTokenData && !tokensLoading && !tokensFailed && (
               <div className="py-12 text-center text-sm text-muted-foreground">
                 No token usage yet.
               </div>

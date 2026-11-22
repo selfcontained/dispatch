@@ -13,6 +13,20 @@ export function formatDuration(ms: number | null | undefined): string {
   return remHours > 0 ? `${days}d ${remHours}h` : `${days}d`;
 }
 
+/** A duration short enough that milliseconds are the useful unit. */
+export function formatLatency(ms: number | null): string {
+  return ms === null ? "—" : `${Math.round(ms)} ms`;
+}
+
+const countFormatter = new Intl.NumberFormat();
+
+/** "1,204", or "1 session" / "1,204 sessions" given the noun. */
+export function formatCount(count: number, noun?: string): string {
+  const value = countFormatter.format(count);
+  if (!noun) return value;
+  return `${value} ${count === 1 ? noun : `${noun}s`}`;
+}
+
 export function formatTokenCount(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
   if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
@@ -76,6 +90,14 @@ export function formatShortDateTime(iso: string): string {
   });
 }
 
+export function formatLongDate(dateOnlyIso: string): string {
+  return formatDate(new Date(dateOnlyIso + "T00:00:00"), {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
 export function formatShortDate(dateOnlyIso: string): string {
   return formatDate(new Date(dateOnlyIso + "T00:00:00"), {
     month: "short",
@@ -83,18 +105,54 @@ export function formatShortDate(dateOnlyIso: string): string {
   });
 }
 
-export function formatRelativeTime(iso: string): string {
+const MINUTE_MS = 60_000;
+const DAY_MS = 24 * 60 * MINUTE_MS;
+
+/** An age in its largest unit ("now", "9m", "3h", "2d"), for cards and rows. */
+export function formatRelativeCompact(iso: string): string {
   const time = new Date(iso).getTime();
   if (!Number.isFinite(time)) return "";
-  const secs = Math.max(0, Math.floor((Date.now() - time) / 1000));
-  if (secs < 60) return "just now";
-  const mins = Math.floor(secs / 60);
-  if (mins < 60) return `${mins}m ago`;
+  const mins = Math.max(0, Math.floor((Date.now() - time) / MINUTE_MS));
+  if (mins < 1) return "now";
+  if (mins < 60) return `${mins}m`;
   const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  if (days < 30) return `${days}d ago`;
+  return hours < 24 ? `${hours}h` : `${Math.floor(hours / 24)}d`;
+}
+
+export function formatRelativeTime(iso: string): string {
+  const age = formatRelativeCompact(iso);
+  if (!age) return "";
+  if (age === "now") return "just now";
+  if (Date.now() - new Date(iso).getTime() < 30 * DAY_MS) return `${age} ago`;
   return formatDate(new Date(iso), { month: "short", day: "numeric" });
+}
+
+export function formatTimeUntil(iso: string): string {
+  const ms = new Date(iso).getTime() - Date.now();
+  if (!Number.isFinite(ms) || ms < 0) return "now";
+  if (ms < MINUTE_MS) return "< 1m";
+  if (ms < DAY_MS) return `in ${formatDuration(ms)}`;
+  return `in ${Math.floor(ms / DAY_MS)}d`;
+}
+
+/** "Today at 9:22 PM", "Tomorrow at 7:00 AM", then the dated form. */
+export function formatDayTime(iso: string): string {
+  const date = new Date(iso);
+  if (!Number.isFinite(date.getTime())) return "";
+  const time = { hour: "numeric", minute: "2-digit" } as const;
+  const today = new Date();
+  const tomorrow = new Date(today);
+  tomorrow.setDate(today.getDate() + 1);
+  if (date.toDateString() === today.toDateString())
+    return `Today at ${formatDate(date, time)}`;
+  if (date.toDateString() === tomorrow.toDateString())
+    return `Tomorrow at ${formatDate(date, time)}`;
+  return formatDate(date, {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    ...time,
+  });
 }
 
 /** Badge counts stop at "99+" so a runaway number can't stretch the chip. */

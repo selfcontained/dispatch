@@ -1192,7 +1192,7 @@ describe("AgentCardActions and child agents", () => {
     expect(screen.getByRole("button", { name: "Resume" })).toBeTruthy();
   });
 
-  it("hides lifecycle actions on persona cards and credits the launching parent", () => {
+  it("hides lifecycle actions on persona cards and credits the launching parent", async () => {
     const { rerender } = renderCard({
       agent: makeChild({ id: AGENT_ID, parentAgentId: "agt_launcher" }),
       agents: [makeAgent({ id: "agt_launcher", name: "worker-1" })],
@@ -1206,11 +1206,14 @@ describe("AgentCardActions and child agents", () => {
     // Parent resolved by id when it is in the list...
     expect(screen.getByText("from worker-1")).toBeTruthy();
 
-    // ...and falls back to the id suffix when it is not.
+    // ...and falls back to the id when the lookup has no name either.
     rerender({
       agent: makeChild({ id: AGENT_ID, parentAgentId: "agt_missing_xyz789" }),
     });
-    expect(screen.getByText("from xyz789")).toBeTruthy();
+    await waitFor(
+      () => expect(screen.getByText("from agt_missing_xyz789")).toBeTruthy(),
+      { timeout: 3000 }
+    );
   });
 
   it("lists child agents with a count when expanded", () => {

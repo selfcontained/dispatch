@@ -75,7 +75,7 @@ function CompactMetaRow({
 
 export type AgentCardDetailsProps = {
   agent: Agent;
-  personaParentName?: string;
+  personaParentName?: React.ReactNode;
   diffStats: DiffStats | null | undefined;
   refreshDiffStats: () => void;
   fullAccessEnabled: boolean;

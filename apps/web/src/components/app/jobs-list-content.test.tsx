@@ -78,6 +78,8 @@ function defaultContext(jobs: Job[]): Record<string, unknown> {
     error: null,
     selectedJob: null,
     showOverview: false,
+    retry: vi.fn(),
+    isRetrying: false,
     actionErrorByJobId: {} as Record<string, string>,
     selectJob: vi.fn(),
     openAddJob: vi.fn(),
@@ -97,13 +99,21 @@ describe("JobListContent — load states", () => {
   it("shows the error message from an Error instance", () => {
     H.context.error = new Error("network down");
     render(<JobListContent />);
-    expect(screen.getByText("network down")).toBeTruthy();
+    expect(screen.getByText("Couldn't load jobs: network down")).toBeTruthy();
   });
 
-  it("falls back to a generic message for a non-Error error value", () => {
+  it("shows a non-Error error value", () => {
     H.context.error = "some string";
     render(<JobListContent />);
-    expect(screen.getByText("Failed to load jobs.")).toBeTruthy();
+    expect(screen.getByText("Couldn't load jobs: some string")).toBeTruthy();
+  });
+
+  it("retries a failed load", () => {
+    H.context.error = new Error("network down");
+    render(<JobListContent />);
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    expect(H.context.retry).toHaveBeenCalledOnce();
+    expect(screen.queryByText("No jobs added yet.")).toBeNull();
   });
 
   it("shows a loading indicator before the error/empty checks when loading", () => {
@@ -116,7 +126,7 @@ describe("JobListContent — load states", () => {
     H.context.isLoading = true;
     H.context.error = new Error("network down");
     render(<JobListContent />);
-    expect(screen.getByText("network down")).toBeTruthy();
+    expect(screen.getByText("Couldn't load jobs: network down")).toBeTruthy();
     expect(screen.queryByText("Loading jobs...")).toBeNull();
   });
 
@@ -187,7 +197,7 @@ describe("JobListContent — job rows", () => {
     );
   });
 
-  it("shows 'new' for a job that has never run and the raw status otherwise", () => {
+  it("shows 'new' for a job that has never run and the status label otherwise", () => {
     const neverRun = makeJob({ id: "job_1", lastRunStatus: null });
     const ran = makeJob({ id: "job_2", lastRunStatus: "failed" });
     H.context = defaultContext([neverRun, ran]);
@@ -196,7 +206,7 @@ describe("JobListContent — job rows", () => {
       "new"
     );
     expect(screen.getByTestId(`job-row-${ran.id}`).textContent).toContain(
-      "failed"
+      "Failed"
     );
   });
 

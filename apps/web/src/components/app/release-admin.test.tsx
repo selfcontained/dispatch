@@ -526,7 +526,7 @@ describe("ReleasesAdmin — in-flight job banners", () => {
     const banner = screen.getByText(/Releasing/);
     expect(banner.textContent).toContain("patch");
     expect(banner.textContent).toContain("v1.2.4");
-    expect(banner.textContent).toContain("watching");
+    expect(banner.textContent).toContain("Watching");
 
     fireEvent.click(screen.getByRole("button", { name: "View progress" }));
     expect(

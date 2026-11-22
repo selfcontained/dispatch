@@ -48,16 +48,19 @@ import {
   TASK_PANE_PARAM,
   assignmentLabel,
   columnAccent,
-  taskAge,
 } from "./task-utils";
+import { AgentName } from "@/components/app/agent-name";
+import { AgentSessionLink } from "@/components/app/agent-session-link";
+import {
+  formatDateTime,
+  formatRelativeCompact,
+  formatRelativeTime,
+} from "@/lib/format";
+import { statusLabel } from "@/lib/status-label";
 
 /** Status and Assignee share one width and one quiet field style. */
 const PROPERTY_CONTROL =
   "h-8 w-full max-w-64 border-transparent bg-muted/50 text-xs hover:bg-muted";
-const ago = (date: string) => {
-  const age = taskAge(date);
-  return age === "now" ? "just now" : `${age} ago`;
-};
 
 /** The raised surface each drawer group sits on, over the pane's base. */
 const DRAWER_SURFACE =
@@ -252,12 +255,11 @@ export function TaskDetailPanel({
   const assignee =
     agents.find((agent) => agent.id === task?.assignedAgentId) ?? null;
   const creator =
-    task?.createdBy.kind === "agent"
-      ? (() => {
-          const agentId = task.createdBy.agentId;
-          return agents.find((agent) => agent.id === agentId)?.name ?? agentId;
-        })()
-      : task?.createdBy.kind;
+    task?.createdBy.kind === "agent" ? (
+      <AgentName agentId={task.createdBy.agentId} />
+    ) : (
+      task?.createdBy.kind
+    );
   return (
     <>
       <header className="flex min-h-14 shrink-0 items-center gap-1 border-b border-border/40 pl-1.5 pr-2 pt-[var(--safe-area-top)] text-xs text-muted-foreground">
@@ -415,8 +417,11 @@ export function TaskDetailPanel({
                     }
                   />
                   <span className="text-xs text-muted-foreground">Created</span>
-                  <span className="text-xs">
-                    by {creator} · {ago(task.createdAt)}
+                  <span
+                    className="text-xs"
+                    title={formatDateTime(task.createdAt)}
+                  >
+                    by {creator} · {formatRelativeTime(task.createdAt)}
                   </span>
                 </section>
                 {columns.some((c) => c.trigger) && (
@@ -560,30 +565,43 @@ export function TaskDetailPanel({
                       {task.agents.map((assignment) => {
                         const current =
                           assignment.agentId === task.assignedAgentId;
+                        const agent = agents.find(
+                          (item) => item.id === assignment.agentId
+                        );
                         return (
                           <div
                             key={assignment.agentId}
                             data-testid={`task-agent-row-${assignment.agentId}`}
                             className="flex items-center gap-2 rounded-lg px-1 py-0.5 hover:bg-muted/30"
                           >
-                            <TaskAgent
-                              agent={agents.find(
-                                (agent) => agent.id === assignment.agentId
-                              )}
-                              agents={agents}
-                              projectId={projectId}
-                              fullWidth
-                            />
+                            {agent ? (
+                              <TaskAgent
+                                agent={agent}
+                                agents={agents}
+                                projectId={projectId}
+                                fullWidth
+                              />
+                            ) : (
+                              // The live list has no archived agents.
+                              <AgentSessionLink
+                                agentId={assignment.agentId}
+                                projectId={projectId}
+                                decorative={false}
+                                className="min-w-0 truncate text-xs text-muted-foreground"
+                              >
+                                <AgentName agentId={assignment.agentId} />
+                              </AgentSessionLink>
+                            )}
                             <span
                               className="ml-auto flex shrink-0 items-center gap-2 text-xs text-muted-foreground"
-                              title={`${assignmentLabel(assignment, columns)} · ${ago(assignment.assignedAt)}`}
+                              title={`${assignmentLabel(assignment, columns)} · ${formatDateTime(assignment.assignedAt)}`}
                             >
                               {current && (
                                 <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-foreground">
                                   Assignee
                                 </span>
                               )}
-                              {taskAge(assignment.assignedAt)}
+                              {formatRelativeCompact(assignment.assignedAt)}
                             </span>
                             <DropdownMenu>
                               <DropdownMenuTrigger asChild>
@@ -591,8 +609,18 @@ export function TaskDetailPanel({
                                   size="icon"
                                   variant="ghost"
                                   className="h-7 w-7 shrink-0 text-muted-foreground"
-                                  aria-label={`Options for ${agents.find((agent) => agent.id === assignment.agentId)?.name ?? assignment.agentId}`}
+                                  aria-label={
+                                    agent
+                                      ? `Options for ${agent.name}`
+                                      : undefined
+                                  }
                                 >
+                                  {!agent && (
+                                    <span className="sr-only">
+                                      Options for{" "}
+                                      <AgentName agentId={assignment.agentId} />
+                                    </span>
+                                  )}
                                   <MoreHorizontal
                                     className="h-4 w-4"
                                     aria-hidden="true"
@@ -654,10 +682,13 @@ export function TaskDetailPanel({
                         <span className="font-medium">
                           {event.kind === "trigger_launching"
                             ? `Launching ${projectTemplates.find((template) => template.id === event.data.templateId)?.name ?? "agent"}`
-                            : event.kind.replaceAll("_", " ")}
+                            : statusLabel(event.kind)}
                         </span>
-                        <span className="ml-2 text-muted-foreground">
-                          {ago(event.createdAt)}
+                        <span
+                          className="ml-2 text-muted-foreground"
+                          title={formatDateTime(event.createdAt)}
+                        >
+                          {formatRelativeTime(event.createdAt)}
                         </span>
                         {typeof event.data.reason === "string" && (
                           <p className="text-destructive">

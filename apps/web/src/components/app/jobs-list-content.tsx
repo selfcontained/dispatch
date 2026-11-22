@@ -4,6 +4,8 @@ import { Activity, AlarmClock, Clock } from "lucide-react";
 
 import { useJobsContext } from "@/components/app/jobs-context";
 import { statusClasses, statusIcon } from "@/components/app/jobs-helpers";
+import { LoadError } from "@/components/app/load-error";
+import { statusLabel } from "@/lib/status-label";
 import { shortPath } from "@/lib/format";
 import { ActivityBars } from "@/components/ui/activity-bars";
 import { Badge } from "@/components/ui/badge";
@@ -22,6 +24,8 @@ export function JobListContent({
     jobs: allJobs,
     isLoading,
     error,
+    retry,
+    isRetrying,
     selectedJob,
     showOverview,
     actionErrorByJobId,
@@ -77,10 +81,15 @@ export function JobListContent({
         className="min-h-0 flex-1 overflow-y-auto"
       >
         {error ? (
-          <div className="m-3 rounded-md border border-status-blocked/40 bg-status-blocked/10 p-3 text-sm text-status-blocked">
-            {error instanceof Error ? error.message : "Failed to load jobs."}
-          </div>
-        ) : isLoading ? (
+          <LoadError
+            message="Couldn't load jobs"
+            error={error}
+            onRetry={retry}
+            retrying={isRetrying}
+            className="m-3"
+          />
+        ) : null}
+        {error && allJobs.length === 0 ? null : isLoading ? (
           <div className="flex items-center gap-2 p-4 text-sm text-muted-foreground">
             <ActivityBars size={16} /> Loading jobs...
           </div>
@@ -143,7 +152,9 @@ export function JobListContent({
                       <span className="mr-1 hidden sm:inline-flex">
                         {statusIcon(job.lastRunStatus)}
                       </span>
-                      {job.lastRunStatus ?? "new"}
+                      {job.lastRunStatus
+                        ? statusLabel(job.lastRunStatus)
+                        : "new"}
                     </Badge>
                   </div>
                   <div className="mt-1 flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">

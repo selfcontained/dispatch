@@ -12,6 +12,7 @@ import {
 import { AnimatePresence, motion } from "framer-motion";
 
 import type { DiffFile } from "@/hooks/use-agent-diff";
+import { formatCount } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 type TreeNode = {
@@ -105,7 +106,7 @@ export function FileTree({
       <div className="shrink-0 flex items-center border-b border-border/40 bg-muted/30">
         {open && (
           <span className="flex-1 px-3 py-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">
-            {files.length} file{files.length !== 1 ? "s" : ""} changed
+            {formatCount(files.length, "file")} changed
           </span>
         )}
         <button

@@ -36,6 +36,7 @@ import {
   type LineSelection,
 } from "@/components/app/unified-diff-utils";
 import { FileTree } from "@/components/app/changes-file-tree";
+import { LoadError } from "@/components/app/load-error";
 import { DiffPane } from "@/components/app/changes-diff-section";
 
 type ChangesTabProps = {
@@ -186,7 +187,11 @@ export const ChangesTab = memo(function ChangesTab({
   const viewType = isMobile ? "unified" : storedViewType;
   const ignoreWhitespace = useAtomValue(diffIgnoreWhitespaceAtom);
   const hideTestFiles = useAtomValue(diffHideTestFilesAtom);
-  const { data, isLoading } = useAgentDiff(agentId, active, ignoreWhitespace);
+  const { data, isLoading, error, isFetching, refresh } = useAgentDiff(
+    agentId,
+    active,
+    ignoreWhitespace
+  );
   const [viewState, setViewState] = useAtom(
     diffViewStateAtomFamily(agentId ?? "")
   );
@@ -515,7 +520,17 @@ export const ChangesTab = memo(function ChangesTab({
       )
     ) : null;
 
-  if (isLoading && !data) {
+  const loadError = error ? (
+    <LoadError
+      message="Couldn't load changes"
+      error={error}
+      onRetry={refresh}
+      retrying={isFetching}
+      className="m-3"
+    />
+  ) : null;
+
+  if (isLoading) {
     return (
       <div className="flex h-full min-h-0 flex-col">
         {toolbar}
@@ -528,6 +543,14 @@ export const ChangesTab = memo(function ChangesTab({
   }
 
   if (files.length === 0) {
+    if (loadError) {
+      return (
+        <div className="flex h-full min-h-0 flex-col">
+          {toolbar}
+          {loadError}
+        </div>
+      );
+    }
     return (
       <div className="flex h-full min-h-0 flex-col">
         {toolbar}
@@ -546,6 +569,7 @@ export const ChangesTab = memo(function ChangesTab({
   return (
     <div className="flex h-full min-h-0 flex-col">
       {toolbar}
+      {loadError}
       <div className="flex min-h-0 flex-1">
         <FileTree
           files={files}

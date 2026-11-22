@@ -26,10 +26,13 @@ export function useAuth(): {
   const passwordSetRef = useRef(false);
   const queryClient = useQueryClient();
 
-  const { data, isError } = useQuery<AuthStatus>({
+  const { data, isError, isPaused, refetch } = useQuery<AuthStatus>({
     queryKey: ["auth-status"],
     queryFn: fetchAuthStatus,
-    retry: 5,
+    // The server is usually this machine, which navigator.onLine says
+    // nothing about.
+    networkMode: "always",
+    retry: 3,
     retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 5000),
     staleTime: Infinity,
     refetchOnWindowFocus: false,
@@ -43,10 +46,18 @@ export function useAuth(): {
       } else {
         setAuthState("authenticated");
       }
-    } else if (isError) {
-      setAuthState("error");
+    } else {
+      // A retry waits for focus, so a paused query has failed and has nothing
+      // in flight. Until there is data, only a login can outrank this.
+      setAuthState((current) =>
+        current === "authenticated" || current === "needs-login"
+          ? current
+          : isError || isPaused
+            ? "error"
+            : "loading"
+      );
     }
-  }, [data, isError]);
+  }, [data, isError, isPaused]);
 
   // Listen for 401s from the shared api() utility — only transition to
   // needs-login when we know a password is configured.
@@ -76,9 +87,11 @@ export function useAuth(): {
   }, [queryClient]);
 
   const retryAuth = useCallback(() => {
-    setAuthState("loading");
-    void queryClient.invalidateQueries({ queryKey: ["auth-status"] });
-  }, [queryClient]);
+    // A paused fetch absorbs a refetch, so drop it before asking again.
+    void queryClient
+      .cancelQueries({ queryKey: ["auth-status"] })
+      .then(() => refetch());
+  }, [queryClient, refetch]);
 
   return {
     authState,

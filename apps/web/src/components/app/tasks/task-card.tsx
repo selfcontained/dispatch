@@ -7,7 +7,9 @@ import type { Task, TaskColumn } from "@/hooks/use-tasks";
 import type { Agent } from "@/components/app/types";
 import { TaskAgent } from "./task-agent";
 import { TaskLaunching } from "./task-launching";
-import { MENU_ITEM, taskAge } from "./task-utils";
+import { AgentName } from "@/components/app/agent-name";
+import { formatDateTime, formatRelativeCompact } from "@/lib/format";
+import { MENU_ITEM } from "./task-utils";
 import { TaskMoveSheet } from "./task-move-sheet";
 import { GitPullRequest, GripVertical, MoreHorizontal } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -211,16 +213,11 @@ function TaskCardDetails({
           />
         ) : task.createdBy.kind === "agent" ? (
           <span>
-            ⚙ by{" "}
-            {agents.find(
-              (item) =>
-                item.id ===
-                (task.createdBy.kind === "agent" ? task.createdBy.agentId : "")
-            )?.name ?? task.createdBy.agentId}
+            ⚙ by <AgentName agentId={task.createdBy.agentId} />
           </span>
         ) : null}
-        <time className="ml-auto" title={task.createdAt}>
-          {taskAge(task.createdAt)}
+        <time className="ml-auto" title={formatDateTime(task.createdAt)}>
+          {formatRelativeCompact(task.createdAt)}
         </time>
       </div>
       {(task.links.some((link) => link.kind === "pr") ||

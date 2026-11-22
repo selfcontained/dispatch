@@ -91,7 +91,7 @@ it("dismisses with Escape and returns focus to the retained trigger", async () =
   const trigger = screen.getByRole("button", { name: "Background work 1" });
   trigger.focus();
   fireEvent.click(trigger);
-  expect(screen.getByText("paused")).toBeTruthy();
+  expect(screen.getByText("Paused")).toBeTruthy();
   fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
   await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   expect(document.activeElement).toBe(trigger);
