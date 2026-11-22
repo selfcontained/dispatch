@@ -91,7 +91,7 @@ export function FileActions({
           href={src}
           target="_blank"
           rel="noopener noreferrer"
-          className="inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-body-sm font-medium text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground"
+          className="inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-body-sm font-medium text-muted-foreground transition-colors hover:bg-surface-hover hover:text-foreground"
           title="Open in new tab"
           data-testid="file-lightbox-open-tab"
         >

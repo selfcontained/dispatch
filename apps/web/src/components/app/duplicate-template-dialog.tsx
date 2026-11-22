@@ -83,7 +83,7 @@ export function DuplicateTemplateDialog({
             />
           </div>
           {error ? (
-            <p role="alert" className="text-body-md text-status-blocked">
+            <p role="alert" className="text-body-md text-danger">
               {error}
             </p>
           ) : null}

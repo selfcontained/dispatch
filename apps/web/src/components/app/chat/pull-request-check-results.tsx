@@ -77,20 +77,20 @@ export function parseCheckNotice(text: string): ParsedCheckNotice | undefined {
 
 const tone = (label: string) =>
   label === "failed"
-    ? "text-destructive"
+    ? "text-danger"
     : label === "passed"
-      ? "text-status-working"
+      ? "text-success"
       : label === "pending"
-        ? "text-status-waiting"
+        ? "text-warning"
         : "text-muted-foreground";
 
 const statusTone = (status: string) =>
   status === "Failing"
-    ? "text-destructive"
+    ? "text-danger"
     : status === "Passing"
-      ? "text-status-working"
+      ? "text-success"
       : status === "Pending"
-        ? "text-status-waiting"
+        ? "text-warning"
         : "text-muted-foreground";
 
 /**

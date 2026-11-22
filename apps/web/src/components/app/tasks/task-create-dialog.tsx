@@ -285,7 +285,7 @@ export function TaskCreateDialog({
             />
           )}
           {error && (
-            <p role="alert" className="text-body-md text-destructive">
+            <p role="alert" className="text-body-md text-danger">
               {error}
             </p>
           )}

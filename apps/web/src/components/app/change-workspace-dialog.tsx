@@ -148,10 +148,7 @@ export function ChangeWorkspaceButton({
               </p>
             ) : null}
             {errorMessage ? (
-              <p
-                className="break-all text-body-md text-destructive"
-                role="alert"
-              >
+              <p className="break-all text-body-md text-danger" role="alert">
                 {errorMessage}
               </p>
             ) : null}

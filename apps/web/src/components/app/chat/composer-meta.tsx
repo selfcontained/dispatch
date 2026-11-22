@@ -73,7 +73,7 @@ import {
 } from "./composer-meta-format";
 
 const CHIP_CLASS =
-  "inline-flex h-6 min-w-0 items-center gap-1 rounded-md px-1.5 text-label-sm text-muted-foreground hover:bg-muted/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-status-working/50 disabled:pointer-events-none disabled:opacity-60 pointer-coarse:min-h-11";
+  "inline-flex h-6 min-w-0 items-center gap-1 rounded-md px-1.5 text-label-sm text-muted-foreground hover:bg-surface-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-success/line-strong disabled:pointer-events-none disabled:opacity-60 pointer-coarse:min-h-11";
 
 /**
  * Controls beside the recipients under the composer: which model the session runs (a picker)
@@ -224,7 +224,7 @@ function ModelChip({
               : "Applies from the next turn of this session."}
           </p>
           {setConfig.error ? (
-            <p role="alert" className="text-label-sm text-destructive">
+            <p role="alert" className="text-label-sm text-danger">
               {setConfig.error.message}
             </p>
           ) : null}
@@ -409,16 +409,16 @@ function UsageChip({
 function barTone(percent: number, severity?: string): string {
   if (severity) {
     return severity === "normal"
-      ? "bg-status-working"
+      ? "bg-success"
       : severity === "warning"
-        ? "bg-status-waiting"
-        : "bg-destructive";
+        ? "bg-warning"
+        : "bg-danger";
   }
   return percent >= 90
-    ? "bg-destructive"
+    ? "bg-danger"
     : percent >= 70
-      ? "bg-status-waiting"
-      : "bg-status-working";
+      ? "bg-warning"
+      : "bg-success";
 }
 
 function Bar({
@@ -619,7 +619,7 @@ function SplitRow({
   title?: string;
 }): JSX.Element {
   return (
-    <div className="flex items-center justify-between gap-3 pl-2 text-label-sm text-muted-foreground/80">
+    <div className="flex items-center justify-between gap-3 pl-2 text-label-sm text-faint">
       <span className="truncate" title={title}>
         {label}
       </span>
@@ -641,12 +641,12 @@ const ENGINES: ProviderPlan["engine"][] = ["codex", "claude"];
  * own card also tints its edge, to call out which engine it runs on.
  */
 const ENGINE_CARD: Record<string, string> = {
-  codex: "border-l-engine-codex/60",
-  claude: "border-l-engine-claude/60",
+  codex: "border-l-engine-codex/line-strong",
+  claude: "border-l-engine-claude/line-strong",
 };
 const ENGINE_ICON: Record<string, string> = {
-  codex: "border-engine-codex/40 bg-engine-codex/15 text-engine-codex",
-  claude: "border-engine-claude/40 bg-engine-claude/15 text-engine-claude",
+  codex: "border-engine-codex/line bg-engine-codex/tint text-engine-codex",
+  claude: "border-engine-claude/line bg-engine-claude/tint text-engine-claude",
 };
 
 /** A card's first row: the engine's icon and name, and a value at the right. */
@@ -697,7 +697,7 @@ const SKELETON_WINDOWS: Record<ProviderPlan["engine"], number> = {
   codex: 2,
 };
 
-const CARD_CLASS = "rounded-md border bg-muted/30 p-2";
+const CARD_CLASS = "rounded-md border bg-surface-subtle p-2";
 /** A card's rows, under its header and set in a little from it. */
 const CARD_BODY_CLASS = "mt-3 space-y-1.5 px-1";
 
@@ -801,7 +801,7 @@ function PlanLimits({
             rather than in a line that pushes the cards down. */}
         {failure && plans.data ? (
           <span
-            className="ml-auto truncate text-label-sm text-destructive"
+            className="ml-auto truncate text-label-sm text-danger"
             title={failure.message}
             data-testid="usage-plans-error"
           >
@@ -833,7 +833,7 @@ function PlanLimits({
             <ProviderLimits key={plan.engine} plan={plan} now={now} />
           ))
         ) : plans.error ? (
-          <p className="text-destructive">{plans.error.message}</p>
+          <p className="text-danger">{plans.error.message}</p>
         ) : (
           <PlanLimitsSkeleton />
         )}
@@ -948,7 +948,7 @@ export function UseResetButton({
         <div
           className={cn(
             "min-w-0 text-label-sm",
-            expiring ? "text-primary" : "text-muted-foreground/80"
+            expiring ? "text-primary" : "text-faint"
           )}
           data-testid="usage-codex-reset-expiry"
           title={expiry ? `Resets expire: ${expiry}` : undefined}
@@ -983,7 +983,7 @@ export function UseResetButton({
           </DialogDescription>
         </DialogHeader>
         {/* What the reset would clear: the windows as the card shows them. */}
-        <div className="space-y-1.5 rounded-md border bg-muted/30 p-3 text-body-sm">
+        <div className="space-y-1.5 rounded-md border bg-surface-subtle p-3 text-body-sm">
           <div className="text-label-sm font-medium text-foreground">
             Current usage
           </div>
@@ -1042,7 +1042,7 @@ export function UseResetButton({
           </p>
         ) : null}
         {consume.error ? (
-          <p role="alert" className="text-body-md text-destructive">
+          <p role="alert" className="text-body-md text-danger">
             {consume.error.message}
           </p>
         ) : null}
@@ -1089,7 +1089,7 @@ function PlanState({
   if (plan.limitReached) {
     return (
       <span
-        className="shrink-0 text-label-sm text-destructive"
+        className="shrink-0 text-label-sm text-danger"
         role="status"
         title={[
           "Limit reached — requests are refused until a window resets",
@@ -1107,14 +1107,14 @@ function PlanState({
     <span
       className={cn(
         "flex shrink-0 items-center gap-1 text-label-sm tabular-nums",
-        age === "live" ? "text-status-working" : "text-muted-foreground"
+        age === "live" ? "text-success" : "text-muted-foreground"
       )}
       title={[plan.unavailableReason, reported].filter(Boolean).join("\n")}
       data-testid={`usage-plan-age-${plan.engine}`}
     >
       {plan.unavailableReason ? (
         <AlertTriangle
-          className="h-3 w-3 text-status-waiting"
+          className="h-3 w-3 text-warning"
           aria-label="Could not refresh"
         />
       ) : null}
@@ -1139,7 +1139,7 @@ function PlanWindowRow({
         <span className="flex min-w-0 items-baseline gap-1.5">
           <span className="shrink-0 whitespace-nowrap">{window.label}</span>
           {resets ? (
-            <span className="truncate text-label-sm text-muted-foreground/80">
+            <span className="truncate text-label-sm text-faint">
               resets {resets}
             </span>
           ) : null}

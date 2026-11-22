@@ -91,12 +91,12 @@ export function AgentsViewHeader({
           <span
             aria-label={`${focusedDiffStats.added.toLocaleString("en-US")} additions, ${focusedDiffStats.deleted.toLocaleString("en-US")} deletions`}
             title={`${focusedDiffStats.added.toLocaleString("en-US")} additions, ${focusedDiffStats.deleted.toLocaleString("en-US")} deletions`}
-            className="hidden items-center gap-1 whitespace-nowrap rounded-full border border-border/50 bg-muted/30 px-1.5 py-0.5 font-mono text-label-xs tracking-normal sm:inline-flex"
+            className="hidden items-center gap-1 whitespace-nowrap rounded-full border border-border-subtle bg-surface-subtle px-1.5 py-0.5 font-mono text-label-xs tracking-normal sm:inline-flex"
           >
-            <span className="text-status-working">
+            <span className="text-success">
               +{formatDiffCount(focusedDiffStats.added)}
             </span>
-            <span className="text-status-blocked">
+            <span className="text-danger">
               {"−"}
               {formatDiffCount(focusedDiffStats.deleted)}
             </span>

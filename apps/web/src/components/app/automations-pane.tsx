@@ -110,7 +110,7 @@ function TabButton({
       {active ? (
         <motion.div
           layoutId="automations-tab-indicator"
-          className="absolute inset-0 rounded-md bg-primary/15"
+          className="absolute inset-0 rounded-md bg-surface-selected"
           transition={{ type: "spring", bounce: 0.15, duration: 0.4 }}
         />
       ) : null}
@@ -151,7 +151,7 @@ function TemplateListContent({
         <Button
           size="sm"
           variant="default"
-          className="bg-muted/35 text-muted-foreground hover:bg-muted/65 hover:text-foreground"
+          className="bg-surface-subtle text-muted-foreground hover:bg-surface-hover hover:text-foreground"
           onClick={() => setShowCreate(true)}
         >
           <FormInput className="mr-1 h-4 w-4" />
@@ -164,7 +164,7 @@ function TemplateListContent({
             {Array.from({ length: 3 }, (_, i) => (
               <div
                 key={i}
-                className="h-10 animate-pulse rounded-md bg-muted/40"
+                className="h-10 animate-pulse rounded-md bg-surface-subtle"
               />
             ))}
           </div>
@@ -236,8 +236,8 @@ function TemplateListItem({
           }
         }}
         className={cn(
-          "group w-full cursor-pointer border-b border-r-4 border-border border-r-transparent px-3 py-2 text-left transition-colors hover:bg-muted/40",
-          selected && "border-r-primary bg-muted/60"
+          "group w-full cursor-pointer border-b border-r-4 border-border border-r-transparent px-3 py-2 text-left transition-colors hover:bg-surface-hover",
+          selected && "border-r-primary bg-surface-hover"
         )}
       >
         <div className="flex items-center gap-2">

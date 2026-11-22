@@ -78,8 +78,7 @@ export function JobScheduleField({
   return (
     <div className="min-w-0 space-y-1">
       <label className="text-body-md text-muted-foreground" htmlFor={id}>
-        Cron schedule{" "}
-        <span className="text-muted-foreground/70">(optional)</span>
+        Cron schedule <span className="text-faint">(optional)</span>
       </label>
       <Input
         id={id}
@@ -89,7 +88,7 @@ export function JobScheduleField({
         className="font-mono text-body-sm"
       />
       {scheduleError ? (
-        <div className="text-body-sm text-status-blocked">{scheduleError}</div>
+        <div className="text-body-sm text-danger">{scheduleError}</div>
       ) : null}
       {!scheduleError && schedule.trim() ? (
         <div className="text-body-sm text-muted-foreground">
@@ -102,7 +101,7 @@ export function JobScheduleField({
         </div>
       ) : null}
       {showEnabled && (schedule.trim() || showEnabledWithoutSchedule) ? (
-        <label className="mt-2 flex items-center justify-between gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3 text-body-md">
+        <label className="mt-2 flex items-center justify-between gap-3 rounded-md border border-border-subtle bg-surface-subtle px-3 py-3 text-body-md">
           <span>
             <span className="block font-medium text-foreground">Enabled</span>
             <span className="block text-body-sm text-muted-foreground">
@@ -171,7 +170,7 @@ export function JobWorktreeOption({
   testIdPrefix?: string;
 }) {
   return (
-    <div className="space-y-2 rounded-md border border-border/70 bg-muted/20 px-3 py-3 md:col-span-2">
+    <div className="space-y-2 rounded-md border border-border-subtle bg-surface-subtle px-3 py-3 md:col-span-2">
       <label className="flex cursor-pointer items-start gap-3">
         <Checkbox
           checked={checked}
@@ -219,7 +218,7 @@ export function JobKeepAgentOption({
   return (
     <label
       className={cn(
-        "flex items-start gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3 md:col-span-2",
+        "flex items-start gap-3 rounded-md border border-border-subtle bg-surface-subtle px-3 py-3 md:col-span-2",
         disabled ? "cursor-not-allowed opacity-70" : "cursor-pointer"
       )}
     >
@@ -251,7 +250,7 @@ export function JobFullAccessOption({
   onCheckedChange: (checked: boolean) => void;
 }) {
   return (
-    <label className="flex cursor-pointer items-start gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3 md:col-span-2">
+    <label className="flex cursor-pointer items-start gap-3 rounded-md border border-border-subtle bg-surface-subtle px-3 py-3 md:col-span-2">
       <Checkbox
         checked={checked}
         onCheckedChange={() => onCheckedChange(!checked)}
@@ -285,7 +284,7 @@ export function WebhookUrl({ secret }: { secret: string }) {
   }, [url]);
 
   return (
-    <div className="mt-2 rounded-md border border-border/50 bg-muted/30 px-3 py-2.5">
+    <div className="mt-2 rounded-md border border-border-subtle bg-surface-subtle px-3 py-2.5">
       <div className="text-body-sm font-medium text-muted-foreground">
         Webhook URL
       </div>
@@ -298,13 +297,13 @@ export function WebhookUrl({ secret }: { secret: string }) {
           aria-label="Copy webhook URL"
         >
           {copied ? (
-            <Check className="h-3.5 w-3.5 text-status-done" />
+            <Check className="h-3.5 w-3.5 text-info" />
           ) : (
             <Copy className="h-3.5 w-3.5" />
           )}
         </button>
       </div>
-      <div className="mt-1 text-label-sm text-muted-foreground/70">
+      <div className="mt-1 text-label-sm text-faint">
         POST to this URL to trigger a run. No auth header required.
       </div>
     </div>

@@ -57,7 +57,7 @@ function InboxSectionTitle({
     <div className="flex items-center gap-2 px-3 pb-1.5 pt-3 section-label">
       {children}
       {count !== undefined && count > 0 ? (
-        <span className="rounded-full bg-muted px-1.5 py-px text-label-xs font-medium normal-case tracking-normal text-foreground/80">
+        <span className="rounded-full bg-muted px-1.5 py-px text-label-xs font-medium normal-case tracking-normal text-foreground/soft">
           {count}
         </span>
       ) : null}
@@ -152,7 +152,7 @@ function InboxInputCard({
     answer.isPending || submit.isPending || setState.isPending;
   return (
     <div
-      className="mx-3 mb-2 rounded-md border border-border/60 bg-card/40 px-3 py-2"
+      className="mx-3 mb-2 rounded-md border border-border-subtle bg-card/veil px-3 py-2"
       data-testid="inbox-input"
       data-block-id={block.id}
       data-kind={block.kind}
@@ -206,7 +206,7 @@ function InboxInputCard({
       {error || cancelError ? (
         <div
           role="alert"
-          className="mt-1.5 text-label-sm text-destructive"
+          className="mt-1.5 text-label-sm text-danger"
           data-testid="inbox-input-error"
         >
           {error ?? cancelError}
@@ -239,7 +239,7 @@ function InboxReviewCard({
   const standing = REVIEW_STATUS[status];
   return (
     <div
-      className="mx-3 mb-2 flex w-[calc(100%-1.5rem)] flex-col gap-1 rounded-md border border-border/60 bg-card/40 px-3 py-2 text-left hover:bg-muted/30"
+      className="mx-3 mb-2 flex w-[calc(100%-1.5rem)] flex-col gap-1 rounded-md border border-border-subtle bg-card/veil px-3 py-2 text-left hover:bg-surface-hover"
       data-testid="inbox-review"
       data-block-id={review.id}
       data-status={status}
@@ -317,7 +317,7 @@ function InboxChecklistCard({
   const title = block.text.trim() || "Agent checklist";
   return (
     <div
-      className="mx-3 mb-2 flex h-auto w-[calc(100%-1.5rem)] shrink-0 flex-col items-stretch justify-start gap-1 whitespace-normal font-normal rounded-md border border-border/60 bg-card/40 px-3 py-2 text-left hover:bg-muted/30"
+      className="mx-3 mb-2 flex h-auto w-[calc(100%-1.5rem)] shrink-0 flex-col items-stretch justify-start gap-1 whitespace-normal font-normal rounded-md border border-border-subtle bg-card/veil px-3 py-2 text-left hover:bg-surface-hover"
       data-testid="inbox-checklist"
       data-block-id={block.id}
       data-complete={complete}
@@ -402,7 +402,7 @@ export function InboxPanel({
           data-testid="inbox-empty"
         >
           <InboxIcon className="h-6 w-6 opacity-60" aria-hidden="true" />
-          <div className="text-foreground/80">Nothing waiting on you.</div>
+          <div className="text-foreground/soft">Nothing waiting on you.</div>
           <div>
             Questions and forms {agentName ?? "the agent"} asks show up here
             until you answer them, along with its checklists and links.

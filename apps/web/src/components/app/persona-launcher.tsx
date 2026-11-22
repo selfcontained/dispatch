@@ -150,7 +150,7 @@ export function PersonaLauncher({
           >
             <AgentTypeIcon
               type={defaultReviewAgentType(agent)}
-              className="h-4 w-4 border-none bg-transparent p-0 text-foreground/80"
+              className="h-4 w-4 border-none bg-transparent p-0 text-foreground/soft"
             />
             {label}
           </Button>
@@ -206,7 +206,7 @@ export function PersonaLauncher({
     >
       <AgentTypeIcon
         type={defaultReviewAgentType(agent)}
-        className="h-4 w-4 border-none bg-transparent p-0 text-foreground/80"
+        className="h-4 w-4 border-none bg-transparent p-0 text-foreground/soft"
       />
       {label}
     </Button>
@@ -247,7 +247,7 @@ export function PersonaLauncher({
                   <span className="flex items-center gap-3">
                     <AgentTypeIcon
                       type={agentType}
-                      className="h-4 w-4 border-none bg-transparent p-0 text-foreground/80"
+                      className="h-4 w-4 border-none bg-transparent p-0 text-foreground/soft"
                     />
                     <span>{AGENT_TYPE_LABELS[agentType]}</span>
                   </span>

@@ -21,7 +21,7 @@ import type { Turn } from "./contracts";
  * read as links; highlighted code blocks keep their colors, dimmed.
  */
 const MUTED_MARKDOWN =
-  "text-muted-foreground prose-headings:text-muted-foreground prose-strong:text-muted-foreground prose-li:text-muted-foreground prose-code:text-muted-foreground prose-th:text-muted-foreground prose-a:text-primary/70 prose-pre:opacity-70";
+  "text-muted-foreground prose-headings:text-muted-foreground prose-strong:text-muted-foreground prose-li:text-muted-foreground prose-code:text-muted-foreground prose-th:text-muted-foreground prose-a:text-primary/soft prose-pre:opacity-70";
 
 /** Where a failed turn's retry stands; see `ChatTurnEntry.retry`. */
 export type ResultRetry = {
@@ -101,11 +101,11 @@ function ResultTurnImpl({
       {showContent ? <ResultBody turn={turn} renderText={renderText} /> : null}
       {error && signIn ? (
         <div
-          className="min-w-0 space-y-2 rounded border border-status-blocked/40 bg-status-blocked/10 px-3 py-2"
+          className="min-w-0 space-y-2 rounded border border-danger/line bg-danger/tint px-3 py-2"
           data-testid="harness-sign-in"
         >
           <div>
-            <p className="text-body-sm leading-[1.6] text-status-blocked">
+            <p className="text-body-sm leading-[1.6] text-danger">
               {signIn.label} is signed out on this Dispatch server.
             </p>
             <p className="text-label-sm text-muted-foreground">
@@ -122,7 +122,7 @@ function ResultTurnImpl({
         // failure line. "Turn" is what tells the two apart — this one runs
         // the agent again, where that one re-sends words it never took.
         <p
-          className="flex items-center gap-[9px] text-label-sm text-status-blocked"
+          className="flex items-center gap-[9px] text-label-sm text-danger"
           data-testid="harness-turn-failed"
         >
           <span aria-hidden="true" className="select-none font-semibold">
@@ -142,7 +142,7 @@ function ResultTurnImpl({
       ) : null}
       {interrupted ? (
         <p
-          className="flex items-center gap-[9px] text-label-sm text-status-waiting"
+          className="flex items-center gap-[9px] text-label-sm text-warning"
           data-testid="harness-interrupted"
         >
           <span aria-hidden="true" className="select-none font-semibold">
@@ -212,7 +212,7 @@ export function ResultText({
   streaming?: boolean;
 }): JSX.Element {
   return error ? (
-    <p className="min-w-0 whitespace-pre-wrap text-body-sm leading-[1.6] text-status-blocked">
+    <p className="min-w-0 whitespace-pre-wrap text-body-sm leading-[1.6] text-danger">
       {content}
     </p>
   ) : (

@@ -100,7 +100,7 @@ function useOpened(
 
 /** Compact choices share one action strip with freeform and cancellation. */
 const ASK_CHOICE =
-  "h-auto min-h-7 max-w-full rounded-full border border-primary/40 bg-primary/20 text-primary px-2 py-1 text-label-sm leading-4 whitespace-normal break-words shadow-none backdrop-blur-none hover:border-primary/60 hover:bg-primary/30 hover:text-primary";
+  "h-auto min-h-7 max-w-full rounded-full border border-primary/line bg-primary/tint-strong text-primary px-2 py-1 text-label-sm leading-4 whitespace-normal break-words shadow-none backdrop-blur-none hover:border-primary/line-strong hover:bg-primary/line hover:text-primary";
 const ASK_ACTION = "h-7 rounded-full px-2 text-label-sm leading-4 shadow-none";
 
 type AskCancellation = {
@@ -300,7 +300,7 @@ export function QuestionOptions({
                 maxLength={20000}
                 placeholder="Your answer…"
                 value={draft.text}
-                className="min-h-24 resize-y border-primary/40 bg-background/60 text-body-md shadow-none focus-visible:ring-primary/50"
+                className="min-h-24 resize-y border-primary/line bg-background/veil text-body-md shadow-none focus-visible:ring-primary/line-strong"
                 disabled={optionsDisabled}
                 onChange={(event) =>
                   setDraft((current) => ({
@@ -346,7 +346,7 @@ export function QuestionOptions({
                 </fieldset>
               ) : null}
               {uploadError ? (
-                <p role="alert" className="text-body-sm text-destructive">
+                <p role="alert" className="text-body-sm text-danger">
                   {uploadError}
                 </p>
               ) : null}
@@ -396,7 +396,7 @@ export function QuestionOptions({
                   size="sm"
                   className={cn(
                     ASK_ACTION,
-                    "shrink-0 bg-primary text-primary-foreground hover:bg-primary/90"
+                    "shrink-0 bg-primary text-primary-foreground hover:bg-primary/dense"
                   )}
                   disabled={
                     optionsDisabled ||
@@ -429,7 +429,10 @@ export function QuestionOptions({
                   type="button"
                   variant="default"
                   size="sm"
-                  className={cn(ASK_CHOICE, "border-dashed bg-primary/10")}
+                  className={cn(
+                    ASK_CHOICE,
+                    "border-dashed bg-surface-selected"
+                  )}
                   disabled={optionsDisabled}
                   onClick={() => setWriting(true)}
                   data-testid="chat-question-write"
@@ -441,7 +444,7 @@ export function QuestionOptions({
           )}
           <div
             className={
-              writing ? "w-full border-t border-border/50 pt-1" : undefined
+              writing ? "w-full border-t border-border-subtle pt-1" : undefined
             }
           >
             <CancelAskButton
@@ -501,7 +504,7 @@ function FormFieldInput({
           disabled={disabled}
           required={field.required}
           rows={3}
-          className="min-h-[3.5rem] min-w-0 border border-border/70 bg-transparent px-2 text-body-sm shadow-none"
+          className="min-h-[3.5rem] min-w-0 border border-border-subtle bg-transparent px-2 text-body-sm shadow-none"
           onChange={(e) => onChange(e.target.value)}
         />
       );
@@ -514,7 +517,7 @@ function FormFieldInput({
           placeholder={field.placeholder}
           disabled={disabled}
           required={field.required}
-          className="h-7 min-w-0 max-w-[12rem] border border-border/70 bg-transparent px-2 text-body-sm shadow-none"
+          className="h-7 min-w-0 max-w-[12rem] border border-border-subtle bg-transparent px-2 text-body-sm shadow-none"
           onChange={(e) =>
             onChange(e.target.value === "" ? "" : Number(e.target.value))
           }
@@ -549,7 +552,7 @@ function FormFieldInput({
           placeholder={field.placeholder}
           disabled={disabled}
           required={field.required}
-          className="h-7 min-w-0 border border-border/70 bg-transparent px-2 text-body-sm shadow-none"
+          className="h-7 min-w-0 border border-border-subtle bg-transparent px-2 text-body-sm shadow-none"
           onChange={(e) => onChange(e.target.value)}
         />
       );
@@ -612,7 +615,7 @@ function FormSelectInput({
       >
         <SelectTrigger
           id={id}
-          className="h-7 min-w-0 max-w-[18rem] border border-border/70 bg-transparent px-2 text-body-sm shadow-none"
+          className="h-7 min-w-0 max-w-[18rem] border border-border-subtle bg-transparent px-2 text-body-sm shadow-none"
         >
           <SelectValue placeholder={field.placeholder ?? "Choose…"} />
         </SelectTrigger>
@@ -648,7 +651,7 @@ function FormSelectInput({
           required={field.required}
           autoFocus
           rows={2}
-          className="min-h-[3rem] min-w-0 border border-border/70 bg-transparent px-2 text-body-sm shadow-none"
+          className="min-h-[3rem] min-w-0 border border-border-subtle bg-transparent px-2 text-body-sm shadow-none"
           data-testid="chat-form-select-other-input"
           onChange={(e) => onChange(e.target.value)}
         />
@@ -796,7 +799,7 @@ export function FormBlockBody({
             variant="default"
             className={cn(
               ASK_CHOICE,
-              "border-primary/40 bg-primary/10 text-primary"
+              "border-primary/line bg-surface-selected text-primary"
             )}
             disabled={missing || submitting || disabled}
             data-testid="chat-form-submit"
@@ -832,17 +835,17 @@ export const REVIEW_STATUS: Record<
   open: {
     label: "Changes requested",
     variant: "error",
-    edge: "border-l-status-blocked",
+    edge: "border-l-danger",
   },
   partially_resolved: {
     label: "Changes requested",
     variant: "error",
-    edge: "border-l-status-blocked",
+    edge: "border-l-danger",
   },
   resolved: {
     label: "Approved",
     variant: "transitional",
-    edge: "border-l-status-done",
+    edge: "border-l-info",
   },
 };
 
@@ -852,10 +855,10 @@ export function reviewStanding(review: ReviewBlock): BlockReviewStatus {
 }
 
 const SEVERITY_CHIP: Record<BlockReviewSeverity, string> = {
-  blocker: "border-status-blocked/40 text-status-blocked",
-  major: "border-status-waiting/40 text-status-waiting",
+  blocker: "border-danger/line text-danger",
+  major: "border-warning/line text-warning",
   minor: "border-border text-muted-foreground",
-  nit: "border-border text-muted-foreground/80",
+  nit: "border-border text-faint",
 };
 
 /** What a finding's record reads as: open, fixed or dismissed. */
@@ -902,9 +905,9 @@ export function summarySentence(summary: string): string {
 
 /** Colours for a finding's status pill. */
 const FINDING_STATUS_PILL: Record<FindingOutcome, string> = {
-  open: "border-status-waiting/50 bg-status-waiting/10 text-status-waiting",
-  fixed: "border-status-done/40 bg-status-done/10 text-status-done",
-  dismissed: "border-border bg-muted/60 text-muted-foreground",
+  open: "border-warning/line bg-warning/tint text-warning",
+  fixed: "border-info/line bg-info/tint text-info",
+  dismissed: "border-border bg-surface-hover text-muted-foreground",
 };
 
 /** A finding's outcome as a small pill: Open, Fixed or Dismissed. */
@@ -1180,7 +1183,7 @@ export function FindingChangeEntry({
       <Icon className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
       <div className="min-w-0">
         <span>
-          <span className="font-medium text-foreground/80">{verb}</span> by{" "}
+          <span className="font-medium text-foreground/soft">{verb}</span> by{" "}
           {record.by.kind === "agent" ? (
             <AgentSessionLink
               agentId={record.by.agentId}
@@ -1192,7 +1195,7 @@ export function FindingChangeEntry({
           {record.at ? ` · ${formatRelativeTime(record.at)}` : ""}
         </span>
         {record.note ? (
-          <Markdown className="text-body-sm text-foreground/80">
+          <Markdown className="text-body-sm text-foreground/soft">
             {record.note}
           </Markdown>
         ) : null}
@@ -1239,7 +1242,7 @@ function FindingRecordLine({
       </span>
       {record.note ? (
         <div data-testid="chat-review-finding-note">
-          <Markdown className="text-body-sm text-foreground/80">
+          <Markdown className="text-body-sm text-foreground/soft">
             {record.note}
           </Markdown>
         </div>
@@ -1293,7 +1296,7 @@ export function FindingDetail({
           onPatch={(patch) => onSetState(patch)}
         />
       ) : null}
-      <Markdown className="text-body-md text-foreground/90">
+      <Markdown className="text-body-md text-foreground">
         {finding.body}
       </Markdown>
     </div>
@@ -1347,7 +1350,7 @@ export function ReviewBlockBody({
   return (
     <div
       className={cn(
-        "mt-1 overflow-hidden rounded-md border border-border/60 border-l-[3px] bg-card/60",
+        "mt-1 overflow-hidden rounded-md border border-border-subtle border-l-[3px] bg-card/veil",
         standing.edge
       )}
       data-testid="chat-review-block"
@@ -1356,7 +1359,7 @@ export function ReviewBlockBody({
     >
       <button
         type="button"
-        className="flex w-full min-w-0 flex-wrap items-center gap-x-2 gap-y-1 px-3 py-2 text-left hover:bg-muted/30"
+        className="flex w-full min-w-0 flex-wrap items-center gap-x-2 gap-y-1 px-3 py-2 text-left hover:bg-surface-hover"
         aria-expanded={compact ? undefined : expanded}
         aria-label={compact ? "Open the review" : undefined}
         data-testid="chat-review-header"
@@ -1398,14 +1401,14 @@ export function ReviewBlockBody({
           <>
             {block.data.summary ? (
               <span
-                className="basis-full truncate text-body-sm text-foreground/85"
+                className="basis-full truncate text-body-sm text-foreground/soft"
                 data-testid="chat-review-summary-line"
               >
                 {summarySentence(block.data.summary)}
               </span>
             ) : null}
             <ChevronRight
-              className="ml-auto h-3.5 w-3.5 shrink-0 text-muted-foreground/70"
+              className="ml-auto h-3.5 w-3.5 shrink-0 text-faint"
               aria-hidden="true"
             />
           </>
@@ -1413,15 +1416,15 @@ export function ReviewBlockBody({
       </button>
       {compact ? null : (
         <Collapse open={expanded} data-testid="chat-review-details">
-          <div className="border-t border-border/40 px-3 pb-2 pt-2">
+          <div className="border-t border-border-subtle px-3 pb-2 pt-2">
             {block.data.summary ? (
-              <Markdown className="mb-2 text-body-sm text-foreground/90 prose-p:my-0.5">
+              <Markdown className="mb-2 text-body-sm text-foreground prose-p:my-0.5">
                 {block.data.summary}
               </Markdown>
             ) : null}
             {findings.length > 0 ? (
               <ol
-                className="-mx-1 flex flex-col divide-y divide-border/40 border-t border-border/40"
+                className="-mx-1 flex flex-col divide-y divide-border-subtle border-t border-border-subtle"
                 data-testid="chat-review-findings"
               >
                 {findings.map((item) => {
@@ -1475,7 +1478,7 @@ export function ReviewBlockBody({
                         </span>
                       </span>
                       <ChevronRight
-                        className="h-3.5 w-3.5 shrink-0 text-muted-foreground/70"
+                        className="h-3.5 w-3.5 shrink-0 text-faint"
                         aria-hidden="true"
                       />
                     </>
@@ -1485,7 +1488,7 @@ export function ReviewBlockBody({
                       key={item.id}
                       className={cn(
                         "px-1",
-                        highlighted && "rounded-md bg-primary/[0.08]"
+                        highlighted && "rounded-md bg-surface-selected"
                       )}
                       data-testid="chat-review-finding"
                       data-finding-id={item.id}
@@ -1496,7 +1499,7 @@ export function ReviewBlockBody({
                       {onOpenFinding ? (
                         <button
                           type="button"
-                          className="flex w-full min-w-0 items-center gap-2 py-2 text-left hover:bg-muted/30"
+                          className="flex w-full min-w-0 items-center gap-2 py-2 text-left hover:bg-surface-hover"
                           data-testid="chat-review-finding-link"
                           aria-label={`${finding.title}, ${FINDING_OUTCOME_LABEL[findingOutcome(record)]}, open finding`}
                           onClick={() => onOpenFinding(item.id)}
@@ -1636,7 +1639,7 @@ export function TasksBlockBody({
                 </Markdown>
                 {status === "now" ? (
                   <span
-                    className="rounded-full border border-status-working/40 px-1.5 py-px text-label-xs font-semibold uppercase tracking-wide text-status-working"
+                    className="rounded-full border border-status-working/line px-1.5 py-px text-label-xs font-semibold uppercase tracking-wide text-status-working"
                     data-testid="chat-task-now"
                   >
                     now

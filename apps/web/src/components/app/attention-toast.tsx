@@ -52,7 +52,7 @@ const KIND_STYLE: Record<
   question: {
     label: "Question",
     Icon: MessageCircleQuestion,
-    border: "border-status-waiting/60",
+    border: "border-status-waiting/line-strong",
     bar: "bg-status-waiting",
     tile: "bg-status-waiting",
     text: "text-status-waiting",
@@ -62,7 +62,7 @@ const KIND_STYLE: Record<
   form: {
     label: "Form",
     Icon: ClipboardList,
-    border: "border-status-done/60",
+    border: "border-status-done/line-strong",
     bar: "bg-status-done",
     tile: "bg-status-done",
     text: "text-status-done",
@@ -72,7 +72,7 @@ const KIND_STYLE: Record<
   approval: {
     label: "Approval",
     Icon: ShieldAlert,
-    border: "border-status-merged/60",
+    border: "border-status-merged/line-strong",
     bar: "bg-status-merged",
     tile: "bg-status-merged",
     text: "text-status-merged",
@@ -82,7 +82,7 @@ const KIND_STYLE: Record<
   notice: {
     label: "Notice",
     Icon: Bell,
-    border: "border-status-reviewing/60",
+    border: "border-status-reviewing/line-strong",
     bar: "bg-status-reviewing",
     tile: "bg-status-reviewing",
     text: "text-status-reviewing",
@@ -92,7 +92,7 @@ const KIND_STYLE: Record<
   blocked: {
     label: "Blocked",
     Icon: OctagonX,
-    border: "border-status-blocked/60",
+    border: "border-status-blocked/line-strong",
     bar: "bg-status-blocked",
     tile: "bg-status-blocked",
     text: "text-status-blocked",

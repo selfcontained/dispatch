@@ -118,7 +118,7 @@ export const ReviewModeBar = memo(function ReviewModeBar({
   return (
     <>
       <div
-        className="flex items-center gap-2 border-b border-border/50 bg-muted/30 px-3 py-2"
+        className="flex items-center gap-2 border-b border-border-subtle bg-surface-subtle px-3 py-2"
         data-testid="review-mode-bar"
       >
         <MessageSquarePlus className="h-3.5 w-3.5 text-primary" />
@@ -126,7 +126,7 @@ export const ReviewModeBar = memo(function ReviewModeBar({
           Review Mode
         </span>
         <span
-          className="rounded-full bg-primary/15 px-1.5 py-0.5 text-label-xs font-medium text-primary"
+          className="rounded-full bg-surface-selected px-1.5 py-0.5 text-label-xs font-medium text-primary"
           data-testid="review-mode-count"
         >
           {drafts.length} comment{drafts.length !== 1 ? "s" : ""}
@@ -137,7 +137,7 @@ export const ReviewModeBar = memo(function ReviewModeBar({
         <div className="flex-1" />
         <button
           type="button"
-          className="flex items-center gap-1.5 rounded bg-primary px-3 py-1.5 text-body-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+          className="flex items-center gap-1.5 rounded bg-primary px-3 py-1.5 text-body-sm font-medium text-primary-foreground hover:bg-primary/dense disabled:opacity-50"
           disabled={rootId === null}
           data-testid="review-mode-submit"
           onClick={() => setSubmitOpen(true)}
@@ -272,7 +272,7 @@ function SubmitReviewDialog({
           />
           {drafts.length > 0 ? (
             <ol
-              className="flex max-h-56 flex-col divide-y divide-border/40 overflow-y-auto rounded-md border border-border/50"
+              className="flex max-h-56 flex-col divide-y divide-border-subtle overflow-y-auto rounded-md border border-border-subtle"
               data-testid="review-draft-list"
             >
               {drafts.map((draft) => (
@@ -332,21 +332,21 @@ function SubmitReviewDialog({
             </p>
           )}
           {isError ? (
-            <p className="text-body-sm text-status-blocked" role="alert">
+            <p className="text-body-sm text-danger" role="alert">
               Couldn&apos;t post the review: {error.message}
             </p>
           ) : null}
           <div className="flex items-center justify-end gap-2">
             <button
               type="button"
-              className="rounded px-3 py-1.5 text-body-sm text-muted-foreground hover:bg-muted/40"
+              className="rounded px-3 py-1.5 text-body-sm text-muted-foreground hover:bg-surface-hover"
               onClick={() => onOpenChange(false)}
             >
               Cancel
             </button>
             <button
               type="button"
-              className="flex items-center gap-1.5 rounded bg-primary px-3 py-1.5 text-body-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+              className="flex items-center gap-1.5 rounded bg-primary px-3 py-1.5 text-body-sm font-medium text-primary-foreground hover:bg-primary/dense disabled:opacity-50"
               onClick={() => void handleSubmit()}
               disabled={!canSubmit}
               data-testid="review-post"
@@ -391,14 +391,14 @@ function CancelReviewDialog({
         <div className="flex items-center justify-end gap-2">
           <button
             type="button"
-            className="rounded px-3 py-1.5 text-body-sm text-muted-foreground hover:bg-muted/40"
+            className="rounded px-3 py-1.5 text-body-sm text-muted-foreground hover:bg-surface-hover"
             onClick={() => onOpenChange(false)}
           >
             Keep reviewing
           </button>
           <button
             type="button"
-            className="rounded bg-destructive px-3 py-1.5 text-body-sm font-medium text-destructive-foreground hover:bg-destructive/90"
+            className="rounded bg-danger px-3 py-1.5 text-body-sm font-medium text-danger-foreground hover:bg-danger/dense"
             onClick={onConfirm}
           >
             Discard

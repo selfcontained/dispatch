@@ -109,7 +109,7 @@ export function ScheduledMessagesButton({
         className="flex min-w-0 flex-col"
       >
         <h3 className="sr-only">{s.title}</h3>
-        <div className="flex items-start gap-2.5 bg-muted/30 px-4 py-3">
+        <div className="flex items-start gap-2.5 bg-surface-subtle px-4 py-3">
           <Clock className="mt-0.5 h-4 w-4 shrink-0 text-heading-accent-1" />
           <div className="min-w-0">
             <p className="text-body-md font-medium">
@@ -148,12 +148,10 @@ export function ScheduledMessagesButton({
             {s.deliveredCount} of {s.maxDeliveries} accepted · Ends{" "}
             <time dateTime={s.expiresAt}>{scheduleTime(s.expiresAt)}</time>
           </p>
-          {s.error && (
-            <p className="text-body-sm text-status-waiting">{s.error}</p>
-          )}
+          {s.error && <p className="text-body-sm text-warning">{s.error}</p>}
         </div>
         {isCurrentSchedule(s) && (
-          <div className="sticky bottom-0 flex flex-wrap items-center gap-2 border-t border-border/50 bg-[hsl(var(--card))] px-4 py-2 sm:px-5">
+          <div className="sticky bottom-0 flex flex-wrap items-center gap-2 border-t border-border-subtle bg-[hsl(var(--card))] px-4 py-2 sm:px-5">
             {s.status !== "uncertain" && (
               <Button
                 size="sm"
@@ -199,7 +197,7 @@ export function ScheduledMessagesButton({
           </p>
         )}
         {mutation.error && mutation.variables?.id === s.id && (
-          <p role="alert" className="px-4 pb-3 text-body-sm text-destructive">
+          <p role="alert" className="px-4 pb-3 text-body-sm text-danger">
             {mutation.error.message}
           </p>
         )}
@@ -286,7 +284,7 @@ export function ScheduledMessagesButton({
             <X className="h-4 w-4" />
           </Button>
         </DialogClose>
-        <DialogHeader className="shrink-0 border-b border-border/50 px-4 py-3 pr-14 sm:px-5">
+        <DialogHeader className="shrink-0 border-b border-border-subtle px-4 py-3 pr-14 sm:px-5">
           <DialogTitle className="flex items-center gap-2 text-heading-md">
             <CalendarClock className="h-4 w-4 shrink-0 text-heading-accent-1" />
             Scheduled messages
@@ -298,7 +296,7 @@ export function ScheduledMessagesButton({
             <p className="p-7 text-body-md">Loading schedules…</p>
           ) : query.error ? (
             <div className="p-7">
-              <p role="alert" className="text-body-md text-destructive">
+              <p role="alert" className="text-body-md text-danger">
                 {query.error.message}
               </p>
               <Button variant="ghost" onClick={() => void query.refetch()}>
@@ -307,7 +305,7 @@ export function ScheduledMessagesButton({
             </div>
           ) : (
             <div className="min-h-0">
-              <div className="border-b border-border/50 p-3">
+              <div className="border-b border-border-subtle p-3">
                 <Select
                   value={selected?.id ?? ""}
                   onValueChange={setSelectedId}

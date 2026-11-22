@@ -34,7 +34,7 @@ function ListItemRow({
       ];
 
   return (
-    <div className="flex gap-2 px-2.5 py-1.5 text-body-sm font-mono border-b border-border/50 last:border-b-0 min-w-0">
+    <div className="flex gap-2 px-2.5 py-1.5 text-body-sm font-mono border-b border-border-subtle last:border-b-0 min-w-0">
       <span className="text-muted-foreground shrink-0 w-4 text-right pt-px">
         {index}
       </span>
@@ -46,7 +46,7 @@ function ListItemRow({
               key={k as string}
               className="flex gap-1.5 leading-relaxed min-w-0"
             >
-              <span className="text-sky-400 shrink-0">{k as string}:</span>
+              <span className="text-chart-3 shrink-0">{k as string}:</span>
               <span className={cn(fmt.className, "whitespace-nowrap")}>
                 {fmt.text}
               </span>
@@ -80,10 +80,10 @@ export function ListCard({
   const allItemValues = items.map((item) => item.value);
 
   return (
-    <div className="mx-3 mb-2 rounded-md border border-border bg-muted/20 p-2.5 overflow-hidden">
+    <div className="mx-3 mb-2 rounded-md border border-border bg-surface-subtle p-2.5 overflow-hidden">
       <div className="flex items-center justify-between gap-2 mb-2 min-w-0">
         <div className="flex items-center gap-1.5 text-body-sm min-w-0">
-          <span className="rounded bg-violet-950/50 px-1.5 py-0.5 font-mono text-violet-400 text-label-xs shrink-0">
+          <span className="rounded bg-chart-4/tint-strong px-1.5 py-0.5 font-mono text-chart-4 text-label-xs shrink-0">
             {list.collection}
           </span>
           <span className="font-medium truncate">{list.name}</span>
@@ -102,7 +102,7 @@ export function ListCard({
         </div>
       </div>
       {items.length > 0 ? (
-        <div className="rounded bg-muted/30 overflow-hidden">
+        <div className="rounded bg-surface-subtle overflow-hidden">
           {items.map((item) => (
             <ListItemRow
               key={item.index}

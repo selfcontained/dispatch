@@ -236,13 +236,13 @@ function JobDetail({
       ) : null}
 
       {detailActionError ? (
-        <div className="mt-2 rounded border border-status-blocked/30 bg-status-blocked/10 p-2 text-body-md text-status-blocked">
+        <div className="mt-2 rounded border border-danger/line bg-danger/tint p-2 text-body-md text-danger">
           {detailActionError}
         </div>
       ) : null}
 
       {job.continuationEnabled ? (
-        <div className="mt-4 rounded-md border border-border/70 bg-muted/20 p-3 text-body-md">
+        <div className="mt-4 rounded-md border border-border-subtle bg-surface-subtle p-3 text-body-md">
           <div className="font-medium text-foreground">
             Loop{" "}
             {job.lastRunIteration ? `• run ${job.lastRunIteration}` : "enabled"}

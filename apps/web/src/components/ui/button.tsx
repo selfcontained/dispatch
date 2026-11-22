@@ -12,20 +12,19 @@ const buttonVariants = cva(
         default:
           "border border-white/[0.12] bg-white/[0.06] text-foreground backdrop-blur-md shadow-[0_1px_4px_rgba(0,0,0,0.2),inset_0_1px_0_rgba(255,255,255,0.06)] hover:bg-white/[0.1] hover:border-white/[0.18]",
         primary:
-          "bg-primary/80 text-primary-foreground backdrop-blur-md border border-white/[0.15] shadow-[0_2px_8px_rgba(0,0,0,0.25),0_0_20px_hsl(var(--primary)/0.25),inset_0_1px_0_rgba(255,255,255,0.15)] hover:bg-primary/90 hover:shadow-[0_2px_8px_rgba(0,0,0,0.25),0_0_32px_hsl(var(--primary)/0.35)]",
+          "bg-primary/soft text-primary-foreground backdrop-blur-md border border-white/[0.15] shadow-[0_2px_8px_rgba(0,0,0,0.25),0_0_20px_hsl(var(--primary)/0.25),inset_0_1px_0_rgba(255,255,255,0.15)] hover:bg-primary/dense hover:shadow-[0_2px_8px_rgba(0,0,0,0.25),0_0_32px_hsl(var(--primary)/0.35)]",
         success:
-          "border border-status-working/40 bg-status-working/80 text-background shadow-sm hover:bg-status-working/90",
-        destructive:
-          "bg-destructive text-destructive-foreground hover:bg-destructive/90",
-        ghost: "text-muted-foreground hover:bg-muted/70 hover:text-foreground",
+          "border border-success/line bg-success/soft text-background shadow-sm hover:bg-success/dense",
+        destructive: "bg-danger text-danger-foreground hover:bg-danger/dense",
+        ghost:
+          "text-muted-foreground hover:bg-surface-hover hover:text-foreground",
         "ghost-primary":
-          "text-status-working hover:bg-status-working/15 hover:text-status-working",
-        "ghost-info":
-          "text-status-done hover:bg-status-done/15 hover:text-status-done",
+          "text-success hover:bg-success/tint-strong hover:text-success",
+        "ghost-info": "text-info hover:bg-info/tint-strong hover:text-info",
         "ghost-destructive":
-          "text-status-blocked hover:bg-status-blocked/15 hover:text-status-blocked",
+          "text-danger hover:bg-danger/tint-strong hover:text-danger",
         "ghost-warning":
-          "text-status-waiting hover:bg-status-waiting/15 hover:text-status-waiting",
+          "text-warning hover:bg-warning/tint-strong hover:text-warning",
       },
       size: {
         default: "h-9 px-3 py-2",

@@ -102,7 +102,7 @@ export function EditPhraseDialog({
                     <button
                       type="button"
                       aria-label="Phrase variable help"
-                      className="text-muted-foreground/60 hover:text-muted-foreground"
+                      className="text-faint hover:text-muted-foreground"
                       onMouseEnter={() => setVariableHelpOpen(true)}
                     >
                       <Info className="h-3 w-3" />
@@ -148,7 +148,7 @@ export function EditPhraseDialog({
                     {detectedArgs.map((a) => (
                       <span
                         key={a.key}
-                        className="inline-block rounded bg-primary/10 px-1.5 py-0.5 text-primary"
+                        className="inline-block rounded bg-surface-selected px-1.5 py-0.5 text-primary"
                       >
                         {a.name}
                         {a.required ? " *" : ""}

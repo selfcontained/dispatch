@@ -13,7 +13,7 @@ export function TaskLaunching({
     ?.templateName;
   return (
     <span
-      className="inline-flex min-w-0 items-center gap-2 rounded-full border border-status-working/40 bg-status-working/10 px-2 py-1 text-body-sm text-foreground shadow-sm"
+      className="inline-flex min-w-0 items-center gap-2 rounded-full border border-status-working/line bg-status-working/tint px-2 py-1 text-body-sm text-foreground shadow-sm"
       data-testid={`task-launching-${task.id}`}
     >
       <ActivityBars size={12} />

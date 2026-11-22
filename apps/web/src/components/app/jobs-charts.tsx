@@ -115,7 +115,7 @@ export function JobAvgDuration({
   return (
     <div>
       <h3 className="mb-2 section-label">Avg Duration</h3>
-      <div className="h-[180px] sm:h-[220px] rounded-md border border-border bg-muted/40 p-3 flex flex-col justify-center">
+      <div className="h-[180px] sm:h-[220px] rounded-md border border-border bg-surface-subtle p-3 flex flex-col justify-center">
         <div className="flex flex-col gap-3 overflow-y-auto min-h-0">
           {perJob.jobs.map((job) => (
             <div key={job.name}>
@@ -127,9 +127,9 @@ export function JobAvgDuration({
                   {formatDuration(job.avg)}
                 </span>
               </div>
-              <div className="flex h-2 overflow-hidden rounded-sm bg-muted/60">
+              <div className="flex h-2 overflow-hidden rounded-sm bg-surface-hover">
                 <div
-                  className="bg-chart-1/70 transition-all rounded-sm"
+                  className="bg-chart-1/soft transition-all rounded-sm"
                   style={{ width: `${(job.avg / perJob.maxAvg) * 100}%` }}
                 />
               </div>
@@ -179,7 +179,7 @@ export function RunHistoryGrid({
   return (
     <div>
       <h3 className="mb-2 section-label">Run History</h3>
-      <div className="h-[180px] sm:h-[220px] rounded-md border border-border bg-muted/40 p-3 flex flex-col justify-between">
+      <div className="h-[180px] sm:h-[220px] rounded-md border border-border bg-surface-subtle p-3 flex flex-col justify-between">
         <TooltipProvider delayDuration={80}>
           <div className="space-y-2 overflow-y-auto min-h-0 flex-1">
             {perJob.map(({ name, runs: jobRuns }) => (
@@ -196,23 +196,26 @@ export function RunHistoryGrid({
                   {Array.from({ length: MAX_RUN_CELLS }, (_, i) => {
                     const run = i < jobRuns.length ? jobRuns[i] : null;
                     if (!run)
-                      return <div key={i} className="h-4 sm:h-3 bg-muted/30" />;
+                      return (
+                        <div key={i} className="h-4 sm:h-3 bg-surface-subtle" />
+                      );
                     return (
                       <Tooltip key={i}>
                         <TooltipTrigger asChild>
                           <div
                             className={cn(
                               "h-4 sm:h-3",
-                              run.status === "completed" && "bg-status-done/70",
+                              run.status === "completed" &&
+                                "bg-status-done/soft",
                               (run.status === "failed" ||
                                 run.status === "timed_out" ||
                                 run.status === "crashed") &&
-                                "bg-status-blocked/70",
+                                "bg-status-blocked/soft",
                               (run.status === "running" ||
                                 run.status === "started") &&
-                                "bg-status-working/70",
+                                "bg-status-working/soft",
                               run.status === "needs_input" &&
-                                "bg-status-waiting/70"
+                                "bg-status-waiting/soft"
                             )}
                           />
                         </TooltipTrigger>
@@ -230,11 +233,11 @@ export function RunHistoryGrid({
         </TooltipProvider>
         <div className="flex items-center gap-2 text-label-xs text-muted-foreground">
           <span className="flex items-center gap-1">
-            <span className="inline-block h-2 w-3 bg-status-done/70" />
+            <span className="inline-block h-2 w-3 bg-status-done/soft" />
             Completed
           </span>
           <span className="flex items-center gap-1">
-            <span className="inline-block h-2 w-3 bg-status-blocked/70" />
+            <span className="inline-block h-2 w-3 bg-status-blocked/soft" />
             Failed
           </span>
         </div>

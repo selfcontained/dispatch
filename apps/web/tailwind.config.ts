@@ -2,6 +2,24 @@ import typography from "@tailwindcss/typography";
 import type { Config } from "tailwindcss";
 import plugin from "tailwindcss/plugin";
 
+const token = (name: string) => `hsl(var(--${name}) / <alpha-value>)`;
+
+const intent = (name: string) => ({
+  DEFAULT: token(name),
+  ink: token(`${name}-ink`),
+});
+
+const seats = Object.fromEntries(
+  Array.from({ length: 10 }, (_, i) => `${i + 1}`).map((n) => [
+    n,
+    {
+      DEFAULT: token(`seat-${n}`),
+      ink: token(`seat-${n}-ink`),
+      text: token(`seat-${n}-text`),
+    },
+  ])
+);
+
 /** `pointer-coarse:` — touch-first devices, where tap targets need ≥44px. */
 const pointerCoarse = plugin(({ addVariant }) => {
   addVariant("pointer-coarse", "@media (pointer: coarse)");
@@ -29,13 +47,36 @@ export default {
         "heading-lg": ["1.25rem", { lineHeight: "1.75rem", fontWeight: "600" }],
         display: ["1.5rem", { lineHeight: "2rem", fontWeight: "600" }],
       },
+      // Named alpha steps for any token colour: bg-danger/tint,
+      // border-danger/line. A tinted intent surface is tint fill, line
+      // border, solid text; wash is for tinting a whole block.
+      opacity: {
+        wash: "0.05",
+        tint: "0.1",
+        "tint-strong": "0.18",
+        line: "0.3",
+        "line-strong": "0.5",
+        veil: "0.6",
+        soft: "0.8",
+        dense: "0.92",
+      },
+      textColor: { faint: "hsl(var(--muted-foreground) / 0.7)" },
+      placeholderColor: { faint: "hsl(var(--muted-foreground) / 0.7)" },
       colors: {
-        border: "hsl(var(--border))",
+        border: {
+          DEFAULT: "hsl(var(--border))",
+          subtle: "hsl(var(--border) / 0.6)",
+        },
         input: "hsl(var(--input))",
         ring: "hsl(var(--ring))",
         background: "hsl(var(--background))",
         foreground: "hsl(var(--foreground))",
-        surface: "hsl(var(--surface))",
+        surface: {
+          DEFAULT: "hsl(var(--surface))",
+          subtle: "hsl(var(--muted) / 0.3)",
+          hover: "hsl(var(--muted) / 0.6)",
+          selected: "hsl(var(--primary) / 0.1)",
+        },
         popover: {
           DEFAULT: "hsl(var(--popover))",
           foreground: "hsl(var(--popover-foreground))",
@@ -52,10 +93,11 @@ export default {
           DEFAULT: "hsl(var(--muted))",
           foreground: "hsl(var(--muted-foreground))",
         },
-        destructive: {
-          DEFAULT: "hsl(var(--destructive))",
-          foreground: "hsl(var(--destructive-foreground))",
-        },
+        danger: { ...intent("danger"), foreground: token("danger-foreground") },
+        warning: intent("warning"),
+        success: intent("success"),
+        info: intent("info"),
+        seat: { ...seats, foreground: "hsl(0 0% 100% / <alpha-value>)" },
         engine: {
           codex: "hsl(var(--engine-codex) / <alpha-value>)",
           claude: "hsl(var(--engine-claude) / <alpha-value>)",

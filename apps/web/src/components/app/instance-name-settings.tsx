@@ -84,14 +84,14 @@ export function InstanceNameSettings(): JSX.Element {
           disabled={isSaving}
           placeholder="e.g. Production, Staging, Local"
           maxLength={100}
-          className={cn("w-full max-w-sm", saveError && "border-destructive")}
+          className={cn("w-full max-w-sm", saveError && "border-danger")}
         />
         {showSaved && !saveError ? (
           <span className="text-body-sm text-muted-foreground">Saved</span>
         ) : null}
       </div>
       {saveError ? (
-        <p className="mt-1.5 text-body-sm text-destructive">
+        <p className="mt-1.5 text-body-sm text-danger">
           Failed to save. Please try again.
         </p>
       ) : null}

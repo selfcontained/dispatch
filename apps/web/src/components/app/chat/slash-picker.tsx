@@ -46,7 +46,7 @@ export function SlashPicker({
           aria-selected={index === activeIndex}
           className={cn(
             "flex w-full items-start gap-2 px-2 py-1.5 text-left text-body-md",
-            index === activeIndex ? "bg-muted" : "hover:bg-muted/60"
+            index === activeIndex ? "bg-muted" : "hover:bg-surface-hover"
           )}
           onMouseDown={(event) => event.preventDefault()}
           onMouseEnter={() => onHover(index)}

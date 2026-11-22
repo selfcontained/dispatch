@@ -143,7 +143,7 @@ export function JobsOverview({
               {dailyChartData.length > 0 && (
                 <div>
                   <h3 className="mb-2 section-label">Daily Runs</h3>
-                  <div className="h-[180px] sm:h-[220px] rounded-md border border-border bg-muted/40 p-3">
+                  <div className="h-[180px] sm:h-[220px] rounded-md border border-border bg-surface-subtle p-3">
                     <DailyRunsChart data={dailyChartData} />
                   </div>
                 </div>
@@ -161,11 +161,11 @@ export function JobsOverview({
               <Clock className="h-3.5 w-3.5" />
               Upcoming
             </div>
-            <div className="divide-y divide-border rounded-md border border-border bg-muted/40">
+            <div className="divide-y divide-border rounded-md border border-border bg-surface-subtle">
               {upcomingJobs.map((job) => (
                 <button
                   key={job.id}
-                  className="flex w-full items-center justify-between px-3 py-2.5 text-left text-body-md transition-colors hover:bg-muted/50"
+                  className="flex w-full items-center justify-between px-3 py-2.5 text-left text-body-md transition-colors hover:bg-surface-hover"
                   onClick={() => onSelectJob(job)}
                 >
                   <span className="font-medium text-foreground">
@@ -175,7 +175,7 @@ export function JobsOverview({
                     <span title={formatDateTime(job.nextRun!)}>
                       {formatTimeUntil(job.nextRun!)}
                     </span>
-                    <span className="hidden text-muted-foreground/60 sm:inline">
+                    <span className="hidden text-faint sm:inline">
                       {formatDayTime(job.nextRun!)}
                     </span>
                   </span>
@@ -192,7 +192,7 @@ export function JobsOverview({
               <Activity className="h-3.5 w-3.5" />
               Recent Activity
             </div>
-            <div className="divide-y divide-border rounded-md border border-border bg-muted/40">
+            <div className="divide-y divide-border rounded-md border border-border bg-surface-subtle">
               {recentRuns
                 .filter((run) => jobs.some((j) => j.id === run.jobId))
                 .slice(0, 8)
@@ -200,7 +200,7 @@ export function JobsOverview({
                   return (
                     <button
                       key={run.id}
-                      className="flex w-full items-center gap-3 px-3 py-2.5 text-left text-body-md transition-colors hover:bg-muted/50"
+                      className="flex w-full items-center gap-3 px-3 py-2.5 text-left text-body-md transition-colors hover:bg-surface-hover"
                       onClick={() => onSelectRun(run.jobId, run.id)}
                     >
                       <span className="min-w-0 flex-1 truncate font-medium text-foreground">
@@ -218,7 +218,7 @@ export function JobsOverview({
                         {formatDuration(run.durationMs)}
                       </span>
                       <span
-                        className="shrink-0 text-body-sm text-muted-foreground/60"
+                        className="shrink-0 text-body-sm text-faint"
                         title={formatDateTime(run.startedAt)}
                       >
                         {formatRelativeTime(run.startedAt)}

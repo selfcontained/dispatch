@@ -34,7 +34,7 @@ export function CopyIconButton({
       className={cn(
         "h-7 w-7 text-muted-foreground hover:text-foreground",
         className,
-        copied && "text-status-working opacity-100"
+        copied && "text-success opacity-100"
       )}
       onClick={onCopy}
       title={copied ? copiedLabel : label}

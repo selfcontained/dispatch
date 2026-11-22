@@ -55,15 +55,13 @@ export function UnreleasedChanges({
           <ActivityBars size={14} />
           {infoProgress?.label ?? "Loading..."}
           {infoProgress?.detail && (
-            <span className="text-muted-foreground/70">
-              {infoProgress.detail}
-            </span>
+            <span className="text-faint">{infoProgress.detail}</span>
           )}
         </div>
       )}
 
       {infoError && (
-        <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-body-md text-destructive">
+        <div className="rounded-lg border border-danger/line bg-danger/tint px-3 py-2 text-body-md text-danger">
           {infoError}
         </div>
       )}
@@ -71,7 +69,7 @@ export function UnreleasedChanges({
       {info && !infoLoading && (
         <>
           {info.unreleasedFetchError ? (
-            <div className="rounded-lg border border-status-waiting/30 bg-status-waiting/10 px-3 py-2 text-body-md text-status-waiting">
+            <div className="rounded-lg border border-warning/line bg-warning/tint px-3 py-2 text-body-md text-warning">
               Couldn't refresh <span className="font-mono">origin/main</span> —
               unreleased commit info is unavailable, not necessarily zero.
               <div className="mt-1 break-words font-mono text-body-sm opacity-80">
@@ -79,7 +77,7 @@ export function UnreleasedChanges({
               </div>
             </div>
           ) : info.refMissing ? (
-            <div className="rounded-lg border border-status-waiting/30 bg-status-waiting/10 px-3 py-2 text-body-md text-status-waiting">
+            <div className="rounded-lg border border-warning/line bg-warning/tint px-3 py-2 text-body-md text-warning">
               Deployed version{" "}
               <span className="font-mono">{info.currentTag ?? "unknown"}</span>{" "}
               not found in origin — commit count unavailable.

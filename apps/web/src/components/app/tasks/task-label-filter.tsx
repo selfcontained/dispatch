@@ -108,7 +108,7 @@ export function TaskLabelFilter({ labels }: { labels: TaskLabel[] }) {
             .map((label) => (
               <label
                 key={label.name}
-                className="flex min-h-8 cursor-pointer items-center gap-2 rounded px-1 py-1 hover:bg-muted/70"
+                className="flex min-h-8 cursor-pointer items-center gap-2 rounded px-1 py-1 hover:bg-surface-hover"
               >
                 <Checkbox
                   aria-label={label.name}
@@ -125,7 +125,7 @@ export function TaskLabelFilter({ labels }: { labels: TaskLabel[] }) {
             </p>
           )}
         </div>
-        <div className="flex h-8 shrink-0 items-center justify-between border-t border-border/60 bg-muted/20 px-2">
+        <div className="flex h-8 shrink-0 items-center justify-between border-t border-border-subtle bg-surface-subtle px-2">
           <span className="text-label-xs text-muted-foreground">
             Match any selected
           </span>

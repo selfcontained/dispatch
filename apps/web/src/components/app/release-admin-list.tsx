@@ -35,7 +35,7 @@ export function RecentReleases({
       <div className="mb-3 section-label">Recent releases</div>
 
       {promoteError && (
-        <div className="mb-3 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-body-md text-destructive">
+        <div className="mb-3 rounded-lg border border-danger/line bg-danger/tint px-3 py-2 text-body-md text-danger">
           {promoteError}
         </div>
       )}
@@ -61,8 +61,8 @@ export function RecentReleases({
                 className={cn(
                   "rounded-full px-2 py-0.5 text-label-xs font-medium uppercase tracking-wide",
                   r.isPrerelease
-                    ? "bg-status-waiting/15 text-status-waiting"
-                    : "bg-green-500/15 text-green-400"
+                    ? "bg-warning/tint text-warning"
+                    : "bg-success/tint text-success"
                 )}
               >
                 {r.isPrerelease ? "pre-release" : "stable"}
@@ -80,7 +80,7 @@ export function RecentReleases({
                         href={promotionUrl}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="text-blue-400 hover:underline"
+                        className="text-info hover:underline"
                       >
                         workflow
                       </a>
@@ -121,7 +121,7 @@ export function RecentReleases({
                   </>
                 )}
                 {!r.isPrerelease && (
-                  <CheckCircle2 className="h-3.5 w-3.5 text-green-500/50" />
+                  <CheckCircle2 className="h-3.5 w-3.5 text-success/veil" />
                 )}
                 <a
                   href={r.url}

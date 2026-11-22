@@ -382,11 +382,11 @@ export function TaskLabelPicker({
           </div>
         )}
         {visibility.error && (
-          <p role="alert" className="px-3 pb-2 text-body-sm text-destructive">
+          <p role="alert" className="px-3 pb-2 text-body-sm text-danger">
             {visibility.error.message}
           </p>
         )}
-        <div className="flex h-8 shrink-0 items-center border-t border-border/60 bg-muted/20 px-2">
+        <div className="flex h-8 shrink-0 items-center border-t border-border-subtle bg-surface-subtle px-2">
           <Button
             type="button"
             variant="ghost"

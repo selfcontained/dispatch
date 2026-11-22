@@ -45,7 +45,7 @@ export function DrawerStack({
               className={cn(
                 "absolute inset-0 flex min-h-0 flex-col",
                 index > 0 &&
-                  "bg-background/95 shadow-[-8px_0_24px_-12px_rgba(0,0,0,0.35)]",
+                  "bg-background/dense shadow-[-8px_0_24px_-12px_rgba(0,0,0,0.35)]",
                 !top && "pointer-events-none"
               )}
               initial={{ x: "100%" }}

@@ -137,7 +137,7 @@ export function FilesTextPreview({
           <div
             aria-hidden="true"
             data-testid="file-gutter"
-            className="files-gutter shrink-0 touch-pan-y select-none border-r border-border py-3 text-right text-muted-foreground/60"
+            className="files-gutter shrink-0 touch-pan-y select-none border-r border-border py-3 text-right text-faint"
             style={{
               width: `${Math.max(6, String(lines.length).length + 3)}ch`,
               ...windowPadding,

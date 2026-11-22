@@ -68,7 +68,7 @@ function buildIdeUrl(ide: IdeType, path: string): string {
 }
 
 const PILL_BASE =
-  "h-auto min-h-6 border border-border bg-muted/35 px-2 py-0.5 text-muted-foreground hover:bg-muted/60 hover:text-foreground";
+  "h-auto min-h-6 border border-border bg-surface-subtle px-2 py-0.5 text-muted-foreground hover:bg-surface-hover hover:text-foreground";
 
 export function IdeLaunchButton({
   path,

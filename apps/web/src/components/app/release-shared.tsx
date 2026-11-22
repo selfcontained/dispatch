@@ -43,9 +43,9 @@ export function PhaseProgress({
                 <div
                   className={cn(
                     "h-2 w-2 rounded-full shrink-0",
-                    done && "bg-status-working",
-                    current && !isFailed && "animate-pulse bg-status-waiting",
-                    current && isFailed && "bg-destructive",
+                    done && "bg-success",
+                    current && !isFailed && "animate-pulse bg-warning",
+                    current && isFailed && "bg-danger",
                     !done && !current && "bg-muted"
                   )}
                 />
@@ -54,8 +54,8 @@ export function PhaseProgress({
                     "text-body-md",
                     done && "text-muted-foreground",
                     current && !isFailed && "text-foreground font-medium",
-                    current && isFailed && "text-destructive font-medium",
-                    !done && !current && "text-muted-foreground/50"
+                    current && isFailed && "text-danger font-medium",
+                    !done && !current && "text-faint"
                   )}
                 >
                   {PHASE_LABELS[phase as ReleasePhase] ?? phase}

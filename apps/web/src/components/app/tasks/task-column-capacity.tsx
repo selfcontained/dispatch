@@ -28,8 +28,8 @@ export function ColumnCapacity({ column }: { column: TaskColumn }) {
       aria-label={`${column.name}: ${count} active tasks${limited ? `, limit ${column.capacity}` : ", unlimited"}${state ? `, ${state}` : ""}`}
       title="All active tasks, including tasks hidden by filters. Archived tasks do not use capacity."
       className={cn(
-        "inline-flex shrink-0 items-center gap-1 rounded-full bg-background/50 px-1.5 text-body-sm font-normal tabular-nums text-muted-foreground",
-        state && "bg-destructive/10 text-destructive"
+        "inline-flex shrink-0 items-center gap-1 rounded-full bg-background/veil px-1.5 text-body-sm font-normal tabular-nums text-muted-foreground",
+        state && "bg-danger/tint text-danger"
       )}
     >
       <span>
@@ -141,7 +141,7 @@ export function TaskCapacityDialog({
             <p
               id={`${id}-error`}
               role="alert"
-              className="text-body-md text-destructive"
+              className="text-body-md text-danger"
             >
               {error}
             </p>

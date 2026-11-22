@@ -21,7 +21,7 @@ export function SoundCuesSection(): JSX.Element {
         toolbar taps. This device only.
       </p>
       <div className="max-w-lg space-y-3">
-        <label className="flex cursor-pointer items-center gap-3 rounded border border-border px-3 py-2.5 transition-colors hover:bg-muted/50">
+        <label className="flex cursor-pointer items-center gap-3 rounded border border-border px-3 py-2.5 transition-colors hover:bg-surface-hover">
           <Checkbox
             checked={enabled}
             onCheckedChange={(checked) => setEnabled(checked === true)}
@@ -74,7 +74,7 @@ export function TipsSection(): JSX.Element {
         only.
       </p>
       <div className="max-w-lg space-y-3">
-        <label className="flex cursor-pointer items-center gap-3 rounded border border-border px-3 py-2.5 transition-colors hover:bg-muted/50">
+        <label className="flex cursor-pointer items-center gap-3 rounded border border-border px-3 py-2.5 transition-colors hover:bg-surface-hover">
           <Checkbox
             checked={enabled}
             onCheckedChange={(checked) => setEnabled(checked === true)}

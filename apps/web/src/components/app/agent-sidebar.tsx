@@ -401,7 +401,7 @@ export function AgentListContent({
           >
             <AgentTypeIcon
               type={defaultCreateType}
-              className="mr-1 h-4 w-4 border-none bg-transparent p-0 text-foreground/80"
+              className="mr-1 h-4 w-4 border-none bg-transparent p-0 text-foreground/soft"
             />
             Create
           </Button>

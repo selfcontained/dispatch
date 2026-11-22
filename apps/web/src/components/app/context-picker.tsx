@@ -111,7 +111,7 @@ function AddContextLinkForm({
       {!isValid ? (
         <p
           id={errorId}
-          className="text-body-sm text-status-blocked"
+          className="text-body-sm text-danger"
           {...(testIdPrefix
             ? { "data-testid": `${testIdPrefix}-link-error` }
             : {})}
@@ -278,10 +278,10 @@ export function ContextPicker({
     <div
       ref={rootRef}
       className={cn(
-        "space-y-3 rounded-md border bg-muted/20 px-3 py-3 transition-colors",
+        "space-y-3 rounded-md border bg-surface-subtle px-3 py-3 transition-colors",
         draggingFiles
-          ? "border-status-done/35 bg-status-done/8 ring-1 ring-inset ring-status-done/30"
-          : "border-border/70",
+          ? "border-info/line bg-info/tint ring-1 ring-inset ring-info/line"
+          : "border-border-subtle",
         className
       )}
       onPaste={handleRootPaste}
@@ -301,7 +301,7 @@ export function ContextPicker({
               ref={clipboard.pasteRef}
               type="text"
               placeholder="Paste here"
-              className="h-7 w-32 rounded-md border border-border/70 bg-background/40 px-2 text-body-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              className="h-7 w-32 rounded-md border border-border-subtle bg-background/veil px-2 text-body-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
               onPaste={clipboard.handlePasteInput}
               onBlur={clipboard.handlePasteBlur}
             />
@@ -336,7 +336,7 @@ export function ContextPicker({
         )}
       </div>
       {error && (
-        <p role="alert" className="text-body-sm text-destructive">
+        <p role="alert" className="text-body-sm text-danger">
           {error}
         </p>
       )}
@@ -374,8 +374,8 @@ export function ContextPicker({
               className={cn(
                 "flex w-full flex-col items-center justify-center gap-1.5 rounded-md border border-dashed px-4 py-6 text-body-md transition-colors",
                 draggingFiles
-                  ? "border-status-done bg-status-done/10 text-foreground"
-                  : "border-border/70 bg-background/40 text-muted-foreground hover:border-border hover:bg-background/70 hover:text-foreground"
+                  ? "border-info bg-info/tint text-foreground"
+                  : "border-border-subtle bg-background/veil text-muted-foreground hover:border-border hover:bg-background/soft hover:text-foreground"
               )}
             >
               {draggingFiles ? (
@@ -387,7 +387,7 @@ export function ContextPicker({
                 <>
                   <Plus className="h-5 w-5" />
                   <span>Add files or links</span>
-                  <span className="text-label-sm text-muted-foreground/80">
+                  <span className="text-label-sm text-faint">
                     Click to add, or drop a file here
                   </span>
                 </>
@@ -426,8 +426,8 @@ export function ContextPicker({
                 className={cn(
                   "flex h-12 w-12 items-center justify-center rounded-md border border-dashed transition-colors",
                   draggingFiles
-                    ? "border-status-done bg-status-done/10 text-foreground"
-                    : "border-border/70 bg-background/40 text-muted-foreground hover:border-border hover:bg-background/70 hover:text-foreground"
+                    ? "border-info bg-info/tint text-foreground"
+                    : "border-border-subtle bg-background/veil text-muted-foreground hover:border-border hover:bg-background/soft hover:text-foreground"
                 )}
               >
                 {draggingFiles ? (

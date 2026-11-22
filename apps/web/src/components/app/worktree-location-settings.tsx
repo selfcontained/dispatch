@@ -75,8 +75,8 @@ export function WorktreeLocationSettings(): JSX.Element {
             className={cn(
               "flex items-start gap-3 rounded-md border p-3 text-left transition-colors",
               worktreeLocation === opt.value
-                ? "border-primary bg-primary/10"
-                : "border-border hover:border-muted-foreground/30"
+                ? "border-primary bg-surface-selected"
+                : "border-border hover:border-muted-foreground/line"
             )}
           >
             <RadioIndicator selected={worktreeLocation === opt.value} />

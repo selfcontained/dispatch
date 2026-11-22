@@ -73,7 +73,7 @@ export function UpdatesVersionCard({
             Release notes
             {versionInfo.releaseUrl ? (
               <a
-                className="ml-2 inline-flex items-center gap-1 text-body-sm normal-case tracking-normal text-blue-400 hover:underline"
+                className="ml-2 inline-flex items-center gap-1 text-body-sm normal-case tracking-normal text-info hover:underline"
                 href={versionInfo.releaseUrl}
                 rel="noopener noreferrer"
                 target="_blank"

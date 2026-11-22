@@ -53,7 +53,7 @@ export function UpdatesCheckPanel({
               />
             )}
             {!infoLoading && lastCheckMessage === "Up to date" && (
-              <CheckCircle2 className="h-4 w-4 shrink-0 text-green-500" />
+              <CheckCircle2 className="h-4 w-4 shrink-0 text-success" />
             )}
             <span
               className={cn(
@@ -73,7 +73,7 @@ export function UpdatesCheckPanel({
         <div className="max-w-[40rem]">
           <div className="h-1.5 overflow-hidden rounded-full bg-white/[0.08]">
             <div
-              className="h-full rounded-full bg-blue-400 transition-[width] duration-200"
+              className="h-full rounded-full bg-info transition-[width] duration-200"
               style={{ width: `${progressPercent(infoProgress)}%` }}
             />
           </div>
@@ -81,7 +81,7 @@ export function UpdatesCheckPanel({
       )}
 
       {infoError && (
-        <div className="rounded border border-destructive/30 bg-destructive/10 px-3 py-2 text-body-md text-destructive">
+        <div className="rounded border border-danger/line bg-danger/tint px-3 py-2 text-body-md text-danger">
           {infoError}
         </div>
       )}
@@ -91,7 +91,7 @@ export function UpdatesCheckPanel({
           {displayInfo.updateAvailable && displayInfo.latestTag ? (
             <div className="flex flex-col gap-3">
               <div className="flex items-center gap-2">
-                <ArrowDownToLine className="h-4 w-4 text-blue-400" />
+                <ArrowDownToLine className="h-4 w-4 text-info" />
                 <span className="text-body-md text-foreground">
                   <span className="font-mono font-semibold">
                     {displayInfo.latestTag}
@@ -111,7 +111,7 @@ export function UpdatesCheckPanel({
                   href={displayInfo.latestRelease.url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1.5 self-start text-body-sm text-blue-400 hover:underline"
+                  className="inline-flex items-center gap-1.5 self-start text-body-sm text-info hover:underline"
                 >
                   <ExternalLink className="h-3 w-3" />
                   View release on GitHub
@@ -119,7 +119,7 @@ export function UpdatesCheckPanel({
               )}
 
               {updateError && (
-                <div className="rounded border border-destructive/30 bg-destructive/10 px-3 py-2 text-body-md text-destructive">
+                <div className="rounded border border-danger/line bg-danger/tint px-3 py-2 text-body-md text-danger">
                   {updateError}
                 </div>
               )}

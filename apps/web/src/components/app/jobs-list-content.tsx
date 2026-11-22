@@ -48,7 +48,7 @@ export function JobListContent({
           <Button
             size="sm"
             variant="default"
-            className="bg-muted/35 text-muted-foreground hover:bg-muted/65 hover:text-foreground"
+            className="bg-surface-subtle text-muted-foreground hover:bg-surface-hover hover:text-foreground"
             onClick={openAddJob}
             data-testid="add-job-button"
           >
@@ -65,7 +65,7 @@ export function JobListContent({
             <Button
               size="sm"
               variant="default"
-              className="bg-muted/35 text-muted-foreground hover:bg-muted/65 hover:text-foreground"
+              className="bg-surface-subtle text-muted-foreground hover:bg-surface-hover hover:text-foreground"
               onClick={openAddJob}
               data-testid="add-job-button"
             >
@@ -109,8 +109,8 @@ export function JobListContent({
           <div>
             <button
               className={cn(
-                "flex w-full items-center gap-2 border-b border-r-4 border-border border-r-transparent px-3 py-2.5 text-left text-body-md text-muted-foreground transition-colors hover:bg-muted/40",
-                showOverview && "border-r-primary bg-muted/60"
+                "flex w-full items-center gap-2 border-b border-r-4 border-border border-r-transparent px-3 py-2.5 text-left text-body-md text-muted-foreground transition-colors hover:bg-surface-hover",
+                showOverview && "border-r-primary bg-surface-hover"
               )}
               onClick={() => {
                 navigate("/automations/jobs/overview");
@@ -127,9 +127,9 @@ export function JobListContent({
                   key={job.id}
                   data-testid={`job-row-${job.id}`}
                   className={cn(
-                    "w-full cursor-pointer border-b border-r-4 border-border border-r-transparent px-3 py-2 text-left transition-colors hover:bg-muted/40",
+                    "w-full cursor-pointer border-b border-r-4 border-border border-r-transparent px-3 py-2 text-left transition-colors hover:bg-surface-hover",
                     selectedJob?.id === job.id &&
-                      "md:border-r-primary md:bg-muted/60"
+                      "md:border-r-primary md:bg-surface-hover"
                   )}
                   onClick={() => {
                     selectJob(job);
@@ -164,9 +164,7 @@ export function JobListContent({
                     </span>
                     {job.schedule ? (
                       <>
-                        <span className="shrink-0 text-muted-foreground/70">
-                          •
-                        </span>
+                        <span className="shrink-0 text-faint">•</span>
                         <span className="shrink-0">
                           {job.enabled ? "enabled" : "disabled"}
                         </span>
@@ -174,9 +172,7 @@ export function JobListContent({
                     ) : null}
                     {job.continuationEnabled ? (
                       <>
-                        <span className="shrink-0 text-muted-foreground/70">
-                          •
-                        </span>
+                        <span className="shrink-0 text-faint">•</span>
                         <span className="shrink-0">
                           {job.continuationPending
                             ? "next run pending"
@@ -188,23 +184,19 @@ export function JobListContent({
                     ) : null}
                     {!job.autoArchive ? (
                       <>
-                        <span className="shrink-0 text-muted-foreground/70">
-                          •
-                        </span>
+                        <span className="shrink-0 text-faint">•</span>
                         <span className="shrink-0">keeps agent</span>
                       </>
                     ) : null}
                     {job.callable ? (
                       <>
-                        <span className="shrink-0 text-muted-foreground/70">
-                          •
-                        </span>
+                        <span className="shrink-0 text-faint">•</span>
                         <span className="shrink-0">callable</span>
                       </>
                     ) : null}
                   </div>
                   {actionError ? (
-                    <div className="mt-2 rounded border border-status-blocked/30 bg-status-blocked/10 px-2 py-1 text-body-sm text-status-blocked">
+                    <div className="mt-2 rounded border border-danger/line bg-danger/tint px-2 py-1 text-body-sm text-danger">
                       {actionError}
                     </div>
                   ) : null}

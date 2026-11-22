@@ -139,7 +139,7 @@ export function AgentTypeSelect({
       ) : null}
       {missing?.[value] ? (
         <p
-          className="text-body-sm text-status-waiting"
+          className="text-body-sm text-warning"
           data-testid="agent-type-missing-note"
         >
           {missing[value]!.label} is not installed. Run{" "}

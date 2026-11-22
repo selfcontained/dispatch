@@ -23,7 +23,7 @@ function Meter({
           key={step}
           className={cn(
             "w-1 rounded-[1px]",
-            step <= index ? "bg-primary" : "bg-muted-foreground/25"
+            step <= index ? "bg-primary" : "bg-muted-foreground/tint-strong"
           )}
           style={{
             height: `${4 + (count > 1 ? (step / (count - 1)) * 4 : 4)}px`,
@@ -84,7 +84,7 @@ export function EffortPicker({
           className={cn(
             "flex items-center justify-center rounded-md text-label-sm leading-tight transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50",
             compact
-              ? "h-6 max-w-32 shrink-0 gap-1.5 px-1.5 text-muted-foreground hover:bg-muted/60 hover:text-foreground pointer-coarse:min-h-11"
+              ? "h-6 max-w-32 shrink-0 gap-1.5 px-1.5 text-muted-foreground hover:bg-surface-hover hover:text-foreground pointer-coarse:min-h-11"
               : [
                   glassInset,
                   "h-9 w-full flex-col gap-0.5 px-1 hover:bg-white/[0.1]",
@@ -149,7 +149,7 @@ export function EffortPicker({
           <p className="text-body-sm text-muted-foreground">Applying…</p>
         ) : null}
         {error ? (
-          <p role="alert" className="text-body-sm text-destructive">
+          <p role="alert" className="text-body-sm text-danger">
             {error}
           </p>
         ) : null}

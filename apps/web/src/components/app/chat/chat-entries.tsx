@@ -531,7 +531,7 @@ function AvatarFace({
   if (author.launch) {
     return (
       <span
-        className="flex h-8 w-8 items-center justify-center rounded-md border border-border/60 bg-muted/40 text-muted-foreground"
+        className="flex h-8 w-8 items-center justify-center rounded-md border border-border-subtle bg-surface-subtle text-muted-foreground"
         aria-label={author.name}
         title={author.name}
         data-testid="chat-avatar-launch"
@@ -590,7 +590,7 @@ export function AuthorMeta({
     >
       {engine ? (
         <span
-          className="shrink-0 rounded border border-border/70 bg-muted/40 px-1 text-label-xs font-medium text-muted-foreground"
+          className="shrink-0 rounded border border-border-subtle bg-surface-subtle px-1 text-label-xs font-medium text-muted-foreground"
           data-testid="chat-author-engine"
         >
           {engine}
@@ -598,7 +598,7 @@ export function AuthorMeta({
       ) : null}
       {model ? (
         <span
-          className="min-w-0 max-w-[16rem] truncate rounded border border-border/70 bg-muted/40 px-1 text-label-xs text-muted-foreground"
+          className="min-w-0 max-w-[16rem] truncate rounded border border-border-subtle bg-surface-subtle px-1 text-label-xs text-muted-foreground"
           title={author.model ?? undefined}
           data-testid="chat-author-model"
         >
@@ -625,11 +625,11 @@ export function agentTypeLabel(type: string | null | undefined): string | null {
 export const POST_TINT: Record<PostAuthor["kind"], string> = {
   // A neutral wash separates the user without borrowing the theme's accent hue.
   user: "chat-user-wash",
-  system: "hover:bg-muted/30",
+  system: "hover:bg-surface-hover",
   // Agent-to-agent traffic is a side conversation the user is overhearing, so
   // it recedes — indent and muted body carry it, with no fill of its own.
-  peer: "hover:bg-muted/30",
-  agent: "hover:bg-muted/40",
+  peer: "hover:bg-surface-hover",
+  agent: "hover:bg-surface-hover",
 };
 
 /** Keep post bodies and turn details within the full available stream width. */
@@ -772,7 +772,7 @@ export function Post({
           ? POST_TINT.peer
           : POST_TINT[author.kind],
         grouped ? "py-1" : "mt-3 pb-1.5 pt-2",
-        rule && "border-t border-border/40"
+        rule && "border-t border-border-subtle"
       )}
       data-grouped={grouped ? "true" : undefined}
       data-group-start={grouped ? undefined : "true"}
@@ -965,11 +965,11 @@ export function DayDivider({ label }: { label: string }): JSX.Element {
       role="separator"
       aria-label={label}
     >
-      <div className="h-px flex-1 bg-border/70" />
+      <div className="h-px flex-1 bg-border-subtle" />
       <span className="rounded-full border border-border bg-background px-2.5 py-0.5 text-label-sm font-medium text-muted-foreground">
         {label}
       </span>
-      <div className="h-px flex-1 bg-border/70" />
+      <div className="h-px flex-1 bg-border-subtle" />
     </div>
   );
 }
@@ -1038,12 +1038,12 @@ function ThreadLine({
           aria-hidden="true"
         />
       )}
-      <span className="font-medium text-status-done underline-offset-2 group-hover/thread:underline group-disabled/thread:no-underline">
+      <span className="font-medium text-info underline-offset-2 group-hover/thread:underline group-disabled/thread:no-underline">
         {count} {count === 1 ? "reply" : "replies"}
       </span>
       {unread > 0 ? (
         <span
-          className="rounded-full bg-status-done px-1.5 py-0.5 text-label-xs font-semibold text-background"
+          className="rounded-full bg-info px-1.5 py-0.5 text-label-xs font-semibold text-background"
           data-testid="chat-thread-unread"
         >
           {unread} new
@@ -1120,7 +1120,7 @@ function InputSurface({
         "min-w-0 rounded-r-md border-l-[3px] px-3 py-2",
         resolved
           ? "border-border bg-transparent"
-          : "border-primary bg-primary/5"
+          : "border-primary bg-primary/wash"
       )}
     >
       {children}
@@ -1470,7 +1470,7 @@ function LaunchStartup({
         }
       />
       {startup.failed ? (
-        <p className="mt-2 break-words text-body-sm text-destructive">
+        <p className="mt-2 break-words text-body-sm text-danger">
           {startup.failed}
         </p>
       ) : null}
@@ -1518,7 +1518,7 @@ function LaunchCard({
           <span
             className={cn(
               "shrink-0",
-              startupIssue ? "text-destructive" : "text-emerald-300/70"
+              startupIssue ? "text-danger" : "text-success/soft"
             )}
           >
             {startupIssue ?? "Launched"}
@@ -1622,7 +1622,7 @@ function LaunchCard({
             {startupIssue && !inThread && ctx.onOpenThread ? (
               <Button
                 variant="ghost"
-                className="h-auto shrink-0 px-0 py-0 text-label-xs font-normal text-destructive hover:bg-transparent hover:text-destructive hover:underline"
+                className="h-auto shrink-0 px-0 py-0 text-label-xs font-normal text-danger hover:bg-transparent hover:text-danger hover:underline"
                 data-testid="launch-startup-note"
                 aria-label={`${startupIssue}: Open launch thread for ${name}`}
                 onClick={() => ctx.onOpenThread?.(block.id)}
@@ -1633,7 +1633,7 @@ function LaunchCard({
               <span
                 className={cn(
                   "section-label",
-                  startupIssue ? "text-destructive" : "text-emerald-300/70"
+                  startupIssue ? "text-danger" : "text-success/soft"
                 )}
               >
                 {startupIssue ?? "Launched"}
@@ -1776,7 +1776,7 @@ function BlockContents({
   const failureNotice =
     failedRequest && block.toAgentId ? (
       <p
-        className="mb-2 text-body-md text-destructive"
+        className="mb-2 text-body-md text-danger"
         role="status"
         data-testid="parent-request-delivery-failure"
       >

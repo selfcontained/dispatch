@@ -48,16 +48,14 @@ export function FileItemCard({
       data-files-owner={file.ownerAgentId}
       className={cn(
         "border-b-2 border-border px-3 py-3",
-        isStream && "border-l-2 border-l-status-blocked/60 bg-status-blocked/5",
+        isStream && "border-l-2 border-l-danger/line-strong bg-danger/wash",
         animating && "animate-file-in-slow"
       )}
     >
       {isStream ? (
         <div className="mb-2 flex items-center gap-1.5">
-          <MonitorPlay className="h-3.5 w-3.5 text-status-blocked" />
-          <span className="section-label text-status-blocked">
-            Stream recording
-          </span>
+          <MonitorPlay className="h-3.5 w-3.5 text-danger" />
+          <span className="section-label text-danger">Stream recording</span>
           <span className="ml-auto text-body-sm text-muted-foreground">
             {new Date(file.updatedAt).toLocaleString()}
           </span>
@@ -66,7 +64,7 @@ export function FileItemCard({
         <div className="mb-2 flex items-center gap-1.5 text-body-sm text-muted-foreground">
           <span>{new Date(file.updatedAt).toLocaleString()}</span>
           {isUser ? (
-            <span className="ml-auto flex items-center gap-1 rounded bg-primary/10 px-1.5 py-0.5 text-label-xs font-semibold text-primary">
+            <span className="ml-auto flex items-center gap-1 rounded bg-surface-selected px-1.5 py-0.5 text-label-xs font-semibold text-primary">
               <User className="h-2.5 w-2.5" />
               Shared by you
             </span>
@@ -76,7 +74,7 @@ export function FileItemCard({
       {isText || isDocument ? (
         <button
           className={cn(
-            "block w-full overflow-hidden rounded border-2 bg-muted/50 p-3 text-left",
+            "block w-full overflow-hidden rounded border-2 bg-surface-hover p-3 text-left",
             unseen ? "file-thumb-unseen" : "file-thumb-seen"
           )}
           onClick={() => openLightbox(file.id)}

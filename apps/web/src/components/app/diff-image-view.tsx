@@ -97,7 +97,7 @@ function ImagePanel({
         <span
           className={cn(
             "font-medium",
-            tone === "old" ? "text-status-blocked" : "text-status-working"
+            tone === "old" ? "text-danger" : "text-success"
           )}
         >
           {label}
@@ -113,7 +113,7 @@ function ImagePanel({
       {blocked !== null ? (
         <div
           className={cn(
-            "flex w-full items-center justify-center rounded border border-dashed border-border/60 px-3 py-6 text-label-sm text-muted-foreground",
+            "flex w-full items-center justify-center rounded border border-dashed border-border-subtle px-3 py-6 text-label-sm text-muted-foreground",
             PREVIEW_RESERVE
           )}
         >
@@ -132,7 +132,7 @@ function ImagePanel({
             loading="lazy"
             onError={side.onError}
             onLoad={(e) => side.onLoad(readNaturalSize(e))}
-            className="diff-image-checkerboard max-h-[26rem] max-w-full rounded border border-border/60 object-contain"
+            className="diff-image-checkerboard max-h-[26rem] max-w-full rounded border border-border-subtle object-contain"
           />
         </div>
       )}
@@ -208,7 +208,7 @@ export function DiffImageView({
   if (!hasOld || !hasNew) {
     const only = hasNew ? newSide : oldSide;
     return (
-      <div className="flex justify-center bg-muted/10 px-4 py-4">
+      <div className="flex justify-center bg-surface-subtle px-4 py-4">
         <ImagePanel
           side={only}
           label={hasNew ? newLabel : oldLabel}
@@ -235,12 +235,12 @@ export function DiffImageView({
   const effectiveMode = unavailableReason === null ? mode : "two-up";
 
   return (
-    <div className="bg-muted/10 px-4 py-4">
+    <div className="bg-surface-subtle px-4 py-4">
       <div className="mb-3 flex flex-col items-center gap-1">
         <div
           role="group"
           aria-label="Image comparison mode"
-          className="flex rounded-md border border-border/60 bg-muted/30 p-0.5"
+          className="flex rounded-md border border-border-subtle bg-surface-subtle p-0.5"
         >
           {MODES.map((m) => {
             const disabled = m.value !== "two-up" && unavailableReason !== null;
@@ -295,12 +295,12 @@ export function DiffImageView({
           {/* 2-up captions each side itself; stacked, this is the only place
               the before/after numbers can be read. */}
           <div className="mt-3 flex items-center justify-center gap-3 font-mono text-label-xs text-muted-foreground">
-            <span className="text-status-blocked">
+            <span className="text-danger">
               {oldDim ? `${oldDim.width}×${oldDim.height}` : "—"}
               {image.oldSize !== null ? ` · ${formatBytes(image.oldSize)}` : ""}
             </span>
             <span>→</span>
-            <span className="text-status-working">
+            <span className="text-success">
               {newDim ? `${newDim.width}×${newDim.height}` : "—"}
               {image.newSize !== null ? ` · ${formatBytes(image.newSize)}` : ""}
             </span>
@@ -342,14 +342,14 @@ function OverlayCompare({
           alt="Before"
           onError={oldSide.onError}
           onLoad={(e) => oldSide.onLoad(readNaturalSize(e))}
-          className="diff-image-checkerboard block max-h-[26rem] max-w-full rounded border border-border/60 object-contain"
+          className="diff-image-checkerboard block max-h-[26rem] max-w-full rounded border border-border-subtle object-contain"
         />
         <img
           src={newSide.src!}
           alt="After"
           onError={newSide.onError}
           onLoad={(e) => newSide.onLoad(readNaturalSize(e))}
-          className="diff-image-checkerboard absolute inset-0 h-full w-full rounded border border-border/60 object-contain"
+          className="diff-image-checkerboard absolute inset-0 h-full w-full rounded border border-border-subtle object-contain"
           style={
             mode === "swipe"
               ? { clipPath: `inset(0 0 0 ${position}%)` }

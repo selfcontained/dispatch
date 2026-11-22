@@ -267,16 +267,16 @@ function renderAt(path: string) {
 }
 
 describe("serviceDotClass", () => {
-  it("maps ok to the working dot", () => {
-    expect(serviceDotClass("ok")).toBe("bg-status-working");
+  it("maps ok to the success dot", () => {
+    expect(serviceDotClass("ok")).toBe("bg-success");
   });
 
-  it("maps down to the blocked dot", () => {
-    expect(serviceDotClass("down")).toBe("bg-status-blocked");
+  it("maps down to the danger dot", () => {
+    expect(serviceDotClass("down")).toBe("bg-danger");
   });
 
-  it("maps any other state to the waiting dot", () => {
-    expect(serviceDotClass("checking")).toBe("bg-status-waiting");
+  it("maps any other state to the warning dot", () => {
+    expect(serviceDotClass("checking")).toBe("bg-warning");
   });
 });
 
@@ -434,17 +434,21 @@ describe("ActivityRoute tab navigation", () => {
   // URL literally says "metrics" — not the fallback itself.
   it("marks metrics active when the URL tab is metrics", () => {
     renderAt("/activity/metrics");
-    expect(screen.getByText("Metrics").className).toContain("bg-primary/10");
+    expect(screen.getByText("Metrics").className).toContain(
+      "bg-surface-selected"
+    );
     expect(screen.getByText("History").className).not.toContain(
-      "bg-primary/10"
+      "bg-surface-selected"
     );
   });
 
   it("marks history active once the URL tab is history", () => {
     renderAt("/activity/history");
-    expect(screen.getByText("History").className).toContain("bg-primary/10");
+    expect(screen.getByText("History").className).toContain(
+      "bg-surface-selected"
+    );
     expect(screen.getByText("Metrics").className).not.toContain(
-      "bg-primary/10"
+      "bg-surface-selected"
     );
   });
 

@@ -145,7 +145,7 @@ function DeliveryStatus({
   if (failed.length > 0) {
     return (
       <div
-        className="mt-1 flex min-w-0 flex-wrap items-center gap-1.5 text-label-sm text-destructive [overflow-wrap:anywhere]"
+        className="mt-1 flex min-w-0 flex-wrap items-center gap-1.5 text-label-sm text-danger [overflow-wrap:anywhere]"
         title={
           interrupt
             ? "The stop request or message delivery failed. Your message is saved; retry to request interruption again."
@@ -328,7 +328,7 @@ export function DeliveryIndicator({
       : status;
   return (
     <span
-      className={`flex h-4 w-4 items-center justify-center transition-[color,opacity] duration-500 motion-reduce:transition-none ${confirmed ? "text-green-700 [[data-theme-mode=dark]_&]:text-green-500" : "text-muted-foreground"} ${status ? "opacity-100" : "opacity-0"}`}
+      className={`flex h-4 w-4 items-center justify-center transition-[color,opacity] duration-500 motion-reduce:transition-none ${confirmed ? "text-success-ink" : "text-muted-foreground"} ${status ? "opacity-100" : "opacity-0"}`}
       data-testid="chat-delivery-indicator"
       data-status={status}
       role="status"

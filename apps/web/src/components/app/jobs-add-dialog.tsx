@@ -245,7 +245,7 @@ export function AddJobFlow({
                   id="create-job-effort"
                 />
               </AgentConfigRow>
-              <label className="flex items-center justify-between gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3 text-body-md md:col-span-2">
+              <label className="flex items-center justify-between gap-3 rounded-md border border-border-subtle bg-surface-subtle px-3 py-3 text-body-md md:col-span-2">
                 <span>
                   <span className="block font-medium text-foreground">
                     Show in command palette
@@ -260,7 +260,7 @@ export function AddJobFlow({
                   ariaLabel="Show in command palette"
                 />
               </label>
-              <label className="flex items-center justify-between gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3 text-body-md md:col-span-2">
+              <label className="flex items-center justify-between gap-3 rounded-md border border-border-subtle bg-surface-subtle px-3 py-3 text-body-md md:col-span-2">
                 <span>
                   <span className="block font-medium text-foreground">
                     Single instance
@@ -278,7 +278,7 @@ export function AddJobFlow({
             </div>
           </div>
 
-          <div className="min-w-0 rounded-md border border-border bg-muted/20 p-4">
+          <div className="min-w-0 rounded-md border border-border bg-surface-subtle p-4">
             <div className="space-y-1">
               <label
                 className="text-body-md font-medium text-foreground"
@@ -297,7 +297,7 @@ export function AddJobFlow({
               placeholder="Describe what the agent should do..."
               className="mt-2 min-h-64 w-full rounded-md border border-white/[0.12] bg-white/[0.04] backdrop-blur-md shadow-[inset_0_2px_6px_rgba(0,0,0,0.3)] px-3 py-2 text-body-md ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
             />
-            <label className="mt-3 flex items-center justify-between gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3 text-body-md">
+            <label className="mt-3 flex items-center justify-between gap-3 rounded-md border border-border-subtle bg-surface-subtle px-3 py-3 text-body-md">
               <span>
                 <span className="block font-medium text-foreground">
                   Self improve after each run
@@ -426,14 +426,14 @@ export function AddJobFlow({
           </div>
 
           {submitError ? (
-            <div className="rounded-md border border-status-blocked/40 bg-status-blocked/10 p-3 text-body-md text-status-blocked">
+            <div className="rounded-md border border-danger/line bg-danger/tint p-3 text-body-md text-danger">
               {submitError}
             </div>
           ) : null}
         </div>
       </ScrollArea>
 
-      <div className="mt-4 flex shrink-0 justify-end gap-2 border-t border-border/70 pt-4">
+      <div className="mt-4 flex shrink-0 justify-end gap-2 border-t border-border-subtle pt-4">
         <DialogPrimitive.Close asChild>
           <Button variant="ghost">Cancel</Button>
         </DialogPrimitive.Close>

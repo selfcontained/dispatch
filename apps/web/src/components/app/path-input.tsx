@@ -307,9 +307,7 @@ export function PathInput({
               className="pointer-events-none absolute inset-0 flex h-9 items-center overflow-hidden rounded-md border border-transparent px-3 py-2 font-mono text-body-sm"
             >
               <span className="invisible whitespace-pre">{value}</span>
-              <span className="whitespace-pre text-muted-foreground/40">
-                {ghostSuffix}
-              </span>
+              <span className="whitespace-pre text-faint">{ghostSuffix}</span>
             </div>
           ) : null}
           <input
@@ -420,13 +418,13 @@ export function PathInput({
                     data-selected={selected}
                     className={cn(
                       "group flex cursor-default select-none items-center gap-2 rounded-sm px-2 py-2 text-body-sm outline-none",
-                      selected && "bg-primary/20 text-foreground"
+                      selected && "bg-primary/tint-strong text-foreground"
                     )}
                     onClick={() => selectOption(option)}
                     onMouseDown={(event) => event.preventDefault()}
                     onMouseMove={() => setSelectedIndex(index)}
                   >
-                    <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded border border-border/70 bg-muted/40">
+                    <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded border border-border-subtle bg-surface-subtle">
                       <PathOptionIcon iconUrl={option.iconUrl} />
                     </span>
                     <span className="min-w-0 flex-1">
@@ -439,7 +437,7 @@ export function PathInput({
                     </span>
                     {option.usageCount > 0 ? (
                       <span
-                        className="shrink-0 rounded border border-border/70 px-1.5 py-0.5 text-label-xs text-muted-foreground"
+                        className="shrink-0 rounded border border-border-subtle px-1.5 py-0.5 text-label-xs text-muted-foreground"
                         title={`${option.usageCount} uses`}
                       >
                         {option.usageCount}
@@ -473,33 +471,25 @@ export function PathInput({
           ) : pathValidation ? (
             pathValidation.isDirectory ? (
               <>
-                <CheckCircle2 className="h-3 w-3 text-emerald-500" />
+                <CheckCircle2 className="h-3 w-3 text-success" />
                 {pathValidation.isGitRepo ? (
                   <>
-                    <GitBranch className="h-3 w-3 text-emerald-500" />
-                    <span className="text-emerald-600 dark:text-emerald-400">
-                      Git repository
-                    </span>
+                    <GitBranch className="h-3 w-3 text-success" />
+                    <span className="text-success-ink">Git repository</span>
                   </>
                 ) : (
-                  <span className="text-emerald-600 dark:text-emerald-400">
-                    Valid directory
-                  </span>
+                  <span className="text-success-ink">Valid directory</span>
                 )}
               </>
             ) : pathValidation.exists ? (
               <>
-                <AlertCircle className="h-3 w-3 text-amber-500" />
-                <span className="text-amber-600 dark:text-amber-400">
-                  Not a directory
-                </span>
+                <AlertCircle className="h-3 w-3 text-warning" />
+                <span className="text-warning-ink">Not a directory</span>
               </>
             ) : (
               <>
-                <AlertCircle className="h-3 w-3 text-amber-500" />
-                <span className="text-amber-600 dark:text-amber-400">
-                  Directory not found
-                </span>
+                <AlertCircle className="h-3 w-3 text-warning" />
+                <span className="text-warning-ink">Directory not found</span>
               </>
             )
           ) : null}

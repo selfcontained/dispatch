@@ -50,7 +50,7 @@ function TipArrow({ side, offset }: { side: string; offset?: number }) {
           <polygon points="0,8 8,0 16,8" fill="hsl(var(--popover))" />
           <path
             d="M0 8 L8 0 L16 8"
-            stroke="rgba(168,85,247,0.2)"
+            stroke="hsl(var(--status-merged) / 0.3)"
             strokeWidth="1"
             fill="none"
           />
@@ -60,7 +60,7 @@ function TipArrow({ side, offset }: { side: string; offset?: number }) {
           <polygon points="0,0 8,8 16,0" fill="hsl(var(--popover))" />
           <path
             d="M0 0 L8 8 L16 0"
-            stroke="rgba(168,85,247,0.2)"
+            stroke="hsl(var(--status-merged) / 0.3)"
             strokeWidth="1"
             fill="none"
           />
@@ -197,7 +197,7 @@ export function TipSpot({
         align={align}
         sideOffset={sideOffset + 8}
         collisionPadding={8}
-        className="tip-popover w-auto border-purple-500/20"
+        className="tip-popover w-auto border-status-merged/line"
         onOpenAutoFocus={(e) => e.preventDefault()}
       >
         <TipArrow side={side} offset={arrowOffset} />

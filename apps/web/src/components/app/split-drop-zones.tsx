@@ -48,8 +48,8 @@ export const SplitDropZones = memo(function SplitDropZones({
         className={cn(
           "flex-1 flex items-center justify-center border-2 border-dashed rounded-l-lg m-2 mr-1 transition-colors",
           activeSide === "left"
-            ? "border-ring bg-ring/10"
-            : "border-muted-foreground/30 bg-muted/10"
+            ? "border-ring bg-ring/tint"
+            : "border-muted-foreground/line bg-surface-subtle"
         )}
         onDragOver={(e) => handleDragOver(e, "left")}
         onDragLeave={handleDragLeave}
@@ -59,9 +59,7 @@ export const SplitDropZones = memo(function SplitDropZones({
         <span
           className={cn(
             "text-body-md font-medium uppercase tracking-wide transition-colors",
-            activeSide === "left"
-              ? "text-foreground"
-              : "text-muted-foreground/60"
+            activeSide === "left" ? "text-foreground" : "text-faint"
           )}
         >
           Left
@@ -71,8 +69,8 @@ export const SplitDropZones = memo(function SplitDropZones({
         className={cn(
           "flex-1 flex items-center justify-center border-2 border-dashed rounded-r-lg m-2 ml-1 transition-colors",
           activeSide === "right"
-            ? "border-ring bg-ring/10"
-            : "border-muted-foreground/30 bg-muted/10"
+            ? "border-ring bg-ring/tint"
+            : "border-muted-foreground/line bg-surface-subtle"
         )}
         onDragOver={(e) => handleDragOver(e, "right")}
         onDragLeave={handleDragLeave}
@@ -82,9 +80,7 @@ export const SplitDropZones = memo(function SplitDropZones({
         <span
           className={cn(
             "text-body-md font-medium uppercase tracking-wide transition-colors",
-            activeSide === "right"
-              ? "text-foreground"
-              : "text-muted-foreground/60"
+            activeSide === "right" ? "text-foreground" : "text-faint"
           )}
         >
           Right

@@ -164,7 +164,7 @@ export function PersonaLauncherDialog({
                       <span className="flex items-center gap-2">
                         <AgentTypeIcon
                           type={selectedAgentType}
-                          className="h-4 w-4 border-none bg-transparent p-0 text-foreground/80"
+                          className="h-4 w-4 border-none bg-transparent p-0 text-foreground/soft"
                         />
                         {AGENT_TYPE_LABELS[selectedAgentType]}
                       </span>
@@ -277,14 +277,14 @@ export function PersonaLauncherDialog({
                       className={cn(
                         "flex w-full items-start gap-3 rounded-md border px-3 py-3 text-left transition-colors",
                         codeownersSelected
-                          ? "border-primary bg-primary/10"
-                          : "border-border/70 bg-muted/20 hover:bg-muted/35",
+                          ? "border-primary bg-surface-selected"
+                          : "border-border-subtle bg-surface-subtle hover:bg-surface-hover",
                         !codeownersAvailable &&
-                          "cursor-not-allowed opacity-60 hover:bg-muted/20"
+                          "cursor-not-allowed opacity-60 hover:bg-surface-hover"
                       )}
                       data-testid="launch-reviewer-codeowners"
                     >
-                      <GitBranch className="mt-0.5 h-4 w-4 shrink-0 text-foreground/80" />
+                      <GitBranch className="mt-0.5 h-4 w-4 shrink-0 text-foreground/soft" />
                       <span className="min-w-0 flex-1 space-y-1">
                         <span className="block text-body-md font-medium">
                           Code owners
@@ -301,7 +301,7 @@ export function PersonaLauncherDialog({
                           "mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-[4px] border transition-colors",
                           codeownersSelected
                             ? "border-primary bg-primary text-primary-foreground"
-                            : "border-border/80 bg-transparent"
+                            : "border-border bg-transparent"
                         )}
                       >
                         <Check
@@ -334,8 +334,8 @@ export function PersonaLauncherDialog({
                           className={cn(
                             "flex w-full items-start gap-3 rounded-md border px-3 py-3 text-left transition-colors",
                             isSelected
-                              ? "border-primary bg-primary/10"
-                              : "border-border/70 bg-muted/20 hover:bg-muted/35"
+                              ? "border-primary bg-surface-selected"
+                              : "border-border-subtle bg-surface-subtle hover:bg-surface-hover"
                           )}
                           data-testid={`launch-reviewer-persona-${persona.slug}`}
                         >
@@ -362,7 +362,7 @@ export function PersonaLauncherDialog({
                               "mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-[4px] border transition-colors",
                               isSelected
                                 ? "border-primary bg-primary text-primary-foreground"
-                                : "border-border/80 bg-transparent"
+                                : "border-border bg-transparent"
                             )}
                           >
                             <Check
@@ -409,7 +409,7 @@ export function PersonaLauncherDialog({
             <div className="flex justify-end gap-2 pt-3">
               {launchError ? (
                 <p
-                  className="mr-auto max-w-[28rem] text-body-md text-destructive"
+                  className="mr-auto max-w-[28rem] text-body-md text-danger"
                   data-testid="launch-reviewer-error"
                 >
                   {launchError}

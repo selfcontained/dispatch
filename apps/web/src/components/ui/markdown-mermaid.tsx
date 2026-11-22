@@ -104,9 +104,9 @@ export function MermaidBlock({
 
   if (error) {
     return (
-      <div className="not-prose my-4 rounded-md border border-destructive/40 bg-destructive/10 p-3">
+      <div className="not-prose my-4 rounded-md border border-danger/line bg-danger/tint p-3">
         <div className="flex items-start gap-2">
-          <p className="m-0 flex-1 text-body-md font-medium text-destructive">
+          <p className="m-0 flex-1 text-body-md font-medium text-danger">
             Mermaid render failed
           </p>
           <Button
@@ -116,7 +116,7 @@ export function MermaidBlock({
             size="icon"
             type="button"
             variant="ghost"
-            className="h-11 w-11 text-destructive hover:bg-destructive/10 hover:text-destructive sm:h-7 sm:w-7"
+            className="h-11 w-11 text-danger hover:bg-danger/tint hover:text-danger sm:h-7 sm:w-7"
             onClick={() => copySource(code)}
           >
             {sourceCopied ? (
@@ -126,7 +126,7 @@ export function MermaidBlock({
             )}
           </Button>
         </div>
-        <pre className="mt-2 overflow-x-auto whitespace-pre-wrap break-words text-body-sm text-destructive">
+        <pre className="mt-2 overflow-x-auto whitespace-pre-wrap break-words text-body-sm text-danger">
           <code>{code}</code>
         </pre>
       </div>
@@ -135,9 +135,9 @@ export function MermaidBlock({
 
   if (!svg) {
     return (
-      <div className="not-prose my-4 rounded-md border border-border bg-muted/40 p-3 text-body-md text-muted-foreground">
+      <div className="not-prose my-4 rounded-md border border-border bg-surface-subtle p-3 text-body-md text-muted-foreground">
         <div className="flex items-center gap-2">
-          <span className="h-2 w-2 rounded-full bg-primary/70 animate-pulse" />
+          <span className="h-2 w-2 rounded-full bg-primary/soft animate-pulse" />
           <span>Rendering diagram...</span>
         </div>
       </div>

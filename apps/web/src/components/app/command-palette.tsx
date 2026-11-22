@@ -119,7 +119,7 @@ export function CommandPalette({
             "fixed left-1/2 top-[18%] z-[70] flex w-[min(600px,calc(100vw-2rem))] -translate-x-1/2 flex-col overflow-hidden rounded-2xl",
             glassOverlay,
             "shadow-[0_24px_80px_-12px_rgba(0,0,0,0.6),0_0_60px_-12px_hsl(var(--primary)/0.35)]",
-            "ring-1 ring-primary/20"
+            "ring-1 ring-primary/tint-strong"
           )}
         >
           <Dialog.Title className="sr-only">Command palette</Dialog.Title>
@@ -136,16 +136,16 @@ export function CommandPalette({
               }
             }}
           >
-            <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-primary/60 to-transparent" />
+            <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-primary/veil to-transparent" />
 
             <div
               className={cn(
-                "flex items-center gap-2 border-b border-primary/15 px-4",
+                "flex items-center gap-2 border-b border-primary/tint-strong px-4",
                 page === "confirm" && "sr-only"
               )}
             >
               <Search
-                className="h-4 w-4 shrink-0 text-primary/80"
+                className="h-4 w-4 shrink-0 text-primary/soft"
                 aria-hidden
               />
               <Command.Input
@@ -156,7 +156,7 @@ export function CommandPalette({
                 placeholder="Type a command…"
                 className={cn(
                   "flex h-12 w-full bg-transparent py-3 text-body-md outline-none",
-                  "placeholder:text-muted-foreground/70"
+                  "placeholder:text-faint"
                 )}
               />
             </div>
@@ -241,8 +241,8 @@ function ConfirmPage({
           forceMount
           className={cn(
             "group flex cursor-default select-none items-center justify-center gap-2 rounded-md px-3 py-2 text-body-md font-medium outline-none",
-            "text-primary/70",
-            "data-[selected=true]:bg-primary/20 data-[selected=true]:text-primary"
+            "text-primary/soft",
+            "data-[selected=true]:bg-primary/tint-strong data-[selected=true]:text-primary"
           )}
         >
           <Play className="h-3.5 w-3.5 fill-current" aria-hidden />

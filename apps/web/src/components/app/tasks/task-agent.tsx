@@ -122,16 +122,16 @@ export function TaskAgentChip({
           ? "items-center gap-2 rounded-full py-1 pl-1 pr-3"
           : "flex-col gap-1 rounded-lg px-2 py-1.5",
         live
-          ? "border-status-working/40 bg-status-working/10"
+          ? "border-status-working/line bg-status-working/tint"
           : activity.tone === "waiting"
-            ? "border-status-waiting/40 bg-status-waiting/10"
+            ? "border-status-waiting/line bg-status-waiting/tint"
             : activity.tone === "blocked"
-              ? "border-status-blocked/40 bg-status-blocked/10"
+              ? "border-status-blocked/line bg-status-blocked/tint"
               : activity.tone === "archiving"
-                ? "border-orange-400/40 bg-orange-400/10"
+                ? "border-warning/line bg-warning/tint"
                 : activity.tone === "stopped"
                   ? "border-dashed border-border bg-transparent text-muted-foreground"
-                  : "border-border bg-background/70",
+                  : "border-border bg-background/soft",
         fullWidth && "w-full",
         className
       )}
@@ -160,7 +160,7 @@ export function TaskAgentChip({
                 : live
                   ? "text-status-working"
                   : activity.tone === "archiving"
-                    ? "text-orange-400"
+                    ? "text-warning"
                     : activity.tone === "waiting"
                       ? "text-status-waiting"
                       : activity.tone === "blocked"

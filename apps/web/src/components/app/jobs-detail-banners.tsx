@@ -20,8 +20,8 @@ export function AttachedAgentBanner({
       className={cn(
         "mt-4 rounded-md border p-3",
         attachedAgent.isActive
-          ? "border-status-working/40 bg-status-working/10"
-          : "border-border/70 bg-muted/30"
+          ? "border-status-working/line bg-status-working/tint"
+          : "border-border-subtle bg-surface-subtle"
       )}
     >
       <div className="flex flex-wrap items-center gap-3">
@@ -69,10 +69,8 @@ export function JobAddedBanner({
   onViewHistory: () => void;
 }) {
   return (
-    <div className="mt-4 rounded-md border border-status-done/40 bg-status-done/10 p-4">
-      <div className="text-body-md font-semibold text-status-done">
-        Job added
-      </div>
+    <div className="mt-4 rounded-md border border-info/line bg-info/tint p-4">
+      <div className="text-body-md font-semibold text-info">Job added</div>
       <div className="mt-1 text-body-md text-muted-foreground">
         {job.enabled && job.nextRun
           ? `Scheduled next run: ${formatJobDateTime(job.nextRun)}.`

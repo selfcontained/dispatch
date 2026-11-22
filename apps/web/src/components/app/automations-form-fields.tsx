@@ -37,7 +37,7 @@ export function TemplateWorktreeOption({
   onBranchNameChange: (value: string) => void;
 }): JSX.Element {
   return (
-    <div className="space-y-2 rounded-md border border-border/70 bg-muted/20 px-3 py-3">
+    <div className="space-y-2 rounded-md border border-border-subtle bg-surface-subtle px-3 py-3">
       <label className="flex cursor-pointer items-start gap-3">
         <Checkbox
           checked={checked}
@@ -79,7 +79,7 @@ export function TemplateFullAccessOption({
   onCheckedChange: (checked: boolean) => void;
 }): JSX.Element {
   return (
-    <label className="flex cursor-pointer items-start gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3">
+    <label className="flex cursor-pointer items-start gap-3 rounded-md border border-border-subtle bg-surface-subtle px-3 py-3">
       <Checkbox
         checked={checked}
         onCheckedChange={() => onCheckedChange(!checked)}
@@ -308,7 +308,7 @@ export function TemplateConfigFields({
         )}
       </>
 
-      <label className="flex cursor-pointer items-start gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3">
+      <label className="flex cursor-pointer items-start gap-3 rounded-md border border-border-subtle bg-surface-subtle px-3 py-3">
         <Checkbox
           checked={callable}
           onCheckedChange={() => onCallableChange(!callable)}
@@ -325,7 +325,7 @@ export function TemplateConfigFields({
       </label>
 
       <>
-        <label className="flex cursor-pointer items-start gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3">
+        <label className="flex cursor-pointer items-start gap-3 rounded-md border border-border-subtle bg-surface-subtle px-3 py-3">
           <Checkbox
             checked={allowFiles}
             onCheckedChange={() => onAllowFilesChange(!allowFiles)}
@@ -367,7 +367,7 @@ export function TemplateConfigFields({
               {detectedArgs.map((a) => (
                 <span
                   key={a.key}
-                  className="mr-1.5 inline-block rounded bg-primary/10 px-1.5 py-0.5 text-primary"
+                  className="mr-1.5 inline-block rounded bg-surface-selected px-1.5 py-0.5 text-primary"
                 >
                   {a.name}
                   {a.required ? " *" : ""}
@@ -379,7 +379,7 @@ export function TemplateConfigFields({
           ) : null}
         </div>
 
-        <label className="flex cursor-pointer items-start gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3">
+        <label className="flex cursor-pointer items-start gap-3 rounded-md border border-border-subtle bg-surface-subtle px-3 py-3">
           <Checkbox
             checked={selfImprove}
             onCheckedChange={() => onSelfImproveChange(!selfImprove)}

@@ -306,7 +306,7 @@ it("shows a green success check after validation/save and clears it on edit", as
   await screen.findByText("OpenAI API key validated and saved.");
   expect(
     screen.getByLabelText("Connection successful").getAttribute("class")
-  ).toContain("text-green-600");
+  ).toContain("text-success-ink");
   fireEvent.click(screen.getByRole("button", { name: "Edit OpenAI API key" }));
   expect(screen.queryByText("OpenAI API key validated and saved.")).toBeNull();
   expect(screen.queryByLabelText("Connection successful")).toBeNull();

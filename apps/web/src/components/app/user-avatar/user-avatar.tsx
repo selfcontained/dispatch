@@ -59,7 +59,7 @@ export function UserAvatarGraphic({
       title={label}
       data-testid={testId}
       className={cn(
-        "flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full border border-foreground/20",
+        "flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full border border-foreground/tint-strong",
         className
       )}
       style={{ backgroundColor: preset.background, color: preset.color }}

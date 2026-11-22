@@ -291,7 +291,7 @@ export function TaskTriggerDialog({
             onTypeOpenChange={setTypeDropdownOpen}
           />
           {effortConflict ? (
-            <p role="alert" className="text-body-md text-destructive">
+            <p role="alert" className="text-body-md text-danger">
               {effortConflict}
             </p>
           ) : null}
@@ -309,7 +309,7 @@ export function TaskTriggerDialog({
               {label}
             </label>
           ))}
-          <p className="rounded bg-muted/50 p-2 text-body-sm text-muted-foreground">
+          <p className="rounded bg-surface-hover p-2 text-body-sm text-muted-foreground">
             {chosen
               ? `Entering ${column.name} launches ${chosen.name}${chosen.prompt?.trim() ? "" : " with the task as its prompt"}${trigger.assign ? " and assigns the agent" : ""}.`
               : "Choose a project template to configure this column."}

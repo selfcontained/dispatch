@@ -111,7 +111,7 @@ export function RoutingSettings(): JSX.Element {
         <p className="text-body-sm text-muted-foreground">Loading…</p>
       )}
       {settings.error && (
-        <p role="alert" className="text-body-sm text-destructive">
+        <p role="alert" className="text-body-sm text-danger">
           Couldn’t load routing settings.{" "}
           <button className="underline" onClick={() => void settings.refetch()}>
             Retry
@@ -178,7 +178,7 @@ export function RoutingSettings(): JSX.Element {
                 >
                   {data.configured && (
                     <TestIcon
-                      className={`h-3 w-3 transition-colors ${check.isPending ? "animate-spin text-muted-foreground" : testOk ? "text-green-600 dark:text-green-400" : testFailed ? "text-destructive" : "text-muted-foreground"}`}
+                      className={`h-3 w-3 transition-colors ${check.isPending ? "animate-spin text-muted-foreground" : testOk ? "text-success-ink" : testFailed ? "text-danger" : "text-muted-foreground"}`}
                       aria-label={
                         check.isPending ||
                         check.data ||
@@ -216,7 +216,7 @@ export function RoutingSettings(): JSX.Element {
                   id="routing-key"
                   type="password"
                   aria-label="OpenAI API key"
-                  className={`h-11 sm:h-9 min-w-0 ${save.error ? "ring-1 ring-destructive" : ""}`}
+                  className={`h-11 sm:h-9 min-w-0 ${save.error ? "ring-1 ring-danger" : ""}`}
                   value={key}
                   disabled={save.isPending || check.isPending}
                   autoComplete="new-password"
@@ -319,7 +319,7 @@ export function RoutingSettings(): JSX.Element {
                     <Button
                       size="icon"
                       variant="ghost"
-                      className="h-11 w-11 sm:h-8 sm:w-8 shrink-0 hover:text-destructive"
+                      className="h-11 w-11 sm:h-8 sm:w-8 shrink-0 hover:text-danger"
                       aria-label="Remove OpenAI API key"
                       title="Remove key and turn off Dispatch AI features"
                       disabled={save.isPending || check.isPending}
@@ -337,10 +337,7 @@ export function RoutingSettings(): JSX.Element {
                 : "Test checks the saved key."}
             </p>
             {validatedAndSaved && (
-              <p
-                role="status"
-                className="text-body-sm text-green-600 dark:text-green-400"
-              >
+              <p role="status" className="text-body-sm text-success-ink">
                 OpenAI API key validated and saved.
               </p>
             )}
@@ -353,7 +350,7 @@ export function RoutingSettings(): JSX.Element {
               </p>
             )}
             {check.error && (
-              <p role="alert" className="text-body-sm text-destructive">
+              <p role="alert" className="text-body-sm text-danger">
                 {check.error.message}
               </p>
             )}
@@ -363,7 +360,7 @@ export function RoutingSettings(): JSX.Element {
                 : ""}
             </span>
           </div>
-          <label className="flex cursor-pointer items-center gap-3 rounded border border-border px-3 py-2.5 transition-colors hover:bg-muted/50">
+          <label className="flex cursor-pointer items-center gap-3 rounded border border-border px-3 py-2.5 transition-colors hover:bg-surface-hover">
             <Checkbox
               id="routing-enabled"
               aria-label="Route replies automatically"
@@ -387,7 +384,7 @@ export function RoutingSettings(): JSX.Element {
               </p>
             </div>
           </label>
-          <label className="flex cursor-pointer items-center gap-3 rounded border border-border px-3 py-2.5 transition-colors hover:bg-muted/50">
+          <label className="flex cursor-pointer items-center gap-3 rounded border border-border px-3 py-2.5 transition-colors hover:bg-surface-hover">
             <Checkbox
               aria-label="Smart steering"
               checked={
@@ -408,7 +405,7 @@ export function RoutingSettings(): JSX.Element {
               </p>
             </div>
           </label>
-          <label className="flex cursor-pointer items-center gap-3 rounded border border-border px-3 py-2.5 transition-colors hover:bg-muted/50">
+          <label className="flex cursor-pointer items-center gap-3 rounded border border-border px-3 py-2.5 transition-colors hover:bg-surface-hover">
             <Checkbox
               aria-label="Session naming"
               checked={
@@ -432,7 +429,7 @@ export function RoutingSettings(): JSX.Element {
               </p>
             </div>
           </label>
-          <label className="flex cursor-pointer items-center gap-3 rounded border border-border px-3 py-2.5 transition-colors hover:bg-muted/50">
+          <label className="flex cursor-pointer items-center gap-3 rounded border border-border px-3 py-2.5 transition-colors hover:bg-surface-hover">
             <Checkbox
               aria-label="Merge risk assessment"
               checked={
@@ -458,7 +455,7 @@ export function RoutingSettings(): JSX.Element {
         </div>
       )}
       {save.error && (
-        <p role="alert" className="text-body-sm text-destructive">
+        <p role="alert" className="text-body-sm text-danger">
           Couldn’t save changes. {save.error.message}
         </p>
       )}

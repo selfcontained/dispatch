@@ -260,8 +260,8 @@ function CollectionPill({
       className={cn(
         "flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1 text-body-sm font-medium transition-colors",
         active
-          ? "bg-primary/15 text-primary"
-          : "text-muted-foreground hover:bg-muted/40 hover:text-foreground"
+          ? "bg-surface-selected text-primary"
+          : "text-muted-foreground hover:bg-surface-hover hover:text-foreground"
       )}
     >
       {label}
@@ -269,7 +269,7 @@ function CollectionPill({
         <span
           className={cn(
             "rounded-full px-1.5 py-0.5 text-label-xs",
-            active ? "bg-primary/20" : "bg-muted"
+            active ? "bg-primary/tint-strong" : "bg-muted"
           )}
         >
           {count}

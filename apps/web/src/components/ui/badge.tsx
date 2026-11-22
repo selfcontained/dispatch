@@ -9,14 +9,10 @@ const badgeVariants = cva(
     variants: {
       variant: {
         default: "border-border bg-muted text-muted-foreground",
-        running:
-          "border-status-working/40 bg-status-working/15 text-status-working",
-        stopped:
-          "border-status-waiting/35 bg-status-waiting/15 text-status-waiting",
-        error:
-          "border-status-blocked/40 bg-status-blocked/15 text-status-blocked",
-        transitional:
-          "border-status-done/35 bg-status-done/15 text-status-done",
+        running: "border-success/line bg-success/tint text-success",
+        stopped: "border-warning/line bg-warning/tint text-warning",
+        error: "border-danger/line bg-danger/tint text-danger",
+        transitional: "border-info/line bg-info/tint text-info",
       },
     },
     defaultVariants: {

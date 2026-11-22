@@ -55,8 +55,8 @@ export function diffLines(oldText: string | null, newText: string): DiffLine[] {
 
 const DIFF_LINE_CLASS: Record<DiffLine["kind"], string> = {
   same: "text-muted-foreground",
-  add: "bg-status-done/10 text-status-done",
-  del: "bg-status-blocked/10 text-status-blocked",
+  add: "bg-info/tint text-info",
+  del: "bg-danger/tint text-danger",
 };
 const DIFF_SIGN: Record<DiffLine["kind"], string> = {
   same: " ",

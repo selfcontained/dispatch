@@ -86,10 +86,10 @@ export function SetPasswordForm({
         />
       </div>
       {mismatch && (
-        <p className="text-body-md text-destructive">Passwords do not match.</p>
+        <p className="text-body-md text-danger">Passwords do not match.</p>
       )}
       {error && (
-        <p role="alert" className="text-body-md text-destructive">
+        <p role="alert" className="text-body-md text-danger">
           {error}
         </p>
       )}

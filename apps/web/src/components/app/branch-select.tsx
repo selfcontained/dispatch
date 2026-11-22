@@ -208,7 +208,7 @@ export function BranchSelect({
                         />
                         {branch}
                         {isMissing ? (
-                          <span className="ml-2 text-label-xs uppercase tracking-wide text-status-waiting">
+                          <span className="ml-2 text-label-xs uppercase tracking-wide text-warning">
                             not found
                           </span>
                         ) : null}
@@ -222,7 +222,7 @@ export function BranchSelect({
         ) : null}
       </div>
       {fetchError ? (
-        <div className="flex items-center gap-2 text-body-sm text-status-blocked">
+        <div className="flex items-center gap-2 text-body-sm text-danger">
           <span className="truncate">Couldn't load branches.</span>
           <button
             type="button"
@@ -234,7 +234,7 @@ export function BranchSelect({
           </button>
         </div>
       ) : savedBranchMissing ? (
-        <div className="text-body-sm text-status-waiting">
+        <div className="text-body-sm text-warning">
           Saved branch <span className="font-mono">{baseBranch}</span> no longer
           exists on the remote — pick a new one.
         </div>

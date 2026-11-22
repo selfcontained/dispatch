@@ -17,9 +17,9 @@ function Calendar({
         caption_label: "text-body-md font-medium",
         nav: "flex items-center gap-1",
         button_previous:
-          "absolute left-2 top-2 inline-flex h-7 w-7 items-center justify-center rounded-md bg-accent text-muted-foreground p-0 hover:bg-accent/80 hover:text-foreground transition-colors",
+          "absolute left-2 top-2 inline-flex h-7 w-7 items-center justify-center rounded-md bg-accent text-muted-foreground p-0 hover:bg-accent/soft hover:text-foreground transition-colors",
         button_next:
-          "absolute right-2 top-2 inline-flex h-7 w-7 items-center justify-center rounded-md bg-accent text-muted-foreground p-0 hover:bg-accent/80 hover:text-foreground transition-colors",
+          "absolute right-2 top-2 inline-flex h-7 w-7 items-center justify-center rounded-md bg-accent text-muted-foreground p-0 hover:bg-accent/soft hover:text-foreground transition-colors",
         month_grid: "w-full border-collapse space-x-1",
         weekdays: "flex",
         weekday:
@@ -32,7 +32,7 @@ function Calendar({
           "bg-primary text-primary-foreground hover:bg-primary hover:text-primary-foreground focus:bg-primary focus:text-primary-foreground [&>button]:bg-primary [&>button]:text-primary-foreground [&>button]:hover:bg-primary [&>button]:hover:text-primary-foreground",
         today: "bg-accent text-accent-foreground rounded-md",
         outside:
-          "text-muted-foreground opacity-50 aria-selected:bg-accent/50 aria-selected:text-muted-foreground aria-selected:opacity-30",
+          "text-muted-foreground opacity-50 aria-selected:bg-accent/veil aria-selected:text-muted-foreground aria-selected:opacity-30",
         disabled: "text-muted-foreground opacity-50",
         hidden: "invisible",
         ...classNames,

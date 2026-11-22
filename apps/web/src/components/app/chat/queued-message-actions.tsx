@@ -122,7 +122,7 @@ export function QueuedMessageActions({
           <Button
             variant="ghost-warning"
             size="sm"
-            className="h-6 gap-1 border border-transparent px-2 text-label-sm hover:border-status-waiting/40 [@media(pointer:coarse)]:min-h-11 [@media(pointer:coarse)]:min-w-11"
+            className="h-6 gap-1 border border-transparent px-2 text-label-sm hover:border-warning/line-strong [@media(pointer:coarse)]:min-h-11 [@media(pointer:coarse)]:min-w-11"
             disabled={action.isPending || action.isSuccess}
             title={
               pendingDelivery
@@ -148,7 +148,7 @@ export function QueuedMessageActions({
           <Button
             variant="ghost"
             size="sm"
-            className="h-6 w-6 border border-transparent p-0 hover:border-destructive/40 hover:bg-destructive/15 hover:text-destructive [@media(pointer:coarse)]:min-h-11 [@media(pointer:coarse)]:min-w-11"
+            className="h-6 w-6 border border-transparent p-0 hover:border-danger/line-strong hover:bg-danger/tint-strong hover:text-danger [@media(pointer:coarse)]:min-h-11 [@media(pointer:coarse)]:min-w-11"
             aria-label="Delete"
             disabled={action.isPending || action.isSuccess}
             title="Delete this queued message so it will not be delivered"
@@ -159,7 +159,7 @@ export function QueuedMessageActions({
         ) : null}
       </div>
       {action.isError ? (
-        <span role="alert" className="col-span-2 text-body-sm text-destructive">
+        <span role="alert" className="col-span-2 text-body-sm text-danger">
           {action.error.message}
         </span>
       ) : null}

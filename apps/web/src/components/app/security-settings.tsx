@@ -128,14 +128,12 @@ export function SecuritySettings({
               data-testid="security-confirm-password"
             />
             {mismatch && (
-              <p className="text-body-md text-destructive">
+              <p className="text-body-md text-danger">
                 Passwords do not match.
               </p>
             )}
-            {error && <p className="text-body-md text-destructive">{error}</p>}
-            {message && (
-              <p className="text-body-md text-status-working">{message}</p>
-            )}
+            {error && <p className="text-body-md text-danger">{error}</p>}
+            {message && <p className="text-body-md text-success">{message}</p>}
             <Button
               type="submit"
               variant="primary"

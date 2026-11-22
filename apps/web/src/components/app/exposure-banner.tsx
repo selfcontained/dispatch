@@ -41,7 +41,7 @@ export function ExposureBanner() {
     <div
       ref={bannerRef}
       role="alert"
-      className="flex shrink-0 items-center gap-2 border-b border-amber-500/30 bg-amber-500/10 px-3 pb-2 pt-[calc(0.5rem+var(--safe-area-top))] text-body-md text-amber-600 dark:text-amber-300"
+      className="flex shrink-0 items-center gap-2 border-b border-warning/line bg-warning/tint px-3 pb-2 pt-[calc(0.5rem+var(--safe-area-top))] text-body-md text-warning-ink"
     >
       <ShieldAlert className="h-4 w-4 shrink-0" />
       <span className="min-w-0 flex-1">

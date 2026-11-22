@@ -8,7 +8,7 @@ export function Code({ children }: { children: React.ReactNode }) {
 
 export function CodeBlock({ children }: { children: string }) {
   return (
-    <pre className="overflow-x-auto rounded-md border border-border bg-muted/60 px-4 py-3 text-body-md leading-relaxed font-mono text-foreground">
+    <pre className="overflow-x-auto rounded-md border border-border bg-surface-hover px-4 py-3 text-body-md leading-relaxed font-mono text-foreground">
       {children.trim()}
     </pre>
   );

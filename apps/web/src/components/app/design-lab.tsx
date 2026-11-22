@@ -22,7 +22,7 @@ function ThemePicker({
           onClick={() => setTheme(t.id)}
           className={`group flex items-center gap-2 rounded-lg border px-2.5 py-1.5 text-body-sm transition-colors ${
             theme === t.id
-              ? "border-primary bg-primary/10 text-foreground"
+              ? "border-primary bg-surface-selected text-foreground"
               : "border-border bg-card text-muted-foreground hover:text-foreground"
           }`}
           title={t.description}

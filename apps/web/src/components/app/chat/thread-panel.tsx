@@ -400,7 +400,7 @@ export function ThreadPanel({
         chrome &&
           (isMobile
             ? "absolute inset-0 z-20"
-            : "w-[26rem] shrink-0 border-l border-border/40")
+            : "w-[26rem] shrink-0 border-l border-border-subtle")
       )}
       onKeyDownCapture={(event) => {
         // ProseMirror prevents raw Escape at the editor target even without an
@@ -425,7 +425,7 @@ export function ThreadPanel({
       data-mobile={isMobile ? "true" : undefined}
     >
       {chrome ? (
-        <div className="flex shrink-0 items-center gap-2 border-b border-border/40 bg-muted/30 px-3 py-2">
+        <div className="flex shrink-0 items-center gap-2 border-b border-border-subtle bg-surface-subtle px-3 py-2">
           {isMobile ? (
             <Button
               type="button"
@@ -489,7 +489,7 @@ export function ThreadPanel({
         {thread.error ? (
           <div
             role="alert"
-            className="mx-4 mb-3 flex items-center justify-between gap-3 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-body-sm text-destructive"
+            className="mx-4 mb-3 flex items-center justify-between gap-3 rounded-md border border-danger/line bg-danger/tint px-3 py-2 text-body-sm text-danger"
             data-testid="chat-thread-error"
           >
             <span className="min-w-0 truncate">
@@ -532,7 +532,7 @@ export function ThreadPanel({
           <>
             {replies.length > 0 ? (
               <div
-                className="mx-4 mt-2 border-t border-border/40 pt-1 text-label-sm text-muted-foreground"
+                className="mx-4 mt-2 border-t border-border-subtle pt-1 text-label-sm text-muted-foreground"
                 data-testid="chat-thread-count"
               >
                 {replies.length}{" "}
@@ -599,11 +599,11 @@ export function ThreadPanel({
           </>
         ) : null}
       </div>
-      <div className="shrink-0 border-t border-foreground/20 bg-background px-4 pb-3 pt-3">
+      <div className="shrink-0 border-t border-foreground/tint-strong bg-background px-4 pb-3 pt-3">
         {error || stopError ? (
           <div
             role="alert"
-            className="mb-1.5 truncate text-label-sm text-destructive"
+            className="mb-1.5 truncate text-label-sm text-danger"
             data-testid="chat-thread-action-error"
           >
             {error ?? stopError}

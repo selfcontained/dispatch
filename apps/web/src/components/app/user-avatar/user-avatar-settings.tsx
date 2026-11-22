@@ -107,7 +107,7 @@ export function UserAvatarSettings() {
           <Button
             key={id}
             variant="ghost"
-            className="h-auto flex-col gap-1.5 border border-transparent px-3 py-2 aria-pressed:border-primary aria-pressed:bg-primary/10"
+            className="h-auto flex-col gap-1.5 border border-transparent px-3 py-2 aria-pressed:border-primary aria-pressed:bg-surface-selected"
             disabled={disabled}
             aria-pressed={avatar.kind === "builtin" && avatar.id === id}
             aria-label={`Use ${avatarLabel(id)} avatar`}
@@ -146,7 +146,7 @@ export function UserAvatarSettings() {
         </span>
       </div>
       {query.isError && (
-        <p role="alert" className="mt-2 text-body-md text-destructive">
+        <p role="alert" className="mt-2 text-body-md text-danger">
           Could not load your avatar.{" "}
           <button className="underline" onClick={() => void query.refetch()}>
             Try again
@@ -154,7 +154,7 @@ export function UserAvatarSettings() {
         </p>
       )}
       {(error || save.error) && (
-        <p role="alert" className="mt-2 text-body-md text-destructive">
+        <p role="alert" className="mt-2 text-body-md text-danger">
           {error ?? save.error?.message}
         </p>
       )}

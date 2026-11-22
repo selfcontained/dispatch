@@ -1418,7 +1418,7 @@ export function ChatPane({
                 {feed.error ? (
                   <div
                     role="alert"
-                    className="mx-4 mb-3 flex items-center justify-between gap-3 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-body-sm text-destructive"
+                    className="mx-4 mb-3 flex items-center justify-between gap-3 rounded-md border border-danger/line bg-danger/tint px-3 py-2 text-body-sm text-danger"
                     data-testid="chat-feed-error"
                   >
                     <span className="min-w-0 truncate">
@@ -1493,7 +1493,7 @@ export function ChatPane({
                     title={pendingBelow ? "New messages" : "Jump to bottom"}
                     data-testid="chat-jump-to-bottom"
                     data-pending={pendingBelow ? "true" : undefined}
-                    className="pointer-events-auto relative h-9 w-9 rounded-full border border-foreground/[0.22] bg-[hsl(var(--accent))] text-foreground shadow-[0_4px_14px_rgb(0_0_0/0.35),0_0_14px_hsl(var(--foreground)/0),inset_0_1px_0_hsl(var(--foreground)/0.08)] backdrop-blur transition-[color,background-color,border-color,box-shadow] duration-300 ease-in-out hover:border-foreground/40 hover:bg-muted hover:shadow-[0_4px_14px_rgb(0_0_0/0.35),0_0_14px_hsl(var(--foreground)/0.16),inset_0_1px_0_hsl(var(--foreground)/0.08)]"
+                    className="pointer-events-auto relative h-9 w-9 rounded-full border border-foreground/tint-strong bg-[hsl(var(--accent))] text-foreground shadow-[0_4px_14px_rgb(0_0_0/0.35),0_0_14px_hsl(var(--foreground)/0),inset_0_1px_0_hsl(var(--foreground)/0.08)] backdrop-blur transition-[color,background-color,border-color,box-shadow] duration-300 ease-in-out hover:border-foreground/line-strong hover:bg-muted hover:shadow-[0_4px_14px_rgb(0_0_0/0.35),0_0_14px_hsl(var(--foreground)/0.16),inset_0_1px_0_hsl(var(--foreground)/0.08)]"
                     onClick={jumpToBottom}
                   >
                     <ArrowDown className="h-4 w-4" />
@@ -1510,7 +1510,7 @@ export function ChatPane({
           </div>
           <div
             className={cn(
-              "relative min-w-0 max-w-full shrink-0 overflow-hidden border-t border-foreground/20 bg-background px-3 pt-2 md:px-4 md:pt-3",
+              "relative min-w-0 max-w-full shrink-0 overflow-hidden border-t border-foreground/tint-strong bg-background px-3 pt-2 md:px-4 md:pt-3",
               isMobile ? "pb-2" : "pb-3"
             )}
           >
@@ -1518,7 +1518,7 @@ export function ChatPane({
               <div className="mb-1.5 flex items-center gap-2">
                 <span
                   role="alert"
-                  className="truncate text-label-sm text-destructive"
+                  className="truncate text-label-sm text-danger"
                 >
                   {sendError}
                 </span>

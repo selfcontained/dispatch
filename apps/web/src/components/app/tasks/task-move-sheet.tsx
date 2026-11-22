@@ -61,7 +61,7 @@ export function TaskMoveSheet({
                 key={column.id}
                 type="button"
                 className={cn(
-                  "flex min-h-11 w-full items-center gap-3 rounded-md px-3 text-left text-body-md hover:bg-muted/60",
+                  "flex min-h-11 w-full items-center gap-3 rounded-md px-3 text-left text-body-md hover:bg-surface-hover",
                   current && "font-medium"
                 )}
                 onClick={() => {

@@ -233,7 +233,7 @@ function EngineRow({
             </p>
           )}
           {showRequestError && (
-            <p role="alert" className="text-body-md text-destructive">
+            <p role="alert" className="text-body-md text-danger">
               {update.error instanceof ApiError
                 ? update.error.message
                 : "The update request could not be confirmed. The server may still be updating. Recheck status before retrying."}

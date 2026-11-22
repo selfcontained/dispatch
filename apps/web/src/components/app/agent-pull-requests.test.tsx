@@ -101,9 +101,9 @@ it("retains an earlier request's failure when a later dismissal succeeds", async
 });
 
 it.each([
-  [1, 1, 1, "text-status-blocked", "circle-x"],
-  [1, 0, 1, "text-status-waiting", "clock"],
-  [1, 0, 0, "text-status-working", "circle-check"],
+  [1, 1, 1, "text-danger", "circle-x"],
+  [1, 0, 1, "text-warning", "clock"],
+  [1, 0, 0, "text-success", "circle-check"],
 ])(
   "shows one priority icon for passed=%s failed=%s pending=%s",
   (passed, failed, pending, color, icon) => {

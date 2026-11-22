@@ -48,7 +48,7 @@ function SummaryCard({
     >
       <CardContent className="p-4">
         <div className="flex items-start justify-between gap-3">
-          <div className="rounded-lg border border-border bg-muted/45 p-2 text-muted-foreground">
+          <div className="rounded-lg border border-border bg-surface-subtle p-2 text-muted-foreground">
             <Icon className="h-4 w-4" />
           </div>
           <span className="section-label">{scope}</span>
@@ -114,9 +114,9 @@ export function ServiceResourcesDashboard({
   return (
     <>
       {data.overall.reasons.length > 0 && (
-        <Card className="border-status-waiting/30 bg-status-waiting/5">
+        <Card className="border-warning/line bg-warning/wash">
           <CardContent className="flex gap-3 p-4">
-            <Activity className="mt-0.5 h-4 w-4 shrink-0 text-status-waiting" />
+            <Activity className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
             <div>
               <div className="text-body-md font-medium">
                 Dispatch needs attention
@@ -250,7 +250,7 @@ export function ServiceResourcesDashboard({
             {workloadItems.map((item) => (
               <div
                 key={item.label}
-                className={`rounded-lg border border-border bg-muted/25 p-3 ${item.wide ? "col-span-2" : ""}`}
+                className={`rounded-lg border border-border bg-surface-subtle p-3 ${item.wide ? "col-span-2" : ""}`}
               >
                 <div className="text-body-sm text-muted-foreground">
                   {item.label}

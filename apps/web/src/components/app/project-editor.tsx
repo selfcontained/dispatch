@@ -144,7 +144,7 @@ export function ProjectEditor({
                 <legend className="text-body-md">Icon</legend>
                 <div className="flex items-center gap-3">
                   <div
-                    className="flex h-16 w-16 shrink-0 items-center justify-center rounded-lg border border-border bg-muted/30"
+                    className="flex h-16 w-16 shrink-0 items-center justify-center rounded-lg border border-border bg-surface-subtle"
                     data-testid="project-icon-preview"
                   >
                     {iconSrc ? (
@@ -270,12 +270,12 @@ export function ProjectEditor({
                 />
               </fieldset>
               {(error || action.error) && (
-                <p role="alert" className="text-body-md text-destructive">
+                <p role="alert" className="text-body-md text-danger">
                   {error ?? action.error?.message}
                 </p>
               )}
               {project && (
-                <div className="flex flex-wrap items-center gap-3 rounded-lg bg-muted/30 p-3">
+                <div className="flex flex-wrap items-center gap-3 rounded-lg bg-surface-subtle p-3">
                   <Button
                     type="button"
                     size="sm"

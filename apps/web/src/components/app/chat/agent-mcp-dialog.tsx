@@ -66,12 +66,11 @@ function status(server: McpServer) {
 }
 
 function stateColor(server: McpServer) {
-  if (needsSignIn(server)) return "text-status-waiting";
+  if (needsSignIn(server)) return "text-warning";
   if (server.state === "failed" || server.toolsState === "error")
-    return "text-status-blocked";
-  if (server.state === "connected") return "text-status-working";
-  if (["pending", "starting"].includes(server.state))
-    return "text-status-waiting";
+    return "text-danger";
+  if (server.state === "connected") return "text-success";
+  if (["pending", "starting"].includes(server.state)) return "text-warning";
   return "text-muted-foreground";
 }
 
@@ -200,7 +199,7 @@ function McpInventoryPopover({
       >
         <div className="mb-2 flex shrink-0 items-center justify-between border-b border-border px-1 pb-1 text-body-sm">
           <span className="font-medium">
-            <span aria-hidden="true" className="mr-2 text-status-working">
+            <span aria-hidden="true" className="mr-2 text-success">
               &gt;_
             </span>
             MCP servers{data?.status === "ok" ? ` · ${servers.length}` : ""}
@@ -235,7 +234,7 @@ function McpInventoryPopover({
               {["w-32", "w-24", "w-36", "w-28"].map((width) => (
                 <div
                   key={width}
-                  className="flex h-11 items-center gap-2 border-b border-border/50"
+                  className="flex h-11 items-center gap-2 border-b border-border-subtle"
                 >
                   <Skeleton className="h-3.5 w-3.5 rounded-full motion-reduce:animate-none" />
                   <Skeleton
@@ -269,7 +268,7 @@ function McpInventoryPopover({
                   );
                 }}
               >
-                <span className="inline-flex h-6 items-center rounded border border-foreground/30 bg-accent px-2">
+                <span className="inline-flex h-6 items-center rounded border border-foreground/line bg-accent px-2">
                   Back
                 </span>
               </Button>
@@ -363,7 +362,7 @@ function McpInventoryPopover({
                 variant="ghost"
                 size="sm"
                 aria-pressed={attention}
-                className="my-1 h-7 shrink-0 self-start px-1 text-label-sm text-status-waiting pointer-coarse:min-h-11"
+                className="my-1 h-7 shrink-0 self-start px-1 text-label-sm text-warning pointer-coarse:min-h-11"
                 onClick={() => setAttention(!attention)}
               >
                 Needs attention · {attentionCount}
@@ -386,7 +385,7 @@ function McpInventoryPopover({
                     }}
                     type="button"
                     variant="ghost"
-                    className="h-9 w-full justify-start gap-2 rounded-none border-b border-border/50 px-2 text-left font-normal pointer-coarse:min-h-11"
+                    className="h-9 w-full justify-start gap-2 rounded-none border-b border-border-subtle px-2 text-left font-normal pointer-coarse:min-h-11"
                     onClick={() => {
                       setSelected(item.name);
                       setToolSearch("");

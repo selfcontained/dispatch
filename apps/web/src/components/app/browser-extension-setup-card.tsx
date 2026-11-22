@@ -41,7 +41,7 @@ export function BrowserExtensionSetupCard({
   return (
     <Card>
       <CardHeader className="flex-row items-start gap-3 space-y-0">
-        <div className="rounded-lg bg-primary/10 p-2 text-primary">
+        <div className="rounded-lg bg-surface-selected p-2 text-primary">
           <Chrome className="h-5 w-5" aria-hidden="true" />
         </div>
         <div className="min-w-0 flex-1 space-y-1.5">
@@ -99,7 +99,7 @@ export function BrowserExtensionSetupCard({
 
         {showInstallGuide && (
           <div
-            className="space-y-4 rounded-lg border border-border bg-background/40 p-4"
+            className="space-y-4 rounded-lg border border-border bg-background/veil p-4"
             data-testid="extension-install-guide"
           >
             <div className="flex flex-wrap items-start justify-between gap-3">

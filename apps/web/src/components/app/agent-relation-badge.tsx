@@ -16,7 +16,7 @@ export function AgentRelationBadge({
   return (
     <span
       className={cn(
-        "shrink-0 rounded border border-violet-500/30 bg-violet-500/10 px-1 text-label-xs font-medium leading-4 text-violet-600 dark:text-violet-300",
+        "shrink-0 rounded border border-status-merged/line bg-status-merged/tint px-1 text-label-xs font-medium leading-4 text-status-merged",
         className
       )}
       data-testid="agent-relation-badge"

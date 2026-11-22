@@ -20,7 +20,7 @@ function RepoLabel({ agentId, name }: { agentId: string; name: string }) {
       className="ml-auto flex min-w-0 max-w-full items-center gap-1"
       title={name}
     >
-      <span className="min-w-0 truncate font-mono text-label-xs text-muted-foreground/60">
+      <span className="min-w-0 truncate font-mono text-label-xs text-faint">
         {name}
       </span>
       {!iconError ? (
@@ -53,7 +53,7 @@ export function AgentCardPhaseStatus({
     <div
       className={cn(
         "mt-1 flex min-w-0 items-center gap-1.5 text-body-sm",
-        phase.tone === "starting" ? "text-status-working" : "text-orange-400",
+        phase.tone === "starting" ? "text-status-working" : "text-warning",
         className
       )}
     >

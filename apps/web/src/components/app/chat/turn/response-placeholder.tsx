@@ -665,7 +665,7 @@ export function ResponsePlaceholderVisual({
     <div
       data-glow="halo-soft"
       data-testid="chat-response-placeholder"
-      className={`dispatch-placeholder ${quiet ? "" : "dispatch-placeholder-chase"} relative mt-3 w-full rounded-lg md:max-w-md border border-border/60 bg-muted/10 overflow-clip px-2.5 pt-2 ${hasFooter ? "pb-1" : "pb-2"} ${reducedCells ? "dispatch-defrag-reduced" : ""}`}
+      className={`dispatch-placeholder ${quiet ? "" : "dispatch-placeholder-chase"} relative mt-3 w-full rounded-lg md:max-w-md border border-border-subtle bg-surface-subtle overflow-clip px-2.5 pt-2 ${hasFooter ? "pb-1" : "pb-2"} ${reducedCells ? "dispatch-defrag-reduced" : ""}`}
     >
       {/* The status region holds only the picture; the peek control sits
           beside it, so its changing count is never announced. */}
@@ -711,7 +711,7 @@ export function ResponsePlaceholderVisual({
             </TooltipTrigger>
             <div aria-hidden="true" className="absolute inset-0">
               <div
-                className="absolute inset-0 bg-muted/40"
+                className="absolute inset-0 bg-surface-subtle"
                 style={slotStyle(columns)}
               />
               <div className="dispatch-placeholder-colors absolute inset-0">

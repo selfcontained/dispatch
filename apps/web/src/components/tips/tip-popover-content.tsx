@@ -19,14 +19,14 @@ export function TipPopoverContent({
     <div className="max-w-[240px]">
       <div className="mb-1.5 flex items-start justify-between gap-2">
         <div className="flex items-center gap-1.5">
-          <Sparkles className="h-3.5 w-3.5 text-purple-400" />
+          <Sparkles className="h-3.5 w-3.5 text-status-merged" />
           <span className="text-body-sm font-semibold text-foreground">
             {tip.title}
           </span>
         </div>
         <button
           onClick={onDismiss}
-          className="shrink-0 rounded p-0.5 text-muted-foreground/50 transition-colors hover:text-foreground"
+          className="shrink-0 rounded p-0.5 text-faint transition-colors hover:text-foreground"
         >
           <X className="h-3.5 w-3.5" />
         </button>
@@ -38,7 +38,7 @@ export function TipPopoverContent({
         {tip.docsSection ? (
           <button
             onClick={() => onOpenDocs?.(tip.docsSection!)}
-            className="text-label-sm text-purple-400/80 transition-colors hover:text-purple-300"
+            className="text-label-sm text-status-merged/soft transition-colors hover:text-status-merged"
           >
             Learn more →
           </button>
@@ -47,7 +47,7 @@ export function TipPopoverContent({
         )}
         <button
           onClick={onDisableAll}
-          className="text-label-xs text-muted-foreground/40 transition-colors hover:text-muted-foreground"
+          className="text-label-xs text-faint transition-colors hover:text-muted-foreground"
         >
           Don't show tips
         </button>

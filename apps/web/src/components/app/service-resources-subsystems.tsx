@@ -52,7 +52,7 @@ function StatSparkline({
   if (data.length < 2) {
     return (
       <div
-        className="mt-2 flex h-9 items-end border-b border-dashed border-border/70 pb-1 section-label"
+        className="mt-2 flex h-9 items-end border-b border-dashed border-border-subtle pb-1 section-label"
         data-testid={testId}
       >
         Collecting trend…
@@ -68,9 +68,7 @@ function StatSparkline({
       ? Math.max(1, Math.abs(maximum) * 0.05)
       : (maximum - minimum) * 0.12;
   const rangeLabel = `${stat.formatHistoryValue(minimum)} to ${stat.formatHistoryValue(maximum)}`;
-  const color = stat.isFailure
-    ? "hsl(var(--status-blocked))"
-    : "hsl(var(--chart-1))";
+  const color = stat.isFailure ? "hsl(var(--danger))" : "hsl(var(--chart-1))";
   const config = {
     value: { label: stat.label, color },
   } satisfies ChartConfig;
@@ -158,7 +156,7 @@ function SubsystemRow({
     <div className="border-b border-border last:border-b-0">
       <button
         type="button"
-        className="grid w-full grid-cols-[1fr_auto] items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-muted/40 md:grid-cols-[minmax(12rem,1.4fr)_minmax(7rem,0.6fr)_minmax(7rem,0.6fr)_5.5rem]"
+        className="grid w-full grid-cols-[1fr_auto] items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-surface-hover md:grid-cols-[minmax(12rem,1.4fr)_minmax(7rem,0.6fr)_minmax(7rem,0.6fr)_5.5rem]"
         onClick={() => setExpanded((value) => !value)}
         aria-expanded={expanded}
         data-testid={`subsystem-${subsystem.id}`}
@@ -195,22 +193,20 @@ function SubsystemRow({
         </Badge>
       </button>
       {expanded && (
-        <div className="bg-muted/20 px-4 pb-4 pl-10 text-body-sm text-muted-foreground">
+        <div className="bg-surface-subtle px-4 pb-4 pl-10 text-body-sm text-muted-foreground">
           <p>{subsystem.description}</p>
-          {statusReason && (
-            <p className="mt-2 text-status-waiting">{statusReason}</p>
-          )}
+          {statusReason && <p className="mt-2 text-warning">{statusReason}</p>}
           {stats.length > 0 && (
             <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
               {stats.map((stat) => (
                 <div
                   key={stat.key}
-                  className="rounded-md border border-border/80 bg-background/40 px-3 pb-2 pt-2 shadow-sm"
+                  className="rounded-md border border-border bg-background/veil px-3 pb-2 pt-2 shadow-sm"
                 >
                   <span className="block section-label">{stat.label}</span>
                   <span
                     className={`mt-0.5 block text-body-md font-semibold tabular-nums ${
-                      stat.isFailure ? "text-status-blocked" : "text-foreground"
+                      stat.isFailure ? "text-danger" : "text-foreground"
                     }`}
                   >
                     {stat.value}
@@ -230,7 +226,7 @@ function SubsystemRow({
             </div>
           )}
           {subsystem.lastError && (
-            <p className="mt-3 text-status-blocked">{subsystem.lastError}</p>
+            <p className="mt-3 text-danger">{subsystem.lastError}</p>
           )}
         </div>
       )}

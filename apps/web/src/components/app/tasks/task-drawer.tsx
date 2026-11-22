@@ -60,11 +60,11 @@ import { statusLabel } from "@/lib/status-label";
 
 /** Status and Assignee share one width and one quiet field style. */
 const PROPERTY_CONTROL =
-  "h-8 w-full max-w-64 border-transparent bg-muted/50 text-body-sm hover:bg-muted";
+  "h-8 w-full max-w-64 border-transparent bg-surface-hover text-body-sm hover:bg-muted";
 
 /** The raised surface each drawer group sits on, over the pane's base. */
 const DRAWER_SURFACE =
-  "rounded-xl bg-card/70 p-3 shadow-sm ring-1 ring-border/40";
+  "rounded-xl bg-card/soft p-3 shadow-sm ring-1 ring-border-subtle";
 
 /** A drawer group: a quiet label over its content, on its own surface. */
 function DrawerSection({
@@ -260,7 +260,7 @@ export function TaskDetailPanel({
     );
   return (
     <>
-      <header className="flex min-h-14 shrink-0 items-center gap-1 border-b border-border/40 pl-1.5 pr-2 pt-[var(--safe-area-top)] text-body-sm text-muted-foreground">
+      <header className="flex min-h-14 shrink-0 items-center gap-1 border-b border-border-subtle pl-1.5 pr-2 pt-[var(--safe-area-top)] text-body-sm text-muted-foreground">
         <Button
           size="icon"
           variant="ghost"
@@ -359,7 +359,7 @@ export function TaskDetailPanel({
                   />
                 ) : (
                   <button
-                    className="-mx-1 w-full break-words rounded-md px-1 text-left text-heading-lg leading-7 hover:bg-muted/40"
+                    className="-mx-1 w-full break-words rounded-md px-1 text-left text-heading-lg leading-7 hover:bg-surface-hover"
                     onClick={() => setEditingTitle(true)}
                   >
                     {task.title}
@@ -437,7 +437,7 @@ export function TaskDetailPanel({
                   {editingBody ? (
                     <textarea
                       autoFocus
-                      className="min-h-36 w-full rounded-lg bg-muted/40 p-3 text-body-md outline-none ring-1 ring-border/60 focus:ring-ring"
+                      className="min-h-36 w-full rounded-lg bg-surface-subtle p-3 text-body-md outline-none ring-1 ring-border-subtle focus:ring-ring"
                       value={body}
                       onChange={(event) => setBody(event.target.value)}
                       onBlur={saveBody}
@@ -451,7 +451,7 @@ export function TaskDetailPanel({
                     />
                   ) : (
                     <button
-                      className="-mx-2 min-h-12 w-[calc(100%+1rem)] rounded-lg px-2 py-1 text-left text-body-md text-foreground hover:bg-muted/40"
+                      className="-mx-2 min-h-12 w-[calc(100%+1rem)] rounded-lg px-2 py-1 text-left text-body-md text-foreground hover:bg-surface-hover"
                       onClick={() => setEditingBody(true)}
                     >
                       {task.body ? (
@@ -497,7 +497,7 @@ export function TaskDetailPanel({
                           href={link.url ?? undefined}
                           target="_blank"
                           rel="noreferrer"
-                          className="inline-flex max-w-full items-center gap-1 rounded-md bg-muted/50 px-2 py-1 text-body-sm text-primary hover:bg-muted"
+                          className="inline-flex max-w-full items-center gap-1 rounded-md bg-surface-hover px-2 py-1 text-body-sm text-primary hover:bg-muted"
                         >
                           {link.kind === "pr" && (
                             <GitPullRequest
@@ -578,7 +578,7 @@ export function TaskDetailPanel({
                           <div
                             key={assignment.agentId}
                             data-testid={`task-agent-row-${assignment.agentId}`}
-                            className="flex items-center gap-2 rounded-lg px-1 py-0.5 hover:bg-muted/30"
+                            className="flex items-center gap-2 rounded-lg px-1 py-0.5 hover:bg-surface-hover"
                           >
                             {agent ? (
                               <TaskAgent
@@ -682,7 +682,7 @@ export function TaskDetailPanel({
                   )}
                 </DrawerSection>
                 <DrawerSection label="Activity">
-                  <ol className="space-y-2 border-l-2 border-border/50 pl-3">
+                  <ol className="space-y-2 border-l-2 border-border-subtle pl-3">
                     {task.events.map((event) => (
                       <li key={event.id} className="text-body-sm">
                         <span className="font-medium">
@@ -697,9 +697,7 @@ export function TaskDetailPanel({
                           {formatRelativeTime(event.createdAt)}
                         </span>
                         {typeof event.data.reason === "string" && (
-                          <p className="text-destructive">
-                            {event.data.reason}
-                          </p>
+                          <p className="text-danger">{event.data.reason}</p>
                         )}
                       </li>
                     ))}
@@ -709,7 +707,7 @@ export function TaskDetailPanel({
             </div>
             {task.archivedAt && (
               <div
-                className="border-t border-border/40 px-3 py-2 text-body-md text-muted-foreground"
+                className="border-t border-border-subtle px-3 py-2 text-body-md text-muted-foreground"
                 role="status"
               >
                 Archived — restore this task to move it.
@@ -717,14 +715,11 @@ export function TaskDetailPanel({
             )}
             {actions.restore?.error &&
               actions.restore.variables === task.id && (
-                <p
-                  role="alert"
-                  className="px-3 py-2 text-body-md text-destructive"
-                >
+                <p role="alert" className="px-3 py-2 text-body-md text-danger">
                   {actions.restore.error.message}
                 </p>
               )}
-            <footer className="flex shrink-0 items-center gap-2 border-t border-border/40 bg-card/60 px-3 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
+            <footer className="flex shrink-0 items-center gap-2 border-t border-border-subtle bg-card/veil px-3 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
               <Button
                 size="sm"
                 variant="default"

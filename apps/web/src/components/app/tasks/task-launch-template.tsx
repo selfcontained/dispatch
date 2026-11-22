@@ -69,7 +69,7 @@ export function TaskLaunchTemplatePicker({
         projectsLoaded &&
         templateId &&
         !choices.some((t) => t.id === templateId) && (
-          <p role="alert" className="text-body-sm text-destructive">
+          <p role="alert" className="text-body-sm text-danger">
             Template unavailable. Choose another template or use the column
             default.
           </p>
@@ -107,7 +107,7 @@ export function TaskLaunchTemplateEditor({ task }: { task: Task }) {
         </Button>
       )}
       {error && (
-        <p role="alert" className="text-body-sm text-destructive">
+        <p role="alert" className="text-body-sm text-danger">
           {error}
         </p>
       )}

@@ -147,7 +147,7 @@ export function TaskColumnMenu({
           )}
           <DropdownMenuSeparator />
           <DropdownMenuItem
-            className={cn(MENU_ITEM, "text-destructive")}
+            className={cn(MENU_ITEM, "text-danger")}
             disabled={taskCount > 0}
             onSelect={() => {
               if (window.confirm(`Delete ${column.name}?`))
@@ -172,7 +172,7 @@ export function TaskColumnMenu({
             Archived tasks leave the board. You can restore them from Archived.
           </AlertDialogDescription>
           {archiveError && (
-            <p role="alert" className="text-body-md text-destructive">
+            <p role="alert" className="text-body-md text-danger">
               {archiveError}
             </p>
           )}

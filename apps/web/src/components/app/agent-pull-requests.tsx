@@ -88,10 +88,9 @@ function riskTone(risk: MergeRiskSummary) {
     (!risk.displayState && risk.status !== "ok") ||
     (!risk.displayState && risk.verdict === "human_review")
   )
-    return "text-red-600 [[data-theme-mode=dark]_&]:text-red-400";
-  if (risk.displayState === "evaluating") return "text-status-waiting";
-  if (!risk.displayState && risk.verdict === "routine")
-    return "text-status-working";
+    return "text-danger";
+  if (risk.displayState === "evaluating") return "text-warning";
+  if (!risk.displayState && risk.verdict === "routine") return "text-success";
   return "text-muted-foreground";
 }
 function riskDisplay(risk: MergeRiskSummary) {
@@ -159,7 +158,7 @@ function EvidencePercent({
           : "var(--risk-context)";
   return (
     <span
-      className="tabular-nums font-medium text-muted-foreground [--risk-positive:#166534] [--risk-negative:#991b1b] [--risk-attention:#92400e] [--risk-neutral:#475569] [--risk-context:#1e40af] [[data-theme-mode=dark]_&]:[--risk-positive:#86efac] [[data-theme-mode=dark]_&]:[--risk-negative:#fca5a5] [[data-theme-mode=dark]_&]:[--risk-attention:#fcd34d] [[data-theme-mode=dark]_&]:[--risk-neutral:#cbd5e1] [[data-theme-mode=dark]_&]:[--risk-context:#93c5fd]"
+      className="tabular-nums font-medium text-muted-foreground [--risk-positive:hsl(var(--success-ink))] [--risk-negative:hsl(var(--danger-ink))] [--risk-attention:hsl(var(--warning-ink))] [--risk-context:hsl(var(--info-ink))] [--risk-neutral:hsl(var(--muted-foreground))]"
       style={{ color }}
     >
       {percent(value)}
@@ -289,7 +288,7 @@ function RiskExplanation({
     <Button
       variant="default"
       size="sm"
-      className="h-8 gap-1.5 border-border bg-muted/70 px-2.5 text-label-sm text-foreground shadow-sm backdrop-blur-none hover:border-border hover:bg-muted aria-disabled:cursor-wait aria-disabled:opacity-60"
+      className="h-8 gap-1.5 border-border bg-surface-hover px-2.5 text-label-sm text-foreground shadow-sm backdrop-blur-none hover:border-border hover:bg-muted aria-disabled:cursor-wait aria-disabled:opacity-60"
       aria-disabled={query.isFetching}
       onClick={() => {
         if (query.isFetching) return;
@@ -319,8 +318,8 @@ function RiskExplanation({
               ? cn(
                   "border p-2.5",
                   failure
-                    ? "border-status-blocked/35 bg-status-blocked/5"
-                    : "border-border bg-muted/30"
+                    ? "border-danger/line bg-danger/wash"
+                    : "border-border bg-surface-subtle"
                 )
               : "border-0 bg-transparent p-0 backdrop-blur-none"
           )}
@@ -331,7 +330,7 @@ function RiskExplanation({
                 aria-hidden="true"
                 className={cn(
                   "mt-0.5 h-3.5 w-3.5 shrink-0",
-                  failure ? "text-status-blocked" : "text-muted-foreground"
+                  failure ? "text-danger" : "text-muted-foreground"
                 )}
               />
             )}
@@ -341,7 +340,7 @@ function RiskExplanation({
                   <p
                     className={cn(
                       "font-medium",
-                      failure ? "text-status-blocked" : "text-foreground"
+                      failure ? "text-danger" : "text-foreground"
                     )}
                   >
                     {notice.title}
@@ -452,10 +451,10 @@ function MergeRiskDetails({
                 "text-right font-medium",
                 assessment.changeRiskLabel === "high" ||
                   assessment.changeRiskLabel === "critical"
-                  ? "text-red-600 [[data-theme-mode=dark]_&]:text-red-400"
+                  ? "text-danger"
                   : assessment.changeRiskLabel === "low"
-                    ? "text-status-working"
-                    : "text-status-waiting"
+                    ? "text-success"
+                    : "text-warning"
               )}
             >
               {assessment.changeRiskLabel ?? "—"}
@@ -540,38 +539,38 @@ function MergeRiskDetails({
 const STATES = {
   Open: {
     icon: GitPullRequest,
-    color: "text-status-working",
-    badge: "border-status-working/20 bg-status-working/10 text-status-working",
+    color: "text-success",
+    badge: "border-success/line bg-success/tint text-success",
     label: "Open",
   },
   Draft: {
     icon: GitPullRequestDraft,
     color: "text-muted-foreground",
-    badge: "border-border bg-muted/50 text-muted-foreground",
+    badge: "border-border bg-surface-hover text-muted-foreground",
     label: "Draft",
   },
   Merged: {
     icon: GitMerge,
     color: "text-status-merged",
-    badge: "border-status-merged/20 bg-status-merged/10 text-status-merged",
+    badge: "border-status-merged/line bg-status-merged/tint text-status-merged",
     label: "Merged",
   },
   Closed: {
     icon: GitPullRequestClosed,
-    color: "text-status-blocked",
-    badge: "border-status-blocked/20 bg-status-blocked/10 text-status-blocked",
+    color: "text-danger",
+    badge: "border-danger/line bg-danger/tint text-danger",
     label: "Closed",
   },
   Pending: {
     icon: Clock3,
     color: "text-muted-foreground",
-    badge: "border-border bg-muted/50 text-muted-foreground",
+    badge: "border-border bg-surface-hover text-muted-foreground",
     label: "Checking",
   },
   Unavailable: {
     icon: CircleHelp,
-    color: "text-status-waiting",
-    badge: "border-status-waiting/20 bg-status-waiting/10 text-status-waiting",
+    color: "text-warning",
+    badge: "border-warning/line bg-warning/tint text-warning",
     label: "Unavailable",
   },
 } satisfies Record<
@@ -613,20 +612,20 @@ function ciPresentation(ci: CiSnapshot | undefined) {
     return {
       label: `${summary.failed} failed${summary.pending ? ` · ${summary.pending} pending` : ""}`,
       icon: CircleX,
-      color: "text-status-blocked",
+      color: "text-danger",
     };
   if (summary.pending)
     return {
       label: `${summary.pending} pending`,
       icon: Clock3,
-      color: "text-status-waiting",
+      color: "text-warning",
     };
   if (summary.status === "none")
     return { label: "No checks", icon: Minus, color: "text-muted-foreground" };
   return {
     label: `${summary.passed}/${summary.total} passed`,
     icon: CircleCheck,
-    color: "text-status-working",
+    color: "text-success",
   };
 }
 
@@ -635,13 +634,13 @@ function checkResult(check: CiSnapshot["checks"][number]) {
     return {
       label: check.status === "IN_PROGRESS" ? "Running" : "Pending",
       icon: Clock3,
-      color: "text-status-waiting",
+      color: "text-warning",
     };
   if (check.conclusion === "SUCCESS")
     return {
       label: "Passed",
       icon: CircleCheck,
-      color: "text-status-working",
+      color: "text-success",
     };
   if (check.conclusion === "SKIPPED" || check.conclusion === "NEUTRAL")
     return {
@@ -653,7 +652,7 @@ function checkResult(check: CiSnapshot["checks"][number]) {
     label:
       check.conclusion === "FAILURE" ? "Failed" : statusLabel(check.conclusion),
     icon: CircleX,
-    color: "text-status-blocked",
+    color: "text-danger",
   };
 }
 
@@ -780,7 +779,7 @@ export function AgentPullRequests({
   return (
     <div data-testid={`agent-pr-row-${agentId}`} className="contents">
       {hasDismissError && (
-        <p role="alert" className="text-body-sm text-destructive">
+        <p role="alert" className="text-body-sm text-danger">
           Could not dismiss PR. Please try again.
         </p>
       )}
@@ -855,7 +854,7 @@ export function PullRequestRow({
           aria-haspopup="dialog"
           aria-expanded={open}
           aria-controls={open ? contentId : undefined}
-          className="justify-self-center hover:bg-muted/50 data-[state=open]:bg-muted/50"
+          className="justify-self-center hover:bg-surface-hover data-[state=open]:bg-surface-hover"
         >
           <Icon
             aria-hidden="true"
@@ -964,7 +963,7 @@ export function PullRequestRow({
             href={pr.url}
             target="_blank"
             rel="noopener noreferrer"
-            className="mt-3 inline-flex items-center gap-1.5 text-label-sm text-status-done underline underline-offset-4"
+            className="mt-3 inline-flex items-center gap-1.5 text-label-sm text-info underline underline-offset-4"
           >
             Open on GitHub{" "}
             <ExternalLink aria-hidden="true" className="h-3 w-3" />
@@ -1002,7 +1001,7 @@ export function PullRequestRow({
                   return (
                     <li
                       key={`${check.name}-${index}`}
-                      className="flex items-center gap-2 border-b border-border/40 py-2 text-label-sm last:border-0"
+                      className="flex items-center gap-2 border-b border-border-subtle py-2 text-label-sm last:border-0"
                     >
                       <span
                         role="img"
@@ -1061,7 +1060,7 @@ export function PullRequestRow({
           {refresh?.isError && (
             <p
               role="alert"
-              className="px-3 pb-3 break-words text-label-sm leading-relaxed text-destructive"
+              className="px-3 pb-3 break-words text-label-sm leading-relaxed text-danger"
             >
               {refresh.error instanceof Error
                 ? refresh.error.message

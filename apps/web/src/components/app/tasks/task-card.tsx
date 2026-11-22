@@ -22,11 +22,11 @@ import {
 import { cn } from "@/lib/utils";
 
 const CARD =
-  "group rounded-lg bg-muted/70 p-3 shadow-sm ring-1 ring-foreground/[0.05] pointer-coarse:select-none [-webkit-touch-callout:none]";
+  "group rounded-lg bg-surface-hover p-3 shadow-sm ring-1 ring-foreground/wash pointer-coarse:select-none [-webkit-touch-callout:none]";
 // TouchSensor cancels quick swipes and prevents scrolling only after its hold delay.
 // Keep native panning available on the grip until then (dnd-kit Touch recommendations).
 const GRIP =
-  "-ml-1 self-start rounded text-muted-foreground/50 touch-manipulation pointer-coarse:-my-2 pointer-coarse:-ml-2.5 pointer-coarse:p-2.5";
+  "-ml-1 self-start rounded text-faint touch-manipulation pointer-coarse:-my-2 pointer-coarse:-ml-2.5 pointer-coarse:p-2.5";
 /**
  * A card moved from its Move to… sheet remounts in its new column; that
  * mount takes focus back, as the sheet can't reach the new card.
@@ -172,7 +172,7 @@ export function TaskCardOverlay({
       data-testid="task-card-overlay"
       className={cn(
         CARD,
-        "cursor-grabbing bg-muted shadow-xl ring-2 ring-ring/40"
+        "cursor-grabbing bg-muted shadow-xl ring-2 ring-ring/line"
       )}
     >
       <div className="flex gap-2">
@@ -232,7 +232,7 @@ function TaskCardDetails({
                 target="_blank"
                 rel="noreferrer"
                 title={link.label}
-                className="inline-flex min-w-0 max-w-full items-center gap-1 rounded bg-background/60 px-1.5 py-0.5"
+                className="inline-flex min-w-0 max-w-full items-center gap-1 rounded bg-background/veil px-1.5 py-0.5"
                 onClick={(event) => event.stopPropagation()}
               >
                 <GitPullRequest
@@ -244,7 +244,7 @@ function TaskCardDetails({
             ))}
           {task.latestFailure && !task.launching && (
             <span
-              className="max-w-full truncate rounded bg-destructive/15 px-1.5 py-0.5 text-destructive"
+              className="max-w-full truncate rounded bg-danger/tint px-1.5 py-0.5 text-danger"
               title={task.latestFailure.reason}
             >
               ⚠ launch failed · {task.latestFailure.reason}

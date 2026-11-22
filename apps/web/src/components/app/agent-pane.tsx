@@ -47,7 +47,7 @@ export function ChatFiltersButton(): JSX.Element {
           <span
             data-testid="chat-filters-surface"
             className={cn(
-              "flex h-6 w-6 items-center justify-center rounded-full transition-colors group-hover:bg-muted/70 group-focus-visible:ring-2 group-focus-visible:ring-ring"
+              "flex h-6 w-6 items-center justify-center rounded-full transition-colors group-hover:bg-surface-hover group-focus-visible:ring-2 group-focus-visible:ring-ring"
             )}
           >
             <Settings data-testid="chat-filters-icon" className="h-3.5 w-3.5" />
@@ -162,7 +162,7 @@ export function AgentPane({
     >
       {header ? (
         <div
-          className="flex min-h-8 shrink-0 items-center justify-between gap-2 border-b border-border/40 py-0 pl-3 pr-2 md:py-1.5"
+          className="flex min-h-8 shrink-0 items-center justify-between gap-2 border-b border-border-subtle py-0 pl-3 pr-2 md:py-1.5"
           data-testid="agent-pane-header"
           style={
             project

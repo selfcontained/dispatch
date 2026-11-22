@@ -75,7 +75,7 @@ function DatePickerPopover({
       <PopoverTrigger asChild>
         <Button
           variant="default"
-          className="h-8 gap-1.5 bg-muted/30 text-body-sm font-normal"
+          className="h-8 gap-1.5 bg-surface-subtle text-body-sm font-normal"
           data-testid="activity-date-picker"
         >
           <CalendarIcon className="h-3.5 w-3.5" />
@@ -163,7 +163,7 @@ export function ActivityPane({
                 onValueChange={(value) => setRange(value as ActivityRange)}
               >
                 <SelectTrigger
-                  className="h-8 w-[132px] bg-muted/30 text-body-sm"
+                  className="h-8 w-[132px] bg-surface-subtle text-body-sm"
                   data-testid="activity-range-select"
                   aria-label="Activity time range"
                 >

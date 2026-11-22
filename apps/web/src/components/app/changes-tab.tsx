@@ -70,7 +70,7 @@ function ChangesToolbar({
   return (
     <TooltipProvider delayDuration={200}>
       <div
-        className="flex items-center gap-2 border-b border-border/50 px-3 py-1.5"
+        className="flex items-center gap-2 border-b border-border-subtle px-3 py-1.5"
         data-testid="changes-toolbar"
       >
         <span className="text-body-sm font-medium text-muted-foreground">

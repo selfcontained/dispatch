@@ -66,7 +66,7 @@ export function EngineSignIn({
         data-testid="engine-sign-in-done"
       >
         <CheckCircle2
-          className="mt-0.5 h-3.5 w-3.5 shrink-0 text-status-working"
+          className="mt-0.5 h-3.5 w-3.5 shrink-0 text-success"
           aria-hidden="true"
         />
         <span>Signed in{signedIn.detail ? ` (${signedIn.detail})` : ""}.</span>
@@ -80,7 +80,7 @@ export function EngineSignIn({
   if (failed) {
     return (
       <div className="space-y-2" data-testid="engine-sign-in-failed">
-        <p role="alert" className="text-body-sm text-destructive">
+        <p role="alert" className="text-body-sm text-danger">
           {flow.error?.message ?? login?.error ?? "The sign-in failed."}
         </p>
         <div className="flex flex-wrap items-center gap-3">
@@ -224,7 +224,7 @@ function CopyBlock({
   large?: boolean;
 }): JSX.Element {
   return (
-    <div className="flex min-w-0 items-start gap-1 rounded border border-border bg-background/60 p-2">
+    <div className="flex min-w-0 items-start gap-1 rounded border border-border bg-background/veil p-2">
       <code
         className={
           large

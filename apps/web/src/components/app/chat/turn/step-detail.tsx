@@ -60,7 +60,7 @@ export function StepDetail({
           >
             <span
               aria-hidden="true"
-              className="absolute bottom-1 left-[5.5px] top-1 w-px bg-border/70"
+              className="absolute bottom-1 left-[5.5px] top-1 w-px bg-border-subtle"
             />
             {step.children!.map((child) => (
               <StepRow
@@ -83,7 +83,7 @@ export function StepDetail({
     );
   }
   return (
-    <div className="space-y-2.5 pl-[21px] pt-1 text-foreground/80">
+    <div className="space-y-2.5 pl-[21px] pt-1 text-foreground/soft">
       <DetailBody step={step} />
       {d.truncated ? (
         <p className="text-label-sm text-muted-foreground">

@@ -21,7 +21,7 @@ export function LoadError({
     <div
       role="alert"
       className={cn(
-        "flex items-center justify-between gap-3 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-body-sm text-destructive",
+        "flex items-center justify-between gap-3 rounded-md border border-danger/line bg-danger/tint px-3 py-2 text-body-sm text-danger",
         className
       )}
     >

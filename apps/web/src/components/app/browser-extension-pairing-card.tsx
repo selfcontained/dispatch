@@ -29,9 +29,9 @@ export function BrowserExtensionPairingCard({
   onCheckAgain,
 }: BrowserExtensionPairingCardProps): JSX.Element {
   return (
-    <Card className="border-primary/30">
+    <Card className="border-primary/line">
       <CardHeader className="flex-row items-start gap-3 space-y-0 pb-3">
-        <div className="rounded-lg bg-primary/10 p-2 text-primary">
+        <div className="rounded-lg bg-surface-selected p-2 text-primary">
           <ShieldCheck className="h-5 w-5" aria-hidden="true" />
         </div>
         <div className="space-y-1.5">
@@ -52,11 +52,11 @@ export function BrowserExtensionPairingCard({
         </div>
       </CardHeader>
       <CardContent>
-        <div className="rounded-lg border border-border bg-background/50 p-4">
+        <div className="rounded-lg border border-border bg-background/veil p-4">
           {approvalState === "connected" ? (
             <div className="flex items-start gap-3" role="status">
               <ShieldCheck
-                className="mt-0.5 h-5 w-5 shrink-0 text-status-working"
+                className="mt-0.5 h-5 w-5 shrink-0 text-success"
                 aria-hidden="true"
               />
               <div>
@@ -69,14 +69,14 @@ export function BrowserExtensionPairingCard({
               </div>
             </div>
           ) : !pairingRequestIsValid ? (
-            <p className="text-body-md text-destructive" role="alert">
+            <p className="text-body-md text-danger" role="alert">
               This browser extension pairing link is incomplete. Return to the
               extension and start the connection again.
             </p>
           ) : approvalState === "waiting" ? (
             <div className="flex items-start gap-3" role="status">
               <ShieldCheck
-                className="mt-0.5 h-5 w-5 shrink-0 text-status-working"
+                className="mt-0.5 h-5 w-5 shrink-0 text-success"
                 aria-hidden="true"
               />
               <div>
@@ -115,7 +115,7 @@ export function BrowserExtensionPairingCard({
                   agent you select.
                 </p>
               </div>
-              <div className="rounded-lg border border-primary/30 bg-primary/10 px-4 py-3 text-center">
+              <div className="rounded-lg border border-primary/line bg-surface-selected px-4 py-3 text-center">
                 <p className="section-label">
                   Confirm this code matches the extension
                 </p>
@@ -124,7 +124,7 @@ export function BrowserExtensionPairingCard({
                 </code>
               </div>
               {approvalState === "error" && (
-                <p className="text-body-md text-destructive" role="alert">
+                <p className="text-body-md text-danger" role="alert">
                   {error}
                 </p>
               )}

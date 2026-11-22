@@ -275,7 +275,7 @@ export const UnifiedDiffView = memo(function UnifiedDiffView({
         <button
           type="button"
           onClick={() => onCommentOpen(true)}
-          className="absolute z-10 flex items-center justify-center rounded-md bg-primary p-1 text-primary-foreground shadow-md hover:bg-primary/90 -translate-y-1/2"
+          className="absolute z-10 flex items-center justify-center rounded-md bg-primary p-1 text-primary-foreground shadow-md hover:bg-primary/dense -translate-y-1/2"
           style={{
             top: buttonPos.top,
             left: buttonPos.left + buttonPos.width / 2,

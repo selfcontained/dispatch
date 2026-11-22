@@ -68,7 +68,7 @@ export function MentionPicker({
               "size-6 rounded p-1",
               silent === mode
                 ? "bg-muted text-foreground"
-                : "text-muted-foreground hover:bg-muted/60"
+                : "text-muted-foreground hover:bg-surface-hover"
             )}
             onMouseDown={(event) => event.preventDefault()}
             onClick={() => onSilentChange(mode)}
@@ -95,7 +95,7 @@ export function MentionPicker({
             aria-selected={index === activeIndex}
             className={cn(
               "flex w-full items-center gap-2 px-2 py-1.5 text-left text-body-md",
-              index === activeIndex ? "bg-muted" : "hover:bg-muted/60"
+              index === activeIndex ? "bg-muted" : "hover:bg-surface-hover"
             )}
             // Mouse down would take focus from the textarea and close the
             // list before the click lands.

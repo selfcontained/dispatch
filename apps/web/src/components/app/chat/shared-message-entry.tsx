@@ -95,7 +95,7 @@ export function SharedMessageEntry({
   return (
     <section
       data-testid="shared-message"
-      className="my-2 min-w-0 rounded-md border border-primary/20 px-3 py-2 text-body-md [overflow-wrap:anywhere]"
+      className="my-2 min-w-0 rounded-md border border-primary/tint-strong px-3 py-2 text-body-md [overflow-wrap:anywhere]"
     >
       <div className="mb-1 flex flex-wrap items-baseline gap-x-2 text-body-sm text-muted-foreground">
         <span className="font-medium text-foreground">

@@ -467,7 +467,7 @@ describe("ChildAgentRow", () => {
     expect(row.className).not.toContain("border-r-status-done");
     // A normal 1px border matching the row's other sides — not a thick
     // reserved edge (muted or invisible), just an ordinary bordered pill.
-    expect(row.className).toContain("border-border/60");
+    expect(row.className).toContain("border-border-subtle");
   });
 
   it("describes a paused reviewer's pending indicator differently from an active one", () => {

@@ -59,7 +59,7 @@ export function BrowserExtensionConnectionsCard({
           </p>
         ) : isError ? (
           <div className="space-y-2">
-            <p className="text-body-md text-destructive" role="alert">
+            <p className="text-body-md text-danger" role="alert">
               Could not load paired browsers.
             </p>
             <Button
@@ -81,7 +81,7 @@ export function BrowserExtensionConnectionsCard({
             {visibleConnections.map((connection) => (
               <div
                 key={connection.id}
-                className="flex items-center gap-3 rounded-md border border-border bg-background/50 px-3 py-3"
+                className="flex items-center gap-3 rounded-md border border-border bg-background/veil px-3 py-3"
                 data-testid={`paired-browser-${connection.id}`}
               >
                 <MonitorSmartphone
@@ -105,7 +105,7 @@ export function BrowserExtensionConnectionsCard({
                   type="button"
                   variant="ghost"
                   size="sm"
-                  className="shrink-0 gap-1.5 text-destructive hover:text-destructive"
+                  className="shrink-0 gap-1.5 text-danger hover:text-danger"
                   aria-label={`Revoke ${connection.deviceName}`}
                   disabled={revokeIsPending}
                   onClick={() => onRevoke(connection.id)}
@@ -131,7 +131,7 @@ export function BrowserExtensionConnectionsCard({
           </div>
         )}
         {revokeIsError && (
-          <p className="mt-2 text-body-md text-destructive" role="alert">
+          <p className="mt-2 text-body-md text-danger" role="alert">
             Could not revoke that browser. Try again.
           </p>
         )}

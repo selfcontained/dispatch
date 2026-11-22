@@ -83,7 +83,7 @@ export function ServiceResourcesSettings(): JSX.Element {
             data-testid="resources-updated-at"
           >
             {stale ? (
-              <span className="text-status-waiting">Data is stale</span>
+              <span className="text-warning">Data is stale</span>
             ) : (
               collectionEnabled &&
               dataUpdatedAt > 0 && (
@@ -116,7 +116,7 @@ export function ServiceResourcesSettings(): JSX.Element {
         </div>
       </header>
 
-      <div className="flex items-center justify-between gap-4 rounded-md border border-border/70 bg-muted/20 px-4 py-3.5">
+      <div className="flex items-center justify-between gap-4 rounded-md border border-border-subtle bg-surface-subtle px-4 py-3.5">
         <label
           htmlFor="resource-collection-toggle"
           className="min-w-0 cursor-pointer"
@@ -145,9 +145,9 @@ export function ServiceResourcesSettings(): JSX.Element {
         </div>
       )}
       {!data && error && (
-        <Card className="border-status-blocked/30">
+        <Card className="border-danger/line">
           <CardContent className="p-6 text-body-md">
-            <div className="font-medium text-status-blocked">
+            <div className="font-medium text-danger">
               Resources are unavailable
             </div>
             <p className="mt-1 text-muted-foreground">{error.message}</p>
@@ -181,7 +181,7 @@ export function ServiceResourcesSettings(): JSX.Element {
           {collectionMutation.error && (
             <p
               role="alert"
-              className="text-body-md text-status-blocked"
+              className="text-body-md text-danger"
               data-testid="resource-collection-error"
             >
               {collectionMutation.error.message}

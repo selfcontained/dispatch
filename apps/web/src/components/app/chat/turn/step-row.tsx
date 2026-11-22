@@ -33,7 +33,7 @@ const STATUS_ARIA: Record<StepStatus, string> = {
 };
 
 const ROW_CLASS =
-  "flex min-w-0 w-full items-center gap-2 py-1.5 text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-status-working/50";
+  "flex min-w-0 w-full items-center gap-2 py-1.5 text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-status-working/line-strong";
 
 /** One step in the step list: glyph, label, summary, duration, toggle. */
 export function StepRow({
@@ -110,7 +110,7 @@ export function StepRow({
       <span
         aria-hidden="true"
         className={cn(
-          "w-2 shrink-0 text-label-xs text-muted-foreground/70",
+          "w-2 shrink-0 text-label-xs text-faint",
           !expandable && "invisible"
         )}
       >
@@ -237,10 +237,7 @@ export function StatusGlyph({
       );
     default:
       return (
-        <span
-          className={cn(base, "text-muted-foreground/40")}
-          aria-hidden="true"
-        >
+        <span className={cn(base, "text-faint")} aria-hidden="true">
           ◦
         </span>
       );

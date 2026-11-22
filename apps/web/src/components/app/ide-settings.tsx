@@ -105,7 +105,7 @@ export function IdeSettings({
           return (
             <label
               key={ide}
-              className="flex cursor-pointer items-center gap-3 rounded border border-border px-3 py-2.5 transition-colors hover:bg-muted/50"
+              className="flex cursor-pointer items-center gap-3 rounded border border-border px-3 py-2.5 transition-colors hover:bg-surface-hover"
             >
               <Checkbox
                 checked={checked}
@@ -122,7 +122,7 @@ export function IdeSettings({
         })}
       </div>
 
-      {error ? <p className="text-body-md text-destructive">{error}</p> : null}
+      {error ? <p className="text-body-md text-danger">{error}</p> : null}
     </div>
   );
 }

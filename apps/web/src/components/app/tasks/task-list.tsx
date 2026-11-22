@@ -87,7 +87,7 @@ export function TaskList({
           style={
             { "--col": columnAccent(column, index) } as React.CSSProperties
           }
-          className="mb-3 overflow-hidden rounded-xl bg-card shadow-sm ring-1 ring-border/40"
+          className="mb-3 overflow-hidden rounded-xl bg-card shadow-sm ring-1 ring-border-subtle"
         >
           <div className="flex items-center bg-[hsl(var(--col)/0.08)] pr-2">
             <Button
@@ -125,12 +125,12 @@ export function TaskList({
           </div>
           <ColumnTriggerStrip column={column} projectId={board.projectId} />
           {!collapsed.has(column.id) && (
-            <div className="divide-y divide-border/30">
+            <div className="divide-y divide-border-subtle">
               {sortTasks(group).map((task) => (
                 <div
                   key={task.id}
                   data-testid={`task-row-${task.id}`}
-                  className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2 gap-y-1.5 px-3 py-2 text-body-md transition-colors hover:bg-muted/40 md:grid-cols-[minmax(0,2fr)_minmax(110px,1fr)_minmax(120px,1fr)_55px_minmax(80px,1fr)] md:gap-3"
+                  className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2 gap-y-1.5 px-3 py-2 text-body-md transition-colors hover:bg-surface-hover md:grid-cols-[minmax(0,2fr)_minmax(110px,1fr)_minmax(120px,1fr)_55px_minmax(80px,1fr)] md:gap-3"
                 >
                   <button
                     className="min-w-0 truncate text-left font-medium hover:underline"
@@ -166,7 +166,7 @@ export function TaskList({
                   <div className="col-span-2 flex min-w-0 flex-wrap items-center gap-2 md:col-span-1">
                     {task.latestFailure && !task.launching && (
                       <span
-                        className="text-body-sm text-destructive"
+                        className="text-body-sm text-danger"
                         title={task.latestFailure.reason}
                       >
                         ⚠ launch failed

@@ -607,8 +607,9 @@ function WorkspaceFiles({
                     disabled={entry.kind === "link" || entry.kind === "other"}
                     onClick={() => choose(entry)}
                     className={cn(
-                      "relative flex h-full w-full items-center gap-1.5 pr-3 text-left text-body-sm hover:bg-muted/60 focus-visible:outline focus-visible:outline-1 focus-visible:outline-primary disabled:opacity-40",
-                      selected === entry.path && "bg-primary/10 text-primary",
+                      "relative flex h-full w-full items-center gap-1.5 pr-3 text-left text-body-sm hover:bg-surface-hover focus-visible:outline focus-visible:outline-1 focus-visible:outline-primary disabled:opacity-40",
+                      selected === entry.path &&
+                        "bg-surface-selected text-primary",
                       active && "ring-1 ring-inset ring-border"
                     )}
                     style={{ paddingLeft: 10 + depth * 8 }}
@@ -617,7 +618,7 @@ function WorkspaceFiles({
                       <span
                         key={level}
                         aria-hidden="true"
-                        className="pointer-events-none absolute inset-y-0 border-l border-border/50"
+                        className="pointer-events-none absolute inset-y-0 border-l border-border-subtle"
                         style={{ left: 15 + level * 8 }}
                       />
                     ))}

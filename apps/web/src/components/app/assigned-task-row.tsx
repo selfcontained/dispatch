@@ -48,7 +48,7 @@ export function AssignedTaskRow({ agentId }: { agentId: string }) {
       }}
     >
       <ListChecks
-        className="h-3.5 w-3.5 shrink-0 self-start text-muted-foreground/75"
+        className="h-3.5 w-3.5 shrink-0 self-start text-faint"
         aria-hidden="true"
       />
       <span className="min-w-0 flex-1">

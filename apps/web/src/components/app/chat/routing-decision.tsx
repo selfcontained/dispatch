@@ -40,7 +40,7 @@ export function RoutingDecisionDetails({
             : "Default kept";
   return (
     <section
-      className="space-y-2 border-t border-border/60 pt-2 text-body-sm"
+      className="space-y-2 border-t border-border-subtle pt-2 text-body-sm"
       aria-label={`Routing for ${agentName ?? d.agentId}`}
     >
       <div className="flex items-center justify-between gap-2">
@@ -50,7 +50,7 @@ export function RoutingDecisionDetails({
         </span>
       </div>
       <div className="flex flex-wrap items-center gap-2">
-        <Badge className="border-primary/30 bg-primary/10 px-2 py-0.5 text-body-sm normal-case tracking-normal text-primary">
+        <Badge className="border-primary/line bg-surface-selected px-2 py-0.5 text-body-sm normal-case tracking-normal text-primary">
           {d.actual}
         </Badge>
         <span
@@ -69,7 +69,7 @@ export function RoutingDecisionDetails({
             ? `Router recommended ${modelChoice}`
             : d.reason}
       </p>
-      <div className="space-y-1.5 rounded-md bg-muted/25 px-2 py-1.5">
+      <div className="space-y-1.5 rounded-md bg-surface-subtle px-2 py-1.5">
         <div className="text-label-xs text-muted-foreground">
           Override gate · both require ≥80%
         </div>
@@ -90,11 +90,11 @@ export function RoutingDecisionDetails({
                   "block h-full rounded-full",
                   score.value !== undefined && score.value >= 0.8
                     ? "bg-primary"
-                    : "bg-primary/50"
+                    : "bg-primary/veil"
                 )}
                 style={{ width: `${(score.value ?? 0) * 100}%` }}
               />
-              <span className="absolute inset-y-0 left-[80%] w-px bg-foreground/60" />
+              <span className="absolute inset-y-0 left-[80%] w-px bg-foreground/veil" />
             </div>
             <span className="text-right tabular-nums">
               {score.value === undefined
@@ -132,7 +132,7 @@ export function RoutingDecisionDetails({
               </div>
             ))}
           </dl>
-          <div className="border-t border-border/40 pt-2">
+          <div className="border-t border-border-subtle pt-2">
             <p className="mb-1 text-muted-foreground">Override requires both</p>
             <dl className="grid grid-cols-[1fr_auto] gap-x-3 gap-y-1">
               <dt className="text-muted-foreground">
@@ -157,7 +157,7 @@ export function RoutingDecisionDetails({
           </div>
         </CollapsibleContent>
       </Collapsible>
-      <Collapsible className="border-t border-border/40 pt-1">
+      <Collapsible className="border-t border-border-subtle pt-1">
         <CollapsibleTrigger className="group flex w-full items-center justify-between py-1 text-label-xs text-muted-foreground hover:text-foreground">
           Routing API usage{" "}
           <ChevronDown className="h-3 w-3 transition-transform group-data-[state=open]:rotate-180" />

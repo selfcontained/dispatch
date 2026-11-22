@@ -9,7 +9,7 @@ function HorizontalBar({
   label,
   value,
   maxValue,
-  color = "bg-emerald-500/70",
+  color = "bg-chart-1/soft",
   sub,
 }: {
   label: string;
@@ -28,7 +28,7 @@ function HorizontalBar({
           {sub ? ` ${sub}` : ""}
         </span>
       </div>
-      <div className="h-2 w-full rounded-full bg-muted/60">
+      <div className="h-2 w-full rounded-full bg-surface-hover">
         <div
           className={cn("h-2 rounded-full transition-all", color)}
           style={{ width: `${Math.max(pct, 1)}%` }}

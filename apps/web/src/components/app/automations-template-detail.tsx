@@ -169,19 +169,19 @@ function TemplateDetail({
             {template.description}
           </p>
         ) : null}
-        <p className="mt-0.5 text-body-sm text-muted-foreground/70">
+        <p className="mt-0.5 text-body-sm text-faint">
           {shortPath(template.directory)}
         </p>
 
         {savedArgs.length > 0 ? (
-          <div className="mt-3 rounded-md border border-border/60 bg-muted/15 px-3 py-2 text-body-sm text-muted-foreground">
+          <div className="mt-3 rounded-md border border-border-subtle bg-surface-subtle px-3 py-2 text-body-sm text-muted-foreground">
             <span className="font-medium text-foreground">
               Launch arguments:
             </span>{" "}
             {savedArgs.map((a, i) => (
               <span key={a.key}>
                 {i > 0 ? ", " : ""}
-                <span className="rounded bg-primary/10 px-1.5 py-0.5 text-primary">
+                <span className="rounded bg-surface-selected px-1.5 py-0.5 text-primary">
                   {a.name}
                   {a.required ? " *" : ""}
                   {a.multiline ? " (multiline)" : ""}
@@ -244,7 +244,7 @@ function TemplateDetail({
             </div>
 
             {saveError ? (
-              <div className="mt-4 rounded-md border border-status-blocked/40 bg-status-blocked/10 p-3 text-body-md text-status-blocked">
+              <div className="mt-4 rounded-md border border-danger/line bg-danger/tint p-3 text-body-md text-danger">
                 {saveError}
               </div>
             ) : null}
@@ -262,8 +262,8 @@ function TemplateDetail({
             </div>
           </div>
 
-          <div className="rounded-md border border-status-blocked/30 bg-status-blocked/5 p-4">
-            <div className="text-body-md font-medium text-status-blocked">
+          <div className="rounded-md border border-danger/line bg-danger/wash p-4">
+            <div className="text-body-md font-medium text-danger">
               Delete template
             </div>
             <p className="mt-1 text-body-sm text-muted-foreground">
@@ -303,10 +303,7 @@ function TemplateDetail({
             </DialogDescription>
           </DialogHeader>
           {removeTemplate.error ? (
-            <p
-              role="alert"
-              className="break-words text-body-md text-destructive"
-            >
+            <p role="alert" className="break-words text-body-md text-danger">
               Couldn't delete the template: {removeTemplate.error.message}
             </p>
           ) : null}

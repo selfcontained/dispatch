@@ -81,7 +81,7 @@ export function AttachmentBlock({
   return (
     <div
       className={cn(
-        "w-fit max-w-full overflow-hidden rounded-md border border-border/70 bg-muted/25",
+        "w-fit max-w-full overflow-hidden rounded-md border border-border-subtle bg-surface-subtle",
         accent,
         className
       )}
@@ -95,14 +95,14 @@ export function AttachmentBlock({
 /** The squared tile at the left of a card: an icon, or a file's extension. */
 function Tile({ children }: { children: ReactNode }): JSX.Element {
   return (
-    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border/70 bg-background text-foreground/80">
+    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border-subtle bg-background text-foreground/soft">
       {children}
     </span>
   );
 }
 
 const CARD_ROW =
-  "flex min-w-[14rem] max-w-md items-center gap-3 p-2 pr-3 text-left transition-colors hover:bg-muted/50";
+  "flex min-w-[14rem] max-w-md items-center gap-3 p-2 pr-3 text-left transition-colors hover:bg-surface-hover";
 
 export function LinkAttachment({
   href,
@@ -161,14 +161,14 @@ export function LinkAttachment({
     <AttachmentBlock
       data-testid={testId}
       className={cn(
-        "w-full rounded border-border/50 bg-muted/50 md:w-fit md:max-w-xs",
+        "w-full rounded border-border-subtle bg-surface-hover md:w-fit md:max-w-xs",
         fullWidth && "md:w-full md:max-w-none"
       )}
     >
       {inApp ? (
         <Link
           to={href}
-          className="group/link flex w-full min-w-0 items-center gap-2 px-2 py-1 text-left transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring max-md:min-h-11"
+          className="group/link flex w-full min-w-0 items-center gap-2 px-2 py-1 text-left transition-colors hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring max-md:min-h-11"
           title={href}
           aria-label={accessibleLabel}
         >
@@ -179,7 +179,7 @@ export function LinkAttachment({
           href={href}
           target="_blank"
           rel="noreferrer"
-          className="group/link flex w-full min-w-0 items-center gap-2 px-2 py-1 text-left transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring max-md:min-h-11"
+          className="group/link flex w-full min-w-0 items-center gap-2 px-2 py-1 text-left transition-colors hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring max-md:min-h-11"
           title={href}
           aria-label={accessibleLabel}
         >
@@ -255,7 +255,7 @@ export function FileAttachment({
           className="block max-w-xs text-left"
           title={attachment.fileName}
         >
-          <span className="block border-b border-border/70 bg-background/60">
+          <span className="block border-b border-border-subtle bg-background/veil">
             <FeedImage
               src={url}
               // Copies come from the agent files route; a caller-supplied URL
@@ -282,7 +282,7 @@ export function FileAttachment({
         {attachment.caption ? (
           <p
             data-testid="chat-attachment-caption"
-            className="max-w-xs whitespace-pre-wrap break-words border-t border-border/70 px-2.5 py-1.5 text-body-sm text-muted-foreground"
+            className="max-w-xs whitespace-pre-wrap break-words border-t border-border-subtle px-2.5 py-1.5 text-body-sm text-muted-foreground"
           >
             {attachment.caption}
           </p>
@@ -331,7 +331,7 @@ function CodeAttachment({
   return (
     <AttachmentBlock className="w-full" data-testid="chat-attachment-code">
       {attachment.path ? (
-        <div className="truncate border-b border-border/70 px-2.5 py-1 font-mono text-label-sm text-muted-foreground">
+        <div className="truncate border-b border-border-subtle px-2.5 py-1 font-mono text-label-sm text-muted-foreground">
           {attachment.path}
         </div>
       ) : null}
@@ -447,7 +447,7 @@ function ImageGallery({
               onClick={() =>
                 ctx.onOpenFile(attachment.fileId, order, { captions, index })
               }
-              className="relative block w-full aspect-square overflow-hidden rounded-md border border-border/70 bg-muted/30 transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:size-40"
+              className="relative block w-full aspect-square overflow-hidden rounded-md border border-border-subtle bg-surface-subtle transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:size-40"
               title={label}
               aria-label={more ? `${label}, and ${more - 1} more` : label}
               data-testid="chat-attachment-gallery-tile"

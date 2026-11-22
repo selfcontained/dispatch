@@ -62,7 +62,7 @@ export function ScheduledMessageEntry({
       className={
         systemEvent
           ? "min-w-0"
-          : `min-w-0 overflow-hidden rounded-lg border px-3 py-2 ${current || delivery ? "border-border bg-muted/20" : "border-border/70 bg-muted/20"}`
+          : `min-w-0 overflow-hidden rounded-lg border px-3 py-2 ${current || delivery ? "border-border bg-surface-subtle" : "border-border-subtle bg-surface-subtle"}`
       }
     >
       <div className="flex flex-wrap items-center justify-between gap-2 text-label-sm">

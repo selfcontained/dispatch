@@ -1025,7 +1025,7 @@ export function ImageComments({
                             c.recipient}
                         </p>
                         {c.delivered === false && (
-                          <p className="text-body-sm text-destructive">
+                          <p className="text-body-sm text-danger">
                             Agent delivery failed. Retry from the conversation.
                           </p>
                         )}
@@ -1286,7 +1286,7 @@ export function ImageComments({
           {markup && send.isError && (
             <p
               role="alert"
-              className="w-full text-center text-body-sm text-destructive"
+              className="w-full text-center text-body-sm text-danger"
             >
               {send.error.message} Notes are kept. Retry sharing; if delivery is
               uncertain, check the conversation.

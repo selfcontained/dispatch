@@ -47,7 +47,7 @@ export function BrowserNotificationsSection({
       </p>
 
       {!notificationsSupported ? (
-        <p className="text-body-md text-muted-foreground/70">
+        <p className="text-body-md text-faint">
           Browser notifications are not supported in this browser.
           {isIOS && !isStandalone
             ? " On iOS/iPadOS, install Dispatch as a PWA (Add to Home Screen) to enable notifications."
@@ -85,7 +85,7 @@ export function BrowserNotificationsSection({
           ) : null}
 
           {/* Enable toggle */}
-          <label className="flex cursor-pointer items-center gap-3 rounded border border-border px-3 py-2.5 transition-colors hover:bg-muted/50">
+          <label className="flex cursor-pointer items-center gap-3 rounded border border-border px-3 py-2.5 transition-colors hover:bg-surface-hover">
             <Checkbox
               checked={webNotifyEnabled}
               disabled={browserPermission !== "granted" || saving}
@@ -115,7 +115,7 @@ export function BrowserNotificationsSection({
               {EVENT_OPTIONS.map(({ id, label, description }) => (
                 <label
                   key={id}
-                  className="flex cursor-pointer items-center gap-3 rounded border border-border px-3 py-2.5 transition-colors hover:bg-muted/50"
+                  className="flex cursor-pointer items-center gap-3 rounded border border-border px-3 py-2.5 transition-colors hover:bg-surface-hover"
                 >
                   <Checkbox
                     checked={webNotifyEvents.includes(id)}
@@ -146,10 +146,10 @@ export function BrowserNotificationsSection({
             </div>
           )}
           {webError ? (
-            <p className="text-body-md text-destructive">{webError}</p>
+            <p className="text-body-md text-danger">{webError}</p>
           ) : null}
           {webMessage ? (
-            <p className="text-body-md text-status-working">{webMessage}</p>
+            <p className="text-body-md text-success">{webMessage}</p>
           ) : null}
         </div>
       )}

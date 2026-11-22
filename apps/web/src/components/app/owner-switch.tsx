@@ -74,7 +74,7 @@ export function OwnerSwitch({
       {option.unseen > 0 ? (
         <span
           aria-hidden
-          className="shrink-0 rounded-full bg-destructive px-1.5 text-label-xs font-semibold tabular-nums text-destructive-foreground"
+          className="shrink-0 rounded-full bg-danger px-1.5 text-label-xs font-semibold tabular-nums text-danger-foreground"
         >
           {option.unseen}
         </span>

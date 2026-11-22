@@ -177,7 +177,7 @@ export function PersonalitySettings(): JSX.Element {
     if (!editing) return null;
     return (
       <div
-        className="rounded-md border border-border bg-muted/20 p-4"
+        className="rounded-md border border-border bg-surface-subtle p-4"
         data-testid="personality-form"
       >
         <div className="mb-3">
@@ -267,8 +267,8 @@ export function PersonalitySettings(): JSX.Element {
         className={cn(
           "flex items-start gap-3 rounded-md border p-3 transition-colors",
           isActive
-            ? "border-primary bg-primary/10"
-            : "border-border hover:border-muted-foreground/30"
+            ? "border-primary bg-surface-selected"
+            : "border-border hover:border-muted-foreground/line"
         )}
       >
         <button
@@ -280,7 +280,7 @@ export function PersonalitySettings(): JSX.Element {
               ? `Deactivate ${personality.name}`
               : `Activate ${personality.name}`
           }
-          className="-m-2 flex h-9 w-9 shrink-0 items-center justify-center rounded transition-colors hover:bg-muted/40 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="-m-2 flex h-9 w-9 shrink-0 items-center justify-center rounded transition-colors hover:bg-surface-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           data-testid={`personality-toggle-${personality.id}`}
         >
           <RadioIndicator selected={isActive} className="mt-0" />
@@ -307,7 +307,7 @@ export function PersonalitySettings(): JSX.Element {
             size="sm"
             variant="ghost"
             onClick={() => void deletePersonality(personality)}
-            className="text-destructive hover:text-destructive"
+            className="text-danger hover:text-danger"
           >
             Delete
           </Button>
@@ -330,7 +330,7 @@ export function PersonalitySettings(): JSX.Element {
 
       {error ? (
         <div
-          className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-body-md text-destructive"
+          className="rounded-md border border-danger/line bg-danger/tint px-3 py-2 text-body-md text-danger"
           role="alert"
         >
           {error}

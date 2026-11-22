@@ -243,9 +243,9 @@ function AgentHistoryList({
           <tbody>
             {isLoading &&
               Array.from({ length: 5 }).map((_, i) => (
-                <tr key={i} className="border-b border-border/50">
+                <tr key={i} className="border-b border-border-subtle">
                   <td className="px-3 py-2.5 sm:px-5" colSpan={5}>
-                    <div className="h-4 w-full animate-pulse rounded bg-muted/30" />
+                    <div className="h-4 w-full animate-pulse rounded bg-surface-subtle" />
                   </td>
                 </tr>
               ))}
@@ -256,7 +256,7 @@ function AgentHistoryList({
               return (
                 <Fragment key={agent.id}>
                   <tr
-                    className="cursor-pointer border-b border-border/50 transition-colors hover:bg-muted/30"
+                    className="cursor-pointer border-b border-border-subtle transition-colors hover:bg-surface-hover"
                     onClick={() => onSelect(agent.id)}
                   >
                     <td className="px-3 py-2.5 sm:px-5">
@@ -264,7 +264,7 @@ function AgentHistoryList({
                         {hasChildren ? (
                           <button
                             onClick={(e) => toggleExpanded(agent.id, e)}
-                            className="flex-shrink-0 rounded p-0.5 text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+                            className="flex-shrink-0 rounded p-0.5 text-muted-foreground hover:bg-surface-hover hover:text-foreground"
                           >
                             {isExpanded ? (
                               <ChevronDown className="h-3.5 w-3.5" />
@@ -310,7 +310,7 @@ function AgentHistoryList({
                           <span>
                             {formatTokenCount(agent.groupTotalTokens)}
                           </span>
-                          <span className="ml-1 text-label-xs text-muted-foreground/60">
+                          <span className="ml-1 text-label-xs text-faint">
                             ({formatTokenCount(agent.totalTokens)})
                           </span>
                         </div>
@@ -332,7 +332,7 @@ function AgentHistoryList({
                     agent.children.map((child) => (
                       <tr
                         key={child.id}
-                        className="cursor-pointer border-b border-border/30 bg-muted/10 transition-colors hover:bg-muted/30"
+                        className="cursor-pointer border-b border-border-subtle bg-surface-subtle transition-colors hover:bg-surface-hover"
                         onClick={() => onSelect(child.id)}
                       >
                         <td

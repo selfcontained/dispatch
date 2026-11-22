@@ -188,7 +188,7 @@ export function SessionSettingsDialog({
                 onChange={(e) => setName(e.target.value)}
                 maxLength={MAX_NAME_LENGTH}
               />
-              <span className="text-body-sm text-muted-foreground/60">
+              <span className="text-body-sm text-faint">
                 {name.length}/{MAX_NAME_LENGTH} characters
               </span>
             </div>

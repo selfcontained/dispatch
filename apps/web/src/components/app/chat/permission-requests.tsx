@@ -68,14 +68,14 @@ function PermissionRequest({
     onSettled: () => client.invalidateQueries({ queryKey: key }),
   });
   return (
-    <div className="rounded-md border border-status-waiting/40 bg-status-waiting/5 p-3">
+    <div className="rounded-md border border-warning/line bg-warning/wash p-3">
       <div className="mb-1 flex items-center gap-2 text-body-md font-medium">
-        <ShieldCheck className="h-4 w-4 shrink-0 text-status-waiting" />
+        <ShieldCheck className="h-4 w-4 shrink-0 text-warning" />
         Approval needed
       </div>
       <p className="break-words text-body-md">{request.title}</p>
       {request.details ? (
-        <pre className="my-2 max-h-40 overflow-auto whitespace-pre-wrap break-all rounded bg-muted/50 p-2 text-body-sm">
+        <pre className="my-2 max-h-40 overflow-auto whitespace-pre-wrap break-all rounded bg-surface-hover p-2 text-body-sm">
           {request.details}
         </pre>
       ) : null}
@@ -110,7 +110,7 @@ function PermissionRequest({
         </p>
       ) : null}
       {answer.error ? (
-        <p role="alert" className="mt-2 text-body-sm text-destructive">
+        <p role="alert" className="mt-2 text-body-sm text-danger">
           {answer.error.message}
         </p>
       ) : null}

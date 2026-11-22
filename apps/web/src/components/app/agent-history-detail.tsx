@@ -37,7 +37,10 @@ export function AgentHistoryDetail({
         </button>
         <div className="space-y-3">
           {Array.from({ length: 4 }).map((_, i) => (
-            <div key={i} className="h-8 animate-pulse rounded bg-muted/30" />
+            <div
+              key={i}
+              className="h-8 animate-pulse rounded bg-surface-subtle"
+            />
           ))}
         </div>
       </div>

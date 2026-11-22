@@ -47,7 +47,7 @@ export function EngineSignInSettings(): JSX.Element {
             Checking sign-in…
           </p>
         ) : error ? (
-          <p role="alert" className="text-body-md text-destructive">
+          <p role="alert" className="text-body-md text-danger">
             {error.message}
           </p>
         ) : (

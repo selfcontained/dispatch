@@ -53,8 +53,8 @@ export function AppearanceSettings({
                     className={cn(
                       "flex items-start gap-3 rounded-md border p-3 text-left transition-colors",
                       theme === t.id
-                        ? "border-primary bg-primary/10"
-                        : "border-border hover:border-muted-foreground/30"
+                        ? "border-primary bg-surface-selected"
+                        : "border-border hover:border-muted-foreground/line"
                     )}
                   >
                     <div className="mt-0.5 flex gap-1">
@@ -72,7 +72,7 @@ export function AppearanceSettings({
                           {t.label}
                         </div>
                         {t.id === DEFAULT_THEME_ID && (
-                          <span className="rounded-sm border border-border bg-muted/40 px-1.5 py-0.5 text-label-xs font-medium uppercase tracking-wider text-muted-foreground">
+                          <span className="rounded-sm border border-border bg-surface-subtle px-1.5 py-0.5 text-label-xs font-medium uppercase tracking-wider text-muted-foreground">
                             Default
                           </span>
                         )}
@@ -119,8 +119,8 @@ export function AppearanceSettings({
               className={cn(
                 "flex w-14 flex-col items-center gap-1 rounded-lg border-2 px-1 py-1.5 transition-all",
                 displayColor === c.id
-                  ? "border-foreground bg-foreground/10"
-                  : "border-transparent hover:border-muted-foreground/40 hover:bg-muted/30"
+                  ? "border-foreground bg-foreground/tint"
+                  : "border-transparent hover:border-muted-foreground/line-strong hover:bg-surface-hover"
               )}
             >
               <img
@@ -142,7 +142,7 @@ export function AppearanceSettings({
           ))}
         </div>
         {iconColorError ? (
-          <p className="mt-2 text-body-sm text-destructive">
+          <p className="mt-2 text-body-sm text-danger">
             {iconColorError}{" "}
             <button
               onClick={clearIconColorError}
@@ -152,7 +152,7 @@ export function AppearanceSettings({
             </button>
           </p>
         ) : (
-          <p className="mt-2 text-body-sm text-muted-foreground/70">
+          <p className="mt-2 text-body-sm text-faint">
             Changing the icon color will reload the page. PWA users may need to
             reinstall for launcher icons to update.
           </p>

@@ -269,11 +269,11 @@ export function TaskConversation({
   return (
     <div
       data-testid="task-conversation"
-      className="flex h-full min-h-0 flex-col overflow-hidden rounded-xl bg-card shadow-sm ring-1 ring-border/40"
+      className="flex h-full min-h-0 flex-col overflow-hidden rounded-xl bg-card shadow-sm ring-1 ring-border-subtle"
     >
       {thread ? (
         <>
-          <div className="flex shrink-0 items-center gap-1 border-b border-border/40 px-1.5 py-1">
+          <div className="flex shrink-0 items-center gap-1 border-b border-border-subtle px-1.5 py-1">
             <Button
               variant="ghost"
               size="sm"
@@ -315,7 +315,7 @@ export function TaskConversation({
               {feed.error ? (
                 <div
                   role="alert"
-                  className="mx-3 flex items-center justify-between gap-3 rounded-md bg-destructive/10 px-3 py-2 text-body-sm text-destructive"
+                  className="mx-3 flex items-center justify-between gap-3 rounded-md bg-danger/tint px-3 py-2 text-body-sm text-danger"
                 >
                   <span className="min-w-0 truncate">
                     Couldn&apos;t load the conversation: {feed.error.message}
@@ -369,11 +369,11 @@ export function TaskConversation({
               ) : null}
             </div>
           </div>
-          <div className="shrink-0 border-t border-border/40 bg-card px-2 pb-2 pt-2 md:px-3">
+          <div className="shrink-0 border-t border-border-subtle bg-card px-2 pb-2 pt-2 md:px-3">
             {error ? (
               <div
                 role="alert"
-                className="mb-1.5 truncate text-label-sm text-destructive"
+                className="mb-1.5 truncate text-label-sm text-danger"
               >
                 {error}
               </div>

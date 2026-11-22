@@ -18,9 +18,9 @@ const VERSION_CONFIG: Record<
   ReleaseVersionType,
   { icon: typeof ShieldCheck; color: string }
 > = {
-  patch: { icon: ShieldCheck, color: "text-status-working" },
-  minor: { icon: Sparkles, color: "text-status-done" },
-  major: { icon: Zap, color: "text-violet-400" },
+  patch: { icon: ShieldCheck, color: "text-success" },
+  minor: { icon: Sparkles, color: "text-info" },
+  major: { icon: Zap, color: "text-status-merged" },
 };
 
 type CreateReleaseSectionProps = {
@@ -62,7 +62,7 @@ export function CreateReleaseSection({
       <div className="mb-3 section-label">Create release</div>
 
       {releaseError && (
-        <div className="mb-3 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-body-md text-destructive">
+        <div className="mb-3 rounded-lg border border-danger/line bg-danger/tint px-3 py-2 text-body-md text-danger">
           {releaseError}
         </div>
       )}

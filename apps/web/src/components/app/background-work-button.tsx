@@ -84,7 +84,7 @@ function AgentBackgroundWork({ agentId }: { agentId: string }) {
         >
           {query.isPending ? (
             <div
-              className="h-14 animate-pulse rounded-lg bg-muted/50"
+              className="h-14 animate-pulse rounded-lg bg-surface-hover"
               aria-label="Loading background work"
             />
           ) : !available ? (
@@ -96,7 +96,7 @@ function AgentBackgroundWork({ agentId }: { agentId: string }) {
               No reported background work.
             </p>
           ) : (
-            <ul className="divide-y divide-border/40">
+            <ul className="divide-y divide-border-subtle">
               {items.map((item) => {
                 const Icon = item.kind === "monitor" ? Radio : Terminal;
                 return (
@@ -117,8 +117,8 @@ function AgentBackgroundWork({ agentId }: { agentId: string }) {
                     <span
                       className={
                         item.state === "paused"
-                          ? "flex shrink-0 items-center gap-1.5 text-body-sm text-status-waiting [[data-theme-mode=light]_&]:text-amber-800"
-                          : "flex shrink-0 items-center gap-1.5 text-body-sm text-status-working [[data-theme-mode=light]_&]:text-emerald-800"
+                          ? "flex shrink-0 items-center gap-1.5 text-body-sm text-status-waiting [[data-theme-mode=light]_&]:text-warning-ink"
+                          : "flex shrink-0 items-center gap-1.5 text-body-sm text-status-working [[data-theme-mode=light]_&]:text-success-ink"
                       }
                     >
                       {item.state === "paused" ? (

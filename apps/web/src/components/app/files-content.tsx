@@ -63,8 +63,8 @@ function LiveStreamSection({
   return (
     <div className="border-b-2 border-border">
       <div className="flex items-center gap-2 px-3 py-2">
-        <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-status-blocked" />
-        <span className="section-label text-status-blocked">Live Stream</span>
+        <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-danger" />
+        <span className="section-label text-danger">Live Stream</span>
         <div className="ml-auto">
           <Button
             size="sm"
@@ -213,7 +213,7 @@ export function FilesContent({
                   : "Share file"}
             </Button>
             {uploadError ? (
-              <span className="truncate text-body-sm text-destructive">
+              <span className="truncate text-body-sm text-danger">
                 {uploadError}
               </span>
             ) : null}

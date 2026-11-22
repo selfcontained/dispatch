@@ -27,7 +27,7 @@ export function AgentLinkControls({
       onClick={(event) => event.stopPropagation()}
     >
       <Button
-        className="text-muted-foreground/60 hover:text-foreground"
+        className="text-faint hover:text-foreground"
         variant="ghost"
         size="icon-sm"
         aria-label={copied ? copiedLabel : copyLabel}
@@ -41,7 +41,7 @@ export function AgentLinkControls({
         )}
       </Button>
       <Button
-        className="text-muted-foreground/60 hover:text-foreground"
+        className="text-faint hover:text-foreground"
         variant="ghost"
         size="icon-sm"
         aria-label={dismissLabel}

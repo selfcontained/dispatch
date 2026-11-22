@@ -501,12 +501,12 @@ export default function TerminalPanel({
         )}
       </div>
       {info?.unencrypted && (
-        <p className="text-body-sm text-amber-500">
+        <p className="text-body-sm text-warning">
           Unencrypted connection on this network.
         </p>
       )}
       {error && (
-        <p role="alert" className="text-body-sm text-destructive">
+        <p role="alert" className="text-body-sm text-danger">
           {error}
         </p>
       )}

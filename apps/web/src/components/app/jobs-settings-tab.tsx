@@ -154,7 +154,7 @@ export function SettingsTab({
 
   return (
     <div className="mt-4 grid gap-4">
-      <label className="flex items-center justify-between gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3 text-body-md">
+      <label className="flex items-center justify-between gap-3 rounded-md border border-border-subtle bg-surface-subtle px-3 py-3 text-body-md">
         <span>
           <span className="block font-medium text-foreground">Enabled</span>
           <span className="block text-body-sm text-muted-foreground">
@@ -195,7 +195,7 @@ export function SettingsTab({
         />
       </label>
       {enabledError ? (
-        <div className="rounded-md border border-status-blocked/40 bg-status-blocked/10 p-3 text-body-md text-status-blocked">
+        <div className="rounded-md border border-danger/line bg-danger/tint p-3 text-body-md text-danger">
           {enabledError}
         </div>
       ) : null}
@@ -355,7 +355,7 @@ export function SettingsTab({
                 : undefined
             }
           />
-          <label className="flex items-center justify-between gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3 text-body-md">
+          <label className="flex items-center justify-between gap-3 rounded-md border border-border-subtle bg-surface-subtle px-3 py-3 text-body-md">
             <span>
               <span className="block font-medium text-foreground">
                 Show in command palette
@@ -370,7 +370,7 @@ export function SettingsTab({
               ariaLabel="Show in command palette"
             />
           </label>
-          <label className="flex items-center justify-between gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3 text-body-md">
+          <label className="flex items-center justify-between gap-3 rounded-md border border-border-subtle bg-surface-subtle px-3 py-3 text-body-md">
             <span>
               <span className="block font-medium text-foreground">
                 Single instance
@@ -385,7 +385,7 @@ export function SettingsTab({
               ariaLabel="Single instance"
             />
           </label>
-          <div className="rounded-md border border-border/70 bg-muted/20 px-3 py-3 text-body-md">
+          <div className="rounded-md border border-border-subtle bg-surface-subtle px-3 py-3 text-body-md">
             <label className="flex items-center justify-between gap-3">
               <span>
                 <span className="block font-medium text-foreground">
@@ -411,12 +411,12 @@ export function SettingsTab({
           </div>
         </div>
         {saveError ? (
-          <div className="mt-4 rounded-md border border-status-blocked/40 bg-status-blocked/10 p-3 text-body-md text-status-blocked">
+          <div className="mt-4 rounded-md border border-danger/line bg-danger/tint p-3 text-body-md text-danger">
             {saveError}
           </div>
         ) : null}
         {saved ? (
-          <div className="mt-4 rounded-md border border-status-done/40 bg-status-done/10 p-3 text-body-md text-status-done">
+          <div className="mt-4 rounded-md border border-info/line bg-info/tint p-3 text-body-md text-info">
             Settings saved.
           </div>
         ) : null}
@@ -466,10 +466,8 @@ export function SettingsTab({
           </Button>
         </div>
       </div>
-      <div className="rounded-md border border-status-blocked/30 bg-status-blocked/5 p-4">
-        <div className="text-body-md font-medium text-status-blocked">
-          Remove job
-        </div>
+      <div className="rounded-md border border-danger/line bg-danger/wash p-4">
+        <div className="text-body-md font-medium text-danger">Remove job</div>
         <p className="mt-1 text-body-sm text-muted-foreground">
           Remove this saved job, schedule, and run history from this Dispatch
           instance.
@@ -489,7 +487,7 @@ export function SettingsTab({
           </Button>
         </div>
         {removeError ? (
-          <div className="mt-3 rounded-md border border-status-blocked/40 bg-status-blocked/10 p-3 text-body-md text-status-blocked">
+          <div className="mt-3 rounded-md border border-danger/line bg-danger/tint p-3 text-body-md text-danger">
             {removeError}
           </div>
         ) : null}

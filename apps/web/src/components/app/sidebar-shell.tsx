@@ -42,8 +42,8 @@ export function SidebarNavBar({
 }: SidebarNavBarProps): JSX.Element {
   const navButtonClassName = (navItem: string, active = false): string =>
     cn(
-      "rounded-md p-2 transition-colors hover:bg-muted/50 hover:text-foreground",
-      active ? "text-primary hover:text-primary/80" : "text-muted-foreground"
+      "rounded-md p-2 transition-colors hover:bg-surface-hover hover:text-foreground",
+      active ? "text-primary hover:text-primary/soft" : "text-muted-foreground"
     );
 
   const triggerNavAnimationForKey = (

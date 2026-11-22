@@ -182,8 +182,8 @@ function TasksContent({ projectId }: { projectId: string }) {
             data-testid={`task-nav-column-${column.key}`}
             aria-pressed={onlyColumn?.id === column.id}
             className={cn(
-              "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-body-md hover:bg-muted/60",
-              onlyColumn?.id === column.id && "bg-muted/70 font-medium"
+              "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-body-md hover:bg-surface-hover",
+              onlyColumn?.id === column.id && "bg-surface-hover font-medium"
             )}
             onClick={() => showColumn(column.id)}
           >
@@ -238,7 +238,7 @@ function TasksContent({ projectId }: { projectId: string }) {
             {onlyColumn && (
               <button
                 data-testid="task-column-filter"
-                className="flex shrink-0 items-center gap-1.5 rounded-full bg-muted/60 py-0.5 pl-2.5 pr-1.5 text-body-sm hover:bg-muted"
+                className="flex shrink-0 items-center gap-1.5 rounded-full bg-surface-hover py-0.5 pl-2.5 pr-1.5 text-body-sm hover:bg-muted"
                 onClick={() => updateParam("column", null)}
                 aria-label={`Show all columns (showing only ${onlyColumn.name})`}
               >
@@ -272,7 +272,7 @@ function TasksContent({ projectId }: { projectId: string }) {
               // toggling never changes the control's size.
               className={cn(
                 archived
-                  ? "bg-primary/20 text-primary ring-1 ring-primary/40 hover:bg-primary/25"
+                  ? "bg-primary/tint-strong text-primary ring-1 ring-primary/line hover:bg-primary/tint-strong"
                   : "border border-transparent"
               )}
               aria-pressed={archived}
@@ -280,7 +280,7 @@ function TasksContent({ projectId }: { projectId: string }) {
             >
               Archived
             </Button>
-            <div className="flex shrink-0 rounded-lg bg-muted/50 p-0.5 md:order-last">
+            <div className="flex shrink-0 rounded-lg bg-surface-hover p-0.5 md:order-last">
               <Button
                 size="sm"
                 variant={layout === "board" ? "default" : "ghost"}
@@ -355,7 +355,7 @@ function TasksContent({ projectId }: { projectId: string }) {
           </p>
         )}
         {error && (
-          <p className="p-5 text-body-md text-destructive">
+          <p className="p-5 text-body-md text-danger">
             Could not load tasks: {error.message}
           </p>
         )}
@@ -365,10 +365,7 @@ function TasksContent({ projectId }: { projectId: string }) {
               <div className="h-full overflow-auto p-4">
                 <h2 className="mb-3 text-heading-md">Archived tasks</h2>
                 {actions.restore.error && (
-                  <p
-                    role="alert"
-                    className="mb-3 text-body-md text-destructive"
-                  >
+                  <p role="alert" className="mb-3 text-body-md text-danger">
                     {actions.restore.error.message}
                   </p>
                 )}
@@ -398,7 +395,7 @@ function TasksContent({ projectId }: { projectId: string }) {
                   .map((task) => (
                     <div
                       key={task.id}
-                      className="flex items-center gap-3 border-b border-border/40 py-3"
+                      className="flex items-center gap-3 border-b border-border-subtle py-3"
                     >
                       <button
                         className="min-w-0 flex-1 truncate text-left text-body-md hover:underline"
@@ -520,7 +517,7 @@ export function TasksRoute(): JSX.Element {
             {projects.map((project) => (
               <button
                 key={project.id}
-                className="flex w-full items-center justify-center gap-3 rounded-lg border border-border/60 bg-card/60 px-3 py-2 text-body-md hover:bg-muted/60"
+                className="flex w-full items-center justify-center gap-3 rounded-lg border border-border-subtle bg-card/veil px-3 py-2 text-body-md hover:bg-surface-hover"
                 onClick={() => {
                   const next = new URLSearchParams(params);
                   next.set("project", project.id);

@@ -25,7 +25,7 @@ export function BrainsListContent({
             {Array.from({ length: 3 }, (_, i) => (
               <div
                 key={i}
-                className="h-10 animate-pulse rounded-md bg-muted/40"
+                className="h-10 animate-pulse rounded-md bg-surface-subtle"
               />
             ))}
           </div>
@@ -44,8 +44,8 @@ export function BrainsListContent({
           <div>
             <button
               className={cn(
-                "flex w-full items-center gap-2 border-b border-r-4 border-border border-r-transparent px-3 py-2.5 text-left text-body-md text-muted-foreground transition-colors hover:bg-muted/40",
-                showOverview && "border-r-primary bg-muted/60"
+                "flex w-full items-center gap-2 border-b border-r-4 border-border border-r-transparent px-3 py-2.5 text-left text-body-md text-muted-foreground transition-colors hover:bg-surface-hover",
+                showOverview && "border-r-primary bg-surface-hover"
               )}
               onClick={() => {
                 navigate("/automations/brains");
@@ -64,8 +64,8 @@ export function BrainsListContent({
                   role="button"
                   tabIndex={0}
                   className={cn(
-                    "w-full cursor-pointer border-b border-r-4 border-border border-r-transparent px-3 py-2 text-left transition-colors hover:bg-muted/40",
-                    selected && "border-r-primary bg-muted/60"
+                    "w-full cursor-pointer border-b border-r-4 border-border border-r-transparent px-3 py-2 text-left transition-colors hover:bg-surface-hover",
+                    selected && "border-r-primary bg-surface-hover"
                   )}
                   onClick={() => {
                     navigate(`/automations/brains/${encoded}`);

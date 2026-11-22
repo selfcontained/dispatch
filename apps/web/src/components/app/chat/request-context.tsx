@@ -132,7 +132,7 @@ export function RequestContext({
       data-testid="request-context"
       className={cn(
         glassOverlay,
-        "pointer-events-auto shrink-0 rounded-b-lg border-t-0 bg-popover/35 backdrop-blur-md",
+        "pointer-events-auto shrink-0 rounded-b-lg border-t-0 bg-popover/line backdrop-blur-md",
         open &&
           "shadow-[0_12px_20px_-4px_rgba(0,0,0,0.75),0_28px_56px_-8px_rgba(0,0,0,0.65),inset_0_1px_0_rgba(255,255,255,0.15)]"
       )}
@@ -160,7 +160,7 @@ export function RequestContext({
             aria-expanded={open}
             aria-controls={detailId}
             onClick={() => setOpen(!open)}
-            className="col-start-1 row-start-1 flex h-7 min-w-0 flex-1 items-center gap-2 rounded-sm text-left text-label-sm font-medium text-foreground/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring pointer-coarse:h-9"
+            className="col-start-1 row-start-1 flex h-7 min-w-0 flex-1 items-center gap-2 rounded-sm text-left text-label-sm font-medium text-foreground/soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring pointer-coarse:h-9"
           >
             <span className="shrink-0 whitespace-nowrap">
               {index === requests.length - 1

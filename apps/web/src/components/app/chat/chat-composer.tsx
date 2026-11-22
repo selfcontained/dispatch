@@ -1415,12 +1415,12 @@ export function ChatComposer({
       >
         <div
           className={cn(
-            "rounded-2xl border bg-card/70 transition-colors",
+            "rounded-2xl border bg-card/soft transition-colors",
             disabled
               ? "border-border opacity-70"
               : draggingFiles
-                ? "border-status-done bg-status-done/10 ring-1 ring-inset ring-status-done/30"
-                : "border-border focus-within:border-foreground/30 hover:border-foreground/20"
+                ? "border-info bg-info/tint ring-1 ring-inset ring-info/line"
+                : "border-border focus-within:border-foreground/line hover:border-foreground/tint-strong"
           )}
         >
           {hasAttachments ? (
@@ -1555,7 +1555,7 @@ export function ChatComposer({
                     title="Attach a file"
                     aria-label="Attach a file"
                     data-testid="chat-composer-attach-button"
-                    className="h-9 w-9 shrink-0 rounded-full bg-muted/60 text-muted-foreground pointer-coarse:min-h-11 pointer-coarse:min-w-11"
+                    className="h-9 w-9 shrink-0 rounded-full bg-surface-hover text-muted-foreground pointer-coarse:min-h-11 pointer-coarse:min-w-11"
                   >
                     <Plus className="h-5 w-5" />
                   </Button>
@@ -1695,7 +1695,7 @@ export function ChatComposer({
             ) : visibleError ? (
               <span
                 role="alert"
-                className="text-destructive"
+                className="text-danger"
                 data-testid="chat-composer-error"
                 data-retryable={visibleError.retryable ? "true" : undefined}
               >

@@ -242,9 +242,9 @@ export function MessageActions({
                         <span
                           className={
                             delivery.state === "failed"
-                              ? "text-destructive"
+                              ? "text-danger"
                               : receipt?.pickedUpAt
-                                ? "text-green-600 dark:text-green-400"
+                                ? "text-success-ink"
                                 : "text-foreground"
                           }
                         >
@@ -335,7 +335,7 @@ function MessageRoutingDetails({
         </p>
       )}
       {metadata.isError && (
-        <p className="text-body-sm text-destructive">
+        <p className="text-body-sm text-danger">
           Couldn’t load routing details.
         </p>
       )}

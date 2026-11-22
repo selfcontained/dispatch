@@ -193,7 +193,7 @@ export function SlackAppSection() {
     >
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="flex items-start gap-3">
-          <div className="rounded-xl border border-border bg-muted/50 p-2.5">
+          <div className="rounded-xl border border-border bg-surface-hover p-2.5">
             <Slack className="size-5" aria-hidden="true" />
           </div>
           <div>
@@ -217,7 +217,7 @@ export function SlackAppSection() {
           <span
             className={cn(
               "size-1.5 rounded-full",
-              connected ? "bg-status-working" : "bg-current"
+              connected ? "bg-success" : "bg-current"
             )}
           />
           {status}
@@ -225,7 +225,7 @@ export function SlackAppSection() {
       </div>
 
       {configured && (
-        <Card className="border border-status-working/20">
+        <Card className="border border-success/line">
           <CardHeader>
             <CardDescription>Notification destination</CardDescription>
             <CardTitle className="flex items-center gap-2 text-heading-md">
@@ -350,7 +350,7 @@ export function SlackAppSection() {
                       step === index + 1
                         ? "bg-primary text-primary-foreground"
                         : step > index + 1
-                          ? "bg-primary/15 text-primary"
+                          ? "bg-surface-selected text-primary"
                           : "bg-muted text-muted-foreground"
                     )}
                   >
@@ -394,7 +394,7 @@ export function SlackAppSection() {
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-5">
-                <div className="rounded-lg border border-border bg-muted/25 p-4">
+                <div className="rounded-lg border border-border bg-surface-subtle p-4">
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div>
                       <p className="text-body-md font-medium">
@@ -412,7 +412,7 @@ export function SlackAppSection() {
                     />
                   </div>
                   <Disclosure label="Preview manifest">
-                    <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-all rounded bg-background/50 p-3 text-label-sm">
+                    <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-all rounded bg-background/veil p-3 text-label-sm">
                       {manifest}
                     </pre>
                   </Disclosure>
@@ -499,7 +499,7 @@ export function SlackAppSection() {
                       Scopes. Add the scope below, then generate and copy the
                       token.
                     </p>
-                    <div className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded bg-muted/50 px-3 py-2">
+                    <div className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded bg-surface-hover px-3 py-2">
                       <code>connections:write</code>
                       <CopyButton
                         text="connections:write"
@@ -671,7 +671,7 @@ export function SlackAppSection() {
       {action.error && (
         <div
           role="alert"
-          className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-body-md text-destructive"
+          className="rounded-lg border border-danger/line bg-danger/wash p-3 text-body-md text-danger"
         >
           <p className="font-medium">Couldn’t complete this step</p>
           <p className="mt-1 text-body-sm">{action.error.message}</p>

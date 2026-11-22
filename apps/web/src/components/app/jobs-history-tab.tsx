@@ -132,21 +132,16 @@ function RunReport({ run }: { run: JobRun | null }) {
             />
             <span className="font-medium">{task.name}</span>
             {task.status === "error" && (
-              <span className="uppercase text-status-blocked">
+              <span className="uppercase text-danger">
                 {statusLabel(task.status)}
               </span>
             )}
           </div>
           {task.summary ? (
-            <div className="pl-3.5 text-body-sm text-muted-foreground/70">
-              {task.summary}
-            </div>
+            <div className="pl-3.5 text-body-sm text-faint">{task.summary}</div>
           ) : null}
           {task.errors?.map((error, errorIndex) => (
-            <div
-              key={errorIndex}
-              className="pl-3.5 text-body-sm text-status-blocked"
-            >
+            <div key={errorIndex} className="pl-3.5 text-body-sm text-danger">
               {error.message}
               {error.action ? (
                 <span className="ml-2 text-muted-foreground">
@@ -158,7 +153,7 @@ function RunReport({ run }: { run: JobRun | null }) {
           {task.logs?.slice(-5).map((log, logIndex) => (
             <div
               key={logIndex}
-              className="pl-3.5 font-mono text-label-sm text-muted-foreground/50"
+              className="pl-3.5 font-mono text-label-sm text-faint"
             >
               [{log.level}] {log.message}
             </div>
@@ -172,7 +167,7 @@ function RunReport({ run }: { run: JobRun | null }) {
         </div>
       )}
       {run.completedAt && (
-        <div className="pt-1 font-mono text-label-sm text-muted-foreground/50">
+        <div className="pt-1 font-mono text-label-sm text-faint">
           Completed {formatJobDateTime(run.completedAt)}
         </div>
       )}

@@ -149,8 +149,8 @@ describe("ComposerInput plain-text editing", () => {
     const { input } = setup("@reviewer @reviewer next");
     expect(input.textContent).toBe("@reviewer @reviewer next");
     expect(screen.getAllByTestId("chat-composer-mention")).toHaveLength(2);
-    expect(input.className).toContain("text-sm");
-    expect(input.className).toContain("pointer-coarse:text-base");
+    expect(input.className).toContain("text-body-md");
+    expect(input.className).toContain("pointer-coarse:text-body-lg");
     expect(
       screen.getAllByTestId("chat-composer-mention")[0]!.className
     ).toContain("text-xs");

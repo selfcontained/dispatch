@@ -65,37 +65,32 @@ export type SeatClasses = {
   ink: string;
 };
 
-// Theme mode is a data attribute, not Tailwind's .dark class.
+// The seat variables in index.css carry each theme mode's text shade.
 // Spelled out per colour so Tailwind sees every class it must emit.
 function seatAccent(colour: string): SeatClasses {
   const faces: Record<string, string> = {
-    sky: "border-sky-500/40 bg-sky-500/15 text-sky-800 [[data-theme-mode=dark]_&]:text-sky-300",
-    emerald:
-      "border-emerald-500/40 bg-emerald-500/15 text-emerald-800 [[data-theme-mode=dark]_&]:text-emerald-300",
-    amber:
-      "border-amber-500/40 bg-amber-500/15 text-amber-800 [[data-theme-mode=dark]_&]:text-amber-300",
-    violet:
-      "border-violet-500/40 bg-violet-500/15 text-violet-800 [[data-theme-mode=dark]_&]:text-violet-300",
-    rose: "border-rose-500/40 bg-rose-500/15 text-rose-800 [[data-theme-mode=dark]_&]:text-rose-300",
-    teal: "border-teal-500/40 bg-teal-500/15 text-teal-800 [[data-theme-mode=dark]_&]:text-teal-300",
-    orange:
-      "border-orange-500/40 bg-orange-500/15 text-orange-800 [[data-theme-mode=dark]_&]:text-orange-300",
-    fuchsia:
-      "border-fuchsia-500/40 bg-fuchsia-500/15 text-fuchsia-800 [[data-theme-mode=dark]_&]:text-fuchsia-300",
-    lime: "border-lime-500/40 bg-lime-500/15 text-lime-800 [[data-theme-mode=dark]_&]:text-lime-300",
-    cyan: "border-cyan-500/40 bg-cyan-500/15 text-cyan-800 [[data-theme-mode=dark]_&]:text-cyan-300",
+    sky: "border-seat-1/line bg-seat-1/tint text-seat-1-text",
+    emerald: "border-seat-2/line bg-seat-2/tint text-seat-2-text",
+    amber: "border-seat-3/line bg-seat-3/tint text-seat-3-text",
+    violet: "border-seat-4/line bg-seat-4/tint text-seat-4-text",
+    rose: "border-seat-5/line bg-seat-5/tint text-seat-5-text",
+    teal: "border-seat-6/line bg-seat-6/tint text-seat-6-text",
+    orange: "border-seat-7/line bg-seat-7/tint text-seat-7-text",
+    fuchsia: "border-seat-8/line bg-seat-8/tint text-seat-8-text",
+    lime: "border-seat-9/line bg-seat-9/tint text-seat-9-text",
+    cyan: "border-seat-10/line bg-seat-10/tint text-seat-10-text",
   };
   const chips: Record<string, string> = {
-    sky: "bg-sky-800",
-    emerald: "bg-emerald-800",
-    amber: "bg-amber-800",
-    violet: "bg-violet-800",
-    rose: "bg-rose-800",
-    teal: "bg-teal-800",
-    orange: "bg-orange-800",
-    fuchsia: "bg-fuchsia-800",
-    lime: "bg-lime-800",
-    cyan: "bg-cyan-800",
+    sky: "bg-seat-1-ink",
+    emerald: "bg-seat-2-ink",
+    amber: "bg-seat-3-ink",
+    violet: "bg-seat-4-ink",
+    rose: "bg-seat-5-ink",
+    teal: "bg-seat-6-ink",
+    orange: "bg-seat-7-ink",
+    fuchsia: "bg-seat-8-ink",
+    lime: "bg-seat-9-ink",
+    cyan: "bg-seat-10-ink",
   };
   const paint: Record<string, [string, string]> = {
     sky: ["#0ea5e9", "#075985"],

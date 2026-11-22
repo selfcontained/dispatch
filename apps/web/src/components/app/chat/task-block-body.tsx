@@ -34,7 +34,7 @@ export function TaskBlockBody({
       <div
         role="status"
         aria-label="Loading task"
-        className="my-2 h-24 animate-pulse rounded-lg border bg-muted/40"
+        className="my-2 h-24 animate-pulse rounded-lg border bg-surface-subtle"
       />
     );
   const column = board?.columns.find((column) => column.id === task.columnId);

@@ -133,8 +133,7 @@ function CreateAgentDialogContent({
 
                 <div className="space-y-1">
                   <label className="text-body-md text-muted-foreground">
-                    Name{" "}
-                    <span className="text-muted-foreground/70">(optional)</span>
+                    Name <span className="text-faint">(optional)</span>
                   </label>
                   <Input
                     autoFocus
@@ -194,7 +193,7 @@ function CreateAgentDialogContent({
                 />
 
                 {form.createType !== "opencode" && (
-                  <label className="flex cursor-pointer items-start gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3">
+                  <label className="flex cursor-pointer items-start gap-3 rounded-md border border-border-subtle bg-surface-subtle px-3 py-3">
                     <Checkbox
                       checked={form.createFullAccess}
                       onCheckedChange={() =>
@@ -400,7 +399,7 @@ function TaskContextCard({
   return (
     <section
       data-testid="create-agent-task"
-      className="space-y-2 rounded-md border border-border/70 bg-muted/20 px-3 py-2.5 text-body-md"
+      className="space-y-2 rounded-md border border-border-subtle bg-surface-subtle px-3 py-2.5 text-body-md"
     >
       <div className="flex items-baseline justify-between gap-3">
         <span className="min-w-0 truncate">
@@ -418,7 +417,7 @@ function TaskContextCard({
         <summary className="cursor-pointer select-none text-muted-foreground hover:text-foreground">
           What the agent is told
         </summary>
-        <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap rounded bg-background/60 p-2 font-mono text-label-sm leading-snug text-muted-foreground">
+        <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap rounded bg-background/veil p-2 font-mono text-label-sm leading-snug text-muted-foreground">
           {briefing.data?.text ??
             (briefing.error ? "Could not load the briefing." : "Loading…")}
         </pre>

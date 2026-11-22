@@ -104,7 +104,7 @@ export function ExpandableBlock({
   const clipped = collapsible && !expanded;
   return (
     <div
-      className={cn("rounded-md bg-background/60", className)}
+      className={cn("rounded-md bg-background/veil", className)}
       data-testid={testId}
       data-expanded={collapsible ? String(expanded) : undefined}
     >
@@ -120,7 +120,7 @@ export function ExpandableBlock({
         {clipped ? (
           <div
             aria-hidden="true"
-            className="pointer-events-none absolute inset-x-0 bottom-0 h-8 bg-gradient-to-t from-background/90 to-transparent"
+            className="pointer-events-none absolute inset-x-0 bottom-0 h-8 bg-gradient-to-t from-background/dense to-transparent"
           />
         ) : null}
       </div>
@@ -130,7 +130,7 @@ export function ExpandableBlock({
           onClick={() => setExpanded((v) => !v)}
           aria-expanded={expanded}
           data-testid="harness-block-toggle"
-          className="w-full border-t border-border/40 px-2 py-1 text-left text-label-xs text-muted-foreground hover:text-foreground"
+          className="w-full border-t border-border-subtle px-2 py-1 text-left text-label-xs text-muted-foreground hover:text-foreground"
         >
           {expanded ? "Collapse" : `Show all ${lineCount} lines`}
         </button>
@@ -202,7 +202,7 @@ function LineRow({
       {number !== null ? (
         <span
           aria-hidden="true"
-          className="select-none pl-2 pr-3 text-right text-muted-foreground/60"
+          className="select-none pl-2 pr-3 text-right text-faint"
         >
           {number}
         </span>

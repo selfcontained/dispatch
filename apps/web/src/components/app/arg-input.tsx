@@ -27,9 +27,7 @@ export function ArgInput({
     <div className="space-y-2">
       <label htmlFor={inputId} className="text-body-md text-muted-foreground">
         {arg.name}
-        {arg.required ? (
-          <span className="ml-1 text-status-blocked">*</span>
-        ) : null}
+        {arg.required ? <span className="ml-1 text-danger">*</span> : null}
       </label>
       {arg.options ? (
         <div className="flex items-center gap-2">
@@ -75,7 +73,7 @@ export function ArgInput({
         />
       )}
       {arg.error ? (
-        <p role="alert" className="text-body-sm text-status-blocked">
+        <p role="alert" className="text-body-sm text-danger">
           {arg.error}
         </p>
       ) : null}

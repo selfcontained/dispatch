@@ -52,7 +52,7 @@ function LoadingText(): JSX.Element {
 
 function TextError({ error }: { error: string }): JSX.Element {
   return (
-    <div className="grid h-full place-items-center text-body-md text-destructive">
+    <div className="grid h-full place-items-center text-body-md text-danger">
       {error}
     </div>
   );

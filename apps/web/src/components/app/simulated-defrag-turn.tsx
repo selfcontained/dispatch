@@ -123,7 +123,7 @@ export function SimulatedDefragTurn() {
           Let compaction run, then finish it to watch normal work resume.
         </p>
       )}
-      <div className="rounded-lg bg-muted/30 p-4 text-body-md">
+      <div className="rounded-lg bg-surface-subtle p-4 text-body-md">
         Review the placeholder change, run checks, and summarize the result.
       </div>
       <div className="space-y-3">

@@ -47,7 +47,7 @@ function ManualCommand({ command }: { command: string }): JSX.Element {
   const [copied, copyText] = useCopyText();
   return (
     <li className="pl-1 marker:text-muted-foreground">
-      <div className="flex min-w-0 items-center gap-1 rounded bg-muted/50 py-1 pl-2 pr-1">
+      <div className="flex min-w-0 items-center gap-1 rounded bg-surface-hover py-1 pl-2 pr-1">
         <code className="min-w-0 flex-1 whitespace-pre-wrap break-words font-mono text-label-sm text-foreground">
           {command}
         </code>
@@ -145,14 +145,14 @@ function PluginRow({ status }: { status: PluginStatus }): JSX.Element {
       {error ? (
         <p
           role="alert"
-          className="mt-2 whitespace-pre-line text-body-sm text-destructive"
+          className="mt-2 whitespace-pre-line text-body-sm text-danger"
         >
           {error.message}{" "}
           <Button
             type="button"
             variant="ghost"
             size="sm"
-            className="h-auto p-0 text-body-sm text-destructive underline"
+            className="h-auto p-0 text-body-sm text-danger underline"
             onClick={() => setManualOpen(true)}
           >
             Run it manually
@@ -233,7 +233,7 @@ export function PluginUpdateSettings(): JSX.Element {
           </p>
         ) : null}
         {error || refresh.error ? (
-          <p role="alert" className="text-body-md text-destructive">
+          <p role="alert" className="text-body-md text-danger">
             Could not load plugin status. Check again to retry.
           </p>
         ) : null}

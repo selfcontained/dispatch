@@ -63,7 +63,7 @@ export function ChangesSettingsPopover({
                 aria-describedby={
                   isMobile ? "mobile-diff-view-hint" : undefined
                 }
-                className="flex rounded-md border border-border/60 bg-muted/30 p-0.5"
+                className="flex rounded-md border border-border-subtle bg-surface-subtle p-0.5"
               >
                 {VIEW_OPTIONS.map((opt) => {
                   const disabled = isMobile && opt.value === "split";

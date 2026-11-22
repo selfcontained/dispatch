@@ -502,7 +502,7 @@ function SummaryRow({
         slot
           ? "grid-cols-[12px_minmax(0,1fr)_auto_auto]"
           : "grid-cols-[minmax(0,1fr)_auto_auto]",
-        "hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-status-working/50"
+        "hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-status-working/line-strong"
       )}
     >
       {slot ? (
@@ -532,10 +532,7 @@ function SummaryRow({
         {thinking ? "" : `${steps} · `}
         {formatStepDuration(ms)} total
       </span>
-      <span
-        aria-hidden="true"
-        className="shrink-0 text-label-xs text-muted-foreground/70"
-      >
+      <span aria-hidden="true" className="shrink-0 text-label-xs text-faint">
         {open ? (
           <ChevronDown className="h-3 w-3" />
         ) : (

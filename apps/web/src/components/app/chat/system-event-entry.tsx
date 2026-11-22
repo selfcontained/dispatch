@@ -88,15 +88,15 @@ export function SystemEventEntry({
   );
   const iconColor =
     event.risk === "human_review"
-      ? "text-red-600"
+      ? "text-danger"
       : status === "Failing"
-        ? "text-destructive"
+        ? "text-danger"
         : event.risk === "routine" || status === "Passing"
-          ? "text-status-working"
+          ? "text-success"
           : status === "Pending" || event.risk === "abstain"
-            ? "text-status-waiting"
+            ? "text-warning"
             : event.category === "lifecycle"
-              ? "text-status-done"
+              ? "text-info"
               : "text-primary";
   // Check cards lead with the PR itself ("PR #1439 Title"), not a generic label.
   const prNumber = inline
@@ -147,9 +147,9 @@ export function SystemEventEntry({
           variant="default"
           className={
             status === "Failing"
-              ? "border-destructive/20 bg-destructive/10 text-destructive"
+              ? "border-danger/line bg-danger/tint text-danger"
               : status === "Passing"
-                ? "border-status-working/20 bg-status-working/10 text-status-working"
+                ? "border-success/line bg-success/tint text-success"
                 : "text-muted-foreground"
           }
         >

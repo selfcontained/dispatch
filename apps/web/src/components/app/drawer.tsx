@@ -110,7 +110,7 @@ function SidebarTab({
         "relative flex shrink-0 items-center gap-1.5 px-3 py-2.5 text-body-sm font-semibold uppercase tracking-wide transition-colors",
         active
           ? "text-foreground"
-          : "text-muted-foreground hover:text-foreground/80"
+          : "text-muted-foreground hover:text-foreground/soft"
       )}
     >
       {label}
@@ -179,7 +179,7 @@ export function DrawerContent({
               active={activeTab === "inbox"}
               onClick={() => setActiveTab("inbox")}
               badge={inbox.inputs.length}
-              badgeClassName="bg-status-waiting text-white"
+              badgeClassName="bg-status-waiting text-background"
               testId="sidebar-tab-inbox"
             />
             <SidebarTab
@@ -187,7 +187,7 @@ export function DrawerContent({
               active={activeTab === "files"}
               onClick={() => setActiveTab("files")}
               badge={unseenFileCount}
-              badgeClassName="bg-destructive text-destructive-foreground"
+              badgeClassName="bg-danger text-danger-foreground"
               testId="sidebar-tab-files"
             />
             <SidebarTab
@@ -417,8 +417,8 @@ function DrawerResizeHandle({
       <div
         className={cn(
           "mx-auto h-full w-0.5 bg-transparent transition-colors",
-          "group-hover:bg-primary/40 group-focus-visible:bg-primary",
-          drawerWidth.dragging && "bg-primary/60"
+          "group-hover:bg-primary/veil group-focus-visible:bg-primary",
+          drawerWidth.dragging && "bg-primary/veil"
         )}
       />
     </div>

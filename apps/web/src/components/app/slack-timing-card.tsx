@@ -92,7 +92,7 @@ export function SlackTimingCard(): JSX.Element {
         </form>
         {query.isError && (
           <div className="mt-3 flex items-center gap-3" role="alert">
-            <p className="text-body-md text-destructive">
+            <p className="text-body-md text-danger">
               Couldn't load Slack timing.
             </p>
             <Button
@@ -105,7 +105,7 @@ export function SlackTimingCard(): JSX.Element {
           </div>
         )}
         {save.isError && (
-          <p className="mt-3 text-body-md text-destructive" role="alert">
+          <p className="mt-3 text-body-md text-danger" role="alert">
             {save.error instanceof Error
               ? save.error.message
               : "Couldn't save Slack timing."}

@@ -60,7 +60,7 @@ export function LoopSetup({
     Boolean(continuationMaxIterations(draft.maxIterations));
 
   return (
-    <section className="rounded-md border border-border/70 bg-muted/20 p-4 text-body-md">
+    <section className="rounded-md border border-border-subtle bg-surface-subtle p-4 text-body-md">
       <div className="mb-3">
         <h3 className="text-heading-sm text-foreground">Loop setup</h3>
       </div>
@@ -80,7 +80,7 @@ export function LoopSetup({
         />
       </label>
       {draft.enabled ? (
-        <div className="mt-4 grid gap-4 border-t border-border/70 pt-4">
+        <div className="mt-4 grid gap-4 border-t border-border-subtle pt-4">
           <p className="text-body-sm text-muted-foreground">
             The job prompt defines how each run works and where it keeps shared
             context. Each completed run passes its outcome, next step, relevant
@@ -118,13 +118,13 @@ export function LoopSetup({
               <p
                 id={`${idPrefix}-max-iterations-error`}
                 role="alert"
-                className="text-body-sm text-status-blocked"
+                className="text-body-sm text-danger"
               >
                 Use a positive whole number or leave this blank.
               </p>
             ) : null}
           </div>
-          <div className="border-t border-border/70 pt-4">
+          <div className="border-t border-border-subtle pt-4">
             <div className="grid gap-4 md:grid-cols-2">
               <LoopListField
                 id={`${idPrefix}-completionCriteria`}

@@ -6,4 +6,4 @@ export const STRIP_STATUS_CLASS =
 export const STRIP_META_CLASS =
   "text-label-xs tabular-nums text-muted-foreground";
 export const STRIP_MORE_CLASS =
-  "mt-1 pl-5 text-label-xs text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-status-working/50 pointer-coarse:min-h-11";
+  "mt-1 pl-5 text-label-xs text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-success/line-strong pointer-coarse:min-h-11";

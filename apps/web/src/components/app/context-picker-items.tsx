@@ -41,7 +41,7 @@ export function ChipRemoveButton({
       aria-label={label}
       {...(testId ? { "data-testid": testId } : {})}
     >
-      <span className="rounded-full border border-border/70 bg-background p-0.5">
+      <span className="rounded-full border border-border-subtle bg-background p-0.5">
         <X className="h-2.5 w-2.5" />
       </span>
     </button>
@@ -77,8 +77,10 @@ export function ContextFileItem({
     >
       <div
         className={cn(
-          "relative h-12 w-12 overflow-hidden rounded-md border bg-muted/40",
-          status === "failed" ? "border-destructive/60" : "border-border/70"
+          "relative h-12 w-12 overflow-hidden rounded-md border bg-surface-subtle",
+          status === "failed"
+            ? "border-danger/line-strong"
+            : "border-border-subtle"
         )}
         title={status === "failed" ? `Upload failed: ${file.name}` : file.name}
       >
@@ -113,8 +115,8 @@ export function ContextFileItem({
         {status ? (
           <div
             className={cn(
-              "absolute inset-0 flex items-center justify-center bg-background/70",
-              status === "failed" ? "text-destructive" : "text-foreground"
+              "absolute inset-0 flex items-center justify-center bg-background/soft",
+              status === "failed" ? "text-danger" : "text-foreground"
             )}
           >
             {status === "failed" ? (
@@ -187,7 +189,7 @@ export function ContextChip({
   return (
     <div
       className={cn(
-        "group relative flex h-12 max-w-[180px] flex-col justify-center gap-0.5 rounded-md border border-border/70 bg-muted/40 px-2 pr-7 leading-tight",
+        "group relative flex h-12 max-w-[180px] flex-col justify-center gap-0.5 rounded-md border border-border-subtle bg-surface-subtle px-2 pr-7 leading-tight",
         className
       )}
       title={tooltip ?? title}

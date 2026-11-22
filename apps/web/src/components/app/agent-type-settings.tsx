@@ -70,7 +70,7 @@ function AgentTypeRow({
             "flex min-w-0 flex-1 items-center gap-3 px-3 py-2.5 transition-colors",
             disabled
               ? "cursor-not-allowed opacity-60"
-              : "cursor-pointer hover:bg-muted/50"
+              : "cursor-pointer hover:bg-surface-hover"
           )}
         >
           <Checkbox
@@ -114,7 +114,7 @@ function AgentTypeRow({
           </Button>
         </CollapsibleTrigger>
       </div>
-      <CollapsibleContent className="border-t border-border bg-muted/20">
+      <CollapsibleContent className="border-t border-border bg-surface-subtle">
         <AgentModelSettings agentType={agentType} />
       </CollapsibleContent>
     </Collapsible>
@@ -242,7 +242,7 @@ export function AgentTypeSettings({
         })}
       </div>
 
-      {error ? <p className="text-body-md text-destructive">{error}</p> : null}
+      {error ? <p className="text-body-md text-danger">{error}</p> : null}
     </div>
   );
 }

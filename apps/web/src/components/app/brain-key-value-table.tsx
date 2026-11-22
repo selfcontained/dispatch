@@ -29,7 +29,7 @@ export function KeyValueTable({ value }: { value: unknown }): JSX.Element {
             key={key}
             className="flex gap-2 text-body-sm font-mono leading-relaxed min-w-0"
           >
-            <span className="text-sky-400 shrink-0">{key}</span>
+            <span className="text-chart-3 shrink-0">{key}</span>
             <span className={cn(fmt.className, "whitespace-nowrap")}>
               {fmt.text}
             </span>

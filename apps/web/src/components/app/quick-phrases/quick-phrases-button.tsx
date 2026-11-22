@@ -172,7 +172,7 @@ export function QuickPhrasesButton({
             </button>
           </div>
           {!canInject ? (
-            <div className="border-b border-border/50 bg-yellow-500/5 px-3 py-1.5 text-body-sm text-yellow-400/90">
+            <div className="border-b border-border-subtle bg-warning/wash px-3 py-1.5 text-body-sm text-warning">
               Connect to an agent session to inject phrases
             </div>
           ) : null}
@@ -202,7 +202,7 @@ export function QuickPhrasesButton({
                         key={phrase.id}
                         value={phrase.id}
                         onSelect={() => handleSelect(phrase)}
-                        className="border-b border-border/50 p-0 last:border-b-0 data-[selected=true]:bg-primary/10"
+                        className="border-b border-border-subtle p-0 last:border-b-0 data-[selected=true]:bg-surface-selected"
                       >
                         <PhraseRow
                           phrase={phrase}

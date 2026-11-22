@@ -92,7 +92,7 @@ export const CenterPaneTabBar = memo(function CenterPaneTabBar({
               isMobile ? "px-2.5" : "px-3",
               activeTab === tab.id
                 ? "text-foreground"
-                : "cursor-grab text-muted-foreground hover:text-foreground/80 active:cursor-grabbing"
+                : "cursor-grab text-muted-foreground hover:text-foreground/soft active:cursor-grabbing"
             )}
             onClick={() => {
               if (isSplit) {

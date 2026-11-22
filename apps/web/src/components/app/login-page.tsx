@@ -100,7 +100,7 @@ export function LoginPage({ onAuthenticated }: LoginPageProps): JSX.Element {
               autoFocus
               data-testid="login-password"
             />
-            {error && <p className="text-body-md text-destructive">{error}</p>}
+            {error && <p className="text-body-md text-danger">{error}</p>}
             <Button
               type="submit"
               variant="primary"

@@ -77,7 +77,8 @@ export function MobileTerminalControls({
                 variant="default"
                 className={cn(
                   "h-8 shrink-0 px-3 text-body-sm",
-                  ctrlArmed && "ring-2 ring-primary bg-primary/20 text-primary"
+                  ctrlArmed &&
+                    "ring-2 ring-primary bg-primary/tint-strong text-primary"
                 )}
                 aria-label="Toggle Control modifier"
                 aria-pressed={ctrlArmed}
@@ -160,7 +161,7 @@ export function MobileTerminalControls({
       </div>
 
       <DialogContent
-        className="fixed inset-0 left-0 top-0 h-dvh max-h-none w-full translate-x-0 translate-y-0 gap-0 rounded-none border-0 bg-background/95 p-0 shadow-none backdrop-blur-sm"
+        className="fixed inset-0 left-0 top-0 h-dvh max-h-none w-full translate-x-0 translate-y-0 gap-0 rounded-none border-0 bg-background/dense p-0 shadow-none backdrop-blur-sm"
         onOpenAutoFocus={(event) => {
           event.preventDefault();
           textarea.current?.focus();

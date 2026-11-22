@@ -99,7 +99,7 @@ export function SlackAnswerersCard({
           </p>
         )}
         {!!missingLinkScopes?.length && (
-          <p className="text-body-md text-destructive">
+          <p className="text-body-md text-danger">
             Account linking needs: {missingLinkScopes.join(", ")}. Update the
             manifest, reinstall, then recheck permissions.
           </p>
@@ -113,7 +113,7 @@ export function SlackAnswerersCard({
 
         {needsUpdate && (
           <div
-            className="space-y-2 rounded-lg border border-border bg-muted/25 p-4"
+            className="space-y-2 rounded-lg border border-border bg-surface-subtle p-4"
             data-testid="slack-manifest-update"
           >
             <div className="flex flex-wrap items-center justify-between gap-3">
@@ -139,7 +139,7 @@ export function SlackAnswerersCard({
             {pending.map((a) => (
               <li
                 key={a.id}
-                className="flex flex-col gap-3 rounded-lg border border-primary/30 bg-primary/5 p-3 sm:flex-row sm:items-center"
+                className="flex flex-col gap-3 rounded-lg border border-primary/line bg-primary/wash p-3 sm:flex-row sm:items-center"
               >
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-body-md font-medium">
@@ -223,7 +223,7 @@ export function SlackAnswerersCard({
           approvals.
         </p>
         {action.error && (
-          <p role="alert" className="text-body-md text-destructive">
+          <p role="alert" className="text-body-md text-danger">
             {action.error.message}
           </p>
         )}
