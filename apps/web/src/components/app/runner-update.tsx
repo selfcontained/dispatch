@@ -68,12 +68,15 @@ const STOPPED: Record<string, string> = {
   revoked: "The runner’s access was revoked.",
 };
 
-function describeResult({
-  state,
-  version,
-  reason = "",
-  floorVersion,
-}: NonNullable<RunnerUpdateView["result"]>): {
+function describeResult(
+  {
+    state,
+    version,
+    reason = "",
+    floorVersion,
+  }: NonNullable<RunnerUpdateView["result"]>,
+  automaticUpdates: boolean | undefined
+): {
   title: string;
   detail?: string;
 } {
@@ -96,15 +99,17 @@ function describeResult({
           "The runner restored its previous build.",
       };
     case "deferred":
-      if (reason === "automatic_drain_cancelled")
+      if (
+        reason === "automatic_drain_cancelled" ||
+        reason === "drain_cancelled"
+      )
         return {
           title: `${update} was cancelled`,
-          detail:
-            "Automatic updates will skip this build. Select Update to install it.",
+          detail: automaticUpdates
+            ? "Automatic updates will skip this build. Select Update to install it."
+            : undefined,
         };
       if (reason === "automatic_disabled")
-        return { title: `${update} was cancelled` };
-      if (reason === "drain_cancelled")
         return { title: `${update} was cancelled` };
       if (reason === "downgrade")
         return {
@@ -264,7 +269,7 @@ function RunnerUpdateProgress({ runner }: { runner: Runner }) {
               ? `Resuming ${agents}`
               : PHASES[attempt.phase];
   } else if (result && (failed || !available)) {
-    ({ title, detail } = describeResult(result));
+    ({ title, detail } = describeResult(result, runner.automaticUpdates));
   } else if (available) {
     title = `Update available: ${available.version}`;
   }

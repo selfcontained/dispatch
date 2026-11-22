@@ -54,12 +54,18 @@ const runner = (
   },
 });
 
-function show(update?: RunnerUpdateView, health = false) {
+function show(
+  update?: RunnerUpdateView,
+  health = false,
+  automaticUpdates?: boolean
+) {
   const client = new QueryClient();
   const invalidate = vi.spyOn(client, "invalidateQueries");
   const tree = (next?: RunnerUpdateView, status?: Runner["status"]) => (
     <QueryClientProvider client={client}>
-      <RunnerUpdateStatus runner={runner(next, status)} />
+      <RunnerUpdateStatus
+        runner={{ ...runner(next, status), automaticUpdates }}
+      />
       {health && <RunnerHealthDetails runner={runner(next, status)} />}
     </QueryClientProvider>
   );
@@ -238,6 +244,29 @@ it.each([
   expect(text()).toContain(words);
   expect(screen.getByRole("button", { name: "Update" })).toBeTruthy();
 });
+
+it.each([
+  ["drain_cancelled", true],
+  ["drain_cancelled", false],
+  ["drain_cancelled", undefined],
+  ["automatic_drain_cancelled", true],
+  ["automatic_drain_cancelled", false],
+] as const)(
+  "explains %s with automatic updates set to %s",
+  (reason, automatic) => {
+    show(
+      { result: { state: "deferred", version, reason }, available },
+      false,
+      automatic
+    );
+    expect(text()).toContain("Update to 1.8.0 was cancelled");
+    expect(screen.getByRole("button", { name: "Update" })).toBeTruthy();
+    const skip = screen.queryByText(
+      "Automatic updates will skip this build. Select Update to install it."
+    );
+    expect(Boolean(skip)).toBe(automatic === true);
+  }
+);
 
 it("names the floor of a refused downgrade", () => {
   show({
