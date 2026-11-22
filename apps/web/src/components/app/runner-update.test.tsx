@@ -7,7 +7,11 @@ import {
   screen,
   within,
 } from "@testing-library/react";
-import type { RunnerUpdateView } from "@dispatch/shared";
+import {
+  RUNNER_UPDATE_RESULT_REASONS,
+  type RunnerUpdateResultReason,
+  type RunnerUpdateView,
+} from "@dispatch/shared";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { runnersQueryKey, type Runner } from "@/hooks/use-runners";
@@ -230,6 +234,11 @@ it.each([
 it.each([
   ["force_timeout", "Dispatch couldn’t stop every agent in time."],
   ["operations_pending", "The runner was still busy, so it didn’t switch."],
+  ["download_failed", "The runner couldn’t download the build."],
+  [
+    "hold_lost",
+    "Dispatch lost its hold on the runner, so it stopped the update.",
+  ],
   ["verify_failed", "The runner couldn’t download or verify the build."],
   ["settle_timeout", "Work on the runner didn’t settle in time."],
   [
@@ -244,6 +253,35 @@ it.each([
   expect(text()).toContain(words);
   expect(screen.getByRole("button", { name: "Update" })).toBeTruthy();
 });
+
+it.each(RUNNER_UPDATE_RESULT_REASONS)(
+  "has copy for a deferral with %s",
+  (reason) => {
+    show({ result: { state: "deferred", version, reason }, available });
+    expect(text()).not.toContain("The runner stopped the update.");
+  }
+);
+
+// What can end an update after the runner switched builds.
+it.each([
+  "boot_failed",
+  "cancelled",
+  "confirm_timeout",
+  "dispatch_changed",
+  "identity_mismatch",
+  "interrupted",
+  "no_response",
+  "reattach_failed",
+  "switch_timeout",
+  "trial_interrupted",
+  "verify_failed",
+] as const satisfies readonly RunnerUpdateResultReason[])(
+  "has copy for a rollback with %s",
+  (reason) => {
+    show({ result: { state: "rolled_back", version, reason } });
+    expect(text()).not.toContain("The runner restored its previous build.");
+  }
+);
 
 it.each([
   ["drain_cancelled", true],

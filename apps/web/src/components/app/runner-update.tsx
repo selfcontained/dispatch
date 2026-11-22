@@ -1,4 +1,8 @@
-import type { RunnerUpdatePhaseView, RunnerUpdateView } from "@dispatch/shared";
+import type {
+  RunnerUpdatePhaseView,
+  RunnerUpdateResultReason,
+  RunnerUpdateView,
+} from "@dispatch/shared";
 import { Loader2 } from "lucide-react";
 import { useState } from "react";
 
@@ -31,7 +35,19 @@ const PHASES: Record<
   cancelling: "Cancelling the update…",
 };
 
+/** Reasons Dispatch gives, whatever state the runner ended in. */
+const STOPPED = {
+  dispatch_changed: "Dispatch changed builds during the update.",
+  interrupted: "Dispatch lost track of the update, so it cancelled it.",
+  no_response: "The runner didn’t report back in time.",
+  switch_timeout: "The runner didn’t finish switching in time.",
+  state_unsaved: "Dispatch couldn’t save the update’s progress.",
+  unsupported: "The runner reconnected without update support.",
+  revoked: "The runner’s access was revoked.",
+};
+
 const ROLLED_BACK: Record<string, string> = {
+  ...STOPPED,
   boot_failed: "The new build didn’t start.",
   confirm_timeout: "The new build wasn’t confirmed in time.",
   reattach_failed: "Running agents didn’t reconnect to the new build.",
@@ -41,12 +57,25 @@ const ROLLED_BACK: Record<string, string> = {
   cancelled: "The runner cancelled the update.",
 };
 
+/** Deferrals that `describeResult` words itself. */
+type Titled =
+  | "drain_cancelled"
+  | "automatic_drain_cancelled"
+  | "automatic_disabled"
+  | "downgrade";
+
 const DEFERRED: Record<string, string> = {
+  ...STOPPED,
   drain_timeout: "The wait for agents timed out.",
   force_timeout: "Dispatch couldn’t stop every agent in time.",
   hold_lost: "Dispatch lost its hold on the runner, so it stopped the update.",
   operations_pending: "The runner was still busy, so it didn’t switch.",
+  download_failed: "The runner couldn’t download the build.",
   verify_failed: "The runner couldn’t download or verify the build.",
+  confirm_timeout: "The update wasn’t confirmed in time.",
+  identity_mismatch: "The runner’s build or agents changed during the update.",
+  incompatible_handoff: "This build can’t take over running agents.",
+  reattach_failed: "Running agents didn’t reconnect in time.",
   boot_failed: "The runner couldn’t restart to switch builds.",
   trial_interrupted: "The runner was interrupted before it could switch.",
   suppressed: "This build failed on this runner before.",
@@ -56,18 +85,7 @@ const DEFERRED: Record<string, string> = {
   attach_unavailable:
     "Dispatch couldn’t reach every agent running on the runner.",
   runner_newer: "The runner already has this version or newer.",
-};
-
-/** Reasons Dispatch gives, whatever state the runner ended in. */
-const STOPPED: Record<string, string> = {
-  dispatch_changed: "Dispatch changed builds during the update.",
-  interrupted: "Dispatch lost track of the update, so it cancelled it.",
-  no_response: "The runner didn’t report back in time.",
-  switch_timeout: "The runner didn’t finish switching in time.",
-  state_unsaved: "Dispatch couldn’t save the update’s progress.",
-  unsupported: "The runner reconnected without update support.",
-  revoked: "The runner’s access was revoked.",
-};
+} satisfies Record<Exclude<RunnerUpdateResultReason, Titled>, string>;
 
 const SKIPPED =
   "Automatic updates will skip this build. Select Update to install it.";
@@ -98,9 +116,7 @@ function describeResult(
       return {
         title: `${update} rolled back`,
         detail:
-          ROLLED_BACK[reason] ??
-          STOPPED[reason] ??
-          "The runner restored its previous build.",
+          ROLLED_BACK[reason] ?? "The runner restored its previous build.",
       };
     case "deferred":
       if (
@@ -125,10 +141,7 @@ function describeResult(
           reason === "suppressed"
             ? `${update} is blocked`
             : `${update} didn’t finish`,
-        detail:
-          DEFERRED[reason] ??
-          STOPPED[reason] ??
-          "The runner stopped the update.",
+        detail: DEFERRED[reason] ?? "The runner stopped the update.",
       };
   }
 }
