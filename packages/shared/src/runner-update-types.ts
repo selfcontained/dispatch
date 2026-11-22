@@ -18,6 +18,45 @@ export type RunnerUpdateResultState =
   /** The new build cannot adopt the running agents' hosts. */
   | "needs_idle";
 
+/** Every reason an update can end with. */
+export const RUNNER_UPDATE_RESULT_REASONS = [
+  // An operator ended the wait, or let it run out.
+  "drain_cancelled",
+  "automatic_drain_cancelled",
+  "drain_timeout",
+  // The build was refused.
+  "verify_failed",
+  "downgrade",
+  "suppressed",
+  // The update was no longer wanted, or there was nothing to update.
+  "automatic_disabled",
+  "dispatch_changed",
+  "runner_newer",
+  "revoked",
+  // It didn't finish.
+  "attach_unavailable",
+  "boot_failed",
+  "cancelled",
+  "confirm_timeout",
+  "download_failed",
+  "force_timeout",
+  "hold_lost",
+  "identity_mismatch",
+  "incompatible_handoff",
+  "interrupted",
+  "no_response",
+  "operations_pending",
+  "reattach_failed",
+  "settle_timeout",
+  "staging_timeout",
+  "state_unsaved",
+  "switch_timeout",
+  "trial_interrupted",
+  "unsupported",
+] as const;
+export type RunnerUpdateResultReason =
+  (typeof RUNNER_UPDATE_RESULT_REASONS)[number];
+
 /** A runner's controller-driven update, as the runner list reports it. */
 export type RunnerUpdateView = {
   /** An update Dispatch can run now, and the action that starts it. */

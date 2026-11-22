@@ -253,9 +253,11 @@ export {
   ATTENTION_PREVIEW_MAX,
   attentionPreview,
 } from "./attention-preview.js";
+export { RUNNER_UPDATE_RESULT_REASONS } from "./runner-update-types.js";
 export type {
   RunnerUpdateAction,
   RunnerUpdatePhaseView,
+  RunnerUpdateResultReason,
   RunnerUpdateResultState,
   RunnerUpdateView,
 } from "./runner-update-types.js";

@@ -1,5 +1,10 @@
 import { randomUUID } from "node:crypto";
-import type { RunnerUpdateAction, RunnerUpdateView } from "@dispatch/shared";
+import {
+  RUNNER_UPDATE_RESULT_REASONS,
+  type RunnerUpdateAction,
+  type RunnerUpdateResultReason,
+  type RunnerUpdateView,
+} from "@dispatch/shared";
 import type { FastifyBaseLogger } from "fastify";
 import { z } from "zod";
 
@@ -99,9 +104,14 @@ const targetSchema = z.object({
   revision: z.string(),
 });
 
+// Not an enum: an unknown reason must not make the whole file unreadable.
+const reasonSchema = z.custom<RunnerUpdateResultReason>(
+  (value) => typeof value === "string"
+);
+
 const outcomeSchema = z.object({
   state: z.enum(["updated", "rolled_back", "deferred", "needs_idle"]),
-  reason: z.string().optional(),
+  reason: reasonSchema.optional(),
   floorVersion: z.string().optional(),
 });
 
@@ -133,7 +143,7 @@ const attemptSchema = z.object({
   /** Activation was requested: the runner's updater now owns recovery. */
   activated: z.boolean().optional(),
   /** Why Dispatch cancelled. */
-  reason: z.string().optional(),
+  reason: reasonSchema.optional(),
   outcome: outcomeSchema.optional(),
   drain: z
     .object({
@@ -218,6 +228,51 @@ export function fileRunnerUpdateStore(
     write: (runners) => state.write({ format: 1, runners }),
   };
 }
+
+/**
+ * What a deferral means for automatic updates of that build, whoever started
+ * the attempt.
+ *
+ * - `pause`: skip it until an operator's Update. Only an operator's cancel or
+ *   timeout, or a refusal that would repeat.
+ * - `back_off`: a glitch, retried on `automaticRetryMs` and then paused.
+ * - `none`: nothing to record. Eligibility or the runner's suppression
+ *   already decides.
+ */
+const DEFERRAL: Record<
+  RunnerUpdateResultReason,
+  "pause" | "back_off" | "none"
+> = {
+  drain_cancelled: "pause",
+  automatic_drain_cancelled: "pause",
+  drain_timeout: "pause",
+  verify_failed: "pause",
+  downgrade: "pause",
+  suppressed: "none",
+  automatic_disabled: "none",
+  dispatch_changed: "none",
+  runner_newer: "none",
+  revoked: "none",
+  attach_unavailable: "back_off",
+  boot_failed: "back_off",
+  cancelled: "back_off",
+  confirm_timeout: "back_off",
+  download_failed: "back_off",
+  force_timeout: "back_off",
+  hold_lost: "back_off",
+  identity_mismatch: "back_off",
+  incompatible_handoff: "back_off",
+  interrupted: "back_off",
+  no_response: "back_off",
+  operations_pending: "back_off",
+  reattach_failed: "back_off",
+  settle_timeout: "back_off",
+  staging_timeout: "back_off",
+  state_unsaved: "back_off",
+  switch_timeout: "back_off",
+  trial_interrupted: "back_off",
+  unsupported: "back_off",
+};
 
 const INELIGIBLE = {
   stale_drain: "This drain is no longer waiting.",
@@ -552,6 +607,8 @@ export class RunnerUpdateCoordinator {
         ...last.outcome,
         ...(last.target && { version: last.target.version }),
         ...(last.outcome.state === "deferred" &&
+          // The floor would refuse an operator's Update as well.
+          last.outcome.reason !== "downgrade" &&
           this.skipsBuild(runnerId) && { automaticSkipped: true }),
       };
     if (
@@ -988,7 +1045,7 @@ export class RunnerUpdateCoordinator {
     )
       return;
     // The runner's reason wins, unless it only echoes Dispatch's own cancel.
-    const reason =
+    const reason: RunnerUpdateResultReason =
       attempt.reason &&
       (!status.reason ||
         status.reason === "cancelled" ||
@@ -996,7 +1053,10 @@ export class RunnerUpdateCoordinator {
         ? attempt.reason
         : status.downloadFailed
           ? "download_failed"
-          : (status.reason ?? "cancelled");
+          : // A progress reason cannot explain an ending.
+            (RUNNER_UPDATE_RESULT_REASONS.find(
+              (known) => known === status.reason
+            ) ?? "cancelled");
     return this.finish(runnerId, attempt, {
       state: status.phase === "rolled_back" ? "rolled_back" : "deferred",
       reason,
@@ -1112,11 +1172,17 @@ export class RunnerUpdateCoordinator {
     const now = this.now();
     const live = service.selfUpdate(runnerId);
     const { phase } = attempt;
+    if (
+      (phase === "draining" || phase === "interrupting") &&
+      this.options.holds.current(runnerId)?.attemptId !== attempt.id
+    )
+      // Whatever the clock says, nobody waited this out.
+      return this.finish(runnerId, attempt, {
+        state: "deferred",
+        reason: "hold_lost",
+      });
     if (phase === "draining") {
-      if (
-        now >= attempt.deadline ||
-        this.options.holds.current(runnerId)?.attemptId !== attempt.id
-      )
+      if (now >= attempt.deadline)
         return this.finish(runnerId, attempt, {
           state: "deferred",
           reason: "drain_timeout",
@@ -1125,10 +1191,7 @@ export class RunnerUpdateCoordinator {
       return;
     }
     if (phase === "interrupting") {
-      if (
-        now >= attempt.deadline ||
-        this.options.holds.current(runnerId)?.attemptId !== attempt.id
-      )
+      if (now >= attempt.deadline)
         return this.finish(runnerId, attempt, {
           state: "deferred",
           reason: "force_timeout",
@@ -1643,7 +1706,10 @@ export class RunnerUpdateCoordinator {
 
   // --- Ending an attempt ---
 
-  private cancelling(attempt: Attempt, reason: string): Attempt {
+  private cancelling(
+    attempt: Attempt,
+    reason: RunnerUpdateResultReason
+  ): Attempt {
     return {
       ...attempt,
       phase: "cancelling",
@@ -1655,7 +1721,11 @@ export class RunnerUpdateCoordinator {
   }
 
   /** Ends on the runner's answer, so the hold outlasts the fence. */
-  private async cancel(runnerId: string, attempt: Attempt, reason: string) {
+  private async cancel(
+    runnerId: string,
+    attempt: Attempt,
+    reason: RunnerUpdateResultReason
+  ) {
     const next = this.cancelling(attempt, reason);
     await this.record(runnerId, next);
     const epoch = this.options.service.connectionEpoch(runnerId);
@@ -1684,36 +1754,21 @@ export class RunnerUpdateCoordinator {
     let { confirmed, failed, automaticBlocked } =
       this.records.get(runnerId) ?? {};
     const { state, reason } = outcome;
-    const drainCancelled =
-      reason === "automatic_drain_cancelled" ||
-      reason === "drain_cancelled" ||
-      reason === "drain_timeout";
     if (target && state === "deferred") {
-      const transient =
-        !attempt.activated &&
-        (reason === "download_failed" ||
-          reason === "no_response" ||
-          reason === "staging_timeout" ||
-          reason === "operations_pending" ||
-          reason === "attach_unavailable" ||
-          reason === "settle_timeout");
-      if (transient) {
+      const { version, revision } = target;
+      const effect = DEFERRAL[reason ?? "cancelled"] ?? "back_off";
+      if (effect === "back_off")
         automaticBlocked = this.backOff(runnerId, attempt, target);
-      } else if (
-        reason !== "suppressed" &&
-        reason !== "automatic_disabled" &&
-        reason !== "dispatch_changed"
-      ) {
-        if (drainCancelled || attempt.automatic) {
-          automaticBlocked = {
-            version: target.version,
-            revision: target.revision,
-          };
-        } else if (this.options.service.automaticUpdates(runnerId)) {
-          // Require explicit Retry for a failed manual update under automatic policy.
-          failed = { version: target.version, revision: target.revision };
-        }
-      }
+      else if (effect === "pause")
+        automaticBlocked = { version, revision, attemptId: attempt.id };
+      // The one deferral where the policy matters to a manual attempt: a
+      // build that failed verification then needs an explicit Retry.
+      if (
+        reason === "verify_failed" &&
+        !attempt.automatic &&
+        this.options.service.automaticUpdates(runnerId)
+      )
+        failed = { version, revision };
     }
     if (outcome.state === "updated" && target) {
       confirmed = {
@@ -2060,14 +2115,16 @@ function holdOutcome({ state }: Outcome): RunnerHoldOutcome {
   return state === "rolled_back" ? "rolled_back" : "cancelled";
 }
 
-function timeoutReason({ phase, retained }: Attempt) {
+function timeoutReason({ phase, retained }: Attempt): RunnerUpdateResultReason {
   if (phase === "staging") return "staging_timeout";
   if (phase === "settling")
     return retained ? "attach_unavailable" : "settle_timeout";
   return phase === "switching" ? "switch_timeout" : "confirm_timeout";
 }
 
-function cancelReason(reason: string | undefined): RunnerUpdateCancelReason {
+function cancelReason(
+  reason: RunnerUpdateResultReason | undefined
+): RunnerUpdateCancelReason {
   switch (reason) {
     case "settle_timeout":
       return "quiesce_timeout";

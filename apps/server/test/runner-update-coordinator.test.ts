@@ -1,6 +1,10 @@
 import { mkdtemp, readdir, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import {
+  RUNNER_UPDATE_RESULT_REASONS,
+  type RunnerUpdateResultReason,
+} from "@dispatch/shared";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -335,6 +339,147 @@ describe("the automatic back-off", () => {
     world.inject({ attemptId, reason: "operations_pending" });
     await world.until(() => world.result()?.reason === "operations_pending");
     expect(blocked()).toEqual(first);
+  });
+});
+
+describe("what a deferral means for automatic updates", () => {
+  const attemptId = "7f1c1d1e-2a3b-4c5d-8e9f-0a1b2c3d4e5f";
+  const pauses = [
+    "drain_cancelled",
+    "automatic_drain_cancelled",
+    "drain_timeout",
+    "verify_failed",
+    "downgrade",
+  ];
+  const nothing = [
+    "suppressed",
+    "automatic_disabled",
+    "dispatch_changed",
+    "runner_newer",
+    "revoked",
+  ];
+  const cases = RUNNER_UPDATE_RESULT_REASONS.flatMap((reason) =>
+    (
+      [
+        ["automatic", true],
+        ["manual", true],
+        ["manual", false],
+      ] as const
+    ).map(([kind, policy]) => [reason, kind, policy] as const)
+  );
+
+  /** An unanswered cancel ends with Dispatch's own reason. */
+  async function ended(
+    reason: RunnerUpdateResultReason,
+    { automatic = false, policy = true, activated = false }
+  ) {
+    world = await updateWorld({ automaticUpdates: policy });
+    world.saved.records = [
+      {
+        runnerId: RUNNER,
+        attempt: {
+          id: attemptId,
+          target,
+          retry: false,
+          phase: "cancelling",
+          reason,
+          deadline: world.now(),
+          ...(automatic && { automatic }),
+          ...(activated && { activated }),
+        },
+      },
+    ];
+    await world.start();
+    await world.until(() => world.attempt()?.outcome);
+    return world.saved.records[0]!;
+  }
+
+  it.each(cases)("%s, %s, with the policy %s", async (reason, kind, policy) => {
+    const automatic = kind === "automatic";
+    const record = await ended(reason, { automatic, policy });
+    expect(record.attempt.outcome?.reason).toBe(reason);
+    const blocked = record.automaticBlocked;
+    const effect = !blocked
+      ? "none"
+      : blocked.retryAt === undefined
+        ? "pause"
+        : "back_off";
+    expect(effect).toBe(
+      pauses.includes(reason)
+        ? "pause"
+        : nothing.includes(reason)
+          ? "none"
+          : "back_off"
+    );
+
+    // Only a hard failure turns the next click into Retry.
+    const retry =
+      reason === "suppressed" ||
+      (reason === "verify_failed" && !automatic && policy);
+    expect(Boolean(record.failed)).toBe(retry);
+    await world.connect();
+    if (retry)
+      await expect(update()).rejects.toEqual(ineligible("needs_retry"));
+    else await expect(update()).resolves.toHaveProperty("attemptId");
+  });
+
+  it("backs off a response lost after activation", async () => {
+    const record = await ended("interrupted", { activated: true });
+    expect(record.attempt.outcome?.reason).toBe("no_response");
+    expect(record.automaticBlocked?.retryAt).toBeGreaterThan(world.now());
+    expect(record.failed).toBeUndefined();
+  });
+
+  it.each(["automatic", "manual"] as const)(
+    "backs off a %s drain whose hold was lost, even past its deadline",
+    async (kind) => {
+      await online({ automaticUpdates: true });
+      world.drain.hosts.set(AGENT, "busy");
+      world.runner.inventory = {
+        retained: [],
+        requiresQuiescence: true,
+        live: 1,
+      };
+      if (kind === "automatic") world.advance(UPDATE_TIMING.automaticSettleMs);
+      else await update();
+      await world.until(() => world.attempt()?.drain?.waiting === 1);
+      expect(Boolean(world.attempt()?.automatic)).toBe(kind === "automatic");
+      if (kind === "manual")
+        world.advance(world.attempt()!.deadline - world.now());
+      world.saved.holds = { holds: [], resuming: [] };
+      await world.restartController();
+      await world.connect();
+      await world.until(() => world.result()?.reason === "hold_lost");
+      const record = world.saved.records[0]!;
+      expect(record.automaticBlocked).toMatchObject({
+        failures: 1,
+        retryAt: world.now() + UPDATE_TIMING.automaticRetryMs[1],
+      });
+      expect(record.failed).toBeUndefined();
+      expect(world.coordinator.view(RUNNER)?.available?.action).toBe("update");
+    }
+  );
+
+  it("backs off when the runner reports another attempt's fence", async () => {
+    await online({ automaticUpdates: true });
+    world.advance(UPDATE_TIMING.automaticSettleMs);
+    world.runner.staging = new Promise(() => {});
+    await world.until(() => world.attempt()?.automatic);
+    await world.disconnect();
+    world.runner.fence.record = {
+      format: 1,
+      attemptId,
+      target,
+      phase: "fenced",
+      retainSessions: true,
+      retained: [],
+      startedAt: Date.now(),
+    };
+    await world.restartRunner();
+    await world.until(
+      () => world.saved.records[0]?.automaticBlocked?.retryAt !== undefined
+    );
+    expect(world.saved.records[0]?.failed).toBeUndefined();
   });
 });
 

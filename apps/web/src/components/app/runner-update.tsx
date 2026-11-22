@@ -44,6 +44,7 @@ const ROLLED_BACK: Record<string, string> = {
 const DEFERRED: Record<string, string> = {
   drain_timeout: "The wait for agents timed out.",
   force_timeout: "Dispatch couldn’t stop every agent in time.",
+  hold_lost: "Dispatch lost its hold on the runner, so it stopped the update.",
   operations_pending: "The runner was still busy, so it didn’t switch.",
   verify_failed: "The runner couldn’t download or verify the build.",
   boot_failed: "The runner couldn’t restart to switch builds.",
@@ -274,14 +275,13 @@ function RunnerUpdateProgress({ runner }: { runner: Runner }) {
   } else if (available) {
     title = `Update available: ${available.version}`;
   }
-  // A cancelled wait says this itself. The floor would refuse Update as well.
+  // A cancelled wait says this itself.
   const skipped =
     !attempt &&
     runner.automaticUpdates &&
     available?.action === "update" &&
     result?.automaticSkipped &&
-    detail !== SKIPPED &&
-    result.reason !== "downgrade";
+    detail !== SKIPPED;
   const needsCommand =
     (!attempt && result?.state === "needs_idle") ||
     (error instanceof ApiError &&
