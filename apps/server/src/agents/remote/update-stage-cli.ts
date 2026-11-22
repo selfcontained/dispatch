@@ -95,13 +95,18 @@ export async function runRunnerUpdateStage(argv: string[]) {
       installedVersion: packageVersion,
       trustedUid,
     });
+    let compatibilityError: string | undefined;
     const compatibility = result.candidate
-      ? await probeStagedRunner(layout, result.target).catch(() => null)
+      ? await probeStagedRunner(layout, result.target).catch((error: Error) => {
+          compatibilityError = error.message;
+          return null;
+        })
       : null;
     const summary = {
       outcome: result.outcome,
       target: result.target,
       compatibility,
+      ...(compatibilityError && { compatibilityError }),
     };
     console.log(JSON.stringify(summary));
     await recordResult(layout.state, trustedUid, summary);

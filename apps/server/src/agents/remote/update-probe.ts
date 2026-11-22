@@ -75,6 +75,7 @@ export function readRunnerCompatibility(
       timeout
     );
     const stdout: Buffer[] = [];
+    const stderr: Buffer[] = [];
     let bytes = 0;
     function count(chunk: Buffer) {
       bytes += chunk.length;
@@ -87,14 +88,24 @@ export function readRunnerCompatibility(
     child.stdout!.on("data", (chunk: Buffer) => {
       if (count(chunk)) stdout.push(chunk);
     });
-    child.stderr!.on("data", count);
+    child.stderr!.on("data", (chunk: Buffer) => {
+      if (count(chunk)) stderr.push(chunk);
+    });
     child.once("error", () =>
       fail("Runner compatibility probe could not start")
     );
-    child.once("close", (code) => {
+    child.once("close", (code, signal) => {
       clearTimeout(timer);
       if (code !== 0) {
-        reject(new Error("Runner compatibility probe failed"));
+        const detail = Buffer.concat(stderr)
+          .toString("utf8")
+          .trim()
+          .slice(0, 512);
+        reject(
+          new Error(
+            `Runner compatibility probe failed (${signal ?? `exit ${code}`})${detail ? `: ${detail}` : ""}`
+          )
+        );
         return;
       }
       try {
@@ -148,7 +159,10 @@ export async function probeStagedRunner(
     if (hash.digest("hex") !== target.sha256)
       throw new Error("Runner compatibility probe digest mismatch");
     await chmod(copy, 0o555);
-    const executable = "/run/dispatch-runner-compatibility";
+    // systemd-run resolves argv[0] before creating the mount namespace.
+    // The installed path exists on an executable filesystem. Inside the unit
+    // its required read-only bind mount replaces it with the staged copy.
+    const executable = layout.installed;
     return await readRunnerCompatibility(
       "/usr/bin/systemd-run",
       [

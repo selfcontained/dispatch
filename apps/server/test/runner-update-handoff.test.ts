@@ -1,6 +1,6 @@
 import * as childProcess from "node:child_process";
 import { createHash } from "node:crypto";
-import { readFileSync, statSync } from "node:fs";
+import { accessSync, constants, readFileSync, statSync } from "node:fs";
 import * as fs from "node:fs/promises";
 import { mkdtemp, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -108,10 +108,12 @@ describe("candidate compatibility probe", () => {
       sha256,
     } as const;
     const runner = path.join(staging, `dispatch-${sha256}`);
-    const layout = { staging, config: "", installed: "", state: "" };
+    const installed = path.join(staging, "installed");
+    const layout = { staging, config: "", installed, state: "" };
     let copy: string | undefined;
     try {
       await writeFile(runner, candidate, { mode: 0o700 });
+      await writeFile(installed, "incumbent", { mode: 0o755 });
       Object.defineProperty(process, "platform", {
         ...platform,
         value: "linux",
@@ -152,10 +154,15 @@ describe("candidate compatibility probe", () => {
         const bind = args.find((arg) =>
           arg.startsWith("--property=BindReadOnlyPaths=")
         );
-        const executable = "/run/dispatch-runner-compatibility";
-        copy = bind?.match(
-          /^--property=BindReadOnlyPaths=(.+):\/run\/dispatch-runner-compatibility$/
-        )?.[1];
+        const [executable] = args.slice(-2);
+        expect(executable).toBe(installed);
+        accessSync(executable!, constants.X_OK);
+        const suffix = `:${installed}`;
+        expect(bind?.endsWith(suffix)).toBe(true);
+        copy = bind?.slice(
+          "--property=BindReadOnlyPaths=".length,
+          -suffix.length
+        );
         expect(path.dirname(copy!)).toBe(staging);
         expect(copy).not.toBe(runner);
         expect(readFileSync(copy!, "utf8")).toBe(candidate);
@@ -223,10 +230,10 @@ describe("candidate compatibility probe", () => {
     await expect(
       readRunnerCompatibility(
         "/bin/sh",
-        ["-c", "exit 1"],
+        ["-c", "echo fixture-diagnostic >&2; exit 1"],
         compatibility.version
       )
-    ).rejects.toThrow("probe failed");
+    ).rejects.toThrow("probe failed (exit 1): fixture-diagnostic");
   });
 
   it("caps combined stdout and stderr", async () => {
