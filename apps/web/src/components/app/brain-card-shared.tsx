@@ -2,7 +2,7 @@ import { Link } from "react-router-dom";
 import { Check, Copy, History, Trash2 } from "lucide-react";
 
 import { useCopyText } from "@/hooks/use-copy";
-import { AgentName } from "@/components/app/agent-name";
+import { useAgentName } from "@/hooks/use-agent-tree";
 import { formatDateTime, formatRelativeTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
@@ -79,16 +79,18 @@ export function DeleteButton({
 // ── Agent ID label ─────────────────────────────────────────────
 
 export function AgentIdLabel({ agentId }: { agentId: string }): JSX.Element {
+  const name = useAgentName(agentId);
   return (
     <Link
       to={`/activity/history/${agentId}`}
       className="font-mono text-[10px] text-muted-foreground hover:text-foreground transition-colors"
       title={agentId}
+      aria-label={`Open ${name} history`}
       onClick={(e) => e.stopPropagation()}
     >
       <History className="inline h-3 w-3 sm:hidden" />
       <span className="hidden max-w-40 truncate align-bottom sm:inline-block">
-        <AgentName agentId={agentId} />
+        {name}
       </span>
     </Link>
   );

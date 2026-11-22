@@ -208,6 +208,11 @@ export function ActivityPane({
                 <ActivityBars size={16} /> Loading token usage…
               </div>
             )}
+            {!hasTokenData && !tokensLoading && !tokensFailed && (
+              <div className="py-12 text-center text-sm text-muted-foreground">
+                No token usage yet.
+              </div>
+            )}
             {hasTokenData && tokenStats && (
               <div className="flex flex-wrap gap-2 sm:gap-3">
                 <StatCard
@@ -278,12 +283,6 @@ export function ActivityPane({
             ) : null}
 
             <DecisionMetricsSection range={range} dailyDate={dailyDateParam} />
-
-            {!hasTokenData && !tokensLoading && !tokensFailed && (
-              <div className="py-12 text-center text-sm text-muted-foreground">
-                No token usage yet.
-              </div>
-            )}
           </div>
         </ScrollArea>
       )}

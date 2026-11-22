@@ -68,8 +68,9 @@ export function useAgentDiff(
 
   return {
     data: query.data,
-    // Pending, not just fetching: a paused retry has no changes to report yet.
-    isLoading: enabled && !!agentId && query.isPending,
+    // Pending, not just fetching: with no agent yet, or a paused retry, there
+    // are no changes to report.
+    isLoading: query.isPending,
     error: query.error,
     isFetching: query.isFetching,
     refresh,
