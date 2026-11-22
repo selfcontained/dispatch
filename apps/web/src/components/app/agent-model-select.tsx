@@ -14,6 +14,8 @@ type AgentModelSelectProps = {
   catalogDefault?: string | null;
   onChange: (model: string | null) => void;
   loading?: boolean;
+  /** The saved value when it has been turned off in settings. */
+  offOption?: AgentModelOption | null;
   /** Overridden by dialogs other than Create Agent so ids stay unique. */
   id?: string;
   testId?: string;
@@ -27,12 +29,16 @@ export function AgentModelSelect({
   catalogDefault,
   onChange,
   loading = false,
+  offOption = null,
   id = "create-agent-model",
   testId = "create-agent-model",
 }: AgentModelSelectProps): JSX.Element {
   const fallback = catalogDefault ?? DEFAULT_VALUE;
   const selectedValue =
-    value && options.some((option) => option.id === value) ? value : fallback;
+    value &&
+    (value === offOption?.id || options.some((option) => option.id === value))
+      ? value
+      : fallback;
 
   return (
     <div className="space-y-1">
@@ -53,6 +59,7 @@ export function AgentModelSelect({
           id={id}
           data-testid={testId}
           disabled={loading || options.length === 0}
+          aria-describedby={offOption ? `${id}-off` : undefined}
         >
           <SelectValue>{loading ? "Loading models…" : undefined}</SelectValue>
         </SelectTrigger>
@@ -64,6 +71,11 @@ export function AgentModelSelect({
                 : "Default"}
             </SelectItem>
           )}
+          {offOption ? (
+            <SelectItem value={offOption.id} disabled>
+              {offOption.label} (off)
+            </SelectItem>
+          ) : null}
           {options.map((option) => (
             <SelectItem key={option.id} value={option.id}>
               {option.label}
@@ -71,6 +83,15 @@ export function AgentModelSelect({
           ))}
         </SelectContent>
       </Select>
+      {offOption ? (
+        <p
+          id={`${id}-off`}
+          role="status"
+          className="text-xs text-status-waiting"
+        >
+          Turned off. Choose another.
+        </p>
+      ) : null}
     </div>
   );
 }

@@ -176,8 +176,11 @@ export function TemplateConfigFields({
   lockedLocation,
 }: TemplateConfigFieldsProps): JSX.Element {
   const effortId = useId();
-  const { options: modelOptions, loading: modelCatalogLoading } =
-    useAgentModelCatalog(agentType);
+  const {
+    options: modelOptions,
+    offModel,
+    loading: modelCatalogLoading,
+  } = useAgentModelCatalog(agentType);
   const {
     history: cwdHistory,
     removableHistory: removableCwdHistory,
@@ -212,6 +215,7 @@ export function TemplateConfigFields({
           <AgentModelSelect
             value={model}
             options={modelOptions}
+            offOption={offModel(model)}
             onChange={onModelChange}
             loading={modelCatalogLoading}
           />

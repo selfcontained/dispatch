@@ -90,9 +90,11 @@ function LaunchTemplateDialogContent({
   });
   const {
     options: modelOptions,
+    offModel,
     loading: modelCatalogLoading,
     loaded: modelCatalogLoaded,
   } = useAgentModelCatalog(agentType);
+  const modelOff = offModel(model);
   const showModelSelect = modelCatalogLoading || modelOptions.length > 0;
 
   const showFiles = template.allowFiles;
@@ -273,6 +275,7 @@ function LaunchTemplateDialogContent({
               <AgentModelSelect
                 value={model}
                 options={modelOptions}
+                offOption={modelOff}
                 onChange={handleModelChange}
                 loading={modelCatalogLoading}
                 id="launch-template-model"
@@ -332,7 +335,10 @@ function LaunchTemplateDialogContent({
             type="submit"
             variant="primary"
             disabled={
-              !allArgsFilled || Boolean(effortError) || launchTemplate.isPending
+              modelOff !== null ||
+              !allArgsFilled ||
+              Boolean(effortError) ||
+              launchTemplate.isPending
             }
           >
             {launchTemplate.isPending ? (

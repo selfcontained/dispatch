@@ -1,8 +1,14 @@
 import { useQuery } from "@tanstack/react-query";
 import { useCallback, useMemo } from "react";
+import { useAtomValue } from "jotai";
 
 import { type AgentType } from "@/lib/agent-types";
 import { api } from "@/lib/api";
+import {
+  INITIAL_AVAILABILITY,
+  modelAvailabilityAtom,
+  previewModels,
+} from "@/lib/model-availability-preview";
 
 export type AgentModelOption = {
   id: string;
@@ -24,8 +30,15 @@ export type AgentModelCatalog = Partial<Record<AgentType, AgentModelOption[]>>;
  * the `agent_models.changed` event, which invalidates this key (use-sse.ts).
  */
 export function useAgentModelCatalog(agentType: AgentType): {
+  /** The models turned on: what pickers offer. */
   options: AgentModelOption[];
+  /** Every model the engine offers, including those turned off. */
+  allOptions: (AgentModelOption & { isNew?: boolean })[];
+  /** What Default launches. */
   defaultModel: string | null;
+  engineDefault: string | null;
+  /** A saved id that the engine offers but is turned off. */
+  offModel: (value: string | null) => AgentModelOption | null;
   loading: boolean;
   /** True only once a catalog has actually arrived — a failed fetch stays
    * false so callers don't mistake "no catalog" for "empty catalog". */
@@ -47,25 +60,53 @@ export function useAgentModelCatalog(agentType: AgentType): {
   });
 
   const loaded = data !== undefined;
+  const { off, replacement, release } =
+    useAtomValue(modelAvailabilityAtom)[agentType] ?? INITIAL_AVAILABILITY;
+  const allOptions = useMemo(
+    () => previewModels(agentType, data?.models?.[agentType] ?? [], release),
+    [agentType, data, release]
+  );
   const options = useMemo(
-    () => data?.models?.[agentType] ?? [],
-    [agentType, data]
+    () => allOptions.filter((option) => !off.includes(option.id)),
+    [allOptions, off]
+  );
+  const offModel = useCallback(
+    (value: string | null) =>
+      value !== null && off.includes(value)
+        ? (allOptions.find((option) => option.id === value) ?? null)
+        : null,
+    [allOptions, off]
   );
 
   const normalizeModel = useCallback(
     (value: string | null): string | null =>
-      loaded && value !== null && !options.some((option) => option.id === value)
+      loaded &&
+      value !== null &&
+      !allOptions.some((option) => option.id === value)
         ? null
         : value,
-    [loaded, options]
+    [allOptions, loaded]
   );
 
   const reportedDefault = data?.defaults?.[agentType];
-  const defaultModel = options.some((option) => option.id === reportedDefault)
+  const engineDefault = allOptions.some(
+    (option) => option.id === reportedDefault
+  )
     ? (reportedDefault ?? null)
     : null;
+  const defaultModel =
+    engineDefault && off.includes(engineDefault) ? replacement : engineDefault;
 
-  return { options, defaultModel, loading: isLoading, loaded, normalizeModel };
+  return {
+    options,
+    allOptions,
+    defaultModel,
+    engineDefault,
+    offModel,
+    loading: isLoading,
+    loaded,
+    normalizeModel,
+  };
 }
 
 /**
