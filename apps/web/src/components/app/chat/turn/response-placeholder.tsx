@@ -652,7 +652,7 @@ export function ResponsePlaceholderVisual({
       summary ||
       reserveSummary ||
       fills.length > 0 ? (
-        <div className="relative mt-2.5 flex min-h-[14px] items-center gap-2">
+        <div className="relative mt-1.5 flex min-h-[14px] items-center gap-2">
           {fills.length > 0 && <FillCount fills={fills} glow={glow} />}
           {summary || reserveSummary ? (
             // The line's room is held from the start, so the counts fading in
