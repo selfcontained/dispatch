@@ -1,7 +1,10 @@
 import type { FastifyReply } from "fastify";
 import type { CheckoutView } from "@dispatch/runner-protocol";
 import { imageMimeType } from "../../shared/git/diff-image.js";
-import { workspaceViewError } from "../../files/workspace-view.js";
+import {
+  WorkspaceError,
+  workspaceViewError,
+} from "../../files/workspace-view.js";
 import { AgentError } from "../../agents/errors.js";
 import type { AgentManager, AgentRecord } from "../../agents/manager.js";
 export async function serveCheckoutView(
@@ -29,6 +32,8 @@ export async function serveCheckoutView(
   } catch (error) {
     if (error instanceof AgentError && error.statusCode !== 500)
       return reply.code(error.statusCode).send({ error: error.message });
+    if (error instanceof WorkspaceError && error.status !== 500)
+      return reply.code(error.status).send({ error: error.message });
     if (!failure) {
       const mapped = workspaceViewError(error);
       return reply.code(mapped.status).send({ error: mapped.message });

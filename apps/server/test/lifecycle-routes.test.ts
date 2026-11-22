@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { BLOCK_TEXT_MAX_CHARS } from "@dispatch/shared";
 import { AgentManager } from "../src/agents/manager.js";
 import { StreamService } from "../src/chat/service.js";
+import { WorkspaceError } from "../src/files/workspace-view.js";
 import * as agentDiff from "../src/shared/git/agent-diff.js";
 
 import { useInjectApp } from "./helpers/inject-app.js";
@@ -65,6 +66,27 @@ it.each([
     read.mockRestore();
   }
 });
+
+it.each([404, 413])(
+  "preserves a typed %s from a diff image read",
+  async (status) => {
+    const agent = await createAgent();
+    const error = "Image not available.";
+    const read = vi
+      .spyOn(AgentManager.prototype, "viewCheckout")
+      .mockRejectedValueOnce(new WorkspaceError(error, status));
+    try {
+      const response = await authedInject(
+        "GET",
+        `/api/v1/agents/${agent.id}/diff/image?path=changed.png`
+      );
+      expect(response.statusCode).toBe(status);
+      expect(response.json()).toEqual({ error });
+    } finally {
+      read.mockRestore();
+    }
+  }
+);
 
 describe("GET /api/v1/agents/:id/identity", () => {
   it("roots a surviving tree at its first ancestor whose parent was purged, and leaves cycles unseated", async () => {
