@@ -16,7 +16,7 @@ import { remotePlacement } from "./protocol.js";
  */
 
 export const UPDATE_CONTINUATION_MESSAGE =
-  "Dispatch interrupted this turn to update the runner. Continue from where you left off.";
+  "Dispatch interrupted this turn to update the runner; the user did not interrupt it. Continue from where you left off.";
 
 /** Stable across retries and restarts; the host claims each ID only once. */
 export const continuationId = (attemptId: string, agentId: string) =>

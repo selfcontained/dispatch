@@ -126,7 +126,7 @@ describe("a forced update", () => {
     await ordinary.accepted;
     for (const host of [long, parent, idle, legacy]) resumedOnce(host);
     expect(long.prompts.map(({ text }) => text)).toEqual([
-      UPDATE_CONTINUATION_MESSAGE,
+      "Dispatch interrupted this turn to update the runner; the user did not interrupt it. Continue from where you left off.",
       "ordinary",
     ]);
     expect(long.prompts[0]).toMatchObject({
