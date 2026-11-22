@@ -479,7 +479,9 @@ export function ResponsePlaceholderVisual({
 }): JSX.Element {
   const newest = pieces.length - 1;
   const gridRef = useRef<HTMLDivElement>(null);
-  const [columns, setColumns] = useState(MIN_COLUMNS);
+  const usesMeasuredCapacity = buildLayout !== undefined;
+  const [measuredColumns, setMeasuredColumns] = useState(MIN_COLUMNS);
+  const columns = usesMeasuredCapacity ? measuredColumns : MIN_COLUMNS;
   const [animatedColumns, setAnimatedColumns] = useState(MIN_COLUMNS);
   const reflowing = columns !== animatedColumns;
   useEffect(() => {
@@ -510,16 +512,17 @@ export function ResponsePlaceholderVisual({
   const cellSize = `clamp(0px, calc(100cqw / ${columns} - ${CELL_GAP}px), ${MAX_CELL_SIZE}px)`;
   useEffect(() => {
     const grid = gridRef.current;
-    if (!grid || typeof ResizeObserver === "undefined") return;
+    if (!usesMeasuredCapacity || !grid || typeof ResizeObserver === "undefined")
+      return;
     const observer = new ResizeObserver(([entry]) => {
       if (!entry) return;
-      setColumns(
+      setMeasuredColumns(
         Math.max(MIN_COLUMNS, Math.floor(entry.contentRect.width / ROW_PITCH))
       );
     });
     observer.observe(grid);
     return () => observer.disconnect();
-  }, []);
+  }, [usesMeasuredCapacity]);
   const [label, setLabel] = useState<string | null>(null);
   // A pass can move the group away from a stationary mouse or touch point.
   // Dismiss before the new layout travels rather than keeping a stale anchor.
