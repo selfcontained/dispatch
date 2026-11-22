@@ -81,11 +81,21 @@ clear_unreadable_update_fence() {
   [[ -s "$stage/dispatch" && -e "$root/allow-fence-quarantine" ]] || return 1
   mv -fT "$state/update/fence.json" "$state/update/fence.json.unreadable-fixture"
 }
+fixture_update_units_ready() {
+  [[ -f "$root/dispatch-runner-update@.service" &&
+     -f "$root/dispatch-runner-trial.service" &&
+     -f "$root/dispatch-runner.service.d/50-dispatch-trial.conf" &&
+     -d "$state/update" && "$runtime/update/activate-helper" -ef "$runtime/dispatch" ]]
+}
 systemctl() {
   local command="$1"
   printf '%s\n' "$*" >> "$root/systemctl"
   case "$command" in
     start)
+      if [[ -e "$root/require-startup-units" ]] && grep -q release-new "$runtime/dispatch"; then
+        fixture_update_units_ready && [[ -e "$root/loaded-update-units" ]] || return 1
+        : > "$root/candidate-saw-units"
+      fi
       if [[ -e "$root/reject-new" ]] && grep -q release-new "$runtime/dispatch"; then
         return 1
       fi
@@ -149,7 +159,11 @@ systemctl() {
       [[ ! -e "$root/legacy-systemctl" ]] || target=--kill-who=main
       [[ "$*" == "kill $target --signal=SIGKILL dispatch-runner.service" || "$*" == "kill $target --signal=SIGSTOP dispatch-runner.service" ]]
       ;;
-    daemon-reload) ;;
+    daemon-reload)
+      if fixture_update_units_ready; then : > "$root/loaded-update-units"
+      else rm -f "$root/loaded-update-units"
+      fi
+      ;;
     *) return 1 ;;
   esac
 }
@@ -478,6 +492,29 @@ run install v1.0.0
 [[ $(grep -c '^enable --now ' "$root/systemctl") == 1 ]] || fail
 cp -R "$root/settings" "$root/original-settings"
 
+# Start a phase-2 layout. The new supervisor's first start must see both
+# loaded update units and the helper. A failed start restores the old layout.
+fixture_root="$root/phase-two"
+mkdir -p "$fixture_root"
+ln -s "$root/releases" "$fixture_root/releases"
+ln -s "$root/public.pem" "$fixture_root/public.pem"
+run install v1.0.0 x64 --dedicated-user
+rm -f "$fixture_root/dispatch-runner-update@.service" "$fixture_root/dispatch-runner-trial.service" \
+  "$fixture_root/dispatch-runner.service.d/50-dispatch-trial.conf" "$fixture_root/runtime/update/activate-helper" \
+  "$fixture_root/loaded-update-units"
+rmdir "$fixture_root/dispatch-runner.service.d" "$fixture_root/runtime/update" "$fixture_root/state/update"
+run connect https://dispatch.example
+touch "$fixture_root/require-startup-units" "$fixture_root/reject-new"
+expect_status 1 update v1.0.1
+[[ -e "$fixture_root/candidate-saw-units" && -e "$fixture_root/running" ]] || fail
+[[ ! -e "$fixture_root/loaded-update-units" && ! -e "$fixture_root/dispatch-runner-trial.service" &&
+   ! -e "$fixture_root/dispatch-runner-update@.service" && ! -e "$fixture_root/dispatch-runner.service.d" &&
+   ! -e "$fixture_root/runtime/update" && ! -e "$fixture_root/state/update" ]] || fail
+rm "$fixture_root/reject-new" "$fixture_root/candidate-saw-units"
+run update v1.0.1
+[[ -e "$fixture_root/candidate-saw-units" && -e "$fixture_root/loaded-update-units" ]] || fail
+unset fixture_root
+
 # A deferred update leaves the on-host maintenance tools as they were.
 printf '# stale updater\n' > "$root/runtime/install-dispatch-runner.sh"
 printf '# stale cli\n' > "$root/runtime/runner-cli"
@@ -501,8 +538,11 @@ for unsafe in missing-kill ExecStop ExecStopPost; do
 done
 touch "$root/show-empty"
 
+printf '# prior staging unit\n' >> "$root/dispatch-runner-update@.service"
+cp "$root/dispatch-runner-update@.service" "$root/prior-staging-unit"
 : > "$root/reject-new"
 expect_status 1 update v1.0.1 arm64
+cmp "$root/prior-staging-unit" "$root/dispatch-runner-update@.service"
 cmp "$root/original" "$root/runtime/dispatch"
 [[ ! -e "$root/runtime/previous" && -e "$root/running" ]] || fail
 rm "$root/reject-new"

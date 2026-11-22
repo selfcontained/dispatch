@@ -340,6 +340,60 @@ install_update_unit() {
   fi
 }
 
+# Keep the loaded unit files and helper with the previous executable until
+# the replacement has passed startup. recover can also restore them later
+# if the installer was interrupted while applying the new files.
+snapshot_update_units() {
+  local dir="${unit_path%/*}" relative
+  mkdir "$stage/previous-units"
+  for relative in "$unit" "$update_unit" dispatch-runner-trial.service "$unit.d/50-dispatch-trial.conf"; do
+    if [[ -e "$dir/$relative" || -L "$dir/$relative" ]]; then
+      mkdir -p "$stage/previous-units/$(dirname "$relative")"
+      cp -pP "$dir/$relative" "$stage/previous-units/$relative"
+    fi
+  done
+  if [[ -e "$runtime/update/activate-helper" ]]; then
+    ln "$runtime/update/activate-helper" "$stage/previous-units/activate-helper"
+  fi
+  [[ -d "$runtime/update" ]] || touch "$stage/previous-units/no-runtime-update"
+  [[ -d "$state/update" ]] || touch "$stage/previous-units/no-state-update"
+  [[ -d "$unit_path.d" ]] || touch "$stage/previous-units/no-dropin"
+  sync -f "$stage/previous-units"
+  mv -fT "$stage/previous-units" "$runtime/previous-units"
+  sync -f "$runtime"
+}
+
+restore_update_units() {
+  local saved="$runtime/previous-units" dir="${unit_path%/*}" relative replacement
+  [[ -d "$saved" ]] || return 0
+  for relative in "$unit" "$update_unit" dispatch-runner-trial.service "$unit.d/50-dispatch-trial.conf"; do
+    if [[ -e "$saved/$relative" || -L "$saved/$relative" ]]; then
+      replacement=$(mktemp "$dir/$relative.restore.XXXXXX")
+      rm -f -- "$replacement"
+      cp -pP "$saved/$relative" "$replacement"
+      mv -fT "$replacement" "$dir/$relative"
+    else
+      rm -f -- "$dir/$relative"
+    fi
+  done
+  if [[ -e "$saved/activate-helper" ]]; then
+    if [[ ! "$saved/activate-helper" -ef "$runtime/update/activate-helper" ]]; then
+      rm -f -- "$stage/restore-helper"
+      ln "$saved/activate-helper" "$stage/restore-helper"
+      mv -fT "$stage/restore-helper" "$runtime/update/activate-helper"
+    fi
+  else
+    rm -f -- "$runtime/update/activate-helper"
+  fi
+  # Keep any state written while the candidate was running.
+  if [[ -e "$saved/no-runtime-update" ]]; then rmdir "$runtime/update" 2>/dev/null || :; fi
+  if [[ -e "$saved/no-state-update" ]]; then rmdir "$state/update" 2>/dev/null || :; fi
+  if [[ -e "$saved/no-dropin" ]]; then rmdir "$unit_path.d" 2>/dev/null || :; fi
+  sync -f "$dir"
+  sync -f "$runtime"
+  systemctl daemon-reload
+}
+
 # The shared ancestor contains account directories. Their private files and
 # the separate settings directory keep their own access restrictions.
 repair_install_root() {
@@ -548,9 +602,11 @@ recover_runner() {
       mv -fT "$stage/restore" "$runtime/dispatch"
     fi
     sync -f "$runtime"
+    restore_update_units
   fi
   start_enabled_runner || error "Runner recovery could not start. See journalctl -u $unit"
   rm -f -- "$runtime/previous" "$runtime/previous-handoff.py" "$runtime/previous-active"
+  rm -rf -- "$runtime/previous-units"
   sync -f "$runtime"
 }
 
@@ -664,6 +720,7 @@ update_runner() {
   # no transaction to recover.
   maintenance_step=stop
   rm -f -- "$runtime/previous-active"
+  rm -rf -- "$runtime/previous-units"
   stop_runner_for_update record_previous
   # A fence may have arrived while we were downloading or stopping. Restore
   # the old service before giving the self-updater the installer lock.
@@ -672,10 +729,16 @@ update_runner() {
     assert_no_update_fence
     error "A runner update fence interrupted manual maintenance"
   fi
+  maintenance_step=unit
+  snapshot_update_units
   maintenance_step=replace
   record_release "$stage/next" "$installed"
   mv -fT "$stage/next" "$runtime/dispatch"
   sync -f "$runtime"
+  maintenance_step=unit
+  install_service_unit
+  install_update_unit
+  systemctl daemon-reload
   maintenance_step=start
   if ! start_enabled_runner; then
     maintenance_step=restore
@@ -703,12 +766,10 @@ update_runner() {
     mv -fT "$runtime/previous" "$runtime/previous-verified"
   fi
   rm -f -- "$runtime/previous" "$runtime/previous-handoff.py" "$runtime/previous-active"
+  rm -rf -- "$runtime/previous-units"
   sync -f "$runtime"
   maintenance_step=unit
-  install_service_unit
-  install_update_unit
   install_managed_tools
-  systemctl daemon-reload
   printf 'Runner updated to %s.\n' "$tag"
 }
 
