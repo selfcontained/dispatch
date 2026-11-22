@@ -4,6 +4,8 @@ export type RunnerUpdatePhaseView =
   | "staging"
   | "settling"
   | "draining"
+  /** Update now: turns are being interrupted and hosts stopped. */
+  | "interrupting"
   | "resuming"
   | "switching"
   | "confirming"

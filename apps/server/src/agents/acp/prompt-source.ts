@@ -140,4 +140,9 @@ export type PromptOptions = {
   signal?: AbortSignal;
   images?: PromptImage[];
   delivery?: "auto" | "queue" | "interrupt";
+  /**
+   * A stable host prompt ID for the one prompt that may pass a runner update
+   * hold, ahead of the work it holds. The host claims each ID only once.
+   */
+  continuationId?: string;
 };

@@ -22,6 +22,37 @@ const resumeReceiptSchema = z
   .strict();
 export type ResumeReceipt = z.infer<typeof resumeReceiptSchema>;
 
+/**
+ * A runner attempt's entry: the same running-row claim, plus progress. The
+ * attempt keeps each one until that agent is resumed and, if its turn was
+ * cut, told to continue. The local receipt above is strict and has none of
+ * this.
+ */
+export const runnerResumeAgentSchema = resumeAgentSchema
+  .extend({
+    /** Turns a forced update cut or tried to: stream row, host sequence. */
+    turns: z
+      .array(
+        z
+          .object({
+            id: z.number().int().nonnegative(),
+            seq: z.number().int().nonnegative().optional(),
+          })
+          .strict()
+      )
+      .max(16)
+      .optional(),
+    /** Saved before the launch, which itself moves the row's timestamp. */
+    launching: z.literal(true).optional(),
+    resumed: z.literal(true).optional(),
+    /** Saved before the continuation is first handed to the host. */
+    continuationSent: z.literal(true).optional(),
+    /** When resuming first failed. */
+    failedAt: z.number().optional(),
+  })
+  .strict();
+export type RunnerResumeAgent = z.infer<typeof runnerResumeAgentSchema>;
+
 export const RESUME_RECEIPT_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
 /** Atomically replace the receipt: private temp file, fsync, rename, fsync dir. */

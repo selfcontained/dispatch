@@ -94,7 +94,9 @@ export function useStartRunnerUpdate(runnerId: string) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (
-      action: RunnerUpdateAction | { action: "cancel"; attemptId: string }
+      action:
+        | RunnerUpdateAction
+        | { action: "cancel" | "force"; attemptId: string }
     ) =>
       api<{ attemptId: string }>(
         `/api/v1/runners/${encodeURIComponent(runnerId)}/update`,

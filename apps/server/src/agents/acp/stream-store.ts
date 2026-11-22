@@ -329,6 +329,17 @@ export class StreamStore {
       : null;
   }
 
+  /** These turn rows of this agent's, by row id. */
+  async turns(agentId: string, ids: number[]): Promise<StreamEventRow[]> {
+    const result = await this.db.query<Row>(
+      `SELECT * FROM agent_stream_events
+        WHERE agent_id = $1 AND kind = 'turn' AND id = ANY($2::bigint[])
+        ORDER BY seq`,
+      [agentId, ids]
+    );
+    return result.rows.map(toRow);
+  }
+
   /** The agent's newest turn row, open or settled. */
   async lastTurn(agentId: string): Promise<StreamEventRow | null> {
     const result = await this.db.query<Row>(

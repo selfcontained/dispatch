@@ -88,9 +88,24 @@ export async function registerRunnerRoutes(
           return fail(reply, error);
         }
       }
+      if (action === "force") {
+        if (attemptId !== undefined && typeof attemptId !== "string")
+          return reply
+            .code(400)
+            .send({ error: "The update attempt ID must be a string." });
+        if (!deps.updates)
+          return reply.code(404).send({ error: "Runner not found." });
+        try {
+          return reply
+            .code(202)
+            .send(await deps.updates.forceUpdate(id, attemptId));
+        } catch (error) {
+          return fail(reply, error);
+        }
+      }
       if (action !== "update" && action !== "retry")
         return reply.code(400).send({
-          error: 'The action must be "update", "retry", or "cancel".',
+          error: 'The action must be "update", "retry", "force", or "cancel".',
         });
       if (!deps.updates)
         return reply.code(404).send({ error: "Runner not found." });

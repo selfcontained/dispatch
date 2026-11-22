@@ -1,13 +1,22 @@
 import type { RunnerUpdatePhaseView, RunnerUpdateView } from "@dispatch/shared";
 import { Loader2 } from "lucide-react";
+import { useState } from "react";
 
-import { LoadingButton } from "@/components/ui/button";
+import {
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import { Button, LoadingButton } from "@/components/ui/button";
 import { useStartRunnerUpdate, type Runner } from "@/hooks/use-runners";
 import { ApiError } from "@/lib/api";
 import { RunnerCommand, useRunnerInstaller } from "./runner-onboarding";
 
 const PHASES: Record<
-  Exclude<RunnerUpdatePhaseView, "draining" | "resuming">,
+  Exclude<RunnerUpdatePhaseView, "draining" | "interrupting" | "resuming">,
   string
 > = {
   staging: "Downloading and verifying…",
@@ -29,6 +38,7 @@ const ROLLED_BACK: Record<string, string> = {
 
 const DEFERRED: Record<string, string> = {
   drain_timeout: "The wait for agents timed out.",
+  force_timeout: "Dispatch couldn’t stop every agent in time.",
   operations_pending: "The runner was still busy, so it didn’t switch.",
   verify_failed: "The runner couldn’t download or verify the build.",
   boot_failed: "The runner couldn’t restart to switch builds.",
@@ -112,10 +122,73 @@ function UpdateCommand() {
   ) : null;
 }
 
+/** Update now cuts work off, so it asks first. */
+function UpdateNow({
+  runnerName,
+  loading,
+  disabled,
+  onConfirm,
+}: {
+  runnerName: string;
+  loading: boolean;
+  disabled: boolean;
+  onConfirm: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <AlertDialog open={open} onOpenChange={setOpen}>
+      <AlertDialogTrigger asChild>
+        {/* Not a LoadingButton: focus returns here through the ref. */}
+        <Button
+          type="button"
+          size="sm"
+          variant="default"
+          disabled={disabled}
+          aria-busy={loading || undefined}
+        >
+          {loading && (
+            <Loader2
+              className="mr-1.5 size-3.5 shrink-0 animate-spin"
+              aria-hidden="true"
+            />
+          )}
+          Update now
+        </Button>
+      </AlertDialogTrigger>
+      <AlertDialogContent>
+        <AlertDialogTitle className="break-words text-base font-semibold">
+          Update {runnerName} now?
+        </AlertDialogTitle>
+        <AlertDialogDescription className="text-sm text-muted-foreground">
+          Running turns are interrupted and resumed after the update. Open
+          terminals close, and any tool call in progress is lost.
+        </AlertDialogDescription>
+        <div className="flex flex-wrap justify-end gap-2">
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <Button
+            type="button"
+            variant="destructive"
+            onClick={() => {
+              setOpen(false);
+              onConfirm();
+            }}
+          >
+            Update now
+          </Button>
+        </div>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+}
+
 export function RunnerUpdateStatus({ runner }: { runner: Runner }) {
   const start = useStartRunnerUpdate(runner.id);
   const { attempt, available, result, previousBuildAgents } =
     runner.update ?? {};
+  const pending =
+    start.isPending && typeof start.variables === "object"
+      ? start.variables.action
+      : undefined;
   // A refusal is stale once an update is running or has landed.
   const error =
     (attempt && attempt.phase !== "draining") ||
@@ -137,9 +210,14 @@ export function RunnerUpdateStatus({ runner }: { runner: Runner }) {
     detail =
       attempt.phase === "draining"
         ? `Waiting on ${agents}`
-        : attempt.phase === "resuming"
-          ? `Resuming ${agents}`
-          : PHASES[attempt.phase];
+        : attempt.phase === "interrupting"
+          ? // Not counted until Dispatch has looked at the runner's hosts.
+            attempt.agents
+            ? `Interrupting ${agents}`
+            : "Interrupting agents…"
+          : attempt.phase === "resuming"
+            ? `Resuming ${agents}`
+            : PHASES[attempt.phase];
   } else if (result && (failed || !available)) {
     ({ title, detail } = describeResult(result));
   } else if (available) {
@@ -177,6 +255,7 @@ export function RunnerUpdateStatus({ runner }: { runner: Runner }) {
           )}
           {attempt?.held &&
             attempt.phase !== "draining" &&
+            attempt.phase !== "interrupting" &&
             attempt.phase !== "resuming" && (
               <p>New work waits until the update finishes.</p>
             )}
@@ -201,17 +280,29 @@ export function RunnerUpdateStatus({ runner }: { runner: Runner }) {
           )}
         </div>
         {attempt?.phase === "draining" && (
-          <LoadingButton
-            type="button"
-            size="sm"
-            variant="default"
-            loading={start.isPending}
-            onClick={() =>
-              start.mutate({ action: "cancel", attemptId: attempt.id })
-            }
-          >
-            Cancel
-          </LoadingButton>
+          <div className="flex flex-wrap gap-2">
+            <LoadingButton
+              type="button"
+              size="sm"
+              variant="default"
+              loading={pending === "cancel"}
+              disabled={start.isPending}
+              onClick={() =>
+                start.mutate({ action: "cancel", attemptId: attempt.id })
+              }
+            >
+              Cancel
+            </LoadingButton>
+            <UpdateNow
+              key={attempt.id}
+              runnerName={runner.name}
+              loading={pending === "force"}
+              disabled={start.isPending}
+              onConfirm={() =>
+                start.mutate({ action: "force", attemptId: attempt.id })
+              }
+            />
+          </div>
         )}
         {!attempt && available && (
           <LoadingButton

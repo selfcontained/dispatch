@@ -722,6 +722,17 @@ export class HostClient {
     return this.isReady() && this.lastWelcome === welcome;
   }
 
+  /** What the host did with a prompt ID. Undefined when it cannot say now. */
+  async promptReceipt(
+    id: string
+  ): Promise<PromptReceiptState | "unsupported" | undefined> {
+    const welcome = this.lastWelcome;
+    if (!welcome || !this.isReady()) return undefined;
+    if (welcome.promptReceiptSupported !== true || !welcome.journalId)
+      return "unsupported";
+    return this.queryPromptReceipt(id, welcome.journalId);
+  }
+
   private queryPromptReceipt(
     id: string,
     journalId: string

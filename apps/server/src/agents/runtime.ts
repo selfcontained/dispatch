@@ -11,7 +11,7 @@ import type {
   RunnerRepository,
 } from "./remote/protocol.js";
 import type { BuildIdentity } from "./build-identity.js";
-import type { HostLaunch } from "./acp/host-protocol.js";
+import type { HostLaunch, PromptReceiptState } from "./acp/host-protocol.js";
 import type { AppConfig } from "../config.js";
 import type { DriverEvent } from "./acp/driver.js";
 import type {
@@ -94,6 +94,28 @@ export type AgentRuntime = {
     host: RunnerHostIdentity,
     drainEpoch?: number
   ): RunnerHostRecycleHold | null;
+  /**
+   * A forced update takes over this runner's hosts: their queues outlive
+   * them, and nothing wakes a turn that is about to be cut.
+   */
+  holdRunnerHosts?(runnerId: string): void;
+  /** The host is still there after all: attach to it, keeping its queue. */
+  reattachRunnerHost?(agentId: string): void;
+  releaseRunnerHost?(agentId: string): void;
+  releaseRunnerHosts?(runnerId: string): void;
+  /** The open turn, once everything received before the call is recorded. */
+  runnerTurn?(agentId: string): Promise<{ open: boolean; seq?: number } | null>;
+  /**
+   * Interrupt exactly this turn, at most once. True once it no longer runs,
+   * or when this host cannot interrupt it.
+   */
+  interruptRunnerTurn?(agentId: string, seq: number): Promise<boolean>;
+  /** Stop a host without waiting on its update hold or needing a lease. */
+  stopRunnerHost?(runnerId: string, agentId: string): Promise<void>;
+  promptReceipt?(
+    agentId: string,
+    id: string
+  ): Promise<PromptReceiptState | "unsupported" | undefined>;
   /** Inspect an existing session without starting it or submitting chat. */
   getMcpInventory(agentId: string): Promise<AgentMcpInventoryResponse>;
   getBackgroundWork?(agentId: string): Promise<BackgroundSnapshot>;

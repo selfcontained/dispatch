@@ -4,7 +4,10 @@ import type { FastifyBaseLogger } from "fastify";
 import { z } from "zod";
 
 import type { RunnerArtifactSource } from "../../server/runner-artifacts.js";
-import { resumeAgentSchema } from "../../update-recovery/resume-receipt.js";
+import {
+  runnerResumeAgentSchema,
+  type RunnerResumeAgent,
+} from "../../update-recovery/resume-receipt.js";
 import type { AgentManager } from "../manager.js";
 import {
   endsUpdateAttempt,
@@ -29,9 +32,15 @@ import { compareRunnerVersions } from "./update-verify.js";
  *   staging ─ready→ settling ─fence_ready→ switching ─trial→ confirming
  *      └───────────────┴──────────────┴─────────────────┴──→ cancelling
  *
- * Incompatible hosts drain before settling with an empty retained set.
- * Once the runner reports an outcome, Dispatch resumes the stopped hosts
- * before releasing held work. Work goes on during staging, and is held
+ * Incompatible hosts drain before settling with an empty retained set. An
+ * operator's force replaces that wait, or is asked for at the start:
+ *
+ *   staging | draining ─force→ interrupting ─no hosts→ settling
+ *
+ * Interrupting saves each host's receipt entry, interrupts the turns it
+ * saved, and stops every host. Once the runner reports an outcome, Dispatch
+ * resumes the stopped hosts and tells the agents it interrupted to continue,
+ * both before releasing held work. Work goes on during staging, and is held
  * before the first fence. The runner owns the swap and its rollback.
  */
 
@@ -49,6 +58,14 @@ export const UPDATE_TIMING = {
   cancelMs: 15_000,
   rollbackMs: 60_000,
   confirmRetryMs: 5_000,
+  /** A forced update has this long to empty the runner. */
+  interruptingMs: 3 * 60_000,
+  /** For every host to attach and report its turn. */
+  snapshotMs: 15_000,
+  /** For interrupted turns to settle before their hosts are stopped anyway. */
+  interruptMs: 30_000,
+  /** A session that still won't resume after this is a failed start. */
+  resumeRetryMs: 5 * 60_000,
   tickMs: 1_000,
 } as const;
 
@@ -76,10 +93,13 @@ const attemptSchema = z.object({
   /** Absent only for a runner's attempt that Dispatch has no record of. */
   target: targetSchema.optional(),
   retry: z.boolean(),
+  /** An operator asked to interrupt rather than wait. Never set otherwise. */
+  force: z.literal(true).optional(),
   phase: z.enum([
     "staging",
     "settling",
     "draining",
+    "interrupting",
     "resuming",
     "switching",
     "confirming",
@@ -101,7 +121,14 @@ const attemptSchema = z.object({
     .object({
       retainedIds: z.array(z.string()).max(1024),
       waiting: z.number().int().nonnegative().optional(),
-      agents: z.array(resumeAgentSchema).max(10_000),
+      agents: z.array(runnerResumeAgentSchema).max(10_000),
+      force: z
+        .object({
+          snapshotBy: z.number(),
+          /** Set with the snapshot, so before any turn is interrupted. */
+          interruptBy: z.number().optional(),
+        })
+        .optional(),
       result: outcomeSchema.optional(),
     })
     .optional(),
@@ -212,8 +239,20 @@ type CoordinatorAgents = Pick<
   | "runnerDrainHosts"
   | "stopRunnerHostForDrain"
   | "resumeRunnerDrainHost"
+  | "abandonRunnerResume"
   | "setRunnerDrainReceipt"
->;
+> & {
+  runnerForce: Pick<
+    AgentManager["runnerForce"],
+    | "hold"
+    | "release"
+    | "snapshot"
+    | "interrupt"
+    | "prepareStop"
+    | "stop"
+    | "continue"
+  >;
+};
 
 export class RunnerUpdateCoordinator {
   private readonly records = new Map<string, RunnerUpdateRecord>();
@@ -226,7 +265,8 @@ export class RunnerUpdateCoordinator {
   private readonly trials = new Map<string, number>();
   private readonly confirms = new Map<string, number>();
   private readonly waiting = new Map<string, number>();
-  private readonly drainCancellations = new Set<string>();
+  /** Cancelled or forced: their drain stops no more hosts. */
+  private readonly endingDrains = new Set<string>();
   private readonly attaching = new Set<string>();
   private readonly ticking = new Set<string>();
   /** Between stopping a recycling pass and the attempt that replaces it. */
@@ -321,15 +361,59 @@ export class RunnerUpdateCoordinator {
   /** Start one attempt. Simultaneous requests for a runner share it. */
   request(
     runnerId: string,
-    action: RunnerUpdateAction
+    action: RunnerUpdateAction | "force"
   ): Promise<{ attemptId: string }> {
-    const running = this.requests.get(runnerId);
+    // A force never shares a plain update's attempt, nor the other way.
+    const key = action === "force" ? `${runnerId}/force` : runnerId;
+    const running = this.requests.get(key);
     if (running) return running;
     const request = this.open(runnerId, action).finally(() =>
-      this.requests.delete(runnerId)
+      this.requests.delete(key)
     );
-    this.requests.set(runnerId, request);
+    this.requests.set(key, request);
     return request;
+  }
+
+  /**
+   * Update now: start a forced update, or stop waiting in a drain. Only an
+   * operator's request gets here.
+   */
+  async forceUpdate(runnerId: string, attemptId?: string) {
+    if (!this.options.service.isRegistered(runnerId))
+      throw new RunnerUpdateIneligible("not_found");
+    if (!this.started) throw new RunnerUpdateIneligible("not_ready");
+    const asked = this.active(runnerId);
+    if (!asked && !attemptId) return this.request(runnerId, "force");
+    const valid = (attempt: Attempt | undefined): attempt is Attempt =>
+      attempt !== undefined &&
+      attempt.id === (attemptId ?? asked?.id) &&
+      (attempt.force === true || attempt.phase === "draining");
+    const refuse = () =>
+      attemptId
+        ? new RunnerUpdateIneligible("stale_drain")
+        : new RunnerUpdateIneligible("update_in_progress", asked?.id);
+    if (!valid(asked)) throw refuse();
+    this.endingDrains.add(asked.id);
+    try {
+      return await this.enqueue(runnerId, async () => {
+        const attempt = this.active(runnerId);
+        if (!valid(attempt)) throw refuse();
+        if (!attempt.force) {
+          await this.save({
+            ...this.records.get(runnerId),
+            runnerId,
+            attempt: this.interrupting(attempt),
+          });
+          this.options.logger.info(
+            { runnerId, attemptId: attempt.id },
+            "runner update forced"
+          );
+        }
+        return { attemptId: attempt.id };
+      });
+    } finally {
+      this.endingDrains.delete(asked.id);
+    }
   }
 
   async cancelDrain(runnerId: string, attemptId: string) {
@@ -340,7 +424,7 @@ export class RunnerUpdateCoordinator {
       attempt?.id === attemptId && attempt.phase === "draining";
     if (!valid(this.active(runnerId)))
       throw new RunnerUpdateIneligible("stale_drain");
-    this.drainCancellations.add(attemptId);
+    this.endingDrains.add(attemptId);
     try {
       return await this.enqueue(runnerId, async () => {
         const attempt = this.active(runnerId);
@@ -353,7 +437,7 @@ export class RunnerUpdateCoordinator {
         return { attemptId };
       });
     } finally {
-      this.drainCancellations.delete(attemptId);
+      this.endingDrains.delete(attemptId);
     }
   }
 
@@ -372,6 +456,9 @@ export class RunnerUpdateCoordinator {
               this.waiting.get(runnerId) ??
               attempt.drain!.waiting ??
               attempt.drain!.retainedIds.length,
+          }),
+          ...(attempt.phase === "interrupting" && {
+            agents: this.waiting.get(runnerId) ?? attempt.drain!.waiting,
           }),
           ...(attempt.phase === "resuming" && {
             agents: attempt.drain!.agents.length,
@@ -434,7 +521,7 @@ export class RunnerUpdateCoordinator {
 
   private async open(
     runnerId: string,
-    action: RunnerUpdateAction
+    action: RunnerUpdateAction | "force"
   ): Promise<{ attemptId: string }> {
     const { service, agents, artifacts, build, logger } = this.options;
     if (!service.isRegistered(runnerId))
@@ -470,6 +557,7 @@ export class RunnerUpdateCoordinator {
           id: randomUUID(),
           target,
           retry: action === "retry",
+          ...(action === "force" && { force: true }),
           phase: "staging",
           deadline: this.now() + UPDATE_TIMING.stagingMs,
         };
@@ -489,7 +577,7 @@ export class RunnerUpdateCoordinator {
     }
   }
 
-  private eligible(runnerId: string, action: RunnerUpdateAction) {
+  private eligible(runnerId: string, action: RunnerUpdateAction | "force") {
     const { service, artifacts, build } = this.options;
     const refuse = (code: IneligibleCode, attemptId?: string) =>
       new RunnerUpdateIneligible(code, attemptId);
@@ -511,7 +599,7 @@ export class RunnerUpdateCoordinator {
       throw refuse(
         advert.revision === build.revision ? "up_to_date" : "same_version"
       );
-    if (action === "update" && this.suppressed(runnerId))
+    if (action !== "retry" && this.suppressed(runnerId))
       throw refuse("needs_retry");
     return live;
   }
@@ -533,8 +621,15 @@ export class RunnerUpdateCoordinator {
     const pending = advert?.pendingAttemptId;
     let attempt = this.active(runnerId);
 
-    if (attempt?.phase === "resuming") return this.advance(runnerId);
-    if (attempt?.phase === "draining" && !pending)
+    if (attempt?.phase === "resuming") {
+      if (pending && pending !== attempt.id)
+        this.sendCancel(runnerId, { ...attempt, id: pending }, epoch);
+      return this.advance(runnerId);
+    }
+    if (
+      (attempt?.phase === "draining" || attempt?.phase === "interrupting") &&
+      !pending
+    )
       return this.advance(runnerId);
     if (attempt && !advert) {
       await this.finish(runnerId, attempt, {
@@ -548,7 +643,10 @@ export class RunnerUpdateCoordinator {
         state: "deferred",
         reason: "interrupted",
       });
-      attempt = undefined;
+      attempt = this.active(runnerId);
+      // Adopting would replace the receipt. The other fence only needs to go.
+      if (attempt?.phase === "resuming")
+        return this.sendCancel(runnerId, { ...attempt, id: pending }, epoch);
     }
     if (!attempt) {
       if (pending) return this.adopt(runnerId, pending, epoch);
@@ -572,6 +670,7 @@ export class RunnerUpdateCoordinator {
     }
     switch (attempt.phase) {
       case "draining":
+      case "interrupting":
         // An earlier fence might still be unwinding on this connection.
         await this.cancel(runnerId, attempt, "interrupted");
         return;
@@ -698,7 +797,7 @@ export class RunnerUpdateCoordinator {
       return this.advance(runnerId);
     }
     if (
-      attempt.phase === "draining" &&
+      (attempt.phase === "draining" || attempt.phase === "interrupting") &&
       status.phase === "deferred" &&
       status.reason === "incompatible_handoff"
     )
@@ -726,7 +825,13 @@ export class RunnerUpdateCoordinator {
     status: RunnerUpdateEvent["status"]
   ): Promise<void> {
     const { phase, target } = attempt;
-    if (phase === "cancelling" || phase === "draining" || !target) return;
+    if (
+      phase === "cancelling" ||
+      phase === "draining" ||
+      phase === "interrupting" ||
+      !target
+    )
+      return;
     const { service } = this.options;
 
     if (status.phase === "activating") {
@@ -760,6 +865,8 @@ export class RunnerUpdateCoordinator {
     switch (status.reason) {
       case "ready": {
         if (attempt.retained) return;
+        if (phase === "staging" && attempt.force)
+          return this.startInterrupting(runnerId, attempt);
         if (phase === "staging") {
           const settling: Attempt = {
             ...attempt,
@@ -829,6 +936,19 @@ export class RunnerUpdateCoordinator {
       if (live) await this.drain(runnerId, attempt, live.advert, live.epoch);
       return;
     }
+    if (phase === "interrupting") {
+      if (
+        now >= attempt.deadline ||
+        this.options.holds.current(runnerId)?.attemptId !== attempt.id
+      )
+        return this.finish(runnerId, attempt, {
+          state: "deferred",
+          reason: "force_timeout",
+        });
+      if (live)
+        await this.interrupt(runnerId, attempt, live.advert, live.epoch);
+      return;
+    }
     if (now >= attempt.deadline) {
       if (phase === "cancelling" || !live)
         return this.finish(runnerId, attempt, {
@@ -885,7 +1005,7 @@ export class RunnerUpdateCoordinator {
     const drain = attempt.drain!;
     const mayStop = () =>
       !this.closed &&
-      !this.drainCancellations.has(attempt.id) &&
+      !this.endingDrains.has(attempt.id) &&
       this.now() < attempt.deadline &&
       this.options.service.connectionEpoch(runnerId) === epoch &&
       this.options.holds.current(runnerId)?.attemptId === attempt.id;
@@ -943,9 +1063,160 @@ export class RunnerUpdateCoordinator {
     }
   }
 
+  /** Staged under force: work waits, then nothing waits on the agents. */
+  private async startInterrupting(runnerId: string, attempt: Attempt) {
+    try {
+      this.releaseOther(runnerId, attempt.id);
+      await this.options.holds.begin(runnerId, attempt.id, {
+        boundMs: UPDATE_TIMING.interruptingMs + UPDATE_HOLD_BOUND_MS,
+        draining: true,
+      });
+    } catch (error) {
+      this.options.logger.error(
+        { err: error, runnerId },
+        "could not hold the runner for its forced update"
+      );
+      return this.cancel(runnerId, attempt, "state_unsaved");
+    }
+    if (!(await this.step(runnerId, attempt, this.interrupting(attempt))))
+      return;
+    return this.advance(runnerId);
+  }
+
+  private interrupting(attempt: Attempt): Attempt {
+    const now = this.now();
+    return {
+      ...attempt,
+      force: true,
+      phase: "interrupting",
+      retained: undefined,
+      deadline: now + UPDATE_TIMING.interruptingMs,
+      drain: {
+        ...(attempt.drain ?? { retainedIds: [], agents: [] }),
+        force: { snapshotBy: now + UPDATE_TIMING.snapshotMs },
+      },
+    };
+  }
+
+  /**
+   * One pass of a forced update, each step saved before the next acts:
+   * receipt, interrupt and settle, receipt again, stop. A pass that fails
+   * or loses its connection repeats from what was saved.
+   */
+  private async interrupt(
+    runnerId: string,
+    attempt: Attempt,
+    advert: SelfUpdateAdvert,
+    epoch: number
+  ) {
+    const { agents, service, holds, logger } = this.options;
+    const sessions = agents.runnerForce;
+    const current = () =>
+      !this.closed &&
+      service.connectionEpoch(runnerId) === epoch &&
+      holds.current(runnerId)?.attemptId === attempt.id;
+    const saveDrain = async (
+      change: Partial<NonNullable<Attempt["drain"]>>
+    ) => {
+      attempt = { ...attempt, drain: { ...attempt.drain!, ...change } };
+      await this.save({ ...this.records.get(runnerId), runnerId, attempt });
+    };
+
+    sessions.hold(runnerId);
+    const hosts = await agents.runnerDrainHosts(
+      runnerId,
+      attempt.drain!.retainedIds
+    );
+    if (!current()) return;
+    const waiting = new Set(hosts.map(({ id }) => id)).size;
+    this.waiting.set(runnerId, waiting);
+    if (waiting !== attempt.drain!.waiting) await saveDrain({ waiting });
+    for (const { id, host } of hosts)
+      if (host?.attachedEpoch !== epoch) this.attach(runnerId, id);
+
+    const now = this.now();
+    let force = attempt.drain!.force!;
+    if (force.interruptBy === undefined) {
+      const found = await sessions.snapshot(runnerId, hosts, {
+        epoch,
+        final: now >= force.snapshotBy,
+      });
+      if (!found || !current()) return;
+      const ids = new Set(found.map(({ id }) => id));
+      force = { ...force, interruptBy: now + UPDATE_TIMING.interruptMs };
+      await saveDrain({
+        force,
+        agents: [
+          ...attempt.drain!.agents.filter(({ id }) => !ids.has(id)),
+          ...found,
+        ],
+      });
+    }
+    if (!current()) return;
+
+    if (!hosts.length) {
+      const next: Attempt = {
+        ...attempt,
+        phase: "settling",
+        deadline: this.now() + UPDATE_TIMING.settlingMs,
+      };
+      if (await this.step(runnerId, attempt, next))
+        this.sendOffer(runnerId, next, advert, epoch);
+      return;
+    }
+
+    const saved = new Map(attempt.drain!.agents.map((e) => [e.id, e]));
+    if (now < force.interruptBy!) {
+      const settled = await Promise.all(
+        hosts.map(({ id, host }) => {
+          const entry = saved.get(id);
+          if (!entry?.turns?.some((turn) => turn.seq !== undefined))
+            return true;
+          // A restart or reconnect replays first: only then is the turn known.
+          return host?.attachedEpoch === epoch && sessions.interrupt(entry);
+        })
+      );
+      if (settled.includes(false) || !current()) return;
+    }
+
+    const stops: string[] = [];
+    for (const { id } of hosts) {
+      const entry = await sessions.prepareStop(runnerId, id, saved.get(id));
+      if (entry === "wait") continue;
+      if (entry) saved.set(id, entry);
+      else saved.delete(id);
+      stops.push(id);
+    }
+    if (!stops.length || !current()) return;
+    // A failed write must never allow a host to be stopped.
+    await saveDrain({ agents: [...saved.values()] });
+    if (!current()) return;
+    await Promise.all(
+      stops.map(async (id) => {
+        try {
+          const claim = await sessions.stop(runnerId, id);
+          const entry = saved.get(id);
+          if (claim && entry)
+            saved.set(id, { ...entry, updatedAt: claim.updatedAt });
+        } catch (error) {
+          logger.warn(
+            { err: error, runnerId, agentId: id },
+            "could not stop a host for the runner update"
+          );
+        }
+      })
+    );
+    await saveDrain({ agents: [...saved.values()] });
+  }
+
+  /**
+   * One pass of recovery: one session resumed, and every continuation still
+   * owed offered. Each agent's progress is saved, so a restart takes up
+   * where this stopped. The hold opens once no entry is left.
+   */
   private async resumeDrain(runnerId: string, attempt: Attempt) {
     const drain = attempt.drain!;
-    const { agents, service } = this.options;
+    const { agents, service, logger } = this.options;
     if (drain.agents.length && service.isRegistered(runnerId)) {
       // A reconnect with an outstanding trial is not an installed build yet.
       const live = service.selfUpdate(runnerId);
@@ -954,18 +1225,118 @@ export class RunnerUpdateCoordinator {
         live?.advert.pendingAttemptId
       )
         return;
-      const [entry, ...remaining] = drain.agents;
-      await agents.resumeRunnerDrainHost(runnerId, attempt.id, entry!);
-      const next = { ...attempt, drain: { ...drain, agents: remaining } };
-      await this.save({
-        ...this.records.get(runnerId),
-        runnerId,
-        attempt: next,
-      });
-      if (remaining.length) return;
-      attempt = next;
+      const next = drain.agents.find((entry) => !entry.resumed);
+      if (next) await this.resumeAgent(runnerId, attempt.id, next);
+      const interruptBy = drain.force?.interruptBy;
+      await Promise.all(
+        this.receipt(runnerId, attempt.id)
+          .filter((entry) => entry.resumed)
+          .map(async (entry) => {
+            try {
+              const told = await agents.runnerForce.continue(
+                runnerId,
+                attempt.id,
+                entry,
+                {
+                  settling:
+                    interruptBy !== undefined && this.now() < interruptBy,
+                  markSent: () => this.markSent(runnerId, attempt.id, entry.id),
+                }
+              );
+              if (told === "done")
+                await this.editReceipt(runnerId, attempt.id, (entries) =>
+                  entries.filter(({ id }) => id !== entry.id)
+                );
+            } catch (error) {
+              logger.warn(
+                { err: error, runnerId, agentId: entry.id },
+                "could not continue an interrupted agent"
+              );
+            }
+          })
+      );
+      if (this.receipt(runnerId, attempt.id).length) return;
+      attempt = this.active(runnerId)!;
     }
     return this.finish(runnerId, attempt, drain.result!);
+  }
+
+  private async resumeAgent(
+    runnerId: string,
+    attemptId: string,
+    entry: RunnerResumeAgent
+  ) {
+    const { agents, logger } = this.options;
+    const { id } = entry;
+    const edit = (change: (entry: RunnerResumeAgent) => RunnerResumeAgent[]) =>
+      this.editReceipt(runnerId, attemptId, (entries) =>
+        entries.flatMap((saved) => (saved.id === id ? change(saved) : [saved]))
+      );
+    try {
+      const resumed = await agents.resumeRunnerDrainHost(
+        runnerId,
+        attemptId,
+        entry,
+        () => edit((saved) => [{ ...saved, launching: true }])
+      );
+      await edit(({ failedAt: _, ...saved }) =>
+        resumed && saved.turns?.length ? [{ ...saved, resumed: true }] : []
+      );
+    } catch (error) {
+      logger.warn(
+        { err: error, runnerId, agentId: id },
+        "could not resume an agent after the runner update"
+      );
+      const failedAt = entry.failedAt ?? this.now();
+      if (
+        this.now() - failedAt >= UPDATE_TIMING.resumeRetryMs &&
+        (await agents.abandonRunnerResume(runnerId, id).catch(() => false))
+      )
+        return edit(() => []);
+      // Behind the others, so one failure holds none of them back.
+      await this.editReceipt(runnerId, attemptId, (entries) => [
+        ...entries.filter((saved) => saved.id !== id),
+        ...entries
+          .filter((saved) => saved.id === id)
+          .map((saved) => ({ ...saved, failedAt })),
+      ]);
+    }
+  }
+
+  private receipt(runnerId: string, attemptId: string): RunnerResumeAgent[] {
+    const attempt = this.active(runnerId);
+    return attempt?.id === attemptId ? (attempt.drain?.agents ?? []) : [];
+  }
+
+  /** A delivery can outlast its pass, so this reads inside the write. */
+  private editReceipt(
+    runnerId: string,
+    attemptId: string,
+    change: (entries: RunnerResumeAgent[]) => RunnerResumeAgent[]
+  ) {
+    return this.save(() => {
+      const attempt = this.active(runnerId);
+      if (attempt?.id !== attemptId || attempt.phase !== "resuming")
+        throw new Error("The runner update receipt has ended.");
+      return {
+        ...this.records.get(runnerId),
+        runnerId,
+        attempt: {
+          ...attempt,
+          drain: { ...attempt.drain!, agents: change(attempt.drain!.agents) },
+        },
+      };
+    });
+  }
+
+  private markSent(runnerId: string, attemptId: string, id: string) {
+    return this.editReceipt(runnerId, attemptId, (entries) => {
+      if (!entries.some((entry) => entry.id === id))
+        throw new Error("The continuation is no longer owed.");
+      return entries.map((entry) =>
+        entry.id === id ? { ...entry, continuationSent: true } : entry
+      );
+    });
   }
 
   /**
@@ -1032,6 +1403,7 @@ export class RunnerUpdateCoordinator {
       return;
     }
     this.waiting.delete(runnerId);
+    if (attempt.drain?.force) this.options.agents.runnerForce.release(runnerId);
     const { target } = attempt;
     let { confirmed, failed } = this.records.get(runnerId) ?? {};
     if (outcome.state === "updated" && target) {
@@ -1264,10 +1636,13 @@ export class RunnerUpdateCoordinator {
   }
 
   /** Writes are serialized, and memory follows the file. */
-  private save(record: RunnerUpdateRecord): Promise<void> {
+  private save(
+    input: RunnerUpdateRecord | (() => RunnerUpdateRecord)
+  ): Promise<void> {
     const write = this.writes
       .catch(() => {})
       .then(async () => {
+        const record = typeof input === "function" ? input() : input;
         const next = new Map(this.records).set(record.runnerId, record);
         await this.options.store.write([...next.values()]);
         const hadDrain = this.records.get(record.runnerId)?.attempt.drain;

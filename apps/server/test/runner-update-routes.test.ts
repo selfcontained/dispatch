@@ -19,6 +19,7 @@ const runner = (id: string, status: string) => ({
 async function routes() {
   const updates = {
     request: vi.fn(async () => ({ attemptId: "attempt" })),
+    forceUpdate: vi.fn(async () => ({ attemptId: "forced" })),
     view: vi.fn((id: string) =>
       id === "plain"
         ? undefined
@@ -68,6 +69,37 @@ describe("runner update routes", () => {
       code: "update_in_progress",
       attemptId: "running",
     });
+  });
+
+  it.each([undefined, "waiting"])(
+    "forces only when asked to, with attempt %s",
+    async (attemptId) => {
+      const { app, updates } = await routes();
+      const post = (action: string) =>
+        app.inject({
+          method: "POST",
+          url: "/api/v1/runners/capable/update",
+          payload: { action, attemptId },
+        });
+      await post("update");
+      expect(updates.forceUpdate).not.toHaveBeenCalled();
+      const reply = await post("force");
+      expect(reply.statusCode).toBe(202);
+      expect(reply.json()).toEqual({ attemptId: "forced" });
+      expect(updates.forceUpdate).toHaveBeenCalledWith("capable", attemptId);
+      expect(updates.request).toHaveBeenCalledTimes(1);
+    }
+  );
+
+  it("refuses a malformed force", async () => {
+    const { app, updates } = await routes();
+    const reply = await app.inject({
+      method: "POST",
+      url: "/api/v1/runners/capable/update",
+      payload: { action: "force", attemptId: 7 },
+    });
+    expect(reply.statusCode).toBe(400);
+    expect(updates.forceUpdate).not.toHaveBeenCalled();
   });
 
   it("adds update state only where there is any", async () => {

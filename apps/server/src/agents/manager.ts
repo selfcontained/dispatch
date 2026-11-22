@@ -129,7 +129,9 @@ import {
   type ConfirmedRunnerUpdate,
   type RunnerHostRecycleProgress,
 } from "./remote/host-recycler.js";
+import { RunnerForceSessions } from "./remote/force-sessions.js";
 import type { HeldLaunch, RunnerUpdateHolds } from "./remote/update-hold.js";
+import type { RunnerResumeAgent } from "../update-recovery/resume-receipt.js";
 import { buildLaunchEnv } from "./acp/launch-env.js";
 import { dispatchMcpUrl } from "./acp/mcp-url.js";
 import {
@@ -377,7 +379,12 @@ function withTimeout<T>(
 export const UPDATE_RESUME_MESSAGE =
   "Dispatch stopped this idle agent for an update. Start it to continue if automatic resume did not finish.";
 
+const RUNNER_RESUME_FAILED =
+  "Dispatch couldn't resume this agent after the runner update. Start it to continue.";
+
 export class AgentManager {
+  /** A forced runner update's steps on this manager's sessions. */
+  readonly runnerForce: RunnerForceSessions;
   private readonly runnerDrainReceipts = new Map<string, Set<string>>();
   private readonly drainedHostHolds = new Map<string, RunnerHostRecycleHold>();
   private readonly hostRecycler: RunnerHostRecycler;
@@ -554,6 +561,19 @@ export class AgentManager {
       hosts: (runnerId) => this.runtime.runnerHosts?.(runnerId) ?? [],
       recycle: (update, host, active) =>
         this.recycleRunnerHost(update, host, active),
+      logger,
+    });
+    this.runnerForce = new RunnerForceSessions({
+      runtime: this.runtime,
+      recorder: this.streamRecorder,
+      turns: this.streamStore,
+      getAgent: (id) => this.getAgent(id),
+      leaving: (id) => this.stoppingOrArchiving.has(id),
+      rowClaims: (ids) => this.updateResumeSnapshot(ids),
+      resolveSource: async (id, source) =>
+        (await this.launchContextRecorder?.resolvePromptSource?.(id, source)) ??
+        source,
+      streamChanged: (id) => this.notifyStreamWrite(id, true),
       logger,
     });
     this.runtime.onEvent((agentId, event, seq, receivedRemotely) =>
@@ -750,7 +770,12 @@ export class AgentManager {
     if (event.type === "config") {
       await this.applyEngineConfig(agentId, event.options);
     }
-    if (event.type === "exit" && !event.expected) {
+    // A host an update takes down still has its session to resume.
+    if (
+      event.type === "exit" &&
+      !event.expected &&
+      !this.hasRunnerDrainReceipt(agentId)
+    ) {
       const how =
         event.code === null
           ? event.signal
@@ -3311,6 +3336,7 @@ export class AgentManager {
       if (next.has(id)) continue;
       this.drainedHostHolds.get(id)?.release();
       this.drainedHostHolds.delete(id);
+      this.runtime.releaseRunnerHost?.(id);
     }
     if (ids.length) this.runnerDrainReceipts.set(runnerId, next);
     else this.runnerDrainReceipts.delete(runnerId);
@@ -3397,43 +3423,85 @@ export class AgentManager {
     });
   }
 
-  /** The unchanged running row remains the claim until recovery is recorded. */
+  /**
+   * The unchanged running row remains the claim until recovery is recorded.
+   * Launching moves that row, so an entry saved as launching also claims the
+   * host that launch left alive: a restart in between neither loses the
+   * resume nor runs it twice. False when there is nothing to resume.
+   */
   async resumeRunnerDrainHost(
     runnerId: string,
     attemptId: string,
-    entry: { id: string; updatedAt: string }
-  ): Promise<void> {
+    entry: RunnerResumeAgent,
+    /** Records that the launch is about to happen. */
+    beforeLaunch?: () => Promise<void>
+  ): Promise<boolean> {
     const id = entry.id;
     const release = () => {
       this.drainedHostHolds.get(id)?.release();
       this.drainedHostHolds.delete(id);
     };
-    // Stop can be inside the lifecycle lock waiting for the runner hold.
-    if (this.stoppingOrArchiving.has(id)) return release();
-    await this.serializeLifecycle(id, async () => {
-      if (!(await this.eligibleUpdateResumes([entry])).has(id))
-        return release();
+    const dropped = () => {
+      release();
+      return false;
+    };
+    // Stop or restart can be inside the lifecycle lock waiting for the hold.
+    if (
+      this.stoppingOrArchiving.has(id) ||
+      (await this.getAgent(id))?.status !== "running"
+    )
+      return dropped();
+    return this.serializeLifecycle(id, async () => {
+      const unchanged = (
+        await this.eligibleUpdateResumes([{ id, updatedAt: entry.updatedAt }])
+      ).has(id);
+      if (!unchanged && !entry.launching) return dropped();
       const agent = await this.getAgent(id);
       if (
-        !agent?.cliSessionId ||
+        agent?.status !== "running" ||
+        !agent.cliSessionId ||
         remotePlacement(agent.cwd)?.runner !== runnerId
       )
-        return release();
+        return dropped();
       if (await this.runtime.runnerHostAlive?.(runnerId, id)) {
         if (this.drainedHostHolds.has(id))
           throw new Error("The quiesced runner host is still exiting.");
         release();
+        this.runtime.reattachRunnerHost?.(id);
         if (!(await this.runtime.attach(id)))
           throw new Error("The runner host has not reattached.");
-        return;
+        return true;
       }
-      if (this.stoppingOrArchiving.has(id)) return release();
+      if (!unchanged || this.stoppingOrArchiving.has(id)) return dropped();
+      await beforeLaunch?.();
       await this.startAgentClaimed(id, attemptId, {
         drain: true,
         mayStart: () => !this.stoppingOrArchiving.has(id),
       });
       release();
+      return true;
     });
+  }
+
+  /**
+   * A resume that kept failing ends as a failed start, so it does not keep
+   * the runner's other work held. False while a host may still be alive.
+   */
+  async abandonRunnerResume(runnerId: string, id: string): Promise<boolean> {
+    if ((await this.runtime.runnerHostAlive?.(runnerId, id)) !== false)
+      return false;
+    if (
+      !this.stoppingOrArchiving.has(id) &&
+      (await this.setAgentStatus(
+        id,
+        "error",
+        RUNNER_RESUME_FAILED,
+        undefined,
+        "running"
+      ))
+    )
+      await this.emitAttention(id, "blocked", RUNNER_RESUME_FAILED);
+    return true;
   }
 
   private async recycleRunnerHost(

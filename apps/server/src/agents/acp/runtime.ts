@@ -103,6 +103,7 @@ type Waiting = {
   interruptHandled: boolean;
   interruptTargetSeq?: number;
   wakeTurnSeq?: number;
+  continuationId?: string;
 };
 
 type Live = {
@@ -307,7 +308,8 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
   // Assigned below; launch() refers back to it to tear down a failed host.
   let runtime: AgentRuntime;
   const live = new Map<string, Live>();
-  const recycleHolds = new Map<string, { entry: Live; restarting: boolean }>();
+  type RecycleHold = { entry: Live; restarting: boolean; forced?: true };
+  const recycleHolds = new Map<string, RecycleHold>();
   const inputEntry = (agentId: string) =>
     live.get(agentId) ?? recycleHolds.get(agentId)?.entry;
   const preserving = (entry: Live) => {
@@ -490,10 +492,19 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
         live.get(agentId) === entry
       ) {
         const gated = held(entry);
-        if (gated && !entry.queue.waiting.some((w) => canWake(w, entry))) break;
-        const urgent = gated
-          ? []
-          : entry.queue.waiting.filter((w) => w.delivery === "interrupt");
+        const continuation = entry.turnOpen
+          ? undefined
+          : entry.queue.waiting.find((w) => w.continuationId);
+        if (
+          gated &&
+          !continuation &&
+          !entry.queue.waiting.some((w) => canWake(w, entry))
+        )
+          break;
+        const urgent =
+          gated || continuation
+            ? []
+            : entry.queue.waiting.filter((w) => w.delivery === "interrupt");
         for (const w of urgent) {
           // A steering request may settle the arrival-time turn while the pump
           // is locked. Its interrupt must never migrate to a subsequent turn.
@@ -582,11 +593,16 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
           batch = entry.queue.waiting.splice(index, 1);
         } else {
           for (const w of entry.queue.waiting) finishDecision(w, "expired");
-          batch = takeBatch(entry.queue.waiting);
+          batch = continuation
+            ? entry.queue.waiting.splice(
+                entry.queue.waiting.indexOf(continuation),
+                1
+              )
+            : takeBatch(entry.queue.waiting);
         }
         for (const w of batch) w.taken = true;
         const { text, source } = combine(batch);
-        const id = crypto.randomUUID();
+        const id = batch[0]!.continuationId ?? crypto.randomUUID();
         let ended = false;
         let accepted = false;
         let submitted = false;
@@ -693,7 +709,11 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
                 { mode: 0o600, flush: true }
               );
             }
-            if (entry.runner && deps.holds?.current(entry.runner)?.draining) {
+            if (
+              !continuation &&
+              entry.runner &&
+              deps.holds?.current(entry.runner)?.draining
+            ) {
               await requeue();
               continue;
             }
@@ -887,6 +907,9 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
       journalId: cursor.journalId,
       settleWaiters: [],
     };
+    // A replacement replays the old host's exit; that ends no held work.
+    const replaced = recycleHolds.get(agentId);
+    if (replaced?.forced && replaced.restarting) replaced.entry = entry;
     entry.client = new HostClient({
       agentId,
       remote: Boolean(placement),
@@ -1066,6 +1089,7 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
       ...(opts?.signal ? { signal: opts.signal } : {}),
       ...(opts?.images?.length ? { images: opts.images } : {}),
       ...(source ? { source } : {}),
+      ...(opts?.continuationId && { continuationId: opts.continuationId }),
       alone:
         opts?.delivery === "interrupt" ||
         opts?.alone === true ||
@@ -1089,7 +1113,9 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
         (entry.turnSeq !== undefined &&
           entry.interruptedTurnSeq === entry.turnSeq),
     };
-    if (own.delivery === "interrupt") {
+    if (own.continuationId) {
+      entry.queue.waiting.unshift(own);
+    } else if (own.delivery === "interrupt") {
       const firstOrdinary = entry.queue.waiting.findIndex(
         (w) => w.delivery !== "interrupt"
       );
@@ -1223,6 +1249,19 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
     return { prompts, scheduled };
   });
 
+  /** Work queued for a held host goes on to its replacement, or fails. */
+  function releaseHold(agentId: string, hold: RecycleHold) {
+    if (recycleHolds.get(agentId) !== hold) return;
+    recycleHolds.delete(agentId);
+    const replacement = live.get(agentId);
+    if (replacement) void pump(agentId, replacement);
+    else
+      failWaiting(
+        hold.entry,
+        new Error("The agent host is unavailable before delivery.")
+      );
+  }
+
   const identify = (entry: Live): RunnerHostIdentity => {
     const welcome = entry.client.welcome;
     return {
@@ -1299,16 +1338,90 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
         release() {
           if (recycleHolds.get(agentId) !== hold) return;
           lease?.release();
-          recycleHolds.delete(agentId);
-          const replacement = live.get(agentId);
-          if (replacement) void pump(agentId, replacement);
-          else
-            failWaiting(
-              entry,
-              new Error("The agent host is unavailable before delivery.")
-            );
+          releaseHold(agentId, hold);
         },
       };
+    },
+
+    holdRunnerHosts(runnerId) {
+      for (const [agentId, entry] of live)
+        if (entry.runner === runnerId && !recycleHolds.has(agentId))
+          recycleHolds.set(agentId, { entry, restarting: false, forced: true });
+    },
+
+    reattachRunnerHost(agentId) {
+      const hold = recycleHolds.get(agentId);
+      if (hold?.forced) hold.restarting = false;
+    },
+
+    releaseRunnerHost(agentId) {
+      const hold = recycleHolds.get(agentId);
+      if (hold?.forced) releaseHold(agentId, hold);
+    },
+
+    releaseRunnerHosts(runnerId) {
+      for (const [agentId, hold] of recycleHolds)
+        if (hold.forced && hold.entry.runner === runnerId)
+          releaseHold(agentId, hold);
+    },
+
+    async runnerTurn(agentId) {
+      const entry = live.get(agentId);
+      if (!entry) return null;
+      const turn = { open: entry.turnOpen, seq: entry.turnSeq };
+      await entry.events;
+      return turn;
+    },
+
+    async interruptRunnerTurn(agentId, seq) {
+      const entry = live.get(agentId);
+      if (!entry) return true;
+      if (!entry.turnOpen || entry.turnSeq !== seq) {
+        await entry.events;
+        return true;
+      }
+      // Reconnecting: the host's welcome says whether this turn still runs.
+      if (!entry.client.isReady()) return false;
+      if (!entry.client.welcome?.interruptSupported) return true;
+      if (entry.interruptedTurnSeq !== seq) {
+        entry.interruptedTurnSeq = seq;
+        void entry.client
+          .interrupt(crypto.randomUUID(), seq)
+          .catch((err: unknown) => {
+            if (entry.interruptedTurnSeq === seq)
+              entry.interruptedTurnSeq = undefined;
+            logger.warn(
+              { err, agentId, seq },
+              "could not interrupt a turn for the runner update"
+            );
+          });
+      }
+      return false;
+    },
+
+    async stopRunnerHost(runnerId, agentId) {
+      const placement = await placementOf(agentId);
+      if (placement?.runner !== runnerId)
+        throw new Error("No matching runner placement for this host.");
+      const entry = live.get(agentId);
+      let hold = recycleHolds.get(agentId);
+      if (entry && hold?.entry !== entry) {
+        hold = { entry, restarting: false, forced: true };
+        recycleHolds.set(agentId, hold);
+      }
+      // Kept if the reply is lost: the host may still be exiting.
+      if (hold) hold.restarting = true;
+      await requestSession(placement, { kind: "stop", agentId, force: false });
+      if (!entry) return;
+      if (live.get(agentId) === entry) live.delete(agentId);
+      entry.client.close();
+      entry.turnOpen = false;
+      for (const resolve of entry.settleWaiters.splice(0)) resolve();
+      await entry.events;
+    },
+
+    async promptReceipt(agentId, id) {
+      return live.get(agentId)?.client.promptReceipt(id);
     },
     tracksProcesses: () => true,
     async getBackgroundWork(agentId) {
@@ -1374,6 +1487,12 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
       } = input;
       if (requireResume) {
         const previous = live.get(input.agentId);
+        const forced = recycleHolds.get(input.agentId);
+        // The manager found no host, so a channel that isn't ready is stale.
+        if (previous && forced?.forced && !previous.client.isReady()) {
+          forced.entry = previous;
+          forced.restarting = true;
+        }
         if (previous && preserving(previous)) {
           live.delete(input.agentId);
           previous.client.close();
@@ -1411,6 +1530,7 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
             "The replacement host could not resume the existing session."
           );
         }
+        if (requireResume && recycle?.forced) recycle.restarting = false;
         return { sessionId: welcome.sessionId, resumed: welcome.resumed };
       } catch (err) {
         if (placement) throw err; // A disconnected remote host may still be running.

@@ -1,6 +1,12 @@
 // @vitest-environment jsdom
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  within,
+} from "@testing-library/react";
 import type { RunnerUpdateView } from "@dispatch/shared";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -93,6 +99,55 @@ it("says new work waits once, and only while, it is held", () => {
   expect(text()).toContain("New work waits until the update finishes.");
 });
 
+it("asks before Update now, and forces only on the confirm", async () => {
+  vi.mocked(api).mockResolvedValue({ attemptId: "a" });
+  const waiting = {
+    attempt: { id: "a", phase: "draining", version, agents: 2 },
+  } as const;
+  show(waiting);
+  fireEvent.click(screen.getByRole("button", { name: "Update now" }));
+  const dialog = await screen.findByRole("alertdialog");
+  expect(dialog.textContent).toContain("Update Build machine now?");
+  expect(dialog.textContent).toContain(
+    "Running turns are interrupted and resumed after the update. Open terminals close, and any tool call in progress is lost."
+  );
+  fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+  expect(screen.queryByRole("alertdialog")).toBeNull();
+  expect(api).not.toHaveBeenCalled();
+
+  fireEvent.click(screen.getByRole("button", { name: "Update now" }));
+  fireEvent.click(
+    within(await screen.findByRole("alertdialog")).getByRole("button", {
+      name: "Update now",
+    })
+  );
+  await vi.waitFor(() => expect(api).toHaveBeenCalledTimes(1));
+  expect(api).toHaveBeenCalledWith("/api/v1/runners/rnr%2Fone/update", {
+    method: "POST",
+    body: '{"action":"force","attemptId":"a"}',
+  });
+});
+
+it("closes the question when the wait ends by itself", async () => {
+  const view = show({ attempt: { id: "a", phase: "draining", version } });
+  fireEvent.click(screen.getByRole("button", { name: "Update now" }));
+  await screen.findByRole("alertdialog");
+  view.update({ attempt: { id: "a", phase: "settling", version } });
+  expect(screen.queryByRole("alertdialog")).toBeNull();
+});
+
+it.each([
+  ["interrupting", undefined, "Interrupting agents…"],
+  ["interrupting", 1, "Interrupting 1 agent"],
+  ["interrupting", 3, "Interrupting 3 agents"],
+  ["resuming", 3, "Resuming 3 agents"],
+] as const)("shows %s with %s agents", (phase, agents, progress) => {
+  show({ attempt: { id: "a", phase, version, agents, held: true } });
+  expect(text()).toContain(progress);
+  expect(text()).not.toContain("New work waits");
+  expect(screen.queryByRole("button")).toBeNull();
+});
+
 it.each([
   [1, "1 agent still on the previous build"],
   [3, "3 agents still on the previous build"],
@@ -134,6 +189,7 @@ it.each([
 });
 
 it.each([
+  ["force_timeout", "Dispatch couldn’t stop every agent in time."],
   ["operations_pending", "The runner was still busy, so it didn’t switch."],
   ["verify_failed", "The runner couldn’t download or verify the build."],
   ["settle_timeout", "Work on the runner didn’t settle in time."],
