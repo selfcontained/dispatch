@@ -46,6 +46,22 @@ import {
   observeScratchCheckout,
 } from "../src/agents/checkout-inspection.js";
 
+// An unprivileged test cannot chown to another account. When set, record the
+// changes of ownership instead of making them.
+const ownership = vi.hoisted(() => ({
+  changes: undefined as [string, string, number, number][] | undefined,
+}));
+vi.mock("node:fs/promises", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs/promises")>();
+  const recorded =
+    (name: "chown" | "lchown") =>
+    async (file: string, uid: number, gid: number) => {
+      if (ownership.changes) ownership.changes.push([name, file, uid, gid]);
+      else await actual[name](file, uid, gid);
+    };
+  return { ...actual, chown: recorded("chown"), lchown: recorded("lchown") };
+});
+
 type Supervisor = Awaited<ReturnType<typeof createSessionSupervisor>>;
 
 const marker = "DISPATCH_OWNED_00000000000000000000000000000000=1";
@@ -196,7 +212,13 @@ describe("runner session supervision", () => {
     prepareDependencies?: (cwd: string) => Promise<boolean>,
     workload?: Pick<
       Parameters<typeof createSessionSupervisor>[0],
-      "env" | "bins" | "hostCommand" | "mayStartProcess" | "build"
+      | "env"
+      | "bins"
+      | "hostCommand"
+      | "mayStartProcess"
+      | "build"
+      | "uid"
+      | "gid"
     >
   ) {
     supervisor = await createSessionSupervisor(
@@ -243,6 +265,7 @@ describe("runner session supervision", () => {
   });
 
   afterEach(async () => {
+    ownership.changes = undefined;
     supervisor?.close();
     supervisor = undefined;
     await rm(root, { recursive: true, force: true });
@@ -564,6 +587,53 @@ describe("runner session supervision", () => {
           })
         ).toBe("released");
       await expect(stat(files)).rejects.toMatchObject({ code: "ENOENT" });
+    }
+  );
+
+  it.each(["uid", "gid"] as const)(
+    "hands only the files directory to a changed workload %s",
+    async (changed) => {
+      const command = launch("configured");
+      let runner = await start(["configured"]);
+      await runner.launch(command, root);
+      const files = path.join(state, "hosts", agentId, "files");
+      const sentinel = path.join(root, "outside");
+      await writeFile(sentinel, "untouched");
+      await mkdir(path.join(files, "nested"));
+      await writeFile(path.join(files, "nested", "report.md"), "report");
+      await symlink(sentinel, path.join(files, "planted"));
+      await symlink(root, path.join(files, "planted-dir"));
+      await link(sentinel, path.join(files, "hard-linked"));
+      await chmod(files, 0o777);
+      await runner.stop(agentId, "configured", true);
+      runner.close();
+
+      const owner = { uid: process.getuid!(), gid: process.getgid!() };
+      const next = { ...owner, [changed]: owner[changed] + 1 };
+      ownership.changes = [];
+      runner = await start(["configured"], undefined, undefined, {
+        build,
+        ...next,
+      });
+      await runner.launch(command, root);
+
+      // Nothing below files, and nothing a planted link points at.
+      expect(
+        ownership.changes.filter(
+          ([, file]) => file.startsWith(files) || file === sentinel
+        )
+      ).toEqual([
+        ["lchown", files, owner.uid, owner.gid],
+        ["lchown", files, next.uid, next.gid],
+      ]);
+      expect((await stat(files)).mode & 0o777).toBe(0o700);
+      expect(await readFile(sentinel, "utf8")).toBe("untouched");
+      expect(await readFile(path.join(files, "planted"), "utf8")).toBe(
+        "untouched"
+      );
+      expect(
+        await readFile(path.join(files, "nested", "report.md"), "utf8")
+      ).toBe("report");
     }
   );
 

@@ -4,6 +4,7 @@ import { closeSync, constants, openSync, type Stats } from "node:fs";
 import {
   chmod,
   chown,
+  lchown,
   lstat,
   mkdir,
   open,
@@ -442,6 +443,16 @@ export async function createSessionSupervisor(
     if (shared) {
       if (!shared.isDirectory())
         throw new Error("Invalid runner session files directory.");
+      if (shared.uid !== config.uid || shared.gid !== config.gid) {
+        // The workload account changed. Hand over only this directory: dir
+        // pins its name, but the previous account chose everything below it,
+        // including links and directories moved in from elsewhere, so a
+        // recursive chown as root could give away files it never owned.
+        // 0700 also shuts that account out of what it still owns inside.
+        await lchown(files, process.getuid!(), process.getgid!());
+        await chmod(files, 0o700);
+        await lchown(files, config.uid, config.gid);
+      }
     } else {
       await mkdir(files, { mode: 0o700 });
       await chown(files, config.uid, config.gid);
