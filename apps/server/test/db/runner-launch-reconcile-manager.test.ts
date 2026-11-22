@@ -23,6 +23,7 @@ import {
 
 import type { RemoteRunnerService } from "../../src/agents/remote/service.js";
 import type { AgentRuntime, RuntimeLaunch } from "../../src/agents/runtime.js";
+import { trackHoldWork } from "../helpers/hold-work.js";
 import { setupTestDb, teardownTestDb, runTestMigrations } from "./setup.js";
 
 vi.mock("../../src/shared/lib/run-command.js", () => ({
@@ -64,20 +65,21 @@ const noopLogger = {
   level: "silent",
 } as unknown as import("fastify").FastifyBaseLogger;
 
-const testConfig = {
-  host: "127.0.0.1",
-  port: 6767,
-  databaseUrl: "",
-  authToken: "test-token",
-  filesRoot: "/tmp/dispatch-test-files",
-  dispatchBinDir: "/tmp/dispatch-test-bin",
-  codexBin: "/bin/echo",
-  claudeBin: "/bin/echo",
-  opencodeBin: "/bin/opencode",
-  agentStateRoot: "/tmp/dispatch-test-agents",
-  agentRuntime: "acp",
-  tls: null,
-} satisfies import("../../src/config.js").AppConfig;
+const testConfig = (root: string) =>
+  ({
+    host: "127.0.0.1",
+    port: 6767,
+    databaseUrl: "",
+    authToken: "test-token",
+    filesRoot: path.join(root, "files"),
+    dispatchBinDir: path.join(root, "bin"),
+    codexBin: "/bin/echo",
+    claudeBin: "/bin/echo",
+    opencodeBin: "/bin/opencode",
+    agentStateRoot: path.join(root, "agents"),
+    agentRuntime: "acp",
+    tls: null,
+  }) satisfies import("../../src/config.js").AppConfig;
 
 const ATTEMPT = "11111111-1111-4111-8111-111111111111";
 const HELD = "runner://r1/@session";
@@ -87,6 +89,10 @@ let pool: Pool;
 let dir: string;
 let holdsFile: string;
 let opened: InstanceType<typeof RunnerUpdateHolds>[] = [];
+let work = new Map<
+  InstanceType<typeof RunnerUpdateHolds>,
+  ReturnType<typeof trackHoldWork>
+>();
 
 function spyRuntime() {
   let sessions = 0;
@@ -167,6 +173,7 @@ async function openHolds() {
     logger: noopLogger,
   });
   opened.push(holds);
+  work.set(holds, trackHoldWork(holds));
   await holds.load();
   return holds;
 }
@@ -175,12 +182,13 @@ function managerOn(
   holds: InstanceType<typeof RunnerUpdateHolds>,
   runtime: Spy
 ) {
-  return new AgentManager(pool, noopLogger, testConfig, {
+  return new AgentManager(pool, noopLogger, testConfig(dir), {
     runtime,
     remote,
     holds,
     recoveredLaunchPollMs: 10,
-    recoveredLaunchWaitMs: 2_000,
+    // Beyond the test, so only a reconnect can end the wait.
+    recoveredLaunchWaitMs: 120_000,
   });
 }
 
@@ -222,6 +230,7 @@ beforeEach(async () => {
   refuseNext.clear();
   requestSession.mockClear();
   vi.mocked(remote.lastSeenCapabilities).mockClear();
+  vi.mocked(remote.available).mockImplementation(() => peer.online);
   await pool.query("DELETE FROM blocks");
   await pool.query("DELETE FROM files");
   await pool.query("DELETE FROM agents");
@@ -229,7 +238,11 @@ beforeEach(async () => {
   holdsFile = path.join(dir, "holds.json");
 });
 afterEach(async () => {
+  vi.useRealTimers();
   for (const holds of opened.splice(0)) holds.close();
+  // A released launch saves its outcome after the agent already reads running.
+  for (const tracked of work.values()) await tracked.settled();
+  work.clear();
   await rm(dir, { recursive: true, force: true });
 });
 
@@ -243,30 +256,23 @@ describe("launch IDs", () => {
     const held = await manager.createAgent({ cwd: HELD, initialPrompt: "a" });
     const other = await manager.createAgent({ cwd: OTHER });
     const local = await manager.createAgent({ cwd: "/tmp" });
-    await vi.waitFor(() => expect(holds.counts("r1").launches).toBe(1));
+    expect(holds.counts("r1").launches).toBe(1);
     const heldId = holds.current("r1")!.launches[0]!.launchId;
     expect(heldId).toMatch(UUID);
 
-    await vi.waitFor(() =>
-      expect(launchIdsFor(runtime, other.id)).toHaveLength(1)
-    );
+    expect(launchIdsFor(runtime, other.id)).toHaveLength(1);
     expect(launchIdsFor(runtime, other.id)[0]).toMatch(UUID);
-    await vi.waitFor(() =>
-      expect(launchesFor(runtime, local.id)).toHaveLength(1)
-    );
+    expect(launchesFor(runtime, local.id)).toHaveLength(1);
     expect(launchesFor(runtime, local.id)[0]![0]).not.toHaveProperty(
       "launchId"
     );
 
     await holds.release("r1", ATTEMPT, "committed");
-    await vi.waitFor(async () =>
-      expect(await statusOf(held.id)).toBe("running")
-    );
+    await work.get(holds)!.settled();
+    expect(await statusOf(held.id)).toBe("running");
     expect(launchIdsFor(runtime, held.id)).toEqual([heldId]);
     // Settled: nothing left to drive after a restart.
-    await vi.waitFor(async () =>
-      expect(await heldFile()).not.toHaveProperty("resuming")
-    );
+    expect(await heldFile()).not.toHaveProperty("resuming");
 
     // A new Start is a new attempt with a new ID.
     await manager.stopAgent(other.id);
@@ -288,14 +294,13 @@ describe("launch IDs", () => {
     const manager = managerOn(holds, runtime);
     holds.start();
     const agent = await manager.createAgent({ cwd: HELD, initialPrompt: "x" });
-    await vi.waitFor(() => expect(holds.counts("r1").launches).toBe(1));
+    expect(holds.counts("r1").launches).toBe(1);
     const [first] = launchIdsFor(runtime, agent.id);
     expect(holds.current("r1")!.launches[0]!.launchId).toBe(first);
 
     await holds.release("r1", ATTEMPT, "committed");
-    await vi.waitFor(async () =>
-      expect(await statusOf(agent.id)).toBe("running")
-    );
+    await work.get(holds)!.settled();
+    expect(await statusOf(agent.id)).toBe("running");
     expect(launchIdsFor(runtime, agent.id)).toEqual([first, first]);
   });
 
@@ -305,18 +310,15 @@ describe("launch IDs", () => {
     const manager = managerOn(holds, runtime);
     holds.start();
     const agent = await manager.createAgent({ cwd: HELD });
-    await vi.waitFor(async () =>
-      expect(await statusOf(agent.id)).toBe("running")
-    );
+    expect(await statusOf(agent.id)).toBe("running");
     await manager.stopAgent(agent.id);
     await holds.begin("r1", ATTEMPT);
     await manager.startAgent(agent.id);
     const heldId = holds.current("r1")!.launches[0]!.launchId;
     expect(heldId).toMatch(UUID);
     await holds.release("r1", ATTEMPT, "committed");
-    await vi.waitFor(async () =>
-      expect(await statusOf(agent.id)).toBe("running")
-    );
+    await work.get(holds)!.settled();
+    expect(await statusOf(agent.id)).toBe("running");
     expect(launchIdsFor(runtime, agent.id).at(-1)).toBe(heldId);
   });
 });
@@ -326,7 +328,11 @@ describe("a launch released before a controller restart", () => {
     const first = await openHolds();
     const before = spyRuntime();
     // Released, then the controller stops before the runner answers.
-    before.launch.mockImplementation(() => new Promise(() => {}));
+    const reached = Promise.withResolvers<void>();
+    before.launch.mockImplementation(() => {
+      reached.resolve();
+      return new Promise(() => {});
+    });
     const manager = managerOn(first, before);
     first.start();
     await first.begin("r1", ATTEMPT);
@@ -334,16 +340,16 @@ describe("a launch released before a controller restart", () => {
       cwd: HELD,
       initialPrompt: "after restart",
     });
-    await vi.waitFor(() => expect(first.counts("r1").launches).toBe(1));
+    expect(first.counts("r1").launches).toBe(1);
     const launchId = first.current("r1")!.launches[0]!.launchId;
     await first.release("r1", ATTEMPT, "committed");
-    await vi.waitFor(() =>
-      expect(launchIdsFor(before, agent.id)).toEqual([launchId])
-    );
+    await reached.promise;
+    expect(launchIdsFor(before, agent.id)).toEqual([launchId]);
     expect((await heldFile()).resuming).toEqual([
       expect.objectContaining({ agentId: agent.id, launchId, runnerId: "r1" }),
     ]);
     first.close();
+    work.get(first)!.abandon();
 
     peer.online = !options.offline;
     const holds = await openHolds();
@@ -365,19 +371,14 @@ describe("a launch released before a controller restart", () => {
     expect(await statusOf(agent.id)).toBe("creating");
 
     holds.start();
-    await vi.waitFor(async () =>
-      expect(await statusOf(agent.id)).toBe("running")
-    );
+    await work.get(holds)!.settled();
+    expect(await statusOf(agent.id)).toBe("running");
     expect(launchIdsFor(runtime, agent.id)).toEqual([launchId]);
     expect(launchIdsFor(before, agent.id)).toEqual([launchId]);
-    await vi.waitFor(() =>
-      expect(
-        promptsFor(runtime, agent.id).filter((p) => p.includes("after restart"))
-      ).toHaveLength(1)
-    );
-    await vi.waitFor(async () =>
-      expect(await heldFile()).not.toHaveProperty("resuming")
-    );
+    expect(
+      promptsFor(runtime, agent.id).filter((p) => p.includes("after restart"))
+    ).toHaveLength(1);
+    expect(await heldFile()).not.toHaveProperty("resuming");
     expect(holds.hasLaunch(agent.id)).toBe(false);
   });
 
@@ -385,13 +386,18 @@ describe("a launch released before a controller restart", () => {
     const { agent, launchId, holds, runtime } = await releasedThenRestarted({
       offline: true,
     });
+    const polledAgain = Promise.withResolvers<void>();
+    let polls = 0;
+    vi.mocked(remote.available).mockImplementation(() => {
+      if (++polls === 2) polledAgain.resolve();
+      return peer.online;
+    });
     holds.start();
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    await polledAgain.promise;
     expect(launchesFor(runtime, agent.id)).toHaveLength(0);
     peer.online = true;
-    await vi.waitFor(async () =>
-      expect(await statusOf(agent.id)).toBe("running")
-    );
+    await work.get(holds)!.settled();
+    expect(await statusOf(agent.id)).toBe("running");
     expect(launchIdsFor(runtime, agent.id)).toEqual([launchId]);
   });
 
@@ -401,9 +407,8 @@ describe("a launch released before a controller restart", () => {
       agent.id,
     ]);
     holds.start();
-    await vi.waitFor(async () =>
-      expect(await heldFile()).not.toHaveProperty("resuming")
-    );
+    await work.get(holds)!.settled();
+    expect(await heldFile()).not.toHaveProperty("resuming");
     expect(launchesFor(runtime, agent.id)).toHaveLength(0);
   });
 });
@@ -420,7 +425,7 @@ describe("a new launch while a held runner is between supervisors", () => {
       cwd: HELD,
       initialPrompt: "while offline",
     });
-    await vi.waitFor(() => expect(holds.counts("r1").launches).toBe(1));
+    expect(holds.counts("r1").launches).toBe(1);
     expect(await statusOf(agent.id)).toBe("creating");
     expect(launchesFor(runtime, agent.id)).toHaveLength(0);
     expect(
@@ -433,9 +438,8 @@ describe("a new launch while a held runner is between supervisors", () => {
 
     peer.online = true;
     await holds.release("r1", ATTEMPT, "committed");
-    await vi.waitFor(async () =>
-      expect(await statusOf(agent.id)).toBe("running")
-    );
+    await work.get(holds)!.settled();
+    expect(await statusOf(agent.id)).toBe("running");
     expect(launchesFor(runtime, agent.id)).toHaveLength(1);
   });
 
@@ -449,7 +453,7 @@ describe("a new launch while a held runner is between supervisors", () => {
       await holds.begin("r1", ATTEMPT);
       peer.online = false;
       const agent = await manager.createAgent({ cwd: HELD });
-      await vi.waitFor(() => expect(holds.counts("r1").launches).toBe(1));
+      expect(holds.counts("r1").launches).toBe(1);
 
       peer.online = true;
       if (change === "workspace mode changed") peer.managed = false;
@@ -460,9 +464,8 @@ describe("a new launch while a held runner is between supervisors", () => {
           );
         });
       await holds.release("r1", ATTEMPT, "committed");
-      await vi.waitFor(async () =>
-        expect(await statusOf(agent.id)).toBe("error")
-      );
+      await work.get(holds)!.settled();
+      expect(await statusOf(agent.id)).toBe("error");
       const { last_error } = (
         await pool.query("SELECT last_error FROM agents WHERE id = $1", [
           agent.id,
@@ -476,7 +479,7 @@ describe("a new launch while a held runner is between supervisors", () => {
       expect(launchesFor(runtime, agent.id)).toHaveLength(
         change === "workspace mode changed" ? 0 : 1
       );
-      await vi.waitFor(() => expect(holds.hasLaunch(agent.id)).toBe(false));
+      expect(holds.hasLaunch(agent.id)).toBe(false);
     }
   );
 
@@ -508,7 +511,7 @@ describe("a new launch while a held runner is between supervisors", () => {
     peer.managed = false;
     peer.last = { managedWorkspace: true };
     const agent = await manager.createAgent({ cwd: HELD });
-    await vi.waitFor(() => expect(holds.counts("r1").launches).toBe(1));
+    expect(holds.counts("r1").launches).toBe(1);
     expect(remote.lastSeenCapabilities).not.toHaveBeenCalled();
     expect(
       (
@@ -544,7 +547,7 @@ describe("a new launch while a held runner is between supervisors", () => {
     );
     peer.last = {};
     await manager.createAgent(withFiles);
-    await vi.waitFor(() => expect(holds.counts("r1").launches).toBe(1));
+    expect(holds.counts("r1").launches).toBe(1);
   });
 
   it("checks the last-seen capabilities a launch needs", async () => {
@@ -553,9 +556,7 @@ describe("a new launch while a held runner is between supervisors", () => {
     const manager = managerOn(holds, runtime);
     holds.start();
     const author = await manager.createAgent({ cwd: HELD });
-    await vi.waitFor(async () =>
-      expect(await statusOf(author.id)).toBe("running")
-    );
+    expect(await statusOf(author.id)).toBe("running");
     await holds.begin("r1", ATTEMPT);
     peer.online = false;
     const review = {
@@ -573,6 +574,6 @@ describe("a new launch while a held runner is between supervisors", () => {
     expect(holds.counts("r1").launches).toBe(0);
     peer.sharedWorktree = true;
     await manager.createAgent(review, { useWorktreeOf: author.id });
-    await vi.waitFor(() => expect(holds.counts("r1").launches).toBe(1));
+    expect(holds.counts("r1").launches).toBe(1);
   });
 });

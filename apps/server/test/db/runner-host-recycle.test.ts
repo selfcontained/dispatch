@@ -2,7 +2,6 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { once } from "node:events";
 import {
-  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -12,10 +11,11 @@ import {
 import net from "node:net";
 import path from "node:path";
 import { Duplex } from "node:stream";
+import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import type { FastifyBaseLogger } from "fastify";
 import type { Pool } from "pg";
-import { afterAll, beforeAll, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, expect, it, onTestFinished, vi } from "vitest";
 import { AgentManager } from "../../src/agents/manager.js";
 import {
   encodeMessage,
@@ -55,7 +55,31 @@ beforeAll(async () => {
 });
 afterAll(async () => teardownTestDb());
 
-async function fixture() {
+function listening(socketPath: string) {
+  return new Promise<boolean>((resolve) => {
+    const probe = net.createConnection(socketPath);
+    probe.once("connect", () => {
+      probe.destroy();
+      resolve(true);
+    });
+    probe.once("error", () => resolve(false));
+  });
+}
+
+function isRunning(pid: number) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The recycler's periodic rescan would cover for a first pass, or a pass on
+ * settlement, that did nothing; only tests that need it keep it.
+ */
+async function fixture({ periodicRescan = false } = {}) {
   const directory = mkdtempSync("/tmp/dr-recycle-");
   const state = path.join(directory, "s");
   const runnerState = path.join(directory, "r");
@@ -79,6 +103,30 @@ async function fixture() {
   const welcomedReplacement = new Set<string>();
   const swapping = new Set<string>();
   let online = true;
+  const closing = Promise.withResolvers<void>();
+  let closed = false;
+  const waiting = new Set<() => void>();
+  const changed = () => {
+    for (const check of waiting) check();
+  };
+  /**
+   * Resolves when the fixture sees `check` become true, with no deadline
+   * but the test's.
+   */
+  function reached(check: () => boolean) {
+    return new Promise<void>((resolve, reject) => {
+      const look = () => {
+        if (closed) reject(new Error(`closed before ${check}`));
+        else if (check()) resolve();
+        else return;
+        waiting.delete(look);
+      };
+      waiting.add(look);
+      look();
+    });
+  }
+  const unlessClosing = (gate?: Promise<void>) =>
+    gate && Promise.race([gate, closing.promise]);
 
   const hostDir = (id: string) => path.join(runnerState, id);
   const checkout = (id: string) => path.join(directory, "w", id);
@@ -110,6 +158,7 @@ async function fixture() {
         const attempts = launches.get(id) ?? [];
         attempts.push(operation.launch.resumeSessionId);
         launches.set(id, attempts);
+        changed();
         rmSync(dir, { recursive: true, force: true });
         mkdirSync(dir, { recursive: true });
         mkdirSync(checkout(id), { recursive: true });
@@ -122,7 +171,10 @@ async function fixture() {
           bins: {
             claudeBin: "/bin/echo",
             codexBin: null,
-            adapter: { bin: "bun", args: [adapter] },
+            adapter: {
+              bin: "bun",
+              args: [adapter, path.join(dir, "attached")],
+            },
           },
           env: {},
           pathPrefix: [],
@@ -133,16 +185,18 @@ async function fixture() {
         });
         hostPids.set(id, child.pid!);
         processes.set(id, { child, exited: once(child, "exit") });
-        await vi.waitFor(
-          () => expect(existsSync(path.join(dir, "session.json"))).toBe(true),
-          { timeout: 5_000 }
-        );
+        while (!(await listening(path.join(dir, "host.sock")))) {
+          if (closed || child.exitCode !== null || child.signalCode !== null)
+            throw new Error("The host ended before it was listening.");
+          await delay(25);
+        }
         return { value: true };
       }
       if (operation.kind === "alive") return { value: processes.has(id) };
       if (operation.kind === "stop") {
         swapping.add(id);
-        await holdStop.get(id);
+        changed();
+        await unlessClosing(holdStop.get(id));
         await stop(id);
         return { value: true };
       }
@@ -156,6 +210,7 @@ async function fixture() {
         write(chunk, _encoding, callback) {
           for (const message of outbound(chunk)) {
             commands.push({ id, message });
+            changed();
             host.write(encodeMessage(message));
           }
           callback();
@@ -170,8 +225,13 @@ async function fixture() {
       host.on("data", (chunk) => {
         for (const message of inbound(chunk)) {
           if (message.type === "welcome") {
-            if ((launches.get(id)?.length ?? 0) > 1 && message.running)
+            // The engine starts once attached, so the host's start-up welcome
+            // is the last one: a later one would drop the recycler's lease.
+            writeFileSync(path.join(dir, "attached"), "");
+            if ((launches.get(id)?.length ?? 0) > 1 && message.running) {
               welcomedReplacement.add(id);
+              changed();
+            }
             message.hostBuild = {
               version: "1.7.28",
               revision:
@@ -186,7 +246,7 @@ async function fixture() {
                 ? holdReplay.get(id)
                 : undefined;
           if (pause) {
-            void pause.then(() => {
+            void unlessClosing(pause)!.then(() => {
               if (!link.destroyed) link.push(encodeMessage(message));
             });
           } else {
@@ -217,9 +277,44 @@ async function fixture() {
     { remote: remote as unknown as RemoteRunnerService }
   );
 
+  if (!periodicRescan) {
+    const recycler = manager["hostRecycler"];
+    const scan = recycler["scan"].bind(recycler);
+    recycler["scan"] = (run) => {
+      scan(run);
+      clearTimeout(run.timer);
+    };
+  }
+  const recycle = manager["recycleRunnerHost"].bind(manager);
+  manager["recycleRunnerHost"] = (...args) =>
+    // After the recycler has counted the result.
+    recycle(...args).finally(() => setImmediate(changed));
+
   const localIds: string[] = [];
+  let closure: Promise<void> | undefined;
+  const close = () => (closure ??= teardown());
+  async function teardown() {
+    closed = true;
+    closing.resolve();
+    changed();
+    // A restart under way would spawn into, and write to, what is removed.
+    await manager.settleRunnerHostRecycling("r1");
+    await Promise.all([...processes.keys()].map(stop));
+    for (const id of localIds) {
+      await manager.stopAgent(id, { force: true });
+      // A local stop signals the host without awaiting its exit.
+      const pid = hostPids.get(id);
+      while (pid && isRunning(pid)) await delay(25);
+    }
+    vi.unstubAllEnvs();
+    rmSync(directory, { recursive: true, force: true });
+  }
+  // Also when the test times out before it reaches its own close.
+  onTestFinished(close);
   return {
     manager,
+    reached,
+    close,
     launches,
     hostPids,
     commands,
@@ -255,18 +350,12 @@ async function fixture() {
           Number(readFileSync(path.join(state, id, "host.pid"), "utf8"))
         );
     },
-    async close() {
-      manager.stopRunnerHostRecycling("r1");
-      await Promise.all([...processes.keys()].map(stop));
-      for (const id of localIds) await manager.stopAgent(id, { force: true });
-      vi.unstubAllEnvs();
-      rmSync(directory, { recursive: true, force: true });
-    },
   };
 }
 
 it("rolls idle hosts independently, preserves the queue and session, and leaves legacy and local hosts serving", async () => {
-  const f = await fixture();
+  // A settlement during a pass in flight is picked up by the rescan.
+  const f = await fixture({ periodicRescan: true });
   const busy = "agt_recycle_busy";
   const idle = "agt_recycle_idle";
   const legacy = "agt_recycle_legacy";
@@ -297,9 +386,7 @@ it("rolls idle hosts independently, preserves the queue and session, and leaves 
       recycled: 0,
       waiting: 1,
     });
-    await vi.waitFor(() => expect(f.swapping.has(idle)).toBe(true), {
-      timeout: 4_000,
-    });
+    await f.reached(() => f.swapping.has(idle));
     expect(f.hostPids.get(busy)).toBe(oldPid);
     expect(f.launches.get(busy)).toEqual([null]);
     expect(await f.manager.getTerminalAccess(idle)).toEqual({ mode: "live" });
@@ -315,7 +402,7 @@ it("rolls idle hosts independently, preserves the queue and session, and leaves 
 
     f.holdReplay.set(idle, replay.promise);
     stop.resolve();
-    await vi.waitFor(() => expect(f.welcomedReplacement.has(idle)).toBe(true));
+    await f.reached(() => f.welcomedReplacement.has(idle));
     await expect(
       Promise.race([
         gap.accepted.then(() => "accepted"),
@@ -349,15 +436,14 @@ it("rolls idle hosts independently, preserves the queue and session, and leaves 
 
     writeFileSync(path.join(f.checkout(busy), "finish-turn"), "");
     await active.settled;
-    await vi.waitFor(
-      () =>
-        expect(f.manager.runnerHostRecycleProgress("r1")).toEqual({
-          oldBuild: 1,
-          recycled: 2,
-          waiting: 1,
-        }),
-      { timeout: 7_000 }
+    await f.reached(
+      () => f.manager.runnerHostRecycleProgress("r1")?.recycled === 2
     );
+    expect(f.manager.runnerHostRecycleProgress("r1")).toEqual({
+      oldBuild: 1,
+      recycled: 2,
+      waiting: 1,
+    });
     expect(f.hostPids.get(busy)).not.toBe(oldPid);
     expect(f.launches.get(busy)).toEqual([null, "sess_1"]);
     await f.manager.promptAgent(busy, "continue this conversation").settled;
@@ -376,7 +462,8 @@ it("rolls idle hosts independently, preserves the queue and session, and leaves 
 }, 25_000);
 
 it("delivers a child's awaited reply once to the original parent session before recycling", async () => {
-  const f = await fixture();
+  // Nothing signals a child's stop: the rescan finds the parent eligible.
+  const f = await fixture({ periodicRescan: true });
   const parent = "agt_waiting_parent";
   const child = "agt_reply_child";
   try {
@@ -384,13 +471,10 @@ it("delivers a child's awaited reply once to the original parent session before 
     await f.start(child, { parent, legacy: true });
     const pid = f.hostPids.get(parent);
     f.manager.startRunnerHostRecycling(update);
-    await vi.waitFor(() =>
-      expect(
-        f.commands.some(
-          ({ id, message }) =>
-            id === parent && message.type === "release_quiesce"
-        )
-      ).toBe(true)
+    await f.reached(() =>
+      f.commands.some(
+        ({ id, message }) => id === parent && message.type === "release_quiesce"
+      )
     );
     expect(f.hostPids.get(parent)).toBe(pid);
     const reply = f.manager.promptAgent(parent, "child result", {
@@ -402,13 +486,10 @@ it("delivers a child's awaited reply once to the original parent session before 
     await reply.settled;
     expect(f.hostPids.get(parent)).toBe(pid);
     await f.manager.stopAgent(child);
-    await vi.waitFor(
-      () => expect(f.launches.get(parent)).toEqual([null, "sess_1"]),
-      { timeout: 7_000 }
+    await f.reached(
+      () => f.manager.runnerHostRecycleProgress("r1")?.recycled === 1
     );
-    await vi.waitFor(() =>
-      expect(f.manager.runnerHostRecycleProgress("r1")?.recycled).toBe(1)
-    );
+    expect(f.launches.get(parent)).toEqual([null, "sess_1"]);
     expect(
       f.commands.filter(
         ({ id, message }) =>
@@ -454,13 +535,11 @@ it.each(["stop", "archive", "revoke", "cancel"] as const)(
       if (action === "stop") expect(result?.status).toBe("stopped");
       if (action === "archive") expect(result?.status).toBe("archiving");
       if (action !== "stop")
-        await vi.waitFor(() =>
-          expect(
-            f.commands.some(
-              (entry) =>
-                entry.id === id && entry.message.type === "release_quiesce"
-            )
-          ).toBe(true)
+        await f.reached(() =>
+          f.commands.some(
+            (entry) =>
+              entry.id === id && entry.message.type === "release_quiesce"
+          )
         );
       expect(f.launches.get(id)).toEqual([null]);
       expect(
@@ -484,17 +563,16 @@ it("does not hand queued work to a host that resumes a different session", async
     f.wrongSession.add(id);
     f.holdStop.set(id, stop.promise);
     f.manager.startRunnerHostRecycling(update);
-    await vi.waitFor(() => expect(f.swapping.has(id)).toBe(true));
+    await f.reached(() => f.swapping.has(id));
     const queued = f.manager.promptAgent(id, "only for the previous session");
     const rejected = expect(queued.accepted).rejects.toThrow("before delivery");
     stop.resolve();
     await rejected;
-    await vi.waitFor(async () =>
-      expect(await f.manager.getAgent(id)).toMatchObject({
-        status: "error",
-        cliSessionId: "sess_1",
-      })
-    );
+    await f.manager.settleRunnerHostRecycling("r1");
+    expect(await f.manager.getAgent(id)).toMatchObject({
+      status: "error",
+      cliSessionId: "sess_1",
+    });
     expect(
       f.commands.some(
         (entry) => entry.id === id && entry.message.type === "prompt"
@@ -522,13 +600,14 @@ it("does not acquire a lease across an in-flight delivery or send around an acqu
     });
     await preparing.promise;
     f.manager.startRunnerHostRecycling(update);
-    await vi.waitFor(() =>
-      expect(f.manager.runnerHostRecycleProgress("r1")).toEqual({
-        oldBuild: 1,
-        recycled: 0,
-        waiting: 1,
-      })
+    await f.reached(
+      () => f.manager.runnerHostRecycleProgress("r1")?.waiting === 1
     );
+    expect(f.manager.runnerHostRecycleProgress("r1")).toEqual({
+      oldBuild: 1,
+      recycled: 0,
+      waiting: 1,
+    });
     expect(
       f.commands.some(
         (entry) => entry.id === id && entry.message.type === "quiesce"
@@ -539,14 +618,10 @@ it("does not acquire a lease across an in-flight delivery or send around an acqu
     f.holdReply.set(id, lease.promise);
     writeFileSync(path.join(f.checkout(id), "finish-turn"), "");
     await active.settled;
-    await vi.waitFor(
-      () =>
-        expect(
-          f.commands.some(
-            (entry) => entry.id === id && entry.message.type === "quiesce"
-          )
-        ).toBe(true),
-      { timeout: 3_000 }
+    await f.reached(() =>
+      f.commands.some(
+        (entry) => entry.id === id && entry.message.type === "quiesce"
+      )
     );
     const submitted = Promise.withResolvers<void>();
     const queued = f.manager.promptAgent(id, "send to replacement", undefined, {
@@ -585,7 +660,7 @@ it.each(["stop", "archive"] as const)(
       await f.start(id);
       f.holdStop.set(id, cleanup.promise);
       f.manager.startRunnerHostRecycling(update);
-      await vi.waitFor(() => expect(f.swapping.has(id)).toBe(true));
+      await f.reached(() => f.swapping.has(id));
       const terminal =
         action === "stop"
           ? f.manager.stopAgent(id)

@@ -21,6 +21,12 @@ const fake = createFakeAcpAgent({
     return "end_turn";
   },
 });
+/** A file that must exist before this engine answers its host. */
+const attached = process.argv[2];
+while (attached && !existsSync(attached)) {
+  if (!existsSync(path.dirname(attached))) process.exit(0);
+  await new Promise((resolve) => setTimeout(resolve, 25));
+}
 process.stdin.pipe(fake.child.stdin);
 fake.child.stdout.pipe(process.stdout);
 process.stdin.once("end", () => process.exit(0));
