@@ -10,7 +10,10 @@ import {
   CardDescription,
   CardHeader,
   CardTitle,
+  Panel,
+  panelFrame,
 } from "@/components/ui/card";
+import { cn } from "@/lib/utils";
 import { api } from "@/lib/api";
 import { Alert } from "@/components/ui/alert";
 
@@ -71,10 +74,10 @@ export function SlackAnswerersCard({
   const needsUpdate = !!missingScopes?.length;
 
   return (
-    <Card className="border border-border" aria-label="Slack answerers">
+    <Card aria-label="Slack answerers">
       <CardHeader>
         <CardDescription>Answering from Slack</CardDescription>
-        <CardTitle className="flex items-center gap-2 text-heading-md">
+        <CardTitle className="flex items-center gap-2">
           <ShieldCheck
             className="size-4 text-muted-foreground"
             aria-hidden="true"
@@ -113,10 +116,7 @@ export function SlackAnswerersCard({
         )}
 
         {needsUpdate && (
-          <div
-            className="space-y-2 rounded-lg border border-border bg-surface-subtle p-4"
-            data-testid="slack-manifest-update"
-          >
+          <Panel className="space-y-2" data-testid="slack-manifest-update">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <p className="text-body-md font-medium">
                 Update your Slack app first
@@ -132,7 +132,7 @@ export function SlackAnswerersCard({
               Reinstall to Workspace, then return here and recheck permissions.
               Missing thread reply permissions: {missingScopes!.join(", ")}.
             </p>
-          </div>
+          </Panel>
         )}
 
         {pending.length > 0 && (
@@ -140,7 +140,10 @@ export function SlackAnswerersCard({
             {pending.map((a) => (
               <li
                 key={a.id}
-                className="flex flex-col gap-3 rounded-lg border border-primary/line bg-primary/wash p-3 sm:flex-row sm:items-center"
+                className={cn(
+                  panelFrame,
+                  "flex flex-col gap-3 border-primary/line bg-primary/wash p-3 sm:flex-row sm:items-center"
+                )}
               >
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-body-md font-medium">

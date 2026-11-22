@@ -1,4 +1,6 @@
 import type { AgentPullRequest } from "@dispatch/shared";
+import { panelFrame } from "@/components/ui/card";
+import { cn } from "@/lib/utils";
 import { PullRequestRow } from "./agent-pull-requests";
 import { previewPullRequests } from "./agent-pull-requests.preview";
 
@@ -56,7 +58,7 @@ export function PullRequestChecksComparison() {
       </header>
       <div className="grid gap-6 md:grid-cols-2">
         {scenarios.map(({ title, pr }) => (
-          <article key={title} className="rounded-lg border border-border p-4">
+          <article key={title} className={cn(panelFrame, "p-4")}>
             <h2 className="text-heading-sm">{title}</h2>
             <div className="mt-4 w-full max-w-72 rounded-lg border border-border bg-sidebar p-3">
               <p className="mb-3 text-body-sm font-medium">theme polish</p>

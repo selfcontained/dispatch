@@ -7,6 +7,8 @@ import { Alert } from "@/components/ui/alert";
 import { LoadError } from "@/components/ui/async-boundary";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { LoadingSkeleton } from "@/components/ui/skeleton";
+import { SettingsGroup } from "@/components/app/settings-layout";
+import { Panel } from "@/components/ui/card";
 import { Spinner } from "@/components/ui/spinner";
 
 type RecentReleasesProps = {
@@ -40,9 +42,7 @@ export function RecentReleases({
   onPromote,
 }: RecentReleasesProps): JSX.Element {
   return (
-    <div>
-      <div className="mb-3 section-label">Recent releases</div>
-
+    <SettingsGroup title="Recent releases">
       {promoteError && (
         <Alert
           title="Couldn’t confirm the promotion."
@@ -66,9 +66,9 @@ export function RecentReleases({
       {releases.length > 0 && (
         <div className="flex flex-col gap-1">
           {releases.map((r) => (
-            <div
+            <Panel
               key={r.tag}
-              className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border border-edge bg-fill-inset px-3 py-3"
+              className="flex flex-wrap items-center gap-x-3 gap-y-2"
             >
               <span className="font-mono text-body-md font-semibold text-foreground">
                 {r.tag}
@@ -119,7 +119,7 @@ export function RecentReleases({
                   <ExternalLink className="h-3.5 w-3.5" />
                 </a>
               </div>
-            </div>
+            </Panel>
           ))}
         </div>
       )}
@@ -142,6 +142,6 @@ export function RecentReleases({
           if (confirmPromoteTag) await onPromote(confirmPromoteTag);
         }}
       />
-    </div>
+    </SettingsGroup>
   );
 }

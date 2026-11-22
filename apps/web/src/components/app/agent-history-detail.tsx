@@ -9,6 +9,7 @@ import {
   shortProjectName,
 } from "@/lib/format";
 import { AgentTypeIcon } from "@/components/app/agent-type-icon";
+import { StatGrid } from "@/components/ui/dashboard";
 import { StatCard } from "@/components/app/stat-card";
 import {
   useHistoryAgentDetail,
@@ -34,7 +35,7 @@ export function AgentHistoryDetail({
   const query = useHistoryAgentDetail(agentId);
 
   return (
-    <div className="mx-auto max-w-5xl min-w-0 px-3 pt-4 pb-12 sm:px-4 sm:pt-6 sm:pb-20 md:px-8">
+    <div className="min-w-0">
       <Button variant="ghost" size="xs" onClick={onBack} className="mb-3 -ml-2">
         <ArrowLeft />
         Back to history
@@ -90,7 +91,7 @@ function HistoryDetail({
           <AgentSessionLink agentId={agent.id} name={agent.name}>
             <AgentTypeIcon type={agent.type} />
           </AgentSessionLink>
-          <h2 className="text-heading-md text-foreground">
+          <h2 className="min-w-0 truncate text-heading-md text-foreground">
             <AgentSessionLink agentId={agent.id} name={agent.name} />
           </h2>
         </div>
@@ -104,21 +105,21 @@ function HistoryDetail({
           {(agent.worktreeBranch || agent.gitContext?.branch) && (
             <div className="flex items-center gap-2">
               <span className="w-16 shrink-0 text-label-sm">Branch</span>
-              <span className="rounded-sm bg-muted px-1.5 py-0.5 font-mono text-label-sm text-foreground">
+              <span className="min-w-0 break-all rounded-sm bg-muted px-1.5 py-0.5 font-mono text-label-sm text-foreground">
                 {agent.worktreeBranch || agent.gitContext?.branch}
               </span>
             </div>
           )}
           <div className="flex items-center gap-2">
             <span className="w-16 shrink-0 text-label-sm">Project</span>
-            <span className="font-mono text-label-sm">
+            <span className="min-w-0 break-all font-mono text-label-sm">
               {shortProjectName(agent.gitContext?.repoRoot ?? agent.cwd)}
             </span>
           </div>
           {agent.gitContext?.worktreePath && agent.gitContext.isWorktree && (
             <div className="flex items-center gap-2">
               <span className="w-16 shrink-0 text-label-sm">Worktree</span>
-              <span className="font-mono text-label-sm">
+              <span className="min-w-0 break-all font-mono text-label-sm">
                 {shortProjectName(agent.gitContext.worktreePath)}
               </span>
             </div>
@@ -126,7 +127,7 @@ function HistoryDetail({
           {agent.cwd !== agent.gitContext?.repoRoot && (
             <div className="flex items-center gap-2">
               <span className="w-16 shrink-0 text-label-sm">Directory</span>
-              <span className="font-mono text-label-sm">
+              <span className="min-w-0 break-all font-mono text-label-sm">
                 {shortProjectName(agent.cwd)}
               </span>
             </div>
@@ -141,7 +142,7 @@ function HistoryDetail({
       />
 
       {/* Stats */}
-      <div className="flex flex-wrap gap-2 sm:gap-3">
+      <StatGrid>
         <StatCard label="Total duration" value={formatDuration(durationMs)} />
         {totalTokens > 0 && (
           <StatCard
@@ -159,7 +160,7 @@ function HistoryDetail({
         {tokenUsage.total_messages > 0 && (
           <StatCard label="Messages" value={tokenUsage.total_messages} />
         )}
-      </div>
+      </StatGrid>
 
       <DetailTabs files={files} agentId={agentId} />
     </div>

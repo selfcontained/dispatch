@@ -1,12 +1,14 @@
 import { DesignLab } from "@/components/app/design-lab";
+import { PageContent, PageHeader } from "@/components/ui/page-header";
 import { SectionShell } from "./section-shell";
 
 export function DesignLabRoute(): JSX.Element {
   return (
     <SectionShell>
-      <div className="min-h-0 min-w-0 flex-1 overflow-auto">
+      <PageHeader title="Design Lab" context="Defrag" />
+      <PageContent>
         <DesignLab />
-      </div>
+      </PageContent>
     </SectionShell>
   );
 }

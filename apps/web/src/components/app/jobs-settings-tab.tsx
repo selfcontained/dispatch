@@ -31,6 +31,7 @@ import { type UpdateJobConfig, type Job } from "@/hooks/use-jobs";
 import { type AgentType, type CliAgentType } from "@/lib/agent-types";
 import { Alert } from "@/components/ui/alert";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { Card } from "@/components/ui/card";
 import { Field } from "@/components/ui/field";
 import { SettingRow } from "@/components/ui/setting-row";
 
@@ -199,8 +200,8 @@ export function SettingsTab({
           error={enabledError}
         />
       ) : null}
-      <div className="rounded-md border border-edge bg-fill-inset p-4">
-        <div className="text-body-md font-medium">Job configuration</div>
+      <Card className="p-4">
+        <h2 className="text-heading-sm">Job configuration</h2>
         <p className="mt-1 text-body-sm text-muted-foreground">
           These values are used when the schedule or Run button starts this job.
         </p>
@@ -438,9 +439,9 @@ export function SettingsTab({
             Save
           </Button>
         </div>
-      </div>
-      <div className="rounded-md border border-danger/line bg-danger/wash p-4">
-        <div className="text-body-md font-medium text-danger">Remove job</div>
+      </Card>
+      <Card variant="panel" tone="danger" className="p-4">
+        <h2 className="text-heading-sm text-danger">Remove job</h2>
         <p className="mt-1 text-body-sm text-muted-foreground">
           Remove this saved job, schedule, and run history from this Dispatch
           instance.
@@ -456,7 +457,7 @@ export function SettingsTab({
             Remove
           </Button>
         </div>
-      </div>
+      </Card>
       <ConfirmDialog
         open={removeDialogOpen}
         onOpenChange={setRemoveDialogOpen}

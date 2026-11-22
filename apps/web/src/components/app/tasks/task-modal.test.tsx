@@ -17,6 +17,7 @@ import {
   useNavigate,
 } from "react-router-dom";
 import { AssignedTaskRow } from "@/components/app/assigned-task-row";
+import type { SheetProps } from "@/components/ui/sheet";
 import { TaskModal } from "./task-modal";
 
 const task = {
@@ -64,9 +65,27 @@ vi.mock("@/hooks/use-tasks", () => ({
   useTaskActions: () => ({ update: { mutateAsync: vi.fn() } }),
 }));
 // The panel is the drawer's own; here only what the modal hands it matters.
-vi.mock("./task-drawer", () => ({
-  TaskDrawerShell: ({ children }: { children: React.ReactNode }) => (
-    <>{children}</>
+vi.mock("./task-drawer", async () => ({
+  // The real Sheet, without the board drawer's width and resize handle.
+  TaskDrawerShell: await import("@/components/ui/sheet").then(
+    ({ Sheet }) =>
+      ({
+        close,
+        isMobile: _isMobile,
+        ...sheet
+      }: Omit<SheetProps, "onOpenChange"> & {
+        close: () => void;
+        isMobile: boolean;
+      }) => (
+        <Sheet
+          {...sheet}
+          modal={false}
+          width={400}
+          onOpenChange={(open) => {
+            if (!open) close();
+          }}
+        />
+      )
   ),
   TaskDetailPanel: ({
     id,
@@ -105,6 +124,7 @@ function Preview() {
       <div
         data-testid="file-lightbox"
         role="dialog"
+        aria-modal="true"
         aria-label="File viewer"
       />,
       document.body
@@ -164,7 +184,8 @@ it("opens the agent's task over the stream and closes back to it", () => {
     screen.getByRole("button", { name: "Task: Build the board, Building" })
   );
   expect(where()).toBe("/agents/a1?project=p1&task=tsk_1&pane=details");
-  expect(screen.getByRole("dialog").textContent).toContain("tsk_1");
+  const sheet = screen.getByRole("dialog", { name: "Build the board" });
+  expect(sheet.textContent).toContain("tsk_1");
   // The stream stays mounted under the modal: its scroll is untouched.
   expect(screen.getByTestId("stream")).toBe(stream);
   fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
@@ -198,7 +219,7 @@ it("keeps a way out when the task fails to load", () => {
   expect(screen.getByRole("alert").textContent).toContain("Task not found");
   fireEvent.click(screen.getByRole("button", { name: "Retry" }));
   expect(failing.refetch).toHaveBeenCalled();
-  fireEvent.click(screen.getAllByRole("button", { name: "Close task" })[0]);
+  fireEvent.click(screen.getAllByRole("button", { name: "Close" })[0]);
   expect(where()).toBe("/agents/a1");
   expect(screen.queryByRole("dialog")).toBeNull();
 });
@@ -208,7 +229,7 @@ it("shows the board's failure instead of loading forever, and closes", () => {
   renderStream("/agents/a1?task=tsk_1");
   expect(screen.getByRole("alert").textContent).toContain("Board unavailable");
   expect(screen.queryByText("Loading task…")).toBeNull();
-  fireEvent.click(screen.getAllByRole("button", { name: "Close task" })[0]);
+  fireEvent.click(screen.getAllByRole("button", { name: "Close" })[0]);
   expect(where()).toBe("/agents/a1");
 });
 

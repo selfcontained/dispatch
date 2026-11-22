@@ -5,6 +5,9 @@ import { CertificateTrustSettings } from "./certificate-trust-settings";
 import { Input } from "@/components/ui/input";
 import { Alert } from "@/components/ui/alert";
 import { LoadError } from "@/components/ui/async-boundary";
+import { SettingsGroup } from "@/components/app/settings-layout";
+import { Panel } from "@/components/ui/card";
+import { SettingRow } from "@/components/ui/setting-row";
 import { Field } from "@/components/ui/field";
 import { LoadingSkeleton } from "@/components/ui/skeleton";
 
@@ -93,7 +96,7 @@ export function SecuritySettings({
 
   if (passwordSet === null) {
     return (
-      <div className="max-w-sm p-6">
+      <div>
         {statusError ? (
           <LoadError
             thing="security settings"
@@ -108,109 +111,117 @@ export function SecuritySettings({
   }
 
   return (
-    <div className="flex flex-col gap-8 p-6">
+    <>
       <CertificateTrustSettings />
-      <div>
-        <h3 className="mb-4 section-label">
-          {passwordSet ? "Change Password" : "Set Password"}
-        </h3>
-        {!passwordSet && (
-          <p className="mb-4 text-body-md text-muted-foreground">
-            No password is set. Anyone who can reach this server has full
-            access. Set a password to require authentication.
-          </p>
-        )}
-        {!passwordSet ? (
-          <SetPasswordForm
-            onSuccess={() => {
-              setPasswordSet(true);
-              setMessage("Password set successfully.");
-            }}
-          />
-        ) : (
-          <form onSubmit={handleChangePassword} className="max-w-sm space-y-3">
-            <Field label="Current password" error={fieldError}>
-              <Input
-                type="password"
-                autoComplete="current-password"
-                value={currentPassword}
-                onChange={(e) => {
-                  setCurrentPassword(e.target.value);
-                  setFieldError("");
-                }}
-                data-testid="change-current-password"
-              />
-            </Field>
-            <Field
-              label="New password"
-              hint="At least 8 characters."
-              error={
-                newPassword && newPassword.length < 8
-                  ? "Use at least 8 characters."
-                  : null
-              }
+      <SettingsGroup
+        title={passwordSet ? "Change password" : "Set password"}
+        description={
+          passwordSet
+            ? undefined
+            : "No password is set. Anyone who can reach this server has full access. Set a password to require authentication."
+        }
+      >
+        <Panel>
+          {!passwordSet ? (
+            <SetPasswordForm
+              onSuccess={() => {
+                setPasswordSet(true);
+                setMessage("Password set successfully.");
+              }}
+            />
+          ) : (
+            <form
+              onSubmit={handleChangePassword}
+              className="max-w-sm space-y-3"
             >
-              <Input
-                type="password"
-                autoComplete="new-password"
-                value={newPassword}
-                onChange={(e) => setNewPassword(e.target.value)}
-                data-testid="security-new-password"
-              />
-            </Field>
-            <Field
-              label="Confirm password"
-              error={mismatch ? "Passwords do not match." : null}
-            >
-              <Input
-                type="password"
-                autoComplete="new-password"
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
-                data-testid="security-confirm-password"
-              />
-            </Field>
-            {failure ? (
-              <Alert title="Couldn’t change the password." error={failure} />
-            ) : null}
-            {message && (
-              <p role="status" className="text-body-md text-success-ink">
-                {message}
-              </p>
-            )}
-            <Button
-              type="submit"
-              variant="primary"
-              pending={loading}
-              disabled={
-                newPassword.length < 8 ||
-                newPassword !== confirmPassword ||
-                !currentPassword
-              }
-            >
-              Change password
-            </Button>
-          </form>
-        )}
-      </div>
+              <Field label="Current password" error={fieldError}>
+                <Input
+                  type="password"
+                  autoComplete="current-password"
+                  value={currentPassword}
+                  onChange={(e) => {
+                    setCurrentPassword(e.target.value);
+                    setFieldError("");
+                  }}
+                  data-testid="change-current-password"
+                />
+              </Field>
+              <Field
+                label="New password"
+                hint="At least 8 characters."
+                error={
+                  newPassword && newPassword.length < 8
+                    ? "Use at least 8 characters."
+                    : null
+                }
+              >
+                <Input
+                  type="password"
+                  autoComplete="new-password"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  data-testid="security-new-password"
+                />
+              </Field>
+              <Field
+                label="Confirm password"
+                error={mismatch ? "Passwords do not match." : null}
+              >
+                <Input
+                  type="password"
+                  autoComplete="new-password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  data-testid="security-confirm-password"
+                />
+              </Field>
+              {failure ? (
+                <Alert title="Couldn’t change the password." error={failure} />
+              ) : null}
+              {message && (
+                <p role="status" className="text-body-md text-success-ink">
+                  {message}
+                </p>
+              )}
+              <Button
+                type="submit"
+                variant="primary"
+                pending={loading}
+                disabled={
+                  newPassword.length < 8 ||
+                  newPassword !== confirmPassword ||
+                  !currentPassword
+                }
+              >
+                Change password
+              </Button>
+            </form>
+          )}
+        </Panel>
+      </SettingsGroup>
 
       {passwordSet && (
-        <div>
-          <h3 className="mb-4 section-label">Session</h3>
-          <Button
-            variant="danger"
-            onClick={async () => {
-              setLogoutError(undefined);
-              try {
-                await onLogout();
-              } catch (error) {
-                setLogoutError(error);
-              }
-            }}
-            data-testid="logout-button"
+        <SettingsGroup title="Session">
+          <SettingRow
+            layout="action"
+            label="Log out"
+            description="You’ll need the password to get back in."
           >
-            Log out
-          </Button>
+            <Button
+              variant="danger"
+              onClick={async () => {
+                setLogoutError(undefined);
+                try {
+                  await onLogout();
+                } catch (error) {
+                  setLogoutError(error);
+                }
+              }}
+              data-testid="logout-button"
+            >
+              Log out
+            </Button>
+          </SettingRow>
           {logoutError ? (
             <Alert
               title="Couldn’t log out."
@@ -218,8 +229,8 @@ export function SecuritySettings({
               className="mt-2"
             />
           ) : null}
-        </div>
+        </SettingsGroup>
       )}
-    </div>
+    </>
   );
 }

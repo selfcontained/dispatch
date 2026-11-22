@@ -57,16 +57,16 @@ async function renderLoaded(
   const view = render(<NotificationSettings />);
   // The sections only mount once loading clears, so waiting for the Browser
   // section proves the initial GET was adopted.
-  await screen.findByRole("heading", { name: "Browser Notifications" });
+  await screen.findByRole("heading", { name: "Browser notifications" });
   return view;
 }
 
 /** The Browser Notifications section wrapper, used to scope status assertions. */
 function browserSection(): HTMLElement {
   const heading = screen.getByRole("heading", {
-    name: "Browser Notifications",
+    name: "Browser notifications",
   });
-  const section = heading.closest("div");
+  const section = heading.closest("section");
   if (!section) throw new Error("browser section wrapper not found");
   return section;
 }
@@ -130,12 +130,9 @@ describe("NotificationSettings — browser toggle wiring", () => {
       webNotifyEnabled: true,
       webNotifyEvents: ["waiting_user"],
     });
-    // Success copy renders in the Browser section, and only there.
-    const saved = screen.getAllByText("Browser notification settings saved.");
-    expect(saved).toHaveLength(1);
-    expect(
-      within(browserSection()).getByText("Browser notification settings saved.")
-    ).toBeTruthy();
+    // "Saved" renders on the row that saved, and only there.
+    expect(screen.getAllByText("Saved")).toHaveLength(1);
+    expect(within(browserSection()).getByText("Saved")).toBeTruthy();
   });
 });
 

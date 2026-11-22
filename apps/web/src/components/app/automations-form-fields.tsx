@@ -1,4 +1,5 @@
 import { AgentConfigRow } from "./agent-config-row";
+import { Panel } from "@/components/ui/card";
 import type { Effort } from "@dispatch/shared";
 import { AgentEffortSelect } from "./agent-effort-select";
 import { ProjectLocation } from "./project-location";
@@ -239,14 +240,14 @@ export function TemplateConfigFields({
       {lockedLocation ? (
         <div className="space-y-1.5" data-testid="locked-location">
           <p className="text-body-sm font-medium">Project</p>
-          <div className="rounded-md border border-edge-subtle bg-fill-track px-3 py-2 text-body-md">
+          <Panel className="py-2 text-body-md">
             {lockedLocation.name ? (
               <div className="truncate">{lockedLocation.name}</div>
             ) : null}
             <div className="truncate text-body-sm text-muted-foreground">
               {lockedLocation.repoRoot}
             </div>
-          </div>
+          </Panel>
         </div>
       ) : (
         <div className="space-y-1">

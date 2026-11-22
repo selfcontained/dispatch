@@ -89,9 +89,9 @@ function stubHook(overrides: Partial<ReleaseUpdates> = {}): void {
       versionInfoError: false,
       notesExpanded: false,
       channel: "stable",
-      channelSaving: false,
+      channelStatus: { state: "idle" },
       autoUpdateMode: "check",
-      autoUpdateSaving: false,
+      autoUpdateStatus: { state: "idle" },
       infoLoading: false,
       infoError: null,
       updateError: null,
@@ -272,15 +272,14 @@ describe("preferences and reload", () => {
   // Wiring only — useReleaseUpdates owns the save, so what is pinned here is
   // that each control reports the value it was clicked with rather than a
   // hardcoded one. Persisting it belongs to the hook's own coverage.
-  it("reports the picked channel and automatic-update mode", async () => {
+  it("reports the picked channel and automatic-update mode", () => {
     stubHook();
     renderSection();
 
     fireEvent.click(screen.getByRole("radio", { name: "Preview" }));
     expect(handlers.handleChannelChange).toHaveBeenCalledWith("preview");
 
-    fireEvent.click(screen.getByTestId("auto-update-mode-select"));
-    fireEvent.click(await screen.findByTestId("auto-update-mode-off"));
+    fireEvent.click(screen.getByTestId("auto-update-mode-switch"));
     expect(handlers.handleAutoUpdateModeChange).toHaveBeenCalledWith("off");
   });
 });

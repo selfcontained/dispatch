@@ -47,6 +47,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Alert } from "@/components/ui/alert";
+import { Card } from "@/components/ui/card";
 import { Field } from "@/components/ui/field";
 import { SettingRow } from "@/components/ui/setting-row";
 import { Textarea } from "@/components/ui/textarea";
@@ -291,7 +292,7 @@ export function AddJobFlow({
           idPrefix="job-continuation"
         />
 
-        <div className="min-w-0 rounded-md border border-edge bg-fill-inset p-4">
+        <Card className="min-w-0 p-4">
           <RowButton
             aria-expanded={advancedOpen}
             className="justify-between gap-3 rounded-sm hover:bg-transparent"
@@ -370,7 +371,7 @@ export function AddJobFlow({
               </div>
             </div>
           </div>
-        </div>
+        </Card>
       </DialogBody>
       {submitError ? (
         <Alert title="Couldn’t create the job." error={submitError} />

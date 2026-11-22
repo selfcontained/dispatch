@@ -18,11 +18,35 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { type JobRunStatus } from "@/hooks/use-jobs";
-import { cn } from "@/lib/utils";
+import {
+  ChartFrame,
+  DashboardSection,
+  Legend,
+  Meter,
+} from "@/components/ui/dashboard";
 
-const dailyRunsChartConfig = {
+// A colour is one series across the page. Failed and waiting are run states,
+// so they keep their status colours.
+const RUN_SERIES = {
   completed: { label: "Completed", color: "hsl(var(--chart-1))" },
   failed: { label: "Failed", color: "hsl(var(--status-blocked))" },
+  running: { label: "Running", color: "hsl(var(--chart-3))" },
+  waiting: { label: "Needs input", color: "hsl(var(--status-waiting))" },
+} satisfies ChartConfig;
+const DURATION_COLOR = "hsl(var(--chart-4))";
+
+function runSeries(status: JobRunStatus): keyof typeof RUN_SERIES | null {
+  if (status === "completed") return "completed";
+  if (status === "failed" || status === "timed_out" || status === "crashed")
+    return "failed";
+  if (status === "running" || status === "started") return "running";
+  if (status === "needs_input") return "waiting";
+  return null;
+}
+
+const dailyRunsChartConfig = {
+  completed: RUN_SERIES.completed,
+  failed: RUN_SERIES.failed,
 } satisfies ChartConfig;
 
 export function DailyRunsChart({
@@ -36,14 +60,16 @@ export function DailyRunsChart({
   }>;
 }) {
   return (
-    <ChartContainer config={dailyRunsChartConfig} className="h-full w-full">
+    <ChartContainer
+      config={dailyRunsChartConfig}
+      className="aspect-auto min-h-0 w-full flex-1"
+    >
       <BarChart data={data} barCategoryGap="20%">
         <XAxis
           dataKey="label"
           tickLine={false}
           axisLine={false}
           tickMargin={6}
-          tick={{ fontSize: 11 }}
         />
         <ChartTooltip
           content={
@@ -71,7 +97,7 @@ export function DailyRunsChart({
             />
           }
         />
-        <ChartLegend content={<ChartLegendContent className="gap-2" />} />
+        <ChartLegend content={<ChartLegendContent />} />
         <Bar
           dataKey="completed"
           stackId="runs"
@@ -113,31 +139,21 @@ export function JobAvgDuration({
   if (perJob.jobs.length === 0) return null;
 
   return (
-    <div>
-      <h3 className="mb-2 section-label">Avg Duration</h3>
-      <div className="h-[180px] sm:h-[220px] rounded-md border border-border bg-surface-subtle p-3 flex flex-col justify-center">
-        <div className="flex flex-col gap-3 overflow-y-auto min-h-0">
+    <DashboardSection title="Avg duration" range="recent runs">
+      <ChartFrame>
+        <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto">
           {perJob.jobs.map((job) => (
-            <div key={job.name}>
-              <div className="mb-1 flex items-center justify-between">
-                <span className="truncate text-body-sm text-muted-foreground">
-                  {job.name}
-                </span>
-                <span className="text-body-sm font-medium tabular-nums text-foreground">
-                  {formatDuration(job.avg)}
-                </span>
-              </div>
-              <div className="flex h-2 overflow-hidden rounded-sm bg-surface-hover">
-                <div
-                  className="bg-chart-1/soft transition-all rounded-sm"
-                  style={{ width: `${(job.avg / perJob.maxAvg) * 100}%` }}
-                />
-              </div>
-            </div>
+            <Meter
+              key={job.name}
+              label={job.name}
+              value={formatDuration(job.avg)}
+              ratio={job.avg / perJob.maxAvg}
+              color={DURATION_COLOR}
+            />
           ))}
         </div>
-      </div>
-    </div>
+      </ChartFrame>
+    </DashboardSection>
   );
 }
 
@@ -175,48 +191,49 @@ export function RunHistoryGrid({
   }, [runs]);
 
   if (perJob.length === 0) return null;
+  const shown = new Set(
+    perJob.flatMap((job) => job.runs.map((run) => runSeries(run.status)))
+  );
+  const legend = Object.entries(RUN_SERIES)
+    .filter(([key]) => shown.has(key as keyof typeof RUN_SERIES))
+    .map(([key, series]) => ({ key, ...series }));
 
   return (
-    <div>
-      <h3 className="mb-2 section-label">Run History</h3>
-      <div className="h-[180px] sm:h-[220px] rounded-md border border-border bg-surface-subtle p-3 flex flex-col justify-between">
+    <DashboardSection title="Run history" range="recent runs">
+      <ChartFrame>
         <TooltipProvider delayDuration={80}>
-          <div className="space-y-2 overflow-y-auto min-h-0 flex-1">
+          <div className="min-h-0 flex-1 space-y-2 overflow-y-auto">
             {perJob.map(({ name, runs: jobRuns }) => (
               <div key={name}>
-                <div className="mb-1 truncate text-label-xs text-muted-foreground">
+                <div className="mb-1 truncate text-body-sm text-foreground">
                   {name}
                 </div>
                 <div
                   className="grid gap-px"
                   style={{
-                    gridTemplateColumns: `repeat(${MAX_RUN_CELLS}, 1fr)`,
+                    gridTemplateColumns: `repeat(${MAX_RUN_CELLS}, minmax(0, 1fr))`,
                   }}
                 >
                   {Array.from({ length: MAX_RUN_CELLS }, (_, i) => {
                     const run = i < jobRuns.length ? jobRuns[i] : null;
                     if (!run)
                       return (
-                        <div key={i} className="h-4 sm:h-3 bg-surface-subtle" />
+                        <div
+                          key={i}
+                          className="h-4 rounded-mark bg-surface-subtle sm:h-3"
+                        />
                       );
+                    const series = runSeries(run.status);
                     return (
                       <Tooltip key={i}>
                         <TooltipTrigger asChild>
                           <div
-                            className={cn(
-                              "h-4 sm:h-3",
-                              run.status === "completed" &&
-                                "bg-status-done/soft",
-                              (run.status === "failed" ||
-                                run.status === "timed_out" ||
-                                run.status === "crashed") &&
-                                "bg-status-blocked/soft",
-                              (run.status === "running" ||
-                                run.status === "started") &&
-                                "bg-status-working/soft",
-                              run.status === "needs_input" &&
-                                "bg-status-waiting/soft"
-                            )}
+                            className="h-4 rounded-mark bg-surface-hover sm:h-3"
+                            style={{
+                              backgroundColor: series
+                                ? RUN_SERIES[series].color
+                                : undefined,
+                            }}
                           />
                         </TooltipTrigger>
                         <TooltipContent side="top" className="text-body-sm">
@@ -231,17 +248,8 @@ export function RunHistoryGrid({
             ))}
           </div>
         </TooltipProvider>
-        <div className="flex items-center gap-2 text-label-xs text-muted-foreground">
-          <span className="flex items-center gap-1">
-            <span className="inline-block h-2 w-3 bg-status-done/soft" />
-            Completed
-          </span>
-          <span className="flex items-center gap-1">
-            <span className="inline-block h-2 w-3 bg-status-blocked/soft" />
-            Failed
-          </span>
-        </div>
-      </div>
-    </div>
+        <Legend items={legend} className="pt-3" />
+      </ChartFrame>
+    </DashboardSection>
   );
 }

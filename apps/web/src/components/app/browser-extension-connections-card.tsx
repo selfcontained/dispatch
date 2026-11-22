@@ -8,6 +8,7 @@ import {
   CardDescription,
   CardHeader,
   CardTitle,
+  Panel,
 } from "@/components/ui/card";
 import { Hint } from "@/components/ui/tooltip";
 import { formatDateTime, formatRelativeTime } from "@/lib/format";
@@ -50,7 +51,7 @@ export function BrowserExtensionConnectionsCard({
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-heading-md">Paired browsers</CardTitle>
+        <CardTitle>Paired browsers</CardTitle>
         <CardDescription>
           Each browser has its own access. Revoking one does not disconnect the
           others.
@@ -62,15 +63,15 @@ export function BrowserExtensionConnectionsCard({
         ) : isError ? (
           <LoadError thing="paired browsers" onRetry={onRetry} />
         ) : connections.length === 0 ? (
-          <p className="rounded-md border border-dashed border-border px-3 py-4 text-body-md text-muted-foreground">
+          <p className="text-body-sm text-muted-foreground">
             Waiting for this browser to finish connecting.
           </p>
         ) : (
           <div className="space-y-2" data-testid="paired-browser-list">
             {visibleConnections.map((connection) => (
-              <div
+              <Panel
                 key={connection.id}
-                className="flex items-center gap-3 rounded-md border border-border bg-background/veil px-3 py-3"
+                className="flex flex-wrap items-center gap-3"
                 data-testid={`paired-browser-${connection.id}`}
               >
                 <MonitorSmartphone
@@ -104,7 +105,7 @@ export function BrowserExtensionConnectionsCard({
                   <Unplug aria-hidden="true" />
                   Revoke
                 </Button>
-              </div>
+              </Panel>
             ))}
             {connections.length > initiallyVisibleConnections && (
               <Button

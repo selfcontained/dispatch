@@ -125,11 +125,11 @@ function AgentHistoryList({
     debouncedSearch || type || project || range !== "all";
 
   return (
-    <div className="mx-auto flex h-full max-w-5xl flex-col px-3 sm:px-4 md:px-8">
+    <div className="flex min-w-0 flex-col">
       {/* Search + filters */}
-      <div className="space-y-2 pt-4 pb-2">
+      <div className="space-y-2 pb-2">
         <div className="relative">
-          <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+          <Search className="pointer-events-none absolute z-sticky left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
           <Input
             placeholder="Search agents..."
             value={search}
@@ -153,7 +153,7 @@ function AgentHistoryList({
             value={type || "__all__"}
             onValueChange={(v) => setType(v === "__all__" ? "" : v)}
           >
-            <SelectTrigger className="h-7 w-[100px] text-label-sm pointer-coarse:h-11">
+            <SelectTrigger className="h-7 w-32 text-label-sm pointer-coarse:h-11">
               <SelectValue placeholder="All types" />
             </SelectTrigger>
             <SelectContent>
@@ -213,7 +213,7 @@ function AgentHistoryList({
       </div>
 
       {/* Table */}
-      <div className="flex flex-1 flex-col overflow-auto">
+      <div className="flex min-w-0 flex-col">
         <AsyncBoundary
           query={query}
           thing="agent history"
@@ -264,7 +264,9 @@ function AgentHistoryList({
                     <th className="hidden px-2 py-2 font-medium sm:table-cell">
                       Project
                     </th>
-                    <th className="px-2 py-2 font-medium">Duration</th>
+                    <th className="hidden px-2 py-2 font-medium sm:table-cell">
+                      Duration
+                    </th>
                     <th className="px-2 py-2 font-medium">Tokens</th>
                     <th
                       className="cursor-pointer px-2 py-2 pr-3 font-medium sm:pr-4"
@@ -290,7 +292,7 @@ function AgentHistoryList({
                           className="cursor-pointer border-b border-border-subtle transition-colors hover:bg-surface-hover"
                           onClick={() => onSelect(agent.id)}
                         >
-                          <td className="px-3 py-3 sm:px-4">
+                          <td className="w-full max-w-0 py-3 pl-1 pr-2 sm:w-auto sm:max-w-72 sm:px-4">
                             <div className="flex items-center gap-1.5">
                               {hasChildren ? (
                                 <IconButton
@@ -319,7 +321,7 @@ function AgentHistoryList({
                               >
                                 <AgentTypeIcon type={agent.type} />
                               </AgentSessionLink>
-                              <span className="truncate font-medium text-foreground">
+                              <span className="min-w-0 truncate font-medium text-foreground">
                                 <AgentSessionLink
                                   agentId={agent.id}
                                   name={agent.name}
@@ -340,7 +342,7 @@ function AgentHistoryList({
                               )}
                             </span>
                           </td>
-                          <td className="px-2 py-2 text-muted-foreground">
+                          <td className="hidden px-2 py-2 text-muted-foreground sm:table-cell">
                             {formatDuration(agent.durationMs)}
                           </td>
                           <td className="px-2 py-2 text-muted-foreground">
@@ -373,10 +375,7 @@ function AgentHistoryList({
                               className="cursor-pointer border-b border-border-subtle bg-surface-subtle transition-colors hover:bg-surface-hover"
                               onClick={() => onSelect(child.id)}
                             >
-                              <td
-                                colSpan={3}
-                                className="py-2 pl-10 pr-3 sm:pl-12 sm:pr-4"
-                              >
+                              <td className="max-w-0 py-2 pl-6 pr-2 sm:pl-12 sm:pr-4">
                                 <div className="flex items-center gap-2">
                                   <Badge size="sm">
                                     {child.persona ??
@@ -384,7 +383,7 @@ function AgentHistoryList({
                                         ? "review"
                                         : "agent")}
                                   </Badge>
-                                  <span className="truncate text-muted-foreground">
+                                  <span className="min-w-0 truncate text-muted-foreground">
                                     <AgentSessionLink
                                       agentId={child.id}
                                       name={child.name}
@@ -392,6 +391,9 @@ function AgentHistoryList({
                                   </span>
                                 </div>
                               </td>
+                              {/* The columns only its parent fills. */}
+                              <td className="hidden sm:table-cell" />
+                              <td className="hidden sm:table-cell" />
                               <td className="px-2 py-2 text-muted-foreground">
                                 {child.totalTokens > 0
                                   ? formatTokenCount(child.totalTokens)

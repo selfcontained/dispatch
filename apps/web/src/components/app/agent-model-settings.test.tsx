@@ -99,3 +99,21 @@ it("shows a failed save and puts the checkbox back", async () => {
   );
   await waitFor(() => expect(astra.getAttribute("aria-checked")).toBe("true"));
 });
+
+it("locks the last model on from what is shown, while earlier saves wait", async () => {
+  disabled = [];
+  render(<AgentModelSettings agentType="codex" />, { wrapper: wrapper() });
+  const box = (name: RegExp) => screen.getByRole("checkbox", { name });
+  await screen.findByRole("checkbox", { name: /astra/ });
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => (release = resolve));
+  api.mockImplementationOnce(async () => {
+    await held;
+    return {};
+  });
+  // The first save holds the queue, so the second hasn't reached the cache.
+  fireEvent.click(box(/sol/));
+  fireEvent.click(box(/astra/));
+  await waitFor(() => expect(box(/luna/).hasAttribute("disabled")).toBe(true));
+  release();
+});

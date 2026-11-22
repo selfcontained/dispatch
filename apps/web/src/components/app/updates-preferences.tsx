@@ -1,23 +1,18 @@
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import {
   SegmentedControl,
   SegmentedControlItem,
 } from "@/components/ui/segmented-control";
+import { SettingRow, type SaveStatus } from "@/components/ui/setting-row";
+import { SettingsGroup } from "@/components/app/settings-layout";
 import type { ReleaseChannel } from "@/hooks/use-release-stream";
-import { cn } from "@/lib/utils";
 
 type UpdatesPreferencesProps = {
   channel: ReleaseChannel;
-  channelSaving: boolean;
+  channelStatus: SaveStatus;
   onChannelChange: (channel: ReleaseChannel) => void;
   autoUpdateMode: "off" | "check";
-  autoUpdateSaving: boolean;
+  autoUpdateStatus: SaveStatus;
   onAutoUpdateModeChange: (mode: "off" | "check") => void;
 };
 
@@ -27,66 +22,40 @@ type UpdatesPreferencesProps = {
  */
 export function UpdatesPreferences({
   channel,
-  channelSaving,
+  channelStatus,
   onChannelChange,
   autoUpdateMode,
-  autoUpdateSaving,
+  autoUpdateStatus,
   onAutoUpdateModeChange,
 }: UpdatesPreferencesProps): JSX.Element {
   return (
-    <>
-      <div>
-        <div className="mb-1.5 section-label">Release channel</div>
-        <p className="mb-3 text-body-md text-muted-foreground">
-          Stable gets promoted releases. Preview gets every release as soon as
-          it ships.
-        </p>
+    <SettingsGroup title="Preferences">
+      <SettingRow
+        layout="action"
+        label="Release channel"
+        description="Stable gets promoted releases. Preview gets every release as soon as it ships."
+        status={channelStatus}
+      >
         <SegmentedControl
           aria-label="Release channel"
           value={channel}
-          disabled={channelSaving}
           onValueChange={onChannelChange}
         >
           <SegmentedControlItem value="stable">Stable</SegmentedControlItem>
           <SegmentedControlItem value="preview">Preview</SegmentedControlItem>
         </SegmentedControl>
-      </div>
-
-      <div>
-        <div className="mb-1.5 section-label">Automatic updates</div>
-        <p className="mb-3 text-body-md text-muted-foreground">
-          When on, Dispatch periodically checks for new releases and notifies
-          you. Updates never install automatically.
-        </p>
-        <div
-          className={cn(
-            "inline-block min-w-[14rem]",
-            autoUpdateSaving && "opacity-50 pointer-events-none"
-          )}
-        >
-          <Select
-            value={autoUpdateMode}
-            onValueChange={(value) =>
-              onAutoUpdateModeChange(value as "off" | "check")
-            }
-          >
-            <SelectTrigger
-              data-testid="auto-update-mode-select"
-              className="w-full"
-            >
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="off" data-testid="auto-update-mode-off">
-                Off
-              </SelectItem>
-              <SelectItem value="check" data-testid="auto-update-mode-check">
-                Automatically check
-              </SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-      </div>
-    </>
+      </SettingRow>
+      <SettingRow
+        label="Check for updates automatically"
+        description="Dispatch periodically checks for new releases and notifies you. Updates never install automatically."
+        status={autoUpdateStatus}
+      >
+        <Switch
+          checked={autoUpdateMode === "check"}
+          onCheckedChange={(on) => onAutoUpdateModeChange(on ? "check" : "off")}
+          data-testid="auto-update-mode-switch"
+        />
+      </SettingRow>
+    </SettingsGroup>
   );
 }

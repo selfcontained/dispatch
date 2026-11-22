@@ -57,46 +57,43 @@ export function DesignLab(): JSX.Element {
           ? "fills"
           : "compaction";
   return (
-    <div className="bg-background min-h-full p-4 md:p-8">
-      <div className="mx-auto max-w-4xl space-y-6">
-        <h1 className="text-display">Design Lab · Defrag</h1>
-        <ThemePicker theme={theme} setTheme={setTheme} />
-        <Tabs
-          activationMode="manual"
-          value={scene}
-          onValueChange={(value) =>
-            setParams((previous) => {
-              const next = new URLSearchParams(previous);
-              next.delete("turn-demo");
-              if (value === "turn") next.set("turn-demo", "1");
-              if (value === "activity") next.set("activity-defrag", "1");
-              else next.delete("activity-defrag");
-              if (value === "fills") next.set("fill-count", "1");
-              else next.delete("fill-count");
-              return next;
-            })
-          }
-        >
-          <TabsList aria-label="Defrag studies">
-            <TabsTrigger value="turn">Simulated turn</TabsTrigger>
-            <TabsTrigger value="compaction">Compaction</TabsTrigger>
-            <TabsTrigger value="activity">Activity</TabsTrigger>
-            <TabsTrigger value="fills">Fill count</TabsTrigger>
-          </TabsList>
-          <TabsContent value="turn" className="mt-6">
-            <SimulatedDefragTurn />
-          </TabsContent>
-          <TabsContent value="compaction" className="mt-6">
-            <CompactionComparison />
-          </TabsContent>
-          <TabsContent value="activity" className="mt-6">
-            <DefragActivityCheckpoint />
-          </TabsContent>
-          <TabsContent value="fills" className="mt-6">
-            <FillCountStudy />
-          </TabsContent>
-        </Tabs>
-      </div>
+    <div className="space-y-6">
+      <ThemePicker theme={theme} setTheme={setTheme} />
+      <Tabs
+        activationMode="manual"
+        value={scene}
+        onValueChange={(value) =>
+          setParams((previous) => {
+            const next = new URLSearchParams(previous);
+            next.delete("turn-demo");
+            if (value === "turn") next.set("turn-demo", "1");
+            if (value === "activity") next.set("activity-defrag", "1");
+            else next.delete("activity-defrag");
+            if (value === "fills") next.set("fill-count", "1");
+            else next.delete("fill-count");
+            return next;
+          })
+        }
+      >
+        <TabsList aria-label="Defrag studies">
+          <TabsTrigger value="turn">Simulated turn</TabsTrigger>
+          <TabsTrigger value="compaction">Compaction</TabsTrigger>
+          <TabsTrigger value="activity">Activity</TabsTrigger>
+          <TabsTrigger value="fills">Fill count</TabsTrigger>
+        </TabsList>
+        <TabsContent value="turn" className="mt-6">
+          <SimulatedDefragTurn />
+        </TabsContent>
+        <TabsContent value="compaction" className="mt-6">
+          <CompactionComparison />
+        </TabsContent>
+        <TabsContent value="activity" className="mt-6">
+          <DefragActivityCheckpoint />
+        </TabsContent>
+        <TabsContent value="fills" className="mt-6">
+          <FillCountStudy />
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { DRAWER_SETTLE_FALLBACK_MS } from "../drawer-constants";
+import { SHEET_SETTLE_FALLBACK_MS } from "@/components/ui/sheet";
 
 /** Keep the last task readable during the shared frame's exit animation. */
 export function useTaskDrawerTarget(id: string | null) {
@@ -11,7 +11,7 @@ export function useTaskDrawerTarget(id: string | null) {
     }
     const timer = window.setTimeout(
       () => setHeldId(null),
-      DRAWER_SETTLE_FALLBACK_MS
+      SHEET_SETTLE_FALLBACK_MS
     );
     return () => window.clearTimeout(timer);
   }, [id]);

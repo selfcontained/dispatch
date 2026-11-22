@@ -1,4 +1,6 @@
 import { taskAgentName } from "@dispatch/shared";
+import { panelFrame } from "@/components/ui/card";
+import { cn } from "@/lib/utils";
 import { ProjectLocation } from "./project-location";
 import { useProjectScope, useProjects } from "@/hooks/use-projects";
 import { useQuery } from "@tanstack/react-query";
@@ -349,7 +351,7 @@ function TaskContextCard({
   return (
     <section
       data-testid="create-agent-task"
-      className="space-y-2 rounded-md border border-border-subtle bg-surface-subtle px-3 py-3 text-body-md"
+      className={cn(panelFrame, "space-y-2 p-3 text-body-md")}
     >
       <div className="flex items-baseline justify-between gap-3">
         <span className="min-w-0 truncate">

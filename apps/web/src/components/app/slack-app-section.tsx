@@ -8,13 +8,13 @@ import {
   Hash,
   KeyRound,
   Radio,
-  Slack,
   Unplug,
 } from "lucide-react";
 import { CopyButton } from "@/components/ui/copy-button";
 import { Badge } from "@/components/ui/badge";
 import {
   Card,
+  Panel,
   CardContent,
   CardHeader,
   CardTitle,
@@ -25,6 +25,7 @@ import {
   CollapsibleTrigger,
   CollapsibleContent,
 } from "@/components/ui/collapsible";
+import { SettingsGroup } from "@/components/app/settings-layout";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -192,22 +193,11 @@ export function SlackAppSection() {
       : "Loading";
   const connected = query.data?.status === "connected";
   return (
-    <section
-      className="border-t border-border pt-8 space-y-4"
+    <SettingsGroup
       aria-label="Slack app setup"
-    >
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="flex items-start gap-3">
-          <div className="rounded-lg border border-border bg-surface-hover p-2">
-            <Slack className="size-5" aria-hidden="true" />
-          </div>
-          <div>
-            <h3 className="text-heading-md">Slack notifications</h3>
-            <p className="mt-1 max-w-lg text-body-md text-muted-foreground">
-              A direct line from your agents to your workspace.
-            </p>
-          </div>
-        </div>
+      title="Slack notifications"
+      description="A direct line from your agents to your workspace."
+      actions={
         <Badge
           dot
           tone={
@@ -221,8 +211,8 @@ export function SlackAppSection() {
         >
           {status}
         </Badge>
-      </div>
-
+      }
+    >
       {query.isPending && (
         <LoadingSkeleton label="Loading Slack setup…" rowClassName="h-16" />
       )}
@@ -236,10 +226,10 @@ export function SlackAppSection() {
         />
       )}
       {configured && (
-        <Card className="border border-success/line">
+        <Card>
           <CardHeader>
             <CardDescription>Notification destination</CardDescription>
-            <CardTitle className="flex items-center gap-2 text-heading-md">
+            <CardTitle className="flex items-center gap-2">
               <Hash
                 className="size-4 text-muted-foreground"
                 aria-hidden="true"
@@ -393,19 +383,17 @@ export function SlackAppSection() {
           </ol>
 
           {step === 1 && (
-            <Card className="border border-border">
+            <Card>
               <CardHeader>
                 <CardDescription>Step 1 of 3</CardDescription>
-                <CardTitle className="text-heading-md">
-                  Your workspace. Your Slack app.
-                </CardTitle>
+                <CardTitle>Your workspace. Your Slack app.</CardTitle>
                 <CardDescription>
                   Create a private Dispatch app in Slack. We’ve prepared its
                   configuration for you.
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div className="rounded-lg border border-border bg-surface-subtle p-4">
+                <Panel>
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div>
                       <p className="text-body-md font-medium">
@@ -427,7 +415,7 @@ export function SlackAppSection() {
                       {manifest}
                     </pre>
                   </Disclosure>
-                </div>
+                </Panel>
                 <div className="space-y-3">
                   <Button asChild variant="primary">
                     <a
@@ -465,19 +453,17 @@ export function SlackAppSection() {
           )}
 
           {step === 2 && (
-            <Card className="border border-border">
+            <Card>
               <CardHeader>
                 <CardDescription>Step 2 of 3</CardDescription>
-                <CardTitle className="text-heading-md">
-                  Connect with two tokens
-                </CardTitle>
+                <CardTitle>Connect with two tokens</CardTitle>
                 <CardDescription>
                   Copy these from your app’s Slack dashboard. No callback URL or
                   tunnel is needed.
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div className="rounded-lg border border-border p-4 space-y-3">
+                <Panel className="space-y-3">
                   <Field
                     id="slack-app-token"
                     label={
@@ -519,8 +505,8 @@ export function SlackAppSection() {
                       />
                     </div>
                   </Disclosure>
-                </div>
-                <div className="rounded-lg border border-border p-4 space-y-3">
+                </Panel>
+                <Panel className="space-y-3">
                   <Field
                     id="slack-bot-token"
                     label={
@@ -554,7 +540,7 @@ export function SlackAppSection() {
                       Bot User OAuth Token shown afterward.
                     </p>
                   </Disclosure>
-                </div>
+                </Panel>
                 <div className="flex items-center justify-between gap-3 border-t border-border pt-4">
                   <Button
                     variant="ghost"
@@ -577,12 +563,10 @@ export function SlackAppSection() {
           )}
 
           {step === 3 && validated && (
-            <Card className="border border-border">
+            <Card>
               <CardHeader>
                 <CardDescription>Step 3 of 3 · {workspace}</CardDescription>
-                <CardTitle className="text-heading-md">
-                  Choose where alerts land
-                </CardTitle>
+                <CardTitle>Choose where alerts land</CardTitle>
                 <CardDescription>
                   Add Dispatch to a Slack channel, then select it here.
                 </CardDescription>
@@ -622,7 +606,7 @@ export function SlackAppSection() {
                   </SelectContent>
                 </Select>
                 {channels.length === 0 && (
-                  <p className="rounded-lg border border-dashed border-border p-3 text-body-md text-muted-foreground">
+                  <p className="text-body-sm text-muted-foreground">
                     No joined channels yet. Use the channel’s Add apps menu in
                     Slack to invite Dispatch, then refresh.
                   </p>
@@ -691,7 +675,7 @@ export function SlackAppSection() {
           {message}
         </p>
       )}
-    </section>
+    </SettingsGroup>
   );
 }
 

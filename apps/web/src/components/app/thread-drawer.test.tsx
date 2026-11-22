@@ -15,6 +15,7 @@ import {
 import { MemoryRouter, useLocation, useNavigate } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { useDrawerRoute } from "@/hooks/use-drawer-route";
 import { threadQueryKey } from "@/hooks/use-stream";
 import {
   block,
@@ -24,7 +25,7 @@ import {
 } from "@/test-utils/blocks";
 
 import { DrawerFrame } from "./drawer";
-import { ThreadDrawer } from "./thread-drawer";
+import { THREAD_KEEP_OPEN, ThreadDrawer } from "./thread-drawer";
 
 const apiMock = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/api", () => ({
@@ -149,9 +150,14 @@ const agentProp = {
 function FramedThreadDrawer({ mobile = false }: { mobile?: boolean }) {
   const search = useLocation().search;
   const navigate = useNavigate();
+  const route = useDrawerRoute();
   return (
     <>
       <DrawerFrame
+        dismissable
+        keepOpen={THREAD_KEEP_OPEN}
+        onClose={route.closeAll}
+        onEscape={route.findingId ? route.back : route.closeAll}
         open={new URLSearchParams(search).has("thread")}
         pinned
         testId="thread-drawer-wrapper"

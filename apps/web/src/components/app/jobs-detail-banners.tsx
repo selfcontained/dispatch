@@ -5,6 +5,7 @@ import { type Agent } from "@/components/app/types";
 import { formatJobDateTime } from "@/components/app/jobs-helpers";
 import { Button } from "@/components/ui/button";
 import { type Job } from "@/hooks/use-jobs";
+import { Card } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 
 /** Shown in the job detail header when a run is (or was) attached to a live agent. */
@@ -16,13 +17,10 @@ export function AttachedAgentBanner({
   onOpenAgent: (agent: Agent) => Promise<void>;
 }) {
   return (
-    <div
-      className={cn(
-        "mt-4 rounded-md border p-3",
-        attachedAgent.isActive
-          ? "border-status-working/line bg-status-working/tint"
-          : "border-border-subtle bg-surface-subtle"
-      )}
+    <Card
+      variant="panel"
+      tone={attachedAgent.isActive ? "working" : "neutral"}
+      className="mb-4 p-3"
     >
       <div className="flex flex-wrap items-center gap-3">
         <div className="min-w-0 flex-1">
@@ -48,7 +46,7 @@ export function AttachedAgentBanner({
           Open session
         </Button>
       </div>
-    </div>
+    </Card>
   );
 }
 
@@ -69,7 +67,7 @@ export function JobAddedBanner({
   onViewHistory: () => void;
 }) {
   return (
-    <div className="mt-4 rounded-md border border-info/line bg-info/tint p-4">
+    <Card variant="panel" tone="info" className="mb-4 p-4">
       <div className="text-body-md font-semibold text-info">Job added</div>
       <div className="mt-1 text-body-md text-muted-foreground">
         {job.enabled && job.nextRun
@@ -107,6 +105,6 @@ export function JobAddedBanner({
           View history
         </Button>
       </div>
-    </div>
+    </Card>
   );
 }

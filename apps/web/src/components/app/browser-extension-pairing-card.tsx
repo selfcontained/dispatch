@@ -7,6 +7,7 @@ import {
   CardDescription,
   CardHeader,
   CardTitle,
+  Panel,
 } from "@/components/ui/card";
 
 import type { ApprovalState } from "./use-extension-pairing";
@@ -30,13 +31,13 @@ export function BrowserExtensionPairingCard({
   onCheckAgain,
 }: BrowserExtensionPairingCardProps): JSX.Element {
   return (
-    <Card className="border-primary/line">
+    <Card tone="accent">
       <CardHeader className="flex-row items-start gap-3 space-y-0 pb-3">
         <div className="rounded-lg bg-surface-selected p-2 text-primary">
           <ShieldCheck className="h-5 w-5" aria-hidden="true" />
         </div>
         <div className="space-y-1.5">
-          <CardTitle className="text-heading-md">
+          <CardTitle>
             {approvalState === "connected"
               ? "Browser connected"
               : approvalState === "timedOut"
@@ -53,7 +54,7 @@ export function BrowserExtensionPairingCard({
         </div>
       </CardHeader>
       <CardContent>
-        <div className="rounded-lg border border-border bg-background/veil p-4">
+        <Panel>
           {approvalState === "connected" ? (
             <div className="flex items-start gap-3" role="status">
               <ShieldCheck
@@ -110,7 +111,7 @@ export function BrowserExtensionPairingCard({
                   agent you select.
                 </p>
               </div>
-              <div className="rounded-lg border border-primary/line bg-surface-selected px-4 py-3 text-center">
+              <div className="rounded-md bg-surface-selected px-4 py-3 text-center">
                 <p className="section-label">
                   Confirm this code matches the extension
                 </p>
@@ -133,7 +134,7 @@ export function BrowserExtensionPairingCard({
               </Button>
             </div>
           )}
-        </div>
+        </Panel>
       </CardContent>
     </Card>
   );

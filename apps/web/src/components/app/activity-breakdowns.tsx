@@ -1,42 +1,10 @@
 import { shortModelName } from "@/components/app/activity-chart-utils";
-import { cn } from "@/lib/utils";
+import { Meter } from "@/components/ui/dashboard";
 import { formatCount, formatTokenCount, shortProjectName } from "@/lib/format";
 import type { TokenByModel, TokenByProject } from "@/hooks/use-activity";
 
-// ── Horizontal bar helper ──────────────────────────────────────────
-
-function HorizontalBar({
-  label,
-  value,
-  maxValue,
-  color = "bg-chart-1/soft",
-  sub,
-}: {
-  label: string;
-  value: number;
-  maxValue: number;
-  color?: string;
-  sub?: string;
-}) {
-  const pct = maxValue > 0 ? (value / maxValue) * 100 : 0;
-  return (
-    <div className="space-y-1">
-      <div className="flex items-center justify-between text-body-sm">
-        <span className="truncate text-foreground">{label}</span>
-        <span className="ml-2 shrink-0 font-mono text-muted-foreground tabular-nums">
-          {formatTokenCount(value)}
-          {sub ? ` ${sub}` : ""}
-        </span>
-      </div>
-      <div className="h-2 w-full rounded-full bg-surface-hover">
-        <div
-          className={cn("h-2 rounded-full transition-all", color)}
-          style={{ width: `${Math.max(pct, 1)}%` }}
-        />
-      </div>
-    </div>
-  );
-}
+// Every bar on the page is total tokens, so every bar is the one colour.
+const TOTAL_TOKENS_COLOR = "hsl(var(--chart-5))";
 
 // ── Per-model breakdown ───────────────────────────────────────────
 
@@ -61,13 +29,12 @@ export function ModelBreakdown({ data }: { data: TokenByModel[] }) {
           m.total_cache_read +
           m.total_output;
         return (
-          <HorizontalBar
+          <Meter
             key={m.model}
             label={shortModelName(m.model)}
-            value={total}
-            maxValue={max}
-            color="bg-chart-5"
-            sub={`· ${formatCount(m.sessions, "session")}`}
+            value={`${formatTokenCount(total)} · ${formatCount(m.sessions, "session")}`}
+            ratio={max > 0 ? total / max : 0}
+            color={TOTAL_TOKENS_COLOR}
           />
         );
       })}
@@ -81,15 +48,14 @@ export function ProjectBreakdown({ data }: { data: TokenByProject[] }) {
   if (data.length === 0) return null;
   const max = Math.max(...data.map((p) => p.total_input + p.total_output));
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       {data.map((p) => (
-        <HorizontalBar
+        <Meter
           key={p.project_dir}
           label={shortProjectName(p.project_dir)}
-          value={p.total_input + p.total_output}
-          maxValue={max}
-          color="bg-chart-6"
-          sub="tokens"
+          value={`${formatTokenCount(p.total_input + p.total_output)} tokens`}
+          ratio={max > 0 ? (p.total_input + p.total_output) / max : 0}
+          color={TOTAL_TOKENS_COLOR}
         />
       ))}
     </div>

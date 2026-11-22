@@ -16,8 +16,20 @@ export function RememberOpener({ opener }: { opener: Opener }): null {
   return null;
 }
 
+/**
+ * What opened a layer. A menu item is gone by the time the layer closes, so
+ * its menu's trigger stands in for it.
+ */
+export function opensFrom(active: Element | null): HTMLElement | null {
+  if (!(active instanceof HTMLElement) || active === document.body) return null;
+  const trigger = active
+    .closest('[role="menu"]')
+    ?.getAttribute("aria-labelledby");
+  return (trigger && document.getElementById(trigger)) || active;
+}
+
 /** A phone's sidebar slides away as it opens a dialog, taking the opener along. */
-function slidAway(element: HTMLElement): boolean {
+export function slidAway(element: HTMLElement): boolean {
   const { left, right } = element.getBoundingClientRect();
   return right < 0 || left > window.innerWidth;
 }

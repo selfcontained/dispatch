@@ -10,6 +10,7 @@ import {
 } from "@/components/app/jobs-continuation-fields";
 import { type UpdateJobConfig, type Job } from "@/hooks/use-jobs";
 import { Alert } from "@/components/ui/alert";
+import { Card } from "@/components/ui/card";
 import { Field } from "@/components/ui/field";
 import { SettingRow } from "@/components/ui/setting-row";
 import { Textarea } from "@/components/ui/textarea";
@@ -58,7 +59,7 @@ export function PromptTab({
 
   return (
     <div className="mt-4">
-      <div className="rounded-md border border-edge bg-fill-inset p-4">
+      <Card className="p-4">
         <Field
           id={`prompt-${job.id}`}
           label="Task prompt"
@@ -136,7 +137,7 @@ export function PromptTab({
             Save instructions
           </Button>
         </div>
-      </div>
+      </Card>
     </div>
   );
 }

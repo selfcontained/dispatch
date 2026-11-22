@@ -386,7 +386,10 @@ export function ThreadPanel({
   useEffect(() => {
     if (escapeHandledByParent) return;
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && !event.defaultPrevented) onClose();
+      if (event.key !== "Escape" || event.defaultPrevented) return;
+      // Handled here: the sheet this may sit in stays open.
+      event.preventDefault();
+      onClose();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -417,6 +420,7 @@ export function ThreadPanel({
           onClose();
         }
       }}
+      data-escape-owner={escapeHandledByParent ? undefined : ""}
       role="complementary"
       aria-label={finding ? "Finding" : "Thread"}
       data-testid="chat-thread-panel"

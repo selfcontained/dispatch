@@ -1,15 +1,10 @@
 import { useId, useState } from "react";
-import { ChevronDown, ChevronRight, Server } from "lucide-react";
+import { ChevronDown, ChevronRight } from "lucide-react";
 import { Area, AreaChart, YAxis } from "recharts";
 
 import { Badge } from "@/components/ui/badge";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Panel } from "@/components/ui/card";
+import { DashboardSection } from "@/components/ui/dashboard";
 import { ChartContainer, type ChartConfig } from "@/components/ui/chart";
 import { RowButton } from "@/components/ui/row-button";
 import type {
@@ -154,7 +149,7 @@ function SubsystemRow({
     })),
   ];
   return (
-    <div className="border-b border-border last:border-b-0">
+    <div className="border-b border-border-subtle last:border-b-0">
       <RowButton
         className="grid grid-cols-[1fr_auto] gap-3 rounded-none px-4 py-3 md:grid-cols-[minmax(12rem,1.4fr)_minmax(7rem,0.6fr)_minmax(7rem,0.6fr)_5.5rem]"
         onClick={() => setExpanded((value) => !value)}
@@ -201,7 +196,7 @@ function SubsystemRow({
               {stats.map((stat) => (
                 <div
                   key={stat.key}
-                  className="rounded-md border border-border bg-background/veil px-3 pb-2 pt-2 shadow-sm"
+                  className="min-w-0 rounded-md bg-surface-hover px-3 pb-2 pt-2"
                 >
                   <span className="block section-label">{stat.label}</span>
                   <span
@@ -242,18 +237,12 @@ export function ServiceResourcesSubsystems({
   series: ResourceSample[];
 }) {
   return (
-    <Card>
-      <CardHeader className="pb-2">
-        <CardTitle className="flex items-center gap-2">
-          <Server className="h-4 w-4 text-muted-foreground" />
-          Runtime health
-        </CardTitle>
-        <CardDescription className="text-body-sm">
-          Live state for Dispatch loops, dependencies, and connection managers.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="px-0 pb-0">
-        <div className="hidden grid-cols-[minmax(12rem,1.4fr)_minmax(7rem,0.6fr)_minmax(7rem,0.6fr)_5.5rem] gap-3 border-y border-border px-4 py-2 section-label md:grid">
+    <DashboardSection
+      title="Runtime health"
+      description="Live state for Dispatch loops, dependencies, and connection managers."
+    >
+      <Panel className="overflow-hidden p-0">
+        <div className="hidden grid-cols-[minmax(12rem,1.4fr)_minmax(7rem,0.6fr)_minmax(7rem,0.6fr)_5.5rem] gap-3 border-b border-border-subtle px-4 py-2 section-label md:grid">
           <span>Subsystem</span>
           <span>Duration</span>
           <span>Activity</span>
@@ -266,7 +255,7 @@ export function ServiceResourcesSubsystems({
             series={series}
           />
         ))}
-      </CardContent>
-    </Card>
+      </Panel>
+    </DashboardSection>
   );
 }

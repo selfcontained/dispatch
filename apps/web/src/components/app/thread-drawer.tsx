@@ -1,8 +1,7 @@
 import { ConversationReturnLink } from "./chat/conversation-location-link";
 import { useMemo, useState } from "react";
-import { DismissableLayer } from "@radix-ui/react-dismissable-layer";
 import { MotionConfig } from "framer-motion";
-import { ArrowLeft, X } from "lucide-react";
+import { ArrowLeft } from "lucide-react";
 
 import {
   AuthorMeta,
@@ -16,13 +15,17 @@ import {
   type DrawerPage,
 } from "@/components/app/drawer/drawer-stack";
 import { ThreadPage } from "@/components/app/drawer/thread-page";
-import { useDrawerClosing } from "@/components/app/drawer";
+import { SheetClose, useSheetClosing } from "@/components/ui/sheet";
 import { type Agent } from "@/components/app/types";
 import { useDrawerRoute } from "@/hooks/use-drawer-route";
 import { useAgentRecord } from "@/hooks/use-agent-tree";
 import { useThread } from "@/hooks/use-stream";
 import { cn } from "@/lib/utils";
 import { IconButton } from "@/components/ui/icon-button";
+
+/** These take the thread's place, or sit over it, on their own click. */
+export const THREAD_KEEP_OPEN =
+  '[data-background-work-trigger], [data-testid="toggle-drawer"]';
 
 export type ThreadDrawerProps = {
   selectedAgentId: string | null;
@@ -60,7 +63,7 @@ function sameTarget(a: ThreadTarget, b: ThreadTarget | null): boolean {
 
 /**
  * A thread (or a review, or another agent's turn) open beside the stream,
- * from the URL. Its own panel, not a page over the sidebar: closing it
+ * from the URL. Its own Sheet, not a page over the sidebar: closing it
  * returns to the stream with the sidebar closed. Only a
  * finding stacks over its review inside it, with a way back to the
  * review; everywhere else the one control is close. While its frame
@@ -78,7 +81,7 @@ export function ThreadDrawer({
   className,
 }: ThreadDrawerProps): JSX.Element | null {
   const route = useDrawerRoute();
-  const closing = useDrawerClosing();
+  const closing = useSheetClosing();
   const current: ThreadTarget | null =
     selectedAgentId && rootId && route.threadId
       ? {
@@ -179,99 +182,55 @@ export function ThreadDrawer({
   const depth = pages.length;
 
   return (
-    <DismissableLayer
-      asChild
-      onEscapeKeyDown={(event) => {
-        if (!current) return;
-        // Radix listens on document capture, before the composer can consume
-        // Escape for its inline suggestions. Let that expanded control handle it.
-        if (
-          event.target instanceof Element &&
-          event.target.closest('[data-chat-composer][aria-expanded="true"]')
-        )
-          return;
-        event.preventDefault();
-        if (findingId) back();
-        else closeAll();
-      }}
-      onPointerDownOutside={(event) => {
-        const target = event.target;
-        // React-owned portals are inside the layer already. Shared overlays
-        // (such as the file lightbox) live beside the drawer in the app tree.
-        if (
-          isMobile ||
-          !current ||
-          // Radix delays touch dismissal until click. A control can replace
-          // itself during that click (Show progress), detaching the original
-          // target from its dialog before this handler runs. That stale target
-          // is no longer evidence of a click outside the drawer.
-          (target instanceof Node && !target.isConnected) ||
-          (target instanceof Element &&
-            target.closest(
-              '[role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"], [data-testid="drawer-resize-handle"], [data-background-work-trigger], [data-testid="toggle-drawer"], [data-sonner-toaster]'
-            ))
-        )
-          return;
-        closeAll();
-      }}
+    <aside
+      data-testid="thread-drawer"
+      data-depth={depth}
+      className={cn(
+        "flex h-full min-h-0 w-full flex-col text-foreground",
+        className
+      )}
+      aria-label={heading.title}
     >
-      <aside
-        data-testid="thread-drawer"
-        data-depth={depth}
-        className={cn(
-          "flex h-full min-h-0 w-full flex-col text-foreground",
-          className
+      <div className="flex min-h-14 items-center gap-1 pl-1.5 pr-2 pt-safe">
+        {depth > 1 ? (
+          <IconButton label="Back" data-testid="drawer-back" onClick={back}>
+            <ArrowLeft aria-hidden="true" />
+          </IconButton>
+        ) : (
+          <span className="w-2" aria-hidden="true" />
         )}
-        aria-label={heading.title}
-      >
-        <div className="flex min-h-14 items-center gap-1 pl-1.5 pr-2 pt-safe">
-          {depth > 1 ? (
-            <IconButton label="Back" data-testid="drawer-back" onClick={back}>
-              <ArrowLeft aria-hidden="true" />
-            </IconButton>
-          ) : (
-            <span className="w-2" aria-hidden="true" />
-          )}
-          {identity && identity.kind !== "user" ? (
-            <div className="mr-2 shrink-0" data-testid="drawer-identity">
-              <Avatar author={identity} />
+        {identity && identity.kind !== "user" ? (
+          <div className="mr-2 shrink-0" data-testid="drawer-identity">
+            <Avatar author={identity} />
+          </div>
+        ) : null}
+        <div className="min-w-0 flex-1">
+          <div
+            className="truncate text-body-md font-semibold text-foreground"
+            data-testid="drawer-title"
+          >
+            {heading.title}
+          </div>
+          {heading.subtitle ? (
+            <div
+              className="truncate text-label-sm text-muted-foreground"
+              data-testid="drawer-subtitle"
+            >
+              {heading.subtitle}
             </div>
           ) : null}
-          <div className="min-w-0 flex-1">
-            <div
-              className="truncate text-body-md font-semibold text-foreground"
-              data-testid="drawer-title"
-            >
-              {heading.title}
+          {identity ? (
+            <div className="mt-0.5 flex min-w-0" data-testid="drawer-meta">
+              <AuthorMeta author={identity} />
             </div>
-            {heading.subtitle ? (
-              <div
-                className="truncate text-label-sm text-muted-foreground"
-                data-testid="drawer-subtitle"
-              >
-                {heading.subtitle}
-              </div>
-            ) : null}
-            {identity ? (
-              <div className="mt-0.5 flex min-w-0" data-testid="drawer-meta">
-                <AuthorMeta author={identity} />
-              </div>
-            ) : null}
-          </div>
-          <IconButton
-            size="icon-sm"
-            label="Close"
-            data-testid="drawer-close"
-            onClick={closeAll}
-          >
-            <X aria-hidden="true" />
-          </IconButton>
+          ) : null}
         </div>
-        <ConversationReturnLink inDrawer />
-        <MotionConfig reducedMotion="user">
-          <DrawerStack pages={pages} />
-        </MotionConfig>
-      </aside>
-    </DismissableLayer>
+        <SheetClose data-testid="drawer-close" onClick={closeAll} />
+      </div>
+      <ConversationReturnLink inDrawer />
+      <MotionConfig reducedMotion="user">
+        <DrawerStack pages={pages} />
+      </MotionConfig>
+    </aside>
   );
 }

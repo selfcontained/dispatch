@@ -6,6 +6,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { panelFrame } from "@/components/ui/card";
 import {
   ChevronLeft,
   Clipboard,
@@ -280,10 +281,10 @@ export function ContextPicker({
     <div
       ref={rootRef}
       className={cn(
-        "space-y-3 rounded-md border bg-surface-subtle px-3 py-3 transition-colors",
-        draggingFiles
-          ? "border-info/line bg-info/tint ring-1 ring-inset ring-info/line"
-          : "border-border-subtle",
+        panelFrame,
+        "space-y-3 p-3 transition-colors",
+        draggingFiles &&
+          "border-info/line bg-info/tint ring-1 ring-inset ring-info/line",
         className
       )}
       onPaste={handleRootPaste}

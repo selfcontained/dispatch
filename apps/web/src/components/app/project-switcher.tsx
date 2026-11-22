@@ -1,4 +1,6 @@
 import { useRef, useState } from "react";
+import { panelFrame } from "@/components/ui/card";
+import { cn } from "@/lib/utils";
 import { matchPath, useLocation, useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -180,7 +182,7 @@ export function ProjectSwitcher({ allowAll = true }: { allowAll?: boolean }) {
                   {projects.map((p) => (
                     <div
                       key={p.id}
-                      className="flex items-center gap-3 rounded-lg border border-border p-3"
+                      className={cn(panelFrame, "flex items-center gap-3 p-3")}
                     >
                       <ProjectIcon project={p} />
                       <span

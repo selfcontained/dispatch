@@ -4,11 +4,11 @@ AI routing is **Off** by default. When enabled it chooses the reply location bef
 
 ## Settings and credentials
 
-Open **Settings → Agents → AI routing**. The checkbox enables routing. The access-token field shows a fixed mask when configured; it never reads the credential back. Edit replaces the mask with an empty password input and Save/Cancel actions. Test sends one synthetic request using the saved token; its result appears temporarily beside the field heading. Removing the token turns routing off and disables the checkbox until another token is saved.
+Open **Settings → Agents → AI routing**. The switch enables routing. The access-token field shows a fixed mask when configured; it never reads the credential back. Edit replaces the mask with an empty password input and Save/Cancel actions. Test sends one synthetic request using the saved token; its result appears temporarily beside the field heading. Removing the token turns routing off and disables the switch until another token is saved.
 
 The token is stored in the server's Postgres `settings` table without application-level encryption. Protect database access, disks, and backups. It is not put in browser storage, conversation prompts, diagnostic exports, or logs.
 
-Production uses the database token and checkbox state. Environment tokens and mode flags do not override product Settings. For isolated development stacks (`DISPATCH_DEV_STACK=1`), `DISPATCH_DECISIONS_API_KEY` can seed the database token once when no token setting exists. A saved replacement wins. Removal writes an empty setting so a restart cannot silently restore the env token. Seeding a token does not enable routing.
+Production uses the database token and switch state. Environment tokens and mode flags do not override product Settings. For isolated development stacks (`DISPATCH_DEV_STACK=1`), `DISPATCH_DECISIONS_API_KEY` can seed the database token once when no token setting exists. A saved replacement wins. Removal writes an empty setting so a restart cannot silently restore the env token. Seeding a token does not enable routing.
 
 Settings and connection checks require an authenticated session or the server bearer token in production, including first-run mode. A password-free isolated dev stack permits its normal browser Settings flow without an extra login. An existing dev password remains authoritative. Global browser-origin and portfolio boundaries still apply. Diagnostic export always requires the server bearer token.
 

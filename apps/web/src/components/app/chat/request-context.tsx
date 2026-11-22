@@ -143,7 +143,9 @@ export function RequestContext({
             "grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-x-1 sm:grid-cols-[auto_minmax(0,1fr)_auto_auto]"
         )}
         onKeyDown={(event) => {
-          if (event.key === "Escape") setOpen(false);
+          if (event.key !== "Escape" || !open) return;
+          event.preventDefault();
+          setOpen(false);
         }}
       >
         <div

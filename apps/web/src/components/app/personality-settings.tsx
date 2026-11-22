@@ -7,6 +7,9 @@ import { IconButton } from "@/components/ui/icon-button";
 import { RadioIndicator } from "@/components/app/radio-indicator";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { SettingsGroup } from "@/components/app/settings-layout";
+import { Panel, panelFrame } from "@/components/ui/card";
+import { useAutoSave } from "@/hooks/use-auto-save";
 import { Alert } from "@/components/ui/alert";
 import { LoadError } from "@/components/ui/async-boundary";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -68,6 +71,16 @@ export function PersonalitySettings(): JSX.Element {
     nameInputRef.current?.focus();
   }, [formSessionKey]);
 
+  const autoSave = useAutoSave<string | null, "active">(async (_, id) => {
+    await api<{ activeId: string | null }>("/api/v1/personalities/active", {
+      method: "POST",
+      body: JSON.stringify({ id }),
+    });
+    setActiveId(id);
+  });
+  const { save: saveSetting, clear: clearSave } = autoSave;
+  const shownActiveId = autoSave.value("active", activeId);
+
   const refresh = useCallback(async () => {
     try {
       const data = await api<ListResponse>("/api/v1/personalities");
@@ -75,12 +88,13 @@ export function PersonalitySettings(): JSX.Element {
       setActiveId(data.activeId);
       setLoadError(undefined);
       setFailure(undefined);
+      clearSave("active");
     } catch (err) {
       setLoadError(err);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [clearSave]);
 
   useEffect(() => {
     void refresh();
@@ -149,25 +163,11 @@ export function PersonalitySettings(): JSX.Element {
   }, [editing, refresh]);
 
   const toggleActive = useCallback(
-    async (id: string) => {
-      const next = activeId === id ? null : id;
-      const previous = activeId;
-      setActiveId(next);
+    (id: string) => {
       setFailure(undefined);
-      try {
-        await api<{ activeId: string | null }>("/api/v1/personalities/active", {
-          method: "POST",
-          body: JSON.stringify({ id: next }),
-        });
-      } catch (err) {
-        setActiveId(previous);
-        setFailure({
-          title: "Couldn’t change the active personality.",
-          error: err,
-        });
-      }
+      void saveSetting("active", shownActiveId === id ? null : id);
     },
-    [activeId]
+    [saveSetting, shownActiveId]
   );
 
   const deletePersonality = useCallback(
@@ -184,10 +184,7 @@ export function PersonalitySettings(): JSX.Element {
   const renderFormCard = () => {
     if (!editing) return null;
     return (
-      <div
-        className="rounded-md border border-border bg-surface-subtle p-4"
-        data-testid="personality-form"
-      >
+      <Panel data-testid="personality-form">
         <Field
           id="personality-name"
           label="Name"
@@ -253,23 +250,24 @@ export function PersonalitySettings(): JSX.Element {
             {editing.mode === "create" ? "Create" : "Save"}
           </Button>
         </div>
-      </div>
+      </Panel>
     );
   };
 
   const renderRow = (personality: Personality) => {
-    const isActive = personality.id === activeId;
+    const isActive = personality.id === shownActiveId;
     return (
       <div
         className={cn(
-          "flex items-start gap-3 rounded-md border p-3 transition-colors",
+          panelFrame,
+          "flex flex-wrap items-start gap-3 p-3 transition-colors sm:flex-nowrap",
           isActive
             ? "border-primary bg-surface-selected"
-            : "border-border hover:border-muted-foreground/line"
+            : "hover:border-muted-foreground/line"
         )}
       >
         <IconButton
-          onClick={() => void toggleActive(personality.id)}
+          onClick={() => toggleActive(personality.id)}
           aria-pressed={isActive}
           label={
             isActive
@@ -289,7 +287,7 @@ export function PersonalitySettings(): JSX.Element {
             {personality.prompt}
           </p>
         </div>
-        <div className="flex shrink-0 items-center gap-1.5">
+        <div className="ml-auto flex shrink-0 items-center gap-1.5">
           <Button
             type="button"
             size="sm"
@@ -315,15 +313,11 @@ export function PersonalitySettings(): JSX.Element {
   const isCreating = editing?.mode === "create";
 
   return (
-    <div className="flex flex-col gap-4 p-4 md:p-6">
-      <div>
-        <div className="mb-1.5 section-label">Personalities</div>
-        <p className="max-w-2xl text-body-md text-muted-foreground">
-          Add text to every system prompt at launch. Use it for voice or
-          preferences. Not used for review personas or jobs.
-        </p>
-      </div>
-
+    <SettingsGroup
+      title="Personalities"
+      description="Add text to every system prompt at launch. Use it for voice or preferences. Not used for review personas or jobs."
+      status={autoSave.status("active")}
+    >
       {loadError ? (
         <LoadError
           thing="personalities"
@@ -409,6 +403,6 @@ export function PersonalitySettings(): JSX.Element {
           if (deleting) await deletePersonality(deleting);
         }}
       />
-    </div>
+    </SettingsGroup>
   );
 }

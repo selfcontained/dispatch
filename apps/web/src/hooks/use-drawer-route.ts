@@ -61,7 +61,8 @@ export function useDrawerRoute(): DrawerRoute {
         next.delete(FINDING_PARAM);
         return next;
       },
-      { replace: true }
+      // At once: the press that dismissed it may edit the URL too.
+      { replace: true, flushSync: true }
     );
   }, [setSearchParams]);
 

@@ -227,7 +227,16 @@ export default {
         "viewer-menu": "150",
         tooltip: "160",
       },
+      maxWidth: {
+        // The one contained page width, and a comfortable line for prose.
+        page: "60rem",
+        reading: "48rem",
+      },
       keyframes: {
+        "sheet-in-right": { from: { transform: "translateX(100%)" } },
+        "sheet-in-left": { from: { transform: "translateX(-100%)" } },
+        "sheet-in-bottom": { from: { transform: "translateY(100%)" } },
+        "sheet-fade-in": { from: { opacity: "0" } },
         // Fade new posts without moving their rendered position. The same
         // animation is used for changing activity labels inside the stream.
         "chat-enter": {
@@ -316,6 +325,10 @@ export default {
         },
       },
       animation: {
+        "sheet-in-right": "sheet-in-right 300ms cubic-bezier(0.2, 0, 0, 1)",
+        "sheet-in-left": "sheet-in-left 300ms cubic-bezier(0.2, 0, 0, 1)",
+        "sheet-in-bottom": "sheet-in-bottom 300ms cubic-bezier(0.2, 0, 0, 1)",
+        "sheet-fade-in": "sheet-fade-in 300ms ease-out",
         "mobile-toolbar-flash": "mobile-toolbar-flash 420ms ease-out forwards",
         // A feed entry arriving after the initial render (see ChatFeed).
         "chat-enter": "chat-enter 850ms ease-in-out",
