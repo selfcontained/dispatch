@@ -1003,6 +1003,8 @@ async function swapOverNewConnection(attemptId: string) {
 }
 
 async function runningInOriginalSession(host: Host) {
+  // A successful launch reply precedes the manager's running-row update.
+  await world.until(async () => (await statusOf(host.id)) === "running");
   expect(await world.manager.getAgent(host.id)).toMatchObject({
     status: "running",
     cliSessionId: host.sessionId,
@@ -1050,8 +1052,8 @@ describe("runner update scenarios", () => {
         await world.until(() => remote.launches.length === 2);
       }
       await world.recorded();
-      recoveredOnce(remote, path);
       await runningInOriginalSession(remote);
+      recoveredOnce(remote, path);
       expect(remote.interrupts).toEqual(path === "force" ? [turn] : []);
       expect(continuations(remote).map(({ id }) => id)).toEqual(
         path === "force" ? [continuationId(attemptId, remote.id)] : []
@@ -1198,18 +1200,14 @@ describe("runner update scenarios", () => {
       expect(launched.prompts.map(({ text }) => text)).toEqual([marker]);
       await runningInOriginalSession(launched);
       if (path === "live") {
-        await world.until(
-          async () =>
-            prior.launches.length === 2 &&
-            (await statusOf(prior.id)) === "running"
-        );
+        await world.until(() => prior.launches.length === 2);
       } else {
         expect(world.effects.lastIndexOf(`launch:${prior.id}`)).toBeLessThan(
           world.effects.indexOf(`launch:${queued.id}`)
         );
       }
-      recoveredOnce(prior, path);
       await runningInOriginalSession(prior);
+      recoveredOnce(prior, path);
     }
   );
 
