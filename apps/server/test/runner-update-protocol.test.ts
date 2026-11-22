@@ -1,5 +1,6 @@
 import {
   MAX_UPDATE_RETAINED,
+  encodeUpdateStatus,
   isTerminalEvent,
   parseReadyFrame,
   parseServiceFrame,
@@ -223,6 +224,53 @@ describe("update_status", () => {
       { reason: "ready" },
     ])
       expect(parseUpdateStatus({ ...cleared, ...change })).toBeNull();
+  });
+
+  it("sends an interrupted trial in terms an older service accepts", () => {
+    // The closed vocabulary of a service from before the reason existed.
+    const olderReasons = [
+      "staging",
+      "ready",
+      "incompatible_handoff",
+      "operations_pending",
+      "fence_ready",
+      "trial",
+      "verify_failed",
+      "downgrade",
+      "boot_failed",
+      "confirm_timeout",
+      "reattach_failed",
+      "suppressed",
+      "cancelled",
+    ];
+    for (const phase of ["deferred", "rolled_back"] as const) {
+      const frame = {
+        type: "update_status" as const,
+        attemptId,
+        phase,
+        reason: "trial_interrupted" as const,
+        installed,
+      };
+      const wire = encodeUpdateStatus(frame);
+      expect(olderReasons).toContain(wire.reason);
+      expect(wire).toEqual({
+        ...frame,
+        reason: "cancelled",
+        interrupted: true,
+      });
+      expect(parseUpdateStatus(wire)).toEqual(frame);
+      for (const change of [
+        { interrupted: false },
+        { reason: "confirm_timeout" },
+        { phase: "confirmed" },
+        { phase: "deferred", fenceCleared: true },
+      ])
+        expect(parseUpdateStatus({ ...wire, ...change })).toBeNull();
+      // A real cancellation stays one, and other reasons travel unchanged.
+      const cancelled = { ...frame, reason: "cancelled" as const };
+      expect(encodeUpdateStatus(cancelled)).toBe(cancelled);
+      expect(parseUpdateStatus(cancelled)).toEqual(cancelled);
+    }
   });
 
   it("bounds the retained inventory", () => {

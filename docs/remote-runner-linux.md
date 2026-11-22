@@ -254,7 +254,10 @@ and reattach the retained sessions. A confirmation binds the attempt to the
 exact revision and digest. The helper records the confirmed version floor
 and retains one previous verified executable. Failed trials restore the
 previous executable and require an explicit retry to try the failed digest
-again. Inspect `/var/lib/dispatch-runner/update/trial.json` and
+again. A trial whose helper stopped before deciding, for example through a
+crash or reboot, records `trial_interrupted` instead of a timeout or a failed
+boot. On the wire that is `cancelled` with `interrupted: true`, which older
+controllers accept. Inspect `/var/lib/dispatch-runner/update/trial.json` and
 `journalctl -u dispatch-runner-trial.service` for the outcome.
 
 Manual update and uninstall share the same lock and refuse an active update

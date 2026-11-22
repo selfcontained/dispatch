@@ -5,6 +5,7 @@ import path from "node:path";
 import { promisify } from "node:util";
 import { embeddedBuild } from "../build-identity.js";
 import {
+  encodeUpdateStatus,
   RUNNER_SELF_UPDATE_PROTOCOL,
   type RetainedSession,
   type RunnerInstalledBuild,
@@ -201,13 +202,15 @@ export function createRunnerUpdateAgent(options: {
       requiresQuiescence?: boolean;
     } = {}
   ) {
-    send?.({
-      type: "update_status",
-      attemptId,
-      phase,
-      ...extra,
-      installed: installed(),
-    });
+    send?.(
+      encodeUpdateStatus({
+        type: "update_status",
+        attemptId,
+        phase,
+        ...extra,
+        installed: installed(),
+      })
+    );
   }
   const stageStatus = (attemptId: string, result?: StageResult) =>
     status(attemptId, "deferred", {

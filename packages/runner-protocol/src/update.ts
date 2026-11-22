@@ -56,6 +56,7 @@ export type RunnerUpdateReason =
   | "boot_failed"
   | "confirm_timeout"
   | "reattach_failed"
+  | "trial_interrupted"
   | "suppressed"
   | "cancelled";
 
@@ -71,6 +72,7 @@ export const RUNNER_UPDATE_REASONS: readonly RunnerUpdateReason[] = [
   "boot_failed",
   "confirm_timeout",
   "reattach_failed",
+  "trial_interrupted",
   "suppressed",
   "cancelled",
 ];
@@ -135,6 +137,19 @@ export type UpdateStatusFrame = {
   retained?: RetainedSession[];
   requiresQuiescence?: boolean;
 };
+
+/*
+ * A service from before `trial_interrupted` rejects an unknown reason by
+ * closing the connection, and a runner replays its terminal status on every
+ * connection. So that reason travels as `cancelled` plus `interrupted: true`.
+ */
+export function encodeUpdateStatus(
+  frame: UpdateStatusFrame
+): UpdateStatusFrame & { interrupted?: true } {
+  return frame.reason === "trial_interrupted"
+    ? { ...frame, reason: "cancelled", interrupted: true }
+    : frame;
+}
 
 export const UPDATE_SERVICE_FRAME_TYPES: ReadonlySet<string> = new Set([
   "update_offer",
@@ -324,6 +339,11 @@ export function parseUpdateStatus(value: unknown): UpdateStatusFrame | null {
       (value.fenceCleared !== true ||
         value.phase !== "deferred" ||
         value.reason !== "cancelled")) ||
+    (value.interrupted !== undefined &&
+      (value.interrupted !== true ||
+        value.reason !== "cancelled" ||
+        value.fenceCleared !== undefined ||
+        (value.phase !== "deferred" && value.phase !== "rolled_back"))) ||
     (value.requiresQuiescence !== undefined &&
       typeof value.requiresQuiescence !== "boolean")
   )
@@ -341,7 +361,9 @@ export function parseUpdateStatus(value: unknown): UpdateStatusFrame | null {
     attemptId: value.attemptId,
     phase: value.phase,
     ...(value.reason !== undefined && {
-      reason: value.reason as RunnerUpdateReason,
+      reason: value.interrupted
+        ? "trial_interrupted"
+        : (value.reason as RunnerUpdateReason),
     }),
     ...(value.floorVersion !== undefined && {
       floorVersion: value.floorVersion as string,

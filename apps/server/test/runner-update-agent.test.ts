@@ -797,6 +797,22 @@ describe("durable trial protocol", () => {
     expect(s.updater.confirm).toHaveBeenCalledOnce();
   });
 
+  it("replays an interrupted trial without a reason older services reject", async () => {
+    const s = await trial();
+    s.setRecord({
+      fence: s.store.record!,
+      phase: "rolled_back",
+      reason: "trial_interrupted",
+    });
+    s.store.record = null;
+    await vi.advanceTimersByTimeAsync(500);
+    expect(s.last()).toMatchObject({
+      phase: "rolled_back",
+      reason: "cancelled",
+      interrupted: true,
+    });
+  });
+
   it("rejects a mismatching revision for the active attempt, ignoring an unrelated attempt", async () => {
     const s = await trial();
     await s.confirm(target.revision, otherAttempt);

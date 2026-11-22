@@ -383,11 +383,42 @@ describe("durable runner trial", () => {
       expected === "confirmed" ? s.target.sha256 : s.oldSha
     );
     expect(await sha256File(s.candidate)).toBe(s.target.sha256);
+    if (expected !== "confirmed")
+      expect(await s.journal()).toMatchObject({
+        // Before its journal exists there is only an activation to cancel.
+        reason:
+          boundary === "backup-pinned" ? "cancelled" : "trial_interrupted",
+      });
     expect(await s.suppressed()).toBe(expected === "rolled_back");
+    if (expected === "rolled_back")
+      expect(
+        JSON.parse(
+          await readFile(
+            path.join(s.layout.state, `failed-${s.target.sha256}.json`),
+            "utf8"
+          )
+        )
+      ).toMatchObject({ reason: "trial_interrupted" });
     if (expected !== "confirmed")
       expect(await readFile(s.previous, "utf8")).toBe(
         "formerly confirmed predecessor"
       );
+  });
+
+  it("records an interruption when the restarted live helper recovers a trial", async () => {
+    s.options.checkpoint = async (phase) => {
+      if (phase === "trial") throw new Error("helper killed");
+    };
+    s.options.sleep = async () => {
+      await s.ready();
+    };
+    await expect(s.live()).rejects.toThrow("helper killed");
+    s.options.checkpoint = undefined;
+    await s.live();
+    expect(await s.journal()).toMatchObject({
+      phase: "rolled_back",
+      reason: "trial_interrupted",
+    });
   });
 
   it.each(["restoring", "restored", "suppression-published", "rolled_back"])(

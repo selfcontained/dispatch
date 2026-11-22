@@ -51,6 +51,7 @@ type Failure = Extract<
   | "boot_failed"
   | "confirm_timeout"
   | "reattach_failed"
+  | "trial_interrupted"
   | "verify_failed"
   | "cancelled"
 >;
@@ -488,12 +489,9 @@ export async function runTrial(options: {
   if (prior) {
     if (terminalTrial(prior)) await cleanup(prior);
     else if (prior.phase === "committing") return commit(prior);
-    else
-      return rollback(
-        prior,
-        prior.reason ??
-          (prior.phase === "trial" ? "confirm_timeout" : "boot_failed")
-      );
+    // A running helper saves its reason before acting on it. A pending trial
+    // without one means the helper itself was interrupted.
+    else return rollback(prior, prior.reason ?? "trial_interrupted");
   }
 
   const fence = await (boot ? readFenceForRecovery() : store.read());
