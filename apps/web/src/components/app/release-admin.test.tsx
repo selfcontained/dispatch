@@ -327,6 +327,39 @@ describe("ReleasesAdmin — recent releases", () => {
     ).toBe("https://example.test/run");
   });
 
+  it("keeps a failed promotion poll quiet over the loaded list", async () => {
+    let promoted = false;
+    const fetchMock = await renderAdmin({
+      "/api/v1/releases": () =>
+        promoted
+          ? { ok: false, status: 502, statusText: "", headers: nullHeaders }
+          : okJson({
+              releases: [
+                makeRelease({ tag: "v2.0.0-rc.1", isPrerelease: true }),
+              ],
+            }),
+      "/api/v1/release/promote": () => {
+        promoted = true;
+        return okJson({ ok: true });
+      },
+    });
+
+    const row = (await screen.findByText("v2.0.0-rc.1")).closest("div")!;
+    fireEvent.click(within(row).getByRole("button", { name: "Promote" }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Promote release" }));
+    });
+
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.filter((c) => c[0] === "/api/v1/releases").length
+      ).toBe(2)
+    );
+    await act(() => new Promise((resolve) => setTimeout(resolve, 10)));
+    expect(screen.queryByText("Couldn’t load releases.")).toBeNull();
+    expect(within(row).getByText(/Promoting/)).toBeTruthy();
+  });
+
   it("cancelling the promote confirmation leaves the release alone", async () => {
     const promote = vi.fn(() => okJson({}));
     await renderAdmin({

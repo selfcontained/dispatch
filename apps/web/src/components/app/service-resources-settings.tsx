@@ -1,7 +1,7 @@
 import { useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
-import { AsyncBoundary } from "@/components/ui/async-boundary";
+import { AsyncBoundary, quietPoll } from "@/components/ui/async-boundary";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { SettingRow } from "@/components/ui/setting-row";
 import { LoadingSkeleton, Skeleton } from "@/components/ui/skeleton";
@@ -113,7 +113,7 @@ export function ServiceResourcesSettings(): JSX.Element {
       </SettingRow>
 
       <AsyncBoundary
-        query={query}
+        query={quietPoll(query)}
         thing="service resources"
         loading={
           <LoadingSkeleton

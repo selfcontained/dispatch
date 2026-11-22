@@ -13,7 +13,7 @@ import {
 } from "@/components/ui/sheet";
 import { IconButton } from "@/components/ui/icon-button";
 import { api } from "@/lib/api";
-import { AsyncBoundary } from "@/components/ui/async-boundary";
+import { AsyncBoundary, quietPoll } from "@/components/ui/async-boundary";
 import { EmptyState } from "@/components/ui/empty-state";
 import { LoadingSkeleton } from "@/components/ui/skeleton";
 
@@ -27,8 +27,7 @@ export function NotificationsDrawer(): JSX.Element {
     // Also refresh persisted settlements if the tab reconnects between events.
     refetchInterval: open ? 5000 : false,
   });
-  // It polls every 5s: a missed poll keeps the cards, without an alert.
-  const region = { ...history, error: history.data ? null : history.error };
+  const region = quietPoll(history);
   const items = history.data?.filter((item) => !dismissed[item.toastId]);
   return (
     <Sheet open={open} onOpenChange={setOpen}>

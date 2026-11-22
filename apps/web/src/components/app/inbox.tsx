@@ -475,8 +475,8 @@ export function InboxPanel({
           thing="reviews"
           error={inbox.reviewsError}
           className="mx-3 my-2"
-          retrying={inbox.loadingOlderReviews}
-          onRetry={() => inbox.loadOlderReviews?.()}
+          retrying={inbox.retryingReviews}
+          onRetry={() => inbox.retryReviews?.()}
         />
       ) : inbox.hasOlderReviews ? (
         <div className="px-3 py-2">

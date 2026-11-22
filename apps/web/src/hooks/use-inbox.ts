@@ -58,7 +58,10 @@ export type Inbox = {
   hasOlderReviews?: boolean;
   loadingOlderReviews?: boolean;
   loadOlderReviews?: () => void;
+  /** Reviews that never loaded, or an older page that didn't. */
   reviewsError?: Error | null;
+  retryReviews?: () => void;
+  retryingReviews?: boolean;
 };
 
 /** An agent's open question or form for people. */
@@ -244,7 +247,17 @@ export function useInbox(agentId: string | null): Inbox {
     loadOlderReviews: () => {
       void reviewFeed.fetchNextPage();
     },
-    reviewsError: reviewFeed.error,
+    // Both feeds poll: a missed poll over content says nothing.
+    reviewsError:
+      reviewFeed.data && !reviewFeed.isFetchNextPageError
+        ? null
+        : reviewFeed.error,
+    retryReviews: () => {
+      void (reviewFeed.isFetchNextPageError
+        ? reviewFeed.fetchNextPage()
+        : reviewFeed.refetch());
+    },
+    retryingReviews: reviewFeed.isFetching,
     checklists: derived.checklists,
     agentNames: Object.assign(
       {},
@@ -252,7 +265,7 @@ export function useInbox(agentId: string | null): Inbox {
       derived.agentNames
     ),
     isLoading: rootId !== null && feed.isLoading,
-    error: feed.error,
+    error: feed.data ? null : feed.error,
     retry: () => {
       void feed.refetch();
     },

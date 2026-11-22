@@ -25,7 +25,8 @@ export function announceArchiveResult(client: QueryClient, agent: Agent): void {
       });
       return true;
     }
-    return false;
+    // Rolled back: a later removal is not this archive's.
+    return sawArchiving && current.status !== "archiving";
   };
   if (check()) return;
   const unsubscribe = client.getQueryCache().subscribe((event) => {

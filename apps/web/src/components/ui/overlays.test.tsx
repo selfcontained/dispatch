@@ -14,7 +14,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { ApiError } from "@/lib/api";
 
 import { Alert } from "./alert";
-import { AsyncBoundary, type AsyncResult } from "./async-boundary";
+import { AsyncBoundary, quietPoll, type AsyncResult } from "./async-boundary";
 import {
   Combobox,
   ComboboxContent,
@@ -295,6 +295,17 @@ describe("AsyncBoundary", () => {
     show({ data: [], error: new Error("offline") });
     expect(screen.getByRole("alert")).toBeTruthy();
     expect(screen.queryByText("No jobs.")).toBeNull();
+  });
+
+  it("is quiet about a failed poll only over its own content", () => {
+    const error = new Error("offline");
+    const base = { error, isFetching: false, refetch: vi.fn() };
+    expect(quietPoll({ ...base, data: ["a"] }).error).toBeNull();
+    expect(quietPoll({ ...base, data: undefined }).error).toBe(error);
+    // Another window's numbers, held while this one loads, are not its content.
+    expect(
+      quietPoll({ ...base, data: ["a"], isPlaceholderData: true }).error
+    ).toBe(error);
   });
 
   it("keeps content under a failed refresh", () => {

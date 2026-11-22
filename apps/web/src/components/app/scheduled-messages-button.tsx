@@ -34,7 +34,7 @@ import {
   useScheduledMessages,
 } from "./scheduled-messages";
 import { Alert } from "@/components/ui/alert";
-import { AsyncBoundary } from "@/components/ui/async-boundary";
+import { AsyncBoundary, quietPoll } from "@/components/ui/async-boundary";
 import { EmptyState } from "@/components/ui/empty-state";
 
 type Action = "pause" | "resume" | "cancel";
@@ -243,7 +243,7 @@ export function ScheduledMessagesButton({
           <DialogDescription>Times in {scheduleTimezone()}.</DialogDescription>
         </DialogHeader>
         <DialogBody>
-          <AsyncBoundary query={query} thing="schedules">
+          <AsyncBoundary query={quietPoll(query)} thing="schedules">
             {() => (
               <div className="min-h-0">
                 <div className="pb-3">

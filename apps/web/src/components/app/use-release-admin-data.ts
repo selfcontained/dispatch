@@ -86,28 +86,31 @@ export function useReleaseAdminData(
     }
   }, [streamClientId]);
 
-  const fetchReleases = useCallback(async (): Promise<
-    GitHubRelease[] | null
-  > => {
-    setReleasesLoading(true);
-    try {
-      const res = await fetch("/api/v1/releases");
-      if (res.ok) {
-        const data = (await res.json()) as { releases: GitHubRelease[] };
-        setReleases(data.releases);
-        setReleasesError(undefined);
-        return data.releases;
+  // `quiet` is the promotion poll's: it runs over a list that already loaded.
+  const fetchReleases = useCallback(
+    async (quiet = false): Promise<GitHubRelease[] | null> => {
+      setReleasesLoading(true);
+      try {
+        const res = await fetch("/api/v1/releases");
+        if (res.ok) {
+          const data = (await res.json()) as { releases: GitHubRelease[] };
+          setReleases(data.releases);
+          setReleasesError(undefined);
+          return data.releases;
+        }
+        if (!quiet)
+          setReleasesError(
+            new ApiError(res.status, `${res.status} ${res.statusText}`.trim())
+          );
+      } catch (err) {
+        if (!quiet) setReleasesError(err);
+      } finally {
+        setReleasesLoading(false);
       }
-      setReleasesError(
-        new ApiError(res.status, `${res.status} ${res.statusText}`.trim())
-      );
-    } catch (err) {
-      setReleasesError(err);
-    } finally {
-      setReleasesLoading(false);
-    }
-    return null;
-  }, []);
+      return null;
+    },
+    []
+  );
 
   const refresh = useCallback(() => {
     void fetchInfo();
@@ -159,7 +162,7 @@ export function useReleaseAdminData(
     if (!promotion) return;
     let cancelled = false;
     const check = async () => {
-      const latest = await fetchReleases();
+      const latest = await fetchReleases(true);
       if (cancelled) return;
       const release = latest?.find((r) => r.tag === promotion.tag);
       if (release && !release.isPrerelease) {

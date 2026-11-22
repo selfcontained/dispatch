@@ -226,7 +226,8 @@ export function SlackAppSection() {
       {query.isPending && (
         <LoadingSkeleton label="Loading Slack setup…" rowClassName="h-16" />
       )}
-      {query.isError && (
+      {/* A missed poll shows on the badge alone. */}
+      {query.isError && !query.data && (
         <LoadError
           thing="Slack setup"
           error={query.error}

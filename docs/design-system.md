@@ -181,7 +181,7 @@ Entry point: "New <thing>". Dialog confirm: verb + object ("Create task", "Save 
 
 ### I5 — Loading, error and empty states
 
-One `AsyncBoundary` per data region with four exclusive states. _Loading_ → `Skeleton` in the shape of the content (never text alone, never the empty state). _Error_ → `LoadError`, an `Alert` (danger): "Couldn’t load <thing>." + Retry, raw server message behind a disclosure. _Empty_ → `EmptyState` (C11), shown only after a successful response; "no results" from a filter is a distinct message with a "Clear filters" action. _Ready_; a failed refresh keeps it under the error, except a background poll, which fails quietly once there is content. "Not found" needs a 404 or a successful list without the item. App boot gets the logo, a spinner, and after 10s an explicit failure message with Retry.
+One `AsyncBoundary` per data region with four exclusive states. _Loading_ → `Skeleton` in the shape of the content (never text alone, never the empty state). _Error_ → `LoadError`, an `Alert` (danger): "Couldn’t load <thing>." + Retry, raw server message behind a disclosure. _Empty_ → `EmptyState` (C11), shown only after a successful response; "no results" from a filter is a distinct message with a "Clear filters" action. _Ready_; a failed refresh keeps it under the error, except a background poll, which fails quietly once there is content (`quietPoll`); engine updates are the exception, since that poll is the only report on an update in progress. "Not found" needs a 404 or a successful list without the item. App boot gets the logo, a spinner, and after 10s an explicit failure message with Retry.
 
 ### I6 — Mutation feedback
 

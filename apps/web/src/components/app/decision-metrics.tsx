@@ -2,7 +2,7 @@ import type { DecisionMetrics, MergeRiskMetrics } from "@dispatch/shared";
 import { useDecisionMetrics, type ActivityRange } from "@/hooks/use-activity";
 import { StatCard } from "./stat-card";
 import { formatLatency } from "@/lib/format";
-import { AsyncBoundary } from "@/components/ui/async-boundary";
+import { AsyncBoundary, quietPoll } from "@/components/ui/async-boundary";
 import { LoadingSkeleton } from "@/components/ui/skeleton";
 
 function Metrics({
@@ -154,7 +154,7 @@ export function DecisionMetricsSection({
         </p>
       </div>
       <AsyncBoundary
-        query={query}
+        query={quietPoll(query)}
         thing="decision metrics"
         loading={
           <LoadingSkeleton

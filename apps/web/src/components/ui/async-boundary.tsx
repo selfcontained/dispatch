@@ -13,6 +13,17 @@ export type AsyncResult<T> = {
   refetch: () => unknown;
 };
 
+/**
+ * A polled query as a region shows it: a missed poll over its own content
+ * says nothing, and the next one tries again.
+ */
+export function quietPoll<
+  Q extends AsyncResult<unknown> & { isPlaceholderData?: boolean },
+>(query: Q): Omit<Q, "error"> & { error: unknown } {
+  const held = query.data !== undefined && !query.isPlaceholderData;
+  return { ...query, error: held ? null : query.error };
+}
+
 /** A failed load, and the way to try it again. */
 export function LoadError({
   thing,
