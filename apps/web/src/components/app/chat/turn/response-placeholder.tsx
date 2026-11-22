@@ -501,6 +501,12 @@ export function ResponsePlaceholderVisual({
   const cells = suppliedCells ?? layout.cells;
   const fills = suppliedFills ?? layout.fills ?? EMPTY_FILLS;
   const reducedCells = suppliedReducedCells ?? layout.reducedCells;
+  const hasFooter = Boolean(
+    (onShowProgress && textLength > 0) ||
+    summary ||
+    reserveSummary ||
+    fills.length > 0
+  );
   const cellSize = `clamp(0px, calc(100cqw / ${columns} - ${CELL_GAP}px), ${MAX_CELL_SIZE}px)`;
   useEffect(() => {
     const grid = gridRef.current;
@@ -577,7 +583,7 @@ export function ResponsePlaceholderVisual({
     <div
       data-glow={glow}
       data-testid="chat-response-placeholder"
-      className={`dispatch-placeholder ${quiet ? "" : "dispatch-placeholder-chase"} relative mt-3 w-full rounded-lg md:max-w-md border border-border/60 bg-muted/10 overflow-clip px-2.5 py-2 ${reducedCells ? "dispatch-defrag-reduced" : ""}`}
+      className={`dispatch-placeholder ${quiet ? "" : "dispatch-placeholder-chase"} relative mt-3 w-full rounded-lg md:max-w-md border border-border/60 bg-muted/10 overflow-clip px-2.5 pt-2 ${hasFooter ? "pb-1" : "pb-2"} ${reducedCells ? "dispatch-defrag-reduced" : ""}`}
     >
       {/* The status region holds only the picture; the peek control sits
           beside it, so its changing count is never announced. */}
@@ -716,18 +722,15 @@ export function ResponsePlaceholderVisual({
           )}
         </Tooltip>
       </TooltipProvider>
-      {(onShowProgress && textLength > 0) ||
-      summary ||
-      reserveSummary ||
-      fills.length > 0 ? (
-        <div className="relative mt-1.5 flex min-h-[14px] items-center gap-2">
+      {hasFooter ? (
+        <div className="relative mt-0.5 flex min-h-4 items-center gap-2 text-[10px] leading-4">
           {fills.length > 0 && <FillCount fills={fills} glow={glow} />}
           {summary || reserveSummary ? (
             // The line's room is held from the start, so the counts fading in
             // move nothing.
             <span
               className={cn(
-                "ml-auto min-w-0 truncate text-[11px] tabular-nums text-muted-foreground transition-opacity duration-300 motion-reduce:transition-none",
+                "ml-auto min-w-0 truncate tabular-nums text-muted-foreground transition-opacity duration-300 motion-reduce:transition-none",
                 !summary && "opacity-0"
               )}
               data-testid="chat-response-activity-counts"
@@ -741,7 +744,7 @@ export function ResponsePlaceholderVisual({
               onClick={onShowProgress}
               aria-label="Show progress text"
               data-testid="chat-response-show-progress"
-              className="ml-auto rounded-sm text-[11px] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              className="ml-auto rounded-sm text-muted-foreground underline-offset-2 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
             >
               Show progress · {formatChars(textLength)}
             </button>
