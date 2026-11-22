@@ -185,6 +185,7 @@ describe("candidate compatibility probe", () => {
         compatibility
       );
       await expect(stat(copy!)).rejects.toMatchObject({ code: "ENOENT" });
+      expect(childProcess.execFile).not.toHaveBeenCalled();
       await writeFile(runner, "different bytes");
       await expect(probeStagedRunner(layout, target)).rejects.toThrow(
         "digest mismatch"
@@ -198,6 +199,111 @@ describe("candidate compatibility probe", () => {
       await rm(staging, { recursive: true, force: true });
     }
   });
+
+  it.each([
+    [
+      "before exec",
+      "Result=exit-code\nExecMainCode=0\nExecMainStatus=0\nExecStartPre={ path=/bin/false ; argv[]=/bin/false ; ignore_errors=no ; pid=42 ; code=exited ; status=1 }\n",
+      " [result exit-code, ExecStartPre exited with status 1]",
+    ],
+    [
+      "while entering its sandbox",
+      "Result=exit-code\nExecMainCode=1\nExecMainStatus=226\n",
+      " [result exit-code, main exit status 226]",
+    ],
+    [
+      "by a signal",
+      "Result=signal\nExecMainCode=2\nExecMainStatus=9\n",
+      " [result signal, main signal 9]",
+    ],
+    [
+      "with an excessive result",
+      `Result=${"x".repeat(1000)}\n`,
+      ` [result ${"x".repeat(249)}]`,
+    ],
+    [
+      "without loading",
+      "Result=success\nExecMainCode=0\nExecMainStatus=0\n",
+      "",
+    ],
+    ["when systemctl cannot answer", null, ""],
+  ])(
+    "records and reaps a probe unit that fails %s",
+    async (_, shown, detail) => {
+      const staging = await mkdtemp(path.join(tmpdir(), "runner-probe-fail-"));
+      const platform = Object.getOwnPropertyDescriptor(process, "platform")!;
+      const { spawn } =
+        await vi.importActual<typeof childProcess>("node:child_process");
+      const { lstat } = await vi.importActual<typeof fs>("node:fs/promises");
+      const sha256 = createHash("sha256").update("candidate").digest("hex");
+      const installed = path.join(staging, "installed");
+      const runner = path.join(staging, `dispatch-${sha256}`);
+      const calls: string[][] = [];
+      let unit: string | undefined;
+      try {
+        await writeFile(runner, "candidate", { mode: 0o700 });
+        await writeFile(installed, "incumbent", { mode: 0o755 });
+        Object.defineProperty(process, "platform", {
+          ...platform,
+          value: "linux",
+        });
+        vi.spyOn(process, "getuid").mockReturnValue(0);
+        vi.mocked(fs.lstat).mockImplementation((async (file: string) =>
+          Object.assign(await lstat(file), { uid: 0 })) as typeof fs.lstat);
+        vi.mocked(childProcess.spawn).mockImplementation(((
+          _command: string,
+          args: string[],
+          options: childProcess.SpawnOptions
+        ) => {
+          unit = args
+            .find((arg) => arg.startsWith("--unit="))
+            ?.slice("--unit=".length);
+          // --collect would discard the result before it can be read.
+          expect(args).not.toContain("--collect");
+          return spawn("/bin/sh", ["-c", "exit 1"], options);
+        }) as typeof childProcess.spawn);
+        vi.mocked(childProcess.execFile).mockImplementation(((
+          _command: string,
+          args: string[],
+          options: childProcess.ExecFileOptions,
+          done: (error: Error | null, stdout: string) => void
+        ) => {
+          expect(options.timeout).toBeGreaterThan(0);
+          expect(options.maxBuffer).toBeGreaterThan(0);
+          calls.push(args);
+          done(shown === null ? new Error("no bus") : null, shown ?? "");
+        }) as typeof childProcess.execFile);
+        await expect(
+          probeStagedRunner(
+            { staging, config: "", installed, state: "" },
+            { version: "1.7.29", os: "linux", arch: "x64", sha256 }
+          )
+        ).rejects.toThrow(
+          new Error(`Runner compatibility probe failed (exit 1)${detail}`)
+        );
+        expect(unit).toMatch(/^dispatch-runner-probe-[a-f0-9]{16}\.service$/);
+        expect(calls).toEqual([
+          [
+            "show",
+            "--property=Result",
+            "--property=ExecMainCode",
+            "--property=ExecMainStatus",
+            "--property=ExecStartPre",
+            unit,
+          ],
+          ["stop", unit],
+          ["reset-failed", unit],
+        ]);
+      } finally {
+        Object.defineProperty(process, "platform", platform);
+        vi.restoreAllMocks();
+        vi.mocked(fs.lstat).mockReset();
+        vi.mocked(childProcess.spawn).mockReset();
+        vi.mocked(childProcess.execFile).mockReset();
+        await rm(staging, { recursive: true, force: true });
+      }
+    }
+  );
 
   it("accepts bounded JSON for the expected version and projects its fields", async () => {
     await expect(emit({ ...compatibility, extra: "ignored" })).resolves.toEqual(

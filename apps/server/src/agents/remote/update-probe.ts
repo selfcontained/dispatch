@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
 import { constants, createReadStream } from "node:fs";
 import { chmod, copyFile, lstat, unlink } from "node:fs/promises";
@@ -15,6 +15,7 @@ import {
 export const RUNNER_COMPATIBILITY_MODE = "runner-update-compatibility";
 const probeTimeoutMs = 5_000;
 const probeOutputLimit = 4096;
+const unitDetailLimit = 256;
 
 export function parseCompatibility(
   stdout: string,
@@ -119,6 +120,54 @@ export function readRunnerCompatibility(
   });
 }
 
+function systemctl(...args: string[]) {
+  return new Promise<string>((resolve) => {
+    execFile(
+      "/usr/bin/systemctl",
+      args,
+      {
+        timeout: probeTimeoutMs,
+        maxBuffer: 4 * probeOutputLimit,
+        env: { PATH: "/usr/sbin:/usr/bin:/sbin:/bin" },
+      },
+      (error, stdout) => resolve(error ? "" : String(stdout))
+    );
+  });
+}
+
+/**
+ * systemd-run says nothing about a unit that failed before exec, so read the
+ * failed unit's own result. It stays loaded until it is reset below.
+ */
+async function reapFailedProbe(unit: string) {
+  const shown = await systemctl(
+    "show",
+    "--property=Result",
+    "--property=ExecMainCode",
+    "--property=ExecMainStatus",
+    "--property=ExecStartPre",
+    unit
+  );
+  await systemctl("stop", unit);
+  await systemctl("reset-failed", unit);
+  const value = (name: string) =>
+    new RegExp(`^${name}=(.*)$`, "m").exec(shown)?.[1];
+  const result = value("Result");
+  // A unit that never loaded, or is still running, shows success.
+  if (!result || result === "success") return "";
+  const detail = [`result ${result}`];
+  // CLD_EXITED, CLD_KILLED and CLD_DUMPED. Zero means it never ran.
+  const code = value("ExecMainCode");
+  const status = value("ExecMainStatus");
+  if (code === "1") detail.push(`main exit status ${status}`);
+  else if (code === "2" || code === "3") detail.push(`main signal ${status}`);
+  for (const [, how, number] of shown.matchAll(
+    /^ExecStartPre=.* code=(exited|killed|dumped) ; status=([1-9]\d*)/gm
+  ))
+    detail.push(`ExecStartPre ${how} with status ${number}`);
+  return ` [${detail.join(", ").slice(0, unitDetailLimit)}]`;
+}
+
 /** Called by the root staging unit under its existing exclusive lock. */
 export async function probeStagedRunner(
   layout: RunnerUpdateLayout,
@@ -163,13 +212,16 @@ export async function probeStagedRunner(
     // The installed path exists on an executable filesystem. Inside the unit
     // its required read-only bind mount replaces it with the staged copy.
     const executable = layout.installed;
+    // A successful unit is collected on exit. A failed one is kept for its
+    // result, then reset.
+    const unit = `dispatch-runner-probe-${randomBytes(8).toString("hex")}.service`;
     return await readRunnerCompatibility(
       "/usr/bin/systemd-run",
       [
         "--wait",
         "--pipe",
         "--quiet",
-        "--collect",
+        `--unit=${unit}`,
         "--service-type=exec",
         "--property=User=nobody",
         "--property=Group=65534",
@@ -195,7 +247,9 @@ export async function probeStagedRunner(
       ],
       target.version,
       11_000
-    );
+    ).catch(async (error: Error) => {
+      throw new Error(`${error.message}${await reapFailedProbe(unit)}`);
+    });
   } finally {
     await unlink(copy).catch((error) => {
       if (error.code !== "ENOENT") throw error;

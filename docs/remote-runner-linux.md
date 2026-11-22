@@ -228,7 +228,10 @@ candidate, the updater makes a private copy, hashes it again and uses
 service running as `nobody`. The probe has no capabilities and runs with
 `NoNewPrivileges`, a five-second runtime limit, 512 MiB of memory and a limit
 of 32 tasks. The staging service bounds the probe's combined output and
-accepts only a valid compatibility response.
+accepts only a valid compatibility response. The probe runs as
+`dispatch-runner-probe-<id>.service`. If it fails, the staging service adds
+that unit's result and exit status to `compatibilityError`, then resets the
+unit.
 
 To stage by hand:
 
