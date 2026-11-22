@@ -1,0 +1,73 @@
+import assert from "node:assert/strict";
+import { test } from "node:test";
+import { ESLint } from "eslint";
+
+const eslint = new ESLint();
+
+async function violations(source, filePath = "src/example.tsx") {
+  const [result] = await eslint.lintText(source, { filePath });
+  return result.messages
+    .filter(({ ruleId }) => ruleId === "dispatch/design-tokens")
+    .map(({ messageId }) => messageId);
+}
+
+for (const [className, id] of [
+  ["text-[11px]", "fontSize"],
+  ["md:text-[0.85em]", "fontSize"],
+  ["text-xs", "fontSize"],
+  ["pointer-coarse:text-base", "fontSize"],
+  ["text-red-300", "palette"],
+  ["border-x-amber-500/30", "palette"],
+  ["bg-[#101014]", "palette"],
+  ["[[data-theme-mode=dark]_&]:text-sky-300", "palette"],
+  ["bg-white/[0.04]", "whiteBlack"],
+  ["border-l-white/20", "whiteBlack"],
+  ["!text-black", "whiteBlack"],
+  ["hover:shadow-[0_1px_4px_rgba(0,0,0,0.2)]", "shadow"],
+  ["flex rounded", "bareRounded"],
+  ["rounded-r", "bareRounded"],
+  ["rounded-[4px]", "radius"],
+  ["rounded-t-2xl", "radius"],
+  ["bg-muted/30", "alpha"],
+  ["border-foreground/[0.22]", "alpha"],
+  ["z-[70]", "zIndex"],
+  ["z-10", "zIndex"],
+]) {
+  test(`reject ${className}`, async () => {
+    assert.deepEqual(
+      await violations(`export const a = <div className="${className}" />;`),
+      [id]
+    );
+  });
+}
+
+test("check template literals", async () => {
+  assert.deepEqual(
+    await violations("export const c = (x: string) => `p-2 text-[9px] ${x}`;"),
+    ["fontSize"]
+  );
+});
+
+test("allow tokens, prose and fractions", async () => {
+  const source = [
+    "text-body-sm text-label-xs rounded-sm rounded-[inherit] z-modal z-0",
+    "bg-danger/tint border-danger/line shadow-elev-overlay text-muted-foreground",
+    "w-1/2 translate-x-1/2 bg-[hsl(var(--log-stream-bg))]",
+    "The result is rounded to two places.",
+  ]
+    .map(
+      (text, index) => `export const value${index} = ${JSON.stringify(text)};`
+    )
+    .join("\n");
+  assert.deepEqual(await violations(source), []);
+});
+
+test("leave test fixtures alone", async () => {
+  assert.deepEqual(
+    await violations(
+      'export const fixture = "text-[11px] bg-white";',
+      "src/example.test.tsx"
+    ),
+    []
+  );
+});

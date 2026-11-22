@@ -329,6 +329,7 @@
         "apps/web/src/**",
         "apps/web/index.html",
         "apps/web/eslint.config.js",
+        "apps/web/eslint-design-tokens*",
         "apps/web/tailwind.config.ts",
         "apps/web/package.json",
         "docs/design-system.md",
