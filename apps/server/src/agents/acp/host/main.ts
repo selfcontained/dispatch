@@ -726,12 +726,12 @@ async function main(): Promise<void> {
           }
         : undefined
     );
-    running = true;
     await writeFile(
       hostFile(stateDir, "session"),
       JSON.stringify({ sessionId, resumed: session.resumed }),
       { mode: 0o600 }
     );
+    running = driver.isRunning(agentId);
     // A client that connected before the engine was up gets the session.
     send(client, {
       type: "welcome",

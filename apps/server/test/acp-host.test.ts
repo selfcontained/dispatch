@@ -745,6 +745,64 @@ await import(${JSON.stringify(pathToFileURL(fakeAgent).href)});
     );
   }, 40_000);
 
+  it("sends one running welcome when a client attaches during the session write", async () => {
+    const dir = mkdtempSync("/tmp/dispatch-acp-welcome-");
+    const preload = path.join(dir, "hold-session-write.mjs");
+    const pending = path.join(dir, "write-pending");
+    const release = path.join(dir, "release-write");
+    writeFileSync(
+      preload,
+      `import { mock } from "bun:test";
+import { existsSync, writeFileSync } from "node:fs";
+import * as fs from "node:fs/promises";
+const { writeFile } = fs;
+mock.module("node:fs/promises", () => ({
+  ...fs,
+  async writeFile(file, ...args) {
+    if (file === ${JSON.stringify(path.join(dir, "session.json"))}) {
+      writeFileSync(${JSON.stringify(pending)}, "");
+      while (!existsSync(${JSON.stringify(release)})) await Bun.sleep(10);
+    }
+    return writeFile(file, ...args);
+  },
+}));
+`
+    );
+    writeFileSync(
+      path.join(dir, "launch.json"),
+      JSON.stringify(launchFor("agt_starting", cwd))
+    );
+    const host = spawn(
+      "bun",
+      ["--preload", preload, mainTs, "agent-host", "--state", dir],
+      { stdio: "ignore" }
+    );
+    const exited = once(host, "exit");
+    let socket: net.Socket | undefined;
+    try {
+      await until(() => existsSync(pending), 5000);
+      socket = net.createConnection(path.join(dir, "host.sock"));
+      const messages: HostMessage[] = [];
+      const decode = ndjsonDecoder<HostMessage>();
+      socket.on("data", (chunk) => messages.push(...decode(chunk)));
+      await once(socket, "connect");
+      socket.write(
+        encodeMessage({ type: "hello", fromSeq: 0, replayComplete: true })
+      );
+      await until(() => messages.some((m) => m.type === "replay_complete"));
+
+      writeFileSync(release, "");
+      const welcomes = () => messages.filter((m) => m.type === "welcome");
+      await until(() => welcomes().length >= 2);
+      expect(welcomes().map((m) => m.running)).toEqual([false, true]);
+    } finally {
+      socket?.destroy();
+      host.kill();
+      await exited;
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }, 15_000);
+
   it("keeps a runner attachment across a passive inventory connection", async () => {
     const dir = mkdtempSync("/tmp/dispatch-acp-inventory-");
     const instanceId = "01234567-89ab-4cde-8fab-0123456789ab";
