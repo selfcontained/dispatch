@@ -473,7 +473,10 @@ describe("systemd supervisor handoff", () => {
         return policy;
       if (args[0] === "show") return stopped;
       if (args[0] === "stop" && args[1] === unit) {
-        if (policy === "KillMode=process\nExecStop=\nExecStopPost=")
+        if (
+          policy === "KillMode=process\nExecStop=\nExecStopPost=" ||
+          policy === "KillMode=process"
+        )
           processes.delete(11);
         else processes.clear();
         return "";
@@ -482,23 +485,27 @@ describe("systemd supervisor handoff", () => {
     });
     return { processes, command, system: systemdSupervisor(command) };
   };
-  it("stops only the supervisor and verifies the empty MainPID", async () => {
-    const { system, command, processes } = fixture();
-    await system.stop();
-    expect(processes).toEqual(new Set([100]));
-    expect(command.mock.calls).toEqual([
-      [
-        "show",
-        "--property=KillMode",
-        "--property=ExecStop",
-        "--property=ExecStopPost",
-        unit,
-      ],
-      ["stop", unit],
-      ["show", "--property=ActiveState", "--property=MainPID", unit],
-    ]);
-  });
+  it.each(["KillMode=process", "KillMode=process\nExecStop=\nExecStopPost="])(
+    "stops only the supervisor and verifies the empty MainPID (%j)",
+    async (policy) => {
+      const { system, command, processes } = fixture(policy);
+      await system.stop();
+      expect(processes).toEqual(new Set([100]));
+      expect(command.mock.calls).toEqual([
+        [
+          "show",
+          "--property=KillMode",
+          "--property=ExecStop",
+          "--property=ExecStopPost",
+          unit,
+        ],
+        ["stop", unit],
+        ["show", "--property=ActiveState", "--property=MainPID", unit],
+      ]);
+    }
+  );
   it.each([
+    "ExecStop=\nExecStopPost=",
     "KillMode=control-group\nExecStop=\nExecStopPost=",
     "KillMode=process\nExecStop=custom hook\nExecStopPost=",
     "KillMode=process\nExecStop=\nExecStopPost=custom hook",

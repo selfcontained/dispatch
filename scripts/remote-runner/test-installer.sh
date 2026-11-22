@@ -108,14 +108,25 @@ systemctl() {
       printf 'populated 0\nfrozen 0\n' > "$cgroup_root/service/cgroup.events"
       ;;
     show)
-      case "$3" in
-        KillMode) if [[ -e "$root/custom-kill" ]]; then echo control-group; else echo process; fi ;;
-        ExecStop|ExecStopPost|SubState) : ;;
-        ActiveState) printf 'inactive\n' ;;
-        MainPID) printf '101\n' ;;
-        ControlGroup) printf '/service\n' ;;
+      local property="$3" value=
+      case "$property" in
+        KillMode)
+          if [[ -e "$root/custom-kill" ]]; then value=control-group
+          elif [[ ! -e "$root/missing-kill" ]]; then value=process
+          fi
+          ;;
+        ExecStop|ExecStopPost) if [[ -e "$root/$property" ]]; then value='custom hook'; fi ;;
+        SubState) : ;;
+        ActiveState) value=inactive ;;
+        MainPID) value=101 ;;
+        ControlGroup) value=/service ;;
         *) return 1 ;;
       esac
+      if [[ -n "$value" || -e "$root/show-empty" ]]; then
+        if [[ "$4" == --value ]]; then printf '%s\n' "$value"
+        else printf '%s=%s\n' "$property" "$value"
+        fi
+      fi
       ;;
     freeze)
       : > "$root/frozen"
@@ -452,6 +463,12 @@ touch "$root/idle-host" "$root/custom-kill"
 expect_status 75 update v1.0.1
 [[ ! -e "$root/runtime/previous" && ! -e "$root/frozen" ]] || fail
 rm "$root/custom-kill"
+for unsafe in missing-kill ExecStop ExecStopPost; do
+  touch "$root/$unsafe"
+  expect_status 75 update v1.0.1
+  rm "$root/$unsafe"
+done
+touch "$root/show-empty"
 
 : > "$root/reject-new"
 expect_status 1 update v1.0.1 arm64

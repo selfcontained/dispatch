@@ -249,10 +249,11 @@ export function systemdSupervisor(command = systemctl): TrialSystem {
   return {
     async stop() {
       const policy = await show("KillMode", "ExecStop", "ExecStopPost");
+      // Older systemd omits empty stop hooks from show output.
       if (
         policy.KillMode !== "process" ||
-        policy.ExecStop !== "" ||
-        policy.ExecStopPost !== ""
+        policy.ExecStop ||
+        policy.ExecStopPost
       )
         throw new Error("Runner stop policy cannot preserve hosts");
       await command("stop", SUPERVISOR);

@@ -445,6 +445,7 @@ thaw() {
 # checker. Keep a copy with the rollback record for interrupted maintenance.
 preserves_session_processes() {
   local mode stop post
+  # --value yields an empty string for both omitted and printed empty hooks.
   mode=$(systemctl show -p KillMode --value "$unit") &&
     stop=$(systemctl show -p ExecStop --value "$unit") &&
     post=$(systemctl show -p ExecStopPost --value "$unit") &&
