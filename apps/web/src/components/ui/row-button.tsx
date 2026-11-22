@@ -5,9 +5,10 @@ import { cn } from "@/lib/utils";
 export interface RowButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   selected?: boolean;
   /**
-   * Keeps the row's own height on touch and reaches the 44px target with an
-   * invisible overlap instead, for dense lists whose rhythm is the content
-   * (a turn's activity line and steps).
+   * Keeps the row's own height on touch, for dense lists whose rhythm is the
+   * content (a turn's activity line and steps). Rows that abut cannot grow a
+   * hit area without taking taps from their neighbours, so a dense row must
+   * be at least 24px tall itself, or extend into space nothing else uses.
    */
   dense?: boolean;
 }
@@ -23,9 +24,7 @@ const RowButton = React.forwardRef<HTMLButtonElement, RowButtonProps>(
       type={type}
       className={cn(
         "flex w-full items-center gap-2 rounded-md text-left transition-colors focus-ring-inset disabled-state",
-        dense
-          ? "relative pointer-coarse:after:absolute pointer-coarse:after:inset-x-0 pointer-coarse:after:-inset-y-2 pointer-coarse:after:content-['']"
-          : "pointer-coarse:min-h-11",
+        !dense && "pointer-coarse:min-h-11",
         selected
           ? "bg-surface-selected text-foreground"
           : "hover:bg-surface-hover",

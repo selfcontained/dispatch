@@ -138,7 +138,7 @@ describe("StepRow with children", () => {
 });
 
 describe("touch height", () => {
-  it("keeps an expandable row's own height on touch, with an overlap for the target", () => {
+  it("keeps an expandable row's own 28px height on touch, with no overlap into its neighbours", () => {
     render(
       <StepRow
         step={
@@ -160,6 +160,7 @@ describe("touch height", () => {
     );
     const row = screen.getByRole("button");
     expect(row.className).not.toContain("pointer-coarse:min-h-11");
-    expect(row.className).toContain("pointer-coarse:after:-inset-y-2");
+    expect(row.className).not.toContain("after:absolute");
+    expect(row.className).toContain("py-1.5");
   });
 });

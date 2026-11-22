@@ -503,6 +503,9 @@ function SummaryRow({
       data-final-result={trace.finalResult}
       className={cn(
         "-ml-1 grid w-[calc(100%+0.25rem)] min-w-0 py-0.5 pl-1 pr-1 text-muted-foreground",
+        // 24px on touch, the minimum target: nothing overlaps the step rows
+        // under it or the placeholder above it.
+        "pointer-coarse:py-1",
         slot
           ? "grid-cols-[12px_minmax(0,1fr)_auto_auto]"
           : "grid-cols-[minmax(0,1fr)_auto_auto]"
