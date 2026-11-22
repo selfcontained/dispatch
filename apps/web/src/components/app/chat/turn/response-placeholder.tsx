@@ -522,7 +522,7 @@ export function ResponsePlaceholderVisual({
     <div
       data-glow={glow}
       data-testid="chat-response-placeholder"
-      className={`dispatch-placeholder ${quiet ? "" : "dispatch-placeholder-chase"} relative mt-3 w-full max-w-md rounded-lg border border-border/60 bg-muted/10 overflow-clip px-2.5 py-2 ${reducedCells ? "dispatch-defrag-reduced" : ""}`}
+      className={`dispatch-placeholder ${quiet ? "" : "dispatch-placeholder-chase"} relative mt-3 w-full max-w-[326px] rounded-lg border border-border/60 bg-muted/10 overflow-clip px-2.5 py-2 ${reducedCells ? "dispatch-defrag-reduced" : ""}`}
     >
       {/* The status region holds only the picture; the peek control sits
           beside it, so its changing count is never announced. */}
