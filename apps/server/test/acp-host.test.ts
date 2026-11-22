@@ -338,6 +338,45 @@ describe("agent host", () => {
     }
   }, 30_000);
 
+  it("refuses an idle-only shutdown that arrives while a turn is open", async () => {
+    // A turn can open after probation read the welcome, so the host itself
+    // must refuse. The test above never gets as far as sending the shutdown.
+    const id = "agt_idle_only";
+    const { runtime, seen } = runtimeWith(stateRoot, () => 0);
+    await runtime.launch(launchFor(id, cwd));
+    const active = runtime.prompt(id, "sleep:60000");
+    void active.settled.catch(() => {});
+    let socket: net.Socket | undefined;
+    try {
+      await active.accepted;
+      await until(() =>
+        seen.some(
+          ({ event }) => event.type === "turn" && event.state === "started"
+        )
+      );
+      socket = net.createConnection(path.join(stateRoot, id, "host.sock"));
+      await once(socket, "connect");
+      const decode = ndjsonDecoder<HostMessage>();
+      // A host that shuts down answers nothing more and closes.
+      const reply = new Promise<string>((resolve) => {
+        socket!.on("data", (chunk) => {
+          if (decode(chunk).some((message) => message.type === "pong"))
+            resolve("pong");
+        });
+        socket!.once("close", () => resolve("closed"));
+      });
+      socket.write(
+        encodeMessage({ type: "shutdown", idleOnly: true }) +
+          encodeMessage({ type: "ping" })
+      );
+      expect(await reply).toBe("pong");
+      expect(await runtime.isAlive(id)).toBe(true);
+    } finally {
+      socket?.destroy();
+      await runtime.stop(id, true);
+    }
+  }, 30_000);
+
   it("does not count a foreign reused PID as an agent host", async () => {
     const id = "agt_foreign_pid";
     mkdirSync(path.join(stateRoot, id), { recursive: true });
