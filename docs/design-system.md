@@ -11,11 +11,11 @@ The rules new UI is built against and audited against. One rule per id; ids are 
 
 ### F1 — Type ramp
 
-Eight steps, registered in `tailwind.config.ts` `fontSize` with paired line-height: `label-xs` 10/14, `label-sm` 11/16, `body-sm` 12/16, `body-md` 14/20, `heading-sm` 14/20 semibold, `heading-md` 16/24 semibold, `heading-lg` 20/28 semibold, `display` 24/32 semibold. 9px, 8px and every half-pixel size are deleted (snap down to `label-xs` / `label-sm`). Weights: 400, 500, 600 only (`font-bold`×9 → semibold).
+Registered in `tailwind.config.ts` `fontSize` with paired line-height: `label-xs` 10/14, `label-sm` 11/16, `body-sm` 12/16, `body-md` 14/20, `body-lg` 16/24, `heading-sm` 14/20 semibold, `heading-md` 16/24 semibold, `heading-lg` 20/28 semibold, `display` 24/32 semibold. `body-lg` is for touch inputs (16px stops iOS zooming) and glyph-only controls. `code` (0.875em) is for inline code, which scales with its paragraph. No other sizes. Weights: 400, 500, 600 only.
 
 ### F2 — Eyebrow (uppercase section) labels
 
-One `<SectionLabel>`: `label-xs`, medium, `tracking-wider`, `text-muted-foreground`, uppercase. No other uppercase text except Badge.
+One `section-label` class: `label-xs`, medium, `tracking-wider`, `text-muted-foreground`, uppercase. A future `<SectionLabel>` component wraps that class. No other uppercase text except Badge.
 
 ### F3 — Headings
 
@@ -23,31 +23,31 @@ Page title = `heading-lg`. Dialog / drawer / card title = `heading-md`. Section 
 
 ### F4 — Radius
 
-`sm` — badges, menu items, checkboxes, inline chips. `md` — buttons, inputs, popovers, list rows. `lg` — cards, board columns, panels. `xl` — dialogs and sheets only. `full` — pills, avatars, dots. Bare `rounded` is banned (→ `sm`). Sub-4px radii allowed only on chart marks.
+`xs` (4px) — boxes of 20px or less, such as checkboxes and seat chips, which `sm` would turn into circles. `sm` — badges, menu items, inline chips. `md` — buttons, inputs, popovers, list rows. `lg` — cards, board columns, panels. `xl` — dialogs and sheets only. `full` — pills, avatars, dots. `mark` (2px) — chart marks only. `screen` (28px) — controls that follow a phone’s bottom corners. Bare `rounded` is banned (→ `sm`).
 
 ### F5 — Raw palette colors
 
-No raw palette classes or hex in `.tsx`. amber/yellow/orange → `warning`; green/emerald → `success`; red/rose → `danger`; blue/sky → `info`; violet/purple → `status-merged`; categorical colors (brain event types) → `chart-1…6`. Enforce with an ESLint `no-restricted-syntax` rule on class strings.
+No raw palette classes and no colour literals in classes. amber/yellow/orange → `warning`; green/emerald → `success`; red/rose → `danger`; blue/sky → `info`; violet/purple → `status-merged`; categorical colors (brain event types) → `chart-1…6`; agent identity → `seat-1…10`. Hex appears only where a colour is data (user-picked colours, avatars, terminal palettes) or canvas paint. The `dispatch/design-tokens` ESLint rule (`apps/web/eslint-design-tokens.js`) enforces F1, F4, F5, F7, F8 and the z steps of F10; an exception names one file and one class in `eslint.config.js`.
 
 ### F6 — Intent colors vs status colors
 
-Add intent aliases `--success`, `--warning`, `--danger`, `--info` (alias to the status vars; `--destructive` = `--danger`, one value per theme). `status-*` is reserved for rendering an agent/task state; everything else uses intents. Badge variants renamed to tones.
+`--success`, `--warning`, `--danger`, `--info` alias the status vars, so there is one value per theme. `danger` is hue 0 in every theme and replaces `destructive`. Each intent has an `-ink` step for small text that needs more contrast on light surfaces. `status-*` is reserved for rendering an agent, task or run state; everything else uses intents.
 
 ### F7 — Elevation / glass
 
-Four elevation levels as CSS variables per theme mode — `--elev-inset`, `--elev-raised`, `--elev-overlay` (shadow), `--edge` / `--edge-strong` (border), `--fill-inset` / `--fill-raised` — exposed as `surface-inset`, `surface-panel`, `surface-raised`, `surface-overlay` utilities. `white/…`, `black/…` and `shadow-[…]` are banned outside `components/ui`. Scrims: one `--scrim` (the lightbox alone uses 6 black alphas).
+Elevation is CSS variables per theme mode, exposed as `surface-inset`, `surface-panel`, `surface-raised` and `surface-overlay` classes. Their parts are tokens too: `shadow-elev-*`, `edge` / `edge-subtle` / `edge-strong`, `fill-inset` / `fill-raised` / `fill-hover` / `fill-track`. Scrims use `scrim`. What sits on an image or video backdrop uses `media` / `media-foreground`; toolbars over it use `surface-overlay` with `overlay-foreground`. `white`, `black` and `shadow-[…]` classes are banned.
 
 ### F8 — Alpha ladders on semantic colors
 
-Fills: `surface-subtle` (= muted/30), `surface-hover` (= muted/60), `surface-selected` (= primary/10). Borders: `border` and `border-subtle` (= /60). Text: `foreground`, `muted-foreground`, `text-faint` (= muted-foreground/70). Tinted intent surface is one recipe: bg `/10`, border `/30`, solid text.
+Fills: `surface-subtle` (= muted/30), `surface-hover` (= muted/60), `surface-selected` (= primary/10). Borders: `border` and `border-subtle` (= /60). Text: `foreground`, `muted-foreground`, `text-faint` (= muted-foreground/70). Any other alpha is a named step: `wash` 5, `tint` 10, `tint-strong` 18, `line` 30, `line-strong` 50, `veil` 60, `soft` 80, `dense` 92 (`bg-danger/tint`). Tinted intent surface is one recipe: `tint` fill, `line` border, solid text.
 
 ### F9 — Spacing
 
-Allowed steps: 0.5, 1, 1.5, 2, 3, 4, 6, 8, 12 (2/4/6/8/12/16/24/32/48px). `2.5`→2 or 3, `5`→4 or 6, `7`→6 or 8. Arbitrary spacing only for safe-area `env()` math, which moves into three shared utilities (`pt-safe`, `pb-safe`, `px-safe`) instead of 15 inline `max()` expressions.
+Allowed steps: 0.5, 1, 1.5, 2, 3, 4, 6, 8, 12 (2/4/6/8/12/16/24/32/48px). `2.5`→2 or 3, `5`→4 or 6, `7`→6 or 8; `pl-5` stays only where text lines up under a 12px glyph and its `gap-2`. Safe-area padding uses `pt-safe`, `pr-safe`, `pb-safe`, `pl-safe`, each with an optional minimum step (`pb-safe-2`).
 
 ### F10 — Focus, disabled, z-index
 
-One `focus-ring` utility (`focus-visible` only, 2px `ring`, no offset) and `focus-ring-inset` for rows. Disabled = `opacity-50` + `pointer-events-none`. Named z tokens: `z-sticky` 10, `z-drawer` 50, `z-modal` 70, `z-popover` 80, `z-toast` 85, `z-tooltip` 90.
+One `focus-ring` (`focus-visible` only, 2px `ring`, no offset) and `focus-ring-inset` for rows whose container would clip it. Disabled is `disabled-state` (`opacity-50` + no pointer events); add `disabled:pointer-events-auto` only where a disabled control explains itself on hover. Named z steps: `sticky` 10, `raised` 20, `dock` 30, `drawer` 50, `drawer-panel` 60, `modal` 70, `popover` 80, `toast` 85, `tooltip` 90, `progress` 100, and `viewer` 120 to `viewer-menu` 150 for the image viewer, which opens over dialogs.
 
 ### F11 — Syntax highlighting and fonts
 
@@ -289,4 +289,5 @@ Newest first. One line per audit: date, scope, commit audited, where the report 
 
 Newest first. One line per rule added, changed or removed, with the reason.
 
+- 2026-11-22 — F1–F10 updated as their tokens landed: added `body-lg` and `code` (iOS zoom, inline code), `xs`, `mark` and `screen` radii (small boxes turned into circles at `sm`), named alpha and z steps for values already in use, seat and media colours; named the classes and lint rule that implement them.
 - 2026-11-22 — all rules added from the baseline audit.

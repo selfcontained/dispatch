@@ -20,19 +20,19 @@ All theme colors live in `apps/web/src/index.css`. The default theme is defined 
 
 These are the standard shadcn tokens. Every theme must define all of them:
 
-| Variable                                     | Purpose                               |
-| -------------------------------------------- | ------------------------------------- |
-| `--background`                               | Page background                       |
-| `--foreground`                               | Default text color                    |
-| `--card` / `--card-foreground`               | Card surfaces                         |
-| `--popover` / `--popover-foreground`         | Popover/dropdown surfaces             |
-| `--primary` / `--primary-foreground`         | Primary action color (buttons, links) |
-| `--muted` / `--muted-foreground`             | Muted/secondary surfaces and text     |
-| `--accent` / `--accent-foreground`           | Accent highlight                      |
-| `--destructive` / `--destructive-foreground` | Destructive/error actions             |
-| `--border`                                   | Border color                          |
-| `--input`                                    | Input field border                    |
-| `--ring`                                     | Focus ring color                      |
+| Variable                             | Purpose                               |
+| ------------------------------------ | ------------------------------------- |
+| `--background`                       | Page background                       |
+| `--foreground`                       | Default text color                    |
+| `--card` / `--card-foreground`       | Card surfaces                         |
+| `--popover` / `--popover-foreground` | Popover/dropdown surfaces             |
+| `--primary` / `--primary-foreground` | Primary action color (buttons, links) |
+| `--muted` / `--muted-foreground`     | Muted/secondary surfaces and text     |
+| `--accent` / `--accent-foreground`   | Accent highlight                      |
+| `--danger-foreground`                | Text on a solid danger fill           |
+| `--border`                           | Border color                          |
+| `--input`                            | Input field border                    |
+| `--ring`                             | Focus ring color                      |
 
 ### Status tokens
 
@@ -45,6 +45,10 @@ These control agent state indicators, badges, buttons, and status dots throughou
 | `--status-waiting` | Warning/pending state | Amber         | Waiting for user, reconnect indicator, full-access warning |
 | `--status-done`    | Info/complete state   | Sky blue      | Agent done, transitional badge, info buttons               |
 | `--status-idle`    | Neutral/idle state    | Zinc gray     | Idle agent border                                          |
+
+`status-*` renders an agent, task or run state. Anything that means success, warning, danger or info uses the intent aliases (`success`, `warning`, `danger`, `info`), which `index.css` derives from these variables. Keep `--status-blocked` at hue 0 so danger is the same red in every theme. See [design-system.md](design-system.md) for the full token set.
+
+Edges, fills, shadows and the `-ink` text steps follow the theme's mode (`light` or `dark` in `THEMES`), so a theme block does not define them.
 
 ### Surface tokens
 
@@ -81,8 +85,8 @@ This means you can use standard Tailwind patterns:
 
 ```tsx
 <span className="text-status-working" />           // solid color
-<span className="bg-status-working/15" />           // 15% opacity background
-<span className="border-status-blocked/50" />       // 50% opacity border
+<span className="bg-status-working/tint" />         // 10% opacity background
+<span className="border-status-blocked/line" />     // 30% opacity border
 ```
 
 The `surface` color is also available as `bg-surface`.
@@ -108,8 +112,7 @@ Add a new `[data-theme="your-theme-id"]` block in `apps/web/src/index.css`. You 
   --muted-foreground: 240 8% 60%;
   --accent: 240 12% 12%;
   --accent-foreground: 0 0% 95%;
-  --destructive: 0 80% 55%;
-  --destructive-foreground: 0 0% 98%;
+  --danger-foreground: 0 0% 98%;
   --border: 240 10% 18%;
   --input: 240 10% 18%;
   --ring: 270 80% 60%;
@@ -168,7 +171,7 @@ That's it — the theme picker, localStorage persistence and flash-free loading 
 
 ## What NOT to do
 
-- **Don't use hardcoded Tailwind color classes** like `text-emerald-400` or `bg-red-500` for anything that should change with the theme. Use the semantic `status-*` utilities or the base tokens (`primary`, `destructive`, etc.) instead.
+- **Don't use hardcoded Tailwind color classes** like `text-emerald-400` or `bg-red-500` for anything that should change with the theme. Use the intent colours, the `status-*` utilities for states, or the base tokens (`primary`, `muted`, etc.) instead. ESLint rejects palette classes.
 - **Don't use hardcoded hex values** for backgrounds like `bg-[#141414]`. Use `bg-surface` or `bg-background`.
 - **Don't wrap CSS var values in `hsl()`** — the bare `H S% L%` format is required for Tailwind opacity support.
 - **Don't forget to define all variables** — a missing variable will cause that color to disappear (transparent) in your theme.
