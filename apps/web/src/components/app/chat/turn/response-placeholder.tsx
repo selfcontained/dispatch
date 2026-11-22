@@ -694,7 +694,7 @@ export function ResponsePlaceholderVisual({
                                   ACTIVITY_COLORS[c.category],
                                   latest ? 100 : 75
                                 )
-                              : tint(ACTIVITY_COLORS[c.rest], 36),
+                              : tint(ACTIVITY_COLORS[c.rest], 60),
                           }}
                         />
                       </span>
