@@ -498,7 +498,7 @@ function SummaryRow({
       data-testid="harness-activity-summary"
       data-final-result={trace.finalResult}
       className={cn(
-        "grid w-full min-w-0 items-center gap-2 rounded-md py-0.5 pl-0 pr-1 text-left text-muted-foreground",
+        "-ml-1 grid w-[calc(100%+0.25rem)] min-w-0 items-center gap-2 rounded-md py-0.5 pl-1 pr-1 text-left text-muted-foreground",
         slot
           ? "grid-cols-[12px_minmax(0,1fr)_auto_auto]"
           : "grid-cols-[minmax(0,1fr)_auto_auto]",

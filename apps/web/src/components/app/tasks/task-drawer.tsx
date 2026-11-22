@@ -60,7 +60,7 @@ import { statusLabel } from "@/lib/status-label";
 
 /** Status and Assignee share one width and one quiet field style. */
 const PROPERTY_CONTROL =
-  "h-8 w-full max-w-64 border-transparent bg-surface-hover text-body-sm hover:bg-muted";
+  "h-8 w-full max-w-64 border-transparent bg-surface-hover text-body-sm hover:bg-muted [[data-theme-mode=light]_&]:border-edge";
 
 /** The raised surface each drawer group sits on, over the pane's base. */
 const DRAWER_SURFACE =

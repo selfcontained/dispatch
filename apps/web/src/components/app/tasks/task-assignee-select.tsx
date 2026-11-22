@@ -71,7 +71,7 @@ export function AssigneeSelect({
       <SelectTrigger
         aria-label="Assignee"
         className={cn(
-          "w-full max-w-64 border-transparent bg-surface-hover text-body-sm hover:bg-muted",
+          "w-full max-w-64 border-transparent bg-surface-hover text-body-sm hover:bg-muted [[data-theme-mode=light]_&]:border-edge",
           "h-auto min-h-9 gap-2 px-2 py-1 [&>span]:min-w-0 [&>span]:flex-1 [&>span]:line-clamp-none [&>svg]:shrink-0",
           className
         )}
