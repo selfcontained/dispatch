@@ -6,11 +6,7 @@ import {
   type Req,
 } from "@dispatch/runner-protocol/contract";
 import { isEngineCapabilityOperation } from "@dispatch/runner-protocol/engine-management";
-import {
-  githubPullRequestUrl,
-  githubPullRequestTarget,
-  projectPullRequest,
-} from "../pull-request-reader.js";
+import { githubPullRequestTarget } from "../pull-request-reader.js";
 import { X509Certificate } from "node:crypto";
 import { readFileSync, watchFile, unwatchFile } from "node:fs";
 import http from "node:http";
@@ -62,10 +58,8 @@ import {
   type RunnerOperation,
   type GitHubOperation,
   type GitHubStatus,
-  type GitHubPullRequestWatchEvent,
-  isGitHubPullRequestTarget,
-  parseGitHubPullRequestWatchEvent,
-  MAX_PULL_REQUEST_WATCH_EVENT_BYTES,
+  type GitHubPullRequestObservation,
+  type GitHubPullRequestTarget,
   parseGitHubStatus,
   isGitHubPullRequestObservation,
   isGitHubPullRequestDetails,
@@ -217,7 +211,6 @@ type Peer = {
   githubManagement: boolean;
   repositoryPicker?: boolean;
   pullRequestStatus: boolean;
-  pullRequestWatch: boolean;
   pullRequestEvidence: boolean;
   checkoutInspection: boolean;
   checkoutMetadata: boolean;
@@ -981,7 +974,6 @@ export class RemoteRunnerService {
           engineManagement: ready.engineManagement === true,
           engineCapabilities: ready.engineCapabilities === true,
           pullRequestStatus: ready.pullRequestStatus === true,
-          pullRequestWatch: ready.pullRequestWatch === true,
           pullRequestEvidence: ready.pullRequestEvidence === true,
           repositoryPicker: ready.repositoryPicker === true,
           githubManagement: ready.githubManagement === true,
@@ -2042,17 +2034,6 @@ export class RemoteRunnerService {
       );
 
     if (
-      operation.kind === "github" &&
-      (operation.operation.type === "watchPullRequests" ||
-        (operation.operation.type === "pullRequestStatus" &&
-          operation.operation.refreshWatch)) &&
-      !peer.pullRequestWatch
-    )
-      throw new RunnerCapabilityUnavailable(
-        "Runner does not support PR watches."
-      );
-
-    if (
       operation.kind === "engine" &&
       isEngineCapabilityOperation(operation.operation) &&
       !peer.engineCapabilities
@@ -2079,8 +2060,7 @@ export class RemoteRunnerService {
         const result = await this.request(
           { runner: runnerId, workspace },
           { ...operation, agentId: `@${operation.kind}`, workspace },
-          operation.kind === "engine" ||
-            operation.operation.type === "watchPullRequests"
+          operation.kind === "engine"
         );
         if (this.peers.get(runnerId) !== peer || !peer.gate.approved()) {
           result.channel?.destroy();
@@ -2221,79 +2201,23 @@ export class RemoteRunnerService {
     return githubRepositoryResults(response.repositories);
   }
 
-  canWatchPullRequests(runnerId: string) {
-    const peer = this.peers.get(runnerId);
-    return (
-      peer?.gate.approved() === true &&
-      peer.githubManagement &&
-      peer.pullRequestWatch
-    );
-  }
-
-  async watchPullRequests(
+  /** `github.pr.status` on a connected runner; a capable peer scopes it to its credential. */
+  async readPullRequestStatus(
     runnerId: string,
-    urls: string[],
-    event: (value: GitHubPullRequestWatchEvent) => void,
-    closed: () => void
-  ) {
-    const peer = this.peers.get(runnerId);
-    const active = () =>
-      this.peers.get(runnerId) === peer && peer?.gate.approved();
-    const { value, channel } = await this.requestRunner(runnerId, {
-      kind: "github",
-      operation: {
-        type: "watchPullRequests",
-        targets: urls
-          .map(githubPullRequestTarget)
-          .filter(isGitHubPullRequestTarget),
-      },
-    });
-    if (!active() || !channel || value !== true) {
-      channel?.destroy();
-      throw new RunnerUnavailable("Runner PR watch is unavailable.");
-    }
-    // A runner sends one complete JSON line per channel data frame.
-    channel.on("data", (chunk: Buffer) => {
-      if (!active() || channel.destroyed) return;
-      try {
-        if (chunk.length > MAX_PULL_REQUEST_WATCH_EVENT_BYTES)
-          throw new Error();
-        const observation = parseGitHubPullRequestWatchEvent(
-          JSON.parse(chunk.toString())
-        );
-        if (!observation) throw new Error();
-        event(observation);
-      } catch {
-        channel.destroy();
-      }
-    });
-    channel.once("close", closed);
-    return () => channel.destroy();
-  }
-
-  async readPullRequest(
-    runnerId: string,
-    url: string,
-    title: string,
-    refreshWatch = false
-  ) {
-    const canonical = githubPullRequestUrl(url);
-    if (!canonical) return { url, title, status: "Unavailable" as const };
-    const [, owner, repo, , number] = new URL(canonical).pathname.split("/");
+    { owner, repo, number }: GitHubPullRequestTarget
+  ): Promise<GitHubPullRequestObservation> {
     const response = await this.requestGitHub(runnerId, {
       type: "pullRequestStatus",
       owner,
       repo,
-      number: Number(number),
-      ...(refreshWatch &&
-        this.canWatchPullRequests(runnerId) && { refreshWatch: true }),
+      number,
       ...(this.peers.get(runnerId)?.pullRequestEvidence && {
         withCredentialContext: true,
       }),
     });
     if (!isGitHubPullRequestObservation(response))
       throw new Error("Invalid runner pull request observation.");
-    return projectPullRequest(canonical, title, response);
+    return response;
   }
 
   async readPullRequestDetails(runnerId: string, url: string) {

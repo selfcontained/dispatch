@@ -265,8 +265,12 @@ describe("runner enrollment service", () => {
     );
     const url = "https://github.com/example/repo/pull/1";
     expect(
-      await service.readPullRequest(runnerId, url, "fallback")
-    ).toMatchObject({ status: "Open" });
+      await service.readPullRequestStatus(runnerId, {
+        owner: "example",
+        repo: "repo",
+        number: 1,
+      })
+    ).toMatchObject({ state: "OPEN" });
     await expect(service.readPullRequestDetails(runnerId, url)).rejects.toThrow(
       /update.*evidence/i
     );

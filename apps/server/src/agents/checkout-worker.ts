@@ -67,6 +67,7 @@ import {
 } from "../shared/git/worktree.js";
 import { installWorkspaceDependencies } from "./workspace-prep.js";
 import { runCommand } from "../shared/lib/run-command.js";
+import { localPullRequestStatus } from "./remote/github-runner-executor.js";
 import { copyLocalConfigFiles } from "./worktree-local-config.js";
 
 import {
@@ -527,6 +528,21 @@ export const checkoutWorkload = {
     } catch (error) {
       throw workerError(op, error);
     }
+  },
+};
+
+const pullRequests = localPullRequestStatus();
+
+/** The `posix-user` platform's GitHub port: the user's own `gh`. */
+export const githubWorkload = {
+  pullRequestStatus(
+    { owner, repo, number }: Req<"github.pr.status">,
+    options: { signal?: AbortSignal }
+  ): Promise<Res<"github.pr.status">> {
+    return pullRequests.read(
+      { owner, repo, number },
+      options.signal
+    ) as Promise<Res<"github.pr.status">>;
   },
 };
 

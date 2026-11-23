@@ -39,6 +39,11 @@ export function enrolledRunnerId(placement: Placement): string | undefined {
     : runnerIdForPlacement(placement);
 }
 
+/** The placement `enrolledRunnerId` names: an enrolled runner, else the local one. */
+export function placementForEnrolledId(runnerId: string | null | undefined) {
+  return runnerId == null ? controllerPlacement : placementForRunner(runnerId);
+}
+
 export function isOnEnrolledRunner(placement: Placement, runnerId: string) {
   return (
     !sameRunner(placement, controllerPlacement) &&

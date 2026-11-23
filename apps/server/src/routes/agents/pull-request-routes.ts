@@ -1,4 +1,4 @@
-import { remotePlacement } from "@dispatch/runner-protocol";
+import { enrolledRunnerId } from "../../runners/placement.js";
 import type { FastifyInstance } from "fastify";
 import type { AgentRouteDeps } from "./shared.js";
 
@@ -38,7 +38,7 @@ export async function registerAgentPullRequestRoutes(
       const result = await deps.riskExplanations.explain({
         assessmentId: request.body.assessmentId,
         url: request.body.url,
-        runnerId: remotePlacement(agent.cwd)?.runner ?? null,
+        runnerId: enrolledRunnerId(agent.placement) ?? null,
       });
       // Reason codes only: never the URL, evidence or provider payload.
       if (result.state !== "ready" && result.state !== "pending")

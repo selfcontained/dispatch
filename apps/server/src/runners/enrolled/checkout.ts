@@ -165,6 +165,14 @@ export function createEnrolledCheckoutRunner(
           options?.signal,
           legacyView
         ) as Promise<Res<K>>;
+      if (op === "github.pr.status") {
+        if (!service) throw new Error("The session runner is unavailable.");
+        options?.signal?.throwIfAborted();
+        return service.readPullRequestStatus(
+          runnerId,
+          input as Req<"github.pr.status">
+        ) as Promise<Res<K>>;
+      }
       if (
         op !== "checkout.exec" &&
         op !== "git.context" &&

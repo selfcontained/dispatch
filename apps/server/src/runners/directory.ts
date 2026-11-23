@@ -67,18 +67,33 @@ const localDescription: RunnerDescription = {
 };
 
 export function checkoutRunners(
-  { remote, child }: CheckoutCommandRunners,
+  runners: CheckoutCommandRunners,
   agent: CheckoutSession,
   legacyView?: CheckoutView
 ): {
   directory: CheckoutDirectory;
   placement: Placement;
 } {
-  const { placement } = agent;
-  const location = legacySessionLocation(agent);
-  const directory = {
+  return {
+    directory: runnerDirectory(runners, agent, legacyView),
+    placement: agent.placement,
+  };
+}
+
+/**
+ * Every runner by placement. A session's checkout operations need it bound
+ * (`checkoutRunners`); runner-scoped operations, such as GitHub reads, do not.
+ */
+export function runnerDirectory(
+  { remote, child }: CheckoutCommandRunners,
+  agent?: CheckoutSession,
+  legacyView?: CheckoutView
+): CheckoutDirectory {
+  const location = agent ? legacySessionLocation(agent) : null;
+  return {
     for(selected: Placement): CheckoutRunner {
-      const boundAgent = samePlacement(selected, placement) ? agent : undefined;
+      const boundAgent =
+        agent && samePlacement(selected, agent.placement) ? agent : undefined;
       if (samePlacement(selected, controllerPlacement))
         return createLocalCheckoutRunner(
           boundAgent,
@@ -119,7 +134,6 @@ export function checkoutRunners(
     },
     defaultPlacement: () => controllerPlacement,
   } satisfies CheckoutDirectory;
-  return { directory, placement };
 }
 
 export function terminalBackendFor(

@@ -1,4 +1,5 @@
 import type { GitHubPullRequestObservation } from "@dispatch/runner-protocol";
+import type { Runner } from "@dispatch/runner-protocol/contract";
 import type { AgentPullRequest } from "@dispatch/shared";
 import { runCommand, type CommandRunner } from "../shared/lib/run-command.js";
 
@@ -29,36 +30,35 @@ export function githubPullRequestUrl(value: string): string | null {
   }
 }
 
-/** Bind the built-in and connected runner implementations at service startup.
- * A missing remote peer is an unavailable read for that placement. */
+/**
+ * A pull request as its tracking agent's runner reads it: one call for
+ * every placement. A URL that is not a GitHub pull request, like a runner
+ * that cannot answer, is an unavailable read.
+ */
 export function createRunnerPullRequestReader(
-  remote:
-    | {
-        readPullRequest(
-          runnerId: string,
-          url: string,
-          title: string,
-          refreshWatch?: boolean
-        ): Promise<AgentPullRequest>;
-      }
-    | undefined,
-  readLocal = createPullRequestReader()
+  runnerFor: (runnerId: string | null) => Pick<Runner, "call">
 ) {
   return async (
     url: string,
     title: string,
-    runnerId: string | null,
-    refreshWatch?: boolean
+    runnerId: string | null
   ): Promise<AgentPullRequest> => {
-    if (runnerId === null) return readLocal(url, title);
-    if (!remote) return { url, title, status: "Unavailable" };
-    return refreshWatch
-      ? remote.readPullRequest(runnerId, url, title, true)
-      : remote.readPullRequest(runnerId, url, title);
+    const canonical = githubPullRequestUrl(url);
+    const target = canonical && githubPullRequestTarget(canonical);
+    if (!canonical || !target) return { url, title, status: "Unavailable" };
+    const observation = await runnerFor(runnerId).call(
+      "github.pr.status",
+      target
+    );
+    return projectPullRequest(canonical, title, observation);
   };
 }
 
-/** TTL and in-flight coalescing collapse duplicate scheduler requests. */
+/**
+ * The app's own plain read, kept for merge-risk's GitHub source until T33.
+ * PR tracking reads through the runner (`createRunnerPullRequestReader`).
+ * TTL and in-flight coalescing collapse duplicate scheduler requests.
+ */
 export function createPullRequestReader(run: CommandRunner = runCommand) {
   const cache = new Map<
     string,
