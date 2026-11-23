@@ -212,3 +212,143 @@ describe("workspace browsing", () => {
     expect(data.truncated).toBe(true);
   });
 });
+
+describe("workspace request identity", () => {
+  const locator = "runner://rnr_fixture/@session";
+  const checkout = "/var/lib/runner/sessions/test/checkout";
+  const cases = [
+    {
+      name: "local launch directory",
+      cwd: "/launch",
+      worktreePath: null,
+      workspacePath: null,
+      requested: "/launch",
+      status: 200,
+    },
+    {
+      name: "local worktree",
+      cwd: "/launch",
+      worktreePath: "/worktree",
+      workspacePath: null,
+      requested: "/worktree",
+      status: 200,
+    },
+    {
+      name: "local stale launch directory",
+      cwd: "/launch",
+      worktreePath: "/worktree",
+      workspacePath: null,
+      requested: "/launch",
+      status: 409,
+    },
+    {
+      name: "local selected workspace",
+      cwd: "/launch",
+      worktreePath: "/worktree",
+      workspacePath: "/selected",
+      requested: "/selected",
+      status: 200,
+    },
+    {
+      name: "local stale worktree",
+      cwd: "/launch",
+      worktreePath: "/worktree",
+      workspacePath: "/selected",
+      requested: "/worktree",
+      status: 409,
+    },
+    {
+      name: "runner prepared checkout",
+      cwd: locator,
+      worktreePath: checkout,
+      workspacePath: null,
+      requested: checkout,
+      status: 200,
+    },
+    {
+      name: "runner legacy locator",
+      cwd: locator,
+      worktreePath: checkout,
+      workspacePath: null,
+      requested: locator,
+      status: 200,
+    },
+    {
+      name: "runner selected workspace",
+      cwd: locator,
+      worktreePath: checkout,
+      workspacePath: "/selected",
+      requested: "/selected",
+      status: 200,
+    },
+    {
+      name: "runner locator after selection",
+      cwd: locator,
+      worktreePath: checkout,
+      workspacePath: "/selected",
+      requested: locator,
+      status: 200,
+    },
+    {
+      name: "runner stale worktree after selection",
+      cwd: locator,
+      worktreePath: checkout,
+      workspacePath: "/selected",
+      requested: checkout,
+      status: 409,
+    },
+    {
+      name: "runner unrelated directory",
+      cwd: locator,
+      worktreePath: checkout,
+      workspacePath: null,
+      requested: "/unrelated",
+      status: 409,
+    },
+  ];
+  for (const mode of ["directory", "preview", "index"] as const) {
+    it.each(cases)(
+      `${mode}: $name`,
+      async ({ name: _name, requested, status, ...fields }) => {
+        const agent = {
+          id: "test",
+          placement: {
+            runner: fields.cwd === locator ? "rnr_fixture" : "local",
+          },
+          ...fields,
+        };
+        const viewCheckout = vi.fn().mockResolvedValue({ fixture: mode });
+        const app = Fastify();
+        try {
+          await registerAgentWorkspaceRoutes(app, {
+            agentManager: {
+              getAgent: async () => agent,
+              viewCheckout,
+            } as unknown as AgentRouteDeps["agentManager"],
+          });
+          const response = await app.inject({
+            method: "GET",
+            url: `/api/v1/agents/test/workspace?${new URLSearchParams({ workspace: requested, path: "note.txt", file: String(mode === "preview"), index: String(mode === "index") })}`,
+          });
+          expect(response.statusCode).toBe(status);
+          if (status === 409) {
+            expect(response.json()).toEqual({
+              error: "Workspace changed. Reopen Files to continue.",
+            });
+            expect(viewCheckout).not.toHaveBeenCalled();
+          } else {
+            expect(response.json()).toEqual({ fixture: mode });
+            expect(viewCheckout).toHaveBeenCalledWith(
+              agent,
+              mode === "index"
+                ? { kind: "index", generation: "initial" }
+                : { kind: mode, path: "note.txt" }
+            );
+          }
+        } finally {
+          await app.close();
+        }
+      }
+    );
+  }
+});
