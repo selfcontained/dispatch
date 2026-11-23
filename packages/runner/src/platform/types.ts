@@ -85,6 +85,12 @@ export type WorktreeSpec = {
   create: boolean;
   /** A directory relative to `directory` to hold it; beside it when absent. */
   nested?: string;
+  /**
+   * The exact path the platform chose for it (`RepositoryPort.location`),
+   * an empty directory it made; when present, `nested` and the sibling
+   * layout do not apply.
+   */
+  at?: string;
 };
 
 /**
@@ -133,6 +139,13 @@ export interface WorkspacePort {
   ): Promise<void>;
   /** The checkout's Git facts: null outside Git, "error" when the probe failed. */
   git(directory: string): Promise<CheckoutGit | null | "error">;
+  /**
+   * Whether `path` is the root of a linked worktree of `source`'s
+   * repository with `branch` checked out. A platform whose runner is not
+   * the workload account answers this as the workload; without it the core
+   * asks Git itself.
+   */
+  madeForUs?(path: string, source: string, branch: string): Promise<boolean>;
   /** Cached clones of repositories; without it, a repository source is unsupported. */
   repository?: RepositoryPort;
 }
@@ -156,4 +169,13 @@ export interface RepositoryPort {
   ): Promise<{ defaultBranch: string | null }>;
   /** Fetch pull request `number`'s head into local branch `branch` of the clone, unless it already has diverged work. */
   pullRequest(clone: string, number: number, branch: string): Promise<void>;
+  /**
+   * Where the session's checkout goes: the platform creates (or repairs)
+   * what holds it and returns an empty directory the workload owns, the
+   * same path every time for one session. Without it the checkout goes
+   * beside the clone, and the core makes nothing outside its own state.
+   */
+  location?(session: string): Promise<string>;
+  /** Remove what `location` made for the session, checkout first. */
+  remove?(session: string): Promise<void>;
 }

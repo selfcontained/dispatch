@@ -81,8 +81,15 @@ function remote(root: string) {
   return { work, bare, head };
 }
 
-/** A real port: worktrees beside the source, from origin when it has the base; real clones. */
-function port(calls: string[], withRepository = true): WorkspacePort {
+/**
+ * A real port: worktrees beside the source (or where the platform's
+ * `location` said), from origin when it has the base; real clones.
+ */
+function port(
+  calls: string[],
+  withRepository = true,
+  location?: (session: string) => Promise<string>
+): WorkspacePort {
   const where = (directory: string, branch: string) =>
     join(
       dirname(directory),
@@ -109,8 +116,11 @@ function port(calls: string[], withRepository = true): WorkspacePort {
     },
     async plan(spec) {
       calls.push(`plan ${spec.branch} ${spec.base} ${spec.create}`);
-      const path = where(spec.directory, spec.branch);
-      return { path, branch: spec.branch, taken: existsSync(path) };
+      const path = spec.at ?? where(spec.directory, spec.branch);
+      const taken = spec.at
+        ? readdirSync(spec.at).length > 0
+        : existsSync(path);
+      return { path, branch: spec.branch, taken };
     },
     async create(spec, path) {
       calls.push(`create ${basename(path)}`);
@@ -197,12 +207,39 @@ function port(calls: string[], withRepository = true): WorkspacePort {
           git(clone, "fetch", "-q", "origin", `refs/pull/${number}/head`);
           git(clone, "branch", "--no-track", branch, "FETCH_HEAD");
         },
+        ...(location && { location }),
       },
     }),
+    async madeForUs(path, source, branch) {
+      calls.push(`made? ${basename(path)}`);
+      try {
+        return (
+          git(path, "rev-parse", "--show-toplevel") === path &&
+          git(
+            path,
+            "rev-parse",
+            "--path-format=absolute",
+            "--git-common-dir"
+          ) ===
+            git(
+              source,
+              "rev-parse",
+              "--path-format=absolute",
+              "--git-common-dir"
+            ) &&
+          git(path, "symbolic-ref", "--short", "-q", "HEAD") === branch
+        );
+      } catch {
+        return false;
+      }
+    },
   };
 }
 
-async function harness(withRepository = true) {
+async function harness(
+  withRepository = true,
+  location?: (session: string) => Promise<string>
+) {
   const root = temp();
   const state = join(root, "state");
   mkdirSync(state);
@@ -217,7 +254,7 @@ async function harness(withRepository = true) {
       calls: workspaceHandlers(
         state,
         store,
-        port(calls, withRepository),
+        port(calls, withRepository, location),
         join(root, "cache")
       ),
     },
@@ -318,9 +355,11 @@ describe("workspace.prepare from a repository", () => {
       repository: {
         identity: repositoryIdentity(bare),
         checkout: { kind: "new", branch: "feature/n" },
+        url: bare,
       },
       worktree: { path: made, complete: true },
     });
+    expect(receipt.at).toBeUndefined();
 
     // A repeat answers from the record without touching the clone.
     calls.length = 0;
@@ -425,6 +464,108 @@ describe("workspace.prepare from a repository", () => {
       })
     ).rejects.toMatchObject({ code: "invalid" });
     expect(existsSync(join(root, "cache"))).toBe(false);
+  });
+});
+
+describe("workspace.prepare at the platform's location", () => {
+  /** What `linux-privsep` does: a fixed, empty checkout per session. */
+  const sessions =
+    (root: string, made: string[]) => async (session: string) => {
+      made.push(session);
+      const dir = join(root, "sessions", session, "checkout");
+      mkdirSync(dir, { recursive: true });
+      return dir;
+    };
+
+  it("makes the worktree where the platform says and records the place", async () => {
+    const made: string[] = [];
+    const root = temp();
+    const {
+      connection,
+      store,
+      state,
+      calls,
+      root: home,
+    } = await harness(true, sessions(root, made));
+    const { bare } = remote(root);
+    const at = join(root, "sessions", "p", "checkout");
+    const binding = await connection.call(
+      "workspace.prepare",
+      request("p", bare, { kind: "new", branch: "feature/p" })
+    );
+    expect(binding).toMatchObject({
+      path: at,
+      worktree: { path: at, branch: "feature/p", base: "main" },
+    });
+    expect(git(at, "rev-parse", "--show-toplevel")).toBe(at);
+    expect(git(at, "describe", "--tags")).toBe("v1");
+    const receipt = JSON.parse(
+      readFileSync(join(state, "p", "workspace-preparation"), "utf8")
+    );
+    expect(receipt).toMatchObject({ at, worktree: { path: at } });
+    expect(await store.get("p")).toMatchObject({
+      checkout: { path: at, ownership: "owned" },
+    });
+    // Asked once for the new receipt, once more before Git ran.
+    expect(made).toEqual(["p", "p"]);
+    // Nothing beside the clone.
+    const key = repositoryKey(repositoryIdentity(bare)!);
+    expect(readdirSync(join(home, "cache", key))).toEqual(["origin"]);
+    expect(calls).not.toContain("made? checkout");
+  });
+
+  it("takes over a worktree a crash left at the location, asking the platform", async () => {
+    const made: string[] = [];
+    const root = temp();
+    const { connection, state, calls } = await harness(
+      true,
+      sessions(root, made)
+    );
+    const { bare } = remote(root);
+    await connection.call(
+      "workspace.prepare",
+      request("q", bare, { kind: "branch", branch: "topic" })
+    );
+    // Back to "Git made it, the receipt only says pending".
+    const file = join(state, "q", "workspace-preparation");
+    const receipt = JSON.parse(readFileSync(file, "utf8"));
+    const { worktree, ...rest } = receipt;
+    writeFileSync(
+      file,
+      JSON.stringify({
+        ...rest,
+        pending: { path: worktree.path, branch: worktree.branch },
+      })
+    );
+    calls.length = 0;
+    const resumed = await connection.call("workspace.resume", {
+      session: sessionFromWire("q"),
+    });
+    expect(resumed).toMatchObject({ worktree: { path: worktree.path } });
+    expect(calls).toContain("made? checkout");
+    expect(calls.some((call) => call.startsWith("create"))).toBe(false);
+  });
+
+  it("refuses when the platform's place moved since it was recorded", async () => {
+    const root = temp();
+    let n = 0;
+    const { connection, state } = await harness(true, async (session) => {
+      const dir = join(root, `sessions-${n++}`, session, "checkout");
+      mkdirSync(dir, { recursive: true });
+      return dir;
+    });
+    const { bare } = remote(root);
+    await expect(
+      connection.call(
+        "workspace.prepare",
+        request("m", bare, { kind: "branch", branch: "topic" })
+      )
+    ).rejects.toMatchObject({ code: "conflict" });
+    expect(
+      JSON.parse(
+        readFileSync(join(state, "m", "workspace-preparation"), "utf8")
+      ).worktree
+    ).toBeUndefined();
   });
 });
 

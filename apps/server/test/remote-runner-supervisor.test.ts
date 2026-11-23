@@ -46,7 +46,12 @@ import {
 } from "../src/agents/remote/session-processes.js";
 import { readSessionFile } from "../src/files/session-file.js";
 import { sessionFileCommand } from "../src/agents/remote/session-files.js";
-import { createSessionSupervisor } from "../src/agents/remote/session-supervisor.js";
+import {
+  createSessionSupervisor,
+  runnerStorageKey,
+} from "../src/agents/remote/session-supervisor.js";
+import { createLinuxPrivsep } from "../../../packages/runner/src/platform/linux-privsep/index.js";
+import { storageKey } from "../../../packages/runner/src/platform/linux-privsep/layout.js";
 import { streamCheckoutWorker } from "../src/agents/remote/runner.js";
 import { FlowStreams } from "../src/runners/enrolled/v1-framing.js";
 
@@ -100,6 +105,11 @@ const sharedLaunch = (
   ...launch(workspace),
   agentId: reviewerId,
   launch: { ...launch(workspace).launch, useWorktreeOf },
+});
+
+it("names session state as linux-privsep does, so paths never move", () => {
+  for (const id of ["agt_abc123", "agt_", "AGT_x", "x/../y", "opaque", ""])
+    expect(storageKey(id)).toBe(runnerStorageKey(id));
 });
 
 it("explains lock contention while retaining diagnostics for other flock failures", () => {
@@ -1662,6 +1672,29 @@ describe("runner session supervision", () => {
       undefined
     );
     expect(processes.spawn.mock.calls.at(-1)?.[1]).toBe(checkout);
+
+    // The runner core's binding adapter (T19b) reads these same files and
+    // answers the same folder for every session this build bound.
+    const { bindings } = await createLinuxPrivsep({
+      state: await realpath(state),
+      ids: {
+        supervisor: process.getuid!(),
+        uid: process.getuid!(),
+        gid: process.getgid!(),
+      },
+      asWorkload,
+    });
+    for (const id of [agentId, reviewerId, nested, independent]) {
+      const bound = await bindings.get(id);
+      expect(bound).not.toBeNull();
+      expect(bound!.currentPath ?? bound!.path).toBe(
+        await recovered.checkoutDirectory(id, workspace)
+      );
+      // None of them is new: they finish on this build's path.
+      expect(await bindings.legacy(id)).toBe(
+        id !== reviewerId && id !== nested
+      );
+    }
   });
 
   it("lets a managed session select any folder its account can use, like local", async () => {
