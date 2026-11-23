@@ -8,7 +8,14 @@
  */
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { mkdir, mkdtemp, realpath, rm } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  realpath,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import {
@@ -254,4 +261,48 @@ it("keeps a direct launch direct across a restart", async () => {
   expect(
     git(repo, "worktree", "list", "--porcelain").match(/^worktree /gm)
   ).toHaveLength(1);
+});
+
+it("finishes a worktree an earlier build recorded only in its receipt", async () => {
+  // An earlier build wrote the request to the runner's receipt before the
+  // row existed, and none on the row.
+  const before = app(false);
+  const created = await before.createAgent(
+    {
+      cwd: repo,
+      name: "Earlier build",
+      useWorktree: true,
+      createNewBranch: true,
+      baseBranch: "main",
+    },
+    { detachLaunch: true }
+  );
+  const { rows } = await pool.query<{
+    runner_preparation: { worktree: unknown };
+  }>("SELECT runner_preparation FROM agents WHERE id = $1", [created.id]);
+  const request = rows[0]!.runner_preparation.worktree;
+  await pool.query(
+    "UPDATE agents SET runner_preparation = NULL WHERE id = $1",
+    [created.id]
+  );
+  const evidence = await stat(repo, { bigint: true });
+  await mkdir(path.join(state, created.id), { recursive: true });
+  await writeFile(
+    path.join(state, created.id, "workspace-preparation"),
+    JSON.stringify({
+      cwd: repo,
+      source: repo,
+      sourceIdentity: `${evidence.dev}:${evidence.ino}:${evidence.birthtimeNs}`,
+      request,
+      copy: [],
+      install: true,
+    })
+  );
+  const after = app(true);
+  await after.restoreRunningAgents();
+  await after.startAgent(created.id);
+  const started = await row(created.id);
+  expect(started.worktree_path).toBeTruthy();
+  expect(started.worktree_path).not.toBe(repo);
+  expect(started.base_branch).toBe("main");
 });

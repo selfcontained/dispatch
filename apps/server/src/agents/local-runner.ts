@@ -31,24 +31,15 @@ export function createLocalRunner(
     resolveProjectRoot,
     inferRepositoryUrl,
     /**
-     * Record a launch's worktree request before its row exists, in the
-     * receipt the local runner prepares from. Without a request, bring a
-     * receipt an earlier build of this branch wrote into the runner's shape
-     * before the runner resumes it.
+     * A receipt an earlier build wrote for the agent's worktree launch,
+     * before its request was recorded on the row: brought into the runner's
+     * shape (an earlier build of this branch wrote the app's), and whether
+     * one is there for the runner to finish.
      */
-    bindWorkspace: (
-      agentId: string,
-      ...intent:
-        | [
-            directory: Parameters<typeof workspace.bind>[1],
-            request: Parameters<typeof workspace.bind>[2],
-          ]
-        | []
-    ) =>
-      intent.length
-        ? workspace.bind(stateDir(agentId), ...intent)
-        : workspace.upgrade(stateDir(agentId)),
-    requestedWorktree: (agentId: string) =>
-      workspace.requested(stateDir(agentId)),
+    async bindWorkspace(agentId: string) {
+      const dir = stateDir(agentId);
+      await workspace.upgrade(dir);
+      return workspace.requested(dir);
+    },
   };
 }

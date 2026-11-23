@@ -34,7 +34,7 @@ export type ArchiveCheckoutAgent = Pick<
 
 export type LocalArchiveRunner = Pick<
   ReturnType<typeof createLocalRunner>,
-  "canonicalPath" | "requestedWorktree"
+  "canonicalPath" | "bindWorkspace"
 >;
 
 /** A row's session on the agent's runner, through the directory. */
@@ -67,7 +67,7 @@ export async function nativeBorrowers(
   pool: Pool,
   agent: ArchiveCheckoutAgent,
   canonicalPath: string,
-  localRunner: Pick<LocalArchiveRunner, "requestedWorktree">
+  localRunner: Pick<LocalArchiveRunner, "bindWorkspace">
 ) {
   const path = agent.worktreePath;
   if (!path) return [];
@@ -76,8 +76,10 @@ export async function nativeBorrowers(
     id: string;
     worktreePath: string | null;
     workspacePath: string | null;
+    requested: boolean;
   }>(
-    `SELECT id, worktree_path AS "worktreePath", workspace_path AS "workspacePath"
+    `SELECT id, worktree_path AS "worktreePath", workspace_path AS "workspacePath",
+            COALESCE(runner_preparation->'source' ? 'directory', false) AS requested
        FROM agents
        WHERE deleted_at IS NULL AND id <> $1
          AND (worktree_path = ANY($2::text[])
@@ -89,11 +91,11 @@ export async function nativeBorrowers(
   for (const row of rows) {
     // A launch that asked for its own worktree but never got one only kept
     // its launch cwd; like a runner session that never bound, it borrows
-    // nothing.
+    // nothing. Its row records the request; an earlier build's, its receipt.
     if (
       !row.worktreePath &&
       (!row.workspacePath || !checkoutPaths.has(row.workspacePath)) &&
-      (await localRunner.requestedWorktree(row.id))
+      (row.requested || (await localRunner.bindWorkspace(row.id)))
     )
       continue;
     borrowers.push(row.id);
