@@ -220,49 +220,52 @@ describe("launch location preference", () => {
     });
   });
 
-  it("requires a repository-linked project and launches it by project ID", async () => {
-    queryClient.setQueryData(
-      ["runners"],
-      [
-        {
-          id: "rnr_lima",
-          name: "Lima",
-          status: "online",
-          workspaces: ["legacy"],
-        },
-      ]
-    );
-    const { result } = await setup({ initialProjectId: "project-a" });
-    act(() => result.current.selectRunner("rnr_lima"));
-    expect(result.current.locationReady).toBe(false);
-    await act(async () => result.current.handleSubmit(submitEvent()));
-    expect(apiMock.mock.calls.some(([path]) => path === "/api/v1/agents")).toBe(
-      false
-    );
+  it.each(["release", "main"])(
+    "requires a repository-linked project and preserves explicit branch %s",
+    async (branch) => {
+      queryClient.setQueryData(
+        ["runners"],
+        [
+          {
+            id: "rnr_lima",
+            name: "Lima",
+            status: "online",
+            workspaces: ["legacy"],
+          },
+        ]
+      );
+      const { result } = await setup({ initialProjectId: "project-a" });
+      act(() => result.current.selectRunner("rnr_lima"));
+      expect(result.current.locationReady).toBe(false);
+      await act(async () => result.current.handleSubmit(submitEvent()));
+      expect(
+        apiMock.mock.calls.some(([path]) => path === "/api/v1/agents")
+      ).toBe(false);
 
-    act(() => result.current.setCreateProjectId("project-b"));
-    expect(result.current.locationReady).toBe(false);
-    act(() => result.current.setCreateProjectId("project-a"));
-    expect(result.current.locationReady).toBe(true);
-    act(() => {
-      result.current.setCreatePersona("builder");
-      result.current.setCreateBaseBranch("release");
-    });
-    await act(async () => result.current.handleSubmit(submitEvent()));
-    expect(agentsPostJson()).toEqual({
-      name: "",
-      runner: "rnr_lima",
-      projectId: "project-a",
-      persona: "builder",
-      type: "claude",
-      fullAccess: true,
-      useWorktree: true,
-      createNewBranch: true,
-      baseBranch: "release",
-    });
-    expect(result.current.worktreeOptional).toBe(false);
-    expect(result.current.worktreeAvailable).toBe(true);
-  });
+      act(() => result.current.setCreateProjectId("project-b"));
+      expect(result.current.locationReady).toBe(false);
+      act(() => result.current.setCreateProjectId("project-a"));
+      expect(result.current.locationReady).toBe(true);
+      act(() => {
+        result.current.setCreatePersona("builder");
+        result.current.setCreateBaseBranch(branch);
+      });
+      await act(async () => result.current.handleSubmit(submitEvent()));
+      expect(agentsPostJson()).toEqual({
+        name: "",
+        runner: "rnr_lima",
+        projectId: "project-a",
+        persona: "builder",
+        type: "claude",
+        fullAccess: true,
+        useWorktree: true,
+        createNewBranch: true,
+        baseBranch: branch,
+      });
+      expect(result.current.worktreeOptional).toBe(false);
+      expect(result.current.worktreeAvailable).toBe(true);
+    }
+  );
 
   it("submits the same checkout fields for a local folder and a runner repository", async () => {
     queryClient.setQueryDefaults(["runners"], { staleTime: Infinity });
@@ -849,7 +852,6 @@ describe("handleSubmit", () => {
     expect(agentsPostJson()).toEqual({
       name: "my agent",
       cwd: "/repo/app",
-      baseBranch: "main",
       type: "claude",
       fullAccess: true,
       useWorktree: true,
@@ -872,16 +874,37 @@ describe("handleSubmit", () => {
   });
 
   it.each([undefined, "", "main"])(
-    "submits main for the local base preference %j",
+    "preserves main's local base preference and JSON payload for %j",
     async (base) => {
       const { result } = await setup();
       act(() => result.current.handlePathInfoChange(REPO_INFO));
       if (base !== undefined)
         act(() => result.current.setCreateBaseBranch(base));
-      expect(result.current.createBaseBranch).toBe("main");
+      expect(result.current.createBaseBranch).toBe(base ?? "main");
 
       await act(async () => result.current.handleSubmit(submitEvent()));
-      expect(agentsPostJson().baseBranch).toBe("main");
+      expect(agentsPostJson().baseBranch).toBe(base === "" ? "" : undefined);
+    }
+  );
+
+  it.each([false, true])(
+    "keeps main's custom base string in the payload (multipart=%j)",
+    async (multipart) => {
+      const { result } = await setup();
+      act(() => {
+        result.current.handlePathInfoChange(REPO_INFO);
+        result.current.setCreateBaseBranch(" develop ");
+        if (multipart) {
+          result.current.enterContextStep();
+          result.current.handleAddLink("https://example.com");
+        }
+      });
+      await act(async () => result.current.handleSubmit(submitEvent()));
+      expect(
+        multipart
+          ? (agentsPost()![1].body as FormData).get("baseBranch")
+          : agentsPostJson().baseBranch
+      ).toBe(" develop ");
     }
   );
 
@@ -947,7 +970,7 @@ describe("handleSubmit", () => {
     expect(body.get("useWorktree")).toBe("true");
     expect(body.get("createNewBranch")).toBe("true");
     expect(body.get("worktreeBranch")).toBeNull();
-    expect(body.get("baseBranch")).toBe("main");
+    expect(body.get("baseBranch")).toBeNull();
     expect(body.get("cwd")).toBe("/repo/app");
     expect(body.get("initialPrompt")).toBe("look at these");
     expect(body.get("startupLinks")).toBe(

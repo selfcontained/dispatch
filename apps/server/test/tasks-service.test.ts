@@ -1295,7 +1295,7 @@ describe("triggers", () => {
     }
   );
 
-  it("preserves a project template's runner through manual and triggered task launches", async () => {
+  it("legacy triggers without a location preserve the template runner through manual and triggered launches", async () => {
     const cwd = "runner://runner-test/@session";
     const saved = template({
       id: TEMPLATE_ID,
@@ -1317,7 +1317,16 @@ describe("triggers", () => {
       launchTemplate: async (input) =>
         (await templates.launchTemplate(input)).agent,
     });
-    const ready = await withTrigger("ready", { assign: false });
+    const ready = await columnId("ready");
+    await service.store.updateColumn(ready, {
+      trigger: {
+        templateId: TEMPLATE_ID,
+        agentType: null,
+        model: null,
+        assign: false,
+        fireOnCreate: false,
+      },
+    });
     const task = await service.createTask(
       { projectId, title: "Run on the enrolled runner" },
       USER
@@ -1329,6 +1338,115 @@ describe("triggers", () => {
       expect(args).toEqual([
         expect.objectContaining({ cwd, projectId, templateId: TEMPLATE_ID }),
       ]);
+  });
+
+  it.each([
+    {
+      directory: "/does/not/exist",
+      runner: "local",
+      expected: { runner: "local", path: REPO },
+    },
+    {
+      directory: "~",
+      runner: "offline-fixture",
+      expected: { runner: "offline-fixture" },
+    },
+    {
+      directory: "runner://legacy-fixture/@session",
+      expected: { runner: "legacy-fixture" },
+    },
+  ])(
+    "stores and launches a trigger's own target: $directory / $runner",
+    async ({ expected, ...input }) => {
+      const ready = await columnId("ready");
+      const saved = await service.updateColumn(ready, {
+        trigger: { templateId: TEMPLATE_ID, assign: false, ...input },
+      });
+      expect(saved.trigger?.location).toMatchObject(expected);
+      service = build(filesRoot, {
+        getTemplate: async (id) =>
+          template({ id, directory: "/moved-template" }),
+      });
+      const task = await service.createTask(
+        { projectId, title: "Own location" },
+        USER
+      );
+      await service.updateTask(task.id, { columnId: ready }, USER);
+      const resolved = launches[0]!.resolvedTemplate!;
+      expect(resolved.directory).toBe(
+        "path" in expected
+          ? expected.path
+          : input.directory.startsWith("runner://")
+            ? input.directory
+            : "runner://offline-fixture/@session"
+      );
+      // Re-reading the trigger retains its target after the template moves.
+      expect((await service.requireColumn(ready)).trigger?.location).toEqual(
+        saved.trigger?.location
+      );
+    }
+  );
+
+  it("a new untargeted trigger follows its template after the template directory changes", async () => {
+    let directory = "/template-before-trigger-save";
+    service = build(filesRoot, {
+      getTemplate: async (id) => template({ id, directory }),
+    });
+    const ready = await columnId("ready");
+    const saved = await service.updateColumn(ready, {
+      trigger: { templateId: TEMPLATE_ID, assign: false },
+    });
+    expect(saved.trigger).not.toHaveProperty("location");
+    directory = "/template-moved-after-trigger-save";
+    const task = await service.createTask(
+      { projectId, title: "Follow the template" },
+      USER
+    );
+    await service.updateTask(task.id, { columnId: ready }, USER);
+    expect(launches[0]!.resolvedTemplate?.directory).toBe(directory);
+    expect((await service.requireColumn(ready)).trigger).not.toHaveProperty(
+      "location"
+    );
+  });
+
+  it("an explicit trigger target survives an edit without target fields", async () => {
+    const ready = await columnId("ready");
+    const saved = await service.updateColumn(ready, {
+      trigger: { templateId: TEMPLATE_ID, runner: "offline-fixture" },
+    });
+    const edited = await service.updateColumn(ready, {
+      trigger: { templateId: TEMPLATE_ID, assign: false },
+    });
+    expect(edited.trigger?.location).toEqual(saved.trigger?.location);
+  });
+
+  it("HTTP retains the optional runner and directory when replacing a trigger", async () => {
+    const ready = await columnId("ready");
+    const app = Fastify();
+    await registerTaskRoutes(app, {
+      taskService: service,
+      withStreamFlag: (agent) => ({ ...agent, hasStream: false }),
+    });
+    try {
+      const result = await app.inject({
+        method: "PATCH",
+        url: `/api/v1/task-columns/${ready}`,
+        payload: {
+          trigger: {
+            templateId: TEMPLATE_ID,
+            runner: "offline-http-fixture",
+            directory: "~",
+          },
+        },
+      });
+      expect(result.statusCode, result.body).toBe(200);
+      expect(result.json().trigger.location).toEqual({
+        runner: "offline-http-fixture",
+        projectId,
+      });
+    } finally {
+      await app.close();
+    }
   });
 
   it("launches a prompt-less persona template with the briefing as its prompt", async () => {

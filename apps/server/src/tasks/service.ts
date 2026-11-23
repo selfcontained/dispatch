@@ -1,6 +1,9 @@
 import { sameRunner } from "@dispatch/runner-protocol/contract";
 import { controllerPlacement } from "../runners/placement.js";
 import {
+  resolveSavedTarget,
+  storedLocation,
+  type Location,
   savedLaunchTarget,
   targetPlacement,
 } from "../runners/saved-location.js";
@@ -168,6 +171,8 @@ export type TaskServiceDeps = {
 /** A trigger as callers send it: everything but the template defaults. */
 export type TaskColumnTriggerInput = Partial<TaskColumnTrigger> & {
   templateId: string;
+  runner?: string;
+  directory?: string;
 };
 
 type ColumnInput = Omit<CreateTaskColumnInput, "trigger"> & {
@@ -587,6 +592,26 @@ export class TaskService {
     ) {
       throw invalid(`Template "${template.name}" belongs to another project.`);
     }
+    // An implicit target follows the template, including after later edits.
+    // Explicit targets use the same save rules as jobs and templates.
+    const explicitTarget =
+      trigger.directory !== undefined || "runner" in trigger;
+    const target = explicitTarget
+      ? resolveSavedTarget(trigger.directory ?? project.repoRoot ?? "", {
+          ...trigger,
+          projectId: project.id,
+          projectRoot: project.repoRoot ?? undefined,
+        })
+      : previous?.location
+        ? {
+            directory:
+              "path" in previous.location
+                ? previous.location.path
+                : template.directory,
+            [storedLocation]: previous.location,
+          }
+        : null;
+    const locatedTemplate = target ? { ...template, ...target } : template;
     const agentType = trigger.agentType ?? null;
     if (agentType !== null && !AGENT_TYPES.includes(agentType)) {
       throw invalid(
@@ -597,7 +622,7 @@ export class TaskService {
     let effort: Effort | null = null;
     try {
       const scope = await modelScopeFor(
-        template.directory,
+        savedLaunchTarget(locatedTemplate).cwd,
         agentType ?? template.agentType
       );
       model =
@@ -616,11 +641,15 @@ export class TaskService {
                 (await this.deps.getTemplate(previous.templateId))?.agentType));
         if (!saved) assertModelSelectable(type, model);
       }
-      const resolved = await resolveTemplateLaunch(template, {
-        agentType: agentType ?? undefined,
-        model: model ?? undefined,
-        effort: trigger.effort ?? undefined,
-      });
+      const resolved = await resolveTemplateLaunch(
+        locatedTemplate,
+        {
+          agentType: agentType ?? undefined,
+          model: model ?? undefined,
+          effort: trigger.effort ?? undefined,
+        },
+        savedLaunchTarget(locatedTemplate).cwd
+      );
       effort = validateAgentEffort(
         agentType ?? template.agentType,
         trigger.effort,
@@ -632,6 +661,7 @@ export class TaskService {
     }
     return {
       templateId: template.id,
+      ...(target && { location: target[storedLocation] }),
       agentType,
       model,
       effort,
@@ -647,6 +677,7 @@ export class TaskService {
       agentType?: AgentType | null;
       model?: string | null;
       effort?: Effort | null;
+      location?: Location;
     },
     caller?: TaskCaller
   ): Promise<TemplateRecord> {
@@ -658,11 +689,25 @@ export class TaskService {
       !(stored.projectId === null && stored.directory === project.repoRoot)
     )
       throw invalid(`Template "${stored.name}" belongs to another project.`);
-    const template = await resolveTemplateLaunch(stored, {
-      ...(launch.agentType ? { agentType: launch.agentType } : {}),
-      ...(launch.model ? { model: launch.model } : {}),
-      ...(launch.effort ? { effort: launch.effort } : {}),
-    });
+    const located = launch.location
+      ? {
+          ...stored,
+          directory:
+            "path" in launch.location ? launch.location.path : stored.directory,
+          [storedLocation]: launch.location,
+        }
+      : stored;
+    const target = launch.location
+      ? savedLaunchTarget(located).cwd
+      : located.directory;
+    const template = await resolveTemplateLaunch(
+      { ...located, directory: target },
+      {
+        ...(launch.agentType ? { agentType: launch.agentType } : {}),
+        ...(launch.model ? { model: launch.model } : {}),
+        ...(launch.effort ? { effort: launch.effort } : {}),
+      }
+    );
     if (caller && template.fullAccess && isRestricted(caller))
       throw invalid(RESTRICTED_LAUNCH_REASON);
     if (template.persona) {
@@ -698,10 +743,17 @@ export class TaskService {
     agentType: AgentType | null;
     model: string | null;
     effort?: Effort | null;
+    location?: Location;
   }> {
     const templateId = task.launchTemplateId;
     const base = templateId
-      ? { templateId, agentType: null, model: null, effort: null }
+      ? {
+          templateId,
+          agentType: null,
+          model: null,
+          effort: null,
+          ...(column.trigger.location && { location: column.trigger.location }),
+        }
       : column.trigger;
     if (!task.launchAgentType || !task.launchModel) return base;
     const inherited =
@@ -712,6 +764,7 @@ export class TaskService {
       task.launchAgentType === inherited && task.launchModel === base.model;
     return {
       templateId: base.templateId,
+      ...(base.location && { location: base.location }),
       agentType: task.launchAgentType,
       model: task.launchModel,
       effort: unchanged ? (base.effort ?? null) : null,

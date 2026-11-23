@@ -235,7 +235,7 @@ export function useCreateAgentForm({
   const worktreeOptional = !remote;
   const createUseWorktree = worktreeOptional ? savedUseWorktree : true;
   const selectedBaseBranch = worktreeOptional
-    ? savedBaseBranch || "main"
+    ? savedBaseBranch
     : repositoryChoice.baseBranch;
   const createNewBranch = worktreeOptional
     ? savedCreateNewBranch
@@ -499,7 +499,13 @@ export function useCreateAgentForm({
             ? createWorktreeBranch.trim() || undefined
             : undefined,
           baseBranch:
-            submitUseWorktree && !pullRequest ? base || undefined : undefined,
+            submitUseWorktree && !pullRequest
+              ? remote
+                ? base || undefined
+                : createBaseBranch !== "main"
+                  ? createBaseBranch
+                  : undefined
+              : undefined,
           pullRequest: submitUseWorktree && pullRequest ? base : undefined,
           initialPrompt: contextInitialPrompt,
           taskId: task?.id,

@@ -253,6 +253,8 @@ export function registerTaskTools(
           trigger: z
             .object({
               templateId: z.string().min(1),
+              runner: z.string().min(1).optional(),
+              directory: z.string().optional(),
               agentType: z
                 .enum(AGENT_TYPES)
                 .nullable()
