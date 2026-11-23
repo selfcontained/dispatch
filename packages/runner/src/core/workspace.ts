@@ -208,7 +208,10 @@ function spec(receipt: Receipt): WorktreeSpec {
     create: request.create,
     ...(receipt.at === undefined
       ? { nested: nestedDir(request) }
-      : { at: receipt.at }),
+      : {
+          at: receipt.at,
+          ...(!receipt.repository && { fromDirectory: true }),
+        }),
   };
 }
 
@@ -665,7 +668,9 @@ export function workspaceHandlers(
           cwd,
           input.worktree,
           copy,
-          input.installDependencies
+          input.installDependencies,
+          undefined,
+          await port.repository?.location?.(session)
         );
         return finish(session, dir, receipt, emit);
       });

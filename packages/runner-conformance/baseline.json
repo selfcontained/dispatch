@@ -577,24 +577,6 @@
   },
   {
     "lane": "remote",
-    "scenario": "git.defaultBranch/pending",
-    "task": "T16",
-    "reason": "not on wire v1: local-only today"
-  },
-  {
-    "lane": "remote",
-    "scenario": "git.branches/pending",
-    "task": "T16",
-    "reason": "not on wire v1: local-only today; v1 has github.branches"
-  },
-  {
-    "lane": "remote",
-    "scenario": "git.base/pending",
-    "task": "T16",
-    "reason": "not on wire v1: decided inside Dispatch today"
-  },
-  {
-    "lane": "remote",
     "scenario": "github.account/pending",
     "task": "T32",
     "reason": "scenario not written yet"

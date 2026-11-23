@@ -102,6 +102,37 @@ export const results: ResultFixture[] = [
     value: true,
   },
   {
+    command: s("gitQuery", {
+      operation: {
+        op: "git.defaultBranch",
+        request: { target: { path: "/srv/work" } },
+      },
+    }),
+    value: json({ data: { branch: "trunk" } }),
+  },
+  {
+    command: s("gitQuery", {
+      operation: {
+        op: "git.branches",
+        request: { target: { repository: "https://example.com/repo" } },
+      },
+    }),
+    value: json({ data: { branches: ["trunk"], defaultBranch: "trunk" } }),
+  },
+  {
+    command: s("gitQuery", {
+      operation: {
+        op: "git.base",
+        request: {
+          target: { session: agentId },
+          requested: null,
+          fallback: ["trunk"],
+        },
+      },
+    }),
+    value: json({ data: { base: "trunk" } }),
+  },
+  {
     command: s("workspacePrepare", {
       operation: {
         source: {

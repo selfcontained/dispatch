@@ -114,6 +114,9 @@ type SupervisorOptions = {
     policyOnly?: boolean
   ) => Promise<CheckoutState>;
   prepareDependencies?: (cwd: string) => Promise<boolean>;
+  resumePreparedCheckout?: (
+    agentId: string
+  ) => Promise<Res<"workspace.resume">>;
   removePreparedCheckout?: (session: string) => Promise<boolean>;
   /** False while the update fence holds process admission closed. */
   mayStartProcess?: () => boolean;
@@ -807,6 +810,16 @@ export async function createSessionSupervisor(
         : workspace;
     if (binding !== null && binding !== bindingValue)
       throw new Error("Agent is not bound to this workspace or checkout");
+    // Core-prepared sessions launch from their receipt under the same session lock.
+    const prepared =
+      managed && !owner ? await config.resumePreparedCheckout?.(agentId) : null;
+    if (
+      prepared &&
+      ((await readBinding(key)) !== managedBinding ||
+        !prepared.checkoutRoot ||
+        displayPath(prepared.checkoutRoot) !== (await managedDirectory(key)))
+    )
+      throw new Error("The prepared checkout binding changed.");
     const { launchId } = command.launch;
     const recorded =
       launchId === undefined
@@ -860,7 +873,9 @@ export async function createSessionSupervisor(
     await cleanHost(key, identity);
     checkUntrackedSocket(path.join(hostRoot, key));
     await cleanLegacyHost(key);
-    if (managed && !owner) {
+    if (prepared) {
+      cwd = displayPath(prepared.path);
+    } else if (managed && !owner) {
       const parsed =
         command.launch.repository === undefined
           ? null

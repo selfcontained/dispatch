@@ -752,6 +752,79 @@ describe("AgentManager", () => {
       });
     });
 
+    it("prepares a capable runner launch from the project and resumes it on restart", async () => {
+      const cwd = "runner://runner-test/@session";
+      const projectId = "capable-runner-project";
+      const repository = "https://example.test/project";
+      await pool.query(
+        "INSERT INTO projects (id, name, repo_root, repository) VALUES ($1, 'Runner', '/tmp/capable-runner-project', $2)",
+        [projectId, repository]
+      );
+      const requestSession = vi.fn(
+        async (_placement: unknown, _command: { kind: string }) => ({
+          value: JSON.stringify({
+            data: {
+              path: "/workload/prepared",
+              moved: false,
+              origin: repository,
+            },
+          }),
+        })
+      );
+      const remote = {
+        available: () => true,
+        isManagedWorkspace: () => true,
+        supportsPreparedLaunch: () => true,
+        originFor: () => "https://example.test",
+        requestSession,
+      } as unknown as RemoteRunnerService;
+      const manager = new AgentManager(pool, noopLogger, testConfig, {
+        runtime,
+        remote,
+      });
+      await expect(manager.createAgent({ cwd })).rejects.toThrow(
+        "Choose a project to launch on this runner."
+      );
+      const agent = await manager.createAgent({
+        cwd,
+        projectId,
+        repository: { url: "https://other.test/ignored" },
+        baseBranch: "trunk",
+        worktreeBranch: "feature",
+      });
+      expect(requestSession).toHaveBeenCalledWith(
+        { runner: "runner-test", workspace: "@session" },
+        expect.objectContaining({
+          agentId: agent.id,
+          kind: "workspacePrepare",
+          operation: expect.objectContaining({
+            source: {
+              repository,
+              checkout: { kind: "new", branch: "feature", base: "trunk" },
+            },
+          }),
+        }),
+        expect.any(Function),
+        undefined
+      );
+      expect(runtime.launch.mock.calls.at(-1)?.[0].repository).toBeUndefined();
+      await manager.stopAgent(agent.id);
+      requestSession.mockClear();
+      await manager.startAgent(agent.id);
+      expect(requestSession).toHaveBeenCalledWith(
+        { runner: "runner-test", workspace: "@session" },
+        expect.objectContaining({ kind: "workspaceResume", agentId: agent.id }),
+        undefined,
+        undefined
+      );
+      expect(
+        requestSession.mock.calls.some(
+          ([, command]) =>
+            (command as { kind: string }).kind === "workspacePrepare"
+        )
+      ).toBe(false);
+    });
+
     it("carries MCP new and existing checkout intent to the runner launch request", async ({
       onTestFinished,
     }) => {

@@ -21,6 +21,8 @@ import { Writable } from "node:stream";
 import { createServer, type Server, type TLSSocket } from "node:tls";
 import {
   receiveFile,
+  decodeResult,
+  ResultError,
   receiveCheckoutExec,
   receiveCheckoutRead,
   openTerminalStream,
@@ -233,6 +235,8 @@ type Peer = {
   sharedWorktree: boolean;
   workspacePreparation: boolean;
   workspacePrepare: boolean;
+  preparedLaunch: boolean;
+  gitQueries: boolean;
   workspaceRelease: boolean;
   /** Reconciles a repeated `launch.launchId` instead of running it again. */
   launchReconcile: boolean;
@@ -399,6 +403,7 @@ export class RemoteRunnerService {
       | "gate"
       | "workspaces"
       | "managedWorkspace"
+      | "preparedLaunch"
       | "sessionFiles"
       | "sharedWorktree"
       | "engines"
@@ -997,6 +1002,9 @@ export class RemoteRunnerService {
           sharedWorktree: ready.sharedWorktree === true,
           workspacePreparation: ready.workspacePreparation === true,
           workspacePrepare: ready.workspacePrepare === true,
+          preparedLaunch:
+            ready.workspacePrepare === true && ready.preparedLaunch === true,
+          gitQueries: ready.gitQueries === true,
           workspaceRelease: ready.workspaceRelease === true,
           launchReconcile: ready.launchReconcile === true,
           connection: new RunnerConnection(send),
@@ -1018,6 +1026,7 @@ export class RemoteRunnerService {
           build: ready.selfUpdate,
           workspaces: peer.workspaces,
           managedWorkspace: peer.managedWorkspace,
+          preparedLaunch: peer.preparedLaunch,
           sessionFiles: peer.sessionFiles,
           sharedWorktree: peer.sharedWorktree,
           engines: this.lastSeen.get(gate.key)?.engines,
@@ -2138,8 +2147,30 @@ export class RemoteRunnerService {
     runnerId: string,
     target: { repository: string }
   ) {
-    // The v1 transport only implements github.branches. The T16 transport
-    // supplies git.branches for arbitrary repository targets.
+    const peer = this.peers.get(runnerId);
+    if (peer?.gitQueries) {
+      for (const workspace of peer.workspaces) {
+        const placement = { runner: runnerId, workspace };
+        if (!this.workspacePeer(placement)) continue;
+        const op = "git.branches";
+        const request = { target };
+        const { value } = await this.requestSession(placement, {
+          agentId: "@git",
+          kind: "gitQuery",
+          operation: { op, request },
+        });
+        try {
+          return decodeResult(
+            { op, request, absent: [], extras: { workspace } },
+            value
+          );
+        } catch (error) {
+          if (error instanceof ResultError)
+            throw new RunnerCallError(error.error);
+          throw error;
+        }
+      }
+    }
     const github = /^https:\/\/github\.com\/([\w.-]+)\/([\w.-]+)$/.exec(
       target.repository
     );
@@ -2326,6 +2357,14 @@ export class RemoteRunnerService {
     );
   }
 
+  supportsGitQueries(placement: Placement) {
+    return this.workspacePeer(placement)?.gitQueries === true;
+  }
+
+  supportsPreparedLaunch(placement: Placement) {
+    return this.workspacePeer(placement)?.preparedLaunch === true;
+  }
+
   supportsWorkspaceRelease(placement: Placement) {
     return this.workspacePeer(placement)?.workspaceRelease === true;
   }
@@ -2359,6 +2398,7 @@ export class RemoteRunnerService {
       return undefined;
     return {
       managedWorkspace: seen.managedWorkspace,
+      preparedLaunch: seen.preparedLaunch,
       sessionFiles: seen.sessionFiles,
       sharedWorktree: seen.sharedWorktree,
     };
@@ -2480,6 +2520,11 @@ export class RemoteRunnerService {
       throw new RunnerCallError({
         code: "unsupported",
         message: "This runner does not serve workspace preparation.",
+      });
+    if (command.kind === "gitQuery" && !peer.gitQueries)
+      throw new RunnerCallError({
+        code: "unsupported",
+        message: "This runner does not serve Git queries.",
       });
     if (command.kind === "launch" && peer.workspacePreparation && onProgress)
       command = {

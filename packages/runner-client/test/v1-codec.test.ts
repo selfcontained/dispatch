@@ -60,6 +60,13 @@ function validV1Result(command: Command, value: unknown): boolean {
       return command.operation.kind === "context"
         ? operations["git.context"].response.check(parsed)
         : isSessionCheckout(parsed);
+    case "gitQuery": {
+      const reply = parsed as { data?: unknown; error?: unknown };
+      return (
+        operations[command.operation.op].response.check(reply.data) ||
+        runnerError.check(reply.error)
+      );
+    }
     case "workspacePrepare":
     case "workspaceResume": {
       const reply = parsed as { data?: unknown; error?: unknown };
@@ -236,6 +243,7 @@ describe("codec coverage", () => {
         "inspectCheckout",
         "sessionCheckout",
         "workspacePrepare",
+        "gitQuery",
         "workspaceResume",
         "workspaceRelease",
         "checkoutCommand",

@@ -22,6 +22,7 @@ export { runnerStorageKey } from "./session-supervisor.js";
 import { hostCommand, selfCommand } from "../acp/host-command.js";
 import {
   RunnerCallError,
+  displayPath,
   runnerError,
   sessionFromWire,
   type Req,
@@ -381,6 +382,7 @@ type WorkspacePreparationFactory = (options: {
   step: (op: string, args: unknown[]) => Promise<unknown>;
 }) => Promise<{
   legacy(session: string): Promise<boolean>;
+  hasReceipt(session: string): Promise<boolean>;
   remove(session: string): Promise<boolean>;
   releaseLegacy(
     session: string,
@@ -672,6 +674,14 @@ export async function runRemoteRunner(
     });
     return stdout;
   };
+  const checkoutGitEnv = async () => ({
+    ...env,
+    GIT_TERMINAL_PROMPT: "0",
+    GH_PROMPT_DISABLED: "1",
+    GIT_CONFIG_COUNT: "1",
+    GIT_CONFIG_KEY_0: githubCredentialKey,
+    GIT_CONFIG_VALUE_0: githubCredentialHelper(await tools.resolve("gh")),
+  });
   let workspacePreparation:
     | Awaited<ReturnType<WorkspacePreparationFactory>>
     | undefined;
@@ -724,6 +734,16 @@ export async function runRemoteRunner(
       return [setpriv, ...workloadLogin([...hostCommand(), "--state", dir])];
     },
     mayStartProcess: () => admission.mayStartProcess(),
+    async resumePreparedCheckout(agentId) {
+      if (!(await workspacePreparation?.hasReceipt(agentId))) return null;
+      const binding = await workspacePreparation!.call(
+        "workspace.resume",
+        { session: sessionFromWire(agentId) },
+        () => {}
+      );
+      if (!binding) throw new Error("The prepared checkout is unavailable.");
+      return binding;
+    },
     removePreparedCheckout: (session) =>
       workspacePreparation?.remove(session) ?? Promise.resolve(false),
   });
@@ -740,7 +760,7 @@ export async function runRemoteRunner(
           const worker = workloadLogin([...self("runner-worker"), op]);
           const output = await runCheckoutWorker(
             worker,
-            { ...env, GIT_TERMINAL_PROMPT: "0", GH_PROMPT_DISABLED: "1" },
+            await checkoutGitEnv(),
             JSON.stringify(args),
             AbortSignal.timeout(
               op === "workspace.installDependencies" ? 135_000 : 90_000
@@ -1060,6 +1080,57 @@ export async function runRemoteRunner(
         }
         if (socket.destroyed) return;
         switch (command.kind) {
+          case "gitQuery": {
+            const { op, request } = command.operation;
+            const { target: gitTarget } = request;
+            const gitEnv = await checkoutGitEnv();
+            const run = (cwd?: string) =>
+              runCheckoutWorker(
+                workloadLogin([
+                  ...self("runner-worker"),
+                  op,
+                  ...(cwd ? [cwd] : []),
+                ]),
+                gitEnv,
+                JSON.stringify(request),
+                AbortSignal.any([
+                  connection.signal,
+                  AbortSignal.timeout(20_000),
+                ])
+              );
+            if (
+              "session" in gitTarget &&
+              gitTarget.session !== sessionFromWire(agentId)
+            )
+              throw new Error("Invalid Git query binding.");
+            const value =
+              "session" in gitTarget
+                ? await supervisor.withCommandCheckout(
+                    agentId,
+                    workspace,
+                    gitTarget.checkout === "current" || !gitTarget.checkout
+                      ? "effective"
+                      : gitTarget.checkout,
+                    target?.cwd,
+                    connection.signal,
+                    run
+                  )
+                : await run(
+                    "path" in gitTarget
+                      ? displayPath(gitTarget.path)
+                      : undefined
+                  );
+            result(
+              value ??
+                JSON.stringify({
+                  error: {
+                    code: "not_found",
+                    message: "Checkout unavailable.",
+                  },
+                })
+            );
+            break;
+          }
           case "workspacePrepare":
           case "workspaceResume": {
             const emit = (event: unknown) => {
@@ -1940,7 +2011,11 @@ export async function runRemoteRunner(
             : {}),
           defaultBranchFiles: true,
           workspacePreparation: true,
-          ...(workspacePreparation && { workspacePrepare: true }),
+          gitQueries: true,
+          ...(workspacePreparation && {
+            workspacePrepare: true,
+            preparedLaunch: true,
+          }),
           ...((workspacePreparation || !managedWorkspace) && {
             workspaceRelease: true,
           }),

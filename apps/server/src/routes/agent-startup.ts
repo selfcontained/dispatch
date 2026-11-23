@@ -8,6 +8,7 @@ import {
 
 export type CreateAgentBody = {
   projectId?: unknown;
+  runner?: unknown;
   repository?: unknown;
   name?: unknown;
   type?: unknown;

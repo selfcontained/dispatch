@@ -7,6 +7,7 @@ export type ResolveBaseRefOptions = {
   allowUpstreamFallback?: boolean;
   /** Receives command execution errors while resolution keeps its null fallback. */
   onError?: (error: unknown) => void;
+  fallback?: readonly string[];
 };
 
 function normalizeBranchName(ref: string | null | undefined): string | null {
@@ -122,10 +123,10 @@ export async function resolveBaseRef(
     if (found) return found;
   }
 
-  return (
-    (await refExists(run, worktreePath, "origin/main", options.onError)) ??
-    (await refExists(run, worktreePath, "main", options.onError))
-  );
+  for (const ref of options.fallback ?? ["origin/main", "main"]) {
+    if (await refExists(run, worktreePath, ref, options.onError)) return ref;
+  }
+  return null;
 }
 
 /**

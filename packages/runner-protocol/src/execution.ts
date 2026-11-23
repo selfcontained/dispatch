@@ -94,8 +94,14 @@ export type SessionLifecycleOperation = { agentId: string } & (
   | { kind: "stop"; force: boolean }
 );
 
+export type GitQueryName = "git.defaultBranch" | "git.branches" | "git.base";
+export type GitQuery = {
+  [K in GitQueryName]: { op: K; request: Req<K> };
+}[GitQueryName];
+
 export type SessionOperation =
   | SessionLifecycleOperation
+  | { agentId: string; kind: "gitQuery"; operation: GitQuery }
   | { agentId: string; kind: "sessionFile"; operation: SessionFileOperation }
   | { agentId: string; kind: "watchCheckout" }
   | {
@@ -169,6 +175,9 @@ export type ReadyFrame = {
   sharedWorktree?: true;
   workspacePreparation?: true;
   workspacePrepare?: true;
+  /** A launch starts directly from a workspace preparation receipt. */
+  preparedLaunch?: true;
+  gitQueries?: true;
   workspaceRelease?: true;
   sessionCheckout?: true;
   checkoutRelease?: true;
@@ -206,6 +215,8 @@ export function parseReadyFrame(value: unknown): ReadyFrame | null {
     type: "ready",
     version: RUNNER_WIRE_VERSION,
     workspaces: frame.workspaces,
+    ...(frame.preparedLaunch === true && { preparedLaunch: true }),
+    ...(frame.gitQueries === true && { gitQueries: true }),
     ...(frame.workspacePrepare === true && { workspacePrepare: true }),
     ...(frame.workspaceRelease === true && { workspaceRelease: true }),
     ...(frame.checkoutViews === true && { checkoutViews: true }),
@@ -435,6 +446,16 @@ function isCommand(value: unknown): value is Command {
         (value.launch.useWorktreeOf === undefined ||
           value.agentId === value.launch.agentId)
       );
+    case "gitQuery": {
+      const op = value.operation;
+      return (
+        isRecord(op) &&
+        (op.op === "git.branches" ||
+          op.op === "git.defaultBranch" ||
+          op.op === "git.base") &&
+        operations[op.op].request.check(op.request)
+      );
+    }
     case "workspacePrepare":
       return (
         isRecord(value.operation) &&

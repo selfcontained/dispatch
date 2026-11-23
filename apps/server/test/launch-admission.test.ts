@@ -163,7 +163,8 @@ describe("launch admission compatibility", () => {
     {
       cwd: configured,
       input: { repository: {} },
-      expected: "Repository checkout requires a managed runner session.",
+      expected:
+        "Enter a repository URL or select a project with a repository origin.",
     },
     {
       cwd: managed,

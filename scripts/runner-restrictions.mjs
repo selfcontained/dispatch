@@ -45,21 +45,6 @@ const rules = [
     [admission, 'return reject("childBinding")'],
   ],
   [
-    "N5",
-    "Repositories require managed workspaces",
-    "T19",
-    [admission, 'if (!managed) return reject("repositoryPlacement")'],
-  ],
-  [
-    "N6",
-    "Independent runner worktrees require HTTPS",
-    "T18",
-    [
-      manager,
-      "An independent runner worktree needs a repository with an HTTPS origin.",
-    ],
-  ],
-  [
     "N7",
     "Managed runner cross-project task refusal",
     "T25",
