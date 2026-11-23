@@ -40,6 +40,7 @@ import {
   localEnginePort,
   readCommandGuard,
   sessionFilesWorkload,
+  workspaceWorkload,
 } from "../agents/checkout-worker.js";
 import {
   sessionFileBlob,
@@ -168,6 +169,14 @@ function commandDirectory(agent: CheckoutSession, selector: Selector) {
   if (selector === "launch") return launch;
   if (selector === "moved") return moved && moved !== launch ? moved : null;
   return moved ?? launch;
+}
+
+/** The child could not answer: not running, restarting, or died mid-call. */
+function childUnavailable(error: unknown) {
+  return (
+    error instanceof RunnerCallError &&
+    (error.code === "unavailable" || error.code === "unknown_outcome")
+  );
 }
 
 export function createLocalCheckoutRunner(
@@ -301,6 +310,102 @@ export function createLocalCheckoutRunner(
       { directory, selector, request },
       { signal: options?.signal }
     );
+  }
+
+  /**
+   * The child's observation when its binding for the session is the
+   * worktree the row records and its own to remove; null when it holds
+   * none, holds another, or cannot answer (not running, restarting, or died
+   * mid-call).
+   */
+  async function childOwned(
+    session: Req<"workspace.observe">["session"],
+    worktree: string,
+    options?: { signal?: AbortSignal }
+  ): Promise<Res<"workspace.observe"> | null> {
+    if (!child) return null;
+    try {
+      const described = await child
+        .call("workspace.describe", { session }, options)
+        .catch((error: unknown) => {
+          if (error instanceof RunnerCallError && error.code === "not_found")
+            return null;
+          throw error;
+        });
+      if (
+        !described?.checkoutRoot ||
+        displayPath(described.checkoutRoot) !== worktree
+      )
+        return null;
+      const observed = await child.call(
+        "workspace.observe",
+        { session },
+        options
+      );
+      return observed.ownership === "owned" ? observed : null;
+    } catch (error) {
+      if (childUnavailable(error)) return null;
+      throw error;
+    }
+  }
+
+  /**
+   * Archive's observation, by main's rule: the worktree the row records is
+   * the agent's own. The child observes it when its binding agrees; else
+   * the same port runs here with the row's facts (R3, as for reads).
+   */
+  async function observe(
+    input: Req<"workspace.observe">,
+    options?: CallOptions<"workspace.observe">
+  ): Promise<Res<"workspace.observe">> {
+    const session = boundSession(input);
+    const worktree = session.worktreePath;
+    if (!worktree)
+      return {
+        ownership: "external",
+        owner: null,
+        borrowers: [],
+        checkout: null,
+      };
+    const owned = await childOwned(input.session, worktree, options);
+    if (owned) return owned;
+    const state = await workspaceWorkload.observe(worktree).catch(() => null);
+    return {
+      ownership: "owned",
+      owner: session.id,
+      borrowers: [],
+      checkout: state && { ...state, path: pathFromWire(state.path) },
+    };
+  }
+
+  /**
+   * Archive's removal of the worktree the row records, by the same rule:
+   * in the child when its binding agrees, else the same port here with the
+   * row's facts, also when the child dies mid-call (R3, as for reads).
+   */
+  async function release(
+    input: Req<"workspace.release">,
+    options?: CallOptions<"workspace.release">
+  ): Promise<Res<"workspace.release">> {
+    const session = boundSession(input);
+    const worktree = session.worktreePath;
+    if (!worktree) return { removed: false };
+    try {
+      if (child && (await childOwned(input.session, worktree, options)))
+        return await child.call("workspace.release", input, options);
+    } catch (error) {
+      if (!childUnavailable(error)) throw error;
+    }
+    return {
+      removed: await workspaceWorkload.release(
+        session.id,
+        { path: worktree },
+        {
+          deleteBranch: input.deleteBranch,
+          originalBranch: input.originalBranch,
+        }
+      ),
+    };
   }
 
   async function gitContext(
@@ -564,6 +669,16 @@ export function createLocalCheckoutRunner(
         return select(
           input as Req<"workspace.select">,
           options as CallOptions<"workspace.select">
+        ) as Promise<Res<K>>;
+      if (op === "workspace.observe")
+        return observe(
+          input as Req<"workspace.observe">,
+          options as CallOptions<"workspace.observe">
+        ) as Promise<Res<K>>;
+      if (op === "workspace.release")
+        return release(
+          input as Req<"workspace.release">,
+          options as CallOptions<"workspace.release">
         ) as Promise<Res<K>>;
       if (op === "git.defaultBranch")
         return defaultBranch(

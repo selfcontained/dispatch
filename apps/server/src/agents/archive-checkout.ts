@@ -7,6 +7,14 @@ import {
 } from "@dispatch/runner-protocol";
 import type { Pool } from "pg";
 import {
+  displayPath,
+  sessionFromWire,
+  type Placement,
+  type Res,
+  type Runner,
+} from "@dispatch/runner-protocol/contract";
+import { checkoutRunners } from "../runners/directory.js";
+import {
   finishArchiveCheckout,
   runnerArchiveExecutor,
   type ArchiveCheckoutHooks,
@@ -26,8 +34,34 @@ export type ArchiveCheckoutAgent = Pick<
 
 export type LocalArchiveRunner = Pick<
   ReturnType<typeof createLocalRunner>,
-  "canonicalPath" | "checkoutRelease" | "requestedWorktree"
+  "canonicalPath" | "requestedWorktree"
 >;
+
+/** A row's session on the agent's runner, through the directory. */
+export function archiveRunner(
+  child: (() => Runner | undefined) | undefined,
+  row: ArchiveCheckoutAgent,
+  placement: Placement
+): Runner {
+  const { directory } = checkoutRunners(
+    { child },
+    { ...row, workspacePath: null, placement }
+  );
+  return directory.for(placement);
+}
+
+/** The contract's observation in the archive's terms. */
+export function archiveObservation(
+  observed: Res<"workspace.observe">
+): CheckoutObservation {
+  return {
+    ...observed,
+    checkout: observed.checkout && {
+      ...observed.checkout,
+      path: displayPath(observed.checkout.path),
+    },
+  };
+}
 
 export async function nativeBorrowers(
   pool: Pool,
@@ -69,9 +103,10 @@ export async function nativeBorrowers(
 
 export async function observeArchiveCheckout(
   pool: Pool,
-  agent: ArchiveCheckoutAgent,
+  agent: ArchiveCheckoutAgent & Pick<AgentRecord, "placement">,
   localRunner: LocalArchiveRunner,
-  remote?: RemoteRunnerService
+  remote?: RemoteRunnerService,
+  child?: () => Runner | undefined
 ): Promise<CheckoutObservation> {
   const placement = remotePlacement(agent.cwd);
   if (placement) {
@@ -79,7 +114,7 @@ export async function observeArchiveCheckout(
       throw new AgentError("The session runner is unavailable.", 503);
     return observeRemoteCheckout(agent, remote, placement);
   }
-  let binding = agent;
+  let binding: ArchiveCheckoutAgent = agent;
   if (!agent.worktreePath) {
     // A local borrower launches in the owner's worktree but has no worktree
     // path of its own. A deleted owner can still be holding it for borrowers.
@@ -93,9 +128,12 @@ export async function observeArchiveCheckout(
     );
     binding = rows[0] ?? agent;
   }
-  const observed = await localRunner.checkoutRelease(binding, {
-    kind: "observe",
-  });
+  const observed = archiveObservation(
+    await archiveRunner(child, binding, agent.placement).call(
+      "workspace.observe",
+      { session: sessionFromWire(binding.id) }
+    )
+  );
   const checkoutPath =
     observed.checkout?.path ??
     (binding.id !== agent.id ? binding.worktreePath : null);

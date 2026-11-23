@@ -40,10 +40,39 @@ vi.mock("../src/agents/checkout-inspection.js", () => ({
   observeGitCheckout: vi.fn(),
 }));
 
+// The local runner's removal port, over the mocked Git cleanup above: these
+// tests are about the archive's sequence. archive-policy.test.ts removes
+// real worktrees through the real port.
+vi.mock("../src/agents/checkout-worker.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../src/agents/checkout-worker.js")>();
+  const { lstat } = await import("node:fs/promises");
+  const { cleanupGitWorktree } = await import("../src/shared/git/worktree.js");
+  return {
+    ...actual,
+    workspaceWorkload: {
+      ...actual.workspaceWorkload,
+      async release(
+        _session: string,
+        checkout: { path: string },
+        request: { deleteBranch: boolean; originalBranch: string | null }
+      ) {
+        if (!(await lstat(checkout.path).catch(() => null))) return true;
+        await cleanupGitWorktree(
+          { cwd: checkout.path, force: true, ...request },
+          async () => ({ exitCode: 0, stdout: "", stderr: "" })
+        );
+        return true;
+      },
+    },
+  };
+});
+
 import { runLifecycleHook } from "../src/agents/lifecycle-hooks.js";
 import { cleanupGitWorktree } from "../src/shared/git/worktree.js";
 import { observeGitCheckout } from "../src/agents/checkout-inspection.js";
 import { createLocalRunner } from "../src/agents/local-runner.js";
+import { controllerPlacement } from "../src/runners/placement.js";
 
 const cleanCheckout = {
   path: "/tmp/wt",
@@ -80,6 +109,7 @@ const makeAgent = (
   type: "claude",
   role: "standard",
   status: "stopped",
+  placement: controllerPlacement,
   cwd: "/tmp",
   worktreePath: null,
   worktreeBranch: null,

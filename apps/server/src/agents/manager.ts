@@ -71,6 +71,7 @@ import {
   type ArchiveDeps,
 } from "./archive.js";
 import {
+  archiveRunner,
   observeArchiveCheckout,
   releaseRemoteCheckout,
   type ArchiveCheckoutAgent,
@@ -4426,7 +4427,8 @@ export class AgentManager {
         this.pool,
         agent,
         this.localRunner,
-        this.remote
+        this.remote,
+        this.localRunnerChild
       );
     } catch {
       throw new AgentError(
@@ -4507,10 +4509,11 @@ export class AgentManager {
       const { rows } = await this.pool.query<
         ArchiveCheckoutAgent & {
           mode: WorktreeCleanupMode | null;
+          runner_id: string;
         }
       >(
         `SELECT id, cwd, worktree_path AS "worktreePath", base_branch AS "baseBranch",
-                worktree_branch AS "worktreeBranch", archive_cleanup_mode AS mode
+                worktree_branch AS "worktreeBranch", archive_cleanup_mode AS mode, runner_id
          FROM agents WHERE runner_cleanup_pending AND deleted_at IS NOT NULL ORDER BY id`
       );
       for (const agent of rows) {
@@ -4538,7 +4541,11 @@ export class AgentManager {
               agent,
               mode ?? "auto",
               undefined,
-              this.localRunnerChild()
+              archiveRunner(
+                this.localRunnerChild,
+                agent,
+                placementFromRow(agent)
+              )
             );
           }
           if (outcome.kind === "pending") continue;

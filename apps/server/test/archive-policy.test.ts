@@ -30,8 +30,12 @@ import { releaseRemoteCheckout } from "../src/agents/archive-checkout.js";
 import { workspaceWorkload } from "../src/agents/checkout-worker.js";
 import { observeGitCheckout } from "../src/agents/checkout-inspection.js";
 import { createLocalRunner } from "../src/agents/local-runner.js";
+import { controllerPlacement } from "../src/runners/placement.js";
 import type { RemoteRunnerService } from "../src/agents/remote/service.js";
 import type { AgentRecord, WorktreeCleanupMode } from "../src/agents/types.js";
+
+/** The local runner's removal port itself, before any test wraps it. */
+const port = workspaceWorkload.release.bind(workspaceWorkload);
 
 let fixture: string;
 let repo: string;
@@ -64,6 +68,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.restoreAllMocks();
   vi.unstubAllEnvs();
   rmSync(fixture, { recursive: true, force: true });
 });
@@ -97,6 +102,16 @@ type Result = {
   /** Persisted for the retry when pending. */
   rememberedState: string | null;
 };
+
+/** Main's observation of the row's worktree: its own, with Git's state. */
+async function observeRow(): Promise<CheckoutObservation> {
+  return {
+    ownership: "owned",
+    owner: "agent-fixture",
+    borrowers: [],
+    checkout: await observeGitCheckout(checkout).catch(() => null),
+  };
+}
 
 function shape(state: State) {
   if (state === "dirty") writeFileSync(path.join(checkout, "draft.txt"), "x");
@@ -142,22 +157,14 @@ function harness(
       row.state === "changed" ? "1".repeat(64) : (null as string | null),
     cleanupMode: null as string | null,
   };
-  const release = async (operation: CheckoutRelease) => {
+  // The local runner's removal port, failing or racing as the row asks.
+  vi.spyOn(workspaceWorkload, "release").mockImplementation(async (...args) => {
     if (options.releaseError) throw new Error("release failed");
     if (row.state === "race")
       writeFileSync(path.join(checkout, "late.txt"), "late");
-    return local.checkoutRelease(
-      binding,
-      operation as Extract<CheckoutRelease, { kind: "release" }>
-    );
-  };
-  const localRunner = {
-    ...local,
-    checkoutRelease: ((b: typeof binding, operation: CheckoutRelease) =>
-      operation.kind === "observe"
-        ? local.checkoutRelease(b, operation)
-        : release(operation)) as typeof local.checkoutRelease,
-  };
+    return port(...args);
+  });
+  const localRunner = local;
   const pool = {
     query: async (sql: string, params: unknown[]) => {
       if (sql.includes("SET archive_checkout_state"))
@@ -179,9 +186,8 @@ function harness(
       if (options.offline) throw new Error("Runner is offline.");
       const { operation } = request;
       if (operation.kind === "observe") {
-        const observed = await local.checkoutRelease(binding, operation);
         const observation: CheckoutObservation = {
-          ...observed,
+          ...(await observeRow()),
           borrowers: row.borrowed ? ["borrower"] : [],
         };
         return { value: JSON.stringify(observation) };
@@ -190,11 +196,16 @@ function harness(
       if (options.releaseError) throw new Error("release failed");
       if (row.state === "race")
         writeFileSync(path.join(checkout, "late.txt"), "late");
-      const current = await local.checkoutRelease(binding, { kind: "observe" });
+      const current = await observeRow();
       if (current.checkout?.stateId !== operation.expectedState)
         return { value: "retained" };
       if (row.borrowed) return { value: "inUse" };
-      return { value: await local.checkoutRelease(binding, operation) };
+      await port(
+        "agent-fixture",
+        { path: checkout },
+        { deleteBranch: true, originalBranch: "feature" }
+      );
+      return { value: "released" };
     },
   } as unknown as RemoteRunnerService;
   const agent = {
@@ -204,6 +215,7 @@ function harness(
       worktreeBranch: null,
     }),
     cwd: row.placement === "runner" ? "runner://test/@session" : repo,
+    placement: controllerPlacement,
     runnerManaged: row.placement === "runner",
   } as unknown as AgentRecord;
   const deps = {
@@ -274,7 +286,7 @@ describe("archive checkout outcome table", () => {
       const identity = await workspaceWorkload.identity(checkout);
       const call = vi.fn(async (op, input) => {
         if (op === "workspace.describe") return { checkoutRoot: checkout };
-        if (op === "workspace.observe") return { ownership: "owned" };
+        if (op === "workspace.observe") return observeRow();
         expect(op).toBe("workspace.release");
         expect(input).toEqual({
           session: "agent-fixture",
@@ -298,11 +310,15 @@ describe("archive checkout outcome table", () => {
       const release =
         row.mode === "force" ||
         (row.mode === "auto" && !["dirty", "unmerged"].includes(row.state));
-      expect(call.mock.calls.map(([op]) => op)).toEqual(
-        release
+      expect(call.mock.calls.map(([op]) => op)).toEqual([
+        // Auto observes through the child: it holds the row's worktree.
+        ...(row.mode === "auto"
+          ? ["workspace.describe", "workspace.observe"]
+          : []),
+        ...(release
           ? ["workspace.describe", "workspace.observe", "workspace.release"]
-          : []
-      );
+          : []),
+      ]);
       if (release)
         expect(git(repo, "branch", "--list", "feature") === "").toBe(
           row.state !== "missing"
@@ -322,9 +338,11 @@ describe("archive checkout outcome table", () => {
       { child: { call } as unknown as Runner }
     );
     expect(result.removed).toBe(true);
-    expect(call).toHaveBeenCalledExactlyOnceWith("workspace.describe", {
-      session: "agent-fixture",
-    });
+    expect(call).toHaveBeenCalledExactlyOnceWith(
+      "workspace.describe",
+      { session: "agent-fixture" },
+      undefined
+    );
   });
 
   it("preserves another linked checkout swapped into the owned path", async () => {
@@ -412,9 +430,7 @@ describe("main's local automatic cleanup", () => {
     git(checkout, "switch", "pre-existing");
     const h = harness(auto);
     h.agent.baseBranch = "release";
-    const observation = await h.deps.localRunner.checkoutRelease(h.agent, {
-      kind: "observe",
-    });
+    const observation = await observeRow();
     expect(observation.checkout).toMatchObject({
       unmerged: true,
       uncommittedFiles: [],

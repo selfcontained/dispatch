@@ -7,7 +7,6 @@ import {
   resolveLaunchDirectory,
 } from "./workspace.js";
 import { resolveProjectRoot } from "../projects/resolve-root.js";
-import { localCheckoutRelease } from "./local-runner-checkout.js";
 import { inferRepositoryUrl } from "./remote/repository.js";
 
 /** Workspace and file helpers for workloads sharing the controller account. */
@@ -27,7 +26,6 @@ export function createLocalRunner(
   }
   const workspace = createWorkspacePreparation();
   return {
-    checkoutRelease: localCheckoutRelease,
     resolveLaunchDirectory,
     canonicalPath: (directory: string) => realpath(directory).catch(() => null),
     resolveProjectRoot,
