@@ -29,7 +29,6 @@ import {
   mapIncomingFrames,
   type HostMessage,
 } from "@dispatch/runner-client/v1/host";
-import { createHash } from "node:crypto";
 import path from "node:path";
 import type { Duplex } from "node:stream";
 import { childProcessEnv } from "../shared/process/child-environment.js";
@@ -42,7 +41,10 @@ import {
   readCommandGuard,
   sessionFilesWorkload,
 } from "../agents/checkout-worker.js";
-import { sessionFileBlob } from "../files/session-file-blob.js";
+import {
+  sessionFileBlob,
+  sessionFileBytesBlob,
+} from "../files/session-file-blob.js";
 import {
   agentDiffPath,
   agentWorkspaceDir,
@@ -508,13 +510,15 @@ export function createLocalCheckoutRunner(
         ),
       } as Res<K>;
     }
+    // One read, as main: the caller takes these bytes back by `blob`.
     const source = (input as Req<"files.get">).path;
     const bytes = await sessionFilesWorkload.get(source);
     return {
       name: path.basename(source),
       size: bytes.length,
-      digest: createHash("sha256").update(bytes).digest("hex"),
-      blob: bytes.toString("base64"),
+      // The transport's, from the bytes `blob` names, when it needs it.
+      digest: "",
+      blob: sessionFileBytesBlob(bytes),
     } as Res<K>;
   }
 

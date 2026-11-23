@@ -8,6 +8,7 @@ import {
 import type { Runner, SessionHandle } from "@dispatch/runner-protocol/contract";
 import { displayPath } from "@dispatch/runner-protocol/contract";
 import {
+  takeSessionFileBytes,
   withSessionFileBlob,
   type SessionFileBlob,
 } from "./session-file-blob.js";
@@ -157,5 +158,6 @@ export async function getSessionFile(
   path: string
 ): Promise<Buffer> {
   const { blob } = await runner.call("files.get", { session, path });
-  return Buffer.from(blob, "base64");
+  // Read in this process: the same bytes. Else base64 from the transport.
+  return takeSessionFileBytes(blob) ?? Buffer.from(blob, "base64");
 }

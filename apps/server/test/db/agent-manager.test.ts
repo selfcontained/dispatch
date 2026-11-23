@@ -314,6 +314,26 @@ describe("AgentManager", () => {
     }
   });
 
+  it("collects a local session file with one read and no copy, as main", async () => {
+    const agent = await manager.createAgent({
+      cwd: "/tmp",
+      useWorktree: false,
+    });
+    const file = path.join(testConfig.agentStateRoot, "collect-once.bin");
+    await writeFile(file, Buffer.from([0, 1, 2, 255]));
+    const read = vi.spyOn(sessionFilesWorkload, "get");
+    read.mockClear();
+    try {
+      const collected = await manager.collectSessionFile(agent, file);
+      expect(read).toHaveBeenCalledExactlyOnceWith(file);
+      // The very Buffer the read returned: never encoded and decoded.
+      expect(collected).toBe(await read.mock.results[0]!.value);
+    } finally {
+      read.mockRestore();
+      await rm(file, { force: true });
+    }
+  });
+
   it("delivers a registered native composer text file through the built-in runner", async () => {
     const agent = await manager.createAgent({
       cwd: "/tmp",

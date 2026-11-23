@@ -58,3 +58,23 @@ export function sessionFileBlob(blob: string): SessionFileBlob {
     });
   return file;
 }
+
+const BYTES_PREFIX = "dispatch-session-file-bytes:";
+const read = new Map<string, Buffer>();
+
+/**
+ * A `files.get` answer's `blob` for bytes read in this process: the caller
+ * takes the same `Buffer` back, with no encoding (design 1.3).
+ */
+export function sessionFileBytesBlob(bytes: Buffer): string {
+  const blob = BYTES_PREFIX + randomUUID();
+  read.set(blob, bytes);
+  return blob;
+}
+
+/** The bytes a `files.get` answer's `blob` names, once; else undefined. */
+export function takeSessionFileBytes(blob: string): Buffer | undefined {
+  const bytes = read.get(blob);
+  read.delete(blob);
+  return bytes;
+}
