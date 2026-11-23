@@ -1,4 +1,3 @@
-import { remotePlacement } from "@dispatch/runner-protocol";
 import { riskNotice } from "../agents/pull-request-risk-notice.js";
 import {
   parseVisualization,
@@ -5278,7 +5277,10 @@ export class StreamService {
     return out;
   }
 
-  /** Resolve input paths from registered attachments for the receiving session. */
+  /**
+   * The files a prompt hands to the receiving session, with the name each is
+   * put under there. Delivery leaves non-images out of the ACP prompt.
+   */
   private async promptFiles(
     attachments: ChatAttachment[],
     fallbackOwnerId: string,
@@ -5333,12 +5335,10 @@ export class StreamService {
             owner.filesDir,
             this.deps.filesRoot
           );
-          const filePath = remotePlacement(agent.cwd ?? "")
-            ? `$DISPATCH_FILES_DIR/${this.runnerInputName(attachment, owner, agent.id)}`
-            : path.join(filesDir, attachment.fileName);
           const mime = attachment.mimeType ?? "application/octet-stream";
+          // Delivery points this path at where the agent opens the file.
           lines.push(
-            `- file: ${filePath} (${mime}, ${formatAttachmentSize(attachment.sizeBytes)})${attachment.caption ? ` caption: ${JSON.stringify(attachment.caption)}` : ""}`
+            `- file: ${path.join(filesDir, attachment.fileName)} (${mime}, ${formatAttachmentSize(attachment.sizeBytes)})${attachment.caption ? ` caption: ${JSON.stringify(attachment.caption)}` : ""}`
           );
           break;
         }

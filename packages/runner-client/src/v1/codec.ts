@@ -619,14 +619,17 @@ export function decodeCommand(
     }
     case "sessionFile": {
       const o = command.operation;
+      // A streamed delivery's bytes follow the frame, which names them only.
+      if (o.kind === "deliver" && o.streamId !== undefined)
+        return { op: null, legacy: "sessionFile.stream", command };
       return withWorkspace(
         o.kind === "deliver"
           ? decoded("files.put", {
               session,
               name: o.name,
-              size: byteLength(o.data),
-              digest: sha256(o.data),
-              blob: o.data,
+              size: byteLength(o.data!),
+              digest: sha256(o.data!),
+              blob: o.data!,
             })
           : decoded("files.get", { session, path: o.path })
       );

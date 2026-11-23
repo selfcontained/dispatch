@@ -24,6 +24,7 @@ import {
   sessionCommandId,
   isOpaqueId,
   isSessionFileData,
+  isSessionFileName,
   MAX_SESSION_FILE_BYTES,
   isCheckoutReply,
   isSessionCheckout,
@@ -1680,9 +1681,30 @@ it("bounds legacy payloads and leaves collection path resolution to the OS", () 
   ).toBe(false);
   expect(isSessionFileData("a=a=")).toBe(false);
   expect(isSessionFileData("")).toBe(true);
+  // The caller's naming rules apply; the runner refuses only a non-component.
+  expect(isSessionFileName("résumé (1).pdf")).toBe(true);
+  for (const name of [".", "..", "a/b", "a\0b", "", "x".repeat(256)])
+    expect(isSessionFileName(name)).toBe(false);
+  const streamed = (operation: Record<string, unknown>) =>
+    parseServiceFrame({
+      type: "request",
+      id: "file/43",
+      command: {
+        workspace: "my/space",
+        agentId: "my/session",
+        kind: "sessionFile",
+        operation,
+      },
+    });
+  expect(
+    streamed({ kind: "deliver", name: "big.bin", streamId: "s", size: 1 << 30 })
+  ).not.toBeNull();
   for (const operation of [
     { kind: "deliver", name: "../file", data: "" },
     { kind: "deliver", name: "slash/file", data: "" },
+    { kind: "deliver", name: "big.bin", streamId: "s" },
+    { kind: "deliver", name: "big.bin", streamId: "s", size: -1 },
+    { kind: "deliver", name: "big.bin", streamId: "s", size: 1, data: "" },
     { kind: "collect", path: "path\0name" },
   ]) {
     expect(

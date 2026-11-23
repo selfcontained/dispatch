@@ -4,7 +4,7 @@
  * cancelled by a stop, re-held after a fence refusal, run once on release.
  * Agents on other runners and local agents are untouched.
  */
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -17,6 +17,7 @@ import {
   describe,
   expect,
   it,
+  onTestFinished,
   vi,
 } from "vitest";
 
@@ -140,6 +141,15 @@ const remote = {
   originFor: () => "https://example.test",
   supportsSessionFiles: () => true,
   requestSession,
+  // files.put goes through the same request seam, so refusals still apply.
+  putFile: async (placement: unknown, agentId: string, name: string) =>
+    (
+      await requestSession(placement, {
+        agentId,
+        kind: "sessionFile",
+        operation: { kind: "deliver", name },
+      } as never)
+    ).value,
 } as unknown as RemoteRunnerService;
 
 async function openHolds(boundMs?: number) {
@@ -471,6 +481,46 @@ describe("launches on a runner held for an update", () => {
     await holds.release("r1", ATTEMPT, "committed");
     await archive;
     expect(runtime.stop).toHaveBeenCalledWith(held.id, true);
+  });
+
+  it("names the runner path in prompt text and continues past a file it cannot put", async () => {
+    const holds = await openHolds();
+    const runtime = spyRuntime();
+    const manager = managerOn(holds, runtime);
+    const agent = await manager.createAgent({ cwd: HELD });
+    const notes = path.join(dir, "notes.txt");
+    const gone = path.join(dir, "gone.png");
+    await writeFile(notes, "hello");
+    await writeFile(gone, "png");
+    const put = vi
+      .spyOn(remote, "putFile")
+      .mockImplementation(async (_placement, _agentId, name) => {
+        if (name === "gone.png")
+          throw new Error("Session file is unavailable (ENOENT).");
+        return `/runner/files/${name}`;
+      });
+    onTestFinished(() => put.mockRestore());
+    const prepared = await manager["preparePromptFiles"](
+      agent.id,
+      [
+        {
+          path: notes,
+          mimeType: "text/plain",
+          runnerName: "notes.txt",
+        },
+        {
+          path: gone,
+          mimeType: "image/png",
+          runnerName: "gone.png",
+        },
+      ],
+      `- file: ${notes} (text/plain)\n- file: ${gone} (image/png)`
+    );
+    expect(prepared).toEqual({
+      images: [],
+      text: `- file: /runner/files/notes.txt (text/plain)\n- file: ${gone} (image/png)`,
+    });
+    expect(put).toHaveBeenCalledTimes(2);
   });
 
   it("waits out a fence that refuses a new host's files, then delivers them once", async () => {

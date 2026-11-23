@@ -164,6 +164,15 @@ const remote = {
       : undefined
   ),
   requestSession,
+  // files.put goes through the same request seam, so refusals still apply.
+  putFile: async (placement: unknown, agentId: string, name: string) =>
+    (
+      await requestSession(placement, {
+        agentId,
+        kind: "sessionFile",
+        operation: { kind: "deliver", name },
+      } as never)
+    ).value,
 } as unknown as RemoteRunnerService;
 
 /** Loaded; `start()` is the caller's, after the manager exists (as boot). */

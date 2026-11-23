@@ -247,7 +247,7 @@
   },
   {
     "lane": "local",
-    "scenario": "files.put/pending",
+    "scenario": "files.put/bytes",
     "task": "T12",
     "reason": "no local runner child yet"
   },
@@ -633,12 +633,6 @@
     "lane": "remote",
     "scenario": "checkout.watch/pending",
     "task": "T09",
-    "reason": "scenario not written yet"
-  },
-  {
-    "lane": "remote",
-    "scenario": "files.put/pending",
-    "task": "T12",
     "reason": "scenario not written yet"
   },
   {

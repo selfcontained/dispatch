@@ -288,10 +288,12 @@ function sourceBlockIds(source?: PromptSource): string[] {
 }
 
 export type AcpRuntimeDeps = {
+  /** Put the prompt's files; the text names the paths the agent opens. */
   preparePromptFiles?: (
     agentId: string,
-    images: PromptImage[]
-  ) => Promise<PromptImage[]>;
+    images: PromptImage[],
+    text: string
+  ) => Promise<{ images: PromptImage[]; text: string }>;
   remote?: Pick<RemoteRunnerService, "available" | "requestSession"> &
     Partial<
       Pick<RemoteRunnerService, "connectionEpoch" | "reconcilesLaunches">
@@ -630,7 +632,7 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
             : takeBatch(entry.queue.waiting);
         }
         for (const w of batch) w.taken = true;
-        const { text, source } = combine(batch);
+        const { text: combined, source } = combine(batch);
         const id = batch[0]!.continuationId ?? crypto.randomUUID();
         let ended = false;
         let accepted = false;
@@ -694,11 +696,14 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
             continue;
           }
           const inputs = batch.flatMap((item) => item.images ?? []);
-          const images = inputs.some((input) => input.runnerName !== undefined)
-            ? await deps.preparePromptFiles?.(agentId, inputs)
-            : inputs;
-          if (!images)
-            throw new Error("Runner prompt file delivery is unavailable.");
+          const prepared = inputs.some(
+            (input) => input.runnerName !== undefined
+          )
+            ? await deps.preparePromptFiles?.(agentId, inputs, combined)
+            : { images: inputs, text: combined };
+          if (!prepared)
+            throw new Error("Prompt file delivery is unavailable.");
+          const { images, text } = prepared;
           if (steering) {
             if (
               (gated || held(entry)) &&
@@ -1086,7 +1091,6 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
     const requiresPrompt =
       opts?.images?.some(
         (input) =>
-          entry.remote ||
           input.runnerName === undefined ||
           isPromptImageMimeType(input.mimeType)
       ) ?? false;
@@ -1115,8 +1119,8 @@ export function createAcpRuntime(deps: AcpRuntimeDeps): AgentRuntime {
         opts?.delivery === "interrupt" ||
         opts?.alone === true ||
         source?.source !== "chat",
-      // Remote inputs can require transfer, and native images need an ACP prompt.
-      // A native text attachment can still steer with its shared file path.
+      // Images need an ACP prompt. A text attachment can still steer: its
+      // file is put before the steer and the text names its path.
       delivery:
         opts?.delivery === "interrupt"
           ? "interrupt"

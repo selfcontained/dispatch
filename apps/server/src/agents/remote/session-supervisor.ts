@@ -44,6 +44,7 @@ import {
   type RunnerEngine,
 } from "@dispatch/runner-protocol";
 import { parseRepository, repositoryUrl } from "./repository.js";
+import { sizedName } from "./session-files.js";
 import {
   classifySessionIdentity,
   createSessionProcesses,
@@ -1215,7 +1216,7 @@ export async function createSessionSupervisor(
       workspace: string,
       operation: SessionFileOperation,
       transfer: (
-        kind: "deliver" | "collect" | "stream",
+        kind: "deliver" | "receive" | "collect" | "stream",
         root: string,
         name: string,
         data?: string
@@ -1231,7 +1232,14 @@ export async function createSessionSupervisor(
           throw new Error("Invalid or unbound session file operation.");
         const files = path.join(hostRoot, key, "files");
         if (operation.kind === "deliver") {
-          await transfer("deliver", files, operation.name, operation.data);
+          if (operation.streamId === undefined)
+            await transfer("deliver", files, operation.name, operation.data);
+          else
+            await transfer(
+              "receive",
+              files,
+              sizedName(operation.name, operation.size)
+            );
           return path.join(files, operation.name);
         }
         const kind = operation.streamId === undefined ? "collect" : "stream";

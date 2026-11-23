@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { constants } from "node:fs";
 import { open, rename, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { Transform, type Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 
 import {
@@ -17,7 +18,7 @@ export function sessionFileCommand(
   uid: number,
   gid: number,
   helper: string[],
-  kind: "deliver" | "collect" | "stream",
+  kind: "deliver" | "receive" | "collect" | "stream",
   root: string,
   name: string
 ) {
@@ -50,17 +51,26 @@ async function collectFile(source: string, legacy: boolean) {
   }
 }
 
-async function deliverSessionFile(root: string, name: string, data: string) {
-  if (!isSessionFileName(name) || !isSessionFileData(data))
+/** Write as the workload into the supervisor's directory, then rename into place. */
+async function deliverSessionFile(
+  root: string,
+  name: string,
+  data: string | Readable
+) {
+  if (
+    !isSessionFileName(name) ||
+    (typeof data === "string" && !isSessionFileData(data))
+  )
     throw new Error("Invalid session input file.");
   const dir = await openLinuxDirectory(root);
   const destination = `/proc/self/fd/${dir.fd}`;
   const temp = path.join(destination, `.incoming-${randomUUID()}`);
   try {
-    await writeFile(temp, Buffer.from(data, "base64"), {
-      flag: "wx",
-      mode: 0o600,
-    });
+    await writeFile(
+      temp,
+      typeof data === "string" ? Buffer.from(data, "base64") : data,
+      { flag: "wx", mode: 0o600 }
+    );
     await rename(temp, path.join(destination, name));
   } finally {
     try {
@@ -69,6 +79,19 @@ async function deliverSessionFile(root: string, name: string, data: string) {
       await dir.close();
     }
   }
+}
+
+/** `receive` passes `<size>:<name>` so the helper can verify the stream. */
+export function sizedName(name: string, size: number) {
+  return `${size}:${name}`;
+}
+
+function splitSizedName(value: string): [string, number] {
+  const colon = value.indexOf(":");
+  const size = Number(value.slice(0, colon));
+  if (colon < 1 || !Number.isSafeInteger(size) || size < 0)
+    throw new Error("Invalid session input file.");
+  return [value.slice(colon + 1), size];
 }
 
 /** The supervisor supplies the root, and this process runs as the workload UID. */
@@ -81,6 +104,32 @@ export async function runSessionFileCli(
     if (kind === "collect" || kind === "stream") {
       // Do not normalize: the kernel resolves symlinks and .. components.
       await collectFile(root ? `${root}/${name}` : name, kind === "collect");
+      return;
+    }
+    if (kind === "receive") {
+      // Streamed bytes: the caller's flow control bounds memory, not a size
+      // cap. A short or long stream (a cancelled transfer) is discarded.
+      const [file, expected] = splitSizedName(name);
+      let received = 0;
+      const counted = process.stdin.pipe(
+        new Transform({
+          transform(chunk: Buffer, _encoding, callback) {
+            received += chunk.length;
+            if (received > expected)
+              callback(new Error("Session file is longer than announced."));
+            else callback(null, chunk);
+          },
+          flush(callback) {
+            callback(
+              received === expected
+                ? null
+                : new Error("Session file transfer ended early.")
+            );
+          },
+        })
+      );
+      process.stdin.once("error", (error) => counted.destroy(error));
+      await deliverSessionFile(root, file, counted);
       return;
     }
     let data = "";

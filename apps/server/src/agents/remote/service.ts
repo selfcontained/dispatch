@@ -18,6 +18,8 @@ import { Writable } from "node:stream";
 import { createServer, type Server, type TLSSocket } from "node:tls";
 import {
   receiveFile,
+  sendFile,
+  type FileSource,
   RunnerConnection,
   RunnerUnavailable,
 } from "../../runners/enrolled/v1-framing.js";
@@ -195,6 +197,7 @@ type Peer = {
   connection: RunnerConnection;
   streams?: FlowStreams;
   filesGetStream: boolean;
+  filesPutStream: boolean;
   /** The raw frame sender for this connection. */
   send: (frame: ServiceFrame) => void;
   epoch: number;
@@ -1016,6 +1019,7 @@ export class RemoteRunnerService {
           checkoutRelease: ready.checkoutRelease === true,
           sessionFiles: ready.sessionFiles === true,
           filesGetStream: ready.filesGetStream === true,
+          filesPutStream: ready.filesPutStream === true,
           defaultBranchFiles: ready.defaultBranchFiles === true,
           checkoutMetadata: ready.checkoutMetadata === true,
           checkoutCommands: ready.checkoutCommands === true,
@@ -1759,6 +1763,31 @@ export class RemoteRunnerService {
     );
   }
 
+  /** `files.put`: the file's path in the session's files area on the runner. */
+  async putFile(
+    placement: Placement,
+    agentId: string,
+    name: string,
+    source: FileSource
+  ) {
+    const peer = this.workspacePeer(placement);
+    const value = await sendFile(
+      {
+        agentId,
+        workspace: placement.workspace,
+        kind: "sessionFile",
+      },
+      name,
+      source,
+      (command, signal) =>
+        this.request(placement, command, false, undefined, signal, peer),
+      peer?.filesPutStream ? peer.streams : undefined
+    );
+    if (typeof value !== "string" || !value.startsWith("/"))
+      throw new Error("Invalid runner input file location.");
+    return value;
+  }
+
   requestSession(
     placement: Placement,
     operation: SessionOperation,
@@ -2423,8 +2452,7 @@ export class RemoteRunnerService {
       );
     if (
       command.kind === "sessionFile" &&
-      (command.operation.kind !== "collect" ||
-        command.operation.streamId === undefined)
+      command.operation.streamId === undefined
     ) {
       // A single file can occupy most of the transport's write buffer.
       const transfer = (peer.sessionFileTail ?? Promise.resolve())

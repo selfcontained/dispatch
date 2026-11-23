@@ -5,8 +5,21 @@ export const MAX_SESSION_FILE_BYTES = 20 * 1024 * 1024;
 export const MAX_SESSION_FILE_BASE64 =
   Math.ceil(MAX_SESSION_FILE_BYTES / 3) * 4;
 
+/**
+ * `deliver` carries its bytes inline (`data`, the v1 frame and its limit) or,
+ * when the peer advertises `filesPutStream`, on the flow-controlled stream
+ * `streamId`, with no size limit.
+ */
 export type SessionFileOperation =
-  | { kind: "deliver"; name: string; data: string }
+  | { kind: "deliver"; name: string; data: string; streamId?: undefined }
+  | {
+      kind: "deliver";
+      name: string;
+      streamId: string;
+      /** The byte count the stream must deliver; anything else is discarded. */
+      size: number;
+      data?: undefined;
+    }
   | { kind: "collect"; path: string; streamId?: string };
 
 export function isSessionFileData(value: unknown): value is string {
@@ -23,15 +36,20 @@ export function isSessionFileData(value: unknown): value is string {
   );
 }
 
+/** One path component: the caller's naming rules apply, not the runner's. */
 export function isSessionFileName(value: unknown): value is string {
   return (
     typeof value === "string" &&
     value.length > 0 &&
-    value.length <= 255 &&
+    new TextEncoder().encode(value).length <= 255 &&
     value !== "." &&
     value !== ".." &&
-    !/[^A-Za-z0-9 ._()-]/u.test(value)
+    !/[/\0]/u.test(value)
   );
+}
+
+function isStreamId(value: unknown): value is string {
+  return typeof value === "string" && value.length > 0 && value.length <= 256;
 }
 
 export function isSessionFilePath(value: unknown): value is string {
@@ -50,16 +68,21 @@ export function isSessionFileOperation(
   if (!isRecord(value)) return false;
   switch (value.kind) {
     case "deliver":
-      return isSessionFileName(value.name) && isSessionFileData(value.data);
+      return (
+        isSessionFileName(value.name) &&
+        (value.streamId === undefined
+          ? isSessionFileData(value.data)
+          : value.data === undefined &&
+            isStreamId(value.streamId) &&
+            Number.isSafeInteger(value.size) &&
+            (value.size as number) >= 0)
+      );
     case "collect":
       return (
         typeof value.path === "string" &&
         value.path.length > 0 &&
         !value.path.includes("\0") &&
-        (value.streamId === undefined ||
-          (typeof value.streamId === "string" &&
-            value.streamId.length > 0 &&
-            value.streamId.length <= 256))
+        (value.streamId === undefined || isStreamId(value.streamId))
       );
     default:
       return false;

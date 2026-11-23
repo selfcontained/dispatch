@@ -207,7 +207,7 @@
     "kind": "R1 placement read",
     "detail": "entry.remote",
     "task": "T07",
-    "count": 8
+    "count": 7
   },
   {
     "file": "apps/server/src/agents/acp/runtime.ts",
@@ -270,13 +270,6 @@
     "kind": "R2 host import",
     "detail": "apps/server/src/agents/local-runner",
     "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/agents/acp/runtime.ts",
-    "kind": "R7 restriction",
-    "detail": "N20 Runner attachments require a new prompt",
-    "task": "T12",
     "count": 1
   },
   {
@@ -1180,7 +1173,7 @@
     "kind": "R1 placement call",
     "detail": "remotePlacement(agent.cwd)",
     "task": "T07",
-    "count": 13
+    "count": 11
   },
   {
     "file": "apps/server/src/agents/manager.ts",
@@ -1285,13 +1278,6 @@
     "kind": "R2 host import",
     "detail": "apps/server/src/shared/github/pr",
     "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/agents/manager.ts",
-    "kind": "R7 restriction",
-    "detail": "N21 Missing runner attachment fails prompt",
-    "task": "T12",
     "count": 1
   },
   {
@@ -1978,13 +1964,6 @@
     "kind": "R2 host access",
     "detail": "fs/promises",
     "task": "T04",
-    "count": 1
-  },
-  {
-    "file": "apps/server/src/chat/service.ts",
-    "kind": "R1 placement call",
-    "detail": "remotePlacement(agent.cwd ?? \"\")",
-    "task": "T07",
     "count": 1
   },
   {
@@ -3581,13 +3560,6 @@
     "kind": "R5 protocol leak",
     "detail": "personaContext",
     "task": "T24",
-    "count": 1
-  },
-  {
-    "file": "packages/runner-protocol/src/session-files.ts",
-    "kind": "R7 restriction",
-    "detail": "N11 Delivery filename and path rules",
-    "task": "T12",
     "count": 1
   }
 ]

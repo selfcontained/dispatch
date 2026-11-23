@@ -8,6 +8,7 @@ import { createHash } from "node:crypto";
  */
 import {
   RunnerCallError,
+  displayPath,
   operationNames,
   sessionFromWire,
   type ErrorCode,
@@ -111,6 +112,31 @@ const written: Scenario[] = [
         file.blob === Buffer.from(contents).toString("base64"),
         "Wrong file bytes."
       );
+    },
+  },
+  {
+    id: "files.put/bytes",
+    op: "files.put",
+    async run({ runner, session }) {
+      const contents = "put contents ✓\n";
+      const blob = Buffer.from(contents).toString("base64");
+      const name = "put (1).txt";
+      const { path } = await runner.call("files.put", {
+        session,
+        name,
+        size: Buffer.byteLength(contents),
+        digest: createHash("sha256").update(contents).digest("hex"),
+        blob,
+      });
+      expect(
+        displayPath(path).endsWith(`/${name}`),
+        `files.put returned ${displayPath(path)}.`
+      );
+      const file = await runner.call("files.get", {
+        session,
+        path: displayPath(path),
+      });
+      expect(file.blob === blob, "files.get read other bytes at the path.");
     },
   },
   {
