@@ -4,12 +4,13 @@ export type ProjectRecord = {
   id: string;
   name: string;
   repoRoot: string | null;
+  extraRoots: string[];
   color: string;
   iconOverride: string | null;
   createdAt: string;
   updatedAt: string;
 };
-const columns = `id, name, repo_root AS "repoRoot", color, icon_override AS "iconOverride", created_at AS "createdAt", updated_at AS "updatedAt"`;
+const columns = `id, name, repo_root AS "repoRoot", extra_roots AS "extraRoots", color, icon_override AS "iconOverride", created_at AS "createdAt", updated_at AS "updatedAt"`;
 export class ProjectStore {
   constructor(private readonly pool: Pool) {}
   async list(): Promise<ProjectRecord[]> {
@@ -19,7 +20,7 @@ export class ProjectStore {
   }
   async listRoots() {
     const result = await this.pool.query<
-      Pick<ProjectRecord, "id" | "name" | "repoRoot"> & { extraRoots: string[] }
+      Pick<ProjectRecord, "id" | "name" | "repoRoot" | "extraRoots">
     >(
       'SELECT id, name, repo_root AS "repoRoot", extra_roots AS "extraRoots" FROM projects ORDER BY name, id'
     );

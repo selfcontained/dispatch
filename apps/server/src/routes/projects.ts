@@ -84,6 +84,15 @@ export async function registerProjectRoutes(
   };
   app.get("/api/v1/projects", () => store.list());
   app.get<{ Params: { id: string } }>(
+    "/api/v1/projects/:id",
+    async (request, reply) => {
+      return (
+        (await store.get(request.params.id)) ??
+        reply.code(404).send({ error: "Project not found." })
+      );
+    }
+  );
+  app.get<{ Params: { id: string } }>(
     "/api/v1/projects/:id/repository",
     async (request, reply) => {
       return (

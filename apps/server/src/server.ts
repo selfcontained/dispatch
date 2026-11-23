@@ -1536,11 +1536,8 @@ export async function initializeApp(options?: {
     app.log.warn("SKIP_MIGRATIONS=1 — skipping database migrations");
   } else {
     await runMigrations();
-    void backfillProjectRepositories(
-      pool,
-      (error) =>
-        app.log.warn({ err: error }, "Project repository backfill failed"),
-      () => uiEventBroker.publish({ type: "project.changed" })
+    void backfillProjectRepositories(pool, app.log, () =>
+      uiEventBroker.publish({ type: "project.changed" })
     );
   }
   config.authToken = await getOrCreateAuthToken(pool);

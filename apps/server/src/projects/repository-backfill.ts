@@ -1,7 +1,14 @@
+import type { FastifyBaseLogger } from "fastify";
 import type { Pool, PoolClient } from "pg";
 import { inferProjectRepository } from "../agents/remote/repository.js";
 
 type Candidate = { id: string; repo_root: string };
+type Project = {
+  id: string;
+  name: string;
+  repo_root: string | null;
+  repository: string | null;
+};
 
 async function mergeProjects(db: PoolClient, loser: string, winner: string) {
   const ids = [loser, winner];
@@ -14,12 +21,12 @@ async function mergeProjects(db: PoolClient, loser: string, winner: string) {
       ids
     );
   }
-  await db.query(
+  const columnsDropped = await db.query(
     `DELETE FROM task_columns c USING task_columns kept
      WHERE c.project_id = $1 AND kept.project_id = $2 AND c.key = kept.key`,
     ids
   );
-  await db.query(
+  const columnsAppended = await db.query(
     `WITH appended AS (
        SELECT id, row_number() OVER (ORDER BY position, id) AS relative_position
        FROM task_columns WHERE project_id = $1
@@ -46,7 +53,7 @@ async function mergeProjects(db: PoolClient, loser: string, winner: string) {
      AND lower(old.name) = lower(kept.name)`,
     ids
   );
-  await db.query(
+  const labels = await db.query(
     "UPDATE task_labels SET project_id = $2 WHERE project_id = $1",
     ids
   );
@@ -66,16 +73,23 @@ async function mergeProjects(db: PoolClient, loser: string, winner: string) {
      WHERE old.project_id = $1 AND kept.project_id = $2 AND old.agent_id = kept.agent_id`,
     ids
   );
-  await db.query(
+  const watches = await db.query(
     "UPDATE task_board_watches SET project_id = $2 WHERE project_id = $1",
     ids
   );
 
-  for (const table of ["agents", "templates", "tasks", "message_shares"]) {
-    await db.query(
+  const moved = { agents: 0, templates: 0, tasks: 0 };
+  for (const table of [
+    "agents",
+    "templates",
+    "tasks",
+    "message_shares",
+  ] as const) {
+    const { rowCount } = await db.query(
       `UPDATE ${table} SET project_id = $2 WHERE project_id = $1`,
       ids
     );
+    if (table !== "message_shares") moved[table] = rowCount ?? 0;
   }
   // Saved runner targets also carry the project ID in their encoded location.
   for (const table of ["templates", "jobs", "job_runs"]) {
@@ -93,6 +107,13 @@ async function mergeProjects(db: PoolClient, loser: string, winner: string) {
     ids
   );
   await db.query("DELETE FROM projects WHERE id = $1", [loser]);
+  return {
+    ...moved,
+    columnsAppended: columnsAppended.rowCount ?? 0,
+    columnsDropped: columnsDropped.rowCount ?? 0,
+    labels: labels.rowCount ?? 0,
+    watches: watches.rowCount ?? 0,
+  };
 }
 
 async function recordRepository(
@@ -109,24 +130,27 @@ async function recordRepository(
     // Serialize the repository lookup with project inserts and other backfills.
     // Row locks also prevent new foreign-key references to a project being merged.
     await db.query("LOCK TABLE projects IN SHARE ROW EXCLUSIVE MODE");
-    const { rows } = await db.query<{ id: string }>(
-      `SELECT id FROM projects
+    const { rows } = await db.query<Project>(
+      `SELECT id, name, repo_root, repository FROM projects
        WHERE (id = $1 AND repo_root = $2 AND repository IS NULL) OR repository = $3
        ORDER BY created_at, id FOR UPDATE`,
       [candidate.id, candidate.repo_root, repository]
     );
     if (!rows.some(({ id }) => id === candidate.id)) {
       await db.query("COMMIT");
-      return false;
+      return null;
     }
     const [winner, loser] = rows;
-    if (loser) await mergeProjects(db, loser.id, winner!.id);
+    const counts = loser ? await mergeProjects(db, loser.id, winner!.id) : null;
     await db.query("UPDATE projects SET repository = $2 WHERE id = $1", [
       winner!.id,
       repository,
     ]);
     await db.query("COMMIT");
-    return Boolean(loser);
+    return {
+      winner: winner!,
+      merge: loser && counts ? { loser, counts } : null,
+    };
   } catch (error) {
     await db.query("ROLLBACK");
     throw error;
@@ -138,7 +162,7 @@ async function recordRepository(
 /** Each unresolved folder gets one bounded Git config read per server start. */
 export async function backfillProjectRepositories(
   pool: Pool,
-  logError: (error: unknown) => void,
+  log: Pick<FastifyBaseLogger, "info" | "warn">,
   onMerge: () => void = () => {}
 ) {
   try {
@@ -149,13 +173,31 @@ export async function backfillProjectRepositories(
     for (const project of rows) {
       try {
         const repository = await inferProjectRepository(project.repo_root);
-        if (repository && (await recordRepository(pool, project, repository)))
+        if (!repository) continue;
+        const result = await recordRepository(pool, project, repository);
+        if (!result) continue;
+        const { winner, merge } = result;
+        const target = { id: winner.id, name: winner.name };
+        if (winner.repository === null)
+          log.info({ repository, project: target }, "Project repository set");
+        if (merge) {
+          const { loser, counts } = merge;
+          log.info(
+            {
+              repository,
+              from: { id: loser.id, name: loser.name, folder: loser.repo_root },
+              into: target,
+              counts,
+            },
+            "Project merged"
+          );
           onMerge();
+        }
       } catch (error) {
-        logError(error);
+        log.warn({ err: error }, "Project repository backfill failed");
       }
     }
   } catch (error) {
-    logError(error);
+    log.warn({ err: error }, "Project repository backfill failed");
   }
 }

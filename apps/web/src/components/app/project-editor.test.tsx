@@ -75,6 +75,7 @@ it("offers logo colors on an existing project and keeps the saved color until a 
     id: "existing",
     name: "Existing project",
     repoRoot: "/example",
+    extraRoots: [],
     color: "#74b85c",
     iconOverride: null,
     createdAt: "",

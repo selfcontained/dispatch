@@ -104,6 +104,19 @@ async function legacyProject(
   );
 }
 
+async function projectApp(pool: Pool) {
+  const app = Fastify();
+  await registerProjectRoutes(app, {
+    pool,
+    publishUiEvent: vi.fn(),
+    taskService: {
+      taskIdsForProject: vi.fn(),
+      cleanupProjectAttachments: vi.fn(),
+    },
+  });
+  return app;
+}
+
 it.each([52, 65])(
   "upgrades schema after %i migrations and accepts main's inserts",
   async (count) => {
@@ -138,17 +151,9 @@ it.each([52, 65])(
 
 it("creates from a folder or a repository alone, refuses duplicates, and reads the stored origin", async () => {
   const pool = await setupTestDb();
-  const app = Fastify();
+  const app = await projectApp(pool);
   try {
     await migrate(pool);
-    await registerProjectRoutes(app, {
-      pool,
-      publishUiEvent: vi.fn(),
-      taskService: {
-        taskIdsForProject: vi.fn(),
-        cleanupProjectAttachments: vi.fn(),
-      },
-    });
     const create = (target: { repoRoot?: string; repository?: string }) =>
       app.inject({
         method: "POST",
@@ -199,6 +204,7 @@ it("creates from a folder or a repository alone, refuses duplicates, and reads t
 
 it("merges into the oldest project and preserves non-colliding project data", async () => {
   const pool = await setupTestDb();
+  const app = await projectApp(pool);
   try {
     await migrate(pool);
     const old = await checkout();
@@ -243,9 +249,9 @@ it("merges into the oldest project and preserves non-colliding project data", as
       INSERT INTO task_board_watches (project_id, agent_id)
       VALUES ('old', 'a'), ('new', 'a'), ('new', 'b'), ('other', 'a');
     `);
-    const errors = vi.fn();
-    await backfillProjectRepositories(pool, errors);
-    expect(errors).not.toHaveBeenCalled();
+    const log = { info: vi.fn(), warn: vi.fn() };
+    await backfillProjectRepositories(pool, log);
+    expect(log.warn).not.toHaveBeenCalled();
     // An unresolved older checkout is retried after it comes online.
     expect(await new ProjectStore(pool).getRepository("old")).toEqual({
       url: null,
@@ -255,10 +261,54 @@ it("merges into the oldest project and preserves non-colliding project data", as
       "config",
       "--local",
       "remote.origin.url",
-      "git@example.com:owner/repo.git"
+      "https://user:password@example.com/owner/repo.git"
     );
-    await backfillProjectRepositories(pool, errors);
-    expect(errors).not.toHaveBeenCalled();
+    await backfillProjectRepositories(pool, log);
+    expect(log.warn).not.toHaveBeenCalled();
+    expect(log.info.mock.calls).toEqual([
+      [
+        {
+          repository: "https://example.com/other/repo",
+          project: { id: "other", name: "other" },
+        },
+        "Project repository set",
+      ],
+      [
+        { repository, project: { id: "old", name: "old" } },
+        "Project repository set",
+      ],
+      [
+        {
+          repository,
+          from: { id: "new", name: "new", folder: newer },
+          into: { id: "old", name: "old" },
+          counts: {
+            agents: 2,
+            templates: 1,
+            tasks: 2,
+            columnsAppended: 1,
+            columnsDropped: 1,
+            labels: 1,
+            watches: 1,
+          },
+        },
+        "Project merged",
+      ],
+    ]);
+    const list = await app.inject("/api/v1/projects");
+    expect(list.statusCode).toBe(200);
+    expect(list.json()).toEqual([
+      expect.objectContaining({ id: "old", extraRoots: [newer] }),
+      expect.objectContaining({ id: "other", extraRoots: [] }),
+    ]);
+    for (const [id, extraRoots] of [
+      ["old", [newer]],
+      ["other", []],
+    ] as const) {
+      const response = await app.inject(`/api/v1/projects/${id}`);
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toMatchObject({ id, extraRoots });
+    }
     const rows = async (sql: string) => (await pool.query(sql)).rows;
     const projects = await rows(
       "SELECT id, name, color, icon_override, repository, extra_roots FROM projects ORDER BY id"
@@ -361,6 +411,7 @@ it("merges into the oldest project and preserves non-colliding project data", as
       { id: 4, project_id: "other", agent_id: "a" },
     ]);
   } finally {
+    await app.close();
     await teardownTestDb();
   }
 });
