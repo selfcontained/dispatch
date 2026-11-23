@@ -40,6 +40,29 @@ export function repositoryUrl(input: string, fromOrigin = false): string {
   return url.href;
 }
 
+/** A project identifies the repository independently of the clone URL spelling. */
+export function projectRepositoryUrl(
+  input: string,
+  fromOrigin = false
+): string {
+  const url = new URL(repositoryUrl(input, fromOrigin));
+  url.pathname = url.pathname
+    .replace(/\/+$/, "")
+    .replace(/\.git$/, "")
+    .replace(/\/+$/, "");
+  return url.href;
+}
+
+export async function inferProjectRepository(
+  cwd: string
+): Promise<string | null> {
+  try {
+    return projectRepositoryUrl(await inferRepositoryUrl(cwd));
+  } catch {
+    return null;
+  }
+}
+
 export function parseRepository(input: unknown): RepositoryInput {
   if (!input || typeof input !== "object" || !("checkout" in input))
     throw new Error("A runner repository requires a checkout.");

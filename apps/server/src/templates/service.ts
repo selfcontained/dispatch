@@ -98,7 +98,7 @@ export class TemplateService {
     if (input.projectId) {
       const project = await this.projects.get(input.projectId);
       if (!project) throw new Error("Project not found.");
-      projectRoot = project.repoRoot;
+      projectRoot = project.repoRoot ?? undefined;
     }
     const target = resolveSavedTarget(input.directory, {
       ...input,
@@ -191,7 +191,7 @@ export class TemplateService {
     if (projectId) {
       const project = await this.projects.get(projectId);
       if (!project) throw new Error("Project not found.");
-      projectRoot = project.repoRoot;
+      projectRoot = project.repoRoot ?? undefined;
     }
     const target = resolveSavedTarget(input.directory || existing.directory, {
       ...input,

@@ -680,7 +680,7 @@ export class JobService {
     if (input.projectId) {
       const project = await new ProjectStore(this.pool).get(input.projectId);
       if (!project) throw new Error("Project not found.");
-      projectRoot = project.repoRoot;
+      projectRoot = project.repoRoot ?? undefined;
     }
     const target = resolveSavedTarget(input.directory, {
       ...input,
@@ -810,7 +810,7 @@ export class JobService {
     if (projectId) {
       const project = await new ProjectStore(this.pool).get(projectId);
       if (!project) throw new Error("Project not found.");
-      projectDirectory = project.repoRoot;
+      projectDirectory = project.repoRoot ?? undefined;
     }
     if (input.projectId !== undefined && !existing.templateId)
       throw new Error("Job has no backing template.");

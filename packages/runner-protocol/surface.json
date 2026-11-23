@@ -1450,6 +1450,11 @@
                     "optional": {
                       "nullable": "string"
                     }
+                  },
+                  "origin": {
+                    "optional": {
+                      "nullable": "string"
+                    }
                   }
                 }
               }
@@ -1545,6 +1550,11 @@
                     "worktreeName": "string",
                     "isWorktree": "boolean",
                     "repoIconPath": {
+                      "optional": {
+                        "nullable": "string"
+                      }
+                    },
+                    "origin": {
                       "optional": {
                         "nullable": "string"
                       }
@@ -1646,6 +1656,11 @@
                     "optional": {
                       "nullable": "string"
                     }
+                  },
+                  "origin": {
+                    "optional": {
+                      "nullable": "string"
+                    }
                   }
                 }
               }
@@ -1732,6 +1747,11 @@
                   "worktreeName": "string",
                   "isWorktree": "boolean",
                   "repoIconPath": {
+                    "optional": {
+                      "nullable": "string"
+                    }
+                  },
+                  "origin": {
                     "optional": {
                       "nullable": "string"
                     }
@@ -1865,6 +1885,11 @@
                 "worktreeName": "string",
                 "isWorktree": "boolean",
                 "repoIconPath": {
+                  "optional": {
+                    "nullable": "string"
+                  }
+                },
+                "origin": {
                   "optional": {
                     "nullable": "string"
                   }
@@ -2816,6 +2841,11 @@
             "worktreeName": "string",
             "isWorktree": "boolean",
             "repoIconPath": {
+              "optional": {
+                "nullable": "string"
+              }
+            },
+            "origin": {
               "optional": {
                 "nullable": "string"
               }

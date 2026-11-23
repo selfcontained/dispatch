@@ -5,7 +5,10 @@ import path from "node:path";
 import type { FastifyInstance } from "fastify";
 import type { Pool } from "pg";
 import * as z from "zod/v4";
-import { inferRepositoryUrl } from "../agents/remote/repository.js";
+import {
+  inferProjectRepository,
+  projectRepositoryUrl,
+} from "../agents/remote/repository.js";
 import { ProjectStore } from "../projects/store.js";
 import { parseInput } from "../shared/lib/parse-input.js";
 import { resolveTilde } from "../shared/lib/resolve-tilde.js";
@@ -28,7 +31,8 @@ const appearance = z.object({
 export { resolveProjectRoot } from "../projects/resolve-root.js";
 import { resolveProjectRoot } from "../projects/resolve-root.js";
 
-async function readRepositoryIcon(repoRoot: string) {
+async function readRepositoryIcon(repoRoot: string | null) {
+  if (!repoRoot) return null;
   try {
     const root = await realpath(resolveTilde(repoRoot));
     const icon = await detectRepoIcon(root);
@@ -67,7 +71,7 @@ export async function registerProjectRoutes(
   const store = new ProjectStore(pool);
   const snapshotRepositoryIcon = async (project: {
     id: string;
-    repoRoot: string;
+    repoRoot: string | null;
     iconOverride: string | null;
   }) => {
     if (project.iconOverride) return;
@@ -82,12 +86,10 @@ export async function registerProjectRoutes(
   app.get<{ Params: { id: string } }>(
     "/api/v1/projects/:id/repository",
     async (request, reply) => {
-      const project = await store.get(request.params.id);
-      if (!project)
-        return reply.code(404).send({ error: "Project not found." });
-      return {
-        url: await inferRepositoryUrl(project.repoRoot).catch(() => null),
-      };
+      return (
+        (await store.getRepository(request.params.id)) ??
+        reply.code(404).send({ error: "Project not found." })
+      );
     }
   );
   app.get<{ Querystring: { repoRoot?: string; projectId?: string } }>(
@@ -128,25 +130,50 @@ export async function registerProjectRoutes(
     }
   );
   app.post("/api/v1/projects", async (request, reply) => {
+    const byRepository =
+      request.body != null &&
+      typeof request.body === "object" &&
+      "repository" in request.body;
     const input = parseInput(
-      appearance.extend({ repoRoot: z.string().min(1) }),
+      byRepository
+        ? appearance.extend({
+            repoRoot: z.undefined(),
+            repository: z.string().trim().min(1),
+          })
+        : appearance.extend({
+            repoRoot: z.string().min(1),
+            repository: z.undefined(),
+          }),
       request.body,
       reply
     );
     if (!input) return;
     try {
-      const repoRoot = await resolveProjectRoot(input.repoRoot);
-      const result = await store.create({ ...input, repoRoot });
+      const repoRoot = input.repoRoot
+        ? await resolveProjectRoot(input.repoRoot)
+        : null;
+      const repository =
+        input.repository !== undefined
+          ? projectRepositoryUrl(input.repository)
+          : repoRoot && (await inferProjectRepository(repoRoot));
+      const result = await store.create({ ...input, repoRoot, repository });
       await snapshotRepositoryIcon(result);
       publishUiEvent({ type: "project.changed" });
       return result;
     } catch (error) {
-      const code = (error as { code?: string }).code;
+      const { code, constraint } = error as {
+        code?: string;
+        constraint?: string;
+      };
       return reply.code(code === "23505" ? 409 : 400).send({
         error:
           code === "23505"
-            ? "This folder already has a project."
-            : "Choose an existing folder.",
+            ? constraint === "projects_repository_key"
+              ? "This repository already has a project."
+              : "This folder already has a project."
+            : input.repository !== undefined
+              ? "Choose a valid HTTPS repository URL."
+              : "Choose an existing folder.",
       });
     }
   });

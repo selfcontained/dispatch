@@ -669,7 +669,7 @@ export class TaskService {
       await resolvePersona(
         personaScopeFor({
           cwd: savedLaunchTarget(template).cwd,
-          projectRoot: project?.repoRoot,
+          projectRoot: project?.repoRoot ?? undefined,
         }),
         template.persona,
         "task"
@@ -2006,12 +2006,15 @@ export class TaskService {
   }): Promise<string | null> {
     if (agent.projectId) return agent.projectId;
     const paths = agent.paths.filter((p): p is string => !!p);
-    let best: ProjectRecord | null = null;
-    for (const project of await this.projects.list()) {
-      const root = project.repoRoot.replace(/\/+$/, "");
-      const holds = paths.some((p) => p === root || p.startsWith(`${root}/`));
-      if (holds && (!best || root.length > best.repoRoot.length))
-        best = project;
+    let best: { id: string; length: number } | null = null;
+    for (const project of await this.projects.listRoots()) {
+      for (const candidate of [project.repoRoot, ...project.extraRoots]) {
+        if (candidate === null) continue;
+        const root = candidate.replace(/\/+$/, "");
+        const holds = paths.some((p) => p === root || p.startsWith(`${root}/`));
+        if (holds && (!best || root.length > best.length))
+          best = { id: project.id, length: candidate.length };
+      }
     }
     return best?.id ?? null;
   }

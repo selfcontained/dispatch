@@ -160,7 +160,7 @@ export async function registerPersonaRoutes(
       const { personas, warnings, refreshing, updatedAt } = await listPersonas(
         personaScopeFor({
           cwd,
-          projectRoot: project?.repoRoot,
+          projectRoot: project?.repoRoot ?? undefined,
           source: type === "task" ? "catalog" : "workspace",
         }),
         type

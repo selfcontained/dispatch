@@ -2051,6 +2051,22 @@ export class RemoteRunnerService {
     }
   }
 
+  async listRepositoryBranches(
+    runnerId: string,
+    target: { repository: string }
+  ) {
+    // The v1 transport only implements github.branches. The T16 transport
+    // supplies git.branches for arbitrary repository targets.
+    const github = /^https:\/\/github\.com\/([\w.-]+)\/([\w.-]+)$/.exec(
+      target.repository
+    );
+    if (!github)
+      throw new RunnerCapabilityUnavailable(
+        "git.branches is unavailable on this runner."
+      );
+    return this.listGitHubBranches(runnerId, github[1]!, github[2]!);
+  }
+
   async listGitHubBranches(runnerId: string, owner: string, repo: string) {
     const response = await this.requestGitHub(runnerId, {
       type: "repositoryBranches",

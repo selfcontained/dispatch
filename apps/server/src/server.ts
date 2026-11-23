@@ -142,6 +142,7 @@ import {
   RunnerUpdateHolds,
 } from "./agents/remote/update-hold.js";
 import { registerMcpRoutes } from "./routes/mcp.js";
+import { backfillProjectRepositories } from "./projects/repository-backfill.js";
 import { ProjectStore } from "./projects/store.js";
 import { registerPersonaRoutes } from "./routes/personas.js";
 import { registerPersonalityRoutes } from "./routes/personalities.js";
@@ -1235,8 +1236,7 @@ async function registerRoutes() {
   await registerSystemRoutes(app, {
     localEngines,
     engineUpdates,
-    runnerWorkspaceAvailable: (placement) =>
-      remoteRunner?.available(placement) ?? false,
+    runnerBranches: remoteRunner?.listRepositoryBranches.bind(remoteRunner),
     publishModelsChanged: (agentType) =>
       uiEventBroker.publish({ type: "agent_models.changed", agentType }),
     slackAnswers,
@@ -1534,6 +1534,12 @@ export async function initializeApp(options?: {
     app.log.warn("SKIP_MIGRATIONS=1 — skipping database migrations");
   } else {
     await runMigrations();
+    void backfillProjectRepositories(
+      pool,
+      (error) =>
+        app.log.warn({ err: error }, "Project repository backfill failed"),
+      () => uiEventBroker.publish({ type: "project.changed" })
+    );
   }
   config.authToken = await getOrCreateAuthToken(pool);
   // Enrolled runners reconnect before agents are restored and reconciled.
