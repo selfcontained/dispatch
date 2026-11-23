@@ -171,7 +171,7 @@ for (const lane of ["native", "runner", "managed"] as const) {
       if (remote)
         await session
           .getByTestId("sidebar-shell")
-          .getByRole("button", { name: "Close sidebar", exact: true })
+          .getByRole("button", { name: "Close", exact: true })
           .click();
 
       let panel = await openTerminal(session);
