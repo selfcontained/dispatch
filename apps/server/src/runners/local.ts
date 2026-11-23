@@ -22,6 +22,7 @@ import {
   selfCommand,
   superviseRunner,
   type LaunchedRunner,
+  type LauncherBinding,
 } from "@dispatch/runner-client/launcher";
 import { LocalRunnerSession } from "@dispatch/runner-client/session";
 import { childProcessEnv } from "../shared/process/child-environment.js";
@@ -121,6 +122,7 @@ export type LocalRunnerProcess = LocalRunnerFence & {
 };
 
 const FENCE_ANSWER_MS = 10_000;
+const IMPORT_ANSWER_MS = 60_000;
 const READ_MS = 5_000;
 
 /** The child as the fence sees it: the launcher's handle. */
@@ -212,8 +214,39 @@ export function startLocalRunnerProcess(options: {
   log: LocalRunnerLog;
   /** Start frozen (an update's probation): writes are refused until `thaw`. */
   frozen?: boolean;
+  /**
+   * Bindings for sessions older builds started, read fresh each time. Sent
+   * to every child that comes up thawed and again after `thaw`; the child
+   * keeps any binding it already holds, so repeating is safe.
+   */
+  bindings?: () => Promise<LauncherBinding[]>;
 }): LocalRunnerProcess {
   const { log } = options;
+  const importBindings = async (child: LaunchedRunner) => {
+    if (!options.bindings) return;
+    try {
+      const answer = await child.importBindings(
+        await options.bindings(),
+        IMPORT_ANSWER_MS
+      );
+      if (answer.error || answer.invalid)
+        log.warn(
+          { pid: child.pid, ...answer },
+          "Local runner did not store every binding"
+        );
+      else if (!answer.frozen)
+        log.info(
+          {
+            pid: child.pid,
+            added: answer.added,
+            kept: answer.kept,
+          },
+          "Local runner bindings imported"
+        );
+    } catch (err) {
+      log.warn({ pid: child.pid, err }, "Local runner binding import failed");
+    }
+  };
   const runnerId = runnerIdToWire(LOCAL_RUNNER_ID);
   const runner = new LocalRunnerSession({
     description: {
@@ -259,6 +292,8 @@ export function startLocalRunnerProcess(options: {
         const { pid, ready } = state.runner;
         log.info({ pid }, "Local runner ready");
         runner.setEndpoint({ socket: ready.socket, nonce: ready.nonce });
+        // A frozen child stores nothing; `thaw` sends the import instead.
+        if (!ready.frozen) void importBindings(state.runner);
         // A start-up self-check over the socket; nothing else uses it yet.
         const signal = AbortSignal.timeout(10_000);
         void Promise.all([
@@ -299,7 +334,12 @@ export function startLocalRunnerProcess(options: {
     runner,
     activity: fence.activity,
     freeze: fence.freeze,
-    thaw: fence.thaw,
+    async thaw() {
+      await fence.thaw();
+      const child =
+        supervisor.state.state === "ready" ? supervisor.state.runner : null;
+      if (child) void importBindings(child);
+    },
     frozenSessions: fence.frozenSessions,
     async stop(graceMs = 3_000) {
       runner.close();

@@ -1,5 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import { parseServiceFrame } from "@dispatch/runner-protocol";
+import { operations } from "@dispatch/runner-protocol/contract";
 import {
   launchRunner,
   launcherSurface,
@@ -14,7 +16,7 @@ describe("launcher channel (E8)", () => {
     expect(launcherSurface()).toEqual(committed);
   });
 
-  it("has exactly start/ready, freeze/thaw with their fence answer, import and the EOF lifeline", () => {
+  it("has exactly start/ready, freeze/thaw with their fence answer, import with its imported answer and the EOF lifeline", () => {
     const surface = launcherSurface();
     expect(Object.keys(surface.toRunner).sort()).toEqual([
       "freeze",
@@ -22,7 +24,11 @@ describe("launcher channel (E8)", () => {
       "start",
       "thaw",
     ]);
-    expect(Object.keys(surface.fromRunner).sort()).toEqual(["fence", "ready"]);
+    expect(Object.keys(surface.fromRunner).sort()).toEqual([
+      "fence",
+      "imported",
+      "ready",
+    ]);
     expect(surface.lifeline).toBe("eof");
   });
 
@@ -38,5 +44,28 @@ describe("launcher channel (E8)", () => {
     }).catch((e: unknown) => e);
     expect(error).toBeInstanceOf(LauncherError);
     expect((error as LauncherError).reason).toBe("exited");
+  });
+});
+
+describe("binding import is launcher-only", () => {
+  const bindings = [
+    { session: "s", path: "/tmp/x", currentPath: null, worktree: null },
+  ];
+
+  it("no operation of the wire contract imports, adopts or binds a path", () => {
+    expect(
+      Object.keys(operations).filter((name) => /import|adopt|bind/i.test(name))
+    ).toEqual([]);
+  });
+
+  it("the TLS/v1 service frame refuses an import command", () => {
+    for (const kind of ["import", "launcher.import", "adopt"])
+      expect(
+        parseServiceFrame({
+          type: "request",
+          id: "r",
+          command: { workspace: "w", agentId: "s", kind, bindings },
+        })
+      ).toBeNull();
   });
 });

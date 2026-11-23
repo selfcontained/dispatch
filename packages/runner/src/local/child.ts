@@ -13,11 +13,13 @@ import {
   launcherExit,
   launcherStart,
   type LauncherFence,
+  type LauncherImported,
   type LauncherReady,
   type LauncherRefusal,
   type LauncherStart,
 } from "@dispatch/runner-client/launcher";
 import { jsonLines } from "@dispatch/runner-client/transport/local-socket";
+import { BindingStore } from "./bindings.js";
 import { WriteFence } from "./fence.js";
 import { healthSampler } from "./health.js";
 import {
@@ -40,6 +42,23 @@ const UNKNOWN_HOLDER_MS = 8_000;
 const START_TIMEOUT_MS = 10_000;
 /** macOS limits a socket path to 104 bytes, including the terminator. */
 const SOCKET_PATH_MAX = 103;
+
+/** An `import` with its sequence number, bindings not yet checked. */
+function importMessage(
+  message: unknown
+): { seq: number; bindings: unknown[] } | null {
+  if (typeof message !== "object" || message === null) return null;
+  const { type, seq, bindings } = message as Record<string, unknown>;
+  return type === "import" &&
+    typeof seq === "number" &&
+    Number.isSafeInteger(seq) &&
+    Array.isArray(bindings)
+    ? { seq, bindings }
+    : null;
+}
+
+/** Fence admission name for the launcher's `import`; never a socket operation. */
+const IMPORT_ADMISSION = "launcher.import";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -92,11 +111,45 @@ export async function runLocalRunner(
 
   // Created from `start`, before the socket serves anything.
   let fence: WriteFence | undefined;
+  let store: BindingStore | undefined;
+  let markServing!: () => void;
+  const serving = new Promise<void>((resolve) => (markServing = resolve));
   // Fence commands apply in order: a `thaw` never overtakes a `freeze`
   // still waiting for earlier writes to finish.
   let fencing = Promise.resolve();
   const answerFence = (seq: number) => {
     const answer: LauncherFence = { type: "fence", seq, frozen: fence!.frozen };
+    process.stdout.write(JSON.stringify(answer) + "\n");
+  };
+  const importBindings = async ({
+    seq,
+    bindings,
+  }: {
+    seq: number;
+    bindings: unknown[];
+  }) => {
+    // Nothing is written before the state lock is held.
+    await serving;
+    const answer: LauncherImported = {
+      type: "imported",
+      seq,
+      added: 0,
+      kept: 0,
+      invalid: 0,
+      frozen: true,
+    };
+    const release = fence!.enter(IMPORT_ADMISSION);
+    if (release) {
+      answer.frozen = false;
+      try {
+        Object.assign(answer, await store!.import(bindings));
+      } catch (error) {
+        answer.error = error instanceof Error ? error.message : String(error);
+        log(`Binding import failed: ${answer.error}`);
+      } finally {
+        release();
+      }
+    }
     process.stdout.write(JSON.stringify(answer) + "\n");
   };
   const started = new Promise<LauncherStart>((resolve) => {
@@ -106,7 +159,17 @@ export async function runLocalRunner(
           refuse("invalid", "The first launcher message must be start");
         start = message;
         fence = new WriteFence(message.frozen === true);
+        store = new BindingStore(message.roots.state);
         return resolve(message);
+      }
+      // `import`, in the same order as the fence. It is answered even when
+      // some bindings are malformed: the store counts and skips those. A
+      // frozen runner writes no binding and says so; the parent sends it
+      // again after `thaw`.
+      const importing = importMessage(message);
+      if (importing) {
+        fencing = fencing.then(() => importBindings(importing));
+        return;
       }
       if (!launcherCommand.check(message))
         return log("Ignored an unknown launcher message");
@@ -117,9 +180,7 @@ export async function runLocalRunner(
           else fence!.thaw();
           answerFence(seq);
         });
-        return;
       }
-      // `import` is accepted and not yet acted on until bindings (L4).
     });
   });
   const timer = setTimeout(
@@ -188,6 +249,7 @@ export async function runLocalRunner(
     frozen: fence!.frozen,
   };
   process.stdout.write(JSON.stringify(ready) + "\n");
+  markServing();
 }
 
 /**
