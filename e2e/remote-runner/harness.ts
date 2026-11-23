@@ -98,6 +98,19 @@ export async function repositoryProject(
   source?: string,
   defaultBranch = "main"
 ) {
+  // Real runner installs provide gh for the Git credential helper. Keep this
+  // standalone spec independent of github-account.spec.ts installing its fake.
+  if (!guestOk(name, "command -v gh >/dev/null")) {
+    docker(
+      "cp",
+      resolve("e2e/remote-runner/fixture-gh.sh"),
+      state.runners[name].container + ":/usr/bin/gh"
+    );
+    guest(
+      name,
+      `chmod 755 /usr/bin/gh; echo '${name}' > /etc/field-runner-name`
+    );
+  }
   const id = randomUUID();
   const root = "/tmp/runner-repositories";
   if (!guestOk(name, `test -f ${root}/cert`)) {
