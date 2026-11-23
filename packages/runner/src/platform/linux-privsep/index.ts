@@ -203,6 +203,10 @@ export async function createRemoteWorkspacePreparation(
   );
   return {
     legacy: (session: string) => bindings.legacy(session),
+    /** The supervisor changed the session's binding files: record them now. */
+    async bindingWritten(session: string) {
+      await bindings.get(session);
+    },
     async hasReceipt(session: string) {
       return (
         (await fs.read(

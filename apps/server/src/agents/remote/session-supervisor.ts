@@ -230,6 +230,12 @@ type SupervisorOptions = {
     agentId: string
   ) => Promise<Res<"workspace.resume">>;
   removePreparedCheckout?: (session: string) => Promise<boolean>;
+  /**
+   * The runner core's binding store, told after this supervisor changed a
+   * session's binding files, so it records them. Absent where the runner
+   * keeps no core store (configured workspaces).
+   */
+  bindingWritten?: (agentId: string) => Promise<void>;
   /** False while the update fence holds process admission closed. */
   mayStartProcess?: () => boolean;
 };
@@ -397,6 +403,18 @@ export async function createSessionSupervisor(
       await syncBindings();
     } finally {
       await rm(temp, { force: true });
+    }
+  }
+
+  /**
+   * After a session's binding files changed: the core's store records them.
+   * Never fails the caller; the store's next read reconciles the files.
+   */
+  async function recordBinding(agentId: string) {
+    try {
+      await config.bindingWritten?.(agentId);
+    } catch {
+      // The files are today's record until T40; the store catches up on read.
     }
   }
 
@@ -848,6 +866,7 @@ export async function createSessionSupervisor(
     ])
       await rm(file, { force: true });
     await syncBindings();
+    await recordBinding(agentId);
     return "released";
   }
 
@@ -935,8 +954,10 @@ export async function createSessionSupervisor(
         throw new Error("The author checkout has been archived.");
       cwd = await managedDirectory(owner);
     }
-    if (binding === null)
+    if (binding === null) {
       await writePrivateState(path.join(bindings, key), bindingValue);
+      await recordBinding(agentId);
+    }
     const identity = await readIdentity(key);
     if (identity && core.isAlive(identity)) {
       const live = classifySessionIdentity(identity);
@@ -986,8 +1007,10 @@ export async function createSessionSupervisor(
         throw new Error(
           "This runner session is bound to a different checkout."
         );
-      if (stored === null)
+      if (stored === null) {
         await writePrivateState(repositoryFile(key), encoded);
+        await recordBinding(agentId);
+      }
       const session = path.join(sessions, key);
       const entry = await lstat(session).catch(missingPath);
       if (entry) await checkedDirectory(session);
@@ -1050,6 +1073,7 @@ export async function createSessionSupervisor(
         await asWorkload("test", ["-d", cwd]);
       await checkedDirectory(cwd);
       await writePrivateState(cwdFile(key), cwd);
+      await recordBinding(agentId);
     }
     cwd = await selectedDirectory(
       key,
@@ -1333,6 +1357,7 @@ export async function createSessionSupervisor(
               borrowedFile(key),
               await selectedDirectory(author, workspace, initial)
             );
+            await recordBinding(command.agentId);
           }
           return launch(
             command,
@@ -1368,6 +1393,7 @@ export async function createSessionSupervisor(
             borrowedFile(key),
             await selectedDirectory(author, workspace, initial)
           );
+          await recordBinding(command.agentId);
         }
         return launch(command, cwd, key, owner, progress);
       });
@@ -1471,6 +1497,7 @@ export async function createSessionSupervisor(
         ])
           await rm(file, { force: true });
         await syncBindings();
+        await recordBinding(agentId);
         return true;
       });
     },
@@ -1573,6 +1600,7 @@ export async function createSessionSupervisor(
         }
         const result = await describeCheckout(dir, initial);
         await writePrivateState(selectedFile(key), result.moved ? dir : "");
+        await recordBinding(agentId);
         return result;
       });
     },
@@ -1723,6 +1751,7 @@ export async function createSessionSupervisor(
         await core.removeLaunch(key);
         await rm(path.join(bindings, key), { force: true });
         if (managed) await syncBindings();
+        await recordBinding(agentId);
       });
     },
     async log(agentId: string, workspace: string) {
